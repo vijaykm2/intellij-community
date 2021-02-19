@@ -1,40 +1,29 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.git4idea.ssh;
 
 import com.intellij.ide.XmlRpcServer;
-import com.intellij.openapi.util.io.FileUtilRt;
-import gnu.trove.THashMap;
-import org.apache.commons.codec.DecoderException;
-import org.apache.xmlrpc.XmlRpcClientLite;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
+import git4idea.config.GitExecutable;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import org.jetbrains.git4idea.GitExternalApp;
 import org.jetbrains.git4idea.util.ScriptGenerator;
 import org.jetbrains.ide.BuiltInServerManager;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * <p>The provider of external application scripts called by Git when a remote operation needs communication with the user.</p>
  * <p>
  *   Usage:
  *   <ol>
- *     <li>Get the script from {@link #getScriptPath()}.</li>
+ *     <li>Get the script from {@link #getScriptPath(GitExecutable, boolean)}.</li>
  *     <li>Set up proper environment variable
  *         (e.g. {@code GIT_SSH} for SSH connections, or {@code GIT_ASKPASS} for HTTP) pointing to the script.</li>
  *     <li>{@link #registerHandler(Object) Register} the handler of Git requests.</li>
@@ -42,21 +31,21 @@ import java.io.IOException;
  *     <li>If the operation requires user interaction, the registered handler is called via XML RPC protocol.
  *         It can show a dialog in the GUI and return the answer via XML RPC to the external application, that further provides
  *         this value to the Git process.</li>
- *     <li>{@link #unregisterHandler(int) Unregister} the handler after operation has completed.</li>
+ *     <li>{@link #unregisterHandler(UUID)} Unregister} the handler after operation has completed.</li>
  *   </ol>
  * </p>
  */
-public abstract class GitXmlRpcHandlerService<T> {
+public abstract class GitXmlRpcHandlerService<T> implements Disposable {
+  private static final Logger LOG = Logger.getInstance(GitXmlRpcHandlerService.class);
 
-  @NotNull private final String myScriptTempFilePrefix;
-  @NotNull private final String myHandlerName;
+  @NotNull private final @NonNls String myScriptTempFilePrefix;
+  @NotNull private final @NonNls String myHandlerName;
   @NotNull private final Class<? extends GitExternalApp> myScriptMainClass;
 
-  @Nullable private File myScriptPath;
+  @NotNull private final Map<@NonNls String, File> myScriptPaths = new HashMap<>();
   @NotNull private final Object SCRIPT_FILE_LOCK = new Object();
 
-  @NotNull private final THashMap<Integer, T> handlers = new THashMap<Integer, T>();
-  private int myNextHandlerKey;
+  @NotNull private final Map<UUID, T> handlers = new HashMap<>();
   @NotNull private final Object HANDLERS_LOCK = new Object();
 
   /**
@@ -64,7 +53,9 @@ public abstract class GitXmlRpcHandlerService<T> {
    * @param aClass      Main class of the external application invoked by Git,
    *                    which is able to handle its requests and pass to the main IDEA instance.
    */
-  protected GitXmlRpcHandlerService(@NotNull String prefix, @NotNull String handlerName, @NotNull Class<? extends GitExternalApp> aClass) {
+  protected GitXmlRpcHandlerService(@NotNull @NonNls String prefix,
+                                    @NotNull @NonNls String handlerName,
+                                    @NotNull Class<? extends GitExternalApp> aClass) {
     myScriptTempFilePrefix = prefix;
     myHandlerName = handlerName;
     myScriptMainClass = aClass;
@@ -84,47 +75,50 @@ public abstract class GitXmlRpcHandlerService<T> {
    * @throws IOException if script cannot be generated
    */
   @NotNull
-  public File getScriptPath() throws IOException {
-    ScriptGenerator generator = new ScriptGenerator(myScriptTempFilePrefix, myScriptMainClass);
-    generator.addClasses(XmlRpcClientLite.class, DecoderException.class, FileUtilRt.class);
-    customizeScriptGenerator(generator);
-
+  public File getScriptPath(@NotNull GitExecutable executable, boolean useBatchFile) throws IOException {
     synchronized (SCRIPT_FILE_LOCK) {
-      if (myScriptPath == null || !myScriptPath.exists()) {
-        myScriptPath = generator.generate();
+      String id = executable.getId() + (useBatchFile ? "-bat" : ""); //NON-NLS
+      File scriptPath = myScriptPaths.get(id);
+      if (scriptPath == null || !scriptPath.exists()) {
+        ScriptGenerator generator = new ScriptGenerator(myScriptTempFilePrefix + "-" + executable.getId(), myScriptMainClass);
+        scriptPath = generator.generate(executable, useBatchFile);
+        myScriptPaths.put(id, scriptPath);
       }
-      return myScriptPath;
+      return scriptPath;
     }
   }
 
   /**
-   * Adds more classes or resources to the script if needed.
-   */
-  protected abstract void customizeScriptGenerator(@NotNull ScriptGenerator generator);
-
-  /**
-   * Register handler. Note that handlers must be unregistered using {@link #unregisterHandler(int)}.
+   * Register handler. Note that handlers must be unregistered using {@link #unregisterHandler(UUID)}.
    *
    * @param handler a handler to register
    * @return an identifier to pass to the environment variable
    */
-  public int registerHandler(@NotNull T handler) {
+  @NotNull
+  public UUID registerHandler(@NotNull T handler) {
     synchronized (HANDLERS_LOCK) {
       XmlRpcServer xmlRpcServer = XmlRpcServer.SERVICE.getInstance();
       if (!xmlRpcServer.hasHandler(myHandlerName)) {
         xmlRpcServer.addHandler(myHandlerName, createRpcRequestHandlerDelegate());
       }
 
-      int key = myNextHandlerKey;
+      final UUID key = UUID.randomUUID();
       handlers.put(key, handler);
-      myNextHandlerKey++;
       return key;
+    }
+  }
+
+  @Override
+  public void dispose() {
+    XmlRpcServer xmlRpcServer = ApplicationManager.getApplication().getServiceIfCreated(XmlRpcServer.class);
+    if (xmlRpcServer != null) {
+      xmlRpcServer.removeHandler(myHandlerName);
     }
   }
 
   /**
    * Creates an implementation of the xml rpc handler, which methods will be called from the external application.
-   * This method should just delegate the call to the specific handler of type {@link T}, which can be achieved by {@link #getHandler(int)}.
+   * This method should just delegate the call to the specific handler of type {@link T}, which can be achieved by {@link #getHandler(UUID)}.
    * @return New instance of the xml rpc handler delegate.
    */
   @NotNull
@@ -137,7 +131,7 @@ public abstract class GitXmlRpcHandlerService<T> {
    * @return the registered handler
    */
   @NotNull
-  protected T getHandler(int key) {
+  protected T getHandler(UUID key) {
     synchronized (HANDLERS_LOCK) {
       T rc = handlers.get(key);
       if (rc == null) {
@@ -152,10 +146,10 @@ public abstract class GitXmlRpcHandlerService<T> {
    *
    * @param key the key to unregister
    */
-  public void unregisterHandler(int key) {
+  public void unregisterHandler(UUID key) {
     synchronized (HANDLERS_LOCK) {
       if (handlers.remove(key) == null) {
-        throw new IllegalArgumentException("The handler " + key + " is not registered");
+        LOG.error("The handler " + key + " is not registered");
       }
     }
   }

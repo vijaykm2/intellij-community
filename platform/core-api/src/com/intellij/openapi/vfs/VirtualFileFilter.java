@@ -15,15 +15,19 @@
  */
 package com.intellij.openapi.vfs;
 
+import org.jetbrains.annotations.NotNull;
+
+@FunctionalInterface
 public interface VirtualFileFilter {
-  boolean accept(VirtualFile file);
+  boolean accept(@NotNull VirtualFile file);
 
   VirtualFileFilter ALL = new VirtualFileFilter() {
     @Override
-    public boolean accept(VirtualFile file) {
+    public boolean accept(@NotNull VirtualFile file) {
       return true;
     }
 
+    @Override
     public String toString() {
       return "ALL";
     }
@@ -31,12 +35,18 @@ public interface VirtualFileFilter {
 
   VirtualFileFilter NONE = new VirtualFileFilter() {
     @Override
-    public boolean accept(VirtualFile file) {
+    public boolean accept(@NotNull VirtualFile file) {
       return false;
     }
 
+    @Override
     public String toString() {
       return "NONE";
     }
   };
+
+  @NotNull
+  default VirtualFileFilter and(@NotNull VirtualFileFilter other) {
+    return file -> accept(file) && other.accept(file);
+  }
 }

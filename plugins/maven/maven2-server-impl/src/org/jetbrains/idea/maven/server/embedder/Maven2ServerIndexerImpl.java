@@ -1,26 +1,9 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.server.embedder;
 
-import com.intellij.openapi.progress.ProcessCanceledException;
-import com.intellij.openapi.util.ShutDownTracker;
-import com.intellij.openapi.util.text.StringUtil;
-import gnu.trove.THashSet;
 import gnu.trove.TIntObjectHashMap;
 import org.apache.lucene.document.Document;
+import org.apache.lucene.document.Field;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.Query;
@@ -35,11 +18,13 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.model.MavenArchetype;
 import org.jetbrains.idea.maven.model.MavenArtifactInfo;
-import org.jetbrains.idea.maven.model.MavenId;
 import org.jetbrains.idea.maven.server.*;
+import org.jetbrains.idea.maven.server.security.MavenToken;
 import org.sonatype.nexus.index.*;
 import org.sonatype.nexus.index.context.IndexUtils;
 import org.sonatype.nexus.index.context.IndexingContext;
+import org.sonatype.nexus.index.creator.JarFileContentsIndexCreator;
+import org.sonatype.nexus.index.creator.MinimalArtifactInfoIndexCreator;
 import org.sonatype.nexus.index.updater.IndexUpdateRequest;
 import org.sonatype.nexus.index.updater.IndexUpdater;
 
@@ -50,8 +35,8 @@ import java.lang.reflect.Method;
 import java.rmi.RemoteException;
 import java.util.*;
 
-public class Maven2ServerIndexerImpl extends MavenRemoteObject implements MavenServerIndexer {
-  private Maven2ServerEmbedderImpl myEmbedder;
+public final class Maven2ServerIndexerImpl extends MavenRemoteObject implements MavenServerIndexer {
+  private final Maven2ServerEmbedderImpl myEmbedder;
   private final NexusIndexer myIndexer;
   private final IndexUpdater myUpdater;
   private final ArtifactContextProducer myArtifactContextProducer;
@@ -65,19 +50,21 @@ public class Maven2ServerIndexerImpl extends MavenRemoteObject implements MavenS
     myUpdater = myEmbedder.getComponent(IndexUpdater.class);
     myArtifactContextProducer = myEmbedder.getComponent(ArtifactContextProducer.class);
 
-    ShutDownTracker.getInstance().registerShutdownTask(new Runnable() {
+    MavenServerUtil.registerShutdownTask(new Runnable() {
       @Override
       public void run() {
-        release();
+        release(MavenServerUtil.getToken());
       }
     });
   }
 
+  @Override
   public int createIndex(@NotNull String indexId,
                          @NotNull String repositoryId,
                          @Nullable File file,
                          @Nullable String url,
-                         @NotNull File indexDir) throws MavenServerIndexerException {
+                         @NotNull File indexDir, MavenToken token) throws MavenServerIndexerException {
+    MavenServerUtil.checkToken(token);
     try {
       IndexingContext context = myIndexer.addIndexingContextForced(indexId,
                                                                    repositoryId,
@@ -85,7 +72,8 @@ public class Maven2ServerIndexerImpl extends MavenRemoteObject implements MavenS
                                                                    indexDir,
                                                                    url,
                                                                    null, // repo update url
-                                                                   NexusIndexer.FULL_INDEX);
+                                                                   Arrays.asList(new TinyArtifactInfoIndexCreator(),
+                                                                                 new JarFileContentsIndexCreator()));
       int id = System.identityHashCode(context);
       myIndices.put(id, context);
       return id;
@@ -95,7 +83,9 @@ public class Maven2ServerIndexerImpl extends MavenRemoteObject implements MavenS
     }
   }
 
-  public void releaseIndex(int id) throws MavenServerIndexerException {
+  @Override
+  public void releaseIndex(int id, MavenToken token) throws MavenServerIndexerException {
+    MavenServerUtil.checkToken(token);
     try {
       myIndexer.removeIndexingContext(getIndex(id), false);
     }
@@ -112,7 +102,8 @@ public class Maven2ServerIndexerImpl extends MavenRemoteObject implements MavenS
   }
 
   @Override
-  public boolean indexExists(File dir) throws RemoteException {
+  public boolean indexExists(File dir, MavenToken token) throws RemoteException {
+    MavenServerUtil.checkToken(token);
     try {
       return IndexReader.indexExists(dir);
     }
@@ -122,23 +113,27 @@ public class Maven2ServerIndexerImpl extends MavenRemoteObject implements MavenS
     return false;
   }
 
-  private String getRepositoryPathOrUrl(IndexingContext index) {
+  private static String getRepositoryPathOrUrl(IndexingContext index) {
     File file = index.getRepository();
     return file == null ? index.getRepositoryUrl() : file.getPath();
   }
 
-  private boolean isLocal(IndexingContext index) {
+  private static boolean isLocal(IndexingContext index) {
     return index.getRepository() != null;
   }
 
-  public int getIndexCount() {
+  @Override
+  public int getIndexCount(MavenToken token) {
+    MavenServerUtil.checkToken(token);
     return myIndexer.getIndexingContexts().size();
   }
 
-  public void updateIndex(int id, MavenServerSettings settings, MavenServerProgressIndicator indicator) throws
+  @Override
+  public void updateIndex(int id, MavenServerSettings settings, MavenServerProgressIndicator indicator, MavenToken token) throws
                                                                                                         MavenServerIndexerException,
                                                                                                         MavenServerProcessCanceledException,
                                                                                                         RemoteException {
+    MavenServerUtil.checkToken(token);
     IndexingContext index = getIndex(id);
 
     try {
@@ -188,14 +183,14 @@ public class Maven2ServerIndexerImpl extends MavenRemoteObject implements MavenS
           myUpdater.fetchAndUpdateIndex(request);
         }
         finally {
-          embedder.release();
+          embedder.release(token);
         }
       }
     }
     catch (RuntimeRemoteException e) {
       throw e.getCause();
     }
-    catch (ProcessCanceledException e) {
+    catch (MavenProcessCanceledRuntimeException e) {
       throw new MavenServerProcessCanceledException();
     }
     catch (Exception e) {
@@ -203,27 +198,32 @@ public class Maven2ServerIndexerImpl extends MavenRemoteObject implements MavenS
     }
   }
 
-  public void processArtifacts(int indexId, MavenServerIndicesProcessor processor) throws MavenServerIndexerException {
+  @Override
+  public void processArtifacts(int indexId, MavenServerIndicesProcessor processor, MavenToken token) throws MavenServerIndexerException {
+    MavenServerUtil.checkToken(token);
     try {
       final int CHUNK_SIZE = 10000;
 
       IndexReader r = getIndex(indexId).getIndexReader();
       int total = r.numDocs();
 
-      List<MavenId> result = new ArrayList<MavenId>(Math.min(CHUNK_SIZE, total));
+      List<IndexedMavenId> result = new ArrayList<IndexedMavenId>(Math.min(CHUNK_SIZE, total));
       for (int i = 0; i < total; i++) {
         if (r.isDeleted(i)) continue;
 
         Document doc = r.document(i);
-        String uinfo = doc.get(SEARCH_TERM_COORDINATES);
+        String uinfo = doc.get(ArtifactInfo.UINFO);
         if (uinfo == null) continue;
-        List<String> parts = StringUtil.split(uinfo, "|");
-        String groupId = parts.get(0);
-        String artifactId = parts.get(1);
-        String version = parts.get(2);
-        if (groupId == null || artifactId == null || version == null) continue;
+        String[] uInfoParts = uinfo.split("\\|");
+        if (uInfoParts.length < 3) continue;
+        String groupId = uInfoParts[0];
+        String artifactId = uInfoParts[1];
+        String version = uInfoParts[2];
 
-        result.add(new MavenId(groupId, artifactId, version));
+        String packaging = doc.get(ArtifactInfo.PACKAGING);
+        String description = doc.get(ArtifactInfo.DESCRIPTION);
+
+        result.add(new IndexedMavenId(groupId, artifactId, version, packaging, description));
 
         if (result.size() == CHUNK_SIZE) {
           processor.processArtifacts(result);
@@ -240,7 +240,9 @@ public class Maven2ServerIndexerImpl extends MavenRemoteObject implements MavenS
     }
   }
 
-  public MavenId addArtifact(int indexId, File artifactFile) throws MavenServerIndexerException {
+  @Override
+  public IndexedMavenId addArtifact(int indexId, File artifactFile, MavenToken token) throws MavenServerIndexerException {
+    MavenServerUtil.checkToken(token);
     try {
       IndexingContext index = getIndex(indexId);
       ArtifactContext artifactContext = myArtifactContextProducer.getArtifactContext(index, artifactFile);
@@ -248,8 +250,8 @@ public class Maven2ServerIndexerImpl extends MavenRemoteObject implements MavenS
 
       addArtifact(myIndexer, index, artifactContext);
 
-      org.sonatype.nexus.index.ArtifactInfo a = artifactContext.getArtifactInfo();
-      return new MavenId(a.groupId, a.artifactId, a.version);
+      ArtifactInfo a = artifactContext.getArtifactInfo();
+      return new IndexedMavenId(a.groupId, a.artifactId, a.version, a.packaging, a.description);
     }
     catch (Exception e) {
       throw new MavenServerIndexerException(wrapException(e));
@@ -265,7 +267,9 @@ public class Maven2ServerIndexerImpl extends MavenRemoteObject implements MavenS
     m.invoke(index);
   }
 
-  public Set<MavenArtifactInfo> search(int indexId, Query query, int maxResult) throws MavenServerIndexerException {
+  @Override
+  public Set<MavenArtifactInfo> search(int indexId, Query query, int maxResult, MavenToken token) throws MavenServerIndexerException {
+    MavenServerUtil.checkToken(token);
     try {
       IndexingContext index = getIndex(indexId);
 
@@ -278,9 +282,11 @@ public class Maven2ServerIndexerImpl extends MavenRemoteObject implements MavenS
         // this exception occurs when too wide wildcard is used on too big data.
       }
 
-      if (docs == null || docs.scoreDocs.length == 0) return Collections.emptySet();
+      if (docs == null || docs.scoreDocs.length == 0) {
+        return Collections.emptySet();
+      }
 
-      Set<MavenArtifactInfo> result = new THashSet<MavenArtifactInfo>();
+      Set<MavenArtifactInfo> result = new HashSet<MavenArtifactInfo>();
 
       for (int i = 0; i < docs.scoreDocs.length; i++) {
         int docIndex = docs.scoreDocs[i].doc;
@@ -298,10 +304,11 @@ public class Maven2ServerIndexerImpl extends MavenRemoteObject implements MavenS
     }
   }
 
-  public Collection<MavenArchetype> getArchetypes() throws RemoteException {
-    Set<MavenArchetype> result = new THashSet<MavenArchetype>();
+  @Override
+  public Collection<MavenArchetype> getArchetypes(MavenToken token) throws RemoteException {
+    MavenServerUtil.checkToken(token);
+    Set<MavenArchetype> result = new HashSet<MavenArchetype>();
     doCollectArchetypes("internal-catalog", result);
-    doCollectArchetypes("nexus", result);
     return result;
   }
 
@@ -319,9 +326,11 @@ public class Maven2ServerIndexerImpl extends MavenRemoteObject implements MavenS
     }
   }
 
-  public void release() {
+  @Override
+  public void release(MavenToken token) {
+    MavenServerUtil.checkToken(token);
     try {
-      myEmbedder.release();
+      myEmbedder.release(token);
     }
     catch (Exception e) {
       throw rethrowException(e);
@@ -331,39 +340,57 @@ public class Maven2ServerIndexerImpl extends MavenRemoteObject implements MavenS
   private static class MyScanningListener implements ArtifactScanningListener {
     private final MavenServerProgressIndicator p;
 
-    public MyScanningListener(MavenServerProgressIndicator indicator) {
+    MyScanningListener(MavenServerProgressIndicator indicator) {
       p = indicator;
     }
 
+    @Override
     public void scanningStarted(IndexingContext ctx) {
       try {
-        if (p.isCanceled()) throw new ProcessCanceledException();
+        if (p.isCanceled()) throw new MavenProcessCanceledRuntimeException();
       }
       catch (RemoteException e) {
         throw new RuntimeRemoteException(e);
       }
     }
 
+    @Override
     public void scanningFinished(IndexingContext ctx, ScanningResult result) {
       try {
-        if (p.isCanceled()) throw new ProcessCanceledException();
+        if (p.isCanceled()) throw new MavenProcessCanceledRuntimeException();
       }
       catch (RemoteException e) {
         throw new RuntimeRemoteException(e);
       }
     }
 
+    @Override
     public void artifactError(ArtifactContext ac, Exception e) {
     }
 
+    @Override
     public void artifactDiscovered(ArtifactContext ac) {
       try {
-        if (p.isCanceled()) throw new ProcessCanceledException();
+        if (p.isCanceled()) throw new MavenProcessCanceledRuntimeException();
         ArtifactInfo info = ac.getArtifactInfo();
         p.setText2(info.groupId + ":" + info.artifactId + ":" + info.version);
       }
       catch (RemoteException e) {
         throw new RuntimeRemoteException(e);
+      }
+    }
+  }
+
+  private static class TinyArtifactInfoIndexCreator extends MinimalArtifactInfoIndexCreator {
+
+    @Override
+    public void updateDocument(ArtifactInfo ai, Document doc) {
+      if (ai.packaging != null) {
+        doc.add(new Field(ArtifactInfo.PACKAGING, ai.packaging, Field.Store.YES, Field.Index.NO));
+      }
+
+      if ("maven-archetype".equals(ai.packaging) && ai.description != null) {
+        doc.add(new Field(ArtifactInfo.DESCRIPTION, ai.description, Field.Store.YES, Field.Index.NO));
       }
     }
   }

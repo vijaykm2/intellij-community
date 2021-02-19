@@ -23,7 +23,7 @@ import com.intellij.usageView.UsageInfo;
  * @author ven
  */
 public class MethodCallUsageInfo extends UsageInfo {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.changeSignature.MethodCallUsageInfo");
+  private static final Logger LOG = Logger.getInstance(MethodCallUsageInfo.class);
   private final boolean myToChangeArguments;
   private final boolean myToCatchExceptions;
   private final PsiMethod myReferencedMethod;
@@ -48,6 +48,9 @@ public class MethodCallUsageInfo extends UsageInfo {
 
   private static JavaResolveResult resolveMethod(final PsiElement ref) {
     if (ref instanceof PsiEnumConstant) return ((PsiEnumConstant)ref).resolveMethodGenerics();
+    if (ref instanceof PsiCallExpression) {
+      return ((PsiCallExpression)ref).resolveMethodGenerics();
+    }
     PsiElement parent = ref.getParent();
     if (parent instanceof PsiCall) {
       return ((PsiCall)parent).resolveMethodGenerics();

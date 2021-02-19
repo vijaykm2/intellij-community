@@ -17,6 +17,7 @@ package com.intellij.codeInsight.daemon.quickFix;
 
 import com.intellij.testFramework.FileBasedTestCaseHelperEx;
 import com.intellij.testFramework.Parameterized;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -35,20 +36,15 @@ public abstract class LightQuickFixParameterizedTestCase extends LightQuickFixTe
     return fileName.substring(BEFORE_PREFIX.length());
   }
 
-  @SuppressWarnings("deprecation")
+  @Nullable
   @Override
-  protected void doAllTests() {
-    super.doAllTests();
+  public String getBaseName(@NotNull String fileAfterSuffix) {
+    if (!fileAfterSuffix.startsWith(AFTER_PREFIX)) return null;
+    return fileAfterSuffix.substring(AFTER_PREFIX.length());
   }
 
-  @SuppressWarnings("JUnit4AnnotatedMethodInJUnit3TestCase")
   @Test
   public void runSingle() throws Throwable {
-    runSingleTest(new Runnable() {
-      @Override
-      public void run() {
-        doSingleTest(myFileSuffix, myTestDataPath);
-      }
-    });
+    doSingleTest(myFileSuffix, myTestDataPath);
   }
 }

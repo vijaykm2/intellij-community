@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.ui.tree.actions;
 
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.AppUIUtil;
@@ -27,43 +12,25 @@ import com.intellij.xdebugger.frame.XFullValueEvaluator;
 import com.intellij.xdebugger.impl.ui.DebuggerUIUtil;
 import com.intellij.xdebugger.impl.ui.tree.XDebuggerTree;
 import com.intellij.xdebugger.impl.ui.tree.nodes.HeadlessValueEvaluationCallback;
-import com.intellij.xdebugger.impl.ui.tree.nodes.WatchMessageNode;
+import com.intellij.xdebugger.impl.ui.tree.nodes.WatchNodeImpl;
 import com.intellij.xdebugger.impl.ui.tree.nodes.XValueNodeImpl;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
-import javax.swing.tree.TreePath;
 import java.util.List;
 
 public abstract class XFetchValueActionBase extends AnAction {
-  @Nullable
-  private static TreePath[] getSelectedNodes(DataContext dataContext) {
-    XDebuggerTree tree = XDebuggerTree.getTree(dataContext);
-    return tree == null ? null : tree.getSelectionPaths();
-  }
-
   @Override
   public void update(@NotNull AnActionEvent e) {
-    TreePath[] paths = getSelectedNodes(e.getDataContext());
-    if (paths != null) {
-      for (TreePath path : paths) {
-        Object node = path.getLastPathComponent();
-        if (isEnabled(e, node)) {
-          return;
-        }
+    for (XValueNodeImpl node : XDebuggerTreeActionBase.getSelectedNodes(e.getDataContext())) {
+      if (isEnabled(e, node)) {
+        return;
       }
     }
     e.getPresentation().setEnabled(false);
   }
 
-  protected boolean isEnabled(@NotNull AnActionEvent event, @NotNull Object node) {
-    if (node instanceof XValueNodeImpl) {
-      if (((XValueNodeImpl)node).isComputed()) {
-        event.getPresentation().setEnabled(true);
-        return true;
-      }
-    }
-    else if (node instanceof WatchMessageNode) {
+  protected boolean isEnabled(@NotNull AnActionEvent event, @NotNull XValueNodeImpl node) {
+    if (node instanceof WatchNodeImpl || node.isComputed()) {
       event.getPresentation().setEnabled(true);
       return true;
     }
@@ -72,37 +39,31 @@ public abstract class XFetchValueActionBase extends AnAction {
 
   @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
-    TreePath[] paths = getSelectedNodes(e.getDataContext());
-    if (paths == null) {
+    List<XValueNodeImpl> nodes = XDebuggerTreeActionBase.getSelectedNodes(e.getDataContext());
+    if (nodes.isEmpty()) {
       return;
     }
 
     ValueCollector valueCollector = createCollector(e);
-    for (TreePath path : paths) {
-      addToCollector(paths, path.getLastPathComponent(), valueCollector);
+    for (XValueNodeImpl node : nodes) {
+      addToCollector(nodes, node, valueCollector);
     }
     valueCollector.processed = true;
     valueCollector.finish();
   }
 
-  protected void addToCollector(@NotNull TreePath[] paths, @NotNull Object node, @NotNull ValueCollector valueCollector) {
-    if (node instanceof XValueNodeImpl) {
-      XValueNodeImpl valueNode = (XValueNodeImpl)node;
+  protected void addToCollector(@NotNull List<XValueNodeImpl> paths, @NotNull XValueNodeImpl valueNode, @NotNull ValueCollector valueCollector) {
+    if (paths.size() > 1) { // multiselection - copy the whole node text, see IDEA-136722
+      valueCollector.add(valueNode.getText().toString(), valueNode.getPath().getPathCount());
+    }
+    else {
       XFullValueEvaluator fullValueEvaluator = valueNode.getFullValueEvaluator();
-      if (paths.length > 1) { // multiselection - copy the whole node text, see IDEA-136722
-        valueCollector.add(valueNode.getText().toString(), valueNode.getPath().getPathCount());
+      if (fullValueEvaluator == null || !fullValueEvaluator.isShowValuePopup()) {
+        valueCollector.add(StringUtil.notNullize(DebuggerUIUtil.getNodeRawValue(valueNode)));
       }
       else {
-        if (fullValueEvaluator == null || !fullValueEvaluator.isShowValuePopup()) {
-          valueCollector.add(StringUtil.notNullize(DebuggerUIUtil.getNodeRawValue(valueNode)));
-        }
-        else {
-          new CopyValueEvaluationCallback(valueNode, valueCollector).startFetchingValue(fullValueEvaluator);
-        }
+        new CopyValueEvaluationCallback(valueNode, valueCollector).startFetchingValue(fullValueEvaluator);
       }
-    }
-    else if (node instanceof WatchMessageNode) {
-      valueCollector.add(((WatchMessageNode)node).getExpression().getExpression());
     }
   }
 
@@ -111,8 +72,8 @@ public abstract class XFetchValueActionBase extends AnAction {
     return new ValueCollector(XDebuggerTree.getTree(e.getDataContext()));
   }
 
-  protected class ValueCollector {
-    private final List<String> values = new SmartList<String>();
+  public class ValueCollector {
+    private final List<String> values = new SmartList<>();
     private final IntIntHashMap indents = new IntIntHashMap();
     private final XDebuggerTree myTree;
     private volatile boolean processed;
@@ -134,7 +95,7 @@ public abstract class XFetchValueActionBase extends AnAction {
       Project project = myTree.getProject();
       if (processed && !values.contains(null) && !project.isDisposed()) {
         int minIndent = Integer.MAX_VALUE;
-        for (int indent : indents.getValues()) {
+        for (int indent : indents.values()) {
           minIndent = Math.min(minIndent, indent);
         }
         StringBuilder sb = new StringBuilder();
@@ -163,12 +124,9 @@ public abstract class XFetchValueActionBase extends AnAction {
     }
 
     public void evaluationComplete(final int index, @NotNull final String value) {
-      AppUIUtil.invokeOnEdt(new Runnable() {
-        @Override
-        public void run() {
-          values.set(index, value);
-          finish();
-        }
+      AppUIUtil.invokeOnEdt(() -> {
+        values.set(index, value);
+        finish();
       });
     }
   }
@@ -179,7 +137,7 @@ public abstract class XFetchValueActionBase extends AnAction {
     private final int myValueIndex;
     private final ValueCollector myValueCollector;
 
-    public CopyValueEvaluationCallback(@NotNull XValueNodeImpl node, @NotNull ValueCollector valueCollector) {
+    CopyValueEvaluationCallback(@NotNull XValueNodeImpl node, @NotNull ValueCollector valueCollector) {
       super(node);
 
       myValueCollector = valueCollector;

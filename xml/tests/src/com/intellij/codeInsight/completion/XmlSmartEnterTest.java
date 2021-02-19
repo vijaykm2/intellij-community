@@ -1,3 +1,18 @@
+/*
+ * Copyright 2000-2015 JetBrains s.r.o.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.CodeInsightSettings;
@@ -7,9 +22,8 @@ import com.intellij.codeInsight.lookup.LookupEvent;
 import com.intellij.codeInsight.lookup.LookupManager;
 import com.intellij.codeInsight.lookup.impl.LookupImpl;
 import com.intellij.codeInsight.lookup.impl.LookupManagerImpl;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
-import com.intellij.testFramework.LightCodeInsightTestCase;
+import com.intellij.testFramework.LightJavaCodeInsightTestCase;
 import com.intellij.testFramework.PlatformTestUtil;
 import org.jetbrains.annotations.NotNull;
 
@@ -19,7 +33,7 @@ import java.io.File;
  * @author spleaner
  */
 @SuppressWarnings({"ALL"})
-public class XmlSmartEnterTest extends LightCodeInsightTestCase {
+public class XmlSmartEnterTest extends LightJavaCodeInsightTestCase {
   private static final String BASE_PATH = "/smartEnter";
   private LookupElement[] myItems;
 
@@ -89,6 +103,11 @@ public class XmlSmartEnterTest extends LightCodeInsightTestCase {
     _doTest("idea103417_2.xml", "idea103417_2_after.xml");
   }
 
+  public void testEmptyHtml() throws Exception {
+    _doTestCompletion("EmptyHtml.html", "EmptyHtml_after.html");
+    _doTestCompletion("EmptyHtml2.html", "EmptyHtml2_after.html");
+  }
+
   private void _doTestCompletion(final String name, final String after_name) throws Exception {
     configureByFile(BASE_PATH + "/" + name);
     performCompletionAction();
@@ -107,11 +126,9 @@ public class XmlSmartEnterTest extends LightCodeInsightTestCase {
   }
 
   private void performSmartEnterAction() {
-    new WriteCommandAction(getProject()) {
-      protected void run(final Result result) throws Throwable {
-        new XmlSmartEnterProcessor().process(getProject(), getEditor(), getFile());
-      }
-    }.execute();
+    WriteCommandAction.writeCommandAction(getProject()).run(() -> {
+      new XmlSmartEnterProcessor().process(getProject(), getEditor(), getFile());
+    });
   }
 
   private void performCompletionAction() {

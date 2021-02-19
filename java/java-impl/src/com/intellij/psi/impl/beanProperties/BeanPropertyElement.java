@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 package com.intellij.psi.impl.beanProperties;
 
 import com.intellij.icons.AllIcons;
-import com.intellij.ide.IdeBundle;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiManager;
@@ -26,8 +26,7 @@ import com.intellij.psi.impl.FakePsiElement;
 import com.intellij.psi.meta.PsiMetaData;
 import com.intellij.psi.meta.PsiMetaOwner;
 import com.intellij.psi.meta.PsiPresentableMetaData;
-import com.intellij.psi.util.PropertyUtil;
-import com.intellij.util.ArrayUtil;
+import com.intellij.psi.util.PropertyUtilBase;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -48,7 +47,7 @@ public class BeanPropertyElement extends FakePsiElement implements PsiMetaOwner,
 
   @Nullable
   public PsiType getPropertyType() {
-    return PropertyUtil.getPropertyType(myMethod);
+    return PropertyUtilBase.getPropertyType(myMethod);
   }
 
   @NotNull
@@ -90,11 +89,6 @@ public class BeanPropertyElement extends FakePsiElement implements PsiMetaOwner,
   }
 
   @Override
-  public Object[] getDependences() {
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
-  }
-
-  @Override
   @Nullable
   public Icon getIcon(boolean flags) {
     return AllIcons.Nodes.Property;
@@ -113,7 +107,7 @@ public class BeanPropertyElement extends FakePsiElement implements PsiMetaOwner,
 
   @Override
   public String getTypeName() {
-    return IdeBundle.message("bean.property");
+    return JavaBundle.message("bean.property");
   }
 
   @Override

@@ -15,6 +15,7 @@
  */
 package com.intellij.refactoring.inlineSuperClass.usageInfo;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
@@ -22,19 +23,18 @@ import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.refactoring.util.FixableUsageInfo;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.Nls;
 
 /**
  * @author anna
- * @since 27-Aug-2008
  */
 public class ReplaceWithSubtypeUsageInfo extends FixableUsageInfo {
-  public static final Logger LOG = Logger.getInstance("#" + ReplaceWithSubtypeUsageInfo.class.getName());
+  public static final Logger LOG = Logger.getInstance(ReplaceWithSubtypeUsageInfo.class);
   private final PsiTypeElement myTypeElement;
   private final PsiClassType myTargetClassType;
   private final PsiType myOriginalType;
-  private String myConflict;
+  private @Nls String myConflict;
 
   public ReplaceWithSubtypeUsageInfo(PsiTypeElement typeElement, PsiClassType classType, final PsiClass[] targetClasses) {
     super(typeElement);
@@ -42,18 +42,17 @@ public class ReplaceWithSubtypeUsageInfo extends FixableUsageInfo {
     myTargetClassType = classType;
     myOriginalType = myTypeElement.getType();
     if (targetClasses.length > 1) {
-      myConflict = typeElement.getText() + " can be replaced with any of " + StringUtil.join(targetClasses, new Function<PsiClass, String>() {
-        public String fun(final PsiClass psiClass) {
-          return psiClass.getQualifiedName();
-        }
-      }, ", ") ;
+      myConflict = JavaRefactoringBundle.message("inline.super.type.element.can.be.replaced",
+                                                 typeElement.getText(),
+                                                 StringUtil.join(targetClasses, psiClass -> psiClass.getQualifiedName(), ", "));
     }
   }
 
+  @Override
   public void fixUsage() throws IncorrectOperationException {
     if (myTypeElement.isValid()) {
       Project project = myTypeElement.getProject();
-      PsiElementFactory elementFactory = JavaPsiFacade.getInstance(project).getElementFactory();
+      PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(project);
       PsiElement replaced = myTypeElement.replace(elementFactory.createTypeElement(myTargetClassType));
       JavaCodeStyleManager.getInstance(project).shortenClassReferences(replaced);
     }
@@ -62,13 +61,10 @@ public class ReplaceWithSubtypeUsageInfo extends FixableUsageInfo {
   @Override
   public String getConflictMessage() {
     if (!TypeConversionUtil.isAssignable(myOriginalType, myTargetClassType)) {
-      final String conflict = "No consistent substitution found for " +
-                              getElement().getText() +
-                              ". Expected \'" +
-                              myOriginalType.getPresentableText() +
-                              "\' but found \'" +
-                              myTargetClassType.getPresentableText() +
-                              "\'.";
+      final String conflict = JavaRefactoringBundle.message("inline.super.no.substitution",
+                                                            getElement().getText(),
+                                                            myOriginalType.getPresentableText(),
+                                                            myTargetClassType.getPresentableText());
       if (myConflict == null) {
         myConflict = conflict;
       } else {

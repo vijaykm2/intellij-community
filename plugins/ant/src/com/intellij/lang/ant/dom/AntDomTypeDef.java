@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2010 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package com.intellij.lang.ant.dom;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.PsiFileSystemItem;
 import com.intellij.util.xml.Attribute;
 import com.intellij.util.xml.Convert;
@@ -25,7 +26,6 @@ import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Jul 1, 2010
  */
 public abstract class AntDomTypeDef extends AntDomCustomClasspathComponent{
 
@@ -53,7 +53,7 @@ public abstract class AntDomTypeDef extends AntDomCustomClasspathComponent{
     return CustomAntElementsRegistry.getInstance(getAntProject()).hasTypeLoadingErrors(this);
   }
 
-  public final List<String> getErrorDescriptions() {
+  public final List<@NlsSafe String> getErrorDescriptions() {
     return CustomAntElementsRegistry.getInstance(getAntProject()).getTypeLoadingErrors(this);
   }
   
@@ -73,11 +73,7 @@ public abstract class AntDomTypeDef extends AntDomCustomClasspathComponent{
         final Class adapterClass = clazz.getClassLoader().loadClass(adapter);
         return isAssignableFrom(Task.class.getName(), adapterClass);
       }
-      catch (ClassNotFoundException ignored) {
-      }
-      catch (NoClassDefFoundError ignored) {
-      }
-      catch (UnsupportedClassVersionError ignored) {
+      catch (ClassNotFoundException | UnsupportedClassVersionError | NoClassDefFoundError ignored) {
       }
     }
 

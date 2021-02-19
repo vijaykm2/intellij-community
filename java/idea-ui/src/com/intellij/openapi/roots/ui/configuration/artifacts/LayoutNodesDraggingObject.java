@@ -26,21 +26,18 @@ import javax.swing.tree.TreePath;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author nik
- */
 public class LayoutNodesDraggingObject extends PackagingElementDraggingObject {
   private final ArtifactEditorEx myArtifactsEditor;
-  private final List<PackagingElementNode<?>> myNodes;
+  private final List<? extends PackagingElementNode<?>> myNodes;
 
-  public LayoutNodesDraggingObject(ArtifactEditorEx artifactsEditor, List<PackagingElementNode<?>> nodes) {
+  public LayoutNodesDraggingObject(ArtifactEditorEx artifactsEditor, List<? extends PackagingElementNode<?>> nodes) {
     myArtifactsEditor = artifactsEditor;
     myNodes = nodes;
   }
 
   @Override
   public List<PackagingElement<?>> createPackagingElements(ArtifactEditorContext context) {
-    final List<PackagingElement<?>> result = new ArrayList<PackagingElement<?>>();
+    final List<PackagingElement<?>> result = new ArrayList<>();
 
     for (PackagingElementNode<?> node : myNodes) {
       final List<? extends PackagingElement<?>> elements = node.getPackagingElements();

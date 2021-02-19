@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,8 +26,6 @@ import org.jetbrains.jps.model.serialization.runConfigurations.JpsRunConfigurati
 
 /**
  * Currently java run configurations aren't used in external compiler so this serializer is registered for tests only for performance reasons
- *
- * @author nik
  */
 public class JpsApplicationRunConfigurationSerializer extends JpsRunConfigurationPropertiesSerializer<JpsApplicationRunConfigurationProperties> {
   public JpsApplicationRunConfigurationSerializer() {
@@ -38,10 +36,6 @@ public class JpsApplicationRunConfigurationSerializer extends JpsRunConfiguratio
   public JpsApplicationRunConfigurationProperties loadProperties(@Nullable Element runConfigurationTag) {
     JpsApplicationRunConfigurationState properties = runConfigurationTag != null ?
                                                      XmlSerializer.deserialize(runConfigurationTag, JpsApplicationRunConfigurationState.class) : new JpsApplicationRunConfigurationState();
-    return JpsJavaExtensionService.getInstance().createRunConfigurationProperties(properties != null ? properties : new JpsApplicationRunConfigurationState());
-  }
-
-  @Override
-  public void saveProperties(JpsApplicationRunConfigurationProperties properties, Element runConfigurationTag) {
+    return JpsJavaExtensionService.getInstance().createRunConfigurationProperties(properties);
   }
 }

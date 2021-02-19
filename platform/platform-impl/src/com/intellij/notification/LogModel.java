@@ -1,32 +1,16 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.notification;
 
 import com.intellij.notification.impl.NotificationsConfigurationImpl;
-import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
-import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Trinity;
 import com.intellij.openapi.wm.StatusBar;
+import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.Topic;
 import com.intellij.util.ui.UIUtil;
-import gnu.trove.THashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,18 +19,17 @@ import java.util.*;
 /**
  * @author peter
  */
-public class LogModel implements Disposable {
-  public static final Topic<Runnable> LOG_MODEL_CHANGED = Topic.create("LOG_MODEL_CHANGED", Runnable.class, Topic.BroadcastDirection.NONE);
+public final class LogModel  {
+  public static final Topic<EventLogListener> LOG_MODEL_CHANGED = Topic.create("LOG_MODEL_CHANGED", EventLogListener.class, Topic.BroadcastDirection.NONE);
 
-  private final List<Notification> myNotifications = new ArrayList<Notification>();
-  private final Map<Notification, String> myStatuses = Collections.synchronizedMap(new WeakHashMap<Notification, String>());
-  private Trinity<Notification, String, Long> myStatusMessage;
+  private final List<Notification> myNotifications = new ArrayList<>();
+  private final Map<Notification, @NlsContexts.StatusBarText String> myStatuses = CollectionFactory.createConcurrentWeakIdentityMap();
+  private Trinity<Notification, @NlsContexts.StatusBarText String, Long> myStatusMessage;
   private final Project myProject;
-  final Map<Notification, Runnable> removeHandlers = new THashMap<Notification, Runnable>();
+  final Map<Notification, Runnable> removeHandlers = new HashMap<>();
 
-  LogModel(@Nullable Project project, @NotNull Disposable parentDisposable) {
+  LogModel(@Nullable Project project) {
     myProject = project;
-    Disposer.register(parentDisposable, this);
   }
 
   void addNotification(Notification notification) {
@@ -63,7 +46,7 @@ public class LogModel implements Disposable {
   }
 
   private static void fireModelChanged() {
-    ApplicationManager.getApplication().getMessageBus().syncPublisher(LOG_MODEL_CHANGED).run();
+    ApplicationManager.getApplication().getMessageBus().syncPublisher(LOG_MODEL_CHANGED).modelChanged();
   }
 
   List<Notification> takeNotifications() {
@@ -72,7 +55,9 @@ public class LogModel implements Disposable {
       result = getNotifications();
       myNotifications.clear();
     }
-    fireModelChanged();
+    if (!result.isEmpty()) {
+      fireModelChanged();
+    }
     return result;
   }
 
@@ -81,13 +66,14 @@ public class LogModel implements Disposable {
       if (myStatusMessage != null && myStatusMessage.first == statusMessage) return;
       if (myStatusMessage == null && statusMessage == null) return;
 
-      myStatusMessage = statusMessage == null ? null : Trinity.create(statusMessage, myStatuses.get(statusMessage), stamp);
+      myStatusMessage = statusMessage == null ? null : Trinity.create(statusMessage,
+                                                                      Objects.requireNonNull(myStatuses.get(statusMessage)), stamp);
     }
     StatusBar.Info.set("", myProject, EventLog.LOG_REQUESTOR);
   }
 
   @Nullable
-  Trinity<Notification, String, Long> getStatusMessage() {
+  Trinity<Notification, @NlsContexts.StatusBarText String, Long> getStatusMessage() {
     synchronized (myNotifications) {
       return myStatusMessage;
     }
@@ -102,9 +88,9 @@ public class LogModel implements Disposable {
     setStatusToImportant();
   }
 
-  public ArrayList<Notification> getNotifications() {
+  public @NotNull ArrayList<Notification> getNotifications() {
     synchronized (myNotifications) {
-      return new ArrayList<Notification>(myNotifications);
+      return new ArrayList<>(myNotifications);
     }
   }
   public void removeNotification(Notification notification) {
@@ -127,12 +113,7 @@ public class LogModel implements Disposable {
   private void setStatusToImportant() {
     ArrayList<Notification> notifications = getNotifications();
     Collections.reverse(notifications);
-    Notification message = ContainerUtil.find(notifications, new Condition<Notification>() {
-      @Override
-      public boolean value(Notification notification) {
-        return notification.isImportant();
-      }
-    });
+    Notification message = ContainerUtil.find(notifications, Notification::isImportant);
     if (message == null) {
       setStatusMessage(null, 0);
     }
@@ -142,11 +123,6 @@ public class LogModel implements Disposable {
   }
 
   public Project getProject() {
-    //noinspection ConstantConditions
     return myProject;
-  }
-
-  @Override
-  public void dispose() {
   }
 }

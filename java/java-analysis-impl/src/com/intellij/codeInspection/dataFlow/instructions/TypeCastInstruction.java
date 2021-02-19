@@ -14,37 +14,34 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: Apr 9, 2002
- * Time: 10:27:17 PM
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.codeInspection.dataFlow.instructions;
 
+import com.intellij.codeInspection.dataFlow.*;
 import com.intellij.psi.PsiExpression;
+import com.intellij.psi.PsiPrimitiveType;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.PsiTypeCastExpression;
-import com.intellij.codeInspection.dataFlow.DfaInstructionState;
-import com.intellij.codeInspection.dataFlow.DataFlowRunner;
-import com.intellij.codeInspection.dataFlow.DfaMemoryState;
-import com.intellij.codeInspection.dataFlow.InstructionVisitor;
+import org.jetbrains.annotations.Nullable;
 
-public class TypeCastInstruction extends Instruction {
-  private final PsiTypeCastExpression myCastExpression;
+public class TypeCastInstruction extends ExpressionPushingInstruction<PsiTypeCastExpression> {
   private final PsiExpression myCasted;
   private final PsiType myCastTo;
+  private final @Nullable DfaControlTransferValue myTransferValue;
 
-  public TypeCastInstruction(PsiTypeCastExpression castExpression, PsiExpression casted, PsiType castTo) {
-    myCastExpression = castExpression;
+  public TypeCastInstruction(PsiTypeCastExpression castExpression,
+                             PsiExpression casted,
+                             PsiType castTo,
+                             @Nullable DfaControlTransferValue value) {
+    super(castExpression);
+    assert !(castTo instanceof PsiPrimitiveType);
     myCasted = casted;
     myCastTo = castTo;
+    myTransferValue = value;
   }
 
-  public PsiTypeCastExpression getCastExpression() {
-    return myCastExpression;
+  @Nullable
+  public DfaControlTransferValue getCastExceptionTransfer() {
+    return myTransferValue;
   }
 
   public PsiExpression getCasted() {
@@ -58,5 +55,10 @@ public class TypeCastInstruction extends Instruction {
   @Override
   public DfaInstructionState[] accept(DataFlowRunner runner, DfaMemoryState stateBefore, InstructionVisitor visitor) {
     return visitor.visitTypeCast(this, runner, stateBefore);
+  }
+
+  @Override
+  public String toString() {
+    return "CAST_TO "+myCastTo.getCanonicalText();
   }
 }

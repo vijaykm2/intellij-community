@@ -15,6 +15,7 @@
  */
 package hg4idea.test.repo;
 
+import com.intellij.dvcs.DvcsUtil;
 import com.intellij.openapi.application.PluginPathManager;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vcs.VcsTestUtil;
@@ -28,9 +29,8 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.HashSet;
 
-/**
- * @author Nadya Zabrodina
- */
+import static com.intellij.openapi.vcs.Executor.debug;
+
 public class HgRepositoryReaderTest extends HgPlatformTest {
 
   @NotNull private HgRepositoryReader myRepositoryReader;
@@ -77,12 +77,17 @@ public class HgRepositoryReaderTest extends HgPlatformTest {
   }
 
   public void testTip() {
+    File cacheDir = new File(myHgDir, "cache");
+    assertTrue(cacheDir.exists());
+    File branchFile = new File(cacheDir, "branchheads-served");
+    assertTrue(branchFile.exists());
+    debug(DvcsUtil.tryLoadFileOrReturn(branchFile, ""));
     assertEquals("25e44c95b2612e3cdf29a704dabf82c77066cb67", myRepositoryReader.readCurrentTipRevision());
   }
 
   public void testCurrentBranch() {
     String currentBranch = myRepositoryReader.readCurrentBranch();
-    assertEquals(currentBranch, "firstBranch");
+    assertEquals("firstBranch", currentBranch);
   }
 
   public void testBranches() {
@@ -107,7 +112,7 @@ public class HgRepositoryReaderTest extends HgPlatformTest {
 
   @NotNull
   private Collection<String> readBranches() throws IOException {
-    Collection<String> branches = new HashSet<String>();
+    Collection<String> branches = new HashSet<>();
     File branchHeads = new File(new File(myHgDir, "cache"), "branchheads-served");
     String[] branchesWithHashes = FileUtil.loadFile(branchHeads).split("\n");
     for (int i = 1; i < branchesWithHashes.length; ++i) {
@@ -120,12 +125,12 @@ public class HgRepositoryReaderTest extends HgPlatformTest {
 
 
   public void testCurrentBookmark() {
-    assertEquals(myRepositoryReader.readCurrentBookmark(), "B_BookMark");
+    assertEquals("B_BookMark", myRepositoryReader.readCurrentBookmark());
   }
 
   @NotNull
   private static Collection<String> readRefs(@NotNull File refFile) throws IOException {
-    Collection<String> refs = new HashSet<String>();
+    Collection<String> refs = new HashSet<>();
     String[] refsWithHashes = FileUtil.loadFile(refFile).split("\n");
     for (String str : refsWithHashes) {
       String[] refAndName = str.trim().split(" ");

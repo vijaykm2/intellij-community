@@ -1,28 +1,17 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.roots.ui.configuration;
 
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.roots.*;
-import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.roots.impl.DirectoryIndexExcludePolicy;
+import com.intellij.openapi.ui.MessageDialogBuilder;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.EventDispatcher;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.JpsElement;
@@ -35,11 +24,12 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.EventListener;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * @author Eugene Zhuravlev
- * @since Oct 8, 2003
  */
 @SuppressWarnings("UnusedDeclaration")
 public abstract class ContentEntryEditor implements ContentRootPanel.ActionCallback {
@@ -118,10 +108,10 @@ public abstract class ContentEntryEditor implements ContentRootPanel.ActionCallb
 
   @Override
   public void deleteContentEntry() {
-    final String path = FileUtil.toSystemDependentName(VfsUtilCore.urlToPath(myContentEntryUrl));
-    final int answer = Messages.showYesNoDialog(ProjectBundle.message("module.paths.remove.content.prompt", path),
-                                                ProjectBundle.message("module.paths.remove.content.title"), Messages.getQuestionIcon());
-    if (answer != Messages.YES) { // no
+    String path = FileUtil.toSystemDependentName(VfsUtilCore.urlToPath(myContentEntryUrl));
+    if (!MessageDialogBuilder
+      .yesNo(ProjectBundle.message("module.paths.remove.content.title"), ProjectBundle.message("module.paths.remove.content.prompt", path))
+      .ask(getModel().getProject())) {
       return;
     }
     myEventDispatcher.getMulticaster().beforeEntryDeleted(this);
@@ -132,7 +122,8 @@ public abstract class ContentEntryEditor implements ContentRootPanel.ActionCallb
   }
 
   @Override
-  public void deleteContentFolder(ContentEntry contentEntry, ContentFolder folder) {
+  public void deleteContentFolder(ContentEntry contentEntry, ContentFolderRef folderRef) {
+    ContentFolder folder = folderRef.getContentFolder();
     if (folder instanceof SourceFolder) {
       removeSourceFolder((SourceFolder)folder);
       update();
@@ -145,8 +136,8 @@ public abstract class ContentEntryEditor implements ContentRootPanel.ActionCallb
   }
 
   @Override
-  public void navigateFolder(ContentEntry contentEntry, ContentFolder contentFolder) {
-    final VirtualFile file = contentFolder.getFile();
+  public void navigateFolder(ContentEntry contentEntry, ContentFolderRef contentFolderRef) {
+    final VirtualFile file = contentFolderRef.getFile();
     if (file != null) { // file can be deleted externally
       myEventDispatcher.getMulticaster().navigationRequested(this, file);
     }
@@ -284,17 +275,48 @@ public abstract class ContentEntryEditor implements ContentRootPanel.ActionCallb
     return folder != null ? folder.getRootType() : null;
   }
 
-  public boolean isExcludedOrUnderExcludedDirectory(@NotNull final VirtualFile file) {
-    final ContentEntry contentEntry = getContentEntry();
+  public boolean isExcludedOrUnderExcludedDirectory(@NotNull VirtualFile file) {
+    ModifiableRootModel model = getModel();
+    if (model == null) {
+      throw new AssertionError(getClass() + ".getModel() returned null unexpectedly");
+    }
+    Project project = model.getProject();
+    ContentEntry contentEntry = getContentEntry();
     if (contentEntry == null) {
       return false;
     }
-    for (VirtualFile excludedDir : contentEntry.getExcludeFolderFiles()) {
-      if (VfsUtilCore.isAncestor(excludedDir, file, false)) {
-        return true;
-      }
+    return isExcludedOrUnderExcludedDirectory(project, contentEntry, file);
+  }
+
+  public static boolean isExcludedOrUnderExcludedDirectory(@Nullable Project project,
+                                                           @NotNull ContentEntry entry,
+                                                           @NotNull VirtualFile file) {
+    return isExcludedOrUnderExcludedDirectory(entry, getEntryExcludedUrls(project, entry), file);
+  }
+
+  public static boolean isExcludedOrUnderExcludedDirectory(@NotNull ContentEntry entry,
+                                                           @NotNull Set<String> excludedUrls,
+                                                           @NotNull VirtualFile file) {
+    Set<VirtualFile> sourceRoots = ContainerUtil.set(entry.getSourceFolderFiles());
+    VirtualFile parent = file;
+    while (parent != null) {
+      if (excludedUrls.contains(parent.getUrl())) return true;
+      if (sourceRoots.contains(parent)) return false;
+      parent = parent.getParent();
     }
     return false;
+  }
+
+  @NotNull
+  public static Set<String> getEntryExcludedUrls(@Nullable Project project,
+                                                 @NotNull ContentEntry entry) {
+    Set<String> excludedUrls = new HashSet<>(entry.getExcludeFolderUrls());
+    if (project != null) {
+      for (DirectoryIndexExcludePolicy policy : DirectoryIndexExcludePolicy.getExtensions(project)) {
+        ContainerUtil.addAll(excludedUrls, policy.getExcludeUrlsForProject());
+      }
+    }
+    return excludedUrls;
   }
 
   @Nullable

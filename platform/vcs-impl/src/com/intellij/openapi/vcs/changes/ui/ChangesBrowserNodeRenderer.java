@@ -1,69 +1,63 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.ui;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.BooleanGetter;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.changes.FilePathIconProvider;
 import com.intellij.openapi.vcs.changes.issueLinks.IssueLinkRenderer;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.ColoredTreeCellRenderer;
+import com.intellij.ui.DirtyUI;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.speedSearch.SpeedSearchUtil;
+import com.intellij.util.PlatformIcons;
+import com.intellij.util.ui.JBInsets;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
 
-/**
- * @author max
- */
 public class ChangesBrowserNodeRenderer extends ColoredTreeCellRenderer {
-  private final boolean myShowFlatten;
-  private final Project myProject;
-  private final IssueLinkRenderer myIssueLinkRenderer;
-  private final boolean myHighlightProblems;
 
-  public ChangesBrowserNodeRenderer(final Project project, final boolean showFlatten, final boolean highlightProblems) {
-    myShowFlatten = showFlatten;
+  @NotNull private final BooleanGetter myShowFlatten;
+  @Nullable private final Project myProject;
+  @Nullable private final IssueLinkRenderer myIssueLinkRenderer;
+  private final boolean myHighlightProblems;
+  @Nullable private JBInsets myBackgroundInsets;
+
+  public ChangesBrowserNodeRenderer(@Nullable Project project, @NotNull BooleanGetter showFlattenGetter, boolean highlightProblems) {
+    myShowFlatten = showFlattenGetter;
     myProject = project;
     myHighlightProblems = highlightProblems;
-    myIssueLinkRenderer = new IssueLinkRenderer(project, this);
+    myIssueLinkRenderer = project != null ? new IssueLinkRenderer(project, this) : null;
   }
 
   public boolean isShowFlatten() {
-    return myShowFlatten;
+    return myShowFlatten.get();
   }
 
-  public void customizeCellRenderer(JTree tree,
+  @DirtyUI
+  @Override
+  public void customizeCellRenderer(@NotNull JTree tree,
                                     Object value,
                                     boolean selected,
                                     boolean expanded,
                                     boolean leaf,
                                     int row,
                                     boolean hasFocus) {
-    ChangesBrowserNode node = (ChangesBrowserNode)value;
+    ChangesBrowserNode<?> node = (ChangesBrowserNode<?>)value;
     node.render(this, selected, expanded, hasFocus);
     SpeedSearchUtil.applySpeedSearchHighlighting(tree, this, true, selected);
   }
 
+  public void appendFileName(@Nullable VirtualFile vFile, @NotNull @NlsSafe String fileName, Color color) {
+    ChangesFileNameDecorator decorator = myProject != null && !myProject.isDefault() && !myProject.isDisposed()
+                                         ? ChangesFileNameDecorator.getInstance(myProject) : null;
 
-  protected void appendFileName(final VirtualFile vFile, final String fileName, final Color color) {
-    if (myProject.isDefault()) {
-      append(fileName, new SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, color));
-      return;
-    }
-    final ChangesFileNameDecorator decorator = ChangesFileNameDecorator.getInstance(myProject);
     if (decorator != null) {
       decorator.appendFileName(this, vFile, fileName, color, myHighlightProblems);
     }
@@ -72,7 +66,52 @@ public class ChangesBrowserNodeRenderer extends ColoredTreeCellRenderer {
     }
   }
 
-  public void appendTextWithIssueLinks(final String text, final SimpleTextAttributes baseStyle) {
-    myIssueLinkRenderer.appendTextWithLinks(text, baseStyle);
+  @Override
+  public void clear() {
+    setBackgroundInsets(null);
+    setToolTipText(null);
+    super.clear();
+  }
+
+  @Override
+  protected void doPaintFragmentBackground(@NotNull Graphics2D g, int index, @NotNull Color bgColor, int x, int y, int width, int height) {
+    if (myBackgroundInsets != null) {
+      g.setColor(bgColor);
+      g.fillRect(x + myBackgroundInsets.left, y + myBackgroundInsets.top, width - myBackgroundInsets.width(),
+                 height - myBackgroundInsets.height());
+    }
+    else {
+      super.doPaintFragmentBackground(g, index, bgColor, x, y, width, height);
+    }
+  }
+
+  public void appendTextWithIssueLinks(@NotNull @Nls String text, @NotNull SimpleTextAttributes baseStyle) {
+    if (myIssueLinkRenderer != null) {
+      myIssueLinkRenderer.appendTextWithLinks(text, baseStyle);
+    }
+    else {
+      append(text, baseStyle);
+    }
+  }
+
+  public void setIcon(@NotNull FilePath filePath, boolean isDirectory) {
+    if (isDirectory) {
+      setIcon(PlatformIcons.FOLDER_ICON);
+      return;
+    }
+    Icon icon = FilePathIconProvider.EP_NAME.computeSafeIfAny(provider -> provider.getIcon(filePath, myProject));
+    if (icon != null) {
+      setIcon(icon);
+      return;
+    }
+    setIcon(filePath.getFileType().getIcon());
+  }
+
+  public void setBackgroundInsets(@Nullable JBInsets backgroundInsets) {
+    myBackgroundInsets = backgroundInsets;
+  }
+
+  public boolean isShowingLocalChanges() {
+    return myHighlightProblems;
   }
 }

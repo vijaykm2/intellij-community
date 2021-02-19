@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2014 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,6 @@ import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -36,14 +35,9 @@ public class UseOfObsoleteAssertInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("usage.of.obsolete.assert.display.name");
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... infos) {
-    return InspectionGadgetsBundle.message("use.of.obsolete.assert.problem.descriptor");
+    String name = (String)infos[0];
+    return InspectionGadgetsBundle.message("use.of.obsolete.assert.problem.descriptor", name);
   }
 
   @Override
@@ -66,7 +60,7 @@ public class UseOfObsoleteAssertInspection extends BaseInspection {
         return;
       }
       final PsiClass newAssertClass = JavaPsiFacade.getInstance(project)
-        .findClass("org.junit.Assert", GlobalSearchScope.moduleWithDependenciesAndLibrariesScope(module));
+        .findClass(JUnitCommonClassNames.ORG_JUNIT_ASSERT, GlobalSearchScope.moduleWithDependenciesAndLibrariesScope(module));
       if (newAssertClass == null) {
         return;
       }
@@ -75,36 +69,39 @@ public class UseOfObsoleteAssertInspection extends BaseInspection {
         return;
       }
       final PsiClass containingClass = psiMethod.getContainingClass();
-      if (containingClass != null && Comparing.strEqual(containingClass.getQualifiedName(), "junit.framework.Assert")) {
-        registerMethodCallError(expression);
+      if (containingClass == null) {
+        return;
+      }
+      final String name = containingClass.getQualifiedName();
+      if (JUnitCommonClassNames.JUNIT_FRAMEWORK_ASSERT.equals(name) || JUnitCommonClassNames.JUNIT_FRAMEWORK_TEST_CASE.equals(name)) {
+        registerMethodCallError(expression, name);
       }
     }
   }
 
   private static class ReplaceObsoleteAssertsFix extends InspectionGadgetsFix {
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
-      final PsiElement psiElement = PsiTreeUtil.getParentOfType(descriptor.getPsiElement(), PsiMethodCallExpression.class);
-      if (psiElement == null) {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
+      final PsiMethodCallExpression call = PsiTreeUtil.getParentOfType(descriptor.getPsiElement(), PsiMethodCallExpression.class);
+      if (call == null) {
         return;
       }
       final PsiClass newAssertClass =
-        JavaPsiFacade.getInstance(project).findClass("org.junit.Assert", GlobalSearchScope.allScope(project));
+        JavaPsiFacade.getInstance(project).findClass(JUnitCommonClassNames.ORG_JUNIT_ASSERT, GlobalSearchScope.allScope(project));
       final PsiClass oldAssertClass =
-        JavaPsiFacade.getInstance(project).findClass("junit.framework.Assert", GlobalSearchScope.allScope(project));
+        JavaPsiFacade.getInstance(project).findClass(JUnitCommonClassNames.JUNIT_FRAMEWORK_ASSERT, GlobalSearchScope.allScope(project));
 
       if (newAssertClass == null) {
         return;
       }
-      final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)psiElement;
-      final PsiReferenceExpression methodExpression = methodCallExpression.getMethodExpression();
+      final PsiReferenceExpression methodExpression = call.getMethodExpression();
       final PsiExpression qualifierExpression = methodExpression.getQualifierExpression();
       final PsiElement usedImport = qualifierExpression instanceof PsiReferenceExpression ?
                                     ((PsiReferenceExpression)qualifierExpression).advancedResolve(true).getCurrentFileResolveScope() :
                                     methodExpression.advancedResolve(true).getCurrentFileResolveScope();
-      final PsiMethod psiMethod = methodCallExpression.resolveMethod();
+      final PsiMethod psiMethod = call.resolveMethod();
 
-      final boolean isImportUnused = isImportBecomeUnused(methodCallExpression, usedImport, psiMethod);
+      final boolean isImportUnused = isImportBecomeUnused(call, usedImport, psiMethod);
 
       PsiImportStaticStatement staticStatement = null;
       if (qualifierExpression == null) {
@@ -142,6 +139,18 @@ public class UseOfObsoleteAssertInspection extends BaseInspection {
           styleManager.shortenClassReferences(methodExpression);
         }
       }
+
+      PsiMethod newTarget = call.resolveMethod();
+      if (newTarget != null && newTarget.isDeprecated()) {
+        PsiParameter[] parameters = newTarget.getParameterList().getParameters();
+        if (parameters.length > 0) {
+          PsiType paramType = parameters[parameters.length - 1].getType();
+          if (PsiType.DOUBLE.equals(paramType) || PsiType.FLOAT.equals(paramType)) {
+            call.getArgumentList().add(JavaPsiFacade.getElementFactory(project).createExpressionFromText("0.0", call));
+          }
+        }
+      }
+
       /*
           //refs can be optimized now but should we really?
           if (isImportUnused) {
@@ -158,7 +167,7 @@ public class UseOfObsoleteAssertInspection extends BaseInspection {
       final boolean[] proceed = new boolean[]{true};
       methodCallExpression.getContainingFile().accept(new JavaRecursiveElementWalkingVisitor() {
         @Override
-        public void visitElement(PsiElement element) {
+        public void visitElement(@NotNull PsiElement element) {
           if (proceed[0]) {
             super.visitElement(element);
           }
@@ -222,15 +231,8 @@ public class UseOfObsoleteAssertInspection extends BaseInspection {
 
     @NotNull
     @Override
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message("use.of.obsolete.assert.quickfix");
     }
-
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
-
   }
 }

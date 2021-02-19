@@ -1,82 +1,125 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.filters.getters;
 
-import com.intellij.codeInsight.TailType;
+import com.intellij.codeInsight.TailTypes;
 import com.intellij.codeInsight.completion.*;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.TailTypeDecorator;
 import com.intellij.codeInsight.lookup.VariableLookupItem;
+import com.intellij.codeInspection.magicConstant.MagicCompletionContributor;
+import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.Consumer;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.HashSet;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
  * @author peter
  */
 public class JavaMembersGetter extends MembersGetter {
-  private final PsiType myExpectedType;
+  private final @NotNull PsiType myExpectedType;
+  private final CompletionParameters myParameters;
 
   public JavaMembersGetter(@NotNull PsiType expectedType, CompletionParameters parameters) {
     super(new JavaStaticMemberProcessor(parameters), parameters.getPosition());
     myExpectedType = JavaCompletionUtil.originalize(expectedType);
+    myParameters = parameters;
   }
 
-  public void addMembers(boolean searchInheritors, final Consumer<LookupElement> results) {
+  public void addMembers(boolean searchInheritors, final Consumer<? super LookupElement> results) {
+    if (MagicCompletionContributor.getAllowedValues(myParameters.getPosition()) != null) {
+      return;
+    }
+
+    addKnownConstants(results);
+
+    addConstantsFromTargetClass(results, searchInheritors);
     if (myExpectedType instanceof PsiPrimitiveType && PsiType.DOUBLE.isAssignableFrom(myExpectedType)) {
-      addConstantsFromTargetClass(results, searchInheritors);
       addConstantsFromReferencedClassesInSwitch(results);
     }
 
-    if (myPlace.getParent().getParent() instanceof PsiSwitchLabelStatement) {
+    if (JavaCompletionContributor.IN_SWITCH_LABEL.accepts(myPlace)) {
       return; //non-enum values are processed above, enum values will be suggested by reference completion
     }
 
     final PsiClass psiClass = PsiUtil.resolveClassInType(myExpectedType);
     processMembers(results, psiClass, PsiTreeUtil.getParentOfType(myPlace, PsiAnnotation.class) == null, searchInheritors);
+
+    if (psiClass != null && myExpectedType instanceof PsiClassType) {
+      new BuilderCompletion((PsiClassType)myExpectedType, psiClass, myPlace).suggestBuilderVariants().forEach(results::consume);
+    }
+  }
+  
+  private static class ConstantClass {
+    final @NotNull String myConstantContainingClass; 
+    final @NotNull LanguageLevel myLanguageLevel;
+    final @Nullable String myPriorityConstant;
+
+    private ConstantClass(@NotNull String aClass,
+                          @NotNull LanguageLevel level,
+                          @Nullable String constant) {
+      myConstantContainingClass = aClass;
+      myLanguageLevel = level;
+      myPriorityConstant = constant;
+    }
+  }
+  
+  private static final Map<String, ConstantClass> CONSTANT_SUGGESTIONS = Map.of(
+    "java.nio.charset.Charset", new ConstantClass("java.nio.charset.StandardCharsets", LanguageLevel.JDK_1_7, "UTF_8"),
+    "java.time.temporal.TemporalUnit", new ConstantClass("java.time.temporal.ChronoUnit", LanguageLevel.JDK_1_8, null),
+    "java.time.temporal.TemporalField", new ConstantClass("java.time.temporal.ChronoField", LanguageLevel.JDK_1_8, null)
+  );
+
+  private void addKnownConstants(Consumer<? super LookupElement> results) {
+    PsiFile file = myParameters.getOriginalFile();
+    ConstantClass constantClass = CONSTANT_SUGGESTIONS.get(myExpectedType.getCanonicalText());
+    if (constantClass != null && PsiUtil.getLanguageLevel(file).isAtLeast(constantClass.myLanguageLevel)) {
+      PsiClass charsetsClass =
+        JavaPsiFacade.getInstance(file.getProject()).findClass(constantClass.myConstantContainingClass, file.getResolveScope());
+      if (charsetsClass != null) {
+        for (PsiField field : charsetsClass.getFields()) {
+          if (field.hasModifierProperty(PsiModifier.STATIC) &&
+              field.hasModifierProperty(PsiModifier.PUBLIC) && myExpectedType.isAssignableFrom(field.getType())) {
+            LookupElement element = createFieldElement(field);
+            if (element != null && field.getName().equals(constantClass.myPriorityConstant)) {
+              element = PrioritizedLookupElement.withPriority(element, 1.0);
+            }
+            results.consume(element);
+          }
+        }
+      }
+    }
   }
 
-  private void addConstantsFromReferencedClassesInSwitch(final Consumer<LookupElement> results) {
-    final Set<PsiField> fields = ReferenceExpressionCompletionContributor.findConstantsUsedInSwitch(myPlace);
-    final Set<PsiClass> classes = new HashSet<PsiClass>();
+  private void addConstantsFromReferencedClassesInSwitch(final Consumer<? super LookupElement> results) {
+    if (!JavaCompletionContributor.IN_SWITCH_LABEL.accepts(myPlace)) return;
+    PsiSwitchBlock block = Objects.requireNonNull(PsiTreeUtil.getParentOfType(myPlace, PsiSwitchBlock.class));
+    final Set<PsiField> fields = ReferenceExpressionCompletionContributor.findConstantsUsedInSwitch(block);
+    final Set<PsiClass> classes = new HashSet<>();
     for (PsiField field : fields) {
       ContainerUtil.addIfNotNull(classes, field.getContainingClass());
     }
     for (PsiClass aClass : classes) {
-      processMembers(new Consumer<LookupElement>() {
-        @Override
-        public void consume(LookupElement element) {
-          //noinspection SuspiciousMethodCalls
-          if (!fields.contains(element.getObject())) {
-            results.consume(TailTypeDecorator.withTail(element, TailType.CASE_COLON));
-          }
+      processMembers(element -> {
+        //noinspection SuspiciousMethodCalls
+        if (!fields.contains(element.getObject())) {
+          results.consume(TailTypeDecorator.withTail(element, TailTypes.forSwitchLabel(block)));
         }
       }, aClass, true, false);
     }
   }
 
-  private void addConstantsFromTargetClass(Consumer<LookupElement> results, boolean searchInheritors) {
+  private void addConstantsFromTargetClass(Consumer<? super LookupElement> results, boolean searchInheritors) {
     PsiElement parent = myPlace.getParent();
     if (!(parent instanceof PsiReferenceExpression)) {
       return;
@@ -109,7 +152,7 @@ public class JavaMembersGetter extends MembersGetter {
         final PsiElement element = result.getElement();
         if (element instanceof PsiMethod) {
           final PsiClass aClass = ((PsiMethod)element).getContainingClass();
-          if (aClass != null && !"java.lang.Math".equals(aClass.getQualifiedName())) {
+          if (aClass != null && !CommonClassNames.JAVA_LANG_MATH.equals(aClass.getQualifiedName())) {
             return aClass;
           }
         }
@@ -136,21 +179,20 @@ public class JavaMembersGetter extends MembersGetter {
       return null;
     }
 
-    return new VariableLookupItem(field, false);
+    return new VariableLookupItem(field, false)
+      .qualifyIfNeeded(ObjectUtils.tryCast(myParameters.getPosition().getParent(), PsiJavaCodeReferenceElement.class));
   }
 
   @Override
   @Nullable
   protected LookupElement createMethodElement(PsiMethod method) {
-    PsiSubstitutor substitutor = SmartCompletionDecorator.calculateMethodReturnTypeSubstitutor(method, myExpectedType);
-    PsiType type = substitutor.substitute(method.getReturnType());
+    JavaMethodCallElement item = new JavaMethodCallElement(method, false, false);
+    item.setInferenceSubstitutorFromExpectedType(myPlace, myExpectedType);
+    PsiType type = item.getType();
     if (type == null || !myExpectedType.isAssignableFrom(type)) {
       return null;
     }
 
-
-    JavaMethodCallElement item = new JavaMethodCallElement(method, false, false);
-    item.setInferenceSubstitutor(substitutor, myPlace);
     return item;
   }
 }

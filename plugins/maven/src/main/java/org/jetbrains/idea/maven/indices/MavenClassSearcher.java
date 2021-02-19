@@ -1,42 +1,48 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.indices;
 
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.text.VersionComparatorUtil;
 import gnu.trove.THashMap;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.WildcardQuery;
 import org.jetbrains.idea.maven.model.MavenArtifactInfo;
+import org.jetbrains.idea.maven.onlinecompletion.model.MavenDependencyCompletionItem;
+import org.jetbrains.idea.maven.onlinecompletion.model.MavenRepositoryArtifactInfo;
 import org.jetbrains.idea.maven.server.MavenServerIndexer;
 
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+import java.util.stream.Collectors;
 
 public class MavenClassSearcher extends MavenSearcher<MavenClassSearchResult> {
   public static final String TERM = MavenServerIndexer.SEARCH_TERM_CLASS_NAMES;
 
+  @Override
+  protected List<MavenClassSearchResult> searchImpl(Project project, String pattern, int maxResult) {
+    Pair<String, Query> patternAndQuery = preparePatternAndQuery(pattern);
+
+    MavenProjectIndicesManager m = MavenProjectIndicesManager.getInstance(project);
+    Set<MavenArtifactInfo> infos = m.getIndices().stream().flatMap(
+      i -> i.search(patternAndQuery.second, 50).stream()
+    ).collect(Collectors.toSet());
+
+    ArrayList<MavenClassSearchResult> results = new ArrayList<>(processResults(infos, patternAndQuery.first, maxResult));
+    results.sort(Comparator.comparing(MavenClassSearchResult::getClassName));
+    return results;
+  }
+
   protected Pair<String, Query> preparePatternAndQuery(String pattern) {
     pattern = pattern.toLowerCase();
     if (pattern.trim().length() == 0) {
-      return new Pair<String, Query>(pattern, new MatchAllDocsQuery());
+      return new Pair<>(pattern, new MatchAllDocsQuery());
     }
 
     List<String> parts = StringUtil.split(pattern, ".");
@@ -56,7 +62,7 @@ public class MavenClassSearcher extends MavenSearcher<MavenClassSearchResult> {
     pattern = newPattern.toString();
     String queryPattern = "*/" + pattern.replaceAll("\\.", "/");
 
-    return new Pair<String, Query>(pattern, new WildcardQuery(new Term(TERM, queryPattern)));
+    return new Pair<>(pattern, new WildcardQuery(new Term(TERM, queryPattern)));
   }
 
   protected Collection<MavenClassSearchResult> processResults(Set<MavenArtifactInfo> infos, String pattern, int maxResult) {
@@ -86,7 +92,7 @@ public class MavenClassSearcher extends MavenSearcher<MavenClassSearchResult> {
       return Collections.emptyList();
     }
 
-    Map<String, MavenClassSearchResult> result = new THashMap<String, MavenClassSearchResult>();
+    Map<String, MavenClassSearchResult> result = new THashMap<>();
     for (MavenArtifactInfo each : infos) {
       if (each.getClassNames() == null) continue;
 
@@ -94,40 +100,43 @@ public class MavenClassSearcher extends MavenSearcher<MavenClassSearchResult> {
       while (matcher.find()) {
         String classFQName = matcher.group(1);
         classFQName = classFQName.replace("/", ".");
-        if (classFQName.startsWith(".")) classFQName = classFQName.substring(1);
+        classFQName = StringUtil.trimStart(classFQName, ".");
 
-        String key = makeKey(classFQName, each);
+        String key = classFQName;
 
         MavenClassSearchResult classResult = result.get(key);
         if (classResult == null) {
-          classResult = new MavenClassSearchResult();
+
           int pos = classFQName.lastIndexOf(".");
+          MavenRepositoryArtifactInfo artifactInfo = new MavenRepositoryArtifactInfo(
+            each.getGroupId(), each.getArtifactId(),
+            Collections.singletonList(each.getVersion()));
           if (pos == -1) {
-            classResult.packageName = "default package";
-            classResult.className = classFQName;
+            result.put(key, new MavenClassSearchResult(artifactInfo, classFQName, "default package"));
           }
           else {
-            classResult.packageName = classFQName.substring(0, pos);
-            classResult.className = classFQName.substring(pos + 1);
+            result.put(key, new MavenClassSearchResult(artifactInfo, classFQName.substring(pos + 1), classFQName.substring(0, pos)));
           }
-          result.put(key, classResult);
+        }
+        else {
+          List<String> versions = ContainerUtil.map(classResult.getSearchResults().getItems(), i -> i.getVersion());
+          versions.add(each.getVersion());
+          MavenRepositoryArtifactInfo artifactInfo = new MavenRepositoryArtifactInfo(
+            each.getGroupId(), each.getArtifactId(),
+            versions);
+          result.put(key, new MavenClassSearchResult(artifactInfo, classResult.getClassName(), classResult.getPackageName()));
         }
 
-        classResult.versions.add(each);
 
         if (result.size() > maxResult) break;
       }
     }
 
+    result.values().forEach(a ->
+                              Arrays.sort(a.getSearchResults().getItems(),
+                                          Comparator.comparing(MavenDependencyCompletionItem::getVersion, VersionComparatorUtil.COMPARATOR)
+                                            .reversed())
+    );
     return result.values();
-  }
-
-  @Override
-  protected String makeSortKey(MavenClassSearchResult result) {
-    return makeKey(result.className, result.versions.get(0));
-  }
-
-  private String makeKey(String className, MavenArtifactInfo info) {
-    return className + " " + super.makeKey(info);
   }
 }

@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.components;
 
 import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.util.Pair;
 import com.intellij.ui.JBCardLayout;
+import org.jetbrains.annotations.NonNls;
 
 import java.awt.*;
 import java.util.ArrayList;
@@ -26,7 +13,7 @@ import java.util.ArrayList;
  * @author Konstantin Bulenkov
  */
 public class JBSlidingPanel extends JBPanel {
-  private final ArrayList<Pair<String,Component>> mySlides = new ArrayList<Pair<String, Component>>();
+  private final ArrayList<Pair<String, Component>> mySlides = new ArrayList<>();
   private int mySelectedIndex = -1;
 
   public JBSlidingPanel() {
@@ -39,7 +26,7 @@ public class JBSlidingPanel extends JBPanel {
   }
 
   @Override
-  public Component add(String name, Component comp) {
+  public Component add(@NonNls String name, Component comp) {
     mySlides.add(Pair.create(name, comp));
     if (mySelectedIndex == -1) {
       mySelectedIndex = 0;
@@ -57,12 +44,7 @@ public class JBSlidingPanel extends JBPanel {
 
   public ActionCallback swipe(String id, JBCardLayout.SwipeDirection direction) {
     final ActionCallback done = new ActionCallback();
-    getLayout().swipe(this, id, direction, new Runnable() {
-      @Override
-      public void run() {
-        done.setDone();
-      }
-    });
+    getLayout().swipe(this, id, direction, () -> done.setDone());
     return done;
   }
 
@@ -76,33 +58,40 @@ public class JBSlidingPanel extends JBPanel {
 
   private ActionCallback applySlide(JBCardLayout.SwipeDirection direction) {
     final ActionCallback callback = new ActionCallback();
-    getLayout().swipe(this, mySlides.get(mySelectedIndex).first, direction, new Runnable() {
-      @Override
-      public void run() {
-        callback.setDone();
-      }
-    });
+    getLayout().swipe(this, mySlides.get(mySelectedIndex).first, direction, () -> callback.setDone());
     return callback;
   }
 
+  /**
+   * @deprecated MUST use {@link #add(String, Component)}
+   */
   @Override
   @Deprecated
   public Component add(Component comp) {
     throw new AddMethodIsNotSupportedException();
   }
 
+  /**
+   * @deprecated MUST use {@link #add(String, Component)}
+   */
   @Override
   @Deprecated
   public Component add(Component comp, int index) {
     throw new AddMethodIsNotSupportedException();
   }
 
+  /**
+   * @deprecated MUST use {@link #add(String, Component)}
+   */
   @Override
   @Deprecated
   public void add(Component comp, Object constraints) {
     throw new AddMethodIsNotSupportedException();
   }
 
+  /**
+   * @deprecated MUST use {@link #add(String, Component)}
+   */
   @Override
   @Deprecated
   public void add(Component comp, Object constraints, int index) {
@@ -110,7 +99,7 @@ public class JBSlidingPanel extends JBPanel {
   }
 
   private static class AddMethodIsNotSupportedException extends RuntimeException {
-    public AddMethodIsNotSupportedException() {
+    AddMethodIsNotSupportedException() {
       super("Use add(String, Component) method");
     }
   }

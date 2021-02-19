@@ -1,24 +1,7 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.io;
 
+import com.intellij.util.SystemProperties;
 import com.intellij.util.containers.hash.LinkedHashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -36,7 +19,7 @@ public class PagePool {
 
   private int finalizationId = 0;
 
-  private final TreeMap<PoolPageKey, FinalizationRequest> myFinalizationQueue = new TreeMap<PoolPageKey, FinalizationRequest>();
+  private final TreeMap<PoolPageKey, FinalizationRequest> myFinalizationQueue = new TreeMap<>();
 
   private final Object lock = new Object();
   private final Object finalizationMonitor = new Object();
@@ -45,7 +28,7 @@ public class PagePool {
   private PoolPageKey lastFinalizedKey = null;
 
   public PagePool(final int protectedPagesLimit, final int probationalPagesLimit) {
-    myProbationalQueue = new LinkedHashMap<PoolPageKey,Page>(probationalPagesLimit * 2, 0.6f, true) {
+    myProbationalQueue = new LinkedHashMap<PoolPageKey,Page>(probationalPagesLimit * 2, 1, true) {
       @Override
       protected boolean removeEldestEntry(final Map.Entry<PoolPageKey, Page> eldest) {
         if (size() > probationalPagesLimit) {
@@ -56,7 +39,7 @@ public class PagePool {
       }
     };
 
-    myProtectedQueue = new LinkedHashMap<PoolPageKey, Page>(protectedPagesLimit, 0.6f, true) {
+    myProtectedQueue = new LinkedHashMap<PoolPageKey, Page>(protectedPagesLimit, 1, true) {
       @Override
       protected boolean removeEldestEntry(final Map.Entry<PoolPageKey, Page> eldest) {
         if (size() > protectedPagesLimit) {
@@ -75,7 +58,10 @@ public class PagePool {
   @SuppressWarnings({"FieldAccessedSynchronizedAndUnsynchronized"}) private static int probational_queue_hits = 0;
   @SuppressWarnings({"FieldAccessedSynchronizedAndUnsynchronized"}) private static int finalization_queue_hits = 0;
 
-  public static final PagePool SHARED = new PagePool(500, 500);
+  public static final PagePool SHARED = new PagePool(
+    SystemProperties.getIntProperty("idea.io.protected.pool.size", 256), // 256 * 8 = 2M
+    SystemProperties.getIntProperty("idea.io.probatonal.pool.size", 256)
+  );
 
   private RandomAccessDataFile lastOwner = null;
   private long lastOffset = 0;
@@ -136,7 +122,7 @@ public class PagePool {
   }
 
   //private long lastFlushTime = 0;
-  
+
   private static double percent(int part, int whole) {
     return ((double)part * 1000 / whole) / 10;
   }
@@ -172,10 +158,7 @@ public class PagePool {
   }
 
   /**
-   *
-   * @param owner
-   * @param maxPagesToFlush
-   * @return true if all the dirty pages where flushed.
+   * @return {@code true} if all the dirty pages where flushed.
    */
   public boolean flushPages(final RandomAccessDataFile owner, final int maxPagesToFlush) {
     boolean hasFlushes;
@@ -281,7 +264,7 @@ public class PagePool {
           PoolPageKey kk = new PoolPageKey(k.getOwner(), k.getOwner().physicalLength());
 
           SortedMap<PoolPageKey, FinalizationRequest> tail = myFinalizationQueue.tailMap(kk);
-          if (tail == null || tail.isEmpty()) {
+          if (tail.isEmpty()) {
             tail = myFinalizationQueue.tailMap(k);
           }
           key = tail.isEmpty() ? myFinalizationQueue.firstKey() : tail.firstKey();

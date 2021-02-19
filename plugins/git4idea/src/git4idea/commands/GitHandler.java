@@ -1,66 +1,40 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.commands;
 
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
-import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.ProcessEventListener;
 import com.intellij.openapi.vcs.VcsException;
-import com.intellij.openapi.vfs.CharsetToolkit;
-import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.EnvironmentUtil;
 import com.intellij.util.EventDispatcher;
-import com.intellij.util.ObjectUtils;
-import com.intellij.util.Processor;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.io.URLUtil;
-import com.intellij.util.net.HttpConfigurable;
-import com.intellij.util.net.IdeaWideProxySelector;
+import com.intellij.util.ThrowableConsumer;
+import com.intellij.vcs.VcsLocaleHelper;
 import com.intellij.vcsUtil.VcsFileUtil;
-import git4idea.GitVcs;
-import git4idea.config.GitVcsApplicationSettings;
-import git4idea.config.GitVcsSettings;
+import git4idea.config.GitExecutable;
+import git4idea.config.GitExecutableManager;
 import git4idea.config.GitVersionSpecialty;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.git4idea.http.GitAskPassXmlRpcHandler;
-import org.jetbrains.git4idea.ssh.GitSSHHandler;
-import org.jetbrains.git4idea.ssh.GitXmlRpcSshService;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.concurrent.LinkedBlockingQueue;
-
-import static java.util.Collections.singletonList;
 
 /**
  * A handler for git commands
@@ -69,83 +43,48 @@ public abstract class GitHandler {
 
   protected static final Logger LOG = Logger.getInstance(GitHandler.class);
   protected static final Logger OUTPUT_LOG = Logger.getInstance("#output." + GitHandler.class.getName());
+  private static final Logger TIME_LOG = Logger.getInstance("#time." + GitHandler.class.getName());
 
-  protected final Project myProject;
-  protected final GitCommand myCommand;
+  private final Project myProject;
+  @NotNull protected final GitExecutable myExecutable;
+  private final GitCommand myCommand;
 
-  private final HashSet<Integer> myIgnoredErrorCodes = new HashSet<Integer>(); // Error codes that are ignored for the handler
-  private final List<VcsException> myErrors = Collections.synchronizedList(new ArrayList<VcsException>());
-  private final List<String> myLastOutput = Collections.synchronizedList(new ArrayList<String>());
-  private final int LAST_OUTPUT_SIZE = 5;
-  final GeneralCommandLine myCommandLine;
-  @SuppressWarnings({"FieldAccessedSynchronizedAndUnsynchronized"})
-  Process myProcess;
+  private boolean myPreValidateExecutable = true;
+
+  protected final GeneralCommandLine myCommandLine;
+  private final Map<String, String> myCustomEnv = new HashMap<>();
+  protected Process myProcess;
 
   private boolean myStdoutSuppressed; // If true, the standard output is not copied to version control console
   private boolean myStderrSuppressed; // If true, the standard error is not copied to version control console
-  private final File myWorkingDirectory;
 
-  private boolean myEnvironmentCleanedUp = true; // the flag indicating that environment has been cleaned up, by default is true because there is nothing to clean
-  private int mySshHandler = -1;
-  private int myHttpHandler = -1;
-  private Processor<OutputStream> myInputProcessor; // The processor for stdin
-
-  // if true process might be cancelled
-  // note that access is safe because it accessed in unsynchronized block only after process is started, and it does not change after that
-  @SuppressWarnings({"FieldAccessedSynchronizedAndUnsynchronized"})
-  private boolean myIsCancellable = true;
-
-  private Integer myExitCode; // exit code or null if exit code is not yet available
-
-  @SuppressWarnings({"FieldAccessedSynchronizedAndUnsynchronized"})
-  @NonNls
-  @NotNull
-  private Charset myCharset = CharsetToolkit.UTF8_CHARSET; // Character set to use for IO
+  @Nullable private ThrowableConsumer<? super OutputStream, IOException> myInputProcessor; // The processor for stdin
 
   private final EventDispatcher<ProcessEventListener> myListeners = EventDispatcher.create(ProcessEventListener.class);
-  @SuppressWarnings({"FieldAccessedSynchronizedAndUnsynchronized"})
   protected boolean mySilent; // if true, the command execution is not logged in version control view
 
-  protected final GitVcs myVcs;
-  private final Map<String, String> myEnv;
-  private GitVcsApplicationSettings myAppSettings;
-  private GitVcsSettings myProjectSettings;
-
-  private Runnable mySuspendAction; // Suspend action used by {@link #suspendWriteLock()}
-  private Runnable myResumeAction; // Resume action used by {@link #resumeWriteLock()}
+  private boolean myWithLowPriority;
+  private boolean myWithNoTty;
 
   private long myStartTime; // git execution start timestamp
   private static final long LONG_TIME = 10 * 1000;
-  @Nullable private Collection<String> myUrls;
-  private boolean myHttpAuthFailed;
-
 
   /**
    * A constructor
    *
    * @param project   a project
    * @param directory a process directory
-   * @param command   a command to execute (if empty string, the parameter is ignored)
+   * @param command   a command to execute
    */
-  protected GitHandler(@NotNull Project project, @NotNull File directory, @NotNull GitCommand command) {
-    myProject = project;
-    myCommand = command;
-    myAppSettings = GitVcsApplicationSettings.getInstance();
-    myProjectSettings = GitVcsSettings.getInstance(myProject);
-    myEnv = new HashMap<String, String>(EnvironmentUtil.getEnvironmentMap());
-    myVcs = ObjectUtils.assertNotNull(GitVcs.getInstance(project));
-    myWorkingDirectory = directory;
-    myCommandLine = new GeneralCommandLine();
-    if (myAppSettings != null) {
-      myCommandLine.setExePath(myAppSettings.getPathToGit());
-    }
-    myCommandLine.setWorkDirectory(myWorkingDirectory);
-    if (GitVersionSpecialty.CAN_OVERRIDE_GIT_CONFIG_FOR_COMMAND.existsIn(myVcs.getVersion())) {
-      myCommandLine.addParameters("-c", "core.quotepath=false");
-    }
-    myCommandLine.addParameter(command.name());
-    myStdoutSuppressed = true;
-    mySilent = myCommand.lockingPolicy() == GitCommand.LockingPolicy.READ;
+  protected GitHandler(@Nullable Project project,
+                       @NotNull File directory,
+                       @NotNull GitCommand command,
+                       @NotNull List<String> configParameters) {
+    this(project,
+         directory,
+         GitExecutableManager.getInstance().getExecutable(project),
+         command,
+         configParameters);
   }
 
   /**
@@ -155,110 +94,146 @@ public abstract class GitHandler {
    * @param vcsRoot a process directory
    * @param command a command to execute
    */
-  protected GitHandler(final Project project, final VirtualFile vcsRoot, final GitCommand command) {
-    this(project, VfsUtil.virtualToIoFile(vcsRoot), command);
+  protected GitHandler(@NotNull Project project,
+                       @NotNull VirtualFile vcsRoot,
+                       @NotNull GitCommand command,
+                       @NotNull List<String> configParameters) {
+    this(project, VfsUtil.virtualToIoFile(vcsRoot), command, configParameters);
   }
 
   /**
-   * @return multicaster for listeners
+   * A constructor for handler that can be run without project association.
+   *
+   * @param project          optional project
+   * @param directory        working directory
+   * @param executable       git executable
+   * @param command          git command to execute
+   * @param configParameters list of config parameters to use for this git execution
    */
+  protected GitHandler(@Nullable Project project,
+                       @NotNull File directory,
+                       @NotNull GitExecutable executable,
+                       @NotNull GitCommand command,
+                       @NotNull List<String> configParameters) {
+    myProject = project;
+    myExecutable = executable;
+    myCommand = command;
+
+    myCommandLine = new GeneralCommandLine()
+      .withWorkDirectory(directory)
+      .withExePath(executable.getExePath())
+      .withCharset(StandardCharsets.UTF_8);
+
+    for (String parameter : getConfigParameters(project, configParameters)) {
+      myCommandLine.addParameters("-c", parameter);
+    }
+    myCommandLine.addParameter(command.name());
+
+    myStdoutSuppressed = true;
+    mySilent = myCommand.lockingPolicy() != GitCommand.LockingPolicy.WRITE;
+  }
+
+  @NotNull
+  private static List<@NonNls String> getConfigParameters(@Nullable Project project,
+                                                          @NotNull List<@NonNls String> requestedConfigParameters) {
+    if (project == null || !GitVersionSpecialty.CAN_OVERRIDE_GIT_CONFIG_FOR_COMMAND.existsIn(project)) {
+      return Collections.emptyList();
+    }
+
+    List<@NonNls String> toPass = new ArrayList<>();
+    toPass.add("core.quotepath=false");
+    toPass.add("log.showSignature=false");
+    toPass.addAll(requestedConfigParameters);
+    return toPass;
+  }
+
+  @NotNull
   protected ProcessEventListener listeners() {
     return myListeners.getMulticaster();
   }
 
-  /**
-   * Add error code to ignored list
-   *
-   * @param code the code to ignore
-   */
-  public void ignoreErrorCode(int code) {
-    myIgnoredErrorCodes.add(code);
-  }
-
-  /**
-   * Check if error code should be ignored
-   *
-   * @param code a code to check
-   * @return true if error code is ignorable
-   */
-  public boolean isIgnoredErrorCode(int code) {
-    return myIgnoredErrorCodes.contains(code);
-  }
-
-
-  /**
-   * add error to the error list
-   *
-   * @param ex an error to add to the list
-   */
-  public void addError(VcsException ex) {
-    myErrors.add(ex);
-  }
-
-  public void addLastOutput(String line) {
-    if (myLastOutput.size() < LAST_OUTPUT_SIZE) {
-      myLastOutput.add(line);
-    } else {
-      myLastOutput.add(0, line);
-      Collections.rotate(myLastOutput, -1);
-    }
-  }
-
-  public List<String> getLastOutput() {
-    return myLastOutput;
-  }
-
-  /**
-   * @return unmodifiable list of errors.
-   */
-  public List<VcsException> errors() {
-    return Collections.unmodifiableList(myErrors);
-  }
-
-  /**
-   * @return a context project
-   */
+  @Nullable
   public Project project() {
     return myProject;
   }
 
-  /**
-   * @return the current working directory
-   */
-  public File workingDirectory() {
-    return myWorkingDirectory;
+  @NotNull
+  File getWorkingDirectory() {
+    return myCommandLine.getWorkDirectory();
   }
 
-  /**
-   * @return the current working directory
-   */
-  public VirtualFile workingDirectoryFile() {
-    final VirtualFile file = LocalFileSystem.getInstance().findFileByIoFile(workingDirectory());
-    if (file == null) {
-      throw new IllegalStateException("The working directly should be available: " + workingDirectory());
-    }
-    return file;
+  @NotNull
+  public GitExecutable getExecutable() {
+    return myExecutable;
   }
 
-  public void setUrl(@NotNull String url) {
-    setUrls(singletonList(url));
+  @NotNull
+  GitCommand getCommand() {
+    return myCommand;
   }
 
-  public void setUrls(@NotNull Collection<String> urls) {
-    myUrls = urls;
-  }
-
-  protected boolean isRemote() {
-    return myUrls != null;
-  }
-
-  /**
-   * Add listener to handler
-   *
-   * @param listener a listener
-   */
-  protected void addListener(ProcessEventListener listener) {
+  protected void addListener(@NotNull ProcessEventListener listener) {
     myListeners.addListener(listener);
+  }
+
+  /**
+   * Execute process with lower priority
+   */
+  public void withLowPriority() {
+    myWithLowPriority = true;
+  }
+
+  /**
+   * Detach git process from IDE TTY session
+   */
+  public void withNoTty() {
+    myWithNoTty = true;
+  }
+
+  public void addParameters(@NonNls String @NotNull ... parameters) {
+    addParameters(Arrays.asList(parameters));
+  }
+
+  public void addParameters(@NotNull List<@NonNls String> parameters) {
+    for (String parameter : parameters) {
+      myCommandLine.addParameter(escapeParameterIfNeeded(parameter));
+    }
+  }
+
+  @NotNull
+  private String escapeParameterIfNeeded(@NotNull @NonNls String parameter) {
+    if (escapeNeeded(parameter)) {
+      return parameter.replaceAll("\\^", "^^^^");
+    }
+    return parameter;
+  }
+
+  private boolean escapeNeeded(@NotNull @NonNls String parameter) {
+    return SystemInfo.isWindows && isCmd() && parameter.contains("^");
+  }
+
+  private boolean isCmd() {
+    return StringUtil.toLowerCase(myCommandLine.getExePath()).endsWith("cmd"); //NON-NLS
+  }
+
+  public void addRelativePaths(FilePath @NotNull ... parameters) {
+    addRelativePaths(Arrays.asList(parameters));
+  }
+
+  public void addRelativePaths(@NotNull Collection<? extends FilePath> filePaths) {
+    for (FilePath path : filePaths) {
+      myCommandLine.addParameter(VcsFileUtil.relativePath(getWorkingDirectory(), path));
+    }
+  }
+
+  public void addRelativeFiles(@NotNull final Collection<? extends VirtualFile> files) {
+    for (VirtualFile file : files) {
+      myCommandLine.addParameter(VcsFileUtil.relativePath(getWorkingDirectory(), file));
+    }
+  }
+
+  public void addAbsoluteFile(@NotNull File file) {
+    myCommandLine.addParameter(myExecutable.convertFilePath(file));
   }
 
   /**
@@ -268,42 +243,23 @@ public abstract class GitHandler {
     myCommandLine.addParameter("--");
   }
 
-  /**
-   * Add string parameters
-   *
-   * @param parameters a parameters to add
-   */
-  @SuppressWarnings({"WeakerAccess"})
-  public void addParameters(@NonNls @NotNull String... parameters) {
-    addParameters(Arrays.asList(parameters));
+  private boolean isStarted() {
+    return myProcess != null;
   }
 
   /**
-   * Add parameters from the list
-   *
-   * @param parameters the parameters to add
+   * @return true if the command line is too big
    */
-  public void addParameters(List<String> parameters) {
-    checkNotStarted();
-    for (String parameter : parameters) {
-      myCommandLine.addParameter(escapeParameterIfNeeded(parameter));
-    }
+  public boolean isLargeCommandLine() {
+    return myCommandLine.getCommandLineString().length() > VcsFileUtil.FILE_PATH_LIMIT;
   }
 
-  @NotNull
-  private String escapeParameterIfNeeded(@NotNull String parameter) {
-    if (escapeNeeded(parameter)) {
-      return parameter.replaceAll("\\^", "^^^^");
-    }
-    return parameter;
-  }
-
-  private boolean escapeNeeded(@NotNull String parameter) {
-    return SystemInfo.isWindows && isCmd() && parameter.contains("^");
-  }
-
-  private boolean isCmd() {
-    return myAppSettings.getPathToGit().toLowerCase().endsWith("cmd");
+  /**
+   * @return a command line with full path to executable replace to "git"
+   */
+  @NlsSafe
+  public String printableCommandLine() {
+    return unescapeCommandLine(myCommandLine.getCommandLineString("git")); //NON-NLS
   }
 
   @NotNull
@@ -314,242 +270,185 @@ public abstract class GitHandler {
     return commandLine;
   }
 
-  /**
-   * Add file path parameters. The parameters are made relative to the working directory
-   *
-   * @param parameters a parameters to add
-   * @throws IllegalArgumentException if some path is not under root.
-   */
-  public void addRelativePaths(@NotNull FilePath... parameters) {
-    addRelativePaths(Arrays.asList(parameters));
+  @NotNull
+  public Charset getCharset() {
+    return myCommandLine.getCharset();
+  }
+
+  public void setCharset(@NotNull Charset charset) {
+    myCommandLine.setCharset(charset);
   }
 
   /**
-   * Add file path parameters. The parameters are made relative to the working directory
+   * Set silent mode. When handler is silent, it does not logs command in version control console.
+   * Note that this option also suppresses stderr and stdout copying.
    *
-   * @param filePaths a parameters to add
-   * @throws IllegalArgumentException if some path is not under root.
+   * @param silent a new value of the flag
+   * @see #setStderrSuppressed(boolean)
+   * @see #setStdoutSuppressed(boolean)
    */
-  @SuppressWarnings({"WeakerAccess"})
-  public void addRelativePaths(@NotNull final Collection<FilePath> filePaths) {
-    checkNotStarted();
-    for (FilePath path : filePaths) {
-      myCommandLine.addParameter(VcsFileUtil.relativePath(myWorkingDirectory, path));
+  public void setSilent(boolean silent) {
+    mySilent = silent;
+    if (silent) {
+      setStderrSuppressed(true);
+      setStdoutSuppressed(true);
     }
   }
 
-  /**
-   * Add file path parameters. The parameters are made relative to the working directory
-   *
-   * @param files a parameters to add
-   * @throws IllegalArgumentException if some path is not under root.
-   */
-  public void addRelativePathsForFiles(@NotNull final Collection<File> files) {
-    checkNotStarted();
-    for (File file : files) {
-      myCommandLine.addParameter(VcsFileUtil.relativePath(myWorkingDirectory, file));
-    }
+  boolean isSilent() {
+    return mySilent;
   }
 
   /**
-   * Add virtual file parameters. The parameters are made relative to the working directory
-   *
-   * @param files a parameters to add
-   * @throws IllegalArgumentException if some path is not under root.
+   * @return true if standard output is not copied to the console
    */
-  @SuppressWarnings({"WeakerAccess"})
-  public void addRelativeFiles(@NotNull final Collection<VirtualFile> files) {
-    checkNotStarted();
-    for (VirtualFile file : files) {
-      myCommandLine.addParameter(VcsFileUtil.relativePath(myWorkingDirectory, file));
-    }
+  boolean isStdoutSuppressed() {
+    return myStdoutSuppressed;
   }
 
   /**
-   * Adds "--progress" parameter. Usable for long operations, such as clone or fetch.
-   * @return is "--progress" parameter supported by this version of Git.
+   * Set flag specifying if stdout should be copied to the console
+   *
+   * @param stdoutSuppressed true if output is not copied to the console
    */
-  public boolean addProgressParameter() {
-    if (GitVersionSpecialty.ABLE_TO_USE_PROGRESS_IN_REMOTE_COMMANDS.existsIn(myVcs.getVersion())) {
-      addParameters("--progress");
-      return true;
-    }
-    return false;
+  public void setStdoutSuppressed(final boolean stdoutSuppressed) {
+    myStdoutSuppressed = stdoutSuppressed;
   }
 
   /**
-   * check that process is not started yet
-   *
-   * @throws IllegalStateException if process has been already started
+   * @return true if standard output is not copied to the console
    */
-  private void checkNotStarted() {
+  boolean isStderrSuppressed() {
+    return myStderrSuppressed;
+  }
+
+  /**
+   * Set flag specifying if stderr should be copied to the console
+   *
+   * @param stderrSuppressed true if error output is not copied to the console
+   */
+  public void setStderrSuppressed(boolean stderrSuppressed) {
+    myStderrSuppressed = stderrSuppressed;
+  }
+
+  /**
+   * Set processor for standard input. This is a place where input to the git application could be generated.
+   *
+   * @param inputProcessor the processor
+   */
+  public void setInputProcessor(@Nullable ThrowableConsumer<? super OutputStream, IOException> inputProcessor) {
+    myInputProcessor = inputProcessor;
+  }
+
+  /**
+   * Add environment variable to this handler
+   *
+   * @param name  the variable name
+   * @param value the variable value
+   */
+  public void addCustomEnvironmentVariable(@NotNull @NonNls String name, @Nullable @NonNls String value) {
+    myCustomEnv.put(name, value);
+  }
+
+  public void addCustomEnvironmentVariable(@NotNull @NonNls String name, @NotNull File file) {
+    myCustomEnv.put(name, myExecutable.convertFilePath(file));
+  }
+
+  public boolean containsCustomEnvironmentVariable(@NotNull @NonNls String key) {
+    return myCustomEnv.containsKey(key);
+  }
+
+  /**
+   * See {@link GitImplBase#run(Computable, Computable)}
+   */
+  public void setPreValidateExecutable(boolean preValidateExecutable) {
+    myPreValidateExecutable = preValidateExecutable;
+  }
+
+  /**
+   * See {@link GitImplBase#run(Computable, Computable)}
+   */
+  boolean isPreValidateExecutable() {
+    return myPreValidateExecutable;
+  }
+
+  void runInCurrentThread() throws IOException {
+    try {
+      start();
+      if (isStarted()) {
+        try {
+          if (myInputProcessor != null) {
+            myInputProcessor.consume(myProcess.getOutputStream());
+          }
+        }
+        finally {
+          waitForProcess();
+        }
+      }
+    }
+    finally {
+      logTime();
+    }
+  }
+
+  private void logTime() {
+    if (myStartTime > 0) {
+      long time = System.currentTimeMillis() - myStartTime;
+      if (!TIME_LOG.isDebugEnabled() && time > LONG_TIME) {
+        LOG.info(String.format("git %s took %s ms. Command parameters: %n%s", myCommand, time, myCommandLine.getCommandLineString()));
+      }
+      else {
+        TIME_LOG.debug(String.format("git %s took %s ms", myCommand, time));
+      }
+    }
+    else {
+      LOG.debug(String.format("git %s finished.", myCommand));
+    }
+  }
+
+  private void start() {
     if (isStarted()) {
       throw new IllegalStateException("The process has been already started");
     }
-  }
-
-  /**
-   * check that process is started
-   *
-   * @throws IllegalStateException if process has not been started
-   */
-  protected final void checkStarted() {
-    if (!isStarted()) {
-      throw new IllegalStateException("The process is not started yet");
-    }
-  }
-
-  /**
-   * @return true if process is started
-   */
-  public final synchronized boolean isStarted() {
-    return myProcess != null;
-  }
-
-
-  /**
-   * Set new value of cancellable flag (by default true)
-   *
-   * @param value a new value of the flag
-   */
-  public void setCancellable(boolean value) {
-    checkNotStarted();
-    myIsCancellable = value;
-  }
-
-  /**
-   * @return cancellable state
-   */
-  public boolean isCancellable() {
-    return myIsCancellable;
-  }
-
-  /**
-   * Start process
-   */
-  public synchronized void start() {
-    checkNotStarted();
 
     try {
       myStartTime = System.currentTimeMillis();
-      if (!myProject.isDefault() && !mySilent && (myVcs != null)) {
-        myVcs.showCommandLine("cd " + myWorkingDirectory);
-        myVcs.showCommandLine(printableCommandLine());
-        LOG.info("cd " + myWorkingDirectory);
-        LOG.info(printableCommandLine());
+      String logDirectoryPath = myProject != null
+                                ? GitImplBase.stringifyWorkingDir(myProject.getBasePath(), myCommandLine.getWorkDirectory())
+                                : myCommandLine.getWorkDirectory().getPath();
+      if (!mySilent) {
+        LOG.info("[" + logDirectoryPath + "] " + printableCommandLine());
       }
       else {
-        LOG.debug("cd " + myWorkingDirectory);
-        LOG.debug("[" + myWorkingDirectory.getName() + "] " + printableCommandLine());
+        LOG.debug("[" + logDirectoryPath + "] " + printableCommandLine());
       }
 
-      // setup environment
-      if (isRemote()) {
-        setupHttpAuthenticator();
-        if (myProjectSettings.isIdeaSsh()) {
-          setupSshAuthenticator();
-        }
-      }
-      myCommandLine.getEnvironment().clear();
-      myCommandLine.getEnvironment().putAll(myEnv);
+      prepareEnvironment();
+      myExecutable.patchCommandLine(this, myCommandLine, myWithLowPriority, myWithNoTty);
+
       // start process
       myProcess = startProcess();
       startHandlingStreams();
     }
     catch (ProcessCanceledException pce) {
-      cleanupEnv();
+      throw pce;
     }
     catch (Throwable t) {
-      if (!ApplicationManager.getApplication().isUnitTestMode() || !myProject.isDisposed()) {
-        LOG.error(t); // will surely happen if called during unit test disposal, because the working dir is simply removed then
+      if (!ApplicationManager.getApplication().isUnitTestMode()) {
+        LOG.warn(t); // will surely happen if called during unit test disposal, because the working dir is simply removed then
       }
-      cleanupEnv();
       myListeners.getMulticaster().startFailed(t);
     }
   }
 
-  private void setupHttpAuthenticator() throws IOException {
-    GitHttpAuthService service = ServiceManager.getService(GitHttpAuthService.class);
-    myEnv.put(GitAskPassXmlRpcHandler.GIT_ASK_PASS_ENV, service.getScriptPath().getPath());
-    GitHttpAuthenticator httpAuthenticator = service.createAuthenticator(myProject, myCommand, ObjectUtils.assertNotNull(myUrls));
-    myHttpHandler = service.registerHandler(httpAuthenticator);
-    myEnvironmentCleanedUp = false;
-    myEnv.put(GitAskPassXmlRpcHandler.GIT_ASK_PASS_HANDLER_ENV, Integer.toString(myHttpHandler));
-    int port = service.getXmlRcpPort();
-    myEnv.put(GitAskPassXmlRpcHandler.GIT_ASK_PASS_PORT_ENV, Integer.toString(port));
-    LOG.debug(String.format("handler=%s, port=%s", myHttpHandler, port));
-    addAuthListener(httpAuthenticator);
-  }
-
-  private void setupSshAuthenticator() throws IOException {
-    GitXmlRpcSshService ssh = ServiceManager.getService(GitXmlRpcSshService.class);
-    myEnv.put(GitSSHHandler.GIT_SSH_ENV, ssh.getScriptPath().getPath());
-    mySshHandler = ssh.registerHandler(new GitSSHGUIHandler(myProject));
-    myEnvironmentCleanedUp = false;
-    myEnv.put(GitSSHHandler.SSH_HANDLER_ENV, Integer.toString(mySshHandler));
-    int port = ssh.getXmlRcpPort();
-    myEnv.put(GitSSHHandler.SSH_PORT_ENV, Integer.toString(port));
-    LOG.debug(String.format("handler=%s, port=%s", mySshHandler, port));
-
-    final HttpConfigurable httpConfigurable = HttpConfigurable.getInstance();
-    boolean useHttpProxy = httpConfigurable.USE_HTTP_PROXY && !isSshUrlExcluded(httpConfigurable, ObjectUtils.assertNotNull(myUrls));
-    myEnv.put(GitSSHHandler.SSH_USE_PROXY_ENV, String.valueOf(useHttpProxy));
-
-    if (useHttpProxy) {
-      myEnv.put(GitSSHHandler.SSH_PROXY_HOST_ENV, StringUtil.notNullize(httpConfigurable.PROXY_HOST));
-      myEnv.put(GitSSHHandler.SSH_PROXY_PORT_ENV, String.valueOf(httpConfigurable.PROXY_PORT));
-      boolean proxyAuthentication = httpConfigurable.PROXY_AUTHENTICATION;
-      myEnv.put(GitSSHHandler.SSH_PROXY_AUTHENTICATION_ENV, String.valueOf(proxyAuthentication));
-
-      if (proxyAuthentication) {
-        myEnv.put(GitSSHHandler.SSH_PROXY_USER_ENV, StringUtil.notNullize(httpConfigurable.PROXY_LOGIN));
-        myEnv.put(GitSSHHandler.SSH_PROXY_PASSWORD_ENV, StringUtil.notNullize(httpConfigurable.getPlainProxyPassword()));
-      }
+  private void prepareEnvironment() {
+    Map<String, String> executionEnvironment = myCommandLine.getEnvironment();
+    executionEnvironment.clear();
+    if (myExecutable.isLocal()) {
+      executionEnvironment.putAll(EnvironmentUtil.getEnvironmentMap());
     }
-  }
-
-  protected static boolean isSshUrlExcluded(@NotNull final HttpConfigurable httpConfigurable, @NotNull Collection<String> urls) {
-    return ContainerUtil.exists(urls, new Condition<String>() {
-      @Override
-      public boolean value(String url) {
-        String host = URLUtil.parseHostFromSshUrl(url);
-        return ((IdeaWideProxySelector)httpConfigurable.getOnlyBySettingsSelector()).isProxyException(host);
-      }
-    });
-  }
-
-  private void addAuthListener(@NotNull final GitHttpAuthenticator authenticator) {
-    // TODO this code should be located in GitLineHandler, and the other remote code should be move there as well
-    if (this instanceof GitLineHandler) {
-      ((GitLineHandler)this).addLineListener(new GitLineHandlerAdapter() {
-        @Override
-        public void onLineAvailable(@NonNls String line, Key outputType) {
-          String lowerCaseLine = line.toLowerCase();
-          if (lowerCaseLine.contains("authentication failed") || lowerCaseLine.contains("403 forbidden")) {
-            myHttpAuthFailed = true;
-          }
-        }
-
-        @Override
-        public void processTerminated(int exitCode) {
-          if (!authenticator.wasCancelled()) {
-            if (myHttpAuthFailed) {
-              authenticator.forgetPassword();
-            }
-            else {
-              authenticator.saveAuthData();
-            }
-          }
-          else {
-            myHttpAuthFailed = false;
-          }
-        }
-      });
-    }
-  }
-
-  public boolean hasHttpAuthFailed() {
-    return myHttpAuthFailed;
+    executionEnvironment.putAll(VcsLocaleHelper.getDefaultLocaleEnvironmentVars("git"));
+    executionEnvironment.putAll(myCustomEnv);
   }
 
   protected abstract Process startProcess() throws ExecutionException;
@@ -560,333 +459,137 @@ public abstract class GitHandler {
   protected abstract void startHandlingStreams();
 
   /**
-   * @return a command line with full path to executable replace to "git"
+   * Wait for process
    */
-  public String printableCommandLine() {
-    return unescapeCommandLine(myCommandLine.getCommandLineString("git"));
+  protected abstract void waitForProcess();
+
+  @Override
+  public String toString() {
+    return myCommandLine.toString();
   }
 
+  //region deprecated stuff
+  @Deprecated
+  private Integer myExitCode; // exit code or null if exit code is not yet available
+  @Deprecated
+  private final List<String> myLastOutput = Collections.synchronizedList(new ArrayList<>());
+  @Deprecated
+  private static final int LAST_OUTPUT_SIZE = 5;
+  @Deprecated
+  private final List<VcsException> myErrors = Collections.synchronizedList(new ArrayList<>());
+
   /**
-   * Cancel activity
+   * Adds "--progress" parameter. Usable for long operations, such as clone or fetch.
+   *
+   * @return is "--progress" parameter supported by this version of Git.
+   * @deprecated use {@link #addParameters}
    */
-  public synchronized void cancel() {
-    checkStarted();
-    if (!myIsCancellable) {
-      throw new IllegalStateException("The process is not cancellable.");
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public boolean addProgressParameter() {
+    if (myProject != null && GitVersionSpecialty.ABLE_TO_USE_PROGRESS_IN_REMOTE_COMMANDS.existsIn(myProject)) {
+      addParameters("--progress");
+      return true;
     }
-    destroyProcess();
+    return false;
   }
-
-  /**
-   * Destroy process
-   */
-  public abstract void destroyProcess();
 
   /**
    * @return exit code for process if it is available
+   * @deprecated use {@link GitLineHandler}, {@link Git#runCommand(GitLineHandler)} and {@link GitCommandResult}
    */
-  public synchronized int getExitCode() {
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public int getExitCode() {
     if (myExitCode == null) {
-      throw new IllegalStateException("Exit code is not yet available");
+      return -1;
     }
     return myExitCode.intValue();
   }
 
   /**
    * @param exitCode a exit code for process
+   * @deprecated use {@link GitLineHandler}, {@link Git#runCommand(GitLineHandler)} and {@link GitCommandResult}
    */
-  protected synchronized void setExitCode(int exitCode) {
-    myExitCode = exitCode;
+  @Deprecated
+  protected void setExitCode(int exitCode) {
+    if (myExitCode == null) {
+      myExitCode = exitCode;
+    }
+    else {
+      LOG.info("Not setting exit code " + exitCode + ", because it was already set to " + myExitCode);
+    }
   }
 
   /**
-   * Cleanup environment
+   * @deprecated only used in {@link GitTask}
    */
-  protected synchronized void cleanupEnv() {
-    if (myEnvironmentCleanedUp) {
-      return;
+  @Deprecated
+  public void addLastOutput(String line) {
+    if (myLastOutput.size() < LAST_OUTPUT_SIZE) {
+      myLastOutput.add(line);
     }
-    if (mySshHandler > 0) {
-      ServiceManager.getService(GitXmlRpcSshService.class).unregisterHandler(mySshHandler);
+    else {
+      myLastOutput.add(0, line);
+      Collections.rotate(myLastOutput, -1);
     }
-    if (myHttpHandler > 0) {
-      ServiceManager.getService(GitHttpAuthService.class).unregisterHandler(myHttpHandler);
-    }
-    myEnvironmentCleanedUp = true;
   }
 
   /**
-   * Wait for process termination
+   * @deprecated only used in {@link GitTask}
    */
-  public void waitFor() {
-    checkStarted();
+  @Deprecated
+  public List<String> getLastOutput() {
+    return myLastOutput;
+  }
+
+  /**
+   * @param postStartAction
+   * @deprecated remove together with {@link GitHandlerUtil}
+   */
+  @Deprecated
+  void runInCurrentThread(@Nullable Runnable postStartAction) {
     try {
-      if (myInputProcessor != null && myProcess != null) {
-        myInputProcessor.process(myProcess.getOutputStream());
+      start();
+      if (isStarted()) {
+        if (postStartAction != null) {
+          postStartAction.run();
+        }
+        waitForProcess();
       }
     }
     finally {
-      waitForProcess();
-    }
-  }
-
-  /**
-   * Wait for process
-   */
-  protected abstract void waitForProcess();
-
-  /**
-   * Set silent mode. When handler is silent, it does not logs command in version control console.
-   * Note that this option also suppresses stderr and stdout copying.
-   *
-   * @param silent a new value of the flag
-   * @see #setStderrSuppressed(boolean)
-   * @see #setStdoutSuppressed(boolean)
-   */
-  @SuppressWarnings({"SameParameterValue"})
-  public void setSilent(final boolean silent) {
-    checkNotStarted();
-    mySilent = silent;
-    if (silent) {
-      setStderrSuppressed(true);
-      setStdoutSuppressed(true);
-    }
-  }
-
-  /**
-   * @return a character set to use for IO
-   */
-  @NotNull
-  public Charset getCharset() {
-    return myCharset;
-  }
-
-  /**
-   * Set character set for IO
-   *
-   * @param charset a character set
-   */
-  @SuppressWarnings({"SameParameterValue"})
-  public void setCharset(@NotNull Charset charset) {
-    myCharset = charset;
-  }
-
-  /**
-   * @return true if standard output is not copied to the console
-   */
-  public boolean isStdoutSuppressed() {
-    return myStdoutSuppressed;
-  }
-
-  /**
-   * Set flag specifying if stdout should be copied to the console
-   *
-   * @param stdoutSuppressed true if output is not copied to the console
-   */
-  public void setStdoutSuppressed(final boolean stdoutSuppressed) {
-    checkNotStarted();
-    myStdoutSuppressed = stdoutSuppressed;
-  }
-
-  /**
-   * @return true if standard output is not copied to the console
-   */
-  public boolean isStderrSuppressed() {
-    return myStderrSuppressed;
-  }
-
-  /**
-   * Set flag specifying if stderr should be copied to the console
-   *
-   * @param stderrSuppressed true if error output is not copied to the console
-   */
-  public void setStderrSuppressed(final boolean stderrSuppressed) {
-    checkNotStarted();
-    myStderrSuppressed = stderrSuppressed;
-  }
-
-  /**
-   * Set environment variable
-   *
-   * @param name  the variable name
-   * @param value the variable value
-   */
-  public void setEnvironment(String name, String value) {
-    myEnv.put(name, value);
-  }
-
-  /**
-   * Set processor for standard input. This is a place where input to the git application could be generated.
-   *
-   * @param inputProcessor the processor
-   */
-  public void setInputProcessor(Processor<OutputStream> inputProcessor) {
-    myInputProcessor = inputProcessor;
-  }
-
-  /**
-   * Set suspend/resume actions
-   *
-   * @param suspend the suspend action
-   * @param resume  the resume action
-   */
-  synchronized void setSuspendResume(Runnable suspend, Runnable resume) {
-    mySuspendAction = suspend;
-    myResumeAction = resume;
-  }
-
-  /**
-   * Suspend write lock held by the handler
-   */
-  public synchronized void suspendWriteLock() {
-    assert mySuspendAction != null;
-    mySuspendAction.run();
-  }
-
-  /**
-   * Resume write lock held by the handler
-   */
-  public synchronized void resumeWriteLock() {
-    assert mySuspendAction != null;
-    myResumeAction.run();
-  }
-
-  /**
-   * @return true if the command line is too big
-   */
-  public boolean isLargeCommandLine() {
-    return myCommandLine.getCommandLineString().length() > VcsFileUtil.FILE_PATH_LIMIT;
-  }
-
-  public void runInCurrentThread(@Nullable Runnable postStartAction) {
-    //LOG.assertTrue(!ApplicationManager.getApplication().isDispatchThread(), "Git process should never start in the dispatch thread.");
-
-        final GitVcs vcs = GitVcs.getInstance(myProject);
-    if (vcs == null) { return; }
-
-    boolean suspendable = false;
-    switch (myCommand.lockingPolicy()) {
-      case READ:
-        // need to lock only write operations: reads can be performed even when a write operation is going on
-        break;
-      case WRITE_SUSPENDABLE:
-        suspendable = true;
-        //noinspection fallthrough
-      case WRITE:
-        vcs.getCommandLock().writeLock().lock();
-        break;
-    }
-    try {
-      if (suspendable) {
-        final Object EXIT = new Object();
-        final Object SUSPEND = new Object();
-        final Object RESUME = new Object();
-        final LinkedBlockingQueue<Object> queue = new LinkedBlockingQueue<Object>();
-        Runnable suspend = new Runnable() {
-          public void run() {
-            queue.add(SUSPEND);
-          }
-        };
-        Runnable resume = new Runnable() {
-          public void run() {
-            queue.add(RESUME);
-          }
-        };
-        setSuspendResume(suspend, resume);
-        start();
-        if (isStarted()) {
-          if (postStartAction != null) {
-            postStartAction.run();
-          }
-          ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
-            public void run() {
-              waitFor();
-              queue.add(EXIT);
-            }
-          });
-          boolean suspended = false;
-          while (true) {
-            Object action;
-            while (true) {
-              try {
-                action = queue.take();
-                break;
-              }
-              catch (InterruptedException e) {
-                if (LOG.isDebugEnabled()) {
-                  LOG.debug("queue.take() is interrupted", e);
-                }
-              }
-            }
-            if (action == EXIT) {
-              if (suspended) {
-                LOG.error("Exiting while RW lock is suspended (reacquiring W-lock command)");
-                vcs.getCommandLock().writeLock().lock();
-              }
-              break;
-            }
-            else if (action == SUSPEND) {
-              if (suspended) {
-                LOG.error("Suspending suspended W-lock (ignoring command)");
-              }
-              else {
-                vcs.getCommandLock().writeLock().unlock();
-                suspended = true;
-              }
-            }
-            else if (action == RESUME) {
-              if (!suspended) {
-                LOG.error("Resuming not suspended W-lock (ignoring command)");
-              }
-              else {
-                vcs.getCommandLock().writeLock().lock();
-                suspended = false;
-              }
-            }
-          }
-        }
-      }
-      else {
-        start();
-        if (isStarted()) {
-          if (postStartAction != null) {
-            postStartAction.run();
-          }
-          waitFor();
-        }
-      }
-    }
-    finally {
-      switch (myCommand.lockingPolicy()) {
-        case READ:
-          break;
-        case WRITE_SUSPENDABLE:
-        case WRITE:
-          vcs.getCommandLock().writeLock().unlock();
-          break;
-      }
-
       logTime();
     }
   }
 
-  private void logTime() {
-    if (myStartTime > 0) {
-      long time = System.currentTimeMillis() - myStartTime;
-      if (!LOG.isDebugEnabled() && time > LONG_TIME) {
-        LOG.info(String.format("git %s took %s ms. Command parameters: %n%s", myCommand, time, myCommandLine.getCommandLineString()));
-      }
-      else {
-        LOG.debug(String.format("git %s took %s ms", myCommand, time));
-      }
-    }
-    else {
-      LOG.debug(String.format("git %s finished.", myCommand));
-    }
+  /**
+   * Destroy process
+   *
+   * @deprecated only used in {@link GitTask}
+   */
+  @Deprecated
+  abstract void destroyProcess();
+
+  /**
+   * add error to the error list
+   *
+   * @param ex an error to add to the list
+   * @deprecated remove together with {@link GitHandlerUtil} and {@link GitTask}
+   */
+  @Deprecated
+  public void addError(VcsException ex) {
+    myErrors.add(ex);
   }
 
-  @Override
-  public String toString() {
-    return myCommandLine.toString();
+  /**
+   * @return unmodifiable list of errors.
+   * @deprecated remove together with {@link GitHandlerUtil} and {@link GitTask}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public List<VcsException> errors() {
+    return Collections.unmodifiableList(myErrors);
   }
+  //endregion
 }

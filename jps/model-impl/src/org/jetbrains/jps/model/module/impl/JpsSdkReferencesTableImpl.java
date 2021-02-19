@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.model.module.impl;
 
 import org.jetbrains.annotations.NotNull;
@@ -25,11 +11,12 @@ import org.jetbrains.jps.model.library.sdk.JpsSdkReference;
 import org.jetbrains.jps.model.library.sdk.JpsSdkType;
 import org.jetbrains.jps.model.module.JpsSdkReferencesTable;
 
-/**
- * @author nik
- */
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+
 public class JpsSdkReferencesTableImpl extends JpsCompositeElementBase<JpsSdkReferencesTableImpl> implements JpsSdkReferencesTable {
   public static final JpsSdkReferencesTableRole ROLE = new JpsSdkReferencesTableRole();
+  private static final ConcurrentMap<JpsSdkType, JpsSdkReferenceRole> ourReferenceRoles = new ConcurrentHashMap<>();
 
   public JpsSdkReferencesTableImpl() {
     super();
@@ -39,15 +26,14 @@ public class JpsSdkReferencesTableImpl extends JpsCompositeElementBase<JpsSdkRef
     super(original);
   }
 
-  @NotNull
   @Override
-  public JpsSdkReferencesTableImpl createCopy() {
+  public @NotNull JpsSdkReferencesTableImpl createCopy() {
     return new JpsSdkReferencesTableImpl(this);
   }
 
   @Override
   public <P extends JpsElement> void setSdkReference(@NotNull JpsSdkType<P> type, @Nullable JpsSdkReference<P> sdkReference) {
-    JpsSdkReferenceRole<P> role = new JpsSdkReferenceRole<P>(type);
+    JpsSdkReferenceRole<P> role = getSdkReferenceRole(type);
     if (sdkReference != null) {
       myContainer.setChild(role, sdkReference);
     }
@@ -58,17 +44,24 @@ public class JpsSdkReferencesTableImpl extends JpsCompositeElementBase<JpsSdkRef
 
   @Override
   public <P extends JpsElement> JpsSdkReference<P> getSdkReference(@NotNull JpsSdkType<P> type) {
-    return myContainer.getChild(new JpsSdkReferenceRole<P>(type));
+    return myContainer.getChild(getSdkReferenceRole(type));
+  }
+
+  @SuppressWarnings("unchecked")
+  private static @NotNull <P extends JpsElement> JpsSdkReferenceRole<P> getSdkReferenceRole(@NotNull JpsSdkType<P> type) {
+    JpsSdkReferenceRole<P> role = ourReferenceRoles.get(type);
+    if (role != null) return role;
+    ourReferenceRoles.putIfAbsent(type, new JpsSdkReferenceRole<>(type));
+    return ourReferenceRoles.get(type);
   }
 
   private static class JpsSdkReferencesTableRole extends JpsElementChildRoleBase<JpsSdkReferencesTable> implements JpsElementCreator<JpsSdkReferencesTable> {
-    public JpsSdkReferencesTableRole() {
+    JpsSdkReferencesTableRole() {
       super("sdk references");
     }
 
-    @NotNull
     @Override
-    public JpsSdkReferencesTable create() {
+    public @NotNull JpsSdkReferencesTable create() {
       return new JpsSdkReferencesTableImpl();
     }
   }

@@ -1,61 +1,51 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.maven.model.impl;
 
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.CharsetToolkit;
+import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.execution.ParametersListUtil;
 import com.intellij.util.xmlb.annotations.MapAnnotation;
 import com.intellij.util.xmlb.annotations.Tag;
 import com.intellij.util.xmlb.annotations.Transient;
-import gnu.trove.THashMap;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 10/24/12
  */
-public class MavenProjectConfiguration {
+public final class MavenProjectConfiguration {
   public static final String CONFIGURATION_FILE_RELATIVE_PATH = "maven/configuration.xml";
   public static final String DEFAULT_ESCAPE_STRING = "\\";
   private static final Pattern PROPERTY_PATTERN = Pattern.compile("-D(\\S+?)=(.+)");
+  private static final Pattern MAVEN_PROPERTY_PATTERN = Pattern.compile("-D(\\S+?)(?:=(.+))?");
   public static final Set<String> DEFAULT_FILTERING_EXCLUDED_EXTENSIONS;
   static {
-    final THashSet<String> set = new THashSet<String>(FileUtil.PATH_HASHING_STRATEGY);
+    Set<String> set = CollectionFactory.createFilePathSet();
     set.addAll(Arrays.asList("jpg", "jpeg", "gif", "bmp", "png"));
     DEFAULT_FILTERING_EXCLUDED_EXTENSIONS = Collections.unmodifiableSet(set);
   }
 
   @Tag("resource-processing")
   @MapAnnotation(surroundWithTag = false, surroundKeyWithTag = false, surroundValueWithTag = false, entryTagName = "maven-module", keyAttributeName = "name")
-  public Map<String, MavenModuleResourceConfiguration> moduleConfigurations = new THashMap<String, MavenModuleResourceConfiguration>();
+  public Map<String, MavenModuleResourceConfiguration> moduleConfigurations = new HashMap<>();
 
   @Tag("web-artifact-cfg")
   @MapAnnotation(surroundWithTag = false, surroundKeyWithTag = false, surroundValueWithTag = false, entryTagName = "artifact", keyAttributeName = "name")
-  public Map<String, MavenWebArtifactConfiguration> webArtifactConfigs = new THashMap<String, MavenWebArtifactConfiguration>();
+  public Map<String, MavenWebArtifactConfiguration> webArtifactConfigs = new HashMap<>();
 
   @Tag("ejb-client-artifact-cfg")
   @MapAnnotation(surroundWithTag = false, surroundKeyWithTag = false, surroundValueWithTag = false, entryTagName = "artifact", keyAttributeName = "name")
-  public Map<String, MavenEjbClientConfiguration> ejbClientArtifactConfigs = new THashMap<String, MavenEjbClientConfiguration>();
+  public Map<String, MavenEjbClientConfiguration> ejbClientArtifactConfigs = new HashMap<>();
 
   @Nullable
   public MavenModuleResourceConfiguration findProject(MavenIdBean id) {
@@ -69,7 +59,7 @@ public class MavenProjectConfiguration {
   private Map<MavenIdBean, MavenModuleResourceConfiguration> getModuleConfigurationMap() {
     Map<MavenIdBean, MavenModuleResourceConfiguration> map = myIdToModuleMap;
     if (map == null) {
-      map = new THashMap<MavenIdBean, MavenModuleResourceConfiguration>();
+      map = new HashMap<>();
       for (MavenModuleResourceConfiguration configuration : moduleConfigurations.values()) {
         if (configuration != null) {
           map.put(configuration.id, configuration);
@@ -128,6 +118,11 @@ public class MavenProjectConfiguration {
       return result;
     }
 
+    result = getMavenAndJvmConfig(selectedConfig).get(propName);
+    if (result != null) {
+      return result;
+    }
+
     result = getSystemProperties().getProperty(propName);
     if (result != null) {
       return result;
@@ -154,7 +149,7 @@ public class MavenProjectConfiguration {
     if (res == null) {
       String mavenOpts = System.getenv("MAVEN_OPTS");
       if (mavenOpts != null) {
-        res = new HashMap<String, String>();
+        res = new HashMap<>();
         final String[] split = ParametersListUtil.parseToArray(mavenOpts);
         for (String parameter : split) {
           final Matcher matcher = PROPERTY_PATTERN.matcher(parameter);
@@ -194,7 +189,7 @@ public class MavenProjectConfiguration {
           continue;
         }
         if (SystemInfo.isWindows) {
-          key = key.toUpperCase();
+          key = StringUtil.toUpperCase(key);
         }
         res.setProperty("env." + key, entry.getValue());
       }
@@ -202,5 +197,57 @@ public class MavenProjectConfiguration {
       ourSystemProperties = res;
     }
     return res;
+  }
+
+
+  private static final Map<File, Map<String, String>> ourMavenAndJvmConfigs = new ConcurrentHashMap<>();
+
+  // adapted from org.jetbrains.idea.maven.server.Maven3ServerEmbedder
+  private static Map<String, String> getMavenAndJvmConfig(MavenModuleResourceConfiguration moduleResourceConfig) {
+    return ourMavenAndJvmConfigs.computeIfAbsent(getBaseDir(moduleResourceConfig.directory), baseDir -> readConfigFiles(baseDir));
+  }
+
+  @NotNull
+  public static Map<String, String> readConfigFiles(File baseDir) {
+    Map<String, String> result = new HashMap<>();
+    readConfigFile(baseDir, File.separator + ".mvn" + File.separator + "jvm.config", result, "");
+    readConfigFile(baseDir, File.separator + ".mvn" + File.separator + "maven.config", result, "true");
+    return result.isEmpty() ? Collections.emptyMap() : result;
+  }
+
+  private static void readConfigFile(File baseDir, String relativePath, Map<String, String> result, String valueIfMissing) {
+    File configFile = new File(baseDir, relativePath);
+
+    if (configFile.isFile()) {
+      try {
+        for (String parameter : ParametersListUtil.parse(FileUtil.loadFile(configFile, CharsetToolkit.UTF8))) {
+          Matcher matcher = MAVEN_PROPERTY_PATTERN.matcher(parameter);
+          if (matcher.matches()) {
+            result.put(matcher.group(1), StringUtil.notNullize(matcher.group(2), valueIfMissing));
+          }
+        }
+      }
+      catch (IOException ignore) {
+      }
+    }
+  }
+
+  private static File getBaseDir(String path) {
+    File workingDir = new File(FileUtil.toSystemDependentName(path));
+
+    File baseDir = workingDir;
+    File dir = workingDir;
+    while ((dir = dir.getParentFile()) != null) {
+      if (new File(dir, ".mvn").exists()) {
+        baseDir = dir;
+        break;
+      }
+    }
+    try {
+      return baseDir.getCanonicalFile();
+    }
+    catch (IOException e) {
+      return baseDir.getAbsoluteFile();
+    }
   }
 }

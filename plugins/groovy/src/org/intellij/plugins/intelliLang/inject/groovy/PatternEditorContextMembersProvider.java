@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.intelliLang.inject.groovy;
 
 import com.intellij.openapi.fileTypes.StdFileTypes;
@@ -44,7 +30,9 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.GroovyFileType;
 import org.jetbrains.plugins.groovy.lang.resolve.NonCodeMembersContributor;
+import org.jetbrains.plugins.groovy.lang.resolve.ResolveUtilKt;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -61,14 +49,15 @@ public class PatternEditorContextMembersProvider extends NonCodeMembersContribut
                                      @NotNull final PsiScopeProcessor scopeProcessor,
                                      @NotNull final PsiElement place,
                                      @NotNull final ResolveState state) {
-    final PsiFile file = place.getContainingFile().getOriginalFile();
+    final PsiFile containingFile = place.getContainingFile();
+    if (containingFile == null) {
+      PsiUtilCore.ensureValid(place);
+      ResolveUtilKt.getLog().error(place.getClass());
+      return;
+    }
+    final PsiFile file = containingFile.getOriginalFile();
     final BaseInjection injection = file.getUserData(BaseInjection.INJECTION_KEY);
-    Processor<PsiElement> processor = new Processor<PsiElement>() {
-      @Override
-      public boolean process(PsiElement element) {
-        return element.processDeclarations(scopeProcessor, state, null, place);
-      }
-    };
+    Processor<PsiElement> processor = element -> element.processDeclarations(scopeProcessor, state, null, place);
     if (injection == null) {
       processDevContext(file, processor);
     }
@@ -79,16 +68,16 @@ public class PatternEditorContextMembersProvider extends NonCodeMembersContribut
 
   private static boolean processPatternContext(@NotNull BaseInjection injection,
                                                @NotNull PsiFile file,
-                                               @NotNull Processor<PsiElement> processor) {
+                                               @NotNull Processor<? super PsiElement> processor) {
     return processor.process(getRootByClasses(file, InjectorUtils.getPatternClasses(injection.getSupportId())));
   }
 
   @NotNull
-  private static PsiFile getRootByClasses(@NotNull PsiFile file, @NotNull Class[] classes) {
+  private static PsiFile getRootByClasses(@NotNull PsiFile file, Class @NotNull [] classes) {
     final Project project = file.getProject();
     SoftFactoryMap<Class[], PsiFile> map = project.getUserData(PATTERN_INJECTION_CONTEXT);
     if (map == null) {
-      map = new SoftFactoryMap<Class[], PsiFile>() {
+      map = new SoftFactoryMap<>() {
 
         @Override
         protected PsiFile create(Class[] key) {
@@ -101,7 +90,7 @@ public class PatternEditorContextMembersProvider extends NonCodeMembersContribut
     return map.get(classes);
   }
 
-  private static boolean processDevContext(final PsiFile file, Processor<PsiElement> processor) {
+  private static boolean processDevContext(final PsiFile file, Processor<? super PsiElement> processor) {
     final XmlTag tag = getTagByInjectedFile(file);
     final XmlTag parentTag = tag == null ? null : tag.getParentTag();
     final String parentTagName = parentTag == null ? null : parentTag.getName();
@@ -122,7 +111,7 @@ public class PatternEditorContextMembersProvider extends NonCodeMembersContribut
     return element instanceof XmlText ? ((XmlText)element).getParentTag() : null;
   }
 
-  private static boolean processRootsByClassNames(@NotNull PsiFile file, @Nullable String type, @NotNull Processor<PsiElement> processor) {
+  private static boolean processRootsByClassNames(@NotNull PsiFile file, @Nullable String type, @NotNull Processor<? super PsiElement> processor) {
     Project project = file.getProject();
     Set<String> classNames = collectDevPatternClassNames(project);
     if (!classNames.isEmpty()) {
@@ -139,13 +128,8 @@ public class PatternEditorContextMembersProvider extends NonCodeMembersContribut
   private static Set<String> collectDevPatternClassNames(@NotNull final Project project) {
     CachedValue<Set<String>> cachedValue = project.getUserData(PATTERN_CLASSES);
     if (cachedValue == null) {
-      cachedValue = CachedValuesManager.getManager(project).createCachedValue(new CachedValueProvider<Set<String>>() {
-        @Nullable
-        @Override
-        public Result<Set<String>> compute() {
-          return Result.create(calcDevPatternClassNames(project), PsiModificationTracker.OUT_OF_CODE_BLOCK_MODIFICATION_COUNT);
-        }
-      }, false);
+      cachedValue = CachedValuesManager.getManager(project).createCachedValue(
+        () -> CachedValueProvider.Result.create(calcDevPatternClassNames(project), PsiModificationTracker.MODIFICATION_COUNT), false);
       project.putUserData(PATTERN_CLASSES, cachedValue);
     }
     return cachedValue.getValue();
@@ -157,28 +141,22 @@ public class PatternEditorContextMembersProvider extends NonCodeMembersContribut
     PsiClass beanClass = psiFacade.findClass(PatternClassBean.class.getName(), GlobalSearchScope.allScope(project));
     if (beanClass != null) {
       GlobalSearchScope scope = GlobalSearchScope.getScopeRestrictedByFileTypes(GlobalSearchScope.allScope(project), StdFileTypes.XML);
-      final TextOccurenceProcessor occurenceProcessor = new TextOccurenceProcessor() {
-        @Override
-        public boolean execute(@NotNull PsiElement element, int offsetInElement) {
-          XmlTag tag = PsiTreeUtil.getParentOfType(element, XmlTag.class);
-          String className = tag == null ? null : tag.getAttributeValue("className");
-          if (StringUtil.isNotEmpty(className) && tag.getLocalName().endsWith("patternClass")) {
-            roots.add(className);
-          }
-          return true;
+      final TextOccurenceProcessor occurenceProcessor = (element, offsetInElement) -> {
+        XmlTag tag = PsiTreeUtil.getParentOfType(element, XmlTag.class);
+        String className = tag == null ? null : tag.getAttributeValue("className");
+        if (StringUtil.isNotEmpty(className) && tag.getLocalName().endsWith("patternClass")) {
+          roots.add(className);
         }
+        return true;
       };
       final StringSearcher searcher = new StringSearcher("patternClass", true, true);
-      CacheManager.SERVICE.getInstance(beanClass.getProject()).processFilesWithWord(new Processor<PsiFile>() {
-        @Override
-        public boolean process(PsiFile psiFile) {
-          LowLevelSearchUtil.processElementsContainingWordInElement(occurenceProcessor, psiFile, searcher, true,
-                                                                     new EmptyProgressIndicator());
-          return true;
-        }
+      CacheManager.getInstance(beanClass.getProject()).processFilesWithWord(psiFile -> {
+        LowLevelSearchUtil.processElementsContainingWordInElement(occurenceProcessor, psiFile, searcher, true,
+                                                                   new EmptyProgressIndicator());
+        return true;
       }, searcher.getPattern(), UsageSearchContext.IN_FOREIGN_LANGUAGES, scope, searcher.isCaseSensitive());
     }
-    return ContainerUtil.newHashSet(roots);
+    return new HashSet<>(roots);
   }
 
 }

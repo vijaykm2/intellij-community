@@ -37,7 +37,7 @@ public class MockRepositoryImpl extends RepositoryImpl {
     throw new UnsupportedOperationException();
   }
 
-  @Nullable
+  @NotNull
   @Override
   public AbstractVcs getVcs() {
     throw new UnsupportedOperationException();
@@ -45,6 +45,18 @@ public class MockRepositoryImpl extends RepositoryImpl {
 
   @Override
   public boolean isFresh() {
+    throw new UnsupportedOperationException();
+  }
+
+  @NotNull
+  @Override
+  public State getState() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Nullable
+  @Override
+  public String getCurrentRevision() {
     throw new UnsupportedOperationException();
   }
 

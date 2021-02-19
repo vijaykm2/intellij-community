@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.utils;
 
 import com.intellij.codeInsight.AttachSourcesProvider;
@@ -24,20 +10,20 @@ import com.intellij.openapi.roots.LibraryOrderEntry;
 import com.intellij.openapi.roots.OrderEntry;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.ActionCallback;
-import com.intellij.openapi.util.AsyncResult;
+import com.intellij.openapi.util.text.HtmlBuilder;
+import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.psi.PsiFile;
-import com.intellij.util.Consumer;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.concurrency.AsyncPromise;
 import org.jetbrains.idea.maven.importing.MavenRootModelAdapter;
 import org.jetbrains.idea.maven.model.MavenArtifact;
 import org.jetbrains.idea.maven.model.MavenId;
 import org.jetbrains.idea.maven.project.MavenArtifactDownloader;
 import org.jetbrains.idea.maven.project.MavenProject;
+import org.jetbrains.idea.maven.project.MavenProjectBundle;
 import org.jetbrains.idea.maven.project.MavenProjectsManager;
-import org.jetbrains.idea.maven.project.ProjectBundle;
 
-import javax.swing.*;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -51,79 +37,68 @@ public class MavenAttachSourcesProvider implements AttachSourcesProvider {
     if (projects.isEmpty()) return Collections.emptyList();
     if (findArtifacts(projects, orderEntries).isEmpty()) return Collections.emptyList();
 
-    return Collections.<AttachSourcesAction>singleton(new AttachSourcesAction() {
+    return Collections.singleton(new AttachSourcesAction() {
       @Override
       public String getName() {
-        return ProjectBundle.message("maven.action.download.sources");
+        return MavenProjectBundle.message("maven.action.download.sources");
       }
 
       @Override
       public String getBusyText() {
-        return ProjectBundle.message("maven.action.download.sources.busy.text");
+        return MavenProjectBundle.message("maven.action.download.sources.busy.text");
       }
 
       @Override
       public ActionCallback perform(List<LibraryOrderEntry> orderEntries) {
         // may have been changed by this time...
         Collection<MavenProject> mavenProjects = getMavenProjects(psiFile);
-        if (mavenProjects.isEmpty()) return new ActionCallback.Rejected();
+        if (mavenProjects.isEmpty()) {
+          return ActionCallback.REJECTED;
+        }
 
         MavenProjectsManager manager = MavenProjectsManager.getInstance(psiFile.getProject());
 
         Collection<MavenArtifact> artifacts = findArtifacts(mavenProjects, orderEntries);
-        if (artifacts.isEmpty()) return new ActionCallback.Rejected();
+        if (artifacts.isEmpty()) return ActionCallback.REJECTED;
 
-        final AsyncResult<MavenArtifactDownloader.DownloadResult> result = new AsyncResult<MavenArtifactDownloader.DownloadResult>();
+        final AsyncPromise<MavenArtifactDownloader.DownloadResult> result = new AsyncPromise<>();
         manager.scheduleArtifactsDownloading(mavenProjects, artifacts, true, false, result);
 
         final ActionCallback resultWrapper = new ActionCallback();
-
-        result.doWhenDone(new Consumer<MavenArtifactDownloader.DownloadResult>() {
-          @Override
-          public void consume(MavenArtifactDownloader.DownloadResult downloadResult) {
-            if (!downloadResult.unresolvedSources.isEmpty()) {
-              final StringBuilder message = new StringBuilder();
-
-              message.append("<html>Sources not found for:");
-
-              int count = 0;
-              for (MavenId each : downloadResult.unresolvedSources) {
-                if (count++ > 5) {
-                  message.append("<br>and more...");
-                  break;
-                }
-                message.append("<br>").append(each.getDisplayString());
+        result.onSuccess(downloadResult -> {
+          if (!downloadResult.unresolvedSources.isEmpty()) {
+            HtmlBuilder builder = new HtmlBuilder();
+            builder.append(MavenProjectBundle.message("sources.not.found.for"));
+            int count = 0;
+            for (MavenId each : downloadResult.unresolvedSources) {
+              if (count++ > 5) {
+                builder.append(HtmlChunk.br()).append(MavenProjectBundle.message("and.more"));
+                break;
               }
-              message.append("</html>");
-
-              SwingUtilities.invokeLater(new Runnable() {
-                @Override
-                public void run() {
-                  Notifications.Bus.notify(new Notification(MavenUtil.MAVEN_NOTIFICATION_GROUP,
-                                                            "Cannot download sources",
-                                                            message.toString(),
-                                                            NotificationType.WARNING),
-                                           psiFile.getProject());
-                }
-              });
+              builder.append(HtmlChunk.br()).append(each.getDisplayString());
             }
 
-            if (downloadResult.resolvedSources.isEmpty()) {
-              resultWrapper.setRejected();
-            }
-            else {
-              resultWrapper.setDone();
-            }
+            Notifications.Bus.notify(new Notification(MavenUtil.MAVEN_NOTIFICATION_GROUP,
+                                                      MavenProjectBundle.message("maven.sources.cannot.download"),
+                                                      builder.wrapWithHtmlBody().toString(),
+                                                      NotificationType.WARNING),
+                                     psiFile.getProject());
+          }
+
+          if (downloadResult.resolvedSources.isEmpty()) {
+            resultWrapper.setRejected();
+          }
+          else {
+            resultWrapper.setDone();
           }
         });
-
         return resultWrapper;
       }
     });
   }
 
   private static Collection<MavenArtifact> findArtifacts(Collection<MavenProject> mavenProjects, List<LibraryOrderEntry> orderEntries) {
-    Collection<MavenArtifact> artifacts = new THashSet<MavenArtifact>();
+    Collection<MavenArtifact> artifacts = new THashSet<>();
     for (MavenProject each : mavenProjects) {
       for (LibraryOrderEntry entry : orderEntries) {
         final MavenArtifact artifact = MavenRootModelAdapter.findArtifact(each, entry.getLibrary());
@@ -137,7 +112,7 @@ public class MavenAttachSourcesProvider implements AttachSourcesProvider {
 
   private static Collection<MavenProject> getMavenProjects(PsiFile psiFile) {
     Project project = psiFile.getProject();
-    Collection<MavenProject> result = new ArrayList<MavenProject>();
+    Collection<MavenProject> result = new ArrayList<>();
     for (OrderEntry each : ProjectRootManager.getInstance(project).getFileIndex().getOrderEntriesForFile(psiFile.getVirtualFile())) {
       MavenProject mavenProject = MavenProjectsManager.getInstance(project).findProject(each.getOwnerModule());
       if (mavenProject != null) result.add(mavenProject);

@@ -17,11 +17,15 @@ package org.jetbrains.jps.builders;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.jps.model.JpsModel;
 
 /**
- * @author nik
+ * @see BuildTargetType#createLoader(JpsModel)
  */
 public abstract class BuildTargetLoader<T extends BuildTarget<?>> {
+  /**
+   * Deserialize build target by its id (returned by {@link BuildTarget#getId()} method)
+   */
   @Nullable
   public abstract T createTarget(@NotNull String targetId);
 }

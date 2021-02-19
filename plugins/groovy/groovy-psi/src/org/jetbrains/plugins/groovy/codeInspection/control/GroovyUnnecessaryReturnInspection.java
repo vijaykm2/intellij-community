@@ -20,9 +20,9 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
@@ -35,28 +35,9 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMe
 public class GroovyUnnecessaryReturnInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONTROL_FLOW;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Unnecessary 'return' statement";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "#ref is unnecessary as the last statement in a method with no return value #loc";
-  }
-
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
+    return GroovyBundle.message("inspection.message.ref.is.unnecessary.as.last.statement.in.method.with.no.return.value");
   }
 
   @NotNull
@@ -75,12 +56,12 @@ public class GroovyUnnecessaryReturnInspection extends BaseInspection {
   private static class UnnecessaryReturnFix extends GroovyFix {
     @Override
     @NotNull
-    public String getName() {
-      return "Remove unnecessary return";
+    public String getFamilyName() {
+      return GroovyBundle.message("intention.family.name.remove.unnecessary.return");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    public void doFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) throws IncorrectOperationException {
       final PsiElement returnKeywordElement = descriptor.getPsiElement();
       final GrReturnStatement returnStatement = (GrReturnStatement) returnKeywordElement.getParent();
       assert returnStatement != null;
@@ -91,7 +72,7 @@ public class GroovyUnnecessaryReturnInspection extends BaseInspection {
   private static class Visitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitReturnStatement(GrReturnStatement returnStatement) {
+    public void visitReturnStatement(@NotNull GrReturnStatement returnStatement) {
       super.visitReturnStatement(returnStatement);
 
       final GrExpression returnValue = returnStatement.getReturnValue();

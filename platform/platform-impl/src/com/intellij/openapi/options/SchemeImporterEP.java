@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,7 @@
  */
 package com.intellij.openapi.options;
 
-import com.intellij.openapi.extensions.AbstractExtensionPointBean;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.util.LazyInstance;
 import com.intellij.util.xmlb.annotations.Attribute;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -27,40 +25,31 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * @author Rustam Vishnyakov
+ * Extension point for scheme importers. Example of definition in {@code plugin.xml}:
+ * <pre>
+ * &lt;schemeImporter
+ *         nameBundle="messages.PluginBundle"
+ *         nameKey="bundle.name.key"
+ *         schemeClass="com.intellij.psi.codeStyle.CodeStyleScheme"
+ *         implementationClass="org.acme.ImporterClass"&gt;
+ * </pre>
+ * {@code ImporterClass} must extend {@link SchemeImporter}
  */
-public class SchemeImporterEP <S extends Scheme> extends AbstractExtensionPointBean {
-  public static final ExtensionPointName<SchemeImporterEP> EP_NAME = ExtensionPointName.create("com.intellij.schemeImporter");
-
-  @Attribute("name")
-  public String name;
+public final class SchemeImporterEP <S extends Scheme> extends SchemeConvertorEPBase<SchemeImporter<S>> {
+  public static final ExtensionPointName<SchemeImporterEP<?>> EP_NAME = ExtensionPointName.create("com.intellij.schemeImporter");
 
   @Attribute("schemeClass")
   public String schemeClass;
 
-  @Attribute("implementationClass")
-  public String implementationClass;
-
-  private final LazyInstance<SchemeImporter<S>> myImporterInstance = new LazyInstance<SchemeImporter<S>>() {
-    @Override
-    protected Class<SchemeImporter<S>> getInstanceClass() throws ClassNotFoundException {
-      return findClass(implementationClass);
-    }
-  };
-  
-  public SchemeImporter<S> getInstance() {
-    return myImporterInstance.getValue();
-  }
-
   /**
-   * Finds extensions supporting the given <code>schemeClass</code>
+   * Finds extensions supporting the given {@code schemeClass}
    * @param schemeClass The class of the scheme to search extensions for.
    * @return A collection of importers capable of importing schemes of the given class. An empty collection is returned if there are
    *         no matching importers.
    */
   @NotNull
   public static <S extends Scheme> Collection<SchemeImporterEP<S>> getExtensions(Class<S> schemeClass) {
-    List<SchemeImporterEP<S>> importers = new ArrayList<SchemeImporterEP<S>>();
+    List<SchemeImporterEP<S>> importers = new ArrayList<>();
     for (SchemeImporterEP<?> importerEP : EP_NAME.getExtensions()) {
       if (schemeClass.getName().equals(importerEP.schemeClass)) {
         //noinspection unchecked
@@ -80,7 +69,7 @@ public class SchemeImporterEP <S extends Scheme> extends AbstractExtensionPointB
   @Nullable
   public static <S extends Scheme> SchemeImporter<S> getImporter(@NotNull String name, Class<S> schemeClass) {
     for (SchemeImporterEP<S> importerEP : getExtensions(schemeClass)) {
-      if (name.equals(importerEP.name)) {
+      if (name.equals(importerEP.getLocalizedName())) {
         return importerEP.getInstance();
       }
     }

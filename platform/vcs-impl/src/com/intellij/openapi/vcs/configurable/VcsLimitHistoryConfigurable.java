@@ -15,25 +15,19 @@
  */
 package com.intellij.openapi.vcs.configurable;
 
-import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.VcsConfiguration;
 import org.jetbrains.annotations.Nls;
 
 import javax.swing.*;
 
-/**
- * Created with IntelliJ IDEA.
- * User: Irina.Chernushina
- * Date: 11/28/12
- * Time: 2:45 PM
- */
 public class VcsLimitHistoryConfigurable extends VcsCheckBoxWithSpinnerConfigurable {
   private final VcsConfiguration myConfiguration;
 
   public VcsLimitHistoryConfigurable(Project project) {
-    super(project, "Limit history to: ", "rows");
+    super(project, VcsBundle.message("settings.checkbox.limit.history.to"), VcsBundle.message("settings.checkbox.rows"));
     myConfiguration = VcsConfiguration.getInstance(myProject);
   }
 
@@ -46,7 +40,7 @@ public class VcsLimitHistoryConfigurable extends VcsCheckBoxWithSpinnerConfigura
   @Nls
   @Override
   public String getDisplayName() {
-    return "Limit History";
+    return VcsBundle.message("configurable.VcsLimitHistoryConfigurable.display.name");
   }
 
   @Override
@@ -57,7 +51,7 @@ public class VcsLimitHistoryConfigurable extends VcsCheckBoxWithSpinnerConfigura
   }
 
   @Override
-  public void apply() throws ConfigurationException {
+  public void apply() {
     myConfiguration.LIMIT_HISTORY = myHighlightRecentlyChanged.isSelected();
     myConfiguration.MAXIMUM_HISTORY_ROWS = ((Number) myHighlightInterval.getValue()).intValue();
   }

@@ -21,13 +21,10 @@ import org.jetbrains.jps.model.artifact.elements.JpsPackagingElement;
 import java.io.File;
 import java.util.List;
 
-/**
- * @author nik
- */
 public interface ArtifactInstructionsBuilder {
   @NotNull
   List<ArtifactRootDescriptor> getDescriptors();
 
   @NotNull
-  FileCopyingHandler createCopyingHandler(@NotNull File file, @NotNull JpsPackagingElement contextElement);
+  FileCopyingHandler createCopyingHandler(@NotNull File file, @NotNull JpsPackagingElement contextElement, @NotNull ArtifactCompilerInstructionCreator instructionCreator);
 }

@@ -27,11 +27,14 @@ import com.intellij.psi.util.ClassKind;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Arrays;
+
 /**
  * @author Dmitry Avdeev
  */
 public class PsiClassConverter extends Converter<PsiClass> implements CustomReferenceConverter<PsiClass> {
 
+  @Override
   public PsiClass fromString(final String s, final ConvertContext context) {
     if (StringUtil.isEmptyOrSpaces(s)) return null;
 
@@ -40,17 +43,19 @@ public class PsiClassConverter extends Converter<PsiClass> implements CustomRefe
     return DomJavaUtil.findClass(s.trim(), context.getFile(), context.getModule(), scope);
   }
 
+  @Override
   @Nullable
   public String getErrorMessage(@Nullable final String s, final ConvertContext context) {
     return null;
   }
 
+  @Override
   public String toString(final PsiClass t, final ConvertContext context) {
     return t == null ? null : t.getQualifiedName();
   }
 
-  @NotNull
-  public PsiReference[] createReferences(GenericDomValue<PsiClass> genericDomValue, PsiElement element, ConvertContext context) {
+  @Override
+  public PsiReference @NotNull [] createReferences(GenericDomValue<PsiClass> genericDomValue, PsiElement element, ConvertContext context) {
 
     ExtendClass extendClass = genericDomValue.getAnnotation(ExtendClass.class);
     final JavaClassReferenceProvider provider = createClassReferenceProvider(genericDomValue, context, extendClass);
@@ -74,8 +79,8 @@ public class PsiClassConverter extends Converter<PsiClass> implements CustomRefe
                                                                             final JavaClassReferenceProvider provider) {
 
     if (extendClass != null) {
-      if (StringUtil.isNotEmpty(extendClass.value())) {
-        provider.setOption(JavaClassReferenceProvider.EXTEND_CLASS_NAMES, new String[]{extendClass.value()});
+      if (extendClass.value().length > 0) {
+        provider.setOption(JavaClassReferenceProvider.SUPER_CLASSES, Arrays.asList(extendClass.value()));
       }
       if (extendClass.instantiatable()) {
         provider.setOption(JavaClassReferenceProvider.INSTANTIATABLE, Boolean.TRUE);

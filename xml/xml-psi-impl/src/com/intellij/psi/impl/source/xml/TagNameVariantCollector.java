@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.xml;
 
 import com.intellij.html.impl.RelaxedHtmlFromSchemaElementDescriptor;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.html.HtmlTag;
@@ -37,16 +22,16 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-public class TagNameVariantCollector {
+public final class TagNameVariantCollector {
 
   public static List<XmlElementDescriptor> getTagDescriptors(final XmlTag element,
                                                              final Collection<String> namespaces,
-                                                             @Nullable List<String> nsInfo) {
+                                                             @Nullable List<? super String> nsInfo) {
 
     XmlElementDescriptor elementDescriptor = null;
     String elementNamespace = element.getNamespacePrefix().isEmpty() ? null : element.getNamespace();
 
-    final Map<String, XmlElementDescriptor> descriptorsMap = new HashMap<String, XmlElementDescriptor>();
+    final Map<String, XmlElementDescriptor> descriptorsMap = new HashMap<>();
     PsiElement context = element.getParent();
     PsiElement curElement = element.getParent();
 
@@ -70,9 +55,9 @@ public class TagNameVariantCollector {
       curElement = curElement.getContext();
     }
 
-    final Set<XmlNSDescriptor> visited = new HashSet<XmlNSDescriptor>();
+    final Set<XmlNSDescriptor> visited = new HashSet<>();
     final XmlExtension extension = XmlExtension.getExtension(element.getContainingFile());
-    final ArrayList<XmlElementDescriptor> variants = new ArrayList<XmlElementDescriptor>();
+    final ArrayList<XmlElementDescriptor> variants = new ArrayList<>();
     for (final String namespace: namespaces) {
       final int initialSize = variants.size();
       processVariantsInNamespace(namespace, element, variants, elementDescriptor, elementNamespace, descriptorsMap, visited,
@@ -88,28 +73,25 @@ public class TagNameVariantCollector {
     }
 
     final boolean hasPrefix = StringUtil.isNotEmpty(element.getNamespacePrefix());
-    return ContainerUtil.filter(variants, new Condition<XmlElementDescriptor>() {
-      @Override
-      public boolean value(XmlElementDescriptor descriptor) {
-        if (descriptor instanceof AnyXmlElementDescriptor) {
-          return false;
-        }
-        else if (hasPrefix && descriptor instanceof XmlElementDescriptorImpl &&
-                 !namespaces.contains(((XmlElementDescriptorImpl)descriptor).getNamespace())) {
-          return false;
-        }
-        return true;
+    return ContainerUtil.filter(variants, descriptor -> {
+      if (descriptor instanceof AnyXmlElementDescriptor) {
+        return false;
       }
+      else if (hasPrefix && descriptor instanceof XmlElementDescriptorImpl &&
+               !namespaces.contains(((XmlElementDescriptorImpl)descriptor).getNamespace())) {
+        return false;
+      }
+      return true;
     });
   }
 
   private static void processVariantsInNamespace(final String namespace,
                                                  final XmlTag element,
-                                                 final List<XmlElementDescriptor> variants,
+                                                 final List<? super XmlElementDescriptor> variants,
                                                  final XmlElementDescriptor elementDescriptor,
                                                  final String elementNamespace,
                                                  final Map<String, XmlElementDescriptor> descriptorsMap,
-                                                 final Set<XmlNSDescriptor> visited,
+                                                 final Set<? super XmlNSDescriptor> visited,
                                                  XmlTag parent,
                                                  final XmlExtension extension) {
     if(descriptorsMap.containsKey(namespace)){

@@ -17,13 +17,11 @@ package com.intellij.framework.detection.impl.exclude;
 
 import com.intellij.framework.FrameworkType;
 import com.intellij.ide.presentation.VirtualFilePresentation;
+import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.ColoredListCellRenderer;
 import com.intellij.ui.SimpleTextAttributes;
 
-/**
-* @author nik
-*/
 class ValidExcludeListItem extends ExcludeListItem {
   private final VirtualFile myFile;
   private final FrameworkType myFrameworkType;
@@ -49,7 +47,7 @@ class ValidExcludeListItem extends ExcludeListItem {
       renderer.setIcon(myFrameworkType.getIcon());
       renderer.append(myFrameworkType.getPresentableName());
       if (myFile != null) {
-        renderer.append(" in " + myFile.getName());
+        renderer.append(ProjectBundle.message("framework.detection.in.0", myFile.getName()));
         renderer.append(" (" + myFile.getPresentableUrl() + ")", SimpleTextAttributes.GRAY_ATTRIBUTES);
       }
     }

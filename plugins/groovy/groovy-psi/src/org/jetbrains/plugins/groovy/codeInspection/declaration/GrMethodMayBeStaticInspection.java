@@ -1,34 +1,18 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.codeInspection.declaration;
 
 import com.intellij.codeInspection.InspectionManager;
 import com.intellij.codeInspection.LocalQuickFix;
-import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
 import com.intellij.openapi.util.Condition;
 import com.intellij.psi.*;
 import com.intellij.psi.search.searches.OverridingMethodsSearch;
 import com.intellij.psi.search.searches.SuperMethodsSearch;
-import com.intellij.util.Function;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
-import org.jetbrains.plugins.groovy.codeInspection.GroovyInspectionBundle;
 import org.jetbrains.plugins.groovy.codeInspection.bugs.GrModifierFix;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElement;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyRecursiveElementVisitor;
@@ -40,21 +24,22 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.params.GrParameter;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrGdkMethod;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrCodeReferenceElement;
-import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GroovyScriptClass;
+import org.jetbrains.plugins.groovy.lang.psi.util.GrTraitUtil;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
 import javax.swing.*;
 
-@SuppressWarnings("JavaStylePropertiesInvocation")
 public class GrMethodMayBeStaticInspection extends BaseInspection {
+  public boolean myIgnoreTraitMethods = true;
   public boolean myOnlyPrivateOrFinal = false;
   public boolean myIgnoreEmptyMethods = true;
 
   @Override
   public JComponent createOptionsPanel() {
     final MultipleCheckboxOptionsPanel optionsPanel = new MultipleCheckboxOptionsPanel(this);
-    optionsPanel.addCheckbox(GroovyInspectionBundle.message("method.may.be.static.only.private.or.final.option"), "myOnlyPrivateOrFinal");
-    optionsPanel.addCheckbox(GroovyInspectionBundle.message("method.may.be.static.ignore.empty.method.option"), "myIgnoreEmptyMethods");
+    optionsPanel.addCheckbox(GroovyBundle.message("method.may.be.static.option.ignore.trait.methods"), "myIgnoreTraitMethods");
+    optionsPanel.addCheckbox(GroovyBundle.message("method.may.be.static.only.private.or.final.option"), "myOnlyPrivateOrFinal");
+    optionsPanel.addCheckbox(GroovyBundle.message("method.may.be.static.ignore.empty.method.option"), "myIgnoreEmptyMethods");
     return optionsPanel;
   }
 
@@ -63,18 +48,15 @@ public class GrMethodMayBeStaticInspection extends BaseInspection {
   protected BaseInspectionVisitor buildVisitor() {
     return new BaseInspectionVisitor() {
       @Override
-      public void visitMethod(GrMethod method) {
+      public void visitMethod(@NotNull GrMethod method) {
         if (checkMethod(method)) {
-          final GrModifierFix modifierFix = new GrModifierFix(method, PsiModifier.STATIC, false, true, new Function<ProblemDescriptor, PsiModifierList>() {
-            @Override
-            public PsiModifierList fun(ProblemDescriptor descriptor) {
-              final PsiElement element = descriptor.getPsiElement();
-              final PsiElement parent = element.getParent();
-              assert parent instanceof GrMethod : "element: " + element + ", parent:" + parent;
-              return ((GrMethod)parent).getModifierList();
-            }
+          final GrModifierFix modifierFix = new GrModifierFix(method, PsiModifier.STATIC, false, true, descriptor -> {
+            final PsiElement element = descriptor.getPsiElement();
+            final PsiElement parent = element.getParent();
+            assert parent instanceof GrMethod : "element: " + element + ", parent:" + parent;
+            return ((GrMethod)parent).getModifierList();
           });
-          registerError(method.getNameIdentifierGroovy(), GroovyInspectionBundle.message("method.may.be.static"), new LocalQuickFix[]{modifierFix}, ProblemHighlightType.GENERIC_ERROR_OR_WARNING);
+          registerError(method.getNameIdentifierGroovy(), GroovyBundle.message("method.may.be.static"), new LocalQuickFix[]{modifierFix}, ProblemHighlightType.GENERIC_ERROR_OR_WARNING);
         }
       }
     };
@@ -83,8 +65,13 @@ public class GrMethodMayBeStaticInspection extends BaseInspection {
   private boolean checkMethod(final GrMethod method) {
     if (method.hasModifierProperty(PsiModifier.STATIC)) return false;
     if (method.hasModifierProperty(PsiModifier.SYNCHRONIZED)) return false;
+    if (method.getModifierList().hasExplicitModifier(PsiModifier.ABSTRACT)) return false;
     if (method.isConstructor()) return false;
-    if (method.getContainingClass() instanceof GroovyScriptClass) return false;
+
+    PsiClass containingClass = method.getContainingClass();
+    if (containingClass == null) return false;
+
+    if (myIgnoreTraitMethods && GrTraitUtil.isTrait(containingClass)) return false;
     if (SuperMethodsSearch.search(method, null, true, false).findFirst() != null) return false;
     if (OverridingMethodsSearch.search(method).findFirst() != null) return false;
     if (ignoreMethod(method)) return false;
@@ -97,17 +84,12 @@ public class GrMethodMayBeStaticInspection extends BaseInspection {
     if (block == null) return false;
     if (myIgnoreEmptyMethods && block.getStatements().length == 0) return false;
 
-    PsiClass containingClass = method.getContainingClass();
-    if (containingClass == null) return false;
     if (containingClass.getContainingClass() != null && !containingClass.hasModifierProperty(PsiModifier.STATIC)) {
       return false;
     }
 
-    final Condition<PsiElement>[] addins = InspectionManager.CANT_BE_STATIC_EXTENSION.getExtensions();
-    for (Condition<PsiElement> addin : addins) {
-      if (addin.value(method)) {
-        return false;
-      }
+    for (Condition<PsiElement> addin : InspectionManager.CANT_BE_STATIC_EXTENSION.getExtensionList()) {
+      if (addin.value(method)) return false;
     }
 
 
@@ -133,7 +115,6 @@ public class GrMethodMayBeStaticInspection extends BaseInspection {
 
   private static boolean isPrintOrPrintln(PsiElement element) {
     return element instanceof GrGdkMethod &&
-           element instanceof PsiMethod &&
            ("print".equals(((PsiMethod)element).getName()) || "println".equals(((PsiMethod)element).getName()));
   }
 
@@ -141,14 +122,14 @@ public class GrMethodMayBeStaticInspection extends BaseInspection {
     private boolean myHaveInstanceRefs = false;
 
     @Override
-    public void visitElement(GroovyPsiElement element) {
+    public void visitElement(@NotNull GroovyPsiElement element) {
       if (myHaveInstanceRefs) return;
 
       super.visitElement(element);
     }
 
     @Override
-    public void visitReferenceExpression(GrReferenceExpression referenceExpression) {
+    public void visitReferenceExpression(@NotNull GrReferenceExpression referenceExpression) {
       if (myHaveInstanceRefs) return;
 
       if (PsiUtil.isSuperReference(referenceExpression)) {
@@ -189,7 +170,7 @@ public class GrMethodMayBeStaticInspection extends BaseInspection {
     }
 
     @Override
-    public void visitCodeReferenceElement(GrCodeReferenceElement refElement) {
+    public void visitCodeReferenceElement(@NotNull GrCodeReferenceElement refElement) {
       super.visitCodeReferenceElement(refElement);
 
       if (myHaveInstanceRefs) return;

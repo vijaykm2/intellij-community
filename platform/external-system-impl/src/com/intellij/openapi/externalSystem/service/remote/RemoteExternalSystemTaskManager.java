@@ -32,58 +32,53 @@ import java.util.Set;
 
 /**
  * @author Denis Zhdanov
- * @since 4/9/13 7:02 PM
  */
 public interface RemoteExternalSystemTaskManager<S extends ExternalSystemExecutionSettings> extends RemoteExternalSystemService<S> {
 
   /** <a href="http://en.wikipedia.org/wiki/Null_Object_pattern">Null object</a> for {@link RemoteExternalSystemProjectResolverImpl}. */
   RemoteExternalSystemTaskManager<ExternalSystemExecutionSettings> NULL_OBJECT =
-    new RemoteExternalSystemTaskManager<ExternalSystemExecutionSettings>() {
+    new RemoteExternalSystemTaskManager<>() {
 
       @Override
       public void executeTasks(@NotNull ExternalSystemTaskId id,
                                @NotNull List<String> taskNames,
                                @NotNull String projectPath,
                                @Nullable ExternalSystemExecutionSettings settings,
-                               @NotNull List<String> vmOptions,
-                               @NotNull List<String> scriptParameters,
-                               @Nullable String debuggerSetup) throws RemoteException, ExternalSystemException
-      {
+                               @Nullable String jvmParametersSetup) throws ExternalSystemException {
       }
 
       @Override
-      public boolean cancelTask(@NotNull ExternalSystemTaskId id) throws RemoteException, ExternalSystemException
-      {
+      public boolean cancelTask(@NotNull ExternalSystemTaskId id) throws ExternalSystemException {
         return false;
       }
 
       @Override
-      public void setSettings(@NotNull ExternalSystemExecutionSettings settings) throws RemoteException {
+      public void setSettings(@NotNull ExternalSystemExecutionSettings settings) {
       }
 
       @Override
-      public void setNotificationListener(@NotNull ExternalSystemTaskNotificationListener notificationListener) throws RemoteException {
+      public void setNotificationListener(@NotNull ExternalSystemTaskNotificationListener notificationListener) {
       }
 
       @Override
-      public boolean isTaskInProgress(@NotNull ExternalSystemTaskId id) throws RemoteException {
+      public boolean isTaskInProgress(@NotNull ExternalSystemTaskId id) {
         return false;
       }
 
       @NotNull
       @Override
-      public Map<ExternalSystemTaskType, Set<ExternalSystemTaskId>> getTasksInProgress() throws RemoteException {
+      public Map<ExternalSystemTaskType, Set<ExternalSystemTaskId>> getTasksInProgress() {
         return Collections.emptyMap();
       }
     };
 
-  void executeTasks(@NotNull ExternalSystemTaskId id,
-                    @NotNull List<String> taskNames,
-                    @NotNull String projectPath,
-                    @Nullable S settings,
-                    @NotNull List<String> vmOptions,
-                    @NotNull List<String> scriptParameters,
-                    @Nullable String debuggerSetup) throws RemoteException, ExternalSystemException;
+  default void executeTasks(@NotNull ExternalSystemTaskId id,
+                            @NotNull List<String> taskNames,
+                            @NotNull String projectPath,
+                            @Nullable S settings,
+                            @Nullable String jvmParametersSetup) throws RemoteException, ExternalSystemException {
+  }
 
+  @Override
   boolean cancelTask(@NotNull ExternalSystemTaskId id) throws RemoteException, ExternalSystemException;
 }

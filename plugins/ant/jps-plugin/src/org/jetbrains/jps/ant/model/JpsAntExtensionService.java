@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.ant.model;
 
 import com.intellij.openapi.application.PathManager;
@@ -34,10 +20,7 @@ import java.io.File;
 import java.util.Collections;
 import java.util.HashMap;
 
-/**
- * @author nik
- */
-public class JpsAntExtensionService {
+public final class JpsAntExtensionService {
   public static final String BUNDLED_ANT_PATH_PROPERTY = "jps.bundled.ant.path";
   private static final Logger LOG = Logger.getInstance(JpsAntExtensionService.class);
 
@@ -75,7 +58,7 @@ public class JpsAntExtensionService {
     if (configuration != null) {
       return configuration;
     }
-    JpsAntConfigurationImpl antConfiguration = new JpsAntConfigurationImpl(new HashMap<String, JpsAntBuildFileOptions>(), null);
+    JpsAntConfigurationImpl antConfiguration = new JpsAntConfigurationImpl(new HashMap<>(), null);
     return project.getContainer().setChild(JpsAntConfigurationImpl.ROLE, antConfiguration);
   }
 
@@ -87,7 +70,7 @@ public class JpsAntExtensionService {
       antHome = new File(antPath);
     }
     else {
-      final String appHome = PathManager.getHomePath();
+      final String appHome = PathManager.getHomePath(false);
       if (appHome == null) {
         LOG.debug("idea.home.path and " + BUNDLED_ANT_PATH_PROPERTY + " aren't specified, bundled Ant won't be configured");
         return null;
@@ -107,7 +90,7 @@ public class JpsAntExtensionService {
     }
 
     String antLib = new File(antHome, "lib").getAbsolutePath();
-    return new JpsAntInstallationImpl(antHome, "Bundled Ant", Collections.<String>emptyList(), Collections.singletonList(antLib));
+    return new JpsAntInstallationImpl(antHome, "Bundled Ant", Collections.emptyList(), Collections.singletonList(antLib));
   }
 
   @Nullable

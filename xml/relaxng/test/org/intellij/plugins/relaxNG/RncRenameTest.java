@@ -16,7 +16,6 @@
 
 package org.intellij.plugins.relaxNG;
 
-import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -32,7 +31,6 @@ import java.io.File;
 
 /**
  * @author sweinreuter
- * @since 25.07.2007
  */
 public class RncRenameTest extends HighlightingTestBase {
 
@@ -46,27 +44,27 @@ public class RncRenameTest extends HighlightingTestBase {
     return "rename/rnc";
   }
 
-  public void testRenameDefinition1() throws Throwable {
+  public void testRenameDefinition1() {
     doTestRename("rename-definition-1", "bar");
   }
 
-  public void testRenameDefinition2() throws Throwable {
+  public void testRenameDefinition2() {
     doTestRename("rename-definition-2", "element");
   }
 
-  public void testRenameDefinition3() throws Throwable {
+  public void testRenameDefinition3() {
     doTestRename("rename-definition-3", "bar");
   }
 
-  public void testRenameNsPrefix1() throws Throwable {
+  public void testRenameNsPrefix1() {
     doTestRename("rename-ns-prefix-1", "bar");
   }
 
-  public void testRenameDatatypePrefix1() throws Throwable {
+  public void testRenameDatatypePrefix1() {
     doTestRename("rename-datatype-prefix-1", "bar");
   }
 
-  public void testRenameIncludedFile() throws Throwable {
+  public void testRenameIncludedFile() {
     myTestFixture.copyFileToProject("rename-in-include-ref.rnc");
     
     final Project project = myTestFixture.getProject();
@@ -80,23 +78,18 @@ public class RncRenameTest extends HighlightingTestBase {
     final PsiFile file = PsiManager.getInstance(project).findFile(copy);
     assertNotNull(file);
 
-    new WriteCommandAction.Simple(project) {
-      @Override
-      protected void run() throws Throwable {
-        myTestFixture.configureByFile("rename-in-include.rnc");
-        final RenameRefactoring refactoring = factory.createRename(file, "rename-after.rnc");
-        refactoring.setPreviewUsages(false);
-        refactoring.setSearchInComments(false);
-        refactoring.setSearchInNonJavaFiles(true);
-        refactoring.run();
-        myTestFixture.checkResultByFile("rename-in-include_after.rnc");
-      }
-    }.execute().throwException();
+    myTestFixture.configureByFile("rename-in-include.rnc");
+    final RenameRefactoring refactoring = factory.createRename(file, "rename-after.rnc");
+    refactoring.setPreviewUsages(false);
+    refactoring.setSearchInComments(false);
+    refactoring.setSearchInNonJavaFiles(true);
+    refactoring.run();
+    myTestFixture.checkResultByFile("rename-in-include_after.rnc");
 
     assertEquals("rename-after.rnc", file.getName());
   }
 
-  private void doTestRename(String name, String newName) throws Throwable {
+  private void doTestRename(String name, String newName) {
     doTestRename(name, "rnc", newName);
   }
 }

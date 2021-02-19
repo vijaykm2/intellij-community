@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.console;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
@@ -9,9 +10,8 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.VisualPosition;
 import com.intellij.openapi.editor.colors.EditorColors;
-import com.intellij.openapi.editor.event.DocumentAdapter;
+import com.intellij.openapi.editor.event.BulkAwareDocumentListener;
 import com.intellij.openapi.editor.event.DocumentEvent;
-import com.intellij.openapi.editor.ex.DocumentBulkUpdateListener;
 import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.RangeHighlighterEx;
@@ -19,7 +19,6 @@ import com.intellij.openapi.editor.impl.EditorComponentImpl;
 import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.editor.impl.SoftWrapModelImpl;
 import com.intellij.openapi.editor.impl.event.MarkupModelListener;
-import com.intellij.openapi.editor.impl.softwrap.mapping.SoftWrapApplianceManager;
 import com.intellij.openapi.editor.markup.CustomHighlighterRenderer;
 import com.intellij.openapi.editor.markup.HighlighterLayer;
 import com.intellij.openapi.editor.markup.HighlighterTargetArea;
@@ -45,11 +44,10 @@ import java.awt.*;
 public final class LanguageConsoleBuilder {
   @Nullable
   private LanguageConsoleView consoleView;
-  @Nullable
-  private Condition<LanguageConsoleView> executionEnabled = Conditions.alwaysTrue();
+  private Condition<? super LanguageConsoleView> executionEnabled = Conditions.alwaysTrue();
 
   @Nullable
-  private PairFunction<VirtualFile, Project, PsiFile> psiFileFactory;
+  private PairFunction<? super VirtualFile, ? super Project, ? extends PsiFile> psiFileFactory;
   @Nullable
   private BaseConsoleExecuteActionHandler executeActionHandler;
   @Nullable
@@ -63,7 +61,7 @@ public final class LanguageConsoleBuilder {
   private String processInputStateKey;
 
   // todo to be removed
-  public LanguageConsoleBuilder(@SuppressWarnings("NullableProblems") @NotNull LanguageConsoleView consoleView) {
+  public LanguageConsoleBuilder(@NotNull LanguageConsoleView consoleView) {
     this.consoleView = consoleView;
   }
 
@@ -71,25 +69,19 @@ public final class LanguageConsoleBuilder {
   }
 
   public LanguageConsoleBuilder processHandler(@NotNull final ProcessHandler processHandler) {
-    executionEnabled = new Condition<LanguageConsoleView>() {
-
-      @Override
-      public boolean value(LanguageConsoleView console) {
-        return !processHandler.isProcessTerminated();
-      }
-    };
+    executionEnabled = console -> !processHandler.isProcessTerminated();
     return this;
   }
 
-  public LanguageConsoleBuilder executionEnabled(@NotNull Condition<LanguageConsoleView> condition) {
+  public LanguageConsoleBuilder executionEnabled(@NotNull Condition<? super LanguageConsoleView> condition) {
     executionEnabled = condition;
     return this;
   }
 
   /**
-   * @see {@link com.intellij.psi.PsiCodeFragment}
+   * @see com.intellij.psi.PsiCodeFragment
    */
-  public LanguageConsoleBuilder psiFileFactory(@NotNull PairFunction<VirtualFile, Project, PsiFile> value) {
+  public LanguageConsoleBuilder psiFileFactory(@NotNull PairFunction<? super VirtualFile, ? super Project, ? extends PsiFile> value) {
     psiFileFactory = value;
     return this;
   }
@@ -109,17 +101,17 @@ public final class LanguageConsoleBuilder {
   private void doInitAction(@NotNull LanguageConsoleView console, @NotNull BaseConsoleExecuteActionHandler executeActionHandler, @NotNull String historyType) {
     ConsoleExecuteAction action = new ConsoleExecuteAction(console, executeActionHandler, executionEnabled);
     action.registerCustomShortcutSet(action.getShortcutSet(), console.getConsoleEditor().getComponent());
-    new ConsoleHistoryController(historyType, null, console).install();
+    new ConsoleHistoryController(new MyConsoleRootType(historyType), null, console).install();
   }
 
   /**
    * todo This API doesn't look good, but it is much better than force client to know low-level details
    */
   public static AnAction registerExecuteAction(@NotNull LanguageConsoleView console,
-                                               @NotNull final Consumer<String> executeActionHandler,
+                                               @NotNull final Consumer<? super String> executeActionHandler,
                                                @NotNull String historyType,
                                                @Nullable String historyPersistenceId,
-                                               @Nullable Condition<LanguageConsoleView> enabledCondition) {
+                                               @Nullable Condition<? super LanguageConsoleView> enabledCondition) {
     ConsoleExecuteAction.ConsoleExecuteActionHandler handler = new ConsoleExecuteAction.ConsoleExecuteActionHandler(true) {
       @Override
       void doExecute(@NotNull String text, @NotNull LanguageConsoleView consoleView) {
@@ -129,7 +121,7 @@ public final class LanguageConsoleBuilder {
 
     ConsoleExecuteAction action = new ConsoleExecuteAction(console, handler, enabledCondition);
     action.registerCustomShortcutSet(action.getShortcutSet(), console.getConsoleEditor().getComponent());
-    new ConsoleHistoryController(historyType, historyPersistenceId, console).install();
+    new ConsoleHistoryController(new MyConsoleRootType(historyType), historyPersistenceId, console).install();
     return action;
   }
 
@@ -139,7 +131,7 @@ public final class LanguageConsoleBuilder {
   }
 
   /**
-   * @see {@link com.intellij.openapi.editor.ex.EditorEx#setOneLineMode(boolean)}
+   * @see EditorEx#setOneLineMode(boolean)
    */
   @SuppressWarnings("UnusedDeclaration")
   public LanguageConsoleBuilder oneLineInput() {
@@ -148,7 +140,7 @@ public final class LanguageConsoleBuilder {
   }
 
   /**
-   * @see {@link com.intellij.openapi.editor.ex.EditorEx#setOneLineMode(boolean)}
+   * @see EditorEx#setOneLineMode(boolean)
    */
   public LanguageConsoleBuilder oneLineInput(boolean value) {
     oneLineInput = value;
@@ -163,7 +155,8 @@ public final class LanguageConsoleBuilder {
 
   @NotNull
   public LanguageConsoleView build(@NotNull Project project, @NotNull Language language) {
-    GutteredLanguageConsole consoleView = new GutteredLanguageConsole(language.getDisplayName() + " Console", project, language, gutterContentProvider, psiFileFactory);
+    final MyHelper helper = new MyHelper(project, language.getDisplayName() + " Console", language, psiFileFactory);
+    GutteredLanguageConsole consoleView = new GutteredLanguageConsole(helper, gutterContentProvider);
     if (oneLineInput) {
       consoleView.getConsoleEditor().setOneLineMode(true);
     }
@@ -174,7 +167,7 @@ public final class LanguageConsoleBuilder {
 
     if (processInputStateKey != null) {
       assert executeActionHandler != null;
-      if (PropertiesComponent.getInstance().getBoolean(processInputStateKey, false)) {
+      if (PropertiesComponent.getInstance().getBoolean(processInputStateKey)) {
         executeActionHandler.myUseProcessStdIn = true;
         DaemonCodeAnalyzer daemonCodeAnalyzer = DaemonCodeAnalyzer.getInstance(consoleView.getProject());
         daemonCodeAnalyzer.setHighlightingEnabled(consoleView.getFile(), false);
@@ -184,20 +177,41 @@ public final class LanguageConsoleBuilder {
     return consoleView;
   }
 
-  private final static class GutteredLanguageConsole extends LanguageConsoleImpl {
-    private final GutterContentProvider gutterContentProvider;
-    @Nullable
-    private final PairFunction<VirtualFile, Project, PsiFile> psiFileFactory;
+  public static class MyHelper extends LanguageConsoleImpl.Helper {
+    private final PairFunction<? super VirtualFile, ? super Project, ? extends PsiFile> psiFileFactory;
 
-    public GutteredLanguageConsole(@NotNull String title,
-                                   @NotNull Project project,
-                                   @NotNull Language language,
-                                   @Nullable GutterContentProvider gutterContentProvider,
-                                   @Nullable PairFunction<VirtualFile, Project, PsiFile> psiFileFactory) {
-      super(project, title, new LightVirtualFile(title, language, ""), psiFileFactory);
+    GutteredLanguageConsole console;
 
-      this.gutterContentProvider = gutterContentProvider == null ? new BasicGutterContentProvider() : gutterContentProvider;
+    public MyHelper(@NotNull  Project project,
+                    @NotNull String title,
+                    @NotNull Language language,
+                    @Nullable PairFunction<? super VirtualFile, ? super Project, ? extends PsiFile> psiFileFactory) {
+      super(project, new LightVirtualFile(title, language, ""));
       this.psiFileFactory = psiFileFactory;
+    }
+
+    @NotNull
+    @Override
+    public PsiFile getFile() {
+      return psiFileFactory == null ? super.getFile() : psiFileFactory.fun(virtualFile, project);
+    }
+
+    @Override
+    public void setupEditor(@NotNull EditorEx editor) {
+      super.setupEditor(editor);
+
+      console.setupEditor(editor);
+    }
+  }
+
+  public static class GutteredLanguageConsole extends LanguageConsoleImpl {
+    private final GutterContentProvider gutterContentProvider;
+
+    public GutteredLanguageConsole(@NotNull MyHelper helper, @Nullable GutterContentProvider gutterContentProvider) {
+      super(helper);
+
+      helper.console = this;
+      this.gutterContentProvider = gutterContentProvider == null ? new BasicGutterContentProvider() : gutterContentProvider;
     }
 
     @Override
@@ -210,22 +224,7 @@ public final class LanguageConsoleBuilder {
       return 1;
     }
 
-    @NotNull
-    @Override
-    protected PsiFile createFile(@NotNull Project project,
-                                 @NotNull VirtualFile virtualFile) {
-      if (psiFileFactory == null) {
-        return super.createFile(project, virtualFile);
-      }
-      else {
-        return psiFileFactory.fun(virtualFile, project);
-      }
-    }
-
-    @Override
-    protected void setupEditorDefault(@NotNull EditorEx editor) {
-      super.setupEditorDefault(editor);
-
+    void setupEditor(@NotNull EditorEx editor) {
       if (editor == getConsoleEditor()) {
         return;
       }
@@ -234,13 +233,10 @@ public final class LanguageConsoleBuilder {
       final ConsoleGutterComponent lineEndGutter = new ConsoleGutterComponent(editor, gutterContentProvider, false);
 
       editor.getSoftWrapModel().forceAdditionalColumnsUsage();
-      ((SoftWrapModelImpl)editor.getSoftWrapModel()).getApplianceManager().setWidthProvider(new SoftWrapApplianceManager.VisibleAreaWidthProvider() {
-        @Override
-        public int getVisibleAreaWidth() {
-          int guttersWidth = lineEndGutter.getPreferredSize().width + lineStartGutter.getPreferredSize().width;
-          EditorEx editor = getHistoryViewer();
-          return editor.getScrollingModel().getVisibleArea().width - guttersWidth;
-        }
+      ((SoftWrapModelImpl)editor.getSoftWrapModel()).getApplianceManager().setWidthProvider(() -> {
+        int guttersWidth = lineEndGutter.getPreferredWidth() + lineStartGutter.getPreferredWidth();
+        EditorEx editor1 = getHistoryViewer();
+        return editor1.getScrollingModel().getVisibleArea().width - guttersWidth;
       });
       editor.setHorizontalScrollbarVisible(true);
 
@@ -293,7 +289,6 @@ public final class LanguageConsoleBuilder {
       scrollPane.setViewportView(layeredPane);
 
       GutterUpdateScheduler gutterUpdateScheduler = new GutterUpdateScheduler(lineStartGutter, lineEndGutter);
-      getProject().getMessageBus().connect(this).subscribe(DocumentBulkUpdateListener.TOPIC, gutterUpdateScheduler);
       editor.getDocument().addDocumentListener(gutterUpdateScheduler);
     }
 
@@ -302,7 +297,21 @@ public final class LanguageConsoleBuilder {
       gutterContentProvider.beforeEvaluate(getHistoryViewer());
     }
 
-    private final class GutterUpdateScheduler extends DocumentAdapter implements DocumentBulkUpdateListener {
+    @Override
+    public void dispose() {
+      final PsiFile file = getFile();
+      DaemonCodeAnalyzer.getInstance(file.getProject()).setHighlightingEnabled(file, true);
+
+      super.dispose();
+    }
+
+    @Override
+    public void scrollToEnd() {
+      getComponent().validate();
+      super.scrollToEnd();
+    }
+
+    private final class GutterUpdateScheduler implements BulkAwareDocumentListener {
       private final ConsoleGutterComponent lineStartGutter;
       private final ConsoleGutterComponent lineEndGutter;
 
@@ -333,12 +342,12 @@ public final class LanguageConsoleBuilder {
         }
       };
 
-      public GutterUpdateScheduler(@NotNull ConsoleGutterComponent lineStartGutter, @NotNull ConsoleGutterComponent lineEndGutter) {
+      GutterUpdateScheduler(@NotNull ConsoleGutterComponent lineStartGutter, @NotNull ConsoleGutterComponent lineEndGutter) {
         this.lineStartGutter = lineStartGutter;
         this.lineEndGutter = lineEndGutter;
 
         // console view can invoke markupModel.removeAllHighlighters(), so, we must be aware of it
-        getHistoryViewer().getMarkupModel().addMarkupModelListener(GutteredLanguageConsole.this, new MarkupModelListener.Adapter() {
+        getHistoryViewer().getMarkupModel().addMarkupModelListener(GutteredLanguageConsole.this, new MarkupModelListener() {
           @Override
           public void beforeRemoved(@NotNull RangeHighlighterEx highlighter) {
             if (lineSeparatorPainter == highlighter) {
@@ -348,12 +357,14 @@ public final class LanguageConsoleBuilder {
         });
       }
 
-      private void addLineSeparatorPainterIfNeed() {
+      private void addLineSeparatorPainterIfNeeded() {
         if (lineSeparatorPainter != null) {
           return;
         }
 
-        RangeHighlighter highlighter = getHistoryViewer().getMarkupModel().addRangeHighlighter(0, getDocument().getTextLength(), HighlighterLayer.ADDITIONAL_SYNTAX, null, HighlighterTargetArea.EXACT_RANGE);
+        RangeHighlighter highlighter = getHistoryViewer().getMarkupModel()
+          .addRangeHighlighter(null, 0, getDocument().getTextLength(), HighlighterLayer.ADDITIONAL_SYNTAX,
+                               HighlighterTargetArea.EXACT_RANGE);
         highlighter.setGreedyToRight(true);
         highlighter.setCustomRenderer(renderer);
         lineSeparatorPainter = highlighter;
@@ -364,14 +375,10 @@ public final class LanguageConsoleBuilder {
       }
 
       @Override
-      public void documentChanged(DocumentEvent event) {
+      public void documentChangedNonBulk(@NotNull DocumentEvent event) {
         DocumentEx document = getDocument();
-        if (document.isInBulkUpdate()) {
-          return;
-        }
-
         if (document.getTextLength() > 0) {
-          addLineSeparatorPainterIfNeed();
+          addLineSeparatorPainterIfNeeded();
           int startDocLine = document.getLineNumber(event.getOffset());
           int endDocLine = document.getLineNumber(event.getOffset() + event.getNewLength());
           if (event.getOldLength() > event.getNewLength() || startDocLine != endDocLine || StringUtil.indexOf(event.getOldFragment(), '\n') != -1) {
@@ -390,16 +397,12 @@ public final class LanguageConsoleBuilder {
       }
 
       @Override
-      public void updateStarted(@NotNull Document document) {
-      }
-
-      @Override
-      public void updateFinished(@NotNull Document document) {
+      public void bulkUpdateFinished(@NotNull Document document) {
         if (getDocument().getTextLength() == 0) {
           documentCleared();
         }
         else {
-          addLineSeparatorPainterIfNeed();
+          addLineSeparatorPainterIfNeeded();
           updateGutterSize(0, Integer.MAX_VALUE);
         }
       }
@@ -420,7 +423,7 @@ public final class LanguageConsoleBuilder {
         private int start;
         private int end;
 
-        public Task(int start, int end) {
+        Task(int start, int end) {
           this.start = start;
           this.end = end;
         }
@@ -434,6 +437,12 @@ public final class LanguageConsoleBuilder {
           gutterSizeUpdater = null;
         }
       }
+    }
+  }
+
+  public static class MyConsoleRootType extends ConsoleRootType {
+    public MyConsoleRootType(String historyType) {
+      super(historyType, null);
     }
   }
 }

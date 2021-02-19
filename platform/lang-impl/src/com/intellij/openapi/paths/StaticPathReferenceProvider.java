@@ -36,7 +36,7 @@ public class StaticPathReferenceProvider extends PathReferenceProviderBase {
   private boolean myRelativePathsAllowed;
   private final FileType[] mySuitableFileTypes;
 
-  public StaticPathReferenceProvider(@Nullable final FileType[] suitableFileTypes) {
+  public StaticPathReferenceProvider(final FileType @Nullable [] suitableFileTypes) {
     mySuitableFileTypes = suitableFileTypes;
   }
 
@@ -44,7 +44,7 @@ public class StaticPathReferenceProvider extends PathReferenceProviderBase {
   public boolean createReferences(@NotNull final PsiElement psiElement,
                                   final int offset,
                                   final String text,
-                                  final @NotNull List<PsiReference> references,
+                                  final @NotNull List<? super PsiReference> references,
                                   final boolean soft) {
 
     FileReferenceSet set = new FileReferenceSet(text, psiElement, offset, null, true, myEndingSlashNotAllowed, mySuitableFileTypes) {
@@ -68,7 +68,7 @@ public class StaticPathReferenceProvider extends PathReferenceProviderBase {
   @Override
   @Nullable
   public PathReference getPathReference(@NotNull final String path, @NotNull final PsiElement element) {
-    final List<PsiReference> list = new SmartList<PsiReference>();
+    final List<PsiReference> list = new SmartList<>();
     createReferences(element, list, true);
     if (list.isEmpty()) return null;
 

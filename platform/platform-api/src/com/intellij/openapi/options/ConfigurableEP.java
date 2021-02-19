@@ -1,46 +1,49 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options;
 
-import com.intellij.AbstractBundle;
-import com.intellij.CommonBundle;
+import com.intellij.BundleBase;
+import com.intellij.DynamicBundle;
+import com.intellij.diagnostic.PluginException;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.components.ComponentManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.AbstractExtensionPointBean;
+import com.intellij.openapi.extensions.ExtensionNotApplicableException;
+import com.intellij.openapi.extensions.PluginAware;
+import com.intellij.openapi.extensions.PluginDescriptor;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.AtomicNotNullLazyValue;
-import com.intellij.util.xmlb.annotations.AbstractCollection;
-import com.intellij.util.xmlb.annotations.Attribute;
-import com.intellij.util.xmlb.annotations.Property;
-import com.intellij.util.xmlb.annotations.Tag;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NotNullLazyValue;
+import com.intellij.serviceContainer.NonInjectable;
+import com.intellij.util.xmlb.annotations.*;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.picocontainer.PicoContainer;
 
+import java.util.List;
 import java.util.ResourceBundle;
 
 /**
  * Declares a named component that enables to configure settings.
  *
- * @author nik
  * @see Configurable
  */
 @Tag("configurable")
-public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExtensionPointBean {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.options.ConfigurableEP");
+public class ConfigurableEP<T extends UnnamedConfigurable> implements PluginAware {
+  private static final Logger LOG = Logger.getInstance(ConfigurableEP.class);
+
+  private PluginDescriptor pluginDescriptor;
+
+  @Transient
+  public final PluginDescriptor getPluginDescriptor() {
+    return pluginDescriptor;
+  }
+
+  @Override
+  public final void setPluginDescriptor(@NotNull PluginDescriptor value) {
+    pluginDescriptor = value;
+  }
 
   /**
    * This attribute specifies the setting name visible to users.
@@ -50,6 +53,7 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
    * It is highly recommended specifying the display name in XML to improve UI responsiveness.
    */
   @Attribute("displayName")
+  @Nls(capitalization = Nls.Capitalization.Title)
   public String displayName;
 
   /**
@@ -57,6 +61,7 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
    * This is another way to specify the {@link #displayName display name}.
    */
   @Attribute("key")
+  @Nls(capitalization = Nls.Capitalization.Title)
   public String key;
 
   /**
@@ -66,25 +71,62 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
   @Attribute("bundle")
   public String bundle;
 
+  @NotNull
+  @NlsContexts.ConfigurableName
   public String getDisplayName() {
-    if (displayName != null) return displayName;
-    LOG.assertTrue(bundle != null, "Bundle missed for " + instanceClass);
-    final ResourceBundle resourceBundle = AbstractBundle.getResourceBundle(bundle, myPluginDescriptor.getPluginClassLoader());
-    return displayName = CommonBundle.message(resourceBundle, key);
+    if (displayName != null) {
+      return displayName;
+    }
+
+    ResourceBundle resourceBundle = findBundle();
+    if (resourceBundle == null || key == null) {
+      if (key == null) {
+        LOG.warn("Bundle key missed for " + displayName);
+      }
+      else {
+        LOG.warn("Bundle missed for " + displayName);
+      }
+
+      if (providerClass == null) {
+        //noinspection HardCodedStringLiteral
+        return instanceClass == null ? implementationClass : instanceClass;
+      }
+      else {
+        //noinspection HardCodedStringLiteral
+        return providerClass;
+      }
+    }
+    else {
+      return BundleBase.messageOrDefault(resourceBundle, key, null);
+    }
   }
 
   /**
    * @return a resource bundle using the specified base name or {@code null}
    */
+  @Nullable
   public ResourceBundle findBundle() {
-    return bundle == null ? null : AbstractBundle.getResourceBundle(bundle, myPluginDescriptor != null
-                                                                            ? myPluginDescriptor.getPluginClassLoader()
-                                                                            : getClass().getClassLoader());
+    String pathToBundle = findPathToBundle();
+    if (pathToBundle == null) {
+      // a path to bundle is not specified or cannot be found
+      return null;
+    }
+    ClassLoader loader = pluginDescriptor == null ? null : pluginDescriptor.getPluginClassLoader();
+    return DynamicBundle.INSTANCE.getResourceBundle(pathToBundle, loader != null ? loader : getClass().getClassLoader());
+  }
+
+  @Nullable
+  private String findPathToBundle() {
+    if (bundle == null && pluginDescriptor != null) {
+      // can be unspecified
+      return pluginDescriptor.getResourceBundleBaseName();
+    }
+    return bundle;
   }
 
   @Property(surroundWithTag = false)
-  @AbstractCollection(surroundWithTag = false)
-  public ConfigurableEP[] children;
+  @XCollection
+  public List<ConfigurableEP<?>> children;
 
   /**
    * This attribute specifies a name of the extension point of {@code ConfigurableEP} type that will be used to calculate children.
@@ -111,10 +153,11 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
   @Attribute("parentId")
   public String parentId;
 
-  public ConfigurableEP[] getChildren() {
-    for (ConfigurableEP child : children) {
-      child.myPicoContainer = myPicoContainer;
-      child.myPluginDescriptor = myPluginDescriptor;
+  @NotNull
+  public List<ConfigurableEP<?>> getChildren() {
+    for (ConfigurableEP<?> child : children) {
+      child.componentManager = componentManager;
+      child.pluginDescriptor = pluginDescriptor;
       child.myProject = myProject;
     }
     return children;
@@ -184,13 +227,14 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
   public boolean nonDefaultProject;
 
   public boolean isAvailable() {
-    return !nonDefaultProject || !(myProject != null  && myProject.isDefault());
+    return !nonDefaultProject || !(myProject != null && myProject.isDefault());
   }
 
   /**
    * @deprecated use '{@link #instanceClass instance}' or '{@link #providerClass provider}' attribute instead
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   @Attribute("implementation")
   public String implementationClass;
 
@@ -219,50 +263,79 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
   @Attribute("provider")
   public String providerClass;
 
-  private final AtomicNotNullLazyValue<ObjectProducer> myProducer;
-  private PicoContainer myPicoContainer;
+  @Attribute("treeRenderer")
+  public String treeRendererClass;
+
+  private final NotNullLazyValue<ObjectProducer> myProducer = NotNullLazyValue.atomicLazy(this::createProducer);
+  private ComponentManager componentManager;
   private Project myProject;
 
-  public ConfigurableEP() {
-    this(ApplicationManager.getApplication().getPicoContainer(), null);
+  @NonInjectable
+  public ConfigurableEP(@NotNull PluginDescriptor pluginDescriptor) {
+    this(ApplicationManager.getApplication());
+
+    setPluginDescriptor(pluginDescriptor);
   }
 
-  @SuppressWarnings("UnusedDeclaration")
-  public ConfigurableEP(Project project) {
-    this(project.getPicoContainer(), project);
+  protected ConfigurableEP() {
+    this(ApplicationManager.getApplication());
   }
 
-  protected ConfigurableEP(PicoContainer picoContainer, @Nullable Project project) {
+  protected ConfigurableEP(@NotNull ComponentManager componentManager) {
+    myProject = componentManager instanceof Project ? (Project)componentManager : null;
+    this.componentManager = componentManager;
+  }
+
+  @NonInjectable
+  public ConfigurableEP(@NotNull Project project) {
     myProject = project;
-    myPicoContainer = picoContainer;
-    myProducer = new AtomicNotNullLazyValue<ObjectProducer>() {
-      @NotNull
-      @Override
-      protected ObjectProducer compute() {
-        try {
-          if (providerClass != null) {
-            return new ProviderProducer((ConfigurableProvider)instantiate(providerClass, myPicoContainer));
-          }
-          if (instanceClass != null) {
-            return new ClassProducer(myPicoContainer, findClass(instanceClass));
-          }
-          if (implementationClass != null) {
-            return new ClassProducer(myPicoContainer, findClass(implementationClass));
-          }
-          throw new RuntimeException("configurable class name is not set");
-        }
-        catch (AssertionError error) {
-          LOG.error(error);
-        }
-        catch (LinkageError error) {
-          LOG.error(error);
-        }
-        catch (Exception exception) {
-          LOG.error(exception);
-        }
-        return new ObjectProducer();
+    componentManager = project;
+  }
+
+  @NotNull
+  protected ObjectProducer createProducer() {
+    try {
+      if (providerClass != null) {
+        ConfigurableProvider provider = instantiateConfigurableProvider();
+        return provider == null ? new ObjectProducer() : new ProviderProducer(provider);
       }
-    };
+      else if (instanceClass != null) {
+        return new ClassProducer(componentManager, instanceClass, pluginDescriptor);
+      }
+      else if (implementationClass != null) {
+        return new ClassProducer(componentManager, implementationClass, pluginDescriptor);
+      }
+      else {
+        throw new PluginException("configurable class name is not set", pluginDescriptor == null ? null : pluginDescriptor.getPluginId());
+      }
+    }
+    catch (AssertionError | Exception | LinkageError error) {
+      LOG.error(new PluginException(error, pluginDescriptor == null ? null : pluginDescriptor.getPluginId()));
+    }
+    return new ObjectProducer();
+  }
+
+  @Nullable
+  public final ConfigurableProvider instantiateConfigurableProvider() {
+    return providerClass != null
+           ? componentManager.instantiateClass(providerClass, pluginDescriptor)
+           : null;
+  }
+
+  public final @Nullable Class<?> findClassOrNull(@NotNull String className) {
+    try {
+      ClassLoader classLoader = pluginDescriptor == null ? null : pluginDescriptor.getPluginClassLoader();
+      return Class.forName(className, true, classLoader);
+    }
+    catch (Throwable t) {
+      if (pluginDescriptor == null) {
+        LOG.error(t);
+      }
+      else {
+        LOG.error(new PluginException(t, pluginDescriptor.getPluginId()));
+      }
+      return null;
+    }
   }
 
   @Nullable
@@ -272,6 +345,23 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
       @SuppressWarnings("unchecked")
       T configurable = (T)producer.createElement();
       return configurable;
+    }
+    return null;
+  }
+
+  @Nullable
+  public ConfigurableTreeRenderer createTreeRenderer() {
+    if (treeRendererClass == null) {
+      return null;
+    }
+    try {
+      return componentManager.instantiateClass(treeRendererClass, pluginDescriptor);
+    }
+    catch (ProcessCanceledException exception) {
+      throw exception;
+    }
+    catch (AssertionError | LinkageError | Exception e) {
+      LOG.error(new PluginException(e, pluginDescriptor == null ? null : pluginDescriptor.getPluginId()));
     }
     return null;
   }
@@ -300,71 +390,75 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
     return myProducer.getValue().getType();
   }
 
-  private static class ObjectProducer {
-    Object createElement() {
+  protected static class ObjectProducer {
+    protected Object createElement() {
       return null;
     }
 
-    boolean canCreateElement() {
+    protected boolean canCreateElement() {
       return false;
     }
 
-    Class<?> getType() {
+    protected Class<?> getType() {
       return null;
     }
   }
 
   private static final class ProviderProducer extends ObjectProducer {
+    @NotNull
     private final ConfigurableProvider myProvider;
 
-    private ProviderProducer(ConfigurableProvider provider) {
+    private ProviderProducer(@NotNull ConfigurableProvider provider) {
       myProvider = provider;
     }
 
     @Override
-    Object createElement() {
-      return myProvider == null ? null : myProvider.createConfigurable();
+    protected Object createElement() {
+      return myProvider.createConfigurable();
     }
 
     @Override
-    boolean canCreateElement() {
-      return myProvider != null && myProvider.canCreateConfigurable();
+    protected boolean canCreateElement() {
+      return myProvider.canCreateConfigurable();
     }
   }
 
   private static final class ClassProducer extends ObjectProducer {
-    private final PicoContainer myContainer;
-    private final Class<?> myType;
+    private final ComponentManager componentManager;
+    private final String className;
+    private final PluginDescriptor pluginDescriptor;
 
-    private ClassProducer(PicoContainer container, Class<?> type) {
-      myContainer = container;
-      myType = type;
+    private ClassProducer(@NotNull ComponentManager componentManager, @NotNull String className, @Nullable PluginDescriptor pluginDescriptor) {
+      this.componentManager = componentManager;
+      this.className = className;
+      this.pluginDescriptor = pluginDescriptor;
     }
 
     @Override
-    Object createElement() {
+    protected Object createElement() {
       try {
-        return instantiate(myType, myContainer, true);
+        return componentManager.instantiateClass(className, pluginDescriptor);
       }
-      catch (AssertionError error) {
-        LOG.error(error);
+      catch (ProcessCanceledException exception) {
+        throw exception;
       }
-      catch (LinkageError error) {
-        LOG.error(error);
+      catch (ExtensionNotApplicableException ignore) {
+        return null;
       }
-      catch (Exception exception) {
-        LOG.error(exception);
+      catch (AssertionError | LinkageError | Exception e) {
+        LOG.error("Cannot create configurable", e);
       }
       return null;
     }
 
     @Override
-    boolean canCreateElement() {
-      return myType != null;
+    protected boolean canCreateElement() {
+      return true;
     }
 
-    Class<?> getType() {
-      return myType;
+    @Override
+    protected Class<?> getType() {
+      return null;
     }
   }
 }

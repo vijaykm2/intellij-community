@@ -29,8 +29,8 @@ import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.Set;
 
-/** @noinspection CallToPrintStackTrace,UseOfSystemOutOrSystemErr,IOResourceOpenedButNotSafelyClosed,SocketOpenedButNotSafelyClosed,UseOfArchaicSystemPropertyAccessors */
-public class XSLTRunner implements XSLTMain {
+/** @noinspection CallToPrintStackTrace, UseOfSystemOutOrSystemErr, IOResourceOpenedButNotSafelyClosed, SocketOpenedButNotSafelyClosed */
+public final class XSLTRunner implements XSLTMain {
 
     private XSLTRunner() {
     }
@@ -123,7 +123,7 @@ public class XSLTRunner implements XSLTMain {
                       }
                 }
 
-                Runtime.getRuntime().addShutdownHook(new Thread() {
+                Runtime.getRuntime().addShutdownHook(new Thread("XSLT runner") {
                   public void run() {
                     try {
                       final Writer out = result.getWriter();
@@ -193,7 +193,7 @@ public class XSLTRunner implements XSLTMain {
         private final Set myMessages = new HashSet();
         private final boolean[] myTrouble;
 
-        public MyErrorListener(boolean[] trouble) {
+        MyErrorListener(boolean[] trouble) {
             myTrouble = trouble;
         }
 
@@ -267,8 +267,7 @@ public class XSLTRunner implements XSLTMain {
                     }
 
                     public String getPublicId() {
-                        //noinspection ConstantConditions
-                        return null;
+                      return null;
                     }
 
                     public String getSystemId() {

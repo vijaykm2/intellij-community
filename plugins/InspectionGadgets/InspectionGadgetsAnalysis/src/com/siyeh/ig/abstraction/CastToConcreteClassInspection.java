@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2012 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,9 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
+import com.siyeh.ig.psiutils.CloneUtils;
 import com.siyeh.ig.psiutils.MethodUtils;
+import com.siyeh.ig.psiutils.TypeUtils;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -33,13 +35,7 @@ public class CastToConcreteClassInspection extends BaseInspection {
   public boolean ignoreAbstractClasses = false;
 
   @SuppressWarnings("PublicField")
-  public boolean ignoreInEquals = true;
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("cast.to.concrete.class.display.name");
-  }
+  public boolean ignoreInEquals = true; // keep for compatibility
 
   @Override
   @NotNull
@@ -73,11 +69,9 @@ public class CastToConcreteClassInspection extends BaseInspection {
       if (!ConcreteClassUtil.typeIsConcreteClass(typeElement, ignoreAbstractClasses)) {
         return;
       }
-      if (ignoreInEquals) {
-        final PsiMethod method = PsiTreeUtil.getParentOfType(expression, PsiMethod.class, true, PsiClass.class, PsiLambdaExpression.class);
-        if (MethodUtils.isEquals(method)) {
-          return;
-        }
+      final PsiMethod method = PsiTreeUtil.getParentOfType(expression, PsiMethod.class, true, PsiClass.class, PsiLambdaExpression.class);
+      if (MethodUtils.isEquals(method) || CloneUtils.isClone(method)) {
+        return;
       }
       registerError(typeElement, typeElement.getType());
     }
@@ -96,18 +90,10 @@ public class CastToConcreteClassInspection extends BaseInspection {
         return;
       }
       final PsiType type = qualifier.getType();
-      if (!(type instanceof PsiClassType)) {
+      if (!CommonClassNames.JAVA_LANG_CLASS.equals(TypeUtils.resolvedClassName(type))) {
         return;
       }
       final PsiClassType classType = (PsiClassType)type;
-      final PsiClass aClass = classType.resolve();
-      if (aClass == null) {
-        return;
-      }
-      final String className = aClass.getQualifiedName();
-      if (!CommonClassNames.JAVA_LANG_CLASS.equals(className)) {
-        return;
-      }
       final PsiType[] parameters = classType.getParameters();
       if (parameters.length != 1) {
         return;
@@ -116,11 +102,9 @@ public class CastToConcreteClassInspection extends BaseInspection {
       if (!ConcreteClassUtil.typeIsConcreteClass(parameter, ignoreAbstractClasses)) {
         return;
       }
-      if (ignoreInEquals) {
-        final PsiMethod method = PsiTreeUtil.getParentOfType(expression, PsiMethod.class, true, PsiClass.class, PsiLambdaExpression.class);
-        if (MethodUtils.isEquals(method)) {
-          return;
-        }
+      final PsiMethod method = PsiTreeUtil.getParentOfType(expression, PsiMethod.class, true, PsiClass.class, PsiLambdaExpression.class);
+      if (MethodUtils.isEquals(method) || CloneUtils.isClone(method)) {
+        return;
       }
       registerMethodCallError(expression, parameter);
     }

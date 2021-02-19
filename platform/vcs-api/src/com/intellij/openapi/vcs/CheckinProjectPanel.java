@@ -16,9 +16,14 @@
 package com.intellij.openapi.vcs;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.vcs.changes.Change;
+import com.intellij.openapi.vcs.changes.CommitContext;
 import com.intellij.openapi.vcs.ui.Refreshable;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.vcs.commit.CommitWorkflowHandler;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.io.File;
@@ -29,12 +34,15 @@ import java.util.Collection;
  * included in the checkin operation, getting/setting the commit message and so on).
  * The active check-in dialog can be retrieved from the using {@link Refreshable#PANEL_KEY}
  *
- * @see com.intellij.openapi.vcs.checkin.BaseCheckinHandlerFactory#createHandler(CommitMessageI, CommitContext)
+ * @see com.intellij.openapi.vcs.checkin.BaseCheckinHandlerFactory#createHandler(CheckinProjectPanel, CommitContext)
  */
 public interface CheckinProjectPanel extends Refreshable, CommitMessageI {
   JComponent getComponent();
 
   JComponent getPreferredFocusedComponent();
+
+  @NotNull
+  CommitWorkflowHandler getCommitWorkflowHandler();
 
   /**
    * Checks if the checkin operation has anything to check in.
@@ -54,11 +62,10 @@ public interface CheckinProjectPanel extends Refreshable, CommitMessageI {
   Collection<Change> getSelectedChanges();
 
   /**
-   * Returns the list of files selected for checkin, as {@link java.io.File} objects. The returned list
+   * Returns the list of files selected for checkin, as {@link File} objects. The returned list
    * includes files which will be deleted from the VCS during the check-in operation.
    *
    * @return the files selected for checkin.
-   * @since 5.1
    */
   Collection<File> getFiles();
 
@@ -67,6 +74,7 @@ public interface CheckinProjectPanel extends Refreshable, CommitMessageI {
    *
    * @return the project instance.
    */
+  @NotNull
   Project getProject();
 
   /**
@@ -83,15 +91,14 @@ public interface CheckinProjectPanel extends Refreshable, CommitMessageI {
    */
   Collection<VirtualFile> getRoots();
 
-  void setWarning(final String s);
-
   /**
    * Gets the description for the check-in.
    *
    * @return the description text.
-   * @since 5.1
    */
+  @NotNull @Nls
   String getCommitMessage();
 
+  @NlsContexts.Button
   String getCommitActionName();
 }

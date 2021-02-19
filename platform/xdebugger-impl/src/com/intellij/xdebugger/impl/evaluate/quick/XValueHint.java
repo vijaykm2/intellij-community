@@ -1,28 +1,12 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.evaluate.quick;
 
-import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.codeInsight.hint.HintUtil;
 import com.intellij.execution.console.LanguageConsoleView;
 import com.intellij.execution.impl.ConsoleViewImpl;
 import com.intellij.execution.ui.ConsoleView;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.ActionManager;
-import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.ShortcutSet;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
@@ -34,17 +18,19 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.changes.issueLinks.LinkMouseListenerBase;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.PsiElement;
 import com.intellij.ui.SimpleColoredComponent;
 import com.intellij.ui.SimpleColoredText;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.Consumer;
+import com.intellij.util.concurrency.EdtExecutorService;
 import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XDebuggerUtil;
 import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.evaluation.ExpressionInfo;
+import com.intellij.xdebugger.evaluation.XDebuggerEditorsProvider;
 import com.intellij.xdebugger.evaluation.XDebuggerEvaluator;
 import com.intellij.xdebugger.frame.XDebuggerTreeNodeHyperlink;
 import com.intellij.xdebugger.frame.XFullValueEvaluator;
@@ -67,33 +53,63 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseEvent;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * @author nik
- */
 public class XValueHint extends AbstractValueHint {
   private static final Logger LOG = Logger.getInstance(XValueHint.class);
 
+  private final XDebuggerEditorsProvider myEditorsProvider;
   private final XDebuggerEvaluator myEvaluator;
   private final XDebugSession myDebugSession;
+  private final boolean myFromKeyboard;
   private final String myExpression;
   private final String myValueName;
-  private final @Nullable XSourcePosition myExpressionPosition;
-  private final ExpressionInfo myExpressionInfo;
+  private final PsiElement myElement;
+  private final XSourcePosition myExpressionPosition;
   private Disposable myDisposable;
 
   private static final Key<XValueHint> HINT_KEY = Key.create("allows only one value hint per editor");
 
-  public XValueHint(@NotNull Project project, @NotNull Editor editor, @NotNull Point point, @NotNull ValueHintType type,
-                    @NotNull ExpressionInfo expressionInfo, @NotNull XDebuggerEvaluator evaluator,
-                    @NotNull XDebugSession session) {
-    super(project, editor, point, type, expressionInfo.getTextRange());
+  public XValueHint(@NotNull Project project,
+                    @NotNull Editor editor,
+                    @NotNull Point point,
+                    @NotNull ValueHintType type,
+                    @NotNull ExpressionInfo expressionInfo,
+                    @NotNull XDebuggerEvaluator evaluator,
+                    @NotNull XDebugSession session,
+                    boolean fromKeyboard) {
+    this(project, session.getDebugProcess().getEditorsProvider(), editor, point, type, expressionInfo, evaluator, session, fromKeyboard);
+  }
 
+  protected XValueHint(@NotNull Project project,
+                       @NotNull XDebuggerEditorsProvider editorsProvider,
+                       @NotNull Editor editor,
+                       @NotNull Point point,
+                       @NotNull ValueHintType type,
+                       @NotNull ExpressionInfo expressionInfo,
+                       @NotNull XDebuggerEvaluator evaluator,
+                       boolean fromKeyboard) {
+    this(project, editorsProvider, editor, point, type, expressionInfo, evaluator, null, fromKeyboard);
+  }
+
+  private XValueHint(@NotNull Project project,
+                     @NotNull XDebuggerEditorsProvider editorsProvider,
+                     @NotNull Editor editor,
+                     @NotNull Point point,
+                     @NotNull ValueHintType type,
+                     @NotNull ExpressionInfo expressionInfo,
+                     @NotNull XDebuggerEvaluator evaluator,
+                     @Nullable XDebugSession session,
+                     boolean fromKeyboard) {
+    super(project, editor, point, type, expressionInfo.getTextRange());
+    myEditorsProvider = editorsProvider;
     myEvaluator = evaluator;
     myDebugSession = session;
+    myFromKeyboard = fromKeyboard;
     myExpression = XDebuggerEvaluateActionHandler.getExpressionText(expressionInfo, editor.getDocument());
     myValueName = XDebuggerEvaluateActionHandler.getDisplayText(expressionInfo, editor.getDocument());
-    myExpressionInfo = expressionInfo;
+    myElement = expressionInfo.getElement();
 
     VirtualFile file;
     ConsoleView consoleView = ConsoleViewImpl.CONSOLE_VIEW_IN_EDITOR_VIEW.get(editor);
@@ -116,18 +132,6 @@ public class XValueHint extends AbstractValueHint {
   @Override
   protected boolean showHint(final JComponent component) {
     boolean result = super.showHint(component);
-    if (result && getType() == ValueHintType.MOUSE_OVER_HINT) {
-      myDisposable = Disposer.newDisposable();
-      ShortcutSet shortcut = ActionManager.getInstance().getAction("ShowErrorDescription").getShortcutSet();
-      new DumbAwareAction() {
-        @Override
-        public void actionPerformed(@NotNull AnActionEvent e) {
-          hideHint();
-          final Point point = new Point(myPoint.x, myPoint.y + getEditor().getLineHeight());
-          new XValueHint(getProject(), getEditor(), point, ValueHintType.MOUSE_CLICK_HINT, myExpressionInfo, myEvaluator, myDebugSession).invokeHint();
-        }
-      }.registerCustomShortcutSet(shortcut, getEditor().getContentComponent(), myDisposable);
-    }
     if (result) {
       XValueHint prev = getEditor().getUserData(HINT_KEY);
       if (prev != null) {
@@ -145,23 +149,27 @@ public class XValueHint extends AbstractValueHint {
     if (prev == this) {
       getEditor().putUserData(HINT_KEY, null);
     }
-    if (myDisposable != null) {
-      Disposer.dispose(myDisposable);
-      myDisposable = null;
-    }
+    disposeVisibleHint();
   }
 
   @Override
   public void hideHint() {
     super.hideHint();
-    if (myDisposable != null) {
-      Disposer.dispose(myDisposable);
-    }
+    disposeVisibleHint();
   }
 
   @Override
   protected void evaluateAndShowHint() {
-    myEvaluator.evaluate(myExpression, new XEvaluationCallbackBase() {
+    AtomicBoolean showEvaluating = new AtomicBoolean(true);
+    EdtExecutorService.getScheduledExecutorInstance().schedule(() -> {
+      if (myCurrentHint == null && showEvaluating.get()) {
+        SimpleColoredComponent component = HintUtil.createInformationComponent();
+        component.append(XDebuggerUIConstants.getEvaluatingExpressionMessage());
+        showHint(component);
+      }
+    }, 200, TimeUnit.MILLISECONDS);
+
+    XEvaluationCallbackBase callback = new XEvaluationCallbackBase() {
       @Override
       public void evaluated(@NotNull final XValue result) {
         result.computePresentation(new XValueNodePresentationConfigurator.ConfigurableXValueNodeImpl() {
@@ -172,27 +180,16 @@ public class XValueHint extends AbstractValueHint {
           public void applyPresentation(@Nullable Icon icon,
                                         @NotNull XValuePresentation valuePresenter,
                                         boolean hasChildren) {
+            showEvaluating.set(false);
             if (isHintHidden()) {
               return;
             }
 
             SimpleColoredText text = new SimpleColoredText();
-            text.append(StringUtil.trimMiddle(myValueName, 200), XDebuggerUIConstants.VALUE_NAME_ATTRIBUTES);
-            XValueNodeImpl.buildText(valuePresenter, text);
+            XValueNodeImpl.buildText(valuePresenter, text, false);
 
             if (!hasChildren) {
-              SimpleColoredComponent component = HintUtil.createInformationComponent();
-              text.appendToComponent(component);
-              if (myFullValueEvaluator != null) {
-                component.append(myFullValueEvaluator.getLinkText(), XDebuggerTreeNodeHyperlink.TEXT_ATTRIBUTES, new Consumer<MouseEvent>() {
-                  @Override
-                  public void consume(MouseEvent event) {
-                    DebuggerUIUtil.showValuePopup(myFullValueEvaluator, event, getProject(), getEditor());
-                  }
-                });
-                LinkMouseListenerBase.installSingleTagOn(component);
-              }
-              showHint(component);
+              showHint(createHintComponent(icon, text, valuePresenter, myFullValueEvaluator));
             }
             else if (getType() == ValueHintType.MOUSE_CLICK_HINT) {
               if (!myShown) {
@@ -201,17 +198,20 @@ public class XValueHint extends AbstractValueHint {
             }
             else {
               if (getType() == ValueHintType.MOUSE_OVER_HINT) {
-                text.insert(0, "(" + KeymapUtil.getFirstKeyboardShortcutText("ShowErrorDescription") + ") ",
-                            SimpleTextAttributes.GRAYED_ATTRIBUTES);
+                if (myFromKeyboard) {
+                  text.insert(0, "(" + KeymapUtil.getFirstKeyboardShortcutText("ShowErrorDescription") + ") ",
+                              SimpleTextAttributes.GRAYED_ATTRIBUTES);
+                }
+
+                // first remove a shortcut created for any previous presentation (like "Collecting data...")
+                disposeVisibleHint();
+                myDisposable = Disposer.newDisposable();
+                ShortcutSet shortcut = ActionManager.getInstance().getAction("ShowErrorDescription").getShortcutSet();
+                DumbAwareAction.create(e -> showTree(result))
+                               .registerCustomShortcutSet(shortcut, getEditor().getContentComponent(), myDisposable);
               }
 
-              JComponent component = createExpandableHintComponent(text, new Runnable() {
-                @Override
-                public void run() {
-                  showTree(result);
-                }
-              });
-              showHint(component);
+              showHint(createExpandableHintComponent(icon, text, () -> showTree(result), myFullValueEvaluator));
             }
             myShown = true;
           }
@@ -230,29 +230,65 @@ public class XValueHint extends AbstractValueHint {
 
       @Override
       public void errorOccurred(@NotNull final String errorMessage) {
-        ApplicationManager.getApplication().invokeLater(new Runnable() {
-          @Override
-          public void run() {
-            int start = 0, end = 0;
-            if (getCurrentRange() != null) {
-              start = getCurrentRange().getStartOffset();
-              end = getCurrentRange().getEndOffset();
-            }
-            HintManager.getInstance().showErrorHint(getEditor(), errorMessage, start,
-                                                    end, HintManager.ABOVE,
-                                                    HintManager.HIDE_BY_ESCAPE | HintManager.HIDE_BY_TEXT_CHANGE,
-                                                    0);
+        showEvaluating.set(false);
+        ApplicationManager.getApplication().invokeLater(() -> {
+          if (getType() == ValueHintType.MOUSE_CLICK_HINT) {
+            showHint(HintUtil.createErrorLabel(errorMessage));
+          }
+          else if (myCurrentHint != null) {
+            myCurrentHint.hide();
           }
         });
         LOG.debug("Cannot evaluate '" + myExpression + "':" + errorMessage);
       }
-    }, myExpressionPosition);
+    };
+    if (myElement != null && myEvaluator instanceof XDebuggerPsiEvaluator) {
+      ((XDebuggerPsiEvaluator)myEvaluator).evaluate(myElement, callback);
+    }
+    else {
+      myEvaluator.evaluate(myExpression, callback, myExpressionPosition);
+    }
+  }
+
+  @NotNull
+  protected JComponent createHintComponent(@Nullable Icon icon,
+                                           @NotNull SimpleColoredText text,
+                                           @NotNull XValuePresentation presentation,
+                                           @Nullable XFullValueEvaluator evaluator) {
+    SimpleColoredComponent component = HintUtil.createInformationComponent();
+    component.setIcon(icon);
+    text.appendToComponent(component);
+    appendEvaluatorLink(evaluator, component);
+    if (evaluator != null) {
+      LinkMouseListenerBase.installSingleTagOn(component);
+    }
+    return component;
+  }
+
+  private void disposeVisibleHint() {
+    if (myDisposable != null) {
+      Disposer.dispose(myDisposable);
+      myDisposable = null;
+    }
   }
 
   private void showTree(@NotNull XValue value) {
-    XValueMarkers<?,?> valueMarkers = ((XDebugSessionImpl)myDebugSession).getValueMarkers();
-    XDebuggerTreeCreator creator = new XDebuggerTreeCreator(myDebugSession.getProject(), myDebugSession.getDebugProcess().getEditorsProvider(),
-                                                            myDebugSession.getCurrentPosition(), valueMarkers);
+    if (myCurrentHint != null) {
+      myCurrentHint.hide();
+    }
+    XValueMarkers<?,?> valueMarkers = myDebugSession == null ? null : ((XDebugSessionImpl)myDebugSession).getValueMarkers();
+    XSourcePosition position = myDebugSession == null ? null : myDebugSession.getCurrentPosition();
+    XDebuggerTreeCreator creator = new XDebuggerTreeCreator(getProject(), myEditorsProvider, position, valueMarkers) {
+      @Override
+      public @NotNull String getTitle(@NotNull Pair<XValue, String> descriptor) {
+        return "";
+      }
+    };
     showTreePopup(creator, Pair.create(value, myValueName));
+  }
+
+  @Override
+  public String toString() {
+    return myExpression;
   }
 }

@@ -15,15 +15,14 @@
  */
 package com.intellij.refactoring.ui;
 
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.refactoring.RefactoringBundle;
-import com.intellij.ui.ListCellRendererWrapper;
-import com.intellij.util.IJSwingUtilities;
+import com.intellij.ui.SimpleListCellRenderer;
 import com.intellij.util.ui.DialogUtil;
 import com.intellij.util.ui.UpDownHandler;
 
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
-import javax.swing.event.ChangeListener;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
@@ -37,15 +36,14 @@ import java.util.Map;
 public class ComboBoxVisibilityPanel<V> extends VisibilityPanelBase<V> {
   private final JLabel myLabel;
   protected final JComboBox myComboBox;
-  private final Map<V, String> myNamesMap = new HashMap<V, String>();
+  private final Map<V, String> myNamesMap = new HashMap<>();
 
-  public ComboBoxVisibilityPanel(String name, V[] options, String[] presentableNames) {
+  public ComboBoxVisibilityPanel(@NlsContexts.Label String name, V[] options, @NlsContexts.ListItem String[] presentableNames) {
     setLayout(new BorderLayout(0,2));
     myLabel = new JLabel(name);
     add(myLabel, BorderLayout.NORTH);
     myComboBox = new JComboBox(options);
     myComboBox.setRenderer(getRenderer());
-    IJSwingUtilities.adjustComponentsOnMac(myLabel, myComboBox);
     add(myComboBox, BorderLayout.SOUTH);
     for (int i = 0; i < options.length; i++) {
       myNamesMap.put(options[i], presentableNames[i]);
@@ -53,7 +51,7 @@ public class ComboBoxVisibilityPanel<V> extends VisibilityPanelBase<V> {
     myComboBox.addActionListener(new AbstractAction() {
       @Override
       public void actionPerformed(ActionEvent e) {
-        myEventDispatcher.getMulticaster().stateChanged(new ChangeEvent(ComboBoxVisibilityPanel.this));
+        stateChanged(new ChangeEvent(ComboBoxVisibilityPanel.this));
       }
     });
 
@@ -66,16 +64,11 @@ public class ComboBoxVisibilityPanel<V> extends VisibilityPanelBase<V> {
     DialogUtil.registerMnemonic(myLabel, myComboBox);
   }
 
-  protected ListCellRendererWrapper getRenderer() {
-    return new ListCellRendererWrapper() {
-      @Override
-      public void customize(JList list, Object value, int index, boolean selected, boolean hasFocus) {
-        setText(myNamesMap.get((V)value));
-      }
-    };
+  protected ListCellRenderer<?> getRenderer() {
+    return SimpleListCellRenderer.<V>create("", myNamesMap::get);
   }
 
-  public ComboBoxVisibilityPanel(String name, V[] options) {
+  public ComboBoxVisibilityPanel(@NlsContexts.Label String name, V[] options) {
     this(name, options, getObjectNames(options));
   }
 
@@ -119,11 +112,6 @@ public class ComboBoxVisibilityPanel<V> extends VisibilityPanelBase<V> {
     return (V)myComboBox.getSelectedItem();
   }
 
-  @Override
-  public void addListener(ChangeListener listener) {
-    myEventDispatcher.addListener(listener);
-  }
-
   public final void registerUpDownActionsFor(JComponent input) {
     UpDownHandler.register(input, myComboBox);
   }
@@ -131,6 +119,6 @@ public class ComboBoxVisibilityPanel<V> extends VisibilityPanelBase<V> {
   @Override
   public void setVisibility(V visibility) {
     myComboBox.setSelectedItem(visibility);
-    myEventDispatcher.getMulticaster().stateChanged(new ChangeEvent(this));
+    stateChanged(new ChangeEvent(this));
   }
 }

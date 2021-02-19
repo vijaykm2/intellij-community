@@ -19,13 +19,16 @@ package com.intellij.util.containers;
 import junit.framework.Assert;
 import junit.framework.TestCase;
 
+import java.util.HashMap;
+import java.util.HashSet;
+
 /**
  * @author lvo
  */
 public class ObjectCacheTest extends TestCase {
   public void testCacheFiniteness() {
-    ObjectCache<String, String> cache = new ObjectCache<String, String>(4);
-    cache.put("Eclipse", "Sucking IDE");
+    ObjectCache<String, String> cache = new ObjectCache<>(4);
+    cache.put("Eclipse", "Another IDE");
     cache.put("IDEA", "good");
     cache.put("IDEA 4.5", "better");
     cache.put("IDEA 5.0", "perfect");
@@ -35,25 +38,25 @@ public class ObjectCacheTest extends TestCase {
   }
 
   public void testCacheIterator() {
-    ObjectCache<String, String> cache = new ObjectCache<String, String>(4);
-    cache.put("Eclipse", "Sucking IDE");
+    ObjectCache<String, String> cache = new ObjectCache<>(4);
+    cache.put("Eclipse", "Another IDE");
     cache.put("IDEA", "good IDEA");
     cache.put("IDEA 4.5", "better IDEA");
     cache.put("IDEA 5.0", "perfect IDEA");
     cache.put("IDEA 6.0", "IDEAL");
-    HashSet<String> values = new HashSet<String>();
-    for (Object obj : cache) {
-      values.add((String)obj);
+    HashSet<String> values = new HashSet<>();
+    for (String obj : cache) {
+      values.add(obj);
     }
     Assert.assertNull(cache.get("Eclipse"));
-    Assert.assertFalse(values.contains("Sucking IDE"));
+    Assert.assertFalse(values.contains("Another IDE"));
     Assert.assertTrue(values.contains("good IDEA"));
     Assert.assertTrue(values.contains("better IDEA"));
     Assert.assertTrue(values.contains("perfect IDEA"));
     Assert.assertTrue(values.contains("IDEAL"));
   }
 
-  final private static HashMap removedPairs = new HashMap();
+  final private static HashMap<Object, Object> removedPairs = new HashMap<>();
 
   private static class CacheDeletedPairsListener implements ObjectCache.DeletedPairsListener {
     @Override
@@ -63,21 +66,21 @@ public class ObjectCacheTest extends TestCase {
   }
 
   public void testCacheListeners() {
-    ObjectCache<String, String> cache = new ObjectCache<String, String>(4);
+    ObjectCache<String, String> cache = new ObjectCache<>(4);
     cache.addDeletedPairsListener(new CacheDeletedPairsListener());
     removedPairs.clear();
-    cache.put("Eclipse", "Sucking IDE");
-    cache.put("Eclipses", "Sucking IDEs");
+    cache.put("Eclipse", "Another IDE");
+    cache.put("Eclipses", "Another IDEs");
     cache.put("IDEA", "good IDEA");
     cache.put("IDEA 4.5", "better IDEA");
     cache.put("IDEA 5.0", "perfect IDEA");
     cache.put("IDEA 6.0", "IDEAL");
-    Assert.assertEquals("Sucking IDE", removedPairs.get("Eclipse"));
-    Assert.assertEquals("Sucking IDEs", removedPairs.get("Eclipses"));
+    Assert.assertEquals("Another IDE", removedPairs.get("Eclipse"));
+    Assert.assertEquals("Another IDEs", removedPairs.get("Eclipses"));
   }
 
   public void testIntCacheFiniteness() {
-    IntObjectCache<Integer> cache = new IntObjectCache<Integer>(4);
+    IntObjectCache<Integer> cache = new IntObjectCache<>(4);
     cache.put(0, 0);
     cache.put(1, 1);
     cache.put(2, 2);
@@ -88,13 +91,13 @@ public class ObjectCacheTest extends TestCase {
   }
 
   public void testIntCacheIterator() {
-    IntObjectCache<Integer> cache = new IntObjectCache<Integer>(4);
+    IntObjectCache<Integer> cache = new IntObjectCache<>(4);
     cache.put(0, 0);
     cache.put(1, 1);
     cache.put(2, 2);
     cache.put(3, 3);
     cache.put(4, 4);
-    HashSet<Object> values = new HashSet<Object>();
+    java.util.HashSet<Object> values = new HashSet<>();
     for (Object obj : cache) {
       values.add(obj);
     }
@@ -106,7 +109,7 @@ public class ObjectCacheTest extends TestCase {
   }
 
   public void testIntCacheNegativeKeys() {
-    IntObjectCache<Object> cache = new IntObjectCache<Object>(8);
+    IntObjectCache<Object> cache = new IntObjectCache<>(8);
     cache.put(-1, 1);
     cache.put(-2, 2);
     cache.put(-3, 3);

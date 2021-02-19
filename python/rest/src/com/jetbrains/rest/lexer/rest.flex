@@ -15,21 +15,16 @@ import com.jetbrains.rest.RestTokenTypes;
 %function advance
 %type IElementType
 
-
-%eof{ return;
-%eof}
-
-CRLF= \n|\r|\r\n
+CRLF=\R
 SPACE=[\ \t]
 
 ADORNMENT_SYMBOL="="|"-"|"`"|":"|"."|"'"|\"|"~"|"^"|"_"|"*"|"+"|"#"|">"
-ADORNMENT=("="{4, 80}|"-"{4, 80}|"`"{4, 80}|":"{4, 80}|"."{4, 80}|"'"{4, 80}|\"{4, 80}|"~"{4, 80}|"^"{4, 80}|"_"{4, 80}|"*"{4, 80}|"+"{4, 80}|"#"{4, 80})" "*{CRLF}
-SEPARATOR=[\n .:,()\{\}\[\]\-]
+ADORNMENT=("="+|"-"+|"`"+|":"+|"."+|"'"+|\"+|"~"+|"^"+|"_"+|"*"+|"+"+|"#"+)" "*{CRLF}
+SEPARATOR=[\n .:,()\{\}\[\]\-;!\\/'\"]
 USUAL_TYPES="attention"|"caution"|"danger"|"error"|"hint"|"important"|"note"|"tip"|"warning"|"admonition"|"image"|"figure"|"topic"|"sidebar"|"parsed-literal"|"rubric"|"epigraph"|"highlights"|"pull-quote"|"compound"|"container"|"table"|"csv-table"|"list-table"|"contents"|"sectnum"|"section-autonumbering"|"header"|"footer"|"target-notes"|"footnotes"|"citations"|"meta"|"replace"|"unicode"|"date"|"include"|"raw"|"class"|"role"|"default-role"|"title"|"restructuredtext-test-directive"
 HIGHLIGHT_TYPES= "highlight" | "sourcecode" | "code-block"
-ANY_CHAR = [^\t`\ \n]
 NOT_BACKQUOTE = [^`]
-ANY= .|\n
+LINK = [0-9A-Za-z][0-9A-Za-z\-:+_]*"_""_"?
 
 %state IN_EXPLISIT_MARKUP
 %state IN_COMMENT
@@ -46,6 +41,8 @@ ANY= .|\n
 %state IN_VALUE
 %state IN_FOOTNOTE
 %state IN_LINEBEGIN
+%state FIELD_IN_INLINE
+%state FIELD_LINE
 %state INIT
 
 %{
@@ -64,7 +61,7 @@ ANY= .|\n
 
 %%
 <YYINITIAL> {
-":"[^:\n\r ]([^:\n\r] | "\\:")*[^:\n\r ]":"[ `\n]        { yypushback(1); return FIELD;}
+":"[^:\n\r ]([^:\n\r] | "\\:")*[^:\n\r ]":"[ `\n]   { yypushback(1); return FIELD;}
 .                                                   { yypushback(1); yybegin(INIT); }
 }
 
@@ -89,15 +86,15 @@ ANY= .|\n
 
 "http"s?"://"[^\n\r ]+                              {return DIRECT_HYPERLINK;}
 
-"`"[^`\n\r ][^`\n\r]*[^`\n\r ]"`"                   { return INTERPRETED;}
+"`"[^`\n\r ][^`\n\r]*"`"                            { return INTERPRETED;}
 "`"{NOT_BACKQUOTE}+"`_""_"?{SEPARATOR}              {yypushback(1); return REFERENCE_NAME;}
-[0-9A-Za-z][0-9A-Za-z\-:+_]*"_""_"?{SEPARATOR}                  {yypushback(1); return REFERENCE_NAME;}
-//"["([0-9]* | #?[0-9A-Za-z]* | "*")"]_"{SEPARATOR}   {yypushback(1); return REFERENCE_NAME;}
+{LINK}{SEPARATOR}                                   {yypushback(1); return REFERENCE_NAME;}
+[\"']{LINK}[\"']                                    {yypushback(yylength()-1); return LINE;}
 
-":"[^:\n\r ]([^:\n\r] | "\\:")*[^:\n\r ]":"[`]       { yypushback(1); yybegin(INIT); return FIELD;}
+":"[^:\n\r ]([^:\n\r] | "\\:")*[^:\n\r ]":"[`]      { yypushback(1); yybegin(INIT); return FIELD;}
 {CRLF}                                              { yybegin(IN_LINEBEGIN); return WHITESPACE;}
 .                                                   { yypushback(1); yybegin(IN_LINE); }
-{SPACE}+                                            { yybegin(IN_LINEBEGIN); return WHITESPACE;}
+{SPACE}+                                            { yybegin(IN_LINEBEGIN); return LINE;}
 }
 
 <IN_LINEBEGIN> {
@@ -105,7 +102,7 @@ ANY= .|\n
 {SPACE}                                             { return LINE;}
 {CRLF}                                              { return WHITESPACE;}
 "__"                                                { yybegin(IN_VALUE); return ANONYMOUS_HYPERLINK;}
-":"[^:\n\r ]([^:\n\r] | "\\:")*[^:\n\r ]":"[ `\n]    { yypushback(1); yybegin(INIT); return FIELD;}
+":"[^:\n\r ]([^:\n\r] | "\\:")*[^:\n\r ]":"[ `\n]   { yypushback(1); yybegin(INIT); return FIELD;}
 .                                                   { yypushback(1); yybegin(INIT);}
 }
 
@@ -118,7 +115,7 @@ ANY= .|\n
 
 <IN_LINE> {
 {CRLF}                                              { return WHITESPACE;}
-[^`*:\n\r\[ |({]*                                   { yybegin(INIT); return LINE;}
+[^`*:\n\r\[ |({]+                                   { yybegin(INIT); return LINE;}
 {SPACE}                                             { yybegin(IN_FOOTNOTE); return LINE;}
 "(" | "[" | "{"                                     { yybegin(IN_FOOTNOTE); return LINE;}
 "`" | "_" | ":" | "*" | "[" | "|"                   { yybegin(INIT); return LINE;}
@@ -128,14 +125,25 @@ ANY= .|\n
 //Two posibilities -- quoted-block, indented block
 
 {CRLF}                                              { return WHITESPACE;}
+{SPACE}+":"[^:\n\r ]([^:\n\r] | "\\:")*[^:\n\r ]":"[ `\n]        { yypushback(yylength()-1); yybegin(FIELD_IN_INLINE); return WHITESPACE;}
+
 {SPACE}+                                            { yybegin(PRE_INDENTED); myIndent = yylength(); return chooseType();}
 {ADORNMENT_SYMBOL}                                  { yybegin(PRE_QUOTED); return SPEC_SYMBOL;}
 
 //{CRLF}{2}~{CRLF}{2}                                 { yybegin(INIT); return LINE;}
 }
 
+<FIELD_IN_INLINE> {
+{SPACE}+                                            { return WHITESPACE;}
+":"[^:\n\r ]([^:\n\r] | "\\:")*[^:\n\r ]":"[ `\n]   {yypushback(1); yybegin(FIELD_LINE); return FIELD;}
+}
+
+<FIELD_LINE> {
+.*                                                  {yybegin(IN_INLINE); return LINE;}
+}
+
 <PRE_QUOTED> {
-.*                                                  { return chooseType();}
+.+                                                  { return chooseType();}
 {CRLF}                                              { yybegin(QUOTED);  return chooseType();}
 }
 
@@ -145,7 +153,7 @@ ANY= .|\n
 }
 
 <PRE_INDENTED> {
-.*                                                  { yybegin(INDENTED);  return chooseType();}
+.+                                                  { yybegin(INDENTED);  return chooseType();}
 {CRLF}                                              { return chooseType();}
 }
 
@@ -170,22 +178,22 @@ ANY= .|\n
 {USUAL_TYPES}"::"                                   { yybegin(IN_VALUE); return DIRECTIVE;}
 {HIGHLIGHT_TYPES}"::"                               { yybegin(IN_HIGHLIGHT); return CUSTOM_DIRECTIVE;}
 [0-9A-Za-z\-:]*"::"                                 { yybegin(IN_VALUE); return CUSTOM_DIRECTIVE;}
-"|"[0-9A-Za-z_]*"|"                                 { return SUBSTITUTION;}
-[0-9A-Za-z_\[|.]*                                   { yybegin(IN_COMMENT); return COMMENT;}
+"|"[^|]*"|"                                         { return SUBSTITUTION;}
+[0-9A-Za-z_\[|.]+                                   { yybegin(IN_COMMENT); return COMMENT;}
 {CRLF}{2}                                           { yybegin(INIT); return COMMENT;}
 {SPACE}*{CRLF}+                                     { return WHITESPACE; }
 {SPACE}+                                            { return WHITESPACE;}
 }
 
 <IN_VALUE> {
-[^\n\r]+                                            { return LINE;}
+.+                                                  { return LINE;}
 {CRLF}                                              { yybegin(INIT); return WHITESPACE; }
 }
 
 <IN_HIGHLIGHT> {
 {SPACE}+                                            { return WHITESPACE;}
 {CRLF}                                              { yybegin(INIT); return WHITESPACE; }
-[A-Za-z+]+{CRLF}{CRLF}                               { String value = yytext().toString().trim();
+[A-Za-z+]+{CRLF}                                    { String value = yytext().toString().trim();
                                                       if ("python".equalsIgnoreCase(value)) {
                                                         myState = 1;
                                                         yybegin(IN_INLINE);

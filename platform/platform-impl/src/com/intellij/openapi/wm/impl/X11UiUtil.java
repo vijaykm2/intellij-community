@@ -1,31 +1,19 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl;
 
-import com.intellij.Patches;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.util.ExecUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.CharsetToolkit;
-import com.intellij.openapi.wm.IdeFrame;
-import com.intellij.openapi.wm.WindowManager;
+import com.intellij.openapi.wm.ex.WindowManagerEx;
+import com.intellij.util.ReflectionUtil;
+import com.intellij.util.SystemProperties;
+import com.sun.jna.Native;
+import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import sun.awt.AWTAccessor;
 import sun.misc.Unsafe;
 
 import javax.swing.*;
@@ -33,14 +21,15 @@ import java.awt.*;
 import java.awt.peer.ComponentPeer;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static com.intellij.util.ArrayUtil.newLongArray;
-import static com.intellij.util.containers.ContainerUtil.newHashSet;
 
-public class X11UiUtil {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.wm.impl.X11UiUtil");
+public final class X11UiUtil {
+  private static final Logger LOG = Logger.getInstance(X11UiUtil.class);
 
   private static final int True = 1;
   private static final int False = 0;
@@ -50,7 +39,8 @@ public class X11UiUtil {
   private static final int CLIENT_MESSAGE = 33;
   private static final int FORMAT_BYTE = 8;
   private static final int FORMAT_LONG = 32;
-  private static final long EVENT_MASK = (3l << 19);
+  private static final long EVENT_MASK = (3L << 19);
+  private static final long NET_WM_STATE_ADD = 1;
   private static final long NET_WM_STATE_TOGGLE = 2;
 
   @SuppressWarnings("SpellCheckingInspection")
@@ -74,9 +64,10 @@ public class X11UiUtil {
     private long NET_WM_STATE;
     private long NET_WM_ACTION_FULLSCREEN;
     private long NET_WM_STATE_FULLSCREEN;
+    private long NET_WM_STATE_DEMANDS_ATTENTION;
+    private long NET_ACTIVE_WINDOW;
 
-    @Nullable
-    private static Xlib getInstance() {
+    private static @Nullable Xlib getInstance() {
       Class<? extends Toolkit> toolkitClass = Toolkit.getDefaultToolkit().getClass();
       if (!SystemInfo.isXWindow || !"sun.awt.X11.XToolkit".equals(toolkitClass.getName())) {
         return null;
@@ -87,7 +78,7 @@ public class X11UiUtil {
 
         // reflect on Xlib method wrappers and important structures
         Class<?> XlibWrapper = Class.forName("sun.awt.X11.XlibWrapper");
-        x11.unsafe = (Unsafe)field(XlibWrapper, "unsafe").get(null);
+        x11.unsafe = (Unsafe)ReflectionUtil.getUnsafe();
         x11.XGetWindowProperty = method(XlibWrapper, "XGetWindowProperty", 12);
         x11.XFree = method(XlibWrapper, "XFree", 1);
         x11.RootWindow = method(XlibWrapper, "RootWindow", 2);
@@ -110,6 +101,8 @@ public class X11UiUtil {
         x11.NET_WM_STATE = (Long)atom.get(get.invoke(null, "_NET_WM_STATE"));
         x11.NET_WM_ACTION_FULLSCREEN = (Long)atom.get(get.invoke(null, "_NET_WM_ACTION_FULLSCREEN"));
         x11.NET_WM_STATE_FULLSCREEN = (Long)atom.get(get.invoke(null, "_NET_WM_STATE_FULLSCREEN"));
+        x11.NET_WM_STATE_DEMANDS_ATTENTION = (Long)atom.get(get.invoke(null, "_NET_WM_STATE_DEMANDS_ATTENTION"));
+        x11.NET_ACTIVE_WINDOW = (Long)atom.get(get.invoke(null, "_NET_ACTIVE_WINDOW"));
 
         // check for _NET protocol support
         Long netWmWindow = x11.getNetWmWindow();
@@ -137,52 +130,46 @@ public class X11UiUtil {
       }
     }
 
-    @Nullable
-    private Long getNetWmWindow() throws Exception {
+    private @Nullable Long getNetWmWindow() throws Exception {
       long rootWindow = getRootWindow(0);
       long[] values = getLongArrayProperty(rootWindow, NET_SUPPORTING_WM_CHECK, XA_WINDOW);
       return values != null && values.length > 0 ? values[0] : null;
     }
 
-    @Nullable
-    private long[] getLongArrayProperty(long window, long name, long type) throws Exception {
+    private long @Nullable [] getLongArrayProperty(long window, long name, long type) throws Exception {
       return getWindowProperty(window, name, type, FORMAT_LONG);
     }
 
-    @Nullable
-    private String getUtfStringProperty(long window, long name) throws Exception {
+    private @Nullable String getUtfStringProperty(long window, long name) throws Exception {
       byte[] bytes = getWindowProperty(window, name, UTF8_STRING, FORMAT_BYTE);
-      return bytes != null ? new String(bytes, CharsetToolkit.UTF8_CHARSET) : null;
+      return bytes != null ? new String(bytes, StandardCharsets.UTF_8) : null;
     }
 
-    @Nullable
-    private <T> T getWindowProperty(long window, long name, long type, long expectedFormat) throws Exception {
-      T property = null;
-
+    private @Nullable <T> T getWindowProperty(long window, long name, long type, long expectedFormat) throws Exception {
       long data = unsafe.allocateMemory(64);
       awtLock.invoke(null);
       try {
         unsafe.setMemory(data, 64, (byte)0);
 
         int result = (Integer)XGetWindowProperty.invoke(
-          null, display, window, name, 0l, 65535l, (long)False, type, data, data + 8, data + 16, data + 24, data + 32);
+          null, display, window, name, 0L, 65535L, (long)False, type, data, data + 8, data + 16, data + 24, data + 32);
         if (result == 0) {
           int format = unsafe.getInt(data + 8);
-          long pointer = SystemInfo.is64Bit ? unsafe.getLong(data + 32) : unsafe.getInt(data + 32);
+          long pointer = Native.LONG_SIZE == 4 ? unsafe.getInt(data + 32) : unsafe.getLong(data + 32);
 
           if (pointer != None && format == expectedFormat) {
-            int length = SystemInfo.is64Bit ? (int)unsafe.getLong(data + 16) : unsafe.getInt(data + 16);
+            int length = Native.LONG_SIZE == 4 ? unsafe.getInt(data + 16) : (int)unsafe.getLong(data + 16);
             if (format == FORMAT_BYTE) {
               byte[] bytes = new byte[length];
               for (int i = 0; i < length; i++) bytes[i] = unsafe.getByte(pointer + i);
-              property = (T)bytes;
+              return (T)bytes;
             }
             else if (format == FORMAT_LONG) {
               long[] values = newLongArray(length);
               for (int i = 0; i < length; i++) {
-                values[i] = SystemInfo.is64Bit ? unsafe.getLong(pointer + 8 * i) : unsafe.getInt(pointer + 4 * i);
+                values[i] = Native.LONG_SIZE == 4 ? unsafe.getInt(pointer + 4L * i) : unsafe.getLong(pointer + 8L * i);
               }
-              property = (T)values;
+              return (T)values;
             }
             else if (format != None) {
               LOG.info("unexpected format: " + format);
@@ -198,7 +185,7 @@ public class X11UiUtil {
         unsafe.freeMemory(data);
       }
 
-      return property;
+      return null;
     }
 
     private void sendClientMessage(long target, long window, long type, long... data) throws Exception {
@@ -209,22 +196,22 @@ public class X11UiUtil {
         unsafe.setMemory(event, 128, (byte)0);
 
         unsafe.putInt(event, CLIENT_MESSAGE);
-        if (!SystemInfo.is64Bit) {
+        if (Native.LONG_SIZE == 4) {
           unsafe.putInt(event + 8, True);
           unsafe.putInt(event + 16, (int)window);
           unsafe.putInt(event + 20, (int)type);
           unsafe.putInt(event + 24, FORMAT_LONG);
           for (int i = 0; i < data.length; i++) {
-            unsafe.putInt(event + 28 + 4 * i, (int)data[i]);
+            unsafe.putInt(event + 28 + 4L * i, (int)data[i]);
           }
         }
         else {
           unsafe.putInt(event + 16, True);
           unsafe.putLong(event + 32, window);
-          unsafe.putLong(event + 40, NET_WM_STATE);
+          unsafe.putLong(event + 40, type);
           unsafe.putInt(event + 48, FORMAT_LONG);
           for (int i = 0; i < data.length; i++) {
-            unsafe.putLong(event + 56 + 8 * i, data[i]);
+            unsafe.putLong(event + 56 + 8L * i, data[i]);
           }
         }
 
@@ -235,14 +222,27 @@ public class X11UiUtil {
         unsafe.freeMemory(event);
       }
     }
+
+    private void sendClientMessage(Window window, String operation, long type, long... params) {
+      try {
+        ComponentPeer peer = AWTAccessor.getComponentAccessor().getPeer(window);
+        if (peer == null) throw new IllegalStateException(window + " has no peer");
+        long windowId = (Long)getWindow.invoke(peer);
+        long screen = (Long)getScreenNumber.invoke(peer);
+        long rootWindow = getRootWindow(screen);
+        sendClientMessage(rootWindow, windowId, type, params);
+      }
+      catch (Throwable t) {
+        LOG.info("cannot " + operation, t);
+      }
+    }
   }
 
-  @Nullable private static final Xlib X11 = Xlib.getInstance();
+  private static final @Nullable Xlib X11 = Xlib.getInstance();
 
   // WM detection and patching
 
-  @Nullable
-  public static String getWmName() {
+  public static @Nullable String getWmName() {
     if (X11 == null) return null;
 
     try {
@@ -260,11 +260,13 @@ public class X11UiUtil {
 
   @SuppressWarnings("SpellCheckingInspection")
   public static void patchDetectedWm(String wmName) {
-    if (X11 == null || !Registry.is("ide.x11.override.wm")) return;
+    if (X11 == null || !SystemProperties.getBooleanProperty("ide.x11.override.wm", true)) {
+      return;
+    }
 
     try {
-      if (wmName.startsWith("Mutter") || "Muffin".equals(wmName) || "GNOME Shell".equals(wmName)) {
-        setWM("MUTTER_WM", "METACITY_WM");
+      if ("Muffin".equals(wmName)) {
+        setWM("MUTTER_WM");
       }
       else if ("Marco".equals(wmName)) {
         setWM("MARCO_WM", "METACITY_WM");
@@ -284,7 +286,7 @@ public class X11UiUtil {
     }
   }
 
-  private static void setWM(String... wmConstants) throws Exception {
+  private static void setWM(@NonNls String... wmConstants) throws Exception {
     Class<?> xwmClass = Class.forName("sun.awt.X11.XWM");
     Object xwm = method(xwmClass, "getWM").invoke(null);
     if (xwm != null) {
@@ -304,8 +306,7 @@ public class X11UiUtil {
     }
   }
 
-  @Nullable
-  private static String getAwesomeWMVersion() {
+  private static @Nullable String getAwesomeWMVersion() {
     try {
       String version = ExecUtil.execAndReadLine(new GeneralCommandLine("awesome", "--version"));
       if (version != null) {
@@ -326,18 +327,14 @@ public class X11UiUtil {
   public static boolean isFullScreenSupported() {
     if (X11 == null) return false;
 
-    if (Patches.SUN_BUG_ID_8013359) {
-      String wmName = getWmName();
-      if (wmName != null &&
-          (wmName.startsWith("Mutter") || newHashSet("Metacity", "GNOME Shell", "Muffin", "Marco").contains(wmName))) {
-        return false;  // Metacity clones suffer from child window placement bug
-      }
+    List<ProjectFrameHelper> frames = WindowManagerEx.getInstanceEx().getProjectFrameHelpers();
+    // no frame to check the property so be optimistic here
+    if (frames.isEmpty()) {
+      return true;
     }
 
-    IdeFrame[] frames = WindowManager.getInstance().getAllProjectFrames();
-    if (frames.length == 0) return true;  // no frame to check the property so be optimistic here
-
-    return frames[0] instanceof JFrame && hasWindowProperty((JFrame)frames[0], X11.NET_WM_ALLOWED_ACTIONS, X11.NET_WM_ACTION_FULLSCREEN);
+    IdeFrameImpl frame = frames.get(0).getFrame();
+    return hasWindowProperty(frame, X11.NET_WM_ALLOWED_ACTIONS, X11.NET_WM_ACTION_FULLSCREEN);
   }
 
   public static boolean isInFullScreenMode(JFrame frame) {
@@ -347,12 +344,14 @@ public class X11UiUtil {
   private static boolean hasWindowProperty(JFrame frame, long name, long expected) {
     if (X11 == null) return false;
     try {
-      @SuppressWarnings("deprecation") ComponentPeer peer = frame.getPeer();
-      long window = (Long)X11.getWindow.invoke(peer);
-      long[] values = X11.getLongArrayProperty(window, name, XA_ATOM);
-      if (values != null) {
-        for (long value : values) {
-          if (value == expected) return true;
+      ComponentPeer peer = AWTAccessor.getComponentAccessor().getPeer(frame);
+      if (peer != null) {
+        long window = (Long)X11.getWindow.invoke(peer);
+        long[] values = X11.getLongArrayProperty(window, name, XA_ATOM);
+        if (values != null) {
+          for (long value : values) {
+            if (value == expected) return true;
+          }
         }
       }
       return false;
@@ -365,22 +364,32 @@ public class X11UiUtil {
 
   public static void toggleFullScreenMode(JFrame frame) {
     if (X11 == null) return;
+    X11.sendClientMessage(frame, "toggle mode", X11.NET_WM_STATE, NET_WM_STATE_TOGGLE, X11.NET_WM_STATE_FULLSCREEN);
+  }
 
-    try {
-      @SuppressWarnings("deprecation") ComponentPeer peer = frame.getPeer();
-      long window = (Long)X11.getWindow.invoke(peer);
-      long screen = (Long)X11.getScreenNumber.invoke(peer);
-      long rootWindow = X11.getRootWindow(screen);
-      X11.sendClientMessage(rootWindow, window, X11.NET_WM_STATE, NET_WM_STATE_TOGGLE, X11.NET_WM_STATE_FULLSCREEN);
+  /**
+   * This method requests window manager to activate the specified application window. This might cause the window to steal focus
+   * from another (currently active) application, which is generally not considered acceptable. So it should be used only in
+   * special cases, when we know that the user definitely expects such behaviour. In most cases, requesting focus in the target
+   * window should be used instead - in that case window manager is expected to indicate that the application requires user
+   * attention but won't switch the focus to it automatically.
+   */
+  public static void activate(@NotNull Window window) {
+    if (X11 == null) return;
+    if (FocusManagerImpl.FOCUS_REQUESTS_LOG.isDebugEnabled()) {
+      FocusManagerImpl.FOCUS_REQUESTS_LOG.debug("_NET_ACTIVE_WINDOW", new Throwable());
     }
-    catch (Throwable t) {
-      LOG.info("cannot toggle mode", t);
-    }
+    X11.sendClientMessage(window, "activate", X11.NET_ACTIVE_WINDOW);
+  }
+
+  public static void requestAttention(@NotNull Window window) {
+    if (X11 == null) return;
+    X11.sendClientMessage(window, "request attention", X11.NET_WM_STATE, NET_WM_STATE_ADD, X11.NET_WM_STATE_DEMANDS_ATTENTION);
   }
 
   // reflection utilities
 
-  private static Method method(Class<?> aClass, String name, Class<?>... parameterTypes) throws Exception {
+  private static Method method(Class<?> aClass, @NonNls String name, Class<?>... parameterTypes) throws Exception {
     while (aClass != null) {
       try {
         Method method = aClass.getDeclaredMethod(name, parameterTypes);
@@ -394,9 +403,9 @@ public class X11UiUtil {
     throw new NoSuchMethodException(name);
   }
 
-  private static Method method(Class<?> aClass, String name, int parameters) throws Exception {
+  private static Method method(Class<?> aClass, @NonNls String name, int parameters) throws Exception {
     for (Method method : aClass.getDeclaredMethods()) {
-      if (name.equals(method.getName()) && method.getParameterTypes().length == parameters) {
+      if (method.getParameterCount() == parameters && name.equals(method.getName())) {
         method.setAccessible(true);
         return method;
       }
@@ -404,7 +413,7 @@ public class X11UiUtil {
     throw new NoSuchMethodException(name);
   }
 
-  private static Field field(Class<?> aClass, String name) throws Exception {
+  private static Field field(Class<?> aClass, @NonNls String name) throws Exception {
     Field field = aClass.getDeclaredField(name);
     field.setAccessible(true);
     return field;

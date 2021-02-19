@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.wizards;
 
 import com.intellij.ide.util.frameworkSupport.FrameworkSupportConfigurable;
@@ -27,11 +13,10 @@ import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.ArrayUtil;
-import icons.MavenIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.idea.maven.model.MavenConstants;
 import org.jetbrains.idea.maven.model.MavenId;
+import org.jetbrains.idea.maven.project.MavenProjectBundle;
 import org.jetbrains.idea.maven.project.MavenProjectsManager;
 import org.jetbrains.idea.maven.utils.MavenLog;
 
@@ -39,9 +24,11 @@ import javax.swing.*;
 import java.io.IOException;
 import java.util.Collections;
 
+import static icons.OpenapiIcons.RepositoryLibraryLogo;
+
 public class MavenFrameworkSupportProvider extends FrameworkSupportProvider {
   public MavenFrameworkSupportProvider() {
-    super(MavenFrameworkSupportProvider.class.getName(), "Maven");
+    super(MavenFrameworkSupportProvider.class.getName(), MavenProjectBundle.message("maven.name"));
   }
 
   @NotNull
@@ -58,14 +45,26 @@ public class MavenFrameworkSupportProvider extends FrameworkSupportProvider {
         VirtualFile[] roots = model.getContentRoots();
         VirtualFile root;
         if (roots.length == 0) {
-          root = module.getModuleFile().getParent();
-          model.addContentEntry(root);
+          VirtualFile moduleFile = module.getModuleFile();
+          if (moduleFile != null) {
+            root = moduleFile.getParent();
+            model.addContentEntry(root);
+          }
+          else {
+            return;
+          }
         }
         else {
           root = roots[0];
         }
 
-        VirtualFile existingPom = root.findChild(MavenConstants.POM_XML);
+        VirtualFile existingPom = null;
+        for (VirtualFile child : root.getChildren()) {
+          if (child.getName().startsWith("pom.")) {
+            existingPom = child;
+          }
+        }
+
         if (existingPom != null) {
           MavenProjectsManager.getInstance(module.getProject()).addManagedFilesOrUnignore(Collections.singletonList(existingPom));
         }
@@ -73,7 +72,7 @@ public class MavenFrameworkSupportProvider extends FrameworkSupportProvider {
           prepareProjectStructure(model, root);
 
           new MavenModuleBuilderHelper(new MavenId("groupId", module.getName(), "1.0-SNAPSHOT"), null, null, false, false, null,
-                                       null, "Add Maven Support").configure(model.getProject(), root, true);
+                                       null, MavenProjectBundle.message("command.name.add.maven.support")).configure(model.getProject(), root, true);
         }
       }
     };
@@ -117,6 +116,6 @@ public class MavenFrameworkSupportProvider extends FrameworkSupportProvider {
 
   @Override
   public Icon getIcon() {
-    return MavenIcons.MavenLogo;
+    return RepositoryLibraryLogo;
   }
 }

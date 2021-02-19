@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.util.xml.structure;
 
 import com.intellij.ide.structureView.StructureViewTreeElement;
 import com.intellij.ide.util.treeView.smartTree.TreeElement;
 import com.intellij.navigation.ItemPresentation;
+import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.util.Function;
 import com.intellij.util.xml.*;
 import org.jetbrains.annotations.NotNull;
@@ -60,10 +47,9 @@ public class DomStructureTreeElement implements StructureViewTreeElement, ItemPr
   }
 
   @Override
-  @NotNull
-  public TreeElement[] getChildren() {
+  public TreeElement @NotNull [] getChildren() {
     if (!myElement.isValid()) return EMPTY_ARRAY;
-    final ArrayList<TreeElement> result = new ArrayList<TreeElement>();
+    final ArrayList<TreeElement> result = new ArrayList<>();
     final DomElementVisitor elementVisitor = new DomElementVisitor() {
       @Override
       public void visitDomElement(final DomElement element) {
@@ -82,7 +68,7 @@ public class DomStructureTreeElement implements StructureViewTreeElement, ItemPr
       }
     };
     DomUtil.acceptAvailableChildren(myElement, elementVisitor);
-    return result.toArray(new TreeElement[result.size()]);
+    return result.toArray(TreeElement.EMPTY_ARRAY);
   }
 
   protected StructureViewTreeElement createChildElement(final DomElement element) {
@@ -91,7 +77,7 @@ public class DomStructureTreeElement implements StructureViewTreeElement, ItemPr
 
   @Override
   public void navigate(boolean requestFocus) {
-    if (myNavigationProvider != null) myNavigationProvider.navigate(myElement, true);
+    if (myNavigationProvider != null) myNavigationProvider.navigate(myElement, requestFocus);
   }
 
   @Override
@@ -107,15 +93,14 @@ public class DomStructureTreeElement implements StructureViewTreeElement, ItemPr
   @Override
   public String getPresentableText() {
     if (!myElement.isValid()) return "<unknown>";
-    final ElementPresentation presentation = myElement.getPresentation();
-    final String name = presentation.getElementName();
-    return name != null? name : presentation.getTypeName();
-  }
-
-  @Override
-  @Nullable
-  public String getLocationString() {
-    return null;
+    try {
+      ElementPresentation presentation = myElement.getPresentation();
+      String name = presentation.getElementName();
+      return name != null? name : presentation.getTypeName();
+    }
+    catch (IndexNotReadyException e) {
+      return "Name not available during indexing";
+    }
   }
 
   @Override

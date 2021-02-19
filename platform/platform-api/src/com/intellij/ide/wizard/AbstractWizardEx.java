@@ -1,40 +1,27 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.wizard;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.wm.IdeFocusManager;
+import com.intellij.ui.JBCardLayout;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 public class AbstractWizardEx extends AbstractWizard<AbstractWizardStepEx> {
+  private final @NlsContexts.DialogTitle String myTitle;
+  private final Object2IntMap<Object> myStepId2Index = new Object2IntOpenHashMap<>();
+  private final Int2ObjectMap<AbstractWizardStepEx> myIndex2Step = new Int2ObjectOpenHashMap<>();
 
-  private final String myTitle;
-  private final Map<Object, Integer> myStepId2Index = new HashMap<Object, Integer>();
-  private final Map<Integer, AbstractWizardStepEx> myIndex2Step = new HashMap<Integer, AbstractWizardStepEx>();
-
-  public AbstractWizardEx(String title, @Nullable Project project, List<? extends AbstractWizardStepEx> steps) {
+  public AbstractWizardEx(@NlsContexts.DialogTitle String title, @Nullable Project project, List<? extends AbstractWizardStepEx> steps) {
     super(title, project);
     myTitle = title;
 
@@ -45,10 +32,12 @@ public class AbstractWizardEx extends AbstractWizard<AbstractWizardStepEx> {
       addStep(step);
 
       step.addStepListener(new AbstractWizardStepEx.Listener() {
+        @Override
         public void stateChanged() {
           updateButtons();
         }
 
+        @Override
         public void doNextAction() {
           if (getNextButton().isEnabled()) {
             AbstractWizardEx.this.doNextAction();
@@ -61,6 +50,7 @@ public class AbstractWizardEx extends AbstractWizard<AbstractWizardStepEx> {
     init();
   }
 
+  @Override
   protected void doPreviousAction() {
     // Commit data of current step
     final AbstractWizardStepEx currentStep = mySteps.get(myCurrentStep);
@@ -76,9 +66,10 @@ public class AbstractWizardEx extends AbstractWizard<AbstractWizardStepEx> {
     }
 
     myCurrentStep = getPreviousStep(myCurrentStep);
-    updateStep();
+    updateStep(JBCardLayout.SwipeDirection.BACKWARD);
   }
 
+  @Override
   protected void doNextAction() {
     // Commit data of current step
     final AbstractWizardStepEx currentStep = mySteps.get(myCurrentStep);
@@ -98,26 +89,30 @@ public class AbstractWizardEx extends AbstractWizard<AbstractWizardStepEx> {
       return;
     }
     myCurrentStep = getNextStep(myCurrentStep);
-    updateStep();
+    updateStep(JBCardLayout.SwipeDirection.FORWARD);
   }
 
+  @Override
   protected int getNextStep(final int step) {
     AbstractWizardStepEx stepObject = myIndex2Step.get(step);
     Object nextStepId = stepObject.getNextStepId();
-    return myStepId2Index.get(nextStepId);
+    return myStepId2Index.getInt(nextStepId);
   }
 
+  @Override
   protected int getPreviousStep(final int step) {
     AbstractWizardStepEx stepObject = myIndex2Step.get(step);
     Object previousStepId = stepObject.getPreviousStepId();
-    return myStepId2Index.get(previousStepId);
+    return myStepId2Index.getInt(previousStepId);
   }
 
+  @Override
   protected String getHelpID() {
     return getCurrentStepObject().getHelpId();
   }
 
 
+  @Override
   protected void updateStep() {
     super.updateStep();
     updateButtons();
@@ -130,6 +125,7 @@ public class AbstractWizardEx extends AbstractWizard<AbstractWizardStepEx> {
     }
   }
 
+  @Override
   protected void updateButtons() {
     super.updateButtons();
     getPreviousButton().setEnabled(getCurrentStepObject().getPreviousStepId() != null);
@@ -142,10 +138,12 @@ public class AbstractWizardEx extends AbstractWizard<AbstractWizardStepEx> {
     return getCurrentStepObject().isComplete();
   }
 
+  @Override
   protected boolean isLastStep() {
     return myIndex2Step.get(myCurrentStep).getNextStepId() == null;
   }
 
+  @Override
   protected boolean canFinish() {
     for (AbstractWizardStepEx step : mySteps) {
       if (!step.isComplete()) {

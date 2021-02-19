@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,7 @@
  */
 package com.intellij.xdebugger.impl.breakpoints.ui.grouping;
 
-import com.intellij.util.ArrayUtil;
 import com.intellij.xdebugger.breakpoints.XBreakpointType;
-import com.intellij.xdebugger.breakpoints.XLineBreakpoint;
 import com.intellij.xdebugger.breakpoints.XLineBreakpointType;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointGroup;
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointUtil;
@@ -27,7 +25,7 @@ import javax.swing.*;
 
 public class XBreakpointTypeGroup extends XBreakpointGroup {
 
-  private XBreakpointType myBreakpointType;
+  private final XBreakpointType myBreakpointType;
 
   public XBreakpointTypeGroup(XBreakpointType type) {
     myBreakpointType = type;
@@ -70,12 +68,12 @@ public class XBreakpointTypeGroup extends XBreakpointGroup {
       else if (myBreakpointType instanceof XLineBreakpointType) {
         return -1;
       }
-      return indexOfType(myBreakpointType) - indexOfType(((XBreakpointTypeGroup)o).getBreakpointType());
+      return Long.compare(indexOfType(myBreakpointType), indexOfType(((XBreakpointTypeGroup)o).getBreakpointType()));
     }
     return -o.compareTo(this);
   }
 
-  private static int indexOfType(XBreakpointType type) {
-    return ArrayUtil.find(XBreakpointUtil.getBreakpointTypes(), type);
+  private static long indexOfType(XBreakpointType type) {
+    return XBreakpointUtil.breakpointTypes().indexOf(type).orElse(-1);
   }
 }

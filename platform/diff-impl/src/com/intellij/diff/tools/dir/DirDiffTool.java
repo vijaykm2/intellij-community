@@ -16,18 +16,28 @@
 package com.intellij.diff.tools.dir;
 
 import com.intellij.diff.DiffContext;
+import com.intellij.diff.DiffTool;
 import com.intellij.diff.FrameDiffTool;
+import com.intellij.diff.SuppressiveDiffTool;
 import com.intellij.diff.requests.ContentDiffRequest;
 import com.intellij.diff.requests.DiffRequest;
+import com.intellij.diff.tools.binary.BinaryDiffTool;
+import com.intellij.ide.diff.DiffElement;
+import com.intellij.ide.diff.DirDiffSettings;
+import com.intellij.openapi.diff.DiffBundle;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-public class DirDiffTool implements FrameDiffTool {
+import java.util.Collections;
+import java.util.List;
+
+public class DirDiffTool implements FrameDiffTool, SuppressiveDiffTool {
   public static final DirDiffTool INSTANCE = new DirDiffTool();
 
   @NotNull
   @Override
   public DiffViewer createComponent(@NotNull DiffContext context, @NotNull DiffRequest request) {
-    return new DirDiffViewer(context, (ContentDiffRequest)request);
+    return createViewer(context, (ContentDiffRequest)request);
   }
 
   @Override
@@ -38,6 +48,26 @@ public class DirDiffTool implements FrameDiffTool {
   @NotNull
   @Override
   public String getName() {
-    return "Directory viewer";
+    return DiffBundle.message("directory.viewer");
+  }
+
+  @NotNull
+  public static FrameDiffTool.DiffViewer createViewer(@NotNull DiffContext context,
+                                                      @NotNull ContentDiffRequest request) {
+    return new DirDiffViewer(context, request);
+  }
+
+  @NotNull
+  public static FrameDiffTool.DiffViewer createViewer(@NotNull DiffContext context,
+                                                      @NotNull DiffElement element1,
+                                                      @NotNull DiffElement element2,
+                                                      @NotNull DirDiffSettings settings,
+                                                      @Nullable String helpID) {
+    return new DirDiffViewer(context, element1, element2, settings, helpID);
+  }
+
+  @Override
+  public List<Class<? extends DiffTool>> getSuppressedTools() {
+    return Collections.singletonList(BinaryDiffTool.class);
   }
 }

@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.errorTreeView;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.CustomizeColoredTreeCellRenderer;
 import com.intellij.ui.SimpleColoredComponent;
@@ -29,6 +16,7 @@ public class FixedHotfixGroupElement extends GroupingElement {
   public FixedHotfixGroupElement(String name, Object data, VirtualFile file) {
     super(name, data, file);
     myCustomizeColoredTreeCellRenderer = new CustomizeColoredTreeCellRenderer() {
+      @Override
       public void customizeCellRenderer(SimpleColoredComponent renderer,
                                         JTree tree,
                                         Object value,
@@ -38,7 +26,8 @@ public class FixedHotfixGroupElement extends GroupingElement {
                                         int row,
                                         boolean hasFocus) {
         renderer.setIcon(AllIcons.General.Information);
-        renderer.append("Fixed: ", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+        renderer.append(IdeBundle.message("fixed.problem.prefix"), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+        renderer.append(" ", SimpleTextAttributes.REGULAR_ATTRIBUTES);
         final String[] text = getText();
         final String checkedText = ((text != null) && (text.length > 0)) ? text[0] : "";
         renderer.append(checkedText, SimpleTextAttributes.REGULAR_ATTRIBUTES);

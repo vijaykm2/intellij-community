@@ -37,11 +37,12 @@ public class GroovyElementPattern<T extends GroovyPsiElement,Self extends Groovy
     super(condition);
   }
 
+  @NotNull
   @Override
   public Self methodCallParameter(final int index, final ElementPattern<? extends PsiMethod> methodPattern) {
     final PsiNamePatternCondition nameCondition = ContainerUtil.findInstance(methodPattern.getCondition().getConditions(), PsiNamePatternCondition.class);
 
-    return with(new PatternCondition<T>("methodCallParameter") {
+    return with(new PatternCondition<>("methodCallParameter") {
       @Override
       public boolean accepts(@NotNull final T literal, final ProcessingContext context) {
         final PsiElement parent = literal.getParent();
@@ -55,7 +56,7 @@ public class GroovyElementPattern<T extends GroovyPsiElement,Self extends Groovy
           if (element instanceof GrCall) {
             final GroovyPsiElement expression =
               element instanceof GrMethodCall ? ((GrMethodCall)element).getInvokedExpression() :
-              element instanceof GrNewExpression? ((GrNewExpression)element).getReferenceElement() :
+              element instanceof GrNewExpression ? ((GrNewExpression)element).getReferenceElement() :
               null;
 
 
@@ -64,7 +65,6 @@ public class GroovyElementPattern<T extends GroovyPsiElement,Self extends Groovy
 
               if (nameCondition != null && "withName".equals(nameCondition.getDebugMethodName())) {
                 final String methodName = ref.getReferenceName();
-                //noinspection unchecked
                 if (methodName != null && !nameCondition.getNamePattern().accepts(methodName, context)) {
                   return false;
                 }
@@ -84,14 +84,19 @@ public class GroovyElementPattern<T extends GroovyPsiElement,Self extends Groovy
     });
   }
 
+  @NotNull
   public Self regExpOperatorArgument() {
-    return with(new PatternCondition<T>("regExpOperatorArg") {
+    return with(new PatternCondition<>("regExpOperatorArg") {
       @Override
       public boolean accepts(@NotNull T t, ProcessingContext context) {
         PsiElement parent = t.getParent();
         return parent instanceof GrUnaryExpression && ((GrUnaryExpression)parent).getOperationTokenType() == GroovyTokenTypes.mBNOT ||
-               parent instanceof GrBinaryExpression && t == ((GrBinaryExpression)parent).getRightOperand() && ((GrBinaryExpression)parent).getOperationTokenType() == GroovyTokenTypes.mREGEX_FIND ||
-               parent instanceof GrBinaryExpression && t == ((GrBinaryExpression)parent).getRightOperand() && ((GrBinaryExpression)parent).getOperationTokenType() == GroovyTokenTypes.mREGEX_MATCH;
+               parent instanceof GrBinaryExpression &&
+               t == ((GrBinaryExpression)parent).getRightOperand() &&
+               ((GrBinaryExpression)parent).getOperationTokenType() == GroovyTokenTypes.mREGEX_FIND ||
+               parent instanceof GrBinaryExpression &&
+               t == ((GrBinaryExpression)parent).getRightOperand() &&
+               ((GrBinaryExpression)parent).getOperationTokenType() == GroovyTokenTypes.mREGEX_MATCH;
       }
     });
   }

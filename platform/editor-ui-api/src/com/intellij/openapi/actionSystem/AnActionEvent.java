@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.actionSystem;
 
 import com.intellij.ide.DataManager;
@@ -20,13 +6,12 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.PlaceProvider;
 import org.intellij.lang.annotations.JdkConstants;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.event.InputEvent;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Container for the information necessary to execute or update an {@link AnAction}.
@@ -34,40 +19,75 @@ import java.util.Map;
  * @see AnAction#actionPerformed(AnActionEvent)
  * @see AnAction#update(AnActionEvent)
  */
+public class AnActionEvent implements PlaceProvider {
+  private static final String ourInjectedPrefix = "$injected$.";
 
-public class AnActionEvent implements PlaceProvider<String> {
   private final InputEvent myInputEvent;
-  @NotNull private final ActionManager myActionManager;
-  @NotNull private final DataContext myDataContext;
-  @NotNull private final String myPlace;
-  @NotNull private final Presentation myPresentation;
-  @JdkConstants.InputEventMask private final int myModifiers;
+  private final ActionManager myActionManager;
+  private final DataContext myDataContext;
+  private final String myPlace;
+  private final Presentation myPresentation;
+  @JdkConstants.InputEventMask
+  private final int myModifiers;
+  private final boolean myIsContextMenuAction;
+  private final boolean myIsActionToolbar;
+
   private boolean myWorksInInjected;
-  @NonNls private static final String ourInjectedPrefix = "$injected$.";
-  private static final Map<String, String> ourInjectedIds = new HashMap<String, String>();
+  private UpdateSession myUpdateSession;
 
   /**
-   * @throws IllegalArgumentException if <code>dataContext</code> is <code>null</code> or
-   * <code>place</code> is <code>null</code> or <code>presentation</code> is <code>null</code>
+   * @throws IllegalArgumentException if {@code dataContext} is {@code null} or
+   * {@code place} is {@code null} or {@code presentation} is {@code null}
    *
    * @see ActionManager#getInstance()
    */
-  public AnActionEvent(InputEvent inputEvent,
+  public AnActionEvent(@Nullable InputEvent inputEvent,
                        @NotNull DataContext dataContext,
                        @NotNull @NonNls String place,
                        @NotNull Presentation presentation,
                        @NotNull ActionManager actionManager,
                        @JdkConstants.InputEventMask int modifiers) {
-    // TODO[vova,anton] make this constructor package local. No one is allowed to create AnActionEvents
+    this(inputEvent, dataContext, place, presentation, actionManager, modifiers, false, false);
+  }
+
+  /**
+   * @throws IllegalArgumentException if {@code dataContext} is {@code null} or
+   * {@code place} is {@code null} or {@code presentation} is {@code null}
+   *
+   * @see ActionManager#getInstance()
+   */
+  public AnActionEvent(@Nullable InputEvent inputEvent,
+                       @NotNull DataContext dataContext,
+                       @NotNull @NonNls String place,
+                       @NotNull Presentation presentation,
+                       @NotNull ActionManager actionManager,
+                       @JdkConstants.InputEventMask int modifiers,
+                       boolean isContextMenuAction,
+                       boolean isActionToolbar) {
     myInputEvent = inputEvent;
     myActionManager = actionManager;
     myDataContext = dataContext;
     myPlace = place;
     myPresentation = presentation;
     myModifiers = modifiers;
+    myIsContextMenuAction = isContextMenuAction;
+    myIsActionToolbar = isActionToolbar;
   }
 
+  @NotNull
+  public AnActionEvent withDataContext(@NotNull DataContext dataContext) {
+    AnActionEvent event = new AnActionEvent(myInputEvent, dataContext, myPlace, myPresentation,
+                                            myActionManager, myModifiers, myIsContextMenuAction, myIsActionToolbar);
+    event.setInjectedContext(myWorksInInjected);
+    event.setUpdateSession(myUpdateSession);
+    return event;
+  }
+
+  /**
+   * @deprecated use {@link #createFromInputEvent(InputEvent, String, Presentation, DataContext, boolean, boolean)}
+   */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   @NotNull
   public static AnActionEvent createFromInputEvent(@NotNull AnAction action, @Nullable InputEvent event, @NotNull String place) {
     DataContext context = event == null ? DataManager.getInstance().getDataContext() : DataManager.getInstance().getDataContext(event.getComponent());
@@ -97,16 +117,27 @@ public class AnActionEvent implements PlaceProvider<String> {
   @NotNull
   public static AnActionEvent createFromInputEvent(@Nullable InputEvent event,
                                                    @NotNull String place,
-                                                   @NotNull Presentation presentation,
+                                                   @Nullable Presentation presentation,
                                                    @NotNull DataContext dataContext) {
-    return new AnActionEvent(event, dataContext, place, presentation, ActionManager.getInstance(),
-                             event == null ? 0 : event.getModifiers());
+    return createFromInputEvent(event, place, presentation, dataContext, false, false);
+  }
+
+  @NotNull
+  public static AnActionEvent createFromInputEvent(@Nullable InputEvent event,
+                                                   @NotNull String place,
+                                                   @Nullable Presentation presentation,
+                                                   @NotNull DataContext dataContext,
+                                                   boolean isContextMenuAction,
+                                                   boolean isToolbarAction) {
+    return new AnActionEvent(event, dataContext, place, presentation == null ? new Presentation() : presentation, ActionManager.getInstance(),
+                             event == null ? 0 : event.getModifiers(), isContextMenuAction, isToolbarAction);
   }
 
   /**
-   * Returns the <code>InputEvent</code> which causes invocation of the action. It might be
-   * <code>KeyEvent</code>, <code>MouseEvent</code>.
-   * @return the <code>InputEvent</code> instance.
+   * Returns the {@code InputEvent} which causes invocation of the action. It might be
+   * {@code KeyEvent}, {@code MouseEvent}.
+   *
+   * @return the {@code InputEvent} instance.
    */
   public InputEvent getInputEvent() {
     return myInputEvent;
@@ -121,27 +152,23 @@ public class AnActionEvent implements PlaceProvider<String> {
   }
 
   @NonNls
-  public static String injectedId(String dataId) {
-    synchronized(ourInjectedIds) {
-      String injected = ourInjectedIds.get(dataId);
-      if (injected == null) {
-        injected = ourInjectedPrefix + dataId;
-        ourInjectedIds.put(dataId, injected);
-      }
-      return injected;
-    }
+  @NotNull
+  public static String injectedId(@NotNull String dataId) {
+    return ourInjectedPrefix + dataId;
   }
 
   @NonNls
+  @NotNull
   public static String uninjectedId(@NotNull String dataId) {
     return StringUtil.trimStart(dataId, ourInjectedPrefix);
   }
 
-  public static DataContext getInjectedDataContext(final DataContext context) {
+  @NotNull
+  public static DataContext getInjectedDataContext(@NotNull DataContext context) {
     return new DataContextWrapper(context) {
       @Nullable
       @Override
-      public Object getData(@NonNls String dataId) {
+      public Object getData(@NotNull @NonNls String dataId) {
         Object injected = super.getData(injectedId(dataId));
         if (injected != null) return injected;
         return super.getData(dataId);
@@ -150,7 +177,7 @@ public class AnActionEvent implements PlaceProvider<String> {
   }
 
   /**
-   * Returns the context which allows to retrieve information about the state of IDEA related to
+   * Returns the context which allows to retrieve information about the state of IDE related to
    * the action invocation (active editor, selection and so on).
    *
    * @return the data context instance.
@@ -162,11 +189,11 @@ public class AnActionEvent implements PlaceProvider<String> {
 
   @Nullable
   public <T> T getData(@NotNull DataKey<T> key) {
-    return key.getData(getDataContext());
+    return getDataContext().getData(key);
   }
 
   /**
-   * Returns not null data by a data key. This method assumes that data has been checked for null in AnAction#update method.
+   * Returns not null data by a data key. This method assumes that data has been checked for {@code null} in {@code AnAction#update} method.
    *<br/><br/>
    * Example of proper usage:
    *
@@ -174,13 +201,13 @@ public class AnActionEvent implements PlaceProvider<String> {
    *
    * public class MyAction extends AnAction {
    *   public void update(AnActionEvent e) {
-   *     //perform action if and only if EDITOR != null
+   *     // perform action if and only if EDITOR != null
    *     boolean enabled = e.getData(CommonDataKeys.EDITOR) != null;
-   *     e.getPresentation.setEnabled(enabled);
+   *     e.getPresentation().setEnabled(enabled);
    *   }
    *
    *   public void actionPerformed(AnActionEvent e) {
-   *     //if we're here then EDITOR != null
+   *     // if we're here then EDITOR != null
    *     Document doc = e.getRequiredData(CommonDataKeys.EDITOR).getDocument();
    *     doSomething(doc);
    *   }
@@ -196,16 +223,30 @@ public class AnActionEvent implements PlaceProvider<String> {
   }
 
   /**
-   * Returns the identifier of the place in the IDEA user interface from where the action is invoked
+   * Returns the identifier of the place in the IDE user interface from where the action is invoked
    * or updated.
    *
    * @return the place identifier
-   * @see ActionPlaces
+   * @see com.intellij.openapi.actionSystem.ActionPlaces
    */
   @Override
   @NotNull
   public String getPlace() {
     return myPlace;
+  }
+
+  public boolean isFromActionToolbar() {
+    return myIsActionToolbar;
+  }
+
+  /**
+   * @deprecated This method returns {@code true} for both main menu and context menu invocations. Use {@link ActionPlaces#isPopupPlace(String)}
+   * instead to get results only from context menus.
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public boolean isFromContextMenu() {
+    return myIsContextMenuAction;
   }
 
   /**
@@ -243,5 +284,14 @@ public class AnActionEvent implements PlaceProvider<String> {
 
   public void accept(@NotNull AnActionEventVisitor visitor) {
     visitor.visitEvent(this);
+  }
+
+  @Nullable
+  public UpdateSession getUpdateSession() {
+    return myUpdateSession;
+  }
+
+  public void setUpdateSession(@Nullable UpdateSession updateSession) {
+    myUpdateSession = updateSession;
   }
 }

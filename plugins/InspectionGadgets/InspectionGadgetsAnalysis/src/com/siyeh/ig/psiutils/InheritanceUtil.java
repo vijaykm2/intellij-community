@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2013 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,11 @@
  */
 package com.siyeh.ig.psiutils;
 
-import com.intellij.codeInspection.inheritance.ImplementedAtRuntimeCondition;
+import com.intellij.codeInspection.inheritance.ImplicitSubclassProvider;
 import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.psi.CommonClassNames;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiModifier;
-import com.intellij.psi.PsiTypeParameter;
+import com.intellij.psi.*;
+import com.intellij.psi.impl.compiled.ClsClassImpl;
+import com.intellij.psi.impl.source.PsiClassImpl;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.search.searches.ClassInheritorsSearch;
@@ -29,9 +28,10 @@ import com.intellij.util.Processor;
 import com.intellij.util.Query;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class InheritanceUtil {
+public final class InheritanceUtil {
 
   private InheritanceUtil() {}
 
@@ -49,26 +49,45 @@ public class InheritanceUtil {
       return existsMutualSubclass(class2, class1, avoidExpensiveProcessing);
     }
 
-    final String className = class1.getQualifiedName();
-    if (CommonClassNames.JAVA_LANG_OBJECT.equals(className)) {
+    if (CommonClassNames.JAVA_LANG_OBJECT.equals(class1.getQualifiedName())) {
       return true;
     }
-    final String class2Name = class2.getQualifiedName();
-    if (CommonClassNames.JAVA_LANG_OBJECT.equals(class2Name)) {
+    if (CommonClassNames.JAVA_LANG_OBJECT.equals(class2.getQualifiedName())) {
       return true;
     }
-    if (class1.isInheritor(class2, true) || class2.isInheritor(class1, true)) {
+    if (class1.isInheritor(class2, true) || class2.isInheritor(class1, true) || Objects.equals(class1, class2)) {
       return true;
     }
     final SearchScope scope = GlobalSearchScope.allScope(class1.getProject());
-    final Query<PsiClass> search = ClassInheritorsSearch.search(class1, scope, true, true);
+    String class1Name = class1.getName();
+    String class2Name = class2.getName();
+    if (class1Name == null || class2Name == null) {
+      // One of classes is anonymous? No subclass is possible
+      return false;
+    }
+    if (class1.hasModifierProperty(PsiModifier.FINAL) || class2.hasModifierProperty(PsiModifier.FINAL)) return false;
+    if (LambdaUtil.isFunctionalClass(class1) || class1Name.length() < class2Name.length() ||
+        (isJavaClass(class2) && !isJavaClass(class1))) {
+      // Assume that it could be faster to search inheritors from non-functional interface or from class with a longer simple name
+      // Also prefer searching inheritors from Java class over other JVM languages as Java is usually faster
+      return doSearch(class2, class1, avoidExpensiveProcessing, scope);
+    }
+    return doSearch(class1, class2, avoidExpensiveProcessing, scope);
+  }
+
+  private static boolean isJavaClass(PsiClass class1) {
+    return class1 instanceof PsiClassImpl || class1 instanceof ClsClassImpl;
+  }
+
+  public static boolean doSearch(PsiClass class1, PsiClass class2, boolean avoidExpensiveProcessing, SearchScope scope) {
+    final Query<PsiClass> search = ClassInheritorsSearch.search(class1, scope, true);
     final boolean[] result = new boolean[1];
-    search.forEach(new Processor<PsiClass>() {
-      AtomicInteger count = new AtomicInteger(0);
+    search.forEach(new Processor<>() {
+      final AtomicInteger count = new AtomicInteger(0);
 
       @Override
       public boolean process(PsiClass inheritor) {
-        if (inheritor.equals(class2) || inheritor.isInheritor(class2, true) || (avoidExpensiveProcessing && count.incrementAndGet() > 20)) {
+        if (inheritor.equals(class2) || inheritor.isInheritor(class2, true) || avoidExpensiveProcessing && count.incrementAndGet() > 20) {
           result[0] = true;
           return false;
         }
@@ -79,39 +98,33 @@ public class InheritanceUtil {
   }
 
   public static boolean hasImplementation(@NotNull PsiClass aClass) {
-    final SearchScope scope = GlobalSearchScope.projectScope(aClass.getProject());
-    if (aClass.isInterface() && FunctionalExpressionSearch.search(aClass, scope).findFirst() != null) return true;
-    for (ImplementedAtRuntimeCondition condition : ImplementedAtRuntimeCondition.EP_NAME.getExtensions()) {
-      if (condition.isImplementedAtRuntime(aClass)) {
+    for (ImplicitSubclassProvider provider : ImplicitSubclassProvider.EP_NAME.getExtensions()) {
+      if (!provider.isApplicableTo(aClass)) {
+        continue;
+      }
+      ImplicitSubclassProvider.SubclassingInfo info = provider.getSubclassingInfo(aClass);
+      if (info != null && !info.isAbstract()) {
         return true;
       }
     }
-    final Query<PsiClass> search = ClassInheritorsSearch.search(aClass, scope, true, true);
-    return !search.forEach(new Processor<PsiClass>() {
-      @Override
-      public boolean process(PsiClass inheritor) {
-        return inheritor.isInterface() || inheritor.isAnnotationType() || inheritor.hasModifierProperty(PsiModifier.ABSTRACT);
-      }
-    });
+    return ClassInheritorsSearch.search(aClass).anyMatch(inheritor -> !inheritor.isInterface() &&
+                                                                      !inheritor.isAnnotationType() &&
+                                                                      !inheritor.hasModifierProperty(PsiModifier.ABSTRACT))
+           || aClass.isInterface() && FunctionalExpressionSearch.search(aClass).findFirst() != null;
   }
 
   public static boolean hasOneInheritor(final PsiClass aClass) {
     final CountingProcessor processor = new CountingProcessor(2);
-    ProgressManager.getInstance().runProcess(new Runnable() {
-      @Override
-      public void run() {
-        ClassInheritorsSearch.search(aClass, aClass.getUseScope(), false).forEach(processor);
-      }
-    }, null);
+    ProgressManager.getInstance().runProcess(
+      (Runnable)() -> ClassInheritorsSearch.search(aClass, aClass.getUseScope(), false).forEach(processor), null);
     return processor.getCount() == 1;
   }
 
-  public static class CountingProcessor implements Processor<PsiClass> {
-
+  private static class CountingProcessor implements Processor<PsiClass> {
     private final AtomicInteger myCount = new AtomicInteger(0);
     private final int myLimit;
 
-    public CountingProcessor(int limit) {
+    CountingProcessor(int limit) {
       myLimit = limit;
     }
 
@@ -121,11 +134,7 @@ public class InheritanceUtil {
 
     @Override
     public boolean process(PsiClass aClass) {
-      if (myCount.get() == myLimit){
-        return false;
-      }
-      myCount.incrementAndGet();
-      return true;
+      return myCount.incrementAndGet() < myLimit;
     }
   }
 }

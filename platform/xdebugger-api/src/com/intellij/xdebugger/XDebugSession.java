@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.xdebugger;
 
@@ -24,6 +10,7 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.MessageType;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.xdebugger.breakpoints.XBreakpoint;
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint;
 import com.intellij.xdebugger.frame.XExecutionStack;
@@ -31,6 +18,7 @@ import com.intellij.xdebugger.frame.XStackFrame;
 import com.intellij.xdebugger.frame.XSuspendContext;
 import com.intellij.xdebugger.stepping.XSmartStepIntoHandler;
 import com.intellij.xdebugger.stepping.XSmartStepIntoVariant;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,8 +30,6 @@ import javax.swing.event.HyperlinkListener;
  * {@link XDebuggerManager#startSessionAndShowTab} method is called. It isn't supposed to be implemented by a plugin.
  * <p/>
  * Instance of this class can be obtained from {@link XDebugProcess#getSession()} method and used to control debugging process
- *
- * @author nik
  */
 public interface XDebugSession extends AbstractDebuggerSession {
   DataKey<XDebugSession> DATA_KEY = DataKey.create("XDebugSessionTab.XDebugSession");
@@ -93,19 +79,31 @@ public interface XDebugSession extends AbstractDebuggerSession {
 
   void setCurrentStackFrame(@NotNull XExecutionStack executionStack, @NotNull XStackFrame frame, boolean isTopFrame);
 
-  /**
-   * @deprecated use {@link #setCurrentStackFrame(com.intellij.xdebugger.frame.XExecutionStack, com.intellij.xdebugger.frame.XStackFrame, boolean)} instead
-   */
-  void setCurrentStackFrame(@NotNull XExecutionStack executionStack, @NotNull XStackFrame frame);
+  default void setCurrentStackFrame(@NotNull XExecutionStack executionStack, @NotNull XStackFrame frame) {
+    setCurrentStackFrame(executionStack, frame, frame.equals(executionStack.getTopFrame()));
+  }
 
   /**
-   * Call this method to setup custom icon and/or error message (it will be shown in tooltip) for breakpoint
+   * Call this method to setup custom icon and/or error message (it will be shown in tooltip) for breakpoint.
+   * Usually in your breakpoint handler you need {@link #setBreakpointVerified(XLineBreakpoint)} or {@link #setBreakpointInvalid(XLineBreakpoint, String)} instead.
    *
    * @param breakpoint   breakpoint
-   * @param icon         icon (<code>null</code> if default icon should be used). You can use icons from {@link com.intellij.icons.AllIcons.Debugger}
+   * @param icon         icon ({@code null} if default icon should be used). You can use icons from {@link com.intellij.icons.AllIcons.Debugger}
    * @param errorMessage an error message if breakpoint isn't successfully registered
+   * @see #setBreakpointVerified(XLineBreakpoint)~
+   * @see #setBreakpointInvalid(XLineBreakpoint, String)
    */
   void updateBreakpointPresentation(@NotNull XLineBreakpoint<?> breakpoint, @Nullable Icon icon, @Nullable String errorMessage);
+
+  /**
+   * Marks the provide breakpoint as verified in the current session
+   */
+  void setBreakpointVerified(@NotNull XLineBreakpoint<?> breakpoint);
+
+  /**
+   * Marks the provide breakpoint as invalid in the current session
+   */
+  void setBreakpointInvalid(@NotNull XLineBreakpoint<?> breakpoint, @Nullable String errorMessage);
 
   /**
    * Call this method when a breakpoint is reached if its condition ({@link XBreakpoint#getCondition()}) evaluates to {@code true}.
@@ -115,15 +113,17 @@ public interface XDebugSession extends AbstractDebuggerSession {
    * @param breakpoint             reached breakpoint
    * @param evaluatedLogExpression value of {@link XBreakpoint#getLogExpression()} evaluated in the current context
    * @param suspendContext         context
-   * @return <code>true</code> if the debug process should be suspended
+   * @return {@code true} if the debug process should be suspended
    */
   boolean breakpointReached(@NotNull XBreakpoint<?> breakpoint,
                             @Nullable String evaluatedLogExpression,
                             @NotNull XSuspendContext suspendContext);
 
   /**
-   * @deprecated use {@link #breakpointReached(com.intellij.xdebugger.breakpoints.XBreakpoint, String, com.intellij.xdebugger.frame.XSuspendContext)} instead
+   * @deprecated use {@link #breakpointReached(XBreakpoint, String, XSuspendContext)} instead
    */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   boolean breakpointReached(@NotNull XBreakpoint<?> breakpoint, @NotNull XSuspendContext suspendContext);
 
   /**
@@ -151,13 +151,14 @@ public interface XDebugSession extends AbstractDebuggerSession {
 
   void removeSessionListener(@NotNull XDebugSessionListener listener);
 
-  void reportError(@NotNull String message);
+  void reportError(@NotNull @NlsContexts.NotificationContent String message);
 
-  void reportMessage(@NotNull String message, @NotNull MessageType type);
+  void reportMessage(@NotNull @NlsContexts.NotificationContent String message, @NotNull MessageType type);
 
-  void reportMessage(@NotNull String message, @NotNull MessageType type, @Nullable HyperlinkListener listener);
+  void reportMessage(@NotNull @NlsContexts.NotificationContent String message, @NotNull MessageType type, @Nullable HyperlinkListener listener);
 
   @NotNull
+  @NlsContexts.TabTitle
   String getSessionName();
 
   @NotNull

@@ -1,7 +1,7 @@
 package com.intellij.tasks.generic;
 
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.containers.HashMap;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xmlb.annotations.Tag;
 import org.jdom.Document;
 import org.jdom.Element;
@@ -12,6 +12,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.StringReader;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -20,7 +21,7 @@ import java.util.Map;
  */
 @Tag("XPathResponseHandler")
 public final class XPathResponseHandler extends SelectorBasedResponseHandler {
-  private final Map<String, XPath> myCompiledCache = new HashMap<String, XPath>();
+  private final Map<String, XPath> myCompiledCache = new HashMap<>();
 
   /**
    * Serialization constructor
@@ -46,7 +47,7 @@ public final class XPathResponseHandler extends SelectorBasedResponseHandler {
       throw new Exception(String.format("Expression '%s' should match list of XML elements. Got '%s' instead.",
                                         xPath.getXPath(), rawTaskElements.toString()));
     }
-    return rawTaskElements.subList(0, Math.min(rawTaskElements.size(), max));
+    return ContainerUtil.getFirstItems(rawTaskElements, max);
   }
 
   @Nullable
@@ -56,7 +57,7 @@ public final class XPathResponseHandler extends SelectorBasedResponseHandler {
       return null;
     }
     XPath xPath = lazyCompile(selector.getPath());
-    String s = xPath.valueOf(context);
+    String s = xPath.valueOf(context); //NON-NLS
     if (s == null) {
       throw new Exception(String.format("XPath expression '%s' doesn't match", xPath.getXPath()));
     }

@@ -23,6 +23,16 @@ import com.intellij.openapi.progress.StandardProgressIndicator;
 import org.jetbrains.annotations.NotNull;
 
 class NonCancelableIndicator implements NonCancelableSection, StandardProgressIndicator {
+  static final NonCancelableIndicator INSTANCE = new NonCancelableIndicator() {
+    @Override
+    public int hashCode() {
+      return 0;
+    }
+  };
+
+  protected NonCancelableIndicator() {
+  }
+
   @Override
   public void done() {
     ProgressIndicator currentIndicator = ProgressManager.getInstance().getProgressIndicator();
@@ -33,6 +43,7 @@ class NonCancelableIndicator implements NonCancelableSection, StandardProgressIn
 
   @Override
   public final void checkCanceled() {
+    CoreProgressManager.runCheckCanceledHooks(this);
   }
 
   @Override
@@ -97,16 +108,6 @@ class NonCancelableIndicator implements NonCancelableSection, StandardProgressIn
 
   @Override
   public void popState() {
-
-  }
-
-  @Override
-  public void startNonCancelableSection() {
-
-  }
-
-  @Override
-  public void finishNonCancelableSection() {
 
   }
 

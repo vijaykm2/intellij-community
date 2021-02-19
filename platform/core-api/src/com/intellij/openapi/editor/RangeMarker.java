@@ -17,6 +17,7 @@ package com.intellij.openapi.editor;
 
 import com.intellij.openapi.util.Segment;
 import com.intellij.openapi.util.UserDataHolder;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Comparator;
@@ -47,6 +48,7 @@ public interface RangeMarker extends UserDataHolder, Segment {
    * @return the start offset.
    */
   @Override
+  @Contract(pure = true)
   int getStartOffset();
 
   /**
@@ -55,6 +57,7 @@ public interface RangeMarker extends UserDataHolder, Segment {
    * @return the end offset.
    */
   @Override
+  @Contract(pure = true)
   int getEndOffset();
 
   /**
@@ -63,6 +66,7 @@ public interface RangeMarker extends UserDataHolder, Segment {
    *
    * @return true if the marker is valid, false if it has been invalidated.
    */
+  @Contract(pure = true)
   boolean isValid();
 
   /**
@@ -81,15 +85,7 @@ public interface RangeMarker extends UserDataHolder, Segment {
    */
   void setGreedyToRight(boolean greedy);
 
-  Comparator<RangeMarker> BY_START_OFFSET = new Comparator<RangeMarker>() {
-    @Override
-    public int compare(RangeMarker r1, RangeMarker r2) {
-      int result = r1.getStartOffset() - r2.getStartOffset();
-      if (result == 0) result = r1.getEndOffset() - r2.getEndOffset();
-      return result;
-    }
-  };
-
+  Comparator<? super RangeMarker> BY_START_OFFSET = BY_START_OFFSET_THEN_END_OFFSET;
 
   boolean isGreedyToRight();
   boolean isGreedyToLeft();

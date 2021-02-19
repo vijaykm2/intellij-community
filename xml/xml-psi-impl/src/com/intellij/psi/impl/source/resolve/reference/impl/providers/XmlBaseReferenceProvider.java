@@ -20,7 +20,6 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlAttributeValue;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.Function;
 import com.intellij.util.ProcessingContext;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xml.util.XmlUtil;
@@ -40,18 +39,12 @@ public class XmlBaseReferenceProvider extends PsiReferenceProvider {
     myAcceptSelf = acceptSelf;
   }
 
-  @NotNull
   @Override
-  public PsiReference[] getReferencesByElement(@NotNull final PsiElement element, @NotNull ProcessingContext context) {
+  public PsiReference @NotNull [] getReferencesByElement(@NotNull final PsiElement element, @NotNull ProcessingContext context) {
     PsiReference reference = URIReferenceProvider.getUrlReference(element, ElementManipulators.getValueText(element));
     if (reference != null) return new PsiReference[] { reference };
     FileReferenceSet referenceSet = FileReferenceSet.createSet(element, false, false, false);
-    referenceSet.addCustomization(FileReferenceSet.DEFAULT_PATH_EVALUATOR_OPTION, new Function<PsiFile, Collection<PsiFileSystemItem>>() {
-      @Override
-      public Collection<PsiFileSystemItem> fun(PsiFile file) {
-        return getContext(element, file);
-      }
-    });
+    referenceSet.addCustomization(FileReferenceSet.DEFAULT_PATH_EVALUATOR_OPTION, file -> getContext(element, file));
     return referenceSet.getAllReferences();
   }
 
@@ -68,18 +61,13 @@ public class XmlBaseReferenceProvider extends PsiReferenceProvider {
           PsiReference reference = value.getReference();
           if (reference instanceof PsiPolyVariantReference) {
             ResolveResult[] results = ((PsiPolyVariantReference)reference).multiResolve(false);
-            return ContainerUtil.map(results, new Function<ResolveResult, PsiFileSystemItem>() {
-              @Override
-              public PsiFileSystemItem fun(ResolveResult result) {
-                return (PsiFileSystemItem)result.getElement();
-              }
-            });
+            return ContainerUtil.map(results, result -> (PsiFileSystemItem)result.getElement());
           }
         }
       }
       tag = tag.getParentTag();
     }
     PsiDirectory directory = file.getContainingDirectory();
-    return directory == null ? Collections.<PsiFileSystemItem>emptyList() : Collections.<PsiFileSystemItem>singletonList(directory);
+    return directory == null ? Collections.emptyList() : Collections.singletonList(directory);
   }
 }

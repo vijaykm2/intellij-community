@@ -15,6 +15,7 @@
  */
 package com.intellij.execution.configurations;
 
+import com.intellij.openapi.util.NlsActions;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -40,5 +41,7 @@ public interface LocatableConfiguration extends RunConfiguration {
    * run configuration settings (such as "Unnamed").
    */
   @Nullable
-  String suggestedName();
+  default @NlsActions.ActionText String suggestedName() {
+    return null;
+  }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.conflicts;
 
 import com.intellij.openapi.options.ShowSettingsUtil;
@@ -21,7 +7,7 @@ import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.changes.ChangeList;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
-import com.intellij.openapi.vcs.changes.ChangeListManagerImpl;
+import com.intellij.openapi.vcs.changes.LocalChangeList;
 import com.intellij.openapi.vcs.readOnlyHandler.FileListRenderer;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.CollectionListModel;
@@ -42,7 +28,8 @@ public class ChangelistConflictDialog extends DialogWrapper {
   private JRadioButton myMoveChangesToActiveRadioButton;
   private JRadioButton mySwitchToChangelistRadioButton;
   private JRadioButton myIgnoreRadioButton;
-  private JList myFileList;
+  private JLabel myListTitle;
+  private JList<VirtualFile> myFileList;
 
   private final Project myProject;
 
@@ -50,13 +37,22 @@ public class ChangelistConflictDialog extends DialogWrapper {
     super(project);
     myProject = project;
 
-    setTitle("Resolve Changelist Conflict");
+    setTitle(VcsBundle.message("dialog.title.resolve.changelist.conflict"));
+
+    boolean dirsOnly = conflicts.stream().allMatch(VirtualFile::isDirectory);
+    int size = conflicts.size();
+
+    String text = (dirsOnly
+                   ? VcsBundle.message("changes.directory.does.not.belong.to.the.active.changelist", size)
+                   : VcsBundle.message("changes.file.does.not.belong.to.the.active.changelist", size));
+
+    myListTitle.setText(text);
 
     myFileList.setCellRenderer(new FileListRenderer());
-    myFileList.setModel(new CollectionListModel(conflicts));
+    myFileList.setModel(new CollectionListModel<>(conflicts));
 
-    ChangeListManagerImpl manager = ChangeListManagerImpl.getInstanceImpl(myProject);
-    ChangelistConflictResolution resolution = manager.getConflictTracker().getOptions().LAST_RESOLUTION;
+    ChangelistConflictResolution resolution = ChangelistConflictTracker.getInstance(myProject).getOptions().LAST_RESOLUTION;
+    LocalChangeList defaultChangeList = ChangeListManager.getInstance(myProject).getDefaultChangeList();
 
     if (changeLists.size() > 1) {
       mySwitchToChangelistRadioButton.setEnabled(false);
@@ -65,8 +61,8 @@ public class ChangelistConflictDialog extends DialogWrapper {
       }
     }
     mySwitchToChangelistRadioButton.setText(VcsBundle.message("switch.to.changelist", changeLists.iterator().next().getName()));
-    myMoveChangesToActiveRadioButton.setText(VcsBundle.message("move.to.changelist", manager.getDefaultChangeList().getName()));
-    
+    myMoveChangesToActiveRadioButton.setText(VcsBundle.message("move.to.changelist", defaultChangeList.getName()));
+
     switch (resolution) {
 
       case SHELVE:
@@ -100,17 +96,17 @@ public class ChangelistConflictDialog extends DialogWrapper {
     return ChangelistConflictResolution.IGNORE;
   }
 
-  @NotNull
   @Override
-  protected Action[] createLeftSideActions() {
-    return new Action[] { new AbstractAction("&Configure...") {
+  protected Action @NotNull [] createLeftSideActions() {
+    return new Action[] { new AbstractAction(VcsBundle.message("changes.configure")) {
+      @Override
       public void actionPerformed(ActionEvent e) {
-        ChangeListManagerImpl manager = (ChangeListManagerImpl)ChangeListManager.getInstance(myProject);
-        ShowSettingsUtil.getInstance().editConfigurable(myPanel, new ChangelistConflictConfigurable(manager));
+        ShowSettingsUtil.getInstance().editConfigurable(myPanel, new ChangelistConflictConfigurable(myProject));
       }
     }};
   }
 
+  @Override
   protected String getHelpId() {
     return "project.propVCSSupport.ChangelistConflict";
   }

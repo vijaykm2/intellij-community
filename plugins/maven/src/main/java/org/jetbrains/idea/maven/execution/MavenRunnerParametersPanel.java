@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.execution;
 
 import com.intellij.codeInsight.completion.CompletionResultSet;
@@ -20,19 +6,19 @@ import com.intellij.codeInsight.lookup.LookupElementBuilder;
 import com.intellij.execution.configurations.ParametersList;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.externalSystem.service.execution.cmd.ParametersListLexer;
-import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.FixedSizeButton;
 import com.intellij.openapi.ui.LabeledComponent;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.EditorTextField;
 import com.intellij.ui.PanelWithAnchor;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.util.TextFieldCompletionProvider;
 import com.intellij.util.execution.ParametersListUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.idea.maven.model.MavenConstants;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.maven.project.MavenConfigurableBundle;
 import org.jetbrains.idea.maven.project.MavenProjectsManager;
 
 import javax.swing.*;
@@ -43,7 +29,7 @@ import java.util.Map;
 /**
  * @author Vladislav.Kaznacheev
  */
-public class MavenRunnerParametersPanel implements PanelWithAnchor {
+public class MavenRunnerParametersPanel implements PanelWithAnchor, MavenSettingsObservable {
   private JPanel panel;
   protected LabeledComponent<TextFieldWithBrowseButton> workingDirComponent;
   protected LabeledComponent<EditorTextField> goalsComponent;
@@ -54,15 +40,10 @@ public class MavenRunnerParametersPanel implements PanelWithAnchor {
   private JComponent anchor;
 
   public MavenRunnerParametersPanel(@NotNull final Project project) {
+
     workingDirComponent.getComponent().addBrowseFolderListener(
-      RunnerBundle.message("maven.select.maven.project.file"), "", project,
-      new FileChooserDescriptor(false, true, false, false, false, false) {
-        @Override
-        public boolean isFileSelectable(VirtualFile file) {
-          if (!super.isFileSelectable(file)) return false;
-          return file.findChild(MavenConstants.POM_XML) != null;
-        }
-      });
+      RunnerBundle.message("maven.select.working.directory"), "", project,
+      new MavenPomFileChooserDescriptor(project));
 
     if (!project.isDefault()) {
       TextFieldCompletionProvider profilesCompletionProvider = new TextFieldCompletionProvider(true) {
@@ -97,7 +78,7 @@ public class MavenRunnerParametersPanel implements PanelWithAnchor {
       goalsComponent.setComponent(new MavenArgumentsCompletionProvider(project).createEditor(project));
     }
 
-    showProjectTreeButton.setIcon(AllIcons.Actions.Module);
+    showProjectTreeButton.setIcon(AllIcons.Nodes.Module);
 
     MavenSelectProjectPopup.attachToWorkingDirectoryField(MavenProjectsManager.getInstance(project),
                                                           workingDirComponent.getComponent().getTextField(),
@@ -120,15 +101,25 @@ public class MavenRunnerParametersPanel implements PanelWithAnchor {
 
   protected void setData(final MavenRunnerParameters data) {
     data.setWorkingDirPath(workingDirComponent.getComponent().getText());
-    data.setGoals(ParametersListUtil.parse(goalsComponent.getComponent().getText()));
-    data.setResolveToWorkspace(myResolveToWorkspaceCheckBox.isSelected());
 
-    Map<String, Boolean> profilesMap = new LinkedHashMap<String, Boolean>();
+    List<String> commandLine = ParametersListUtil.parse(goalsComponent.getComponent().getText());
+    int pomFileNameIndex = 1 + commandLine.indexOf("-f");
+    if (pomFileNameIndex != 0) {
+      if (pomFileNameIndex < commandLine.size()) {
+        data.setPomFileName(commandLine.remove(pomFileNameIndex));
+      }
+      commandLine.remove(pomFileNameIndex - 1);
+    }
+
+    data.setGoals(commandLine);
+    data.setResolveToWorkspace(myResolveToWorkspaceCheckBox.isEnabled() && myResolveToWorkspaceCheckBox.isSelected());
+
+    Map<String, Boolean> profilesMap = new LinkedHashMap<>();
 
     List<String> profiles = ParametersListUtil.parse(profilesComponent.getComponent().getText());
 
     for (String profile : profiles) {
-      Boolean isEnabled = true;
+      boolean isEnabled = true;
       if (profile.startsWith("-") || profile.startsWith("!")) {
         profile = profile.substring(1);
         if (profile.isEmpty()) continue;
@@ -143,7 +134,11 @@ public class MavenRunnerParametersPanel implements PanelWithAnchor {
 
   protected void getData(final MavenRunnerParameters data) {
     workingDirComponent.getComponent().setText(data.getWorkingDirPath());
-    goalsComponent.getComponent().setText(ParametersList.join(data.getGoals()));
+    String commandLine = ParametersList.join(data.getGoals());
+    if (data.getPomFileName() != null) {
+      commandLine += " -f " + data.getPomFileName();
+    }
+    goalsComponent.getComponent().setText(commandLine);
     myResolveToWorkspaceCheckBox.setSelected(data.isResolveToWorkspace());
 
     ParametersList parametersList = new ParametersList();
@@ -173,5 +168,25 @@ public class MavenRunnerParametersPanel implements PanelWithAnchor {
     goalsComponent.setAnchor(anchor);
     profilesComponent.setAnchor(anchor);
     myFakeLabel.setAnchor(anchor);
+  }
+
+  @ApiStatus.Internal
+  void applyTargetEnvironmentConfiguration(@Nullable String targetName) {
+    boolean localTarget = targetName == null;
+    myResolveToWorkspaceCheckBox.setEnabled(localTarget);
+    if (!localTarget) {
+      myResolveToWorkspaceCheckBox.setSelected(false);
+      myResolveToWorkspaceCheckBox.setToolTipText(MavenConfigurableBundle.message("maven.settings.on.targets.runner.resolve.workspace.artifacts.tooltip"));
+    } else {
+      myResolveToWorkspaceCheckBox.setToolTipText(MavenConfigurableBundle.message("maven.settings.runner.resolve.workspace.artifacts.tooltip"));
+    }
+  }
+
+  @Override
+  public void registerSettingsWatcher(@NotNull MavenRCSettingsWatcher watcher) {
+    watcher.registerComponent("workingDir", workingDirComponent);
+    watcher.registerComponent("goals", goalsComponent);
+    watcher.registerComponent("profiles", profilesComponent);
+    watcher.registerComponent("resolveToWorkspace", myResolveToWorkspaceCheckBox);
   }
 }

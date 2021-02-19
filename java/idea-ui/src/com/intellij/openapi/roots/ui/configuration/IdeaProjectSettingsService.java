@@ -17,10 +17,11 @@ package com.intellij.openapi.roots.ui.configuration;
 
 import com.intellij.compiler.actions.ArtifactAwareProjectSettingsService;
 import com.intellij.ide.projectView.impl.ModuleGroup;
-import com.intellij.ide.util.projectWizard.JdkChooserPanel;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.options.ShowSettingsUtil;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.projectRoots.JavaSdk;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.JdkOrderEntry;
 import com.intellij.openapi.roots.LibraryOrderEntry;
@@ -44,34 +45,19 @@ public class IdeaProjectSettingsService extends ProjectSettingsService implement
   @Override
   public void openProjectSettings() {
     final ProjectStructureConfigurable config = ProjectStructureConfigurable.getInstance(myProject);
-    ShowSettingsUtil.getInstance().editConfigurable(myProject, config, new Runnable() {
-      @Override
-      public void run() {
-        config.selectProjectGeneralSettings(true);
-      }
-    });
+    ShowSettingsUtil.getInstance().editConfigurable(myProject, config, () -> config.selectProjectGeneralSettings(true));
   }
 
   @Override
   public void openGlobalLibraries() {
     final ProjectStructureConfigurable config = ProjectStructureConfigurable.getInstance(myProject);
-    ShowSettingsUtil.getInstance().editConfigurable(myProject, config, new Runnable() {
-      @Override
-      public void run() {
-        config.selectGlobalLibraries(true);
-      }
-    });
+    ShowSettingsUtil.getInstance().editConfigurable(myProject, config, () -> config.selectGlobalLibraries(true));
   }
 
   @Override
   public void openLibrary(@NotNull final Library library) {
     final ProjectStructureConfigurable config = ProjectStructureConfigurable.getInstance(myProject);
-    ShowSettingsUtil.getInstance().editConfigurable(myProject, config, new Runnable() {
-      @Override
-      public void run() {
-        config.selectProjectOrGlobalLibrary(library, true);
-      }
-    });
+    ShowSettingsUtil.getInstance().editConfigurable(myProject, config, () -> config.selectProjectOrGlobalLibrary(library, true));
   }
 
   @Override
@@ -91,7 +77,7 @@ public class IdeaProjectSettingsService extends ProjectSettingsService implement
 
   @Override
   public void openModuleLibrarySettings(final Module module) {
-    ModulesConfigurator.showDialog(myProject, module.getName(), ClasspathEditor.NAME);
+    ModulesConfigurator.showDialog(myProject, module.getName(), ClasspathEditor.getName());
   }
 
   @Override
@@ -101,7 +87,7 @@ public class IdeaProjectSettingsService extends ProjectSettingsService implement
 
   @Override
   public void openContentEntriesSettings(final Module module) {
-    ModulesConfigurator.showDialog(myProject, module.getName(), CommonContentEntriesEditor.NAME);
+    ModulesConfigurator.showDialog(myProject, module.getName(), CommonContentEntriesEditor.getName());
   }
 
   @Override
@@ -111,12 +97,7 @@ public class IdeaProjectSettingsService extends ProjectSettingsService implement
 
   @Override
   public void openModuleDependenciesSettings(@NotNull final Module module, @Nullable final OrderEntry orderEntry) {
-    ShowSettingsUtil.getInstance().editConfigurable(myProject, ProjectStructureConfigurable.getInstance(myProject), new Runnable() {
-      @Override
-      public void run() {
-        ProjectStructureConfigurable.getInstance(myProject).selectOrderEntry(module, orderEntry);
-      }
-    });
+    ShowSettingsUtil.getInstance().editConfigurable(myProject, ProjectStructureConfigurable.getInstance(myProject), () -> ProjectStructureConfigurable.getInstance(myProject).selectOrderEntry(module, orderEntry));
   }
 
   @Override
@@ -127,22 +108,19 @@ public class IdeaProjectSettingsService extends ProjectSettingsService implement
   @Override
   public void openLibraryOrSdkSettings(@NotNull final OrderEntry orderEntry) {
     final ProjectStructureConfigurable config = ProjectStructureConfigurable.getInstance(myProject);
-    ShowSettingsUtil.getInstance().editConfigurable(myProject, config, new Runnable() {
-      @Override
-      public void run() {
-        if (orderEntry instanceof JdkOrderEntry) {
-          config.select(((JdkOrderEntry)orderEntry).getJdk(), true);
-        } else {
-          config.select((LibraryOrderEntry)orderEntry, true);
-        }
+    ShowSettingsUtil.getInstance().editConfigurable(myProject, config, () -> {
+      if (orderEntry instanceof JdkOrderEntry) {
+        config.select(((JdkOrderEntry)orderEntry).getJdk(), true);
+      } else {
+        config.select((LibraryOrderEntry)orderEntry, true);
       }
     });
   }
 
   @Override
   public boolean processModulesMoved(final Module[] modules, @Nullable final ModuleGroup targetGroup) {
-    final ModuleStructureConfigurable rootConfigurable = ModuleStructureConfigurable.getInstance(myProject);
-    if (rootConfigurable.updateProjectTree(modules, targetGroup)) { //inside project root editor
+    final ModuleStructureConfigurable rootConfigurable = ProjectStructureConfigurable.getInstance(myProject).getModulesConfig();
+    if (rootConfigurable.updateProjectTree(modules)) { //inside project root editor
       if (targetGroup != null) {
         rootConfigurable.selectNodeInTree(targetGroup.toString());
       }
@@ -159,9 +137,41 @@ public class IdeaProjectSettingsService extends ProjectSettingsService implement
     ModulesConfigurator.showDialog(myProject, moduleToSelect, editorNameToSelect);
   }
 
+  private Sdk myDeprecatedChosenSdk = null;
+
+  /**
+   * @deprecated Please use {@link SdkPopupFactory} instead.
+   *
+   * Many usages of that API are too bogus and do duplicate similar code all other the place.
+   * It is not even possible to filter unneeded SDK types or SDK instances in the dialog.
+   *
+   * This method is no longer supported and behaves a bit broken: the first call returns {@code null},
+   * the second call may return a chosen SDK from the first call (only once). This is the way to
+   * avoid breaking the older code scenarios.
+   */
   @Override
+  @Deprecated
   public Sdk chooseAndSetSdk() {
-    return JdkChooserPanel.chooseAndSetJDK(myProject);
+    Logger
+      .getInstance(getClass())
+      .warn("Call to the deprecated ProjectSettingsService#chooseAndSetSdk method. Please use new API instead");
+
+    if (myDeprecatedChosenSdk != null) {
+      Sdk chosenSdk = myDeprecatedChosenSdk;
+      myDeprecatedChosenSdk = null;
+      return chosenSdk;
+    }
+
+    SdkPopupFactory
+      .newBuilder()
+      .withProject(myProject)
+      .withSdkType(JavaSdk.getInstance())
+      .updateProjectSdkFromSelection()
+      .onSdkSelected(sdk -> myDeprecatedChosenSdk = sdk)
+      .buildPopup()
+      .showInFocusCenter();
+
+    return null;
   }
 
   @Override

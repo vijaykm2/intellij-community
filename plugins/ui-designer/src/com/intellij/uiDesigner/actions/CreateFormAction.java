@@ -1,29 +1,15 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.uiDesigner.actions;
 
 import com.intellij.ide.actions.TemplateKindCombo;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.psi.*;
 import com.intellij.ui.DocumentAdapter;
 import com.intellij.uiDesigner.GuiDesignerConfiguration;
+import com.intellij.uiDesigner.GuiFormFileType;
 import com.intellij.uiDesigner.UIDesignerBundle;
 import com.intellij.uiDesigner.radComponents.LayoutManagerRegistry;
 import com.intellij.util.IncorrectOperationException;
@@ -40,18 +26,18 @@ import javax.swing.event.DocumentEvent;
  * @author yole
  */
 public class CreateFormAction extends AbstractCreateFormAction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.uiDesigner.actions.CreateFormAction");
+  private static final Logger LOG = Logger.getInstance(CreateFormAction.class);
 
   private String myLastClassName = null;
   private String myLastLayoutManager = null;
 
   public CreateFormAction() {
-    super(UIDesignerBundle.message("action.gui.form.text"),
-          UIDesignerBundle.message("action.gui.form.description"), PlatformIcons.UI_FORM_ICON);
+    super(UIDesignerBundle.messagePointer("action.gui.form.text"),
+          UIDesignerBundle.messagePointer("action.gui.form.description"), PlatformIcons.UI_FORM_ICON);
   }
 
-  @NotNull
-  protected PsiElement[] invokeDialog(Project project, PsiDirectory directory) {
+  @Override
+  protected PsiElement @NotNull [] invokeDialog(Project project, PsiDirectory directory) {
     final MyInputValidator validator = new JavaNameValidator(project, directory);
 
     final DialogWrapper dialog = new MyDialog(project, validator);
@@ -60,8 +46,8 @@ public class CreateFormAction extends AbstractCreateFormAction {
     return validator.getCreatedElements();
   }
 
-  @NotNull
-  protected PsiElement[] create(String newName, PsiDirectory directory) throws Exception {
+  @Override
+  protected PsiElement @NotNull [] create(@NotNull String newName, PsiDirectory directory) throws Exception {
     PsiElement createdFile;
     PsiClass newClass = null;
     try {
@@ -77,7 +63,7 @@ public class CreateFormAction extends AbstractCreateFormAction {
                                              myLastLayoutManager);
       @NonNls final String fileName = newName + ".form";
       final PsiFile formFile = PsiFileFactory.getInstance(directory.getProject())
-        .createFileFromText(fileName, StdFileTypes.GUI_DESIGNER_FORM, formBody);
+        .createFileFromText(fileName, GuiFormFileType.INSTANCE, formBody);
       createdFile = directory.add(formFile);
 
       if (myLastClassName != null) {
@@ -98,12 +84,9 @@ public class CreateFormAction extends AbstractCreateFormAction {
     return new PsiElement[] { createdFile };
   }
 
+  @Override
   protected String getErrorTitle() {
     return UIDesignerBundle.message("error.cannot.create.form");
-  }
-
-  protected String getCommandName() {
-    return UIDesignerBundle.message("command.create.form");
   }
 
   private class MyDialog extends DialogWrapper {
@@ -119,7 +102,7 @@ public class CreateFormAction extends AbstractCreateFormAction {
     private final Project myProject;
     private final MyInputValidator myValidator;
 
-    public MyDialog(final Project project,
+    MyDialog(final Project project,
                     final MyInputValidator validator) {
       super(project, true);
       myProject = project;
@@ -131,13 +114,15 @@ public class CreateFormAction extends AbstractCreateFormAction {
       setOKActionEnabled(false);
 
       myCreateBoundClassCheckbox.addChangeListener(new ChangeListener() {
+        @Override
         public void stateChanged(ChangeEvent e) {
           myClassNameTextField.setEnabled(myCreateBoundClassCheckbox.isSelected());
         }
       });
 
       myFormNameTextField.getDocument().addDocumentListener(new DocumentAdapter() {
-        protected void textChanged(DocumentEvent e) {
+        @Override
+        protected void textChanged(@NotNull DocumentEvent e) {
           setOKActionEnabled(myFormNameTextField.getText().length() > 0);
           if (myNeedAdjust) {
             myAdjusting = true;
@@ -148,7 +133,8 @@ public class CreateFormAction extends AbstractCreateFormAction {
       });
 
       myClassNameTextField.getDocument().addDocumentListener(new DocumentAdapter() {
-        protected void textChanged(DocumentEvent e) {
+        @Override
+        protected void textChanged(@NotNull DocumentEvent e) {
           if (!myAdjusting) {
             myNeedAdjust = false;
           }
@@ -162,10 +148,12 @@ public class CreateFormAction extends AbstractCreateFormAction {
       myBaseLayoutManagerCombo.setSelectedName(GuiDesignerConfiguration.getInstance(project).DEFAULT_LAYOUT_MANAGER);
     }
 
+    @Override
     protected JComponent createCenterPanel() {
       return myTopPanel;
     }
 
+    @Override
     protected void doOKAction() {
       if (myCreateBoundClassCheckbox.isSelected()) {
         myLastClassName = myClassNameTextField.getText();
@@ -179,9 +167,9 @@ public class CreateFormAction extends AbstractCreateFormAction {
       if (myValidator.checkInput(inputString) && myValidator.canClose(inputString)) {
         close(OK_EXIT_CODE);
       }
-      close(OK_EXIT_CODE);
     }
 
+    @Override
     public JComponent getPreferredFocusedComponent() {
       return myFormNameTextField;
     }

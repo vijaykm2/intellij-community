@@ -1,53 +1,56 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.resolve;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
+import com.intellij.psi.impl.JavaPsiImplementationHelper;
 import com.intellij.psi.impl.source.resolve.graphInference.PsiGraphInferenceHelper;
 import com.intellij.psi.infos.CandidateInfo;
+import com.intellij.psi.infos.MethodCandidateInfo;
 import com.intellij.psi.scope.MethodProcessorSetupFailedException;
+import com.intellij.psi.scope.PsiConflictResolver;
 import com.intellij.psi.scope.processor.MethodCandidatesProcessor;
 import com.intellij.psi.scope.processor.MethodResolverProcessor;
 import com.intellij.psi.scope.util.PsiScopesUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.SmartList;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.function.Predicate;
+import java.util.stream.Stream;
+
 public class PsiResolveHelperImpl implements PsiResolveHelper {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.resolve.PsiResolveHelperImpl");
+  private static final Logger LOG = Logger.getInstance(PsiResolveHelperImpl.class);
   private final PsiManager myManager;
 
-  public PsiResolveHelperImpl(PsiManager manager) {
+  public PsiResolveHelperImpl(@NotNull Project project) {
+    myManager = PsiManager.getInstance(project);
+  }
+
+  /**
+   * @deprecated Use {@link #PsiResolveHelperImpl(Project)}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public PsiResolveHelperImpl(@NotNull PsiManager manager) {
     myManager = manager;
   }
 
   @Override
   @NotNull
-  public JavaResolveResult resolveConstructor(PsiClassType classType, PsiExpressionList argumentList, PsiElement place) {
+  public JavaResolveResult resolveConstructor(PsiClassType classType, @NotNull PsiExpressionList argumentList, PsiElement place) {
     JavaResolveResult[] result = multiResolveConstructor(classType, argumentList, place);
     return result.length == 1 ? result[0] : JavaResolveResult.EMPTY;
   }
 
   @Override
-  @NotNull
-  public JavaResolveResult[] multiResolveConstructor(@NotNull PsiClassType type, @NotNull PsiExpressionList argumentList, @NotNull PsiElement place) {
+  public JavaResolveResult @NotNull [] multiResolveConstructor(@NotNull PsiClassType type, @NotNull PsiExpressionList argumentList, @NotNull PsiElement place) {
     PsiClassType.ClassResolveResult classResolveResult = type.resolveGenerics();
     PsiClass aClass = classResolveResult.getElement();
     if (aClass == null) {
@@ -60,10 +63,9 @@ public class PsiResolveHelperImpl implements PsiResolveHelper {
       processor = new MethodResolverProcessor(anonymous, argumentList, place, place.getContainingFile());
       aClass = anonymous.getBaseClassType().resolve();
       if (aClass == null) return JavaResolveResult.EMPTY_ARRAY;
-      substitutor = substitutor.putAll(TypeConversionUtil.getSuperClassSubstitutor(aClass, anonymous, substitutor));
     }
     else {
-      processor = new MethodResolverProcessor(aClass, argumentList, place, place.getContainingFile());
+      processor = new MethodResolverProcessor(null, argumentList, place, place.getContainingFile());
     }
 
     ResolveState state = ResolveState.initial().put(PsiSubstitutor.KEY, substitutor);
@@ -124,14 +126,26 @@ public class PsiResolveHelperImpl implements PsiResolveHelper {
                               @Nullable PsiClass accessObjectClass,
                               @Nullable PsiElement currentFileResolveScope) {
     PsiClass containingClass = member.getContainingClass();
-    return JavaResolveUtil.isAccessible(member, containingClass, modifierList, place, accessObjectClass, currentFileResolveScope);
+    boolean accessible = JavaResolveUtil.isAccessible(member, containingClass, modifierList, place, accessObjectClass, currentFileResolveScope);
+    if (accessible && member instanceof PsiClass && !(member instanceof PsiTypeParameter)) {
+      accessible = isAccessible(moduleSystem -> moduleSystem.isAccessible(((PsiClass)member), place));
+    }
+    return accessible;
   }
 
-  @NotNull
   @Override
-  public CandidateInfo[] getReferencedMethodCandidates(@NotNull PsiCallExpression expr,
-                                                       boolean dummyImplicitConstructor,
-                                                       final boolean checkVarargs) {
+  public boolean isAccessible(@NotNull PsiPackage pkg, @NotNull PsiElement place) {
+    return isAccessible(moduleSystem -> moduleSystem.isAccessible(pkg.getQualifiedName(), null, place));
+  }
+
+  private static boolean isAccessible(Predicate<? super JavaModuleSystem> predicate) {
+    return Stream.of(JavaModuleSystem.EP_NAME.getExtensions()).allMatch(predicate);
+  }
+
+  @Override
+  public CandidateInfo @NotNull [] getReferencedMethodCandidates(@NotNull PsiCallExpression expr,
+                                                                 boolean dummyImplicitConstructor,
+                                                                 final boolean checkVarargs) {
     PsiFile containingFile = expr.getContainingFile();
     final MethodCandidatesProcessor processor = new MethodCandidatesProcessor(expr, containingFile) {
       @Override
@@ -148,16 +162,41 @@ public class PsiResolveHelperImpl implements PsiResolveHelper {
     return processor.getCandidates();
   }
 
-  @NotNull
   @Override
-  public CandidateInfo[] getReferencedMethodCandidates(@NotNull PsiCallExpression call, boolean dummyImplicitConstructor) {
+  public boolean hasOverloads(@NotNull PsiCallExpression call) {
+    PsiFile containingFile = call.getContainingFile();
+    final MethodCandidatesProcessor processor = new MethodCandidatesProcessor(call, containingFile, new PsiConflictResolver[0], new SmartList<>()) {
+      @Override
+      protected boolean acceptVarargs() {
+        return true;
+      }
+    };
+    if (call instanceof PsiMethodCallExpression) {
+      PsiReferenceExpression methodExpression = ((PsiMethodCallExpression)call).getMethodExpression();
+      processor.setIsConstructor(false);
+      processor.setName(methodExpression.getReferenceName());
+      PsiScopesUtil.resolveAndWalk(processor, methodExpression, null);
+    }
+    else if (call instanceof PsiNewExpression) {
+      PsiJavaCodeReferenceElement classReference = ((PsiNewExpression)call).getClassOrAnonymousClassReference();
+      if (classReference != null) {
+        processor.setIsConstructor(true);
+        processor.setName(classReference.getReferenceName());
+        PsiScopesUtil.resolveAndWalk(processor, classReference, null);
+      }
+    }
+    return processor.getCandidates().length > 1;
+  }
+
+  @Override
+  public CandidateInfo @NotNull [] getReferencedMethodCandidates(@NotNull PsiCallExpression call, boolean dummyImplicitConstructor) {
     return getReferencedMethodCandidates(call, dummyImplicitConstructor, false);
   }
 
   @Override
   public PsiType inferTypeForMethodTypeParameter(@NotNull PsiTypeParameter typeParameter,
-                                                 @NotNull PsiParameter[] parameters,
-                                                 @NotNull PsiExpression[] arguments,
+                                                 PsiParameter @NotNull [] parameters,
+                                                 PsiExpression @NotNull [] arguments,
                                                  @NotNull PsiSubstitutor partialSubstitutor,
                                                  @Nullable PsiElement parent,
                                                  @NotNull ParameterTypeInferencePolicy policy) {
@@ -167,47 +206,63 @@ public class PsiResolveHelperImpl implements PsiResolveHelper {
 
   @Override
   @NotNull
-  public PsiSubstitutor inferTypeArguments(@NotNull PsiTypeParameter[] typeParameters,
-                                           @NotNull PsiParameter[] parameters,
-                                           @NotNull PsiExpression[] arguments,
+  public PsiSubstitutor inferTypeArguments(PsiTypeParameter @NotNull [] typeParameters,
+                                           PsiParameter @NotNull [] parameters,
+                                           PsiExpression @NotNull [] arguments,
                                            @NotNull PsiSubstitutor partialSubstitutor,
                                            @NotNull PsiElement parent,
                                            @NotNull ParameterTypeInferencePolicy policy) {
     return getInferenceHelper(PsiUtil.getLanguageLevel(parent))
-      .inferTypeArguments(typeParameters, parameters, arguments, partialSubstitutor, parent, policy, PsiUtil.getLanguageLevel(parent));
+      .inferTypeArguments(typeParameters, parameters, arguments, null, partialSubstitutor, parent, policy, PsiUtil.getLanguageLevel(parent));
   }
 
   @Override
   @NotNull
-  public PsiSubstitutor inferTypeArguments(@NotNull PsiTypeParameter[] typeParameters,
-                                           @NotNull PsiParameter[] parameters,
-                                           @NotNull PsiExpression[] arguments,
-                                           @NotNull PsiSubstitutor partialSubstitutor,
+  public PsiSubstitutor inferTypeArguments(PsiTypeParameter @NotNull [] typeParameters,
+                                           PsiParameter @NotNull [] parameters,
+                                           PsiExpression @NotNull [] arguments,
+                                           @NotNull MethodCandidateInfo currentCandidate,
                                            @NotNull PsiElement parent,
                                            @NotNull ParameterTypeInferencePolicy policy,
                                            @NotNull LanguageLevel languageLevel) {
     return getInferenceHelper(languageLevel)
-      .inferTypeArguments(typeParameters, parameters, arguments, partialSubstitutor, parent, policy, languageLevel);
+      .inferTypeArguments(typeParameters, parameters, arguments, currentCandidate, currentCandidate.getSiteSubstitutor(), parent, policy, languageLevel);
   }
 
   @Override
   @NotNull
-  public PsiSubstitutor inferTypeArguments(@NotNull PsiTypeParameter[] typeParameters,
-                                           @NotNull PsiType[] leftTypes,
-                                           @NotNull PsiType[] rightTypes,
+  public PsiSubstitutor inferTypeArguments(PsiTypeParameter @NotNull [] typeParameters,
+                                           PsiType @NotNull [] leftTypes,
+                                           PsiType @NotNull [] rightTypes,
+                                           @NotNull LanguageLevel languageLevel) {
+    return inferTypeArguments(typeParameters, leftTypes, rightTypes, PsiSubstitutor.EMPTY, languageLevel);
+  }
+
+  @Override
+  @NotNull
+  public PsiSubstitutor inferTypeArguments(PsiTypeParameter @NotNull [] typeParameters,
+                                           PsiType @NotNull [] leftTypes,
+                                           PsiType @NotNull [] rightTypes,
+                                           @NotNull PsiSubstitutor partialSubstitutor,
                                            @NotNull LanguageLevel languageLevel) {
     return getInferenceHelper(languageLevel)
-      .inferTypeArguments(typeParameters, leftTypes, rightTypes, languageLevel);
+      .inferTypeArguments(typeParameters, leftTypes, rightTypes, partialSubstitutor, languageLevel);
   }
 
   @Override
   public PsiType getSubstitutionForTypeParameter(PsiTypeParameter typeParam,
                                                  PsiType param,
                                                  PsiType arg,
-                                                 boolean isContraVariantPosition, 
+                                                 boolean isContraVariantPosition,
                                                  LanguageLevel languageLevel) {
     return getInferenceHelper(languageLevel)
       .getSubstitutionForTypeParameter(typeParam, param, arg, isContraVariantPosition, languageLevel);
+  }
+
+  @NotNull
+  @Override
+  public LanguageLevel getEffectiveLanguageLevel(@Nullable VirtualFile virtualFile) {
+    return JavaPsiImplementationHelper.getInstance(myManager.getProject()).getEffectiveLanguageLevel(virtualFile);
   }
 
   @NotNull

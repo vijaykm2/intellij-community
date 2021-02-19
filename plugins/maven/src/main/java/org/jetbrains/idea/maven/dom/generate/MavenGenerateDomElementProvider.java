@@ -17,6 +17,7 @@ package org.jetbrains.idea.maven.dom.generate;
 
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.Function;
 import com.intellij.util.xml.DomElement;
@@ -24,20 +25,18 @@ import com.intellij.util.xml.actions.generate.AbstractDomGenerateProvider;
 import org.jetbrains.idea.maven.dom.MavenDomUtil;
 import org.jetbrains.idea.maven.dom.model.MavenDomProjectModel;
 
-/**
- * User: Sergey.Vasiliev
- */
 public class MavenGenerateDomElementProvider extends AbstractDomGenerateProvider {
-  private final Function<MavenDomProjectModel, DomElement> myParentFunction;
+  private final Function<? super MavenDomProjectModel, ? extends DomElement> myParentFunction;
 
-  public MavenGenerateDomElementProvider(final String description,
+  public MavenGenerateDomElementProvider(@NlsContexts.DetailedDescription final String description,
                                          final Class<? extends DomElement> childElementClass,
                                          String mappingId,
-                                         Function<MavenDomProjectModel, DomElement> parentFunction) {
+                                         Function<? super MavenDomProjectModel, ? extends DomElement> parentFunction) {
     super(description, childElementClass, mappingId);
     myParentFunction = parentFunction;
   }
 
+  @Override
   protected DomElement getParentDomElement(final Project project, final Editor editor, final PsiFile file) {
     MavenDomProjectModel domProjectModel = MavenDomUtil.getMavenDomModel(file, MavenDomProjectModel.class);
 

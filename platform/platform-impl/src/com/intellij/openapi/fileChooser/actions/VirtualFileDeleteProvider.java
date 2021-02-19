@@ -1,48 +1,41 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileChooser.actions;
 
 import com.intellij.CommonBundle;
 import com.intellij.ide.DeleteProvider;
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationBundle;
-import com.intellij.openapi.command.WriteCommandAction;
+import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.UIBundle;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.LinkedList;
 import java.util.List;
 
 public final class VirtualFileDeleteProvider implements DeleteProvider {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.fileChooser.actions.VirtualFileDeleteProvider");
+  private static final Logger LOG = Logger.getInstance(VirtualFileDeleteProvider.class);
 
+  @Override
   public boolean canDeleteElement(@NotNull DataContext dataContext) {
     final VirtualFile[] files = CommonDataKeys.VIRTUAL_FILE_ARRAY.getData(dataContext);
     return files != null && files.length > 0;
   }
 
+  @Override
   public void deleteElement(@NotNull DataContext dataContext) {
     final VirtualFile[] files = CommonDataKeys.VIRTUAL_FILE_ARRAY.getData(dataContext);
     if (files == null || files.length == 0) return;
@@ -55,27 +48,44 @@ public final class VirtualFileDeleteProvider implements DeleteProvider {
 
     Arrays.sort(files, FileComparator.getInstance());
 
-    final List<String> problems = ContainerUtil.newLinkedList();
-    new WriteCommandAction.Simple(project) {
-
+    List<String> problems = new LinkedList<>();
+    CommandProcessor.getInstance().executeCommand(project, () -> new Task.Modal(project, IdeBundle.message("progress.title.deleting.files"), true) {
       @Override
-      protected void run() throws Throwable {
-        for (final VirtualFile file : files) {
+      public void run(@NotNull ProgressIndicator indicator) {
+        indicator.setIndeterminate(false);
+        int i = 0;
+        for (VirtualFile file : files) {
+          indicator.checkCanceled();
+          indicator.setText2(file.getPresentableUrl());
+          indicator.setFraction((double)i / files.length);
+          i++;
+
           try {
-            file.delete(this);
+            WriteAction.runAndWait(()-> file.delete(this));
           }
           catch (IOException e) {
-            LOG.info(e);
+            LOG.info("Error when deleting " + file, e);
             problems.add(file.getName());
           }
         }
-
       }
-    }.execute();
 
-    if (!problems.isEmpty()) {
-      reportDeletionProblem(problems);
-    }
+      @Override
+      public void onSuccess() {
+        reportProblems();
+      }
+
+      @Override
+      public void onCancel() {
+        reportProblems();
+      }
+
+      private void reportProblems() {
+        if (!problems.isEmpty()) {
+          reportDeletionProblem(problems);
+        }
+      }
+    }.queue(), IdeBundle.message("command.deleting.files"), null);
   }
 
   private static void reportDeletionProblem(List<String> problems) {
@@ -84,8 +94,9 @@ public final class VirtualFileDeleteProvider implements DeleteProvider {
       problems = problems.subList(0, 10);
       more = true;
     }
-    Messages.showMessageDialog("Could not erase files or folders:\n  " + StringUtil.join(problems, ",\n  ") + (more ? "\n  ..." : ""),
-                               UIBundle.message("error.dialog.title"), Messages.getErrorIcon());
+    Messages.showMessageDialog(
+      IdeBundle.message("dialog.message.could.not.erase.files.or.folders.0.1", StringUtil.join(problems, ",\n  "), more ? "\n  ..." : ""),
+      UIBundle.message("error.dialog.title"), Messages.getErrorIcon());
   }
 
   private static final class FileComparator implements Comparator<VirtualFile> {
@@ -95,16 +106,17 @@ public final class VirtualFileDeleteProvider implements DeleteProvider {
       return ourInstance;
     }
 
+    @Override
     public int compare(final VirtualFile o1, final VirtualFile o2) {
       // files first
       return o2.getPath().compareTo(o1.getPath());
     }
   }
 
-  private static String createConfirmationMessage(VirtualFile[] filesToDelete) {
+  private static @NlsContexts.DialogMessage String createConfirmationMessage(VirtualFile[] filesToDelete) {
     if (filesToDelete.length == 1) {
       if (filesToDelete[0].isDirectory()) {
-        return UIBundle.message("are.you.sure.you.want.to.delete.selected.folder.confirmation.message");
+        return UIBundle.message("are.you.sure.you.want.to.delete.selected.folder.confirmation.message", filesToDelete[0].getName());
       }
       else {
         return UIBundle.message("are.you.sure.you.want.to.delete.selected.file.confirmation.message", filesToDelete[0].getName());
@@ -120,13 +132,13 @@ public final class VirtualFileDeleteProvider implements DeleteProvider {
       }
       LOG.assertTrue(hasFiles || hasFolders);
       if (hasFiles && hasFolders) {
-        return UIBundle.message("are.you.sure.you.want.to.delete.selected.files.and.directories.confirmation.message");
+        return UIBundle.message("are.you.sure.you.want.to.delete.selected.files.and.directories.confirmation.message", filesToDelete.length);
       }
       else if (hasFolders) {
-        return UIBundle.message("are.you.sure.you.want.to.delete.selected.folders.confirmation.message");
+        return UIBundle.message("are.you.sure.you.want.to.delete.selected.folders.confirmation.message", filesToDelete.length);
       }
       else {
-        return UIBundle.message("are.you.sure.you.want.to.delete.selected.files.and.files.confirmation.message");
+        return UIBundle.message("are.you.sure.you.want.to.delete.selected.files.and.files.confirmation.message", filesToDelete.length);
       }
     }
   }

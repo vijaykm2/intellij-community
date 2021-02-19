@@ -15,9 +15,14 @@
  */
 package com.intellij.psi.impl.source.html.dtd;
 
+import com.intellij.documentation.mdn.MdnDocumentationKt;
+import com.intellij.documentation.mdn.MdnSymbolDocumentation;
 import com.intellij.html.impl.RelaxedHtmlFromSchemaElementDescriptor;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xml.XmlAttributeDescriptor;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlNSDescriptor;
@@ -25,13 +30,21 @@ import com.intellij.xml.impl.dtd.BaseXmlElementDescriptorImpl;
 import com.intellij.xml.impl.schema.XmlNSDescriptorImpl;
 import com.intellij.xml.util.HtmlUtil;
 import com.intellij.xml.util.XmlUtil;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.HashMap;
+import java.util.Set;
+
+import static com.intellij.util.ObjectUtils.doIfNotNull;
 
 /**
- * @by Maxim.Mossienko
+ * @author Maxim.Mossienko
  */
 public class HtmlElementDescriptorImpl extends BaseXmlElementDescriptorImpl {
+  private final Set<String> ourHtml4DeprecatedTags = ContainerUtil.newHashSet("applet", "basefont", "center", "dir",
+                                                                              "font", "frame", "frameset", "isindex", "menu",
+                                                                              "noframes", "s", "strike", "u", "xmp");
+
   private final XmlElementDescriptor myDelegate;
   private final boolean myRelaxed;
   private final boolean myCaseSensitive;
@@ -59,17 +72,39 @@ public class HtmlElementDescriptorImpl extends BaseXmlElementDescriptorImpl {
     XmlElementDescriptor[] temp = new XmlElementDescriptor[elementsDescriptors.length];
 
     for (int i = 0; i < elementsDescriptors.length; i++) {
-      temp[i] = new HtmlElementDescriptorImpl( elementsDescriptors[i], myRelaxed, myCaseSensitive );
+      temp[i] = new HtmlElementDescriptorImpl(elementsDescriptors[i], myRelaxed, myCaseSensitive);
     }
     return temp;
   }
 
   @Override
   public XmlElementDescriptor getElementDescriptor(XmlTag element, XmlTag contextTag) {
-    String name = element.getName();
-    if (!myCaseSensitive) name = name.toLowerCase();
+    String name = toLowerCaseIfNeeded(element.getName());
 
-    XmlElementDescriptor xmlElementDescriptor = getElementDescriptor(name, element);
+    XmlElementDescriptor xmlElementDescriptor = getElementDescriptor(name, contextTag);
+    if (xmlElementDescriptor == null && "html".equals(getName())) {
+      XmlTag head = null;
+      XmlTag body = null;
+
+      for (XmlTag child : PsiTreeUtil.getChildrenOfTypeAsList(contextTag, XmlTag.class)) {
+        if ("head".equals(child.getName())) head = child;
+        if ("body".equals(child.getName())) body = child;
+      }
+      if (head == null) {
+        if (body == null || element.getTextOffset() < body.getTextOffset()) {
+          XmlElementDescriptor headDescriptor = getElementDescriptor("head", contextTag);
+          if (headDescriptor != null) {
+            xmlElementDescriptor = headDescriptor.getElementDescriptor(element, contextTag);
+          }
+        }
+      }
+      if (xmlElementDescriptor == null && body == null) {
+        XmlElementDescriptor bodyDescriptor = getElementDescriptor("body", contextTag);
+        if (bodyDescriptor != null) {
+          xmlElementDescriptor = bodyDescriptor.getElementDescriptor(element, contextTag);
+        }
+      }
+    }
     if (xmlElementDescriptor == null && myRelaxed) {
       xmlElementDescriptor = RelaxedHtmlFromSchemaElementDescriptor.getRelaxedDescriptor(this, element);
     }
@@ -80,11 +115,12 @@ public class HtmlElementDescriptorImpl extends BaseXmlElementDescriptorImpl {
   // Read-only calculation
   @Override
   protected HashMap<String, XmlElementDescriptor> collectElementDescriptorsMap(final XmlTag element) {
-    final HashMap<String, XmlElementDescriptor> hashMap = new HashMap<String, XmlElementDescriptor>();
+    final HashMap<String, XmlElementDescriptor> hashMap = new HashMap<>();
     final XmlElementDescriptor[] elementDescriptors = myDelegate.getElementsDescriptors(element);
 
     for (XmlElementDescriptor elementDescriptor : elementDescriptors) {
-      hashMap.put(elementDescriptor.getName(), new HtmlElementDescriptorImpl(elementDescriptor, myRelaxed, myCaseSensitive));
+      hashMap.put(toLowerCaseIfNeeded(elementDescriptor.getName(element)),
+                  new HtmlElementDescriptorImpl(elementDescriptor, myRelaxed, myCaseSensitive));
     }
     return hashMap;
   }
@@ -103,14 +139,15 @@ public class HtmlElementDescriptorImpl extends BaseXmlElementDescriptorImpl {
 
   @Override
   public XmlAttributeDescriptor getAttributeDescriptor(String attributeName, final XmlTag context) {
-    String caseSensitiveAttributeName =  !myCaseSensitive ? attributeName.toLowerCase() : attributeName;
+    String caseSensitiveAttributeName = toLowerCaseIfNeeded(attributeName);
     XmlAttributeDescriptor descriptor = super.getAttributeDescriptor(caseSensitiveAttributeName, context);
     if (descriptor == null) descriptor = RelaxedHtmlFromSchemaElementDescriptor.getAttributeDescriptorFromFacelets(attributeName, context);
-    
+
     if (descriptor == null) {
       String prefix = XmlUtil.findPrefixByQualifiedName(attributeName);
-      
-      if ("xml".equals(prefix)) { // todo this is not technically correct dtd document references namespaces but we should handle it at least for xml stuff
+
+      if ("xml".equals(
+        prefix)) { // todo this is not technically correct dtd document references namespaces but we should handle it at least for xml stuff
         XmlNSDescriptor nsdescriptor = context.getNSDescriptor(XmlUtil.XML_NAMESPACE_URI, true);
         if (nsdescriptor instanceof XmlNSDescriptorImpl) {
           descriptor = ((XmlNSDescriptorImpl)nsdescriptor).getAttribute(
@@ -127,12 +164,12 @@ public class HtmlElementDescriptorImpl extends BaseXmlElementDescriptorImpl {
   // Read-only calculation
   @Override
   protected HashMap<String, XmlAttributeDescriptor> collectAttributeDescriptorsMap(final XmlTag context) {
-    final HashMap<String, XmlAttributeDescriptor> hashMap = new HashMap<String, XmlAttributeDescriptor>();
+    final HashMap<String, XmlAttributeDescriptor> hashMap = new HashMap<>();
     XmlAttributeDescriptor[] elementAttributeDescriptors = myDelegate.getAttributesDescriptors(context);
 
     for (final XmlAttributeDescriptor attributeDescriptor : elementAttributeDescriptors) {
       hashMap.put(
-        attributeDescriptor.getName(),
+        toLowerCaseIfNeeded(attributeDescriptor.getName(context)),
         new HtmlAttributeDescriptorImpl(attributeDescriptor, myCaseSensitive)
       );
     }
@@ -170,21 +207,50 @@ public class HtmlElementDescriptorImpl extends BaseXmlElementDescriptorImpl {
   }
 
   @Override
-  public Object[] getDependences() {
-    return myDelegate.getDependences();
+  public Object @NotNull [] getDependencies() {
+    return myDelegate.getDependencies();
   }
 
   @Override
   public XmlAttributeDescriptor[] getAttributesDescriptors(final XmlTag context) {
-    return RelaxedHtmlFromSchemaElementDescriptor.addAttrDescriptorsForFacelets(context, super.getAttributesDescriptors(context));
+    return RelaxedHtmlFromSchemaElementDescriptor.addAttrDescriptorsForFacelets(context, getDefaultAttributeDescriptors(context));
+  }
+
+  public XmlAttributeDescriptor[] getDefaultAttributeDescriptors(XmlTag context) {
+    return super.getAttributesDescriptors(context);
   }
 
   public boolean allowElementsFromNamespace(final String namespace, final XmlTag context) {
     return true;
   }
 
+  @NotNull
+  XmlElementDescriptor getDelegate() {
+    return myDelegate;
+  }
+
   @Override
   public String toString() {
     return myDelegate.toString();
+  }
+
+  public boolean isCaseSensitive() {
+    return myCaseSensitive;
+  }
+
+  public boolean isDeprecated() {
+    boolean html4Deprecated = ourHtml4DeprecatedTags.contains(myDelegate.getName());
+    MdnSymbolDocumentation documentation = doIfNotNull(
+      myDelegate.getDeclaration(), declaration -> MdnDocumentationKt.getHtmlMdnDocumentation(declaration, null));
+    boolean deprecatedInHtml5 = documentation != null && documentation.isDeprecated();
+    if (!html4Deprecated && !deprecatedInHtml5) {
+      return false;
+    }
+    boolean inHtml5 = HtmlUtil.isHtml5Schema(getNSDescriptor());
+    return inHtml5 && deprecatedInHtml5 || !inHtml5 && html4Deprecated;
+  }
+
+  private String toLowerCaseIfNeeded(String name) {
+    return isCaseSensitive() ? name : StringUtil.toLowerCase(name);
   }
 }

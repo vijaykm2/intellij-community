@@ -20,30 +20,17 @@ import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.openapi.util.Pair;
 import com.intellij.psi.*;
 import org.intellij.plugins.intelliLang.Configuration;
+import org.intellij.plugins.intelliLang.IntelliLangBundle;
 import org.intellij.plugins.intelliLang.util.AnnotateFix;
 import org.intellij.plugins.intelliLang.util.AnnotationUtilEx;
 import org.intellij.plugins.intelliLang.util.PsiUtilEx;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Set;
 
 public class PatternOverriddenByNonAnnotatedMethod extends LocalInspectionTool {
 
-  public boolean isEnabledByDefault() {
-    return true;
-  }
-
-  @NotNull
-  public String getGroupDisplayName() {
-    return PatternValidator.PATTERN_VALIDATION;
-  }
-
-  @NotNull
-  public String getDisplayName() {
-    return "Non-annotated Method overrides @Pattern Method";
-  }
-
+  @Override
   @NotNull
   public PsiElementVisitor buildVisitor(@NotNull final ProblemsHolder holder, boolean isOnTheFly) {
     return new JavaElementVisitor() {
@@ -62,17 +49,13 @@ public class PatternOverriddenByNonAnnotatedMethod extends LocalInspectionTool {
           if (annotationFromHierarchy.length > 0) {
             final String annotationClassname = annotationFromHierarchy[annotationFromHierarchy.length - 1].getQualifiedName();
             final String argList = annotationFromHierarchy[annotationFromHierarchy.length - 1].getParameterList().getText();
-            holder.registerProblem(psiIdentifier, "Non-annotated Method overrides @Pattern Method",
-                                   new AnnotateFix(method, annotationClassname, argList));
+            holder.registerProblem(psiIdentifier,
+                                   IntelliLangBundle.message("inspection.pattern.overridden.by.non.annotated.method.description"),
+                                   new AnnotateFix(annotationClassname, argList));
           }
         }
       }
     };
   }
 
-  @NotNull
-  @NonNls
-  public String getShortName() {
-    return "PatternOverriddenByNonAnnotatedMethod";
-  }
 }

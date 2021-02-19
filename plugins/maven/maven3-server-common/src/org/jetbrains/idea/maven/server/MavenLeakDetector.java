@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
  */
 package org.jetbrains.idea.maven.server;
 
-import com.intellij.util.ReflectionUtil;
+import com.intellij.util.ReflectionUtilRt;
 
 import java.rmi.RemoteException;
 import java.util.Collections;
@@ -24,7 +24,7 @@ import java.util.Map;
 
 public class MavenLeakDetector {
 
-  private IdentityHashMap<Thread, Thread> markedHooks = new IdentityHashMap<Thread, Thread>();
+  private final IdentityHashMap<Thread, Thread> markedHooks = new IdentityHashMap<Thread, Thread>();
 
   public MavenLeakDetector mark() {
     markShutdownHooks();
@@ -63,6 +63,6 @@ public class MavenLeakDetector {
       // we can ignore this one
       return Collections.emptyMap();
     }
-    return ReflectionUtil.getField(clazz, null, Map.class, "hooks");
+    return ReflectionUtilRt.getField(clazz, null, Map.class, "hooks");
   }
 }

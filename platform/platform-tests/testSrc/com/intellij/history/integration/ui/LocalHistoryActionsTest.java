@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,20 +16,24 @@
 
 package com.intellij.history.integration.ui;
 
+import com.intellij.history.integration.IdeaGateway;
 import com.intellij.history.integration.TestVirtualFile;
 import com.intellij.history.integration.ui.actions.LocalHistoryAction;
 import com.intellij.history.integration.ui.actions.ShowHistoryAction;
 import com.intellij.history.integration.ui.actions.ShowSelectionHistoryAction;
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vcs.VcsDataKeys;
 import com.intellij.openapi.vfs.VirtualFile;
-import org.jetbrains.annotations.Nullable;
-
-import java.io.IOException;
+import com.intellij.util.containers.JBIterable;
+import org.jetbrains.annotations.NotNull;
 
 public class LocalHistoryActionsTest extends LocalHistoryUITestCase {
   VirtualFile f;
@@ -39,50 +43,57 @@ public class LocalHistoryActionsTest extends LocalHistoryUITestCase {
   @Override
   protected void setUpInWriteAction() throws Exception {
     super.setUpInWriteAction();
-    f = myRoot.createChildData(null, "f.txt");
+    f = createChildData(myRoot, "f.txt");
 
     document = FileDocumentManager.getInstance().getDocument(f);
     document.setText("foo");
 
-    editor = getEditorFactory().createEditor(document);
+    editor = getEditorFactory().createEditor(document, myProject);
   }
 
   @Override
   protected void tearDown() throws Exception {
-    getEditorFactory().releaseEditor(editor);
-    super.tearDown();
+    try {
+      getEditorFactory().releaseEditor(editor);
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
   private static EditorFactory getEditorFactory() {
     return EditorFactory.getInstance();
   }
 
-  public void testShowHistoryAction() throws IOException {
+  public void testShowHistoryAction() {
     ShowHistoryAction a = new ShowHistoryAction();
     assertStatus(a, myRoot, true);
     assertStatus(a, f, true);
     assertStatus(a, null, false);
 
-    assertStatus(a, myRoot.createChildData(null, "f.hprof"), false);
-    assertStatus(a, myRoot.createChildData(null, "f.xxx"), false);
+    assertStatus(a, createChildData(myRoot, "f.hprof"), false);
+    assertStatus(a, createChildData(myRoot, "f.xxx"), false);
   }
 
-  public void testLocalHistoryActionDisabledWithoutProject() throws IOException {
+  public void testLocalHistoryActionDisabledWithoutProject() {
     LocalHistoryAction a = new LocalHistoryAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      protected void actionPerformed(@NotNull Project p, @NotNull IdeaGateway gw, @NotNull AnActionEvent e) {
       }
     };
     assertStatus(a, myRoot, myProject, true);
     assertStatus(a, myRoot, null, false);
   }
   
-  public void testShowHistoryActionIsDisabledForMultipleSelection() throws Exception {
+  public void testShowHistoryActionIsDisabledForMultipleSelection() {
     ShowHistoryAction a = new ShowHistoryAction();
     assertStatus(a, new VirtualFile[] {f, new TestVirtualFile("ff")}, myProject, false);
   }
 
-  public void testShowSelectionHistoryActionForSelection() throws Exception {
+  public void testShowSelectionHistoryActionForSelection() {
     editor.getSelectionModel().setSelection(0, 2);
 
     ShowSelectionHistoryAction a = new ShowSelectionHistoryAction();
@@ -94,15 +105,15 @@ public class LocalHistoryActionsTest extends LocalHistoryUITestCase {
     assertEquals("Show History for Selection", e.getPresentation().getText());
   }
 
-  public void testShowSelectionHistoryActionIsDisabledForNonFiles() throws IOException {
+  public void testShowSelectionHistoryActionIsDisabledForNonFiles() {
     ShowSelectionHistoryAction a = new ShowSelectionHistoryAction();
     assertStatus(a, myRoot, false);
     assertStatus(a, null, false);
   }
 
-  public void testShowSelectionHistoryActionIsDisabledForEmptySelection() throws Exception {
+  public void testShowSelectionHistoryActionIsEnabledForEmptySelection() {
     ShowSelectionHistoryAction a = new ShowSelectionHistoryAction();
-    assertStatus(a, f, false);
+    assertStatus(a, f, true);
   }
 
   private void assertStatus(AnAction a, VirtualFile f, boolean isEnabled) {
@@ -121,16 +132,12 @@ public class LocalHistoryActionsTest extends LocalHistoryUITestCase {
   }
 
   private AnActionEvent createEventFor(AnAction a, final VirtualFile[] files, final Project p) {
-    DataContext dc = new DataContext() {
-      @Override
-      @Nullable
-      public Object getData(String id) {
-        if (CommonDataKeys.VIRTUAL_FILE_ARRAY.is(id)) return files;
-        if (CommonDataKeys.EDITOR.is(id)) return editor;
-        if (CommonDataKeys.PROJECT.is(id)) return p;
-        return null;
-      }
+    DataContext dc = id -> {
+      if (VcsDataKeys.VIRTUAL_FILES.is(id)) return JBIterable.of(files);
+      if (CommonDataKeys.EDITOR.is(id)) return editor;
+      if (CommonDataKeys.PROJECT.is(id)) return p;
+      return null;
     };
-    return new AnActionEvent(null, dc, "", a.getTemplatePresentation(), ActionManager.getInstance(), -1);
+    return AnActionEvent.createFromAnAction(a, null, "", dc);
   }
 }

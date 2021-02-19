@@ -1,28 +1,13 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.CodeInsightUtilCore;
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.PsiEquivalenceUtil;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
-import com.intellij.codeInsight.lookup.LookupElement;
-import com.intellij.codeInsight.lookup.LookupElementBuilder;
 import com.intellij.codeInsight.template.*;
+import com.intellij.codeInsight.template.impl.ConstantNode;
+import com.intellij.codeInsight.template.impl.TemplateState;
 import com.intellij.ide.DataManager;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
@@ -31,30 +16,28 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.actions.EnterAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
-import com.intellij.psi.codeStyle.JavaCodeStyleManager;
-import com.intellij.psi.codeStyle.SuggestedNameInfo;
 import com.intellij.psi.codeStyle.VariableKind;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.refactoring.JavaRefactoringSettings;
+import com.intellij.refactoring.util.RefactoringChangeUtil;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
+import com.siyeh.ig.psiutils.EquivalenceChecker;
+import com.siyeh.ig.psiutils.VariableNameGenerator;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
+import java.util.Objects;
 
-/**
- * @author cdr
- */
 public class CreateLocalVarFromInstanceofAction extends BaseIntentionAction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.daemon.impl.quickfix.CreateLocalVarFromInstanceofAction");
+  private static final Logger LOG = Logger.getInstance(CreateLocalVarFromInstanceofAction.class);
 
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
@@ -106,7 +89,11 @@ public class CreateLocalVarFromInstanceofAction extends BaseIntentionAction {
         PsiExpression initializer = ((PsiLocalVariable)element).getInitializer();
         if (!(initializer instanceof PsiTypeCastExpression)) continue;
 
-        PsiTypeElement castTypeElement = ((PsiTypeCastExpression)initializer).getCastType();
+        final PsiTypeCastExpression typeCastExpression = (PsiTypeCastExpression)initializer;
+        final PsiExpression operand = typeCastExpression.getOperand();
+        if (operand != null &&
+            !EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(operand, instanceOfExpression.getOperand())) continue;
+        PsiTypeElement castTypeElement = typeCastExpression.getCastType();
         if (castTypeElement == null) continue;
         PsiType castType = castTypeElement.getType();
         if (castType.equals(type)) return true;
@@ -198,8 +185,6 @@ public class CreateLocalVarFromInstanceofAction extends BaseIntentionAction {
 
   @Override
   public void invoke(@NotNull final Project project, final Editor editor, final PsiFile file) {
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
-
     PsiInstanceOfExpression instanceOfExpression = getInstanceOfExpressionAtCaret(editor, file);
     assert instanceOfExpression.getContainingFile() == file : instanceOfExpression.getContainingFile() + "; file="+file;
     try {
@@ -208,34 +193,78 @@ public class CreateLocalVarFromInstanceofAction extends BaseIntentionAction {
       if (decl == null) return;
       decl = (PsiDeclarationStatement)CodeStyleManager.getInstance(project).reformat(decl);
       decl = CodeInsightUtilCore.forcePsiPostprocessAndRestoreElement(decl);
+      if (decl == null) return;
 
       PsiLocalVariable localVariable = (PsiLocalVariable)decl.getDeclaredElements()[0];
+      PsiExpression initializer = Objects.requireNonNull(localVariable.getInitializer());
+      List<String> names = new VariableNameGenerator(initializer, VariableKind.LOCAL_VARIABLE).byExpression(initializer)
+        .byType(localVariable.getType()).generateAll(true);
+      PsiIdentifier identifier = Objects.requireNonNull(localVariable.getNameIdentifier());
+      if (!file.isPhysical()) {
+        identifier.replace(JavaPsiFacade.getElementFactory(project).createIdentifier(names.get(0)));
+        return;
+      }
+      
       TemplateBuilderImpl builder = new TemplateBuilderImpl(localVariable);
       builder.setEndVariableAfter(localVariable.getNameIdentifier());
 
-      Template template = generateTemplate(project, localVariable.getInitializer(), localVariable.getType());
-
-      Editor newEditor = CreateFromUsageBaseFix.positionCursor(project, file, localVariable.getNameIdentifier());
+      Template template = generateTemplate(project, names);
+      Editor newEditor = CreateFromUsageBaseFix.positionCursor(project, file, identifier);
       if (newEditor == null) return;
       TextRange range = localVariable.getNameIdentifier().getTextRange();
       newEditor.getDocument().deleteString(range.getStartOffset(), range.getEndOffset());
 
       CreateFromUsageBaseFix.startTemplate(newEditor, template, project, new TemplateEditingAdapter() {
-        @Override
-        public void templateFinished(Template template, boolean brokenOff) {
-          ApplicationManager.getApplication().runWriteAction(new Runnable() {
-            @Override
-            public void run() {
-              PsiDocumentManager.getInstance(project).commitDocument(editor.getDocument());
 
-              CaretModel caretModel = editor.getCaretModel();
-              PsiElement elementAt = file.findElementAt(caretModel.getOffset());
-              PsiDeclarationStatement declarationStatement = PsiTreeUtil.getParentOfType(elementAt, PsiDeclarationStatement.class);
-              if (declarationStatement != null) {
-                caretModel.moveToOffset(declarationStatement.getTextRange().getEndOffset());
-              }
-              new EnterAction().actionPerformed(editor, DataManager.getInstance().getDataContext());
+        @Override
+        public void beforeTemplateFinished(@NotNull TemplateState state, Template template) {
+          final TextResult value = state.getVariableValue("");
+          assert value != null;
+
+          final PsiResolveHelper resolveHelper = JavaPsiFacade.getInstance(project).getResolveHelper();
+          final PsiVariable target = resolveHelper.resolveAccessibleReferencedVariable(value.getText(), instanceOfExpression);
+          if (target instanceof PsiField) {
+            final PsiField field = (PsiField)target;
+            final CaretModel caretModel = editor.getCaretModel();
+            final PsiElement elementAt = file.findElementAt(caretModel.getOffset());
+            final PsiDeclarationStatement declarationStatement = PsiTreeUtil.getParentOfType(elementAt, PsiDeclarationStatement.class);
+            if (declarationStatement != null) {
+              final PsiLocalVariable variable = (PsiLocalVariable)declarationStatement.getDeclaredElements()[0];
+              final PsiExpression initializer = variable.getInitializer();
+              assert initializer != null;
+              ApplicationManager.getApplication().runWriteAction(() -> {
+                initializer.accept(new JavaRecursiveElementVisitor() {
+                  @Override
+                  public void visitReferenceExpression(PsiReferenceExpression expression) {
+                    final PsiExpression qualifierExpression = expression.getQualifierExpression();
+                    if (qualifierExpression != null) {
+                      qualifierExpression.accept(this);
+                    }
+                    else if (expression.resolve() == variable) {
+                      RefactoringChangeUtil.qualifyReference(expression, field, field.hasModifierProperty(PsiModifier.STATIC)
+                                                                                ? field.getContainingClass()
+                                                                                : null);
+                    }
+                  }
+                });
+              });
+              PsiDocumentManager.getInstance(project).doPostponedOperationsAndUnblockDocument(editor.getDocument());
             }
+          }
+        }
+
+        @Override
+        public void templateFinished(@NotNull Template template, boolean brokenOff) {
+          ApplicationManager.getApplication().runWriteAction(() -> {
+            PsiDocumentManager.getInstance(project).commitDocument(editor.getDocument());
+
+            CaretModel caretModel = editor.getCaretModel();
+            PsiElement elementAt = file.findElementAt(caretModel.getOffset());
+            PsiDeclarationStatement declarationStatement = PsiTreeUtil.getParentOfType(elementAt, PsiDeclarationStatement.class);
+            if (declarationStatement != null) {
+              caretModel.moveToOffset(declarationStatement.getTextRange().getEndOffset());
+            }
+            new EnterAction().actionPerformed(editor, DataManager.getInstance().getDataContext());
           });
         }
       });
@@ -282,11 +311,11 @@ public class CreateLocalVarFromInstanceofAction extends BaseIntentionAction {
   @Nullable
   private static PsiDeclarationStatement createLocalVariableDeclaration(final PsiInstanceOfExpression instanceOfExpression,
                                                                         final PsiStatement statementInside) throws IncorrectOperationException {
-    PsiElementFactory factory = JavaPsiFacade.getInstance(instanceOfExpression.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(instanceOfExpression.getProject());
     PsiTypeCastExpression cast = (PsiTypeCastExpression)factory.createExpressionFromText("(a)b", instanceOfExpression);
     PsiType castType = instanceOfExpression.getCheckType().getType();
-    cast.getCastType().replace(factory.createTypeElement(castType));
-    cast.getOperand().replace(instanceOfExpression.getOperand());
+    Objects.requireNonNull(cast.getCastType()).replace(factory.createTypeElement(castType));
+    Objects.requireNonNull(cast.getOperand()).replace(instanceOfExpression.getOperand());
     PsiDeclarationStatement decl = factory.createVariableDeclarationStatement("xxx", castType, cast);
     final Boolean createFinals = JavaRefactoringSettings.getInstance().INTRODUCE_LOCAL_CREATE_FINALS;
     if (createFinals != null) {
@@ -308,7 +337,7 @@ public class CreateLocalVarFromInstanceofAction extends BaseIntentionAction {
   static PsiElement insertAtAnchor(final PsiInstanceOfExpression instanceOfExpression, PsiElement toInsert) throws IncorrectOperationException {
     boolean negated = isNegated(instanceOfExpression);
     PsiStatement statement = PsiTreeUtil.getParentOfType(instanceOfExpression, PsiStatement.class);
-    PsiElementFactory factory = JavaPsiFacade.getInstance(toInsert.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(toInsert.getProject());
     PsiElement anchorAfter = null;
     PsiBlockStatement emptyBlockStatement = (PsiBlockStatement)factory.createStatementFromText("{}", instanceOfExpression);
     if (statement instanceof PsiIfStatement) {
@@ -343,11 +372,7 @@ public class CreateLocalVarFromInstanceofAction extends BaseIntentionAction {
           anchorAfter = newBranch.getCodeBlock().getLBrace();
         }
         else {
-          final PsiJavaToken lBrace = ((PsiBlockStatement)thenBranch).getCodeBlock().getLBrace();
-          if (lBrace != null) {
-            final PsiElement nextSibling = PsiTreeUtil.skipSiblingsForward(lBrace, PsiWhiteSpace.class);
-            anchorAfter = nextSibling instanceof PsiComment ? PsiTreeUtil.skipSiblingsForward(nextSibling, PsiComment.class) : lBrace;
-          } 
+          anchorAfter = ((PsiBlockStatement)thenBranch).getCodeBlock().getLBrace();
         }
       }
     }
@@ -374,10 +399,43 @@ public class CreateLocalVarFromInstanceofAction extends BaseIntentionAction {
         anchorAfter = ((PsiBlockStatement)whileStatement.getBody()).getCodeBlock().getLBrace();
       }
     }
+
     if (anchorAfter == null) {
       return null;
     }
+    PsiElement nextSibling = anchorAfter.getNextSibling();
+    while (nextSibling != null) {
+      if (nextSibling instanceof PsiWhiteSpace) {
+        final String text = nextSibling.getText();
+        if (StringUtil.countNewLines(text) > 1) {
+          final PsiElement newWhitespace = PsiParserFacade.SERVICE.getInstance(nextSibling.getProject())
+            .createWhiteSpaceFromText(text.substring(0, text.lastIndexOf('\n')));
+          nextSibling.replace(newWhitespace);
+          break;
+        }
+        nextSibling = nextSibling.getNextSibling();
+        continue;
+      }
+      else if (!isValidDeclarationStatement(nextSibling) && !(nextSibling instanceof PsiComment)) {
+        break;
+      }
+      anchorAfter = nextSibling;
+      nextSibling = anchorAfter.getNextSibling();
+    }
     return anchorAfter.getParent().addAfter(toInsert, anchorAfter);
+  }
+
+  private static boolean isValidDeclarationStatement(PsiElement nextSibling) {
+    if (!(nextSibling instanceof PsiDeclarationStatement)) {
+      return false;
+    }
+    final PsiDeclarationStatement declarationStatement = (PsiDeclarationStatement)nextSibling;
+    final PsiElement[] elements = declarationStatement.getDeclaredElements();
+    if (elements.length == 0) {
+      return false;
+    }
+    final PsiElement lastElement = elements[elements.length - 1];
+    return !(lastElement instanceof PsiClass) && PsiUtil.isJavaToken(lastElement.getLastChild(), JavaTokenType.SEMICOLON);
   }
 
   private static void reformatNewCodeBlockBraces(final PsiElement start, final PsiBlockStatement end)
@@ -395,48 +453,15 @@ public class CreateLocalVarFromInstanceofAction extends BaseIntentionAction {
     return element instanceof PsiPrefixExpression && ((PsiPrefixExpression)element).getOperationTokenType() == JavaTokenType.EXCL;
   }
 
-  private static Template generateTemplate(Project project, PsiExpression initializer, PsiType type) {
+  private static Template generateTemplate(Project project, List<String> names) {
     final TemplateManager templateManager = TemplateManager.getInstance(project);
     final Template template = templateManager.createTemplate("", "");
     template.setToReformat(true);
 
-    SuggestedNameInfo suggestedNameInfo = JavaCodeStyleManager.getInstance(project).suggestVariableName(VariableKind.LOCAL_VARIABLE, null,
-                                                                                                    initializer, type);
-    List<String> uniqueNames = new ArrayList<String>();
-    for (String name : suggestedNameInfo.names) {
-      if (PsiUtil.isVariableNameUnique(name, initializer)) {
-        uniqueNames.add(name);
-      }
-    }
-    if (uniqueNames.isEmpty() && suggestedNameInfo.names.length != 0) {
-      String baseName = suggestedNameInfo.names[0];
-      String name = JavaCodeStyleManager.getInstance(project).suggestUniqueVariableName(baseName, initializer, true);
-      uniqueNames.add(name);
-    }
+    final Result result = new TextResult(names.get(0));
 
-    Set<LookupElement> itemSet = new LinkedHashSet<LookupElement>();
-    for (String name : uniqueNames) {
-      itemSet.add(LookupElementBuilder.create(name));
-    }
-    final LookupElement[] lookupItems = itemSet.toArray(new LookupElement[itemSet.size()]);
-    final Result result = uniqueNames.isEmpty() ? null : new TextResult(uniqueNames.get(0));
-
-    Expression expr = new Expression() {
-      @Override
-      public LookupElement[] calculateLookupItems(ExpressionContext context) {
-        return lookupItems.length > 1 ? lookupItems : null;
-      }
-
-      @Override
-      public Result calculateResult(ExpressionContext context) {
-        return result;
-      }
-
-      @Override
-      public Result calculateQuickResult(ExpressionContext context) {
-        return result;
-      }
-    };
+    Expression expr = new ConstantNode(result).withLookupStrings(
+      names.size() > 1 ? ArrayUtil.toStringArray(names) : ArrayUtilRt.EMPTY_STRING_ARRAY);
     template.addVariable("", expr, expr, true);
 
     return template;

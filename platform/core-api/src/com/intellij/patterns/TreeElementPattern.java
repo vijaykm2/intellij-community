@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,7 +42,8 @@ public abstract class TreeElementPattern<ParentType, T extends ParentType, Self 
 
   protected abstract ParentType[] getChildren(@NotNull final ParentType parentType);
 
-  public Self withParents(@NotNull final Class<? extends ParentType>... types) {
+  @SafeVarargs
+  public final Self withParents(final Class<? extends ParentType> @NotNull ... types) {
     return with(new PatternCondition<T>("withParents") {
       @Override
       public boolean accepts(@NotNull T t, ProcessingContext context) {
@@ -61,6 +62,7 @@ public abstract class TreeElementPattern<ParentType, T extends ParentType, Self 
     return withParent(StandardPatterns.instanceOf(type));
   }
 
+  @NotNull
   public Self withParent(@NotNull final ElementPattern<? extends ParentType> pattern) {
     return withSuperParent(1, pattern);
   }
@@ -82,7 +84,7 @@ public abstract class TreeElementPattern<ParentType, T extends ParentType, Self 
       @Override
       public boolean processValues(T t,
                                    ProcessingContext context,
-                                   PairProcessor<Collection<ParentType>, ProcessingContext> processor) {
+                                   PairProcessor<? super Collection<ParentType>, ? super ProcessingContext> processor) {
         return processor.process(Arrays.asList(getChildren(t)), context);
       }
     });
@@ -90,6 +92,7 @@ public abstract class TreeElementPattern<ParentType, T extends ParentType, Self 
 
   public Self isFirstAcceptedChild(@NotNull final ElementPattern<? super ParentType> pattern) {
     return with(new PatternCondition<T>("isFirstAcceptedChild") {
+      @Override
       public boolean accepts(@NotNull final T t, final ProcessingContext context) {
         final ParentType parent = getParent(t);
         if (parent != null) {
@@ -115,7 +118,7 @@ public abstract class TreeElementPattern<ParentType, T extends ParentType, Self 
       @Override
       public boolean processValues(T t,
                                    ProcessingContext context,
-                                   PairProcessor<ParentType, ProcessingContext> processor) {
+                                   PairProcessor<? super ParentType, ? super ProcessingContext> processor) {
         ParentType parent = t;
         for (int i = 0; i < level; i++) {
           if (parent == null) return true;
@@ -139,13 +142,28 @@ public abstract class TreeElementPattern<ParentType, T extends ParentType, Self 
       @Override
       public boolean processValues(T t,
                                    ProcessingContext context,
-                                   PairProcessor<ParentType, ProcessingContext> processor) {
+                                   PairProcessor<? super ParentType, ? super ProcessingContext> processor) {
         ParentType element = strict ? getParent(t) : t;
         while (element != null) {
           if (!processor.process(element, context)) return false;
           element = getParent(element);
         }
         return true;
+      }
+    });
+  }
+
+  public Self withAncestor(final int levelsUp, @NotNull final ElementPattern<? extends ParentType> pattern) {
+    return with(new PatternCondition<T>("withAncestor") {
+      @Override
+      public boolean accepts(@NotNull T t, ProcessingContext context) {
+        ParentType element = t;
+        for (int i=0; i<levelsUp+1;i++) {
+          if (pattern.accepts(element, context)) return true;
+          element = getParent(element);
+          if (element == null) break;
+        }
+        return false;
       }
     });
   }
@@ -167,11 +185,12 @@ public abstract class TreeElementPattern<ParentType, T extends ParentType, Self 
   }
 
   /**
-   * @param strict
    * @return Ensures that first elements in hierarchy accepted by patterns appear in specified order
    */
-  public Self insideSequence(final boolean strict, @NotNull final ElementPattern<? extends ParentType>... patterns) {
+  @SafeVarargs
+  public final Self insideSequence(final boolean strict, final ElementPattern<? extends ParentType> @NotNull ... patterns) {
     return with(new PatternCondition<T>("insideSequence") {
+      @Override
       public boolean accepts(@NotNull final T t, final ProcessingContext context) {
         int i = 0;
         ParentType element = strict ? getParent(t) : t;

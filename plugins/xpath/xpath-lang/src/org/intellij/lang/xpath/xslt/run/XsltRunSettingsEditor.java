@@ -15,9 +15,14 @@
  */
 package org.intellij.lang.xpath.xslt.run;
 
+import com.intellij.execution.impl.CheckableRunConfigurationEditor;
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.highlighter.ModuleFileType;
+import com.intellij.ide.highlighter.ProjectFileType;
+import com.intellij.ide.highlighter.WorkspaceFileType;
 import com.intellij.openapi.actionSystem.LangDataKeys;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
@@ -29,16 +34,14 @@ import com.intellij.openapi.module.ModuleType;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.projectRoots.JavaSdkType;
-import com.intellij.openapi.projectRoots.ProjectJdkTable;
 import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.projectRoots.SdkType;
 import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.roots.ui.configuration.SdkComboBox;
+import com.intellij.openapi.roots.ui.configuration.SdkComboBoxModel;
+import com.intellij.openapi.roots.ui.configuration.projectRoot.ProjectSdksModel;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.TextComponentAccessor;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
-import com.intellij.openapi.util.Computable;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -49,13 +52,15 @@ import com.intellij.ui.*;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBRadioButton;
 import com.intellij.ui.table.JBTable;
+import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.ui.PlatformColors;
 import com.intellij.util.ui.UIUtil;
 import org.intellij.lang.xpath.xslt.XsltSupport;
 import org.intellij.lang.xpath.xslt.associations.FileAssociationsManager;
 import org.intellij.lang.xpath.xslt.associations.impl.AnyXMLDescriptor;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -68,14 +73,20 @@ import java.awt.*;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 import java.io.File;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
-class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
+class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration>
+  implements CheckableRunConfigurationEditor<XsltRunConfiguration> {
   static final boolean ALLOW_CHOOSING_SDK = !(StdFileTypes.JAVA instanceof PlainTextFileType);
   private final Project myProject;
 
   private Editor myEditor;
+
+  @Override
+  public void checkEditorData(XsltRunConfiguration s) {
+    // this prevents applyTo() call with unneeded sdk model update
+  }
 
   static class Editor implements PanelWithAnchor {
     private JTabbedPane myComponent;
@@ -85,7 +96,7 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
     private TextFieldWithBrowseButton myOutputFile;
     private JCheckBox myOpenOutputFile;
     private JCheckBox myOpenInBrowser;
-    private JBTable myParameters;
+    private final JBTable myParameters;
 
     private ButtonGroup myOutputOptions;
     private JBRadioButton myShowInConsole;
@@ -99,9 +110,9 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
     private ButtonGroup myJdkOptions;
     private JRadioButton myJdkChoice;
     private JRadioButton myModuleChoice;
-    private ComboBox myModule;
-    private ComboBox myJDK;
-    private ComboBox myFileType;
+    private ComboBox<Object> myModule;
+    private SdkComboBox myJDK;
+    private ComboBox<FileType> myFileType;
     private JPanel myClasspathAndJDKPanel;
     private JPanel myPanelSettings;
     private JPanel myPanelAdvanced;
@@ -112,42 +123,44 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
     private final AnyXMLDescriptor myXmlDescriptor;
     private final FileChooserDescriptor myXsltDescriptor;
 
-    public Editor(final Project project) {
+    Editor(final Project project) {
       final PsiManager psiManager = PsiManager.getInstance(project);
 
       myXsltDescriptor = new FileChooserDescriptor(true, false, false, false, false, false) {
+        @Override
         public boolean isFileVisible(final VirtualFile file, boolean showHiddenFiles) {
           if (file.isDirectory()) return true;
           if (!super.isFileVisible(file, showHiddenFiles)) return false;
 
-          return ApplicationManager.getApplication().runReadAction(new Computable<Boolean>() {
-            public Boolean compute() {
-              final PsiFile psiFile = psiManager.findFile(file);
-              return psiFile != null && XsltSupport.isXsltFile(psiFile);
-            }
+          return ReadAction.compute(() -> {
+            final PsiFile psiFile = psiManager.findFile(file);
+            return psiFile != null && XsltSupport.isXsltFile(psiFile);
           });
         }
       };
-      final TextComponentAccessor<JTextField> projectDefaultAccessor = new TextComponentAccessor<JTextField>() {
+      final TextComponentAccessor<JTextField> projectDefaultAccessor = new TextComponentAccessor<>() {
+        @Override
         public String getText(JTextField component) {
           final String text = component.getText();
           final VirtualFile baseDir = project.getBaseDir();
           return text.length() > 0 ? text : (baseDir != null ? baseDir.getPresentableUrl() : "");
         }
 
+        @Override
         public void setText(JTextField component, @NotNull String text) {
           component.setText(text);
         }
       };
-      myXsltFile.addBrowseFolderListener("Choose XSLT File", null, project, myXsltDescriptor, projectDefaultAccessor);
+      myXsltFile.addBrowseFolderListener(XPathBundle.message("dialog.title.choose.xslt.file"), null, project, myXsltDescriptor, projectDefaultAccessor);
       myXsltFile.getTextField().getDocument().addDocumentListener(new DocumentAdapter() {
         final VirtualFileManager fileMgr = VirtualFileManager.getInstance();
         final FileAssociationsManager associationsManager = FileAssociationsManager.getInstance(project);
 
-        protected void textChanged(DocumentEvent e) {
+        @Override
+        protected void textChanged(@NotNull DocumentEvent e) {
           final String text = myXsltFile.getText();
           final JComboBox comboBox = myXmlInputFile.getComboBox();
-          final Object oldXml = getXmlInputFile();
+          final Object oldXml = getXmlInputFile(); //NON-NLS
           if (text.length() != 0) {
             final ComboBoxModel model = comboBox.getModel();
 
@@ -166,7 +179,7 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
                 assert f != null;
                 associations[i] = f.getPath().replace('/', File.separatorChar);
               }
-              comboBox.setModel(new DefaultComboBoxModel(associations));
+              comboBox.setModel(new DefaultComboBoxModel<>(associations));
             }
             if (!found) {
               comboBox.getEditor().setItem(oldXml);
@@ -174,7 +187,7 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
             comboBox.setSelectedItem(oldXml);
           }
           else {
-            comboBox.setModel(new DefaultComboBoxModel(ArrayUtil.EMPTY_OBJECT_ARRAY));
+            comboBox.setModel(new DefaultComboBoxModel<>(ArrayUtilRt.EMPTY_OBJECT_ARRAY));
             comboBox.getEditor().setItem(oldXml);
           }
         }
@@ -183,31 +196,37 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
       myXmlInputFile.getComboBox().setEditable(true);
 
       myXmlDescriptor = new AnyXMLDescriptor(false);
-      myXmlInputFile.addBrowseFolderListener("Choose XML File", null, project, myXmlDescriptor, new TextComponentAccessor<JComboBox>() {
-        public String getText(JComboBox comboBox) {
-          Object item = comboBox.getEditor().getItem();
-          if (item.toString().length() == 0) {
-            final String text = projectDefaultAccessor.getText(myXsltFile.getChildComponent());
-            final VirtualFile file =
-              VirtualFileManager.getInstance().findFileByUrl(VfsUtil.pathToUrl(text.replace(File.separatorChar, '/')));
-            if (file != null && !file.isDirectory()) {
-              final VirtualFile parent = file.getParent();
-              assert parent != null;
-              return parent.getPresentableUrl();
-            }
-          }
-          return item.toString();
-        }
+      myXmlInputFile.addBrowseFolderListener(XPathBundle.message("dialog.title.choose.xml.file"), null, project, myXmlDescriptor,
+                                             new TextComponentAccessor<>() {
+                                               @Override
+                                               public String getText(JComboBox comboBox) {
+                                                 Object item = comboBox.getEditor().getItem();
+                                                 if (item.toString().length() == 0) {
+                                                   final String text = projectDefaultAccessor.getText(myXsltFile.getChildComponent());
+                                                   final VirtualFile file =
+                                                     VirtualFileManager.getInstance()
+                                                       .findFileByUrl(VfsUtil.pathToUrl(text.replace(File.separatorChar, '/')));
+                                                   if (file != null && !file.isDirectory()) {
+                                                     final VirtualFile parent = file.getParent();
+                                                     assert parent != null;
+                                                     return parent.getPresentableUrl();
+                                                   }
+                                                 }
+                                                 return item.toString();
+                                               }
 
-        public void setText(JComboBox comboBox, @NotNull String text) {
-          comboBox.getEditor().setItem(text);
-        }
-      });
+                                               @Override
+                                               public void setText(JComboBox comboBox, @NotNull String text) {
+                                                 comboBox.getEditor().setItem(text);
+                                               }
+                                             });
 
-      myOutputFile.addBrowseFolderListener("Choose Output File", "The selected file will be overwritten during execution.",
+      myOutputFile.addBrowseFolderListener(XPathBundle.message("dialog.title.choose.output.file"),
+                                           XPathBundle.message("label.selected.file.will.be.overwritten.during.execution"),
                                            project, FileChooserDescriptorFactory.createSingleFileOrFolderDescriptor());
 
       final ItemListener outputStateListener = new ItemListener() {
+        @Override
         public void itemStateChanged(ItemEvent e) {
           updateOutputState();
         }
@@ -215,25 +234,25 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
       myShowInConsole.addItemListener(outputStateListener);
       myShowInStdout.addItemListener(outputStateListener);
       mySaveToFile.addItemListener(outputStateListener);
-      myClasspathAndJDKPanel.setVisible(ALLOW_CHOOSING_SDK);
       updateOutputState();
 
       myFileType.setRenderer(new FileTypeRenderer() {
         @Override
-        public void customize(JList list, FileType type, int index, boolean selected, boolean hasFocus) {
-          if (type == null) {
+        public void customize(@NotNull JList<? extends FileType> list, FileType value, int index, boolean selected, boolean hasFocus) {
+          if (value == null) {
             setIcon(AllIcons.Actions.Cancel);
-            setText("Disabled");
+            setText(XPathBundle.message("label.disabled"));
           }
           else {
-            super.customize(list, type, index, selected, hasFocus);
+            super.customize(list, value, index, selected, hasFocus);
           }
         }
       });
-      myFileType.setModel(new DefaultComboBoxModel(getFileTypes(project)));
+      myFileType.setModel(new DefaultComboBoxModel<>(getFileTypes(project)));
 
       myParameters = new JBTable(new ParamTableModel());
       myParameters.setDefaultRenderer(String.class, new DefaultTableCellRenderer() {
+        @Override
         public Component getTableCellRendererComponent(JTable table,
                                                        Object value,
                                                        boolean isSelected,
@@ -245,7 +264,7 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
           if (column == 0) {
             if (table.getModel().getValueAt(row, 1) == null) {
               setForeground(PlatformColors.BLUE);
-              setToolTipText("No value set for parameter '" + value + "'");
+              setToolTipText(XPathBundle.message("tooltip.no.value.set.for.parameter.0", value));
             }
           }
           else if (value == null) {
@@ -269,55 +288,37 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
           }
         }).createPanel(), BorderLayout.CENTER);
 
-      final Module[] modules = ModuleManager.getInstance(project).getModules();
-      myModule.setModel(new DefaultComboBoxModel(ArrayUtil.mergeArrays(new Object[]{"<default>"}, modules)));
-      myModule.setRenderer(new ListCellRendererWrapper() {
-        @Override
-        public void customize(JList list, Object value, int index, boolean selected, boolean hasFocus) {
+      if (ALLOW_CHOOSING_SDK) {
+        final Module[] modules = ModuleManager.getInstance(project).getModules();
+        myModule.setModel(new DefaultComboBoxModel<>(ArrayUtil.mergeArrays(new Object[]{"<default>"}, modules)));
+        myModule.setRenderer(SimpleListCellRenderer.create((label, value, index) -> {
           if (value instanceof Module) {
             final Module module = (Module)value;
-            setText(ApplicationManager.getApplication().runReadAction(new Computable<String>() {
-              public String compute() {
-                return module.getName();
-              }
-            }));
-            setIcon(ModuleType.get(module).getIcon());
+            final String moduleName = ReadAction.compute(() -> module.getName());
+            label.setText(moduleName);
+            label.setIcon(ModuleType.get(module).getIcon());
           }
           else if (value instanceof String) {
-            setText((String)value);
+            label.setText((String)value);
           }
-        }
-      });
-
-      final List<Sdk> allJdks = ContainerUtil.filter(ProjectJdkTable.getInstance().getAllJdks(), new Condition<Sdk>() {
-        @Override
-        public boolean value(Sdk sdk) {
-          return sdk.getSdkType() instanceof JavaSdkType;
-        }
-      });
-      myJDK.setModel(new DefaultComboBoxModel(allJdks.toArray()));
-      if (allJdks.size() > 0) {
-        myJDK.setSelectedIndex(0);
+        }));
       }
       else {
-        myJdkChoice.setEnabled(false);
-        myJDK.setEnabled(false);
+        myModuleChoice.setEnabled(false);
+        myModule.setEnabled(false);
+        myJdkChoice.setSelected(true);
       }
-      myJDK.setRenderer(new ListCellRendererWrapper<Sdk>() {
-        @Override
-        public void customize(JList list, final Sdk jdk, int index, boolean isSelected, boolean cellHasFocus) {
-          if (jdk != null) {
-            setText(ApplicationManager.getApplication().runReadAction(new Computable<String>() {
-              public String compute() {
-                return jdk.getName();
-              }
-            }));
-            setIcon(((SdkType) jdk.getSdkType()).getIcon());
-          }
-        }
-      });
+
+      SdkComboBoxModel model = SdkComboBoxModel.createJdkComboBoxModel(project, new ProjectSdksModel());
+      myJDK = new SdkComboBox(model);
+      GridConstraints constraints = new GridConstraints();
+      constraints.setColumn(2);
+      constraints.setRow(1);
+      constraints.setFill(GridConstraints.FILL_BOTH);
+      myClasspathAndJDKPanel.add(myJDK, constraints);
 
       final ItemListener updateListener = new ItemListener() {
+        @Override
         public void itemStateChanged(ItemEvent e) {
           updateJdkState();
         }
@@ -327,7 +328,7 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
       updateJdkState();
 
       myWorkingDirectory
-        .addBrowseFolderListener("Working Directory", null, project, FileChooserDescriptorFactory.createSingleFolderDescriptor());
+        .addBrowseFolderListener(XPathBundle.message("dialog.title.working.directory"), null, project, FileChooserDescriptorFactory.createSingleFolderDescriptor());
 
       myVmArguments.setDialogCaption("VM Arguments");
 
@@ -351,15 +352,15 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
 
     @SuppressWarnings({"UseOfObsoleteCollectionType"})
     private static Vector<FileType> getFileTypes(Project project) {
-      final Vector<FileType> v = new Vector<FileType>();
+      final Vector<FileType> v = new Vector<>();
 
       final FileType[] fileTypes = FileTypeManager.getInstance().getRegisteredFileTypes();
       for (FileType fileType : fileTypes) {
         // get rid of file types useless for highlighting
         if (fileType == StdFileTypes.CLASS ||
-            fileType == StdFileTypes.IDEA_PROJECT ||
-            fileType == StdFileTypes.IDEA_WORKSPACE ||
-            fileType == StdFileTypes.IDEA_MODULE ||
+            fileType == ProjectFileType.INSTANCE ||
+            fileType == WorkspaceFileType.INSTANCE ||
+            fileType == ModuleFileType.INSTANCE ||
             fileType == StdFileTypes.GUI_DESIGNER_FORM) {
           continue;
         }
@@ -368,20 +369,14 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
           if (fileType instanceof LanguageFileType) {
             final SyntaxHighlighter sh =
               SyntaxHighlighterFactory.getSyntaxHighlighter(((LanguageFileType)fileType).getLanguage(), project, null);
-            if (sh != null) {
-              v.add(fileType);
-            }
+            v.add(fileType);
           }
         }
         catch (Throwable e) {
           Logger.getInstance(XsltRunSettingsEditor.class.getName()).info("Encountered incompatible FileType: " + fileType.getName(), e);
         }
       }
-      Collections.sort(v, new Comparator<FileType>() {
-        public int compare(FileType o1, FileType o2) {
-          return o1.getDescription().compareTo(o2.getDescription());
-        }
-      });
+      v.sort(Comparator.comparing(FileType::getDescription));
 
       // off
       v.insertElementAt(null, 0);
@@ -424,16 +419,20 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
           myXsltDescriptor.putUserData(LangDataKeys.MODULE_CONTEXT,
                                        ProjectRootManager.getInstance(s.getProject()).getFileIndex().getModuleForFile(xsltFile));
         }
-        myModule.setSelectedIndex(0);
+        if (myModule.getItemCount() > 0) {
+          myModule.setSelectedIndex(0);
+        }
       }
-      myJDK.setSelectedItem(s.getJdk());
+      myJDK.getModel().getSdksModel().reset(s.getProject());
+      myJDK.reloadModel();
+      setSelectedSdkOrNone(myJDK, s.getJdk());
       mySmartErrorHandling.setSelected(s.mySmartErrorHandling);
       setSelectedIndex(myOutputOptions, s.getOutputType().ordinal());
       setSelectedIndex(myJdkOptions, s.getJdkChoice().ordinal());
       mySaveToFile.setSelected(s.isSaveToFile());
     }
 
-    public void applyTo(XsltRunConfiguration s) {
+    public void applyTo(XsltRunConfiguration s) throws ConfigurationException {
       s.setXsltFile(myXsltFile.getText());
       s.setXmlInputFile(getXmlInputFile());
       s.setFileType((FileType)myFileType.getSelectedItem());
@@ -444,7 +443,8 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
       s.setVmArguments(myVmArguments.getText());
       s.myWorkingDirectory = myWorkingDirectory.getText();
       s.setModule(getModule());
-      s.setJDK((Sdk)myJDK.getSelectedItem());
+      WriteAction.run(() -> myJDK.getModel().getSdksModel().apply());
+      s.setJDK(myJDK.getSelectedSdk());
       s.setJdkChoice(XsltRunConfiguration.JdkChoice.values()[getSelectedIndex(myJdkOptions)]);
       s.mySmartErrorHandling = mySmartErrorHandling.isSelected();
       s.setOutputType(XsltRunConfiguration.OutputType.values()[getSelectedIndex(myOutputOptions)]);
@@ -481,7 +481,6 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
 
     private static void setSelectedIndex(ButtonGroup group, int i) {
       final Enumeration<AbstractButton> buttons = group.getElements();
-      //noinspection ForLoopThatDoesntUseLoopVariable
       for (int j = 0; buttons.hasMoreElements(); j++) {
         group.setSelected(buttons.nextElement().getModel(), i == j);
       }
@@ -491,7 +490,6 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
       final ButtonModel selection = group.getSelection();
       if (selection == null) return -1;
       final Enumeration<AbstractButton> buttons = group.getElements();
-      //noinspection ForLoopThatDoesntUseLoopVariable
       for (int i = 0; buttons.hasMoreElements(); i++) {
         final AbstractButton button = buttons.nextElement();
         if (group.isSelected(button.getModel())) return i;
@@ -499,12 +497,21 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
       return -1;
     }
 
+    private static void setSelectedSdkOrNone(@NotNull SdkComboBox comboBox, @Nullable Sdk sdk) {
+      if (sdk == null) {
+        comboBox.setSelectedItem(comboBox.showNoneSdkItem());
+      }
+      else {
+        comboBox.setSelectedSdk(sdk);
+      }
+    }
+
     private static class ParamTableModel extends AbstractTableModel {
       static class Param {
         public String name;
         public String value;
 
-        public Param(String name, String value) {
+        Param(String name, String value) {
           this.name = name;
           this.value = value;
         }
@@ -525,37 +532,43 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
         }
       }
 
-      private final List<Param> myParams = new ArrayList<Param>();
+      private final List<Param> myParams = new ArrayList<>();
 
-      public ParamTableModel() {
+      ParamTableModel() {
       }
 
-      public ParamTableModel(List<Pair<String, String>> params) {
+      ParamTableModel(List<? extends Pair<String, String>> params) {
         for (Pair<String, String> pair : params) {
           myParams.add(new Param(pair.getFirst(), pair.getSecond()));
         }
       }
 
+      @Override
       public Class<?> getColumnClass(int columnIndex) {
         return String.class;
       }
 
+      @Override
       public int getRowCount() {
         return myParams.size();
       }
 
+      @Override
       public int getColumnCount() {
         return 2;
       }
 
+      @Override
       public String getColumnName(int column) {
-        return column == 0 ? "Name" : "Value";
+        return column == 0 ? XPathBundle.message("attribute.descriptor.name") : XPathBundle.message("value");
       }
 
+      @Override
       public boolean isCellEditable(int rowIndex, int columnIndex) {
         return true;
       }
 
+      @Override
       public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
         // can happen if param is deleted while editing it
         if (rowIndex >= myParams.size()) return;
@@ -571,6 +584,7 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
         fireTableCellUpdated(rowIndex, columnIndex);
       }
 
+      @Override
       public Object getValueAt(int rowIndex, int columnIndex) {
         final Param param = myParams.get(rowIndex);
         return columnIndex == 0 ? param.name : param.value;
@@ -587,7 +601,7 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
       }
 
       public List<Pair<String, String>> getParams() {
-        final ArrayList<Pair<String, String>> pairs = new ArrayList<Pair<String, String>>(myParams.size());
+        final ArrayList<Pair<String, String>> pairs = new ArrayList<>(myParams.size());
         for (Param param : myParams) {
           pairs.add(Pair.create(param.name, param.value));
         }
@@ -600,24 +614,28 @@ class XsltRunSettingsEditor extends SettingsEditor<XsltRunConfiguration> {
     }
   }
 
-  public XsltRunSettingsEditor(Project project) {
+  XsltRunSettingsEditor(Project project) {
     myProject = project;
   }
 
-  protected void resetEditorFrom(XsltRunConfiguration s) {
+  @Override
+  protected void resetEditorFrom(@NotNull XsltRunConfiguration s) {
     myEditor.resetFrom(s);
   }
 
-  protected void applyEditorTo(XsltRunConfiguration s) throws ConfigurationException {
+  @Override
+  protected void applyEditorTo(@NotNull XsltRunConfiguration s) throws ConfigurationException {
     myEditor.applyTo(s);
   }
 
+  @Override
   @NotNull
   protected JComponent createEditor() {
     myEditor = new Editor(myProject);
     return myEditor.getComponent();
   }
 
+  @Override
   protected void disposeEditor() {
     myEditor = null;
   }

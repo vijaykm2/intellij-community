@@ -18,18 +18,20 @@
 package com.intellij.psi.impl.source.tree;
 
 import com.intellij.lang.Language;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.*;
 import com.intellij.psi.templateLanguages.OuterLanguageElement;
 import org.jetbrains.annotations.NotNull;
 
 public class PsiErrorElementImpl extends CompositePsiElement implements PsiErrorElement{
-  private final String myErrorDescription;
+  private final @NlsContexts.DetailedDescription String myErrorDescription;
 
-  public PsiErrorElementImpl(String errorDescription) {
+  public PsiErrorElementImpl(@NotNull @NlsContexts.DetailedDescription String errorDescription) {
     super(TokenType.ERROR_ELEMENT);
     myErrorDescription = errorDescription;
   }
 
+  @NotNull
   @Override
   public String getErrorDescription() {
     return myErrorDescription;
@@ -40,6 +42,7 @@ public class PsiErrorElementImpl extends CompositePsiElement implements PsiError
     visitor.visitErrorElement(this);
   }
 
+  @Override
   public String toString(){
     return "PsiErrorElement:" + getErrorDescription();
   }
@@ -50,7 +53,10 @@ public class PsiErrorElementImpl extends CompositePsiElement implements PsiError
     PsiElement master = this;
     while (true) {
       master = master.getNextSibling();
-      if (master == null || master instanceof OuterLanguageElement) return getParent().getLanguage();
+      if (master == null || master instanceof OuterLanguageElement) {
+        PsiElement parent = getParent();
+        return parent == null ? Language.ANY : parent.getLanguage();
+      }
       if (master instanceof PsiWhiteSpace || master instanceof PsiErrorElement) continue;
       return master.getLanguage();
     }

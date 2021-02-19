@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,15 +15,16 @@
  */
 package org.jetbrains.plugins.groovy.lang.actions
 
+import com.intellij.application.options.CodeStyle
 import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings
 import org.jetbrains.plugins.groovy.GroovyFileType
+import org.jetbrains.plugins.groovy.GroovyLanguage
 
 /**
  * @author Max Medvedev
  */
 class JoinLineTest extends GroovyEditorActionTestBase {
-  final String basePath = null
 
   void testVariable() {
     doTest('''\
@@ -105,6 +106,27 @@ print 2; <caret>print 2
 ''')
   }
 
+  void testJoinStatements3() {
+    doTest('''\
+prin<caret>t 2
+
+print 2
+''', '''\
+print 2<caret>
+print 2
+''')
+  }
+
+  void testJoinStatements4() {
+    doTest('''\
+<selection>print 2
+
+print 2</selection>
+''', '''\
+<selection>print 2; print 2</selection>
+''')
+  }
+
   void testFor() {
     doTest('''\
 for (;a<caret>;) {
@@ -114,27 +136,22 @@ for (;a;) <caret>print 2''')
   }
 
   void testIfWithForceBraces() {
-    def current = getCurrentCodeStyleSettings().IF_BRACE_FORCE
-    try {
-      getCurrentCodeStyleSettings().IF_BRACE_FORCE = CommonCodeStyleSettings.FORCE_BRACES_ALWAYS
+    def settings = CodeStyle.getSettings(getProject()).getCommonSettings(GroovyLanguage.INSTANCE)
+      settings.IF_BRACE_FORCE = CommonCodeStyleSettings.FORCE_BRACES_ALWAYS
       doTest('''\
 if (a)
   print 2
 ''', '''\
 if (a) <caret>print 2
 ''')
-    }
-    finally {
-      getCurrentCodeStyleSettings().IF_BRACE_FORCE = current
-    }
 
   }
 
 
   private void doTest(String before, String after) {
-    myFixture.configureByText(GroovyFileType.GROOVY_FILE_TYPE, before);
-    performAction(IdeActions.ACTION_EDITOR_JOIN_LINES);
-    myFixture.checkResult(after);
+    myFixture.configureByText(GroovyFileType.GROOVY_FILE_TYPE, before)
+    performAction(IdeActions.ACTION_EDITOR_JOIN_LINES)
+    myFixture.checkResult(after)
 
   }
 }

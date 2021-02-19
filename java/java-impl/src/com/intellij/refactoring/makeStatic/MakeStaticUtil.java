@@ -1,27 +1,5 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 17.04.2002
- * Time: 14:39:57
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.makeStatic;
 
 import com.intellij.psi.*;
@@ -33,23 +11,22 @@ import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.refactoring.util.VariableData;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 
-public class MakeStaticUtil {
+public final class MakeStaticUtil {
   public static InternalUsageInfo[] findClassRefsInMember(PsiTypeParameterListOwner member, boolean includeSelf) {
     PsiClass containingClass = member.getContainingClass();
-    ArrayList<InternalUsageInfo> classRefs = new ArrayList<InternalUsageInfo>();
+    ArrayList<InternalUsageInfo> classRefs = new ArrayList<>();
     addClassRefs(member, classRefs, containingClass, member, includeSelf);
-    return classRefs.toArray(new InternalUsageInfo[classRefs.size()]);
+    return classRefs.toArray(new InternalUsageInfo[0]);
   }
 
   public static boolean isParameterNeeded(PsiTypeParameterListOwner member) {
     return findClassRefsInMember(member, false).length > 0;
   }
 
-  private static void addClassRefs(PsiTypeParameterListOwner originalMember, ArrayList<InternalUsageInfo> classRefs,
+  private static void addClassRefs(PsiTypeParameterListOwner originalMember, ArrayList<? super InternalUsageInfo> classRefs,
                                    PsiClass containingClass, PsiElement element, boolean includeSelf) {
     if (element instanceof PsiReferenceExpression) {
       PsiReferenceExpression ref = (PsiReferenceExpression)element;
@@ -75,7 +52,7 @@ public class MakeStaticUtil {
         }
       }
     }
-    else if (element instanceof PsiThisExpression) {
+    else if (element instanceof PsiThisExpression && !(element.getParent() instanceof PsiReceiverParameter)) {
       PsiJavaCodeReferenceElement qualifier = ((PsiThisExpression) element).getQualifier();
       PsiElement refElement = qualifier != null ?
           qualifier.resolve() : PsiTreeUtil.getParentOfType(element, PsiClass.class);
@@ -132,15 +109,15 @@ public class MakeStaticUtil {
     return false;
   }
 
-  public static boolean buildVariableData(PsiTypeParameterListOwner member, ArrayList<VariableData> result) {
+  public static boolean buildVariableData(PsiTypeParameterListOwner member, ArrayList<? super VariableData> result) {
     final InternalUsageInfo[] classRefsInMethod = findClassRefsInMember(member, false);
     return collectVariableData(member, classRefsInMethod, result);
   }
 
   public static boolean collectVariableData(PsiMember member, InternalUsageInfo[] internalUsages,
-                                             ArrayList<VariableData> variableDatum) {
-    HashSet<PsiField> reported = new HashSet<PsiField>();
-    HashSet<PsiField> accessedForWriting = new HashSet<PsiField>();
+                                            ArrayList<? super VariableData> variableDatum) {
+    HashSet<PsiField> reported = new HashSet<>();
+    HashSet<PsiField> accessedForWriting = new HashSet<>();
     boolean needClassParameter = false;
     for (InternalUsageInfo usage : internalUsages) {
       final PsiElement referencedElement = usage.getReferencedElement();
@@ -157,12 +134,8 @@ public class MakeStaticUtil {
       }
     }
 
-    final ArrayList<PsiField> psiFields = new ArrayList<PsiField>(reported);
-    Collections.sort(psiFields, new Comparator<PsiField>() {
-      public int compare(PsiField psiField, PsiField psiField1) {
-        return psiField.getName().compareTo(psiField1.getName());
-      }
-    });
+    final ArrayList<PsiField> psiFields = new ArrayList<>(reported);
+    psiFields.sort(Comparator.comparing(PsiField::getName));
     for (final PsiField field : psiFields) {
       if (accessedForWriting.contains(field)) continue;
       VariableData data = new VariableData(field);

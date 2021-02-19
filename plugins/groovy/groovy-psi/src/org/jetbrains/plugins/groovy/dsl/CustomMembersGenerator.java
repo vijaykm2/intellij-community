@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.dsl;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -21,7 +7,6 @@ import com.intellij.psi.*;
 import com.intellij.psi.impl.FakePsiElement;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.FList;
 import groovy.lang.Closure;
@@ -29,6 +14,7 @@ import groovy.lang.GroovyObjectSupport;
 import groovy.lang.MetaMethod;
 import org.codehaus.groovy.runtime.DefaultGroovyMethods;
 import org.codehaus.groovy.runtime.InvokerHelper;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.dsl.dsltop.GdslMembersProvider;
@@ -38,6 +24,8 @@ import org.jetbrains.plugins.groovy.dsl.holders.DeclarationType;
 import org.jetbrains.plugins.groovy.dsl.holders.NonCodeMembersHolder;
 import org.jetbrains.plugins.groovy.dsl.toplevel.ClassContextFilter;
 import org.jetbrains.plugins.groovy.extensions.NamedArgumentDescriptor;
+import org.jetbrains.plugins.groovy.extensions.impl.NamedArgumentDescriptorImpl;
+import org.jetbrains.plugins.groovy.lang.completion.closureParameters.ClosureDescriptor;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrMethodCall;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
@@ -46,14 +34,15 @@ import org.jetbrains.plugins.groovy.lang.psi.util.GroovyPropertyUtils;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
 import java.util.*;
+import java.util.function.Consumer;
 
 /**
  * @author peter
  */
 public class CustomMembersGenerator extends GroovyObjectSupport implements GdslMembersHolderConsumer {
-  private static final Logger LOG = Logger.getInstance("#org.jetbrains.plugins.groovy.dsl.CustomMembersGenerator");
+  private static final Logger LOG = Logger.getInstance(CustomMembersGenerator.class);
   private static final GdslMembersProvider[] PROVIDERS = GdslMembersProvider.EP_NAME.getExtensions();
-  public static final String THROWS = "throws";
+  public static final @NonNls String THROWS = "throws";
   private FList<Map> myDeclarations = FList.emptyList();
   private final Project myProject;
   private final CompoundMembersHolder myDepot = new CompoundMembersHolder();
@@ -109,6 +98,12 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
           return NonCodeMembersHolder.generateMembers(ContainerUtil.reverse(myDeclarations), descriptor.justGetPlaceFile()).processMembers(
             descriptor, processor, state);
         }
+
+        @Override
+        public void consumeClosureDescriptors(GroovyClassDescriptor descriptor, Consumer<? super ClosureDescriptor> consumer) {
+          NonCodeMembersHolder.generateMembers(ContainerUtil.reverse(myDeclarations), descriptor.justGetPlaceFile())
+            .consumeClosureDescriptors(descriptor, consumer);
+        }
       });
     }
     return myDepot;
@@ -142,7 +137,7 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
     Object docUrl = args.get("docUrl");
     Boolean isStatic = (Boolean)args.get("isStatic");
 
-    Map<Object, Object> getter = new HashMap<Object, Object>();
+    Map<@NonNls Object, Object> getter = new HashMap<>();
     getter.put("name", GroovyPropertyUtils.getGetterNameNonBoolean(name));
     getter.put("type", type);
     getter.put("isStatic", isStatic);
@@ -150,13 +145,13 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
     getter.put("docUrl", docUrl);
     method(getter);
 
-    Map<Object, Object> setter = new HashMap<Object, Object>();
+    Map<@NonNls Object, @NonNls Object> setter = new HashMap<>();
     setter.put("name", GroovyPropertyUtils.getSetterName(name));
     setter.put("type", "void");
     setter.put("isStatic", isStatic);
     setter.put("doc", doc);
     setter.put("docUrl", docUrl);
-    final HashMap<Object, Object> param = new HashMap<Object, Object>();
+    final HashMap<Object, Object> param = new HashMap<>();
     param.put(name, type);
     setter.put("params", param);
     method(setter);
@@ -169,7 +164,6 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
     method(args);
   }
 
-  @SuppressWarnings("MethodMayBeStatic")
   public ParameterDescriptor parameter(Map args) {
     return new ParameterDescriptor(args, myDescriptor.justGetPlaceFile());
   }
@@ -177,7 +171,7 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
   public void method(Map<Object, Object> args) {
     if (args == null) return;
 
-    args = ContainerUtil.newLinkedHashMap(args);
+    args = new LinkedHashMap<>(args);
     parseMethod(args);
     args.put("declarationType", DeclarationType.METHOD);
     myDeclarations = myDeclarations.prepend(args);
@@ -195,17 +189,12 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
       PsiType[] argTypes = PsiUtil.getArgumentTypes(ref, false);
       if (argTypes == null) return;
 
-      String[] types = new String[argTypes.length];
-      ContainerUtil.map(argTypes, new Function<PsiType, Object>() {
-        @Override
-        public Object fun(PsiType type) {
-          return type.getCanonicalText();
-        }
-      }, types);
+      String[] types =
+      ContainerUtil.map(argTypes, PsiType::getCanonicalText, new String[argTypes.length]);
 
       generator.setDelegate(this);
 
-      HashMap<String, Object> args = new HashMap<String, Object>();
+      HashMap<String, Object> args = new HashMap<>();
       args.put("name", ref.getReferenceName());
       args.put("argumentTypes", types);
       generator.call(args);
@@ -219,13 +208,13 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
   }
 
   @SuppressWarnings("unchecked")
-  private static void parseMethod(Map args) {
+  private static void parseMethod(@NonNls Map args) {
     String type = stringifyType(args.get("type"));
     args.put("type", type);
 
     Object namedParams = args.get("namedParams");
     if (namedParams instanceof List) {
-      LinkedHashMap newParams = new LinkedHashMap();
+      @NonNls LinkedHashMap newParams = new LinkedHashMap();
       newParams.put("args", namedParams);
       Object oldParams = args.get("params");
       if (oldParams instanceof Map) {
@@ -234,7 +223,6 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
       args.put("params", newParams);
     }
 
-    //noinspection unchecked
     Object params = args.get("params");
     if (params instanceof Map) {
       boolean first = true;
@@ -248,7 +236,7 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
     }
     final Object toThrow = args.get(THROWS);
     if (toThrow instanceof List) {
-      final ArrayList<String> list = new ArrayList<String>();
+      final ArrayList<String> list = new ArrayList<>();
       for (Object o : (List)toThrow) {
         list.add(stringifyType(o));
       }
@@ -264,7 +252,7 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
   public void closureInMethod(Map<Object, Object> args) {
     if (args == null) return;
 
-    args = ContainerUtil.newLinkedHashMap(args);
+    args = new LinkedHashMap<>(args);
     parseMethod(args);
     final Object method = args.get("method");
     if (method instanceof Map) {
@@ -277,7 +265,7 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
   public void variable(Map<Object, Object> args) {
     if (args == null) return;
 
-    args = ContainerUtil.newLinkedHashMap(args);
+    args = new LinkedHashMap<>(args);
     parseVariable(args);
     myDeclarations = myDeclarations.prepend(args);
   }
@@ -295,10 +283,10 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
     if (type instanceof Class) return ((Class)type).getName();
 
     String s = type.toString();
-    LOG.assertTrue(!s.startsWith("? extends"), s);
-    LOG.assertTrue(!s.contains("?extends"), s);
-    LOG.assertTrue(!s.contains("<null."), s);
-    LOG.assertTrue(!s.startsWith("null."), s);
+    LOG.assertTrue(!s.startsWith("? extends"), s); // NON-NLS
+    LOG.assertTrue(!s.contains("?extends"), s); // NON-NLS
+    LOG.assertTrue(!s.contains("<null."), s); // NON-NLS
+    LOG.assertTrue(!s.startsWith("null."), s); // NON-NLS
     LOG.assertTrue(!(s.contains(",") && !s.contains("<")), s);
     return s;
   }
@@ -331,7 +319,7 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
     return null;
   }
 
-  public static class ParameterDescriptor {
+  public static final class ParameterDescriptor {
     public final String name;
     public final NamedArgumentDescriptor descriptor;
 
@@ -339,17 +327,17 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
       name = (String)args.get("name");
       final String typeText = stringifyType(args.get("type"));
       Object doc = args.get("doc");
-      descriptor = new NamedArgumentDescriptor(new GdslNamedParameter(name, doc instanceof String ? (String)doc : null, context, typeText)) {
+      GdslNamedParameter parameter = new GdslNamedParameter(name, doc instanceof String ? (String)doc : null, context, typeText);
+      descriptor = new NamedArgumentDescriptorImpl(NamedArgumentDescriptor.Priority.ALWAYS_ON_TOP, parameter) {
         @Override
         public boolean checkType(@NotNull PsiType type, @NotNull GroovyPsiElement context) {
           return typeText == null || ClassContextFilter.isSubtype(type, context.getContainingFile(), typeText);
         }
       };
-      descriptor.setPriority(NamedArgumentDescriptor.Priority.ALWAYS_ON_TOP);
     }
 
   }
-  
+
   public static class GdslNamedParameter extends FakePsiElement {
     private final String myName;
     public final String docString;

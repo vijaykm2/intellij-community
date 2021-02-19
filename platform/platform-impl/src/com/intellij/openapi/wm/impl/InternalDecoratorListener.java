@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl;
 
-import com.intellij.openapi.wm.ToolWindowAnchor;
 import com.intellij.openapi.wm.ToolWindowContentUiType;
-import com.intellij.openapi.wm.ToolWindowType;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.EventListener;
 
@@ -25,23 +10,15 @@ import java.util.EventListener;
  * @author Vladimir Kondratyev
  */
 interface InternalDecoratorListener extends EventListener{
+  void hidden(@NotNull InternalDecoratorImpl source);
 
-  public void anchorChanged(InternalDecorator source,ToolWindowAnchor anchor);
+  void hiddenSide(@NotNull InternalDecoratorImpl source);
 
-  public void autoHideChanged(InternalDecorator source,boolean autoHide);
+  void resized(@NotNull InternalDecoratorImpl source);
 
-  public void hidden(InternalDecorator source);
+  void activated(@NotNull InternalDecoratorImpl source);
 
-  public void hiddenSide(InternalDecorator source);
+  void contentUiTypeChanges(@NotNull InternalDecoratorImpl sources, @NotNull ToolWindowContentUiType type);
 
-  public void resized(InternalDecorator source);
-
-  public void activated(InternalDecorator source);
-
-  public void typeChanged(InternalDecorator source,ToolWindowType type);
-
-  public void sideStatusChanged(InternalDecorator source,boolean isSideTool);
-
-  public void contentUiTypeChanges(InternalDecorator sources, ToolWindowContentUiType type);
-
+  void visibleStripeButtonChanged(@NotNull InternalDecoratorImpl source, boolean visible);
 }

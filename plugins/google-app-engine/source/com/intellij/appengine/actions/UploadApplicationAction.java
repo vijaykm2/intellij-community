@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package com.intellij.appengine.actions;
 
+import com.intellij.appengine.JavaGoogleAppEngineBundle;
 import com.intellij.appengine.cloud.AppEngineCloudType;
 import com.intellij.appengine.cloud.AppEngineServerConfiguration;
 import com.intellij.appengine.facet.AppEngineFacet;
@@ -36,17 +37,14 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-/**
- * @author nik
- */
 public class UploadApplicationAction extends AnAction {
   public static final String LAST_RUN_CONFIGURATION_PROPERTY = "JAVA_APP_ENGINE_LAST_RUN_CONFIGURATION";
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final Project project = e.getProject();
     e.getPresentation().setEnabledAndVisible(
-      project != null && !ProjectFacetManager.getInstance(project).getFacets(AppEngineFacet.ID).isEmpty());
+      project != null && ProjectFacetManager.getInstance(project).hasFacets(AppEngineFacet.ID));
 
     if (project != null) {
       String text;
@@ -55,7 +53,7 @@ public class UploadApplicationAction extends AnAction {
         text = getTemplatePresentation().getText();
       }
       else {
-        text = "Upload App Engine Application '" + configurationToRun.getName() + "'";
+        text = JavaGoogleAppEngineBundle.message("action.upload.app.engine.application.text", configurationToRun.getName());
       }
       e.getPresentation().setText(text);
     }
@@ -63,7 +61,8 @@ public class UploadApplicationAction extends AnAction {
 
   @Nullable
   private static RunnerAndConfigurationSettings getConfigurationToRun(@NotNull Project project) {
-    List<RunnerAndConfigurationSettings> configurations = DeploymentConfigurationManager.getInstance(project).getDeploymentConfigurations(AppEngineCloudType.getInstance());
+    List<RunnerAndConfigurationSettings> configurations =
+      DeploymentConfigurationManager.getInstance(project).getDeploymentConfigurations(AppEngineCloudType.getInstance());
     String lastName = PropertiesComponent.getInstance(project).getValue(LAST_RUN_CONFIGURATION_PROPERTY);
     if (lastName != null) {
       for (RunnerAndConfigurationSettings configuration : configurations) {
@@ -76,16 +75,19 @@ public class UploadApplicationAction extends AnAction {
     return ContainerUtil.getFirstItem(configurations);
   }
 
-  public void actionPerformed(AnActionEvent e) {
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getRequiredData(CommonDataKeys.PROJECT);
     RunnerAndConfigurationSettings configurationToRun = getConfigurationToRun(project);
     if (configurationToRun != null) {
-      ProgramRunnerUtil.executeConfiguration(project, configurationToRun, DefaultRunExecutor.getRunExecutorInstance());
+      ProgramRunnerUtil.executeConfiguration(configurationToRun, DefaultRunExecutor.getRunExecutorInstance());
     }
     else {
       AppEngineCloudType serverType = AppEngineCloudType.getInstance();
       List<RemoteServer<AppEngineServerConfiguration>> servers = RemoteServersManager.getInstance().getServers(serverType);
-      DeploymentConfigurationManager.getInstance(project).createAndRunConfiguration(serverType, ContainerUtil.getFirstItem(servers));
+      DeploymentConfigurationManager.getInstance(project).createAndRunConfiguration(serverType,
+                                                                                    ContainerUtil.getFirstItem(servers),
+                                                                                    null);
     }
   }
 }

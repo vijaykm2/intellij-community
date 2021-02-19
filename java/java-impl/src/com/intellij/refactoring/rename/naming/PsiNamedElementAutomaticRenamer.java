@@ -25,20 +25,23 @@ import java.util.List;
  * @author peter
  */
 public abstract class PsiNamedElementAutomaticRenamer<T extends PsiNamedElement> extends AutomaticUsageRenamer<T> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.rename.naming.PsiNamedElementAutomaticRenamer");
+  private static final Logger LOG = Logger.getInstance(PsiNamedElementAutomaticRenamer.class);
 
   protected PsiNamedElementAutomaticRenamer(List<? extends T> elements, String oldName, String newName) {
     super(elements, oldName, newName);
   }
 
+  @Override
   protected String getName(T element) {
     return element.getName();
   }
 
+  @Override
   protected void doRenameElement(final T t) throws IncorrectOperationException {
     t.setName(getNewElementName(t));
   }
 
+  @Override
   protected String suggestName(T element) {
     String elementName = getName(element);
     final NameSuggester suggester = new NameSuggester(getOldName(), getNewName());

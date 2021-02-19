@@ -22,32 +22,16 @@ import com.intellij.psi.PsiType;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
-import org.jetbrains.plugins.groovy.lang.psi.util.ErrorUtil;
-import org.jetbrains.plugins.groovy.lang.psi.impl.utils.BoolUtils;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrConditionalExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
+import org.jetbrains.plugins.groovy.lang.psi.impl.utils.BoolUtils;
+import org.jetbrains.plugins.groovy.lang.psi.util.ErrorUtil;
 
 public class GroovyTrivialConditionalInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Redundant conditional expression";
-  }
-
-  @Override
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONTROL_FLOW;
-  }
-
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
-  }
 
   @NotNull
   @Override
@@ -58,7 +42,7 @@ public class GroovyTrivialConditionalInspection extends BaseInspection {
   @Override
   public String buildErrorString(Object... args) {
     final GrConditionalExpression exp = (GrConditionalExpression) args[0];
-    return "'" + exp.getText() + "' can be simplified to '" + calculateReplacementExpression(exp) + "'  #loc";
+    return GroovyBundle.message("inspection.message.0.can.be.simplified.to.1", exp.getText(), calculateReplacementExpression(exp));
   }
 
   private static String calculateReplacementExpression(GrConditionalExpression exp) {
@@ -82,12 +66,12 @@ public class GroovyTrivialConditionalInspection extends BaseInspection {
 
     @Override
     @NotNull
-    public String getName() {
-      return "Simplify";
+    public String getFamilyName() {
+      return GroovyBundle.message("intention.family.name.simplify");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
+    public void doFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor)
         throws IncorrectOperationException {
       final GrConditionalExpression expression = (GrConditionalExpression) descriptor.getPsiElement();
       final String newExpression = calculateReplacementExpression(expression);
@@ -99,7 +83,7 @@ public class GroovyTrivialConditionalInspection extends BaseInspection {
       extends BaseInspectionVisitor {
 
     @Override
-    public void visitConditionalExpression(GrConditionalExpression exp) {
+    public void visitConditionalExpression(@NotNull GrConditionalExpression exp) {
       super.visitConditionalExpression(exp);
       final GrExpression condition = exp.getCondition();
       final PsiType type = condition.getType();

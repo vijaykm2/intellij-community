@@ -15,18 +15,19 @@
  */
 package org.jetbrains.idea.maven.importing;
 
+import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
 import gnu.trove.THashMap;
 import org.jetbrains.idea.maven.MavenTestCase;
-import org.jetbrains.idea.maven.execution.MavenExecutor;
-import org.jetbrains.idea.maven.execution.MavenExternalExecutor;
-import org.jetbrains.idea.maven.execution.MavenRunnerParameters;
-import org.jetbrains.idea.maven.execution.MavenRunnerSettings;
+import org.jetbrains.idea.maven.execution.*;
 
 import java.io.File;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ArchetypesTest extends MavenTestCase {
   public void testGenerating() throws Exception {
@@ -35,26 +36,30 @@ public class ArchetypesTest extends MavenTestCase {
     File dir = new File(myDir.getPath(), "generated");
     dir.mkdirs();
 
-    MavenRunnerParameters params = new MavenRunnerParameters(false, dir.getPath(),
+    MavenRunnerParameters params = new MavenRunnerParameters(false, dir.getPath(), (String)null,
                                                              Arrays.asList("org.apache.maven.plugins:maven-archetype-plugin:RELEASE:generate"),
-                                                             Collections.<String>emptyList());
+                                                             Collections.emptyList());
 
     MavenRunnerSettings settings = new MavenRunnerSettings();
-    Map<String, String> props = new THashMap<String, String>();
+    Map<String, String> props = new THashMap<>();
     props.put("archetypeGroupId", "org.apache.maven.archetypes");
     props.put("archetypeArtifactId", "maven-archetype-quickstart");
     props.put("archetypeVersion", "1.0");
     props.put("interactiveMode", "false");
-    props.put("groupId", "foo");
     props.put("groupId", "foo");
     props.put("artifactId", "bar");
 
     settings.setMavenProperties(props);
     MavenExecutor exec;
     settings.setJreName(MavenRunnerSettings.USE_INTERNAL_JAVA);
-    exec = new MavenExternalExecutor(myProject, params, getMavenGeneralSettings(), settings, NULL_MAVEN_CONSOLE);
-    exec.execute(new EmptyProgressIndicator());
+    Semaphore wait = new Semaphore(1);
+    wait.acquire();
+    MavenRunner.getInstance(myProject).run(params, settings, () -> {
+      wait.release();
+    });
 
+    boolean tryAcquire = wait.tryAcquire(10, TimeUnit.SECONDS);
+    assertTrue( "Maven execution failed", tryAcquire);
     assertTrue(new File(dir, "bar/pom.xml").exists());
   }
 }

@@ -1,49 +1,30 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/**
- * @author cdr
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.properties.structureView;
 
-import com.intellij.lang.properties.*;
+import com.intellij.lang.properties.IProperty;
+import com.intellij.lang.properties.PropertiesImplUtil;
+import com.intellij.lang.properties.ResourceBundle;
+import com.intellij.lang.properties.ResourceBundleImpl;
 import com.intellij.lang.properties.psi.PropertiesFile;
-import com.intellij.openapi.components.*;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.components.State;
 import com.intellij.openapi.project.Project;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.containers.SoftFactoryMap;
-import com.intellij.util.xmlb.annotations.MapAnnotation;
 import com.intellij.util.xmlb.annotations.Property;
-import com.intellij.util.xmlb.annotations.Transient;
-import gnu.trove.TIntLongHashMap;
-import gnu.trove.TIntProcedure;
+import com.intellij.util.xmlb.annotations.XMap;
+import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.IntConsumer;
 
-@State(
-  name="PropertiesSeparatorManager",
-  storages= {
-    @Storage(
-      file = StoragePathMacros.PROJECT_FILE
-    )}
-)
-public class PropertiesSeparatorManager implements PersistentStateComponent<PropertiesSeparatorManager.PropertiesSeparatorManagerState> {
+@State(name = "PropertiesSeparatorManager")
+public final class PropertiesSeparatorManager implements PersistentStateComponent<PropertiesSeparatorManager.PropertiesSeparatorManagerState> {
   private final Project myProject;
 
   public static PropertiesSeparatorManager getInstance(final Project project) {
@@ -51,9 +32,7 @@ public class PropertiesSeparatorManager implements PersistentStateComponent<Prop
   }
 
   private PropertiesSeparatorManagerState myUserDefinedSeparators = new PropertiesSeparatorManagerState();
-  @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
-  private final SoftFactoryMap<ResourceBundleImpl, String> myGuessedSeparators = new SoftFactoryMap<ResourceBundleImpl, String>() {
-    @Nullable
+  private final SoftFactoryMap<ResourceBundleImpl, String> myGuessedSeparators = new SoftFactoryMap<>() {
     @Override
     protected String create(ResourceBundleImpl resourceBundle) {
       return guessSeparator(resourceBundle);
@@ -71,12 +50,12 @@ public class PropertiesSeparatorManager implements PersistentStateComponent<Prop
     }
     final ResourceBundleImpl resourceBundleImpl = (ResourceBundleImpl)resourceBundle;
     String separator = myUserDefinedSeparators.getSeparators().get(resourceBundleImpl.getUrl());
-    return separator == null ? myGuessedSeparators.get(resourceBundleImpl) : separator;
+    return separator == null ? Objects.requireNonNull(myGuessedSeparators.get(resourceBundleImpl)) : separator;
   }
 
   //returns most probable separator in properties files
   private static String guessSeparator(final ResourceBundleImpl resourceBundle) {
-    final TIntLongHashMap charCounts = new TIntLongHashMap();
+    final Int2LongOpenHashMap charCounts = new Int2LongOpenHashMap();
     for (PropertiesFile propertiesFile : resourceBundle.getPropertiesFiles()) {
       if (propertiesFile == null) continue;
       List<IProperty> properties = propertiesFile.getProperties();
@@ -93,15 +72,15 @@ public class PropertiesSeparatorManager implements PersistentStateComponent<Prop
     }
 
     final char[] mostProbableChar = new char[]{'.'};
-    charCounts.forEachKey(new TIntProcedure() {
+    charCounts.keySet().forEach(new IntConsumer() {
       long count = -1;
-      public boolean execute(int ch) {
+      @Override
+      public void accept(int ch) {
         long charCount = charCounts.get(ch);
         if (charCount > count) {
           count = charCount;
           mostProbableChar[0] = (char)ch;
         }
-        return true;
       }
     });
     if (mostProbableChar[0] == 0) {
@@ -116,7 +95,8 @@ public class PropertiesSeparatorManager implements PersistentStateComponent<Prop
     }
   }
 
-  public void loadState(final PropertiesSeparatorManagerState state) {
+  @Override
+  public void loadState(@NotNull final PropertiesSeparatorManagerState state) {
     myUserDefinedSeparators = state.decode(myProject);
   }
 
@@ -128,13 +108,8 @@ public class PropertiesSeparatorManager implements PersistentStateComponent<Prop
 
   public static class PropertiesSeparatorManagerState {
     @Property(surroundWithTag = false)
-    @MapAnnotation(surroundWithTag = false,
-                   surroundKeyWithTag = false,
-                   surroundValueWithTag = false,
-                   keyAttributeName = "url",
-                   valueAttributeName = "separator",
-                   entryTagName = "file")
-    public Map<String, String> mySeparators = new HashMap<String, String>();
+    @XMap(keyAttributeName = "url", valueAttributeName = "separator", entryTagName = "file")
+    public Map<String, String> mySeparators = new HashMap<>();
 
     public Map<String, String> getSeparators() {
       return mySeparators;

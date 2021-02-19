@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,9 +27,9 @@ import java.util.*;
  * @author db
  */
 public class PsiTypeVariableFactory {
-  private int myCurrent = 0;
-  private final List<Set<PsiTypeVariable>> myClusters = new LinkedList<Set<PsiTypeVariable>>();
-  private final Map<Integer, Set<PsiTypeVariable>> myVarCluster = new HashMap<Integer, Set<PsiTypeVariable>>();
+  private int myCurrent;
+  private final List<Set<PsiTypeVariable>> myClusters = new LinkedList<>();
+  private final Map<Integer, Set<PsiTypeVariable>> myVarCluster = new HashMap<>();
 
   public final int getNumber() {
     return myCurrent;
@@ -72,17 +72,17 @@ public class PsiTypeVariableFactory {
 
         return type.accept(new PsiTypeVisitor<Boolean>() {
           @Override
-          public Boolean visitType(final PsiType type) {
+          public Boolean visitType(@NotNull final PsiType type) {
             return Boolean.TRUE;
           }
 
           @Override
-          public Boolean visitArrayType(final PsiArrayType arrayType) {
+          public Boolean visitArrayType(@NotNull final PsiArrayType arrayType) {
             return arrayType.getDeepComponentType().accept(this);
           }
 
           @Override
-          public Boolean visitWildcardType(final PsiWildcardType wildcardType) {
+          public Boolean visitWildcardType(@NotNull final PsiWildcardType wildcardType) {
             final PsiType bound = wildcardType.getBound();
 
             if (bound != null) {
@@ -93,7 +93,7 @@ public class PsiTypeVariableFactory {
           }
 
           @Override
-          public Boolean visitClassType(final PsiClassType classType) {
+          public Boolean visitClassType(@NotNull final PsiClassType classType) {
             final PsiClassType.ClassResolveResult result = classType.resolveGenerics();
             final PsiClass aClass = result.getElement();
             final PsiSubstitutor aSubst = result.getSubstitutor();
@@ -159,12 +159,6 @@ public class PsiTypeVariableFactory {
       }
 
       @Override
-      @NotNull
-      public String getInternalCanonicalText() {
-        return getCanonicalText();
-      }
-
-      @Override
       public boolean isValid() {
         return true;
       }
@@ -180,8 +174,7 @@ public class PsiTypeVariableFactory {
       }
 
       @Override
-      @NotNull
-      public PsiType[] getSuperTypes() {
+      public PsiType @NotNull [] getSuperTypes() {
         return EMPTY_ARRAY;
       }
 

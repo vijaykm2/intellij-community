@@ -1,24 +1,10 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.breakpoints.ui.tree;
 
 import com.intellij.ide.util.treeView.TreeState;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.MultiValuesMap;
 import com.intellij.ui.CheckedTreeNode;
+import com.intellij.util.containers.TreeTraversal;
 import com.intellij.util.ui.tree.TreeUtil;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointGroup;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointGroupingRule;
@@ -29,7 +15,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.event.TreeSelectionEvent;
 import javax.swing.event.TreeSelectionListener;
-import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
@@ -39,12 +24,10 @@ import java.util.*;
  * @author nik, zajac
  */
 public class BreakpointItemsTreeController implements BreakpointsCheckboxTree.Delegate {
-  private final TreeNodeComparator myComparator = new TreeNodeComparator();
+  private static final TreeNodeComparator COMPARATOR = new TreeNodeComparator();
   private final CheckedTreeNode myRoot;
-  private final Map<BreakpointItem, BreakpointItemNode> myNodes = new HashMap<BreakpointItem, BreakpointItemNode>();
+  private final Map<BreakpointItem, BreakpointItemNode> myNodes = new HashMap<>();
   private List<XBreakpointGroupingRule> myGroupingRules;
-
-  private final MultiValuesMap<XBreakpointGroupingRule, XBreakpointGroup> myGroups = new MultiValuesMap<XBreakpointGroupingRule, XBreakpointGroup>();
 
   private JTree myTreeView;
   protected boolean myInBuild;
@@ -101,22 +84,22 @@ public class BreakpointItemsTreeController implements BreakpointsCheckboxTree.De
   protected void nodeStateWillChangeImpl(CheckedTreeNode node) {
   }
 
-  private void setGroupingRulesInternal(final Collection<XBreakpointGroupingRule> groupingRules) {
-    myGroupingRules = new ArrayList<XBreakpointGroupingRule>(groupingRules);
+  private void setGroupingRulesInternal(final Collection<? extends XBreakpointGroupingRule> groupingRules) {
+    myGroupingRules = new ArrayList<>(groupingRules);
   }
 
   public void buildTree(@NotNull Collection<? extends BreakpointItem> breakpoints) {
     final TreeState state = TreeState.createOn(myTreeView, myRoot);
+    state.setScrollToSelection(false);
     myRoot.removeAllChildren();
     myNodes.clear();
-    myGroups.clear();
     for (BreakpointItem breakpoint : breakpoints) {
       BreakpointItemNode node = new BreakpointItemNode(breakpoint);
       CheckedTreeNode parent = getParentNode(breakpoint);
       parent.add(node);
       myNodes.put(breakpoint, node);
     }
-    TreeUtil.sort(myRoot, myComparator);
+    TreeUtil.sortRecursively(myRoot, COMPARATOR);
     myInBuild = true;
     ((DefaultTreeModel)(myTreeView.getModel())).nodeStructureChanged(myRoot);
     state.applyTo(myTreeView, myRoot);
@@ -140,7 +123,7 @@ public class BreakpointItemsTreeController implements BreakpointsCheckboxTree.De
   }
 
   private static Collection<XBreakpointGroup> getGroupNodes(CheckedTreeNode parent) {
-    Collection<XBreakpointGroup> nodes = new ArrayList<XBreakpointGroup>();
+    Collection<XBreakpointGroup> nodes = new ArrayList<>();
     Enumeration children = parent.children();
     while (children.hasMoreElements()) {
       Object element = children.nextElement();
@@ -163,17 +146,17 @@ public class BreakpointItemsTreeController implements BreakpointsCheckboxTree.De
         }
       }
     }
-    BreakpointsGroupNode groupNode = new BreakpointsGroupNode<XBreakpointGroup>(group, level);
+    BreakpointsGroupNode groupNode = new BreakpointsGroupNode<>(group, level);
     parent.add(groupNode);
     return groupNode;
   }
 
-  public void setGroupingRules(Collection<XBreakpointGroupingRule> groupingRules) {
+  public void setGroupingRules(Collection<? extends XBreakpointGroupingRule> groupingRules) {
     setGroupingRulesInternal(groupingRules);
-    rebuildTree(new ArrayList<BreakpointItem>(myNodes.keySet()));
+    rebuildTree(new ArrayList<>(myNodes.keySet()));
   }
 
-  public void rebuildTree(Collection<BreakpointItem> items) {
+  public void rebuildTree(Collection<? extends BreakpointItem> items) {
     List<BreakpointItem> selectedBreakpoints = getSelectedBreakpoints(false);
     TreePath path = myTreeView.getSelectionPath();
     buildTree(items);
@@ -189,17 +172,15 @@ public class BreakpointItemsTreeController implements BreakpointsCheckboxTree.De
     TreePath[] selectionPaths = myTreeView.getSelectionPaths();
     if (selectionPaths == null || selectionPaths.length == 0) return Collections.emptyList();
 
-    final ArrayList<BreakpointItem> list = new ArrayList<BreakpointItem>();
+    final ArrayList<BreakpointItem> list = new ArrayList<>();
     for (TreePath selectionPath : selectionPaths) {
       TreeNode startNode = (TreeNode)selectionPath.getLastPathComponent();
       if (traverse) {
-        TreeUtil.traverseDepth(startNode, new TreeUtil.Traverse() {
-          public boolean accept(final Object node) {
-            if (node instanceof BreakpointItemNode) {
-              list.add(((BreakpointItemNode)node).getBreakpointItem());
-            }
-            return true;
+        TreeUtil.treeNodeTraverser(startNode).traverse(TreeTraversal.PRE_ORDER_DFS).processEach(node -> {
+          if (node instanceof BreakpointItemNode) {
+            list.add(((BreakpointItemNode)node).getBreakpointItem());
           }
+          return true;
         });
       }
       else {
@@ -215,11 +196,9 @@ public class BreakpointItemsTreeController implements BreakpointsCheckboxTree.De
   public void selectBreakpointItem(@Nullable final BreakpointItem breakpoint, TreePath path) {
     BreakpointItemNode node = myNodes.get(breakpoint);
     if (node != null) {
-      TreeUtil.selectNode(myTreeView, node);
+      path = TreeUtil.getPathFromRoot(node);
     }
-    else {
-      TreeUtil.selectPath(myTreeView, path);
-    }
+    TreeUtil.selectPath(myTreeView, path, false);
   }
 
   public CheckedTreeNode getRoot() {
@@ -227,7 +206,7 @@ public class BreakpointItemsTreeController implements BreakpointsCheckboxTree.De
   }
 
   public void selectFirstBreakpointItem() {
-    TreeUtil.selectPath(myTreeView, TreeUtil.getFirstLeafNodePath(myTreeView));
+    TreeUtil.promiseSelectFirstLeaf(myTreeView);
   }
 
   public void removeSelectedBreakpoints(Project project) {
@@ -235,11 +214,11 @@ public class BreakpointItemsTreeController implements BreakpointsCheckboxTree.De
     if (paths == null) return;
     final List<BreakpointItem> breakpoints = getSelectedBreakpoints(true);
     for (TreePath path : paths) {
-      final Object node = path.getLastPathComponent();
+      Object node = path.getLastPathComponent();
       if (node instanceof BreakpointItemNode) {
         final BreakpointItem item = ((BreakpointItemNode)node).getBreakpointItem();
         if (!item.allowedToRemove()) {
-          TreeUtil.unselect(myTreeView, (DefaultMutableTreeNode)node);
+          TreeUtil.unselectPath(myTreeView, path);
           breakpoints.remove(item);
         }
       }
@@ -252,11 +231,10 @@ public class BreakpointItemsTreeController implements BreakpointsCheckboxTree.De
   }
 
   private static class TreeNodeComparator implements Comparator<TreeNode> {
+    @Override
     public int compare(final TreeNode o1, final TreeNode o2) {
       if (o1 instanceof BreakpointItemNode && o2 instanceof BreakpointItemNode) {
-        //noinspection unchecked
         BreakpointItem b1 = ((BreakpointItemNode)o1).getBreakpointItem();
-        //noinspection unchecked
         BreakpointItem b2 = ((BreakpointItemNode)o2).getBreakpointItem();
         boolean default1 = b1.isDefaultBreakpoint();
         boolean default2 = b2.isDefaultBreakpoint();

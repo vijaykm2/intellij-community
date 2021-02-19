@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.breakpoints;
 
 import com.intellij.lang.Language;
@@ -22,9 +8,8 @@ import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
-* @author egor
-*/
+import java.util.Objects;
+
 public class XExpressionImpl implements XExpression {
   public static final XExpression EMPTY_EXPRESSION = fromText("", EvaluationMode.EXPRESSION);
   public static final XExpression EMPTY_CODE_FRAGMENT = fromText("", EvaluationMode.CODE_FRAGMENT);
@@ -38,7 +23,7 @@ public class XExpressionImpl implements XExpression {
     this(expression, language, customInfo, EvaluationMode.EXPRESSION);
   }
 
-  public XExpressionImpl(@NotNull String expression, Language language, String customInfo, EvaluationMode mode) {
+  public XExpressionImpl(@NotNull String expression, Language language, String customInfo, @NotNull EvaluationMode mode) {
     myExpression = expression;
     myLanguage = language;
     myCustomInfo = customInfo;
@@ -61,6 +46,7 @@ public class XExpressionImpl implements XExpression {
     return myCustomInfo;
   }
 
+  @NotNull
   @Override
   public EvaluationMode getMode() {
     return myMode;
@@ -72,11 +58,11 @@ public class XExpressionImpl implements XExpression {
   }
 
   @Contract("null, _ -> null; !null, _ -> !null")
-  public static XExpressionImpl fromText(@Nullable String text, EvaluationMode mode) {
+  public static XExpressionImpl fromText(@Nullable String text, @NotNull EvaluationMode mode) {
     return text != null ? new XExpressionImpl(text, null, null, mode) : null;
   }
 
-  public static XExpressionImpl changeMode(XExpression expression, EvaluationMode mode) {
+  public static XExpressionImpl changeMode(@NotNull XExpression expression, @NotNull EvaluationMode mode) {
     return new XExpressionImpl(expression.getExpression(), expression.getLanguage(), expression.getCustomInfo(), mode);
   }
 
@@ -92,9 +78,9 @@ public class XExpressionImpl implements XExpression {
 
     XExpressionImpl that = (XExpressionImpl)o;
 
-    if (myCustomInfo != null ? !myCustomInfo.equals(that.myCustomInfo) : that.myCustomInfo != null) return false;
+    if (!Objects.equals(myCustomInfo, that.myCustomInfo)) return false;
     if (!myExpression.equals(that.myExpression)) return false;
-    if (myLanguage != null ? !myLanguage.equals(that.myLanguage) : that.myLanguage != null) return false;
+    if (!Objects.equals(myLanguage, that.myLanguage)) return false;
     if (myMode != that.myMode) return false;
 
     return true;
@@ -102,10 +88,6 @@ public class XExpressionImpl implements XExpression {
 
   @Override
   public int hashCode() {
-    int result = myExpression.hashCode();
-    result = 31 * result + (myLanguage != null ? myLanguage.hashCode() : 0);
-    result = 31 * result + (myCustomInfo != null ? myCustomInfo.hashCode() : 0);
-    result = 31 * result + (myMode != null ? myMode.hashCode() : 0);
-    return result;
+    return Objects.hash(myExpression, myLanguage, myCustomInfo, myMode);
   }
 }

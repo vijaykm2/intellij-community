@@ -30,7 +30,7 @@ import com.intellij.psi.tree.ChildRoleBase;
 import org.jetbrains.annotations.NotNull;
 
 public class PsiExpressionListStatementImpl extends CompositePsiElement implements PsiExpressionListStatement, Constants {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiExpressionListStatementImpl");
+  private static final Logger LOG = Logger.getInstance(PsiExpressionListStatementImpl.class);
 
   public PsiExpressionListStatementImpl() {
     super(EXPRESSION_LIST_STATEMENT);
@@ -57,7 +57,7 @@ public class PsiExpressionListStatementImpl extends CompositePsiElement implemen
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
     if (i == EXPRESSION_LIST) {
@@ -81,6 +81,7 @@ public class PsiExpressionListStatementImpl extends CompositePsiElement implemen
     }
   }
 
+  @Override
   public String toString() {
     return "PsiExpressionListStatement";
   }

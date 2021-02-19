@@ -17,19 +17,16 @@ package org.jetbrains.jps.model.module.impl;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.jps.util.JpsPathUtil;
 import org.jetbrains.jps.model.JpsElement;
 import org.jetbrains.jps.model.JpsElementType;
 import org.jetbrains.jps.model.ex.JpsCompositeElementBase;
 import org.jetbrains.jps.model.module.JpsModuleSourceRootType;
 import org.jetbrains.jps.model.module.JpsTypedModuleSourceRoot;
+import org.jetbrains.jps.util.JpsPathUtil;
 
 import java.io.File;
 import java.util.Set;
 
-/**
- * @author nik
- */
 public class JpsModuleSourceRootImpl<P extends JpsElement> extends JpsCompositeElementBase<JpsModuleSourceRootImpl<P>> implements JpsTypedModuleSourceRoot<P> {
   private final JpsModuleSourceRootType<P> myRootType;
   private final String myUrl;
@@ -95,6 +92,7 @@ public class JpsModuleSourceRootImpl<P extends JpsElement> extends JpsCompositeE
     return myRootType;
   }
 
+  @Override
   @NotNull
   public String getUrl() {
     return myUrl;
@@ -109,6 +107,6 @@ public class JpsModuleSourceRootImpl<P extends JpsElement> extends JpsCompositeE
   @NotNull
   @Override
   public JpsModuleSourceRootImpl<P> createCopy() {
-    return new JpsModuleSourceRootImpl<P>(this);
+    return new JpsModuleSourceRootImpl<>(this);
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,14 +17,17 @@ package com.intellij.openapi.components;
 
 import com.intellij.openapi.util.Pair;
 import org.jdom.Element;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
 /**
  * @deprecated Use {@link StateSplitterEx}
  */
+@Deprecated
 public interface StateSplitter {
-  List<Pair<Element, String>> splitState(Element e);
+  @NotNull
+  List<Pair<Element, String>> splitState(@NotNull Element e);
 
-  void mergeStatesInto(Element target, Element[] elements);
+  void mergeStatesInto(@NotNull Element target, Element @NotNull [] elements);
 }

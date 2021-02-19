@@ -24,20 +24,18 @@ import com.intellij.psi.PsiFile;
 /**
  * @author Vladimir Kondratyev
  */
-public final class AllTodosTreeStructure extends TodoTreeStructure {
+public class AllTodosTreeStructure extends TodoTreeStructure {
   public AllTodosTreeStructure(final Project project) {
     super(project);
   }
 
   @Override
   public boolean accept(final PsiFile psiFile) {
-    final boolean
-            accept = psiFile.isValid() &&
-            (
-            myTodoFilter != null && myTodoFilter.accept(mySearchHelper, psiFile) ||
-            (myTodoFilter == null && mySearchHelper.getTodoItemsCount(psiFile) > 0)
-            );
-    return accept;
+    return psiFile.isValid() &&
+           (
+             myTodoFilter != null && myTodoFilter.accept(mySearchHelper, psiFile) ||
+             (myTodoFilter == null && mySearchHelper.getTodoItemsCount(psiFile) > 0)
+           );
   }
 
   @Override

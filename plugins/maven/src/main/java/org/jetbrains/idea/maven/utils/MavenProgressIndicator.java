@@ -15,30 +15,52 @@
  */
 package org.jetbrains.idea.maven.utils;
 
+import com.intellij.openapi.components.Service;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
-import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.util.AbstractProgressIndicatorExBase;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.wm.ex.ProgressIndicatorEx;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.maven.buildtool.MavenSyncConsole;
+import org.jetbrains.idea.maven.server.MavenServerProgressIndicator;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.function.Supplier;
+
+import static com.intellij.openapi.components.Service.Level.PROJECT;
 
 public class MavenProgressIndicator {
   private ProgressIndicator myIndicator;
-  private final List<Condition<MavenProgressIndicator>> myCancelConditions = new ArrayList<Condition<MavenProgressIndicator>>();
+  private final List<Condition<MavenProgressIndicator>> myCancelConditions = new ArrayList<>();
+  private @Nullable final Supplier<MavenSyncConsole> mySyncSupplier;
+  private @Nullable final Project myProject;
 
-  public MavenProgressIndicator() {
-    this(new MyEmptyProgressIndicator());
+  public MavenProgressIndicator(@Nullable Project project,
+                                @Nullable Supplier<MavenSyncConsole> syncSupplier) {
+    this(project, new MyEmptyProgressIndicator(), syncSupplier);
   }
 
-  public MavenProgressIndicator(ProgressIndicator i) {
+  public MavenProgressIndicator(@Nullable Project project,
+                                ProgressIndicator i,
+                                @Nullable Supplier<MavenSyncConsole> syncSupplier) {
+    myProject = project;
     myIndicator = i;
+    mySyncSupplier = syncSupplier;
+    maybeTrackIndicator(i);
   }
 
   public synchronized void setIndicator(ProgressIndicator i) {
+    maybeTrackIndicator(i);
+    //setIndicatorStatus(i);
     i.setText(myIndicator.getText());
     i.setText2(myIndicator.getText2());
-    i.setFraction(myIndicator.getFraction());
+    if (!i.isIndeterminate()) {
+      i.setFraction(myIndicator.getFraction());
+    }
     if (i.isCanceled()) i.cancel();
     myIndicator = i;
   }
@@ -47,15 +69,16 @@ public class MavenProgressIndicator {
     return myIndicator;
   }
 
-  public synchronized void setText(String text) {
+  public synchronized void setText(@NlsContexts.ProgressText String text) {
     myIndicator.setText(text);
   }
 
-  public synchronized void setText2(String text) {
+  public synchronized void setText2(@NlsContexts.ProgressDetails String text) {
     myIndicator.setText2(text);
   }
 
   public synchronized void setFraction(double fraction) {
+    myIndicator.setIndeterminate(false);
     myIndicator.setFraction(fraction);
   }
 
@@ -95,14 +118,31 @@ public class MavenProgressIndicator {
     if (isCanceled()) throw new MavenProcessCanceledException();
   }
 
-  public void checkCanceledNative() {
-    if (isCanceled()) throw new ProcessCanceledException();
+  public void startedDownload(MavenServerProgressIndicator.ResolveType type, String id) {
+
+    if (mySyncSupplier != null) {
+      mySyncSupplier.get().getListener(type).downloadStarted(id);
+    }
   }
 
+  public void completedDownload(MavenServerProgressIndicator.ResolveType type, String id) {
+    if (mySyncSupplier != null) {
+      mySyncSupplier.get().getListener(type).downloadCompleted(id);
+    }
+  }
+
+  public void failedDownload(MavenServerProgressIndicator.ResolveType type,
+                             String id,
+                             String message,
+                             String trace) {
+    if (mySyncSupplier != null) {
+      mySyncSupplier.get().getListener(type).downloadFailed(id, message, trace);
+    }
+  }
 
   private static class MyEmptyProgressIndicator extends EmptyProgressIndicator {
-    private String myText;
-    private String myText2;
+    private @NlsContexts.ProgressText String myText;
+    private @NlsContexts.ProgressDetails String myText2;
     private double myFraction;
 
     @Override
@@ -133,6 +173,57 @@ public class MavenProgressIndicator {
     @Override
     public double getFraction() {
       return myFraction;
+    }
+  }
+
+  private void maybeTrackIndicator(@Nullable ProgressIndicator indicator) {
+    if (myProject == null) return; // should we also wait for non-project process like MavenIndicesManager activities?
+    myProject.getService(MavenProgressTracker.class).add(indicator);
+
+    if (indicator instanceof ProgressIndicatorEx) {
+      ((ProgressIndicatorEx)indicator).addStateDelegate(new AbstractProgressIndicatorExBase() {
+        @Override
+        public void start() {
+          myProject.getService(MavenProgressTracker.class).add(indicator);
+        }
+
+        @Override
+        public void stop() {
+          myProject.getService(MavenProgressTracker.class).remove(indicator);
+        }
+      });
+    }
+  }
+
+  @ApiStatus.Internal
+  @Service(PROJECT)
+  public static final class MavenProgressTracker {
+    private final Set<ProgressIndicator> myIndicators = Collections.newSetFromMap(new IdentityHashMap<>());
+
+    public void waitForProgressCompletion() {
+      while (hasMavenProgressRunning()) {
+        final Object lock = new Object();
+        synchronized (lock) {
+          try {
+            lock.wait(100);
+          }
+          catch (InterruptedException ignore) {
+          }
+        }
+      }
+    }
+
+    synchronized private void add(@Nullable ProgressIndicator indicator) {
+      myIndicators.add(indicator);
+    }
+
+    synchronized private void remove(@Nullable ProgressIndicator indicator) {
+      myIndicators.remove(indicator);
+    }
+
+    synchronized private boolean hasMavenProgressRunning() {
+      myIndicators.removeIf(indicator -> !indicator.isRunning());
+      return !myIndicators.isEmpty();
     }
   }
 }

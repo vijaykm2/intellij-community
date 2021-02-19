@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.testIntegration;
 
@@ -21,16 +7,17 @@ import com.intellij.codeInsight.navigation.GotoTargetHandler;
 import com.intellij.codeInsight.navigation.NavigationUtil;
 import com.intellij.execution.executors.DefaultRunExecutor;
 import com.intellij.icons.AllIcons;
+import com.intellij.lang.LangBundle;
+import com.intellij.navigation.ItemPresentation;
 import com.intellij.openapi.actionSystem.Shortcut;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.keymap.Keymap;
-import com.intellij.openapi.keymap.KeymapManager;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.SmartList;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -52,7 +39,7 @@ public class GotoTestOrCodeHandler extends GotoTargetHandler {
     PsiElement sourceElement = TestFinderHelper.findSourceElement(selectedElement);
     if (sourceElement == null) return null;
 
-    List<AdditionalAction> actions = new SmartList<AdditionalAction>();
+    List<AdditionalAction> actions = new SmartList<>();
 
     Collection<PsiElement> candidates;
     if (TestFinderHelper.isTest(selectedElement)) {
@@ -60,25 +47,29 @@ public class GotoTestOrCodeHandler extends GotoTargetHandler {
     }
     else {
       candidates = TestFinderHelper.findTestsForClass(selectedElement);
-      final TestCreator creator = LanguageTestCreators.INSTANCE.forLanguage(file.getLanguage());
-      if (creator != null && creator.isAvailable(file.getProject(), editor, file)) {
-        actions.add(new AdditionalAction() {
-          @NotNull
-          @Override
-          public String getText() {
-            return "Create New Test...";
-          }
+      if (candidates.size() != 1) {
+        for (TestCreator creator : LanguageTestCreators.INSTANCE.allForLanguage(file.getLanguage())) {
+          if (!creator.isAvailable(file.getProject(), editor, file)) continue;
+          actions.add(new AdditionalAction() {
+            @NotNull
+            @Override
+            public String getText() {
+              String text = creator instanceof ItemPresentation ? ((ItemPresentation)creator).getPresentableText() : null;
+              return ObjectUtils.notNull(text, LangBundle.message("action.create.new.test.text"));
+            }
 
-          @Override
-          public Icon getIcon() {
-            return AllIcons.Actions.IntentionBulb;
-          }
+            @Override
+            public Icon getIcon() {
+              Icon icon = creator instanceof ItemPresentation ? ((ItemPresentation)creator).getIcon(false) : null;
+              return ObjectUtils.notNull(icon, AllIcons.Actions.IntentionBulb);
+            }
 
-          @Override
-          public void execute() {
-            creator.createTest(file.getProject(), editor, file);
-          }
-        });
+            @Override
+            public void execute() {
+              creator.createTest(file.getProject(), editor, file);
+            }
+          });
+        }
       }
     }
 
@@ -97,18 +88,19 @@ public class GotoTestOrCodeHandler extends GotoTargetHandler {
 
   @NotNull
   @Override
-  protected String getChooserTitle(PsiElement sourceElement, String name, int length) {
+  protected String getChooserTitle(@NotNull PsiElement sourceElement, String name, int length, boolean finished) {
+    String suffix = finished ? "" : " so far";
     if (TestFinderHelper.isTest(sourceElement)) {
-      return CodeInsightBundle.message("goto.test.chooserTitle.subject", name, length);
+      return CodeInsightBundle.message("goto.test.chooserTitle.subject", name, length, suffix);
     }
     else {
-      return CodeInsightBundle.message("goto.test.chooserTitle.test", name, length);
+      return CodeInsightBundle.message("goto.test.chooserTitle.test", name, length, suffix);
     }
   }
 
   @NotNull
   @Override
-  protected String getFindUsagesTitle(PsiElement sourceElement, String name, int length) {
+  protected String getFindUsagesTitle(@NotNull PsiElement sourceElement, String name, int length) {
     if (TestFinderHelper.isTest(sourceElement)) {
       return CodeInsightBundle.message("goto.test.findUsages.subject.title", name);
     }
@@ -127,17 +119,21 @@ public class GotoTestOrCodeHandler extends GotoTargetHandler {
   @Override
   protected String getAdText(PsiElement source, int length) {
     if (length > 0 && !TestFinderHelper.isTest(source)) {
-      final Keymap keymap = KeymapManager.getInstance().getActiveKeymap();
-      final Shortcut[] shortcuts = keymap.getShortcuts(DefaultRunExecutor.getRunExecutorInstance().getContextActionId());
-      if (shortcuts.length > 0) {
-        return ("Press " + KeymapUtil.getShortcutText(shortcuts[0]) + " to run selected tests");
+      final Shortcut shortcut = KeymapUtil.getPrimaryShortcut(DefaultRunExecutor.getRunExecutorInstance().getContextActionId());
+      if (shortcut != null) {
+        return (LangBundle.message("popup.advertisement.press.to.run.selected.tests", KeymapUtil.getShortcutText(shortcut)));
       }
     }
     return null;
   }
 
   @Override
-  protected void navigateToElement(Navigatable element) {
+  protected boolean useEditorFont() {
+    return false;
+  }
+
+  @Override
+  protected void navigateToElement(@NotNull Navigatable element) {
     if (element instanceof PsiElement) {
       NavigationUtil.activateFileWithPsiElement((PsiElement)element, true);
     }

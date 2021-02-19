@@ -1,23 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl.synthetic;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.light.LightTypeParameter;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GrPsiTypeStub;
 
@@ -33,10 +21,15 @@ public class GrMethodWrapper extends GrLightMethodBuilder implements PsiMirrorEl
   };
 
   private final PsiMethod myWrappedMethod;
+  private PsiElement myContext;
   private volatile boolean myNavigationElementInit;
 
   protected GrMethodWrapper(PsiMethod method, PsiSubstitutor substitutor) {
-    super(method.getManager(), method.getName());
+    this(method, substitutor, method.getName());
+  }
+
+  protected GrMethodWrapper(PsiMethod method, PsiSubstitutor substitutor, String name) {
+    super(method.getManager(), name);
     myWrappedMethod = method;
     setContainingClass(method.getContainingClass());
     getModifierList().copyModifiers(method);
@@ -49,6 +42,16 @@ public class GrMethodWrapper extends GrLightMethodBuilder implements PsiMirrorEl
     }
 
     setReturnType(TYPE_MARKER);
+  }
+
+  @Override
+  public PsiElement getContext() {
+    if (myContext != null) return myContext;
+    return super.getContext();
+  }
+
+  public void setContext(@Nullable PsiElement context) {
+    myContext = context;
   }
 
   @Override
@@ -92,6 +95,10 @@ public class GrMethodWrapper extends GrLightMethodBuilder implements PsiMirrorEl
 
   public static GrLightMethodBuilder wrap(GrMethod method, PsiSubstitutor substitutor) {
     return new GrMethodWrapper(method, substitutor);
+  }
+
+  public static GrMethodWrapper wrap(@NotNull PsiMethod method, @NlsSafe @NotNull String newName) {
+    return new GrMethodWrapper(method, PsiSubstitutor.EMPTY, newName);
   }
 
   @NotNull

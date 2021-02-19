@@ -15,7 +15,6 @@
  */
 package com.intellij.codeInsight.template.macro;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.template.*;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMethod;
@@ -33,22 +32,17 @@ public class MethodParametersMacro extends Macro {
   }
 
   @Override
-  public String getPresentableName() {
-    return CodeInsightBundle.message("macro.method.parameters");
-  }
-
-  @Override
   @NotNull
   public String getDefaultValue() {
     return "a";
   }
 
   @Override
-  public Result calculateResult(@NotNull Expression[] params, final ExpressionContext context) {
+  public Result calculateResult(Expression @NotNull [] params, final ExpressionContext context) {
     PsiElement place = context.getPsiElementAtStartOffset();
     while(place != null){
       if (place instanceof PsiMethod){
-        List<Result> result = new ArrayList<Result>();
+        List<Result> result = new ArrayList<>();
         for (PsiParameter parameter : ((PsiMethod)place).getParameterList().getParameters()) {
           result.add(new TextResult(parameter.getName()));
         }

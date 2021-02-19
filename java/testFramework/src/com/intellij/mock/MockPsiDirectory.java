@@ -3,6 +3,7 @@
  */
 package com.intellij.mock;
 
+import com.intellij.lang.Language;
 import com.intellij.navigation.ItemPresentation;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.Project;
@@ -11,7 +12,6 @@ import com.intellij.psi.*;
 import com.intellij.psi.search.PsiElementProcessor;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.lang.Language;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -99,8 +99,7 @@ public class MockPsiDirectory extends MockPsiElement implements PsiDirectory {
   }
 
   @Override
-  @NotNull
-  public PsiFile[] getFiles() {
+  public PsiFile @NotNull [] getFiles() {
     throw new UnsupportedOperationException("Method getFiles is not yet implemented in " + getClass().getName());
   }
 
@@ -118,9 +117,13 @@ public class MockPsiDirectory extends MockPsiElement implements PsiDirectory {
   }
 
   @Override
-  @NotNull
-  public PsiDirectory[] getSubdirectories() {
+  public PsiDirectory @NotNull [] getSubdirectories() {
     throw new UnsupportedOperationException("Method getSubdirectories is not yet implemented in " + getClass().getName());
+  }
+
+  @Override
+  public PsiFile getContainingFile() throws PsiInvalidElementAccessException {
+    return null;
   }
 
   @Override
@@ -130,7 +133,7 @@ public class MockPsiDirectory extends MockPsiElement implements PsiDirectory {
   }
 
   @Override
-  public boolean processChildren(final PsiElementProcessor<PsiFileSystemItem> processor) {
+  public boolean processChildren(final @NotNull PsiElementProcessor<? super PsiFileSystemItem> processor) {
     throw new UnsupportedOperationException("Method processChildren is not yet implemented in " + getClass().getName());
   }
 

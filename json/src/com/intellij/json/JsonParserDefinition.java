@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.json;
 
 import com.intellij.json.psi.impl.JsonFileImpl;
@@ -9,7 +10,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.FileViewProvider;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.TokenType;
 import com.intellij.psi.tree.IFileElementType;
 import com.intellij.psi.tree.TokenSet;
 import org.jetbrains.annotations.NotNull;
@@ -17,7 +17,7 @@ import org.jetbrains.annotations.NotNull;
 import static com.intellij.json.JsonElementTypes.*;
 
 public class JsonParserDefinition implements ParserDefinition {
-  public static final TokenSet WHITE_SPACES = TokenSet.create(TokenType.WHITE_SPACE);
+  public static final TokenSet WHITE_SPACES = TokenSet.WHITE_SPACE;
   public static final TokenSet STRING_LITERALS = TokenSet.create(SINGLE_QUOTED_STRING, DOUBLE_QUOTED_STRING);
 
   public static final IFileElementType FILE = new IFileElementType(JsonLanguage.INSTANCE);
@@ -39,12 +39,12 @@ public class JsonParserDefinition implements ParserDefinition {
   }
 
   @Override
-  public PsiParser createParser(Project project) {
+  public @NotNull PsiParser createParser(Project project) {
     return new JsonParser();
   }
 
   @Override
-  public IFileElementType getFileNodeType() {
+  public @NotNull IFileElementType getFileNodeType() {
     return FILE;
   }
 
@@ -73,12 +73,12 @@ public class JsonParserDefinition implements ParserDefinition {
   }
 
   @Override
-  public PsiFile createFile(FileViewProvider fileViewProvider) {
-    return new JsonFileImpl(fileViewProvider);
+  public @NotNull PsiFile createFile(@NotNull FileViewProvider fileViewProvider) {
+    return new JsonFileImpl(fileViewProvider, JsonLanguage.INSTANCE);
   }
 
   @Override
-  public SpaceRequirements spaceExistanceTypeBetweenTokens(ASTNode astNode, ASTNode astNode2) {
+  public @NotNull SpaceRequirements spaceExistenceTypeBetweenTokens(ASTNode astNode, ASTNode astNode2) {
     return SpaceRequirements.MAY;
   }
 }

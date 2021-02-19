@@ -30,14 +30,13 @@ import org.jetbrains.annotations.Nullable;
 public abstract class EncapsulateFieldHelper {
   private static class Extension extends LanguageExtension<EncapsulateFieldHelper> {
 
-    public Extension() {
+    Extension() {
       super("com.intellij.encapsulateFields.Helper");
     }
   }
   private static final Extension INSTANCE = new Extension();
 
-  @NotNull
-  public abstract PsiField[] getApplicableFields(@NotNull PsiClass aClass);
+  public abstract PsiField @NotNull [] getApplicableFields(@NotNull PsiClass aClass);
 
   @NotNull
   public abstract String suggestSetterName(@NotNull PsiField field);

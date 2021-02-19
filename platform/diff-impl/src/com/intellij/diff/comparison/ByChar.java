@@ -1,46 +1,55 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diff.comparison;
 
 import com.intellij.diff.comparison.iterables.DiffIterable;
 import com.intellij.diff.comparison.iterables.FairDiffIterable;
 import com.intellij.diff.util.Range;
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.util.Pair;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import static com.intellij.diff.comparison.TrimUtil.isPunctuation;
+import static com.intellij.diff.comparison.TrimUtil.isWhiteSpaceCodePoint;
 import static com.intellij.diff.comparison.iterables.DiffIterableUtil.*;
-import static com.intellij.openapi.util.text.StringUtil.isWhiteSpace;
 
-public class ByChar {
-  // TODO: we can use int[] instead of Char, but will it noticeable increase performance ?
-
+public final class ByChar {
   @NotNull
   public static FairDiffIterable compare(@NotNull CharSequence text1,
                                          @NotNull CharSequence text2,
                                          @NotNull ProgressIndicator indicator) {
     indicator.checkCanceled();
 
-    List<Char> chars1 = getAllChars(text1);
-    List<Char> chars2 = getAllChars(text2);
+    int[] codePoints1 = getAllCodePoints(text1);
+    int[] codePoints2 = getAllCodePoints(text2);
 
-    return diff(chars1, chars2, indicator);
+    FairDiffIterable iterable = diff(codePoints1, codePoints2, indicator);
+
+    int offset1 = 0;
+    int offset2 = 0;
+    ChangeBuilder builder = new ChangeBuilder(text1.length(), text2.length());
+    for (Pair<Range, Boolean> pair : iterateAll(iterable)) {
+      Range range = pair.first;
+      boolean equals = pair.second;
+
+      int end1 = offset1 + countChars(codePoints1, range.start1, range.end1);
+      int end2 = offset2 + countChars(codePoints2, range.start2, range.end2);
+
+      if (equals) {
+        builder.markEqual(offset1, offset2, end1, end2);
+      }
+
+      offset1 = end1;
+      offset2 = end2;
+    }
+    assert offset1 == text1.length();
+    assert offset2 == text2.length();
+
+    return fair(builder.finish());
   }
 
   @NotNull
@@ -49,11 +58,19 @@ public class ByChar {
                                                 @NotNull ProgressIndicator indicator) {
     indicator.checkCanceled();
 
-    List<Char> chars1 = getNonSpaceChars(text1);
-    List<Char> chars2 = getNonSpaceChars(text2);
+    CodePointsOffsets codePoints1 = getNonSpaceCodePoints(text1);
+    CodePointsOffsets codePoints2 = getNonSpaceCodePoints(text2);
 
-    FairDiffIterable nonSpaceChanges = diff(chars1, chars2, indicator);
-    return matchAdjustmentSpaces(chars1, chars2, text1, text2, nonSpaceChanges, indicator);
+    FairDiffIterable nonSpaceChanges = diff(codePoints1.codePoints, codePoints2.codePoints, indicator);
+    return matchAdjustmentSpaces(codePoints1, codePoints2, text1, text2, nonSpaceChanges, indicator);
+  }
+
+  @NotNull
+  public static DiffIterable compareTrimWhitespaces(@NotNull CharSequence text1,
+                                                    @NotNull CharSequence text2,
+                                                    @NotNull ProgressIndicator indicator) {
+    FairDiffIterable iterable = compareTwoStep(text1, text2, indicator);
+    return new ByWord.TrimSpacesCorrector(iterable, text1, text2, indicator).build();
   }
 
   @NotNull
@@ -62,11 +79,11 @@ public class ByChar {
                                                       @NotNull ProgressIndicator indicator) {
     indicator.checkCanceled();
 
-    List<Char> chars1 = getNonSpaceChars(text1);
-    List<Char> chars2 = getNonSpaceChars(text2);
+    CodePointsOffsets codePoints1 = getNonSpaceCodePoints(text1);
+    CodePointsOffsets codePoints2 = getNonSpaceCodePoints(text2);
 
-    FairDiffIterable changes = diff(chars1, chars2, indicator);
-    return matchAdjustmentSpacesIW(chars1, chars2, text1, text2, changes);
+    FairDiffIterable changes = diff(codePoints1.codePoints, codePoints2.codePoints, indicator);
+    return matchAdjustmentSpacesIW(codePoints1, codePoints2, text1, text2, changes);
   }
 
   /*
@@ -78,11 +95,11 @@ public class ByChar {
                                                     @NotNull ProgressIndicator indicator) {
     indicator.checkCanceled();
 
-    List<Char> chars1 = getPunctuationChars(text1);
-    List<Char> chars2 = getPunctuationChars(text2);
+    CodePointsOffsets chars1 = getPunctuationChars(text1);
+    CodePointsOffsets chars2 = getPunctuationChars(text2);
 
-    FairDiffIterable nonSpaceChanges = diff(chars1, chars2, indicator);
-    return transfer(chars1, chars2, text1, text2, nonSpaceChanges, indicator);
+    FairDiffIterable nonSpaceChanges = diff(chars1.codePoints, chars2.codePoints, indicator);
+    return transferPunctuation(chars1, chars2, text1, text2, nonSpaceChanges, indicator);
   }
 
   //
@@ -90,19 +107,20 @@ public class ByChar {
   //
 
   @NotNull
-  private static FairDiffIterable transfer(@NotNull final List<Char> chars1,
-                                           @NotNull final List<Char> chars2,
-                                           @NotNull final CharSequence text1,
-                                           @NotNull final CharSequence text2,
-                                           @NotNull final FairDiffIterable changes,
-                                           @NotNull final ProgressIndicator indicator) {
+  private static FairDiffIterable transferPunctuation(@NotNull final CodePointsOffsets chars1,
+                                                      @NotNull final CodePointsOffsets chars2,
+                                                      @NotNull final CharSequence text1,
+                                                      @NotNull final CharSequence text2,
+                                                      @NotNull final FairDiffIterable changes,
+                                                      @NotNull final ProgressIndicator indicator) {
     ChangeBuilder builder = new ChangeBuilder(text1.length(), text2.length());
 
     for (Range range : changes.iterateUnchanged()) {
       int count = range.end1 - range.start1;
       for (int i = 0; i < count; i++) {
-        int offset1 = chars1.get(range.start1 + i).getOffset();
-        int offset2 = chars2.get(range.start2 + i).getOffset();
+        // Punctuation code points are always 1 char
+        int offset1 = chars1.offsets[range.start1 + i];
+        int offset2 = chars2.offsets[range.start2 + i];
         builder.markEqual(offset1, offset2);
       }
     }
@@ -117,13 +135,13 @@ public class ByChar {
    * (inside these pairs could met non-space characters, but they will be unique and can't be matched)
    */
   @NotNull
-  private static FairDiffIterable matchAdjustmentSpaces(@NotNull final List<Char> chars1,
-                                                        @NotNull final List<Char> chars2,
+  private static FairDiffIterable matchAdjustmentSpaces(@NotNull final CodePointsOffsets codePoints1,
+                                                        @NotNull final CodePointsOffsets codePoints2,
                                                         @NotNull final CharSequence text1,
                                                         @NotNull final CharSequence text2,
                                                         @NotNull final FairDiffIterable changes,
                                                         @NotNull final ProgressIndicator indicator) {
-    return new ChangeCorrector.DefaultCharChangeCorrector(chars1, chars2, text1, text2, changes, indicator).build();
+    return new ChangeCorrector.DefaultCharChangeCorrector(codePoints1, codePoints2, text1, text2, changes, indicator).build();
   }
 
   /*
@@ -132,32 +150,32 @@ public class ByChar {
    * matched characters: matched non-space characters + all adjustment whitespaces
    */
   @NotNull
-  private static DiffIterable matchAdjustmentSpacesIW(@NotNull List<Char> chars1,
-                                                      @NotNull List<Char> chars2,
+  private static DiffIterable matchAdjustmentSpacesIW(@NotNull CodePointsOffsets codePoints1,
+                                                      @NotNull CodePointsOffsets codePoints2,
                                                       @NotNull CharSequence text1,
                                                       @NotNull CharSequence text2,
                                                       @NotNull FairDiffIterable changes) {
-    final List<Range> ranges = new ArrayList<Range>();
+    final List<Range> ranges = new ArrayList<>();
 
     for (Range ch : changes.iterateChanges()) {
       int startOffset1;
       int endOffset1;
       if (ch.start1 == ch.end1) {
-        startOffset1 = endOffset1 = expandForwardW(chars1, chars2, text1, text2, ch, true);
+        startOffset1 = endOffset1 = expandForwardW(codePoints1, codePoints2, text1, text2, ch, true);
       }
       else {
-        startOffset1 = chars1.get(ch.start1).getOffset();
-        endOffset1 = chars1.get(ch.end1 - 1).getOffset() + 1;
+        startOffset1 = codePoints1.charOffset(ch.start1);
+        endOffset1 = codePoints1.charOffsetAfter(ch.end1 - 1);
       }
 
       int startOffset2;
       int endOffset2;
       if (ch.start2 == ch.end2) {
-        startOffset2 = endOffset2 = expandForwardW(chars1, chars2, text1, text2, ch, false);
+        startOffset2 = endOffset2 = expandForwardW(codePoints1, codePoints2, text1, text2, ch, false);
       }
       else {
-        startOffset2 = chars2.get(ch.start2).getOffset();
-        endOffset2 = chars2.get(ch.end2 - 1).getOffset() + 1;
+        startOffset2 = codePoints2.charOffset(ch.start2);
+        endOffset2 = codePoints2.charOffsetAfter(ch.end2 - 1);
       }
 
       ranges.add(new Range(startOffset1, endOffset1, startOffset2, endOffset2));
@@ -170,110 +188,104 @@ public class ByChar {
    *
    * sample: "x y" -> "x zy", space should be matched instead of being ignored.
    */
-  private static int expandForwardW(@NotNull List<Char> chars1,
-                                    @NotNull List<Char> chars2,
+  private static int expandForwardW(@NotNull CodePointsOffsets codePoints1,
+                                    @NotNull CodePointsOffsets codePoints2,
                                     @NotNull CharSequence text1,
                                     @NotNull CharSequence text2,
                                     @NotNull Range ch,
                                     boolean left) {
-    int offset1 = ch.start1 == 0 ? 0 : chars1.get(ch.start1 - 1).getOffset() + 1;
-    int offset2 = ch.start2 == 0 ? 0 : chars2.get(ch.start2 - 1).getOffset() + 1;
+    int offset1 = ch.start1 == 0 ? 0 : codePoints1.charOffsetAfter(ch.start1 - 1);
+    int offset2 = ch.start2 == 0 ? 0 : codePoints2.charOffsetAfter(ch.start2 - 1);
 
     int start = left ? offset1 : offset2;
 
-    return start + TrimUtil.expandForwardW(text1, text2, offset1, offset2, text1.length(), text2.length());
+    return start + TrimUtil.expandWhitespacesForward(text1, text2, offset1, offset2, text1.length(), text2.length());
   }
 
   //
   // Misc
   //
 
-  @NotNull
-  private static List<Char> getAllChars(@NotNull CharSequence text) {
-    List<Char> chars = new ArrayList<Char>(text.length());
+  private static int @NotNull [] getAllCodePoints(@NotNull CharSequence text) {
+    IntList list = new IntArrayList(text.length());
 
-    for (int i = 0; i < text.length(); i++) {
-      chars.add(new Char(text, i));
+    int len = text.length();
+    int offset = 0;
+
+    while (offset < len) {
+      int ch = Character.codePointAt(text, offset);
+      int charCount = Character.charCount(ch);
+
+      list.add(ch);
+
+      offset += charCount;
     }
 
-    return chars;
+    return list.toIntArray();
   }
 
   @NotNull
-  private static List<Char> getNonSpaceChars(@NotNull CharSequence text) {
-    List<Char> lines = new ArrayList<Char>();
+  private static CodePointsOffsets getNonSpaceCodePoints(@NotNull CharSequence text) {
+    IntList codePoints = new IntArrayList(text.length());
+    IntList offsets = new IntArrayList(text.length());
 
-    for (int i = 0; i < text.length(); i++) {
-      char c = text.charAt(i);
-      if (!isWhiteSpace(c)) {
-        lines.add(new Char(text, i));
+    int len = text.length();
+    int offset = 0;
+
+    while (offset < len) {
+      int ch = Character.codePointAt(text, offset);
+      int charCount = Character.charCount(ch);
+
+      if (!isWhiteSpaceCodePoint(ch)) {
+        codePoints.add(ch);
+        offsets.add(offset);
       }
+
+      offset += charCount;
     }
 
-    return lines;
+    return new CodePointsOffsets(codePoints.toIntArray(), offsets.toIntArray());
   }
 
   @NotNull
-  private static List<Char> getPunctuationChars(@NotNull CharSequence text) {
-    List<Char> lines = new ArrayList<Char>();
+  private static CodePointsOffsets getPunctuationChars(@NotNull CharSequence text) {
+    IntList codePoints = new IntArrayList(text.length());
+    IntList offsets = new IntArrayList(text.length());
 
     for (int i = 0; i < text.length(); i++) {
       char c = text.charAt(i);
       if (isPunctuation(c)) {
-        lines.add(new Char(text, i));
+        codePoints.add(c);
+        offsets.add(i);
       }
     }
 
-    return lines;
+    return new CodePointsOffsets(codePoints.toIntArray(), offsets.toIntArray());
   }
 
-  //
-  // Helpers
-  //
+  private static int countChars(int[] codePoints, int start, int end) {
+    int count = 0;
+    for (int i = start; i < end; i++) {
+      count += Character.charCount(codePoints[i]);
+    }
+    return count;
+  }
 
-  static class Char implements ChangeCorrector.CorrectableData {
-    @NotNull private final CharSequence myText;
-    private final int myOffset;
+  static class CodePointsOffsets {
+    public final int[] codePoints;
+    public final int[] offsets;
 
-    public Char(@NotNull CharSequence text, int offset) {
-      myText = text;
-      myOffset = offset;
+    CodePointsOffsets(int[] codePoints, int[] offsets) {
+      this.codePoints = codePoints;
+      this.offsets = offsets;
     }
 
-    @Override
-    public boolean equals(Object o) {
-      if (this == o) return true;
-      if (o == null || getClass() != o.getClass()) return false;
-
-      return getContent() == ((Char)o).getContent();
+    public int charOffset(int index) {
+      return offsets[index];
     }
 
-    @NotNull
-    public CharSequence getText() {
-      return myText;
-    }
-
-    public int getOffset() {
-      return myOffset;
-    }
-
-    public char getContent() {
-      return myText.charAt(myOffset);
-    }
-
-    @Override
-    public int hashCode() {
-      return getContent();
-    }
-
-    @Override
-    public String toString() {
-      return String.valueOf(getContent());
-    }
-
-    @Override
-    public int getOriginalIndex() {
-      return myOffset;
+    public int charOffsetAfter(int index) {
+      return offsets[index] + Character.charCount(codePoints[index]);
     }
   }
 }

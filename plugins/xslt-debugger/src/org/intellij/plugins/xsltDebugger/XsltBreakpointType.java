@@ -1,10 +1,10 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.xsltDebugger;
 
-import com.intellij.icons.AllIcons;
+import com.intellij.ide.highlighter.XmlFileType;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
@@ -20,20 +20,12 @@ import org.intellij.lang.xpath.xslt.impl.XsltChecker;
 import org.intellij.plugins.xsltDebugger.impl.XsltDebuggerEditorsProvider;
 import org.jetbrains.annotations.NotNull;
 
-import javax.swing.*;
-
-/*
-* Created by IntelliJ IDEA.
-* User: sweinreuter
-* Date: 03.03.11
-*/
 public class XsltBreakpointType extends XLineBreakpointType<XBreakpointProperties> {
-
   private final XsltDebuggerEditorsProvider myMyEditorsProvider1 = new XsltDebuggerEditorsProvider(XsltChecker.LanguageLevel.V1);
   private final XsltDebuggerEditorsProvider myMyEditorsProvider2 = new XsltDebuggerEditorsProvider(XsltChecker.LanguageLevel.V2);
 
   public XsltBreakpointType() {
-    super("xslt", "XSLT Breakpoints");
+    super("xslt", XsltDebuggerBundle.message("title.xslt.breakpoints"));
   }
 
   @Override
@@ -46,7 +38,7 @@ public class XsltBreakpointType extends XLineBreakpointType<XBreakpointPropertie
       return false;
     }
     final FileType fileType = psiFile.getFileType();
-    if (fileType != StdFileTypes.XML || !XsltSupport.isXsltFile(psiFile)) {
+    if (fileType != XmlFileType.INSTANCE || !XsltSupport.isXsltFile(psiFile)) {
       return false;
     }
     return true;
@@ -72,18 +64,6 @@ public class XsltBreakpointType extends XLineBreakpointType<XBreakpointPropertie
     }
 
     return null;
-  }
-
-  @NotNull
-  @Override
-  public Icon getEnabledIcon() {
-    return XsltSupport.createXsltIcon(AllIcons.Debugger.Db_set_breakpoint);
-  }
-
-  @NotNull
-  @Override
-  public Icon getDisabledIcon() {
-    return XsltSupport.createXsltIcon(AllIcons.Debugger.Db_disabled_breakpoint);
   }
 
   @Override

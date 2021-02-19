@@ -50,8 +50,9 @@ public class PyTypeParserTest extends PyTestCase {
   public void testListType() {
     myFixture.configureByFile("typeParser/typeParser.py");
     final PyCollectionType type = (PyCollectionType) PyTypeParser.getTypeByName(myFixture.getFile(), "list of MyObject");
+    assertNotNull(type);
     assertClassType(type, "list");
-    assertClassType(type.getElementType(getTypeEvalContext()), "MyObject");
+    assertClassType(type.getIteratedItemType(), "MyObject");
   }
 
   public void testDictType() {
@@ -59,12 +60,9 @@ public class PyTypeParserTest extends PyTestCase {
     final PyCollectionType type = (PyCollectionType) PyTypeParser.getTypeByName(myFixture.getFile(), "dict from str to MyObject");
     assertNotNull(type);
     assertClassType(type, "dict");
-    final PyType elementType = type.getElementType(getTypeEvalContext());
-    assertInstanceOf(elementType, PyTupleType.class);
-    final PyTupleType tupleType = (PyTupleType)elementType;
-    assertEquals(2, tupleType.getElementCount());
-    assertClassType(tupleType.getElementType(0), "str");
-    assertClassType(tupleType.getElementType(1), "MyObject");
+    final List<PyType> elementTypes = type.getElementTypes();
+    assertClassType(elementTypes.get(0), "str");
+    assertClassType(elementTypes.get(1), "MyObject");
   }
 
   private TypeEvalContext getTypeEvalContext() {
@@ -77,7 +75,7 @@ public class PyTypeParserTest extends PyTestCase {
     assertNotNull(type);
     final Collection<PyType> members = type.getMembers();
     assertEquals(2, members.size());
-    final List<PyType> list = new ArrayList<PyType>(members);
+    final List<PyType> list = new ArrayList<>(members);
     assertClassType(list.get(0), "MyObject");
     assertClassType(list.get(1), "str");
   }
@@ -102,7 +100,7 @@ public class PyTypeParserTest extends PyTestCase {
     assertNotNull(type);
     assertInstanceOf(type, PyUnionType.class);
     final PyUnionType unionType = (PyUnionType)type;
-    final ArrayList<PyType> types = new ArrayList<PyType>(unionType.getMembers());
+    final ArrayList<PyType> types = new ArrayList<>(unionType.getMembers());
     assertClassType(types.get(0), "str");
     assertClassType(types.get(1), "unicode");
   }
@@ -161,7 +159,7 @@ public class PyTypeParserTest extends PyTestCase {
     final PyType type = PyTypeParser.getTypeByName(myFixture.getFile(), "Unresolved or int");
     assertNotNull(type);
     assertInstanceOf(type, PyUnionType.class);
-    final List<PyType> members = new ArrayList<PyType>(((PyUnionType)type).getMembers());
+    final List<PyType> members = new ArrayList<>(((PyUnionType)type).getMembers());
     assertEquals(2, members.size());
     assertNull(members.get(0));
     assertClassType(members.get(1), "int");
@@ -182,8 +180,7 @@ public class PyTypeParserTest extends PyTestCase {
     final PyCollectionType collectionType = (PyCollectionType)type;
     assertNotNull(collectionType);
     assertEquals("list", collectionType.getName());
-    final PyType elementType = collectionType.getElementType(TypeEvalContext.codeInsightFallback(null));
-    assertInstanceOf(elementType, PyUnionType.class);
+    assertInstanceOf(collectionType.getIteratedItemType(), PyUnionType.class);
   }
 
   public void testBoundedGeneric() {
@@ -203,9 +200,7 @@ public class PyTypeParserTest extends PyTestCase {
     final PyCollectionType collectionType = (PyCollectionType)type;
     assertNotNull(collectionType);
     assertEquals("list", collectionType.getName());
-    final PyType elementType = collectionType.getElementType(TypeEvalContext.codeInsightFallback(null));
-    assertNotNull(elementType);
-    assertEquals("int", elementType.getName());
+    assertEquals("int", collectionType.getIteratedItemType().getName());
   }
 
   public void testBracketMultipleParams() {
@@ -215,14 +210,12 @@ public class PyTypeParserTest extends PyTestCase {
     final PyCollectionType collectionType = (PyCollectionType)type;
     assertNotNull(collectionType);
     assertEquals("dict", collectionType.getName());
-    final PyType elementType = collectionType.getElementType(TypeEvalContext.codeInsightFallback(null));
-    assertNotNull(elementType);
-    assertInstanceOf(elementType, PyTupleType.class);
-    final PyTupleType tupleType = (PyTupleType)elementType;
-    final PyType first = tupleType.getElementType(0);
+    final List<PyType> elementTypes = collectionType.getElementTypes();
+    assertEquals(2, elementTypes.size());
+    final PyType first = elementTypes.get(0);
     assertNotNull(first);
     assertEquals("str", first.getName());
-    final PyType second = tupleType.getElementType(1);
+    final PyType second = elementTypes.get(1);
     assertNotNull(second);
     assertEquals("int", second.getName());
   }
@@ -233,7 +226,7 @@ public class PyTypeParserTest extends PyTestCase {
     assertNotNull(type);
     final Collection<PyType> members = type.getMembers();
     assertEquals(3, members.size());
-    final List<PyType> list = new ArrayList<PyType>(members);
+    final List<PyType> list = new ArrayList<>(members);
     assertClassType(list.get(0), "MyObject");
     assertClassType(list.get(1), "str");
     assertClassType(list.get(2), "unicode");

@@ -18,23 +18,24 @@ package org.jetbrains.jps.gradle.model.impl;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
-import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.xmlb.annotations.Tag;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * @author Vladislav.Soroka
- * @since 7/22/2014
  */
 @Tag("filter")
 public class ResourceRootFilter {
   @Tag("filterType")
   @NotNull
+  @NlsSafe
   public String filterType;
   @Tag("properties")
   @NotNull
@@ -64,10 +65,11 @@ public class ResourceRootFilter {
           propertiesMap.put("matcher", matcher);
         }
       }
-      catch (JsonSyntaxException e) {
+      catch (JsonParseException e) {
         throw new RuntimeException("Unsupported filter: " + properties , e);
-      } catch (JsonParseException e) {
-        throw new RuntimeException("Unsupported filter: " + properties , e);
+      }
+      if(propertiesMap == null) {
+        propertiesMap = new HashMap<>();
       }
     }
     return propertiesMap;

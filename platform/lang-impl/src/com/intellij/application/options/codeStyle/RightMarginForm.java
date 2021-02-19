@@ -1,34 +1,38 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.application.options.codeStyle;
 
+import com.intellij.lang.LangBundle;
 import com.intellij.lang.Language;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.application.ApplicationBundle;
+import com.intellij.openapi.options.ConfigurationException;
+import com.intellij.openapi.project.DumbAwareAction;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.psi.codeStyle.CodeStyleConstraints;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
+import com.intellij.psi.codeStyle.CodeStyleSettingsCustomizable;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
+import com.intellij.ui.JBColor;
+import com.intellij.ui.components.AnActionLink;
+import com.intellij.ui.components.fields.CommaSeparatedIntegersField;
+import com.intellij.ui.components.fields.IntegerField;
+import com.intellij.ui.components.fields.valueEditors.CommaSeparatedIntegersValueEditor;
+import com.intellij.ui.components.fields.valueEditors.ValueEditor;
+import com.intellij.ui.scale.JBUIScale;
+import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import javax.swing.event.ChangeEvent;
-import javax.swing.event.ChangeListener;
+import java.awt.*;
+import java.util.List;
+
+import static com.intellij.psi.codeStyle.CodeStyleSettingsCustomizableOptions.getInstance;
 
 /**
  * Can be used for languages which do not use standard "Wrapping and Braces" panel.
  * <p>
  * <strong>Note</strong>: besides adding the panel to UI it is necessary to make sure that language's own
- * <code>LanguageCodeStyleSettingsProvider</code> explicitly supports RIGHT_MARGIN field in <code>customizeSettings()</code>
+ * {@code LanguageCodeStyleSettingsProvider} explicitly supports RIGHT_MARGIN field in {@code customizeSettings()}
  * method as shown below:
  * <pre>
  * public void customizeSettings(...) {
@@ -40,81 +44,125 @@ import javax.swing.event.ChangeListener;
  * @author Rustam Vishnyakov
  */
 public class RightMarginForm {
-  private JTextField myRightMarginField;
-  private JCheckBox myDefaultGeneralCheckBox;
+  private IntegerField myRightMarginField;
   private JPanel myTopPanel;
+  private JComboBox<String> myWrapOnTypingCombo;
+  private CommaSeparatedIntegersField myVisualGuidesField;
+  @SuppressWarnings("unused") private AnActionLink myResetLink;
+  private JLabel myVisualGuidesHint;
+  private JLabel myVisualGuidesLabel;
+  private AnActionLink myResetGuidesLink;
   private final Language myLanguage;
-  private final int myDefaultRightMargin;
+  private final CodeStyleSettings mySettings;
 
   public RightMarginForm(@NotNull Language language, @NotNull CodeStyleSettings settings) {
     myLanguage = language;
-    myDefaultRightMargin = settings.getDefaultRightMargin();
-    myDefaultGeneralCheckBox.addChangeListener(new ChangeListener() {
+    mySettings = settings;
+
+    //noinspection unchecked
+    myWrapOnTypingCombo.setModel(new DefaultComboBoxModel(
+      getInstance().WRAP_ON_TYPING_OPTIONS
+    ));
+    MarginOptionsUtil.customizeWrapOnTypingCombo(myWrapOnTypingCombo, settings);
+    myVisualGuidesHint.setForeground(JBColor.GRAY);
+    myVisualGuidesHint.setFont(UIUtil.getLabelFont(UIUtil.FontSize.SMALL));
+    myVisualGuidesLabel.setText(ApplicationBundle.message("settings.code.style.visual.guides") + ":");
+  }
+
+  void createUIComponents() {
+    myRightMarginField = new IntegerField(ApplicationBundle.message("editbox.right.margin.columns"),
+                                          0, CodeStyleConstraints.MAX_RIGHT_MARGIN);
+    myRightMarginField.getValueEditor().addListener(new ValueEditor.Listener<>() {
       @Override
-      public void stateChanged(ChangeEvent e) {
-        if (myDefaultGeneralCheckBox.isSelected()) {
-          myRightMarginField.setText(Integer.toString(myDefaultRightMargin));
-          myRightMarginField.setEnabled(false);
-        }
-        else {
-          myRightMarginField.setEnabled(true);
-        }
+      public void valueChanged(@NotNull Integer newValue) {
+        myResetLink.setVisible(!newValue.equals(myRightMarginField.getDefaultValue()));
+        myRightMarginField.getEmptyText().setText(MarginOptionsUtil.getDefaultRightMarginText(mySettings));
       }
     });
+    myRightMarginField.setCanBeEmpty(true);
+    myRightMarginField.setDefaultValue(-1);
+    myRightMarginField.setMinimumSize(new Dimension(JBUIScale.scale(120), myRightMarginField.getMinimumSize().height));
+    myVisualGuidesField = new CommaSeparatedIntegersField(ApplicationBundle.message("settings.code.style.visual.guides"),
+                                                          0, CodeStyleConstraints.MAX_RIGHT_MARGIN,
+                                                          ApplicationBundle.message("settings.code.style.visual.guides.optional"));
+    myVisualGuidesField.getValueEditor().addListener(new ValueEditor.Listener<>() {
+      @Override
+      public void valueChanged(@NotNull List<Integer> newValue) {
+        myResetGuidesLink.setVisible(!myVisualGuidesField.isEmpty());
+        myVisualGuidesField.getEmptyText().setText(getDefaultVisualGuidesText(mySettings));
+      }
+    });
+    myResetLink = new AnActionLink(LangBundle.message("action.link.reset"), new ResetRightMarginAction());
+    myVisualGuidesLabel = new JLabel();
+    myResetGuidesLink = new AnActionLink(LangBundle.message("action.link.reset"), new ResetGuidesAction());
+  }
+
+  private class ResetRightMarginAction extends DumbAwareAction {
+    @Override
+    public void actionPerformed(@NotNull AnActionEvent e) {
+      myRightMarginField.resetToDefault();
+    }
+  }
+
+  private class ResetGuidesAction extends DumbAwareAction {
+    @Override
+    public void actionPerformed(@NotNull AnActionEvent e) {
+      myVisualGuidesField.clear();
+    }
   }
 
   public void reset(@NotNull CodeStyleSettings settings) {
     CommonCodeStyleSettings langSettings = settings.getCommonSettings(myLanguage);
-    if (langSettings != settings && langSettings.RIGHT_MARGIN >= 0) {
-      myDefaultGeneralCheckBox.setSelected(false);
-      myRightMarginField.setText(Integer.toString(langSettings.RIGHT_MARGIN));
-    }
-    else {
-      myDefaultGeneralCheckBox.setSelected(true);
-      myRightMarginField.setText(Integer.toString(settings.getDefaultRightMargin()));
-      if (langSettings == settings) {
-        myDefaultGeneralCheckBox.setEnabled(false);
-        myRightMarginField.setEnabled(false);
+    myRightMarginField.setValue(langSettings.RIGHT_MARGIN);
+    for (int i = 0; i < CodeStyleSettingsCustomizable.WRAP_ON_TYPING_VALUES.length; i ++) {
+      if (langSettings.WRAP_ON_TYPING == CodeStyleSettingsCustomizable.WRAP_ON_TYPING_VALUES[i]) {
+        myWrapOnTypingCombo.setSelectedIndex(i);
+        break;
       }
     }
+    myVisualGuidesField.setValue(langSettings.getSoftMargins());
+    myResetLink.setVisible(langSettings.RIGHT_MARGIN >= 0);
+    myResetGuidesLink.setVisible(!langSettings.getSoftMargins().isEmpty());
+    myRightMarginField.getEmptyText().setText(MarginOptionsUtil.getDefaultRightMarginText(settings));
+    myVisualGuidesField.getEmptyText().setText(getDefaultVisualGuidesText(settings));
   }
 
-  public void apply(@NotNull CodeStyleSettings settings) {
+  public void apply(@NotNull CodeStyleSettings settings) throws ConfigurationException {
+    myRightMarginField.validateContent();
+    myVisualGuidesField.validateContent();
     CommonCodeStyleSettings langSettings = settings.getCommonSettings(myLanguage);
-    if (langSettings != settings) {
-      if (myDefaultGeneralCheckBox.isSelected()) {
-        langSettings.RIGHT_MARGIN = -1;
-      }
-      else {
-        langSettings.RIGHT_MARGIN = getFieldRightMargin(settings.getDefaultRightMargin());
-      }
-    }
+    langSettings.RIGHT_MARGIN = myRightMarginField.getValue();
+    langSettings.WRAP_ON_TYPING = getSelectedWrapOnTypingValue();
+    settings.setSoftMargins(myLanguage, myVisualGuidesField.getValue());
   }
 
   public boolean isModified(@NotNull CodeStyleSettings settings) {
     CommonCodeStyleSettings langSettings = settings.getCommonSettings(myLanguage);
-    if (myDefaultGeneralCheckBox.isSelected()) {
-      return langSettings.RIGHT_MARGIN >= 0;
-    }
-    else {
-      return langSettings.RIGHT_MARGIN != getFieldRightMargin(settings.getDefaultRightMargin());
-    }
+    return langSettings.RIGHT_MARGIN != myRightMarginField.getValue() ||
+           langSettings.WRAP_ON_TYPING != getSelectedWrapOnTypingValue() ||
+           !langSettings.getSoftMargins().equals(myVisualGuidesField.getValue());
   }
 
-  private int getFieldRightMargin(int fallBackValue) {
-    String strValue = myRightMarginField.getText();
-    if (!strValue.trim().isEmpty()) {
-      try {
-        return Integer.parseInt(strValue);
-      }
-      catch (NumberFormatException e) {
-        myRightMarginField.setText(Integer.toString(fallBackValue));
-      }
+
+  private int getSelectedWrapOnTypingValue() {
+    int i = myWrapOnTypingCombo.getSelectedIndex();
+    if (i >= 0 && i < CodeStyleSettingsCustomizable.WRAP_ON_TYPING_VALUES.length) {
+      return CodeStyleSettingsCustomizable.WRAP_ON_TYPING_VALUES[i];
     }
-    return fallBackValue;
+    return CommonCodeStyleSettings.WrapOnTyping.DEFAULT.intValue;
   }
 
   public JPanel getTopPanel() {
     return myTopPanel;
   }
+
+  private static @NlsContexts.Label String getDefaultVisualGuidesText(@NotNull CodeStyleSettings settings) {
+    List<Integer> margins = settings.getDefaultSoftMargins();
+    String marginsString =
+      margins.size() <= 2 ?
+      CommaSeparatedIntegersValueEditor.intListToString(margins) :
+      CommaSeparatedIntegersValueEditor.intListToString(margins.subList(0, 2)) + ",...";
+    return MarginOptionsUtil.getDefaultValueText(marginsString);
+  }
+
 }

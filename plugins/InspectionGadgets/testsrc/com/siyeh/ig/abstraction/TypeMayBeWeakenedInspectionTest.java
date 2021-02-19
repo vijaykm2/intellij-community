@@ -1,15 +1,24 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.abstraction;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.intellij.codeInspection.ex.EntryPointsManagerBase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
-public class TypeMayBeWeakenedInspectionTest extends LightInspectionTestCase {
+public class TypeMayBeWeakenedInspectionTest extends LightJavaInspectionTestCase {
+  @Override
+  protected void setUp() throws Exception {
+    super.setUp();
+    // avoid PSI/document/model changes are not allowed during highlighting
+    EntryPointsManagerBase.DEAD_CODE_EP_NAME.getExtensionList();
+  }
 
   public void testTypeMayBeWeakened() { doTest(); }
   public void testNumberAdderDemo() { doTest(); }
   public void testAutoClosableTest() { doTest(); }
   public void testLambda() { doTest(); }
+  public void testTryWithResources() { doTest(); }
 
   @Override
   protected String[] getEnvironmentClasses() {
@@ -53,6 +62,7 @@ public class TypeMayBeWeakenedInspectionTest extends LightInspectionTestCase {
   protected InspectionProfileEntry getInspection() {
     final TypeMayBeWeakenedInspection inspection = new TypeMayBeWeakenedInspection();
     inspection.doNotWeakenToJavaLangObject = false;
+    inspection.doNotWeakenReturnType = false;
     inspection.onlyWeakentoInterface = false;
     return inspection;
   }

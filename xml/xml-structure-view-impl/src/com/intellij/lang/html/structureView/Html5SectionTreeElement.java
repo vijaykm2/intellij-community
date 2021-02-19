@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ import com.intellij.ide.structureView.StructureViewTreeElement;
 import com.intellij.ide.structureView.impl.common.PsiTreeElementBase;
 import com.intellij.openapi.util.Computable;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.xml.util.HtmlUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -26,11 +27,11 @@ import java.util.Collection;
 
 class Html5SectionTreeElement extends PsiTreeElementBase<XmlTag> {
 
-  private final Computable<Collection<StructureViewTreeElement>> myChildrenComputable;
+  private final Computable<? extends Collection<StructureViewTreeElement>> myChildrenComputable;
   private final String myHeader;
 
-  public Html5SectionTreeElement(final XmlTag tag,
-                                 final Computable<Collection<StructureViewTreeElement>> childrenComputable,
+  Html5SectionTreeElement(final XmlTag tag,
+                                 final Computable<? extends Collection<StructureViewTreeElement>> childrenComputable,
                                  final @Nullable String header) {
     super(tag);
     myChildrenComputable = childrenComputable;
@@ -56,10 +57,7 @@ class Html5SectionTreeElement extends PsiTreeElementBase<XmlTag> {
 
   @Override
   public String getLocationString() {
-    final XmlTag tag = getElement();
-    if (tag == null) return null;
-
-    return HtmlTagTreeElement.getTagPresentation(tag);
+    return HtmlUtil.getTagPresentation(getElement());
   }
 
   @Override

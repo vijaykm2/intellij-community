@@ -21,6 +21,7 @@ import com.intellij.psi.PsiType;
 import com.intellij.psi.tree.IElementType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.lang.psi.api.GrRangeExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.GrListOrMap;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.*;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.arguments.GrArgumentLabel;
@@ -33,22 +34,21 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.clauses.GrCaseLabel;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.clauses.GrCaseSection;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.clauses.GrForClause;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.*;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.arithmetic.GrRangeExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.literals.GrLiteral;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.path.GrIndexProperty;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.params.GrParameter;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrTypeElement;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
-@SuppressWarnings({"OverlyComplexMethod",
-    "MethodWithMultipleLoops",
+@SuppressWarnings({
+  "MethodWithMultipleLoops",
     "OverlyComplexMethod",
     "OverlyLongMethod",
     "SwitchStatementWithTooManyBranches",
     "SwitchStatement",
     "OverlyComplexClass",
     "ClassWithTooManyMethods"})
-public class EquivalenceChecker {
+public final class EquivalenceChecker {
 
   private EquivalenceChecker() {
     super();
@@ -151,13 +151,7 @@ public class EquivalenceChecker {
     }
 
     final GrArgumentList argumentList1 = statement1.getArgumentList();
-    if (argumentList1 == null) {
-      return false;
-    }
     final GrArgumentList argumentList2 = statement2.getArgumentList();
-    if (argumentList2 == null) {
-      return false;
-    }
     final GrExpression[] args1 = argumentList1.getExpressionArguments();
     final GrExpression[] args2 = argumentList2.getExpressionArguments();
     if (!expressionListsAreEquivalent(args1, args2)) {
@@ -275,8 +269,8 @@ public class EquivalenceChecker {
 
   private static boolean whileStatementsAreEquivalent(@NotNull GrWhileStatement statement1,
                                                       @NotNull GrWhileStatement statement2) {
-    final GrExpression condition1 = (GrExpression) statement1.getCondition();
-    final GrExpression condition2 = (GrExpression) statement2.getCondition();
+    final GrExpression condition1 = statement1.getCondition();
+    final GrExpression condition2 = statement2.getCondition();
     final GrStatement body1 = statement1.getBody();
     final GrStatement body2 = statement2.getBody();
     return expressionsAreEquivalent(condition1, condition2) &&
@@ -299,11 +293,17 @@ public class EquivalenceChecker {
                                                  @Nullable GrForClause statement2) {
     if (statement1 == null && statement2 == null) return true;
     if (statement1 == null || statement2 == null) return false;
-    final GrVariable var1 = statement1.getDeclaredVariable();
-    final GrVariable var2 = statement2.getDeclaredVariable();
-    if (var1 == null && var2 == null) return true;
-    if (var1 == null || var2 == null) return false;
-    return variablesAreEquivalent(var1, var2);
+    GrVariable[] variables1 = statement1.getDeclaredVariables();
+    GrVariable[] variables2 = statement2.getDeclaredVariables();
+    if (variables1.length != variables2.length) return false;
+    for (int i = 0; i < variables1.length; i++) {
+      final GrVariable var1 = variables1[i];
+      final GrVariable var2 = variables2[i];
+      if (var1 == null && var2 == null) return true;
+      if (var1 == null || var2 == null) return false;
+      if (!variablesAreEquivalent(var1, var2)) return false;
+    }
+    return true;
   }
 
   private static boolean switchStatementsAreEquivalent(@NotNull GrSwitchStatement statement1,
@@ -521,8 +521,9 @@ public class EquivalenceChecker {
   }
 
   private static boolean listOrMapExpressionsAreEquivalent(GrListOrMap expression1, GrListOrMap expression2) {
-    return expressionListsAreEquivalent(expression1.getInitializers(), expression2.getInitializers()) &&
-        namedArgumentListsAreEquivalent(expression1.getNamedArguments(), expression2.getNamedArguments());
+    return expression1.isMap() == expression2.isMap() &&
+           expressionListsAreEquivalent(expression1.getInitializers(), expression2.getInitializers()) &&
+           namedArgumentListsAreEquivalent(expression1.getNamedArguments(), expression2.getNamedArguments());
   }
 
   private static boolean arrayDeclarationsAreEquivalent(GrArrayDeclaration expression1,
@@ -664,7 +665,7 @@ public class EquivalenceChecker {
                                                      @NotNull GrNewExpression newExp2) {
     final PsiMethod constructor1 = newExp1.resolveMethod();
     final PsiMethod constructor2 = newExp2.resolveMethod();
-    if (constructor1 == null || constructor2 == null || constructor1.equals(constructor2)) {
+    if (constructor1 == null || constructor2 == null || !constructor1.equals(constructor2)) {
       return false;
     }
     return argumentListsAreEquivalent(newExp1.getArgumentList(), newExp2.getArgumentList());
@@ -711,8 +712,8 @@ public class EquivalenceChecker {
 
   private static boolean rangeExpressionsAreEquivalent(@NotNull GrRangeExpression rangeExp1,
                                                        @NotNull GrRangeExpression rangeExp2) {
-    return expressionsAreEquivalent(rangeExp1.getLeftOperand(), rangeExp2.getLeftOperand()) &&
-           expressionsAreEquivalent(rangeExp1.getRightOperand(), rangeExp2.getRightOperand()) &&
+    return expressionsAreEquivalent(rangeExp1.getFrom(), rangeExp2.getFrom()) &&
+           expressionsAreEquivalent(rangeExp1.getTo(), rangeExp2.getTo()) &&
            isInclusive(rangeExp1) == isInclusive(rangeExp2);
   }
 
@@ -763,8 +764,8 @@ public class EquivalenceChecker {
         && expressionsAreEquivalent(elseExpression1, elseExpression2);
   }
 
-  private static boolean expressionListsAreEquivalent(@Nullable GrExpression[] expressions1,
-                                                      @Nullable GrExpression[] expressions2) {
+  private static boolean expressionListsAreEquivalent(GrExpression @Nullable [] expressions1,
+                                                      GrExpression @Nullable [] expressions2) {
     if (expressions1 == null && expressions2 == null) {
       return true;
     }

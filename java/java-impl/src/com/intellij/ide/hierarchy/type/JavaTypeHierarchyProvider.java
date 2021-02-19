@@ -1,21 +1,7 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.hierarchy.type;
 
-import com.intellij.codeInsight.TargetElementUtilBase;
+import com.intellij.codeInsight.TargetElementUtil;
 import com.intellij.ide.hierarchy.HierarchyBrowser;
 import com.intellij.ide.hierarchy.HierarchyProvider;
 import com.intellij.ide.hierarchy.TypeHierarchyBrowserBase;
@@ -31,7 +17,8 @@ import org.jetbrains.annotations.NotNull;
  * @author yole
  */
 public class JavaTypeHierarchyProvider implements HierarchyProvider {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.hierarchy.type.JavaTypeHierarchyProvider");
+  private static final Logger LOG = Logger.getInstance(JavaTypeHierarchyProvider.class);
+  @Override
   public PsiElement getTarget(@NotNull final DataContext dataContext) {
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
     if (project == null) return null;
@@ -44,9 +31,9 @@ public class JavaTypeHierarchyProvider implements HierarchyProvider {
       final PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
       if (file == null) return null;
 
-      final PsiElement targetElement = TargetElementUtilBase.findTargetElement(editor, TargetElementUtilBase.ELEMENT_NAME_ACCEPTED |
-                                                                                       TargetElementUtilBase.REFERENCED_ELEMENT_ACCEPTED |
-                                                                                       TargetElementUtilBase.LOOKUP_ITEM_ACCEPTED);
+      final PsiElement targetElement = TargetElementUtil.findTargetElement(editor, TargetElementUtil.ELEMENT_NAME_ACCEPTED |
+                                                                                   TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED |
+                                                                                   TargetElementUtil.LOOKUP_ITEM_ACCEPTED);
       if (LOG.isDebugEnabled()) {
         LOG.debug("target element " + targetElement);
       }
@@ -79,15 +66,17 @@ public class JavaTypeHierarchyProvider implements HierarchyProvider {
     }
   }
 
+  @Override
   @NotNull
-  public HierarchyBrowser createHierarchyBrowser(final PsiElement target) {
+  public HierarchyBrowser createHierarchyBrowser(@NotNull PsiElement target) {
     return new TypeHierarchyBrowser(target.getProject(), (PsiClass) target);
   }
 
+  @Override
   public void browserActivated(@NotNull final HierarchyBrowser hierarchyBrowser) {
     final TypeHierarchyBrowser browser = (TypeHierarchyBrowser)hierarchyBrowser;
     final String typeName =
-      browser.isInterface() ? TypeHierarchyBrowserBase.SUBTYPES_HIERARCHY_TYPE : TypeHierarchyBrowserBase.TYPE_HIERARCHY_TYPE;
+      browser.isInterface() ? TypeHierarchyBrowserBase.getSubtypesHierarchyType() : TypeHierarchyBrowserBase.getTypeHierarchyType();
     browser.changeView(typeName);
   }
 }

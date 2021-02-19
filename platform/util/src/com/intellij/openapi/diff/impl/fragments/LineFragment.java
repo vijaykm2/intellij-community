@@ -28,7 +28,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 
 public class LineFragment extends LineBlock implements Fragment {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.diff.impl.fragments.LineFragment");
+  private static final Logger LOG = Logger.getInstance(LineFragment.class);
   private final TextRange myRange1;
   private final TextRange myRange2;
   private FragmentList myChildren;
@@ -139,7 +139,7 @@ public class LineFragment extends LineBlock implements Fragment {
   }
 
   @Override
-  public Fragment getSubfragmentAt(int offset, FragmentSide side, Condition<Fragment> condition) {
+  public Fragment getSubfragmentAt(int offset, FragmentSide side, Condition<? super Fragment> condition) {
     Fragment childFragment = myChildren.getFragmentAt(offset, side, condition);
     return childFragment != null ? childFragment : this;
   }
@@ -168,7 +168,7 @@ public class LineFragment extends LineBlock implements Fragment {
     }
   }
 
-  public void setChildren(ArrayList<Fragment> fragments) {
+  public void setChildren(ArrayList<? extends Fragment> fragments) {
     LOG.assertTrue(myChildren == FragmentList.EMPTY);
     ArrayList<Fragment> shifted =
         FragmentListImpl.shift(fragments, myRange1, myRange2, getStartingLine1(), getStartingLine2());
@@ -182,7 +182,7 @@ public class LineFragment extends LineBlock implements Fragment {
     checkChildren(myChildren.iterator());
   }
 
-  private void checkChildren(Iterator<Fragment> iterator) {
+  private void checkChildren(Iterator<? extends Fragment> iterator) {
     if (myChildren.isEmpty()) {
       myHasLineChildren = false;
       return;

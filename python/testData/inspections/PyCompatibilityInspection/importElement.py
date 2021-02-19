@@ -1,1 +1,4 @@
-import <warning descr="Python version 3.0, 3.1, 3.2, 3.3, 3.4, 3.5 do not have module Bastion">Bastion</warning>
+import <warning descr="Python versions 3.5, 3.6, 3.7, 3.8, 3.9, 3.10 do not have module Bastion">Bastion</warning>
+
+from <warning descr="Python version 2.7 does not have module asyncio">asyncio</warning> import Queue
+from io import StringIO

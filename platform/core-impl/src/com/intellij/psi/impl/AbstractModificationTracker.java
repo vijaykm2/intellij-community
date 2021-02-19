@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,11 +17,15 @@ package com.intellij.psi.impl;
 
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Roman.Chernyatchik
+ * @deprecated see {@link com.intellij.psi.util.PsiModificationTracker#getOutOfCodeBlockModificationTracker()}
  */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
 public abstract class AbstractModificationTracker implements PsiTreeChangePreprocessor {
   private final PsiManagerImpl myPsiManager;
   private PsiModificationTrackerImpl myModificationTracker;

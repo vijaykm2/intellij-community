@@ -22,21 +22,16 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.javaFX.fxml.JavaFxFileTypeFactory;
 import org.jetbrains.plugins.javaFX.fxml.JavaFxPsiUtil;
 
-/**
- * User: anna
- * Date: 1/17/13
- */
 public abstract class JavaFxControllerBasedReferenceProvider extends PsiReferenceProvider {
-  @NotNull
   @Override
-  public final PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
+  public final PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
     final XmlAttributeValue xmlAttrVal = (XmlAttributeValue)element;
     final PsiFile containingFile = xmlAttrVal.getContainingFile();
     if (!JavaFxFileTypeFactory.isFxml(containingFile)) return PsiReference.EMPTY_ARRAY;
 
     final PsiClass controllerClass = JavaFxPsiUtil.getControllerClass(containingFile);
     return controllerClass != null ? getReferencesByElement(controllerClass, xmlAttrVal, context) 
-                                   : new PsiReference[] {new PsiReferenceBase.Immediate<XmlAttributeValue>(xmlAttrVal, xmlAttrVal)};
+                                   : new PsiReference[] {new PsiReferenceBase.Immediate<>(xmlAttrVal, xmlAttrVal)};
   }
 
   protected abstract PsiReference[] getReferencesByElement(@NotNull PsiClass controllerClass, XmlAttributeValue element, ProcessingContext context);

@@ -1,5 +1,7 @@
 package com.siyeh.igtest.errorhandling.try_identical_catches;
 
+import java.io.*;
+
 class TryIdenticalCatches {
   public void notIdentical() {
     try {
@@ -105,7 +107,7 @@ class TryIdenticalCatches {
     } catch (E4 e) {
     } <warning descr="'catch' branch identical to 'E4' branch">catch (E2 e)</warning> {
     } <warning descr="'catch' branch identical to 'E4' branch">catch (E3 e)</warning> {
-    } <warning descr="'catch' branch identical to 'E2' branch">catch (E1 e)</warning> {
+    } <warning descr="'catch' branch identical to 'E4' branch">catch (E1 e)</warning> {
     }
   }
 
@@ -133,5 +135,74 @@ class TryIdenticalCatches {
       causeException = e;
     }
     System.out.println("causeException = " + causeException);
+  }
+
+  public void x() throws IOException {
+    try {
+      foo();
+    } catch (FileNotFoundException e) {
+      throw e;
+    } catch (IOException e) {
+      throw INSTANCE;
+    }
+  }
+
+  public void y() throws IOException {
+    try {
+
+    } catch (RuntimeException g) {
+      try {
+        foo();
+      } catch (FileNotFoundException e) {
+        throw e;
+      } catch (IOException e) {
+        throw g;
+      }
+    }
+  }
+
+  void foo() throws IOException {}
+  private static final IOException INSTANCE = new IOException();
+
+  public boolean returning() {
+    try {
+      // work
+    }
+    catch(NumberFormatException e) {
+      return true;
+    }
+    <warning descr="'catch' branch identical to 'NumberFormatException' branch">catch(RuntimeException e)</warning> {
+      return true;
+    }
+    return false;
+  }
+
+  public void suppress() {
+    try {
+      // ...
+    }
+    catch (NumberFormatException e) {
+      System.out.println(e);
+    }
+    catch (@SuppressWarnings("TryWithIdenticalCatches") RuntimeException e) {
+      System.out.println(e);
+    }
+  }
+}
+class TestInspection {
+  public void foo() throws MyException {
+    try {
+      toString();
+    } catch (IllegalArgumentException e) {
+      throw new MyException(e);
+    } catch (IllegalStateException e) {
+      throw new MyException(e);
+    }
+  }
+
+  private static class MyException extends Exception {
+    public MyException(IllegalArgumentException e) {}
+
+    public MyException(IllegalStateException e) {}
   }
 }

@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 27-Aug-2009
- */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.quickfix.ChangeVariableTypeQuickFixProvider;
@@ -27,9 +23,8 @@ import com.intellij.psi.PsiType;
 import org.jetbrains.annotations.NotNull;
 
 public class VariableTypeQuickFixProvider implements ChangeVariableTypeQuickFixProvider{
-  @NotNull
   @Override
-  public IntentionAction[] getFixes(@NotNull PsiVariable variable, @NotNull PsiType toReturn) {
+  public IntentionAction @NotNull [] getFixes(@NotNull PsiVariable variable, @NotNull PsiType toReturn) {
     return new IntentionAction[]{new VariableTypeFix(variable, toReturn)};
   }
 }

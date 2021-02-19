@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.mock;
 
 import com.intellij.openapi.Disposable;
@@ -23,11 +9,15 @@ import com.intellij.psi.search.GlobalSearchScope;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
 /**
  * @author peter
  */
 public class MockModule extends MockComponentManager implements Module {
   private final Project myProject;
+  private String myName = "MockModule";
 
   public MockModule(@NotNull Disposable parentDisposable) {
     this(null, parentDisposable);
@@ -45,8 +35,8 @@ public class MockModule extends MockComponentManager implements Module {
 
   @Override
   @NotNull
-  public String getModuleFilePath() {
-    return "";
+  public Path getModuleNioFile() {
+    return Paths.get("");
   }
 
   @NotNull
@@ -114,7 +104,12 @@ public class MockModule extends MockComponentManager implements Module {
   @Override
   @NotNull
   public String getName() {
-    return "MockModule";
+    return myName;
+  }
+
+  public MockModule setName(String name) {
+    myName = name;
+    return this;
   }
 
   @Override
@@ -137,10 +132,5 @@ public class MockModule extends MockComponentManager implements Module {
   @Override
   public void setOption(@NotNull final String optionName, @NotNull final String optionValue) {
     throw new UnsupportedOperationException("Method setOption is not yet implemented in " + getClass().getName());
-  }
-
-  @Override
-  public void clearOption(@NotNull String optionName) {
-    throw new UnsupportedOperationException("Method clearOption is not yet implemented in " + getClass().getName());
   }
 }

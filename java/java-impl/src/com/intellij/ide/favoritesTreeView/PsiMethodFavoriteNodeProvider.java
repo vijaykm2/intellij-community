@@ -1,23 +1,5 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/*
- * User: anna
- * Date: 21-Jan-2008
- */
 package com.intellij.ide.favoritesTreeView;
 
 import com.intellij.codeInspection.reference.RefMethodImpl;
@@ -27,10 +9,9 @@ import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.LangDataKeys;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleUtil;
 import com.intellij.openapi.module.ModuleUtilCore;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiClass;
@@ -46,7 +27,7 @@ import java.util.Collection;
 
 public class PsiMethodFavoriteNodeProvider extends FavoriteNodeProvider {
   @Override
-  public Collection<AbstractTreeNode> getFavoriteNodes(final DataContext context, final ViewSettings viewSettings) {
+  public Collection<AbstractTreeNode<?>> getFavoriteNodes(final DataContext context, @NotNull final ViewSettings viewSettings) {
     final Project project = CommonDataKeys.PROJECT.getData(context);
     if (project == null) return null;
     PsiElement[] elements = LangDataKeys.PSI_ELEMENT_ARRAY.getData(context);
@@ -57,10 +38,10 @@ public class PsiMethodFavoriteNodeProvider extends FavoriteNodeProvider {
       }
     }
     if (elements != null) {
-      final Collection<AbstractTreeNode> result = new ArrayList<AbstractTreeNode>();
+      final Collection<AbstractTreeNode<?>> result = new ArrayList<>();
       for (PsiElement element : elements) {
         if (element instanceof PsiMethod) {
-          result.add(new MethodSmartPointerNode(project, element, viewSettings));
+          result.add(new MethodSmartPointerNode(project, (PsiMethod)element, viewSettings));
         }
       }
       return result.isEmpty() ? null : result;
@@ -69,9 +50,9 @@ public class PsiMethodFavoriteNodeProvider extends FavoriteNodeProvider {
   }
 
   @Override
-  public AbstractTreeNode createNode(final Project project, final Object element, final ViewSettings viewSettings) {
+  public AbstractTreeNode createNode(final Project project, final Object element, @NotNull final ViewSettings viewSettings) {
     if (element instanceof PsiMethod) {
-      return new MethodSmartPointerNode(project, element, viewSettings);
+      return new MethodSmartPointerNode(project, (PsiMethod)element, viewSettings);
     }
     return super.createNode(project, element, viewSettings);
   }
@@ -114,8 +95,9 @@ public class PsiMethodFavoriteNodeProvider extends FavoriteNodeProvider {
   @Override
   public String getElementUrl(final Object element) {
      if (element instanceof PsiMethod) {
-      PsiMethod aMethod = (PsiMethod)element;
-      return PsiFormatUtil.getExternalName(aMethod);
+       PsiMethod aMethod = (PsiMethod)element;
+       if (DumbService.isDumb(aMethod.getProject())) return null;
+       return PsiFormatUtil.getExternalName(aMethod);
     }
     return null;
   }
@@ -132,6 +114,7 @@ public class PsiMethodFavoriteNodeProvider extends FavoriteNodeProvider {
 
   @Override
   public Object[] createPathFromUrl(final Project project, final String url, final String moduleName) {
+    if (DumbService.isDumb(project)) return null;
     final PsiMethod method = RefMethodImpl.findPsiMethod(PsiManager.getInstance(project), url);
     if (method == null) return null;
     return new Object[]{method};

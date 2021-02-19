@@ -16,15 +16,14 @@
 package com.intellij.embedding;
 
 import com.intellij.lang.ASTNode;
-import com.intellij.lang.LighterLazyParseableNode;
 import com.intellij.lang.ParserDefinition;
 import com.intellij.lang.PsiBuilder;
 import com.intellij.lang.impl.DelegateMarker;
 import com.intellij.lang.impl.PsiBuilderAdapter;
 import com.intellij.lang.impl.PsiBuilderImpl;
+import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.psi.TokenType;
 import com.intellij.psi.tree.IElementType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -55,19 +54,7 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
                         @NotNull final MasqueradingLexer lexer,
                         @NotNull final ASTNode chameleon,
                         @NotNull final CharSequence text) {
-    this(new PsiBuilderImpl(project, parserDefinition, lexer, chameleon, text));
-  }
-
-  public MasqueradingPsiBuilderAdapter(@NotNull final Project project,
-                        @NotNull final ParserDefinition parserDefinition,
-                        @NotNull final MasqueradingLexer lexer,
-                        @NotNull final LighterLazyParseableNode chameleon,
-                        @NotNull final CharSequence text) {
-    this(new PsiBuilderImpl(project, parserDefinition, lexer, chameleon, text));
-  }
-
-  private MasqueradingPsiBuilderAdapter(PsiBuilderImpl builder) {
-    super(builder);
+    super(new PsiBuilderImpl(project, parserDefinition, lexer, chameleon, text));
 
     LOG.assertTrue(myDelegate instanceof PsiBuilderImpl);
     myBuilderDelegate = ((PsiBuilderImpl)myDelegate);
@@ -78,6 +65,7 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
     initShrunkSequence();
   }
 
+  @NotNull
   @Override
   public CharSequence getOriginalText() {
     return myShrunkCharSequence;
@@ -107,7 +95,10 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
     }
 
     if (delegate.getCurrentOffset() > myShrunkSequence.get(myLexPosition).realStart) {
-      LOG.error("delegate is ahead of my builder!");
+      LOG.error("delegate is ahead of my builder!",
+                new Attachment("offset = " + delegate.getCurrentOffset(), getOriginalText().toString()),
+                new Attachment("myShrunkSequence", myShrunkSequence.toString())
+      );
       return;
     }
 
@@ -187,8 +178,8 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
   @Nullable
   @Override
   public IElementType getTokenType() {
-    if (allIsEmpty()) {
-      return TokenType.DUMMY_HOLDER;
+    if (eof()) {
+      return null;
     }
     skipWhitespace();
 
@@ -198,8 +189,8 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
   @Nullable
   @Override
   public String getTokenText() {
-    if (allIsEmpty()) {
-      return getDelegate().getOriginalText().toString();
+    if (eof()) {
+      return null;
     }
     skipWhitespace();
 
@@ -222,19 +213,23 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
     return true;
   }
 
+  @NotNull
   @Override
   public Marker mark() {
+    Marker originalPositionMarker = null;
     // In the case of the topmost node all should be inserted
     if (myLexPosition != 0) {
+      originalPositionMarker = super.mark();
       synchronizePositions(true);
     }
 
     final Marker mark = super.mark();
-    return new MyMarker(mark, myLexPosition);
-  }
-
-  private boolean allIsEmpty() {
-    return myShrunkSequence.isEmpty() && getDelegate().getOriginalText().length() != 0;
+    if (myLexPosition == 0) {
+      if (myDelegate.getTokenType() == TemplateMasqueradingLexer.MINUS_TYPE) {
+        myDelegate.advanceLexer();
+      }
+    }
+    return new MyMarker(mark, originalPositionMarker, myLexPosition);
   }
 
   private void skipWhitespace() {
@@ -254,7 +249,7 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
 
   private void initTokenListAndCharSequence(MasqueradingLexer lexer) {
     lexer.start(getDelegate().getOriginalText());
-    myShrunkSequence = new ArrayList<MyShiftedToken>();
+    myShrunkSequence = new ArrayList<>();
     StringBuilder charSequenceBuilder = new StringBuilder();
 
     int realPos = 0;
@@ -313,7 +308,7 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
     public final int shrunkStart;
     public final int shrunkEnd;
 
-    public MyShiftedToken(IElementType elementType, int realStart, int realEnd, int shrunkStart, int shrunkEnd) {
+    MyShiftedToken(IElementType elementType, int realStart, int realEnd, int shrunkStart, int shrunkEnd) {
       this.elementType = elementType;
       this.realStart = realStart;
       this.realEnd = realEnd;
@@ -331,26 +326,71 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
 
     private final int myBuilderPosition;
 
-    public MyMarker(Marker delegate, int builderPosition) {
+    private final Marker myOriginalPositionMarker;
+
+    MyMarker(Marker delegate, Marker originalPositionMarker, int builderPosition) {
       super(delegate);
 
       myBuilderPosition = builderPosition;
+      myOriginalPositionMarker = originalPositionMarker;
     }
 
     @Override
     public void rollbackTo() {
-      super.rollbackTo();
+      if (myOriginalPositionMarker != null) {
+        myOriginalPositionMarker.rollbackTo();
+      } else {
+        super.rollbackTo();
+      }
       myLexPosition = myBuilderPosition;
     }
 
     @Override
-    public void doneBefore(IElementType type, Marker before) {
+    public void doneBefore(@NotNull IElementType type, @NotNull Marker before) {
+      if (myOriginalPositionMarker != null) {
+        myOriginalPositionMarker.drop();
+      }
       super.doneBefore(type, getDelegateOrThis(before));
     }
 
     @Override
-    public void doneBefore(IElementType type, Marker before, String errorMessage) {
+    public void doneBefore(@NotNull IElementType type, @NotNull Marker before, @NotNull String errorMessage) {
+      if (myOriginalPositionMarker != null) {
+        myOriginalPositionMarker.drop();
+      }
       super.doneBefore(type, getDelegateOrThis(before), errorMessage);
+    }
+
+    @Override
+    public void drop() {
+      if (myOriginalPositionMarker != null) {
+        myOriginalPositionMarker.drop();
+      }
+      super.drop();
+    }
+
+    @Override
+    public void done(@NotNull IElementType type) {
+      if (myOriginalPositionMarker != null) {
+        myOriginalPositionMarker.drop();
+      }
+      super.done(type);
+    }
+
+    @Override
+    public void collapse(@NotNull IElementType type) {
+      if (myOriginalPositionMarker != null) {
+        myOriginalPositionMarker.drop();
+      }
+      super.collapse(type);
+    }
+
+    @Override
+    public void error(@NotNull String message) {
+      if (myOriginalPositionMarker != null) {
+        myOriginalPositionMarker.drop();
+      }
+      super.error(message);
     }
 
     @NotNull

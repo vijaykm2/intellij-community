@@ -1,30 +1,21 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.codeInsight.hint.HintUtil;
 import com.intellij.openapi.ui.popup.Balloon;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.Consumer;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nls;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.*;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.List;
 
 /**
@@ -36,9 +27,9 @@ class SlideComponent extends JComponent {
   private int myPointerValue = 0;
   private int myValue = 0;
   private final boolean myVertical;
-  private final String myTitle;
+  private final @Nls String myTitle;
 
-  private final List<Consumer<Integer>> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
+  private final List<Consumer<? super Integer>> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   private LightweightHint myTooltipHint;
   private final JLabel myLabel = new JLabel();
   private Unit myUnit = Unit.LEVEL;
@@ -54,7 +45,7 @@ class SlideComponent extends JComponent {
       return LEVEL.equals(unit) ? LEVEL_MAX_VALUE : PERCENT_MAX_VALUE;
     }
 
-    private static String formatValue(int value, Unit unit) {
+    private static @NlsSafe String formatValue(int value, Unit unit) {
       return String.format("%d%s", (int) (getMaxValue(unit) / LEVEL_MAX_VALUE * value),
           unit.equals(PERCENT) ? "%" : "");
     }
@@ -64,7 +55,7 @@ class SlideComponent extends JComponent {
     myUnit = unit;
   }
 
-  SlideComponent(String title, boolean vertical) {
+  SlideComponent(@Nls String title, boolean vertical) {
     myTitle = title;
     myVertical = vertical;
 
@@ -100,22 +91,19 @@ class SlideComponent extends JComponent {
       }
     });
 
-    addMouseWheelListener(new MouseWheelListener() {
-      @Override
-      public void mouseWheelMoved(MouseWheelEvent e) {
-        final int amount = e.getScrollType() == MouseWheelEvent.WHEEL_UNIT_SCROLL ? e.getUnitsToScroll() * e.getScrollAmount() :
-                           e.getWheelRotation() < 0 ? -e.getScrollAmount() : e.getScrollAmount();
-        int pointerValue = myPointerValue + amount;
-        pointerValue = pointerValue < OFFSET ? OFFSET : pointerValue;
-        int size = myVertical ? getHeight() : getWidth();
-        pointerValue = pointerValue > (size - 12) ? size - 12 : pointerValue;
+    addMouseWheelListener(event -> {
+      int units = event.getUnitsToScroll();
+      if (units == 0) return;
+      int pointerValue = myPointerValue + units;
+      pointerValue = Math.max(pointerValue, OFFSET);
+      int size = myVertical ? getHeight() : getWidth();
+      pointerValue = Math.min(pointerValue, size - 12);
 
-        myPointerValue = pointerValue;
-        myValue = pointerValueToValue(myPointerValue);
+      myPointerValue = pointerValue;
+      myValue = pointerValueToValue(myPointerValue);
 
-        repaint();
-        fireValueChanged();
-      }
+      repaint();
+      fireValueChanged();
     });
 
     addComponentListener(new ComponentAdapter() {
@@ -141,7 +129,7 @@ class SlideComponent extends JComponent {
         .setBorderColor(Color.BLACK)
         .setAwtTooltip(true)
         .setFont(UIUtil.getLabelFont().deriveFont(Font.BOLD))
-        .setTextBg(HintUtil.INFORMATION_COLOR)
+        .setTextBg(HintUtil.getInformationColor())
         .setShowImmediately(true);
 
       final Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
@@ -160,9 +148,9 @@ class SlideComponent extends JComponent {
 
   private void processMouse(MouseEvent e) {
     int pointerValue = myVertical ? e.getY() : e.getX();
-    pointerValue = pointerValue < OFFSET ? OFFSET : pointerValue;
+    pointerValue = Math.max(pointerValue, OFFSET);
     int size = myVertical ? getHeight() : getWidth();
-    pointerValue = pointerValue > (size - 12) ? size - 12 : pointerValue;
+    pointerValue = Math.min(pointerValue, size - 12);
 
     myPointerValue = pointerValue;
 
@@ -172,12 +160,12 @@ class SlideComponent extends JComponent {
     fireValueChanged();
   }
 
-  public void addListener(Consumer<Integer> listener) {
+  public void addListener(Consumer<? super Integer> listener) {
     myListeners.add(listener);
   }
 
   private void fireValueChanged() {
-    for (Consumer<Integer> listener : myListeners) {
+    for (Consumer<? super Integer> listener : myListeners) {
       listener.consume(myValue);
     }
   }
@@ -196,7 +184,7 @@ class SlideComponent extends JComponent {
     pointerValue -= OFFSET;
     final int size = myVertical ? getHeight() : getWidth();
     float proportion = (size - 23) / 255f;
-    return (int)(pointerValue / proportion);
+    return Math.round((pointerValue / proportion));
   }
 
   private int valueToPointerValue(int value) {

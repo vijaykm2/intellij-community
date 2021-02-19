@@ -29,8 +29,8 @@ import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.CollectionComboBoxModel;
 import com.intellij.ui.ComboboxWithBrowseButton;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
+import com.jetbrains.python.PyBundle;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -41,7 +41,6 @@ import java.util.List;
 /**
  * Panel to choose target buildout script
  * User: dcheryasov
- * Date: Jul 26, 2010 5:09:23 PM
  */
 public class BuildoutConfigPanel extends JPanel {
   private ComboboxWithBrowseButton myScript;
@@ -50,7 +49,7 @@ public class BuildoutConfigPanel extends JPanel {
   private JPanel myErrorPanel;
   private final Module myModule;
   private boolean myFacetEnabled = true;
-  private BuildoutFacetConfiguration myConfiguration;
+  private final BuildoutFacetConfiguration myConfiguration;
 
   public BuildoutConfigPanel(Module module, BuildoutFacetConfiguration config) {
     myModule = module;
@@ -60,10 +59,9 @@ public class BuildoutConfigPanel extends JPanel {
 
     FileChooserDescriptor descriptor = FileChooserDescriptorFactory.createSingleFileNoJarsDescriptor();
     //descriptor.setRoot(myConfiguration.getRoot());
-    myScript.addBrowseFolderListener(
-      "Choose a buildout script", "Select the target script that will invoke your code",
-      null, descriptor, TextComponentAccessor.STRING_COMBOBOX_WHOLE_TEXT, false
-    );
+    myScript.addBrowseFolderListener(PyBundle.message("buildout.configurable.choose.a.buildout.script"),
+                                     PyBundle.message("buildout.configurable.select.the.target.script"), null, descriptor,
+                                     TextComponentAccessor.STRING_COMBOBOX_WHOLE_TEXT);
     myScript.getComboBox().setEditable(true);
 
     initErrorValidation();
@@ -96,7 +94,7 @@ public class BuildoutConfigPanel extends JPanel {
 
   private static ValidationResult validateScriptName(String scriptName) {
     if (StringUtil.isEmpty(scriptName)) {
-      return new ValidationResult("Please specify buildout script");
+      return new ValidationResult(PyBundle.message("buildout.config.script.name.validation.error.message"));
     }
     try {
       getScriptFile(scriptName);
@@ -119,12 +117,7 @@ public class BuildoutConfigPanel extends JPanel {
 
   public void reset() {
     final List<File> scriptFiles = BuildoutFacet.getScripts(BuildoutFacet.getInstance(myModule), myModule.getProject().getBaseDir());
-    final List<String> scripts = ContainerUtil.map(scriptFiles, new Function<File, String>() {
-      @Override
-      public String fun(File file) {
-        return file.getPath();
-      }
-    });
+    final List<String> scripts = ContainerUtil.map(scriptFiles, file -> file.getPath());
     myScript.getComboBox().setModel(new CollectionComboBoxModel(scripts, myConfiguration.getScriptName()));
     myScript.getComboBox().getEditor().setItem(myConfiguration.getScriptName());
   }
@@ -134,20 +127,20 @@ public class BuildoutConfigPanel extends JPanel {
     myConfiguration.setScriptName(scriptName);
   }
 
-  BuildoutFacetConfiguration getConfiguration() {
+  public BuildoutFacetConfiguration getConfiguration() {
     return myConfiguration;
   }
 
-  void showNoticeText(boolean show) {
+  public void showNoticeText(boolean show) {
     myNoticeTextArea.setVisible(show);
   }
 
   @NotNull
-  public static VirtualFile getScriptFile(String script_name) throws ConfigurationException {
-    VirtualFile script_file = LocalFileSystem.getInstance().findFileByPath(script_name);
-    if (script_file == null || script_file.isDirectory()) {
-      throw new ConfigurationException("Invalid script file '" + script_name + "'");
+  public static VirtualFile getScriptFile(String scriptName) throws ConfigurationException {
+    VirtualFile scriptFile = LocalFileSystem.getInstance().findFileByPath(scriptName);
+    if (scriptFile == null || scriptFile.isDirectory()) {
+      throw new ConfigurationException(PyBundle.message("buildout.config.script.file.invalid.message", scriptName));
     }
-    return script_file;
+    return scriptFile;
   }
 }

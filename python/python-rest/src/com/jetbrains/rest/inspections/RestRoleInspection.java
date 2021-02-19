@@ -29,20 +29,19 @@ import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.containers.HashSet;
 import com.jetbrains.python.ReSTService;
 import com.jetbrains.python.psi.*;
-import com.jetbrains.rest.RestBundle;
+import com.jetbrains.rest.PythonRestBundle;
 import com.jetbrains.rest.RestFile;
 import com.jetbrains.rest.RestTokenTypes;
 import com.jetbrains.rest.RestUtil;
 import com.jetbrains.rest.psi.RestDirectiveBlock;
 import com.jetbrains.rest.psi.RestRole;
 import com.jetbrains.rest.quickfixes.AddIgnoredRoleFix;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -53,12 +52,6 @@ import java.util.Set;
  */
 public class RestRoleInspection extends RestInspection {
   public JDOMExternalizableStringList ignoredRoles = new JDOMExternalizableStringList();
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return RestBundle.message("INSP.role.not.defined");
-  }
 
   @Override
   public boolean isEnabledByDefault() {
@@ -73,9 +66,9 @@ public class RestRoleInspection extends RestInspection {
 
   private class Visitor extends RestInspectionVisitor {
     private final ImmutableSet<String> myIgnoredRoles;
-    Set<String> mySphinxRoles = new HashSet<String>();
+    Set<String> mySphinxRoles = new HashSet<>();
 
-    public Visitor(final ProblemsHolder holder, List<String> ignoredRoles) {
+    Visitor(final ProblemsHolder holder, List<String> ignoredRoles) {
       super(holder);
       myIgnoredRoles = ImmutableSet.copyOf(ignoredRoles);
       Project project = holder.getProject();
@@ -126,7 +119,7 @@ public class RestRoleInspection extends RestInspection {
       if (RestUtil.SPHINX_ROLES.contains(node.getText()) || RestUtil.SPHINX_ROLES.contains(":py"+node.getText())
           || mySphinxRoles.contains(node.getRoleName())) return;
 
-      Set<String> definedRoles = new HashSet<String>();
+      Set<String> definedRoles = new HashSet<>();
 
       RestDirectiveBlock[] directives = PsiTreeUtil.getChildrenOfType(file, RestDirectiveBlock.class);
       if (directives != null) {
@@ -144,13 +137,15 @@ public class RestRoleInspection extends RestInspection {
         }
       }
       if (definedRoles.contains(node.getRoleName())) return;
-      registerProblem(node, "Not defined role '" + node.getRoleName() + "'", new AddIgnoredRoleFix(node.getRoleName(), RestRoleInspection.this));
+      registerProblem(
+        node, PythonRestBundle.message("python.rest.inspection.message.not.defined.role", node.getRoleName()),
+        new AddIgnoredRoleFix(node.getRoleName(), RestRoleInspection.this));
     }
   }
 
   @Override
   public JComponent createOptionsPanel() {
-    ListEditForm form = new ListEditForm("Ignore roles", ignoredRoles);
+    ListEditForm form = new ListEditForm(PythonRestBundle.message("python.rest.inspections.role.ignore.roles"), ignoredRoles);
     return form.getContentPanel();
   }
 }

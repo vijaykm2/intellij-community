@@ -24,10 +24,10 @@ import com.intellij.psi.PsiFile;
 import org.jetbrains.annotations.NotNull;
 
 public class ShowErrorDescriptionHandler implements CodeInsightActionHandler {
-  private final int myWidth;
+  private final boolean myRequestFocus;
 
-  public ShowErrorDescriptionHandler(final int width) {
-    myWidth = width;
+  public ShowErrorDescriptionHandler(final boolean requestFocus) {
+    myRequestFocus = requestFocus;
   }
 
   @Override
@@ -36,7 +36,7 @@ public class ShowErrorDescriptionHandler implements CodeInsightActionHandler {
     DaemonCodeAnalyzer codeAnalyzer = DaemonCodeAnalyzer.getInstance(project);
     HighlightInfo info = ((DaemonCodeAnalyzerImpl)codeAnalyzer).findHighlightByOffset(editor.getDocument(), offset, false);
     if (info != null) {
-      DaemonTooltipUtil.showInfoTooltip(info, editor, editor.getCaretModel().getOffset(), myWidth);
+      DaemonTooltipUtil.showInfoTooltip(info, editor, editor.getCaretModel().getOffset(), myRequestFocus, true);
     }
   }
 

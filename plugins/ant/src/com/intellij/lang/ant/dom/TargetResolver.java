@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.ant.dom;
 
 import com.intellij.openapi.util.Pair;
-import com.intellij.util.containers.HashMap;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -24,18 +10,17 @@ import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Apr 22, 2010
  */
 public class TargetResolver extends PropertyProviderFinder {
 
-  private List<String> myDeclaredTargetRefs;
-  private @Nullable AntDomTarget myContextTarget;
+  private final List<String> myDeclaredTargetRefs;
+  private @Nullable final AntDomTarget myContextTarget;
 
-  private Result myResult;
+  private final Result myResult;
 
   public static class Result {
-    private String myRefsString;
-    private Map<String, Pair<AntDomTarget, String>> myMap = new HashMap<String, Pair<AntDomTarget, String>>(); // declared target name -> pair[target, effective name]
+    private @NonNls String myRefsString;
+    private final Map<String, Pair<AntDomTarget, String>> myMap = new HashMap<>(); // declared target name -> pair[target, effective name]
     private Map<String, AntDomTarget> myVariants;
 
     void add(String declaredTargetRef, Pair<AntDomTarget, String> pair) {
@@ -46,11 +31,11 @@ public class TargetResolver extends PropertyProviderFinder {
       myVariants = variants;
     }
 
-    public String getRefsString() {
+    public @NonNls String getRefsString() {
       return myRefsString;
     }
 
-    public void setRefsString(String refsString) {
+    public void setRefsString(@NonNls String refsString) {
       myRefsString = refsString;
     }
 
@@ -66,20 +51,20 @@ public class TargetResolver extends PropertyProviderFinder {
 
     @NotNull
     public Map<String, AntDomTarget> getVariants() {
-      return myVariants != null? myVariants : Collections.<String, AntDomTarget>emptyMap();
+      return myVariants != null? myVariants : Collections.emptyMap();
     }
   }
 
   private TargetResolver(@NotNull Collection<String> declaredDependencyRefs, @Nullable AntDomTarget contextElement) {
     super(contextElement);
     myResult = new Result();
-    myDeclaredTargetRefs = new ArrayList<String>(declaredDependencyRefs);
+    myDeclaredTargetRefs = new ArrayList<>(declaredDependencyRefs);
     myContextTarget = contextElement;
   }
 
   @NotNull
   public static Result resolve(@NotNull AntDomProject project, @Nullable AntDomTarget contextTarget, @NotNull String declaredTargetRef) {
-    return resolve(project, contextTarget, Arrays.asList(declaredTargetRef));
+    return resolve(project, contextTarget, Collections.singletonList(declaredTargetRef));
   }
 
   public static Result resolve(AntDomProject project, AntDomTarget contextTarget, @NotNull Collection<String> declaredTargetRefs) {
@@ -89,17 +74,19 @@ public class TargetResolver extends PropertyProviderFinder {
     result.setVariants(resolver.getDiscoveredTargets());
     return result;
   }
-  
+
   public interface TargetSink {
     void duplicateTargetDetected(AntDomTarget existingTarget, AntDomTarget duplicatingTarget, String targetEffectiveName);
   }
-  
+
   public static void validateDuplicateTargets(AntDomProject project, final TargetSink sink) {
-    final TargetResolver resolver = new TargetResolver(Collections.<String>emptyList(), null) {
+    final TargetResolver resolver = new TargetResolver(Collections.emptyList(), null) {
+      @Override
       protected void duplicateTargetFound(AntDomTarget existingTarget, AntDomTarget duplicatingTarget, String taregetEffectiveName) {
         sink.duplicateTargetDetected(existingTarget, duplicatingTarget, taregetEffectiveName);
       }
 
+      @Override
       protected void stageCompleted(Stage completedStage, Stage startingStage) {
         if (Stage.RESOLVE_MAP_BUILDING_STAGE.equals(completedStage)) {
           stop();
@@ -109,6 +96,7 @@ public class TargetResolver extends PropertyProviderFinder {
     resolver.execute(project, null);
   }
 
+  @Override
   protected void targetDefined(AntDomTarget target, String targetEffectiveName, Map<String, Pair<AntDomTarget, String>> dependenciesMap) {
     if (myContextTarget != null && myDeclaredTargetRefs.size() > 0 && target.equals(myContextTarget)) {
       for (Iterator<String> it = myDeclaredTargetRefs.iterator(); it.hasNext();) {
@@ -123,6 +111,7 @@ public class TargetResolver extends PropertyProviderFinder {
     }
   }
 
+  @Override
   protected void stageCompleted(Stage completedStage, Stage startingStage) {
     if (completedStage == Stage.RESOLVE_MAP_BUILDING_STAGE) {
       if (myDeclaredTargetRefs.size() > 0) {

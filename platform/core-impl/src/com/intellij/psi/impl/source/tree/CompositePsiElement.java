@@ -22,6 +22,7 @@ import com.intellij.navigation.ItemPresentation;
 import com.intellij.navigation.NavigationItem;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectCoreUtil;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.CheckUtil;
@@ -38,9 +39,9 @@ import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 
 public abstract class CompositePsiElement extends CompositeElement implements PsiElement, NavigationItem {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.CompositePsiElement");
+  private static final Logger LOG = Logger.getInstance(CompositePsiElement.class);
 
-  protected static int ourHC = 0;
+  protected static int ourHC;
 
   protected CompositePsiElement(IElementType type) {
     super(type);
@@ -56,8 +57,7 @@ public abstract class CompositePsiElement extends CompositeElement implements Ps
   }
 
   @Override
-  @NotNull
-  public PsiElement[] getChildren() {
+  public PsiElement @NotNull [] getChildren() {
     return getChildrenAsPsiElements((TokenSet)null, PsiElement.ARRAY_FACTORY);
   }
 
@@ -140,8 +140,7 @@ public abstract class CompositePsiElement extends CompositeElement implements Ps
   }
 
   @Override
-  @NotNull
-  public PsiReference[] getReferences() {
+  public PsiReference @NotNull [] getReferences() {
     return SharedPsiElementImplUtil.getReferences(this);
   }
 
@@ -224,8 +223,9 @@ public abstract class CompositePsiElement extends CompositeElement implements Ps
     return true;
   }
 
+  @Override
   public String toString() {
-    return "PsiElement" + "(" + getElementType().toString() + ")";
+    return "PsiElement" + "(" + getElementType() + ")";
   }
 
   @Override
@@ -291,6 +291,10 @@ public abstract class CompositePsiElement extends CompositeElement implements Ps
   @Override
   @NotNull
   public Project getProject() {
+    Project project = ProjectCoreUtil.theOnlyOpenProject();
+    if (project != null) {
+      return project;
+    }
     final PsiManager manager = getManager();
     if (manager == null) throw new PsiInvalidElementAccessException(this);
 

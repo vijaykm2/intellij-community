@@ -30,7 +30,6 @@ import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.impl.source.PostprocessReformattingAspect;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.jetbrains.python.PythonStringUtil;
 import com.jetbrains.python.psi.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -86,7 +85,7 @@ public class PyStatementMover extends LineMover {
     if (nearLine >= document.getLineCount() || nearLine <= 0) return false;
     final PyStringLiteralExpression stringLiteralExpression = PsiTreeUtil.getParentOfType(elementToMove1, PyStringLiteralExpression.class);
     if (stringLiteralExpression != null) {
-      final Pair<String,String> quotes = PythonStringUtil.getQuotes(stringLiteralExpression.getText());
+      final Pair<String,String> quotes = PyStringLiteralUtil.getQuotes(stringLiteralExpression.getText());
       if (quotes != null && (quotes.first.equals("'''") || quotes.first.equals("\"\"\""))) {
         final String text1 = document.getText(TextRange.create(start, end)).trim();
         final String text2 = document.getText(TextRange.create(document.getLineStartOffset(nearLine), document.getLineEndOffset(nearLine))).trim();
@@ -328,33 +327,30 @@ public class PyStatementMover extends LineMover {
 
     if (toMove instanceof MyLineRange && toMove2 instanceof ScopeRange) {
 
-      PostprocessReformattingAspect.getInstance(editor.getProject()).disablePostprocessFormattingInside(new Runnable() {
-        @Override
-        public void run() {
-          final PsiElement startToMove = ((MyLineRange)toMove).myStartElement;
-          final PsiElement endToMove = ((MyLineRange)toMove).myEndElement;
-          final PsiFile file = startToMove.getContainingFile();
-          final SelectionModel selectionModel = editor.getSelectionModel();
-          final CaretModel caretModel = editor.getCaretModel();
+      PostprocessReformattingAspect.getInstance(editor.getProject()).disablePostprocessFormattingInside(() -> {
+        final PsiElement startToMove = ((MyLineRange)toMove).myStartElement;
+        final PsiElement endToMove = ((MyLineRange)toMove).myEndElement;
+        final PsiFile file = startToMove.getContainingFile();
+        final SelectionModel selectionModel = editor.getSelectionModel();
+        final CaretModel caretModel = editor.getCaretModel();
 
-          final int selectionStart = selectionModel.getSelectionStart();
-          boolean isSelectionStartAtCaret = caretModel.getOffset() == selectionStart;
-          final SelectionContainer selectionLen = getSelectionLenContainer(editor, ((MyLineRange)toMove));
+        final int selectionStart = selectionModel.getSelectionStart();
+        boolean isSelectionStartAtCaret = caretModel.getOffset() == selectionStart;
+        final SelectionContainer selectionLen = getSelectionLenContainer(editor, ((MyLineRange)toMove));
 
-          int shift = getCaretShift(startToMove, endToMove, caretModel, isSelectionStartAtCaret);
+        int shift = getCaretShift(startToMove, endToMove, caretModel, isSelectionStartAtCaret);
 
-          final boolean hasSelection = selectionModel.hasSelection();
-          int offset;
-          if (((ScopeRange)toMove2).isTheSameLevel()) {
-            offset = moveTheSameLevel((ScopeRange)toMove2, (MyLineRange)toMove);
-          }
-          else {
-            offset = moveInOut(((MyLineRange)toMove), editor, info);
-          }
-          restoreCaretAndSelection(file, editor, isSelectionStartAtCaret, hasSelection, selectionLen,
-                                   shift, offset, (MyLineRange)toMove);
-          info.toMove2 = info.toMove;   //do not move further
+        final boolean hasSelection = selectionModel.hasSelection();
+        int offset;
+        if (((ScopeRange)toMove2).isTheSameLevel()) {
+          offset = moveTheSameLevel((ScopeRange)toMove2, (MyLineRange)toMove);
         }
+        else {
+          offset = moveInOut(((MyLineRange)toMove), editor, info);
+        }
+        restoreCaretAndSelection(file, editor, isSelectionStartAtCaret, hasSelection, selectionLen,
+                                 shift, offset, (MyLineRange)toMove);
+        info.toMove2 = info.toMove;   //do not move further
       });
     }
 
@@ -390,7 +386,7 @@ public class PyStatementMover extends LineMover {
     final Document document = editor.getDocument();
     final SelectionModel selectionModel = editor.getSelectionModel();
     final CaretModel caretModel = editor.getCaretModel();
-    Integer selectionLen = selectionContainer.myLen;
+    int selectionLen = selectionContainer.myLen;
     final PsiElement at = file.findElementAt(offset);
     if (at != null) {
       final PsiElement added = getCommentOrStatement(document, at);
@@ -532,16 +528,13 @@ public class PyStatementMover extends LineMover {
     adjustLineIndents(editor, scope, project, addedElement, toMove.size);
 
     if (removePass) {
-      ApplicationManager.getApplication().runWriteAction(new Runnable() {
-        @Override
-        public void run() {
-          final Document document = editor.getDocument();
-          final int lineNumber = document.getLineNumber(anchor.getTextOffset());
-          final int endOffset = document.getLineCount() <= lineNumber + 1 ? document.getLineEndOffset(lineNumber)
-                                                                          : document.getLineStartOffset(lineNumber + 1);
-          document.deleteString(document.getLineStartOffset(lineNumber), endOffset);
-          PsiDocumentManager.getInstance(startElement.getProject()).commitAllDocuments();
-        }
+      ApplicationManager.getApplication().runWriteAction(() -> {
+        final Document document = editor.getDocument();
+        final int lineNumber = document.getLineNumber(anchor.getTextOffset());
+        final int endOffset = document.getLineCount() <= lineNumber + 1 ? document.getLineEndOffset(lineNumber)
+                                                                        : document.getLineStartOffset(lineNumber + 1);
+        document.deleteString(document.getLineStartOffset(lineNumber), endOffset);
+        PsiDocumentManager.getInstance(startElement.getProject()).commitAllDocuments();
       });
     }
 
@@ -599,12 +592,12 @@ public class PyStatementMover extends LineMover {
 
   // use to keep elements
   static class MyLineRange extends LineRange {
-    private PsiElement myStartElement;
-    private PsiElement myEndElement;
+    private final PsiElement myStartElement;
+    private final PsiElement myEndElement;
     int size = 0;
     int statementsSize = 0;
 
-    public MyLineRange(@NotNull PsiElement start, PsiElement end) {
+    MyLineRange(@NotNull PsiElement start, PsiElement end) {
       super(start, end);
       myStartElement = start;
       myEndElement = end;
@@ -629,11 +622,11 @@ public class PyStatementMover extends LineMover {
   }
 
   static class SelectionContainer {
-    private int myLen;
-    private int myAdditional;
-    private boolean myAtTheBeginning;
+    private final int myLen;
+    private final int myAdditional;
+    private final boolean myAtTheBeginning;
 
-    public SelectionContainer(int len, int additional, boolean atTheBeginning) {
+    SelectionContainer(int len, int additional, boolean atTheBeginning) {
       myLen = len;
       myAdditional = additional;
       myAtTheBeginning = atTheBeginning;
@@ -641,19 +634,19 @@ public class PyStatementMover extends LineMover {
   }
   // Use when element scope changed
   static class ScopeRange extends LineRange {
-    private PsiElement myScope;
-    @NotNull private PsiElement myAnchor;
-    private boolean addBefore;
+    private final PsiElement myScope;
+    @NotNull private final PsiElement myAnchor;
+    private final boolean addBefore;
     private boolean theSameLevel;
 
-    public ScopeRange(@NotNull PsiElement scope, @NotNull PsiElement anchor, boolean before) {
+    ScopeRange(@NotNull PsiElement scope, @NotNull PsiElement anchor, boolean before) {
       super(scope);
       myScope = scope;
       myAnchor = anchor;
       addBefore = before;
     }
 
-    public ScopeRange(PyElement scope, @NotNull PsiElement anchor, boolean before, boolean b) {
+    ScopeRange(PyElement scope, @NotNull PsiElement anchor, boolean before, boolean b) {
       super(scope);
       myScope = scope;
       myAnchor = anchor;

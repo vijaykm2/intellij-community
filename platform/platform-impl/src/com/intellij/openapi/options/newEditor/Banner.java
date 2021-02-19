@@ -1,89 +1,75 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options.newEditor;
 
 import com.intellij.icons.AllIcons;
-import com.intellij.openapi.options.OptionsBundle;
-import com.intellij.openapi.project.Project;
-import com.intellij.ui.JBColor;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.RelativeFont;
-import com.intellij.ui.components.labels.SwingActionLink;
-import com.intellij.ui.components.panels.HorizontalLayout;
+import com.intellij.ui.components.ActionLink;
+import com.intellij.ui.components.breadcrumbs.Breadcrumbs;
+import com.intellij.ui.components.breadcrumbs.Crumb;
+import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import javax.swing.Action;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import java.awt.BorderLayout;
-import java.awt.Component;
+import javax.swing.*;
+import java.awt.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 
-/**
- * @author Sergey.Malenkov
- */
-final class Banner extends JPanel {
-  private final JPanel myLeftPanel = new JPanel(null);
+final class Banner extends SimpleBanner {
   private final JLabel myProjectIcon = new JLabel();
+  private final Breadcrumbs myBreadcrumbs = new Breadcrumbs() {
+    @Override
+    protected int getFontStyle(Crumb crumb) {
+      return Font.BOLD;
+    }
+  };
 
   Banner(Action action) {
-    super(new BorderLayout(10, 0));
-    myLeftPanel.setLayout(new HorizontalLayout(5));
-    myProjectIcon.setIcon(AllIcons.General.ProjectConfigurableBanner);
-    myProjectIcon.setForeground(JBColor.GRAY);
-    myProjectIcon.setVisible(false);
-    add(BorderLayout.WEST, myLeftPanel);
-    add(BorderLayout.CENTER, myProjectIcon);
-    add(BorderLayout.EAST, RelativeFont.BOLD.install(new SwingActionLink(action)));
+    myProjectIcon.setMinimumSize(new Dimension(0, 0));
+    myProjectIcon.setIcon(AllIcons.General.ProjectConfigurable);
+    myProjectIcon.setForeground(UIUtil.getContextHelpForeground());
+    showProject(false);
+    myLeftPanel.removeAll();
+    myLeftPanel.add(myBreadcrumbs);
+    myLeftPanel.add(myProjectIcon);
+    myLeftPanel.add(myProgress);
+    add(BorderLayout.EAST, RelativeFont.BOLD.install(new ActionLink(action)));
   }
 
-  void setText(String... names) {
-    Component[] components = myLeftPanel.getComponents();
-    for (Component component : components) {
-      component.setVisible(false);
-    }
-    if (names != null) {
-      int i = 0;
-      for (String name : names) {
-        if (i < components.length) {
-          if (i > 0) {
-            components[i - 1].setVisible(true);
-          }
-          components[i].setVisible(true);
-          if (components[i] instanceof JLabel) {
-            ((JLabel)components[i]).setText(name);
-          }
-        }
-        else {
-          if (i > 0) {
-            myLeftPanel.add(RelativeFont.HUGE.install(new JLabel("\u203A")));
-          }
-          myLeftPanel.add(RelativeFont.BOLD.install(new JLabel(name)));
-        }
-        i += 2;
+  void setText(@NotNull Collection<@NlsContexts.ConfigurableName String> names) {
+    List<Crumb> crumbs = new ArrayList<>();
+    if (!names.isEmpty()) {
+      List<Action> actions = CopySettingsPathAction.createSwingActions(() -> names);
+      for (@NlsContexts.ConfigurableName String name : names) {
+        crumbs.add(new Crumb.Impl(null, name, null, actions));
       }
     }
+    myBreadcrumbs.setCrumbs(crumbs);
   }
 
-  void setProject(Project project) {
-    if (project == null) {
-      myProjectIcon.setVisible(false);
+  void setProjectText(@Nullable @Nls String projectText) {
+    boolean visible = projectText != null;
+    showProject(visible);
+    if (visible) {
+      myProjectIcon.setToolTipText(projectText);
     }
-    else {
-      myProjectIcon.setVisible(true);
-      myProjectIcon.setText(OptionsBundle.message(project.isDefault()
-                                                  ? "configurable.default.project.tooltip"
-                                                  : "configurable.current.project.tooltip"));
-    }
+  }
+
+  void showProject(boolean hasProject) {
+    myProjectIcon.setVisible(hasProject);
+  }
+
+  @Override
+  void setLeftComponent(Component component) {
+    super.setLeftComponent(component);
+    myBreadcrumbs.setVisible(component == null);
+  }
+
+  @Override
+  Component getBaselineTemplate() {
+    return myBreadcrumbs;
   }
 }

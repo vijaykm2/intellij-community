@@ -40,13 +40,16 @@ class DebuggerConnector implements Runnable {
   private final Project myProject;
   private final ProcessHandler myProcess;
   private final int myPort;
+  private final String myAccessToken;
 
-  public DebuggerConnector(Project project, ProcessHandler process, int port) {
+  DebuggerConnector(Project project, ProcessHandler process, int port, String accessToken) {
     myProject = project;
     myProcess = process;
     myPort = port;
+    myAccessToken = accessToken;
   }
 
+  @Override
   public void run() {
     final Debugger client = connect();
     if (client == null) {
@@ -96,7 +99,7 @@ class DebuggerConnector implements Runnable {
       if (myProcess.isProcessTerminated()) return null;
 
       try {
-        final Debugger realClient = EDTGuard.create(new RemoteDebuggerClient(myPort), myProcess);
+        final Debugger realClient = EDTGuard.create(new RemoteDebuggerClient(myPort, myAccessToken), myProcess);
         myProcess.notifyTextAvailable("Connected to XSLT debugger on port " + myPort + "\n", ProcessOutputTypes.SYSTEM);
         return realClient;
       } catch (ConnectException e) {

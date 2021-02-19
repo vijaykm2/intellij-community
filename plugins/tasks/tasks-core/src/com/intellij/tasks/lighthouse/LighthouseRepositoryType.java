@@ -6,7 +6,7 @@ import com.intellij.tasks.TaskState;
 import com.intellij.tasks.config.TaskRepositoryEditor;
 import com.intellij.tasks.impl.BaseRepositoryType;
 import com.intellij.util.Consumer;
-import icons.TasksIcons;
+import icons.TasksCoreIcons;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -25,7 +25,7 @@ public class LighthouseRepositoryType extends BaseRepositoryType<LighthouseRepos
   @NotNull
   @Override
   public Icon getIcon() {
-    return TasksIcons.Lighthouse;
+    return TasksCoreIcons.Lighthouse;
   }
 
   @NotNull
@@ -48,7 +48,7 @@ public class LighthouseRepositoryType extends BaseRepositoryType<LighthouseRepos
   @Override
   public TaskRepositoryEditor createEditor(LighthouseRepository repository,
                                            Project project,
-                                           Consumer<LighthouseRepository> changeListener) {
+                                           Consumer<? super LighthouseRepository> changeListener) {
     return new LighthouseRepositoryEditor(project, repository, changeListener);
   }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.impl;
 
 import com.intellij.openapi.project.Project;
@@ -21,25 +7,23 @@ import com.intellij.openapi.projectRoots.JavaSdkVersion;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.openapi.roots.ProjectExtension;
-import com.intellij.openapi.util.InvalidDataException;
-import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.pom.java.LanguageLevel;
+import com.intellij.util.ObjectUtils;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 /**
  * @author anna
- * @since 26-Dec-2007
  */
 public class LanguageLevelProjectExtensionImpl extends LanguageLevelProjectExtension {
-  private static final String ASSERT_KEYWORD_ATTR = "assert-keyword";
-  private static final String JDK_15_ATTR = "jdk-15";
   private static final String LANGUAGE_LEVEL = "languageLevel";
   private static final String DEFAULT_ATTRIBUTE = "default";
 
   private final Project myProject;
-  private LanguageLevel myLanguageLevel = LanguageLevel.JDK_1_6;
+  private LanguageLevel myLanguageLevel;
   private LanguageLevel myCurrentLevel;
 
   public LanguageLevelProjectExtensionImpl(final Project project) {
@@ -54,55 +38,54 @@ public class LanguageLevelProjectExtensionImpl extends LanguageLevelProjectExten
   private void readExternal(final Element element) {
     String level = element.getAttributeValue(LANGUAGE_LEVEL);
     if (level == null) {
-      myLanguageLevel = migrateFromIdea7(element);
+      myLanguageLevel = null;
     }
     else {
-      myLanguageLevel = LanguageLevel.valueOf(level);
+      myLanguageLevel = readLanguageLevel(level);
     }
     String aDefault = element.getAttributeValue(DEFAULT_ATTRIBUTE);
-    setDefault(aDefault == null ? null : Boolean.parseBoolean(aDefault));
+    if (aDefault != null) {
+      setDefault(Boolean.parseBoolean(aDefault));
+    }
   }
 
-  private static LanguageLevel migrateFromIdea7(Element element) {
-    final boolean assertKeyword = Boolean.valueOf(element.getAttributeValue(ASSERT_KEYWORD_ATTR)).booleanValue();
-    final boolean jdk15 = Boolean.valueOf(element.getAttributeValue(JDK_15_ATTR)).booleanValue();
-    if (jdk15) {
-      return LanguageLevel.JDK_1_5;
+  private static LanguageLevel readLanguageLevel(String level) {
+    for (LanguageLevel languageLevel : LanguageLevel.values()) {
+      if (level.equals(languageLevel.name())) {
+        return languageLevel;
+      }
     }
-    else if (assertKeyword) {
-      return LanguageLevel.JDK_1_4;
-    }
-    else {
-      return LanguageLevel.JDK_1_3;
-    }
+    return LanguageLevel.HIGHEST;
   }
 
   private void writeExternal(final Element element) {
-    element.setAttribute(LANGUAGE_LEVEL, myLanguageLevel.name());
+    if (myLanguageLevel != null) {
+      element.setAttribute(LANGUAGE_LEVEL, myLanguageLevel.name());
+    }
+
     Boolean aBoolean = getDefault();
-    if (aBoolean != null) {
+    if (aBoolean != null && aBoolean != myProject.isDefault()) { // do not write default 'true' for default project
       element.setAttribute(DEFAULT_ATTRIBUTE, Boolean.toString(aBoolean));
     }
-    writeAttributesForIdea7(element);
-  }
-
-  private void writeAttributesForIdea7(Element element) {
-    final boolean is14 = LanguageLevel.JDK_1_4.equals(myLanguageLevel);
-    final boolean is15 = myLanguageLevel.compareTo(LanguageLevel.JDK_1_5) >= 0;
-    element.setAttribute(ASSERT_KEYWORD_ATTR, Boolean.toString(is14 || is15));
-    element.setAttribute(JDK_15_ATTR, Boolean.toString(is15));
   }
 
   @Override
   @NotNull
   public LanguageLevel getLanguageLevel() {
-    return myLanguageLevel;
+    return getLanguageLevelOrDefault();
+  }
+
+  @NotNull
+  private LanguageLevel getLanguageLevelOrDefault() {
+    return ObjectUtils.chooseNotNull(myLanguageLevel, LanguageLevel.HIGHEST);
   }
 
   @Override
   public void setLanguageLevel(@NotNull LanguageLevel languageLevel) {
+    // we don't use here getLanguageLevelOrDefault() - if null, just set to provided value, because our default (LanguageLevel.HIGHEST) is changed every java release
     if (myLanguageLevel != languageLevel) {
       myLanguageLevel = languageLevel;
+      setDefault(false);
       languageLevelsChanged();
     }
   }
@@ -110,6 +93,8 @@ public class LanguageLevelProjectExtensionImpl extends LanguageLevelProjectExten
   @Override
   public void languageLevelsChanged() {
     if (!myProject.isDefault()) {
+      myProject.getMessageBus().syncPublisher(LANGUAGE_LEVEL_CHANGED_TOPIC).onLanguageLevelsChanged();
+      ProjectRootManager.getInstance(myProject).incModificationCount();
       JavaLanguageLevelPusher.pushLanguageLevel(myProject);
     }
   }
@@ -119,6 +104,7 @@ public class LanguageLevelProjectExtensionImpl extends LanguageLevelProjectExten
       JavaSdkVersion version = JavaSdk.getInstance().getVersion(sdk);
       if (version != null) {
         setLanguageLevel(version.getMaxLanguageLevel());
+        setDefault(true);
       }
     }
   }
@@ -131,20 +117,26 @@ public class LanguageLevelProjectExtensionImpl extends LanguageLevelProjectExten
     return myCurrentLevel;
   }
 
-  public static class MyProjectExtension extends ProjectExtension {
+  @TestOnly
+  public void resetDefaults() {
+    myLanguageLevel = null;
+    setDefault(null);
+  }
+
+  static final class MyProjectExtension extends ProjectExtension {
     private final LanguageLevelProjectExtensionImpl myInstance;
 
-    public MyProjectExtension(final Project project) {
+    MyProjectExtension(@NotNull Project project) {
       myInstance = ((LanguageLevelProjectExtensionImpl)getInstance(project));
     }
 
     @Override
-    public void readExternal(final Element element) throws InvalidDataException {
+    public void readExternal(@NotNull Element element) {
       myInstance.readExternal(element);
     }
 
     @Override
-    public void writeExternal(final Element element) throws WriteExternalException {
+    public void writeExternal(@NotNull Element element) {
       myInstance.writeExternal(element);
     }
 

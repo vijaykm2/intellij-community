@@ -1,23 +1,80 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.remote;
 
-/**
- * @author traff
- */
-public enum CredentialsType {
-  VAGRANT, WEB_DEPLOYMENT, SSH_HOST
+import com.intellij.ide.IdeBundle;
+import com.intellij.openapi.extensions.ExtensionPointName;
+import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.UserDataHolderBase;
+import com.intellij.remote.ext.CredentialsCase;
+import com.intellij.remote.ext.RemoteCredentialsHandler;
+import com.intellij.remote.ext.UnknownCredentialsHolder;
+import com.intellij.remote.ext.UnknownTypeRemoteCredentialHandler;
+import org.jetbrains.annotations.Nls;
+
+public abstract class CredentialsType<T> {
+  public static final ExtensionPointName<CredentialsType<?>> EP_NAME = new ExtensionPointName<>("com.intellij.remote.credentialsType");
+
+  public static final Key<UnknownCredentialsHolder> UNKNOWN_CREDENTIALS = Key.create("UNKNOWN_CREDENTIALS");
+
+  public static final CredentialsType<UnknownCredentialsHolder> UNKNOWN = new CredentialsType<>(
+    IdeBundle.message("credentials.type.filetype.description.unknown"), "") {
+    @Override
+    public Key<UnknownCredentialsHolder> getCredentialsKey() {
+      return UNKNOWN_CREDENTIALS;
+    }
+
+    @Override
+    public RemoteCredentialsHandler getHandler(UnknownCredentialsHolder credentials) {
+      return new UnknownTypeRemoteCredentialHandler(credentials);
+    }
+
+    @Override
+    public UnknownCredentialsHolder createCredentials() {
+      return new UnknownCredentialsHolder();
+    }
+  };
+
+  private final @Nls(capitalization = Nls.Capitalization.Title) String myName;
+  private final String myPrefix;
+
+  protected CredentialsType(@Nls(capitalization = Nls.Capitalization.Title) String name, String prefix) {
+    myName = name;
+    myPrefix = prefix;
+  }
+
+  public @Nls(capitalization = Nls.Capitalization.Title) String getName() {
+    return myName;
+  }
+
+  public T getCredentials(UserDataHolderBase dataHolder) {
+    return dataHolder.getUserData(getCredentialsKey());
+  }
+
+  public void putCredentials(UserDataHolderBase dataHolder, T credentials) {
+    dataHolder.putUserData(getCredentialsKey(), credentials);
+  }
+
+  public abstract Key<T> getCredentialsKey();
+
+  public abstract RemoteCredentialsHandler getHandler(T credentials);
+
+  public boolean hasPrefix(String path) {
+    return path.startsWith(myPrefix);
+  }
+
+  public abstract T createCredentials();
+
+  public int getWeight() {
+    return Integer.MAX_VALUE;
+  }
+
+  public void saveCredentials(RemoteSdkAdditionalData data, CredentialsCase... cases) {
+    for (CredentialsCase credentialsCase : cases) {
+      if (credentialsCase.getType() == this) {
+        T credentials = createCredentials();
+        credentialsCase.process(credentials);
+        data.setCredentials(getCredentialsKey(), credentials);
+      }
+    }
+  }
 }

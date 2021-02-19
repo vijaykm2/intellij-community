@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,28 +24,23 @@ import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.containers.FactoryMap;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.util.Map;
 
-/**
- * @author nik
- */
 public abstract class EnhancerProcessHandlerBase extends BaseOSProcessHandler {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.appengine.enhancement.EnhancerProcessHandler");
-  private FactoryMap<Key, EnhancerOutputParser> myParsers = new FactoryMap<Key, EnhancerOutputParser>() {
-    @Override
-    protected EnhancerOutputParser create(Key key) {
-      return new EnhancerOutputParser(ProcessOutputTypes.STDERR.equals(key));
-    }
-  };
+  private static final Logger LOG = Logger.getInstance(EnhancerProcessHandlerBase.class);
+  private final Map<Key, EnhancerOutputParser> myParsers =
+    FactoryMap.create(key -> new EnhancerOutputParser(ProcessOutputTypes.STDERR.equals(key)));
 
-  public EnhancerProcessHandlerBase(Process process, String commandLine, Charset charset) {
+  public EnhancerProcessHandlerBase(Process process, @NotNull String commandLine, Charset charset) {
     super(process, commandLine, charset);
     addProcessListener(new ProcessAdapter() {
       @Override
-      public void processTerminated(ProcessEvent event) {
+      public void processTerminated(@NotNull ProcessEvent event) {
         final int exitCode = event.getExitCode();
         if (exitCode != 0) {
           reportError("Enhancement process terminated with exit code " + exitCode);
@@ -55,7 +50,7 @@ public abstract class EnhancerProcessHandlerBase extends BaseOSProcessHandler {
   }
 
   @Override
-  public void notifyTextAvailable(String text, Key outputType) {
+  public void notifyTextAvailable(@NotNull String text, @NotNull Key outputType) {
     super.notifyTextAvailable(text, outputType);
     myParsers.get(outputType).appendText(text);
   }
@@ -66,10 +61,10 @@ public abstract class EnhancerProcessHandlerBase extends BaseOSProcessHandler {
 
   private class EnhancerOutputParser {
     @NonNls private static final String PLEASE_SEE_THE_LOGS_PREFIX = "Please see the logs [";
-    private StringBuilder myBuffer = new StringBuilder();
+    private final StringBuilder myBuffer = new StringBuilder();
     private final boolean myErrorStream;
 
-    public EnhancerOutputParser(boolean errorStream) {
+    EnhancerOutputParser(boolean errorStream) {
       myErrorStream = errorStream;
     }
 

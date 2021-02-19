@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.refactoring.classes.pushDown;
 
 import com.intellij.openapi.project.Project;
@@ -33,8 +19,6 @@ import java.util.Collection;
  */
 public class PyPushDownProcessor extends PyMembersRefactoringBaseProcessor {
 
-  private static final String HEADER = RefactoringBundle.message("push.down.members.elements.header");
-
   public PyPushDownProcessor(
     @NotNull final Project project,
     @NotNull final Collection<PyMemberInfo<PyElement>> membersToMove,
@@ -42,10 +26,9 @@ public class PyPushDownProcessor extends PyMembersRefactoringBaseProcessor {
     super(project, membersToMove, from, getChildren(from));
   }
 
-  @NotNull
-  private static PyClass[] getChildren(@NotNull final PyClass from) {
+  private static PyClass @NotNull [] getChildren(@NotNull final PyClass from) {
     final Collection<PyClass> all = getInheritors(from);
-    return all.toArray(new PyClass[all.size()]);
+    return all.toArray(PyClass.EMPTY_ARRAY);
   }
 
   /**
@@ -58,22 +41,21 @@ public class PyPushDownProcessor extends PyMembersRefactoringBaseProcessor {
   }
 
 
+  @Override
   public String getProcessedElementsHeader() {
-    return HEADER;
+    return RefactoringBundle.message("push.down.members.elements.header", "");
   }
 
+  @NotNull
+  @Override
   public String getCodeReferencesText(int usagesCount, int filesCount) {
     return RefactoringBundle.message("classes.to.push.down.members.to", UsageViewBundle.getReferencesString(usagesCount, filesCount));
   }
 
-  @Nullable
-  public String getCommentReferencesText(int usagesCount, int filesCount) {
-    return null;
-  }
-
+  @NotNull
   @Override
   protected String getCommandName() {
-    return PyPushDownHandler.REFACTORING_NAME;
+    return PyPushDownHandler.getRefactoringName();
   }
 
   @Nullable

@@ -1,27 +1,17 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.util;
 
 import com.intellij.psi.PsiConstantEvaluationHelper;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiField;
 import com.intellij.psi.impl.ConstantExpressionEvaluator;
+import org.jetbrains.annotations.ApiStatus.Internal;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrParenthesizedExpression;
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.literals.GrLiteral;
+
+import static org.jetbrains.plugins.groovy.lang.psi.util.PsiUtilKt.skipParenthesesDown;
 
 /**
  * @author peter
@@ -30,11 +20,24 @@ public class GroovyConstantExpressionEvaluator implements ConstantExpressionEval
 
   @Nullable
   public static Object evaluate(@Nullable GrExpression expression) {
-    if (expression instanceof GrParenthesizedExpression) {
-      return evaluate(((GrParenthesizedExpression)expression).getOperand());
+    GrExpression operand = skipParenthesesDown(expression);
+    if (operand instanceof GrLiteral) {
+      return ((GrLiteral)operand).getValue();
     }
-    if (expression instanceof GrLiteral) {
-      return ((GrLiteral)expression).getValue();
+    if (expression instanceof GrReferenceExpression) {
+      PsiElement resolved = ((GrReferenceExpression)expression).resolve();
+      if (resolved instanceof PsiField) {
+        return ((PsiField)resolved).computeConstantValue();
+      }
+    }
+    return null;
+  }
+
+  @Internal
+  public static Object evaluateNoResolve(@Nullable GrExpression expression) {
+    GrExpression operand = skipParenthesesDown(expression);
+    if (operand instanceof GrLiteral) {
+      return ((GrLiteral)operand).getValue();
     }
     return null;
   }

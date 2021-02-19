@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.commands;
 
-import com.intellij.openapi.util.registry.Registry;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -24,7 +9,7 @@ import org.jetbrains.annotations.NotNull;
  *   The descriptor of git command.
  * </p>
  * <p>
- *   It contains policy information about locking which is handled in {@link GitHandler#runInCurrentThread(java.lang.Runnable)} to prevent
+ *   It contains policy information about locking which is handled in {@link Git#runCommand(GitLineHandler)} to prevent
  *   simultaneous Git commands conflict on the index.lock file.
  *   write-commands can't be executed simultaneously, but a write-command doesn't prevent read-commands to execute.
  * </p>
@@ -33,55 +18,71 @@ import org.jetbrains.annotations.NotNull;
  *   write lock), which {@code git stash list} doesn't (and therefore no lock is needed).
  * </p>
  */
-public class GitCommand {
+public final class GitCommand {
 
   public static final GitCommand ADD = write("add");
   public static final GitCommand BLAME = read("blame");
   public static final GitCommand BRANCH = read("branch");
+  public static final GitCommand CAT_FILE = read("cat-file");
   public static final GitCommand CHECKOUT = write("checkout");
   public static final GitCommand CHECK_ATTR = read("check-attr");
+  public static final GitCommand CHECK_IGNORE = read("check-ignore");
   public static final GitCommand COMMIT = write("commit");
   public static final GitCommand CONFIG = read("config");
   public static final GitCommand CHERRY = read("cherry");
   public static final GitCommand CHERRY_PICK = write("cherry-pick");
-  public static final GitCommand CLONE = write("clone");
+  public static final GitCommand CLONE = read("clone"); // write, but can't interfere with any other command => should be treated as read
   public static final GitCommand DIFF = read("diff");
   public static final GitCommand FETCH = read("fetch");  // fetch is a read-command, because it doesn't modify the index
   public static final GitCommand INIT = write("init");
   public static final GitCommand LOG = read("log");
-  public static final GitCommand LS_FILES = read("ls-files");
+  public static final GitCommand LS_FILES = readOptional("ls-files");
+  public static final GitCommand LS_TREE = read("ls-tree");
   public static final GitCommand LS_REMOTE = read("ls-remote");
   public static final GitCommand MERGE = write("merge");
   public static final GitCommand MERGE_BASE = read("merge-base");
+  public static final GitCommand MV = write("mv");
   public static final GitCommand PULL = write("pull");
   public static final GitCommand PUSH = write("push");
-  public static final GitCommand REBASE = writeSuspendable("rebase");
+  public static final GitCommand REBASE = write("rebase");
   public static final GitCommand REMOTE = read("remote");
   public static final GitCommand RESET = write("reset");
+  public static final GitCommand RESTORE = write("restore");
+  public static final GitCommand REVERT = write("revert");
   public static final GitCommand REV_LIST = read("rev-list");
   public static final GitCommand REV_PARSE = read("rev-parse");
   public static final GitCommand RM = write("rm");
   public static final GitCommand SHOW = read("show");
   public static final GitCommand STASH = write("stash");
-  public static final GitCommand STATUS = Registry.is("git.status.write") ? write("status") : read("status");
+  public static final GitCommand STATUS = readOptional("status");
+  public static final GitCommand SUBMODULE = write("submodule"); // NB: it is write command in the submodule, not in the current root which is the submodule's parent
   public static final GitCommand TAG = read("tag");
   public static final GitCommand UPDATE_INDEX = write("update-index");
+  public static final GitCommand UPDATE_REF = write("update-ref");
+  public static final GitCommand HASH_OBJECT = write("hash-object");
+  public static final GitCommand VERSION = read("version");
 
   /**
    * Name of environment variable that specifies editor for the git
    */
-  public static final String GIT_EDITOR_ENV = "GIT_EDITOR";
+  public static final @NonNls String GIT_EDITOR_ENV = "GIT_EDITOR";
+  /**
+   * Name of environment variable that specifies askpass for the git (http and ssh passphrase authentication)
+   */
+  public static final @NonNls String GIT_ASK_PASS_ENV = "GIT_ASKPASS";
+  public static final @NonNls String GIT_SSH_ASK_PASS_ENV = "SSH_ASKPASS";
+  public static final @NonNls String DISPLAY_ENV = "DISPLAY";
 
   enum LockingPolicy {
     READ,
-    WRITE,
-    WRITE_SUSPENDABLE,
+    READ_OPTIONAL_LOCKING,
+    WRITE
   }
 
   @NotNull @NonNls private final String myName; // command name passed to git
   @NotNull private final LockingPolicy myLocking; // Locking policy for the command
 
-  private GitCommand(@NotNull String name, @NotNull LockingPolicy lockingPolicy) {
+  private GitCommand(@NotNull @NonNls String name, @NotNull LockingPolicy lockingPolicy) {
     myLocking = lockingPolicy;
     myName = name;
   }
@@ -112,18 +113,18 @@ public class GitCommand {
   }
 
   @NotNull
-  private static GitCommand read(@NotNull String name) {
+  private static GitCommand read(@NotNull @NonNls String name) {
     return new GitCommand(name, LockingPolicy.READ);
   }
 
   @NotNull
-  private static GitCommand write(@NotNull String name) {
-    return new GitCommand(name, LockingPolicy.WRITE);
+  private static GitCommand readOptional(@NotNull @NonNls String name) {
+    return new GitCommand(name, LockingPolicy.READ_OPTIONAL_LOCKING);
   }
 
   @NotNull
-  private static GitCommand writeSuspendable(@NotNull String name) {
-    return new GitCommand(name, LockingPolicy.WRITE_SUSPENDABLE);
+  private static GitCommand write(@NotNull @NonNls String name) {
+    return new GitCommand(name, LockingPolicy.WRITE);
   }
 
   @NotNull

@@ -1,19 +1,5 @@
 
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.generation.surroundWith;
 
 import com.intellij.lang.ASTNode;
@@ -26,7 +12,6 @@ import com.intellij.psi.impl.source.tree.JavaJspElementType;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTypesUtil;
-import com.intellij.psi.util.PsiUtilBase;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.util.IncorrectOperationException;
@@ -35,18 +20,18 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 
-public class SurroundWithUtil {
-  
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.generation.surroundWith.SurroundWithUtil");
+public final class SurroundWithUtil {
+
+  private static final Logger LOG = Logger.getInstance(SurroundWithUtil.class);
 
   private SurroundWithUtil() {
   }
 
-  static PsiElement[] moveDeclarationsOut(PsiElement block, PsiElement[] statements, boolean generateInitializers) {
+  public static PsiElement[] moveDeclarationsOut(PsiElement block, PsiElement[] statements, boolean generateInitializers) {
     try{
       PsiManager psiManager = block.getManager();
-      PsiElementFactory factory = JavaPsiFacade.getInstance(psiManager.getProject()).getElementFactory();
-      ArrayList<PsiElement> array = new ArrayList<PsiElement>();
+      PsiElementFactory factory = JavaPsiFacade.getElementFactory(psiManager.getProject());
+      ArrayList<PsiElement> array = new ArrayList<>();
       for (PsiElement statement : statements) {
         if (statement instanceof PsiDeclarationStatement) {
           PsiDeclarationStatement declaration = (PsiDeclarationStatement)statement;
@@ -79,6 +64,12 @@ public class SurroundWithUtil {
               PsiVariable var = (PsiVariable)element1;
               PsiExpression initializer = var.getInitializer();
               if (initializer != null) {
+                PsiTypeElement typeElement = var.getTypeElement();
+                if (typeElement != null &&
+                    typeElement.isInferredType() &&
+                    PsiTypesUtil.replaceWithExplicitType(typeElement) == null) {
+                  continue;
+                }
                 if (!generateInitializers || var.hasModifierProperty(PsiModifier.FINAL)) {
                   initializer.delete();
                 }
@@ -137,7 +128,7 @@ public class SurroundWithUtil {
     }
     final int startOffset = first.getTextRange().getStartOffset();
     final int endOffset = last.getTextRange().getEndOffset();
-    return startOffset <= endOffset ? new TextRange(startOffset, endOffset) 
+    return startOffset <= endOffset ? new TextRange(startOffset, endOffset)
                                     : new TextRange(startOffset, startOffset);
   }
 
@@ -152,15 +143,15 @@ public class SurroundWithUtil {
    *   }
    * </pre>
    * The problem is that surround block doesn't contain any indent spaces, hence, the first statement is inserted to the
-   * zero column. But we have a dedicated code style setting <code>'keep comment at first column'</code>, i.e. the comment
+   * zero column. But we have a dedicated code style setting {@code 'keep comment at first column'}, i.e. the comment
    * will not be moved if that setting is checked.
    * <p/>
    * Current method handles that situation.
-   * 
+   *
    * @param container     code block that surrounds target statements
    * @param statements    target statements being surrounded
    */
-  public static void indentCommentIfNecessary(@NotNull PsiCodeBlock container, @Nullable PsiElement[] statements) {
+  public static void indentCommentIfNecessary(@NotNull PsiCodeBlock container, PsiElement @Nullable [] statements) {
     if (statements == null || statements.length <= 0) {
       return;
     }
@@ -187,7 +178,7 @@ public class SurroundWithUtil {
     if (indent <= 0) {
       return;
     }
-    
+
     PsiElement codeBlockWsElement = null;
     ASTNode codeBlockWsNode = null;
     boolean lbraceFound = false;
@@ -197,7 +188,7 @@ public class SurroundWithUtil {
       if (childNode == null) {
         continue;
       }
-      
+
       if (!lbraceFound) {
         if (JavaTokenType.LBRACE == childNode.getElementType()) {
           lbraceFound = true;
@@ -225,7 +216,7 @@ public class SurroundWithUtil {
         }
       }
       String newWsText = text.subSequence(text.length() - indent, text.length()).toString();
-      
+
       // Add white spaces from all lines except the last one.
       if (existingWhiteSpaceEndOffset < existingWhiteSpaceText.length()) {
         newWsText = existingWhiteSpaceText.subSequence(0, existingWhiteSpaceEndOffset + 1).toString() + newWsText;

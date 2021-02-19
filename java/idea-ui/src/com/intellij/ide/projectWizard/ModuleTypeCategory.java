@@ -8,7 +8,6 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 20.09.13
  */
 public class ModuleTypeCategory extends ProjectCategory {
 
@@ -20,7 +19,7 @@ public class ModuleTypeCategory extends ProjectCategory {
 
   @NotNull
   @Override
-  public final ModuleBuilder createModuleBuilder() {
+  public ModuleBuilder createModuleBuilder() {
     return myModuleType.createModuleBuilder();
   }
 

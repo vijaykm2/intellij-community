@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,14 +25,15 @@ import com.intellij.psi.search.GlobalSearchScope;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
  * @author anna
- * @since 23-May-2007
  */
 public abstract class AbstractTestProxy extends CompositePrintable {
   public static final DataKey<AbstractTestProxy> DATA_KEY = DataKey.create("testProxy");
+  public static final DataKey<AbstractTestProxy[]> DATA_KEYS = DataKey.create("testProxies");
 
   protected Printer myPrinter = null;
 
@@ -48,11 +49,15 @@ public abstract class AbstractTestProxy extends CompositePrintable {
 
   public abstract boolean isInterrupted();
 
+  public abstract boolean hasPassedTests();
+
   public abstract boolean isIgnored();
 
   public abstract boolean isPassed();
 
   public abstract String getName();
+
+  public abstract boolean isConfig();
 
   public abstract Location getLocation(@NotNull Project project, @NotNull GlobalSearchScope searchScope);
 
@@ -66,6 +71,11 @@ public abstract class AbstractTestProxy extends CompositePrintable {
 
   @Nullable
   public Long getDuration() {
+    return null;
+  }
+
+  @Nullable
+  public String getDurationString(TestConsoleProperties consoleProperties) {
     return null;
   }
 
@@ -109,22 +119,6 @@ public abstract class AbstractTestProxy extends CompositePrintable {
     }
   }
 
-  public static void flushOutput(AbstractTestProxy testProxy) {
-    testProxy.flush();
-
-    AbstractTestProxy parent = testProxy.getParent();
-    while (parent != null) {
-      final List<? extends AbstractTestProxy> children = parent.getChildren();
-      if (!testProxy.isInProgress() && testProxy.equals(children.get(children.size() - 1))) {
-        parent.flush();
-      } else {
-        break;
-      }
-      testProxy = parent;
-      parent = parent.getParent();
-    }
-  }
-
   @Override
   public int getExceptionMark() {
     if (myExceptionMark == 0 && getChildren().size() > 0) {
@@ -133,15 +127,57 @@ public abstract class AbstractTestProxy extends CompositePrintable {
     return myExceptionMark;
   }
 
+  @NotNull
+  public List<DiffHyperlink> getDiffViewerProviders() {
+    final DiffHyperlink provider = getDiffViewerProvider();
+    return provider == null ? Collections.emptyList() : Collections.singletonList(provider);
+  }
+
+  @Nullable
+  public String getStacktrace() {
+    return null;
+  }
+  
+  @Nullable
+  public DiffHyperlink getLeafDiffViewerProvider() {
+    DiffHyperlink provider = getDiffViewerProvider();
+    if (provider != null) return provider;
+    if (isDefect()) {
+      for (AbstractTestProxy child : getChildren()) {
+        provider = child.getLeafDiffViewerProvider();
+        if (provider != null) return provider;
+      }
+    }
+    return null;
+  }
+
   @Nullable
   public DiffHyperlink getDiffViewerProvider() {
     return null;
   }
 
-  public interface AssertEqualsDiffChain {
-    DiffHyperlink getPrevious();
-    DiffHyperlink getCurrent();
-    DiffHyperlink getNext();
-    void setCurrent(DiffHyperlink provider);
+  @Override
+  protected DiffHyperlink createHyperlink(String expected,
+                                          String actual,
+                                          String filePath,
+                                          final String actualFilePath, final boolean printOneLine) {
+    DiffHyperlink hyperlink = super.createHyperlink(expected, actual, filePath, actualFilePath, printOneLine);
+    hyperlink.setTestProxyName(getName());
+    return hyperlink;
+  }
+
+  @Nullable
+  public String getLocationUrl() {
+    return null;
+  }
+
+  @Nullable
+  public String getMetainfo() {
+    return null;
+  }
+
+  @Nullable
+  public String getErrorMessage() {
+    return null;
   }
 }

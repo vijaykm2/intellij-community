@@ -16,6 +16,7 @@
 package com.intellij.tasks.trac;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.tasks.TaskBundle;
 import com.intellij.tasks.config.BaseRepositoryEditor;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.util.Consumer;
@@ -31,7 +32,7 @@ public class TracRepositoryEditor extends BaseRepositoryEditor<TracRepository> {
   private JTextField myDefaultSearch;
   private JBLabel mySearchLabel;
 
-  public TracRepositoryEditor(final Project project, final TracRepository repository, Consumer<TracRepository> changeListener) {
+  public TracRepositoryEditor(final Project project, final TracRepository repository, Consumer<? super TracRepository> changeListener) {
     super(project, repository, changeListener);
     myDefaultSearch.setText(repository.getDefaultSearch());
   }
@@ -45,7 +46,7 @@ public class TracRepositoryEditor extends BaseRepositoryEditor<TracRepository> {
   @Nullable
   @Override
   protected JComponent createCustomPanel() {
-    mySearchLabel = new JBLabel("Search:", SwingConstants.RIGHT);
+    mySearchLabel = new JBLabel(TaskBundle.message("label.search"), SwingConstants.RIGHT);
     myDefaultSearch = new JTextField();
     installListener(myDefaultSearch);
     return FormBuilder.createFormBuilder().addLabeledComponent(mySearchLabel, myDefaultSearch).getPanel();

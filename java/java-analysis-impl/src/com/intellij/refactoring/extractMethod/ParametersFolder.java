@@ -1,27 +1,8 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/*
- * User: anna
- * Date: 23-Jun-2009
- */
 package com.intellij.refactoring.extractMethod;
 
 import com.intellij.codeInsight.PsiEquivalenceUtil;
-import com.intellij.openapi.util.Pair;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.SuggestedNameInfo;
@@ -31,30 +12,30 @@ import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.refactoring.util.RefactoringChangeUtil;
 import com.intellij.refactoring.util.VariableData;
 import com.intellij.refactoring.util.duplicates.DuplicatesFinder;
+import com.intellij.util.text.UniqueNameGenerator;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-public class ParametersFolder {
-  private final Map<PsiVariable, PsiExpression> myExpressions = new HashMap<PsiVariable, PsiExpression>();
-  private final Map<PsiVariable, List<PsiExpression>> myMentionedInExpressions = new HashMap<PsiVariable, List<PsiExpression>>();
-  private final Set<String> myUsedNames = new HashSet<String>();
+class ParametersFolder {
+  private final Map<PsiVariable, PsiExpression> myExpressions = new HashMap<>();
+  private final Map<PsiVariable, String> myArgs = new HashMap<>();
+  private final Map<PsiVariable, List<PsiExpression>> myMentionedInExpressions = new HashMap<>();
 
-  private final Set<PsiVariable> myDeleted = new HashSet<PsiVariable>();
-  private boolean myFoldingSelectedByDefault = false;
+  private final Set<PsiVariable> myDeleted = new HashSet<>();
+  private boolean myFoldingSelectedByDefault;
 
-
-  public void clear() {
+  void clear() {
     myExpressions.clear();
     myMentionedInExpressions.clear();
-    myUsedNames.clear();
     myDeleted.clear();
   }
 
-  public boolean isParameterSafeToDelete(@NotNull VariableData data, @NotNull LocalSearchScope scope) {
+  boolean isParameterSafeToDelete(@NotNull VariableData data, @NotNull LocalSearchScope scope) {
     Next:
     for (PsiReference reference : ReferencesSearch.search(data.variable, scope)) {
       PsiElement expression = reference.getElement();
@@ -82,35 +63,47 @@ public class ParametersFolder {
     return false;
   }
 
-  public void foldParameterUsagesInBody(@NotNull VariableData data, PsiElement[] elements, SearchScope scope) {
-    if (myDeleted.contains(data.variable)) return;
-    final PsiExpression psiExpression = myExpressions.get(data.variable);
-    if (psiExpression == null) return;
-    final Set<PsiExpression> eqExpressions = new HashSet<PsiExpression>();
-    for (PsiReference reference : ReferencesSearch.search(data.variable, scope)) {
-      final PsiExpression expression = findEquivalent(psiExpression, reference.getElement());
-      if (expression != null && expression.isValid()) {
-        eqExpressions.add(expression);
+  void foldParameterUsagesInBody(@NotNull List<? extends VariableData> datum, PsiElement @NotNull [] elements, @NotNull SearchScope scope) {
+    Map<VariableData, Set<PsiExpression>> equivalentExpressions = new LinkedHashMap<>();
+    for (VariableData data : datum) {
+      if (myDeleted.contains(data.variable)) continue;
+      final PsiExpression psiExpression = myExpressions.get(data.variable);
+      if (psiExpression == null) continue;
+
+      final Set<PsiExpression> eqExpressions = new HashSet<>();
+      for (PsiReference reference : ReferencesSearch.search(data.variable, scope)) {
+        final PsiExpression expression = findEquivalent(psiExpression, reference.getElement());
+        if (expression != null && expression.isValid()) {
+          eqExpressions.add(expression);
+        }
       }
+
+      equivalentExpressions.put(data, eqExpressions);
     }
 
-    for (PsiExpression expression : eqExpressions) {
-      final PsiExpression refExpression =
-        JavaPsiFacade.getElementFactory(expression.getProject()).createExpressionFromText(data.variable.getName(), expression);
-      final PsiElement replaced = expression.replace(refExpression);
-      for (int i = 0, psiElementsLength = elements.length; i < psiElementsLength; i++) {
-        PsiElement psiElement = elements[i];
-        if (expression == psiElement) {
-          elements[i] = replaced;
-          break;
+    for (VariableData data : equivalentExpressions.keySet()) {
+      final Set<PsiExpression> eqExpressions = equivalentExpressions.get(data);
+      for (PsiExpression expression : eqExpressions) {
+        if (!expression.isValid()) continue; //was replaced on previous step
+        final PsiExpression refExpression =
+          JavaPsiFacade.getElementFactory(expression.getProject()).createExpressionFromText(data.name, expression);
+        final PsiElement replaced = expression.replace(refExpression);
+        for (int i = 0, psiElementsLength = elements.length; i < psiElementsLength; i++) {
+          PsiElement psiElement = elements[i];
+          if (expression == psiElement) {
+            elements[i] = replaced;
+            break;
+          }
         }
       }
     }
   }
 
-  public boolean isParameterFoldable(@NotNull VariableData data,
-                                     @NotNull LocalSearchScope scope,
-                                     @NotNull final List<? extends PsiVariable> inputVariables) {
+  boolean isParameterFoldable(@NotNull VariableData data,
+                              @NotNull LocalSearchScope scope,
+                              @NotNull List<? extends PsiVariable> inputVariables,
+                              @NotNull UniqueNameGenerator nameGenerator,
+                              @NotNull String defaultName) {
     final List<PsiExpression> mentionedInExpressions = getMentionedExpressions(data.variable, scope, inputVariables);
     if (mentionedInExpressions == null) return false;
 
@@ -118,15 +111,8 @@ public class ParametersFolder {
     PsiExpression mostRanked = null;
     for (int i = mentionedInExpressions.size() - 1; i >= 0; i--) {
       PsiExpression expression = mentionedInExpressions.get(i);
-      if (expression instanceof PsiArrayAccessExpression) {
-        mostRanked = expression;
-        if (!isConditional(expression, scope)) {
-          myFoldingSelectedByDefault = true;
-          break;
-        }
-      }
       final int r = findUsedVariables(data, inputVariables, expression).size();
-      if (currentRank < r) {
+      if (currentRank < r || expression instanceof PsiArrayAccessExpression && myFoldingSelectedByDefault && currentRank == r) {
         currentRank = r;
         mostRanked = expression;
       }
@@ -134,55 +120,40 @@ public class ParametersFolder {
 
     if (mostRanked != null) {
       myExpressions.put(data.variable, mostRanked);
-      data.type = mostRanked.getType();
+      myArgs.put(data.variable, mostRanked.getText());
+      data.type = RefactoringChangeUtil.getTypeByExpression(mostRanked);
       final JavaCodeStyleManager codeStyleManager = JavaCodeStyleManager.getInstance(mostRanked.getProject());
       final SuggestedNameInfo nameInfo = codeStyleManager.suggestVariableName(VariableKind.PARAMETER, null, mostRanked, data.type);
-      if (nameInfo.names.length > 0) {
+      if (nameInfo.names.length > 0 &&
+          !Objects.equals(nameInfo.names[0], data.name) &&
+          !Objects.equals(nameInfo.names[0], defaultName)) {
         data.name = nameInfo.names[0];
+        setUniqueName(data, nameGenerator, mostRanked, codeStyleManager);
       }
-      setUniqueName(data, scope, mostRanked);
     }
 
     return mostRanked != null;
   }
 
-  private static boolean isConditional(PsiElement expr, LocalSearchScope scope) {
-    while (expr != null) {
-      final PsiElement parent = expr.getParent();
-      if (parent != null && scope.containsRange(parent.getContainingFile(), parent.getTextRange())) {
-        if (parent instanceof PsiIfStatement) {
-          if (((PsiIfStatement)parent).getCondition() != expr) return true;
-        } else if (parent instanceof PsiConditionalExpression) {
-          if (((PsiConditionalExpression)parent).getCondition() != expr) return true;
-        } else if (parent instanceof PsiSwitchStatement) {
-          if (((PsiSwitchStatement)parent).getExpression() != expr) return true;
-        }
-      } else {
-        return false;
-      }
-      expr = parent;
-    }
-    return false;
-  }
-
-  private void setUniqueName(VariableData data, LocalSearchScope scope, PsiExpression expr) {
+  private static void setUniqueName(@NotNull VariableData data, @NotNull UniqueNameGenerator nameGenerator,
+                                    @NotNull PsiExpression expr, @NotNull JavaCodeStyleManager codeStyleManager) {
     String name = data.name;
     int idx = 1;
     while (true) {
-      if (myUsedNames.add(name)) {
-        final PsiVariable definedVariable = PsiResolveHelper.SERVICE.getInstance(expr.getProject()).resolveReferencedVariable(name, expr);
-        if (definedVariable == null || !scope.containsRange(expr.getContainingFile(), definedVariable.getTextRange())) {
-          data.name = name;
-          break;
-        }
+      if (nameGenerator.isUnique(name, "", "") &&
+          name.equals(codeStyleManager.suggestUniqueVariableName(name, expr, true))) {
+        data.name = name;
+        nameGenerator.addExistingName(name);
+        break;
       }
       name = data.name + idx++;
     }
   }
 
-  private static Set<PsiVariable> findUsedVariables(VariableData data, final List<? extends PsiVariable> inputVariables,
-                                             PsiExpression expression) {
-    final Set<PsiVariable> found = new HashSet<PsiVariable>();
+  @NotNull
+  private static Set<PsiVariable> findUsedVariables(@NotNull VariableData data, @NotNull List<? extends PsiVariable> inputVariables,
+                                                    @NotNull PsiExpression expression) {
+    final Set<PsiVariable> found = new HashSet<>();
     expression.accept(new JavaRecursiveElementVisitor() {
       @Override
       public void visitReferenceExpression(PsiReferenceExpression referenceExpression) {
@@ -197,56 +168,93 @@ public class ParametersFolder {
     return found;
   }
 
-  public boolean isFoldable() {
+  boolean isFoldable() {
     return !myExpressions.isEmpty();
   }
 
   @Nullable
-  private List<PsiExpression> getMentionedExpressions(PsiVariable var, LocalSearchScope scope, final List<? extends PsiVariable> inputVariables) {
+  private List<PsiExpression> getMentionedExpressions(@NotNull PsiVariable var, @NotNull LocalSearchScope scope, @NotNull List<? extends PsiVariable> inputVariables) {
     if (myMentionedInExpressions.containsKey(var)) return myMentionedInExpressions.get(var);
     final PsiElement[] scopeElements = scope.getScope();
+
     List<PsiExpression> expressions = null;
+    Boolean arrayAccess = null;
     for (PsiReference reference : ReferencesSearch.search(var, scope)) {
       PsiElement expression = reference.getElement();
       if (expressions == null) {
-        expressions = new ArrayList<PsiExpression>();
-        while (expression != null) {
-          if (isAccessedForWriting((PsiExpression)expression)) return null;
-          for (PsiElement scopeElement : scopeElements) {
-            if (PsiTreeUtil.isAncestor(expression, scopeElement, true)) {
-              expression = null;
-              break;
-            }
+        expressions = new ArrayList<>();
+        while (expression instanceof PsiExpression) {
+          if (isAccessedForWriting((PsiExpression)expression)) {
+            return null;
           }
-          if (expression == null) break;
-
+          if (isAncestor(expression, scopeElements)) {
+            break;
+          }
+          if (dependsOnLocals(expression, inputVariables)) {
+            break;
+          }
+          final PsiElement parent = expression.getParent();
+          if (parent instanceof PsiExpressionStatement) {
+            break;
+          }
           final PsiType expressionType = ((PsiExpression)expression).getType();
-          if (expressionType != null && expressionType != PsiType.VOID && !(expression.getParent() instanceof PsiExpressionStatement)) {
-            if (dependsOnLocals(expression, inputVariables)) {
-              break;
-            }
+          if (expressionType == null || PsiType.VOID.equals(expressionType)) {
+            break;
+          }
+          if (isTooLongExpressionChain(expression)) {
+            break;
+          }
+          if (!isMethodNameExpression(expression)) {
             expressions.add((PsiExpression)expression);
+          }
+          if (expression instanceof PsiArrayAccessExpression && (arrayAccess == null || arrayAccess)) {
+            arrayAccess = isSafeToFoldArrayAccess(scope, expression);
           }
           expression = PsiTreeUtil.getParentOfType(expression, PsiExpression.class);
         }
       }
       else {
         for (Iterator<PsiExpression> iterator = expressions.iterator(); iterator.hasNext();) {
-          if (findEquivalent(iterator.next(), expression) == null) {
+          PsiExpression equivalent = findEquivalent(iterator.next(), expression);
+          if (equivalent == null) {
             iterator.remove();
+          }
+          else if (equivalent instanceof PsiArrayAccessExpression && (arrayAccess == null || arrayAccess)) {
+            arrayAccess = isSafeToFoldArrayAccess(scope, equivalent);
           }
         }
       }
+    }
+    if (arrayAccess != null && arrayAccess) {
+      myFoldingSelectedByDefault = true;
     }
     myMentionedInExpressions.put(var, expressions);
     return expressions;
   }
 
-  private static boolean isAccessedForWriting(PsiExpression expression) {
+  private static boolean isSafeToFoldArrayAccess(@NotNull LocalSearchScope scope,
+                                                 PsiElement expression) {
+    while (true) {
+      final PsiElement parent = expression.getParent();
+      if (parent != null && scope.containsRange(parent.getContainingFile(), parent.getTextRange())) {
+        if (parent instanceof PsiIfStatement ||
+            parent instanceof PsiConditionalExpression ||
+            parent instanceof PsiSwitchStatement) {
+          return false;
+        }
+      }
+      else {
+        return true;
+      }
+      expression = parent;
+    }
+  }
+
+  private static boolean isAccessedForWriting(@NotNull PsiExpression expression) {
     final PsiExpression[] exprWithWriteAccessInside = new PsiExpression[1];
     expression.accept(new JavaRecursiveElementWalkingVisitor() {
       @Override
-      public void visitElement(PsiElement element) {
+      public void visitElement(@NotNull PsiElement element) {
         if (exprWithWriteAccessInside[0] != null) return;
         super.visitElement(element);
       }
@@ -262,8 +270,49 @@ public class ParametersFolder {
     return exprWithWriteAccessInside[0] != null;
   }
 
-  private static boolean dependsOnLocals(final PsiElement expression, final List<? extends PsiVariable> inputVariables) {
-    final boolean[] localVarsUsed = new boolean[]{false};
+  private static boolean isAncestor(@NotNull PsiElement expression, PsiElement @NotNull [] scopeElements) {
+    for (PsiElement scopeElement : scopeElements) {
+      if (PsiTreeUtil.isAncestor(expression, scopeElement, false)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean isTooLongExpressionChain(@NotNull PsiElement expression) {
+    int count = 0;
+    for (PsiElement element = getInnerExpression(expression); element != null; element = getInnerExpression(element)) {
+      count++;
+      if (count > 1) { // expression chains like 'var.foo().bar()' and 'var.foo[i].bar()' are too long
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static PsiElement getInnerExpression(@NotNull PsiElement expression) {
+    if (expression instanceof PsiMethodCallExpression) {
+      return ((PsiMethodCallExpression)expression).getMethodExpression().getQualifierExpression();
+    }
+    if (expression instanceof PsiArrayAccessExpression) {
+      while (expression instanceof PsiArrayAccessExpression) {
+        expression = ((PsiArrayAccessExpression)expression).getArrayExpression();
+      }
+      return expression;
+    }
+    return null;
+  }
+
+  private static boolean isMethodNameExpression(@NotNull PsiElement expression) {
+    final PsiElement parent = expression.getParent();
+    return expression instanceof PsiReferenceExpression &&
+           parent instanceof PsiMethodCallExpression &&
+           ((PsiReferenceExpression)expression).getReferenceNameElement() ==
+           ((PsiMethodCallExpression)parent).getMethodExpression().getReferenceNameElement();
+  }
+
+  private static boolean dependsOnLocals(@NotNull PsiElement expression, @NotNull List<? extends PsiVariable> inputVariables) {
+    final boolean[] localVarsUsed = {false};
     expression.accept(new JavaRecursiveElementWalkingVisitor(){
       @Override
       public void visitReferenceExpression(PsiReferenceExpression expression) {
@@ -282,16 +331,20 @@ public class ParametersFolder {
   }
 
   @NotNull
-  public String getGeneratedCallArgument(@NotNull VariableData data) {
-    return myExpressions.containsKey(data.variable) ? myExpressions.get(data.variable).getText() : data.variable.getName();
+  String getGeneratedCallArgument(@NotNull VariableData data) {
+    return myArgs.containsKey(data.variable) ? myArgs.get(data.variable) : data.variable.getName();
   }
 
-  public boolean annotateWithParameter(@NotNull VariableData data, @NotNull PsiElement element) {
+  void putCallArgument(@NotNull PsiVariable argument, @NotNull PsiExpression value) {
+    myArgs.put(argument, value.getText());
+  }
+
+  boolean annotateWithParameter(@NotNull VariableData data, @NotNull PsiElement element) {
     final PsiExpression psiExpression = myExpressions.get(data.variable);
     if (psiExpression != null) {
       final PsiExpression expression = findEquivalent(psiExpression, element);
       if (expression != null) {
-        expression.putUserData(DuplicatesFinder.PARAMETER, Pair.create(data.variable, expression.getType()));
+        expression.putUserData(DuplicatesFinder.PARAMETER, new DuplicatesFinder.Parameter(data.variable, expression.getType(), true));
         return true;
       }
     }
@@ -299,22 +352,23 @@ public class ParametersFolder {
   }
 
   @Nullable
-  private static PsiExpression findEquivalent(PsiExpression expr, PsiElement element) {
+  private static PsiExpression findEquivalent(PsiExpression expr, @NotNull PsiElement element) {
     PsiElement expression = element;
-    while (expression  != null) {
+    while (expression != null) {
       if (PsiEquivalenceUtil.areElementsEquivalent(expression, expr)) {
-        return (PsiExpression)expression;
+        PsiExpression psiExpression = (PsiExpression)expression;
+        return PsiUtil.isAccessedForWriting(psiExpression) ? null : psiExpression;
       }
       expression = PsiTreeUtil.getParentOfType(expression, PsiExpression.class);
     }
     return null;
   }
 
-  public boolean wasExcluded(PsiVariable variable) {
-    return myDeleted.contains(variable) || (myMentionedInExpressions.containsKey(variable) && myExpressions.get(variable) == null);
+  boolean wasExcluded(@NotNull PsiVariable variable) {
+    return myDeleted.contains(variable) || myMentionedInExpressions.containsKey(variable) && myExpressions.get(variable) == null;
   }
 
-  public boolean isFoldingSelectedByDefault() {
+  boolean isFoldingSelectedByDefault() {
     return myFoldingSelectedByDefault;
   }
 }

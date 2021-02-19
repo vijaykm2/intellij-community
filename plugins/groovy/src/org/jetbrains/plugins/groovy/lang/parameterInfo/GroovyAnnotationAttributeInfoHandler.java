@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.parameterInfo;
 
-import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.lang.parameterInfo.*;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.psi.*;
@@ -29,7 +14,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
-import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.annotation.GrAnnotation;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.annotation.GrAnnotationArgumentList;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.annotation.GrAnnotationNameValuePair;
@@ -43,12 +27,11 @@ import java.util.Set;
  */
 public class GroovyAnnotationAttributeInfoHandler implements ParameterInfoHandlerWithTabActionSupport<GrAnnotationArgumentList, PsiAnnotationMethod, GrAnnotationNameValuePair> {
 
-  private static final Set<Class> ALLOWED_CLASSES = ContainerUtil.<Class>newHashSet(GrAnnotation.class);
-  private static final Set<Class<GroovyFile>> STOP_SEARCHING_CLASSES = Collections.singleton(GroovyFile.class);
+  private static final Set<Class<?>> ALLOWED_CLASSES = ContainerUtil.newHashSet(GrAnnotation.class);
+  private static final Set<Class<?>> STOP_SEARCHING_CLASSES = Collections.singleton(GroovyFile.class);
 
-  @NotNull
   @Override
-  public GrAnnotationNameValuePair[] getActualParameters(@NotNull GrAnnotationArgumentList o) {
+  public GrAnnotationNameValuePair @NotNull [] getActualParameters(@NotNull GrAnnotationArgumentList o) {
     return o.getAttributes();
   }
 
@@ -66,13 +49,13 @@ public class GroovyAnnotationAttributeInfoHandler implements ParameterInfoHandle
 
   @NotNull
   @Override
-  public Set<Class> getArgumentListAllowedParentClasses() {
+  public Set<Class<?>> getArgumentListAllowedParentClasses() {
     return ALLOWED_CLASSES;
   }
 
   @NotNull
   @Override
-  public Set<? extends Class> getArgListStopSearchClasses() {
+  public Set<? extends Class<?>> getArgListStopSearchClasses() {
     return STOP_SEARCHING_CLASSES;
   }
 
@@ -82,43 +65,15 @@ public class GroovyAnnotationAttributeInfoHandler implements ParameterInfoHandle
     return GrAnnotationArgumentList.class;
   }
 
-  @Override
-  public boolean couldShowInLookup() {
-    return true;
-  }
-
-  @Override
-  public Object[] getParametersForLookup(@NotNull LookupElement item, @NotNull ParameterInfoContext context) {
-    Object o = item.getObject();
-
-    if (o instanceof GroovyResolveResult) {
-      o = ((GroovyResolveResult)o).getElement();
-    }
-
-
-    if (o instanceof PsiClass && ((PsiClass)o).isAnnotationType()) {
-      return extractAnnotationMethodsFromClass((PsiClass)o);
-    }
-    else {
-      return GrAnnotationNameValuePair.EMPTY_ARRAY;
-    }
-  }
-
-  @NotNull
-  private static PsiAnnotationMethod[] extractAnnotationMethodsFromClass(@NotNull PsiClass o) {
+  private static PsiAnnotationMethod @NotNull [] extractAnnotationMethodsFromClass(@NotNull PsiClass o) {
     if (o.isAnnotationType()) {
       PsiMethod[] methods = o.getMethods();
       if (methods.length > 0) {
         List<PsiAnnotationMethod> annotationMethods = ContainerUtil.findAll(methods, PsiAnnotationMethod.class);
-        return annotationMethods.toArray(new PsiAnnotationMethod[annotationMethods.size()]);
+        return annotationMethods.toArray(PsiAnnotationMethod.EMPTY_ARRAY);
       }
     }
     return PsiAnnotationMethod.EMPTY_ARRAY;
-  }
-
-  @Override
-  public Object[] getParametersForDocumentation(@NotNull PsiAnnotationMethod method, @NotNull ParameterInfoContext context) {
-    return new PsiAnnotationMethod[]{method};
   }
 
   @Override
@@ -177,16 +132,6 @@ public class GroovyAnnotationAttributeInfoHandler implements ParameterInfoHandle
       offset1 = CharArrayUtil.shiftBackward(chars, offset1 - 1, " \t");
     }
     return offset1;
-  }
-
-  @Override
-  public String getParameterCloseChars() {
-    return ParameterInfoUtils.DEFAULT_PARAMETER_CLOSE_CHARS;
-  }
-
-  @Override
-  public boolean tracksParameterIndex() {
-    return true;
   }
 
   @Override

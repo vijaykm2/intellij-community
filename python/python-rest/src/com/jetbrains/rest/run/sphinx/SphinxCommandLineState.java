@@ -18,6 +18,8 @@ package com.jetbrains.rest.run.sphinx;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.jetbrains.python.HelperPackage;
+import com.jetbrains.python.PythonHelper;
 import com.jetbrains.rest.run.RestCommandLineState;
 
 import java.util.Collections;
@@ -34,19 +36,16 @@ public class SphinxCommandLineState extends RestCommandLineState {
 
   @Override
   protected Runnable getAfterTask() {
-    return new Runnable() {
-      @Override
-      public void run() {
-        VirtualFile virtualFile = findOutput();
-        if (virtualFile != null)
-          LocalFileSystem.getInstance().refreshFiles(Collections.singleton(virtualFile), false, true, null);
-      }
+    return () -> {
+      VirtualFile virtualFile = findOutput();
+      if (virtualFile != null)
+        LocalFileSystem.getInstance().refreshFiles(Collections.singleton(virtualFile), false, true, null);
     };
   }
 
   @Override
-  protected String getRunnerPath() {
-    return "rest_runners/sphinx_runner.py";
+  protected HelperPackage getRunner() {
+    return PythonHelper.SPHINX_RUNNER;
   }
 
   @Override

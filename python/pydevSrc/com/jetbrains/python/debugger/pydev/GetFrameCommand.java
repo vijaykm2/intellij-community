@@ -4,6 +4,7 @@ import com.intellij.xdebugger.frame.XValueChildrenList;
 import com.jetbrains.python.debugger.IPyDebugProcess;
 import com.jetbrains.python.debugger.PyDebugValue;
 import com.jetbrains.python.debugger.PyDebuggerException;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
@@ -34,20 +35,23 @@ public class GetFrameCommand extends AbstractFrameCommand {
   }
 
   @Override
-  protected void processResponse(final ProtocolFrame response) throws PyDebuggerException {
+  protected void processResponse(@NotNull final ProtocolFrame response) throws PyDebuggerException {
     super.processResponse(response);
     final List<PyDebugValue> values = ProtocolParser.parseValues(response.getPayload(), myDebugProcess);
     myFrameVariables = new XValueChildrenList(values.size());
     for (PyDebugValue value : values) {
       if (!value.getName().startsWith(RemoteDebugger.TEMP_VAR_PREFIX)) {
         final PyDebugValue debugValue = extend(value);
-        myFrameVariables.add(debugValue.getName(), debugValue);
+        myFrameVariables.add(debugValue.getVisibleName(), debugValue);
       }
     }
   }
 
   protected PyDebugValue extend(final PyDebugValue value) {
-    return new PyDebugValue(value.getName(), value.getType(), value.getValue(), value.isContainer(), value.isErrorOnEval(), null, myDebugProcess);
+    PyDebugValue debugValue = new PyDebugValue(value);
+    debugValue.setParent(null);
+    debugValue.setFrameAccessor(myDebugProcess);
+    return debugValue;
   }
 
   public XValueChildrenList getVariables() {

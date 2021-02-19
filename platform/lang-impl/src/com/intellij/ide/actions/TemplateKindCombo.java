@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,14 +16,16 @@
 package com.intellij.ide.actions;
 
 import com.intellij.ide.ui.UISettings;
-import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CustomShortcutSet;
+import com.intellij.openapi.project.DumbAwareAction;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Trinity;
 import com.intellij.ui.ComboboxSpeedSearch;
 import com.intellij.ui.ComboboxWithBrowseButton;
-import com.intellij.ui.ListCellRendererWrapper;
+import com.intellij.ui.SimpleListCellRenderer;
 import com.intellij.ui.SpeedSearchComparator;
+import com.intellij.ui.components.JBLabel;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -32,18 +34,15 @@ import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 
 public class TemplateKindCombo extends ComboboxWithBrowseButton {
-
   public TemplateKindCombo() {
-    //noinspection unchecked
-    getComboBox().setRenderer(new ListCellRendererWrapper() {
-      @Override
-      public void customize(final JList list, final Object value, final int index, final boolean selected, final boolean cellHasFocus) {
-        if (value instanceof Trinity) {
-          setText((String)((Trinity)value).first);
-          setIcon ((Icon)((Trinity)value).second);
+    getComboBox().setRenderer(
+      SimpleListCellRenderer.create(
+        (JBLabel label, Trinity<@NlsContexts.ListItem String, Icon, String> value, int index) -> {
+        if (value != null) {
+          label.setText(value.first);
+          label.setIcon(value.second);
         }
-      }
-    });
+      }));
 
     new ComboboxSpeedSearch(getComboBox()) {
       @Override
@@ -57,12 +56,13 @@ public class TemplateKindCombo extends ComboboxWithBrowseButton {
     setButtonListener(null);
   }
 
-  public void addItem(@NotNull String presentableName, @Nullable Icon icon, @NotNull String templateName) {
+  public void addItem(@NlsContexts.ListItem @NotNull String presentableName, @Nullable Icon icon, @NotNull String templateName) {
     //noinspection unchecked
-    getComboBox().addItem(new Trinity<String, Icon, String>(presentableName, icon, templateName));
+    getComboBox().addItem(new Trinity<>(presentableName, icon, templateName));
   }
 
   @NotNull
+  @NlsSafe
   public String getSelectedName() {
     //noinspection unchecked
     final Trinity<String, Icon, String> trinity = (Trinity<String, Icon, String>)getComboBox().getSelectedItem();
@@ -87,15 +87,12 @@ public class TemplateKindCombo extends ComboboxWithBrowseButton {
   }
 
   public void registerUpDownHint(JComponent component) {
-    new AnAction() {
-      @Override
-      public void actionPerformed(AnActionEvent e) {
-        if (e.getInputEvent() instanceof KeyEvent) {
-          final int code = ((KeyEvent)e.getInputEvent()).getKeyCode();
-          scrollBy(code == KeyEvent.VK_DOWN ? 1 : code == KeyEvent.VK_UP ? -1 : 0);
-        }
+    DumbAwareAction.create(e -> {
+      if (e.getInputEvent() instanceof KeyEvent) {
+        int code = ((KeyEvent)e.getInputEvent()).getKeyCode();
+        scrollBy(code == KeyEvent.VK_DOWN ? 1 : code == KeyEvent.VK_UP ? -1 : 0);
       }
-    }.registerCustomShortcutSet(new CustomShortcutSet(KeyEvent.VK_UP, KeyEvent.VK_DOWN), component);
+    }).registerCustomShortcutSet(new CustomShortcutSet(KeyEvent.VK_UP, KeyEvent.VK_DOWN), component);
   }
 
   private void scrollBy(int delta) {
@@ -103,7 +100,7 @@ public class TemplateKindCombo extends ComboboxWithBrowseButton {
     if (delta == 0 || size == 0) return;
     int next = getComboBox().getSelectedIndex() + delta;
     if (next < 0 || next >= size) {
-      if (!UISettings.getInstance().CYCLE_SCROLLING) {
+      if (!UISettings.getInstance().getCycleScrolling()) {
         return;
       }
       next = (next + size) % size;
@@ -112,7 +109,7 @@ public class TemplateKindCombo extends ComboboxWithBrowseButton {
   }
 
   /**
-   * @param listener pass <code>null</code> to hide browse button
+   * @param listener pass {@code null} to hide browse button
    */
   public void setButtonListener(@Nullable ActionListener listener) {
     getButton().setVisible(listener != null);

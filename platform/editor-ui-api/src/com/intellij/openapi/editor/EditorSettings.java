@@ -1,21 +1,14 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor;
 
+import com.intellij.lang.Language;
 import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
+import java.util.function.Supplier;
 
 public interface EditorSettings {
   boolean isRightMarginShown();
@@ -36,6 +29,22 @@ public interface EditorSettings {
   int getRightMargin(Project project);
   void setRightMargin(int myRightMargin);
 
+  /**
+   * Retrieves a list of soft margins (visual indent guides) to be used in the editor. If soft margins haven't been explicitly set
+   * with {@link #setSoftMargins(List)} method, they are obtained from code style settings: {@code CodeStyleSettings.getSoftMargins()}.
+   * @return A list of current editor soft margins. The list may be empty if no soft margins are defined.
+   */
+  @NotNull
+  List<Integer> getSoftMargins();
+
+  /**
+   * Explicitly sets soft margins (visual indent guides) to be used in the editor instead of obtaining them from code style settings via
+   * {@code CodeStyleSettings.getSoftMargins()} method. It is important to distinguish and empty list from {@code null} value: the first
+   * will define no soft margins for the eidtor while the latter will restore the default behavior of using them from code style settings.
+   * @param softMargins A list of soft margins or {@code null} to use margins from code style settings.
+   */
+  void setSoftMargins(@Nullable List<Integer> softMargins);
+
   boolean isWrapWhenTypingReachesRightMargin(Project project);
   void setWrapWhenTypingReachesRightMargin(boolean val);
 
@@ -50,6 +59,9 @@ public interface EditorSettings {
 
   boolean isLineMarkerAreaShown();
   void setLineMarkerAreaShown(boolean lineMarkerAreaShown);
+
+  boolean areGutterIconsShown();
+  void setGutterIconsShown(boolean gutterIconsShown);
 
   boolean isFoldingOutlineShown();
   void setFoldingOutlineShown(boolean val);
@@ -125,7 +137,17 @@ public interface EditorSettings {
   int getCustomSoftWrapIndent();
   void setCustomSoftWrapIndent(int indent);
 
+  /**
+   * @see #setAllowSingleLogicalLineFolding(boolean)
+   */
   boolean isAllowSingleLogicalLineFolding();
+
+  /**
+   * By default, gutter mark (for collapsing/expanding the region using mouse) is not shown for a folding region, if it's contained within
+   * a single document line. If overridden by the call to this method, marks will be displayed for such a region if it occupies multiple
+   * visual lines (due to soft wrapping). Displaying a gutter mark can be also enabled for a region unconditionally using
+   * {@link FoldRegion#setGutterMarkEnabledForSingleLine(boolean)}.
+   */
   void setAllowSingleLogicalLineFolding(boolean allow);
 
   boolean isPreselectRename();
@@ -133,4 +155,16 @@ public interface EditorSettings {
 
   boolean isShowIntentionBulb();
   void setShowIntentionBulb(boolean show);
+
+  /**
+   * Sets the language which determines certain editor settings (right margin and soft margins, 'wrap on reaching right margin').
+   *
+   * @see #getRightMargin(Project)
+   * @see #getSoftMargins()
+   * @see #isWrapWhenTypingReachesRightMargin(Project)
+   */
+  void setLanguageSupplier(@Nullable Supplier<? extends Language> languageSupplier);
+
+  boolean isShowingSpecialChars();
+  void setShowingSpecialChars(boolean value);
 }

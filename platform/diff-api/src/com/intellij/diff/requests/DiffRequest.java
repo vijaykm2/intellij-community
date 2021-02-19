@@ -16,15 +16,21 @@
 package com.intellij.diff.requests;
 
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.openapi.util.UserDataHolderBase;
-import org.jetbrains.annotations.CalledInAwt;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+/**
+ * @see com.intellij.diff.DiffRequestFactory
+ * @see SimpleDiffRequest
+ */
 public abstract class DiffRequest implements UserDataHolder {
   protected final UserDataHolderBase myUserDataHolder = new UserDataHolderBase();
 
+  @NlsContexts.DialogTitle
   @Nullable
   public abstract String getTitle();
 
@@ -37,10 +43,13 @@ public abstract class DiffRequest implements UserDataHolder {
    * @param isAssigned true means request processing started, false means processing has stopped.
    *                   Total number of calls with true should be same as for false
    */
-  @CalledInAwt
+  @RequiresEdt
   public void onAssigned(boolean isAssigned) {
   }
 
+  /**
+   * @see com.intellij.diff.util.DiffUserDataKeys
+   */
   @Nullable
   @Override
   public <T> T getUserData(@NotNull Key<T> key) {

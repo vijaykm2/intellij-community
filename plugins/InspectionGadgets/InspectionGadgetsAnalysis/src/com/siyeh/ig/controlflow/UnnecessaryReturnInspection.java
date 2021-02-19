@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2012 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2020 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,9 @@
 package com.siyeh.ig.controlflow;
 
 import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
+import com.intellij.openapi.util.Ref;
 import com.intellij.psi.*;
+import com.intellij.psi.util.FileTypeUtils;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
@@ -24,8 +26,8 @@ import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.fixes.DeleteUnnecessaryStatementFix;
 import com.siyeh.ig.psiutils.ControlFlowUtils;
-import com.intellij.psi.util.FileTypeUtils;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
@@ -37,12 +39,6 @@ public class UnnecessaryReturnInspection extends BaseInspection {
   @NotNull
   public String getID() {
     return "UnnecessaryReturnStatement";
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("unnecessary.return.display.name");
   }
 
   @Override
@@ -72,6 +68,11 @@ public class UnnecessaryReturnInspection extends BaseInspection {
   }
 
   @Override
+  public boolean shouldInspect(PsiFile file) {
+    return !FileTypeUtils.isInServerPageFile(file);
+  }
+
+  @Override
   public BaseInspectionVisitor buildVisitor() {
     return new UnnecessaryReturnVisitor();
   }
@@ -80,51 +81,68 @@ public class UnnecessaryReturnInspection extends BaseInspection {
     @Override
     public void visitReturnStatement(@NotNull PsiReturnStatement statement) {
       super.visitReturnStatement(statement);
-      if (FileTypeUtils.isInServerPageFile(statement.getContainingFile())) {
-        return;
+      final Ref<Boolean> constructorRef = Ref.create();
+      if (isReturnRedundant(statement, ignoreInThenBranch, true, constructorRef)) {
+        registerStatementError(statement, constructorRef.get());
       }
-      if (statement.getReturnValue() != null) {
-        return;
-      }
-      final PsiElement methodParent = PsiTreeUtil.getParentOfType(statement, PsiMethod.class, PsiLambdaExpression.class);
-      PsiCodeBlock codeBlock = null;
-      final boolean constructor;
-      if (methodParent instanceof PsiMethod) {
-        final PsiMethod method = (PsiMethod)methodParent;
-        codeBlock = method.getBody();
-        constructor = method.isConstructor();
-      }
-      else if (methodParent instanceof PsiLambdaExpression) {
-        constructor = false;
-        final PsiLambdaExpression lambdaExpression = (PsiLambdaExpression)methodParent;
-        final PsiElement lambdaBody = lambdaExpression.getBody();
-        if (lambdaBody instanceof PsiCodeBlock) {
-          codeBlock = (PsiCodeBlock)lambdaBody;
-        }
-      }
-      else {
-        return;
-      }
-      if (codeBlock == null) {
-        return;
-      }
-      if (!ControlFlowUtils.blockCompletesWithStatement(codeBlock, statement)) {
-        return;
-      }
-      if (ignoreInThenBranch && isInThenBranch(statement)) {
-        return;
-      }
-      registerStatementError(statement, Boolean.valueOf(constructor));
     }
 
-    private boolean isInThenBranch(PsiStatement statement) {
-      final PsiIfStatement ifStatement =
-        PsiTreeUtil.getParentOfType(statement, PsiIfStatement.class, true, PsiMethod.class, PsiLambdaExpression.class);
-      if (ifStatement == null) {
+  }
+
+  public static boolean isReturnRedundant(@NotNull PsiReturnStatement statement,
+                                          boolean ignoreInThenBranch,
+                                          boolean checkReturnType,
+                                          @Nullable Ref<? super Boolean> isInConstructorRef) {
+    if (statement.getReturnValue() != null) {
+      return false;
+    }
+    final PsiElement methodParent = PsiTreeUtil.getParentOfType(statement, PsiMethod.class, PsiLambdaExpression.class);
+    PsiCodeBlock codeBlock = null;
+    if (methodParent instanceof PsiMethod) {
+      final PsiMethod method = (PsiMethod)methodParent;
+      codeBlock = method.getBody();
+      if (isInConstructorRef != null) {
+        isInConstructorRef.set(method.isConstructor());
+      }
+      if (checkReturnType && !method.isConstructor() && !PsiType.VOID.equals(method.getReturnType())) {
         return false;
       }
-      final PsiStatement elseBranch = ifStatement.getElseBranch();
-      return elseBranch != null && !PsiTreeUtil.isAncestor(elseBranch, statement, true);
     }
+    else if (methodParent instanceof PsiLambdaExpression) {
+      if (isInConstructorRef != null) {
+        isInConstructorRef.set(false);
+      }
+      final PsiLambdaExpression lambdaExpression = (PsiLambdaExpression)methodParent;
+      if (checkReturnType && !PsiType.VOID.equals(LambdaUtil.getFunctionalInterfaceReturnType(lambdaExpression))) {
+        return false;
+      }
+      final PsiElement lambdaBody = lambdaExpression.getBody();
+      if (lambdaBody instanceof PsiCodeBlock) {
+        codeBlock = (PsiCodeBlock)lambdaBody;
+      }
+    }
+    else {
+      return false;
+    }
+    if (codeBlock == null) {
+      return false;
+    }
+    if (!ControlFlowUtils.blockCompletesWithStatement(codeBlock, statement) || ControlFlowUtils.isInFinallyBlock(statement)) {
+      return false;
+    }
+    if (ignoreInThenBranch && isInThenBranch(statement)) {
+      return false;
+    }
+    return true;
+  }
+
+  static boolean isInThenBranch(PsiStatement statement) {
+    final PsiIfStatement ifStatement =
+      PsiTreeUtil.getParentOfType(statement, PsiIfStatement.class, true, PsiMethod.class, PsiLambdaExpression.class);
+    if (ifStatement == null) {
+      return false;
+    }
+    final PsiStatement elseBranch = ifStatement.getElseBranch();
+    return elseBranch != null && !PsiTreeUtil.isAncestor(elseBranch, statement, true);
   }
 }

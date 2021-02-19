@@ -24,7 +24,7 @@ import com.intellij.psi.tree.IElementType;
 import org.jetbrains.annotations.NotNull;
 
 public class PsiPackageStatementImpl extends CompositePsiElement implements PsiPackageStatement {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiPackageStatementImpl");
+  private static final Logger LOG = Logger.getInstance(PsiPackageStatementImpl.class);
 
   public PsiPackageStatementImpl() {
     super(JavaElementType.PACKAGE_STATEMENT);
@@ -68,7 +68,7 @@ public class PsiPackageStatementImpl extends CompositePsiElement implements PsiP
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
     if (i == JavaTokenType.PACKAGE_KEYWORD) {
@@ -98,6 +98,7 @@ public class PsiPackageStatementImpl extends CompositePsiElement implements PsiP
     }
   }
 
+  @Override
   public String toString() {
     return "PsiPackageStatement:" + getPackageName();
   }

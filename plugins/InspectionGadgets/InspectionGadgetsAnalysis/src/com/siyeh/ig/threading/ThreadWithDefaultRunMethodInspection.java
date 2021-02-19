@@ -27,13 +27,6 @@ public class ThreadWithDefaultRunMethodInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "thread.with.default.run.method.display.name");
-  }
-
-  @Override
-  @NotNull
   public String getID() {
     return "InstantiatingAThreadWithDefaultRunMethod";
   }
@@ -100,7 +93,7 @@ public class ThreadWithDefaultRunMethodInspection extends BaseInspection {
       final PsiMethod[] methods = aClass.findMethodsByName(HardcodedMethodConstants.RUN, false);
       for (final PsiMethod method : methods) {
         final PsiParameterList parameterList = method.getParameterList();
-        if (parameterList.getParametersCount() == 0) {
+        if (parameterList.isEmpty()) {
           return true;
         }
       }

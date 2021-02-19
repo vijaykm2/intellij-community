@@ -1,34 +1,27 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.typeMigration;
 
-import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.fileTypes.StdFileTypes;
+import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiExpression;
+import com.intellij.psi.PsiType;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.structuralsearch.MatchOptions;
 import com.intellij.structuralsearch.plugin.replace.ReplaceOptions;
 import com.intellij.structuralsearch.plugin.replace.impl.Replacer;
-import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * Created by IntelliJ IDEA.
- * User: db
- * Date: Sep 28, 2004
- * Time: 7:13:53 PM
- * To change this template use File | Settings | File Templates.
- */
 public class TypeConversionDescriptor extends TypeConversionDescriptorBase {
-  private static final Logger LOG = Logger.getInstance("#" + TypeConversionDescriptor.class.getName());
-
-  private String myStringToReplace = null;
-  private String myReplaceByString = "$";
+  private @NonNls String myStringToReplace = null;
+  private @NonNls String myReplaceByString = "$";
   private PsiExpression myExpression;
+  private PsiType myConversionType;
 
   public TypeConversionDescriptor(@NonNls final String stringToReplace, @NonNls final String replaceByString) {
-    myStringToReplace = stringToReplace;
-    myReplaceByString = replaceByString;
+    this(stringToReplace, replaceByString, (PsiExpression)null);
   }
 
   public TypeConversionDescriptor(@NonNls final String stringToReplace, @NonNls final String replaceByString, final PsiExpression expression) {
@@ -37,19 +30,29 @@ public class TypeConversionDescriptor extends TypeConversionDescriptorBase {
     myExpression = expression;
   }
 
-  public void setStringToReplace(String stringToReplace) {
+  public TypeConversionDescriptor(@NonNls final String stringToReplace, @NonNls final String replaceByString, PsiType conversionType) {
+    this(stringToReplace, replaceByString);
+    myConversionType = conversionType;
+  }
+
+  public TypeConversionDescriptor withConversionType(PsiType conversionType) {
+    myConversionType = conversionType;
+    return this;
+  }
+
+  public void setStringToReplace(@NonNls String stringToReplace) {
     myStringToReplace = stringToReplace;
   }
 
-  public void setReplaceByString(String replaceByString) {
+  public void setReplaceByString(@NonNls String replaceByString) {
     myReplaceByString = replaceByString;
   }
 
-  public String getStringToReplace() {
+  public @NonNls String getStringToReplace() {
     return myStringToReplace;
   }
 
-  public String getReplaceByString() {
+  public @NonNls String getReplaceByString() {
     return myReplaceByString;
   }
 
@@ -61,33 +64,40 @@ public class TypeConversionDescriptor extends TypeConversionDescriptorBase {
     myExpression = expression;
   }
 
+  @Nullable
   @Override
-  public void replace(PsiExpression expression) {
+  public PsiType conversionType() {
+    return myConversionType;
+  }
+
+  @Override
+  public PsiExpression replace(PsiExpression expression, @NotNull TypeEvaluator evaluator) {
     if (getExpression() != null) expression = getExpression();
-    final Project project = expression.getProject();
+    expression = adjustExpressionBeforeReplacement(expression);
+    return replaceExpression(expression, getStringToReplace(), getReplaceByString());
+  }
+
+  @NotNull
+  protected PsiExpression adjustExpressionBeforeReplacement(@NotNull PsiExpression expression) {
+    return expression;
+  }
+
+  @NotNull
+  public static PsiExpression replaceExpression(@NotNull PsiExpression expression,
+                                                String stringToReplace,
+                                                String replaceByString) {
+    Project project = expression.getProject();
     final ReplaceOptions options = new ReplaceOptions();
-    final MatchOptions matchOptions = new MatchOptions();
-    matchOptions.setFileType(StdFileTypes.JAVA);
-    options.setMatchOptions(matchOptions);
-    final Replacer replacer = new Replacer(project, null);
-    try {
-      final String replacement = replacer.testReplace(expression.getText(), getStringToReplace(), getReplaceByString(), options);
-      try {
-        JavaCodeStyleManager.getInstance(project).shortenClassReferences(expression.replace(
-          JavaPsiFacade.getInstance(project).getElementFactory().createExpressionFromText(replacement, expression)));
-      }
-      catch (IncorrectOperationException e) {
-        LOG.error(e);
-      }
-    }
-    catch (IncorrectOperationException e) {
-      LOG.error(e);
-    }
+    final MatchOptions matchOptions = options.getMatchOptions();
+    matchOptions.setFileType(JavaFileType.INSTANCE);
+    final String replacement = Replacer.testReplace(expression.getText(), stringToReplace, replaceByString, options, project);
+    return (PsiExpression)JavaCodeStyleManager.getInstance(project).shortenClassReferences(expression.replace(
+      JavaPsiFacade.getElementFactory(project).createExpressionFromText(replacement, expression)));
   }
 
   @Override
   public String toString() {
-    StringBuffer buf = new StringBuffer();
+    StringBuilder buf = new StringBuilder();
     if (myReplaceByString != null) {
       buf.append(myReplaceByString);
     }

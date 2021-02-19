@@ -1,25 +1,11 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * @author max
  */
 package com.intellij.psi;
 
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
@@ -29,7 +15,7 @@ import java.util.Map;
 
 public abstract class JavaDirectoryService {
   public static JavaDirectoryService getInstance() {
-    return ServiceManager.getService(JavaDirectoryService.class);
+    return ApplicationManager.getApplication().getService(JavaDirectoryService.class);
   }
 
   /**
@@ -41,12 +27,19 @@ public abstract class JavaDirectoryService {
   public abstract PsiPackage getPackage(@NotNull PsiDirectory dir);
 
   /**
+   * Returns the package corresponding to the directory.
+   *
+   * @return the package instance, or null if the directory does not correspond to any package or package is under resource roots
+   */
+  @Nullable
+  public abstract PsiPackage getPackageInSources(@NotNull PsiDirectory dir);
+
+  /**
    * Returns the list of Java classes contained in the directory.
    *
    * @return the array of classes.
    */
-  @NotNull
-  public abstract PsiClass[] getClasses(@NotNull PsiDirectory dir);
+  public abstract PsiClass @NotNull [] getClasses(@NotNull PsiDirectory dir);
 
   /**
    * Creates a class with the specified name in the directory.
@@ -65,7 +58,6 @@ public abstract class JavaDirectoryService {
    * @param templateName custom file template to create class text based on.
    * @return the created class instance.
    * @throws IncorrectOperationException if the operation failed for some reason.
-   * @since 5.1
    */
   @NotNull
   public abstract PsiClass createClass(@NotNull PsiDirectory dir, @NotNull String name, @NotNull String templateName) throws IncorrectOperationException;
@@ -115,6 +107,16 @@ public abstract class JavaDirectoryService {
    */
   @NotNull
   public abstract PsiClass createEnum(@NotNull PsiDirectory dir, @NotNull String name) throws IncorrectOperationException;
+
+  /**
+   * Creates a record class with the specified name in the directory.
+   *
+   * @param name the name of the record class to create (not including the file extension).
+   * @return the created record instance.
+   * @throws IncorrectOperationException if the operation failed for some reason.
+   */
+  @NotNull
+  public abstract PsiClass createRecord(@NotNull PsiDirectory dir, @NotNull String name) throws IncorrectOperationException;
 
   /**
    * Creates an annotation class with the specified name in the directory.

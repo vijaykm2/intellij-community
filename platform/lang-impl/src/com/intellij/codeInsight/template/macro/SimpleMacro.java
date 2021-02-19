@@ -37,11 +37,6 @@ public abstract class SimpleMacro extends Macro {
   }
 
   @Override
-  public String getPresentableName() {
-    return myName + "()";
-  }
-
-  @Override
   @NotNull
   @NonNls
   public String getDefaultValue() {
@@ -49,12 +44,12 @@ public abstract class SimpleMacro extends Macro {
   }
 
   @Override
-  public Result calculateResult(@NotNull final Expression[] params, final ExpressionContext context) {
+  public Result calculateResult(final Expression @NotNull [] params, final ExpressionContext context) {
     return new TextResult(evaluateSimpleMacro(params, context));
   }
 
   @Override
-  public Result calculateQuickResult(@NotNull final Expression[] params, final ExpressionContext context) {
+  public Result calculateQuickResult(final Expression @NotNull [] params, final ExpressionContext context) {
     return calculateResult(params, context);
   }
 

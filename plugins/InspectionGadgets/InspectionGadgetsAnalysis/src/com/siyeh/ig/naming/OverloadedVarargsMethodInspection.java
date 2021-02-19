@@ -1,5 +1,5 @@
 /*
- * Copyright 2006-2014 Bas Leijdekkers
+ * Copyright 2006-2015 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,19 +17,15 @@ package com.siyeh.ig.naming;
 
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiMethod;
+import com.intellij.psi.PsiSubstitutor;
+import com.intellij.psi.util.MethodSignatureUtil;
+import com.intellij.psi.util.TypeConversionUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import org.jetbrains.annotations.NotNull;
 
 public class OverloadedVarargsMethodInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "overloaded.vararg.method.display.name");
-  }
 
   @Override
   @NotNull
@@ -50,8 +46,7 @@ public class OverloadedVarargsMethodInspection extends BaseInspection {
     return new OverloadedVarargMethodVisitor();
   }
 
-  private static class OverloadedVarargMethodVisitor
-    extends BaseInspectionVisitor {
+  private static class OverloadedVarargMethodVisitor extends BaseInspectionVisitor {
 
     @Override
     public void visitMethod(@NotNull PsiMethod method) {
@@ -63,10 +58,13 @@ public class OverloadedVarargsMethodInspection extends BaseInspection {
         return;
       }
       final String methodName = method.getName();
-      final PsiMethod[] sameNameMethods =
-        aClass.findMethodsByName(methodName, true);
+      final PsiMethod[] sameNameMethods = aClass.findMethodsByName(methodName, true);
       for (PsiMethod sameNameMethod : sameNameMethods) {
-        if (!sameNameMethod.equals(method)) {
+        PsiClass superClass = sameNameMethod.getContainingClass();
+        PsiSubstitutor substitutor = superClass != null ? TypeConversionUtil.getSuperClassSubstitutor(superClass, aClass, PsiSubstitutor.EMPTY)
+                                                        : PsiSubstitutor.EMPTY;
+        if (!MethodSignatureUtil.areSignaturesEqual(sameNameMethod.getSignature(substitutor),
+                                                    method.getSignature(PsiSubstitutor.EMPTY))) {
           registerMethodError(method, method);
           return;
         }

@@ -1,28 +1,20 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.project;
 
-import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashMap;
 import gnu.trove.THashSet;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.maven.dom.converters.MavenConsumerPomUtil;
+import org.jetbrains.idea.maven.execution.SyncBundle;
 import org.jetbrains.idea.maven.model.*;
 import org.jetbrains.idea.maven.server.MavenEmbedderWrapper;
 import org.jetbrains.idea.maven.server.MavenServerExecutionResult;
@@ -36,26 +28,38 @@ import org.jetbrains.idea.maven.utils.MavenUtil;
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
+import java.util.function.Function;
 
+import static com.intellij.openapi.util.io.FileUtil.toSystemIndependentName;
 import static com.intellij.openapi.util.text.StringUtil.isEmptyOrSpaces;
+import static com.intellij.util.containers.ContainerUtil.getFirstItem;
+import static java.util.stream.Collectors.toMap;
+import static org.jetbrains.idea.maven.utils.MavenUtil.getBaseDir;
 
 public class MavenProjectReader {
   private static final String UNKNOWN = MavenId.UNKNOWN_VALUE;
 
-  private final Map<VirtualFile, RawModelReadResult> myRawModelsCache = new THashMap<VirtualFile, RawModelReadResult>();
+  private final Map<VirtualFile, RawModelReadResult> myRawModelsCache = new THashMap<>();
+  private final Project myProject;
   private SettingsProfilesCache mySettingsProfilesCache;
+
+  public MavenProjectReader(@NotNull Project project) {
+    myProject = project;
+  }
 
   public MavenProjectReaderResult readProject(MavenGeneralSettings generalSettings,
                                               VirtualFile file,
                                               MavenExplicitProfiles explicitProfiles,
                                               MavenProjectReaderProjectLocator locator) {
-    Pair<RawModelReadResult, MavenExplicitProfiles> readResult =
-      doReadProjectModel(generalSettings, file, explicitProfiles, new THashSet<VirtualFile>(), locator);
-
     File basedir = getBaseDir(file);
-    MavenModel model = MavenServerManager.getInstance().interpolateAndAlignModel(readResult.first.model, basedir);
 
-    Map<String, String> modelMap = new HashMap<String, String>();
+    Pair<RawModelReadResult, MavenExplicitProfiles> readResult =
+      doReadProjectModel(generalSettings, basedir, file, explicitProfiles, new THashSet<>(), locator);
+
+
+    MavenModel model = MavenServerManager.getInstance().getConnector(myProject, basedir.getPath()).interpolateAndAlignModel(readResult.first.model, basedir);
+
+    Map<String, String> modelMap = new HashMap<>();
     modelMap.put("groupId", model.getMavenId().getGroupId());
     modelMap.put("artifactId", model.getMavenId().getArtifactId());
     modelMap.put("version", model.getMavenId().getVersion());
@@ -69,14 +73,11 @@ public class MavenProjectReader {
                                         readResult.second,
                                         null,
                                         readResult.first.problems,
-                                        new THashSet<MavenId>());
-  }
-
-  private static File getBaseDir(VirtualFile file) {
-    return new File(file.getParent().getPath());
+                                        new THashSet<>());
   }
 
   private Pair<RawModelReadResult, MavenExplicitProfiles> doReadProjectModel(MavenGeneralSettings generalSettings,
+                                                                             File projectPomDir,
                                                                              VirtualFile file,
                                                                              MavenExplicitProfiles explicitProfiles,
                                                                              Set<VirtualFile> recursionGuard,
@@ -92,10 +93,10 @@ public class MavenProjectReader {
     Set<String> alwaysOnProfiles = cachedModel.alwaysOnProfiles;
     Collection<MavenProjectProblem> problems = cachedModel.problems;
 
-    model = resolveInheritance(generalSettings, model, file, explicitProfiles, recursionGuard, locator, problems);
+    model = resolveInheritance(generalSettings, model, projectPomDir, file, explicitProfiles, recursionGuard, locator, problems);
     addSettingsProfiles(generalSettings, model, alwaysOnProfiles, problems);
 
-    ProfileApplicationResult applied = applyProfiles(model, getBaseDir(file), explicitProfiles, alwaysOnProfiles);
+    ProfileApplicationResult applied = applyProfiles(model, projectPomDir, getBaseDir(file), explicitProfiles, alwaysOnProfiles);
     model = applied.getModel();
 
     repairModelBody(model);
@@ -105,15 +106,35 @@ public class MavenProjectReader {
   }
 
   private RawModelReadResult doReadProjectModel(VirtualFile file, boolean headerOnly) {
-    MavenModel result = new MavenModel();
+    MavenModel result = null;
     Collection<MavenProjectProblem> problems = MavenProjectProblem.createProblemsList();
-    Set<String> alwaysOnProfiles = new THashSet<String>();
+    Set<String> alwaysOnProfiles = new THashSet<>();
 
+    String fileExtension = file.getExtension();
+    if (!"pom".equalsIgnoreCase(fileExtension) && !"xml".equalsIgnoreCase(fileExtension)) {
+      File basedir = getBaseDir(file);
+      MavenEmbeddersManager manager = MavenProjectsManager.getInstance(myProject).getEmbeddersManager();
+      MavenEmbedderWrapper embedder = manager.getEmbedder(MavenEmbeddersManager.FOR_MODEL_READ, basedir.getPath(), basedir.getPath());
+      try {
+        result = embedder.readModel(VfsUtilCore.virtualToIoFile(file));
+      }
+      catch (MavenProcessCanceledException ignore) {
+      }
+      finally {
+        manager.release(embedder);
+      }
+
+      if (result == null) {
+        result = new MavenModel();
+        result.setPackaging(MavenConstants.TYPE_JAR);
+      }
+      return new RawModelReadResult(result, problems, alwaysOnProfiles);
+    }
+
+    result = new MavenModel();
     Element xmlProject = readXml(file, problems, MavenProjectProblem.ProblemType.SYNTAX);
     if (xmlProject == null || !"project".equals(xmlProject.getName())) {
-      result.setMavenId(new MavenId(UNKNOWN, UNKNOWN, UNKNOWN));
       result.setPackaging(MavenConstants.TYPE_JAR);
-
       return new RawModelReadResult(result, problems, alwaysOnProfiles);
     }
 
@@ -121,7 +142,7 @@ public class MavenProjectReader {
     if (MavenJDOMUtil.hasChildByPath(xmlProject, "parent")) {
       parent = new MavenParent(new MavenId(MavenJDOMUtil.findChildValueByPath(xmlProject, "parent.groupId", UNKNOWN),
                                            MavenJDOMUtil.findChildValueByPath(xmlProject, "parent.artifactId", UNKNOWN),
-                                           MavenJDOMUtil.findChildValueByPath(xmlProject, "parent.version", UNKNOWN)),
+                                           calculateParentVersion(xmlProject, problems, file)),
                                MavenJDOMUtil.findChildValueByPath(xmlProject, "parent.relativePath", "../pom.xml"));
       result.setParent(parent);
     }
@@ -142,6 +163,34 @@ public class MavenProjectReader {
 
     result.setProfiles(collectProfiles(file, xmlProject, problems, alwaysOnProfiles));
     return new RawModelReadResult(result, problems, alwaysOnProfiles);
+  }
+
+  @NotNull
+  private String calculateParentVersion(Element xmlProject,
+                                        Collection<MavenProjectProblem> problems,
+                                        VirtualFile file) {
+    String version = MavenJDOMUtil.findChildValueByPath(xmlProject, "parent.version");
+    if (version != null || !MavenConsumerPomUtil.isConsumerPomResolutionApplicable(myProject)) {
+      return StringUtil.notNullize(version, UNKNOWN);
+    }
+    String parentGroupId = MavenJDOMUtil.findChildValueByPath(xmlProject, "parent.groupId");
+    String parentArtifactId = MavenJDOMUtil.findChildValueByPath(xmlProject, "parent.artifactId");
+    if (parentGroupId == null || parentArtifactId == null) {
+      problems.add(new MavenProjectProblem(file.getPath(), MavenProjectBundle.message("consumer.pom.cannot.determine.parent.version"), MavenProjectProblem.ProblemType.STRUCTURE));
+      return UNKNOWN;
+    }
+    VirtualFile parentFile = file.findFileByRelativePath("../../pom.xml");
+    if (parentFile == null) {
+      problems.add(new MavenProjectProblem(file.getPath(), MavenProjectBundle.message("consumer.pom.cannot.determine.parent.version"), MavenProjectProblem.ProblemType.STRUCTURE));
+      return UNKNOWN;
+    }
+
+    Element parentXmlProject = readXml(parentFile, problems, MavenProjectProblem.ProblemType.SYNTAX);
+    version = MavenJDOMUtil.findChildValueByPath(parentXmlProject, "version");
+    if(version!=null) {
+      return version;
+    }
+    return calculateParentVersion(parentXmlProject, problems, parentFile);
   }
 
   private static void readModelBody(MavenModelBase mavenModelBase, MavenBuildBase mavenBuildBase, Element xmlModel) {
@@ -171,7 +220,7 @@ public class MavenProjectReader {
   }
 
   private static List<MavenResource> collectResources(List<Element> xmlResources) {
-    List<MavenResource> result = new ArrayList<MavenResource>();
+    List<MavenResource> result = new ArrayList<>();
     for (Element each : xmlResources) {
       result.add(new MavenResource(MavenJDOMUtil.findChildValueByPath(each, "directory"),
                                    "true".equals(MavenJDOMUtil.findChildValueByPath(each, "filtering")),
@@ -203,7 +252,7 @@ public class MavenProjectReader {
   }
 
   private List<MavenResource> repairResources(List<MavenResource> resources, String defaultDir) {
-    List<MavenResource> result = new ArrayList<MavenResource>();
+    List<MavenResource> result = new ArrayList<>();
     if (resources.isEmpty()) {
       result.add(createResource(defaultDir));
       return result;
@@ -217,14 +266,14 @@ public class MavenProjectReader {
   }
 
   private MavenResource createResource(String directory) {
-    return new MavenResource(directory, false, null, Collections.<String>emptyList(), Collections.<String>emptyList());
+    return new MavenResource(directory, false, null, Collections.emptyList(), Collections.emptyList());
   }
 
   private List<MavenProfile> collectProfiles(VirtualFile projectFile,
                                              Element xmlProject,
                                              Collection<MavenProjectProblem> problems,
                                              Set<String> alwaysOnProfiles) {
-    List<MavenProfile> result = new ArrayList<MavenProfile>();
+    List<MavenProfile> result = new ArrayList<>();
     collectProfiles(MavenJDOMUtil.findChildrenByPath(xmlProject, "profiles", "profile"), result, MavenConstants.PROFILE_FROM_POM);
 
     VirtualFile profilesFile = MavenUtil.findProfilesXmlFile(projectFile);
@@ -247,9 +296,9 @@ public class MavenProjectReader {
                                    Collection<MavenProjectProblem> problems) {
     if (mySettingsProfilesCache == null) {
 
-      List<MavenProfile> settingsProfiles = new ArrayList<MavenProfile>();
+      List<MavenProfile> settingsProfiles = new ArrayList<>();
       Collection<MavenProjectProblem> settingsProblems = MavenProjectProblem.createProblemsList();
-      Set<String> settingsAlwaysOnProfiles = new THashSet<String>();
+      Set<String> settingsAlwaysOnProfiles = new THashSet<>();
 
       for (VirtualFile each : generalSettings.getEffectiveSettingsFiles()) {
         collectProfilesFromSettingsXmlOrProfilesXml(each,
@@ -263,7 +312,7 @@ public class MavenProjectReader {
       mySettingsProfilesCache = new SettingsProfilesCache(settingsProfiles, settingsAlwaysOnProfiles, settingsProblems);
     }
 
-    List<MavenProfile> modelProfiles = new ArrayList<MavenProfile>(model.getProfiles());
+    List<MavenProfile> modelProfiles = new ArrayList<>(model.getProfiles());
     for (MavenProfile each : mySettingsProfilesCache.profiles) {
       addProfileIfDoesNotExist(each, modelProfiles);
     }
@@ -342,7 +391,7 @@ public class MavenProjectReader {
 
   private boolean addProfileIfDoesNotExist(MavenProfile profile, List<MavenProfile> result) {
     for (MavenProfile each : result) {
-      if (Comparing.equal(each.getId(), profile.getId())) return false;
+      if (Objects.equals(each.getId(), profile.getId())) return false;
     }
     result.add(profile);
     return true;
@@ -362,22 +411,24 @@ public class MavenProjectReader {
     }
   }
 
-  private static ProfileApplicationResult applyProfiles(MavenModel model,
-                                                        File basedir,
-                                                        MavenExplicitProfiles explicitProfiles,
-                                                        Collection<String> alwaysOnProfiles) {
-    return MavenServerManager.getInstance().applyProfiles(model, basedir, explicitProfiles, alwaysOnProfiles);
+  private ProfileApplicationResult applyProfiles(MavenModel model,
+                                                 File projectPomDir,
+                                                 File basedir,
+                                                 MavenExplicitProfiles explicitProfiles,
+                                                 Collection<String> alwaysOnProfiles) {
+    return MavenServerManager.getInstance().getConnector(myProject, projectPomDir.getAbsolutePath()).applyProfiles(model, basedir, explicitProfiles, alwaysOnProfiles);
   }
 
   private MavenModel resolveInheritance(final MavenGeneralSettings generalSettings,
                                         MavenModel model,
+                                        final File projectPomDir,
                                         final VirtualFile file,
                                         final MavenExplicitProfiles explicitProfiles,
                                         final Set<VirtualFile> recursionGuard,
                                         final MavenProjectReaderProjectLocator locator,
                                         Collection<MavenProjectProblem> problems) {
     if (recursionGuard.contains(file)) {
-      problems.add(MavenProjectProblem.createProblem(file.getPath(), ProjectBundle.message("maven.project.problem.recursiveInheritance"),
+      problems.add(MavenProjectProblem.createProblem(file.getPath(), MavenProjectBundle.message("maven.project.problem.recursiveInheritance"),
                                                      MavenProjectProblem.ProblemType.PARENT));
       return model;
     }
@@ -388,7 +439,7 @@ public class MavenProjectReader {
       MavenParent parent = model.getParent();
       if (parent != null) {
         if (model.getMavenId().equals(parent.getMavenId())) {
-          problems.add(MavenProjectProblem.createProblem(file.getPath(), ProjectBundle.message("maven.project.problem.selfInheritance"),
+          problems.add(MavenProjectProblem.createProblem(file.getPath(), MavenProjectBundle.message("maven.project.problem.selfInheritance"),
                                                          MavenProjectProblem.ProblemType.PARENT));
           return model;
         }
@@ -397,6 +448,7 @@ public class MavenProjectReader {
 
       Pair<VirtualFile, RawModelReadResult> parentModelWithProblems =
         new MavenParentProjectFileProcessor<Pair<VirtualFile, RawModelReadResult>>() {
+          @Override
           @Nullable
           protected VirtualFile findManagedFile(@NotNull MavenId id) {
             return locator.findProjectFile(id);
@@ -419,7 +471,7 @@ public class MavenProjectReader {
 
           @Override
           protected Pair<VirtualFile, RawModelReadResult> doProcessParent(VirtualFile parentFile) {
-            RawModelReadResult result = doReadProjectModel(generalSettings, parentFile, explicitProfiles, recursionGuard, locator).first;
+            RawModelReadResult result = doReadProjectModel(generalSettings, projectPomDir, parentFile, explicitProfiles, recursionGuard, locator).first;
             return Pair.create(parentFile, result);
           }
         }.process(generalSettings, file, parentDesc[0]);
@@ -429,12 +481,12 @@ public class MavenProjectReader {
       MavenModel parentModel = parentModelWithProblems.second.model;
       if (!parentModelWithProblems.second.problems.isEmpty()) {
         problems.add(MavenProjectProblem.createProblem(parentModelWithProblems.first.getPath(),
-                                                       ProjectBundle.message("maven.project.problem.parentHasProblems",
-                                                                             parentModel.getMavenId()),
+                                                       MavenProjectBundle.message("maven.project.problem.parentHasProblems",
+                                                                                  parentModel.getMavenId()),
                                                        MavenProjectProblem.ProblemType.PARENT));
       }
 
-      model = MavenServerManager.getInstance().assembleInheritance(model, parentModel);
+      model = MavenServerManager.getInstance().getConnector(myProject, projectPomDir.getAbsolutePath()).assembleInheritance(model, parentModel);
 
       // todo: it is a quick-hack here - we add inherited dummy profiles to correctly collect activated profiles in 'applyProfiles'.
       List<MavenProfile> profiles = model.getProfiles();
@@ -453,46 +505,75 @@ public class MavenProjectReader {
     }
   }
 
-  public MavenProjectReaderResult resolveProject(MavenGeneralSettings generalSettings,
-                                                 MavenEmbedderWrapper embedder,
-                                                 VirtualFile file,
-                                                 MavenExplicitProfiles explicitProfiles,
-                                                 MavenProjectReaderProjectLocator locator) throws MavenProcessCanceledException {
+  public Collection<MavenProjectReaderResult> resolveProject(final MavenGeneralSettings generalSettings,
+                                                             MavenEmbedderWrapper embedder,
+                                                             Collection<VirtualFile> files,
+                                                             final MavenExplicitProfiles explicitProfiles,
+                                                             final MavenProjectReaderProjectLocator locator) throws MavenProcessCanceledException {
     try {
-      MavenServerExecutionResult result =
-        embedder.resolveProject(file, explicitProfiles.getEnabledProfiles(), explicitProfiles.getDisabledProfiles());
-      MavenServerExecutionResult.ProjectData projectData = result.projectData;
-      if (projectData == null) {
-        MavenProjectReaderResult temp = readProject(generalSettings, file, explicitProfiles, locator);
-        temp.readingProblems.addAll(result.problems);
-        temp.unresolvedArtifactIds.addAll(result.unresolvedArtifacts);
-        return temp;
+      Collection<MavenServerExecutionResult> executionResults =
+        embedder.resolveProject(files, explicitProfiles.getEnabledProfiles(), explicitProfiles.getDisabledProfiles());
+      Map<String, VirtualFile> filesMap = new THashMap<>(FileUtil.PATH_HASHING_STRATEGY);
+      filesMap.putAll(files.stream().collect(toMap(VirtualFile::getPath, Function.identity())));
+
+      Collection<MavenProjectReaderResult> readerResults = new ArrayList<>();
+      for (MavenServerExecutionResult result : executionResults) {
+        MavenServerExecutionResult.ProjectData projectData = result.projectData;
+        if (projectData == null) {
+          VirtualFile file = detectPomFile(filesMap, result);
+          if (file != null) {
+            MavenProjectReaderResult temp = readProject(generalSettings, file, explicitProfiles, locator);
+            temp.readingProblems.addAll(result.problems);
+            temp.unresolvedArtifactIds.addAll(result.unresolvedArtifacts);
+            readerResults.add(temp);
+          }
+        }
+        else {
+          readerResults.add(new MavenProjectReaderResult(projectData.mavenModel,
+                                                    projectData.mavenModelMap,
+                                                    new MavenExplicitProfiles(projectData.activatedProfiles,
+                                                                              explicitProfiles.getDisabledProfiles()),
+                                                    projectData.nativeMavenProject,
+                                                    result.problems,
+                                                    result.unresolvedArtifacts));
+        }
       }
 
-      return new MavenProjectReaderResult(projectData.mavenModel,
-                                          projectData.mavenModelMap,
-                                          new MavenExplicitProfiles(projectData.activatedProfiles, explicitProfiles.getDisabledProfiles()),
-                                          projectData.nativeMavenProject,
-                                          result.problems,
-                                          result.unresolvedArtifacts);
+      return readerResults;
     }
     catch (MavenProcessCanceledException e) {
       throw e;
     }
-    catch (Throwable e) {
+    catch (final Throwable e) {
       MavenLog.LOG.info(e);
       MavenLog.printInTests(e); // print exception since we need to know if something wrong with our logic
 
-      MavenProjectReaderResult result = readProject(generalSettings, file, explicitProfiles, locator);
-      String message = e.getMessage();
-      if (message != null) {
-        result.readingProblems.add(MavenProjectProblem.createStructureProblem(file.getPath(), message));
-      }
-      else {
-        result.readingProblems.add(MavenProjectProblem.createSyntaxProblem(file.getPath(), MavenProjectProblem.ProblemType.SYNTAX));
-      }
-      return result;
+      return ContainerUtil.mapNotNull(files, file -> {
+        MavenProjectReaderResult result = readProject(generalSettings, file, explicitProfiles, locator);
+        String message = e.getMessage();
+        if (message != null) {
+          result.readingProblems.add(MavenProjectProblem.createStructureProblem(file.getPath(), message));
+        }
+        else {
+          result.readingProblems.add(MavenProjectProblem.createSyntaxProblem(file.getPath(), MavenProjectProblem.ProblemType.SYNTAX));
+        }
+        return result;
+      });
     }
+  }
+
+  @Nullable
+  private static VirtualFile detectPomFile(Map<String, VirtualFile> filesMap, MavenServerExecutionResult result) {
+    if (filesMap.size() == 1) {
+      return getFirstItem(filesMap.values());
+    }
+    if (!result.problems.isEmpty()) {
+      String path = getFirstItem(result.problems).getPath();
+      if (path != null) {
+        return filesMap.get(toSystemIndependentName(path));
+      }
+    }
+    return null;
   }
 
   @Nullable
@@ -525,18 +606,20 @@ public class MavenProjectReader {
                                  final Collection<MavenProjectProblem> problems,
                                  final MavenProjectProblem.ProblemType type) {
     return MavenJDOMUtil.read(file, new MavenJDOMUtil.ErrorHandler() {
+      @Override
       public void onReadError(IOException e) {
         MavenLog.LOG.warn("Cannot read the pom file: " + e);
         problems.add(MavenProjectProblem.createProblem(file.getPath(), e.getMessage(), type));
       }
 
+      @Override
       public void onSyntaxError() {
         problems.add(MavenProjectProblem.createSyntaxProblem(file.getPath(), type));
       }
     });
   }
 
-  private static class SettingsProfilesCache {
+  private static final class SettingsProfilesCache {
     final List<MavenProfile> profiles;
     final Set<String> alwaysOnProfiles;
     final Collection<MavenProjectProblem> problems;
@@ -548,7 +631,7 @@ public class MavenProjectReader {
     }
   }
 
-  private static class RawModelReadResult {
+  private static final class RawModelReadResult {
     public MavenModel model;
     public Collection<MavenProjectProblem> problems;
     public Set<String> alwaysOnProfiles;

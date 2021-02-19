@@ -1,67 +1,77 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.containers;
 
+import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.MathUtil;
 import org.jetbrains.annotations.NotNull;
 
-/*
+/**
+ * <p>A simple object pool which instantiates objects on-demand and keeps up to the given number of objects for later reuse.</p>
+ * <p><b>Note:</b> the class is not thread-safe; use {@link Sync synchronized version} for concurrent access.</p>
+ *
  * @author max
  */
 public class LimitedPool<T> {
-  private final int capacity;
-  private final ObjectFactory<T> factory;
-  private Object[] storage;
-  private int index = 0;
-
-  public LimitedPool(final int capacity, ObjectFactory<T> factory) {
-    this.capacity = capacity;
-    this.factory = factory;
-    storage = new Object[10];
-  }
-
+  @FunctionalInterface
   public interface ObjectFactory<T> {
-    T create();
-    void cleanup(T t);
+    @NotNull T create();
+    default void cleanup(@NotNull T t) { }
   }
 
+  private final int myMaxCapacity;
+  private final ObjectFactory<T> myFactory;
+  private Object[] myStorage = ArrayUtilRt.EMPTY_OBJECT_ARRAY;
+  private int myIndex;
+
+  public LimitedPool(int maxCapacity, @NotNull ObjectFactory<T> factory) {
+    myMaxCapacity = maxCapacity;
+    myFactory = factory;
+  }
+
+  @NotNull
   public T alloc() {
-    if (index == 0) return factory.create();
-    int i = --index;
-    //noinspection unchecked
-    T result = (T)storage[i];
-    storage[i] = null;
+    if (myIndex == 0) {
+      return myFactory.create();
+    }
+
+    int i = --myIndex;
+    @SuppressWarnings("unchecked") T result = (T)myStorage[i];
+    myStorage[i] = null;
     return result;
   }
 
   public void recycle(@NotNull T t) {
-    factory.cleanup(t);
-
-    if (index >= capacity) return;
+    myFactory.cleanup(t);
+    if (myIndex >= myMaxCapacity) {
+      return;
+    }
 
     ensureCapacity();
-    storage[index++] = t;
+    myStorage[myIndex++] = t;
   }
 
   private void ensureCapacity() {
-    if (storage.length <= index) {
-      int newCapacity = Math.min(capacity, storage.length * 3 / 2);
-      Object[] newStorage = new Object[newCapacity];
-      System.arraycopy(storage, 0, newStorage, 0, storage.length);
-      storage = newStorage;
+    if (myStorage.length <= myIndex) {
+      int newCapacity = MathUtil.clamp(myStorage.length * 3 / 2, 10, myMaxCapacity);
+      myStorage = ArrayUtil.realloc(myStorage, newCapacity, ArrayUtil.OBJECT_ARRAY_FACTORY);
+    }
+  }
+
+  public static final class Sync<T> extends LimitedPool<T> {
+    public Sync(int maxCapacity, @NotNull ObjectFactory<T> factory) {
+      super(maxCapacity, factory);
+    }
+
+    @NotNull
+    @Override
+    public synchronized T alloc() {
+      return super.alloc();
+    }
+
+    @Override
+    public synchronized void recycle(@NotNull T t) {
+      super.recycle(t);
     }
   }
 }

@@ -16,19 +16,19 @@
 package com.siyeh.ig.psiutils;
 
 import com.intellij.codeInspection.reference.RefMethod;
+import com.intellij.util.containers.Stack;
 
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.Stack;
 
-public class MethodInheritanceUtils {
+public final class MethodInheritanceUtils {
 
   private MethodInheritanceUtils() {}
 
   public static Set<RefMethod> calculateSiblingMethods(RefMethod method) {
-    final Set<RefMethod> siblingMethods = new HashSet<RefMethod>();
-    final Stack<RefMethod> pendingMethods = new Stack<RefMethod>();
+    final Set<RefMethod> siblingMethods = new HashSet<>();
+    final Stack<RefMethod> pendingMethods = new Stack<>();
     pendingMethods.add(method);
     while (!pendingMethods.isEmpty()) {
       final RefMethod methodToAnalyze = pendingMethods.pop();

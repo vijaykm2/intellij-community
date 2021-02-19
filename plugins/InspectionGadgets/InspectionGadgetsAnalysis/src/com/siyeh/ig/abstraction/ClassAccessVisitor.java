@@ -15,10 +15,8 @@
  */
 package com.siyeh.ig.abstraction;
 
-import com.intellij.psi.JavaRecursiveElementVisitor;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.ig.psiutils.ClassUtils;
 import com.siyeh.ig.psiutils.LibraryUtil;
@@ -26,17 +24,22 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
-class ClassAccessVisitor extends JavaRecursiveElementVisitor {
+class ClassAccessVisitor extends JavaRecursiveElementWalkingVisitor {
 
   private final Map<PsiClass, Integer> m_accessCounts =
-    new HashMap<PsiClass, Integer>(2);
+    new HashMap<>(2);
   private final Set<PsiClass> m_overAccessedClasses =
-    new HashSet<PsiClass>(2);
+    new HashSet<>(2);
   private final PsiClass currentClass;
 
   ClassAccessVisitor(PsiClass currentClass) {
-    super();
     this.currentClass = currentClass;
+  }
+
+  @Override
+  public void visitElement(@NotNull PsiElement element) {
+    ProgressManager.checkCanceled();
+    super.visitElement(element);
   }
 
   @Override
@@ -69,6 +72,7 @@ class ClassAccessVisitor extends JavaRecursiveElementVisitor {
     }
     PsiClass lexicallyEnclosingClass = currentClass;
     while (lexicallyEnclosingClass != null) {
+      ProgressManager.checkCanceled();
       if (lexicallyEnclosingClass.isInheritor(calledClass, true)) {
         return;
       }
@@ -78,17 +82,17 @@ class ClassAccessVisitor extends JavaRecursiveElementVisitor {
     final Map<PsiClass, Integer> accessCounts = m_accessCounts;
     final Integer count = accessCounts.get(calledClass);
     if (count == null) {
-      accessCounts.put(calledClass, Integer.valueOf(1));
+      accessCounts.put(calledClass, 1);
     }
     else if (count.equals(Integer.valueOf(1))) {
-      accessCounts.put(calledClass, Integer.valueOf(2));
+      accessCounts.put(calledClass, 2);
     }
     else {
       overAccessedClasses.add(calledClass);
     }
   }
 
-  public Set<PsiClass> getOveraccessedClasses() {
+  Set<PsiClass> getOveraccessedClasses() {
     return Collections.unmodifiableSet(m_overAccessedClasses);
   }
 }

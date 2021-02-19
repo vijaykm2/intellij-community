@@ -18,6 +18,7 @@ package com.intellij.psi.codeStyle;
 
 import com.intellij.lang.Language;
 import com.intellij.openapi.extensions.ExtensionPointName;
+import com.intellij.openapi.util.NlsContexts;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -28,10 +29,10 @@ public abstract class PredefinedCodeStyle {
     ExtensionPointName.create("com.intellij.predefinedCodeStyle");
 
   public static final PredefinedCodeStyle[] EMPTY_ARRAY = {};
-  private final String myName;
+  private final @NlsContexts.ListItem String myName;
   private final Language myLanguage;
 
-  public PredefinedCodeStyle(@NotNull String name, @NotNull Language language) {
+  public PredefinedCodeStyle(@NotNull @NlsContexts.ListItem String name, @NotNull Language language) {
     myName = name;
     myLanguage = language;
   }
@@ -43,7 +44,19 @@ public abstract class PredefinedCodeStyle {
    *
    * @param settings      The settings to change.
    */
-  public abstract void apply(CodeStyleSettings settings);
+  public void apply(CodeStyleSettings settings) {}
+
+  /**
+   * Applies the predefined code style to given settings. Code style settings which are not specified by
+   * the code style may be left unchanged (as defined by end-user). If the name doesn't match any predefined styles,
+   * the method does nothing.
+   *
+   * @param settings      The settings to change.
+   * @param language      The language the given settings should be applied to.
+   */
+  public void apply(@NotNull CodeStyleSettings settings, @NotNull Language language) {
+    apply(settings);
+  }
 
   @Override
   public boolean equals(Object obj) {
@@ -60,7 +73,7 @@ public abstract class PredefinedCodeStyle {
     return result;
   }
 
-  public String getName() {
+  public @NlsContexts.ListItem String getName() {
     return myName;
   }
 
@@ -73,4 +86,15 @@ public abstract class PredefinedCodeStyle {
   public Language getLanguage() {
     return myLanguage;
   }
+
+  /**
+   * Check whether this style is applicable to the given language.
+   * Inheritor can override this method when the style is applicable to more than one language;
+   * the default implementation just checks that the given language is equals to the {@link #getLanguage()} one.
+   * @param language the language to check.
+   */
+  public boolean isApplicableToLanguage(@NotNull Language language) {
+    return myLanguage.equals(language);
+  }
+
 }

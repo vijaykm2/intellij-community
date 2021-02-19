@@ -1,25 +1,16 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.containers;
 
+import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
 
-public class IntArrayList implements Cloneable {
+/**
+ * @deprecated Use {@link it.unimi.dsi.fastutil.ints.IntArrayList}
+ */
+@Deprecated
+public final class IntArrayList implements Cloneable {
   private int[] myData;
   private int mySize;
 
@@ -32,24 +23,19 @@ public class IntArrayList implements Cloneable {
   }
 
   public void trimToSize() {
-    int oldCapacity = myData.length;
-    if (mySize < oldCapacity){
-      int[] oldData = myData;
-      myData = new int[mySize];
-      System.arraycopy(oldData, 0, myData, 0, mySize);
+    if (mySize < myData.length){
+      myData = ArrayUtil.realloc(myData, mySize);
     }
   }
 
   public void ensureCapacity(int minCapacity) {
     int oldCapacity = myData.length;
     if (minCapacity > oldCapacity){
-      int[] oldData = myData;
       int newCapacity = oldCapacity * 3 / 2 + 1;
       if (newCapacity < minCapacity){
         newCapacity = minCapacity;
       }
-      myData = new int[newCapacity];
-      System.arraycopy(oldData, 0, myData, 0, mySize);
+      myData = ArrayUtil.realloc(myData, newCapacity);
     }
   }
   public void fill(int fromIndex, int toIndex, int value) {
@@ -60,7 +46,7 @@ public class IntArrayList implements Cloneable {
       Arrays.fill(myData, fromIndex, toIndex, value);
   }
 
-  public void add(@NotNull int[] values) {
+  public void add(int @NotNull [] values) {
     int length = values.length;
     ensureCapacity(mySize + length);
     System.arraycopy(values, 0, myData, mySize, length);
@@ -80,14 +66,11 @@ public class IntArrayList implements Cloneable {
   }
 
   public int indexOf(int elem) {
-    for(int i = 0; i < mySize; i++){
-      if (elem == myData[i]) return i;
-    }
-    return -1;
+    return indexOf(elem, 0, mySize);
   }
 
   public int indexOf(int elem, int startIndex, int endIndex) {
-    if (startIndex < 0 || endIndex < startIndex || endIndex >= mySize) {
+    if (startIndex < 0 || endIndex < startIndex || endIndex > mySize) {
       throw new IndexOutOfBoundsException("startIndex: "+startIndex+"; endIndex: "+endIndex+"; mySize: "+mySize);
     }
     for(int i = startIndex; i < endIndex; i++){
@@ -107,8 +90,7 @@ public class IntArrayList implements Cloneable {
   public Object clone() {
     try{
       IntArrayList v = (IntArrayList)super.clone();
-      v.myData = new int[mySize];
-      System.arraycopy(myData, 0, v.myData, 0, mySize);
+      v.myData = toArray();
       return v;
     }
     catch(CloneNotSupportedException e){
@@ -117,15 +99,11 @@ public class IntArrayList implements Cloneable {
     }
   }
 
-  @NotNull
-  public int[] toArray() {
-    int[] result = new int[mySize];
-    System.arraycopy(myData, 0, result, 0, mySize);
-    return result;
+  public int @NotNull [] toArray() {
+    return toArray(0,mySize);
   }
 
-  @NotNull
-  public int[] toArray(@NotNull int[] a) {
+  public int @NotNull [] toArray(int @NotNull [] a) {
     if (a.length < mySize){
       a = new int[mySize];
     }
@@ -135,11 +113,8 @@ public class IntArrayList implements Cloneable {
     return a;
   }
 
-  @NotNull
-  public int[] toArray(int startIndex, int length) {
-    int[] result = new int[length];
-    System.arraycopy(myData, startIndex, result, 0, length);
-    return result;
+  public int @NotNull [] toArray(int startIndex, int length) {
+    return Arrays.copyOfRange(myData, startIndex, startIndex + length);
   }
 
   public int get(int index) {
@@ -210,7 +185,6 @@ public class IntArrayList implements Cloneable {
 
   private void checkRange(int index) {
     if (index >= mySize || index < 0){
-      //noinspection HardCodedStringLiteral
       throw new IndexOutOfBoundsException("Index: " + index + ", Size: " + mySize);
     }
   }
@@ -218,5 +192,9 @@ public class IntArrayList implements Cloneable {
   @Override
   public String toString() {
     return Arrays.toString(toArray());
+  }
+
+  public void sort() {
+    Arrays.sort(myData, 0, mySize);
   }
 }

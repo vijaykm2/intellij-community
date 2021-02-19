@@ -26,46 +26,52 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.IFileElementType;
 import com.intellij.psi.tree.TokenSet;
-import org.jetbrains.annotations.NotNull;
-
 import org.intellij.lang.xpath.psi.impl.*;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-@SuppressWarnings({"NullableProblems"})
 public class XPathParserDefinition implements ParserDefinition {
 
+    @Override
     @NotNull
     public Lexer createLexer(Project project) {
         return XPathLexer.create(false);
     }
 
-    public IFileElementType getFileNodeType() {
-        return XPathElementTypes.FILE;
+    @Override
+    public @NotNull IFileElementType getFileNodeType() {
+      return XPathElementTypes.FILE;
     }
 
+    @Override
     @NotNull
     public TokenSet getWhitespaceTokens() {
         return TokenSet.create(XPathTokenTypes.WHITESPACE);
     }
 
+    @Override
     @NotNull
     public TokenSet getCommentTokens() {
         return TokenSet.EMPTY;
     }
 
+    @Override
     @NotNull
     public TokenSet getStringLiteralElements() {
         return TokenSet.create(XPathTokenTypes.STRING_LITERAL);
     }
 
-    public PsiParser createParser(Project project) {
-        return new XPathParser();
-    }
+  @Override
+  public @NotNull PsiParser createParser(Project project) {
+    return new XPathParser();
+  }
 
-    public SpaceRequirements spaceExistanceTypeBetweenTokens(ASTNode left, ASTNode right) {
-        return SpaceRequirements.MUST_NOT;
-    }
+  @Override
+  public @NotNull SpaceRequirements spaceExistenceTypeBetweenTokens(ASTNode left, ASTNode right) {
+    return SpaceRequirements.MUST_NOT;
+  }
 
+    @Override
     @NotNull
     public final PsiElement createElement(ASTNode node) {
       final IElementType type = node.getElementType();
@@ -114,7 +120,8 @@ public class XPathParserDefinition implements ParserDefinition {
     return null;
   }
 
-  public PsiFile createFile(FileViewProvider viewProvider) {
-        return new XPathFile(viewProvider, XPathFileType.XPATH);
-    }
+  @Override
+  public @NotNull PsiFile createFile(@NotNull FileViewProvider viewProvider) {
+    return new XPathFile(viewProvider, XPathFileType.XPATH);
+  }
 }

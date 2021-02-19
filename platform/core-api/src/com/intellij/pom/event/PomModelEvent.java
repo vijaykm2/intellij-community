@@ -17,76 +17,53 @@ package com.intellij.pom.event;
 
 import com.intellij.pom.PomModel;
 import com.intellij.pom.PomModelAspect;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.EventObject;
+import java.util.Set;
 
 public class PomModelEvent extends EventObject {
-  private Map<PomModelAspect, PomChangeSet> myChangeSets;
+  private PomChangeSet myChangeSet;
 
-  public PomModelEvent(PomModel source) {
+  @ApiStatus.Internal
+  public PomModelEvent(@NotNull PomModel source, @Nullable PomChangeSet changeSet) {
     super(source);
+    myChangeSet = changeSet;
   }
 
   @NotNull
   public Set<PomModelAspect> getChangedAspects() {
-    if (myChangeSets != null) {
-      return myChangeSets.keySet();
+    if (myChangeSet != null) {
+      return Collections.singleton(myChangeSet.getAspect());
     }
     else {
       return Collections.emptySet();
     }
   }
 
-  public void registerChangeSet(PomModelAspect aspect, PomChangeSet set) {
-    if (myChangeSets == null) {
-      myChangeSets = new HashMap<PomModelAspect, PomChangeSet>();
-    }
-    if (set == null) {
-      myChangeSets.remove(aspect);
-    }
-    else {
-      myChangeSets.put(aspect, set);
-    }
-  }
-
-  public <T extends PomChangeSet> T registerChangeSetIfAbsent(PomModelAspect aspect, @NotNull T set) {
-    final PomChangeSet oldSet = getChangeSet(aspect);
-    if (oldSet != null) return (T)oldSet;
-
-    registerChangeSet(aspect, set);
-    return set;
-  }
-
-
-  @Nullable
-  public PomChangeSet getChangeSet(PomModelAspect aspect) {
-    if (myChangeSets == null) return null;
-    return myChangeSets.get(aspect);
+  public PomChangeSet getChangeSet(@NotNull PomModelAspect aspect) {
+    return myChangeSet == null || !aspect.equals(myChangeSet.getAspect()) ? null : myChangeSet;
   }
 
   public void merge(@NotNull PomModelEvent event) {
-    if(event.myChangeSets == null) return;
-    if(myChangeSets == null){
-      myChangeSets = new HashMap<PomModelAspect, PomChangeSet>(event.myChangeSets);
-      return;
-    }
-    for (final Map.Entry<PomModelAspect, PomChangeSet> entry : event.myChangeSets.entrySet()) {
-      final PomModelAspect aspect = entry.getKey();
-      final PomChangeSet pomChangeSet = myChangeSets.get(aspect);
-      if (pomChangeSet != null) {
-        pomChangeSet.merge(entry.getValue());
-      }
-      else {
-        myChangeSets.put(aspect, entry.getValue());
-      }
+    if (event.myChangeSet != null && myChangeSet != null) {
+      myChangeSet.merge(event.myChangeSet);
+    } else if (myChangeSet == null) {
+      myChangeSet = event.myChangeSet;
     }
   }
-
 
   @Override
   public PomModel getSource() {
     return (PomModel)super.getSource();
+  }
+
+  public void beforeNestedTransaction() {
+    if (myChangeSet != null) {
+      myChangeSet.beforeNestedTransaction();
+    }
   }
 }

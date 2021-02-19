@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.intentions.style.parameterToEntry;
 
 import com.intellij.openapi.editor.event.DocumentEvent;
@@ -20,13 +6,16 @@ import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.EditorComboBoxEditor;
 import com.intellij.ui.EditorComboBoxRenderer;
 import com.intellij.ui.EditorTextField;
 import com.intellij.ui.StringComboboxEditor;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.GroovyFileType;
-import org.jetbrains.plugins.groovy.intentions.GroovyIntentionsBundle;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyNamesUtil;
 import org.jetbrains.plugins.groovy.settings.GroovyApplicationSettings;
 
@@ -46,15 +35,15 @@ public class GroovyMapParameterDialog extends DialogWrapper {
   private final Project myProject;
   private final EventListenerList myListenerList = new EventListenerList();
 
-  public GroovyMapParameterDialog(Project project, final String[] possibleNames, final boolean createNew) {
+  public GroovyMapParameterDialog(Project project, final @NlsSafe String[] possibleNames, final boolean createNew) {
     super(true);
     myProject = project;
     setUpDialog(possibleNames, createNew);
     init();
   }
 
-  private void setUpDialog(final String[] possibleNames, boolean createNew) {
-    setTitle(GroovyIntentionsBundle.message("convert.param.to.map.entry"));
+  private void setUpDialog(final @NlsSafe String[] possibleNames, boolean createNew) {
+    setTitle(GroovyBundle.message("convert.param.to.map.entry"));
 
     if (GroovyApplicationSettings.getInstance().CONVERT_PARAM_CREATE_NEW_PARAM != null) {
       myCreateNew.setSelected(createNew = GroovyApplicationSettings.getInstance().CONVERT_PARAM_CREATE_NEW_PARAM.booleanValue());
@@ -111,11 +100,6 @@ public class GroovyMapParameterDialog extends DialogWrapper {
   }
 
   @Override
-  public void doCancelAction() {
-    super.doCancelAction();
-  }
-
-  @Override
   protected JComponent createCenterPanel() {
     return contentPane;
   }
@@ -134,7 +118,7 @@ public class GroovyMapParameterDialog extends DialogWrapper {
     }
   }
 
-  private void setUpNameComboBox(String[] possibleNames) {
+  private void setUpNameComboBox(@NlsSafe String[] possibleNames) {
 
     final EditorComboBoxEditor comboEditor = new StringComboboxEditor(myProject, GroovyFileType.GROOVY_FILE_TYPE, myNameComboBox);
 
@@ -154,11 +138,7 @@ public class GroovyMapParameterDialog extends DialogWrapper {
 
     ((EditorTextField)myNameComboBox.getEditor().getEditorComponent()).addDocumentListener(new DocumentListener() {
       @Override
-      public void beforeDocumentChange(DocumentEvent event) {
-      }
-
-      @Override
-      public void documentChanged(DocumentEvent event) {
+      public void documentChanged(@NotNull DocumentEvent event) {
         fireNameDataChanged();
       }
     });
@@ -166,11 +146,11 @@ public class GroovyMapParameterDialog extends DialogWrapper {
     contentPane.registerKeyboardAction(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
-        myNameComboBox.requestFocus();
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myNameComboBox, true));
       }
     }, KeyStroke.getKeyStroke(KeyEvent.VK_N, InputEvent.ALT_MASK), JComponent.WHEN_IN_FOCUSED_WINDOW);
 
-    for (String possibleName : possibleNames) {
+    for (var possibleName : possibleNames) {
       myNameComboBox.addItem(possibleName);
     }
   }

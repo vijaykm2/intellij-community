@@ -20,19 +20,19 @@ import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.ui.UsageViewDescriptorAdapter;
-import com.intellij.refactoring.util.classMembers.MemberInfo;
 import com.intellij.refactoring.util.classMembers.ClassMembersUtil;
+import com.intellij.refactoring.util.classMembers.MemberInfo;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.List;
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * @author dsl
  */
 public class ExtractSuperClassViewDescriptor extends UsageViewDescriptorAdapter {
   final PsiElement[] myElements;
-  final List<PsiElement> myMembersToMakeWritable = new ArrayList<PsiElement>();
+  final List<PsiElement> myMembersToMakeWritable = new ArrayList<>();
 
   public ExtractSuperClassViewDescriptor(
     PsiDirectory targetDirectory,
@@ -53,8 +53,8 @@ public class ExtractSuperClassViewDescriptor extends UsageViewDescriptorAdapter 
     }
   }
 
-  @NotNull
-  public PsiElement[] getElements() {
+  @Override
+  public PsiElement @NotNull [] getElements() {
     return myElements;
   }
 
@@ -62,6 +62,7 @@ public class ExtractSuperClassViewDescriptor extends UsageViewDescriptorAdapter 
     return myMembersToMakeWritable;
   }
 
+  @Override
   public String getProcessedElementsHeader() {
     return RefactoringBundle.message("extract.superclass.elements.header");
   }

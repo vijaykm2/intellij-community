@@ -19,8 +19,7 @@ import com.intellij.lang.properties.psi.PropertiesFile;
 import com.intellij.lang.properties.references.CreatePropertyFix;
 import com.intellij.lang.properties.references.I18nizeQuickFixDialog;
 import com.intellij.lang.properties.references.I18nizeQuickFixModel;
-import com.intellij.openapi.application.AccessToken;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Couple;
@@ -29,6 +28,8 @@ import com.intellij.psi.*;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.uast.UastContextKt;
+import org.jetbrains.uast.expressions.UInjectionHost;
 
 import java.util.List;
 
@@ -55,16 +56,14 @@ public class JavaCreatePropertyFix extends CreatePropertyFix {
       StringUtil.escapeStringCharacters(key.length(), key, buffer);
       buffer.append('"');
 
-      final AccessToken token = ApplicationManager.getApplication().acquireWriteActionLock(JavaCreatePropertyFix.class);
       try {
-        final PsiExpression newKeyLiteral = JavaPsiFacade.getElementFactory(project).createExpressionFromText(buffer.toString(), null);
-        psiElement.replace(newKeyLiteral);
+        WriteAction.run(() -> {
+          final PsiExpression newKeyLiteral = JavaPsiFacade.getElementFactory(project).createExpressionFromText(buffer.toString(), null);
+          psiElement.replace(newKeyLiteral);
+        });
       }
       catch (IncorrectOperationException e) {
         LOG.error(e);
-      }
-      finally {
-        token.finish();
       }
     }
     return result;
@@ -80,10 +79,10 @@ public class JavaCreatePropertyFix extends CreatePropertyFix {
     final PsiLiteralExpression literalExpression = psiElement instanceof PsiLiteralExpression ? (PsiLiteralExpression)psiElement : null;
     final String propertyValue = suggestedValue == null ? "" : suggestedValue;
 
-    final I18nizeQuickFixDialog dialog = new JavaI18nizeQuickFixDialog(
+    final I18nizeQuickFixDialog dialog = new JavaI18nizeQuickFixDialog<>(
       project,
       file,
-      literalExpression,
+      UastContextKt.toUElement(literalExpression, UInjectionHost.class),
       propertyValue,
       createDefaultCustomization(suggestedKey, propertiesFiles),
       false,

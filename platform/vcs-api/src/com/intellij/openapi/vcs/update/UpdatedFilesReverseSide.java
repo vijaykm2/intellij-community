@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.update;
 
 import com.intellij.openapi.vfs.VirtualFile;
@@ -34,8 +20,8 @@ public class UpdatedFilesReverseSide {
 
   public UpdatedFilesReverseSide(final UpdatedFiles files) {
     myFiles = files;
-    myGroupHolder = new HashMap<String, FileGroup>();
-    myFileIdx = new HashMap<String, FileGroup>();
+    myGroupHolder = new HashMap<>();
+    myFileIdx = new HashMap<>();
   }
 
   public boolean isEmpty() {
@@ -73,7 +59,7 @@ public class UpdatedFilesReverseSide {
   public void rebuildFromUpdatedFiles() {
     myFileIdx.clear();
     myGroupHolder.clear();
-    
+
     for (FileGroup group : myFiles.getTopLevelGroups()) {
       addGroupToIndexes(group);
     }
@@ -107,18 +93,20 @@ public class UpdatedFilesReverseSide {
   }
 
   private class TopLevelParent implements Parent {
+    @Override
     public void accept(final FileGroup group) {
       myFiles.getTopLevelGroups().add(group);
     }
   }
 
-  private static class GroupParent implements Parent {
+  private static final class GroupParent implements Parent {
     private final FileGroup myGroup;
 
     private GroupParent(final FileGroup group) {
       myGroup = group;
     }
 
+    @Override
     public void accept(final FileGroup group) {
       myGroup.addChild(group);
     }
@@ -137,11 +125,11 @@ public class UpdatedFilesReverseSide {
 
   public static Set<String> getPathsFromUpdatedFiles(final UpdatedFiles from) {
     UpdatedFilesReverseSide helper = new UpdatedFilesReverseSide(UpdatedFiles.create());
-    helper.accomulateFiles(from, DuplicateLevel.DUPLICATE_ERRORS);
+    helper.accumulateFiles(from, DuplicateLevel.DUPLICATE_ERRORS);
     return helper.myFileIdx.keySet();
   }
 
-  public void accomulateFiles(final UpdatedFiles from, final DuplicateLevel duplicateLevel) {
+  public void accumulateFiles(final UpdatedFiles from, final DuplicateLevel duplicateLevel) {
     final Parent topLevel = new TopLevelParent();
     for (FileGroup fromGroup : from.getTopLevelGroups()) {
       copyGroup(topLevel, fromGroup, duplicateLevel);
@@ -177,38 +165,46 @@ public class UpdatedFilesReverseSide {
     }
 
     public static final DuplicateLevel NO_DUPLICATES = new DuplicateLevel() {
+      @Override
       boolean searchPreviousContainment(final String groupId) {
         return true;
       }
 
+      @Override
       boolean doesExistingWin(final String groupId, final String existingGroupId) {
         return false;
       }
     };
     public static final DuplicateLevel DUPLICATE_ERRORS_LOCALS = new DuplicateLevel() {
+      @Override
       boolean searchPreviousContainment(final String groupId) {
         return (! ourLocals.contains(groupId)) && (! ourErrorGroups.contains(groupId));
       }
 
+      @Override
       boolean doesExistingWin(final String groupId, final String existingGroupId) {
         return ourLocals.contains(groupId);
       }
     };
 
     public static final DuplicateLevel DUPLICATE_ERRORS = new DuplicateLevel() {
+      @Override
       boolean searchPreviousContainment(final String groupId) {
         return ! ourErrorGroups.contains(groupId);
       }
 
+      @Override
       boolean doesExistingWin(final String groupId, final String existingGroupId) {
         return false;
       }
     };
     public static final DuplicateLevel ALLOW_DUPLICATES = new DuplicateLevel() {
+      @Override
       boolean searchPreviousContainment(final String groupId) {
         return false;
       }
 
+      @Override
       boolean doesExistingWin(final String groupId, final String existingGroupId) {
         return false;
       }

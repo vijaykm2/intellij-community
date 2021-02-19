@@ -1,26 +1,14 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl;
 
 import com.intellij.psi.PsiClassType;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiNamedElement;
 import com.intellij.psi.PsiSubstitutor;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.lang.psi.api.EmptyGroovyResolveResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.SpreadState;
 
@@ -28,16 +16,16 @@ import org.jetbrains.plugins.groovy.lang.psi.api.SpreadState;
  * @author ven
  */
 public class GroovyResolveResultImpl implements GroovyResolveResult {
-  private final PsiElement myElement;
+  private final @NotNull PsiElement myElement;
   private final boolean myIsAccessible;
   private final boolean myIsStaticsOK;
   private final boolean myIsApplicable;
 
-  private final PsiSubstitutor mySubstitutor;
+  private final @NotNull PsiSubstitutor mySubstitutor;
   private final boolean myIsInvokedOnProperty;
 
-  private final PsiElement myCurrentFileResolveContext;
-  private final SpreadState mySpreadState;
+  private final @Nullable PsiElement myCurrentFileResolveContext;
+  private final @Nullable SpreadState mySpreadState;
 
   public GroovyResolveResultImpl(@NotNull PsiElement element, boolean isAccessible) {
     this(element, null, null, PsiSubstitutor.EMPTY, isAccessible, true, false, true);
@@ -70,6 +58,12 @@ public class GroovyResolveResultImpl implements GroovyResolveResult {
     myIsApplicable = isApplicable;
   }
 
+  @NotNull
+  @Override
+  public PsiSubstitutor getContextSubstitutor() {
+    return mySubstitutor;
+  }
+
   @Override
   @NotNull
   public PsiSubstitutor getSubstitutor() {
@@ -92,7 +86,7 @@ public class GroovyResolveResultImpl implements GroovyResolveResult {
   }
 
   @Override
-  @Nullable
+  @NotNull
   public PsiElement getElement() {
     return myElement;
   }
@@ -102,6 +96,7 @@ public class GroovyResolveResultImpl implements GroovyResolveResult {
     return isAccessible() && isApplicable() && isStaticsOK();
   }
 
+  @Override
   public boolean equals(Object o) {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
@@ -112,6 +107,7 @@ public class GroovyResolveResultImpl implements GroovyResolveResult {
            myElement.getManager().areElementsEquivalent(myElement, that.myElement);
   }
 
+  @Override
   public int hashCode() {
     int result = 0;
     if (myElement instanceof PsiNamedElement) {
@@ -135,12 +131,14 @@ public class GroovyResolveResultImpl implements GroovyResolveResult {
     return myIsInvokedOnProperty;
   }
 
+  @Nullable
   @Override
   public SpreadState getSpreadState() {
     return mySpreadState;
   }
 
   @Override
+  @NonNls
   public String toString() {
     return "GroovyResolveResultImpl{" +
            "myElement=" + myElement +
@@ -150,7 +148,7 @@ public class GroovyResolveResultImpl implements GroovyResolveResult {
 
   @NotNull
   public static GroovyResolveResult from(@NotNull PsiClassType.ClassResolveResult classResolveResult) {
-    if (classResolveResult.getElement() == null) return GroovyResolveResult.EMPTY_RESULT;
+    if (classResolveResult.getElement() == null) return EmptyGroovyResolveResult.INSTANCE;
     return new GroovyResolveResultImpl(
       classResolveResult.getElement(),
       null,

@@ -19,7 +19,7 @@
           <grid row="4" column="0" row-span="1" col-span="1" vsize-policy="6" hsize-policy="1" anchor="0" fill="2" indent="0" use-parent-layout="false"/>
         </constraints>
       </vspacer>
-      <component id="a09fc" class="com.intellij.execution.ui.AlternativeJREPanel" binding="myAlternativeJREPanel">
+      <component id="a09fc" class="com.intellij.execution.ui.JrePathEditor" binding="myJrePathEditor">
         <constraints>
           <grid row="2" column="0" row-span="1" col-span="1" vsize-policy="3" hsize-policy="3" anchor="0" fill="1" indent="0" use-parent-layout="false"/>
         </constraints>
@@ -31,7 +31,7 @@
         </constraints>
         <properties>
           <labelLocation value="West"/>
-          <text value="Path to &amp;JAR"/>
+          <text resource-bundle="messages/ExecutionBundle" key="label.path.to.jar"/>
         </properties>
       </component>
       <component id="6fe96" class="com.intellij.openapi.ui.LabeledComponent" binding="myModuleComponent">
@@ -41,7 +41,7 @@
         <properties>
           <componentClass value="com.intellij.application.options.ModulesComboBox"/>
           <labelLocation value="West"/>
-          <text value="Search sources using m&amp;odule's classpath"/>
+          <text resource-bundle="messages/ExecutionBundle" key="label.search.sources.using.module.classpath"/>
         </properties>
       </component>
     </children>

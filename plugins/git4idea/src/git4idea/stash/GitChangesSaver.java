@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.stash;
 
 import com.intellij.notification.Notification;
@@ -22,18 +8,19 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.VcsNotifier;
-import com.intellij.openapi.vcs.changes.ChangeListManagerEx;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.continuation.ContinuationContext;
-import git4idea.GitPlatformFacade;
 import git4idea.commands.Git;
-import git4idea.config.GitVcsSettings;
+import git4idea.config.GitSaveChangesPolicy;
+import git4idea.i18n.GitBundle;
 import git4idea.merge.GitConflictResolver;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.event.HyperlinkEvent;
 import java.util.Collection;
+
+import static git4idea.GitNotificationIdsHolder.LOCAL_CHANGES_NOT_RESTORED;
 
 /**
  * Saves and restores uncommitted local changes - it is used before and after the update process.
@@ -42,85 +29,67 @@ import java.util.Collection;
  * @author Kirill Likhodedov
  */
 public abstract class GitChangesSaver {
-
   private static final Logger LOG = Logger.getInstance(GitChangesSaver.class);
 
   @NotNull protected final Project myProject;
-  @NotNull protected final GitPlatformFacade myPlatformFacade;
-  @NotNull protected final ChangeListManagerEx myChangeManager;
   @NotNull protected final Git myGit;
   @NotNull protected final ProgressIndicator myProgressIndicator;
   @NotNull protected final String myStashMessage;
+  @NotNull private final GitSaveChangesPolicy mySaveMethod;
 
   protected GitConflictResolver.Params myParams;
 
   /**
-   * Refreshes files changed during save or load.
+   * Returns an instance of the proper GitChangesSaver depending on the given save changes policy.
+   *
+   * @return {@link GitStashChangesSaver} or {@link GitShelveChangesSaver}.
    */
-  public abstract void refresh();
-
-  /**
-   * Returns an instance of the proper GitChangesSaver depending on the chosen save changes policy.
-   * @return {@link GitStashChangesSaver}, {@link GitShelveChangesSaver} or {@link GitDumbChangesSaver}
-   */
-  public static GitChangesSaver getSaver(@NotNull Project project, @NotNull GitPlatformFacade platformFacade, @NotNull Git git,
-                                         @NotNull ProgressIndicator progressIndicator, @NotNull String stashMessage) {
-    final GitVcsSettings settings = GitVcsSettings.getInstance(project);
-    if (settings == null) {
-      return getDefaultSaver(project, platformFacade, git, progressIndicator, stashMessage);
+  @NotNull
+  public static GitChangesSaver getSaver(@NotNull Project project,
+                                         @NotNull Git git,
+                                         @NotNull ProgressIndicator progressIndicator,
+                                         @NotNull @Nls String stashMessage,
+                                         @NotNull GitSaveChangesPolicy saveMethod) {
+    if (saveMethod == GitSaveChangesPolicy.SHELVE) {
+      return new GitShelveChangesSaver(project, git, progressIndicator, stashMessage);
     }
-    switch (settings.updateChangesPolicy()) {
-      case STASH: return new GitStashChangesSaver(project, platformFacade, git, progressIndicator, stashMessage);
-      case SHELVE: return new GitShelveChangesSaver(project, platformFacade, git, progressIndicator, stashMessage);
-    }
-    return getDefaultSaver(project, platformFacade, git, progressIndicator, stashMessage);
+    return new GitStashChangesSaver(project, git, progressIndicator, stashMessage);
   }
 
-  // In the case of illegal value in the settings or impossibility to get the settings.
-  private static GitChangesSaver getDefaultSaver(@NotNull Project project, @NotNull GitPlatformFacade platformFacade, @NotNull Git git,
-                                                 @NotNull ProgressIndicator progressIndicator, @NotNull String stashMessage) {
-    return new GitStashChangesSaver(project, platformFacade, git, progressIndicator, stashMessage);
-  }
-
-  protected GitChangesSaver(@NotNull Project project, @NotNull GitPlatformFacade platformFacade, @NotNull Git git,
-                            @NotNull ProgressIndicator indicator, @NotNull String stashMessage) {
+  protected GitChangesSaver(@NotNull Project project,
+                            @NotNull Git git,
+                            @NotNull ProgressIndicator indicator,
+                            @NotNull GitSaveChangesPolicy saveMethod,
+                            @NotNull String stashMessage) {
     myProject = project;
-    myPlatformFacade = platformFacade;
     myGit = git;
     myProgressIndicator = indicator;
+    mySaveMethod = saveMethod;
     myStashMessage = stashMessage;
-    myChangeManager = platformFacade.getChangeListManager(project);
   }
 
   /**
    * Saves local changes in stash or in shelf.
+   *
    * @param rootsToSave Save changes only from these roots.
    */
-  public void saveLocalChanges(@Nullable Collection<VirtualFile> rootsToSave) throws VcsException {
+  public void saveLocalChanges(@Nullable Collection<? extends VirtualFile> rootsToSave) throws VcsException {
     if (rootsToSave == null || rootsToSave.isEmpty()) {
       return;
     }
     save(rootsToSave);
   }
 
-  /**
-   * Loads local changes from stash or shelf, and sorts the changes back to the change lists they were before update.
-   * @param context
-   */
-  public void restoreLocalChanges(ContinuationContext context) {
-    load(context);
-  }
-
   public void notifyLocalChangesAreNotRestored() {
     if (wereChangesSaved()) {
       LOG.info("Update is incomplete, changes are not restored");
-      VcsNotifier.getInstance(myProject).notifyImportantWarning("Local changes were not restored",
-                                                                "Before update your uncommitted changes were saved to <a href='saver'>" +
-                                                                getSaverName() +
-                                                                "</a>.<br/>" +
-                                                                "Update is not complete, you have unresolved merges in your working tree<br/>" +
-                                                                "Resolve conflicts, complete update and restore changes manually.",
-                                                                new ShowSavedChangesNotificationListener()
+      VcsNotifier.getInstance(myProject).notifyImportantWarning(
+        LOCAL_CHANGES_NOT_RESTORED, GitBundle.message("restore.notification.failed.title"),
+        getSaveMethod().selectBundleMessage(
+          GitBundle.message("restore.notification.failed.stash.message"),
+          GitBundle.message("restore.notification.failed.shelf.message")
+        ),
+        new ShowSavedChangesNotificationListener()
       );
     }
   }
@@ -131,37 +100,37 @@ public abstract class GitChangesSaver {
 
   /**
    * Saves local changes - specific for chosen save strategy.
+   *
    * @param rootsToSave local changes should be saved on these roots.
    */
-  protected abstract void save(Collection<VirtualFile> rootsToSave) throws VcsException;
+  protected abstract void save(Collection<? extends VirtualFile> rootsToSave) throws VcsException;
 
   /**
    * Loads the changes - specific for chosen save strategy.
-   * @param exceptionConsumer
    */
-  protected abstract void load(ContinuationContext exceptionConsumer);
+  public abstract void load();
 
   /**
    * @return true if there were local changes to save.
    */
-  protected abstract boolean wereChangesSaved();
+  public abstract boolean wereChangesSaved();
 
-  /**
-   * @return name of the save capability provider - stash or shelf.
-   */
-  public abstract String getSaverName();
+  @NotNull
+  public GitSaveChangesPolicy getSaveMethod() {
+    return mySaveMethod;
+  }
 
   /**
    * Show the saved local changes in the proper viewer.
    */
-  protected abstract void showSavedChanges();
+  public abstract void showSavedChanges();
 
   /**
    * The right panel title of the merge conflict dialog: changes that came from update.
    */
   @NotNull
   protected static String getConflictRightPanelTitle() {
-    return "Changes from remote";
+    return GitBundle.message("save.load.conflict.dialog.diff.right.title");
   }
 
   /**
@@ -169,11 +138,12 @@ public abstract class GitChangesSaver {
    */
   @NotNull
   protected static String getConflictLeftPanelTitle() {
-    return "Your uncommitted changes";
+    return GitBundle.message("save.load.conflict.dialog.diff.left.title");
   }
 
-  protected class ShowSavedChangesNotificationListener implements NotificationListener {
-    @Override public void hyperlinkUpdate(@NotNull Notification notification, @NotNull HyperlinkEvent event) {
+  protected final class ShowSavedChangesNotificationListener implements NotificationListener {
+    @Override
+    public void hyperlinkUpdate(@NotNull Notification notification, @NotNull HyperlinkEvent event) {
       if (event.getEventType() == HyperlinkEvent.EventType.ACTIVATED && event.getDescription().equals("saver")) {
         showSavedChanges();
       }

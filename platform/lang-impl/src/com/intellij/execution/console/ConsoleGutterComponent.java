@@ -1,3 +1,4 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.console;
 
 import com.intellij.codeInsight.hint.TooltipController;
@@ -11,8 +12,8 @@ import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.ui.HintHint;
 import com.intellij.ui.JBColor;
+import com.intellij.ui.JreHiDpiUtil;
 import com.intellij.ui.awt.RelativePoint;
-import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -37,7 +38,7 @@ class ConsoleGutterComponent extends JComponent implements MouseMotionListener {
 
   private final boolean atLineStart;
 
-  public ConsoleGutterComponent(@NotNull Editor editor, @NotNull GutterContentProvider gutterContentProvider, boolean atLineStart) {
+  ConsoleGutterComponent(@NotNull Editor editor, @NotNull GutterContentProvider gutterContentProvider, boolean atLineStart) {
     this.editor = (EditorImpl)editor;
     this.gutterContentProvider = gutterContentProvider;
     this.atLineStart = atLineStart;
@@ -116,6 +117,10 @@ class ConsoleGutterComponent extends JComponent implements MouseMotionListener {
     return new Dimension(maxContentWidth, myLastPreferredHeight);
   }
 
+  public int getPreferredWidth() {
+    return maxContentWidth;
+  }
+
   @Override
   public void paint(Graphics g) {
     Rectangle clip = g.getClipBounds();
@@ -137,7 +142,7 @@ class ConsoleGutterComponent extends JComponent implements MouseMotionListener {
 
     Graphics2D g2 = (Graphics2D)g;
     Object hint = g2.getRenderingHint(RenderingHints.KEY_ANTIALIASING);
-    if (!UIUtil.isRetina()) {
+    if (!JreHiDpiUtil.isJreHiDPI(g2)) {
       g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
     }
 

@@ -16,6 +16,7 @@
 package com.siyeh.ig.bugs;
 
 import com.intellij.psi.*;
+import com.intellij.psi.util.PsiTypesUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -24,12 +25,6 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 public class ReflectionForUnavailableAnnotationInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("reflection.for.unavailable.annotation.display.name");
-  }
 
   @Override
   @NotNull
@@ -76,8 +71,7 @@ public class ReflectionForUnavailableAnnotationInspection extends BaseInspection
       final PsiClassObjectAccessExpression classObjectAccessExpression = (PsiClassObjectAccessExpression)arg;
       final PsiTypeElement operand = classObjectAccessExpression.getOperand();
 
-      final PsiClassType annotationClassType = (PsiClassType)operand.getType();
-      final PsiClass annotationClass = annotationClassType.resolve();
+      final PsiClass annotationClass = PsiTypesUtil.getPsiClass(operand.getType());
       if (annotationClass == null) {
         return;
       }
@@ -85,7 +79,7 @@ public class ReflectionForUnavailableAnnotationInspection extends BaseInspection
       if (modifierList == null) {
         return;
       }
-      final PsiAnnotation retentionAnnotation = modifierList.findAnnotation("java.lang.annotation.Retention");
+      final PsiAnnotation retentionAnnotation = modifierList.findAnnotation(CommonClassNames.JAVA_LANG_ANNOTATION_RETENTION);
       if (retentionAnnotation == null) {
         registerError(arg);
         return;

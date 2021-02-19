@@ -20,7 +20,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.Serializable;
 
-public class MavenRemoteRepository implements Serializable {
+public final class MavenRemoteRepository implements Serializable {
   private final String myId;
   private final String myName;
   private final String myUrl;
@@ -79,14 +79,14 @@ public class MavenRemoteRepository implements Serializable {
 
     MavenRemoteRepository that = (MavenRemoteRepository)o;
 
-    if (myId != null ? !myId.equals(that.myId) : that.myId != null) return false;
+    if (!myId.equals(that.myId)) return false;
 
     return true;
   }
 
   @Override
   public int hashCode() {
-    return myId != null ? myId.hashCode() : 0;
+    return myId.hashCode();
   }
 
   public static class Policy implements Serializable {

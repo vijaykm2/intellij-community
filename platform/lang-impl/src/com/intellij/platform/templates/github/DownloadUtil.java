@@ -1,15 +1,18 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.platform.templates.github;
 
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.Producer;
-import com.intellij.util.containers.Predicate;
 import com.intellij.util.io.HttpRequests;
 import com.intellij.util.net.NetUtils;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -19,13 +22,10 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Locale;
 import java.util.concurrent.Callable;
+import java.util.function.Predicate;
 
-/**
- * @author Sergey Simonchik
- */
-public class DownloadUtil {
-
-  public static final String CONTENT_LENGTH_TEMPLATE = "${content-length}";
+public final class DownloadUtil {
+  public static final @NonNls String CONTENT_LENGTH_TEMPLATE = "${content-length}";
   private static final Logger LOG = Logger.getInstance(DownloadUtil.class);
 
   /**
@@ -53,12 +53,12 @@ public class DownloadUtil {
                                            @NotNull String url,
                                            @NotNull File outputFile,
                                            @NotNull File tempFile,
-                                           @Nullable Predicate<String> contentChecker) throws IOException {
+                                           @Nullable Predicate<? super String> contentChecker) throws IOException {
     try {
       downloadContentToFile(indicator, url, tempFile);
       if (contentChecker != null) {
         String content = FileUtil.loadFile(tempFile);
-        if (!contentChecker.apply(content)) {
+        if (!contentChecker.test(content)) {
           return false;
         }
       }
@@ -102,29 +102,25 @@ public class DownloadUtil {
   }
 
 
-  @NotNull
-  public static <V> Outcome<V> provideDataWithProgressSynchronously(
+  public static @NotNull <V> Outcome<V> provideDataWithProgressSynchronously(
     @Nullable Project project,
-    @NotNull String progressTitle,
-    @NotNull final String actionShortDescription,
-    @NotNull final Callable<V> supplier,
+    @NotNull @NlsContexts.ProgressTitle String progressTitle,
+    final @NotNull @NlsContexts.ProgressText String actionShortDescription,
+    final @NotNull Callable<? extends V> supplier,
     @Nullable Producer<Boolean> tryAgainProvider) {
     int attemptNumber = 1;
     while (true) {
       final Ref<V> dataRef = Ref.create(null);
       final Ref<Exception> innerExceptionRef = Ref.create(null);
-      boolean completed = ProgressManager.getInstance().runProcessWithProgressSynchronously(new Runnable() {
-        @Override
-        public void run() {
-          ProgressIndicator indicator = ProgressManager.getInstance().getProgressIndicator();
-          indicator.setText(actionShortDescription);
-          try {
-            V data = supplier.call();
-            dataRef.set(data);
-          }
-          catch (Exception ex) {
-            innerExceptionRef.set(ex);
-          }
+      boolean completed = ProgressManager.getInstance().runProcessWithProgressSynchronously(() -> {
+        ProgressIndicator indicator = ProgressManager.getInstance().getProgressIndicator();
+        indicator.setText(actionShortDescription);
+        try {
+          V data = supplier.call();
+          dataRef.set(data);
+        }
+        catch (Exception ex) {
+          innerExceptionRef.set(ex);
         }
       }, progressTitle, true, project);
       if (!completed) {
@@ -153,48 +149,38 @@ public class DownloadUtil {
     if (!parentDirExists) {
       throw new IOException("Parent dir of '" + outputFile.getAbsolutePath() + "' can not be created!");
     }
-    OutputStream out = new FileOutputStream(outputFile);
-    try {
+    try (OutputStream out = new FileOutputStream(outputFile)) {
       download(progress, url, out);
     }
-    finally {
-      out.close();
-    }
   }
 
-  private static void download(@Nullable final ProgressIndicator progress,
+  private static void download(@Nullable ProgressIndicator progress,
                                @NotNull String location,
-                               @NotNull final OutputStream output) throws IOException {
-    final String originalText = progress != null ? progress.getText() : null;
+                               @NotNull OutputStream output) throws IOException {
+    String originalText = progress != null ? progress.getText() : null;
     substituteContentLength(progress, originalText, -1);
     if (progress != null) {
-      progress.setText2("Downloading " + location);
+      progress.setText2(IdeBundle.message("progress.download.0.title", location));
     }
-
-    try {
-      HttpRequests.request(location)
-        .productNameAsUserAgent()
-        .connect(new HttpRequests.RequestProcessor<Object>() {
-          @Override
-          public Object process(@NotNull HttpRequests.Request request) throws IOException {
-            try {
-              int contentLength = request.getConnection().getContentLength();
-              substituteContentLength(progress, originalText, contentLength);
-              NetUtils.copyStreamContent(progress, request.getInputStream(), output, contentLength);
-            }
-            catch (IOException e) {
-              throw new IOException(HttpRequests.createErrorMessage(e, request, true), e);
-            }
-            return null;
+    HttpRequests.request(location)
+      .productNameAsUserAgent()
+      .connect(new HttpRequests.RequestProcessor<>() {
+        @Override
+        public Object process(@NotNull HttpRequests.Request request) throws IOException {
+          try {
+            int contentLength = request.getConnection().getContentLength();
+            substituteContentLength(progress, originalText, contentLength);
+            NetUtils.copyStreamContent(progress, request.getInputStream(), output, contentLength);
           }
-        });
-    }
-    catch (IOException e) {
-      throw new IOException("Cannot download " + location, e);
-    }
+          catch (IOException e) {
+            throw new IOException(HttpRequests.createErrorMessage(e, request, true), e);
+          }
+          return null;
+        }
+      });
   }
 
-  private static void substituteContentLength(@Nullable ProgressIndicator progress, @Nullable String text, int contentLengthInBytes) {
+  private static void substituteContentLength(@Nullable ProgressIndicator progress, @Nullable @NlsContexts.ProgressText String text, int contentLengthInBytes) {
     if (progress != null && text != null) {
       int ind = text.indexOf(CONTENT_LENGTH_TEMPLATE);
       if (ind != -1) {
@@ -205,6 +191,7 @@ public class DownloadUtil {
     }
   }
 
+  @SuppressWarnings("HardCodedStringLiteral")
   private static String formatContentLength(int contentLengthInBytes) {
     if (contentLengthInBytes < 0) {
       return "";

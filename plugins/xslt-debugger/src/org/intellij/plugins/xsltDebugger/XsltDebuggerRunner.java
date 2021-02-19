@@ -1,11 +1,14 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.xsltDebugger;
 
 import com.intellij.execution.ExecutionException;
+import com.intellij.execution.ExecutionManager;
 import com.intellij.execution.ExecutionResult;
 import com.intellij.execution.configurations.RunProfile;
 import com.intellij.execution.configurations.RunProfileState;
-import com.intellij.execution.runners.DefaultProgramRunner;
+import com.intellij.execution.configurations.RunnerSettings;
 import com.intellij.execution.runners.ExecutionEnvironment;
+import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.xdebugger.XDebugProcess;
@@ -15,20 +18,16 @@ import com.intellij.xdebugger.XDebuggerManager;
 import org.intellij.lang.xpath.xslt.run.XsltCommandLineState;
 import org.intellij.lang.xpath.xslt.run.XsltRunConfiguration;
 import org.intellij.plugins.xsltDebugger.impl.XsltDebugProcess;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-public class XsltDebuggerRunner extends DefaultProgramRunner {
-  static final ThreadLocal<Boolean> ACTIVE = new ThreadLocal<Boolean>();
+import java.util.Objects;
 
-  @NonNls
-  private static final String ID = "XsltDebuggerRunner";
+public class XsltDebuggerRunner implements ProgramRunner<RunnerSettings> {
+  static final ThreadLocal<Boolean> ACTIVE = new ThreadLocal<>();
 
-
-  @NotNull
   @Override
-  public String getRunnerId() {
-    return ID;
+  public @NotNull String getRunnerId() {
+    return "XsltDebuggerRunner";
   }
 
   @Override
@@ -37,22 +36,26 @@ public class XsltDebuggerRunner extends DefaultProgramRunner {
   }
 
   @Override
-  protected RunContentDescriptor doExecute(@NotNull RunProfileState state, @NotNull ExecutionEnvironment env) throws ExecutionException {
-    FileDocumentManager.getInstance().saveAllDocuments();
-    return createContentDescriptor(state, env);
+  public void execute(@NotNull ExecutionEnvironment environment) throws ExecutionException {
+    ExecutionManager.getInstance(environment.getProject()).startRunProfile(environment, Objects.requireNonNull(environment.getState()), state -> {
+      FileDocumentManager.getInstance().saveAllDocuments();
+      return createContentDescriptor(state, environment);
+    });
   }
 
-  protected RunContentDescriptor createContentDescriptor(final RunProfileState runProfileState, final ExecutionEnvironment environment) throws ExecutionException {
-    final XDebugSession debugSession =
+  private RunContentDescriptor createContentDescriptor(RunProfileState runProfileState, @NotNull ExecutionEnvironment environment)
+    throws ExecutionException {
+    XDebugSession debugSession =
       XDebuggerManager.getInstance(environment.getProject()).startSession(environment, new XDebugProcessStarter() {
-        @NotNull
-        public XDebugProcess start(@NotNull final XDebugSession session) throws ExecutionException {
+        @Override
+        public @NotNull XDebugProcess start(final @NotNull XDebugSession session) throws ExecutionException {
           ACTIVE.set(Boolean.TRUE);
           try {
             final XsltCommandLineState c = (XsltCommandLineState)runProfileState;
             final ExecutionResult result = runProfileState.execute(environment.getExecutor(), XsltDebuggerRunner.this);
             return new XsltDebugProcess(session, result, c.getExtensionData().getUserData(XsltDebuggerExtension.VERSION));
-          } finally {
+          }
+          finally {
             ACTIVE.remove();
           }
         }

@@ -25,6 +25,7 @@ import com.intellij.history.core.tree.Entry;
 import com.intellij.history.core.tree.RootEntry;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -51,7 +52,7 @@ public class LocalHistoryFacade {
     }
   }
 
-  public void endChangeSet(String name) {
+  public void endChangeSet(@NlsContexts.Label String name) {
     if (myChangeList.endChangeSet(name)) {
       fireChangeSetFinished();
     }
@@ -82,11 +83,11 @@ public class LocalHistoryFacade {
     addChange(new DeleteChange(myChangeList.nextId(), path, deletedEntry));
   }
 
-  public LabelImpl putSystemLabel(String name, String projectId, int color) {
+  public LabelImpl putSystemLabel(@NlsContexts.Label String name, String projectId, int color) {
     return putLabel(new PutSystemLabelChange(myChangeList.nextId(), name, projectId, color));
   }
 
-  public LabelImpl putUserLabel(String name, String projectId) {
+  public LabelImpl putUserLabel(@NlsContexts.Label String name, String projectId) {
     return putLabel(new PutLabelChange(myChangeList.nextId(), name, projectId));
   }
 
@@ -105,6 +106,12 @@ public class LocalHistoryFacade {
   private LabelImpl putLabel(@NotNull final PutLabelChange c) {
     addChange(c);
     return new LabelImpl() {
+
+      @Override
+      public long getLabelChangeId() {
+        return c.getId();
+      }
+
       @Override
       public ByteContent getByteContent(RootEntry root, String path) {
         return getByteContentBefore(root, path, c);
@@ -124,8 +131,8 @@ public class LocalHistoryFacade {
 
   private ByteContent getByteContentBefore(RootEntry root, String path, Change change) {
     root = root.copy();
-    revertUpTo(root, "", null, change, false, false);
-    Entry entry = root.findEntry(path);
+    String newPath = revertUpTo(root, path, null, change, false, false);
+    Entry entry = root.findEntry(newPath);
     if (entry == null) return new ByteContent(false, null);
     if (entry.isDirectory()) return new ByteContent(true, null);
 
@@ -133,7 +140,7 @@ public class LocalHistoryFacade {
   }
 
   public List<RecentChange> getRecentChanges(RootEntry root) {
-    List<RecentChange> result = new ArrayList<RecentChange>();
+    List<RecentChange> result = new ArrayList<>();
 
     for (ChangeSet c : myChangeList.iterChanges()) {
       if (c.isContentChangeOnly()) continue;

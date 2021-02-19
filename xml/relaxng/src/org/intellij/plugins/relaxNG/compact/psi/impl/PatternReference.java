@@ -29,10 +29,11 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
+import org.intellij.plugins.relaxNG.RelaxngBundle;
 import org.intellij.plugins.relaxNG.compact.RncFileType;
 import org.intellij.plugins.relaxNG.compact.RncTokenTypes;
 import org.intellij.plugins.relaxNG.compact.psi.*;
@@ -46,18 +47,14 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 13.08.2007
- */
 class PatternReference extends PsiReferenceBase.Poly<RncRef> implements Function<Define, ResolveResult>,
                                                                         LocalQuickFixProvider, EmptyResolveMessageProvider {
 
-  public PatternReference(RncRef ref) {
+  PatternReference(RncRef ref) {
     super(ref);
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     final ASTNode node = findNameNode();
@@ -80,8 +77,7 @@ class PatternReference extends PsiReferenceBase.Poly<RncRef> implements Function
   }
 
   @Override
-  @NotNull
-  public ResolveResult[] multiResolve(boolean incompleteCode) {
+  public ResolveResult @NotNull [] multiResolve(boolean incompleteCode) {
     final RncGrammar scope = getScope();
     if (scope == null) {
       return ResolveResult.EMPTY_ARRAY;
@@ -96,17 +92,7 @@ class PatternReference extends PsiReferenceBase.Poly<RncRef> implements Function
   @Override
   public ResolveResult fun(Define rncDefine) {
     final PsiElement element = rncDefine.getPsiElement();
-    return element != null ? new PsiElementResolveResult(element) : new ResolveResult() {
-      @Override
-      @Nullable
-      public PsiElement getElement() {
-        return null;
-      }
-      @Override
-      public boolean isValidResult() {
-        return false;
-      }
-    };
+    return element != null ? new PsiElementResolveResult(element) : EmptyResolveResult.INSTANCE;
   }
 
   @Nullable
@@ -122,7 +108,7 @@ class PatternReference extends PsiReferenceBase.Poly<RncRef> implements Function
   }
 
   @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     final ASTNode newNode = RenameUtil.createIdentifierNode(getElement().getManager(), newElementName);
 
     final ASTNode nameNode = findNameNode();
@@ -136,22 +122,16 @@ class PatternReference extends PsiReferenceBase.Poly<RncRef> implements Function
   }
 
   @Override
-  @NotNull
-  public Object[] getVariants() {
+  public Object @NotNull [] getVariants() {
     final RncGrammar scope = getScope();
     if (scope == null) {
       return ResolveResult.EMPTY_ARRAY;
     }
 
     final Map<String, Set<Define>> map = DefinitionResolver.getAllVariants(scope);
-    if (map == null || map.size() == 0) return ArrayUtil.EMPTY_OBJECT_ARRAY;
+    if (map == null || map.size() == 0) return ArrayUtilRt.EMPTY_OBJECT_ARRAY;
 
-    return ContainerUtil.mapNotNull(map.values(), new Function<Set<Define>, Object>() {
-      @Override
-      public Object fun(Set<Define> defines) {
-        return defines.size() == 0 ? null : defines.iterator().next().getPsiElement();
-      }
-    }).toArray();
+    return ContainerUtil.mapNotNull(map.values(), (Function<Set<Define>, Object>)defines -> defines.size() == 0 ? null : defines.iterator().next().getPsiElement()).toArray();
   }
 
   @Override
@@ -162,12 +142,12 @@ class PatternReference extends PsiReferenceBase.Poly<RncRef> implements Function
   @Override
   @NotNull
   public String getUnresolvedMessagePattern() {
-    return "Unresolved pattern reference ''{0}''";
+    //noinspection UnresolvedPropertyKey
+    return RelaxngBundle.message("relaxng.annotator.unresolved-pattern-reference");
   }
 
-  @Nullable
   @Override
-  public LocalQuickFix[] getQuickFixes() {
+  public LocalQuickFix @Nullable [] getQuickFixes() {
     if (getScope() != null) {
       return new LocalQuickFix[] { new CreatePatternFix(this) };
     }
@@ -177,20 +157,20 @@ class PatternReference extends PsiReferenceBase.Poly<RncRef> implements Function
   static class CreatePatternFix implements LocalQuickFix {
     private final PatternReference myReference;
 
-    public CreatePatternFix(PatternReference reference) {
+    CreatePatternFix(PatternReference reference) {
       myReference = reference;
     }
 
     @NotNull
     @Override
     public String getName() {
-      return "Create Pattern '" + myReference.getCanonicalText() + "'";
+      return RelaxngBundle.message("relaxng.quickfix.create-pattern.name", myReference.getCanonicalText());
     }
 
     @Override
     @NotNull
     public String getFamilyName() {
-      return "Create Pattern";
+      return RelaxngBundle.message("relaxng.quickfix.create-pattern.family");
     }
 
     @Override

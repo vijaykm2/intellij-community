@@ -1,31 +1,19 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.xml.impl;
 
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleUtil;
 import com.intellij.openapi.module.ModuleUtilCore;
-import com.intellij.openapi.util.Factory;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.PsiManager;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.psi.xml.XmlDocument;
 import com.intellij.psi.xml.XmlElement;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.semantic.SemElement;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.xml.*;
 import com.intellij.util.xml.reflect.*;
 import com.intellij.util.xml.stubs.FileStub;
@@ -44,55 +32,40 @@ import java.util.Map;
 /**
  * @author peter
  */
-public class DomFileElementImpl<T extends DomElement> implements DomFileElement<T> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.util.xml.impl.DomFileElementImpl");
+public class DomFileElementImpl<T extends DomElement> implements DomFileElement<T>, SemElement {
   private static final DomGenericInfo EMPTY_DOM_GENERIC_INFO = new DomGenericInfo() {
-
     @Override
-    @Nullable
-    public XmlElement getNameElement(DomElement element) {
+    public @Nullable GenericDomValue getNameDomElement(DomElement element) {
       return null;
     }
 
     @Override
-    @Nullable
-    public GenericDomValue getNameDomElement(DomElement element) {
+    public @NotNull List<? extends CustomDomChildrenDescription> getCustomNameChildrenDescription() {
+      return Collections.emptyList();
+    }
+
+    @Override
+    public @Nullable String getElementName(DomElement element) {
       return null;
     }
 
     @Override
-    @NotNull
-    public List<? extends CustomDomChildrenDescription> getCustomNameChildrenDescription() {
+    public @NotNull List<DomChildrenDescription> getChildrenDescriptions() {
       return Collections.emptyList();
     }
 
     @Override
-    @Nullable
-    public String getElementName(DomElement element) {
-      return null;
-    }
-
-    @Override
-    @NotNull
-    public List<DomChildrenDescription> getChildrenDescriptions() {
+    public @NotNull List<DomFixedChildDescription> getFixedChildrenDescriptions() {
       return Collections.emptyList();
     }
 
     @Override
-    @NotNull
-    public List<DomFixedChildDescription> getFixedChildrenDescriptions() {
+    public @NotNull List<DomCollectionChildDescription> getCollectionChildrenDescriptions() {
       return Collections.emptyList();
     }
 
     @Override
-    @NotNull
-    public List<DomCollectionChildDescription> getCollectionChildrenDescriptions() {
-      return Collections.emptyList();
-    }
-
-    @Override
-    @NotNull
-    public List<DomAttributeChildDescription> getAttributeChildrenDescriptions() {
+    public @NotNull List<DomAttributeChildDescription<?>> getAttributeChildrenDescriptions() {
       return Collections.emptyList();
     }
 
@@ -102,26 +75,22 @@ public class DomFileElementImpl<T extends DomElement> implements DomFileElement<
     }
 
     @Override
-    @Nullable
-    public DomFixedChildDescription getFixedChildDescription(String tagName) {
+    public @Nullable DomFixedChildDescription getFixedChildDescription(String tagName) {
       return null;
     }
 
     @Override
-    @Nullable
-    public DomFixedChildDescription getFixedChildDescription(@NonNls String tagName, @NonNls String namespace) {
+    public @Nullable DomFixedChildDescription getFixedChildDescription(@NonNls String tagName, @NonNls String namespace) {
       return null;
     }
 
     @Override
-    @Nullable
-    public DomCollectionChildDescription getCollectionChildDescription(String tagName) {
+    public @Nullable DomCollectionChildDescription getCollectionChildDescription(String tagName) {
       return null;
     }
 
     @Override
-    @Nullable
-    public DomCollectionChildDescription getCollectionChildDescription(@NonNls String tagName, @NonNls String namespace) {
+    public @Nullable DomCollectionChildDescription getCollectionChildDescription(@NonNls String tagName, @NonNls String namespace) {
       return null;
     }
 
@@ -131,8 +100,7 @@ public class DomFileElementImpl<T extends DomElement> implements DomFileElement<
     }
 
     @Override
-    @Nullable
-    public DomAttributeChildDescription getAttributeChildDescription(@NonNls String attributeName, @NonNls String namespace) {
+    public @Nullable DomAttributeChildDescription getAttributeChildDescription(@NonNls String attributeName, @NonNls String namespace) {
       return null;
     }
 
@@ -144,37 +112,30 @@ public class DomFileElementImpl<T extends DomElement> implements DomFileElement<
   private final Class<T> myRootElementClass;
   private final EvaluatedXmlNameImpl myRootTagName;
   private final DomManagerImpl myManager;
-  private final Map<Key,Object> myUserData = new HashMap<Key, Object>();
+  private final Map<Key,Object> myUserData = new HashMap<>();
 
-  protected DomFileElementImpl(final XmlFile file,
-                               final Class<T> rootElementClass,
-                               final EvaluatedXmlNameImpl rootTagName,
-                               final DomManagerImpl manager, final DomFileDescription<T> fileDescription,
-                               FileStub stub) {
+  protected DomFileElementImpl(XmlFile file, EvaluatedXmlNameImpl rootTagName, DomFileDescription<T> fileDescription, FileStub stub) {
     myFile = file;
-    myRootElementClass = rootElementClass;
+    myRootElementClass = fileDescription.getRootElementClass();
     myRootTagName = rootTagName;
-    myManager = manager;
+    myManager = DomManagerImpl.getDomManager(file.getProject());
     myFileDescription = fileDescription;
-    myRootHandler = new DomRootInvocationHandler(rootElementClass, new RootDomParentStrategy(this), this, rootTagName,
+    myRootHandler = new DomRootInvocationHandler(myRootElementClass, new RootDomParentStrategy(this), this, rootTagName,
                                                  stub == null ? null : stub.getRootTagStub());
   }
 
   @Override
-  @NotNull
-  public final XmlFile getFile() {
+  public final @NotNull XmlFile getFile() {
     return myFile;
   }
 
   @Override
-  @NotNull
-  public XmlFile getOriginalFile() {
+  public @NotNull XmlFile getOriginalFile() {
     return (XmlFile)myFile.getOriginalFile();
   }
 
   @Override
-  @Nullable
-  public XmlTag getRootTag() {
+  public @Nullable XmlTag getRootTag() {
     if (!myFile.isValid()) {
       return null;
     }
@@ -215,8 +176,7 @@ public class DomFileElementImpl<T extends DomElement> implements DomFileElement<
   }
 
   @Override
-  @NotNull
-  public final DomManagerImpl getManager() {
+  public final @NotNull DomManagerImpl getManager() {
     return myManager;
   }
 
@@ -226,8 +186,7 @@ public class DomFileElementImpl<T extends DomElement> implements DomFileElement<
   }
 
   @Override
-  @NotNull
-  public AbstractDomChildrenDescription getChildDescription() {
+  public @NotNull AbstractDomChildrenDescription getChildDescription() {
     throw new UnsupportedOperationException("Method getChildDescription is not yet implemented in " + getClass().getName());
   }
 
@@ -237,17 +196,18 @@ public class DomFileElementImpl<T extends DomElement> implements DomFileElement<
   }
 
   @Override
-  @NotNull
-  public ElementPresentation getPresentation() {
+  public @NotNull ElementPresentation getPresentation() {
     return new ElementPresentation() {
 
       @Override
-      public @NonNls String getElementName() {
+      @NonNls
+      public String getElementName() {
         return "<ROOT>";
       }
 
       @Override
-      public @NonNls String getTypeName() {
+      @NonNls
+      public String getTypeName() {
         return "<ROOT>";
       }
 
@@ -264,8 +224,7 @@ public class DomFileElementImpl<T extends DomElement> implements DomFileElement<
   }
 
   @Override
-  @Nullable
-  public <T extends DomElement> T getParentOfType(Class<T> requiredClass, boolean strict) {
+  public @Nullable <T extends DomElement> T getParentOfType(Class<T> requiredClass, boolean strict) {
     return DomFileElement.class.isAssignableFrom(requiredClass) && !strict ? (T)this : null;
   }
 
@@ -286,66 +245,48 @@ public class DomFileElementImpl<T extends DomElement> implements DomFileElement<
 
   @Override
   public final <T extends DomElement> T createStableCopy() {
-    return myManager.createStableValue(new Factory<T>() {
-      @Override
-      @Nullable
-      public T create() {
-        return (T)myManager.getFileElement(myFile);
-      }
-    });
+    PsiManager psiManager = myFile.getManager();
+    VirtualFile vFile = myFile.getViewProvider().getVirtualFile();
+    //noinspection unchecked
+    return myManager.createStableValue(() -> (T)myManager.getFileElement(ObjectUtils.tryCast(psiManager.findFile(vFile), XmlFile.class)));
   }
 
   @Override
-  @NotNull
-  public String getXmlElementNamespace() {
+  public @NotNull String getXmlElementNamespace() {
     return "";
   }
 
   @Override
-  @Nullable
   @NonNls
-  public String getXmlElementNamespaceKey() {
+  public @Nullable String getXmlElementNamespaceKey() {
     return null;
   }
 
   @Override
-  @NotNull
-  public final T getRootElement() {
+  public final @NotNull T getRootElement() {
     if (!isValid()) {
-      if (!myFile.isValid()) {
-        assert false: myFile + " is not valid";
-      } else {
-        final DomFileElementImpl<DomElement> fileElement = myManager.getFileElement(myFile);
-        if (fileElement == null) {
-          final FileDescriptionCachedValueProvider<DomElement> provider = myManager.getOrCreateCachedValueProvider(myFile);
-          String s = provider.getFileElementWithLogging();
-          LOG.error("Null, log=" + s);
-        } else {
-          assert false: this + " does not equal to " + fileElement;
-        }
-      }
+      PsiUtilCore.ensureValid(myFile);
+      throw new AssertionError(this + " is not equal to " + myManager.getFileElement(myFile));
     }
     return (T)getRootHandler().getProxy();
   }
 
   @Override
-  @NotNull
-  public Class<T> getRootElementClass() {
+  public @NotNull Class<T> getRootElementClass() {
     return myRootElementClass;
   }
 
   @Override
-  @NotNull
-  public DomFileDescription<T> getFileDescription() {
+  public @NotNull DomFileDescription<T> getFileDescription() {
     return myFileDescription;
   }
 
-  @NotNull
-  protected final DomRootInvocationHandler getRootHandler() {
+  protected final @NotNull DomRootInvocationHandler getRootHandler() {
     return myRootHandler;
   }
 
-  public @NonNls String toString() {
+  @NonNls
+  public String toString() {
     return "File " + myFile.toString();
   }
 
@@ -359,14 +300,12 @@ public class DomFileElementImpl<T extends DomElement> implements DomFileElement<
     return null;
   }
 
-  @NotNull
-  public <T extends DomElement> DomFileElementImpl<T> getRoot() {
+  public @NotNull <T extends DomElement> DomFileElementImpl<T> getRoot() {
     return (DomFileElementImpl<T>)this;
   }
 
   @Override
-  @Nullable
-  public DomElement getParent() {
+  public @Nullable DomElement getParent() {
     return null;
   }
 
@@ -399,8 +338,7 @@ public class DomFileElementImpl<T extends DomElement> implements DomFileElement<
     return true;
   }
 
-  @Nullable
-  public String checkValidity() {
+  public @Nullable String checkValidity() {
     if (!myFile.isValid()) {
       return "Invalid file";
     }
@@ -412,14 +350,12 @@ public class DomFileElementImpl<T extends DomElement> implements DomFileElement<
   }
 
   @Override
-  @NotNull
-  public final DomGenericInfo getGenericInfo() {
+  public final @NotNull DomGenericInfo getGenericInfo() {
     return EMPTY_DOM_GENERIC_INFO;
   }
 
   @Override
-  @NotNull
-  public String getXmlElementName() {
+  public @NotNull String getXmlElementName() {
     return "";
   }
 

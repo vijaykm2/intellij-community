@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.rename;
 
 import com.intellij.openapi.editor.Document;
@@ -20,6 +6,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
+import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.search.searches.OverridingMethodsSearch;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.listeners.RefactoringElementListener;
@@ -29,7 +16,6 @@ import com.intellij.refactoring.rename.RenameUtil;
 import com.intellij.refactoring.rename.UnresolvableCollisionUsageInfo;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.Processor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.psi.GrReferenceElement;
@@ -55,12 +41,15 @@ public class RenameAliasImportedMethodProcessor extends RenameJavaMethodProcesso
 
   @NotNull
   @Override
-  public Collection<PsiReference> findReferences(PsiElement element) {
-    return RenameAliasedUsagesUtil.filterAliasedRefs(super.findReferences(element), element);
+  public Collection<PsiReference> findReferences(@NotNull PsiElement element,
+                                                 @NotNull SearchScope searchScope,
+                                                 boolean searchInCommentsAndStrings) {
+    return RenameAliasedUsagesUtil.filterAliasedRefs(super.findReferences(element, searchScope, searchInCommentsAndStrings), element);
   }
 
+  @NotNull
   @Override
-  public RenameDialog createRenameDialog(Project project, PsiElement element, PsiElement nameSuggestionContext, Editor editor) {
+  public RenameDialog createRenameDialog(@NotNull Project project, @NotNull PsiElement element, PsiElement nameSuggestionContext, Editor editor) {
     return new RenameDialog(project, element, nameSuggestionContext, editor) {
       @Override
       protected boolean areButtonsValid() {
@@ -70,15 +59,15 @@ public class RenameAliasImportedMethodProcessor extends RenameJavaMethodProcesso
   }
 
   @Override
-  public void renameElement(PsiElement psiElement,
-                            String newName,
-                            UsageInfo[] usages,
+  public void renameElement(@NotNull PsiElement psiElement,
+                            @NotNull String newName,
+                            UsageInfo @NotNull [] usages,
                             @Nullable RefactoringElementListener listener) throws IncorrectOperationException {
     boolean isGetter = GroovyPropertyUtils.isSimplePropertyGetter((PsiMethod)psiElement);
     boolean isSetter = GroovyPropertyUtils.isSimplePropertySetter((PsiMethod)psiElement);
 
-    List<UsageInfo> methodAccess = new ArrayList<UsageInfo>(usages.length);
-    List<UsageInfo> propertyAccess = new ArrayList<UsageInfo>(usages.length);
+    List<UsageInfo> methodAccess = new ArrayList<>(usages.length);
+    List<UsageInfo> propertyAccess = new ArrayList<>(usages.length);
 
     for (UsageInfo usage : usages) {
       final PsiElement element = usage.getElement();
@@ -90,7 +79,7 @@ public class RenameAliasImportedMethodProcessor extends RenameJavaMethodProcesso
       }
     }
 
-    super.renameElement(psiElement, newName, methodAccess.toArray(new UsageInfo[methodAccess.size()]), listener);
+    super.renameElement(psiElement, newName, methodAccess.toArray(UsageInfo.EMPTY_ARRAY), listener);
 
     final String propertyName;
     if (isGetter) {
@@ -131,34 +120,31 @@ public class RenameAliasImportedMethodProcessor extends RenameJavaMethodProcesso
       for (UsageInfo usage : propertyAccess) {
         final PsiReference ref = usage.getReference();
         if (ref != null) {
-          ((GrReferenceExpression)ref).handleElementRenameSimple(propertyName);
+          ref.handleElementRename(propertyName);
         }
       }
     }
   }
 
   @Override
-  public void findCollisions(PsiElement element,
-                             final String newName,
-                             final Map<? extends PsiElement, String> allRenames,
-                             final List<UsageInfo> result) {
+  public void findCollisions(@NotNull PsiElement element,
+                             @NotNull final String newName,
+                             @NotNull final Map<? extends PsiElement, String> allRenames,
+                             @NotNull final List<UsageInfo> result) {
     if (element instanceof PsiMethod) {
       final PsiMethod method = (PsiMethod)element;
-      OverridingMethodsSearch.search(method, method.getUseScope(), true).forEach(new Processor<PsiMethod>() {
-        @Override
-        public boolean process(PsiMethod overrider) {
-          PsiElement original = overrider;
-          if (overrider instanceof PsiMirrorElement) {
-            original = ((PsiMirrorElement)overrider).getPrototype();
-          }
-
-          if (original instanceof SyntheticElement) return true;
-
-          if (original instanceof GrField) {
-            result.add(new FieldNameCollisionInfo((GrField)original, method));
-          }
-          return true;
+      OverridingMethodsSearch.search(method).forEach(overrider -> {
+        PsiElement original = overrider;
+        if (overrider instanceof PsiMirrorElement) {
+          original = ((PsiMirrorElement)overrider).getPrototype();
         }
+
+        if (original instanceof SyntheticElement) return true;
+
+        if (original instanceof GrField) {
+          result.add(new FieldNameCollisionInfo((GrField)original, method));
+        }
+        return true;
       });
     }
 
@@ -204,7 +190,7 @@ public class RenameAliasImportedMethodProcessor extends RenameJavaMethodProcesso
     private final String myName;
     private final String myBaseName;
 
-    public FieldNameCollisionInfo(GrField field, PsiMethod baseMethod) {
+    FieldNameCollisionInfo(GrField field, PsiMethod baseMethod) {
       super(field, field);
       myName = field.getName();
       myBaseName = baseMethod.getName();

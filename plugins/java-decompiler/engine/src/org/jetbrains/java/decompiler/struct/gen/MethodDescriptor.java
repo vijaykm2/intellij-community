@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.decompiler.struct.gen;
 
 import org.jetbrains.java.decompiler.code.CodeConstants;
@@ -21,8 +7,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-public class MethodDescriptor {
-
+public final class MethodDescriptor {
   public final VarType[] params;
   public final VarType ret;
 
@@ -41,7 +26,7 @@ public class MethodDescriptor {
 
     if (parenth > 1) {
       String parameters = descriptor.substring(1, parenth);
-      List<String> lst = new ArrayList<String>();
+      List<String> lst = new ArrayList<>();
 
       int indexFrom = -1, ind, len = parameters.length(), index = 0;
       while (index < len) {
@@ -83,8 +68,7 @@ public class MethodDescriptor {
 
     VarType[] newParams;
     if (params.length > 0) {
-      newParams = new VarType[params.length];
-      System.arraycopy(params, 0, newParams, 0, params.length);
+      newParams = params.clone();
       for (int i = 0; i < params.length; i++) {
         VarType substitute = buildNewType(params[i], builder);
         if (substitute != null) {
@@ -129,7 +113,7 @@ public class MethodDescriptor {
   @Override
   public boolean equals(Object o) {
     if (o == this) return true;
-    if (o == null || !(o instanceof MethodDescriptor)) return false;
+    if (!(o instanceof MethodDescriptor)) return false;
 
     MethodDescriptor md = (MethodDescriptor)o;
     return ret.equals(md.ret) && Arrays.equals(params, md.params);

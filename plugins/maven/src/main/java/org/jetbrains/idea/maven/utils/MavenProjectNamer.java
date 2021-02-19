@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.utils;
 
 import com.intellij.openapi.util.Comparing;
@@ -13,18 +14,16 @@ import java.util.*;
 /**
  * @author Sergey Evdokimov
  */
-public class MavenProjectNamer {
-
-  //private static Logger LOG = Logger.getInstance(MavenProjectNamer.class);
+public final class MavenProjectNamer {
 
   public static Map<MavenProject, String> generateNameMap(Collection<MavenProject> mavenProjects) {
-    MultiMap<String, MavenProject> artifactIdMap = new MultiMap<String, MavenProject>();
+    MultiMap<String, MavenProject> artifactIdMap = new MultiMap<>();
 
     for (MavenProject project : mavenProjects) {
       artifactIdMap.putValue(project.getMavenId().getArtifactId(), project);
     }
 
-    Map<MavenProject, String> res = new THashMap<MavenProject, String>();
+    Map<MavenProject, String> res = new THashMap<>();
 
     for (Map.Entry<String, Collection<MavenProject>> entry : artifactIdMap.entrySet()) {
       List<MavenProject> projectList = (List<MavenProject>)entry.getValue();
@@ -63,7 +62,7 @@ public class MavenProjectNamer {
     while (itr.hasNext()) {
       MavenProject mavenProject = itr.next();
 
-      if (!Comparing.equal(groupId, mavenProject.getMavenId().getGroupId())) {
+      if (!Objects.equals(groupId, mavenProject.getMavenId().getGroupId())) {
         return false;
       }
     }
@@ -72,7 +71,7 @@ public class MavenProjectNamer {
   }
 
   private static boolean allGroupsAreDifferent(Collection<MavenProject> mavenProjects) {
-    Set<String> exitingGroups = new THashSet<String>();
+    Set<String> exitingGroups = new THashSet<>();
 
     for (MavenProject mavenProject : mavenProjects) {
       if (!exitingGroups.add(mavenProject.getMavenId().getGroupId())) {
@@ -84,7 +83,7 @@ public class MavenProjectNamer {
   }
 
   private static void doBuildProjectTree(MavenProjectsManager manager, Map<MavenProject, Integer> res, List<MavenProject> rootProjects, int depth) {
-    MavenProject[] rootProjectArray = rootProjects.toArray(new MavenProject[rootProjects.size()]);
+    MavenProject[] rootProjectArray = rootProjects.toArray(new MavenProject[0]);
     Arrays.sort(rootProjectArray, new MavenProjectComparator());
 
     for (MavenProject project : rootProjectArray) {
@@ -97,7 +96,7 @@ public class MavenProjectNamer {
   }
 
   public static Map<MavenProject, Integer> buildProjectTree(MavenProjectsManager manager) {
-    Map<MavenProject, Integer> res = new LinkedHashMap<MavenProject, Integer>();
+    Map<MavenProject, Integer> res = new LinkedHashMap<>();
 
     doBuildProjectTree(manager, res, manager.getRootProjects(), 0);
 

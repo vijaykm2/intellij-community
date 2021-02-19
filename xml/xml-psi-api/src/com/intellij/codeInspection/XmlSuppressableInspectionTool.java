@@ -19,9 +19,9 @@ package com.intellij.codeInspection;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.ThreeState;
+import com.intellij.xml.psi.XmlPsiBundle;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -29,13 +29,11 @@ import org.jetbrains.annotations.Nullable;
 public abstract class XmlSuppressableInspectionTool extends LocalInspectionTool implements BatchSuppressableTool {
   @NonNls static final String ALL = "ALL";
 
-  @NotNull
-  public static SuppressQuickFix[] getSuppressFixes(@NotNull String toolId) {
+  public static SuppressQuickFix @NotNull [] getSuppressFixes(@NotNull String toolId) {
     return getSuppressFixes(toolId, new DefaultXmlSuppressionProvider());
   }
 
-  @NotNull
-  public static SuppressQuickFix[] getSuppressFixes(@NotNull String toolId, @NotNull XmlSuppressionProvider provider) {
+  public static SuppressQuickFix @NotNull [] getSuppressFixes(@NotNull String toolId, @NotNull XmlSuppressionProvider provider) {
     return new SuppressQuickFix[]{new SuppressTagStatic(toolId, provider), new SuppressForFile(toolId, provider),
       new SuppressAllForFile(provider)};
   }
@@ -82,6 +80,11 @@ public abstract class XmlSuppressableInspectionTool extends LocalInspectionTool 
     public void setShouldBeAppliedToInjectionHost(@NotNull ThreeState shouldBeAppliedToInjectionHost) {
       myShouldBeAppliedToInjectionHost = shouldBeAppliedToInjectionHost;
     }
+
+    @Override
+    public boolean isSuppressAll() {
+      return false;
+    }
   }
 
   public static class SuppressTagStatic extends XmlSuppressFix {
@@ -97,7 +100,7 @@ public abstract class XmlSuppressableInspectionTool extends LocalInspectionTool 
     @NotNull
     @Override
     public String getName() {
-      return InspectionsBundle.message("xml.suppressable.for.tag.title");
+      return XmlPsiBundle.message("xml.suppressable.for.tag.title");
     }
 
     @Override
@@ -127,16 +130,13 @@ public abstract class XmlSuppressableInspectionTool extends LocalInspectionTool 
     @NotNull
     @Override
     public String getName() {
-      return InspectionsBundle.message("xml.suppressable.for.file.title");
+      return XmlPsiBundle.message("xml.suppressable.for.file.title");
     }
 
     @Override
     public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
       PsiElement element = descriptor.getPsiElement();
-      PsiElement container = getContainer(element);
-      if (container instanceof XmlFile) {
-        myProvider.suppressForFile(element, myId);
-      }
+      myProvider.suppressForFile(element, myId);
     }
     
     @Nullable
@@ -158,7 +158,7 @@ public abstract class XmlSuppressableInspectionTool extends LocalInspectionTool 
     @NotNull
     @Override
     public String getName() {
-      return InspectionsBundle.message("xml.suppressable.all.for.file.title");
+      return XmlPsiBundle.message("xml.suppressable.all.for.file.title");
     }
   }
 }

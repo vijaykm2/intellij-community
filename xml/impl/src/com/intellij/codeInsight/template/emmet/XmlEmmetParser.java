@@ -1,29 +1,16 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.template.emmet;
 
-import com.google.common.base.Strings;
 import com.intellij.codeInsight.template.CustomTemplateCallback;
 import com.intellij.codeInsight.template.emmet.generators.ZenCodingGenerator;
 import com.intellij.codeInsight.template.emmet.nodes.*;
 import com.intellij.codeInsight.template.emmet.tokens.*;
 import com.intellij.codeInsight.template.impl.TemplateImpl;
-import com.intellij.lang.StdLanguages;
+import com.intellij.lang.html.HTMLLanguage;
 import com.intellij.openapi.util.Couple;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.Strings;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.XmlElementFactory;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -41,12 +28,10 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static com.intellij.openapi.util.text.StringUtil.startsWithIgnoreCase;
-
 public class XmlEmmetParser extends EmmetParser {
   public static final String DEFAULT_ATTRIBUTE_NAME = "%default";
   public static final String BOOLEAN_ATTRIBUTE_VALUE = "%boolean";
-  
+
   private static final String DEFAULT_TAG = "div";
   private static final int DEFAULT_LOREM_LENGTH = 30;
   private static final Pattern LOREM_PATTERN = Pattern.compile("(lorem|lipsum)(\\d*)");
@@ -55,26 +40,26 @@ public class XmlEmmetParser extends EmmetParser {
   @NonNls private static final String LIPSUM_KEYWORD = "lipsum";
 
   private boolean hasTagContext = false;
-  private final Stack<String> tagLevel = new Stack<String>();
+  private final Stack<String> tagLevel = new Stack<>();
 
-  private static final Map<String, String> parentChildTagMapping = new HashMap<String, String>() {{
-    put("p", "span");
-    put("ul", "li");
-    put("ol", "li");
-    put("table", "tr");
-    put("tr", "td");
-    put("tbody", "tr");
-    put("thead", "tr");
-    put("tfoot", "tr");
-    put("colgroup", "col");
-    put("select", "option");
-    put("optgroup", "option");
-    put("audio", "source");
-    put("video", "source");
-    put("object", "param");
-    put("map", "area");
-  }};
-  private boolean isHtml;
+  private static final Map<String, String> parentChildTagMapping = ContainerUtil.newHashMap(
+    Pair.pair("p", "span"),
+    Pair.pair("ul", "li"),
+    Pair.pair("ol", "li"),
+    Pair.pair("table", "tr"),
+    Pair.pair("tr", "td"),
+    Pair.pair("tbody", "tr"),
+    Pair.pair("thead", "tr"),
+    Pair.pair("tfoot", "tr"),
+    Pair.pair("colgroup", "col"),
+    Pair.pair("select", "option"),
+    Pair.pair("optgroup", "option"),
+    Pair.pair("audio", "source"),
+    Pair.pair("video", "source"),
+    Pair.pair("object", "param"),
+    Pair.pair("map", "area"));
+
+  private final boolean isHtml;
 
   public XmlEmmetParser(List<ZenCodingToken> tokens,
                         CustomTemplateCallback callback,
@@ -94,15 +79,15 @@ public class XmlEmmetParser extends EmmetParser {
 
   @Nullable
   private String parseAttributeName() {
-    String name = "";
+    StringBuilder name = new StringBuilder();
     ZenCodingToken token = getToken();
     while (token != null) {
       if ((token instanceof IdentifierToken)) {
-        name += ((IdentifierToken)token).getText();
+        name.append(((IdentifierToken)token).getText());
       }
-      else if (token instanceof OperationToken && 
+      else if (token instanceof OperationToken &&
                (((OperationToken)token).getSign() == '+' || ((OperationToken)token).getSign() == '-')) {
-        name += ((OperationToken)token).getSign();
+        name.append(((OperationToken)token).getSign());
       }
       else {
         break;
@@ -111,11 +96,11 @@ public class XmlEmmetParser extends EmmetParser {
       token = getToken();
     }
 
-    if (name.isEmpty()) {
+    if (name.length() == 0) {
       return null;
     }
 
-    final XmlTag tag = XmlElementFactory.getInstance(myCallback.getProject()).createTagFromText("<tag " + name + "=''/>", StdLanguages.HTML);
+    final XmlTag tag = XmlElementFactory.getInstance(myCallback.getProject()).createTagFromText("<tag " + name + "=''/>", HTMLLanguage.INSTANCE);
     XmlAttribute[] attributes = tag.getAttributes();
     if (attributes.length == 1) {
       return attributes[0].getName();
@@ -124,9 +109,9 @@ public class XmlEmmetParser extends EmmetParser {
       return null;
     }
   }
-  
+
   @NotNull
-  private static String getAttributeValueByToken(@Nullable ZenCodingToken token) {
+  private static String getAttributeValueByToken(@Nullable ZenCodingToken token, boolean allowOperations) {
     if (token == null) {
       return "";
     }
@@ -142,6 +127,9 @@ public class XmlEmmetParser extends EmmetParser {
     }
     else if (token instanceof NumberToken) {
       return Integer.toString(((NumberToken)token).getNumber());
+    }
+    else if (allowOperations && token instanceof OperationToken) {
+      return String.valueOf(((OperationToken)token).getSign());
     }
     else if (token == ZenCodingTokens.DOT || token == ZenCodingTokens.SHARP) {
       return token.toString();
@@ -159,7 +147,7 @@ public class XmlEmmetParser extends EmmetParser {
     if (token instanceof IdentifierToken) {
       templateKey = ((IdentifierToken)token).getText();
       advance();
-      if (startsWithIgnoreCase(templateKey, LOREM_KEYWORD) || startsWithIgnoreCase(templateKey, LIPSUM_KEYWORD)) {
+      if (StringUtil.startsWithIgnoreCase(templateKey, LOREM_KEYWORD) || StringUtil.startsWithIgnoreCase(templateKey, LIPSUM_KEYWORD)) {
         return parseLorem(templateKey);
       }
       mustHaveSelector = false;
@@ -169,17 +157,28 @@ public class XmlEmmetParser extends EmmetParser {
       return null;
     }
 
+    boolean forceSingleTag = false;
     TemplateImpl template = myCallback.findApplicableTemplate(templateKey);
+    if (template == null && StringUtil.endsWithChar(templateKey, '/')) {
+      forceSingleTag = true;
+      templateKey = StringUtil.trimEnd(templateKey, '/');
+    }
     if (template == null && !ZenCodingUtil.isXML11ValidQName(templateKey) && !StringUtil.containsChar(templateKey, '$')) {
       return null;
     }
 
-    final Map<String, String> attributes = parseSelectors();
+    Map<String, String> attributes = parseSelectors();
     if (mustHaveSelector && attributes.isEmpty()) {
       return null;
     }
 
-    final TemplateToken templateToken = new TemplateToken(templateKey, attributes);
+    ZenCodingToken currentToken = getToken();
+    if (currentToken instanceof IdentifierToken && "/".equals(((IdentifierToken)currentToken).getText())) {
+      advance();
+      forceSingleTag = true;
+    }
+
+    TemplateToken templateToken = new TemplateToken(templateKey, attributes, forceSingleTag);
     if (!setTemplate(templateToken, template)) {
       return null;
     }
@@ -196,7 +195,7 @@ public class XmlEmmetParser extends EmmetParser {
   protected ZenCodingNode parseMoreOperation(@Nullable ZenCodingNode leftPart) {
     String parentTag = getParentTag(leftPart);
     boolean hasParent = false;
-    if (!Strings.isNullOrEmpty(parentTag)) {
+    if (!Strings.isEmpty(parentTag)) {
       hasParent = true;
       tagLevel.push(parentTag);
     }
@@ -284,7 +283,7 @@ public class XmlEmmetParser extends EmmetParser {
 
   @NotNull
   private Map<String, String> parseSelectors() {
-    final Map<String, String> result = ContainerUtil.newLinkedHashMap();
+    final Map<String, String> result = new LinkedHashMap<>();
     List<Couple<String>> attrList = parseSelector();
     while (attrList != null) {
       for (Couple<String> attr : attrList) {
@@ -309,7 +308,7 @@ public class XmlEmmetParser extends EmmetParser {
     if (token == ZenCodingTokens.OPENING_SQ_BRACKET) {
       advance();
       final List<Couple<String>> attrList = parseAttributeList();
-      if (attrList == null || getToken() != ZenCodingTokens.CLOSING_SQ_BRACKET) {
+      if (getToken() != ZenCodingTokens.CLOSING_SQ_BRACKET) {
         return null;
       }
       advance();
@@ -320,7 +319,7 @@ public class XmlEmmetParser extends EmmetParser {
       final String name = token == ZenCodingTokens.DOT ? getClassAttributeName() : HtmlUtil.ID_ATTRIBUTE_NAME;
       advance();
       token = getToken();
-      final String value = getAttributeValueByToken(token);
+      final String value = getAttributeValueByToken(token, false);
       if (!value.isEmpty()) {
         advance();
       }
@@ -335,9 +334,9 @@ public class XmlEmmetParser extends EmmetParser {
     return HtmlUtil.CLASS_ATTRIBUTE_NAME;
   }
 
-  @Nullable
+  @NotNull
   private List<Couple<String>> parseAttributeList() {
-    final List<Couple<String>> result = new ArrayList<Couple<String>>();
+    final List<Couple<String>> result = new ArrayList<>();
     while (true) {
       final Couple<String> attribute = parseAttribute();
       if (attribute == null) {
@@ -393,7 +392,7 @@ public class XmlEmmetParser extends EmmetParser {
     String value;
     do {
       token = getToken();
-      value = getAttributeValueByToken(token);
+      value = getAttributeValueByToken(token, true);
       attrValueBuilder.append(value);
       if (!isEndOfAttribute(token)) {
         advance();
@@ -404,7 +403,7 @@ public class XmlEmmetParser extends EmmetParser {
   }
 
   private static boolean isEndOfAttribute(@Nullable ZenCodingToken nextToken) {
-    return nextToken == null || nextToken == ZenCodingTokens.SPACE || nextToken == ZenCodingTokens.CLOSING_SQ_BRACKET 
+    return nextToken == null || nextToken == ZenCodingTokens.SPACE || nextToken == ZenCodingTokens.CLOSING_SQ_BRACKET
            || nextToken == ZenCodingTokens.COMMA;
   }
 }

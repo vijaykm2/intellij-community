@@ -31,11 +31,8 @@ import java.io.File;
 import java.util.List;
 
 public class SinglePathEntry implements AntClasspathEntry {
-  private static final Function<VirtualFile, AntClasspathEntry> CREATE_FROM_VIRTUAL_FILE = new Function<VirtualFile, AntClasspathEntry>() {
-    public AntClasspathEntry fun(VirtualFile singlePathEntry) {
-      return fromVirtualFile(singlePathEntry);
-    }
-  };
+  private static final Function<VirtualFile, AntClasspathEntry> CREATE_FROM_VIRTUAL_FILE =
+    singlePathEntry -> fromVirtualFile(singlePathEntry);
 
   @NonNls static final String PATH = "path";
 
@@ -54,15 +51,18 @@ public class SinglePathEntry implements AntClasspathEntry {
     myFile = new File(PathUtil.toPresentableUrl(value));
   }
 
+  @Override
   public void writeExternal(final Element element) {
     String url = VirtualFileManager.constructUrl(LocalFileSystem.PROTOCOL, myFile.getAbsolutePath().replace(File.separatorChar, '/'));
     element.setAttribute(PATH, url);
   }
 
-  public void addFilesTo(final List<File> files) {
+  @Override
+  public void addFilesTo(final List<? super File> files) {
     files.add(myFile);
   }
 
+  @Override
   public CellAppearanceEx getAppearance() {
     return FileAppearanceService.getInstance().forIoFile(myFile);
   }

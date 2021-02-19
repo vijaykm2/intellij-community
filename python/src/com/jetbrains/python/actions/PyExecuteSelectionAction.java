@@ -1,66 +1,42 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.actions;
 
-import com.google.common.collect.Lists;
-import com.intellij.execution.ExecutionHelper;
-import com.intellij.execution.console.LanguageConsoleView;
-import com.intellij.execution.process.ProcessHandler;
-import com.intellij.execution.ui.RunContentDescriptor;
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
-import com.intellij.openapi.module.Module;
+import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
-import com.intellij.util.Consumer;
-import com.intellij.util.NotNullFunction;
-import com.jetbrains.python.console.PyCodeExecutor;
-import com.jetbrains.python.console.PydevConsoleRunner;
-import com.jetbrains.python.console.PythonConsoleRunnerFactory;
-import com.jetbrains.python.console.PythonConsoleToolWindow;
+import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.psi.PyFile;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collection;
-import java.util.List;
-
-public class PyExecuteSelectionAction extends AnAction {
-
-  public static final String EXECUTE_SELECTION_IN_CONSOLE = "Execute Selection in Console";
+public class PyExecuteSelectionAction extends DumbAwareAction {
 
   public PyExecuteSelectionAction() {
-    super(EXECUTE_SELECTION_IN_CONSOLE);
+    super(PyBundle.messagePointer("python.execute.selection.action.execute.selection.in.console"));
   }
 
-  public void actionPerformed(AnActionEvent e) {
-    Editor editor = CommonDataKeys.EDITOR.getData(e.getDataContext());
-    if (editor != null) {
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    Editor editor = e.getData(CommonDataKeys.EDITOR);
+    Project project = e.getData(CommonDataKeys.PROJECT);
+    if (editor != null && project != null) {
       final String selectionText = getSelectionText(editor);
       if (selectionText != null) {
-        execute(e, selectionText);
+        PyExecuteInConsole.executeCodeInConsole(project, selectionText, editor, true, true, false, null);
       }
       else {
         String line = getLineUnderCaret(editor);
         if (line != null) {
-          execute(e, line);
+          PyExecuteInConsole.executeCodeInConsole(project, line.trim(), editor, true, true, false, null);
           moveCaretDown(editor);
         }
       }
@@ -94,17 +70,20 @@ public class PyExecuteSelectionAction extends AnAction {
     }
   }
 
-  private static void execute(final AnActionEvent e, final String selectionText) {
-    final Editor editor = CommonDataKeys.EDITOR.getData(e.getDataContext());
-    Project project = CommonDataKeys.PROJECT.getData(e.getDataContext());
-    Module module = e.getData(LangDataKeys.MODULE);
-
-    findCodeExecutor(e, new Consumer<PyCodeExecutor>() {
-      @Override
-      public void consume(PyCodeExecutor codeExecutor) {
-        executeInConsole(codeExecutor, selectionText, editor);
-      }
-    }, editor, project, module);
+  /**
+   * Finds existing or creates a new console and then executes provided code there.
+   *
+   * @param e
+   * @param selectionText null means that there is no code to execute, only open a console
+   * @deprecated Use unified `PyExecuteInConsole.executeCodeInConsole` instead with appropriate parameters
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public static void showConsoleAndExecuteCode(@NotNull final AnActionEvent e, @Nullable final String selectionText) {
+    final Editor editor = e.getData(CommonDataKeys.EDITOR);
+    Project project = e.getProject();
+    if (project == null) return;
+    PyExecuteInConsole.executeCodeInConsole(project, selectionText, editor, true, true, selectionText == null, null);
   }
 
   private static String getLineUnderCaret(Editor editor) {
@@ -134,31 +113,31 @@ public class PyExecuteSelectionAction extends AnAction {
     }
   }
 
-  public void update(AnActionEvent e) {
-    Editor editor = CommonDataKeys.EDITOR.getData(e.getDataContext());
+  @Override
+  public void update(@NotNull AnActionEvent e) {
+    Editor editor = e.getData(CommonDataKeys.EDITOR);
     Presentation presentation = e.getPresentation();
 
     boolean enabled = false;
-    if (editor != null && isPython(editor)) {
+    if (isPython(editor)) {
       String text = getSelectionText(editor);
       if (text != null) {
-        presentation.setText(EXECUTE_SELECTION_IN_CONSOLE);
+        presentation.setText(PyBundle.message("python.execute.selection.action.execute.selection.in.console"));
       }
       else {
         text = getLineUnderCaret(editor);
         if (text != null) {
-          presentation.setText("Execute Line in Console");
+          presentation.setText(PyBundle.message("python.execute.selection.action.execute.line.in.console"));
         }
       }
 
       enabled = !StringUtil.isEmpty(text);
     }
 
-    presentation.setEnabled(enabled);
-    presentation.setVisible(enabled);
+    presentation.setEnabledAndVisible(enabled);
   }
 
-  private static boolean isPython(Editor editor) {
+  public static boolean isPython(Editor editor) {
     if (editor == null) {
       return false;
     }
@@ -171,109 +150,5 @@ public class PyExecuteSelectionAction extends AnAction {
 
     PsiFile psi = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
     return psi instanceof PyFile;
-  }
-
-  private static void selectConsole(@NotNull DataContext dataContext, @NotNull Project project,
-                                    final Consumer<PyCodeExecutor> consumer) {
-    Collection<RunContentDescriptor> consoles = getConsoles(project);
-
-    ExecutionHelper
-      .selectContentDescriptor(dataContext, project, consoles, "Select console to execute in", new Consumer<RunContentDescriptor>() {
-        @Override
-        public void consume(RunContentDescriptor descriptor) {
-          if (descriptor != null && descriptor.getExecutionConsole() instanceof PyCodeExecutor) {
-            consumer.consume((PyCodeExecutor)descriptor.getExecutionConsole());
-          }
-        }
-      });
-  }
-
-  private static Collection<RunContentDescriptor> getConsoles(Project project) {
-    PythonConsoleToolWindow toolWindow = PythonConsoleToolWindow.getInstance(project);
-
-    if (toolWindow != null && toolWindow.getToolWindow().isVisible()) {
-      RunContentDescriptor selectedContentDescriptor = toolWindow.getSelectedContentDescriptor();
-      return selectedContentDescriptor != null ? Lists.newArrayList(selectedContentDescriptor) : Lists.<RunContentDescriptor>newArrayList();
-    }
-
-    Collection<RunContentDescriptor> descriptors =
-      ExecutionHelper.findRunningConsole(project, new NotNullFunction<RunContentDescriptor, Boolean>() {
-        @NotNull
-        @Override
-        public Boolean fun(RunContentDescriptor dom) {
-          return dom.getExecutionConsole() instanceof PyCodeExecutor && isAlive(dom);
-        }
-      });
-
-    if (descriptors.isEmpty() && toolWindow != null) {
-      return toolWindow.getConsoleContentDescriptors();
-    }
-    else {
-      return descriptors;
-    }
-  }
-
-  private static boolean isAlive(RunContentDescriptor dom) {
-    ProcessHandler processHandler = dom.getProcessHandler();
-    return processHandler != null && !processHandler.isProcessTerminated();
-  }
-
-  private static void findCodeExecutor(AnActionEvent e, Consumer<PyCodeExecutor> consumer, Editor editor, Project project, Module module) {
-    if (project != null && editor != null) {
-      if (canFindConsole(e)) {
-        selectConsole(e.getDataContext(), project, consumer);
-      }
-      else {
-        startConsole(project, consumer, module);
-      }
-    }
-  }
-
-  private static void startConsole(final Project project,
-                                   final Consumer<PyCodeExecutor> consumer,
-                                   Module context) {
-    final PythonConsoleToolWindow toolWindow = PythonConsoleToolWindow.getInstance(project);
-
-    if (toolWindow != null) {
-      toolWindow.activate(new Runnable() {
-        @Override
-        public void run() {
-          List<RunContentDescriptor> descs = toolWindow.getConsoleContentDescriptors();
-
-          RunContentDescriptor descriptor = descs.get(0);
-          if (descriptor != null && descriptor.getExecutionConsole() instanceof PyCodeExecutor) {
-            consumer.consume((PyCodeExecutor)descriptor.getExecutionConsole());
-          }
-        }
-      });
-    }
-    else {
-      PythonConsoleRunnerFactory consoleRunnerFactory = PythonConsoleRunnerFactory.getInstance();
-      PydevConsoleRunner runner = consoleRunnerFactory.createConsoleRunner(project, null);
-      runner.addConsoleListener(new PydevConsoleRunner.ConsoleListener() {
-        @Override
-        public void handleConsoleInitialized(LanguageConsoleView consoleView) {
-          if (consoleView instanceof PyCodeExecutor) {
-            consumer.consume((PyCodeExecutor)consoleView);
-          }
-        }
-      });
-      runner.run();
-    }
-  }
-
-  private static boolean canFindConsole(AnActionEvent e) {
-    Project project = CommonDataKeys.PROJECT.getData(e.getDataContext());
-    if (project != null) {
-      Collection<RunContentDescriptor> descriptors = getConsoles(project);
-      return descriptors.size() > 0;
-    }
-    else {
-      return false;
-    }
-  }
-
-  private static void executeInConsole(@NotNull PyCodeExecutor codeExecutor, @NotNull String text, Editor editor) {
-    codeExecutor.executeCode(text, editor);
   }
 }

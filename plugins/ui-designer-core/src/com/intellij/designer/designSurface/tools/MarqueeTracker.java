@@ -15,6 +15,7 @@
  */
 package com.intellij.designer.designSurface.tools;
 
+import com.intellij.designer.DesignerBundle;
 import com.intellij.designer.designSurface.EditableArea;
 import com.intellij.designer.designSurface.FeedbackLayer;
 import com.intellij.designer.designSurface.feedbacks.AlphaFeedback;
@@ -151,7 +152,7 @@ public class MarqueeTracker extends InputTool {
     myFeedback.setBounds(getSelectionRectangle());
     if (ApplicationManager.getApplication().isInternal()) {
       Dimension size = myFeedback.getSize();
-      myArea.setDescription("Size [" + size.width + " : " + size.height + "]");
+      myArea.setDescription(DesignerBundle.message("marquee.tracker.size.0.1", size.width, size.height));
     }
     layer.repaint();
   }
@@ -179,7 +180,7 @@ public class MarqueeTracker extends InputTool {
 
   private void performMarqueeSelect() {
     final Rectangle selectionRectangle = getSelectionRectangle();
-    final List<RadComponent> newSelection = new ArrayList<RadComponent>();
+    final List<RadComponent> newSelection = new ArrayList<>();
     RadComponent rootComponent = myArea.getRootComponent();
 
     if (rootComponent != null) {
@@ -208,7 +209,7 @@ public class MarqueeTracker extends InputTool {
     }
 
     if (mySelectionMode == TOGGLE_MODE) {
-      List<RadComponent> selection = new ArrayList<RadComponent>(myArea.getSelection());
+      List<RadComponent> selection = new ArrayList<>(myArea.getSelection());
 
       for (RadComponent component : newSelection) {
         int index = selection.indexOf(component);

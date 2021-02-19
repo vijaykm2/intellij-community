@@ -15,14 +15,79 @@
  */
 package com.siyeh.ig.naming;
 
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.psi.PsiClass;
+import com.siyeh.InspectionGadgetsBundle;
+import com.siyeh.ig.BaseInspection;
+import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.fixes.RenameFix;
+import com.siyeh.ig.psiutils.ClassUtils;
+import org.jetbrains.annotations.NotNull;
+
+import java.util.StringTokenizer;
 
 public class ClassNamePrefixedWithPackageNameInspection
-  extends ClassNamePrefixedWithPackageNameInspectionBase {
+  extends BaseInspection {
 
   @Override
   protected InspectionGadgetsFix buildFix(Object... infos) {
     return new RenameFix();
+  }
+
+  @Override
+  @NotNull
+  protected String buildErrorString(Object... infos) {
+    return InspectionGadgetsBundle.message(
+      "class.name.prefixed.with.package.name.problem.descriptor");
+  }
+
+  @Override
+  protected boolean buildQuickFixesOnlyForOnTheFlyErrors() {
+    return true;
+  }
+
+  @Override
+  public BaseInspectionVisitor buildVisitor() {
+    return new ClassNameBePrefixedWithPackageNameVisitor();
+  }
+
+  private static class ClassNameBePrefixedWithPackageNameVisitor
+    extends BaseInspectionVisitor {
+
+    @Override
+    public void visitClass(@NotNull PsiClass aClass) {
+      // no call to super, so it doesn't drill down into inner classes
+      final String className = aClass.getName();
+      if (className == null) {
+        return;
+      }
+      final PsiClass outerClass =
+        ClassUtils.getOutermostContainingClass(aClass);
+      final String qualifiedName = outerClass.getQualifiedName();
+      if (qualifiedName == null) {
+        return;
+      }
+      if (className.equals(qualifiedName)) {
+        return;
+      }
+      final StringTokenizer tokenizer =
+        new StringTokenizer(qualifiedName, ".");
+      String currentPackageName = null;
+      String lastPackageName = null;
+      while (tokenizer.hasMoreTokens()) {
+        lastPackageName = currentPackageName;
+        currentPackageName = tokenizer.nextToken();
+      }
+      if (lastPackageName == null) {
+        return;
+      }
+      final String lowercaseClassName = StringUtil.toLowerCase(className);
+      final String lowercasePackageName = StringUtil.toLowerCase(lastPackageName);
+      if (!lowercaseClassName.startsWith(lowercasePackageName)) {
+        return;
+      }
+      registerClassError(aClass);
+    }
   }
 }

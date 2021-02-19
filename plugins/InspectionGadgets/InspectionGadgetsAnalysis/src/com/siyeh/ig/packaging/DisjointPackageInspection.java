@@ -23,11 +23,10 @@ import com.intellij.codeInspection.reference.RefClass;
 import com.intellij.codeInspection.reference.RefEntity;
 import com.intellij.codeInspection.reference.RefJavaUtil;
 import com.intellij.codeInspection.reference.RefPackage;
-import com.intellij.psi.PsiClass;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseGlobalInspection;
 import com.siyeh.ig.dependency.DependencyUtils;
-import com.siyeh.ig.psiutils.ClassUtils;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -38,15 +37,8 @@ import java.util.Set;
 
 public class DisjointPackageInspection extends BaseGlobalInspection {
 
-  @NotNull
   @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("disjoint.package.display.name");
-  }
-
-  @Override
-  @Nullable
-  public CommonProblemDescriptor[] checkElement(
+  public CommonProblemDescriptor @Nullable [] checkElement(
     @NotNull RefEntity refEntity, @NotNull AnalysisScope analysisScope,
     @NotNull InspectionManager inspectionManager,
     @NotNull GlobalInspectionContext globalInspectionContext) {
@@ -54,21 +46,7 @@ public class DisjointPackageInspection extends BaseGlobalInspection {
       return null;
     }
     final RefPackage refPackage = (RefPackage)refEntity;
-    final List<RefEntity> children = refPackage.getChildren();
-    if (children == null) {
-      return null;
-    }
-    final Set<RefClass> childClasses = new HashSet<RefClass>();
-    for (RefEntity child : children) {
-      if (!(child instanceof RefClass)) {
-        continue;
-      }
-      final PsiClass psiClass = ((RefClass)child).getElement();
-      if (ClassUtils.isInnerClass(psiClass)) {
-        continue;
-      }
-      childClasses.add((RefClass)child);
-    }
+    final Set<RefClass> childClasses = StreamEx.of(refPackage.getChildren()).select(RefClass.class).toSet();
     if (childClasses.isEmpty()) {
       return null;
     }
@@ -88,14 +66,14 @@ public class DisjointPackageInspection extends BaseGlobalInspection {
 
   private static Set<Set<RefClass>> createComponents(
     RefPackage aPackage, Set<RefClass> classes) {
-    final Set<RefClass> allClasses = new HashSet<RefClass>(classes);
-    final Set<Set<RefClass>> out = new HashSet<Set<RefClass>>();
+    final Set<RefClass> allClasses = new HashSet<>(classes);
+    final Set<Set<RefClass>> out = new HashSet<>();
     while (!allClasses.isEmpty()) {
       final RefClass seed = allClasses.iterator().next();
       allClasses.remove(seed);
-      final Set<RefClass> currentComponent = new HashSet<RefClass>();
+      final Set<RefClass> currentComponent = new HashSet<>();
       currentComponent.add(seed);
-      final List<RefClass> pendingClasses = new ArrayList<RefClass>();
+      final List<RefClass> pendingClasses = new ArrayList<>();
       pendingClasses.add(seed);
       while (!pendingClasses.isEmpty()) {
         final RefClass classToProcess = pendingClasses.remove(0);
@@ -117,7 +95,7 @@ public class DisjointPackageInspection extends BaseGlobalInspection {
 
   private static Set<RefClass> getRelatedClasses(RefPackage aPackage,
                                                  RefClass classToProcess) {
-    final Set<RefClass> out = new HashSet<RefClass>();
+    final Set<RefClass> out = new HashSet<>();
     final Set<RefClass> dependencies =
       DependencyUtils.calculateDependenciesForClass(classToProcess);
     for (RefClass dependency : dependencies) {

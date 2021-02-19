@@ -1,24 +1,9 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.util;
 
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.stubs.StubInputStream;
 import com.intellij.psi.stubs.StubOutputStream;
-import com.intellij.util.io.StringRef;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -31,14 +16,17 @@ import java.util.List;
 /**
  * @author yole
  */
-public class QualifiedName {
+public final class QualifiedName implements Comparable<QualifiedName> {
   @NotNull private final List<String> myComponents;
 
   private QualifiedName(int count) {
-    myComponents = new ArrayList<String>(count);
+    myComponents = new ArrayList<>(count);
   }
 
   public static QualifiedName fromComponents(Collection<String> components) {
+    for (String component : components) {
+      assertNoDots(component);
+    }
     QualifiedName qName = new QualifiedName(components.size());
     qName.myComponents.addAll(components);
     return qName;
@@ -46,6 +34,9 @@ public class QualifiedName {
 
   @NotNull
   public static QualifiedName fromComponents(String... components) {
+    for (String component : components) {
+      assertNoDots(component);
+    }
     QualifiedName result = new QualifiedName(components.length);
     Collections.addAll(result.myComponents, components);
     return result;
@@ -94,7 +85,7 @@ public class QualifiedName {
 
   @NotNull
   public List<String> getComponents() {
-    return myComponents;
+    return Collections.unmodifiableList(myComponents);
   }
 
   public int getComponentCount() {
@@ -113,7 +104,7 @@ public class QualifiedName {
     return true;
   }
 
-  public boolean matchesPrefix(QualifiedName prefix) {
+  public boolean matchesPrefix(@NotNull QualifiedName prefix) {
     if (getComponentCount() < prefix.getComponentCount()) {
       return false;
     }
@@ -152,8 +143,7 @@ public class QualifiedName {
     else {
       qName = new QualifiedName(size);
       for (int i = 0; i < size; i++) {
-        final StringRef name = dataStream.readName();
-        qName.myComponents.add(name == null ? null : name.getString());
+        qName.myComponents.add(dataStream.readNameString());
       }
     }
     return qName;
@@ -204,5 +194,16 @@ public class QualifiedName {
 
   public QualifiedName subQualifiedName(int fromIndex, int toIndex) {
     return fromComponents(myComponents.subList(fromIndex, toIndex));
+  }
+
+  @Override
+  public int compareTo(@NotNull QualifiedName other) {
+    return toString().compareTo(other.toString());
+  }
+
+  private static void assertNoDots(@NotNull String component) {
+    if (component.contains(".")) {
+      throw new IllegalArgumentException("Components of QualifiedName cannot contain dots inside them, but got: " + component);
+    }
   }
 }

@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.radComponents;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.uiDesigner.*;
 import com.intellij.uiDesigner.core.GridConstraints;
@@ -33,8 +19,6 @@ import com.intellij.uiDesigner.propertyInspector.properties.IntroIconProperty;
 import com.intellij.uiDesigner.propertyInspector.renderers.IconRenderer;
 import com.intellij.uiDesigner.propertyInspector.renderers.LabelPropertyRenderer;
 import com.intellij.uiDesigner.propertyInspector.renderers.StringRenderer;
-import com.intellij.uiDesigner.snapShooter.SnapshotContext;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -43,6 +27,8 @@ import javax.swing.*;
 import javax.swing.plaf.TabbedPaneUI;
 import java.awt.*;
 import java.awt.event.MouseEvent;
+import java.util.HashMap;
+import java.util.Objects;
 
 /**
  * @author Anton Katilin
@@ -52,16 +38,18 @@ import java.awt.event.MouseEvent;
 public final class RadTabbedPane extends RadContainer implements ITabbedPane {
 
   public static class Factory extends RadComponentFactory {
+    @Override
     public RadComponent newInstance(ModuleProvider module, Class aClass, String id) {
       return new RadTabbedPane(module, aClass, id);
     }
 
+    @Override
     public RadComponent newInstance(final Class componentClass, final String id, final Palette palette) {
       return new RadTabbedPane(componentClass, id, palette);
     }
   }
 
-  private static final Logger LOG = Logger.getInstance("#com.intellij.uiDesigner.radComponents.RadTabbedPane");
+  private static final Logger LOG = Logger.getInstance(RadTabbedPane.class);
   /**
    * value: HashMap<String, LwTabbedPane.Constraints>
    */
@@ -137,6 +125,7 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
   /**
    * @return inplace property for editing of the title of the clicked tab
    */
+  @Override
   public Property getInplaceProperty(final int x, final int y) {
     final JTabbedPane tabbedPane = getTabbedPane();
     final TabbedPaneUI ui = tabbedPane.getUI();
@@ -154,6 +143,7 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
     return null;
   }
 
+  @Override
   public Rectangle getInplaceEditorBounds(final Property property, final int x, final int y) {
     final JTabbedPane tabbedPane = getTabbedPane();
     final TabbedPaneUI ui = tabbedPane.getUI();
@@ -200,10 +190,12 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
   /**
    * This allows user to select and scroll tabs via the mouse
    */
+  @Override
   public void processMouseEvent(final MouseEvent event){
     event.getComponent().dispatchEvent(event);
   }
 
+  @Override
   public void write(final XmlWriter writer) {
     writer.startElement(UIFormXmlConstants.ELEMENT_TABBEDPANE);
     try{
@@ -227,7 +219,7 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
     //noinspection unchecked
     HashMap<String, LwTabbedPane.Constraints> id2Constraints = (HashMap<String, LwTabbedPane.Constraints>)component.getClientProperty(CLIENT_PROP_ID_2_CONSTRAINTS);
     if(id2Constraints == null){
-      id2Constraints = new HashMap<String,LwTabbedPane.Constraints>();
+      id2Constraints = new HashMap<>();
       component.putClientProperty(CLIENT_PROP_ID_2_CONSTRAINTS, id2Constraints);
     }
     return id2Constraints;
@@ -247,6 +239,7 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
     }
   }
 
+  @Override
   public StringDescriptor getTabProperty(IComponent component, final String propName) {
     final HashMap<String, LwTabbedPane.Constraints> id2Constraints = getId2Constraints(this);
     final LwTabbedPane.Constraints constraints = id2Constraints.get(component.getId());
@@ -264,7 +257,7 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
     catch (Exception e) {
       LOG.error(e);
     }
-    return !Comparing.equal(oldTitle, childTitle.getResolvedValue());
+    return !Objects.equals(oldTitle, childTitle.getResolvedValue());
   }
 
   @Override public void loadLwProperty(final LwComponent lwComponent, final LwIntrospectedProperty lwProperty, final IntrospectedProperty property) {
@@ -284,22 +277,6 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
     }
   }
 
-  @Override
-  protected void importSnapshotComponent(final SnapshotContext context, final JComponent component) {
-    JTabbedPane tabbedPane = (JTabbedPane) component;
-    for(int i=0; i<tabbedPane.getTabCount(); i++) {
-      String title = tabbedPane.getTitleAt(i);
-      Component child = tabbedPane.getComponentAt(i);
-      if (child instanceof JComponent) {
-        RadComponent childComponent = createSnapshotComponent(context, (JComponent) child);
-        if (childComponent != null) {
-          childComponent.setCustomLayoutConstraints(new LwTabbedPane.Constraints(StringDescriptor.create(title)));
-          addComponent(childComponent);
-        }
-      }
-    }
-  }
-
   @NotNull
   private LwTabbedPane.Constraints getConstraintsForComponent(final RadComponent tabComponent) {
     final HashMap<String, LwTabbedPane.Constraints> id2Constraints = getId2Constraints(this);
@@ -316,19 +293,20 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
     private final int myIndex;
     private final LabelPropertyRenderer myRenderer = new LabelPropertyRenderer("");
 
-    public MyTabGroupProperty(final int index) {
+    MyTabGroupProperty(final int index) {
       super(null, "Tab");
       myIndex = index;
     }
 
+    @Override
     @NotNull
     public PropertyRenderer getRenderer() {
       return myRenderer;
     }
 
 
-    @NotNull @Override
-    public Property[] getChildren(final RadComponent component) {
+    @Override
+    public Property @NotNull [] getChildren(final RadComponent component) {
       return new Property[] {
         new MyTitleProperty(this, myIndex),
         new MyToolTipProperty(this, myIndex),
@@ -344,7 +322,7 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
     private final StringEditor myEditor = new StringEditor(getProject());
     private final StringRenderer myRenderer = new StringRenderer();
 
-    public MyTitleProperty(final Property parent, final int index) {
+    MyTitleProperty(final Property parent, final int index) {
       super(parent, TAB_TITLE_PROPERTY);
       myIndex = index;
     }
@@ -354,6 +332,7 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
       myIndex = index;
     }
 
+    @Override
     public StringDescriptor getValue(final RadComponent component) {
       final RadComponent tabComponent = getRadComponent(myIndex);
       // 1. resource bundle
@@ -367,6 +346,7 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
       return StringDescriptor.create(getValueFromTabbedPane());
     }
 
+    @Override
     protected void setValueImpl(final RadComponent component, StringDescriptor value) throws Exception {
       final RadComponent tabComponent = getRadComponent(myIndex);
       // 1. Put value into map
@@ -390,7 +370,7 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
       return constraints.myTitle;
     }
 
-    protected void putValueToTabbedPane(final String text) {
+    protected void putValueToTabbedPane(final @NlsSafe String text) {
       getTabbedPane().setTitleAt(myIndex, text);
     }
 
@@ -398,11 +378,13 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
       constraints.myTitle = value;
     }
 
+    @Override
     @NotNull
     public PropertyRenderer<StringDescriptor> getRenderer() {
       return myRenderer;
     }
 
+    @Override
     public PropertyEditor<StringDescriptor> getEditor() {
       return myEditor;
     }
@@ -429,7 +411,7 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
       return constraints.myToolTip;
     }
 
-    @Override protected void putValueToTabbedPane(final String text) {
+    @Override protected void putValueToTabbedPane(final @NlsSafe String text) {
       getTabbedPane().setToolTipTextAt(myIndex, text);
     }
 
@@ -453,17 +435,19 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
     private final IconRenderer myRenderer = new IconRenderer();
     private final IconEditor myEditor = new IconEditor();
 
-    public MyIconProperty(final Property parent, final int index, final boolean disabledIcon) {
+    MyIconProperty(final Property parent, final int index, final boolean disabledIcon) {
       super(parent, disabledIcon ? "Tab Disabled Icon" : "Tab Icon");
       myIndex = index;
       myDisabledIcon = disabledIcon;
     }
 
+    @Override
     public IconDescriptor getValue(final RadComponent component) {
       LwTabbedPane.Constraints constraints = getConstraintsForComponent(component);
       return myDisabledIcon ? constraints.myDisabledIcon : constraints.myIcon;
     }
 
+    @Override
     protected void setValueImpl(final RadComponent component, final IconDescriptor value) throws Exception {
       Icon icon = (value != null) ? value.getIcon() : null;
       LwTabbedPane.Constraints constraints = getConstraintsForComponent(component);
@@ -478,11 +462,13 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
       }
     }
 
+    @Override
     @NotNull
     public PropertyRenderer<IconDescriptor> getRenderer() {
       return myRenderer;
     }
 
+    @Override
     public PropertyEditor<IconDescriptor> getEditor() {
       return myEditor;
     }
@@ -499,16 +485,18 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
   private class MyEnabledProperty extends AbstractBooleanProperty<RadComponent> {
     private final int myIndex;
 
-    public MyEnabledProperty(final Property parent, final int index) {
+    MyEnabledProperty(final Property parent, final int index) {
       super(parent, "Tab Enabled", true);
       myIndex = index;
     }
 
+    @Override
     public Boolean getValue(final RadComponent component) {
       LwTabbedPane.Constraints constraints = getConstraintsForComponent(component);
       return constraints.myEnabled;
     }
 
+    @Override
     protected void setValueImpl(final RadComponent component, final Boolean value) throws Exception {
       LwTabbedPane.Constraints constraints = getConstraintsForComponent(component);
       constraints.myEnabled = value.booleanValue();
@@ -518,6 +506,7 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
 
   private class RadTabbedPaneLayoutManager extends RadLayoutManager {
 
+    @Override
     @Nullable public String getName() {
       return null;
     }
@@ -537,6 +526,7 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
       return new InsertTabDropLocation(tabbedPane.getTabCount(), null);
     }
 
+    @Override
     public void writeChildConstraints(final XmlWriter writer, final RadComponent child) {
       writer.startElement(UIFormXmlConstants.ELEMENT_TABBEDPANE);
       try{
@@ -583,6 +573,7 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
       }
     }
 
+    @Override
     public void addComponentToContainer(final RadContainer container, final RadComponent component, final int index) {
       final JTabbedPane tabbedPane = getTabbedPane();
       LwTabbedPane.Constraints constraints = null;
@@ -592,8 +583,8 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
       component.setCustomLayoutConstraints(null);
       final HashMap<String, LwTabbedPane.Constraints> id2Constraints = getId2Constraints(RadTabbedPane.this);
       id2Constraints.put(component.getId(), constraints);
-      final String tabName = calcTabName(constraints == null ? null : constraints.myTitle);
-      String toolTip = null;
+      final @NlsSafe String tabName = calcTabName(constraints == null ? null : constraints.myTitle);
+      @NlsSafe String toolTip = null;
       Icon icon = null;
       if (constraints != null) {
         toolTip = getDescriptorText(constraints.myToolTip);
@@ -667,7 +658,7 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
     private String myInsertBeforeId;
     private final Rectangle myFeedbackRect;
 
-    public InsertTabDropLocation(final int insertIndex, final Rectangle feedbackRect) {
+    InsertTabDropLocation(final int insertIndex, final Rectangle feedbackRect) {
       myInsertIndex = insertIndex;
       if (myInsertIndex < getTabbedPane().getTabCount()) {
         myInsertBeforeId = getRadComponent(myInsertIndex).getId();
@@ -675,14 +666,17 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
       myFeedbackRect = feedbackRect;
     }
 
+    @Override
     public RadContainer getContainer() {
       return RadTabbedPane.this;
     }
 
+    @Override
     public boolean canDrop(ComponentDragObject dragObject) {
       return dragObject.getComponentCount() == 1;
     }
 
+    @Override
     public void placeFeedback(FeedbackLayer feedbackLayer, ComponentDragObject dragObject) {
       final String tooltipText = UIDesignerBundle.message("insert.feedback.add.tab", getDisplayName(), myInsertIndex);
       if (myInsertIndex < getTabbedPane().getTabCount()) {
@@ -704,6 +698,7 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
       }
     }
 
+    @Override
     public void processDrop(GuiEditor editor,
                             RadComponent[] components,
                             GridConstraints[] constraintsToAdjust,
@@ -733,6 +728,7 @@ public final class RadTabbedPane extends RadContainer implements ITabbedPane {
       getTabbedPane().setSelectedIndex(myInsertIndex);
     }
 
+    @Override
     @Nullable
     public ComponentDropLocation getAdjacentLocation(Direction direction) {
       return null;

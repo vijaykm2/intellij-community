@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2014 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,13 +33,6 @@ public class StringBufferMustHaveInitialCapacityInspection
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "string.buffer.must.have.initial.capacity.display.name");
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message(
       "string.buffer.must.have.initial.capacity.problem.descriptor");
@@ -65,11 +58,7 @@ public class StringBufferMustHaveInitialCapacityInspection
         return;
       }
       final PsiExpressionList argumentList = expression.getArgumentList();
-      if (argumentList == null) {
-        return;
-      }
-      final PsiExpression[] args = argumentList.getExpressions();
-      if (args.length != 0) {
+      if (argumentList == null || !argumentList.isEmpty()) {
         return;
       }
       registerNewExpressionError(expression);

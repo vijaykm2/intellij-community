@@ -1,341 +1,165 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.actionSystem.impl;
 
-import com.intellij.ide.DataManager;
+import com.intellij.CommonBundle;
+import com.intellij.ide.impl.DataManagerImpl;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.actionSystem.ex.ActionUtil;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.progress.ProcessCanceledException;
-import com.intellij.openapi.project.DumbService;
-import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.ActionCallback;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.wm.IdeFocusManager;
+import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
-import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.concurrency.CancellablePromise;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author Anton Katilin
- * @author Vladimir Kondratyev
- */
-public class Utils{
-  private static final Logger LOG=Logger.getInstance("#com.intellij.openapi.actionSystem.impl.Utils");
-  @NonNls public static final String NOTHING_HERE = "Nothing here";
-  public static final AnAction EMPTY_MENU_FILLER = new AnAction(NOTHING_HERE) {
+public final class Utils {
+  private static final Logger LOG = Logger.getInstance(Utils.class);
+  @Nls public static final String NOTHING_HERE = CommonBundle.message("empty.menu.filler");
+  public static final AnAction EMPTY_MENU_FILLER = new AnAction(CommonBundle.messagePointer("empty.menu.filler")) {
 
     {
       getTemplatePresentation().setEnabled(false);
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
     }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setEnabled(false);
-      super.update(e);
     }
   };
 
-  private Utils() {}
+  @NotNull
+  public static DataContext wrapDataContext(@NotNull DataContext dataContext) {
+    if (dataContext instanceof DataManagerImpl.MyDataContext &&
+        Registry.is("actionSystem.update.actions.async")) {
+      return new PreCachedDataContext(dataContext);
+    }
+    return dataContext;
+  }
 
-  private static void handleUpdateException(AnAction action, Presentation presentation, Throwable exc) {
-    String id = ActionManager.getInstance().getId(action);
-    if (id != null) {
-      LOG.error("update failed for AnAction with ID=" + id, exc);
-    }
-    else {
-      LOG.error("update failed for ActionGroup: " + action + "[" + presentation.getText() + "]", exc);
-    }
+  public static boolean isAsyncDataContext(@NotNull DataContext dataContext) {
+    return dataContext instanceof PreCachedDataContext;
   }
 
   /**
-   * @param list this list contains expanded actions.
-   * @param actionManager manager
+   * @return actions from the given and nested non-popup groups that are visible after updating
    */
-  public static void expandActionGroup(@NotNull ActionGroup group,
-                                       List<AnAction> list,
-                                       PresentationFactory presentationFactory,
-                                       @NotNull DataContext context,
-                                       String place,
-                                       ActionManager actionManager){
-    expandActionGroup(group, list, presentationFactory, context, place, actionManager, false, group instanceof CompactActionGroup);
+  public static List<AnAction> expandActionGroup(boolean isInModalContext,
+                                                 @NotNull ActionGroup group,
+                                                 @NotNull PresentationFactory presentationFactory,
+                                                 @NotNull DataContext context,
+                                                 @NotNull String place){
+    return expandActionGroup(isInModalContext, group, presentationFactory, context, place, null, false);
   }
 
-  public static void expandActionGroup(@NotNull ActionGroup group,
-                                       List<AnAction> list,
-                                       PresentationFactory presentationFactory,
-                                       DataContext context,
-                                       @NotNull String place,
-                                       ActionManager actionManager,
-                                       boolean transparentOnly) {
-    expandActionGroup(group, list, presentationFactory, context, place, actionManager, transparentOnly, false);
+  public static List<AnAction> expandActionGroup(boolean isInModalContext,
+                                                 @NotNull ActionGroup group,
+                                                 @NotNull PresentationFactory presentationFactory,
+                                                 @NotNull DataContext context,
+                                                 @NotNull String place,
+                                                 @Nullable ActionGroupVisitor visitor,
+                                                 boolean isContextMenuAction) {
+    return new ActionUpdater(isInModalContext, presentationFactory, context, place, isContextMenuAction, false, visitor)
+      .expandActionGroup(group, group instanceof CompactActionGroup);
   }
 
-  /**
-   * @param list this list contains expanded actions.
-   * @param actionManager manager
-   */
-  public static void expandActionGroup(@NotNull ActionGroup group,
-                                       List<AnAction> list,
-                                       PresentationFactory presentationFactory,
-                                       DataContext context,
-                                       @NotNull String place,
-                                       ActionManager actionManager,
-                                       boolean transparentOnly,
-                                       boolean hideDisabled) {
-    Presentation presentation = presentationFactory.getPresentation(group);
-    AnActionEvent e = new AnActionEvent(
-      null,
-      context,
-      place,
-      presentation,
-      actionManager,
-      0
-    );
-    if (!doUpdate(group, e, presentation)) return;
-
-    if (!presentation.isVisible()) { // don't process invisible groups
-      return;
+  public static CancellablePromise<List<AnAction>> expandActionGroupAsync(boolean isInModalContext,
+                                                                          @NotNull ActionGroup group,
+                                                                          @NotNull PresentationFactory presentationFactory,
+                                                                          @NotNull DataContext context,
+                                                                          @NotNull String place,
+                                                                          @Nullable Utils.ActionGroupVisitor visitor) {
+    if (!(context instanceof PreCachedDataContext)) {
+      context = new PreCachedDataContext(context);
     }
-    AnAction[] children = group.getChildren(e);
-    for (int i = 0; i < children.length; i++) {
-      AnAction child = children[i];
-      if (child == null) {
-        String groupId = ActionManager.getInstance().getId(group);
-        LOG.error("action is null: i=" + i + " group=" + group + " group id=" + groupId);
-        continue;
-      }
-
-      presentation = presentationFactory.getPresentation(child);
-      AnActionEvent e1 = new AnActionEvent(null, context, place, presentation, actionManager, 0);
-      e1.setInjectedContext(child.isInInjectedContext());
-
-      if (transparentOnly && child.isTransparentUpdate() || !transparentOnly) {
-        if (!doUpdate(child, e1, presentation)) continue;
-      }
-
-      if (!presentation.isVisible() || (!presentation.isEnabled() && hideDisabled)) { // don't create invisible items in the menu
-        continue;
-      }
-      if (child instanceof ActionGroup) {
-        ActionGroup actionGroup = (ActionGroup)child;
-        boolean skip = hideDisabled && !hasEnabledChildren(actionGroup, presentationFactory, context, place);
-        if (skip) {
-          continue;
-        }
-        if (actionGroup.isPopup()) { // popup menu has its own presentation
-          if (actionGroup.disableIfNoVisibleChildren()) {
-            final boolean visibleChildren = hasVisibleChildren(actionGroup, presentationFactory, context, place);
-            if (actionGroup.hideIfNoVisibleChildren() && !visibleChildren) {
-              continue;
-            }
-            presentation.setEnabled(actionGroup.canBePerformed(context) || visibleChildren);
-          }
-
-
-          list.add(child);
-        }
-        else {
-          expandActionGroup((ActionGroup)child, list, presentationFactory, context, place, actionManager, false, hideDisabled);
-        }
-      }
-      else if (child instanceof Separator) {
-        if (!StringUtil.isEmpty(((Separator)child).getText()) || (!list.isEmpty() && !(list.get(list.size() - 1) instanceof Separator))) {
-          list.add(child);
-        }
-      }
-      else {
-        if (hideDisabled && !hasEnabledChildren(new DefaultActionGroup(child), presentationFactory, context, place)) {
-          continue;
-        }
-        list.add(child);
-      }
-    }
+    return new ActionUpdater(isInModalContext, presentationFactory, context, place, false, false, visitor)
+      .expandActionGroupAsync(group, group instanceof CompactActionGroup);
   }
 
-  // returns false if exception was thrown and handled
-  private static boolean doUpdate(final AnAction action, final AnActionEvent e, final Presentation presentation) throws ProcessCanceledException {
-    if (ApplicationManager.getApplication().isDisposed()) return false;
-
-    long startTime = System.currentTimeMillis();
-    final boolean result;
-    try {
-      result = !ActionUtil.performDumbAwareUpdate(action, e, false);
-    }
-    catch (ProcessCanceledException ex) {
-      throw ex;
-    }
-    catch (Throwable exc) {
-      handleUpdateException(action, presentation, exc);
-      return false;
-    }
-    long endTime = System.currentTimeMillis();
-    if (endTime - startTime > 10 && LOG.isDebugEnabled()) {
-      LOG.debug("Action " + action + ": updated in " + (endTime-startTime) + " ms");
-    }
-    return result;
+  public static List<AnAction> expandActionGroupWithTimeout(boolean isInModalContext,
+                                                 @NotNull ActionGroup group,
+                                                 PresentationFactory presentationFactory,
+                                                 @NotNull DataContext context,
+                                                 String place, ActionGroupVisitor visitor,
+                                                 int timeoutMs) {
+    return new ActionUpdater(isInModalContext, presentationFactory, context, place, false, false, visitor)
+      .expandActionGroupWithTimeout(group, group instanceof CompactActionGroup, timeoutMs);
   }
 
-  private static boolean hasVisibleChildren(ActionGroup group, PresentationFactory factory, DataContext context, String place) {
-    return hasChildrenWithState(group, factory, context, place, true, false);
-  }
+  private static final boolean DO_FULL_EXPAND = Boolean.getBoolean("actionSystem.use.full.group.expand"); // for tests and debug
 
-  private static boolean hasEnabledChildren(ActionGroup group, PresentationFactory factory, DataContext context, String place) {
-    return hasChildrenWithState(group, factory, context, place, false, true);
-  }
-
-  private static boolean hasChildrenWithState(ActionGroup group,
-                                              PresentationFactory factory,
-                                              DataContext context,
-                                              String place,
-                                              boolean checkVisible,
-                                              boolean checkEnabled) {
-    //noinspection InstanceofIncompatibleInterface
-    if (group instanceof AlwaysVisibleActionGroup) {
-      return true;
-    }
-
-    AnActionEvent event = new AnActionEvent(null, context, place, factory.getPresentation(group), ActionManager.getInstance(), 0);
-    event.setInjectedContext(group.isInInjectedContext());
-    for (AnAction anAction : group.getChildren(event)) {
-      if (anAction == null) {
-        LOG.error("Null action found in group " + group + ", " + factory.getPresentation(group));
-        continue;
-      }
-      if (anAction instanceof Separator) {
-        continue;
-      }
-      final Project project = CommonDataKeys.PROJECT.getData(context);
-      if (project != null && DumbService.getInstance(project).isDumb() && !anAction.isDumbAware()) {
-        continue;
-      }
-
-      final Presentation presentation = factory.getPresentation(anAction);
-      updateGroupChild(context, place, anAction, presentation);
-      if (anAction instanceof ActionGroup) {
-        ActionGroup childGroup = (ActionGroup)anAction;
-
-        // popup menu must be visible itself
-        if (childGroup.isPopup()) {
-          if ((checkVisible && !presentation.isVisible()) || (checkEnabled && !presentation.isEnabled())) {
-            continue;
-          }
-        }
-
-        if (hasChildrenWithState(childGroup, factory, context, place, checkVisible, checkEnabled)) {
-          return true;
-        }
-      }
-      else if ((checkVisible && presentation.isVisible()) || (checkEnabled && presentation.isEnabled())) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  public static void updateGroupChild(DataContext context, String place, AnAction anAction, final Presentation presentation) {
-    AnActionEvent event1 = new AnActionEvent(null, context, place, presentation, ActionManager.getInstance(), 0);
-    event1.setInjectedContext(anAction.isInInjectedContext());
-    doUpdate(anAction, event1, presentation);
-  }
-
-  public static void fillMenu(@NotNull final ActionGroup group,
-                              final JComponent component,
-                              final boolean enableMnemonics,
-                              final PresentationFactory presentationFactory,
-                              @NotNull DataContext context,
-                              final String place,
-                              final boolean isWindowMenu,
-                              final boolean mayDataContextBeInvalid){
-    final ActionCallback menuBuilt = new ActionCallback();
+  static void fillMenu(@NotNull ActionGroup group,
+                       JComponent component,
+                       boolean enableMnemonics,
+                       PresentationFactory presentationFactory,
+                       @NotNull DataContext context,
+                       String place,
+                       boolean isWindowMenu,
+                       boolean isInModalContext,
+                       boolean useDarkIcons) {
     final boolean checked = group instanceof CheckedActionGroup;
 
-    final ArrayList<AnAction> list = new ArrayList<AnAction>();
-    expandActionGroup(group, list, presentationFactory, context, place, ActionManager.getInstance());
+    ActionUpdater updater = new ActionUpdater(isInModalContext, presentationFactory, context, place, true, false);
+    List<AnAction> list = DO_FULL_EXPAND ?
+                          updater.expandActionGroupFull(group, group instanceof CompactActionGroup) :
+                          updater.expandActionGroupWithTimeout(group, group instanceof CompactActionGroup);
+    fillMenuInner(component, list, checked, enableMnemonics, presentationFactory, context, place, isWindowMenu, useDarkIcons);
+  }
 
+  private static void fillMenuInner(JComponent component,
+                                    List<AnAction> list,
+                                    boolean checked,
+                                    boolean enableMnemonics,
+                                    PresentationFactory presentationFactory,
+                                    @NotNull DataContext context,
+                                    String place,
+                                    boolean isWindowMenu,
+                                    boolean useDarkIcons) {
     final boolean fixMacScreenMenu = SystemInfo.isMacSystemMenu && isWindowMenu && Registry.is("actionSystem.mac.screenMenuNotUpdatedFix");
-    final ArrayList<Component> children = new ArrayList<Component>();
+    final ArrayList<Component> children = new ArrayList<>();
 
     for (int i = 0, size = list.size(); i < size; i++) {
       final AnAction action = list.get(i);
+      Presentation presentation = presentationFactory.getPresentation(action);
+      if (!(action instanceof Separator) && presentation.isVisible() && StringUtil.isEmpty(presentation.getText())) {
+        String message = "Skipping empty menu item for action " + action + " of " + action.getClass();
+        if (action.getTemplatePresentation().getText() == null) {
+          message += ". Please specify some default action text in plugin.xml or action constructor";
+        }
+        LOG.warn(message);
+        continue;
+      }
+
       if (action instanceof Separator) {
         final String text = ((Separator)action).getText();
         if (!StringUtil.isEmpty(text) || (i > 0 && i < size - 1)) {
-          component.add(new JPopupMenu.Separator() {
-            private final JMenuItem myMenu = !StringUtil.isEmpty(text) ? new JMenuItem(text) : null;
-            @Override
-            public Insets getInsets() {
-              final Insets insets = super.getInsets();
-              final boolean fix = UIUtil.isUnderGTKLookAndFeel() &&
-                                  getBorder() != null &&
-                                  insets.top + insets.bottom == 0;
-              return fix ? new Insets(2, insets.left, 3, insets.right) : insets;  // workaround for Sun bug #6636964
-            }
-
-            @Override
-            public void doLayout() {
-              super.doLayout();
-              if (myMenu != null) {
-                myMenu.setBounds(getBounds());
-              }
-            }
-
-            @Override
-            protected void paintComponent(Graphics g) {
-              if (UIUtil.isUnderWindowsClassicLookAndFeel() || UIUtil.isUnderDarcula() || UIUtil.isUnderWindowsLookAndFeel()) {
-                g.setColor(component.getBackground());
-                g.fillRect(0, 0, getWidth(), getHeight());
-              }
-              if (myMenu != null) {
-                myMenu.paint(g);
-              } else {
-                super.paintComponent(g);
-              }
-            }
-
-            @Override
-            public Dimension getPreferredSize() {
-              return myMenu != null ? myMenu.getPreferredSize() : super.getPreferredSize();
-            }
-          });
+          JPopupMenu.Separator separator = createSeparator(text);
+          component.add(separator);
+          children.add(separator);
         }
       }
       else if (action instanceof ActionGroup &&
-               !(((ActionGroup)action).canBePerformed(context) &&
-                 !hasVisibleChildren((ActionGroup)action, presentationFactory, context, place))) {
-        ActionMenu menu = new ActionMenu(context, place, (ActionGroup)action, presentationFactory, enableMnemonics, false);
+               !Boolean.TRUE.equals(presentation.getClientProperty("actionGroup.perform.only"))) {
+        ActionMenu menu = new ActionMenu(context, place, (ActionGroup)action, presentationFactory, enableMnemonics, useDarkIcons);
         component.add(menu);
         children.add(menu);
       }
       else {
         final ActionMenuItem each =
-          new ActionMenuItem(action, presentationFactory.getPresentation(action), place, context, enableMnemonics, !fixMacScreenMenu, checked);
+          new ActionMenuItem(action, presentation, place, context, enableMnemonics, !fixMacScreenMenu, checked, useDarkIcons);
         component.add(each);
         children.add(each);
       }
@@ -344,52 +168,130 @@ public class Utils{
     if (list.isEmpty()) {
       final ActionMenuItem each =
         new ActionMenuItem(EMPTY_MENU_FILLER, presentationFactory.getPresentation(EMPTY_MENU_FILLER), place, context, enableMnemonics,
-                           !fixMacScreenMenu, checked);
+                           !fixMacScreenMenu, checked, useDarkIcons);
       component.add(each);
       children.add(each);
     }
 
     if (fixMacScreenMenu) {
-      //noinspection SSBasedInspection
-      SwingUtilities.invokeLater(new Runnable() {
-        public void run() {
-          for (Component each : children) {
-            if (each.getParent() != null && each instanceof ActionMenuItem) {
-              ((ActionMenuItem)each).prepare();
-            }
+      SwingUtilities.invokeLater(() -> {
+        for (Component each : children) {
+          if (each.getParent() != null && each instanceof ActionMenuItem) {
+            ((ActionMenuItem)each).prepare();
           }
-          menuBuilt.setDone();
         }
       });
     }
-    else {
-      menuBuilt.setDone();
-    }
-
-    menuBuilt.doWhenDone(new Runnable() {
-      public void run() {
-        if (!mayDataContextBeInvalid) return;
-
-        if (IdeFocusManager.getInstance(null).isFocusBeingTransferred()) {
-          IdeFocusManager.getInstance(null).doWhenFocusSettlesDown(new Runnable() {
-            public void run() {
-              if (!component.isShowing()) return;
-
-              DataContext context = DataManager.getInstance().getDataContext();
-              expandActionGroup(group, new ArrayList<AnAction>(), presentationFactory, context, place, ActionManager.getInstance());
-
-              for (Component each : children) {
-                if (each instanceof ActionMenuItem) {
-                  ((ActionMenuItem)each).updateContext(context);
-                } else if (each instanceof ActionMenu) {
-                  ((ActionMenu)each).updateContext(context);
-                }
-              }
+    if (SystemInfo.isMacSystemMenu && isWindowMenu) {
+      if (ActionMenu.isAligned()) {
+        Icon icon = hasIcons(children) ? ActionMenuItem.EMPTY_ICON : null;
+        children.forEach(child -> replaceIconIn(child, icon));
+      } else if (ActionMenu.isAlignedInGroup()) {
+        ArrayList<Component> currentGroup = new ArrayList<>();
+        for (int i = 0; i < children.size(); i++) {
+          Component child = children.get(i);
+          boolean isSeparator = child instanceof JPopupMenu.Separator;
+          boolean isLastElement = i == children.size() - 1;
+          if (isLastElement || isSeparator) {
+            if (isLastElement && !isSeparator) {
+              currentGroup.add(child);
             }
-          });
+            Icon icon = hasIcons(currentGroup) ? ActionMenuItem.EMPTY_ICON : null;
+            currentGroup.forEach(menuItem -> replaceIconIn(menuItem, icon));
+            currentGroup.clear();
+          } else {
+            currentGroup.add(child);
+          }
         }
       }
-    });
+    }
+  }
 
+  @NotNull
+  private static JPopupMenu.Separator createSeparator(@NlsContexts.Separator String text) {
+    return new JPopupMenu.Separator() {
+      private final JMenuItem myMenu = !StringUtil.isEmpty(text) ? new JMenuItem(text) : null;
+
+      @Override
+      public void doLayout() {
+        super.doLayout();
+        if (myMenu != null) {
+          myMenu.setBounds(getBounds());
+        }
+      }
+
+      @Override
+      protected void paintComponent(Graphics g) {
+        if (StartupUiUtil.isUnderDarcula() || UIUtil.isUnderWin10LookAndFeel()) {
+          g.setColor(getParent().getBackground());
+          g.fillRect(0, 0, getWidth(), getHeight());
+        }
+        if (myMenu != null) {
+          myMenu.paint(g);
+        }
+        else {
+          super.paintComponent(g);
+        }
+      }
+
+      @Override
+      public Dimension getPreferredSize() {
+        return myMenu != null ? myMenu.getPreferredSize() : super.getPreferredSize();
+      }
+    };
+  }
+
+  private static void replaceIconIn(Component menuItem, Icon icon) {
+    Icon from = icon == null ? ActionMenuItem.EMPTY_ICON : null;
+
+    if (menuItem instanceof ActionMenuItem && ((ActionMenuItem)menuItem).getIcon() == from) {
+        ((ActionMenuItem)menuItem).setIcon(icon);
+    } else if (menuItem instanceof ActionMenu && ((ActionMenu)menuItem).getIcon() == from) {
+        ((ActionMenu)menuItem).setIcon(icon);
+    }
+  }
+
+  private static boolean hasIcons(List<? extends Component> components) {
+    for (Component comp : components) {
+      if (hasNotEmptyIcon(comp)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean hasNotEmptyIcon(Component comp) {
+    Icon icon = null;
+    if (comp instanceof ActionMenuItem) {
+      icon = ((ActionMenuItem)comp).getIcon();
+    } else if (comp instanceof ActionMenu) {
+      icon = ((ActionMenu)comp).getIcon();
+    }
+
+    return icon != null && icon != ActionMenuItem.EMPTY_ICON;
+  }
+
+  @NotNull
+  public static UpdateSession getOrCreateUpdateSession(@NotNull AnActionEvent e) {
+    UpdateSession updater = e.getUpdateSession();
+    if (updater == null) {
+      ActionUpdater actionUpdater = new ActionUpdater(
+        LaterInvocator.isInModalContext(), new PresentationFactory(), e.getDataContext(),
+        e.getPlace(), e.isFromContextMenu(), e.isFromActionToolbar());
+      updater = actionUpdater.asUpdateSession();
+    }
+    return updater;
+  }
+
+  public interface ActionGroupVisitor {
+    void begin();
+
+    boolean enterNode(@NotNull ActionGroup groupNode);
+    void visitLeaf(@NotNull AnAction act);
+    void leaveNode();
+    @Nullable Component getCustomComponent(@NotNull AnAction action);
+
+    boolean beginUpdate(@NotNull AnAction action, AnActionEvent e);
+    void endUpdate(@NotNull AnAction action);
   }
 }

@@ -25,6 +25,7 @@ import org.intellij.lang.xpath.context.ContextProvider;
 import org.intellij.lang.xpath.context.NamespaceContext;
 import org.intellij.lang.xpath.psi.PrefixedName;
 import org.intellij.lang.xpath.psi.XPathNodeTest;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -37,25 +38,24 @@ public class CheckNodeTest extends XPathInspection {
     @NonNls
     private static final String SHORT_NAME = "CheckNodeTest";
 
+    @Override
     protected Visitor createVisitor(InspectionManager manager, boolean isOnTheFly) {
         return new MyVisitor(manager, isOnTheFly);
     }
 
-    @NotNull
-    public String getDisplayName() {
-        return "Check Node Test";
-    }
-
+  @Override
     @NotNull
     @NonNls
     public String getShortName() {
         return SHORT_NAME;
     }
 
+    @Override
     public boolean isEnabledByDefault() {
         return true;
     }
 
+    @Override
     protected boolean acceptsLanguage(Language language) {
       return language == XPathFileType.XPATH.getLanguage() || language == XPathFileType.XPATH2.getLanguage();
     }
@@ -65,6 +65,7 @@ public class CheckNodeTest extends XPathInspection {
             super(manager, isOnTheFly);
         }
 
+        @Override
         protected void checkNodeTest(XPathNodeTest nodeTest) {
             final ContextProvider contextProvider = ContextProvider.getContextProvider(nodeTest.getContainingFile());
             final XmlElement contextNode = contextProvider.getContextElement();
@@ -126,7 +127,9 @@ public class CheckNodeTest extends XPathInspection {
             }
 
             final LocalQuickFix[] fixes = contextProvider.getQuickFixFactory().createUnknownNodeTestFixes(nodeTest);
-            addProblem(myManager.createProblemDescriptor(nodeTest, "<html>Unknown " + type + " name " + name + "</html>", myOnTheFly, fixes, ProblemHighlightType.GENERIC_ERROR_OR_WARNING));
+            addProblem(myManager.createProblemDescriptor(nodeTest,
+                                                         XPathBundle.message("inspection.message.html.unknown.name.html", type, name),
+                                                         myOnTheFly, fixes, ProblemHighlightType.GENERIC_ERROR_OR_WARNING));
         }
 
         private static boolean matches(@Nullable PrefixedName prefixedName,

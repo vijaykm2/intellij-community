@@ -17,6 +17,7 @@ package org.jetbrains.idea.maven.indices;
 
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.vfs.VirtualFileManager;
+import org.jetbrains.idea.maven.project.MavenConfigurableBundle;
 
 import javax.swing.*;
 
@@ -30,11 +31,12 @@ public class EditMavenIndexDialog extends DialogWrapper {
 
   public EditMavenIndexDialog(String url) {
     super(false);
-    setTitle("Edit Maven Repository");
+    setTitle(MavenConfigurableBundle.message("maven.settings.index.edit.repository"));
     myUrlField.setText(url.length() == 0 ? "http://" : url);
     init();
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return myMainPanel;
   }

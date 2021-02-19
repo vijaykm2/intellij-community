@@ -1,19 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl;
 
 import com.intellij.psi.PsiElement;
@@ -22,7 +7,7 @@ import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiTreeChangeEvent;
 import org.jetbrains.annotations.NotNull;
 
-public class PsiTreeChangeEventImpl extends PsiTreeChangeEvent{
+public final class PsiTreeChangeEventImpl extends PsiTreeChangeEvent{
   private boolean isGenericChange;
 
   public enum PsiEventType {
@@ -42,7 +27,7 @@ public class PsiTreeChangeEventImpl extends PsiTreeChangeEvent{
 
   private PsiEventType myCode;
 
-  public PsiTreeChangeEventImpl(PsiManager manager) {
+  public PsiTreeChangeEventImpl(@NotNull PsiManager manager) {
     super(manager);
   }
 
@@ -125,7 +110,11 @@ public class PsiTreeChangeEventImpl extends PsiTreeChangeEvent{
   }
 
   @Override
-  public String toString() {
-    return "PsiTreeChangeEventImpl{myCode=" + myCode + (isGenericChange ? " (generic)" : "") + '}';
+  public @NotNull String toString() {
+    return "PsiTreeChangeEventImpl{" + myCode
+           + (isGenericChange ? " (generic)" : "")
+           + (myPropertyName == null ? "" : " ("+myPropertyName+")")
+           + (myFile == null ? "" : " in file "+myFile.getName())
+           +'}';
   }
 }

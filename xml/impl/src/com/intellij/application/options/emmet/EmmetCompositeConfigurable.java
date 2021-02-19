@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,27 +22,27 @@ import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.options.UnnamedConfigurable;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
+import com.intellij.util.ui.JBUI;
 import com.intellij.xml.XmlBundle;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.awt.*;
 import java.util.Collection;
 import java.util.Collections;
 
 public class EmmetCompositeConfigurable extends SearchableConfigurable.Parent.Abstract {
   private final Configurable[] myNestedConfigurables;
-  @NotNull private final Configurable[] myInnerConfigurables;
+  private final Configurable @NotNull [] myInnerConfigurables;
   private TemplateExpandShortcutPanel myTemplateExpandShortcutPanel;
   
-  public EmmetCompositeConfigurable(@NotNull Configurable... innerConfigurables) {
-    this(Collections.<Configurable>emptyList(), innerConfigurables);
+  public EmmetCompositeConfigurable(Configurable @NotNull ... innerConfigurables) {
+    this(Collections.emptyList(), innerConfigurables);
   }
 
-  public EmmetCompositeConfigurable(Collection<Configurable> nestedConfigurables, @NotNull Configurable... innerConfigurables) {
-    myNestedConfigurables = nestedConfigurables.toArray(new Configurable[nestedConfigurables.size()]);
+  public EmmetCompositeConfigurable(Collection<Configurable> nestedConfigurables, Configurable @NotNull ... innerConfigurables) {
+    myNestedConfigurables = nestedConfigurables.toArray(new Configurable[0]);
     myInnerConfigurables = innerConfigurables;
     myTemplateExpandShortcutPanel = new TemplateExpandShortcutPanel(XmlBundle.message("emmet.expand.abbreviation.with"));
   }
@@ -62,7 +62,7 @@ public class EmmetCompositeConfigurable extends SearchableConfigurable.Parent.Ab
   @Nullable
   @Override
   public JComponent createComponent() { 
-    final JPanel rootPanel = new JPanel(new GridLayoutManager(myInnerConfigurables.length + 1, 1, new Insets(0, 0, 0, 0), -1, -1, false, false));
+    final JPanel rootPanel = new JPanel(new GridLayoutManager(myInnerConfigurables.length + 1, 1, JBUI.emptyInsets(), -1, -1, false, false));
     rootPanel.add(myTemplateExpandShortcutPanel, new GridConstraints(0, 0, 1, 1, GridConstraints.ANCHOR_NORTH,
                                                                      GridConstraints.FILL_HORIZONTAL,
                                                                      GridConstraints.SIZEPOLICY_CAN_GROW |
@@ -98,7 +98,7 @@ public class EmmetCompositeConfigurable extends SearchableConfigurable.Parent.Ab
   public void apply() throws ConfigurationException {
     EmmetOptions.getInstance().setEmmetExpandShortcut(myTemplateExpandShortcutPanel.getSelectedChar());
     for (Configurable configurable : myInnerConfigurables) {
-      configurable.reset();
+      configurable.apply();
     }
     super.apply();
   }
@@ -131,12 +131,6 @@ public class EmmetCompositeConfigurable extends SearchableConfigurable.Parent.Ab
   @Override
   public boolean hasOwnContent() {
     return true;
-  }
-
-  @Nullable
-  @Override
-  public Runnable enableSearch(String option) {
-    return null;
   }
 
   @Override

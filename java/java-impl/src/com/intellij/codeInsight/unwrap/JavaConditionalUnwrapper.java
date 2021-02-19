@@ -1,10 +1,11 @@
 package com.intellij.codeInsight.unwrap;
 
-import com.intellij.codeInsight.CodeInsightBundle;
+import com.intellij.java.JavaBundle;
 import com.intellij.psi.PsiConditionalExpression;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiExpressionList;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
@@ -13,16 +14,16 @@ import java.util.List;
  */
 public class JavaConditionalUnwrapper extends JavaUnwrapper {
   public JavaConditionalUnwrapper() {
-    super(CodeInsightBundle.message("unwrap.conditional"));
+    super(JavaBundle.message("unwrap.conditional"));
   }
 
   @Override
-  public boolean isApplicableTo(PsiElement e) {
+  public boolean isApplicableTo(@NotNull PsiElement e) {
     return e.getParent() instanceof PsiConditionalExpression;
   }
 
   @Override
-  public PsiElement collectAffectedElements(PsiElement e, List<PsiElement> toExtract) {
+  public PsiElement collectAffectedElements(@NotNull PsiElement e, @NotNull List<PsiElement> toExtract) {
     super.collectAffectedElements(e, toExtract);
     return e.getParent();
   }

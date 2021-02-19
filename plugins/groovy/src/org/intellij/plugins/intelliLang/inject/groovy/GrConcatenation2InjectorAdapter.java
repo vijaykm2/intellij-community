@@ -1,25 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.intelliLang.inject.groovy;
 
 import com.intellij.lang.injection.MultiHostInjector;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.impl.source.tree.injected.JavaConcatenationInjectorManager;
+import com.intellij.psi.impl.source.tree.injected.ConcatenationInjectorManager;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
@@ -36,8 +22,8 @@ import java.util.List;
 /**
  * @author Max Medvedev
  */
-public class GrConcatenation2InjectorAdapter extends JavaConcatenationInjectorManager.BaseConcatenation2InjectorAdapter implements MultiHostInjector {
-  public GrConcatenation2InjectorAdapter(Project project) {
+public class GrConcatenation2InjectorAdapter extends ConcatenationInjectorManager.BaseConcatenation2InjectorAdapter implements MultiHostInjector {
+  public GrConcatenation2InjectorAdapter(@NotNull Project project) {
     super(project);
   }
 
@@ -52,7 +38,7 @@ public class GrConcatenation2InjectorAdapter extends JavaConcatenationInjectorMa
     PsiElement element = context;
     PsiElement parent = context.getParent();
     while (parent instanceof GrBinaryExpression && ((GrBinaryExpression)parent).getOperationTokenType() == GroovyTokenTypes.mPLUS
-           || parent instanceof GrAssignmentExpression && ((GrAssignmentExpression)parent).getOperationToken() == GroovyTokenTypes.mPLUS_ASSIGN
+           || parent instanceof GrAssignmentExpression && ((GrAssignmentExpression)parent).getOperationTokenType() == GroovyTokenTypes.mPLUS_ASSIGN
            || parent instanceof GrConditionalExpression && ((GrConditionalExpression)parent).getCondition() != element
            || parent instanceof GrTypeCastExpression
            || parent instanceof GrSafeCastExpression
@@ -77,31 +63,34 @@ public class GrConcatenation2InjectorAdapter extends JavaConcatenationInjectorMa
       operands = new PsiElement[]{rvalue == null ? element : rvalue};
       anchor = element;
     }
-    else {
+    else if (element instanceof GrLiteral && ((GrLiteral)element).isValidHost()) {
       operands = new PsiElement[]{context};
       anchor = context;
+    }
+    else {
+      return Pair.create(context, PsiElement.EMPTY_ARRAY);
     }
 
     return Pair.create(anchor, operands);
   }
 
   private static PsiElement[] collectGStringOperands(GrString grString) {
-    final ArrayList<PsiElement> operands = ContainerUtil.newArrayList();
+    final ArrayList<PsiElement> operands = new ArrayList<>();
     processGString(grString, operands);
-    return operands.toArray(new PsiElement[operands.size()]);
+    return operands.toArray(PsiElement.EMPTY_ARRAY);
   }
 
-  private static void processGString(GrString string, ArrayList<PsiElement> operands) {
+  private static void processGString(GrString string, ArrayList<? super PsiElement> operands) {
     ContainerUtil.addAll(operands, string.getAllContentParts());
   }
 
   private static PsiElement[] collectBinaryOperands(GrBinaryExpression expression) {
-    final ArrayList<PsiElement> operands = ContainerUtil.newArrayList();
+    final ArrayList<PsiElement> operands = new ArrayList<>();
     processBinary(expression, operands);
-    return operands.toArray(new PsiElement[operands.size()]);
+    return operands.toArray(PsiElement.EMPTY_ARRAY);
   }
 
-  private static void processBinary(GrBinaryExpression expression, ArrayList<PsiElement> operands) {
+  private static void processBinary(GrBinaryExpression expression, ArrayList<? super PsiElement> operands) {
     final GrExpression left = expression.getLeftOperand();
     final GrExpression right = expression.getRightOperand();
     if (left instanceof GrBinaryExpression) {

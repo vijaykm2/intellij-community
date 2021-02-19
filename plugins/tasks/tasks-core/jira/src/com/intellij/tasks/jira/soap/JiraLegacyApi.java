@@ -8,7 +8,6 @@ import com.intellij.tasks.TaskBundle;
 import com.intellij.tasks.impl.TaskUtil;
 import com.intellij.tasks.jira.JiraRemoteApi;
 import com.intellij.tasks.jira.JiraRepository;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import org.apache.commons.httpclient.HttpStatus;
 import org.apache.commons.httpclient.NameValuePair;
@@ -73,11 +72,7 @@ public class JiraLegacyApi extends JiraRemoteApi {
     if (channel != null) {
       List<Element> children = channel.getChildren("item");
       LOG.debug("Total issues in JIRA RSS feed: " + children.size());
-      return ContainerUtil.map(children, new Function<Element, Task>() {
-        public Task fun(Element element) {
-          return new JiraSoapTask(element, myRepository);
-        }
-      });
+      return ContainerUtil.map(children, element -> new JiraSoapTask(element, myRepository));
     }
     else {
       LOG.warn("JIRA channel not found");

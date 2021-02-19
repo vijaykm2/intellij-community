@@ -16,7 +16,7 @@
 package com.intellij.tasks.jira;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.tasks.TaskBundle;
 import com.intellij.tasks.config.BaseRepositoryEditor;
 import com.intellij.tasks.jira.jql.JqlLanguage;
 import com.intellij.ui.EditorTextField;
@@ -37,7 +37,7 @@ public class JiraRepositoryEditor extends BaseRepositoryEditor<JiraRepository> {
   private JBLabel mySearchLabel;
   private JBLabel myNoteLabel;
 
-  public JiraRepositoryEditor(Project project, JiraRepository repository, Consumer<JiraRepository> changeListener) {
+  public JiraRepositoryEditor(Project project, JiraRepository repository, Consumer<? super JiraRepository> changeListener) {
     super(project, repository, changeListener);
   }
 
@@ -45,37 +45,30 @@ public class JiraRepositoryEditor extends BaseRepositoryEditor<JiraRepository> {
   public void apply() {
     myRepository.setSearchQuery(mySearchQueryField.getText());
     super.apply();
-    enableJqlSearchIfSupported();
+    adjustSettingsForServerProperties();
   }
 
   @Override
   protected void afterTestConnection(boolean connectionSuccessful) {
     super.afterTestConnection(connectionSuccessful);
     if (connectionSuccessful) {
-      enableJqlSearchIfSupported();
+      adjustSettingsForServerProperties();
     }
-    updateNote();
   }
 
   @Nullable
   @Override
   protected JComponent createCustomPanel() {
     mySearchQueryField = new LanguageTextField(JqlLanguage.INSTANCE, myProject, myRepository.getSearchQuery());
-    enableJqlSearchIfSupported();
     installListener(mySearchQueryField);
-    mySearchLabel = new JBLabel("Search:", SwingConstants.RIGHT);
+    mySearchLabel = new JBLabel(TaskBundle.message("label.search"), SwingConstants.RIGHT);
     myNoteLabel = new JBLabel();
     myNoteLabel.setComponentStyle(UIUtil.ComponentStyle.SMALL);
-    updateNote();
+    adjustSettingsForServerProperties();
     return FormBuilder.createFormBuilder()
       .addLabeledComponent(mySearchLabel, mySearchQueryField)
       .addComponentToRightColumn(myNoteLabel)
       .getPanel();
-  }
-
-  private void updateNote() {
-    myNoteLabel.setText("JQL search cannot be used in JIRA versions prior 4.2. " +
-                        String.format("Your version: %s.", StringUtil.notNullize(myRepository.getJiraVersion(), "unknown")));
   }
 
   @Override
@@ -84,7 +77,25 @@ public class JiraRepositoryEditor extends BaseRepositoryEditor<JiraRepository> {
     mySearchLabel.setAnchor(anchor);
   }
 
-  private void enableJqlSearchIfSupported() {
-    mySearchQueryField.setEnabled(myRepository.isJqlSupported());
+  private void adjustSettingsForServerProperties() {
+    if (myRepository.isJqlSupported()) {
+      mySearchQueryField.setEnabled(true);
+      myNoteLabel.setVisible(false);
+    }
+    else {
+      mySearchQueryField.setEnabled(false);
+      myNoteLabel.setText(
+        TaskBundle.message("label.jql.search.cannot.be.used.in.jira.versions.prior.your.version", myRepository.getPresentableVersion()));
+      myNoteLabel.setVisible(true);
+    }
+
+    if (myRepository.isInCloud()) {
+      myUsernameLabel.setText(TaskBundle.message("label.email"));
+      myPasswordLabel.setText(TaskBundle.message("label.api.token"));
+    }
+    else {
+      myUsernameLabel.setText(TaskBundle.message("label.username"));
+      myPasswordLabel.setText(TaskBundle.message("label.password"));
+    }
   }
 }

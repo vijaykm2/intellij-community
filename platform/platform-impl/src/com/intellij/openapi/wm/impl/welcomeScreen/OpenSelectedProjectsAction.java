@@ -15,12 +15,14 @@
  */
 package com.intellij.openapi.wm.impl.welcomeScreen;
 
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.ProjectGroupActionGroup;
 import com.intellij.ide.ReopenProjectAction;
 import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.Presentation;
+import org.jetbrains.annotations.NotNull;
 
 import java.awt.event.InputEvent;
 import java.util.List;
@@ -30,7 +32,7 @@ import java.util.List;
  */
 public class OpenSelectedProjectsAction extends RecentProjectsWelcomeScreenActionBase {
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     List<AnAction> elements = getSelectedElements(e);
     e = new AnActionEvent(e.getInputEvent(), e.getDataContext(), e.getPlace(), e.getPresentation(), e.getActionManager(), InputEvent.SHIFT_MASK);
     for (AnAction element : elements) {
@@ -45,7 +47,7 @@ public class OpenSelectedProjectsAction extends RecentProjectsWelcomeScreenActio
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final Presentation presentation = e.getPresentation();
     List<AnAction> selectedElements = getSelectedElements(e);
     boolean hasProject = false;
@@ -66,9 +68,9 @@ public class OpenSelectedProjectsAction extends RecentProjectsWelcomeScreenActio
     if (ActionPlaces.WELCOME_SCREEN.equals(e.getPlace())) {
       presentation.setEnabledAndVisible(true);
       if (selectedElements.size() == 1 && selectedElements.get(0) instanceof ProjectGroupActionGroup) {
-        presentation.setText("Open All Projects in Group");
+        presentation.setText(IdeBundle.messagePointer("action.presentation.OpenSelectedProjectsAction.text.open.all.projects.in.group"));
       } else {
-        presentation.setText("Open Selected");
+        presentation.setText(IdeBundle.messagePointer("action.presentation.OpenSelectedProjectsAction.text.open.selected"));
       }
     } else {
       presentation.setEnabledAndVisible(false);

@@ -1,164 +1,267 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes;
 
-import com.intellij.lifecycle.PeriodicalTasksCloser;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.Consumer;
 import com.intellij.util.ThreeState;
-import com.intellij.util.continuation.ContinuationPause;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
+import org.jetbrains.annotations.*;
 
 import java.io.File;
 import java.util.Collection;
 import java.util.List;
 
-/**
- * @author max
- */
 public abstract class ChangeListManager implements ChangeListModification {
   @NotNull
-  public static ChangeListManager getInstance(Project project) {
-    return PeriodicalTasksCloser.getInstance().safeGetComponent(project, ChangeListManager.class);
+  public static ChangeListManager getInstance(@NotNull Project project) {
+    return project.getService(ChangeListManager.class);
   }
 
   public abstract void scheduleUpdate();
-  public abstract void scheduleUpdate(boolean updateUnversionedFiles);
-  public abstract void invokeAfterUpdate(final Runnable afterUpdate, final InvokeAfterUpdateMode mode, final String title,
-                                         final ModalityState state);
-  public abstract void invokeAfterUpdate(final Runnable afterUpdate, final InvokeAfterUpdateMode mode, final String title,
-                                         final Consumer<VcsDirtyScopeManager> dirtyScopeManager,
-                                         final ModalityState state);
-  @TestOnly
-  public abstract boolean ensureUpToDate(boolean canBeCanceled);
+
+  /**
+   * Invoke callback when current CLM refresh is completed, without any visible progress.
+   */
+  public void invokeAfterUpdate(boolean callbackOnAwt, @NotNull Runnable afterUpdate) {
+    InvokeAfterUpdateMode mode = callbackOnAwt ? InvokeAfterUpdateMode.SILENT : InvokeAfterUpdateMode.SILENT_CALLBACK_POOLED;
+    invokeAfterUpdate(afterUpdate, mode, null, null);
+  }
+
+  /**
+   * Invoke callback when current refresh is completed. Show background progress while waiting.
+   *
+   * @param cancellable Whether the progress can be cancelled. If progress is cancelled, callback will not be called.
+   * @param title       Operation name to use as prefix for progress text
+   * @param afterUpdate Callback that will be called in {@link com.intellij.openapi.progress.Task#onFinished()}
+   */
+  public void invokeAfterUpdateWithProgress(boolean cancellable,
+                                            @Nullable @NlsContexts.ProgressTitle String title,
+                                            @NotNull Runnable afterUpdate) {
+    InvokeAfterUpdateMode mode = cancellable ? InvokeAfterUpdateMode.BACKGROUND_CANCELLABLE
+                                             : InvokeAfterUpdateMode.BACKGROUND_NOT_CANCELLABLE;
+    invokeAfterUpdate(afterUpdate, mode, title, null);
+  }
+
+  /**
+   * Invoke callback when current refresh is completed with modal progress.
+   *
+   * @param cancellable Whether the progress can be cancelled. If progress is cancelled, callback will be called without waiting for current CLM refresh to finish.
+   * @param title       Operation name to use as prefix for progress dialog title
+   * @param afterUpdate Callback that will be called in {@link com.intellij.openapi.progress.Task#onFinished()}
+   */
+  public void invokeAfterUpdateWithModal(boolean cancellable,
+                                         @Nullable @NlsContexts.DialogTitle String title,
+                                         @NotNull Runnable afterUpdate) {
+    InvokeAfterUpdateMode mode = cancellable ? InvokeAfterUpdateMode.SYNCHRONOUS_CANCELLABLE
+                                             : InvokeAfterUpdateMode.SYNCHRONOUS_NOT_CANCELLABLE;
+    invokeAfterUpdate(afterUpdate, mode, title, null);
+  }
+
+  /**
+   * @see #invokeAfterUpdate(boolean, Runnable)
+   * @see #invokeAfterUpdateWithProgress
+   * @see #invokeAfterUpdateWithModal
+   */
+  public abstract void invokeAfterUpdate(@NotNull Runnable afterUpdate,
+                                         @NotNull InvokeAfterUpdateMode mode,
+                                         @Nullable @Nls String title,
+                                         @Nullable ModalityState state);
+
+  /**
+   * @deprecated use {@link #invokeAfterUpdate(Runnable, InvokeAfterUpdateMode, String, ModalityState)}
+   */
+  @Deprecated
+  public abstract void invokeAfterUpdate(@NotNull Runnable afterUpdate,
+                                         @NotNull InvokeAfterUpdateMode mode,
+                                         @Nullable @Nls String title,
+                                         @Nullable Consumer<? super VcsDirtyScopeManager> dirtyScopeManager,
+                                         @Nullable ModalityState state);
+
+
+  public abstract boolean areChangeListsEnabled();
 
   public abstract int getChangeListsNumber();
-  public abstract List<LocalChangeList> getChangeListsCopy();
+
+  @NotNull
+  public List<LocalChangeList> getChangeListsCopy() {
+    return getChangeLists();
+  }
+
   @NotNull
   public abstract List<LocalChangeList> getChangeLists();
 
-  public abstract List<File> getAffectedPaths();
-  @NotNull
-  public abstract List<VirtualFile> getAffectedFiles();
-  public abstract boolean isFileAffected(final VirtualFile file);
-
-  /**
-   * @return all changes in all changelists.
-   */
   @NotNull
   public abstract Collection<Change> getAllChanges();
 
-  @Nullable
-  public abstract LocalChangeList findChangeList(final String name);
-  @Nullable
-  public abstract LocalChangeList getChangeList(String id);
-//  public abstract LocalChangeList addChangeList(@NotNull String name, final String comment);
-//  public abstract void setDefaultChangeList(@NotNull LocalChangeList list);
-
   /**
-   * Returns currently active changelist
-   * @return active changelist
+   *  Currently active change list.
+   *  @see #setDefaultChangeList(String)
+   *  @see #setDefaultChangeList(LocalChangeList)
    */
+  @NotNull
   public abstract LocalChangeList getDefaultChangeList();
 
-  public abstract boolean isDefaultChangeList(ChangeList list);
+  @NotNull
+  public abstract @NlsSafe String getDefaultListName();
+
+
+  @NotNull
+  public abstract List<File> getAffectedPaths();
+
+  @NotNull
+  public abstract List<VirtualFile> getAffectedFiles();
+
+  /**
+   * @return if a file belongs to some changelist
+   */
+  public abstract boolean isFileAffected(@NotNull VirtualFile file);
+
+
+  @Nullable
+  public abstract LocalChangeList findChangeList(@NlsSafe String name);
+
+  @Nullable
+  public abstract LocalChangeList getChangeList(@Nullable @NonNls String id);
+
+
+  @NotNull
+  public abstract List<LocalChangeList> getChangeLists(@NotNull Change change);
+
+  @NotNull
+  public abstract List<LocalChangeList> getChangeLists(@NotNull VirtualFile file);
 
   @Nullable
   public abstract LocalChangeList getChangeList(@NotNull Change change);
 
   @Nullable
-  public abstract String getChangeListNameIfOnlyOne(Change[] changes);
+  public abstract LocalChangeList getChangeList(@NotNull VirtualFile file);
 
-  @NotNull
-  public abstract Runnable prepareForChangeDeletion(final Collection<Change> changes);
+  @Nullable
+  public abstract @NlsSafe String getChangeListNameIfOnlyOne(Change[] changes);
+
 
   @Nullable
   public abstract Change getChange(@NotNull VirtualFile file);
 
   @Nullable
-  public abstract LocalChangeList getChangeList(@NotNull VirtualFile file);
-
-  @Nullable
   public abstract Change getChange(FilePath file);
+
+
+  @NotNull
+  public abstract FileStatus getStatus(@NotNull FilePath file);
+
+  @NotNull
+  public abstract FileStatus getStatus(@NotNull VirtualFile file);
 
   public abstract boolean isUnversioned(VirtualFile file);
 
   @NotNull
-  public abstract FileStatus getStatus(VirtualFile file);
+  public abstract List<FilePath> getUnversionedFilesPaths();
 
   @NotNull
-  public abstract Collection<Change> getChangesIn(VirtualFile dir);
+  public abstract Collection<Change> getChangesIn(@NotNull VirtualFile dir);
 
   @NotNull
-  public abstract Collection<Change> getChangesIn(FilePath path);
-
-//  public abstract void removeChangeList(final LocalChangeList list);
-
-//  public abstract void moveChangesTo(final LocalChangeList list, final Change[] changes);
-
-  public abstract void addChangeListListener(ChangeListListener listener);
-  public abstract void removeChangeListListener(ChangeListListener listener);
-
-  public abstract void registerCommitExecutor(CommitExecutor executor);
-  
-  public abstract void commitChanges(LocalChangeList changeList, List<Change> changes);
-
-  public abstract void commitChangesSynchronously(LocalChangeList changeList, List<Change> changes);
-
-  /**
-   * @return if commit successful
-   */
-  public abstract boolean commitChangesSynchronouslyWithResult(LocalChangeList changeList, List<Change> changes);
-
-  public abstract void reopenFiles(List<FilePath> paths);
-
-  public abstract List<CommitExecutor> getRegisteredExecutors();
-
-  public abstract void addFilesToIgnore(final IgnoredFileBean... ignoredFiles);
-  public abstract void addDirectoryToIgnoreImplicitly(@NotNull String path);
-  public abstract void setFilesToIgnore(final IgnoredFileBean... ignoredFiles);
-  public abstract IgnoredFileBean[] getFilesToIgnore();
-  public abstract boolean isIgnoredFile(@NotNull VirtualFile file);
-
-  @Nullable
-  public abstract String getSwitchedBranch(VirtualFile file);
-  public abstract String getDefaultListName();
-  public abstract void freeze(final ContinuationPause context, String reason);
-  public abstract void letGo();
-  public abstract String isFreezed();
-  public abstract boolean isFreezedWithNotification(@Nullable String modalTitle);
-  
-  public static boolean isFileChanged(final Project project, final VirtualFile vf) {
-    FileStatus status = getInstance(project).getStatus(vf);
-    if (FileStatus.NOT_CHANGED.equals(status) || FileStatus.UNKNOWN.equals(status) || FileStatus.IGNORED.equals(status)) {
-      return false;
-    }
-    return true;
-  }
-
-
-  public abstract List<VirtualFile> getModifiedWithoutEditing();
+  public abstract Collection<Change> getChangesIn(@NotNull FilePath path);
 
   @NotNull
   public abstract ThreeState haveChangesUnder(@NotNull VirtualFile vf);
+
+  /**
+   * @deprecated Use {@link com.intellij.openapi.vcs.ProjectLevelVcsManager#getVcsFor}
+   */
+  @Nullable
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public abstract AbstractVcs getVcsFor(@NotNull Change change);
+
+
+  /**
+   * Prefer using {@link ChangeListListener#TOPIC}
+   */
+  public abstract void addChangeListListener(@NotNull ChangeListListener listener, @NotNull Disposable disposable);
+
+  /**
+   * Prefer using {@link ChangeListListener#TOPIC}
+   */
+  public abstract void addChangeListListener(@NotNull ChangeListListener listener);
+
+  public abstract void removeChangeListListener(@NotNull ChangeListListener listener);
+
+
+  /**
+   * @deprecated use {@link LocalCommitExecutor#LOCAL_COMMIT_EXECUTOR} extension point
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
+  public abstract void registerCommitExecutor(@NotNull CommitExecutor executor);
+
+  @NotNull
+  public abstract List<CommitExecutor> getRegisteredExecutors();
+
+  public abstract void commitChanges(@NotNull LocalChangeList changeList, @NotNull List<? extends Change> changes);
+
+
+  public abstract void scheduleAutomaticEmptyChangeListDeletion(@NotNull LocalChangeList list);
+
+  public abstract void scheduleAutomaticEmptyChangeListDeletion(@NotNull LocalChangeList list, boolean silently);
+
+  /**
+   * @deprecated All potential ignores should be contributed to VCS native ignores by corresponding {@link IgnoredFileProvider}.
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public abstract IgnoredFileBean @NotNull [] getFilesToIgnore();
+
+  public abstract boolean isIgnoredFile(@NotNull VirtualFile file);
+
+  public abstract boolean isIgnoredFile(@NotNull FilePath file);
+
+  @NotNull
+  public abstract List<FilePath> getIgnoredFilePaths();
+
+  /**
+   * @deprecated All potential ignores should be contributed to VCS native ignores by corresponding {@link IgnoredFileProvider}.
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public abstract void setFilesToIgnore(IgnoredFileBean @NotNull ... ignoredFiles);
+
+  /**
+   * @deprecated All potential ignores should be contributed to VCS native ignores by corresponding {@link IgnoredFileProvider}.
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public abstract void addFilesToIgnore(IgnoredFileBean @NotNull ... ignoredFiles);
+
+  /**
+   * @deprecated All potential ignores should be contributed to VCS native ignores by corresponding {@link IgnoredFileProvider}.
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public abstract void addDirectoryToIgnoreImplicitly(@NotNull @NlsSafe String path);
+
+
+  @NotNull
+  public abstract List<VirtualFile> getModifiedWithoutEditing();
+
+  @Nullable
+  public abstract @NlsSafe String getSwitchedBranch(@NotNull VirtualFile file);
+
+
+  @Nullable
+  public abstract @Nls(capitalization = Nls.Capitalization.Sentence) String isFreezed();
+
+  public abstract boolean isFreezedWithNotification(@NlsContexts.DialogTitle @Nullable String modalTitle);
+
+  @Deprecated // used in TeamCity
+  public abstract void reopenFiles(@NotNull List<? extends FilePath> paths);
+
 }

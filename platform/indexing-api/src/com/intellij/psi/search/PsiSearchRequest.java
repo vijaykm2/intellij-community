@@ -16,6 +16,7 @@
 package com.intellij.psi.search;
 
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * @author peter
@@ -27,21 +28,17 @@ public class PsiSearchRequest {
   public final boolean caseSensitive;
   public final RequestResultProcessor processor;
   public final String containerName;
+  private final SearchSession mySession;
 
-  public PsiSearchRequest(@NotNull SearchScope searchScope,
-                          @NotNull String word,
-                          short searchContext,
-                          boolean caseSensitive,
-                          @NotNull RequestResultProcessor processor) {
-    this(searchScope, word, searchContext, caseSensitive, null, processor);
-  }
-  public PsiSearchRequest(@NotNull SearchScope searchScope,
-                          @NotNull String word,
-                          short searchContext,
-                          boolean caseSensitive,
-                          String containerName,
-                          @NotNull RequestResultProcessor processor) {
+  PsiSearchRequest(@NotNull SearchScope searchScope,
+                   @NotNull String word,
+                   short searchContext,
+                   boolean caseSensitive,
+                   @Nullable String containerName,
+                   @NotNull SearchSession session,
+                   @NotNull RequestResultProcessor processor) {
     this.containerName = containerName;
+    mySession = session;
     if (word.isEmpty()) {
       throw new IllegalArgumentException("Cannot search for elements with empty text");
     }
@@ -51,7 +48,7 @@ public class PsiSearchRequest {
     this.caseSensitive = caseSensitive;
     this.processor = processor;
     if (searchScope instanceof GlobalSearchScope && ((GlobalSearchScope)searchScope).getProject() == null) {
-      throw new AssertionError("Every search scope must be associated with a project");
+      throw new AssertionError("Every search scope must be associated with a project: " + searchScope);
     }
   }
 
@@ -82,5 +79,10 @@ public class PsiSearchRequest {
     result = 31 * result + (caseSensitive ? 1 : 0);
     result = 31 * result + processor.hashCode();
     return result;
+  }
+
+  @NotNull
+  public SearchSession getSearchSession() {
+    return mySession;
   }
 }

@@ -21,6 +21,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.theoryinpractice.testng.TestngBundle;
 import com.theoryinpractice.testng.configuration.TestNGConfigurationEditor;
 import com.theoryinpractice.testng.model.TestClassFilter;
 import com.theoryinpractice.testng.util.TestNGUtil;
@@ -28,8 +29,6 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Hani Suleiman
- *         Date: Jul 21, 2005
- *         Time: 4:29:00 PM
  */
 public class GroupBrowser extends BrowseModuleValueActionListener
 {
@@ -53,7 +52,7 @@ public class GroupBrowser extends BrowseModuleValueActionListener
       }
       PsiClass[] classes = TestNGUtil.getAllTestClasses(filter, true);
       if(classes == null || classes.length == 0) {
-        Messages.showMessageDialog(getField(), "No tests found in project", "Cannot Browse Groups", Messages.getInformationIcon());
+        Messages.showMessageDialog(getField(), TestngBundle.message("testng.group.browser.no.tests.found.in.project"), TestngBundle.message("testng.group.browser.cannot.browse.groups"), Messages.getInformationIcon());
         return null;
       } else {
         return GroupList.showDialog(classes, getField());

@@ -36,16 +36,8 @@ public class ModuleWithTooManyClassesInspection extends BaseGlobalInspection {
   @SuppressWarnings({"PublicField"})
   public int limit = 100;
 
-  @NotNull
   @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "module.with.too.many.classes.display.name");
-  }
-
-  @Override
-  @Nullable
-  public CommonProblemDescriptor[] checkElement(
+  public CommonProblemDescriptor @Nullable [] checkElement(
     @NotNull RefEntity refEntity,
     @NotNull AnalysisScope analysisScope,
     @NotNull InspectionManager inspectionManager,
@@ -54,9 +46,6 @@ public class ModuleWithTooManyClassesInspection extends BaseGlobalInspection {
       return null;
     }
     final List<RefEntity> children = refEntity.getChildren();
-    if (children == null) {
-      return null;
-    }
     int numClasses = 0;
     for (RefEntity child : children) {
       if (child instanceof RefClass) {

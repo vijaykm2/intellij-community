@@ -1,10 +1,24 @@
+/*
+ * Copyright 2000-2015 JetBrains s.r.o.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.intellij.util.net.ssl;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
-import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Ref;
-import com.intellij.testFramework.PlatformTestCase;
+import com.intellij.testFramework.LightPlatformTestCase;
 import com.intellij.testFramework.PlatformTestUtil;
 import org.apache.http.HttpStatus;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -15,9 +29,7 @@ import org.apache.http.impl.client.HttpClientBuilder;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.File;
 import java.security.cert.X509Certificate;
-import java.util.concurrent.Callable;
 
 import static com.intellij.util.net.ssl.ConfirmingTrustManager.MutableTrustManager;
 
@@ -25,7 +37,7 @@ import static com.intellij.util.net.ssl.ConfirmingTrustManager.MutableTrustManag
 /**
  * @author Mikhail Golubev
  */
-public class CertificateTest extends PlatformTestCase {
+public class CertificateTest extends LightPlatformTestCase {
   @NonNls private static final String AUTHORITY_CN = "certificates-tests.labs.intellij.net";
 
   @NonNls private static final String TRUSTED_CERT_CN = "trusted.certificates-tests.labs.intellij.net";
@@ -48,7 +60,7 @@ public class CertificateTest extends PlatformTestCase {
   private X509Certificate myAuthorityCertificate;
 
 
-  public void testSetUp() throws Exception {
+  public void testSetUp() {
     assertTrue(myTrustManager.containsCertificate(AUTHORITY_CN));
   }
 
@@ -90,12 +102,8 @@ public class CertificateTest extends PlatformTestCase {
   }
 
   private void doTest(@NotNull String url, @NotNull String alias, boolean added) throws Exception {
-    CloseableHttpResponse response = myClient.execute(new HttpGet(url));
-    try {
+    try (CloseableHttpResponse response = myClient.execute(new HttpGet(url))) {
       assertEquals(response.getStatusLine().getStatusCode(), HttpStatus.SC_OK);
-    }
-    finally {
-      response.close();
     }
     if (added) {
       assertTrue(myTrustManager.containsCertificate(alias));
@@ -108,50 +116,44 @@ public class CertificateTest extends PlatformTestCase {
   }
 
   public void testDeadlockDetection() throws Exception {
-    final Ref<Throwable> throwableRef = new Ref<Throwable>();
+    final Ref<Throwable> throwableRef = new Ref<>();
 
     final long interruptionTimeout = CertificateManager.DIALOG_VISIBILITY_TIMEOUT + 1000;
     // Will be interrupted after at most interruptionTimeout (6 seconds originally)
-    ApplicationManager.getApplication().invokeAndWait(new Runnable() {
-      @Override
-      public void run() {
-        final Thread thread = new Thread(new Runnable() {
-          @Override
-          public void run() {
-            try {
-              boolean accepted = CertificateManager.showAcceptDialog(new Callable<DialogWrapper>() {
-                @Override
-                public DialogWrapper call() throws Exception {
-                  // this dialog will be attempted to show only if blocking thread was forcibly interrupted after timeout
-                  throw new AssertionError("Deadlock was not detected in time");
-                }
-              });
-              // should be rejected after 5 seconds
-              assertFalse("Certificate should be rejected", accepted);
-            }
-            catch (Throwable e) {
-              throwableRef.set(e);
-            }
-          }
-        }, "Test EDT-blocking thread");
-        thread.start();
+    Thread[] t = {null};
+    ApplicationManager.getApplication().invokeAndWait(() -> {
+      final Thread thread = new Thread(() -> {
         try {
-          thread.join(interruptionTimeout);
+          boolean accepted = CertificateManager.showAcceptDialog(() -> {
+            // this dialog will be attempted to show only if blocking thread was forcibly interrupted after timeout
+            throw new AssertionError("Deadlock was not detected in time");
+          });
+          // should be rejected after 5 seconds
+          assertFalse("Certificate should be rejected", accepted);
         }
-        catch (InterruptedException ignored) {
-          // No one will attempt to interrupt EDT, right?
+        catch (Throwable e) {
+          throwableRef.set(e);
         }
-        finally {
-          if (thread.isAlive()) {
-            thread.interrupt();
-            fail("Deadlock was not detected in time");
-          }
+      }, "Test EDT-blocking thread");
+      thread.start();
+      try {
+        thread.join(interruptionTimeout);
+      }
+      catch (InterruptedException ignored) {
+        // No one will attempt to interrupt EDT, right?
+      }
+      finally {
+        if (thread.isAlive()) {
+          thread.interrupt();
+          fail("Deadlock was not detected in time");
         }
       }
+      t[0] = thread;
     }, ModalityState.any());
     if (!throwableRef.isNull()) {
       throw new AssertionError(throwableRef.get());
     }
+    t[0].join();
   }
 
   @Override
@@ -177,12 +179,19 @@ public class CertificateTest extends PlatformTestCase {
       assertEmpty(myTrustManager.getCertificates());
     }
     finally {
-      myClient.close();
+      try {
+        myClient.close();
+      }
+      catch (Throwable e) {
+        addSuppressedException(e);
+      }
+      finally {
+        super.tearDown();
+      }
     }
-    super.tearDown();
   }
 
   private static String getTestDataPath() {
-    return PlatformTestUtil.getCommunityPath().replace(File.separatorChar, '/') + "/platform/platform-tests/testData/";
+    return PlatformTestUtil.getPlatformTestDataPath();
   }
 }

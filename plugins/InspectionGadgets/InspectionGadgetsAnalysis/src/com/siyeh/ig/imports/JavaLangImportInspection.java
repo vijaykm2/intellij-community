@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2010 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2019 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,25 +16,20 @@
 package com.siyeh.ig.imports;
 
 import com.intellij.codeInspection.CleanupLocalInspectionTool;
-import com.intellij.psi.*;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiImportStatement;
+import com.intellij.psi.PsiJavaCodeReferenceElement;
+import com.intellij.psi.util.FileTypeUtils;
 import com.siyeh.HardcodedMethodConstants;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.fixes.DeleteImportFix;
-import com.intellij.psi.util.FileTypeUtils;
 import com.siyeh.ig.psiutils.ImportUtils;
 import org.jetbrains.annotations.NotNull;
 
 public class JavaLangImportInspection extends BaseInspection implements CleanupLocalInspectionTool{
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "java.lang.import.display.name");
-  }
 
   @Override
   @NotNull
@@ -49,6 +44,11 @@ public class JavaLangImportInspection extends BaseInspection implements CleanupL
   }
 
   @Override
+  public boolean shouldInspect(PsiFile file) {
+    return !FileTypeUtils.isInServerPageFile(file);
+  }
+
+  @Override
   public BaseInspectionVisitor buildVisitor() {
     return new JavaLangImportVisitor();
   }
@@ -56,59 +56,34 @@ public class JavaLangImportInspection extends BaseInspection implements CleanupL
   private static class JavaLangImportVisitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitClass(@NotNull PsiClass aClass) {
-      // no call to super, so it doesn't drill down
-      if (!(aClass.getParent() instanceof PsiJavaFile)) {
-        return;
-      }
-      if (FileTypeUtils.isInServerPageFile(aClass.getContainingFile())) {
-        return;
-      }
-      final PsiJavaFile file = (PsiJavaFile)aClass.getContainingFile();
-      if (!file.getClasses()[0].equals(aClass)) {
-        return;
-      }
-      final PsiImportList importList = file.getImportList();
-      if (importList == null) {
-        return;
-      }
-      final PsiImportStatement[] importStatements =
-        importList.getImportStatements();
-      for (PsiImportStatement importStatement : importStatements) {
-        checkImportStatement(importStatement, file);
-      }
-    }
-
-    private void checkImportStatement(PsiImportStatement importStatement,
-                                      PsiJavaFile file) {
-      final PsiJavaCodeReferenceElement reference =
-        importStatement.getImportReference();
+    public void visitImportStatement(PsiImportStatement statement) {
+      super.visitImportStatement(statement);
+      final PsiJavaCodeReferenceElement reference = statement.getImportReference();
       if (reference == null) {
         return;
       }
-      final String text = importStatement.getQualifiedName();
+      final String text = statement.getQualifiedName();
       if (text == null) {
         return;
       }
-      if (importStatement.isOnDemand()) {
+      if (statement.isOnDemand()) {
         if (HardcodedMethodConstants.JAVA_LANG.equals(text)) {
-          registerError(importStatement);
+          registerError(statement);
         }
       }
       else {
-        final int classNameIndex = text.lastIndexOf((int)'.');
+        final int classNameIndex = text.lastIndexOf('.');
         if (classNameIndex < 0) {
           return;
         }
-        final String parentName =
-          text.substring(0, classNameIndex);
+        final String parentName = text.substring(0, classNameIndex);
         if (!HardcodedMethodConstants.JAVA_LANG.equals(parentName)) {
           return;
         }
-        if (ImportUtils.hasOnDemandImportConflict(text, file)) {
+        if (ImportUtils.hasOnDemandImportConflict(text, statement)) {
           return;
         }
-        registerError(importStatement);
+        registerError(statement);
       }
     }
   }

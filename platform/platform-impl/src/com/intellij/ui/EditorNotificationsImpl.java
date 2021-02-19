@@ -1,37 +1,33 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
+import com.intellij.ProjectTopics;
+import com.intellij.internal.statistic.eventLog.FeatureUsageData;
+import com.intellij.internal.statistic.service.fus.collectors.FUCounterUsageLogger;
+import com.intellij.internal.statistic.utils.PluginInfo;
+import com.intellij.internal.statistic.utils.PluginInfoDetectorKt;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
-import com.intellij.openapi.fileEditor.FileEditor;
-import com.intellij.openapi.fileEditor.FileEditorManager;
-import com.intellij.openapi.fileEditor.FileEditorManagerAdapter;
-import com.intellij.openapi.fileEditor.FileEditorManagerListener;
-import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.progress.util.ProgressIndicatorBase;
-import com.intellij.openapi.progress.util.ProgressIndicatorUtils;
-import com.intellij.openapi.progress.util.ReadTask;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.impl.NonBlockingReadActionImpl;
+import com.intellij.openapi.extensions.ExtensionPointListener;
+import com.intellij.openapi.extensions.PluginDescriptor;
+import com.intellij.openapi.extensions.ProjectExtensionPointName;
+import com.intellij.openapi.fileEditor.*;
+import com.intellij.openapi.fileEditor.impl.text.AsyncEditorLoader;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ModuleRootEvent;
+import com.intellij.openapi.roots.ModuleRootListener;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.reference.SoftReference;
-import com.intellij.util.ConcurrencyUtil;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
+import com.intellij.refactoring.listeners.RefactoringElementAdapter;
+import com.intellij.refactoring.listeners.RefactoringElementListener;
+import com.intellij.refactoring.listeners.RefactoringElementListenerProvider;
+import com.intellij.util.SmartList;
+import com.intellij.util.concurrency.NonUrgentExecutor;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.ui.UIUtil;
@@ -39,29 +35,39 @@ import com.intellij.util.ui.update.MergingUpdateQueue;
 import com.intellij.util.ui.update.Update;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
-import java.lang.ref.WeakReference;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.ThreadPoolExecutor;
 
-/**
- * @author peter
- */
-public class EditorNotificationsImpl extends EditorNotifications {
-  private static final ExtensionPointName<Provider> EXTENSION_POINT_NAME = ExtensionPointName.create("com.intellij.editorNotificationProvider");
-  private static final Key<WeakReference<ProgressIndicator>> CURRENT_UPDATES = Key.create("CURRENT_UPDATES");
-  private final ThreadPoolExecutor myExecutor = ConcurrencyUtil.newSingleThreadExecutor("EditorNotifications executor");
+public final class EditorNotificationsImpl extends EditorNotifications {
+  public static final ProjectExtensionPointName<Provider<?>> EP_PROJECT = new ProjectExtensionPointName<>("com.intellij.editorNotificationProvider");
+  private static final Key<Boolean> PENDING_UPDATE = Key.create("pending.notification.update");
+
   private final MergingUpdateQueue myUpdateMerger;
+  private final @NotNull Project myProject;
 
-  public EditorNotificationsImpl(Project project) {
-    super(project);
-    myUpdateMerger = new MergingUpdateQueue("EditorNotifications update merger", 100, true, null, project);
-    MessageBusConnection connection = project.getMessageBus().connect(project);
-    connection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, new FileEditorManagerAdapter() {
+  public EditorNotificationsImpl(@NotNull Project project) {
+    myUpdateMerger = new MergingUpdateQueue("EditorNotifications update merger", 100, true, null, project)
+      .usePassThroughInUnitTestMode();
+    myProject = project;
+    MessageBusConnection connection = project.getMessageBus().connect();
+    connection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, new FileEditorManagerListener() {
       @Override
       public void fileOpened(@NotNull FileEditorManager source, @NotNull VirtualFile file) {
         updateNotifications(file);
+      }
+
+      @Override
+      public void selectionChanged(@NotNull FileEditorManagerEvent event) {
+        VirtualFile file = event.getNewFile();
+        FileEditor editor = event.getNewEditor();
+        if (file != null && editor != null && Boolean.TRUE.equals(editor.getUserData(PENDING_UPDATE))) {
+          editor.putUserData(PENDING_UPDATE, null);
+          updateEditors(file, Collections.singletonList(editor));
+        }
       }
     });
     connection.subscribe(DumbService.DUMB_MODE, new DumbService.DumbModeListener() {
@@ -75,109 +81,122 @@ public class EditorNotificationsImpl extends EditorNotifications {
         updateAllNotifications();
       }
     });
+    connection.subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
+      @Override
+      public void rootsChanged(@NotNull ModuleRootEvent event) {
+        updateAllNotifications();
+      }
+    });
 
+    EP_PROJECT.getPoint(project).addExtensionPointListener(
+      new ExtensionPointListener<>() {
+        @Override
+        public void extensionAdded(@NotNull Provider extension, @NotNull PluginDescriptor pluginDescriptor) {
+          updateAllNotifications();
+        }
+
+        @Override
+        public void extensionRemoved(@NotNull Provider extension, @NotNull PluginDescriptor pluginDescriptor) {
+          updateNotifications(extension);
+        }
+      }, false, null);
   }
 
   @Override
-  public void updateNotifications(@NotNull final VirtualFile file) {
-    UIUtil.invokeLaterIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        ProgressIndicator indicator = getCurrentProgress(file);
-        if (indicator != null) {
-          indicator.cancel();
-        }
-        file.putUserData(CURRENT_UPDATES, null);
+  public void updateNotifications(@NotNull Provider<?> provider) {
+    Key<? extends JComponent> key = provider.getKey();
+    for (VirtualFile file : FileEditorManager.getInstance(myProject).getOpenFiles()) {
+      List<FileEditor> editors = getEditors(file);
 
-        if (myProject.isDisposed() || !file.isValid()) {
-          return;
-        }
+      for (FileEditor editor : editors) {
+        updateNotification(editor, key, null, PluginInfoDetectorKt.getPluginInfo(provider.getClass()));
+      }
+    }
+  }
 
-        indicator = new ProgressIndicatorBase();
-        final ReadTask task = createTask(indicator, file);
-        if (task == null) return;
+  @Override
+  public void updateNotifications(@NotNull VirtualFile file) {
+    UIUtil.invokeLaterIfNeeded(() -> {
+      if (myProject.isDisposed() || !file.isValid()) {
+        return;
+      }
 
-        file.putUserData(CURRENT_UPDATES, new WeakReference<ProgressIndicator>(indicator));
-        if (ApplicationManager.getApplication().isUnitTestMode()) {
-          task.computeInReadAction(indicator);
-        }
-        else {
-          ProgressIndicatorUtils.scheduleWithWriteActionPriority(indicator, myExecutor, task);
+      List<FileEditor> editors = getEditors(file);
+
+      if (!ApplicationManager.getApplication().isHeadlessEnvironment()) {
+        Iterator<FileEditor> it = editors.iterator();
+        while (it.hasNext()) {
+          FileEditor e = it.next();
+          if (!e.getComponent().isShowing()) {
+            e.putUserData(PENDING_UPDATE, Boolean.TRUE);
+            it.remove();
+          }
         }
       }
+      if (!editors.isEmpty()) updateEditors(file, editors);
     });
   }
 
-  @Nullable
-  private ReadTask createTask(final ProgressIndicator indicator, @NotNull final VirtualFile file) {
-    final FileEditor[] editors = FileEditorManager.getInstance(myProject).getAllEditors(file);
-    if (editors.length == 0) return null;
+  private @NotNull List<FileEditor> getEditors(@NotNull VirtualFile file) {
+    return ContainerUtil.filter(
+      FileEditorManager.getInstance(myProject).getAllEditors(file),
+      editor -> !(editor instanceof TextEditor) || AsyncEditorLoader.isEditorLoaded(((TextEditor)editor).getEditor()));
+  }
 
-    return new ReadTask() {
-      private boolean isOutdated() {
-        if (myProject.isDisposed() || !file.isValid() || indicator != getCurrentProgress(file)) {
-          return true;
+  private void updateEditors(@NotNull VirtualFile file, List<FileEditor> editors) {
+    ReadAction
+      .nonBlocking(() -> calcNotificationUpdates(file, editors))
+      .expireWith(myProject)
+      .expireWhen(() -> !file.isValid())
+      .coalesceBy(this, file)
+      .finishOnUiThread(ModalityState.any(), updates -> {
+        for (Runnable update : updates) {
+          update.run();
+        }
+      })
+      .submit(NonUrgentExecutor.getInstance());
+  }
+
+  private @NotNull List<Runnable> calcNotificationUpdates(@NotNull VirtualFile file, @NotNull List<? extends FileEditor> editors) {
+    List<Provider<?>> providers = DumbService.getDumbAwareExtensions(myProject, EP_PROJECT);
+    List<Runnable> updates = null;
+    for (FileEditor editor : editors) {
+      for (Provider<?> provider : providers) {
+        // light project is not disposed in tests
+        if (myProject.isDisposed()) {
+          return Collections.emptyList();
         }
 
-        for (FileEditor editor : editors) {
-          if (!editor.isValid()) {
-            return true;
-          }
+        JComponent component = provider.createNotificationPanel(file, editor, myProject);
+        if (component instanceof EditorNotificationPanel) {
+          ((EditorNotificationPanel)component).setProviderKey(provider.getKey());
+          ((EditorNotificationPanel)component).setProject(myProject);
         }
-
-        return false;
-      }
-
-      @Override
-      public void computeInReadAction(@NotNull final ProgressIndicator indicator) {
-        if (isOutdated()) return;
-
-        final List<Runnable> updates = ContainerUtil.newArrayList();
-        for (final FileEditor editor : editors) {
-          for (final Provider<?> provider : Extensions.getExtensions(EXTENSION_POINT_NAME, myProject)) {
-            final JComponent component = provider.createNotificationPanel(file, editor);
-            updates.add(new Runnable() {
-              @Override
-              public void run() {
-                updateNotification(editor, provider.getKey(), component);
-              }
-            });
-          }
+        if (updates == null) {
+          updates = new SmartList<>();
         }
-
-        UIUtil.invokeLaterIfNeeded(new Runnable() {
-          @Override
-          public void run() {
-            if (!isOutdated()) {
-              file.putUserData(CURRENT_UPDATES, null);
-              for (Runnable update : updates) {
-                update.run();
-              }
-            }
-          }
+        updates.add(() -> {
+          updateNotification(editor, provider.getKey(), component, PluginInfoDetectorKt.getPluginInfo(provider.getClass()));
         });
       }
-
-      @Override
-      public void onCanceled(@NotNull ProgressIndicator ignored) {
-        if (getCurrentProgress(file) == indicator) {
-          updateNotifications(file);
-        }
-      }
-    };
+    }
+    return updates == null ? Collections.emptyList() : updates;
   }
 
-  private static ProgressIndicator getCurrentProgress(VirtualFile file) {
-    return SoftReference.dereference(file.getUserData(CURRENT_UPDATES));
-  }
-
-
-  private void updateNotification(@NotNull FileEditor editor, @NotNull Key<? extends JComponent> key, @Nullable JComponent component) {
+  private void updateNotification(@NotNull FileEditor editor,
+                                  @NotNull Key<? extends JComponent> key,
+                                  @Nullable JComponent component,
+                                  PluginInfo pluginInfo) {
     JComponent old = editor.getUserData(key);
     if (old != null) {
       FileEditorManager.getInstance(myProject).removeTopComponent(editor, old);
     }
     if (component != null) {
+      FeatureUsageData data = new FeatureUsageData()
+        .addData("key", key.toString())
+        .addPluginInfo(pluginInfo);
+      FUCounterUsageLogger.getInstance().logEvent(myProject, "editor.notification.panel", "shown", data);
+
       FileEditorManager.getInstance(myProject).addTopComponent(editor, component);
       @SuppressWarnings("unchecked") Key<JComponent> _key = (Key<JComponent>)key;
       editor.putUserData(_key, component);
@@ -188,14 +207,63 @@ public class EditorNotificationsImpl extends EditorNotifications {
   }
 
   @Override
+  public void logNotificationActionInvocation(@Nullable Key<?> providerKey, @Nullable Class<?> runnableClass) {
+    if (providerKey == null || runnableClass == null) return;
+
+    FeatureUsageData data = new FeatureUsageData()
+      .addData("key", providerKey.toString())
+      .addData("class_name", runnableClass.getName())
+      .addPluginInfo(PluginInfoDetectorKt.getPluginInfo(runnableClass));
+    FUCounterUsageLogger.getInstance().logEvent(myProject, "editor.notification.panel", "actionInvoked", data);
+  }
+
+  @Override
   public void updateAllNotifications() {
+    if (myProject.isDefault()) {
+      throw new UnsupportedOperationException("Editor notifications aren't supported for default project");
+    }
+    FileEditorManager fileEditorManager = FileEditorManager.getInstance(myProject);
+    if (fileEditorManager == null) {
+      throw new IllegalStateException("No FileEditorManager for " + myProject);
+    }
     myUpdateMerger.queue(new Update("update") {
       @Override
       public void run() {
-        for (VirtualFile file : FileEditorManager.getInstance(myProject).getOpenFiles()) {
+        for (VirtualFile file : fileEditorManager.getOpenFiles()) {
           updateNotifications(file);
         }
       }
     });
   }
+
+  public static class RefactoringListenerProvider implements RefactoringElementListenerProvider {
+    @Override
+    public @Nullable RefactoringElementListener getListener(final @NotNull PsiElement element) {
+      if (element instanceof PsiFile) {
+        return new RefactoringElementAdapter() {
+          @Override
+          protected void elementRenamedOrMoved(final @NotNull PsiElement newElement) {
+            if (newElement instanceof PsiFile) {
+              final VirtualFile vFile = newElement.getContainingFile().getVirtualFile();
+              if (vFile != null) {
+                EditorNotifications.getInstance(element.getProject()).updateNotifications(vFile);
+              }
+            }
+          }
+
+          @Override
+          public void undoElementMovedOrRenamed(final @NotNull PsiElement newElement, final @NotNull String oldQualifiedName) {
+            elementRenamedOrMoved(newElement);
+          }
+        };
+      }
+      return null;
+    }
+  }
+
+  @TestOnly
+  public static void completeAsyncTasks() {
+    NonBlockingReadActionImpl.waitForAsyncTaskCompletion();
+  }
+
 }

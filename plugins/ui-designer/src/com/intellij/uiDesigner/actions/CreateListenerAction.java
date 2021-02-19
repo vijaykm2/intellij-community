@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.uiDesigner.actions;
 
@@ -21,8 +7,12 @@ import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.generation.OverrideImplementExploreUtil;
 import com.intellij.codeInsight.generation.OverrideImplementUtil;
 import com.intellij.ide.DataManager;
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
@@ -34,13 +24,13 @@ import com.intellij.openapi.module.ModuleUtil;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.ListPopup;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.uiDesigner.FormEditingUtil;
 import com.intellij.uiDesigner.UIDesignerBundle;
@@ -66,9 +56,10 @@ import java.util.List;
  * @author yole
  */
 public class CreateListenerAction extends AbstractGuiEditorAction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.uiDesigner.actions.CreateListenerAction");
+  private static final Logger LOG = Logger.getInstance(CreateListenerAction.class);
 
-  protected void actionPerformed(final GuiEditor editor, final List<RadComponent> selection, final AnActionEvent e) {
+  @Override
+  protected void actionPerformed(final GuiEditor editor, final List<? extends RadComponent> selection, final AnActionEvent e) {
     final DefaultActionGroup actionGroup = prepareActionGroup(selection);
     final JComponent selectedComponent = selection.get(0).getDelegee();
     final DataContext context = DataManager.getInstance().getDataContext(selectedComponent);
@@ -79,7 +70,7 @@ public class CreateListenerAction extends AbstractGuiEditorAction {
     FormEditingUtil.showPopupUnderComponent(popup, selection.get(0));
   }
 
-  private DefaultActionGroup prepareActionGroup(final List<RadComponent> selection) {
+  private DefaultActionGroup prepareActionGroup(final List<? extends RadComponent> selection) {
     final DefaultActionGroup actionGroup = new DefaultActionGroup();
     final EventSetDescriptor[] eventSetDescriptors;
     try {
@@ -90,13 +81,8 @@ public class CreateListenerAction extends AbstractGuiEditorAction {
       LOG.error(e);
       return null;
     }
-    EventSetDescriptor[] sortedDescriptors = new EventSetDescriptor[eventSetDescriptors.length];
-    System.arraycopy(eventSetDescriptors, 0, sortedDescriptors, 0, eventSetDescriptors.length);
-    Arrays.sort(sortedDescriptors, new Comparator<EventSetDescriptor>() {
-      public int compare(final EventSetDescriptor o1, final EventSetDescriptor o2) {
-        return o1.getListenerType().getName().compareTo(o2.getListenerType().getName());
-      }
-    });
+    EventSetDescriptor[] sortedDescriptors = eventSetDescriptors.clone();
+    Arrays.sort(sortedDescriptors, Comparator.comparing(o -> o.getListenerType().getName()));
     for(EventSetDescriptor descriptor: sortedDescriptors) {
       actionGroup.add(new MyCreateListenerAction(selection, descriptor));
     }
@@ -104,11 +90,11 @@ public class CreateListenerAction extends AbstractGuiEditorAction {
   }
 
   @Override
-  protected void update(@NotNull GuiEditor editor, final ArrayList<RadComponent> selection, final AnActionEvent e) {
+  protected void update(@NotNull GuiEditor editor, final ArrayList<? extends RadComponent> selection, final AnActionEvent e) {
     e.getPresentation().setEnabled(canCreateListener(selection));
   }
 
-  private static boolean canCreateListener(final ArrayList<RadComponent> selection) {
+  private static boolean canCreateListener(final ArrayList<? extends RadComponent> selection) {
     if (selection.size() == 0) return false;
     final RadRootContainer root = (RadRootContainer)FormEditingUtil.getRoot(selection.get(0));
     if (root.getClassToBind() == null) return false;
@@ -120,30 +106,27 @@ public class CreateListenerAction extends AbstractGuiEditorAction {
     return true;
   }
 
-  private class MyCreateListenerAction extends AnAction {
-    private final List<RadComponent> mySelection;
+  private static @NlsSafe String getEventDescriptorName(EventSetDescriptor descriptor) {
+    return descriptor.getListenerType().getSimpleName();
+  }
+
+  private static class MyCreateListenerAction extends AnAction {
+    private final List<? extends RadComponent> mySelection;
     private final EventSetDescriptor myDescriptor;
     @NonNls private static final String LISTENER_SUFFIX = "Listener";
     @NonNls private static final String ADAPTER_SUFFIX = "Adapter";
 
-    public MyCreateListenerAction(final List<RadComponent> selection, EventSetDescriptor descriptor) {
-      super(descriptor.getListenerType().getSimpleName());
+    MyCreateListenerAction(final List<? extends RadComponent> selection, EventSetDescriptor descriptor) {
+      super(getEventDescriptorName(descriptor));
       mySelection = selection;
       myDescriptor = descriptor;
     }
 
-    public void actionPerformed(AnActionEvent e) {
+    @Override
+    public void actionPerformed(@NotNull AnActionEvent e) {
       CommandProcessor.getInstance().executeCommand(
         mySelection.get(0).getProject(),
-        new Runnable() {
-          public void run() {
-            ApplicationManager.getApplication().runWriteAction(new Runnable() {
-              public void run() {
-                createListener();
-              }
-            });
-          }
-        }, UIDesignerBundle.message("create.listener.command"), null
+        () -> ApplicationManager.getApplication().runWriteAction(() -> createListener()), UIDesignerBundle.message("create.listener.command"), null
       );
     }
 
@@ -211,7 +194,7 @@ public class CreateListenerAction extends AbstractGuiEditorAction {
 
         PsiStatement stmt = factory.createStatementFromText(builder.toString(), constructor);
         stmt = (PsiStatement)body.addAfter(stmt, body.getLastBodyElement());
-        JavaCodeStyleManager.getInstance(body.getProject()).shortenClassReferences(stmt);
+        stmt = (PsiStatement)JavaCodeStyleManager.getInstance(body.getProject()).shortenClassReferences(stmt);
 
         if (boundFields.length > 1) {
           PsiElement anchor = stmt;
@@ -224,31 +207,39 @@ public class CreateListenerAction extends AbstractGuiEditorAction {
           }
         }
 
-        final Ref<PsiClass> newClassRef = new Ref<PsiClass>();
-        stmt.accept(new JavaRecursiveElementWalkingVisitor() {
-          @Override
-          public void visitClass(PsiClass aClass) {
-            newClassRef.set(aClass);
-          }
-        });
-        final PsiClass newClass = newClassRef.get();
-        final SmartPsiElementPointer ptr = SmartPointerManager.getInstance(myClass.getProject()).createSmartPsiElementPointer(newClass);
-        final VirtualFile virtualFile = PsiUtilCore.getVirtualFile(newClass);
+        final SmartPsiElementPointer ptr = SmartPointerManager.getInstance(myClass.getProject()).createSmartPsiElementPointer(stmt);
+        final VirtualFile virtualFile = PsiUtilCore.getVirtualFile(myClass);
         final FileEditor[] fileEditors =
-          virtualFile != null ? FileEditorManager.getInstance(newClass.getProject()).openFile(virtualFile, true, true) : null;
+          virtualFile != null ? FileEditorManager.getInstance(myClass.getProject()).openFile(virtualFile, true, true) : null;
         IdeFocusManager.findInstance().doWhenFocusSettlesDown(new Runnable() {
+          @Override
           public void run() {
-            final PsiClass newClass = (PsiClass)ptr.getElement();
+            final PsiElement anonymousClassStatement = ptr.getElement();
+            if (anonymousClassStatement == null) {
+              return;
+            }
+
+            final Ref<PsiClass> newClassRef = new Ref<>();
+            anonymousClassStatement.accept(new JavaRecursiveElementWalkingVisitor() {
+              @Override
+              public void visitClass(PsiClass aClass) {
+                newClassRef.set(aClass);
+              }
+            });
+            final PsiClass newClass = newClassRef.get();
+
             final Editor editor = getEditor();
             if (editor != null && newClass != null) {
-              CommandProcessor.getInstance().executeCommand(myClass.getProject(), new Runnable() {
-                public void run() {
-                  if (!OverrideImplementExploreUtil.getMethodSignaturesToImplement(newClass).isEmpty()) {
-                    OverrideImplementUtil.chooseAndImplementMethods(newClass.getProject(), editor, newClass);
-                  }
-                  else {
-                    OverrideImplementUtil.chooseAndOverrideMethods(newClass.getProject(), editor, newClass);
-                  }
+              PsiElement brace = newClass.getLBrace();
+              if (brace != null) {
+                editor.getCaretModel().moveToOffset(brace.getTextOffset());
+              }
+              CommandProcessor.getInstance().executeCommand(myClass.getProject(), () -> {
+                if (!OverrideImplementExploreUtil.getMethodSignaturesToImplement(newClass).isEmpty()) {
+                  OverrideImplementUtil.chooseAndImplementMethods(newClass.getProject(), editor, newClass);
+                }
+                else {
+                  OverrideImplementUtil.chooseAndOverrideMethods(newClass.getProject(), editor, newClass);
                 }
               }, "", null);
             }
@@ -264,7 +255,7 @@ public class CreateListenerAction extends AbstractGuiEditorAction {
             }
             return null;
           }
-        });
+        }, ModalityState.current());
       }
       catch (IncorrectOperationException ex) {
         LOG.error(ex);
@@ -281,7 +272,7 @@ public class CreateListenerAction extends AbstractGuiEditorAction {
         return (PsiMethod) aClass.addBefore(newConstructor, firstMethod);
       }
       for(PsiMethod method: constructors) {
-        if (method.getParameterList().getParametersCount() == 0) {
+        if (method.getParameterList().isEmpty()) {
           return method;
         }
       }

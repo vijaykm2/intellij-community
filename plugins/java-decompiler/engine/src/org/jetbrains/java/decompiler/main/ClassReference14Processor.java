@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.decompiler.main;
 
 import org.jetbrains.java.decompiler.code.CodeConstants;
@@ -36,79 +22,48 @@ import org.jetbrains.java.decompiler.util.VBStyleCollection;
 import java.util.*;
 import java.util.Map.Entry;
 
-public class ClassReference14Processor {
+public final class ClassReference14Processor {
+  private static final ExitExprent BODY_EXPR;
+  private static final ExitExprent HANDLER_EXPR;
 
-  public final ExitExprent bodyexprent;
+  static {
+    InvocationExprent invFor = new InvocationExprent();
+    invFor.setName("forName");
+    invFor.setClassname("java/lang/Class");
+    invFor.setStringDescriptor("(Ljava/lang/String;)Ljava/lang/Class;");
+    invFor.setDescriptor(MethodDescriptor.parseDescriptor("(Ljava/lang/String;)Ljava/lang/Class;"));
+    invFor.setStatic(true);
+    invFor.setLstParameters(Collections.singletonList(new VarExprent(0, VarType.VARTYPE_STRING, null)));
+    BODY_EXPR = new ExitExprent(ExitExprent.EXIT_RETURN, invFor, VarType.VARTYPE_CLASS, null);
 
-  public final ExitExprent handlerexprent;
-
-
-  public ClassReference14Processor() {
-
-    InvocationExprent invfor = new InvocationExprent();
-    invfor.setName("forName");
-    invfor.setClassname("java/lang/Class");
-    invfor.setStringDescriptor("(Ljava/lang/String;)Ljava/lang/Class;");
-    invfor.setDescriptor(MethodDescriptor.parseDescriptor("(Ljava/lang/String;)Ljava/lang/Class;"));
-    invfor.setStatic(true);
-    invfor.setLstParameters(Arrays.asList(new Exprent[]{new VarExprent(0, VarType.VARTYPE_STRING, null)}));
-
-    bodyexprent = new ExitExprent(ExitExprent.EXIT_RETURN,
-                                  invfor,
-                                  VarType.VARTYPE_CLASS, null);
-
-    InvocationExprent constr = new InvocationExprent();
-    constr.setName(CodeConstants.INIT_NAME);
-    constr.setClassname("java/lang/NoClassDefFoundError");
-    constr.setStringDescriptor("()V");
-    constr.setFunctype(InvocationExprent.TYP_INIT);
-    constr.setDescriptor(MethodDescriptor.parseDescriptor("()V"));
-
-    NewExprent newexpr =
-      new NewExprent(new VarType(CodeConstants.TYPE_OBJECT, 0, "java/lang/NoClassDefFoundError"), new ArrayList<Exprent>(), null);
-    newexpr.setConstructor(constr);
-
-    InvocationExprent invcause = new InvocationExprent();
-    invcause.setName("initCause");
-    invcause.setClassname("java/lang/NoClassDefFoundError");
-    invcause.setStringDescriptor("(Ljava/lang/Throwable;)Ljava/lang/Throwable;");
-    invcause.setDescriptor(MethodDescriptor.parseDescriptor("(Ljava/lang/Throwable;)Ljava/lang/Throwable;"));
-    invcause.setInstance(newexpr);
-    invcause.setLstParameters(
-      Arrays.asList(new Exprent[]{new VarExprent(2, new VarType(CodeConstants.TYPE_OBJECT, 0, "java/lang/ClassNotFoundException"), null)}));
-
-    handlerexprent = new ExitExprent(ExitExprent.EXIT_THROW,
-                                     invcause,
-                                     null, null);
+    InvocationExprent ctor = new InvocationExprent();
+    ctor.setName(CodeConstants.INIT_NAME);
+    ctor.setClassname("java/lang/NoClassDefFoundError");
+    ctor.setStringDescriptor("()V");
+    ctor.setFunctype(InvocationExprent.TYP_INIT);
+    ctor.setDescriptor(MethodDescriptor.parseDescriptor("()V"));
+    NewExprent newExpr = new NewExprent(new VarType(CodeConstants.TYPE_OBJECT, 0, "java/lang/NoClassDefFoundError"), new ArrayList<>(), null);
+    newExpr.setConstructor(ctor);
+    InvocationExprent invCause = new InvocationExprent();
+    invCause.setName("initCause");
+    invCause.setClassname("java/lang/NoClassDefFoundError");
+    invCause.setStringDescriptor("(Ljava/lang/Throwable;)Ljava/lang/Throwable;");
+    invCause.setDescriptor(MethodDescriptor.parseDescriptor("(Ljava/lang/Throwable;)Ljava/lang/Throwable;"));
+    invCause.setInstance(newExpr);
+    invCause.setLstParameters(
+      Collections.singletonList(new VarExprent(2, new VarType(CodeConstants.TYPE_OBJECT, 0, "java/lang/ClassNotFoundException"), null)));
+    HANDLER_EXPR = new ExitExprent(ExitExprent.EXIT_THROW, invCause, null, null);
   }
 
-
-  public void processClassReferences(ClassNode node) {
-
-    ClassWrapper wrapper = node.getWrapper();
-
-    //		int major_version = wrapper.getClassStruct().major_version;
-    //		int minor_version = wrapper.getClassStruct().minor_version;
-    //
-    //		if(major_version > 48 || (major_version == 48 && minor_version > 0)) {
-    //			// version 1.5 or above
-    //			return;
-    //		}
-
-    if (wrapper.getClassStruct().isVersionGE_1_5()) {
-      // version 1.5 or above
-      return;
-    }
-
+  public static void processClassReferences(ClassNode node) {
     // find the synthetic method Class class$(String) if present
-    HashMap<ClassWrapper, MethodWrapper> mapClassMeths = new HashMap<ClassWrapper, MethodWrapper>();
+    Map<ClassWrapper, MethodWrapper> mapClassMeths = new HashMap<>();
     mapClassMethods(node, mapClassMeths);
-
     if (mapClassMeths.isEmpty()) {
       return;
     }
 
-    HashSet<ClassWrapper> setFound = new HashSet<ClassWrapper>();
+    Set<ClassWrapper> setFound = new HashSet<>();
     processClassRec(node, mapClassMeths, setFound);
 
     if (!setFound.isEmpty()) {
@@ -119,29 +74,21 @@ public class ClassReference14Processor {
     }
   }
 
-  private static void processClassRec(ClassNode node,
-                                      final HashMap<ClassWrapper, MethodWrapper> mapClassMeths,
-                                      final HashSet<ClassWrapper> setFound) {
-
-    final ClassWrapper wrapper = node.getWrapper();
+  private static void processClassRec(ClassNode node, Map<ClassWrapper, MethodWrapper> mapClassMeths, Set<? super ClassWrapper> setFound) {
+    ClassWrapper wrapper = node.getWrapper();
 
     // search code
     for (MethodWrapper meth : wrapper.getMethods()) {
-
       RootStatement root = meth.root;
       if (root != null) {
-
         DirectGraph graph = meth.getOrBuildGraph();
-
-        graph.iterateExprents(new DirectGraph.ExprentIterator() {
-          public int processExprent(Exprent exprent) {
-            for (Entry<ClassWrapper, MethodWrapper> ent : mapClassMeths.entrySet()) {
-              if (replaceInvocations(exprent, ent.getKey(), ent.getValue())) {
-                setFound.add(ent.getKey());
-              }
+        graph.iterateExprents(exprent -> {
+          for (Entry<ClassWrapper, MethodWrapper> ent : mapClassMeths.entrySet()) {
+            if (replaceInvocations(exprent, ent.getKey(), ent.getValue())) {
+              setFound.add(ent.getKey());
             }
-            return 0;
           }
+          return 0;
         });
       }
     }
@@ -173,7 +120,7 @@ public class ClassReference14Processor {
     }
   }
 
-  private void mapClassMethods(ClassNode node, Map<ClassWrapper, MethodWrapper> map) {
+  private static void mapClassMethods(ClassNode node, Map<ClassWrapper, MethodWrapper> map) {
     boolean noSynthFlag = DecompilerContext.getOption(IFernflowerPreferences.SYNTHETIC_NOT_SET);
 
     ClassWrapper wrapper = node.getWrapper();
@@ -196,8 +143,8 @@ public class ClassReference14Processor {
             BasicBlockStatement handler = (BasicBlockStatement)cst.getStats().get(1);
 
             if (body.getExprents().size() == 1 && handler.getExprents().size() == 1) {
-              if (bodyexprent.equals(body.getExprents().get(0)) &&
-                  handlerexprent.equals(handler.getExprents().get(0))) {
+              if (BODY_EXPR.equals(body.getExprents().get(0)) &&
+                  HANDLER_EXPR.equals(handler.getExprents().get(0))) {
                 map.put(wrapper, method);
                 break;
               }
@@ -213,13 +160,10 @@ public class ClassReference14Processor {
     }
   }
 
-
   private static boolean replaceInvocations(Exprent exprent, ClassWrapper wrapper, MethodWrapper meth) {
-
     boolean res = false;
 
     while (true) {
-
       boolean found = false;
 
       for (Exprent expr : exprent.getAllExprents()) {
@@ -242,9 +186,7 @@ public class ClassReference14Processor {
     return res;
   }
 
-
   private static String isClass14Invocation(Exprent exprent, ClassWrapper wrapper, MethodWrapper meth) {
-
     if (exprent.type == Exprent.EXPRENT_FUNCTION) {
       FunctionExprent fexpr = (FunctionExprent)exprent;
       if (fexpr.getFuncType() == FunctionExprent.FUNCTION_IIF) {

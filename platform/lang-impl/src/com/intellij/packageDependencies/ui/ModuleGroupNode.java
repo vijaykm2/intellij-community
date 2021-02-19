@@ -16,20 +16,17 @@
 
 package com.intellij.packageDependencies.ui;
 
-import com.intellij.analysis.AnalysisScopeBundle;
+import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.ide.projectView.impl.ModuleGroup;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.PlatformIcons;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.util.Set;
 
-/**
- * User: anna
- * Date: 24-Jan-2006
- */
 public class ModuleGroupNode extends PackageDependenciesNode {
   private final ModuleGroup myModuleGroup;
 
@@ -39,7 +36,7 @@ public class ModuleGroupNode extends PackageDependenciesNode {
   }
 
   @Override
-  public void fillFiles(Set<PsiFile> set, boolean recursively) {
+  public void fillFiles(Set<? super PsiFile> set, boolean recursively) {
     super.fillFiles(set, recursively);
     int count = getChildCount();
     for (int i = 0; i < count; i++) {
@@ -54,7 +51,7 @@ public class ModuleGroupNode extends PackageDependenciesNode {
   }
 
   public String toString() {
-    return myModuleGroup == null ? AnalysisScopeBundle.message("unknown.node.text") : myModuleGroup.toString();
+    return myModuleGroup == null ? CodeInsightBundle.message("unknown.node.text") : myModuleGroup.toString();
   }
 
   public String getModuleGroupName() {
@@ -79,5 +76,10 @@ public class ModuleGroupNode extends PackageDependenciesNode {
 
   public int hashCode() {
     return myModuleGroup == null ? 0 : myModuleGroup.hashCode();
+  }
+
+  @NotNull
+  public Project getProject() {
+    return myProject;
   }
 }

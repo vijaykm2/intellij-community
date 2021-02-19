@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2014 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2020 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,83 +15,117 @@
  */
 package com.siyeh.ipp.bool;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.IncorrectOperationException;
-import com.siyeh.IntentionPowerPackBundle;
+import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ig.psiutils.BoolUtils;
+import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ComparisonUtils;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
 import com.siyeh.ipp.base.MutablyNamedIntention;
 import com.siyeh.ipp.base.PsiElementPredicate;
-import com.siyeh.ipp.psiutils.BoolUtils;
 import org.jetbrains.annotations.NotNull;
 
 public class DemorgansIntention extends MutablyNamedIntention {
 
+  @Override
   protected String getTextForElement(PsiElement element) {
     final PsiPolyadicExpression binaryExpression = (PsiPolyadicExpression)element;
     final IElementType tokenType = binaryExpression.getOperationTokenType();
     if (tokenType.equals(JavaTokenType.ANDAND)) {
-      return IntentionPowerPackBundle.message("demorgans.intention.name1");
+      return CommonQuickFixBundle.message("fix.replace.x.with.y", "&&", "||");
     }
     else {
-      return IntentionPowerPackBundle.message("demorgans.intention.name2");
+      return CommonQuickFixBundle.message("fix.replace.x.with.y", "||", "&&");
     }
   }
 
+  @Override
   @NotNull
   public PsiElementPredicate getElementPredicate() {
     return new ConjunctionPredicate();
   }
 
-  public void processIntention(@NotNull PsiElement element) throws IncorrectOperationException {
+  @Override
+  public void processIntention(@NotNull PsiElement element) {
     final PsiPolyadicExpression polyadicExpression = (PsiPolyadicExpression)element;
-    final String newExpression = convertConjunctionExpression(polyadicExpression);
-    replaceExpressionWithNegatedExpressionString(newExpression, polyadicExpression);
+    final CommentTracker tracker = new CommentTracker();
+    final String newExpression = convertConjunctionExpression(polyadicExpression, tracker);
+    PsiReplacementUtil.replaceExpressionWithNegatedExpression(polyadicExpression, newExpression, tracker);
   }
 
-  private static String convertConjunctionExpression(PsiPolyadicExpression polyadicExpression) {
+  private static String convertConjunctionExpression(PsiPolyadicExpression polyadicExpression, CommentTracker tracker) {
     final IElementType tokenType = polyadicExpression.getOperationTokenType();
     final boolean tokenTypeAndAnd = tokenType.equals(JavaTokenType.ANDAND);
-    final String flippedConjunction = tokenTypeAndAnd ? "||" : "&&";
+    final String flippedToken = tokenTypeAndAnd ? "||" : "&&";
     final StringBuilder result = new StringBuilder();
-    for (PsiExpression operand : polyadicExpression.getOperands()) {
-      if (result.length() != 0) {
-        result.append(flippedConjunction);
+    for (PsiElement child : polyadicExpression.getChildren()) {
+      if (child instanceof PsiJavaToken) {
+        result.append(flippedToken);
       }
-      result.append(convertLeafExpression(operand, tokenTypeAndAnd));
+      else if (child instanceof PsiExpression) {
+        result.append(convertLeafExpression((PsiExpression)child, tokenTypeAndAnd, tracker));
+      }
+      else {
+        result.append(tracker.text(child));
+      }
     }
     return result.toString();
   }
 
-  private static String convertLeafExpression(PsiExpression expression, boolean tokenTypeAndAnd) {
+  private static String convertLeafExpression(PsiExpression expression, boolean tokenTypeAndAnd, CommentTracker tracker) {
     if (BoolUtils.isNegation(expression)) {
       final PsiExpression negatedExpression = BoolUtils.getNegated(expression);
       if (negatedExpression == null) {
         return "";
       }
-      if (tokenTypeAndAnd) {
-        if (ParenthesesUtils.getPrecedence(negatedExpression) > ParenthesesUtils.OR_PRECEDENCE) {
-          return '(' + negatedExpression.getText() + ')';
-        }
-      } else if (ParenthesesUtils.getPrecedence(negatedExpression) > ParenthesesUtils.AND_PRECEDENCE) {
-        return '(' + negatedExpression.getText() + ')';
+      if (negatedExpression instanceof PsiLiteralExpression) {
+        return safeText(negatedExpression);
       }
-      return negatedExpression.getText();
+      return tracker.text(negatedExpression, tokenTypeAndAnd ? ParenthesesUtils.OR_PRECEDENCE : ParenthesesUtils.AND_PRECEDENCE);
     }
     else if (ComparisonUtils.isComparison(expression)) {
       final PsiBinaryExpression binaryExpression = (PsiBinaryExpression)expression;
       final String negatedComparison = ComparisonUtils.getNegatedComparison(binaryExpression.getOperationTokenType());
       final PsiExpression lhs = binaryExpression.getLOperand();
       final PsiExpression rhs = binaryExpression.getROperand();
-      assert rhs != null;
-      return lhs.getText() + negatedComparison + rhs.getText();
+      if (rhs != null) {
+        final String lhsText = lhs instanceof PsiLiteralExpression ? safeText(lhs) : tracker.text(lhs);
+        final String rhsText = rhs instanceof PsiLiteralExpression ? safeText(rhs) : tracker.text(rhs);
+        return lhsText + negatedComparison + rhsText;
+      }
     }
-    else if (ParenthesesUtils.getPrecedence(expression) > ParenthesesUtils.PREFIX_PRECEDENCE) {
-      return "!(" + expression.getText() + ')';
+    if (expression instanceof PsiLiteralExpression) {
+      return '!' + safeText(expression);
     }
-    else {
-      return '!' + expression.getText();
+    return '!' + tracker.text(expression, ParenthesesUtils.PREFIX_PRECEDENCE);
+  }
+
+  private static String safeText(PsiExpression expression) {
+    if (!(expression instanceof PsiLiteralExpression)) {
+      throw new IllegalArgumentException();
     }
+    final String text = expression.getText(); // don't need CommentTracker because literal can't contain comment
+    final int length = text.length();
+    if (text.charAt(0) == '"') {
+      if (length == 1 || !text.endsWith("\"") || endsWithEscapedQuote(text)) {
+        return text + '"';
+      }
+    }
+    return text;
+  }
+
+  private static boolean endsWithEscapedQuote(String text) {
+    final int length = text.length();
+    if (text.charAt(length - 1) == '"') {
+      boolean escaped = false;
+      for (int i = length - 2; i > 0; i--) {
+        if (text.charAt(i) == '\\') escaped = !escaped;
+        else break;
+      }
+      return escaped;
+    }
+    return false;
   }
 }

@@ -16,6 +16,7 @@
 package org.jetbrains.idea.maven.plugins.api;
 
 import com.intellij.lang.Language;
+import com.intellij.lang.html.HTMLLanguage;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.InjectedLanguagePlaces;
 import com.intellij.psi.LanguageInjector;
@@ -35,6 +36,8 @@ public final class MavenPluginConfigurationLanguageInjector implements LanguageI
     final XmlText xmlText = (XmlText)host;
 
     if (!MavenPluginParamInfo.isSimpleText(xmlText)) return;
+
+    if (host.getContainingFile().getLanguage().is(HTMLLanguage.INSTANCE)) return;
 
     MavenPluginParamInfo.ParamInfoList infoList = MavenPluginParamInfo.getParamInfoList(xmlText);
     for (MavenPluginParamInfo.ParamInfo info : infoList) {

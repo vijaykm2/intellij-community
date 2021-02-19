@@ -16,12 +16,17 @@
 package com.intellij.openapi.vcs.history;
 
 import com.intellij.openapi.vcs.VcsException;
+import org.jetbrains.annotations.ApiStatus;
 
 public interface VcsAppendableHistorySessionPartner {
   void reportCreatedEmptySession(VcsAbstractHistorySession session);
-  void acceptRevision(final VcsFileRevision revision);
-  void reportException(final VcsException exception);
-  void finished();
-  void forceRefresh();
-  void beforeRefresh();
+  void acceptRevision(VcsFileRevision revision);
+  void reportException(VcsException exception);
+
+  /**
+   * @deprecated plugins do not need to and should not call this method.
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  default void finished() {}
 }

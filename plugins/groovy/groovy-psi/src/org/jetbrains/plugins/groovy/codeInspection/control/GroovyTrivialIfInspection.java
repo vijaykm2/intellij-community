@@ -19,12 +19,12 @@ import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiType;
-import com.intellij.psi.PsiWhiteSpace;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
@@ -39,18 +39,6 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpres
 
 public class GroovyTrivialIfInspection extends BaseInspection {
 
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Redundant 'if' statement";
-  }
-
-  @Override
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONTROL_FLOW;
-  }
-
   @NotNull
   @Override
   public BaseInspectionVisitor buildVisitor() {
@@ -58,13 +46,8 @@ public class GroovyTrivialIfInspection extends BaseInspection {
   }
 
   @Override
-  public boolean isEnabledByDefault() {
-    return true;
-  }
-
-  @Override
   public String buildErrorString(Object... args) {
-    return "#ref statement can be simplified #loc";
+    return GroovyBundle.message("inspection.message.ref.statement.can.be.simplified");
   }
 
   @Override
@@ -75,12 +58,12 @@ public class GroovyTrivialIfInspection extends BaseInspection {
   private static class TrivialIfFix extends GroovyFix {
     @Override
     @NotNull
-    public String getName() {
-      return "Simplify";
+    public String getFamilyName() {
+      return GroovyBundle.message("intention.family.name.simplify");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
+    public void doFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor)
         throws IncorrectOperationException {
       final PsiElement ifKeywordElement = descriptor.getPsiElement();
       final GrIfStatement statement =
@@ -109,8 +92,7 @@ public class GroovyTrivialIfInspection extends BaseInspection {
       final GrCondition condition = statement.getCondition();
       final String conditionText = condition.getText();
       final PsiElement nextStatement =
-          PsiTreeUtil.skipSiblingsForward(statement,
-              PsiWhiteSpace.class);
+        PsiTreeUtil.skipWhitespacesForward(statement);
       @NonNls final String newStatement = "return " + conditionText + ';';
       replaceStatement(statement, newStatement);
       assert nextStatement != null;
@@ -144,8 +126,7 @@ public class GroovyTrivialIfInspection extends BaseInspection {
     private static void replaceSimplifiableImplicitAssignment(GrIfStatement statement)
         throws IncorrectOperationException {
       final PsiElement prevStatement =
-          PsiTreeUtil.skipSiblingsBackward(statement,
-              PsiWhiteSpace.class);
+        PsiTreeUtil.skipWhitespacesBackward(statement);
       if (prevStatement == null) {
         return;
       }
@@ -166,15 +147,13 @@ public class GroovyTrivialIfInspection extends BaseInspection {
     private static void replaceSimplifiableImplicitAssignmentNegated(GrIfStatement statement)
         throws IncorrectOperationException {
       final PsiElement prevStatement =
-          PsiTreeUtil.skipSiblingsBackward(statement,
-              PsiWhiteSpace.class);
-      final GrCondition condition = statement.getCondition();
-      if (!(condition instanceof GrExpression)) {
+        PsiTreeUtil.skipWhitespacesBackward(statement);
+      final GrExpression condition = statement.getCondition();
+      if (condition == null) {
         return;
       }
-      final GrExpression expression = (GrExpression) condition;
       final String conditionText =
-          BoolUtils.getNegatedExpressionText(expression);
+          BoolUtils.getNegatedExpressionText(condition);
       final GrStatement thenBranch = statement.getThenBranch();
       final GrAssignmentExpression assignmentExpression =
           (GrAssignmentExpression) ConditionalUtils.stripBraces(thenBranch);
@@ -191,16 +170,14 @@ public class GroovyTrivialIfInspection extends BaseInspection {
 
     private static void replaceSimplifiableImplicitReturnNegated(GrIfStatement statement)
         throws IncorrectOperationException {
-      final GrCondition condition = statement.getCondition();
-      if (!(condition instanceof GrExpression)) {
+      final GrExpression condition = statement.getCondition();
+      if (condition == null) {
         return;
       }
-      final GrExpression expression = (GrExpression) condition;
       final String conditionText =
-          BoolUtils.getNegatedExpressionText(expression);
+          BoolUtils.getNegatedExpressionText(condition);
       final PsiElement nextStatement =
-          PsiTreeUtil.skipSiblingsForward(statement,
-              PsiWhiteSpace.class);
+        PsiTreeUtil.skipWhitespacesForward(statement);
       if (nextStatement == null) {
         return;
       }
@@ -211,26 +188,24 @@ public class GroovyTrivialIfInspection extends BaseInspection {
 
     private static void repaceSimplifiableReturnNegated(GrIfStatement statement)
         throws IncorrectOperationException {
-      final GrCondition condition = statement.getCondition();
-      if (!(condition instanceof GrExpression)) {
+      final GrExpression condition = statement.getCondition();
+      if (condition == null) {
         return;
       }
-      final GrExpression expression = (GrExpression) condition;
       final String conditionText =
-          BoolUtils.getNegatedExpressionText(expression);
+          BoolUtils.getNegatedExpressionText(condition);
       @NonNls final String newStatement = "return " + conditionText + ';';
       replaceStatement(statement, newStatement);
     }
 
     private static void replaceSimplifiableAssignmentNegated(GrIfStatement statement)
         throws IncorrectOperationException {
-      final GrCondition condition = statement.getCondition();
-      if (!(condition instanceof GrExpression)) {
+      final GrExpression condition = statement.getCondition();
+      if (condition == null) {
         return;
       }
-      final GrExpression expression = (GrExpression) condition;
       final String conditionText =
-          BoolUtils.getNegatedExpressionText(expression);
+          BoolUtils.getNegatedExpressionText(condition);
       final GrStatement thenBranch = statement.getThenBranch();
       final GrAssignmentExpression assignmentExpression =
           (GrAssignmentExpression) ConditionalUtils.stripBraces(thenBranch);
@@ -249,11 +224,11 @@ public class GroovyTrivialIfInspection extends BaseInspection {
     @Override
     public void visitIfStatement(@NotNull GrIfStatement ifStatement) {
       super.visitIfStatement(ifStatement);
-      final GrCondition condition = ifStatement.getCondition();
-      if (!(condition instanceof GrExpression)) {
+      final GrExpression condition = ifStatement.getCondition();
+      if (condition == null) {
         return;
       }
-      final PsiType type = ((GrExpression)condition).getType();
+      final PsiType type = condition.getType();
       if (type == null || !(PsiType.BOOLEAN.isAssignableFrom(type))) {
         return;
       }
@@ -304,8 +279,7 @@ public class GroovyTrivialIfInspection extends BaseInspection {
     GrStatement thenBranch = ifStatement.getThenBranch();
     thenBranch = ConditionalUtils.stripBraces(thenBranch);
     final PsiElement nextStatement =
-        PsiTreeUtil.skipSiblingsForward(ifStatement,
-            PsiWhiteSpace.class);
+      PsiTreeUtil.skipWhitespacesForward(ifStatement);
     if (!(nextStatement instanceof GrStatement)) {
       return false;
     }
@@ -323,8 +297,7 @@ public class GroovyTrivialIfInspection extends BaseInspection {
     thenBranch = ConditionalUtils.stripBraces(thenBranch);
 
     final PsiElement nextStatement =
-        PsiTreeUtil.skipSiblingsForward(ifStatement,
-            PsiWhiteSpace.class);
+      PsiTreeUtil.skipWhitespacesForward(ifStatement);
     if (!(nextStatement instanceof GrStatement)) {
       return false;
     }
@@ -408,8 +381,7 @@ public class GroovyTrivialIfInspection extends BaseInspection {
     GrStatement thenBranch = ifStatement.getThenBranch();
     thenBranch = ConditionalUtils.stripBraces(thenBranch);
     final PsiElement nextStatement =
-        PsiTreeUtil.skipSiblingsBackward(ifStatement,
-            PsiWhiteSpace.class);
+      PsiTreeUtil.skipWhitespacesBackward(ifStatement);
     if (!(nextStatement instanceof GrStatement)) {
       return false;
     }
@@ -443,8 +415,7 @@ public class GroovyTrivialIfInspection extends BaseInspection {
     GrStatement thenBranch = ifStatement.getThenBranch();
     thenBranch = ConditionalUtils.stripBraces(thenBranch);
     final PsiElement nextStatement =
-        PsiTreeUtil.skipSiblingsBackward(ifStatement,
-            PsiWhiteSpace.class);
+      PsiTreeUtil.skipWhitespacesBackward(ifStatement);
     if (!(nextStatement instanceof GrStatement)) {
       return false;
     }

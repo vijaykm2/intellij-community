@@ -14,29 +14,31 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: amrk
- * Date: Jul 24, 2005
- * Time: 9:54:02 PM
- */
 package com.theoryinpractice.testng.model;
 
-public class TestType
+import com.intellij.openapi.util.NlsContexts;
+import com.theoryinpractice.testng.TestngBundle;
+
+import java.util.function.Supplier;
+
+public enum TestType
 {
-    public static final TestType INVALID = new TestType("INVALID", -1);
-    public static final TestType PACKAGE = new TestType("PACKAGE", 0);
-    public static final TestType CLASS = new TestType("CLASS", 1);
-    public static final TestType METHOD = new TestType("METHOD", 2);
-    public static final TestType GROUP = new TestType("GROUP", 3);
-    public static final TestType SUITE = new TestType("SUITE", 4);
-    public static final TestType PATTERN = new TestType("PATTERN", 5);
+
+    PACKAGE("PACKAGE", () -> TestngBundle.message("label.all.in.package.test.type"), 0),
+    CLASS  ("CLASS", () -> TestngBundle.message("label.class.test.type"), 1),
+    METHOD ("METHOD", () -> TestngBundle.message("label.method.test.type"), 2),
+    GROUP  ("GROUP", () -> TestngBundle.message("label.group.test.type"), 3),
+    SUITE  ("SUITE", () -> TestngBundle.message("label.suite.test.type"), 4),
+    PATTERN("PATTERN", () -> TestngBundle.message("label.pattern.test.type"), 5),
+    SOURCE ("SOURCE", () -> TestngBundle.message("label.source.location.test.type"), 6);
     
     public final String type;
+    private final Supplier<@NlsContexts.Label String> presentableNameSupplier;
     public final int value;
 
-    private TestType(String type, int value) {
+    TestType(String type, Supplier<@NlsContexts.Label String> presentableNameSupplier, int value) {
         this.type = type;
+        this.presentableNameSupplier = presentableNameSupplier;
         this.value = value;
     }
 
@@ -47,36 +49,8 @@ public class TestType
     public int getValue() {
         return value;
     }
-    
-    public static TestType valueOf(String type)
-    {
-        if(INVALID.type.equals(type))
-        {
-            return INVALID;
-        }
-        if(PACKAGE.type.equals(type))
-        {
-            return PACKAGE;
-        }
-        if(CLASS.type.equals(type))
-        {
-            return CLASS;
-        }
-        if(METHOD.type.equals(type))
-        {
-            return METHOD;
-        }
-        if(GROUP.type.equals(type))
-        {
-            return GROUP;
-        }
-        if(SUITE.type.equals(type))
-        {
-            return SUITE;
-        }
-        if (PATTERN.type.equals(type)) {
-            return PATTERN;
-        }
-        throw new IllegalArgumentException("Invalid type requested " + type);
+
+    public @NlsContexts.Label String getPresentableName() {
+        return presentableNameSupplier.get();
     }
 }

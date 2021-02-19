@@ -24,7 +24,7 @@ import org.jetbrains.java.generate.psi.PsiAdapter;
 /**
  * Inserts the method after the hashCode/equals methods in the javafile.
  */
-public class InsertAfterEqualsHashCodeStrategy implements InsertNewMethodStrategy {
+public final class InsertAfterEqualsHashCodeStrategy implements InsertNewMethodStrategy {
 
     private static final InsertAfterEqualsHashCodeStrategy instance = new InsertAfterEqualsHashCodeStrategy();
 
@@ -34,6 +34,7 @@ public class InsertAfterEqualsHashCodeStrategy implements InsertNewMethodStrateg
         return instance;
     }
 
+    @Override
     public PsiMethod insertNewMethod(PsiClass clazz, @NotNull PsiMethod newMethod, Editor editor) {
         PsiMethod methodHashCode = PsiAdapter.findHashCodeMethod(clazz);
         PsiMethod methodEquals = PsiAdapter.findEqualsMethod(clazz);

@@ -18,16 +18,17 @@ package com.intellij.vcs.log.graph;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
+import java.util.List;
 
 /**
  */
-public interface RowInfo<CommitId> {
+public interface RowInfo<Id> {
 
   @NotNull
-  CommitId getCommit();
+  Id getCommit();
 
   @NotNull
-  CommitId getOneOfHeads();
+  Id getOneOfHeads();
 
   @NotNull
   Collection<? extends PrintElement> getPrintElements();
@@ -35,4 +36,6 @@ public interface RowInfo<CommitId> {
   @NotNull
   RowType getRowType();
 
+  @NotNull
+  List<Integer> getAdjacentRows(boolean parent);
 }

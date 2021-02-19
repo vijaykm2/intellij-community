@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,30 +17,34 @@ package org.jetbrains.plugins.groovy.refactoring.implExtQuickFix
 
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.psi.PsiFile
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 import org.jetbrains.plugins.groovy.annotator.intentions.ChangeExtendsImplementsQuickFix
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFileBase
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefinition
 import org.jetbrains.plugins.groovy.util.TestUtils
 /**
  * User: Dmitry.Krasilschikov
- * Date: 11.10.2007
  */
-public class ImplementsExtendsQuickFixTest extends LightCodeInsightFixtureTestCase {
+class ImplementsExtendsQuickFixTest extends LightJavaCodeInsightFixtureTestCase {
 
   final String basePath = TestUtils.testDataPath + "groovy/extendsImplementsFix/"
 
-  public void testClass1() { doTest() }
-  public void testExt1() { doTest() }
-  public void testImpl1() { doTest() }
-  public void testImpl2() { doTest() }
-  public void testImplext1() { doTest() }
-  public void testImplExt2() { doTest() }
-  public void testInterface1() { doTest() }
+  void testClass1() { doTest() }
+
+  void testExt1() { doTest() }
+
+  void testImpl1() { doTest() }
+
+  void testImpl2() { doTest() }
+
+  void testImplext1() { doTest() }
+
+  void testImplExt2() { doTest() }
+
+  void testInterface1() { doTest() }
 
 
-
-    public void doTest() {
+  void doTest() {
       final List<String> data = TestUtils.readInput(testDataPath + getTestName(true) + ".test")
       String fileText = data.get(0)
       final PsiFile psiFile = TestUtils.createPseudoPhysicalGroovyFile(project, fileText)

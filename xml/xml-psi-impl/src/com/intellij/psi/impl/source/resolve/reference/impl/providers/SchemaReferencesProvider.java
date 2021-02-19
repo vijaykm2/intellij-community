@@ -1,26 +1,15 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.resolve.reference.impl.providers;
 
-import com.intellij.codeInsight.daemon.EmptyResolveMessageProvider;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.psi.*;
+import com.intellij.psi.ElementManipulators;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiReference;
+import com.intellij.psi.PsiReferenceProvider;
 import com.intellij.psi.impl.source.xml.SchemaPrefixReference;
-import com.intellij.psi.xml.*;
-import com.intellij.util.ArrayUtil;
+import com.intellij.psi.xml.XmlAttribute;
+import com.intellij.psi.xml.XmlAttributeValue;
+import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ProcessingContext;
 import com.intellij.xml.impl.schema.XmlNSDescriptorImpl;
@@ -31,15 +20,13 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Pattern;
 
 /**
- * @by Maxim.Mossienko
+ * @author Maxim.Mossienko
  * @author Konstantin Bulenkov
  */
 public class SchemaReferencesProvider extends PsiReferenceProvider {
   @NonNls private static final String VALUE_ATTR_NAME = "value";
-  @NonNls private static final String PATTERN_TAG_NAME = "pattern";
   @NonNls static final String NAME_ATTR_NAME = "name";
 
   @NonNls static final String MEMBER_TYPES_ATTR_NAME = "memberTypes";
@@ -62,53 +49,6 @@ public class SchemaReferencesProvider extends PsiReferenceProvider {
       VALUE_ATTR_NAME, ITEM_TYPE_ATTR_NAME};
   }
 
-  static class RegExpReference extends BasicAttributeValueReference implements EmptyResolveMessageProvider {
-    private String message;
-
-    public RegExpReference(final PsiElement element) {
-      super(element);
-    }
-
-    private static final Pattern pattern = Pattern.compile("^(?:\\\\i|\\\\l)");
-    private static final Pattern pattern2 = Pattern.compile("([^\\\\])(?:\\\\i|\\\\l)");
-
-    @Override
-    @Nullable
-    public PsiElement resolve() {
-      try {
-        String text = getCanonicalText();
-
-        // \i and \l are special classes that does not present in java reg exps, so replace their occurences with more usable \w
-        text = pattern2.matcher(pattern.matcher(text).replaceFirst("\\\\w")).replaceAll("$1\\\\w");
-
-        Pattern.compile(text);
-        message = null;
-        return myElement;
-      }
-      catch (Exception e) {
-        message = PsiBundle.message("invalid.regular.expression.message", getCanonicalText());
-        return null;
-      }
-    }
-
-    @Override
-    @NotNull
-    public Object[] getVariants() {
-      return ArrayUtil.EMPTY_OBJECT_ARRAY;
-    }
-
-    @Override
-    public boolean isSoft() {
-      return false;
-    }
-
-    @Override
-    @NotNull
-    public String getUnresolvedMessagePattern() {
-      return message;
-    }
-  }
-
   public static class NameReference implements PsiReference {
     private final PsiElement myElement;
 
@@ -116,11 +56,13 @@ public class SchemaReferencesProvider extends PsiReferenceProvider {
       myElement = element;
     }
 
+    @NotNull
     @Override
     public PsiElement getElement() {
       return myElement;
     }
 
+    @NotNull
     @Override
     public TextRange getRangeInElement() {
       return ElementManipulators.getValueTextRange(myElement);
@@ -140,8 +82,8 @@ public class SchemaReferencesProvider extends PsiReferenceProvider {
     }
 
     @Override
-    public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
-      return ElementManipulators.getManipulator(myElement).handleContentChange(
+    public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
+      return ElementManipulators.handleContentChange(
         myElement,
         getRangeInElement(),
         newElementName.substring(newElementName.indexOf(':') + 1)
@@ -154,14 +96,8 @@ public class SchemaReferencesProvider extends PsiReferenceProvider {
     }
 
     @Override
-    public boolean isReferenceTo(PsiElement element) {
+    public boolean isReferenceTo(@NotNull PsiElement element) {
       return myElement.getManager().areElementsEquivalent(resolve(), element);
-    }
-
-    @Override
-    @NotNull
-    public Object[] getVariants() {
-      return ArrayUtil.EMPTY_OBJECT_ARRAY;
     }
 
     @Override
@@ -171,22 +107,17 @@ public class SchemaReferencesProvider extends PsiReferenceProvider {
   }
 
   @Override
-  @NotNull
-  public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull final ProcessingContext context) {
+  public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull final ProcessingContext context) {
     final PsiElement parent = element.getParent();
     if (!(parent instanceof XmlAttribute)) return PsiReference.EMPTY_ARRAY;
     final String attrName = ((XmlAttribute)parent).getName();
 
     if (VALUE_ATTR_NAME.equals(attrName)) {
-      if (PATTERN_TAG_NAME.equals(((XmlAttribute)parent).getParent().getLocalName())) {
-        return new PsiReference[] { new RegExpReference(element) };
-      } else {
-        return PsiReference.EMPTY_ARRAY;
-      }
+      return PsiReference.EMPTY_ARRAY;
     } else if (NAME_ATTR_NAME.equals(attrName)) {
       return new PsiReference[] { new NameReference(element) };
     } else if (MEMBER_TYPES_ATTR_NAME.equals(attrName)) {
-      final List<PsiReference> result = new ArrayList<PsiReference>(1);
+      final List<PsiReference> result = new ArrayList<>(1);
       final String text = element.getText();
       int lastIndex = 1;
       final int testLength = text.length();
@@ -199,7 +130,7 @@ public class SchemaReferencesProvider extends PsiReferenceProvider {
       }
 
       if (lastIndex != testLength - 1) result.add( new TypeOrElementOrAttributeReference(element, new TextRange(lastIndex, testLength - 1) ) );
-      return result.toArray(new PsiReference[result.size()]);
+      return result.toArray(PsiReference.EMPTY_ARRAY);
     } else {
       final PsiReference prefix = createSchemaPrefixReference(element);
       final PsiReference ref = createTypeOrElementOrAttributeReference(element, prefix == null ? null : prefix.getCanonicalText());
@@ -207,11 +138,11 @@ public class SchemaReferencesProvider extends PsiReferenceProvider {
     }
   }
 
-  public static PsiReference createTypeOrElementOrAttributeReference(final PsiElement element) {
+  public static PsiReference createTypeOrElementOrAttributeReference(@NotNull final PsiElement element) {
     return createTypeOrElementOrAttributeReference(element, null);
   }
 
-  public static PsiReference createTypeOrElementOrAttributeReference(final PsiElement element, String ns) {
+  public static PsiReference createTypeOrElementOrAttributeReference(@NotNull final PsiElement element, String ns) {
     final int length = element.getTextLength();
     int offset = (element instanceof XmlAttributeValue) ?
       XmlUtil.findPrefixByQualifiedName(((XmlAttributeValue)element).getValue()).length() : 0;

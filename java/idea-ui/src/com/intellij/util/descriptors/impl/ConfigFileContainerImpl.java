@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.util.descriptors.impl;
 
@@ -23,22 +9,17 @@ import com.intellij.openapi.util.MultiValuesMap;
 import com.intellij.openapi.util.SimpleModificationTracker;
 import com.intellij.openapi.vfs.*;
 import com.intellij.util.EventDispatcher;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.descriptors.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
-/**
- * @author nik
- */
-public class ConfigFileContainerImpl extends SimpleModificationTracker implements ConfigFileContainer {
+public final class ConfigFileContainerImpl extends SimpleModificationTracker implements ConfigFileContainer {
   private final Project myProject;
   private final EventDispatcher<ConfigFileListener> myDispatcher = EventDispatcher.create(ConfigFileListener.class);
-  private final MultiValuesMap<ConfigFileMetaData, ConfigFile> myConfigFiles = new MultiValuesMap<ConfigFileMetaData, ConfigFile>();
+  private final MultiValuesMap<ConfigFileMetaData, ConfigFile> myConfigFiles = new MultiValuesMap<>();
   private ConfigFile[] myCachedConfigFiles;
   private final ConfigFileMetaDataProvider myMetaDataProvider;
   private final ConfigFileInfoSetImpl myConfiguration;
@@ -48,7 +29,7 @@ public class ConfigFileContainerImpl extends SimpleModificationTracker implement
     myConfiguration = configuration;
     myMetaDataProvider = descriptorMetaDataProvider;
     myProject = project;
-    VirtualFileManager.getInstance().addVirtualFileListener(new VirtualFileAdapter() {
+    VirtualFileManager.getInstance().addVirtualFileListener(new VirtualFileListener() {
       @Override
       public void propertyChanged(@NotNull final VirtualFilePropertyEvent event) {
         if (event.getPropertyName().equals(VirtualFile.PROP_NAME)) {
@@ -77,18 +58,14 @@ public class ConfigFileContainerImpl extends SimpleModificationTracker implement
   @Override
   @Nullable
   public ConfigFile getConfigFile(ConfigFileMetaData metaData) {
-    final Collection<ConfigFile> descriptors = myConfigFiles.get(metaData);
-    if (descriptors == null || descriptors.isEmpty()) {
-      return null;
-    }
-    return descriptors.iterator().next();
+    return ContainerUtil.getFirstItem(myConfigFiles.get(metaData));
   }
 
   @Override
   public ConfigFile[] getConfigFiles() {
     if (myCachedConfigFiles == null) {
       final Collection<ConfigFile> descriptors = myConfigFiles.values();
-      myCachedConfigFiles = descriptors.toArray(new ConfigFile[descriptors.size()]);
+      myCachedConfigFiles = descriptors.toArray(ConfigFile.EMPTY_ARRAY);
     }
     return myCachedConfigFiles;
   }
@@ -103,7 +80,7 @@ public class ConfigFileContainerImpl extends SimpleModificationTracker implement
     myDispatcher.addListener(listener, parentDisposable);
   }
 
-  public void fireDescriptorChanged(final ConfigFile descriptor) {
+  void fireDescriptorChanged(@NotNull ConfigFile descriptor) {
     incModificationCount();
     myDispatcher.getMulticaster().configFileChanged(descriptor);
   }
@@ -132,18 +109,17 @@ public class ConfigFileContainerImpl extends SimpleModificationTracker implement
     return myMetaDataProvider;
   }
 
-  public void updateDescriptors(final MultiValuesMap<ConfigFileMetaData, ConfigFileInfo> descriptorsMap) {
-    Set<ConfigFile> toDelete = new HashSet<ConfigFile>(myConfigFiles.values());
-    Set<ConfigFile> added = new HashSet<ConfigFile>();
+  public void updateDescriptors(@NotNull MultiValuesMap<ConfigFileMetaData, ConfigFileInfo> descriptorsMap) {
+    Set<ConfigFile> toDelete = myConfigFiles.isEmpty() ? Collections.emptySet() : new HashSet<>(myConfigFiles.values());
+    Set<ConfigFile> added = null;
 
     for (Map.Entry<ConfigFileMetaData, Collection<ConfigFileInfo>> entry : descriptorsMap.entrySet()) {
       ConfigFileMetaData metaData = entry.getKey();
-      Set<ConfigFileInfo> newDescriptors = new HashSet<ConfigFileInfo>(entry.getValue());
+      Set<ConfigFileInfo> newDescriptors = new HashSet<>(entry.getValue());
       final Collection<ConfigFile> oldDescriptors = myConfigFiles.get(metaData);
       if (oldDescriptors != null) {
         for (ConfigFile descriptor : oldDescriptors) {
-          if (newDescriptors.contains(descriptor.getInfo())) {
-            newDescriptors.remove(descriptor.getInfo());
+          if (newDescriptors.remove(descriptor.getInfo())) {
             toDelete.remove(descriptor);
           }
         }
@@ -152,6 +128,9 @@ public class ConfigFileContainerImpl extends SimpleModificationTracker implement
         final ConfigFileImpl configFile = new ConfigFileImpl(this, configuration);
         Disposer.register(this, configFile);
         myConfigFiles.put(metaData, configFile);
+        if (added == null) {
+          added = new HashSet<>();
+        }
         added.add(configFile);
       }
     }
@@ -162,9 +141,11 @@ public class ConfigFileContainerImpl extends SimpleModificationTracker implement
     }
 
     myCachedConfigFiles = null;
-    for (ConfigFile configFile : added) {
-      incModificationCount();
-      myDispatcher.getMulticaster().configFileAdded(configFile);
+    if (added != null) {
+      for (ConfigFile configFile : added) {
+        incModificationCount();
+        myDispatcher.getMulticaster().configFileAdded(configFile);
+      }
     }
     for (ConfigFile configFile : toDelete) {
       incModificationCount();

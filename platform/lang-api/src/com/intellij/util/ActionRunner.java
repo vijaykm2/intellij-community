@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,50 +15,60 @@
  */
 package com.intellij.util;
 
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
-import com.intellij.openapi.application.RunResult;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.util.ThrowableComputable;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 
+/**
+ * @deprecated Use {@link WriteAction}
+ */
+@Deprecated
 public abstract class ActionRunner {
-  public static  void runInsideWriteAction(@NotNull final InterruptibleRunnable runnable) throws Exception {
-    RunResult result = new WriteAction() {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        runnable.run();
-      }
-    }.execute();
-    if (result.getThrowable() instanceof Exception) throw (Exception)result.getThrowable();
-    result.throwException();
-  }
-
-  public static <T> T runInsideWriteAction(@NotNull final InterruptibleRunnableWithResult<T> runnable) throws Exception {
-    RunResult<T> result = new WriteAction<T>() {
-      @Override
-      protected void run(@NotNull Result<T> result) throws Throwable {
-        result.setResult(runnable.run());
-      }
-    }.execute();
-    if (result.getThrowable() instanceof Exception) throw (Exception)result.getThrowable();
-    return result.throwException().getResultObject();
-  }
-
-  public static void runInsideReadAction(@NotNull final InterruptibleRunnable runnable) throws Exception {
-    ApplicationManager.getApplication().runReadAction(new ThrowableComputable<Void, Exception>() {
-      @Override
-      public Void compute() throws Exception {
-        runnable.run();
-        return null;
-      }
+  /**
+   * @deprecated use {@link WriteAction#run(ThrowableRunnable)} or {@link WriteAction#compute(ThrowableComputable)} instead
+   */
+  @Deprecated
+  public static void runInsideWriteAction(@NotNull final InterruptibleRunnable runnable) throws Exception {
+    WriteAction.computeAndWait(() -> {
+      runnable.run();
+      return null;
     });
   }
 
+  /**
+   * @deprecated use {@link WriteAction#run(ThrowableRunnable)} or {@link WriteAction#compute(ThrowableComputable)} instead
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public static <T> T runInsideWriteAction(@NotNull final InterruptibleRunnableWithResult<T> runnable) throws Exception {
+    return WriteAction.computeAndWait(() -> runnable.run());
+  }
+
+  /**
+   * @deprecated use {@link ReadAction#run(ThrowableRunnable)} or {@link ReadAction#compute(ThrowableComputable)} instead
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public static void runInsideReadAction(@NotNull final InterruptibleRunnable runnable) throws Exception {
+    ReadAction.run(() -> runnable.run());
+  }
+
+  /**
+   * @deprecated obsolete API
+   */
+  @Deprecated
   public interface InterruptibleRunnable {
     void run() throws Exception;
   }
+
+  /**
+   * @deprecated obsolete API
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public interface InterruptibleRunnableWithResult<T> {
     T run() throws Exception;
   }

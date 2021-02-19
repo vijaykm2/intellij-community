@@ -22,6 +22,7 @@ import com.intellij.openapi.roots.ui.configuration.artifacts.nodes.ArtifactsTree
 import com.intellij.packaging.artifacts.Artifact;
 import com.intellij.packaging.ui.*;
 import com.intellij.ui.treeStructure.SimpleNode;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,9 +30,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-/**
- * @author nik
- */
 public abstract class SourceItemNodeBase extends ArtifactsTreeNode {
   private Artifact myArtifact;
   private final ArtifactEditorEx myArtifactEditor;
@@ -48,7 +46,7 @@ public abstract class SourceItemNodeBase extends ArtifactsTreeNode {
   }
 
   @Override
-  protected void update(PresentationData presentation) {
+  protected void update(@NotNull PresentationData presentation) {
     final Artifact artifact = myArtifactEditor.getArtifact();
     if (!myArtifact.equals(artifact)) {
       myArtifact = artifact;
@@ -60,7 +58,7 @@ public abstract class SourceItemNodeBase extends ArtifactsTreeNode {
   protected SimpleNode[] buildChildren() {
     final PackagingSourceItemsProvider[] providers = PackagingSourceItemsProvider.EP_NAME.getExtensions();
     PackagingSourceItemFilter[] filters = PackagingSourceItemFilter.EP_NAME.getExtensions();
-    List<SimpleNode> children = new ArrayList<SimpleNode>();
+    List<SimpleNode> children = new ArrayList<>();
     for (PackagingSourceItemsProvider provider : providers) {
       final Collection<? extends PackagingSourceItem> items = provider.getSourceItems(myContext, myArtifact, getSourceItem());
       for (PackagingSourceItem item : items) {
@@ -69,11 +67,12 @@ public abstract class SourceItemNodeBase extends ArtifactsTreeNode {
         }
       }
     }
-    return children.isEmpty() ? NO_CHILDREN : children.toArray(new SimpleNode[children.size()]);
+    return children.isEmpty() ? NO_CHILDREN : children.toArray(new SimpleNode[0]);
   }
 
+  @Contract(pure = true)
   private static boolean isAvailable(@NotNull PackagingSourceItem item, @NotNull ArtifactEditorContext context,
-                                     @NotNull PackagingSourceItemFilter[] filters) {
+                                     PackagingSourceItemFilter @NotNull [] filters) {
     for (PackagingSourceItemFilter filter : filters) {
       if (!filter.isAvailable(item, context)) {
         return false;

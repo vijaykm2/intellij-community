@@ -16,6 +16,7 @@
 package com.intellij.uiDesigner.core;
 
 import com.intellij.uiDesigner.compiler.GridBagConverter;
+import com.intellij.util.lang.JavaVersion;
 import junit.framework.TestCase;
 
 import javax.swing.*;
@@ -534,10 +535,12 @@ public class GridBagConverterTest extends TestCase {
 
     applyConversionResults(panel, converter);
 
-    assertEquals(100, textArea.getPreferredSize().width);
+    int textAreaWidth = JavaVersion.current().feature >= 9 ? 101 : 100;
+
+    assertEquals(textAreaWidth, textArea.getPreferredSize().width);
 
     final Dimension initialPreferredSize = panel.getPreferredSize();
-    assertEquals(new Dimension(100,20 + textArea.getPreferredSize().height), initialPreferredSize);
+    assertEquals(new Dimension(textAreaWidth, 20 + textArea.getPreferredSize().height), initialPreferredSize);
 
     panel.setSize(initialPreferredSize);
     panel.invalidate();
@@ -890,8 +893,7 @@ public class GridBagConverterTest extends TestCase {
 
   private static void applyConversionResults(final JPanel panel, final GridBagConverter converter) {
     GridBagConverter.Result[] results = converter.convert();
-    for(int i=0; i<results.length; i++)  {
-      GridBagConverter.Result result = results [i];
+    for (GridBagConverter.Result result : results) {
       JComponent component = result.isFillerPanel ? new JPanel() : result.component;
       if (result.minimumSize != null) {
         component.setMinimumSize(result.minimumSize);

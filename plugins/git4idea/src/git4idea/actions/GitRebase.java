@@ -1,52 +1,70 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.actions;
 
+import com.intellij.dvcs.DvcsUtil;
+import com.intellij.dvcs.repo.Repository;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.Presentation;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.Task;
+import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
-import git4idea.commands.GitLineHandler;
+import git4idea.branch.GitRebaseParams;
 import git4idea.i18n.GitBundle;
 import git4idea.rebase.GitRebaseDialog;
+import git4idea.rebase.GitRebaseUtils;
+import git4idea.repo.GitRepository;
+import git4idea.repo.GitRepositoryManager;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
-/**
- * Git rebase action
- */
-public class GitRebase extends GitRebaseActionBase {
+import static com.intellij.dvcs.DvcsUtil.sortRepositories;
+import static git4idea.GitUtil.*;
+import static git4idea.rebase.GitRebaseUtils.getRebasingRepositories;
+import static java.util.Collections.singletonList;
 
-  /**
-   * {@inheritDoc}
-   */
-  @NotNull
-  protected String getActionName() {
-    return GitBundle.getString("rebase.action.name");
+public class GitRebase extends DumbAwareAction {
+
+  @Override
+  public void update(@NotNull AnActionEvent e) {
+    Project project = e.getProject();
+    Presentation presentation = e.getPresentation();
+    if (project == null || !hasGitRepositories(project) || !getRebasingRepositories(project).isEmpty()) {
+      presentation.setEnabledAndVisible(false);
+    }
+    else if (getRepositoriesInState(project, Repository.State.NORMAL).isEmpty()) {
+      presentation.setEnabled(false);
+    }
+    else {
+      presentation.setEnabledAndVisible(true);
+    }
   }
 
-  /**
-   * {@inheritDoc}
-   */
-  @Nullable
-  protected GitLineHandler createHandler(Project project, List<VirtualFile> gitRoots, VirtualFile defaultRoot) {
-    GitRebaseDialog dialog = new GitRebaseDialog(project, gitRoots, defaultRoot);
-    if (!dialog.showAndGet()) {
-      return null;
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    final Project project = e.getRequiredData(CommonDataKeys.PROJECT);
+    ArrayList<GitRepository> repositories = new ArrayList<>(getRepositories(project));
+    repositories.removeAll(getRebasingRepositories(project));
+    List<VirtualFile> roots = new ArrayList<>(getRootsFromRepositories(sortRepositories(repositories)));
+    VirtualFile defaultRoot = DvcsUtil.guessVcsRoot(project, e.getData(CommonDataKeys.VIRTUAL_FILE));
+    final GitRebaseDialog dialog = new GitRebaseDialog(project, roots, defaultRoot);
+    if (dialog.showAndGet()) {
+      VirtualFile root = dialog.gitRoot();
+      GitRebaseParams selectedParams = dialog.getSelectedParams();
+      ProgressManager.getInstance().run(new Task.Backgroundable(project, GitBundle.message("rebase.progress.indicator.title")) {
+        @Override
+        public void run(@NotNull ProgressIndicator indicator) {
+          GitRepository selectedRepository =
+            Objects.requireNonNull(GitRepositoryManager.getInstance(project).getRepositoryForRoot(root));
+          GitRebaseUtils.rebase(project, singletonList(selectedRepository), selectedParams, indicator);
+        }
+      });
     }
-    return dialog.handler();
   }
 }

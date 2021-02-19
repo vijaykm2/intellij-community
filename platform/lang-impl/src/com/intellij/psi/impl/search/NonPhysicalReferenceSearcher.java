@@ -1,6 +1,7 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.search;
 
-import com.intellij.ide.scratch.ScratchFileService;
+import com.intellij.ide.scratch.ScratchUtil;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.QueryExecutorBase;
 import com.intellij.openapi.fileEditor.FileEditorManager;
@@ -25,38 +26,49 @@ public class NonPhysicalReferenceSearcher extends QueryExecutorBase<PsiReference
     super(true);
   }
 
-  public void processQuery(@NotNull ReferencesSearch.SearchParameters queryParameters, @NotNull Processor<PsiReference> consumer) {
-    if (ApplicationManager.getApplication().isUnitTestMode()) return;
+  @Override
+  public void processQuery(@NotNull ReferencesSearch.SearchParameters queryParameters, @NotNull Processor<? super PsiReference> consumer) {
+    if (ApplicationManager.getApplication().isUnitTestMode()) {
+      return;
+    }
     final SearchScope scope = queryParameters.getScopeDeterminedByUser();
     final PsiElement element = queryParameters.getElementToSearch();
     final PsiFile containingFile = element.getContainingFile();
-    if (isPhysicalAndNonScratch(containingFile) && !(scope instanceof GlobalSearchScope)) return;
+    if (!(scope instanceof GlobalSearchScope) && !isApplicableTo(containingFile)) {
+      return;
+    }
     final LocalSearchScope currentScope;
     if (scope instanceof LocalSearchScope) {
-      if (queryParameters.isIgnoreAccessScope()) return;
+      if (queryParameters.isIgnoreAccessScope()) {
+        return;
+      }
       currentScope = (LocalSearchScope)scope;
     }
     else {
       currentScope = null;
     }
     Project project = element.getProject();
-    if (!project.isInitialized()) return; // skip default and other projects that look funny
-    PsiManager psiManager = PsiManager.getInstance(project);
-
+    if (!project.isInitialized()) {
+      return; // skip default and other projects that look weird
+    }
+    final PsiManager psiManager = PsiManager.getInstance(project);
     for (VirtualFile virtualFile : FileEditorManager.getInstance(project).getOpenFiles()) {
+      if (!virtualFile.isValid()) continue;
       if (virtualFile.getFileType().isBinary()) continue;
       PsiFile file = psiManager.findFile(virtualFile);
-
-      if (isPhysicalAndNonScratch(file)) continue;
-      LocalSearchScope newScope = new LocalSearchScope(file);
-      LocalSearchScope searchScope = currentScope == null ? newScope : newScope.intersectWith(currentScope);
-      ReferencesSearch.searchOptimized(element, searchScope, true, queryParameters.getOptimizer(), consumer);
+      if (isApplicableTo(file)) {
+        final LocalSearchScope fileScope = new LocalSearchScope(file);
+        final LocalSearchScope searchScope = currentScope == null ? fileScope : fileScope.intersectWith(currentScope);
+        ReferencesSearch.searchOptimized(element, searchScope, true, queryParameters.getOptimizer(), consumer);
+      }
     }
   }
 
-  private static boolean isPhysicalAndNonScratch(PsiFile file) {
-    if (file == null || file instanceof PsiCodeFragment) return true;
-    return file.getViewProvider().isPhysical() &&
-           ScratchFileService.getInstance().getRootType(file.getVirtualFile()) == null;
+  private static boolean isApplicableTo(PsiFile file) {
+    if (file == null) {
+      return false;
+    }
+    return (!file.getViewProvider().isPhysical() && !(file instanceof PsiCodeFragment)) ||
+           ScratchUtil.isScratch(file.getVirtualFile());
   }
 }

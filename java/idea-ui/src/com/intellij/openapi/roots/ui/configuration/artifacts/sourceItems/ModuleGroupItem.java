@@ -16,7 +16,8 @@
 package com.intellij.openapi.roots.ui.configuration.artifacts.sourceItems;
 
 import com.intellij.ide.projectView.PresentationData;
-import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.packaging.elements.PackagingElement;
 import com.intellij.packaging.ui.ArtifactEditorContext;
 import com.intellij.packaging.ui.PackagingSourceItem;
@@ -26,31 +27,28 @@ import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.PlatformIcons;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author nik
- */
 public class ModuleGroupItem extends PackagingSourceItem {
-  private final String myGroupName;
-  private final String[] myPath;
+  private final @NlsSafe String myGroupName;
+  private final List<String> myPath;
 
-  public ModuleGroupItem(String[] path) {
+  public ModuleGroupItem(@NotNull List<@NlsSafe String> path) {
     super(false);
-    myGroupName = path[path.length - 1];
+    myGroupName = path.get(path.size() - 1);
     myPath = path;
   }
 
   public boolean equals(Object obj) {
-    return obj instanceof ModuleGroupItem && Comparing.equal(myPath, ((ModuleGroupItem)obj).myPath);
+    return obj instanceof ModuleGroupItem && myPath.equals(((ModuleGroupItem)obj).myPath);
   }
 
   public int hashCode() {
-    return Arrays.hashCode(myPath);
+    return myPath.hashCode();
   }
 
+  @NotNull
   @Override
   public SourceItemPresentation createPresentation(@NotNull ArtifactEditorContext context) {
     return new ModuleGroupSourceItemPresentation(myGroupName);
@@ -62,14 +60,14 @@ public class ModuleGroupItem extends PackagingSourceItem {
     return Collections.emptyList();
   }
 
-  public String[] getPath() {
+  public List<String> getPath() {
     return myPath;
   }
 
   private static class ModuleGroupSourceItemPresentation extends SourceItemPresentation {
-    private final String myGroupName;
+    private final @NlsContexts.Label String myGroupName;
 
-    public ModuleGroupSourceItemPresentation(String groupName) {
+    ModuleGroupSourceItemPresentation(@NlsContexts.Label String groupName) {
       myGroupName = groupName;
     }
 

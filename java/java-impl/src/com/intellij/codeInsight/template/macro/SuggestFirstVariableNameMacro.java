@@ -15,7 +15,6 @@
  */
 package com.intellij.codeInsight.template.macro;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.template.Expression;
 import com.intellij.codeInsight.template.ExpressionContext;
 import com.intellij.psi.PsiElement;
@@ -35,15 +34,10 @@ public class SuggestFirstVariableNameMacro extends VariableOfTypeMacro {
   }
 
   @Override
-  public String getPresentableName() {
-    return CodeInsightBundle.message("macro.suggest.first.variable.name");
-  }
-
-  @Override
   protected PsiElement[] getVariables(Expression[] params, ExpressionContext context) {
     final PsiElement[] variables = super.getVariables(params, context);
     if (variables == null) return null;
-    final List<PsiElement> result = new ArrayList<PsiElement>();
+    final List<PsiElement> result = new ArrayList<>();
     final List<String> skip = Arrays.asList("true", "false", "this", "super");
     for (PsiElement variable : variables) {
       if (!skip.contains(variable.getText())) {

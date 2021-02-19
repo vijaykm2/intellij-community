@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,11 @@
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.daemon.QuickFixBundle;
+import com.intellij.codeInsight.intention.FileModifier;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.template.TemplateBuilderImpl;
 import com.intellij.codeInsight.template.TemplateManager;
+import com.intellij.codeInsight.template.impl.TextExpression;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -26,9 +28,10 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashSet;
+import com.siyeh.ig.psiutils.TypeUtils;
 import gnu.trove.TObjectIntHashMap;
 import org.jetbrains.annotations.NotNull;
 
@@ -40,7 +43,7 @@ import java.util.TreeSet;
 /**
 * @author Dmitry Batkovich
 */
-public class AddMissingRequiredAnnotationParametersFix implements IntentionAction {
+public final class AddMissingRequiredAnnotationParametersFix implements IntentionAction {
   private static final Logger LOG = Logger.getInstance(AddMissingRequiredAnnotationParametersFix.class);
 
   private final PsiAnnotation myAnnotation;
@@ -82,23 +85,22 @@ public class AddMissingRequiredAnnotationParametersFix implements IntentionActio
     final PsiNameValuePair[] addedParameters = myAnnotation.getParameterList().getAttributes();
 
     final TObjectIntHashMap<String> annotationsOrderMap = getAnnotationsOrderMap();
-    final SortedSet<Pair<String, PsiAnnotationMemberValue>>
-      newParameters = new TreeSet<Pair<String, PsiAnnotationMemberValue>>(new Comparator<Pair<String, PsiAnnotationMemberValue>>() {
-      @Override
-      public int compare(final Pair<String, PsiAnnotationMemberValue> o1, final Pair<String, PsiAnnotationMemberValue> o2) {
-        return annotationsOrderMap.get(o1.getFirst()) - annotationsOrderMap.get(o2.getFirst());
-      }
-    });
+    final SortedSet<Pair<String, PsiAnnotationMemberValue>> newParameters =
+      new TreeSet<>(Comparator.comparingInt(o -> annotationsOrderMap.get(o.getFirst())));
+
     final boolean order = isAlreadyAddedOrdered(annotationsOrderMap, addedParameters);
     if (order) {
       if (addedParameters.length != 0) {
         final PsiAnnotationParameterList parameterList = myAnnotation.getParameterList();
         parameterList.deleteChildRange(addedParameters[0], addedParameters[addedParameters.length - 1]);
         for (final PsiNameValuePair addedParameter : addedParameters) {
-          final String name = addedParameter.getName();
+          String name = addedParameter.getName();
           final PsiAnnotationMemberValue value = addedParameter.getValue();
-          if (name == null || value == null) {
-            LOG.error(String.format("Invalid annotation parameter name = %s, value = %s", name, value));
+          if (name == null) {
+            name = "value";
+          }
+          if (value == null) {
+            LOG.error(String.format("Invalid annotation parameter name = %s, value = %s", name, null));
             continue;
           }
           newParameters.add(Pair.create(name, value));
@@ -106,9 +108,21 @@ public class AddMissingRequiredAnnotationParametersFix implements IntentionActio
       }
     }
 
-    final PsiExpression nullValue = JavaPsiFacade.getElementFactory(project).createExpressionFromText(PsiKeyword.NULL, null);
-    for (final String misssedParameter : myMissedElements) {
-      newParameters.add(Pair.<String, PsiAnnotationMemberValue>create(misssedParameter, nullValue));
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
+    for (PsiMethod method : myAnnotationMethods) {
+      if (myMissedElements.contains(method.getName())) {
+        PsiType type = method.getReturnType();
+        String defaultValue;
+        if (TypeUtils.isJavaLangString(type)) {
+          defaultValue = "\"\"";
+        }
+        else if (type instanceof PsiArrayType) {
+          defaultValue = "{}";
+        } else {
+          defaultValue = TypeUtils.getDefaultValue(type);
+        }
+        newParameters.add(Pair.create(method.getName(), factory.createExpressionFromText(defaultValue, null)));
+      }
     }
 
     TemplateBuilderImpl builder = null;
@@ -119,9 +133,11 @@ public class AddMissingRequiredAnnotationParametersFix implements IntentionActio
         if (builder == null) {
           builder = new TemplateBuilderImpl(myAnnotation.getParameterList());
         }
-        builder.replaceElement(value, new EmptyExpression(), true);
+        builder.replaceElement(value, new TextExpression(newParameter.getSecond().getText()), true);
       }
     }
+    
+    if (!file.isPhysical()) return;
 
     editor.getCaretModel().moveToOffset(myAnnotation.getParameterList().getTextRange().getStartOffset());
     final PsiDocumentManager documentManager = PsiDocumentManager.getInstance(project);
@@ -139,7 +155,7 @@ public class AddMissingRequiredAnnotationParametersFix implements IntentionActio
   }
 
   private TObjectIntHashMap<String> getAnnotationsOrderMap() {
-    final TObjectIntHashMap<String> map = new TObjectIntHashMap<String>();
+    final TObjectIntHashMap<String> map = new TObjectIntHashMap<>();
     for (int i = 0; i < myAnnotationMethods.length; i++) {
       map.put(myAnnotationMethods[i].getName(), i);
     }
@@ -159,5 +175,11 @@ public class AddMissingRequiredAnnotationParametersFix implements IntentionActio
       previousOrder = currentOrder;
     }
     return true;
+  }
+
+  @Override
+  public @NotNull FileModifier getFileModifierForPreview(@NotNull PsiFile target) {
+    return new AddMissingRequiredAnnotationParametersFix(PsiTreeUtil.findSameElementInCopy(myAnnotation, target), myAnnotationMethods,
+                                                         myMissedElements);
   }
 }

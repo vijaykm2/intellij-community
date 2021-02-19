@@ -27,13 +27,6 @@ public class TestMethodInProductCodeInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "test.method.in.product.code.display.name");
-  }
-
-  @Override
-  @NotNull
   public String getID() {
     return "JUnitTestMethodInProductSource";
   }
@@ -57,7 +50,7 @@ public class TestMethodInProductCodeInspection extends BaseInspection {
     public void visitMethod(PsiMethod method) {
       final PsiClass containingClass = method.getContainingClass();
       if (TestUtils.isInTestSourceContent(containingClass) ||
-          !TestUtils.isJUnit4TestMethod(method)) {
+          !TestUtils.isAnnotatedTestMethod(method)) {
         return;
       }
       registerMethodError(method);

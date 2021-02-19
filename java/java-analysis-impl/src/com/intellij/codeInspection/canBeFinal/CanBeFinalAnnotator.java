@@ -19,20 +19,21 @@ import com.intellij.codeInsight.daemon.impl.analysis.JavaHighlightUtil;
 import com.intellij.codeInspection.reference.*;
 import com.intellij.psi.*;
 import com.intellij.psi.controlFlow.*;
+import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiTypesUtil;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UTypeReferenceExpression;
 
 import java.util.*;
 
-/**
- * User: anna
- * Date: 27-Dec-2005
- */
 class CanBeFinalAnnotator extends RefGraphAnnotatorEx {
   private final RefManager myManager;
-  public static long CAN_BE_FINAL_MASK;
+  static long CAN_BE_FINAL_MASK;
 
-  public CanBeFinalAnnotator(@NotNull RefManager manager) {
+  CanBeFinalAnnotator(@NotNull RefManager manager) {
     myManager = manager;
   }
 
@@ -46,15 +47,16 @@ class CanBeFinalAnnotator extends RefGraphAnnotatorEx {
     ((RefElementImpl)refElement).setFlag(true, CAN_BE_FINAL_MASK);
     if (refElement instanceof RefClass) {
       final RefClass refClass = (RefClass)refElement;
-      final PsiClass psiClass = refClass.getElement();
+      final UClass psiClass = refClass.getUastElement();
       if (refClass.isEntry()) {
         ((RefClassImpl)refClass).setFlag(false, CAN_BE_FINAL_MASK);
         return;
       }
       if (psiClass != null && !refClass.isSelfInheritor(psiClass)) {
-        for (PsiClass psiSuperClass : psiClass.getSupers()) {
-          if (myManager.belongsToScope(psiSuperClass)) {
-            RefClass refSuperClass = (RefClass)myManager.getReference(psiSuperClass);
+        for (UTypeReferenceExpression superRef : psiClass.getUastSuperTypes()) {
+          PsiElement psi = PsiTypesUtil.getPsiClass(superRef.getType());
+          if (myManager.belongsToScope(psi)) {
+            RefClass refSuperClass = (RefClass)myManager.getReference(psi);
             if (refSuperClass != null) {
               ((RefClassImpl)refSuperClass).setFlag(false, CAN_BE_FINAL_MASK);
             }
@@ -67,16 +69,17 @@ class CanBeFinalAnnotator extends RefGraphAnnotatorEx {
     }
     else if (refElement instanceof RefMethod) {
       final RefMethod refMethod = (RefMethod)refElement;
-      final PsiElement element = refMethod.getElement();
+      final PsiElement element = refMethod.getPsiElement();
       if (element instanceof PsiMethod) {
         PsiMethod psiMethod = (PsiMethod)element;
+        RefClass aClass = refMethod.getOwnerClass();
         if (refMethod.isConstructor() || refMethod.isAbstract() || refMethod.isStatic() ||
-            PsiModifier.PRIVATE.equals(refMethod.getAccessModifier()) || refMethod.getOwnerClass().isAnonymous() ||
-            refMethod.getOwnerClass().isInterface()) {
+            PsiModifier.PRIVATE.equals(refMethod.getAccessModifier()) || (aClass != null && aClass.isAnonymous()) ||
+            (aClass != null && aClass.isInterface())) {
           ((RefMethodImpl)refMethod).setFlag(false, CAN_BE_FINAL_MASK);
         }
         if (PsiModifier.PRIVATE.equals(refMethod.getAccessModifier()) && refMethod.getOwner() != null &&
-            !(refMethod.getOwnerClass().getOwner() instanceof RefElement)) {
+            !(aClass != null && aClass.getOwner() instanceof RefElement)) {
           ((RefMethodImpl)refMethod).setFlag(false, CAN_BE_FINAL_MASK);
         }
         for (PsiMethod psiSuperMethod : psiMethod.findSuperMethods()) {
@@ -89,6 +92,12 @@ class CanBeFinalAnnotator extends RefGraphAnnotatorEx {
         }
       }
     }
+    else if (refElement instanceof RefField) {
+      final PsiElement element = refElement.getPsiElement();
+      if (RefUtil.isImplicitWrite(element)) {
+        ((RefElementImpl)refElement).setFlag(false, CAN_BE_FINAL_MASK);
+      }
+    }
   }
 
 
@@ -97,39 +106,44 @@ class CanBeFinalAnnotator extends RefGraphAnnotatorEx {
                                RefElement refFrom,
                                boolean referencedFromClassInitializer,
                                boolean forReading,
-                               boolean forWriting) {
+                               boolean forWriting,
+                               PsiElement referenceElement) {
     if (!(refWhat instanceof RefField)) return;
     if (!(refFrom instanceof RefMethod) ||
         !((RefMethod)refFrom).isConstructor() ||
-        ((PsiField)refWhat.getElement()).hasInitializer() ||
+        ((RefField)refWhat).getUastElement().getUastInitializer() != null ||
         ((RefMethod)refFrom).getOwnerClass() != ((RefField)refWhat).getOwnerClass() ||
         ((RefField)refWhat).isStatic()) {
-      if (!referencedFromClassInitializer  && forWriting) {
+      if (forWriting &&
+          !(referencedFromClassInitializer && PsiTreeUtil.getParentOfType(referenceElement, PsiLambdaExpression.class, true) == null)) {
         ((RefFieldImpl)refWhat).setFlag(false, CAN_BE_FINAL_MASK);
       }
+    }
+    else if (forWriting && PsiTreeUtil.getParentOfType(referenceElement, PsiLambdaExpression.class, true) != null) {
+      ((RefFieldImpl)refWhat).setFlag(false, CAN_BE_FINAL_MASK);
     }
   }
 
   @Override
   public void onReferencesBuild(RefElement refElement) {
     if (refElement instanceof RefClass) {
-      final PsiClass psiClass = (PsiClass)refElement.getElement();
+      final PsiClass psiClass = ObjectUtils.tryCast(refElement.getPsiElement(), PsiClass.class);
       if (psiClass != null) {
 
         if (refElement.isEntry()) {
           ((RefClassImpl)refElement).setFlag(false, CAN_BE_FINAL_MASK);
         }
 
-        PsiMethod[] psiMethods = psiClass.getMethods();
+
         PsiField[] psiFields = psiClass.getFields();
 
-        Set<PsiVariable> allFields = new HashSet<PsiVariable>();
+        Set<PsiVariable> allFields = new HashSet<>();
         ContainerUtil.addAll(allFields, psiFields);
-        List<PsiVariable> instanceInitializerInitializedFields = new ArrayList<PsiVariable>();
-        boolean hasInitializers = false;
+        List<PsiVariable> instanceInitializerInitializedFields = new ArrayList<>();
+        Set<PsiField> fieldsInitializedInInitializers = null;
+
         for (PsiClassInitializer initializer : psiClass.getInitializers()) {
           PsiCodeBlock body = initializer.getBody();
-          hasInitializers = true;
           ControlFlow flow;
           try {
             flow = ControlFlowFactory.getInstance(body.getProject())
@@ -138,10 +152,13 @@ class CanBeFinalAnnotator extends RefGraphAnnotatorEx {
           catch (AnalysisCanceledException e) {
             flow = ControlFlow.EMPTY;
           }
-          Collection<PsiVariable> writtenVariables = new ArrayList<PsiVariable>();
+          Collection<PsiVariable> writtenVariables = new ArrayList<>();
           ControlFlowUtil.getWrittenVariables(flow, 0, flow.getSize(), false, writtenVariables);
+          if (fieldsInitializedInInitializers == null) {
+            fieldsInitializedInInitializers = new HashSet<>();
+          }
           for (PsiVariable psiVariable : writtenVariables) {
-            if (allFields.contains(psiVariable)) {
+            if (allFields.contains(psiVariable) && ControlFlowUtil.isVariableDefinitelyAssigned(psiVariable, flow)) {
               if (instanceInitializerInitializedFields.contains(psiVariable)) {
                 allFields.remove(psiVariable);
                 instanceInitializerInitializedFields.remove(psiVariable);
@@ -149,6 +166,7 @@ class CanBeFinalAnnotator extends RefGraphAnnotatorEx {
               else {
                 instanceInitializerInitializedFields.add(psiVariable);
               }
+              fieldsInitializedInInitializers.add((PsiField)psiVariable);
             }
           }
           for (PsiVariable psiVariable : writtenVariables) {
@@ -158,43 +176,41 @@ class CanBeFinalAnnotator extends RefGraphAnnotatorEx {
           }
         }
 
-        for (PsiMethod psiMethod : psiMethods) {
-          if (psiMethod.isConstructor()) {
-            PsiCodeBlock body = psiMethod.getBody();
-            if (body != null) {
-              hasInitializers = true;
-              ControlFlow flow;
-              try {
-                flow = ControlFlowFactory.getInstance(body.getProject())
-                  .getControlFlow(body, LocalsOrMyInstanceFieldsControlFlowPolicy.getInstance(), false);
-              }
-              catch (AnalysisCanceledException e) {
-                flow = ControlFlow.EMPTY;
-              }
+        for (PsiMethod constructor : psiClass.getConstructors()) {
+          PsiCodeBlock body = constructor.getBody();
+          if (body != null) {
+            ControlFlow flow;
+            try {
+              flow = ControlFlowFactory.getInstance(body.getProject())
+                .getControlFlow(body, LocalsOrMyInstanceFieldsControlFlowPolicy.getInstance(), false);
+            }
+            catch (AnalysisCanceledException e) {
+              flow = ControlFlow.EMPTY;
+            }
 
-              Collection<PsiVariable> writtenVariables = ControlFlowUtil.getWrittenVariables(flow, 0, flow.getSize(), false);
-              for (PsiVariable psiVariable : writtenVariables) {
-                if (instanceInitializerInitializedFields.contains(psiVariable)) {
-                  allFields.remove(psiVariable);
-                  instanceInitializerInitializedFields.remove(psiVariable);
-                }
+            Collection<PsiVariable> writtenVariables = ControlFlowUtil.getWrittenVariables(flow, 0, flow.getSize(), false);
+            for (PsiVariable psiVariable : writtenVariables) {
+              if (instanceInitializerInitializedFields.contains(psiVariable)) {
+                allFields.remove(psiVariable);
+                instanceInitializerInitializedFields.remove(psiVariable);
               }
-              List<PsiMethod> redirectedConstructors = JavaHighlightUtil.getChainedConstructors(psiMethod);
-              if (redirectedConstructors == null || redirectedConstructors.isEmpty()) {
-                List<PsiVariable> ssaVariables = ControlFlowUtil.getSSAVariables(flow);
-                ArrayList<PsiVariable> good = new ArrayList<PsiVariable>(ssaVariables);
-                good.addAll(instanceInitializerInitializedFields);
-                allFields.retainAll(good);
-              }
-              else {
-                allFields.removeAll(writtenVariables);
-              }
+            }
+            List<PsiMethod> redirectedConstructors = JavaHighlightUtil.getChainedConstructors(constructor);
+            if (redirectedConstructors.isEmpty()) {
+              List<PsiVariable> ssaVariables = ControlFlowUtil.getSSAVariables(flow);
+              ArrayList<PsiVariable> good = new ArrayList<>(ssaVariables);
+              good.addAll(instanceInitializerInitializedFields);
+              allFields.retainAll(good);
+            }
+            else {
+              allFields.removeAll(writtenVariables);
             }
           }
         }
 
         for (PsiField psiField : psiFields) {
-          if ((!hasInitializers || !allFields.contains(psiField)) && psiField.getInitializer() == null) {
+          if ((fieldsInitializedInInitializers != null && !fieldsInitializedInInitializers.contains(psiField) ||
+               !allFields.contains(psiField)) && psiField.getInitializer() == null) {
             final RefFieldImpl refField = (RefFieldImpl)myManager.getReference(psiField);
             if (refField != null) {
               refField.setFlag(false, CAN_BE_FINAL_MASK);

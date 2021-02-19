@@ -17,6 +17,7 @@ package org.jetbrains.plugins.groovy.codeInspection.assignment;
 
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.JavaTokenType;
 import com.intellij.psi.PsiElement;
@@ -26,6 +27,7 @@ import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
@@ -53,24 +55,12 @@ public class GroovyAssignmentCanBeOperatorAssignmentInspection
   public boolean ignoreObscureOperators = false;
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return ASSIGNMENT_ISSUES;
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Assignment replaceable with operator assignment";
-  }
-
-  @Override
   @NotNull
   public String buildErrorString(Object... infos) {
     final GrAssignmentExpression assignmentExpression =
-        (GrAssignmentExpression) infos[0];
-    return "<code>#ref</code> could be simplified to '" + calculateReplacementExpression(assignmentExpression) + "' #loc";
+      (GrAssignmentExpression)infos[0];
+    return GroovyBundle
+      .message("inspection.message.assignment.replaceable.with.operator.assignment", calculateReplacementExpression(assignmentExpression));
   }
 
   @Override
@@ -78,8 +68,8 @@ public class GroovyAssignmentCanBeOperatorAssignmentInspection
   public JComponent createOptionsPanel() {
     final MultipleCheckboxOptionsPanel optionsPanel =
         new MultipleCheckboxOptionsPanel(this);
-    optionsPanel.addCheckbox("Ignore conditional operators", "ignoreLazyOperators");
-    optionsPanel.addCheckbox("Ignore obscure operators", "ignoreObscureOperators");
+    optionsPanel.addCheckbox(GroovyBundle.message("checkbox.ignore.conditional.operators"), "ignoreLazyOperators");
+    optionsPanel.addCheckbox(GroovyBundle.message("checkbox.ignore.obscure.operators"), "ignoreObscureOperators");
     return optionsPanel;
   }
 
@@ -114,10 +104,10 @@ public class GroovyAssignmentCanBeOperatorAssignmentInspection
         (GrAssignmentExpression) location);
   }
 
-  private static class ReplaceAssignmentWithOperatorAssignmentFix
+  private static final class ReplaceAssignmentWithOperatorAssignmentFix
       extends GroovyFix {
 
-    private final String m_name;
+    private final @IntentionName String m_name;
 
     private ReplaceAssignmentWithOperatorAssignmentFix(
         GrAssignmentExpression expression) {
@@ -133,7 +123,14 @@ public class GroovyAssignmentCanBeOperatorAssignmentInspection
       } else if ("||".equals(signText)) {
         signText = "|";
       }
-      m_name = "Replace '=' with '" + signText + "='";
+      m_name = GroovyBundle.message("intention.name.replace.eq.with.0.eq", signText);
+    }
+
+    @Nls
+    @NotNull
+    @Override
+    public String getFamilyName() {
+      return GroovyBundle.message("intention.family.name.simplify");
     }
 
     @Override
@@ -144,7 +141,7 @@ public class GroovyAssignmentCanBeOperatorAssignmentInspection
 
     @Override
     public void doFix(@NotNull Project project,
-                      ProblemDescriptor descriptor)
+                      @NotNull ProblemDescriptor descriptor)
         throws IncorrectOperationException {
       final PsiElement element = descriptor.getPsiElement();
       if (!(element instanceof GrAssignmentExpression)) {
@@ -164,8 +161,7 @@ public class GroovyAssignmentCanBeOperatorAssignmentInspection
     @Override
     public void visitAssignmentExpression(@NotNull GrAssignmentExpression assignment) {
       super.visitAssignmentExpression(assignment);
-      final IElementType assignmentTokenType = assignment.getOperationTokenType();
-      if (!assignmentTokenType.equals(GroovyTokenTypes.mASSIGN)) {
+      if (assignment.isOperatorAssignment()) {
         return;
       }
       final GrExpression lhs = assignment.getLValue();

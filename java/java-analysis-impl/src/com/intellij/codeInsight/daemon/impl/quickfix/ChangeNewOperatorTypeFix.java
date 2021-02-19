@@ -1,24 +1,14 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
+import com.intellij.codeInsight.intention.FileModifier;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
+import com.intellij.codeInspection.RemoveRedundantTypeArgumentsUtil;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.project.Project;
@@ -31,11 +21,12 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.util.IncorrectOperationException;
+import com.siyeh.ig.psiutils.CommentTracker;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class ChangeNewOperatorTypeFix implements IntentionAction {
+public final class ChangeNewOperatorTypeFix implements IntentionAction {
   private final PsiType myType;
   private final PsiNewExpression myExpression;
 
@@ -60,7 +51,7 @@ public class ChangeNewOperatorTypeFix implements IntentionAction {
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
     return myType.isValid()
            && myExpression.isValid()
-           && myExpression.getManager().isInProject(myExpression)
+           && BaseIntentionAction.canModify(myExpression)
            && !TypeConversionUtil.isPrimitiveAndNotNull(myType)
            && (myType instanceof PsiArrayType || myExpression.getArgumentList() != null)
       ;
@@ -68,41 +59,41 @@ public class ChangeNewOperatorTypeFix implements IntentionAction {
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
     changeNewOperatorType(myExpression, myType, editor);
   }
 
   private static void changeNewOperatorType(PsiNewExpression originalExpression, PsiType toType, final Editor editor) throws IncorrectOperationException {
     PsiNewExpression newExpression;
-    PsiElementFactory factory = JavaPsiFacade.getInstance(originalExpression.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(originalExpression.getProject());
     int caretOffset;
     TextRange selection;
+    CommentTracker commentTracker = new CommentTracker();
     if (toType instanceof PsiArrayType) {
       final PsiExpression[] originalExpressionArrayDimensions = originalExpression.getArrayDimensions();
       caretOffset = 0;
-      @NonNls String text = "new " + toType.getDeepComponentType().getCanonicalText() + "[";
+      @NonNls StringBuilder text = new StringBuilder("new " + toType.getDeepComponentType().getCanonicalText() + "[");
       if (originalExpressionArrayDimensions.length > 0) {
-        text += originalExpressionArrayDimensions[0].getText();
+        text.append(commentTracker.text(originalExpressionArrayDimensions[0]));
       }
       else {
-        text += "0";
+        text.append("0");
         caretOffset = -2;
       }
-      text += "]";
+      text.append("]");
       for (int i = 1; i < toType.getArrayDimensions(); i++) {
-        text += "[";
+        text.append("[");
         String arrayDimension = "";
         if (originalExpressionArrayDimensions.length > i) {
-          arrayDimension = originalExpressionArrayDimensions[i].getText();
-          text += arrayDimension;
+          arrayDimension = commentTracker.text(originalExpressionArrayDimensions[i]);
+          text.append(arrayDimension);
         }
-        text += "]";
+        text.append("]");
         if (caretOffset < 0) {
-          caretOffset -= arrayDimension.length() + 2;
+          caretOffset -= 2;
         }
       }
 
-      newExpression = (PsiNewExpression)factory.createExpressionFromText(text, originalExpression);
+      newExpression = (PsiNewExpression)factory.createExpressionFromText(text.toString(), originalExpression);
       if (caretOffset < 0) {
         selection = new UnfairTextRange(caretOffset, caretOffset+1);
       } else {
@@ -114,10 +105,11 @@ public class ChangeNewOperatorTypeFix implements IntentionAction {
       newExpression = (PsiNewExpression)factory.createExpressionFromText("new " + toType.getCanonicalText() + "()" + (anonymousClass != null ? "{}" : ""), originalExpression);
       PsiExpressionList argumentList = originalExpression.getArgumentList();
       if (argumentList == null) return;
-      newExpression.getArgumentList().replace(argumentList);
+      newExpression.getArgumentList().replace(commentTracker.markUnchanged(argumentList));
       if (anonymousClass == null) { //just to prevent useless inference
         if (PsiDiamondTypeUtil.canCollapseToDiamond(newExpression, originalExpression, toType)) {
-          final PsiElement paramList = PsiDiamondTypeUtil.replaceExplicitWithDiamond(newExpression.getClassOrAnonymousClassReference().getParameterList());
+          final PsiElement paramList = RemoveRedundantTypeArgumentsUtil
+            .replaceExplicitWithDiamond(newExpression.getClassOrAnonymousClassReference().getParameterList());
           newExpression = PsiTreeUtil.getParentOfType(paramList, PsiNewExpression.class);
         }
       }
@@ -126,13 +118,19 @@ public class ChangeNewOperatorTypeFix implements IntentionAction {
         PsiAnonymousClass newAnonymousClass = newExpression.getAnonymousClass();
         final PsiElement childInside = anonymousClass.getLBrace().getNextSibling();
         if (childInside != null) {
+          PsiElement element = childInside;
+          do {
+            commentTracker.markUnchanged(element);
+          }
+          while ((element = element.getNextSibling()) != null);
+
           newAnonymousClass.addRange(childInside, anonymousClass.getRBrace().getPrevSibling());
         }
       }
       selection = null;
       caretOffset = -1;
     }
-    PsiElement element = originalExpression.replace(newExpression);
+    PsiElement element = commentTracker.replaceAndRestoreComments(originalExpression, newExpression);
     editor.getCaretModel().moveToOffset(element.getTextRange().getEndOffset() + caretOffset);
     editor.getScrollingModel().scrollToCaret(ScrollType.RELATIVE);
     if (selection != null) {
@@ -163,7 +161,7 @@ public class ChangeNewOperatorTypeFix implements IntentionAction {
         if (lClass != null) {
           PsiSubstitutor substitutor = getInheritorSubstitutorForNewExpression(lClass, rClass, lResolveResult.getSubstitutor(), expression);
           if (substitutor != null) {
-            newType = JavaPsiFacade.getInstance(lClass.getProject()).getElementFactory().createType(rClass, substitutor);
+            newType = JavaPsiFacade.getElementFactory(lClass.getProject()).createType(rClass, substitutor);
           }
         }
       }
@@ -200,5 +198,10 @@ public class ChangeNewOperatorTypeFix implements IntentionAction {
     }
 
     return inheritorSubstitutor;
+  }
+
+  @Override
+  public @NotNull FileModifier getFileModifierForPreview(@NotNull PsiFile target) {
+    return new ChangeNewOperatorTypeFix(myType, PsiTreeUtil.findSameElementInCopy(myExpression, target));
   }
 }

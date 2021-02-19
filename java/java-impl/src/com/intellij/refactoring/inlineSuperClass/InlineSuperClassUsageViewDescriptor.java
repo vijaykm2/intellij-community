@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 27-Aug-2008
- */
 package com.intellij.refactoring.inlineSuperClass;
 
 import com.intellij.psi.PsiClass;
@@ -32,11 +28,12 @@ public class InlineSuperClassUsageViewDescriptor extends UsageViewDescriptorAdap
     myClass = aClass;
   }
 
-  @NotNull
-  public PsiElement[] getElements() {
+  @Override
+  public PsiElement @NotNull [] getElements() {
     return new PsiElement[] {myClass};
   }
 
+  @Override
   public String getProcessedElementsHeader() {
     return null;
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2013 Bas Leijdekkers
+ * Copyright 2010-2017 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,21 +19,15 @@ import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.ExceptionUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
 public class ExpectedExceptionNeverThrownInspection extends BaseInspection {
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("expected.exception.never.thrown.display.name");
-  }
 
   @NotNull
   @Override
@@ -75,11 +69,7 @@ public class ExpectedExceptionNeverThrownInspection extends BaseInspection {
       final PsiClassObjectAccessExpression classObjectAccessExpression = (PsiClassObjectAccessExpression)value;
       final PsiTypeElement operand = classObjectAccessExpression.getOperand();
       final PsiType type = operand.getType();
-      if (!(type instanceof PsiClassType)) {
-        return;
-      }
-      final PsiClassType classType = (PsiClassType)type;
-      final PsiClass aClass = classType.resolve();
+      final PsiClass aClass = PsiUtil.resolveClassInClassTypeOnly(type);
       if (InheritanceUtil.isInheritor(aClass, CommonClassNames.JAVA_LANG_RUNTIME_EXCEPTION) ||
         InheritanceUtil.isInheritor(aClass, CommonClassNames.JAVA_LANG_ERROR)) {
         return;
@@ -87,7 +77,7 @@ public class ExpectedExceptionNeverThrownInspection extends BaseInspection {
 
       final List<PsiClassType> exceptionsThrown = ExceptionUtil.getThrownExceptions(body);
       for (PsiClassType psiClassType : exceptionsThrown) {
-        if (psiClassType.isAssignableFrom(classType)) {
+        if (psiClassType.isAssignableFrom(type)) {
           return;
         }
       }

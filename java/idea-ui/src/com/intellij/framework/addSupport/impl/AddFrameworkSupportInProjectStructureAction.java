@@ -19,6 +19,7 @@ import com.intellij.facet.Facet;
 import com.intellij.facet.impl.ProjectFacetsConfigurator;
 import com.intellij.framework.FrameworkTypeEx;
 import com.intellij.framework.addSupport.FrameworkSupportInModuleProvider;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.util.frameworkSupport.FrameworkSupportUtil;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.diagnostic.Logger;
@@ -32,25 +33,22 @@ import com.intellij.openapi.roots.ui.configuration.projectRoot.ModuleStructureCo
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author nik
- */
 public class AddFrameworkSupportInProjectStructureAction extends DumbAwareAction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.framework.addSupport.impl.AddFrameworkSupportInProjectStructureAction");
+  private static final Logger LOG = Logger.getInstance(AddFrameworkSupportInProjectStructureAction.class);
   private final FrameworkTypeEx myFrameworkType;
   private final FrameworkSupportInModuleProvider myProvider;
   @NotNull private final ModuleStructureConfigurable myModuleStructureConfigurable;
 
   public AddFrameworkSupportInProjectStructureAction(@NotNull FrameworkTypeEx frameworkType, @NotNull FrameworkSupportInModuleProvider provider,
                                                      @NotNull ModuleStructureConfigurable moduleStructureConfigurable) {
-    super(frameworkType.getPresentableName(), "Add " + frameworkType.getPresentableName() + " support", frameworkType.getIcon());
+    super(frameworkType.getPresentableName(), JavaUiBundle.message("action.description.add.0.support", frameworkType.getPresentableName()), frameworkType.getIcon());
     myFrameworkType = frameworkType;
     myProvider = provider;
     myModuleStructureConfigurable = moduleStructureConfigurable;
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     e.getPresentation().setVisible(isVisible());
   }
 
@@ -94,7 +92,7 @@ public class AddFrameworkSupportInProjectStructureAction extends DumbAwareAction
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Module module = getSelectedModule();
     if (module == null) return;
 

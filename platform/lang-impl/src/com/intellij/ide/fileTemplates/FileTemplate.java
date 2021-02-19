@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,13 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.intellij.ide.fileTemplates;
 
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import org.apache.velocity.runtime.parser.ParseException;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -28,38 +29,48 @@ import java.util.Properties;
 
 /**
  * @author MYakovlev
- * Date: Jul 24, 2002
  */
 public interface FileTemplate extends Cloneable {
   FileTemplate[] EMPTY_ARRAY = new FileTemplate[0];
-  
+
+  String ourEncoding = CharsetToolkit.UTF8;
+
   String ATTRIBUTE_EXCEPTION = "EXCEPTION";
   String ATTRIBUTE_EXCEPTION_TYPE = "EXCEPTION_TYPE";
   String ATTRIBUTE_DESCRIPTION = "DESCRIPTION";
   String ATTRIBUTE_DISPLAY_NAME = "DISPLAY_NAME";
 
+  String ATTRIBUTE_EXPRESSION = "EXPRESSION";
+  String ATTRIBUTE_EXPRESSION_TYPE = "EXPRESSION_TYPE";
+
   String ATTRIBUTE_RETURN_TYPE = "RETURN_TYPE";
   String ATTRIBUTE_DEFAULT_RETURN_VALUE = "DEFAULT_RETURN_VALUE";
   String ATTRIBUTE_CALL_SUPER = "CALL_SUPER";
+  String ATTRIBUTE_PLAIN_CALL_SUPER = "PLAIN_CALL_SUPER";
 
-  String ourEncoding = CharsetToolkit.UTF8;
   String ATTRIBUTE_CLASS_NAME = "CLASS_NAME";
   String ATTRIBUTE_SIMPLE_CLASS_NAME = "SIMPLE_CLASS_NAME";
   String ATTRIBUTE_METHOD_NAME = "METHOD_NAME";
   String ATTRIBUTE_PACKAGE_NAME = "PACKAGE_NAME";
+
   String ATTRIBUTE_NAME = "NAME";
+
+  /** Relative path of containing directory */
+  String ATTRIBUTE_DIR_PATH = "DIR_PATH";
+  /** File name with extension */
   String ATTRIBUTE_FILE_NAME = "FILE_NAME";
 
   /** Name without extension */
-  @NotNull String getName();
+  @NotNull @NlsSafe
+  String getName();
 
   void setName(@NotNull String name);
 
-  boolean isTemplateOfType(final FileType fType);
+  boolean isTemplateOfType(@NotNull FileType fType);
 
   boolean isDefault();
 
-  @NotNull
+  @NotNull @Nls
   String getDescription();
 
   @NotNull
@@ -68,12 +79,18 @@ public interface FileTemplate extends Cloneable {
   void setText(String text);
 
   @NotNull
-  String getText(Map attributes) throws IOException;
+  String getText(@NotNull Map attributes) throws IOException;
 
   @NotNull
-  String getText(Properties attributes) throws IOException;
+  String getText(@NotNull Properties attributes) throws IOException;
 
-  @NotNull String getExtension();
+  @NotNull
+  default String getFileName() { return ""; }
+
+  default void setFileName(@NotNull String fileName) {}
+
+  @NotNull
+  String getExtension();
 
   void setExtension(@NotNull String extension);
 
@@ -81,7 +98,16 @@ public interface FileTemplate extends Cloneable {
 
   void setReformatCode(boolean reformat);
 
+  boolean isLiveTemplateEnabled();
+
+  void setLiveTemplateEnabled(boolean value);
+
+  default FileTemplate @NotNull[] getChildren() { return EMPTY_ARRAY; }
+
+  default void setChildren(FileTemplate @NotNull[] children) {}
+
+  @NotNull
   FileTemplate clone();
 
-  @NotNull String[] getUnsetAttributes(@NotNull Properties properties, Project project) throws ParseException;
+  String @NotNull [] getUnsetAttributes(@NotNull Properties properties, @NotNull Project project) throws ParseException;
 }

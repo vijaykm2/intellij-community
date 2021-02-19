@@ -1,26 +1,19 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.util.ActionCallback;
 import com.intellij.util.ui.JBInsets;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import javax.swing.JComponent;
+import javax.accessibility.Accessible;
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
+import javax.swing.*;
 import java.awt.*;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
@@ -30,11 +23,10 @@ import java.util.Map.Entry;
  * @param <K>  the type of an object used as a key
  * @param <UI> the type of an object used to create a component
  * @param <V>  the type of a component to create
- *
- * @author Sergey.Malenkov
  */
-public abstract class CardLayoutPanel<K, UI, V extends Component> extends JComponent {
-  private final IdentityHashMap<K, V> myContent = new IdentityHashMap<K, V>();
+public abstract class CardLayoutPanel<K, UI, V extends Component> extends JComponent implements Accessible, Disposable {
+  private final IdentityHashMap<K, V> myContent = new IdentityHashMap<>();
+  private volatile boolean myDisposed;
   private K myKey;
 
   /**
@@ -56,7 +48,24 @@ public abstract class CardLayoutPanel<K, UI, V extends Component> extends JCompo
    */
   protected abstract V create(UI ui);
 
+  /**
+   * @deprecated override {@link #dispose(Object, Component)} instead
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.2")
   protected void dispose(K key) {
+  }
+
+  protected void dispose(K key, V value) {
+    dispose(key);
+  }
+
+  @Override
+  public void dispose() {
+    if (!myDisposed) {
+      myDisposed = true;
+      removeAll();
+    }
   }
 
   public K getKey() {
@@ -109,17 +118,18 @@ public abstract class CardLayoutPanel<K, UI, V extends Component> extends JCompo
   }
 
   private void selectLater(final ActionCallback callback, final K key) {
-    ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
-      @Override
-      public void run() {
-        final UI ui = prepare(key);
-        ApplicationManager.getApplication().invokeLater(new Runnable() {
-          @Override
-          public void run() {
-            select(callback, key, ui);
+    ModalityState modality = ModalityState.stateForComponent(this);
+    ApplicationManager.getApplication().executeOnPooledThread(() -> {
+      if (!myDisposed) {
+        final UI ui1 = prepare(key);
+        ApplicationManager.getApplication().invokeLater(() -> {
+          if (!myDisposed) {
+            select(callback, key, ui1);
           }
-        }, ModalityState.any());
+          else callback.setRejected();
+        }, modality);
       }
+      else callback.setRejected();
     });
   }
 
@@ -132,54 +142,96 @@ public abstract class CardLayoutPanel<K, UI, V extends Component> extends JCompo
     }
   }
 
+  private @Nullable Component getVisibleComponent() {
+    for (Component component : getComponents()) {
+      if (component.isVisible()) return component;
+    }
+    return null;
+  }
+
   @Override
   public Dimension getPreferredSize() {
-    if (isPreferredSizeSet()) {
-      return super.getPreferredSize();
-    }
-    for (Component component : getComponents()) {
-      if (component.isVisible()) {
-        return component.getPreferredSize();
-      }
-    }
-    return super.getPreferredSize();
+    Component component = isPreferredSizeSet() ? null : getVisibleComponent();
+    if (component == null) return super.getPreferredSize();
+    // preferred size of a visible component plus border insets of this panel
+    Dimension size = component.getPreferredSize();
+    JBInsets.addTo(size, getInsets()); // add border of this panel
+    return size;
   }
 
   @Override
   public Dimension getMinimumSize() {
-    if (isMinimumSizeSet()) {
-      return super.getMinimumSize();
-    }
-    for (Component component : getComponents()) {
-      if (component.isVisible()) {
-        return component.getMinimumSize();
-      }
-    }
-    return super.getMinimumSize();
+    Component component = isMinimumSizeSet() ? null : getVisibleComponent();
+    if (component == null) return super.getMinimumSize();
+    // minimum size of a visible component plus border insets of this panel
+    Dimension size = component.getMinimumSize();
+    JBInsets.addTo(size, getInsets());
+    return size;
   }
 
   @Override
   public void remove(int index) {
     super.remove(index);
     // dispose corresponding entries only
+    IdentityHashMap<K, V> map = new IdentityHashMap<>();
     Iterator<Entry<K, V>> it = myContent.entrySet().iterator();
     while (it.hasNext()) {
       Entry<K, V> entry = it.next();
       V value = entry.getValue();
       if (value != null && this != value.getParent()) {
-        dispose(entry.getKey());
+        map.put(entry.getKey(), value);
         it.remove();
       }
     }
+    // avoid ConcurrentModificationException
+    map.forEach(this::dispose);
+  }
+
+  @Nullable
+  protected final V resetValue(@NotNull K key) {
+    V content = myContent.remove(key);
+    if (content != null) {
+      for (Component component : getComponents()) {
+        if (component == content) {
+          remove(component);
+        }
+      }
+      if (myKey == key) {
+        //select again
+        myKey = null;
+        select(key, true);
+      }
+    }
+
+    return content;
   }
 
   @Override
   public void removeAll() {
     super.removeAll();
     // dispose all entries
-    for (K key : myContent.keySet()) {
-      dispose(key);
-    }
+    IdentityHashMap<K, V> map = new IdentityHashMap<>(myContent);
     myContent.clear();
+    // avoid ConcurrentModificationException
+    map.forEach(this::dispose);
+  }
+
+  @Override
+  public AccessibleContext getAccessibleContext() {
+    if (accessibleContext == null) {
+      accessibleContext = new AccessibleCardLayoutPanel();
+    }
+    return accessibleContext;
+  }
+
+  protected class AccessibleCardLayoutPanel extends AccessibleJComponent {
+    @Override
+    public AccessibleRole getAccessibleRole() {
+      return AccessibleRole.PANEL;
+    }
+  }
+
+  protected final boolean isDisposed() {
+    return myDisposed;
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.intention.HighPriorityAction;
 import com.intellij.codeInspection.LocalQuickFixAndIntentionActionOnPsiElement;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -24,12 +25,8 @@ import com.intellij.psi.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * User: anna
- * Date: 1/18/12
- */
 public class RemoveTypeArgumentsFix extends LocalQuickFixAndIntentionActionOnPsiElement implements HighPriorityAction {
-  private static final Logger LOGGER = Logger.getInstance("#" + RemoveTypeArgumentsFix.class.getName());
+  private static final Logger LOGGER = Logger.getInstance(RemoveTypeArgumentsFix.class);
 
   public RemoveTypeArgumentsFix(@NotNull PsiElement element) {
     super(element);
@@ -38,7 +35,7 @@ public class RemoveTypeArgumentsFix extends LocalQuickFixAndIntentionActionOnPsi
   @NotNull
   @Override
   public String getText() {
-    return "Remove type arguments";
+    return JavaAnalysisBundle.message("inspection.redundant.type.remove.quickfix");
   }
 
   @NotNull
@@ -52,13 +49,13 @@ public class RemoveTypeArgumentsFix extends LocalQuickFixAndIntentionActionOnPsi
                              @NotNull PsiFile file,
                              @NotNull PsiElement startElement,
                              @NotNull PsiElement endElement) {
-    return startElement instanceof PsiVariable && startElement.isValid() && ((PsiVariable)startElement).getTypeElement() != null;
+    return startElement instanceof PsiVariable && ((PsiVariable)startElement).getTypeElement() != null;
   }
 
   @Override
   public void invoke(@NotNull Project project,
                      @NotNull PsiFile file,
-                     @Nullable("is null when called from inspection") Editor editor,
+                     @Nullable Editor editor,
                      @NotNull PsiElement startElement,
                      @NotNull PsiElement endElement) {
     final PsiVariable psiVariable = (PsiVariable)startElement;

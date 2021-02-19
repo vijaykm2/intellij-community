@@ -17,7 +17,9 @@ package com.intellij.designer.componentTree;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
 import com.intellij.codeInsight.daemon.impl.SeverityRegistrar;
+import com.intellij.designer.DesignerBundle;
 import com.intellij.designer.actions.DesignerActionPanel;
+import com.intellij.designer.actions.SelectAllAction;
 import com.intellij.designer.actions.StartInplaceEditing;
 import com.intellij.designer.designSurface.DesignerEditorPanel;
 import com.intellij.designer.designSurface.EditableArea;
@@ -35,6 +37,7 @@ import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.ui.tree.TreeUtil;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -84,7 +87,7 @@ public final class ComponentTree extends Tree implements DataProvider {
       @Override
       public void actionPerformed(ActionEvent e) {
         if (myDesigner != null) {
-          myDesigner.getActionPanel().createSelectAllAction(myDesigner.getSurfaceArea()).actionPerformed(null);
+          ((SelectAllAction)myDesigner.getActionPanel().createSelectAllAction(myDesigner.getSurfaceArea())).perform();
         }
       }
     });
@@ -122,7 +125,7 @@ public final class ComponentTree extends Tree implements DataProvider {
   }
 
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (EditableArea.DATA_KEY.is(dataId)) {
       return myArea;
     }
@@ -243,7 +246,7 @@ public final class ComponentTree extends Tree implements DataProvider {
           if (myDesigner == null) {
             throw e;
           }
-          myDesigner.showError("Tree paint operation", e);
+          myDesigner.showError(DesignerBundle.message("designer.error.tree.paint.operation"), e);
         }
       }
     });
@@ -252,7 +255,7 @@ public final class ComponentTree extends Tree implements DataProvider {
   private static class InsertBorder extends LineBorder {
     private final int myMode;
 
-    public InsertBorder(int mode) {
+    InsertBorder(int mode) {
       super(Color.BLACK, 2);
       myMode = mode;
     }

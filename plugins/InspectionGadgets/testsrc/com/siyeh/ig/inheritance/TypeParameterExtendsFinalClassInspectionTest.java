@@ -2,15 +2,15 @@ package com.siyeh.ig.inheritance;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
 import com.intellij.testFramework.LightProjectDescriptor;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * @author bas
  */
-public class TypeParameterExtendsFinalClassInspectionTest extends LightInspectionTestCase {
+public class TypeParameterExtendsFinalClassInspectionTest extends LightJavaInspectionTestCase {
 
-  public void testTypeParameterExtendsFinalClass() throws Exception {
+  public void testTypeParameterExtendsFinalClass() {
     doTest();
   }
 
@@ -19,6 +19,7 @@ public class TypeParameterExtendsFinalClassInspectionTest extends LightInspectio
     return new TypeParameterExtendsFinalClassInspection();
   }
 
+  @Override
   @NotNull
   protected LightProjectDescriptor getProjectDescriptor() {
     return JAVA_1_7;

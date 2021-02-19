@@ -1,74 +1,86 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.testing;
 
-import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
-import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleServiceManager;
-import com.intellij.util.xmlb.XmlSerializerUtil;
+import com.jetbrains.python.defaultProjectAwareService.PyDefaultProjectAwareService;
+import com.jetbrains.python.defaultProjectAwareService.PyDefaultProjectAwareServiceModuleConfigurator;
+import com.jetbrains.python.defaultProjectAwareService.PyDefaultProjectAwareModuleConfiguratorImpl;
+import com.jetbrains.python.defaultProjectAwareService.PyDefaultProjectAwareServiceClasses;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * User: catherine
- */
-@State(
-  name = "TestRunnerService",
-  storages = @Storage(file = StoragePathMacros.MODULE_FILE)
-)
-public class TestRunnerService implements PersistentStateComponent<TestRunnerService> {
-  private List<String> myConfigurations = new ArrayList<String>();
-  public String PROJECT_TEST_RUNNER = "";
+abstract public class TestRunnerService
+  extends
+  PyDefaultProjectAwareService<TestRunnerService.ServiceState, TestRunnerService, TestRunnerService.AppService, TestRunnerService.ModuleService> {
 
-  public TestRunnerService() {
-    myConfigurations.add(PythonTestConfigurationsModel.PYTHONS_UNITTEST_NAME);
-    myConfigurations.add(PythonTestConfigurationsModel.PYTHONS_NOSETEST_NAME);
-    myConfigurations.add(PythonTestConfigurationsModel.PY_TEST_NAME);
-    myConfigurations.add(PythonTestConfigurationsModel.PYTHONS_ATTEST_NAME);
+  private static final PyDefaultProjectAwareServiceClasses<ServiceState, TestRunnerService, AppService, ModuleService>
+    SERVICE_CLASSES = new PyDefaultProjectAwareServiceClasses<>(AppService.class, ModuleService.class);
+  private static final TestRunnerDetector DETECTOR = new TestRunnerDetector();
+  private final List<String> myConfigurations = new ArrayList<>();
+
+  protected TestRunnerService() {
+    super(new ServiceState());
+    myConfigurations.add(PythonTestConfigurationsModel.getPythonsUnittestName());
+    for (final String framework : PyTestFrameworkService.getFrameworkNamesArray()) {
+      myConfigurations.add(PyTestFrameworkService.getSdkReadableNameByFramework(framework));
+    }
   }
 
-  public List<String> getConfigurations() {
+  @NotNull
+  public final List<String> getConfigurations() {
     return myConfigurations;
   }
 
-  @Override
-  public TestRunnerService getState() {
-    return this;
+
+  public final void setProjectConfiguration(@NotNull String projectConfiguration) {
+    getState().PROJECT_TEST_RUNNER = projectConfiguration;
   }
 
-  @Override
-  public void loadState(TestRunnerService state) {
-    XmlSerializerUtil.copyBean(state, this);
+  @NotNull
+  public static TestRunnerService getInstance(@Nullable Module module) {
+    return SERVICE_CLASSES.getService(module);
   }
 
-  public void setProjectConfiguration(String projectConfiguration) {
-    PROJECT_TEST_RUNNER = projectConfiguration;
+  @NotNull
+  public static PyDefaultProjectAwareServiceModuleConfigurator getConfigurator() {
+    return new PyDefaultProjectAwareModuleConfiguratorImpl<>(SERVICE_CLASSES, DETECTOR);
   }
 
-  public static TestRunnerService getInstance(@NotNull Module module) {
-    return ModuleServiceManager.getService(module, TestRunnerService.class);
+  @NotNull
+  public final String getProjectConfiguration() {
+    String runnerFromConfig = getState().PROJECT_TEST_RUNNER;
+    // User may have "py.test" in her .xml file
+    if ("py.test".equals(runnerFromConfig)) {
+      runnerFromConfig = "pytest";
+    }
+    return runnerFromConfig;
   }
 
-  public String getProjectConfiguration() {
-    return PROJECT_TEST_RUNNER.isEmpty() ? PythonTestConfigurationsModel.PYTHONS_UNITTEST_NAME : PROJECT_TEST_RUNNER;
+  static final class ServiceState {
+    @NotNull
+    public String PROJECT_TEST_RUNNER;
+
+    ServiceState(@NotNull String projectTestRunner) {
+      assert !projectTestRunner.isEmpty();
+      PROJECT_TEST_RUNNER = projectTestRunner;
+    }
+
+    ServiceState() {
+      this(PythonTestConfigurationsModel.getPythonsUnittestName());
+    }
   }
 
+
+  @State(name = "AppTestRunnerService", storages = @Storage("TestRunnerService.xml"))
+  static final class AppService extends TestRunnerService {
+  }
+
+  @State(name = "TestRunnerService")
+  static final class ModuleService extends TestRunnerService {
+  }
 }

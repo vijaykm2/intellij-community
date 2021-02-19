@@ -1,3 +1,4 @@
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.junit;
 
 import com.intellij.codeInsight.AnnotationUtil;
@@ -7,24 +8,11 @@ import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * User: ddt
- * Date: 5/22/13
- */
 public class JUnitDatapointInspection extends BaseInspection {
   public static final String DATAPOINT_FQN = "org.junit.experimental.theories.DataPoint";
-
-
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("junit.datapoint.display.name");
-  }
 
   @NotNull
   @Override
@@ -53,13 +41,18 @@ public class JUnitDatapointInspection extends BaseInspection {
 
       private <T extends PsiMember & PsiNameIdentifierOwner> void visitMember(T member,
                                                                               final String memberDescription) {
-        final boolean dataPointAnnotated = AnnotationUtil.isAnnotated(member, DATAPOINT_FQN, false);
+        final boolean dataPointAnnotated = AnnotationUtil.isAnnotated(member, DATAPOINT_FQN, 0);
         if (dataPointAnnotated) {
-          final String errorMessage = JUnitRuleInspection.getPublicStaticErrorMessage(member, false, true);
-          if (errorMessage != null) {
+          final String errorMessage = JUnitErrorMessageKt.getPublicStaticErrorMessage(
+            member.hasModifierProperty(PsiModifier.STATIC),
+            member.hasModifierProperty(PsiModifier.PUBLIC),
+            true
+          );
+          if (!errorMessage.isEmpty()) {
             final PsiElement identifier = member.getNameIdentifier();
             registerError(identifier != null ? identifier : member,
-                          InspectionGadgetsBundle.message("junit.datapoint.problem.descriptor", errorMessage, StringUtil.capitalize(memberDescription)),
+                          InspectionGadgetsBundle
+                            .message("junit.datapoint.problem.descriptor", errorMessage, StringUtil.capitalize(memberDescription)),
                           "Make " + memberDescription + " " + errorMessage, DATAPOINT_FQN);
           }
         }

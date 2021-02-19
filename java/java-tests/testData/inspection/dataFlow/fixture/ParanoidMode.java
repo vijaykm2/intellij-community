@@ -4,15 +4,15 @@ class Test {
   Object o;
 
   void field() {
-    <warning descr="Method invocation 'o.hashCode()' may produce 'java.lang.NullPointerException'">o.hashCode()</warning>;
+    o.<warning descr="Method invocation 'hashCode' may produce 'NullPointerException' (unknown nullability)">hashCode</warning>();
   }
 
   void parameter(Object o) {
-    <warning descr="Method invocation 'o.hashCode()' may produce 'java.lang.NullPointerException'">o.hashCode()</warning>;
+    o.<warning descr="Method invocation 'hashCode' may produce 'NullPointerException' (unknown nullability)">hashCode</warning>();
   }
 
   void callUnknownMethod() {
-    <warning descr="Method invocation 'unknownObject().hashCode()' may produce 'java.lang.NullPointerException'">unknownObject().hashCode()</warning>;
+    unknownObject().<warning descr="Method invocation 'hashCode' may produce 'NullPointerException' (unknown nullability)">hashCode</warning>();
   }
 
   void callNotNullMethod() {
@@ -23,4 +23,14 @@ class Test {
 
   @NotNull
   native Object knownObject();
+}
+
+enum DemoEnum {
+  TEST, DEMO, DEMO_1;
+
+  public static DemoEnum testMethod(String value){
+    for (DemoEnum demoEnum : DemoEnum.values()) {
+    }
+    return null;
+  }
 }

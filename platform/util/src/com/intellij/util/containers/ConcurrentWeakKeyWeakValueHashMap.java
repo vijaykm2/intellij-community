@@ -1,29 +1,7 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * Created by IntelliJ IDEA.
- * User: Alexey
- * Date: 18.12.2006
- * Time: 20:18:31
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.containers;
 
-import com.intellij.openapi.util.Comparing;
-import gnu.trove.TObjectHashingStrategy;
+import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.ref.ReferenceQueue;
@@ -33,59 +11,57 @@ import java.lang.ref.WeakReference;
  * Concurrent map with weak keys and weak values.
  * Null keys are NOT allowed
  * Null values are NOT allowed
- * @deprecated Use {@link ContainerUtil#createConcurrentWeakKeyWeakValueMap()} instead
+ * Use {@link ContainerUtil#createConcurrentWeakKeyWeakValueMap()} to create this
  */
-class ConcurrentWeakKeyWeakValueHashMap<K, V> extends ConcurrentWeakKeySoftValueHashMap<K,V> {
+final class ConcurrentWeakKeyWeakValueHashMap<K, V> extends ConcurrentWeakKeySoftValueHashMap<K,V> {
   ConcurrentWeakKeyWeakValueHashMap(int initialCapacity,
                                     float loadFactor,
                                     int concurrencyLevel,
-                                    @NotNull final TObjectHashingStrategy<K> hashingStrategy) {
+                                    @NotNull final HashingStrategy<? super K> hashingStrategy) {
     super(initialCapacity, loadFactor, concurrencyLevel, hashingStrategy);
   }
 
-  private static class WeakValue<K, V> extends WeakReference<V> implements ValueReference<K,V> {
-   @NotNull private volatile KeyReference<K, V> myKeyReference; // can't make it final because of circular dependency of KeyReference to ValueReference
-   private final int myHash; // Hashcode of key, stored here since the key may be tossed by the GC
-   private WeakValue(@NotNull V value, @NotNull ReferenceQueue<V> queue) {
-     super(value, queue);
-     myHash = value.hashCode();
-   }
+  private static final class WeakValue<K, V> extends WeakReference<V> implements ValueReference<K,V> {
+    @NotNull private volatile KeyReference<K, V> myKeyReference; // can't make it final because of circular dependency of KeyReference to ValueReference
+    private WeakValue(@NotNull V value, @NotNull ReferenceQueue<? super V> queue) {
+      super(value, queue);
+    }
 
-   // MUST work with gced references too for the code in processQueue to work
-   @Override
-   public final boolean equals(final Object o) {
-     if (this == o) return true;
-     if (o == null) return false;
+    // When referent is collected, equality should be identity-based (for the processQueues() remove this very same SoftValue)
+    // otherwise it's just canonical equals on referents for replace(K,V,V) to work
+    @Override
+    public final boolean equals(final Object o) {
+      if (this == o) return true;
+      if (o == null) return false;
 
-     ValueReference that = (ValueReference)o;
+      V v = get();
+      //noinspection unchecked
+      V thatV = ((ValueReference<K, V>)o).get();
+      return v != null && v.equals(thatV);
+    }
 
-     return myHash == that.hashCode() && Comparing.equal(get(), that.get());
-   }
-
-   @Override
-   public final int hashCode() {
-     return myHash;
-   }
-
-   @NotNull
-   @Override
-   public KeyReference<K, V> getKeyReference() {
-     return myKeyReference;
-   }
+    @NotNull
+    @Override
+    public KeyReference<K, V> getKeyReference() {
+      return myKeyReference;
+    }
  }
 
+  @Override
   @NotNull
-  protected KeyReference<K,V> createKeyReference(@NotNull K k, @NotNull final V v) {
-    final ValueReference<K, V> valueReference = createValueReference(v, myValueQueue);
-    WeakKey<K, V> keyReference = new WeakKey<K, V>(k, valueReference, myHashingStrategy, myKeyQueue);
+  KeyReference<K,V> createKeyReference(@NotNull K k, @NotNull final V v) {
+    ValueReference<K, V> valueReference = createValueReference(v, myValueQueue);
+    WeakKey<K, V> keyReference = new WeakKey<>(k, valueReference, myHashingStrategy, myKeyQueue);
     if (valueReference instanceof WeakValue) {
-      ((WeakValue)valueReference).myKeyReference = keyReference;
+      ((WeakValue<K, V>)valueReference).myKeyReference = keyReference;
     }
+    ObjectUtils.reachabilityFence(k);
     return keyReference;
   }
 
+  @Override
   @NotNull
-  protected ValueReference<K, V> createValueReference(@NotNull V value, @NotNull ReferenceQueue<V> queue) {
-    return new WeakValue<K, V>(value, queue);
+  protected ValueReference<K, V> createValueReference(@NotNull V value, @NotNull ReferenceQueue<? super V> queue) {
+    return new WeakValue<>(value, queue);
   }
 }

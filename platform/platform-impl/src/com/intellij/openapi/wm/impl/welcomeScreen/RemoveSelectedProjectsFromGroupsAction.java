@@ -15,11 +15,13 @@
  */
 package com.intellij.openapi.wm.impl.welcomeScreen;
 
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.ProjectGroup;
 import com.intellij.ide.RecentProjectsManager;
 import com.intellij.ide.ReopenProjectAction;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
@@ -28,11 +30,11 @@ import java.util.List;
  */
 public class RemoveSelectedProjectsFromGroupsAction extends RecentProjectsWelcomeScreenActionBase {
   public RemoveSelectedProjectsFromGroupsAction() {
-    getTemplatePresentation().setText("Remove from Groups");
+    getTemplatePresentation().setText(IdeBundle.messagePointer("action.presentation.RemoveSelectedProjectsFromGroupsAction.text"));
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final List<AnAction> elements = getSelectedElements(e);
     for (AnAction element : elements) {
       if (element instanceof ReopenProjectAction) {

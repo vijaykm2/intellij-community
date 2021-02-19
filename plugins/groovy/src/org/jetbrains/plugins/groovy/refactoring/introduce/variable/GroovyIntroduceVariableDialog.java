@@ -1,32 +1,19 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.refactoring.introduce.variable;
 
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.ValidationInfo;
 import com.intellij.psi.PsiType;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.ui.NameSuggestionsField;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.ui.GridBag;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.GroovyFileType;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyNamesUtil;
@@ -41,8 +28,6 @@ import java.awt.*;
 import java.util.LinkedHashSet;
 
 public class GroovyIntroduceVariableDialog extends DialogWrapper implements GrIntroduceDialog<GroovyIntroduceVariableSettings> {
-  private static final String REFACTORING_NAME = GroovyRefactoringBundle.message("introduce.variable.title");
-
   private final Project myProject;
   private final GrExpression myExpression;
   private final int myOccurrencesCount;
@@ -69,7 +54,7 @@ public class GroovyIntroduceVariableDialog extends DialogWrapper implements GrIn
     super.init();
 
     setModal(true);
-    setTitle(REFACTORING_NAME);
+    setTitle(GroovyRefactoringBundle.message("introduce.variable.title"));
 
     myCbReplaceAllOccurrences.setFocusable(false);
     myCbIsFinal.setFocusable(false);
@@ -80,7 +65,9 @@ public class GroovyIntroduceVariableDialog extends DialogWrapper implements GrIn
     if (myOccurrencesCount > 1) {
       myCbReplaceAllOccurrences.setSelected(false);
       myCbReplaceAllOccurrences.setEnabled(true);
-      myCbReplaceAllOccurrences.setText(myCbReplaceAllOccurrences.getText() + " (" + myOccurrencesCount + " occurrences)");
+      myCbReplaceAllOccurrences.setText(UIUtil.replaceMnemonicAmpersand(
+        GroovyBundle.message("introduce.variable.replace.all.0.occurrences", myOccurrencesCount)
+      ));
     }
     else {
       myCbReplaceAllOccurrences.setSelected(false);
@@ -110,9 +97,13 @@ public class GroovyIntroduceVariableDialog extends DialogWrapper implements GrIn
 
   private JPanel createCBPanel() {
     final JPanel panel = new JPanel(new FlowLayout());
-    myCbIsFinal = new JCheckBox(UIUtil.replaceMnemonicAmpersand("Declare &final"));
+    myCbIsFinal = new JCheckBox(UIUtil.replaceMnemonicAmpersand(
+      GroovyBundle.message("introduce.variable.declare.final.label")
+    ));
     panel.add(myCbIsFinal);
-    myCbReplaceAllOccurrences = new JCheckBox(UIUtil.replaceMnemonicAmpersand("Replace &all occurrences"));
+    myCbReplaceAllOccurrences = new JCheckBox(UIUtil.replaceMnemonicAmpersand(
+      GroovyBundle.message("introduce.variable.replace.all.occurrences")
+    ));
     panel.add(myCbReplaceAllOccurrences);
     return panel;
   }
@@ -121,7 +112,7 @@ public class GroovyIntroduceVariableDialog extends DialogWrapper implements GrIn
     final GridBag c = new GridBag().setDefaultAnchor(GridBagConstraints.WEST).setDefaultInsets(1, 1, 1, 1);
     final JPanel namePanel = new JPanel(new GridBagLayout());
 
-    final JLabel typeLabel = new JLabel(UIUtil.replaceMnemonicAmpersand("&Type:"));
+    final JLabel typeLabel = new JLabel(UIUtil.replaceMnemonicAmpersand(GroovyBundle.message("introduce.variable.type.label")));
     c.nextLine().next().weightx(0).fillCellNone();
     namePanel.add(typeLabel, c);
 
@@ -130,7 +121,7 @@ public class GroovyIntroduceVariableDialog extends DialogWrapper implements GrIn
     namePanel.add(myTypeComboBox, c);
     typeLabel.setLabelFor(myTypeComboBox);
 
-    final JLabel nameLabel = new JLabel(UIUtil.replaceMnemonicAmpersand("&Name:"));
+    final JLabel nameLabel = new JLabel(UIUtil.replaceMnemonicAmpersand(GroovyBundle.message("introduce.variable.name.label")));
     c.nextLine().next().weightx(0).fillCellNone();
     namePanel.add(nameLabel, c);
 
@@ -163,7 +154,7 @@ public class GroovyIntroduceVariableDialog extends DialogWrapper implements GrIn
 
   private NameSuggestionsField setUpNameComboBox() {
     LinkedHashSet<String> names = suggestNames();
-    return new NameSuggestionsField(names.toArray(new String[names.size()]), myProject, GroovyFileType.GROOVY_FILE_TYPE);
+    return new NameSuggestionsField(ArrayUtilRt.toStringArray(names), myProject, GroovyFileType.GROOVY_FILE_TYPE);
   }
 
   @Override
@@ -183,15 +174,12 @@ public class GroovyIntroduceVariableDialog extends DialogWrapper implements GrIn
     super.doOKAction();
   }
 
-
   @Override
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(HelpID.INTRODUCE_VARIABLE);
+  protected String getHelpId() {
+    return HelpID.INTRODUCE_VARIABLE;
   }
 
-  private void createUIComponents() {
-
-  }
+  private void createUIComponents() { }
 
   @Override
   public GroovyIntroduceVariableSettings getSettings() {
@@ -210,7 +198,7 @@ public class GroovyIntroduceVariableDialog extends DialogWrapper implements GrIn
     boolean myIsDeclareFinal;
     PsiType mySelectedType;
 
-    public MyGroovyIntroduceVariableSettings(GroovyIntroduceVariableDialog dialog) {
+    MyGroovyIntroduceVariableSettings(GroovyIntroduceVariableDialog dialog) {
       myEnteredName = dialog.getEnteredName();
       myIsReplaceAllOccurrences = dialog.isReplaceAllOccurrences();
       myIsDeclareFinal = dialog.isDeclareFinal();

@@ -1,400 +1,355 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lexer;
 
-import com.intellij.codeInsight.completion.CompletionUtilCore;
+import com.intellij.html.embedding.HtmlEmbeddedContentProvider;
+import com.intellij.html.embedding.HtmlEmbeddedContentSupport;
+import com.intellij.html.embedding.HtmlEmbedment;
 import com.intellij.lang.HtmlScriptContentProvider;
 import com.intellij.lang.Language;
-import com.intellij.lang.LanguageHtmlScriptContentProvider;
-import com.intellij.lang.html.HTMLLanguage;
-import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.psi.impl.source.tree.TreeUtil;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.TextRange;
+import com.intellij.psi.TokenType;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
-import com.intellij.psi.xml.XmlTokenType;
-import com.intellij.util.text.CharArrayUtil;
-import com.intellij.xml.util.documentation.HtmlDescriptorsTable;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
+import java.util.*;
+import java.util.stream.Collectors;
 
-/**
- * @author Maxim.Mossienko
- */
-abstract class BaseHtmlLexer extends DelegateLexer {
+import static com.intellij.psi.xml.XmlTokenType.*;
+
+public abstract class BaseHtmlLexer extends DelegateLexer {
   protected static final int BASE_STATE_MASK = 0x3F;
-  private static final int SEEN_STYLE = 0x40;
-  private static final int SEEN_TAG = 0x80;
-  private static final int SEEN_SCRIPT = 0x100;
-  private static final int SEEN_ATTRIBUTE = 0x200;
-  private static final int SEEN_CONTENT_TYPE = 0x400;
-  protected static final int BASE_STATE_SHIFT = 11;
-  @Nullable
-  protected static final Language ourDefaultLanguage = Language.findLanguageByID("JavaScript");
+  private static final int CONTENT_PROVIDER_HAS_STATE = 0x40;
+  private static final int IS_WITHIN_TAG_STATE = 0x80;
+  protected static final int BASE_STATE_SHIFT = 9;
 
-  private boolean seenTag;
-  private boolean seenAttribute;
-  private boolean seenStyle;
-  private boolean seenScript;
 
-  @Nullable
-  protected String scriptType = null;
+  protected static final TokenSet ATTRIBUTE_EMBEDMENT_TOKENS = TokenSet.create(XML_ATTRIBUTE_VALUE_TOKEN, XML_ENTITY_REF_TOKEN, XML_CHAR_ENTITY_REF);
+  protected static final TokenSet TAG_EMBEDMENT_START_TOKENS = TokenSet.create(
+    XML_DATA_CHARACTERS, XML_CDATA_START, XML_COMMENT_START, XML_START_TAG_START, XML_REAL_WHITE_SPACE, XML_END_TAG_START,
+    TokenType.WHITE_SPACE, XML_ENTITY_REF_TOKEN, XML_CHAR_ENTITY_REF
+  );
 
-  private final boolean caseInsensitive;
-  private boolean seenContentType;
-  private CharSequence cachedBufferSequence;
-  private Lexer lexerOfCacheBufferSequence;
+  private boolean isWithinTag = false;
 
-  static final TokenSet TOKENS_TO_MERGE = TokenSet.create(XmlTokenType.XML_COMMENT_CHARACTERS, XmlTokenType.XML_WHITE_SPACE, XmlTokenType.XML_REAL_WHITE_SPACE,
-                                                          XmlTokenType.XML_ATTRIBUTE_VALUE_TOKEN, XmlTokenType.XML_DATA_CHARACTERS,
-                                                          XmlTokenType.XML_TAG_CHARACTERS);
+  protected final boolean caseInsensitive;
+  private final List<HtmlEmbeddedContentProvider> myEmbeddedContentProviders;
+  private final TokenSet myTagEmbedmentStartTokens;
+  private final TokenSet myAttributeEmbedmentTokens;
+  private HtmlEmbedment myHtmlEmbedmentInfo;
 
-  public interface TokenHandler {
-    void handleElement(Lexer lexer);
+  static final TokenSet TOKENS_TO_MERGE =
+    TokenSet.create(XML_COMMENT_CHARACTERS, XML_WHITE_SPACE, XML_REAL_WHITE_SPACE,
+                    XML_ATTRIBUTE_VALUE_TOKEN, XML_DATA_CHARACTERS,
+                    XML_TAG_CHARACTERS);
+
+  protected BaseHtmlLexer(@NotNull Lexer _baseLexer, boolean _caseInsensitive) {
+    super(_baseLexer);
+    caseInsensitive = _caseInsensitive;
+    List<HtmlEmbeddedContentSupport> supports = getEmbeddedContentSupportList();
+    myEmbeddedContentProviders = supports.stream()
+      .map(factory -> factory.createEmbeddedContentProviders(this))
+      .flatMap(Collection::stream)
+      .filter(this::acceptEmbeddedContentProvider)
+      .collect(Collectors.toUnmodifiableList());
+    myTagEmbedmentStartTokens = createTagEmbedmentStartTokenSet();
+    myAttributeEmbedmentTokens = createAttributeEmbedmentTokenSet();
   }
 
-  public class XmlNameHandler implements TokenHandler {
-    @NonNls private static final String TOKEN_SCRIPT = "script";
-    @NonNls private static final String TOKEN_STYLE = "style";
-    @NonNls private static final String TOKEN_ON = "on";
+  public boolean isCaseInsensitive() {
+    return caseInsensitive;
+  }
 
-    @Override
-    public void handleElement(Lexer lexer) {
-      final CharSequence buffer;
-      if (lexerOfCacheBufferSequence == lexer) {
-        buffer = cachedBufferSequence;
-      } else {
-        cachedBufferSequence = lexer.getBufferSequence();
-        buffer = cachedBufferSequence;
-        lexerOfCacheBufferSequence = lexer;
+  @Override
+  public void start(@NotNull final CharSequence buffer, final int startOffset, final int endOffset, final int initialState) {
+    super.start(buffer, startOffset, endOffset, initialState & BASE_STATE_MASK);
+    if ((initialState & CONTENT_PROVIDER_HAS_STATE) != 0) {
+      throw new IllegalStateException(
+        "Cannot restore HTML Lexer to a position, in which an embedded content provider has state. Use restoreLocation() method.");
+    }
+    isWithinTag = (initialState & IS_WITHIN_TAG_STATE) != 0;
+    myHtmlEmbedmentInfo = null;
+    myEmbeddedContentProviders.forEach(provider -> provider.restoreState(null));
+    broadcastToken();
+  }
+
+  @Override
+  public void advance() {
+    if (myHtmlEmbedmentInfo != null) {
+      myDelegate.start(myDelegate.getBufferSequence(), myHtmlEmbedmentInfo.getRange().getEndOffset(),
+                       myDelegate.getBufferEnd(), myHtmlEmbedmentInfo.getBaseLexerState());
+    }
+    else {
+      super.advance();
+    }
+    broadcastToken();
+    myHtmlEmbedmentInfo = null;
+  }
+
+  protected @NotNull TokenSet createTagEmbedmentStartTokenSet() {
+    return TAG_EMBEDMENT_START_TOKENS;
+  }
+
+  protected @NotNull TokenSet createAttributeEmbedmentTokenSet() {
+    return ATTRIBUTE_EMBEDMENT_TOKENS;
+  }
+
+  private void broadcastToken() {
+    IElementType type = myDelegate.getTokenType();
+    if (type != null) {
+      TextRange textRange = new TextRange(myDelegate.getTokenStart(), myDelegate.getTokenEnd());
+      myEmbeddedContentProviders.forEach(provider -> provider.handleToken(type, textRange));
+      if (type == XML_NAME && isHtmlTagState(super.getState())) {
+        isWithinTag = true;
       }
-      final char firstCh = buffer.charAt(lexer.getTokenStart());
+      else if (type == XML_TAG_END || type == XML_EMPTY_ELEMENT_END) {
+        isWithinTag = false;
+      }
+    }
+  }
 
-      if (seenScript && !seenTag) {
-        seenContentType = false;
+  @Override
+  public int getState() {
+    int state = super.getState();
+    if (myHtmlEmbedmentInfo != null
+        || ContainerUtil.find(myEmbeddedContentProviders, provider -> provider.hasState()) != null) {
+      state |= CONTENT_PROVIDER_HAS_STATE;
+    }
+    if (isWithinTag) {
+      state |= IS_WITHIN_TAG_STATE;
+    }
+    return state;
+  }
 
-        if (((firstCh == 'l' || firstCh == 't') || (caseInsensitive && (firstCh == 'L' || firstCh == 'T')))) {
-          @NonNls String name = TreeUtil.getTokenText(lexer);
-          if (caseInsensitive) name = name.toLowerCase();
-
-          if ("language".equals(name) || "type".equals(name)) {
-            seenContentType = true;
-          }
+  protected @Nullable HtmlEmbedment acquireHtmlEmbedmentInfo() {
+    IElementType type = myDelegate.getTokenType();
+    if (type != null) {
+      for (HtmlEmbeddedContentProvider provider : myEmbeddedContentProviders) {
+        HtmlEmbedment embedment = provider.createEmbedment(type);
+        if (embedment != null) {
+          myEmbeddedContentProviders.forEach(HtmlEmbeddedContentProvider::clearEmbedment);
+          return embedment;
         }
-
-        return;
-      }
-
-      if (firstCh !='o' && firstCh !='s' &&
-          (!caseInsensitive || (firstCh !='S' && firstCh !='O') )
-          ) {
-        return; // optimization
-      }
-
-      String name = TreeUtil.getTokenText(lexer);
-      if (caseInsensitive) name = name.toLowerCase();
-
-      final boolean style = name.equals(TOKEN_STYLE);
-      final int state = getState() & BASE_STATE_MASK;
-      final boolean script = name.equals(TOKEN_SCRIPT) ||
-                       ((name.startsWith(TOKEN_ON) && name.indexOf(':') == -1 && !isHtmlTagState(state) &&
-                         HtmlDescriptorsTable.getAttributeDescriptor(name) != null));
-
-      if (style || script) {
-        // encountered tag name in end of tag
-        if (seenTag) {
-          if (isHtmlTagState(state)) {
-            seenTag = false;
-          }
-          return;
-        }
-
-        seenStyle = style;
-        seenScript = script;
-
-        if (!isHtmlTagState(state)) {
-          seenAttribute=true;
-        }
-      }
-    }
-  }
-
-  class XmlAttributeValueEndHandler implements TokenHandler {
-    @Override
-    public void handleElement(Lexer lexer) {
-      if (seenAttribute) {
-        seenStyle = false;
-        seenScript = false;
-        seenAttribute = false;
-      }
-      seenContentType = false;
-    }
-  }
-
-  class XmlAttributeValueHandler implements TokenHandler {
-    @Override
-    public void handleElement(Lexer lexer) {
-      if (seenContentType) {
-        if(!seenScript || seenAttribute) {
-          return; // something invalid
-        }
-
-        @NonNls String mimeType = TreeUtil.getTokenText(lexer);
-        if (caseInsensitive) mimeType = mimeType.toLowerCase();
-        scriptType = mimeType;
-      }
-    }
-  }
-
-  @Nullable
-  protected Language getScriptLanguage() {
-    Collection<Language> instancesByMimeType = Language.findInstancesByMimeType(scriptType != null ? scriptType.trim() : null);
-    return instancesByMimeType.isEmpty() ? null : instancesByMimeType.iterator().next();
-  }
-
-  @Nullable
-  protected IElementType getCurrentScriptElementType() {
-    HtmlScriptContentProvider scriptContentProvider = findScriptContentProvider(scriptType);
-    return scriptContentProvider == null ? null : scriptContentProvider.getScriptElementType();
-  }
-
-  @Nullable
-  protected static HtmlScriptContentProvider findScriptContentProvider(@Nullable String mimeType) {
-    if (StringUtil.isEmpty(mimeType)) {
-      return ourDefaultLanguage != null ? LanguageHtmlScriptContentProvider.getScriptContentProvider(ourDefaultLanguage) : null;
-    }
-    Collection<Language> instancesByMimeType = Language.findInstancesByMimeType(mimeType.trim());
-    if (instancesByMimeType.isEmpty() && mimeType.contains("template")) {
-      instancesByMimeType = Collections.<Language>singletonList(HTMLLanguage.INSTANCE);
-    }
-    for (Language language : instancesByMimeType) {
-      HtmlScriptContentProvider scriptContentProvider = LanguageHtmlScriptContentProvider.getScriptContentProvider(language);
-      if (scriptContentProvider != null) {
-        return scriptContentProvider;
       }
     }
     return null;
   }
 
-  class XmlTagClosedHandler implements TokenHandler {
-    @Override
-    public void handleElement(Lexer lexer) {
-      if (seenAttribute) {
-        seenScript=false;
-        seenStyle=false;
+  @Override
+  public @NotNull LexerPosition getCurrentPosition() {
+    return new HtmlLexerPosition(getTokenStart(), getState() & (~CONTENT_PROVIDER_HAS_STATE), myDelegate.getCurrentPosition(),
+                                 myEmbeddedContentProviders.stream()
+                                   .map(provider -> new Pair<>(provider, provider.getState()))
+                                   .filter(pair -> pair.second != null)
+                                   .collect(Collectors.toMap(p -> p.first, p -> p.second)));
+  }
 
-        seenAttribute=false;
-      } else {
-        if (seenStyle || seenScript) {
-          seenTag=true;
-        }
-      }
+  @Override
+  public void restore(@NotNull LexerPosition position) {
+    super.restore(position);
+    myDelegate.restore(((HtmlLexerPosition)position).myDelegateLexerPosition);
+    Map<HtmlEmbeddedContentProvider, Object> providersState = ((HtmlLexerPosition)position).myProvidersState;
+    myEmbeddedContentProviders.forEach(provider -> provider.restoreState(providersState.get(provider)));
+  }
+
+  protected void skipEmbedment(@NotNull HtmlEmbedment embedment) {
+    myHtmlEmbedmentInfo = embedment;
+  }
+
+  protected int getBaseStateShift() {
+    return BASE_STATE_SHIFT;
+  }
+
+  protected boolean isWithinTag() {
+    return isWithinTag;
+  }
+
+  protected boolean isAttributeEmbedmentToken(@NotNull IElementType tokenType, @NotNull CharSequence attributeName) {
+    return myAttributeEmbedmentTokens.contains(tokenType);
+  }
+
+  protected boolean isTagEmbedmentStartToken(@NotNull IElementType tokenType, @NotNull CharSequence tagName) {
+    return myTagEmbedmentStartTokens.contains(tokenType);
+  }
+
+  protected @NotNull List<HtmlEmbeddedContentSupport> getEmbeddedContentSupportList() {
+    List<HtmlEmbeddedContentSupport> supports = new ArrayList<>();
+    try {
+      HtmlEmbeddedContentSupport.Companion.getContentSupports()
+        .filter(support -> support.isEnabled(this))
+        .forEach(supports::add);
+    }
+    catch (IllegalArgumentException e) {
+      // Tolerate missing extension point for parser tests
+    }
+    supports.add(new HtmlDefaultEmbeddedContentSupport());
+    return supports;
+  }
+
+  protected boolean acceptEmbeddedContentProvider(@NotNull HtmlEmbeddedContentProvider provider) {
+    return true;
+  }
+
+  private static class HtmlLexerPosition implements LexerPosition {
+
+    private final int myOffset;
+    private final int myState;
+    final LexerPosition myDelegateLexerPosition;
+    final Map<HtmlEmbeddedContentProvider, Object> myProvidersState;
+
+    HtmlLexerPosition(int offset, int state, LexerPosition delegateLexerPosition, Map<HtmlEmbeddedContentProvider, Object> providersState) {
+
+      myOffset = offset;
+      myState = state;
+      myDelegateLexerPosition = delegateLexerPosition;
+      myProvidersState = providersState;
+    }
+
+    @Override
+    public int getOffset() {
+      return myOffset;
+    }
+
+    @Override
+    public int getState() {
+      return myState;
     }
   }
 
-  class XmlTagEndHandler implements TokenHandler {
-    @Override
-    public void handleElement(Lexer lexer) {
-      seenStyle=false;
-      seenScript=false;
-      seenAttribute=false;
-      seenContentType=false;
-      scriptType = null;
-    }
+  protected boolean isHtmlTagState(int state) {
+    return state == _HtmlLexer.START_TAG_NAME || state == _HtmlLexer.END_TAG_NAME;
   }
 
-  private final HashMap<IElementType,TokenHandler> tokenHandlers = new HashMap<IElementType, TokenHandler>();
+  /* Deprecated APIs kept for binary compatibility */
+  /**
+   * This API does no longer work. The value of the field is always {@code false}.
+   *
+   * @deprecated Use {@link HtmlEmbeddedContentSupport} API
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  protected boolean seenAttribute;
 
-  protected BaseHtmlLexer(Lexer _baseLexer, boolean _caseInsensitive)  {
-    super(_baseLexer);
-    caseInsensitive = _caseInsensitive;
+  /**
+   * This API does no longer work. The value of the field is always {@code false}.
+   *
+   * @deprecated Use {@link HtmlEmbeddedContentSupport} API
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  protected boolean seenScript;
 
-    XmlNameHandler value = new XmlNameHandler();
-    tokenHandlers.put(XmlTokenType.XML_NAME,value);
-    tokenHandlers.put(XmlTokenType.XML_TAG_NAME,value);
-    tokenHandlers.put(XmlTokenType.XML_TAG_END,new XmlTagClosedHandler());
-    tokenHandlers.put(XmlTokenType.XML_END_TAG_START,new XmlTagEndHandler());
-    tokenHandlers.put(XmlTokenType.XML_EMPTY_ELEMENT_END,new XmlTagEndHandler());
-    tokenHandlers.put(XmlTokenType.XML_ATTRIBUTE_VALUE_END_DELIMITER,new XmlAttributeValueEndHandler());
-    tokenHandlers.put(XmlTokenType.XML_ATTRIBUTE_VALUE_TOKEN,new XmlAttributeValueHandler());
-  }
+  /**
+   * This API does no longer work. The value of the field is always {@code false}.
+   *
+   * @deprecated Use {@link HtmlEmbeddedContentSupport} API
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  protected boolean seenStyle;
 
+  /**
+   * This API does no longer work. The value of the field is always {@code false}.
+   *
+   * @deprecated Use {@link HtmlEmbeddedContentSupport} API
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  protected boolean seenTag;
+
+  /**
+   * This API does no longer work. The value of the field is always {@code false}.
+   *
+   * @deprecated Use {@link HtmlEmbeddedContentSupport} API
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  protected boolean seenStylesheetType;
+
+  /**
+   * This API does no longer work. The value of the field is always {@code null}.
+   *
+   * @deprecated Use {@link HtmlEmbeddedContentSupport} API
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  protected String styleType;
+
+  /**
+   * This API does no longer work.
+   *
+   * @deprecated Use {@link HtmlEmbeddedContentSupport} API
+   */
+  @SuppressWarnings("unused")
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
   protected void registerHandler(IElementType elementType, TokenHandler value) {
-    final TokenHandler tokenHandler = tokenHandlers.get(elementType);
+    logLegacyLexer();
+  }
 
-    if (tokenHandler != null) {
-      final TokenHandler newHandler = value;
-      value = new TokenHandler() {
-        @Override
-        public void handleElement(final Lexer lexer) {
-          tokenHandler.handleElement(lexer);
-          newHandler.handleElement(lexer);
-        }
-      };
+  /**
+   * This API does no longer work.
+   *
+   * @deprecated Use {@link HtmlEmbeddedContentSupport} API
+   */
+  @SuppressWarnings("unused")
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  protected HtmlScriptContentProvider findScriptContentProvider(@Nullable String mimeType) {
+    logLegacyLexer();
+    return null;
+  }
+
+  /**
+   * This API does no longer work.
+   *
+   * @deprecated Use {@link HtmlEmbeddedContentSupport} API
+   */
+  @SuppressWarnings("unused")
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  protected boolean endOfTheEmbeddment(String name) {
+    logLegacyLexer();
+    return false;
+  }
+
+  /**
+   * This API does no longer work.
+   *
+   * @deprecated Use {@link HtmlEmbeddedContentSupport} API
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  @Nullable
+  protected Language getStyleLanguage() {
+    logLegacyLexer();
+    return null;
+  }
+
+  /**
+   * This API does no longer work.
+   *
+   * @deprecated Use {@link HtmlEmbeddedContentSupport} API
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  public interface TokenHandler {
+    void handleElement(Lexer lexer);
+  }
+
+  private static final Set<Class<? extends BaseHtmlLexer>> ourLegacyLexers = ContainerUtil.newConcurrentSet();
+  private static final Logger LOG = Logger.getInstance(BaseHtmlLexer.class);
+
+  void logLegacyLexer() {
+    if (ourLegacyLexers.add(this.getClass())) {
+      LOG.error("Lexer of class " +
+                this.getClass().getName() +
+                " is using deprecated and no longer working APIs. The lexer might fail to correctly lex source code.");
     }
-
-    tokenHandlers.put(elementType,value);
   }
-
-  @Override
-  public void start(@NotNull final CharSequence buffer, final int startOffset, final int endOffset, final int initialState) {
-    initState(initialState);
-    super.start(buffer, startOffset, endOffset, initialState & BASE_STATE_MASK);
-  }
-
-  private void initState(final int initialState) {
-    seenScript = (initialState & SEEN_SCRIPT)!=0;
-    seenStyle = (initialState & SEEN_STYLE)!=0;
-    seenTag = (initialState & SEEN_TAG)!=0;
-    seenAttribute = (initialState & SEEN_ATTRIBUTE)!=0;
-    seenContentType = (initialState & SEEN_CONTENT_TYPE) != 0;
-    lexerOfCacheBufferSequence = null;
-    cachedBufferSequence = null;
-  }
-
-  protected int skipToTheEndOfTheEmbeddment() {
-    Lexer base = getDelegate();
-    int tokenEnd = base.getTokenEnd();
-    int lastState = 0;
-    int lastStart = 0;
-
-    final CharSequence buf = base.getBufferSequence();
-    final char[] bufArray = CharArrayUtil.fromSequenceWithoutCopying(buf);
-
-    if (seenTag) {
-      FoundEnd:
-      while(true) {
-        FoundEndOfTag:
-        while(base.getTokenType() != XmlTokenType.XML_END_TAG_START) {
-          if (base.getTokenType() == XmlTokenType.XML_COMMENT_CHARACTERS) {
-            // we should terminate on first occurence of </
-            final int end = base.getTokenEnd();
-
-            for(int i = base.getTokenStart(); i < end; ++i) {
-              if ((bufArray != null ? bufArray[i ]:buf.charAt(i)) == '<' &&
-                  i + 1 < end &&
-                  (bufArray != null ? bufArray[i+1]:buf.charAt(i+1)) == '/') {
-                tokenEnd = i;
-                lastStart = i - 1;
-                lastState = 0;
-
-                break FoundEndOfTag;
-              }
-            }
-          }
-
-          lastState = base.getState();
-          tokenEnd = base.getTokenEnd();
-          lastStart = base.getTokenStart();
-          if (tokenEnd == getBufferEnd()) break FoundEnd;
-          base.advance();
-        }
-
-        // check if next is script
-        if (base.getTokenType() != XmlTokenType.XML_END_TAG_START) { // we are inside comment
-          base.start(buf,lastStart+1,getBufferEnd(),lastState);
-          base.getTokenType();
-          base.advance();
-        } else {
-          base.advance();
-        }
-
-        while(XmlTokenType.WHITESPACES.contains(base.getTokenType())) {
-          base.advance();
-        }
-
-        if (base.getTokenType() == XmlTokenType.XML_NAME) {
-          String name = TreeUtil.getTokenText(base);
-          if (caseInsensitive) name = name.toLowerCase();
-
-          if((hasSeenScript() && XmlNameHandler.TOKEN_SCRIPT.equals(name)) ||
-             (hasSeenStyle() && XmlNameHandler.TOKEN_STYLE.equals(name)) ||
-             CompletionUtilCore.DUMMY_IDENTIFIER_TRIMMED.equalsIgnoreCase(name)) {
-            break; // really found end
-          }
-        }
-      }
-
-      base.start(buf,lastStart,getBufferEnd(),lastState);
-      base.getTokenType();
-    } else if (seenAttribute) {
-      while(true) {
-        if (!isValidAttributeValueTokenType(base.getTokenType())) break;
-
-        tokenEnd = base.getTokenEnd();
-        lastState = base.getState();
-        lastStart = base.getTokenStart();
-
-        if (tokenEnd == getBufferEnd()) break;
-        base.advance();
-      }
-
-      base.start(buf,lastStart,getBufferEnd(),lastState);
-      base.getTokenType();
-    }
-    return tokenEnd;
-  }
-
-  protected boolean isValidAttributeValueTokenType(final IElementType tokenType) {
-    return tokenType == XmlTokenType.XML_ATTRIBUTE_VALUE_TOKEN ||
-           tokenType == XmlTokenType.XML_ENTITY_REF_TOKEN ||
-           tokenType == XmlTokenType.XML_CHAR_ENTITY_REF;
-  }
-
-  @Override
-  public void advance() {
-    super.advance();
-    IElementType type = getDelegate().getTokenType();
-    TokenHandler tokenHandler = tokenHandlers.get(type);
-    if (tokenHandler!=null) tokenHandler.handleElement(this);
-  }
-
-
-  @Override
-  public int getState() {
-    int state = super.getState();
-
-    state |= ((seenScript)?SEEN_SCRIPT:0);
-    state |= ((seenTag)?SEEN_TAG:0);
-    state |= ((seenStyle)?SEEN_STYLE:0);
-    state |= ((seenAttribute)?SEEN_ATTRIBUTE:0);
-    state |= ((seenContentType)?SEEN_CONTENT_TYPE:0);
-
-    return state;
-  }
-
-  protected final boolean hasSeenStyle() {
-    return seenStyle;
-  }
-
-  protected final boolean hasSeenAttribute() {
-    return seenAttribute;
-  }
-
-  protected final boolean hasSeenTag() {
-    return seenTag;
-  }
-
-  protected boolean hasSeenScript() {
-    return seenScript;
-  }
-
-  protected abstract boolean isHtmlTagState(int state);
 }

@@ -21,9 +21,6 @@ import org.jetbrains.jps.model.ex.JpsNamedCompositeElementBase;
 import org.jetbrains.jps.model.runConfiguration.JpsRunConfigurationType;
 import org.jetbrains.jps.model.runConfiguration.JpsTypedRunConfiguration;
 
-/**
- * @author nik
- */
 public class JpsRunConfigurationImpl<P extends JpsElement> extends JpsNamedCompositeElementBase<JpsRunConfigurationImpl<P>> implements
                                                                                                                             JpsTypedRunConfiguration<P> {
   private final JpsRunConfigurationType<P> myType;
@@ -42,7 +39,7 @@ public class JpsRunConfigurationImpl<P extends JpsElement> extends JpsNamedCompo
   @NotNull
   @Override
   public JpsRunConfigurationImpl<P> createCopy() {
-    return new JpsRunConfigurationImpl<P>(this);
+    return new JpsRunConfigurationImpl<>(this);
   }
 
   @NotNull

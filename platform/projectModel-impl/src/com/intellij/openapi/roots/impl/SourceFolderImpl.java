@@ -1,19 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.impl;
 
 import com.intellij.openapi.roots.ContentEntry;
@@ -22,12 +7,15 @@ import com.intellij.openapi.roots.SourceFolder;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jdom.Element;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.JpsElement;
 import org.jetbrains.jps.model.JpsElementFactory;
-import org.jetbrains.jps.model.java.*;
+import org.jetbrains.jps.model.java.JavaModuleSourceRootTypes;
+import org.jetbrains.jps.model.java.JavaResourceRootProperties;
+import org.jetbrains.jps.model.java.JavaSourceRootProperties;
 import org.jetbrains.jps.model.module.JpsModuleSourceRoot;
 import org.jetbrains.jps.model.module.JpsModuleSourceRootType;
 import org.jetbrains.jps.model.module.JpsTypedModuleSourceRoot;
@@ -36,7 +24,8 @@ import org.jetbrains.jps.model.serialization.module.JpsModuleRootModelSerializer
 /**
  *  @author dsl
  */
-public class SourceFolderImpl extends ContentFolderBaseImpl implements SourceFolder, ClonableContentFolder {
+@ApiStatus.Internal
+public final class SourceFolderImpl extends ContentFolderBaseImpl implements SourceFolder, ClonableContentFolder {
   private JpsModuleSourceRoot myJpsElement;
   @NonNls public static final String ELEMENT_NAME = JpsModuleRootModelSerializer.SOURCE_FOLDER_TAG;
   @NonNls public static final String TEST_SOURCE_ATTR = JpsModuleRootModelSerializer.IS_TEST_SOURCE_ATTRIBUTE;
@@ -68,7 +57,7 @@ public class SourceFolderImpl extends ContentFolderBaseImpl implements SourceFol
 
   @Override
   public boolean isTestSource() {
-    return getRootType().equals(JavaSourceRootType.TEST_SOURCE) || getRootType().equals(JavaResourceRootType.TEST_RESOURCE);
+    return getRootType().isForTests();
   }
 
   @NotNull
@@ -97,6 +86,7 @@ public class SourceFolderImpl extends ContentFolderBaseImpl implements SourceFol
 
   @Override
   public void setPackagePrefix(@NotNull String packagePrefix) {
+    getRootModel().assertWritable();
     JavaSourceRootProperties properties = getJavaProperties();
     if (properties != null) {
       properties.setPackagePrefix(packagePrefix);
@@ -109,16 +99,23 @@ public class SourceFolderImpl extends ContentFolderBaseImpl implements SourceFol
     return myJpsElement.getRootType();
   }
 
+  @NotNull
   @Override
-  public ContentFolder cloneFolder(ContentEntry contentEntry) {
+  public ContentFolder cloneFolder(@NotNull ContentEntry contentEntry) {
     assert !((ContentEntryImpl)contentEntry).isDisposed() : "target entry already disposed: " + contentEntry;
     assert !isDisposed() : "Already disposed: " + this;
     return new SourceFolderImpl(this, (ContentEntryImpl)contentEntry);
   }
 
+  @Override
   @NotNull
   public JpsModuleSourceRoot getJpsElement() {
     return myJpsElement;
+  }
+
+  @Override
+  public <P extends JpsElement> void changeType(JpsModuleSourceRootType<P> newType, P properties) {
+    myJpsElement = JpsElementFactory.getInstance().createModuleSourceRoot(myJpsElement.getUrl(), newType, properties);
   }
 
   private boolean isForGeneratedSources() {
@@ -137,9 +134,9 @@ public class SourceFolderImpl extends ContentFolderBaseImpl implements SourceFol
     SourceFolderImpl sourceFolder = (SourceFolderImpl)folder;
     i = getPackagePrefix().compareTo(sourceFolder.getPackagePrefix());
     if (i!= 0) return i;
-    i = Boolean.valueOf(isTestSource()).compareTo(sourceFolder.isTestSource());
+    i = Boolean.compare(isTestSource(), sourceFolder.isTestSource());
     if (i != 0) return i;
-    i = Boolean.valueOf(isForGeneratedSources()).compareTo(sourceFolder.isForGeneratedSources());
+    i = Boolean.compare(isForGeneratedSources(), sourceFolder.isForGeneratedSources());
     if (i != 0) return i;
     //todo[nik] perhaps we should use LinkedSet instead of SortedSet and get rid of this method
     return myJpsElement.getRootType().getClass().getName().compareTo(sourceFolder.getRootType().getClass().getName());

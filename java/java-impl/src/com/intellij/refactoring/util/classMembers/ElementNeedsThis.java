@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +16,14 @@
 package com.intellij.refactoring.util.classMembers;
 
 import com.intellij.psi.*;
-import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.util.PsiTypesUtil;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author dsl
  */
 public class ElementNeedsThis extends ClassThisReferencesVisitor {
-  private boolean myResult = false;
+  private boolean myResult;
   private final PsiElement myMember;
 
   public ElementNeedsThis(PsiClass aClass, PsiElement member) {
@@ -38,6 +39,7 @@ public class ElementNeedsThis extends ClassThisReferencesVisitor {
     return myResult;
   }
 
+  @Override
   protected void visitClassMemberReferenceElement(PsiMember classMember, PsiJavaCodeReferenceElement classMemberReference) {
     if (classMember == null || classMember.equals(myMember)) return;
     if (classMember.hasModifierProperty(PsiModifier.STATIC)) return;
@@ -50,10 +52,12 @@ public class ElementNeedsThis extends ClassThisReferencesVisitor {
     return myMember != null;
   }
 
+  @Override
   protected void visitExplicitThis(PsiClass referencedClass, PsiThisExpression reference) {
     myResult = true;
   }
 
+  @Override
   protected void visitExplicitSuper(PsiClass referencedClass, PsiSuperExpression reference) {
     myResult = true;
   }
@@ -61,16 +65,21 @@ public class ElementNeedsThis extends ClassThisReferencesVisitor {
   @Override
   public void visitReferenceExpression(PsiReferenceExpression expression) {
     super.visitReferenceExpression(expression);
-    final PsiClass aClass = PsiUtil.resolveClassInType(expression.getType());
-    if (aClass instanceof PsiTypeParameter) {
-      final PsiTypeParameterListOwner owner = ((PsiTypeParameter)aClass).getOwner();
-      if (owner instanceof PsiClass && myClassSuperClasses.contains(owner)) {
-        myResult = true;
+    PsiType type = expression.getType();
+    if (type != null) {
+      PsiTypesUtil.TypeParameterSearcher searcher = new PsiTypesUtil.TypeParameterSearcher();
+      type.accept(searcher);
+      for (PsiTypeParameter parameter : searcher.getTypeParameters()) {
+        final PsiTypeParameterListOwner owner = parameter.getOwner();
+        if (owner instanceof PsiClass && myClassSuperClasses.contains(owner)) {
+          myResult = true;
+          break;
+        }
       }
     }
   }
 
-  @Override public void visitElement(PsiElement element) {
+  @Override public void visitElement(@NotNull PsiElement element) {
     if (myResult) return;
     super.visitElement(element);
   }

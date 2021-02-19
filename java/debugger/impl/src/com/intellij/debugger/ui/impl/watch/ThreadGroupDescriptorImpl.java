@@ -15,7 +15,7 @@
  */
 package com.intellij.debugger.ui.impl.watch;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.DebuggerManagerThreadImpl;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
@@ -35,6 +35,7 @@ public class ThreadGroupDescriptorImpl extends NodeDescriptorImpl implements Thr
     myThreadGroup = threadGroup;
   }
 
+  @Override
   public ThreadGroupReferenceProxyImpl getThreadGroupReference() {
     return myThreadGroup;
   }
@@ -43,26 +44,30 @@ public class ThreadGroupDescriptorImpl extends NodeDescriptorImpl implements Thr
     return myIsCurrent;
   }
 
+  @Override
   public String getName() {
     return myName;
   }
 
+  @Override
   protected String calcRepresentation(EvaluationContextImpl context, DescriptorLabelListener labelListener) throws EvaluateException {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     ThreadGroupReferenceProxyImpl group = getThreadGroupReference();
     try {
       myName = group.name();
-      return DebuggerBundle.message("label.thread.group.node", myName, group.uniqueID());
+      return JavaDebuggerBundle.message("label.thread.group.node", myName, group.uniqueID());
     }
     catch (ObjectCollectedException e) {
-      return myName != null ? DebuggerBundle.message("label.thread.group.node.group.collected", myName) : "";
+      return myName != null ? JavaDebuggerBundle.message("label.thread.group.node.group.collected", myName) : "";
     }
   }
 
+  @Override
   public boolean isExpandable() {
     return myIsExpandable;
   }
 
+  @Override
   public void setContext(EvaluationContextImpl context) {
     ThreadReferenceProxyImpl threadProxy = context != null? context.getSuspendContext().getThread() : null;
     myIsCurrent = threadProxy != null && isDescendantGroup(threadProxy.threadGroupProxy());

@@ -1,30 +1,17 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.popup;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.ui.popup.BalloonBuilder;
-import com.intellij.openapi.ui.popup.JBPopupAdapter;
+import com.intellij.openapi.ui.popup.JBPopupListener;
 import com.intellij.openapi.ui.popup.LightweightWindowEvent;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.BalloonImpl;
-import com.intellij.ui.Gray;
-import com.intellij.ui.JBColor;
+import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,22 +22,22 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public class BalloonPopupBuilderImpl implements BalloonBuilder {
+public final class BalloonPopupBuilderImpl implements BalloonBuilder {
   @Nullable private final Map<Disposable, List<Balloon>> myStorage;
   @Nullable private Disposable myAnchor;
 
   private final JComponent myContent;
 
-  private Color   myBorder             = new JBColor(JBColor.GRAY, Gray._200);
-  @Nullable private Insets myBorderInsets = null;
-  private Color   myFill               = MessageType.INFO.getPopupBackground();
+  private Color myBorder = JBUI.CurrentTheme.Tooltip.borderColor();
+  @Nullable private Insets myBorderInsets;
+  private Color myFill = MessageType.INFO.getPopupBackground();
   private boolean myHideOnMouseOutside = true;
-  private boolean myHideOnKeyOutside   = true;
-  private long    myFadeoutTime        = -1;
-  private boolean myShowCallout        = true;
-  private boolean myCloseButtonEnabled = false;
-  private boolean myHideOnFrameResize  = true;
-  private boolean myHideOnLinkClick    = false;
+  private boolean myHideOnKeyOutside = true;
+  private long myFadeoutTime = -1;
+  private boolean myShowCallout = true;
+  private boolean myCloseButtonEnabled;
+  private boolean myHideOnFrameResize = true;
+  private boolean myHideOnLinkClick;
 
   private ActionListener myClickHandler;
   private boolean        myCloseOnClick;
@@ -60,18 +47,25 @@ public class BalloonPopupBuilderImpl implements BalloonBuilder {
   private int myPositionChangeXShift;
   private int myPositionChangeYShift;
   private boolean myHideOnAction = true;
+  private boolean myHideOnCloseClick = true;
   private boolean myDialogMode;
-  private String  myTitle;
-  private Insets  myContentInsets = new Insets(2, 2, 2, 2);
-  private boolean myShadow        = false;
-  private boolean mySmallVariant  = false;
-
+  private @NlsContexts.PopupTitle String  myTitle;
+  private Insets  myContentInsets = JBUI.insets(2);
+  private boolean myShadow        = true;
+  private boolean mySmallVariant;
   private Balloon.Layer myLayer;
-  private boolean myBlockClicks = false;
+  private boolean myBlockClicks;
+  private boolean myRequestFocus;
+
+  private Dimension myPointerSize;
+  private int       myCornerToPointerDistance = -1;
 
   public BalloonPopupBuilderImpl(@Nullable Map<Disposable, List<Balloon>> storage, @NotNull final JComponent content) {
     myStorage = storage;
     myContent = content;
+    if (UIUtil.isClientPropertyTrue(myContent, BalloonImpl.FORCED_NO_SHADOW)) {
+      myShadow = false;
+    }
   }
 
   @NotNull
@@ -146,6 +140,19 @@ public class BalloonPopupBuilderImpl implements BalloonBuilder {
 
   @NotNull
   @Override
+  public BalloonBuilder setRequestFocus(boolean requestFocus) {
+    myRequestFocus = requestFocus;
+    return this;
+  }
+
+  @Override
+  public BalloonBuilder setHideOnCloseClick(boolean hideOnCloseClick) {
+    myHideOnCloseClick = hideOnCloseClick;
+    return this;
+  }
+
+  @NotNull
+  @Override
   public BalloonBuilder setAnimationCycle(int time) {
     myAnimationCycle = time;
     return this;
@@ -203,7 +210,7 @@ public class BalloonPopupBuilderImpl implements BalloonBuilder {
 
   @NotNull
   @Override
-  public BalloonBuilder setTitle(@Nullable String title) {
+  public BalloonBuilder setTitle(@Nullable @NlsContexts.PopupTitle String title) {
     myTitle = title;
     return this;
   }
@@ -245,35 +252,46 @@ public class BalloonPopupBuilderImpl implements BalloonBuilder {
 
   @NotNull
   @Override
+  public BalloonBuilder setPointerSize(Dimension size) {
+    myPointerSize = size;
+    return this;
+  }
+
+  @NotNull
+  @Override
+  public BalloonBuilder setCornerToPointerDistance(int distance) {
+    myCornerToPointerDistance = distance;
+    return this;
+  }
+
+  @NotNull
+  @Override
   public Balloon createBalloon() {
     final BalloonImpl result = new BalloonImpl(
-      myContent, myBorder, myBorderInsets, myFill, myHideOnMouseOutside, myHideOnKeyOutside, myHideOnAction, myShowCallout, myCloseButtonEnabled,
-      myFadeoutTime, myHideOnFrameResize, myHideOnLinkClick, myClickHandler, myCloseOnClick, myAnimationCycle, myCalloutShift,
-      myPositionChangeXShift, myPositionChangeYShift, myDialogMode, myTitle, myContentInsets, myShadow, mySmallVariant, myBlockClicks,
-      myLayer);
+      myContent, myBorder, myBorderInsets, myFill, myHideOnMouseOutside, myHideOnKeyOutside, myHideOnAction, myHideOnCloseClick,
+      myShowCallout, myCloseButtonEnabled, myFadeoutTime, myHideOnFrameResize, myHideOnLinkClick, myClickHandler, myCloseOnClick,
+      myAnimationCycle, myCalloutShift, myPositionChangeXShift, myPositionChangeYShift, myDialogMode, myTitle, myContentInsets, myShadow,
+      mySmallVariant, myBlockClicks, myLayer, myRequestFocus, myPointerSize, myCornerToPointerDistance);
 
     if (myStorage != null && myAnchor != null) {
       List<Balloon> balloons = myStorage.get(myAnchor);
       if (balloons == null) {
-        myStorage.put(myAnchor, balloons = new ArrayList<Balloon>());
-        Disposer.register(myAnchor, new Disposable() {
-          @Override
-          public void dispose() {
-            List<Balloon> toDispose = myStorage.remove(myAnchor);
-            if (toDispose != null) {
-              for (Balloon balloon : toDispose) {
-                if (!balloon.isDisposed()) {
-                  Disposer.dispose(balloon);
-                }
+        myStorage.put(myAnchor, balloons = new ArrayList<>());
+        Disposer.register(myAnchor, () -> {
+          List<Balloon> toDispose = myStorage.remove(myAnchor);
+          if (toDispose != null) {
+            for (Balloon balloon : toDispose) {
+              if (!balloon.isDisposed()) {
+                Disposer.dispose(balloon);
               }
             }
           }
         });
       }
       balloons.add(result);
-      result.addListener(new JBPopupAdapter() {
+      result.addListener(new JBPopupListener() {
         @Override
-        public void onClosed(LightweightWindowEvent event) {
+        public void onClosed(@NotNull LightweightWindowEvent event) {
           if (!result.isDisposed()) {
             Disposer.dispose(result);
           }

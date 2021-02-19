@@ -33,9 +33,6 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author nik
- */
 public class ArtifactSourceItem extends PackagingSourceItem {
   private final Artifact myArtifact;
 
@@ -43,6 +40,7 @@ public class ArtifactSourceItem extends PackagingSourceItem {
     myArtifact = artifact;
   }
 
+  @NotNull
   @Override
   public SourceItemPresentation createPresentation(@NotNull ArtifactEditorContext context) {
     final ArtifactPointer pointer = ArtifactPointerManager.getInstance(context.getProject()).createPointer(myArtifact, context.getArtifactModel());

@@ -3,9 +3,10 @@ package com.intellij.json.formatter;
 import com.intellij.application.options.CodeStyleAbstractConfigurable;
 import com.intellij.application.options.CodeStyleAbstractPanel;
 import com.intellij.application.options.TabbedLanguageCodeStylePanel;
+import com.intellij.json.JsonBundle;
 import com.intellij.json.JsonLanguage;
 import com.intellij.lang.Language;
-import com.intellij.openapi.options.Configurable;
+import com.intellij.psi.codeStyle.CodeStyleConfigurable;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CodeStyleSettingsProvider;
 import com.intellij.psi.codeStyle.CustomCodeStyleSettings;
@@ -16,10 +17,10 @@ import org.jetbrains.annotations.Nullable;
  * @author Mikhail Golubev
  */
 public class JsonCodeStyleSettingsProvider extends CodeStyleSettingsProvider {
-  @NotNull
   @Override
-  public Configurable createSettingsPage(CodeStyleSettings settings, CodeStyleSettings originalSettings) {
-    return new CodeStyleAbstractConfigurable(settings, originalSettings, "JSON") {
+  public @NotNull CodeStyleConfigurable createConfigurable(@NotNull CodeStyleSettings settings,
+                                                           @NotNull CodeStyleSettings originalSettings) {
+    return new CodeStyleAbstractConfigurable(settings, originalSettings, JsonBundle.message("settings.display.name.json")) {
       @Override
       protected CodeStyleAbstractPanel createPanel(CodeStyleSettings settings) {
         final Language language = JsonLanguage.INSTANCE;
@@ -31,14 +32,12 @@ public class JsonCodeStyleSettingsProvider extends CodeStyleSettingsProvider {
             addSpacesTab(settings);
             addBlankLinesTab(settings);
             addWrappingAndBracesTab(settings);
-            addTab(new JsonCodeStylePanel(settings));
           }
         };
       }
 
-      @Nullable
       @Override
-      public String getHelpTopic() {
+      public @NotNull String getHelpTopic() {
         return "reference.settingsdialog.codestyle.json";
       }
     };

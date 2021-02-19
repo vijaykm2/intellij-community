@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.youtrack.lang.codeinsight;
 
 import com.intellij.codeInsight.completion.*;
@@ -17,7 +18,6 @@ import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -48,25 +48,16 @@ public class YouTrackCompletionContributor extends CompletionContributor {
     }
 
     final Application application = ApplicationManager.getApplication();
-    Future<List<CompletionItem>> future = application.executeOnPooledThread(new Callable<List<CompletionItem>>() {
-      @Override
-      public List<CompletionItem> call() throws Exception {
-        return intellisense.fetchCompletion(parameters.getOriginalFile().getText(), parameters.getOffset());
-      }
-    });
+    Future<List<CompletionItem>> future = application.executeOnPooledThread(
+      () -> intellisense.fetchCompletion(parameters.getOriginalFile().getText(), parameters.getOffset()));
     try {
       final List<CompletionItem> suggestions = future.get(TIMEOUT, TimeUnit.MILLISECONDS);
       // actually backed by original CompletionResultSet
       result = result.withPrefixMatcher(extractPrefix(parameters)).caseInsensitive();
-      result.addAllElements(ContainerUtil.map(suggestions, new Function<CompletionItem, LookupElement>() {
-        @Override
-        public LookupElement fun(CompletionItem item) {
-          return LookupElementBuilder.create(item, item.getOption())
-            .withTypeText(item.getDescription(), true)
-            .withInsertHandler(INSERT_HANDLER)
-            .withBoldness(item.getStyleClass().equals("keyword"));
-        }
-      }));
+      result.addAllElements(ContainerUtil.map(suggestions, (Function<CompletionItem, LookupElement>)item -> LookupElementBuilder.create(item, item.getOption())
+        .withTypeText(item.getDescription(), true)
+        .withInsertHandler(INSERT_HANDLER)
+        .withBoldness(item.getStyleClass().equals("keyword"))));
     }
     catch (Exception ignored) {
       //noinspection InstanceofCatchParameter
@@ -114,7 +105,7 @@ public class YouTrackCompletionContributor extends CompletionContributor {
    */
   private static class MyInsertHandler implements InsertHandler<LookupElement> {
     @Override
-    public void handleInsert(InsertionContext context, LookupElement item) {
+    public void handleInsert(@NotNull InsertionContext context, @NotNull LookupElement item) {
       final CompletionItem completionItem = (CompletionItem)item.getObject();
       final Document document = context.getDocument();
       final Editor editor = context.getEditor();

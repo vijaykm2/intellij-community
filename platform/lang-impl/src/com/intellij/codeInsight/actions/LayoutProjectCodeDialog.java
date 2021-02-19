@@ -1,51 +1,35 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.actions;
 
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.find.FindSettings;
-import com.intellij.find.impl.FindDialog;
 import com.intellij.find.impl.FindInProjectUtil;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.ide.util.scopeChooser.ScopeChooserCombo;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.ui.IdeBorderFactory;
+import com.intellij.openapi.util.NlsContexts;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.awt.event.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
 import java.util.regex.PatternSyntaxException;
 
-/**
- * @author max
- */
 public class LayoutProjectCodeDialog extends DialogWrapper implements ReformatFilesOptions {
   private static @NonNls final String HELP_ID = "Reformat Code on Directory Dialog";
 
   private final Project myProject;
-  private final String  myText;
+  private final @NlsContexts.Label String  myText;
   private final boolean myEnableOnlyVCSChangedTextCb;
   private final LastRunReformatCodeOptionsProvider myLastRunOptions;
 
@@ -56,7 +40,7 @@ public class LayoutProjectCodeDialog extends DialogWrapper implements ReformatFi
   private ScopeChooserCombo myScopeCombo;
 
   private JCheckBox myEnableFileNameFilterCb;
-  private ComboBox myFileFilter;
+  private ComboBox<String> myFileFilter;
 
   private JCheckBox myCbOptimizeImports;
   private JCheckBox myCbRearrangeEntries;
@@ -66,10 +50,11 @@ public class LayoutProjectCodeDialog extends DialogWrapper implements ReformatFi
   private JPanel myOptionsPanel;
   private JPanel myFiltersPanel;
   private JLabel myMaskWarningLabel;
+  private JCheckBox myCbCleanupCode;
 
   public LayoutProjectCodeDialog(@NotNull Project project,
-                                 @NotNull String title,
-                                 @NotNull String text,
+                                 @NotNull @NlsContexts.DialogTitle String title,
+                                 @NotNull @NlsContexts.Label String text,
                                  boolean enableOnlyVCSChangedTextCb)
   {
     super(project, false);
@@ -104,6 +89,7 @@ public class LayoutProjectCodeDialog extends DialogWrapper implements ReformatFi
   private void restoreCbsStates() {
     myCbOptimizeImports.setSelected(myLastRunOptions.getLastOptimizeImports());
     myCbRearrangeEntries.setSelected(myLastRunOptions.getLastRearrangeCode());
+    myCbCleanupCode.setSelected(myLastRunOptions.getLastCodeCleanup());
     myCbOnlyVcsChangedRegions.setEnabled(myEnableOnlyVCSChangedTextCb);
     myCbOnlyVcsChangedRegions.setSelected(
       myEnableOnlyVCSChangedTextCb && myLastRunOptions.getLastTextRangeType() == TextRangeType.VCS_CHANGED_TEXT
@@ -122,7 +108,7 @@ public class LayoutProjectCodeDialog extends DialogWrapper implements ReformatFi
   }
 
   private void initFileTypeFilter() {
-    FindDialog.initFileFilter(myFileFilter, myEnableFileNameFilterCb);
+    FindInProjectUtil.initFileFilter(myFileFilter, myEnableFileNameFilterCb);
     myEnableFileNameFilterCb.addActionListener(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
@@ -163,19 +149,12 @@ public class LayoutProjectCodeDialog extends DialogWrapper implements ReformatFi
 
   private static boolean isMaskValid(@NotNull String mask) {
     try {
-      FindInProjectUtil.createFileMaskRegExp(mask);
+      FindInProjectUtil.createFileMaskCondition(mask);
+      return true;
     }
     catch (PatternSyntaxException e) {
       return false;
     }
-
-    return true;
-  }
-
-  @NotNull
-  @Override
-  protected Action[] createActions() {
-    return new Action[]{getOKAction(), getCancelAction(), getHelpAction()};
   }
 
   @Override
@@ -184,8 +163,13 @@ public class LayoutProjectCodeDialog extends DialogWrapper implements ReformatFi
   }
 
   @Override
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(HELP_ID);
+  public boolean isCodeCleanup() {
+    return myCbCleanupCode.isSelected();
+  }
+
+  @Override
+  protected String getHelpId() {
+    return HELP_ID;
   }
 
   @Override
@@ -198,10 +182,12 @@ public class LayoutProjectCodeDialog extends DialogWrapper implements ReformatFi
     }
   }
 
+  @Override
   public boolean isOptimizeImports() {
     return myCbOptimizeImports.isSelected();
   }
 
+  @Override
   @Nullable
   public String getFileTypeMask() {
     if (myEnableFileNameFilterCb.isSelected()) {

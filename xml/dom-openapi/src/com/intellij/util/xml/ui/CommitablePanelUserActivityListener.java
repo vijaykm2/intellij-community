@@ -24,9 +24,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.ui.UserActivityListener;
 import com.intellij.util.Alarm;
 
-/**
- * User: Sergey.Vasiliev
- */
 public class CommitablePanelUserActivityListener implements UserActivityListener, Disposable {
   private final Committable myPanel;
   private final Project myProject;
@@ -47,17 +44,14 @@ public class CommitablePanelUserActivityListener implements UserActivityListener
     if (myApplying) return;
     cancel();
     cancelAllRequests();
-    myAlarm.addRequest(new Runnable() {
-      @Override
-      public void run() {
-        myApplying = true;
-        cancel();
-        try {
-          applyChanges();
-        }
-        finally {
-          myApplying = false;
-        }
+    myAlarm.addRequest(() -> {
+      myApplying = true;
+      cancel();
+      try {
+        applyChanges();
+      }
+      finally {
+        myApplying = false;
       }
     }, 717);
   }

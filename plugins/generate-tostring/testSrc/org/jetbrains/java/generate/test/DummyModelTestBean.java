@@ -17,7 +17,6 @@ package org.jetbrains.java.generate.test;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -60,11 +59,7 @@ public abstract class DummyModelTestBean {
 
     public void nonGetterMethod() {
         List list = new ArrayList();
-        Collections.sort(list, new Comparator() {
-            public int compare(Object o, Object o1) {
-                return 0;
-            }
-        });
+        Collections.sort(list, (o, o1) -> 0);
     }
 
     public boolean isMyMethod() {

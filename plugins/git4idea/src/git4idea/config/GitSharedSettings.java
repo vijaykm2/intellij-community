@@ -1,39 +1,35 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.config;
 
-import com.intellij.openapi.components.*;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
+import com.intellij.openapi.project.Project;
 import com.intellij.util.containers.ContainerUtil;
+import git4idea.log.GitRefManager;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Stream;
 
-@State(
-  name = "GitSharedSettings",
-  storages = {
-    @Storage(file = StoragePathMacros.PROJECT_FILE),
-    @Storage(file = StoragePathMacros.PROJECT_CONFIG_DIR + "/vcs.xml", scheme = StorageScheme.DIRECTORY_BASED)
-  })
+@State(name = "GitSharedSettings", storages = @Storage("vcs.xml"))
 public class GitSharedSettings implements PersistentStateComponent<GitSharedSettings.State> {
 
+  private final Project myProject;
+
+  public GitSharedSettings(@NotNull Project project){
+    myProject = project;
+  }
+
   public static class State {
-    public List<String> FORCE_PUSH_PROHIBITED_PATTERNS = ContainerUtil.newArrayList("master");
+    public List<@NonNls String> FORCE_PUSH_PROHIBITED_PATTERNS = ContainerUtil.newArrayList(GitRefManager.MASTER);
+    public boolean synchronizeBranchProtectionRules = true;
   }
 
   private State myState = new State();
@@ -45,8 +41,20 @@ public class GitSharedSettings implements PersistentStateComponent<GitSharedSett
   }
 
   @Override
-  public void loadState(State state) {
+  public void loadState(@NotNull State state) {
     myState = state;
+  }
+
+  public static GitSharedSettings getInstance(@NotNull Project project) {
+    return ServiceManager.getService(project, GitSharedSettings.class);
+  }
+
+  public boolean isSynchronizeBranchProtectionRules() {
+    return myState.synchronizeBranchProtectionRules;
+  }
+
+  public void setSynchronizeBranchProtectionRules(boolean sync) {
+    myState.synchronizeBranchProtectionRules = sync;
   }
 
   @NotNull
@@ -54,8 +62,21 @@ public class GitSharedSettings implements PersistentStateComponent<GitSharedSett
     return Collections.unmodifiableList(myState.FORCE_PUSH_PROHIBITED_PATTERNS);
   }
 
-  public void setForcePushProhibitedPatters(@NotNull List<String> patterns) {
-    myState.FORCE_PUSH_PROHIBITED_PATTERNS = new ArrayList<String>(patterns);
+  public void setForcePushProhibitedPatterns(@NotNull List<String> patterns) {
+    myState.FORCE_PUSH_PROHIBITED_PATTERNS = new ArrayList<>(patterns);
   }
 
+  public boolean isBranchProtected(@NotNull String branch) {
+    // let "master" match only "master" and not "any-master-here" by default
+    return Stream.of(getForcePushProhibitedPatterns(), getAdditionalProhibitedPatterns())
+      .flatMap(Collection::stream)
+      .anyMatch(pattern -> branch.matches("^" + pattern + "$"));
+  }
+
+  @NotNull
+  public List<String> getAdditionalProhibitedPatterns() {
+    if (!isSynchronizeBranchProtectionRules()) return Collections.emptyList();
+
+    return GitProtectedBranchProvider.getProtectedBranchPatterns(myProject);
+  }
 }

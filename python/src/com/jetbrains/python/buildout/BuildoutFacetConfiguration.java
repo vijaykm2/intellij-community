@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.buildout;
 
 import com.intellij.facet.FacetConfiguration;
@@ -20,16 +6,19 @@ import com.intellij.facet.ui.FacetEditorContext;
 import com.intellij.facet.ui.FacetEditorTab;
 import com.intellij.facet.ui.FacetValidatorsManager;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.JDOMExternalizerUtil;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.util.ui.JBUI;
+import com.jetbrains.python.PyBundle;
 import org.jdom.Element;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -37,7 +26,6 @@ import java.util.List;
  * Stores buildout facet config data.
  * <br/>
  * User: dcheryasov
- * Date: Jul 25, 2010
  */
 public class BuildoutFacetConfiguration implements FacetConfiguration {
 
@@ -55,7 +43,7 @@ public class BuildoutFacetConfiguration implements FacetConfiguration {
     return new FacetEditorTab[] {new Tab(editorContext.getModule())};
   }
 
-  public String getScriptName() {
+  public @NlsSafe String getScriptName() {
     return myScriptName;
   }
 
@@ -71,14 +59,10 @@ public class BuildoutFacetConfiguration implements FacetConfiguration {
 
   /**
    * Sets the paths to be prepended to pythonpath, taken from a buildout script.
-   * @param paths what to store; the list will be copied. 
+   * @param paths what to store; the list will be copied.
    */
-  void setPaths(@Nullable List<String> paths) {
-    if (paths != null) {
-      myPaths = new ArrayList<String>(paths.size());
-      for (String s : paths) myPaths.add(s);
-    }
-    else myPaths = null;                   
+  public void setPaths(@Nullable List<String> paths) {
+    myPaths = paths == null ? null : new ArrayList<>(paths);
   }
 
   public List<String> getPaths() {
@@ -89,9 +73,9 @@ public class BuildoutFacetConfiguration implements FacetConfiguration {
     myScriptName = scriptName;
   }
 
-  private class Tab extends FacetEditorTab {
+  private final class Tab extends FacetEditorTab {
 
-    private BuildoutConfigPanel myPanel;
+    private final BuildoutConfigPanel myPanel;
 
     private Tab(Module module) {
       myPanel = new BuildoutConfigPanel(module, BuildoutFacetConfiguration.this);
@@ -99,14 +83,17 @@ public class BuildoutFacetConfiguration implements FacetConfiguration {
 
     @Nls
     @Override
-    public String getDisplayName() {
-      return "Buildout";
-    }
+  public String getDisplayName() {
+    return PyBundle.message("configurable.Tab.display.name");
+  }
 
     @NotNull
     @Override
     public JComponent createComponent() {
-      return myPanel;
+      final JPanel panel = new JPanel(new BorderLayout());
+      panel.add(myPanel, BorderLayout.CENTER);
+      panel.setBorder(JBUI.Borders.empty(5, 10, 10, 10));
+      return panel;
     }
 
     @Override
@@ -120,7 +107,7 @@ public class BuildoutFacetConfiguration implements FacetConfiguration {
     }
 
     @Override
-    public void apply() throws ConfigurationException {
+    public void apply() {
       myPanel.apply();
     }
 

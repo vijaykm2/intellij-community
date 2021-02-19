@@ -22,24 +22,23 @@ import java.io.EOFException;
 import java.io.File;
 import java.io.IOException;
 import java.net.SocketException;
-import java.rmi.Naming;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
+import java.rmi.registry.LocateRegistry;
+import java.rmi.registry.Registry;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 23.05.2007
- */
 public class RemoteDebuggerClient implements Debugger {
   private final RemoteDebugger myRemote;
+  private final String myAccessToken;
   private final BreakpointManager myBreakpointManager;
   private final OutputEventQueue myEventQueue;
 
-  public RemoteDebuggerClient(int port) throws IOException, NotBoundException {
-    myRemote = (RemoteDebugger)Naming.lookup("rmi://127.0.0.1:" + port + "/XsltDebugger");
+  public RemoteDebuggerClient(int port, String accessToken) throws IOException, NotBoundException {
+    Registry registry = LocateRegistry.getRegistry(port);
+    myRemote = (RemoteDebugger)registry.lookup("XsltDebugger");
+    myAccessToken = accessToken;
 
     final RemoteBreakpointManager manager = myRemote.getBreakpointManager();
     myBreakpointManager = new MyBreakpointManager(manager);
@@ -48,6 +47,7 @@ public class RemoteDebuggerClient implements Debugger {
     myEventQueue = new MyOutputEventQueue(eventQueue);
   }
 
+  @Override
   public boolean ping() {
     try {
       return myRemote.ping();
@@ -56,6 +56,7 @@ public class RemoteDebuggerClient implements Debugger {
     }
   }
 
+  @Override
   public State getState() {
     try {
       return myRemote.getState();
@@ -64,6 +65,7 @@ public class RemoteDebuggerClient implements Debugger {
     }
   }
 
+  @Override
   public void stop(boolean force) {
     try {
       myRemote.stop(force);
@@ -83,6 +85,7 @@ public class RemoteDebuggerClient implements Debugger {
     return e.getCause() instanceof RuntimeException ? (RuntimeException)e.getCause() : new RuntimeException(e);
   }
 
+  @Override
   public Debugger.State waitForStateChange(State state) {
     try {
       return myRemote.waitForStateChange(state);
@@ -91,6 +94,7 @@ public class RemoteDebuggerClient implements Debugger {
     }
   }
 
+  @Override
   public boolean waitForDebuggee() {
     try {
       return myRemote.waitForDebuggee();
@@ -99,6 +103,7 @@ public class RemoteDebuggerClient implements Debugger {
     }
   }
 
+  @Override
   public boolean start() {
     try {
       return myRemote.start();
@@ -107,6 +112,7 @@ public class RemoteDebuggerClient implements Debugger {
     }
   }
 
+  @Override
   public void step() {
     try {
       myRemote.step();
@@ -115,6 +121,7 @@ public class RemoteDebuggerClient implements Debugger {
     }
   }
 
+  @Override
   public void stepInto() {
     try {
       myRemote.stepInto();
@@ -123,6 +130,7 @@ public class RemoteDebuggerClient implements Debugger {
     }
   }
 
+  @Override
   public void resume() {
     try {
       myRemote.resume();
@@ -131,6 +139,7 @@ public class RemoteDebuggerClient implements Debugger {
     }
   }
 
+  @Override
   public void pause() {
     try {
       myRemote.pause();
@@ -139,6 +148,7 @@ public class RemoteDebuggerClient implements Debugger {
     }
   }
 
+  @Override
   public boolean isStopped() {
     try {
       return myRemote.isStopped();
@@ -147,30 +157,34 @@ public class RemoteDebuggerClient implements Debugger {
     }
   }
 
+  @Override
   public StyleFrame getCurrentFrame() {
     try {
-      return MyFrame.create(myRemote.getCurrentFrame());
+      return new MyFrame(myRemote.getCurrentFrame());
     } catch (RemoteException e) {
       throw handleRemoteException(e);
     }
   }
 
+  @Override
   public SourceFrame getSourceFrame() {
     try {
-      return MySourceFrame.create(myRemote.getSourceFrame());
+      return new MySourceFrame(myRemote.getSourceFrame());
     } catch (RemoteException e) {
       throw handleRemoteException(e);
     }
   }
 
+  @Override
   public Value eval(String expr) throws EvaluationException {
     try {
-      return myRemote.eval(expr);
+      return myRemote.eval(expr, myAccessToken);
     } catch (RemoteException e) {
       throw handleRemoteException(e);
     }
   }
 
+  @Override
   public List<Variable> getGlobalVariables() {
     try {
       return MyVariable.convert(myRemote.getGlobalVariables());
@@ -179,10 +193,12 @@ public class RemoteDebuggerClient implements Debugger {
     }
   }
 
+  @Override
   public BreakpointManager getBreakpointManager() {
     return myBreakpointManager;
   }
 
+  @Override
   public OutputEventQueue getEventQueue() {
     return myEventQueue;
   }
@@ -190,10 +206,11 @@ public class RemoteDebuggerClient implements Debugger {
   private static class MyBreakpointManager implements BreakpointManager {
     private final RemoteBreakpointManager myManager;
 
-    public MyBreakpointManager(RemoteBreakpointManager manager) {
+    MyBreakpointManager(RemoteBreakpointManager manager) {
       myManager = manager;
     }
 
+    @Override
     public Breakpoint setBreakpoint(File file, int line) {
       try {
         return new MyBreakpoint(myManager.setBreakpoint(file, line));
@@ -202,6 +219,7 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
+    @Override
     public Breakpoint setBreakpoint(String uri, int line) {
       try {
         return new MyBreakpoint(myManager.setBreakpoint(uri, line));
@@ -210,6 +228,7 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
+    @Override
     public void removeBreakpoint(Breakpoint bp) {
       try {
         myManager.removeBreakpoint(bp.getUri(), bp.getLine());
@@ -218,6 +237,7 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
+    @Override
     public void removeBreakpoint(String uri, int line) {
       try {
         myManager.removeBreakpoint(uri, line);
@@ -226,6 +246,7 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
+    @Override
     public List<Breakpoint> getBreakpoints() {
       try {
         final List<RemoteBreakpoint> list = myManager.getBreakpoints();
@@ -239,6 +260,7 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
+    @Override
     public Breakpoint getBreakpoint(String uri, int lineNumber) {
       try {
         final RemoteBreakpoint breakpoint = myManager.getBreakpoint(uri, lineNumber);
@@ -251,10 +273,11 @@ public class RemoteDebuggerClient implements Debugger {
     private static class MyBreakpoint implements Breakpoint {
       private final RemoteBreakpoint myBreakpoint;
 
-      public MyBreakpoint(RemoteBreakpoint breakpoint) {
+      MyBreakpoint(RemoteBreakpoint breakpoint) {
         myBreakpoint = breakpoint;
       }
 
+      @Override
       public String getUri() {
         try {
           return myBreakpoint.getUri();
@@ -263,6 +286,7 @@ public class RemoteDebuggerClient implements Debugger {
         }
       }
 
+      @Override
       public int getLine() {
         try {
           return myBreakpoint.getLine();
@@ -271,6 +295,7 @@ public class RemoteDebuggerClient implements Debugger {
         }
       }
 
+      @Override
       public boolean isEnabled() {
         try {
           return myBreakpoint.isEnabled();
@@ -279,6 +304,7 @@ public class RemoteDebuggerClient implements Debugger {
         }
       }
 
+      @Override
       public String getCondition() {
         try {
           return myBreakpoint.getCondition();
@@ -287,6 +313,7 @@ public class RemoteDebuggerClient implements Debugger {
         }
       }
 
+      @Override
       public String getLogMessage() {
         try {
           return myBreakpoint.getLogMessage();
@@ -295,6 +322,7 @@ public class RemoteDebuggerClient implements Debugger {
         }
       }
 
+      @Override
       public void setCondition(String expr) {
         try {
           myBreakpoint.setCondition(expr);
@@ -303,6 +331,7 @@ public class RemoteDebuggerClient implements Debugger {
         }
       }
 
+      @Override
       public void setEnabled(boolean enabled) {
         try {
           myBreakpoint.setEnabled(enabled);
@@ -311,6 +340,7 @@ public class RemoteDebuggerClient implements Debugger {
         }
       }
 
+      @Override
       public void setLogMessage(String expr) {
         try {
           myBreakpoint.setLogMessage(expr);
@@ -319,6 +349,7 @@ public class RemoteDebuggerClient implements Debugger {
         }
       }
 
+      @Override
       public String getTraceMessage() {
         try {
           return myBreakpoint.getTraceMessage();
@@ -327,6 +358,7 @@ public class RemoteDebuggerClient implements Debugger {
         }
       }
 
+      @Override
       public void setTraceMessage(String expr) {
         try {
           myBreakpoint.setTraceMessage(expr);
@@ -335,6 +367,7 @@ public class RemoteDebuggerClient implements Debugger {
         }
       }
 
+      @Override
       public boolean isSuspend() {
         try {
           return myBreakpoint.isSuspend();
@@ -343,6 +376,7 @@ public class RemoteDebuggerClient implements Debugger {
         }
       }
 
+      @Override
       public void setSuspend(boolean suspend) {
         try {
           myBreakpoint.setSuspend(suspend);
@@ -353,13 +387,14 @@ public class RemoteDebuggerClient implements Debugger {
     }
   }
 
-  private static abstract class MyAbstractFrame<F extends Frame> implements Frame<F> {
+  private abstract class MyAbstractFrame<F extends Frame<?>> implements Frame<F> {
     protected final RemoteDebugger.Frame myFrame;
 
     protected MyAbstractFrame(RemoteDebugger.Frame frame) {
       myFrame = frame;
     }
 
+    @Override
     public int getLineNumber() {
       try {
         return myFrame.getLineNumber();
@@ -368,6 +403,7 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
+    @Override
     public String getURI() {
       try {
         return myFrame.getURI();
@@ -376,6 +412,7 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
+    @Override
     public F getNext() {
       try {
         return createImpl(myFrame.getNext());
@@ -384,6 +421,7 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
+    @Override
     public F getPrevious() {
       try {
         return createImpl(myFrame.getPrevious());
@@ -404,7 +442,7 @@ public class RemoteDebuggerClient implements Debugger {
 
     public Value eval(String expr) throws EvaluationException {
       try {
-        return myFrame.eval(expr);
+        return myFrame.eval(expr, myAccessToken);
       } catch (RemoteException e) {
         throw handleRemoteException(e);
       }
@@ -419,11 +457,12 @@ public class RemoteDebuggerClient implements Debugger {
     }
   }
 
-  private static class MyFrame extends MyAbstractFrame<StyleFrame> implements StyleFrame {
+  private class MyFrame extends MyAbstractFrame<StyleFrame> implements StyleFrame {
     protected MyFrame(RemoteDebugger.Frame frame) {
       super(frame);
     }
 
+    @Override
     public String getInstruction() {
       try {
         return myFrame.getInstruction();
@@ -432,25 +471,27 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
+    @Override
     protected StyleFrame createImpl(RemoteDebugger.Frame frame) {
       return create(frame);
     }
 
-    public static StyleFrame create(RemoteDebugger.Frame currentFrame) {
+    public StyleFrame create(RemoteDebugger.Frame currentFrame) {
       return currentFrame != null ? new MyFrame(currentFrame) : null;
     }
   }
 
-  private static class MySourceFrame extends MyAbstractFrame<SourceFrame> implements SourceFrame {
+  private class MySourceFrame extends MyAbstractFrame<SourceFrame> implements SourceFrame {
     protected MySourceFrame(RemoteDebugger.Frame frame) {
       super(frame);
     }
 
+    @Override
     public SourceFrame createImpl(RemoteDebugger.Frame frame) {
       return create(frame);
     }
 
-    public static SourceFrame create(RemoteDebugger.Frame currentFrame) {
+    public SourceFrame create(RemoteDebugger.Frame currentFrame) {
       return currentFrame != null ? new MySourceFrame(currentFrame) : null;
     }
   }
@@ -458,10 +499,11 @@ public class RemoteDebuggerClient implements Debugger {
   private static class MyVariable implements Variable {
     private final RemoteDebugger.Variable myVariable;
 
-    public MyVariable(RemoteDebugger.Variable variable) {
+    MyVariable(RemoteDebugger.Variable variable) {
       myVariable = variable;
     }
 
+    @Override
     public String getURI() {
       try {
         return myVariable.getURI();
@@ -470,6 +512,7 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
+    @Override
     public int getLineNumber() {
       try {
         return myVariable.getLineNumber();
@@ -478,6 +521,7 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
+    @Override
     public boolean isGlobal() {
       try {
         return myVariable.isGlobal();
@@ -486,6 +530,7 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
+    @Override
     public Kind getKind() {
       try {
         return myVariable.getKind();
@@ -494,6 +539,7 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
+    @Override
     public String getName() {
       try {
         return myVariable.getName();
@@ -502,6 +548,7 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
+    @Override
     public Value getValue() {
       try {
         return myVariable.getValue();
@@ -510,7 +557,7 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
-    static List<Variable> convert(List<RemoteDebugger.Variable> list) {
+    static List<Variable> convert(List<? extends RemoteDebugger.Variable> list) {
       final ArrayList<Variable> variables = new ArrayList<Variable>(list.size());
       for (final RemoteDebugger.Variable variable : list) {
         variables.add(new MyVariable(variable));
@@ -522,10 +569,11 @@ public class RemoteDebuggerClient implements Debugger {
   private static class MyOutputEventQueue implements OutputEventQueue {
     private final RemoteDebugger.EventQueue myEventQueue;
 
-    public MyOutputEventQueue(RemoteDebugger.EventQueue eventQueue) {
+    MyOutputEventQueue(RemoteDebugger.EventQueue eventQueue) {
       myEventQueue = eventQueue;
     }
 
+    @Override
     public void setEnabled(boolean b) {
       try {
         myEventQueue.setEnabled(b);
@@ -534,6 +582,7 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
+    @Override
     public List<NodeEvent> getEvents() {
       try {
         return myEventQueue.getEvents();

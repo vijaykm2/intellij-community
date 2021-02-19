@@ -29,6 +29,7 @@ import java.util.Set;
 
 class MergeParallelIfsPredicate implements PsiElementPredicate {
 
+  @Override
   public boolean satisfiedBy(PsiElement element) {
     if (!(element instanceof PsiJavaToken)) {
       return false;
@@ -40,8 +41,7 @@ class MergeParallelIfsPredicate implements PsiElementPredicate {
     }
     final PsiIfStatement ifStatement = (PsiIfStatement)parent;
     final PsiElement nextStatement =
-      PsiTreeUtil.skipSiblingsForward(ifStatement,
-                                      PsiWhiteSpace.class);
+      PsiTreeUtil.skipWhitespacesForward(ifStatement);
     if (!(nextStatement instanceof PsiIfStatement)) {
       return false;
     }
@@ -76,8 +76,8 @@ class MergeParallelIfsPredicate implements PsiElementPredicate {
     }
     final PsiExpression firstCondition = statement1.getCondition();
     final PsiExpression secondCondition = statement2.getCondition();
-    if (!EquivalenceChecker.expressionsAreEquivalent(firstCondition,
-                                                     secondCondition)) {
+    if (!EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(firstCondition,
+                                                                                  secondCondition)) {
       return false;
     }
     final PsiStatement nextThenBranch = statement2.getThenBranch();
@@ -114,7 +114,7 @@ class MergeParallelIfsPredicate implements PsiElementPredicate {
 
   private static Set<String> calculateTopLevelDeclarations(
     PsiStatement statement) {
-    final Set<String> out = new HashSet<String>();
+    final Set<String> out = new HashSet<>();
     if (statement instanceof PsiDeclarationStatement) {
       addDeclarations((PsiDeclarationStatement)statement, out);
     }
@@ -133,7 +133,7 @@ class MergeParallelIfsPredicate implements PsiElementPredicate {
   }
 
   private static void addDeclarations(PsiDeclarationStatement statement,
-                                      Collection<String> declaredVariables) {
+                                      Collection<? super String> declaredVariables) {
     final PsiElement[] elements = statement.getDeclaredElements();
     for (final PsiElement element : elements) {
       if (element instanceof PsiVariable) {
@@ -144,7 +144,7 @@ class MergeParallelIfsPredicate implements PsiElementPredicate {
     }
   }
 
-  private static class DeclarationVisitor
+  private static final class DeclarationVisitor
     extends JavaRecursiveElementWalkingVisitor {
 
     private final Set<String> declarations;
@@ -152,17 +152,17 @@ class MergeParallelIfsPredicate implements PsiElementPredicate {
 
     private DeclarationVisitor(Set<String> declarations) {
       super();
-      this.declarations = new HashSet<String>(declarations);
+      this.declarations = new HashSet<>(declarations);
     }
 
     @Override
     public void visitVariable(PsiVariable variable) {
       super.visitVariable(variable);
       final String name = variable.getName();
-      for (Object declaration : declarations) {
-        final String testName = (String)declaration;
+      for (String testName : declarations) {
         if (testName.equals(name)) {
           hasConflict = true;
+          break;
         }
       }
     }

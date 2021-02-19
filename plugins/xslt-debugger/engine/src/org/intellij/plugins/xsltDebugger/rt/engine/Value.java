@@ -18,12 +18,8 @@ package org.intellij.plugins.xsltDebugger.rt.engine;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.Locale;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 31.05.2007
- */
 public interface Value extends Serializable {
   interface Type extends Serializable {
     String getName();
@@ -33,7 +29,7 @@ public interface Value extends Serializable {
     BOOLEAN, NUMBER, STRING, NODESET, OBJECT, UNKNOWN;
 
     public String getName() {
-      return name().toLowerCase();
+      return name().toLowerCase(Locale.ENGLISH);
     }
   }
 

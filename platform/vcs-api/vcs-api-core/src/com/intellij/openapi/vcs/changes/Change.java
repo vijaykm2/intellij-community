@@ -1,19 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes;
 
 import com.intellij.openapi.project.Project;
@@ -24,8 +9,10 @@ import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.impl.VcsPathPresenter;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.vcsUtil.VcsFilePathUtil;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -33,11 +20,8 @@ import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * @author max
- */
 public class Change {
-  private int myHash;
+  private int myHash = -1;
 
   public enum Type {
     MODIFICATION,
@@ -55,7 +39,7 @@ public class Change {
   protected boolean myRenameOrMoveCached = false;
   private boolean myIsReplaced;
   private Type myType;
-  private final Map<String, Change> myOtherLayers;
+  private Map<String, Change> myOtherLayers;
 
   public Change(@Nullable final ContentRevision beforeRevision, @Nullable final ContentRevision afterRevision) {
     this(beforeRevision, afterRevision, convertStatus(beforeRevision, afterRevision));
@@ -66,8 +50,15 @@ public class Change {
     myBeforeRevision = beforeRevision;
     myAfterRevision = afterRevision;
     myFileStatus = fileStatus == null ? convertStatus(beforeRevision, afterRevision) : fileStatus;
-    myHash = -1;
-    myOtherLayers = new HashMap<String, Change>(0);
+    myOtherLayers = null;
+  }
+
+  protected Change(@NotNull Change change) {
+    myBeforeRevision = change.getBeforeRevision();
+    myAfterRevision = change.getAfterRevision();
+    myFileStatus = change.getFileStatus();
+    myOtherLayers = change.myOtherLayers != null ? new HashMap<>(change.myOtherLayers) : null;
+    myIsReplaced = change.isIsReplaced();
   }
 
   private static FileStatus convertStatus(@Nullable ContentRevision beforeRevision, @Nullable ContentRevision afterRevision) {
@@ -76,48 +67,42 @@ public class Change {
     return FileStatus.MODIFIED;
   }
 
-  public void addAdditionalLayerElement(final String name, final Change change) {
+  public void addAdditionalLayerElement(@NonNls String name, final Change change) {
+    if (myOtherLayers == null) myOtherLayers = new HashMap<>(1);
     myOtherLayers.put(name, change);
   }
 
-  public Map<String, Change> getOtherLayers() {
-    return myOtherLayers;
+  @NotNull
+  public Map<@NonNls String, Change> getOtherLayers() {
+    return ContainerUtil.notNullize(myOtherLayers);
   }
 
-  public boolean isTreeConflict() {
-    return false;
-  }
-
-  public boolean isPhantom() {
-    return false;
-  }
-
-  public boolean hasOtherLayers() {
-    return ! myOtherLayers.isEmpty();
-  }
-
+  @NotNull
   public Type getType() {
-    if (myType == null) {
-      if (myBeforeRevision == null) {
-        myType = Type.NEW;
-        return myType;
-      }
-
-      if (myAfterRevision == null) {
-        myType = Type.DELETED;
-        return myType;
-      }
-
-      if ((! Comparing.equal(myBeforeRevision.getFile(), myAfterRevision.getFile())) ||
-          ((! SystemInfo.isFileSystemCaseSensitive) && VcsFilePathUtil
-            .caseDiffers(myBeforeRevision.getFile().getPath(), myAfterRevision.getFile().getPath()))) {
-        myType = Type.MOVED;
-        return myType;
-      }
-
-      myType = Type.MODIFICATION;
+    Type type = myType;
+    if (type == null) {
+      myType = type = calcType();
     }
-    return myType;
+    return type;
+  }
+
+  @NotNull
+  private Type calcType() {
+    if (myBeforeRevision == null) return Type.NEW;
+    if (myAfterRevision == null) return Type.DELETED;
+
+    FilePath bFile = myBeforeRevision.getFile();
+    FilePath aFile = myAfterRevision.getFile();
+    if (!Comparing.equal(bFile, aFile)) return Type.MOVED;
+
+    // enforce case-sensitive check
+    if (!SystemInfo.isFileSystemCaseSensitive) {
+      String bPath = bFile.getPath();
+      String aPath = aFile.getPath();
+      if (!bPath.equals(aPath) && bPath.equalsIgnoreCase(aPath)) return Type.MOVED;
+    }
+
+    return Type.MODIFICATION;
   }
 
   @Nullable
@@ -130,6 +115,7 @@ public class Change {
     return myAfterRevision;
   }
 
+  @NotNull
   public FileStatus getFileStatus() {
     return myFileStatus;
   }
@@ -141,7 +127,7 @@ public class Change {
 
   public boolean equals(final Object o) {
     if (this == o) return true;
-    if (o == null || (! (o instanceof Change))) return false;
+    if ((!(o instanceof Change))) return false;
     final Change otherChange = ((Change)o);
 
     final ContentRevision br1 = getBeforeRevision();
@@ -169,9 +155,8 @@ public class Change {
     return revisionHashCode(getBeforeRevision()) * 27 + revisionHashCode(getAfterRevision());
   }
 
-  private static int revisionHashCode(ContentRevision rev) {
-    if (rev == null) return 0;
-    return rev.getFile().getIOFile().getPath().hashCode();
+  private static int revisionHashCode(@Nullable ContentRevision rev) {
+    return rev != null ? rev.getFile().hashCode() : 0;
   }
 
   public boolean affectsFile(File ioFile) {
@@ -206,22 +191,22 @@ public class Change {
           myMoved = true;
         }
       }
-      if (myMoved && myMoveRelativePath == null && project != null) {
+      if (myMoved && myMoveRelativePath == null && project != null && !project.isDisposed()) {
         myMoveRelativePath = VcsPathPresenter.getInstance(project).getPresentableRelativePath(myBeforeRevision, myAfterRevision);
       }
     }
   }
 
   private boolean revisionPathsSame() {
-    final String path1 = myBeforeRevision.getFile().getIOFile().getAbsolutePath();
-    final String path2 = myAfterRevision.getFile().getIOFile().getAbsolutePath();
+    final String path1 = myBeforeRevision.getFile().getPath();
+    final String path2 = myAfterRevision.getFile().getPath();
+    // intentionally comparing case-sensitively even on case-insensitive OS to identify case-only renames
     return path1.equals(path2);
   }
 
   @NonNls
   public String toString() {
     final Type type = getType();
-    //noinspection EnumSwitchStatementWhichMissesCases
     switch (type) {
       case NEW: return "A: " + myAfterRevision;
       case DELETED: return "D: " + myBeforeRevision;
@@ -231,6 +216,7 @@ public class Change {
   }
 
   @Nullable
+  @Nls
   public String getOriginText(final Project project) {
     cacheRenameOrMove(project);
     if (isMoved()) {
@@ -242,11 +228,13 @@ public class Change {
   }
 
   @Nullable
+  @Nls
   protected String getRenamedText() {
     return VcsBundle.message("change.file.renamed.from.text", myBeforeRevision.getFile().getName());
   }
 
   @Nullable
+  @Nls
   protected String getMovedText(final Project project) {
     return VcsBundle.message("change.file.moved.from.text", getMoveRelativePath(project));
   }
@@ -264,6 +252,7 @@ public class Change {
     return null;
   }
 
+  @Nls
   @Nullable
   public String getDescription() {
     return null;

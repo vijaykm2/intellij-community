@@ -39,24 +39,14 @@ public class ModuleWithTooFewClassesInspection extends BaseGlobalInspection {
   @SuppressWarnings({"PublicField"})
   public int limit = 10;
 
-  @NotNull
   @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("module.with.too.few.classes.display.name");
-  }
-
-  @Override
-  @Nullable
-  public CommonProblemDescriptor[] checkElement(@NotNull RefEntity refEntity, @NotNull AnalysisScope analysisScope, @NotNull InspectionManager inspectionManager,
-                                                @NotNull GlobalInspectionContext globalInspectionContext) {
+  public CommonProblemDescriptor @Nullable [] checkElement(@NotNull RefEntity refEntity, @NotNull AnalysisScope analysisScope, @NotNull InspectionManager inspectionManager,
+                                                           @NotNull GlobalInspectionContext globalInspectionContext) {
     if (!(refEntity instanceof RefModule)) {
       return null;
     }
     final RefModule refModule = (RefModule)refEntity;
     final List<RefEntity> children = refModule.getChildren();
-    if (children == null) {
-      return null;
-    }
     int numClasses = 0;
     for (RefEntity child : children) {
       if (child instanceof RefClass) {

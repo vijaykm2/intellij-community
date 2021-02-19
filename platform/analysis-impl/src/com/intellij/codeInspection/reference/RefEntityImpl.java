@@ -14,38 +14,29 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: Nov 15, 2001
- * Time: 5:14:35 PM
- * To change template for new interface use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.codeInspection.reference;
 
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.util.BitUtil;
-import gnu.trove.THashMap;
+import com.intellij.util.ObjectUtils;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
-abstract class RefEntityImpl implements RefEntity {
-  private volatile RefEntityImpl myOwner;
+public abstract class RefEntityImpl extends UserDataHolderBase implements RefEntity, WritableRefEntity {
+  private volatile WritableRefEntity myOwner;
   protected List<RefEntity> myChildren;  // guarded by this
   private final String myName;
-  private Map<Key, Object> myUserMap;    // guarded by this
-  protected long myFlags;
+  protected long myFlags; // guarded by this
   protected final RefManagerImpl myManager;
 
-  RefEntityImpl(@NotNull String name, @NotNull RefManager manager) {
+  protected RefEntityImpl(@NotNull String name, @NotNull RefManager manager) {
     myManager = (RefManagerImpl)manager;
-    myName = name;
+    myName = myManager.internName(name);
   }
 
   @NotNull
@@ -60,33 +51,37 @@ abstract class RefEntityImpl implements RefEntity {
     return myName;
   }
 
+  @NotNull
   @Override
   public synchronized List<RefEntity> getChildren() {
-    return myChildren;
+    return ObjectUtils.notNull(myChildren, ContainerUtil.emptyList());
   }
 
   @Override
-  public RefEntity getOwner() {
+  public WritableRefEntity getOwner() {
     return myOwner;
   }
 
-  protected void setOwner(@Nullable final RefEntityImpl owner) {
+  @Override
+  public void setOwner(@Nullable final WritableRefEntity owner) {
     myOwner = owner;
   }
 
+  @Override
   public synchronized void add(@NotNull final RefEntity child) {
-    if (myChildren == null) {
-      myChildren = new ArrayList<RefEntity>(1);
+    List<RefEntity> children = myChildren;
+    if (children == null) {
+      myChildren = children = new ArrayList<>(1);
     }
-
-    myChildren.add(child);
+    children.add(child);
     ((RefEntityImpl)child).setOwner(this);
   }
 
-  protected synchronized void removeChild(@NotNull final RefEntity child) {
+  @Override
+  public synchronized void removeChild(@NotNull final RefEntity child) {
     if (myChildren != null) {
       myChildren.remove(child);
-      ((RefEntityImpl)child).setOwner(null);
+      ((WritableRefEntity)child).setOwner(null);
     }
   }
 
@@ -94,51 +89,16 @@ abstract class RefEntityImpl implements RefEntity {
     return getName();
   }
 
- @Override
- @Nullable
-  public <T> T getUserData(@NotNull Key<T> key){
-    synchronized(this){
-      if (myUserMap == null) return null;
-      //noinspection unchecked
-      return (T)myUserMap.get(key);
-    }
-  }
-
   @Override
   public void accept(@NotNull final RefVisitor refVisitor) {
-    ApplicationManager.getApplication().runReadAction(new Runnable() {
-      @Override
-      public void run() {
-        refVisitor.visitElement(RefEntityImpl.this);
-      }
-    });
+    ApplicationManager.getApplication().runReadAction(() -> refVisitor.visitElement(this));
   }
 
-  @Override
-  public <T> void putUserData(@NotNull Key<T> key, T value){
-    synchronized(this){
-      if (myUserMap == null){
-        if (value == null) return;
-        myUserMap = new THashMap<Key, Object>();
-      }
-      if (value != null){
-        //noinspection unchecked
-        myUserMap.put(key, value);
-      }
-      else{
-        myUserMap.remove(key);
-        if (myUserMap.isEmpty()){
-          myUserMap = null;
-        }
-      }
-    }
-  }
-
-  public boolean checkFlag(long mask) {
+  public synchronized boolean checkFlag(long mask) {
     return BitUtil.isSet(myFlags, mask);
   }
 
-  public void setFlag(final boolean value, final long mask) {
+  public synchronized void setFlag(final boolean value, final long mask) {
     myFlags = BitUtil.set(myFlags, mask, value);
   }
 

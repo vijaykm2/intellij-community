@@ -1,26 +1,11 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.builders;
 
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.testFramework.UsefulTestCase;
-import com.intellij.util.Function;
+import com.intellij.util.containers.FileCollectionFactory;
 import com.intellij.util.containers.MultiMap;
-import gnu.trove.THashSet;
 import org.jetbrains.jps.builders.impl.logging.ProjectBuilderLoggerBase;
 
 import java.io.File;
@@ -30,14 +15,11 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
-/**
- * @author nik
- */
-public class TestProjectBuilderLogger extends ProjectBuilderLoggerBase {
-  private MultiMap<String, File> myCompiledFiles = new MultiMap<String, File>();
-  private Set<File> myDeletedFiles = new THashSet<File>(FileUtil.FILE_HASHING_STRATEGY);
-  private List<String> myLogLines = new ArrayList<String>();
-  
+public final class TestProjectBuilderLogger extends ProjectBuilderLoggerBase {
+  private final MultiMap<String, File> myCompiledFiles = new MultiMap<>();
+  private final Set<File> myDeletedFiles = FileCollectionFactory.createCanonicalFileSet();
+  private final List<String> myLogLines = new ArrayList<>();
+
   @Override
   public void logDeletedFiles(Collection<String> paths) {
     super.logDeletedFiles(paths);
@@ -47,9 +29,9 @@ public class TestProjectBuilderLogger extends ProjectBuilderLoggerBase {
   }
 
   @Override
-  public void logCompiledFiles(Collection<File> files, String builderName, String description) throws IOException {
-    super.logCompiledFiles(files, builderName, description);
-    myCompiledFiles.putValues(builderName, files);
+  public void logCompiledFiles(Collection<File> files, String builderId, String description) throws IOException {
+    super.logCompiledFiles(files, builderId, description);
+    myCompiledFiles.putValues(builderId, files);
   }
 
   public void clearFilesData() {
@@ -70,7 +52,7 @@ public class TestProjectBuilderLogger extends ProjectBuilderLoggerBase {
   }
 
   private static void assertRelativePaths(File[] baseDirs, Collection<File> files, String[] expected) {
-    List<String> relativePaths = new ArrayList<String>();
+    List<String> relativePaths = new ArrayList<>();
     for (File file : files) {
       String path = file.getAbsolutePath();
       for (File baseDir : baseDirs) {
@@ -90,19 +72,16 @@ public class TestProjectBuilderLogger extends ProjectBuilderLoggerBase {
   }
 
   public String getFullLog(final File... baseDirs) {
-    return StringUtil.join(myLogLines, new Function<String, String>() {
-      @Override
-      public String fun(String s) {
-        for (File dir : baseDirs) {
-          if (dir != null) {
-            String path = FileUtil.toSystemIndependentName(dir.getAbsolutePath()) + "/";
-            if (s.startsWith(path)) {
-              return s.substring(path.length());
-            }
+    return StringUtil.join(myLogLines, s -> {
+      for (File dir : baseDirs) {
+        if (dir != null) {
+          String path = FileUtil.toSystemIndependentName(dir.getAbsolutePath()) + "/";
+          if (s.startsWith(path)) {
+            return s.substring(path.length());
           }
         }
-        return s;
       }
+      return s;
     }, "\n");
   }
 

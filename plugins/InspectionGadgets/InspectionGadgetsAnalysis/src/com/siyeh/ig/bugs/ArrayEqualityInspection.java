@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2015 Dave Griffith, Bas Leijdekkers
+ * Copyright 2011-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,28 +15,22 @@
  */
 package com.siyeh.ig.bugs;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ComparisonUtils;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 public class ArrayEqualityInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "array.comparison.display.name");
-  }
 
   @Override
   @NotNull
@@ -59,41 +53,32 @@ public class ArrayEqualityInspection extends BaseInspection {
 
     private final boolean deepEquals;
 
-    public ArrayEqualityFix(boolean deepEquals) {
+    ArrayEqualityFix(boolean deepEquals) {
       this.deepEquals = deepEquals;
     }
 
     @NotNull
     @Override
     public String getName() {
-      if (deepEquals) {
-        return InspectionGadgetsBundle.message(
-          "replace.with.arrays.deep.equals");
-      }
-      else {
-        return InspectionGadgetsBundle.message(
-          "replace.with.arrays.equals");
-      }
+      return CommonQuickFixBundle.message("fix.replace.with.x", deepEquals ? "Arrays.deepEquals()" : "Arrays.equals()");
     }
 
     @NotNull
     @Override
     public String getFamilyName() {
-      return InspectionGadgetsBundle.message("replace.with.arrays.equals");
+      return CommonQuickFixBundle.message("fix.replace.with.x", "Arrays.equals()");
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
       final PsiElement parent = element.getParent();
       if (!(parent instanceof PsiBinaryExpression)) {
         return;
       }
-      final PsiBinaryExpression binaryExpression =
-        (PsiBinaryExpression)parent;
-      final IElementType tokenType =
-        binaryExpression.getOperationTokenType();
+      CommentTracker commentTracker = new CommentTracker();
+      final PsiBinaryExpression binaryExpression = (PsiBinaryExpression)parent;
+      final IElementType tokenType = binaryExpression.getOperationTokenType();
       @NonNls final StringBuilder newExpressionText = new StringBuilder();
       if (JavaTokenType.NE.equals(tokenType)) {
         newExpressionText.append('!');
@@ -107,16 +92,15 @@ public class ArrayEqualityInspection extends BaseInspection {
       else {
         newExpressionText.append("java.util.Arrays.equals(");
       }
-      newExpressionText.append(binaryExpression.getLOperand().getText());
+      newExpressionText.append(commentTracker.text(binaryExpression.getLOperand()));
       newExpressionText.append(',');
       final PsiExpression rhs = binaryExpression.getROperand();
       if (rhs == null) {
         return;
       }
-      newExpressionText.append(rhs.getText());
+      newExpressionText.append(commentTracker.text(rhs));
       newExpressionText.append(')');
-      PsiReplacementUtil.replaceExpressionAndShorten(binaryExpression,
-                                                     newExpressionText.toString());
+      PsiReplacementUtil.replaceExpressionAndShorten(binaryExpression, newExpressionText.toString(), commentTracker);
     }
   }
 

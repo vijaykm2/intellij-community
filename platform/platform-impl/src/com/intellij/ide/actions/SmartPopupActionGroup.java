@@ -15,46 +15,36 @@
  */
 package com.intellij.ide.actions;
 
-import com.intellij.openapi.actionSystem.ActionGroup;
-import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.ActionGroupUtil;
+import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * This group turns itself into a popup if there's more than one child.
  *
- * @see com.intellij.ide.actions.NonEmptyActionGroup
- * @see com.intellij.ide.actions.NonTrivialActionGroup
+ * @see NonEmptyActionGroup
+ * @see NonTrivialActionGroup
  * @author yole
  */
 public class SmartPopupActionGroup extends DefaultActionGroup {
-  private boolean myIsPopupCalculated;
+
+  private boolean myCachedIsPopup = true;
 
   @Override
   public boolean isPopup() {
-    if (!myIsPopupCalculated) {
-      setPopup(getChildrenCountRecursive(this) > 1);
-      myIsPopupCalculated = true;
-    }
-    return super.isPopup();
+    return myCachedIsPopup; // called after update()
   }
 
-  private static int getChildrenCountRecursive(ActionGroup group) {
-    AnAction[] children;
-    if (group instanceof DefaultActionGroup) {
-      children = ((DefaultActionGroup) group).getChildActionsOrStubs();
-    }
-    else {
-      children = group.getChildren(null);
-    }
-    int count = 0;
-    for (AnAction child : children) {
-      if (child instanceof ActionGroup) {
-        count += getChildrenCountRecursive((ActionGroup) child);
-      }
-      else {
-        count++;
-      }
-    }
-    return count;
+  @Override
+  public void update(@NotNull AnActionEvent e) {
+    int size = ActionGroupUtil.getActiveActions(this, e).take(3).size();
+    e.getPresentation().setEnabledAndVisible(size > 0);
+    myCachedIsPopup = size > 2;
+  }
+
+  @Override
+  public boolean disableIfNoVisibleChildren() {
+    return false; // optimization
   }
 }

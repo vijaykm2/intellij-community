@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,9 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.wm.IdeFocusManager;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -37,7 +39,7 @@ public class EditorComboBoxEditor implements ComboBoxEditor{
   public EditorComboBoxEditor(Project project, FileType fileType) {
     myTextField = new ComboboxEditorTextField((Document)null, project, fileType) {
       @Override
-      protected EditorEx createEditor() {
+      protected @NotNull EditorEx createEditor() {
         EditorEx editor = super.createEditor();
         onEditorCreate(editor);
         return editor;
@@ -51,7 +53,7 @@ public class EditorComboBoxEditor implements ComboBoxEditor{
   @Override
   public void selectAll() {
     myTextField.selectAll();
-    myTextField.requestFocus();
+    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myTextField, true));
   }
 
   @Nullable

@@ -60,18 +60,18 @@ class StaticInner1 {
     }
 
     interface I1 {
-      Inner _(StaticInner1 rec);
+      Inner m(StaticInner1 rec);
     }
 
     interface I2 {
-      Inner _();
+      Inner m();
     }
 
     static void call3(I1 s) {}
     static void call3(I2 s) {}
 
     static {
-      call3<error descr="Ambiguous method call: both 'StaticInner1.call3(I1)' and 'StaticInner1.call3(I2)' match">(StaticInner1.Inner :: new)</error>;
+      call3(StaticInner1.Inner :: <error descr="Cannot resolve constructor 'Inner'">new</error>);
     }
 }
 
@@ -109,7 +109,7 @@ class NonStaticInner2 {
 
 
   static {
-     I1 i1 = NonStaticInner2.Inner :: <error descr="Cannot resolve constructor 'Inner'">new</error>;
+     I1 i1 = <error descr="An enclosing instance of type NonStaticInner2 is not in scope">NonStaticInner2.Inner :: new</error>;
   }
 
   {
@@ -130,7 +130,7 @@ class NonStaticInner3 {
     interface I2<X> {
         X m();
     }
-    
+
     interface I3<X> {
         X m(NonStaticInner3 rec, int i);
     }

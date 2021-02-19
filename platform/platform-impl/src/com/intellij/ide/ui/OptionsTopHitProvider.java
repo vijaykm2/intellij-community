@@ -1,87 +1,221 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.ui;
 
+import com.intellij.diagnostic.StartUpMeasurer;
+import com.intellij.diagnostic.StartUpPerformanceService;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.SearchTopHitProvider;
-import com.intellij.ide.ui.search.BooleanOptionDescription;
+import com.intellij.ide.ui.search.OptionDescription;
 import com.intellij.openapi.application.ApplicationBundle;
-import com.intellij.openapi.keymap.KeyMapBundle;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.PreloadingActivity;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.extensions.ExtensionNotApplicableException;
+import com.intellij.openapi.extensions.ExtensionPointName;
+import com.intellij.openapi.extensions.PluginDescriptor;
+import com.intellij.openapi.progress.ProcessCanceledException;
+import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.startup.StartupActivity;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.psi.codeStyle.MinusculeMatcher;
-import com.intellij.psi.codeStyle.NameUtil;
-import com.intellij.util.Consumer;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import com.intellij.psi.codeStyle.WordPrefixMatcher;
+import com.intellij.util.concurrency.NonUrgentExecutor;
+import com.intellij.util.text.Matcher;
+import org.jetbrains.annotations.*;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Consumer;
 
-/**
- * @author Konstantin Bulenkov
- */
-public abstract class OptionsTopHitProvider implements SearchTopHitProvider {
-  @NotNull
-  public abstract Collection<BooleanOptionDescription> getOptions(@Nullable Project project);
+public abstract class OptionsTopHitProvider implements OptionsSearchTopHitProvider, SearchTopHitProvider {
+  // project level here means not that EP itself in project area, but that extensions applicable for project only
+  public static final ExtensionPointName<OptionsSearchTopHitProvider.ProjectLevelProvider>
+    PROJECT_LEVEL_EP = new ExtensionPointName<>("com.intellij.search.projectOptionsTopHitProvider");
+
+  /**
+   * @deprecated Use {@link OptionsSearchTopHitProvider.ApplicationLevelProvider} or {@link OptionsSearchTopHitProvider.ProjectLevelProvider}
+   * <p>
+   * ConfigurableOptionsTopHitProvider will be refactored later.
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public abstract @NotNull Collection<OptionDescription> getOptions(@Nullable Project project);
+
+  private static @NotNull Collection<OptionDescription> getCachedOptions(@NotNull OptionsSearchTopHitProvider provider,
+                                                                         @Nullable Project project,
+                                                                         @Nullable PluginDescriptor pluginDescriptor) {
+    TopHitCache cache = project == null || provider instanceof ApplicationLevelProvider
+       ? TopHitCache.getInstance()
+       : ProjectTopHitCache.getInstance(project);
+
+    return cache.getCachedOptions(provider, project, pluginDescriptor);
+  }
 
   @Override
-  public final void consumeTopHits(@NonNls String pattern, Consumer<Object> collector, Project project) {
-    if (!pattern.startsWith("#")) return;
-    pattern = pattern.substring(1);
-    final List<String> parts = StringUtil.split(pattern, " ");
+  public final void consumeTopHits(@NotNull String pattern, @NotNull Consumer<Object> collector, @Nullable Project project) {
+    consumeTopHits(this, pattern, collector, project);
+  }
 
-    if (parts.size() == 0) return;
+  static void consumeTopHits(@NotNull OptionsSearchTopHitProvider provider,
+                             @NotNull String pattern,
+                             @NotNull Consumer<Object> collector,
+                             @Nullable Project project) {
+    pattern = checkPattern(pattern);
+    if (pattern == null) {
+      return;
+    }
 
-    String id = parts.get(0);
-    if (getId().startsWith(id)) {
-      pattern = pattern.substring(id.length()).trim().toLowerCase();
-      final MinusculeMatcher matcher = NameUtil.buildMatcher("*" + pattern, NameUtil.MatchingCaseSensitivity.NONE);
-      for (BooleanOptionDescription option : getOptions(project)) {
-        if (matcher.matches(option.getOption())) {
-          collector.consume(option);
-        }
+    List<String> parts = StringUtil.split(pattern, " ");
+    if (!parts.isEmpty()) {
+      doConsumeTopHits(provider, pattern, parts.get(0), collector, project);
+    }
+  }
+
+  private static void doConsumeTopHits(@NotNull OptionsSearchTopHitProvider provider,
+                                       @NotNull String pattern,
+                                       @NotNull String id,
+                                       @NotNull Consumer<Object> collector,
+                                       @Nullable Project project) {
+    if (provider.getId().startsWith(id) || pattern.startsWith(" ")) {
+      pattern = pattern.startsWith(" ") ? pattern.trim() : pattern.substring(id.length()).trim();
+      consumeTopHitsForApplicableProvider(provider, buildMatcher(pattern), collector, project);
+    }
+  }
+
+  private static void consumeTopHitsForApplicableProvider(@NotNull OptionsSearchTopHitProvider provider,
+                                                          @NotNull Matcher matcher,
+                                                          @NotNull Consumer<Object> collector,
+                                                          @Nullable Project project) {
+    for (OptionDescription option : getCachedOptions(provider, project, null)) {
+      if (matcher.matches(option.getOption())) {
+        collector.accept(option);
       }
     }
   }
 
-  public abstract String getId();
-
-  public boolean isEnabled(@Nullable Project project) {
-    return true;
+  @NotNull
+  @VisibleForTesting
+  public static Matcher buildMatcher(String pattern) {
+    return new WordPrefixMatcher(pattern);
   }
 
-  static String messageApp(String property) {
+  private static @Nullable String checkPattern(@NotNull String pattern) {
+    if (!pattern.startsWith(SearchTopHitProvider.getTopHitAccelerator())) {
+      return null;
+    }
+
+    pattern = pattern.substring(1);
+    return pattern;
+  }
+
+  @Override
+  public abstract @NotNull String getId();
+
+  public static @Nls String messageApp(@PropertyKey(resourceBundle = ApplicationBundle.BUNDLE) String property) {
     return StringUtil.stripHtml(ApplicationBundle.message(property), false);
   }
 
-  static String messageIde(String property) {
+  public static @Nls String messageIde(@PropertyKey(resourceBundle = IdeBundle.BUNDLE) String property) {
     return StringUtil.stripHtml(IdeBundle.message(property), false);
-  }
-
-  static String messageKeyMap(String property) {
-    return StringUtil.stripHtml(KeyMapBundle.message(property), false);
   }
 
   /*
    * Marker interface for option provider containing only descriptors which are backed by toggle actions.
    * E.g. UiSettings.SHOW_STATUS_BAR is backed by View > Status Bar action.
    */
+  @SuppressWarnings({"DeprecatedIsStillUsed", "MissingDeprecatedAnnotation"})
   @Deprecated
-  public interface CoveredByToggleActions { // for search everywhere only
+  // for search everywhere only
+  public interface CoveredByToggleActions {
+  }
+
+  // ours ProjectLevelProvider registered in ours projectOptionsTopHitProvider extension point,
+  // not in common topHitProvider, so, this adapter is required to expose ours project level providers.
+  public static final class ProjectLevelProvidersAdapter implements SearchTopHitProvider {
+    @Override
+    public void consumeTopHits(@NotNull String pattern, @NotNull Consumer<Object> collector, @Nullable Project project) {
+      if (project == null) {
+        return;
+      }
+
+      pattern = checkPattern(pattern);
+      if (pattern == null) {
+        return;
+      }
+
+      List<String> parts = StringUtil.split(pattern, " ");
+      if (parts.isEmpty()) {
+        return;
+      }
+
+      for (OptionsSearchTopHitProvider.ProjectLevelProvider provider : PROJECT_LEVEL_EP.getExtensionList()) {
+        doConsumeTopHits(provider, pattern, parts.get(0), collector, project);
+      }
+    }
+
+    public void consumeAllTopHits(@NotNull String pattern, @NotNull Consumer<Object> collector, @Nullable Project project) {
+      Matcher matcher = buildMatcher(pattern);
+      for (OptionsSearchTopHitProvider.ProjectLevelProvider provider : PROJECT_LEVEL_EP.getExtensionList()) {
+        consumeTopHitsForApplicableProvider(provider, matcher, collector, project);
+      }
+    }
+  }
+
+  static final class Activity extends PreloadingActivity implements StartupActivity.DumbAware {
+    Activity() {
+      if (ApplicationManager.getApplication().isUnitTestMode() || 
+          ApplicationManager.getApplication().isHeadlessEnvironment()) {
+        throw ExtensionNotApplicableException.INSTANCE;
+      }
+    }
+
+    @Override
+    public void preload(@NotNull ProgressIndicator indicator) {
+      cacheAll(indicator, null); // for application
+    }
+
+    @Override
+    public void runActivity(@NotNull Project project) {
+      // for given project
+      NonUrgentExecutor.getInstance().execute(() -> {
+        if (project.isDisposed()) {
+          return;
+        }
+
+        cacheAll(null, project);
+        StartUpPerformanceService.getInstance().lastOptionTopHitProviderFinishedForProject(project);
+      });
+    }
+
+    private static void cacheAll(@Nullable ProgressIndicator indicator, @Nullable Project project) {
+      String name = project == null ? "application" : "project";
+      com.intellij.diagnostic.Activity activity = StartUpMeasurer.startActivity("cache options in " + name);
+      SearchTopHitProvider.EP_NAME.processWithPluginDescriptor((provider, pluginDescriptor) -> {
+        if (provider instanceof OptionsSearchTopHitProvider && (project == null || !(provider instanceof ApplicationLevelProvider))) {
+          OptionsSearchTopHitProvider p = (OptionsSearchTopHitProvider)provider;
+          if (p.preloadNeeded() && (indicator == null || !indicator.isCanceled()) && (project == null || !project.isDisposed())) {
+            getCachedOptions(p, project, pluginDescriptor);
+          }
+        }
+      });
+
+      if (project != null) {
+        PROJECT_LEVEL_EP.processWithPluginDescriptor((provider, pluginDescriptor) -> {
+          if (indicator != null) {
+            indicator.checkCanceled();
+          }
+          try {
+            getCachedOptions(provider, project, pluginDescriptor);
+          }
+          catch (ProcessCanceledException e) {
+            throw e;
+          }
+          catch (Exception e) {
+            Logger.getInstance(OptionsTopHitProvider.class).error(e);
+          }
+        });
+      }
+      activity.end();
+    }
   }
 }

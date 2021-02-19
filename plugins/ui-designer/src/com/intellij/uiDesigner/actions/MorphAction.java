@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.uiDesigner.actions;
 
@@ -21,6 +7,7 @@ import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.ListPopup;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiElementFactory;
 import com.intellij.psi.PsiField;
@@ -45,7 +32,6 @@ import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.Processor;
 import org.jetbrains.annotations.NotNull;
 
-import javax.swing.*;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -53,36 +39,27 @@ import java.util.List;
  * @author yole
  */
 public class MorphAction extends AbstractGuiEditorAction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.uiDesigner.actions.MorphAction");
-
-  private final ComponentItem myLastMorphComponent = null;
+  private static final Logger LOG = Logger.getInstance(MorphAction.class);
 
   public MorphAction() {
     super(true);
   }
 
-  protected void actionPerformed(final GuiEditor editor, final List<RadComponent> selection, final AnActionEvent e) {
-    Processor<ComponentItem> processor = new Processor<ComponentItem>() {
-      public boolean process(final ComponentItem selectedValue) {
-        SwingUtilities.invokeLater(new Runnable() {
-          public void run() {
-            Runnable runnable = new Runnable() {
-              public void run() {
-                for(RadComponent c: selection) {
-                  if (!morphComponent(editor, c, selectedValue)) break;
-                }
-                editor.refreshAndSave(true);
-              }
-            };
-            CommandProcessor.getInstance().executeCommand(editor.getProject(), runnable, UIDesignerBundle.message("morph.component.command"), null);
-            editor.getGlassLayer().requestFocus();
-          }
-        });
-        return true;
-      }
+  @Override
+  protected void actionPerformed(final GuiEditor editor, final List<? extends RadComponent> selection, final AnActionEvent e) {
+    Processor<ComponentItem> processor = selectedValue -> {
+      Runnable runnable = () -> {
+        for(RadComponent c: selection) {
+          if (!morphComponent(editor, c, selectedValue)) break;
+        }
+        editor.refreshAndSave(true);
+      };
+      CommandProcessor.getInstance().executeCommand(editor.getProject(), runnable, UIDesignerBundle.message("morph.component.command"), null);
+      IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(editor.getGlassLayer(), true));
+      return true;
     };
 
-    PaletteListPopupStep step = new PaletteListPopupStep(editor, myLastMorphComponent, processor,
+    PaletteListPopupStep step = new PaletteListPopupStep(editor, null, processor,
                                                          UIDesignerBundle.message("morph.component.title"));
     step.hideNonAtomic();
     if (selection.size() == 1) {
@@ -93,7 +70,8 @@ public class MorphAction extends AbstractGuiEditorAction {
   }
 
   private static boolean morphComponent(final GuiEditor editor, final RadComponent oldComponent, ComponentItem targetItem) {
-    targetItem = InsertComponentProcessor.replaceAnyComponentItem(editor, targetItem, "Morph to Non-Palette Component");
+    targetItem =
+      InsertComponentProcessor.replaceAnyComponentItem(editor, targetItem, UIDesignerBundle.message("morph.non.palette.component"));
     if (targetItem == null) {
       return false;
     }
@@ -156,6 +134,7 @@ public class MorphAction extends AbstractGuiEditorAction {
 
   private static void retargetComponentProperties(final GuiEditor editor, final RadComponent c, final RadComponent newComponent) {
     FormEditingUtil.iterate(editor.getRootContainer(), new FormEditingUtil.ComponentVisitor() {
+      @Override
       public boolean visit(final IComponent component) {
         RadComponent rc = (RadComponent) component;
         for(IProperty p: component.getModifiedProperties()) {
@@ -178,7 +157,7 @@ public class MorphAction extends AbstractGuiEditorAction {
   }
 
   @Override
-  protected void update(@NotNull GuiEditor editor, final ArrayList<RadComponent> selection, final AnActionEvent e) {
+  protected void update(@NotNull GuiEditor editor, final ArrayList<? extends RadComponent> selection, final AnActionEvent e) {
     if (selection.size() == 0) {
       e.getPresentation().setEnabled(false);
       return;

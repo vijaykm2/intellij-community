@@ -15,6 +15,7 @@
  */
 package com.intellij.lang.ant.dom;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.io.FileUtil;
@@ -29,7 +30,6 @@ import com.intellij.psi.impl.source.resolve.reference.impl.providers.FileReferen
 import com.intellij.psi.xml.XmlAttributeValue;
 import com.intellij.util.xml.GenericAttributeValue;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 
@@ -76,14 +76,14 @@ public class AntDomFileReferenceSet extends FileReferenceSet {
     return new AntDomFileReference(this, range, index, text);
   }
 
+  @NotNull
   @Override
   public XmlAttributeValue getElement() {
     return (XmlAttributeValue)super.getElement();
   }
 
-  @Nullable
   @Override
-  public String getPathString() {
+  public @NlsSafe String getPathString() {
     return myValue.getStringValue();
   }
 

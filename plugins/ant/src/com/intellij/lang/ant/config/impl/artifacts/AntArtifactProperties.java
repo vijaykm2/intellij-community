@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.ant.config.impl.artifacts;
 
+import com.intellij.lang.ant.AntBundle;
 import com.intellij.lang.ant.config.AntBuildFile;
 import com.intellij.lang.ant.config.AntBuildModel;
 import com.intellij.lang.ant.config.AntBuildTarget;
@@ -26,11 +13,13 @@ import com.intellij.openapi.actionSystem.impl.SimpleDataContext;
 import com.intellij.openapi.compiler.CompileContext;
 import com.intellij.openapi.compiler.CompilerMessageCategory;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.packaging.artifacts.Artifact;
 import com.intellij.packaging.artifacts.ArtifactProperties;
 import com.intellij.packaging.ui.ArtifactEditorContext;
 import com.intellij.packaging.ui.ArtifactPropertiesEditor;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.ant.model.impl.artifacts.AntArtifactExtensionProperties;
@@ -39,21 +28,20 @@ import org.jetbrains.jps.ant.model.impl.artifacts.JpsAntArtifactExtensionImpl;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
-* @author nik
-*/
 public class AntArtifactProperties extends ArtifactProperties<AntArtifactExtensionProperties> {
   private AntArtifactExtensionProperties myExtensionProperties = new AntArtifactExtensionProperties();
-  private boolean myPostProcessing;
+  private final boolean myPostProcessing;
 
   public AntArtifactProperties(boolean postProcessing) {
     myPostProcessing = postProcessing;
   }
 
+  @Override
   public ArtifactPropertiesEditor createEditor(@NotNull ArtifactEditorContext context) {
     return new AntArtifactPropertiesEditor(this, context, myPostProcessing);
   }
 
+  @Override
   public AntArtifactExtensionProperties getState() {
     return myExtensionProperties;
   }
@@ -81,21 +69,23 @@ public class AntArtifactProperties extends ArtifactProperties<AntArtifactExtensi
         List<BuildFileProperty> properties = getAllProperties(artifact);
         final boolean success = AntConfigurationImpl.executeTargetSynchronously(dataContext, target, properties);
         if (!success) {
-          compileContext.addMessage(CompilerMessageCategory.ERROR, "Cannot build artifact '" + artifact.getName() + "': ant target '" + target.getDisplayName() + "' failed with error", null, -1, -1);
+          String message = AntBundle.message("cannot.build.artifact.using.ant.target", artifact.getName(), target.getDisplayName());
+          compileContext.addMessage(CompilerMessageCategory.ERROR, message, null, -1, -1);
         }
       }
     }
   }
 
-  public void loadState(AntArtifactExtensionProperties state) {
+  @Override
+  public void loadState(@NotNull AntArtifactExtensionProperties state) {
     myExtensionProperties = state;
   }
 
-  public String getFileUrl() {
+  public @NlsSafe String getFileUrl() {
     return myExtensionProperties.myFileUrl;
   }
 
-  public String getTargetName() {
+  public @NlsSafe String getTargetName() {
     return myExtensionProperties.myTargetName;
   }
 
@@ -115,11 +105,11 @@ public class AntArtifactProperties extends ArtifactProperties<AntArtifactExtensi
     myExtensionProperties.myEnabled = enabled;
   }
 
-  public void setFileUrl(String fileUrl) {
+  public void setFileUrl(@NlsSafe String fileUrl) {
     myExtensionProperties.myFileUrl = fileUrl;
   }
 
-  public void setTargetName(String targetName) {
+  public void setTargetName(@NlsSafe String targetName) {
     myExtensionProperties.myTargetName = targetName;
   }
 
@@ -129,8 +119,7 @@ public class AntArtifactProperties extends ArtifactProperties<AntArtifactExtensi
     String targetName = getTargetName();
     if (fileUrl == null || targetName == null) return null;
 
-    final AntBuildFile[] buildFiles = antConfiguration.getBuildFiles();
-    for (AntBuildFile buildFile : buildFiles) {
+    for (AntBuildFile buildFile : antConfiguration.getBuildFileList()) {
       final VirtualFile file = buildFile.getVirtualFile();
       if (file != null && file.getUrl().equals(fileUrl)) {
         final AntBuildModel buildModel = buildFile.getModel();
@@ -141,13 +130,13 @@ public class AntArtifactProperties extends ArtifactProperties<AntArtifactExtensi
   }
 
   public List<BuildFileProperty> getAllProperties(@NotNull Artifact artifact) {
-    final List<BuildFileProperty> properties = new ArrayList<BuildFileProperty>();
+    final List<BuildFileProperty> properties = new ArrayList<>();
     properties.add(new BuildFileProperty(JpsAntArtifactExtensionImpl.ARTIFACT_OUTPUT_PATH_PROPERTY, artifact.getOutputPath()));
     properties.addAll(myExtensionProperties.myUserProperties);
     return properties;
   }
 
-  public static boolean isPredefinedProperty(String propertyName) {
+  public static boolean isPredefinedProperty(@NonNls String propertyName) {
     return JpsAntArtifactExtensionImpl.ARTIFACT_OUTPUT_PATH_PROPERTY.equals(propertyName);
   }
 }

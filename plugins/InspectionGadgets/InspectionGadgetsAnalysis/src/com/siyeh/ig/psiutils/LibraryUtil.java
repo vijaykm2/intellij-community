@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2010 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2019 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +16,16 @@
 package com.siyeh.ig.psiutils;
 
 import com.intellij.psi.*;
+import com.intellij.psi.util.PsiUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class LibraryUtil {
+public final class LibraryUtil {
 
-  private LibraryUtil() {
-    super();
+  private LibraryUtil() {}
+
+  public static boolean isTypeInLibrary(@Nullable PsiType type) {
+    return classIsInLibrary(PsiUtil.resolveClassInClassTypeOnly(type));
   }
 
   public static boolean classIsInLibrary(@Nullable PsiClass aClass) {

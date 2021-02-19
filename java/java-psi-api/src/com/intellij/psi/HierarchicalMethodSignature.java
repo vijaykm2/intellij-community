@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,13 +18,13 @@ package com.intellij.psi;
 import com.intellij.psi.util.MethodSignatureBackedByPsiMethod;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
  * Data structure which allows efficient retrieval of super methods for a Java method.
  *
  * @author ven
- * @since 5.1
  */
 public abstract class HierarchicalMethodSignature extends MethodSignatureBackedByPsiMethod {
   public HierarchicalMethodSignature(@NotNull MethodSignatureBackedByPsiMethod signature) {
@@ -32,7 +32,7 @@ public abstract class HierarchicalMethodSignature extends MethodSignatureBackedB
           getParameterTypes(signature.getMethod()), signature.getTypeParameters());
   }
 
-  private static PsiType[] getParameterTypes(PsiMethod method) {
+  private static PsiType @NotNull [] getParameterTypes(PsiMethod method) {
     final PsiParameter[] parameters = method.getParameterList().getParameters();
     final PsiType[] paramTypes = PsiType.createArray(parameters.length);
     for (int i = 0; i < paramTypes.length; i++) {
@@ -48,4 +48,8 @@ public abstract class HierarchicalMethodSignature extends MethodSignatureBackedB
    * Note that the list may include signatures for which isSubsignature() check returns false, but erasures are equal 
    */
   @NotNull public abstract List<HierarchicalMethodSignature> getSuperSignatures();
+
+  @NotNull public List<HierarchicalMethodSignature> getInaccessibleSuperSignatures() {
+    return Collections.emptyList();
+  }
 }

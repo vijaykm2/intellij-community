@@ -6,10 +6,9 @@ import com.intellij.tasks.TaskRepository;
 import com.intellij.tasks.TaskType;
 import com.intellij.tasks.mantis.model.IssueData;
 import com.intellij.tasks.mantis.model.IssueHeaderData;
-import com.intellij.tasks.mantis.model.IssueNoteData;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
-import icons.TasksIcons;
+import icons.TasksCoreIcons;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -18,13 +17,13 @@ import java.util.Date;
 
 public class MantisTask extends Task {
   private final String myId;
-  private final String mySummary;
-  private final String myDescription;
+  private final @Nls String mySummary;
+  private final @Nls String myDescription;
   private final Date myUpdated;
   private final Date myCreated;
   private final boolean myClosed;
-  private String myProjectName;
-  private MantisRepository myRepository;
+  private final String myProjectName;
+  private final MantisRepository myRepository;
   private final Comment[] myComments;
 
   public MantisTask(@NotNull IssueData data, @NotNull MantisRepository repository) {
@@ -41,27 +40,21 @@ public class MantisTask extends Task {
       myComments = Comment.EMPTY_ARRAY;
     }
     else {
-      myComments = ContainerUtil.map2Array(data.getNotes(), Comment.class, new Function<IssueNoteData, Comment>() {
+      myComments = ContainerUtil.map2Array(data.getNotes(), Comment.class, data1 -> new Comment() {
         @Override
-        public Comment fun(final IssueNoteData data) {
-          return new Comment() {
-            @Override
-            public String getText() {
-              return data.getText();
-            }
+        public String getText() {
+          return data1.getText();
+        }
 
-            @Nullable
-            @Override
-            public String getAuthor() {
-              return data.getReporter().getName();
-            }
+        @Nullable
+        @Override
+        public String getAuthor() {
+          return data1.getReporter().getName();
+        }
 
-            @Nullable
-            @Override
-            public Date getDate() {
-              return data.getDate_submitted().getTime();
-            }
-          };
+        @Override
+        public @NotNull Date getDate() {
+          return data1.getDate_submitted().getTime();
         }
       });
     }
@@ -97,16 +90,15 @@ public class MantisTask extends Task {
     return myDescription;
   }
 
-  @NotNull
   @Override
-  public Comment[] getComments() {
+  public Comment @NotNull [] getComments() {
     return myComments;
   }
 
   @NotNull
   @Override
   public Icon getIcon() {
-    return TasksIcons.Mantis;
+    return TasksCoreIcons.Mantis;
   }
 
   @NotNull

@@ -1,12 +1,12 @@
 package com.siyeh.ig.javadoc;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
-public class HtmlTagCanBeJavadocTagInspectionTest extends LightInspectionTestCase {
+public class HtmlTagCanBeJavadocTagInspectionTest extends LightJavaInspectionTestCase {
 
-  public void testHtmlTagCanBeJavadocTag() throws Exception {
+  public void testHtmlTagCanBeJavadocTag() {
     doTest();
   }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 Bas Leijdekkers
+ * Copyright 2011-2018 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,28 +19,22 @@ import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
-import org.jetbrains.annotations.Nls;
+import com.siyeh.ig.psiutils.CommentTracker;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 public class MathRandomCastToIntInspection extends BaseInspection {
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("math.random.cast.to.int.display.name");
-  }
 
   @NotNull
   @Override
   protected String buildErrorString(Object... infos) {
-    return InspectionGadgetsBundle.message("math.random.cast.to.int.problem.descriptor");
+    final PsiType type = (PsiType)infos[1];
+    return InspectionGadgetsBundle.message("math.random.cast.to.int.problem.descriptor", type.getPresentableText());
   }
 
   @Override
@@ -57,7 +51,7 @@ public class MathRandomCastToIntInspection extends BaseInspection {
     }
     final PsiPolyadicExpression polyadicExpression = (PsiPolyadicExpression)parent;
     final IElementType tokenType = polyadicExpression.getOperationTokenType();
-    if (JavaTokenType.ASTERISK != tokenType) {
+    if (JavaTokenType.ASTERISK != tokenType || polyadicExpression.getType() == null) {
       return null;
     }
     return new MathRandomCastToIntegerFix();
@@ -67,19 +61,16 @@ public class MathRandomCastToIntInspection extends BaseInspection {
     @Override
     @NotNull
     public String getFamilyName() {
-      return getName();
-    }
-    @Override
-    @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message(
-        "math.random.cast.to.int.quickfix");
+      return InspectionGadgetsBundle.message("math.random.cast.to.int.quickfix");
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
-      final PsiElement parent = element.getParent();
+      PsiElement parent = element.getParent();
+      while (parent instanceof PsiPrefixExpression) {
+        parent = parent.getParent();
+      }
       if (!(parent instanceof PsiTypeCastExpression)) {
         return;
       }
@@ -93,8 +84,13 @@ public class MathRandomCastToIntInspection extends BaseInspection {
       if (operand == null) {
         return;
       }
+      final PsiType type = polyadicExpression.getType();
+      if (type == null) {
+        return;
+      }
       @NonNls final StringBuilder newExpression = new StringBuilder();
-      newExpression.append("(int)(");
+      CommentTracker commentTracker = new CommentTracker();
+      newExpression.append("(").append(type.getCanonicalText()).append(")(");
       final PsiExpression[] operands = polyadicExpression.getOperands();
       for (final PsiExpression expression : operands) {
         final PsiJavaToken token = polyadicExpression.getTokenBeforeOperand(expression);
@@ -102,14 +98,14 @@ public class MathRandomCastToIntInspection extends BaseInspection {
           newExpression.append(token.getText());
         }
         if (typeCastExpression.equals(expression)) {
-          newExpression.append(operand.getText());
+          newExpression.append(commentTracker.text(operand));
         }
         else {
-          newExpression.append(expression.getText());
+          newExpression.append(commentTracker.text(expression));
         }
       }
       newExpression.append(')');
-      PsiReplacementUtil.replaceExpression(polyadicExpression, newExpression.toString());
+      PsiReplacementUtil.replaceExpression(polyadicExpression, newExpression.toString(), commentTracker);
     }
   }
 
@@ -123,7 +119,10 @@ public class MathRandomCastToIntInspection extends BaseInspection {
     @Override
     public void visitTypeCastExpression(PsiTypeCastExpression expression) {
       super.visitTypeCastExpression(expression);
-      final PsiExpression operand = expression.getOperand();
+      PsiExpression operand = expression.getOperand();
+      while (operand instanceof PsiPrefixExpression) {
+        operand = ((PsiPrefixExpression)operand).getOperand();
+      }
       if (!(operand instanceof PsiMethodCallExpression)) {
         return;
       }
@@ -132,7 +131,7 @@ public class MathRandomCastToIntInspection extends BaseInspection {
         return;
       }
       final PsiType type = castType.getType();
-      if (!PsiType.INT.equals(type) && !PsiType.LONG.equals(type)) {
+      if (!(type instanceof PsiPrimitiveType) || PsiType.DOUBLE.equals(type) || PsiType.FLOAT.equals(type) || PsiType.BOOLEAN.equals(type)) {
         return;
       }
       final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)operand;
@@ -151,10 +150,10 @@ public class MathRandomCastToIntInspection extends BaseInspection {
         return;
       }
       final String qualifiedName = containingClass.getQualifiedName();
-      if (!"java.lang.Math".equals(qualifiedName) && !"java.lang.StrictMath".equals(qualifiedName)) {
+      if (!CommonClassNames.JAVA_LANG_MATH.equals(qualifiedName) && !CommonClassNames.JAVA_LANG_STRICT_MATH.equals(qualifiedName)) {
         return;
       }
-      registerError(methodCallExpression, expression);
+      registerError(methodCallExpression, expression, type);
     }
   }
 }

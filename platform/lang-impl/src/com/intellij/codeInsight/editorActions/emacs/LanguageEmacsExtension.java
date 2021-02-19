@@ -19,14 +19,11 @@ import com.intellij.lang.LanguageExtension;
 
 /**
  * @author Denis Zhdanov
- * @since 4/11/11 2:21 PM
  */
 public class LanguageEmacsExtension extends LanguageExtension<EmacsProcessingHandler> {
-  
-  public static final String EP_NAME = "com.intellij.lang.emacs";
   public static final LanguageEmacsExtension INSTANCE = new LanguageEmacsExtension();
 
   public LanguageEmacsExtension() {
-    super(EP_NAME, new DefaultEmacsProcessingHandler());
+    super("com.intellij.lang.emacs", new DefaultEmacsProcessingHandler());
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2014 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2019 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,26 +23,29 @@ import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.psi.util.TypeConversionUtil;
+import com.intellij.util.SmartList;
+import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
-import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.EquivalenceChecker;
 import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.SideEffectChecker;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
-public class PointlessArithmeticExpressionInspection
-  extends BaseInspection {
-
-  private static final Set<IElementType> arithmeticTokens =
-    new THashSet<IElementType>(9);
+public final class PointlessArithmeticExpressionInspection extends BaseInspection {
+  private static final Set<IElementType> arithmeticTokens = new HashSet<>(9);
 
   static {
     arithmeticTokens.add(JavaTokenType.PLUS);
@@ -63,17 +66,8 @@ public class PointlessArithmeticExpressionInspection
 
   @Override
   public JComponent createOptionsPanel() {
-    return new SingleCheckboxOptionsPanel(
-      InspectionGadgetsBundle.message(
-        "pointless.boolean.expression.ignore.option"),
-      this, "m_ignoreExpressionsContainingConstants");
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "pointless.arithmetic.expression.display.name");
+    return new SingleCheckboxOptionsPanel(InspectionGadgetsBundle.message("pointless.boolean.expression.ignore.option"),
+                                          this, "m_ignoreExpressionsContainingConstants");
   }
 
   @Override
@@ -84,79 +78,75 @@ public class PointlessArithmeticExpressionInspection
   @Override
   @NotNull
   public String buildErrorString(Object... infos) {
-    return InspectionGadgetsBundle.message(
-      "expression.can.be.replaced.problem.descriptor",
-      calculateReplacementExpression((PsiExpression)infos[0]));
+    return InspectionGadgetsBundle.message("expression.can.be.replaced.problem.descriptor",
+                                           calculateReplacementExpression((PsiPolyadicExpression)infos[0], null));
   }
 
   @NonNls
-  String calculateReplacementExpression(PsiExpression expression) {
-    final PsiPolyadicExpression polyadicExpression = (PsiPolyadicExpression)expression;
-    final PsiExpression[] operands = polyadicExpression.getOperands();
-    final IElementType tokenType = polyadicExpression.getOperationTokenType();
-    PsiElement fromTarget = null;
-    PsiElement untilTarget = null;
-    PsiExpression previousOperand = null;
-    @NonNls String replacement = "";
-    for (int i = 0, length = operands.length; i < length; i++) {
-      final PsiExpression operand = operands[i];
-      if (tokenType.equals(JavaTokenType.PLUS) && isZero(operand) ||
-        tokenType.equals(JavaTokenType.MINUS) && isZero(operand) && i > 0 ||
-        tokenType.equals(JavaTokenType.ASTERISK) && isOne(operand) ||
-        tokenType.equals(JavaTokenType.DIV) && isOne(operand) && i > 0) {
-        fromTarget = (i == length - 1) ? polyadicExpression.getTokenBeforeOperand(operand) : operand;
-        break;
-      }
-      else if ((tokenType.equals(JavaTokenType.MINUS) && i == 1 || tokenType.equals(JavaTokenType.DIV)) &&
-               EquivalenceChecker.expressionsAreEquivalent(previousOperand, operand)) {
-        fromTarget = previousOperand;
-        untilTarget = operand;
-        replacement = PsiType.LONG.equals(polyadicExpression.getType())
-                      ? tokenType.equals(JavaTokenType.DIV) ? "1L" : "0L"
-                      : tokenType.equals(JavaTokenType.DIV) ? "1" : "0";
-        break;
-      }
-      else if (tokenType.equals(JavaTokenType.ASTERISK) && isZero(operand) ||
-        tokenType.equals(JavaTokenType.PERC) && (isOne(operand) || EquivalenceChecker.expressionsAreEquivalent(previousOperand, operand))) {
-        fromTarget = operands[0];
-        untilTarget = operands[length - 1];
-        replacement = PsiType.LONG.equals(polyadicExpression.getType()) ? "0L" : "0";
-        break;
-      }
-
-      previousOperand = operand;
+  String calculateReplacementExpression(PsiPolyadicExpression expression, @Nullable CommentTracker ct) {
+    final PsiExpression[] operands = expression.getOperands();
+    final IElementType tokenType = expression.getOperationTokenType();
+    final PsiType type = expression.getType();
+    final List<PsiExpression> expressions = collectSalientOperands(operands, tokenType, type);
+    final PsiJavaToken token = expression.getTokenBeforeOperand(operands[1]);
+    assert token != null;
+    String prefix = "";
+    if (isZero(expressions.get(0)) && expressions.size() > 1 && JavaTokenType.MINUS == token.getTokenType()) {
+      expressions.remove(0);
+      prefix = "- ";
     }
-    return getText(polyadicExpression, fromTarget, untilTarget, replacement).trim();
+    final String delimiter = " " + token.getText() + " ";
+    final String result =
+      prefix + expressions.stream().map(e -> ct == null ? e.getText() : ct.textWithComments(e)).collect(Collectors.joining(delimiter));
+    final boolean castToLongNeeded = ct != null && TypeConversionUtil.isLongType(type) &&
+                                     expressions.stream().noneMatch(x -> TypeConversionUtil.isLongType(x.getType()));
+    return castToLongNeeded ? "(long)" + result : result;
   }
 
-  public static String getText(PsiPolyadicExpression expression, PsiElement fromTarget, PsiElement untilTarget,
-                               @NotNull @NonNls String replacement) {
-    final StringBuilder result = new StringBuilder();
-    boolean stop = false;
-    boolean longTypeSeen = false;
-    for (PsiElement child : expression.getChildren()) {
-      if (child == fromTarget) {
-        stop = true;
-        result.append(replacement);
+  @NotNull
+  List<PsiExpression> collectSalientOperands(PsiExpression[] operands, IElementType tokenType, PsiType type) {
+    final PsiElementFactory factory = JavaPsiFacade.getElementFactory(operands[0].getProject());
+    final List<PsiExpression> expressions = new SmartList<>();
+    for (PsiExpression operand : operands) {
+      if (tokenType.equals(JavaTokenType.PLUS) && isZero(operand) ||
+          tokenType.equals(JavaTokenType.MINUS) && isZero(operand) && !expressions.isEmpty() ||
+          tokenType.equals(JavaTokenType.ASTERISK) && isOne(operand) ||
+          tokenType.equals(JavaTokenType.DIV) && isOne(operand) && !expressions.isEmpty()) {
+        continue;
       }
-      else if (child == untilTarget) {
-        stop = false;
+      else if (tokenType.equals(JavaTokenType.MINUS) && !expressions.isEmpty() &&
+               EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(expressions.get(0), operand)) {
+        expressions.remove(0);
+        expressions.add(0, factory.createExpressionFromText(numberAsText(0, type), operand));
+        continue;
       }
-      else if (child instanceof PsiComment || !stop) {
-        if (child instanceof PsiExpression) {
-          final PsiExpression childExpression = (PsiExpression)child;
-          longTypeSeen |= TypeConversionUtil.isLongType(childExpression.getType());
-        }
-        result.append(child.getText());
+      else if (tokenType.equals(JavaTokenType.DIV) &&
+               EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(ContainerUtil.getLastItem(expressions), operand)) {
+        expressions.remove(expressions.size() - 1);
+        expressions.add(factory.createExpressionFromText(numberAsText(1, type), operand));
+        continue;
       }
-      else if (child instanceof PsiJavaToken && untilTarget == null) {
-        stop = false;
+      else if (tokenType.equals(JavaTokenType.ASTERISK) && isZero(operand) ||
+               tokenType.equals(JavaTokenType.PERC) &&
+               (isOne(operand) || EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(ContainerUtil.getLastItem(expressions), operand))) {
+        expressions.clear();
+        expressions.add(factory.createExpressionFromText(numberAsText(0, type), operand));
+        return expressions;
       }
+      expressions.add(operand);
     }
-    if (!longTypeSeen && TypeConversionUtil.isLongType(expression.getType()) && replacement.isEmpty()) {
-      result.insert(0, "(long)");
+    if (expressions.isEmpty()) {
+      final int value = tokenType.equals(JavaTokenType.ASTERISK) ? 1 : 0;
+      expressions.add(factory.createExpressionFromText(numberAsText(value, type), operands[0]));
     }
-    return result.toString();
+    return expressions;
+  }
+
+  private static @NotNull @NonNls String numberAsText(int num, PsiType type) {
+    if (PsiType.DOUBLE.equals(type)) return num + ".0";
+    if (PsiType.FLOAT.equals(type)) return num + ".0f";
+    if (PsiType.LONG.equals(type)) return num + "L";
+    return String.valueOf(num);
   }
 
   @Override
@@ -165,26 +155,22 @@ public class PointlessArithmeticExpressionInspection
   }
 
   private class PointlessArithmeticFix extends InspectionGadgetsFix {
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @Override
     @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message(
-        "constant.conditional.expression.simplify.quickfix");
+    public String getFamilyName() {
+      return InspectionGadgetsBundle.message("constant.conditional.expression.simplify.quickfix");
     }
 
     @Override
     public void doFix(Project project, ProblemDescriptor descriptor) {
-      final PsiExpression expression =
-        (PsiExpression)descriptor.getPsiElement();
-      final String newExpression =
-        calculateReplacementExpression(expression);
-      PsiReplacementUtil.replaceExpression(expression, newExpression);
+      final PsiElement element = descriptor.getPsiElement();
+      if (!(element instanceof PsiPolyadicExpression)) {
+        return;
+      }
+      final PsiPolyadicExpression expression = (PsiPolyadicExpression)element;
+      final CommentTracker tracker = new CommentTracker();
+      tracker.replaceExpressionAndRestoreComments(expression, calculateReplacementExpression(expression, tracker));
     }
   }
 
@@ -198,12 +184,6 @@ public class PointlessArithmeticExpressionInspection
     @Override
     public void visitPolyadicExpression(@NotNull PsiPolyadicExpression expression) {
       super.visitPolyadicExpression(expression);
-      final PsiType expressionType = expression.getType();
-      if (expressionType == null ||
-          PsiType.DOUBLE.equals(expressionType) ||
-          PsiType.FLOAT.equals(expressionType)) {
-        return;
-      }
       if (!arithmeticTokens.contains(expression.getOperationTokenType())) {
         return;
       }
@@ -213,7 +193,12 @@ public class PointlessArithmeticExpressionInspection
       final PsiExpression[] operands = expression.getOperands();
       final IElementType tokenType = expression.getOperationTokenType();
       final boolean isPointless;
-      if (tokenType.equals(JavaTokenType.PLUS)) {
+      final PsiType expressionType = expression.getType();
+      if (expressionType == null) return;
+      if (PsiType.DOUBLE.equals(expressionType) || PsiType.FLOAT.equals(expressionType)) {
+        isPointless = floatingPointOperationIsPointless(tokenType, operands);
+      }
+      else if (tokenType.equals(JavaTokenType.PLUS)) {
         isPointless = additionExpressionIsPointless(operands);
       }
       else if (tokenType.equals(JavaTokenType.MINUS)) {
@@ -234,15 +219,32 @@ public class PointlessArithmeticExpressionInspection
       registerError(expression, expression);
     }
 
+    private boolean floatingPointOperationIsPointless(IElementType type, PsiExpression[] expressions) {
+      if (expressions.length != 2) return false;
+      if (type.equals(JavaTokenType.MINUS)) {
+        return areExpressionsIdenticalWithoutSideEffects(expressions[0], expressions[1]);
+      }
+      if (type.equals(JavaTokenType.DIV) || type.equals(JavaTokenType.PERC)) {
+        return areExpressionsIdenticalWithoutSideEffects(expressions[0], expressions[1]) && !isZero(expressions[0]) ||
+               (type.equals(JavaTokenType.DIV) && isOne(expressions[1]));
+      }
+      if (type.equals(JavaTokenType.ASTERISK)) {
+        return (isOne(expressions[0]) || isOne(expressions[1])) &&
+               Objects.requireNonNull(expressions[0].getType()).equals(expressions[1].getType());
+      }
+      return false;
+    }
+
     private boolean subtractionExpressionIsPointless(PsiExpression[] expressions) {
-      PsiExpression previousExpression = null;
-      for (int i = 0; i < expressions.length; i++) {
+      final PsiExpression firstExpression = expressions[0];
+      if (isZero(firstExpression)) {
+        return true;
+      }
+      for (int i = 1; i < expressions.length; i++) {
         final PsiExpression expression = expressions[i];
-        if (previousExpression != null &&
-            (isZero(expression) || areExpressionsIdenticalWithoutSideEffects(previousExpression, expression, i))) {
+        if (isZero(expression) || areExpressionsIdenticalWithoutSideEffects(firstExpression, expression)) {
           return true;
         }
-        previousExpression = expression;
       }
       return false;
     }
@@ -270,7 +272,7 @@ public class PointlessArithmeticExpressionInspection
       for (int i = 0; i < expressions.length; i++) {
         final PsiExpression expression = expressions[i];
         if (previousExpression != null &&
-            (isOne(expression) || areExpressionsIdenticalWithoutSideEffects(previousExpression, expression, i))) {
+            (isOne(expression) || i == 1 && areExpressionsIdenticalWithoutSideEffects(previousExpression, expression) && !isZero(expression))) {
           return true;
         }
         previousExpression = expression;
@@ -278,8 +280,8 @@ public class PointlessArithmeticExpressionInspection
       return false;
     }
 
-    private boolean areExpressionsIdenticalWithoutSideEffects(PsiExpression expression1, PsiExpression expression2, int index) {
-      return index == 1 && EquivalenceChecker.expressionsAreEquivalent(expression1, expression2) &&
+    private boolean areExpressionsIdenticalWithoutSideEffects(PsiExpression expression1, PsiExpression expression2) {
+      return EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(expression1, expression2) &&
              !SideEffectChecker.mayHaveSideEffects(expression1);
     }
   }

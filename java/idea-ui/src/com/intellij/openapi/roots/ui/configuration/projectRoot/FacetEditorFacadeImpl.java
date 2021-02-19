@@ -23,6 +23,7 @@ import com.intellij.facet.impl.ui.FacetTreeModel;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleType;
+import com.intellij.openapi.roots.ui.configuration.ProjectStructureConfigurable;
 import com.intellij.openapi.ui.MasterDetailsComponent;
 import com.intellij.openapi.ui.NamedConfigurable;
 import org.jetbrains.annotations.Nullable;
@@ -30,17 +31,14 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.tree.TreeNode;
 import java.util.*;
 
-/**
- * @author nik
- */
 public class FacetEditorFacadeImpl implements FacetEditorFacade {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.roots.ui.configuration.projectRoot.FacetEditorFacadeImpl");
-  private final ModuleStructureConfigurable myStructureConfigurable;
+  private static final Logger LOG = Logger.getInstance(FacetEditorFacadeImpl.class);
+  private final ProjectStructureConfigurable myStructureConfigurable;
   private final Runnable myTreeUpdater;
-  private final Map<Facet, MasterDetailsComponent.MyNode> myNodes = new HashMap<Facet, MasterDetailsComponent.MyNode>();
-  private final Map<Facet, FacetConfigurable> myConfigurables = new HashMap<Facet, FacetConfigurable>();
+  private final Map<Facet, MasterDetailsComponent.MyNode> myNodes = new HashMap<>();
+  private final Map<Facet, FacetConfigurable> myConfigurables = new HashMap<>();
 
-  public FacetEditorFacadeImpl(final ModuleStructureConfigurable structureConfigurable, final Runnable treeUpdater) {
+  public FacetEditorFacadeImpl(final ProjectStructureConfigurable structureConfigurable, final Runnable treeUpdater) {
     myStructureConfigurable = structureConfigurable;
     myTreeUpdater = treeUpdater;
   }
@@ -60,13 +58,13 @@ public class FacetEditorFacadeImpl implements FacetEditorFacade {
   }
 
   private void addFacetNode(Facet facet) {
-    MasterDetailsComponent.MyNode moduleNode = myStructureConfigurable.findModuleNode(facet.getModule());
+    MasterDetailsComponent.MyNode moduleNode = getModuleStructureConfigurable().findModuleNode(facet.getModule());
     if (moduleNode == null) return;
     addFacetNode(facet, moduleNode);
-    final FacetStructureConfigurable facetStructureConfigurable = FacetStructureConfigurable.getInstance(myStructureConfigurable.getProject());
+    FacetStructureConfigurable facetStructureConfigurable = myStructureConfigurable.getFacetStructureConfigurable();
     final MasterDetailsComponent.MyNode facetTypeNode = facetStructureConfigurable.getOrCreateFacetTypeNode(facet.getType());
     LOG.assertTrue(facetTypeNode != null, "Cannot found node for " + facet.getType());
-    facetStructureConfigurable.addFacetNode(facetTypeNode, facet, this);
+    facetStructureConfigurable.addFacetNodes(facetTypeNode, Collections.singletonList(facet), this);
   }
 
   private MasterDetailsComponent.MyNode addFacetNode(final Facet facet, final MasterDetailsComponent.MyNode moduleNode) {
@@ -82,7 +80,7 @@ public class FacetEditorFacadeImpl implements FacetEditorFacade {
       parent = myNodes.get(underlyingFacet);
       LOG.assertTrue(parent != null);
     }
-    myStructureConfigurable.addNode(facetNode, parent);
+    getModuleStructureConfigurable().addNode(facetNode, parent);
     return facetNode;
   }
 
@@ -93,6 +91,10 @@ public class FacetEditorFacadeImpl implements FacetEditorFacade {
       myConfigurables.put(facet, configurable);
     }
     return configurable;
+  }
+
+  private ModuleStructureConfigurable getModuleStructureConfigurable() {
+    return myStructureConfigurable.getModulesConfig();
   }
 
   @Nullable
@@ -142,7 +144,7 @@ public class FacetEditorFacadeImpl implements FacetEditorFacade {
     final FacetModel facetModel = getFacetConfigurator().getFacetModel(selectedModule);
     final Collection<? extends Facet> facets = facetModel.getFacetsByType(type.getId());
 
-    final ArrayList<FacetInfo> infos = new ArrayList<FacetInfo>();
+    final ArrayList<FacetInfo> infos = new ArrayList<>();
     for (Facet facet : facets) {
       final FacetInfo facetInfo = getFacetConfigurator().getFacetInfo(facet);
       if (facetInfo != null) {
@@ -160,12 +162,12 @@ public class FacetEditorFacadeImpl implements FacetEditorFacade {
   }
 
   private ProjectFacetsConfigurator getFacetConfigurator() {
-    return myStructureConfigurable.getFacetConfigurator();
+    return getModuleStructureConfigurable().getFacetConfigurator();
   }
 
   @Nullable
   private Facet getSelectedFacet() {
-    final Object selectedObject = myStructureConfigurable.getSelectedObject();
+    final Object selectedObject = getModuleStructureConfigurable().getSelectedObject();
     if (selectedObject instanceof Facet) {
       return (Facet)selectedObject;
     }
@@ -174,7 +176,7 @@ public class FacetEditorFacadeImpl implements FacetEditorFacade {
 
   @Nullable
   private Module getSelectedModule() {
-    final Object selected = myStructureConfigurable.getSelectedObject();
+    final Object selected = getModuleStructureConfigurable().getSelectedObject();
     if (selected instanceof Module) {
       return (Module)selected;
     }
@@ -203,5 +205,10 @@ public class FacetEditorFacadeImpl implements FacetEditorFacade {
     if (clearNodes) {
       myNodes.clear();
     }
+  }
+
+  @Override
+  public ProjectStructureConfigurable getProjectStructureConfigurable() {
+    return myStructureConfigurable;
   }
 }

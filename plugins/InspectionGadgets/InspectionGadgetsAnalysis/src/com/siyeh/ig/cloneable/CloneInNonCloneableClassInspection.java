@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2019 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,8 @@
 package com.siyeh.ig.cloneable;
 
 import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
-import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.psi.PsiAnonymousClass;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiModifier;
@@ -27,6 +27,7 @@ import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.fixes.DelegatingFixFactory;
 import com.siyeh.ig.psiutils.CloneUtils;
+import com.siyeh.ig.psiutils.ControlFlowUtils;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -35,24 +36,22 @@ import javax.swing.*;
 
 public class CloneInNonCloneableClassInspection extends BaseInspection {
 
-  private boolean onlyWarnOnPublicClone = true;
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("clone.method.in.non.cloneable.class.display.name");
-  }
+  @SuppressWarnings("PublicField") public boolean onlyWarnOnPublicClone = true;
 
   @Override
   @NotNull
   public String buildErrorString(Object... infos) {
     final PsiClass aClass = (PsiClass)infos[0];
-    final String className = aClass.getName();
+    if (aClass instanceof PsiAnonymousClass) {
+      final PsiAnonymousClass anonymousClass = (PsiAnonymousClass)aClass;
+      final String text = anonymousClass.getBaseClassType().getPresentableText();
+      return InspectionGadgetsBundle.message("clone.method.in.non.cloneable.anonymous.class.problem.descriptor", text);
+    }
     if (aClass.isInterface()) {
-      return InspectionGadgetsBundle.message("clone.method.in.non.cloneable.interface.problem.descriptor", className);
+      return InspectionGadgetsBundle.message("clone.method.in.non.cloneable.interface.problem.descriptor", aClass.getName());
     }
     else {
-      return InspectionGadgetsBundle.message("clone.method.in.non.cloneable.class.problem.descriptor", className);
+      return InspectionGadgetsBundle.message("clone.method.in.non.cloneable.class.problem.descriptor", aClass.getName());
     }
   }
 
@@ -64,22 +63,8 @@ public class CloneInNonCloneableClassInspection extends BaseInspection {
   }
 
   @Override
-  public void readSettings(@NotNull Element node) throws InvalidDataException {
-    super.readSettings(node);
-    for (Element option : node.getChildren("option")) {
-      if ("onlyWarnOnPublicClone".equals(option.getAttributeValue("name"))) {
-        onlyWarnOnPublicClone = Boolean.parseBoolean(option.getAttributeValue("value"));
-      }
-    }
-  }
-
-  @Override
   public void writeSettings(@NotNull Element node) throws WriteExternalException {
-    super.writeSettings(node);
-    if (!onlyWarnOnPublicClone) {
-      node.addContent(new Element("option").setAttribute("name", "onlyWarnOnPublicClone")
-                        .setAttribute("value", String.valueOf(onlyWarnOnPublicClone)));
-    }
+    writeBooleanOption(node, "onlyWarnOnPublicClone", true);
   }
 
   @Override
@@ -96,7 +81,7 @@ public class CloneInNonCloneableClassInspection extends BaseInspection {
 
     @Override
     public void visitMethod(@NotNull PsiMethod method) {
-      // only warn on public clone() option, enabled by default
+      super.visitMethod(method);
       if (!CloneUtils.isClone(method)) {
         return;
       }
@@ -104,7 +89,7 @@ public class CloneInNonCloneableClassInspection extends BaseInspection {
         return;
       }
       final PsiClass containingClass = method.getContainingClass();
-      if (CloneUtils.isCloneable(containingClass) || CloneUtils.onlyThrowsException(method)) {
+      if (CloneUtils.isCloneable(containingClass) || ControlFlowUtils.methodAlwaysThrowsException(method)) {
         return;
       }
       registerMethodError(method, containingClass);

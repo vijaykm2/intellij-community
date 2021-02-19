@@ -17,6 +17,8 @@ package com.intellij.openapi.roots;
 
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -26,6 +28,7 @@ import org.jetbrains.annotations.Nullable;
  *
  * @author dsl
  */
+@ApiStatus.NonExtendable
 public interface OrderEntry extends Synthetic, Comparable<OrderEntry> {
   /**
    * The empty array of order entries which can be reused to avoid unnecessary allocations.
@@ -44,20 +47,18 @@ public interface OrderEntry extends Synthetic, Comparable<OrderEntry> {
    * @return list of virtual files.
    * @see #getUrls(OrderRootType)
    */
-  @NotNull
-  VirtualFile[] getFiles(OrderRootType type);
+  VirtualFile @NotNull [] getFiles(@NotNull OrderRootType type);
 
   /**
    * Returns list of roots of given type for this entry. To validate returned roots,
-   * use <code>{@link com.intellij.openapi.vfs.VirtualFileManager#findFileByUrl(java.lang.String)}</code> <br>
+   * use {@link com.intellij.openapi.vfs.VirtualFileManager#findFileByUrl(String)} <br>
    *
    * Note that list of roots is project-dependent.
    *
    * @param rootType the type of roots which should be returned.
    * @return the list of roots of the specified type.
    */
-  @NotNull
-  String[] getUrls(OrderRootType rootType);
+  String @NotNull [] getUrls(@NotNull OrderRootType rootType);
 
   /**
    * Returns the user-visible name of this OrderEntry.
@@ -65,7 +66,7 @@ public interface OrderEntry extends Synthetic, Comparable<OrderEntry> {
    * @return name of this OrderEntry to be shown to user.
    */
   @NotNull
-  String getPresentableName();
+  @Nls(capitalization = Nls.Capitalization.Title) String getPresentableName();
 
   /**
    * Checks whether this order entry is invalid for some reason. Note that entry being valid
@@ -90,5 +91,5 @@ public interface OrderEntry extends Synthetic, Comparable<OrderEntry> {
    * @param initialValue the default value to be returned by the visit process.
    * @return the value returned by the visitor.
    */
-  <R> R accept(RootPolicy<R> policy, @Nullable R initialValue);
+  <R> R accept(@NotNull RootPolicy<R> policy, @Nullable R initialValue);
 }

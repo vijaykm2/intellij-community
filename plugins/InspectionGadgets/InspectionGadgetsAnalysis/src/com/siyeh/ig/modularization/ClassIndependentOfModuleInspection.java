@@ -21,30 +21,20 @@ import com.intellij.codeInspection.GlobalInspectionContext;
 import com.intellij.codeInspection.InspectionManager;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.reference.*;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiIdentifier;
+import com.intellij.psi.PsiElement;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseGlobalInspection;
 import com.siyeh.ig.dependency.DependencyUtils;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.uast.UDeclarationKt;
 
 import java.util.Set;
 
 public class ClassIndependentOfModuleInspection extends BaseGlobalInspection {
 
-  @Nls
-  @NotNull
   @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "class.independent.of.module.display.name");
-  }
-
-  @Nullable
-  @Override
-  public CommonProblemDescriptor[] checkElement(
+  public CommonProblemDescriptor @Nullable [] checkElement(
     @NotNull RefEntity refEntity,
     @NotNull AnalysisScope scope,
     @NotNull InspectionManager manager,
@@ -72,13 +62,10 @@ public class ClassIndependentOfModuleInspection extends BaseGlobalInspection {
         return null;
       }
     }
-    final PsiClass aClass = refClass.getElement();
-    final PsiIdentifier identifier = aClass.getNameIdentifier();
-    if (identifier == null) {
-      return null;
-    }
+    PsiElement anchorPsi = UDeclarationKt.getAnchorPsi(refClass.getUastElement());
+    if (anchorPsi == null) return null;
     return new CommonProblemDescriptor[]{
-      manager.createProblemDescriptor(identifier,
+      manager.createProblemDescriptor(anchorPsi,
                                       InspectionGadgetsBundle.message(
                                         "class.independent.of.module.problem.descriptor"),
                                       true, ProblemHighlightType.GENERIC_ERROR_OR_WARNING, false)

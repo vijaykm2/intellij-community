@@ -15,6 +15,7 @@
  */
 package org.intellij.plugins.intelliLang.inject.config;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.xml.XmlTag;
 import org.jetbrains.annotations.NotNull;
@@ -31,7 +32,7 @@ public class XmlTagInjection extends AbstractTagInjection {
     return matches(context) && matchXPath(context);
   }
 
-  public String getGeneratedName() {
+  public @NlsSafe String getGeneratedName() {
     final String name = getTagName();
     return name.length() > 0 ? name : "*";
   }
@@ -41,6 +42,7 @@ public class XmlTagInjection extends AbstractTagInjection {
     return new XmlTagInjection().copyFrom(this);
   }
 
+  @Override
   public XmlTagInjection copyFrom(@NotNull BaseInjection o) {
     super.copyFrom(o);
     return this;

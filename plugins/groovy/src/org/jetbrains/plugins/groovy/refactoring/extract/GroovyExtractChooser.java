@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.extract;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -25,7 +11,6 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.containers.HashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.codeInspection.utils.ControlFlowUtils;
@@ -57,15 +42,12 @@ import org.jetbrains.plugins.groovy.refactoring.inline.GroovyInlineMethodUtil;
 import org.jetbrains.plugins.groovy.refactoring.introduce.GrIntroduceHandlerBase;
 import org.jetbrains.plugins.groovy.refactoring.introduce.StringPartInfo;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 /**
  * @author Max Medvedev
  */
-public class GroovyExtractChooser {
+public final class GroovyExtractChooser {
   private static final Logger LOG = Logger.getInstance(GroovyExtractChooser.class);
 
   public static InitialInfo invoke(Project project, Editor editor, PsiFile file, int start, int end, boolean forceStatements) throws GrRefactoringError {
@@ -79,14 +61,14 @@ public class GroovyExtractChooser {
       throw new GrRefactoringError(RefactoringBundle.message("readonly.occurences.found"));
     }
 
-    SelectionModel selectionModel = editor.getSelectionModel();
     PsiDocumentManager.getInstance(project).commitAllDocuments();
 
-    final StringPartInfo stringPart = StringPartInfo.findStringPart(file, selectionModel.getSelectionStart(), selectionModel.getSelectionEnd());
+    final StringPartInfo stringPart = StringPartInfo.findStringPart(file, start, end);
     if (stringPart != null) {
-      return new InitialInfo(new VariableInfo[0], new VariableInfo[0], PsiElement.EMPTY_ARRAY, GrStatement.EMPTY_ARRAY, new ArrayList<GrStatement>(), stringPart, project, null);
+      return new InitialInfo(VariableInfo.EMPTY_ARRAY, VariableInfo.EMPTY_ARRAY, PsiElement.EMPTY_ARRAY, GrStatement.EMPTY_ARRAY, new ArrayList<>(), stringPart, project, null);
     }
 
+    final SelectionModel selectionModel = editor.getSelectionModel();
     if (!forceStatements) {
       GrVariable variable = GrIntroduceHandlerBase.findVariable(file, start, end);
       if (variable != null) {
@@ -151,13 +133,13 @@ public class GroovyExtractChooser {
 
     // collect information about return statements in selected statement set
 
-    Set<GrStatement> allReturnStatements = new HashSet<GrStatement>();
+    Set<GrStatement> allReturnStatements = new HashSet<>();
     GrControlFlowOwner controlFlowOwner = ControlFlowUtils.findControlFlowOwner(statement0);
     LOG.assertTrue(controlFlowOwner != null);
-    final Instruction[] flow = new ControlFlowBuilder(project, GrAllVarsInitializedPolicy.getInstance()).buildControlFlow(controlFlowOwner);
+    final Instruction[] flow = new ControlFlowBuilder(GrAllVarsInitializedPolicy.getInstance()).buildControlFlow(controlFlowOwner);
     allReturnStatements.addAll(ControlFlowUtils.collectReturns(flow, true));
 
-    ArrayList<GrStatement> returnStatements = new ArrayList<GrStatement>();
+    ArrayList<GrStatement> returnStatements = new ArrayList<>();
     for (GrStatement returnStatement : allReturnStatements) {
       for (GrStatement statement : statements) {
         if (PsiTreeUtil.isAncestor(statement, returnStatement, false)) {
@@ -186,7 +168,7 @@ public class GroovyExtractChooser {
 
     // must be replaced by return statement
     boolean hasReturns = !returnStatements.isEmpty();
-    List<GrStatement> returnStatementsCopy = new ArrayList<GrStatement>(returnStatements.size());
+    List<GrStatement> returnStatementsCopy = new ArrayList<>(returnStatements.size());
     returnStatementsCopy.addAll(returnStatements);
     boolean isReturnStatement = isReturnStatement(statements[statements.length - 1], returnStatementsCopy);
     boolean isLastStatementOfMethod = isLastStatementOfMethodOrClosure(statements);
@@ -214,13 +196,13 @@ public class GroovyExtractChooser {
   }
 
   private static GrStatement[] getStatementsByElements(PsiElement[] elements) {
-    ArrayList<GrStatement> statementList = new ArrayList<GrStatement>();
+    ArrayList<GrStatement> statementList = new ArrayList<>();
     for (PsiElement element : elements) {
       if (element instanceof GrStatement) {
         statementList.add(((GrStatement)element));
       }
     }
-    return statementList.toArray(new GrStatement[statementList.size()]);
+    return statementList.toArray(GrStatement.EMPTY_ARRAY);
   }
 
   private static PsiElement[] getElementsInOffset(PsiFile file, int startOffset, int endOffset, boolean forceStatements) {

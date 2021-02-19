@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
  */
 package com.siyeh.ig.fixes.classlayout;
 
+import com.intellij.pom.java.LanguageLevel;
+import com.intellij.testFramework.IdeaTestUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.IGQuickFixesTestCase;
 import com.siyeh.ig.classlayout.ClassMayBeInterfaceInspection;
@@ -27,11 +29,20 @@ public class ClassMayBeInterfaceFixTest extends IGQuickFixesTestCase {
   @Override
   protected void setUp() throws Exception {
     super.setUp();
-    myFixture.enableInspections(new ClassMayBeInterfaceInspection());
+    final ClassMayBeInterfaceInspection inspection = new ClassMayBeInterfaceInspection();
+    inspection.reportClassesWithNonAbstractMethods = true;
+    myFixture.enableInspections(inspection);
     myRelativePath = "classlayout/class_may_be_interface";
     myDefaultHint = InspectionGadgetsBundle.message("class.may.be.interface.convert.quickfix");
   }
 
   public void testConvertMe() { doTest(); }
-
+  public void testObjectMethods() { doTest(); }
+  public void testDefaultConstructor() { doTest(); }
+  public void testLocalClass() { 
+    IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_14, this::assertQuickfixNotAvailable); 
+  }
+  public void testLocalClassJava15() { 
+    IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_15_PREVIEW, this::doTest); 
+  }
 }

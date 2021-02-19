@@ -1,33 +1,20 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.tree.render;
 
-import com.intellij.debugger.engine.DebuggerUtils;
+import com.intellij.debugger.impl.DebuggerUtilsAsync;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.psi.CommonClassNames;
-import com.sun.jdi.ReferenceType;
 import com.sun.jdi.Type;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.concurrent.CompletableFuture;
+
 public abstract class ReferenceRenderer implements Renderer {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.ui.tree.render.ReferenceRenderer");
-  protected BasicRendererProperties myProperties = new BasicRendererProperties();
+  private static final Logger LOG = Logger.getInstance(ReferenceRenderer.class);
+  protected BasicRendererProperties myProperties = new BasicRendererProperties(false);
 
   protected ReferenceRenderer() {
     this(CommonClassNames.JAVA_LANG_OBJECT);
@@ -35,6 +22,11 @@ public abstract class ReferenceRenderer implements Renderer {
 
   protected ReferenceRenderer(@NotNull String className) {
     myProperties.setClassName(className);
+  }
+
+  @Override
+  public CompletableFuture<Boolean> isApplicableAsync(Type type) {
+    return DebuggerUtilsAsync.instanceOf(type, getClassName());
   }
 
   public String getClassName() {
@@ -45,6 +37,7 @@ public abstract class ReferenceRenderer implements Renderer {
     myProperties.setClassName(className);
   }
 
+  @Override
   public Renderer clone() {
     try {
       final ReferenceRenderer cloned = (ReferenceRenderer)super.clone();
@@ -57,15 +50,22 @@ public abstract class ReferenceRenderer implements Renderer {
     return null;
   }
 
-  public boolean isApplicable(Type type) {
-    return type != null && type instanceof ReferenceType && DebuggerUtils.instanceOf(type, getClassName());
-  }
-
+  @Override
   public void writeExternal(Element element) throws WriteExternalException {
-    myProperties.writeExternal(element);
+    myProperties.writeExternal(element, CommonClassNames.JAVA_LANG_OBJECT);
   }
 
+  @Override
   public void readExternal(Element element) throws InvalidDataException {
-    myProperties.readExternal(element);
+    myProperties.readExternal(element, CommonClassNames.JAVA_LANG_OBJECT);
+  }
+
+  protected CachedEvaluator createCachedEvaluator() {
+    return new CachedEvaluator() {
+      @Override
+      protected String getClassName() {
+        return ReferenceRenderer.this.getClassName();
+      }
+    };
   }
 }

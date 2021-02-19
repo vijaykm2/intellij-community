@@ -1,5 +1,9 @@
 package com.siyeh.igtest.style.field_final;
-import java.awt.*; import java.io.File;import java.io.IOException; import java.util.*;
+
+import java.io.*;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+
 public class FieldMayBeFinal {
 
     private static String string;
@@ -101,7 +105,7 @@ public class FieldMayBeFinal {
         private static String hostName;
         static {
             try {
-                hostName = java.net.InetAddress.getLocalHost().getHostName();
+                hostName = Test3.class.getName();
             } catch (Exception ignored) {
                 hostName = "localhost";
             }
@@ -112,7 +116,7 @@ public class FieldMayBeFinal {
         private static String <warning descr="Field 'hostName' may be 'final'">hostName</warning>;
         static {
             try {
-                hostName = java.net.InetAddress.getLocalHost().getHostName();
+                hostName = Test4.class.getName();
             } catch (Exception ignored) {
                 throw new RuntimeException();
             }
@@ -133,11 +137,11 @@ public class FieldMayBeFinal {
         private final int j = i++;
     }
 
-    static class AssigmentInForeach {
+    static class AssignmentInForeach {
         private boolean b, c;
         private int j;
 
-        AssigmentInForeach(int[][] is) {
+        AssignmentInForeach(int[][] is) {
             b = false;
             for (int i : is[j]) {
                 b = c = i == 10;
@@ -437,11 +441,33 @@ class T2 {
   }
 }
 class T3 {
-  private boolean <warning descr="Field 'b' may be 'final'">b</warning>; // may be final, but red when it is
+  private boolean <warning descr="Field 'b' may be 'final'">b</warning>; // may be final
   {
     assert false : "" + (b = true);
-    b = true; // red, but valid code
+    b = true;
     System.out.println(b);
+  }
+}
+class T3a {
+  private int x; // can be final as x = 2 is never executed, but we don't see this
+
+  {
+    try {
+      assert true : x = 2;
+    }
+    catch (Throwable t) {}
+    x = 1;
+  }
+}
+class T3b {
+  private int x; // cannot be final
+
+  {
+    try {
+      assert false : x = 2;
+    }
+    catch (Throwable t) {}
+    x = 1;
   }
 }
 class T4 {
@@ -456,6 +482,22 @@ class T5 {
   {
     assert true : d = true;
     d = true;
+  }
+}
+class T5a {
+  private int <warning descr="Field 'x' may be 'final'">x</warning>; // may be final -- javac accepts this
+
+  {
+    x = 1;
+    assert true : x = 2;
+  }
+}
+class T5b {
+  private int x; // cannot be final
+
+  {
+    x = 1;
+    assert false : x = 2;
   }
 }
 class T6 {
@@ -574,15 +616,6 @@ class T21 {
   private int <warning descr="Field 'i' may be 'final'">i</warning>; // may be final
   {
     final Object[] objects = new Object[]{1, 2, i=3};
-  }
-}
-class T22 {
-  private final int i; // may not be final, but green when it is
-  {
-    new Object() {{
-      System.out.println(i);
-    }};
-    i = 1;
   }
 }
 class T23 {
@@ -767,7 +800,7 @@ class T43 {
   }
 }
 class T44 {
-  private int i; // may not be final, but green when it is
+  private int i; // may not be final
   {
     for (; true ; i = 1, i = 2) {
       i = 2 ;
@@ -776,7 +809,9 @@ class T44 {
   }
 }
 class T45 {
-  private int i; // should be allowed final, but does not compile in javac
+  // dubious: does not compile in javac when final. Probably javac error - JDK-8198245, but seems logical
+  // our behavior is consistent with javac now
+  private int i;
   {
     for (; true; i = 1) {
       i = 2;
@@ -815,7 +850,7 @@ class T49 {
   }
 }
 class T50 {
-  private boolean b; // may not be final, but green when it is.
+  private boolean b; // may not be final
   T50(int i) {
     if (false && (b = true)) {
 
@@ -867,7 +902,7 @@ class T55 {
   }
 }
 class T56 {
-  private boolean b; // may not be final, but green when it is
+  private boolean b; // may not be final
   {
     if (false && (b = false)) ;
     if (true && (b = false)) ;
@@ -884,6 +919,110 @@ class T58 {
   static {
     System.out.println("x = " + T58.x);
     x = 3;
+  }
+}
+class T59 {
+  private int i = 0;
+  {
+    assert true : i++;
+  }
+}
+class T60 {
+  private int i = 1;
+  {
+    if (false) i = 2;
+  }
+}
+class T61 {
+  private String <warning descr="Field 's' may be 'final'">s</warning>; // may be final
+  T61() throws IOException {
+    try (final InputStream is = new FileInputStream(s="ab")) {
+    }
+  }
+}
+class T62 {
+  private String s; // may not be final
+  T62() throws IOException {
+    try (final InputStream is = new FileInputStream(s="ab")) {
+    }
+    s = "ba";
+  }
+}
+class T63 {
+  private String s; // may not be final
+  T63() throws IOException {
+    try (final InputStream is = new FileInputStream(s=s="ab")) {
+    }
+  }
+}
+class T64 {
+  private String s; // may not be final, but green when it is.
+  T64() throws IOException {
+    try (final InputStream is = new FileInputStream("ab") {{System.out.println(s);}}) {
+    }
+    s="";
+  }
+}
+class T65 {
+  private Runnable r; // may not be final
+  T65() {
+    r = () -> System.out.println(r);
+  }
+}
+class T66 {
+  private  String <warning descr="Field 's' may be 'final'">s</warning>; // may be final
+  T66() {
+    s = "10";
+    Runnable r = () -> System.out.println(s);
+  }
+}
+class T67 {
+  private  String s; // may not be final
+  T67() {
+    Runnable r = () -> System.out.println(s);
+    s = "10";
+  }
+}
+class T68 {
+  private Runnable r; // cannot be final in java9, likely it was an error in javac before, compare to T65
+  T68() {
+    r = () -> System.out.println((this).r);
+  }
+}
+class T69 {
+  private String s; // may not be final
+  T69() {
+    Runnable r = () -> s = "asdf";
+  }
+}
+class T70 {
+  private String s; // may not be final
+  T70() {
+    Runnable r = () -> s = "asdf";
+    s = "";
+  }
+}
+class T71 {
+  private String s;
+
+  T71() {
+    try {
+      foo();
+    } catch (Throwable t) {
+      s = t.getMessage();
+    }
+  }
+
+  void foo() throws Throwable {}
+}
+class T72 {
+  private boolean b;
+
+  T72(int i) {
+    Runnable r = () -> {
+      return;
+    };
+    if (i == 4) b = true;
   }
 }
 class Foo {
@@ -919,4 +1058,95 @@ class Foo {
   public Accessor<Double> getValueAccessor() {
     return myValueAccessor;
   }
+}
+
+class T73 {
+  private int <warning descr="Field 'x' may be 'final'">x</warning>; // can be final
+  int y = x = 3;
+}
+
+class T74 {
+  private int x; // cannot be final as reassigned in another field initializer
+  {
+    x = 2;
+  }
+  int y = x = 3;
+}
+// IDEA-187493
+class T75 {
+  void foo() {
+    new Inner().innerField = 1;
+  }
+
+  private static class Inner {
+    private int innerField;
+
+    private Inner() {innerField = 0;}
+  }
+}
+// IDEA-193896
+class T76 {
+  private T76 a;
+  T76(T76 other) {
+    a = other;
+    other.a = null;
+  }
+}
+class RefThroughThis {
+  private int k;
+
+  public RefThroughThis() {
+    RefThroughThis.this.k = 0;
+  }
+  
+  void m() {
+    System.out.println(k);
+  }
+}
+class Anonymous {
+  void test() {
+    Object obj = new Object() {
+      int <warning descr="Field 'x' may be 'final'">x</warning> = 5;
+      int z = 7;
+
+      void test() {z++;}
+    };
+    class X {
+      int z = 10;
+      int <warning descr="Field 't' may be 'final'">t</warning> = 10;
+    }
+    X x = new X();
+    x.z++;
+  }
+}
+class Implicit {
+  private static final AtomicReferenceFieldUpdater<Implicit, String> triggeringPolicyUpdater =
+    AtomicReferenceFieldUpdater.newUpdater(Implicit.class, String.class, "triggeringPolicy");
+
+  private volatile String triggeringPolicy;
+
+  public Implicit(String defaultPolicy) {
+    this.triggeringPolicy = defaultPolicy;
+  }
+
+  public void update(String newValue) {
+    triggeringPolicyUpdater.set(this, newValue);
+  }
+}
+class TryCatchFinal {
+  private String value;
+
+  public TryCatchFinal() {
+    try {
+      value = create();
+    } catch (ClassNotFoundException | IllegalAccessException e) {
+      value = "";
+    }
+  }
+
+  public String getValue() {
+    return value;
+  }
+
+  public static native <T> T create() throws ClassNotFoundException, IllegalAccessException;
 }

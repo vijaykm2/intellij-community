@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.ant.doc;
 
 import com.intellij.lang.ant.AntFilesProvider;
@@ -29,11 +15,9 @@ import com.intellij.pom.PomTarget;
 import com.intellij.pom.PomTargetPsiElement;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiManager;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.XmlElement;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.StringBuilderSpinAllocator;
 import com.intellij.util.xml.DomElement;
 import com.intellij.util.xml.DomTarget;
 import com.intellij.util.xml.reflect.DomChildrenDescription;
@@ -49,27 +33,23 @@ import java.util.List;
 
 public class AntDomDocumentationProvider implements DocumentationProvider {
 
-  private static final Logger LOG = Logger.getInstance("#com.intellij.lang.ant.doc.AntDomDocumentationProvider");
-  
+  private static final Logger LOG = Logger.getInstance(AntDomDocumentationProvider.class);
+
+  @Override
   public String generateDoc(PsiElement element, PsiElement originalElement) {
     final String mainDoc = getMainDocumentation(originalElement);
     final String additionalDoc = getAdditionalDocumentation(originalElement);
     if (mainDoc == null && additionalDoc == null) {
       return null;
     }
-    final StringBuilder builder = StringBuilderSpinAllocator.alloc();
-    try {
-      if (additionalDoc != null) {
-        builder.append(additionalDoc);
-      }
-      if (mainDoc != null) {
-        builder.append(mainDoc);
-      }
-      return builder.toString();
+    final StringBuilder builder = new StringBuilder();
+    if (additionalDoc != null) {
+      builder.append(additionalDoc);
     }
-    finally {
-      StringBuilderSpinAllocator.dispose(builder);
+    if (mainDoc != null) {
+      builder.append(mainDoc);
     }
+    return builder.toString();
   }
 
   @Nullable
@@ -84,7 +64,7 @@ public class AntDomDocumentationProvider implements DocumentationProvider {
     }
     return null;
   }
-  
+
   @Nullable
   private static String getAdditionalDocumentation(PsiElement elem) {
     final XmlTag xmlTag = PsiTreeUtil.getParentOfType(elem, XmlTag.class);
@@ -93,32 +73,27 @@ public class AntDomDocumentationProvider implements DocumentationProvider {
     }
     final AntDomElement antElement = AntSupport.getAntDomElement(xmlTag);
     if (antElement instanceof AntFilesProvider) {
-      final List<File> list = ((AntFilesProvider)antElement).getFiles(new HashSet<AntFilesProvider>());
+      final List<File> list = ((AntFilesProvider)antElement).getFiles(new HashSet<>());
       if (list.size() > 0) {
-        final @NonNls StringBuilder builder = StringBuilderSpinAllocator.alloc();
-        try {
-          final XmlTag tag = antElement.getXmlTag();
-          if (tag != null) {
-            builder.append("<b>");
-            builder.append(tag.getName());
-            builder.append(":</b>");
-          }
-          for (File file : list) {
-            if (builder.length() > 0) {
-              builder.append("<br>");
-            }
-            builder.append(file.getPath());
-          }
-          return builder.toString();
+        final @NonNls StringBuilder builder = new StringBuilder();
+        final XmlTag tag = antElement.getXmlTag();
+        if (tag != null) {
+          builder.append("<b>");
+          builder.append(tag.getName());
+          builder.append(":</b>");
         }
-        finally {
-          StringBuilderSpinAllocator.dispose(builder);
+        for (File file : list) {
+          if (builder.length() > 0) {
+            builder.append("<br>");
+          }
+          builder.append(file.getPath());
         }
+        return builder.toString();
       }
     }
     return null;
   }
-  
+
   @Nullable
   private static VirtualFile getHelpFile(final PsiElement element) {
     final XmlTag xmlTag = PsiTreeUtil.getParentOfType(element, XmlTag.class);
@@ -142,7 +117,7 @@ public class AntDomDocumentationProvider implements DocumentationProvider {
     if (antHomeDir == null) {
       return null;
     }
-    
+
     @NonNls String path = antHomeDir + "/docs/manual";
     String url;
     if (new File(path).exists()) {
@@ -162,10 +137,10 @@ public class AntDomDocumentationProvider implements DocumentationProvider {
     if (documentationRoot == null) {
       return null;
     }
-    
+
     return getHelpFile(antElement, documentationRoot);
   }
-  
+
   public static final String[] DOC_FOLDER_NAMES = new String[] {
     "Tasks", "Types", "CoreTasks", "OptionalTasks", "CoreTypes", "OptionalTypes"
   };
@@ -195,6 +170,7 @@ public class AntDomDocumentationProvider implements DocumentationProvider {
     return null;
   }
 
+  @Override
   @Nullable
   public String getQuickNavigateInfo(PsiElement element, PsiElement originalElement) {  // todo!
     if (element instanceof PomTargetPsiElement) {
@@ -206,25 +182,20 @@ public class AntDomDocumentationProvider implements DocumentationProvider {
           final String description = antTarget.getDescription().getRawText();
           if (description != null && description.length() > 0) {
             final String targetName = antTarget.getName().getRawText();
-            final StringBuilder builder = StringBuilderSpinAllocator.alloc();
-            try {
-              builder.append("Target");
-              if (targetName != null) {
-                builder.append(" \"").append(targetName).append("\"");
-              }
-              final XmlElement xmlElement = antTarget.getXmlElement();
-              if (xmlElement != null) {
-                final PsiFile containingFile = xmlElement.getContainingFile();
-                if (containingFile != null) {
-                  final String fileName = containingFile.getName();
-                  builder.append(" [").append(fileName).append("]");
-                }
-              }
-              return builder.append(" ").append(description).toString();
+            final StringBuilder builder = new StringBuilder();
+            builder.append("Target");
+            if (targetName != null) {
+              builder.append(" \"").append(targetName).append("\"");
             }
-            finally {
-              StringBuilderSpinAllocator.dispose(builder);
+            final XmlElement xmlElement = antTarget.getXmlElement();
+            if (xmlElement != null) {
+              final PsiFile containingFile = xmlElement.getContainingFile();
+              if (containingFile != null) {
+                final String fileName = containingFile.getName();
+                builder.append(" [").append(fileName).append("]");
+              }
             }
+            return builder.append(" ").append(description).toString();
           }
         }
       }
@@ -241,20 +212,15 @@ public class AntDomDocumentationProvider implements DocumentationProvider {
           final String elemName = description.getName();
           if (elemName != null) {
             final AntDomElement.Role role = description.getUserData(AntDomElement.ROLE);
-            final StringBuilder builder = StringBuilderSpinAllocator.alloc();
-            try {
-              if (role == AntDomElement.Role.TASK) {
-                builder.append("Task ");
-              }
-              else if (role == AntDomElement.Role.DATA_TYPE) {
-                builder.append("Data structure ");
-              }
-              builder.append(elemName);
-              return builder.toString();
+            final StringBuilder builder = new StringBuilder();
+            if (role == AntDomElement.Role.TASK) {
+              builder.append("Task ");
             }
-            finally {
-              StringBuilderSpinAllocator.dispose(builder);
+            else if (role == AntDomElement.Role.DATA_TYPE) {
+              builder.append("Data structure ");
             }
+            builder.append(elemName);
+            return builder.toString();
           }
         }
       }
@@ -262,19 +228,12 @@ public class AntDomDocumentationProvider implements DocumentationProvider {
     return null;
   }
 
+  @Override
   public List<String> getUrlFor(PsiElement element, PsiElement originalElement) {
     final VirtualFile helpFile = getHelpFile(originalElement);
     if (helpFile == null || !(helpFile.getFileSystem() instanceof LocalFileSystem)) {
       return null;
     }
     return Collections.singletonList(helpFile.getUrl());
-  }
-
-  public PsiElement getDocumentationElementForLookupItem(PsiManager psiManager, Object object, PsiElement element) {
-    return null;
-  }
-
-  public PsiElement getDocumentationElementForLink(PsiManager psiManager, String link, PsiElement context) {
-    return null;
   }
 }

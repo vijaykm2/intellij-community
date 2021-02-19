@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.java.parser;
 
-import com.intellij.codeInsight.daemon.JavaErrorMessages;
+import com.intellij.core.JavaPsiBundle;
 import com.intellij.lang.PsiBuilder;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.JavaTokenType;
+import com.intellij.psi.PsiKeyword;
 import com.intellij.psi.impl.source.tree.ElementType;
 import com.intellij.psi.impl.source.tree.JavaElementType;
 import com.intellij.psi.tree.IElementType;
@@ -28,7 +15,8 @@ import org.jetbrains.annotations.Nullable;
 
 import static com.intellij.lang.PsiBuilderUtil.expect;
 import static com.intellij.lang.java.parser.JavaParserUtil.*;
-import static com.intellij.util.BitUtil.*;
+import static com.intellij.util.BitUtil.isSet;
+import static com.intellij.util.BitUtil.set;
 
 public class ReferenceParser {
   public static final int EAT_LAST_DOT = 0x01;
@@ -38,37 +26,38 @@ public class ReferenceParser {
   public static final int DISJUNCTIONS = 0x10;
   public static final int CONJUNCTIONS = 0x20;
   public static final int INCOMPLETE_ANNO = 0x40;
+  public static final int VAR_TYPE = 0x80;
 
   public static class TypeInfo {
-    public boolean isPrimitive = false;
-    public boolean isParameterized = false;
-    public boolean isArray = false;
-    public boolean isVarArg = false;
-    public boolean hasErrors = false;
-    public PsiBuilder.Marker marker = null;
+    public boolean isPrimitive;
+    public boolean isParameterized;
+    public boolean isArray;
+    public boolean isVarArg;
+    public boolean hasErrors;
+    public PsiBuilder.Marker marker;
   }
 
   private static final TokenSet WILDCARD_KEYWORD_SET = TokenSet.create(JavaTokenType.EXTENDS_KEYWORD, JavaTokenType.SUPER_KEYWORD);
 
   private final JavaParser myParser;
 
-  public ReferenceParser(@NotNull final JavaParser javaParser) {
+  public ReferenceParser(@NotNull JavaParser javaParser) {
     myParser = javaParser;
   }
 
   @Nullable
-  public PsiBuilder.Marker parseType(final PsiBuilder builder, final int flags) {
-    final TypeInfo typeInfo = parseTypeInfo(builder, flags);
+  public PsiBuilder.Marker parseType(PsiBuilder builder, int flags) {
+    TypeInfo typeInfo = parseTypeInfo(builder, flags);
     return typeInfo != null ? typeInfo.marker : null;
   }
 
   @Nullable
-  public TypeInfo parseTypeInfo(final PsiBuilder builder, final int flags) {
-    final TypeInfo typeInfo = parseTypeInfo(builder, flags, false);
+  public TypeInfo parseTypeInfo(PsiBuilder builder, int flags) {
+    TypeInfo typeInfo = parseTypeInfo(builder, flags, false);
 
     if (typeInfo != null) {
-      assert notSet(flags, DISJUNCTIONS|CONJUNCTIONS) : "don't set both flags simultaneously";
-      final IElementType operator = isSet(flags, DISJUNCTIONS) ? JavaTokenType.OR : isSet(flags, CONJUNCTIONS) ? JavaTokenType.AND : null;
+      assert !isSet(flags, DISJUNCTIONS) || !isSet(flags,CONJUNCTIONS) : "don't set both flags simultaneously";
+      IElementType operator = isSet(flags, DISJUNCTIONS) ? JavaTokenType.OR : isSet(flags, CONJUNCTIONS) ? JavaTokenType.AND : null;
 
       if (operator != null && builder.getTokenType() == operator) {
         typeInfo.marker = typeInfo.marker.precede();
@@ -77,7 +66,7 @@ public class ReferenceParser {
           builder.advanceLexer();
           IElementType tokenType = builder.getTokenType();
           if (tokenType != JavaTokenType.IDENTIFIER && tokenType != JavaTokenType.AT) {
-            error(builder, JavaErrorMessages.message("expected.identifier"));
+            error(builder, JavaPsiBundle.message("expected.identifier"));
           }
           parseTypeInfo(builder, flags, false);
         }
@@ -93,26 +82,55 @@ public class ReferenceParser {
   private TypeInfo parseTypeInfo(PsiBuilder builder, int flags, boolean badWildcard) {
     if (builder.getTokenType() == null) return null;
 
-    final TypeInfo typeInfo = new TypeInfo();
+    TypeInfo typeInfo = new TypeInfo();
 
     PsiBuilder.Marker type = builder.mark();
     PsiBuilder.Marker anno = myParser.getDeclarationParser().parseAnnotations(builder);
 
-    final IElementType tokenType = builder.getTokenType();
+    IElementType tokenType = builder.getTokenType();
+    if (tokenType == JavaTokenType.IDENTIFIER &&
+        isSet(flags, VAR_TYPE) &&
+        builder.lookAhead(1) != JavaTokenType.DOT &&
+        builder.lookAhead(1) != JavaTokenType.COLON &&
+        PsiKeyword.VAR.equals(builder.getTokenText()) &&
+        getLanguageLevel(builder).isAtLeast(LanguageLevel.JDK_10)) {
+      builder.remapCurrentToken(tokenType = JavaTokenType.VAR_KEYWORD);
+    }
+    else if (tokenType == JavaTokenType.VAR_KEYWORD && !isSet(flags, VAR_TYPE)) {
+      builder.remapCurrentToken(tokenType = JavaTokenType.IDENTIFIER);
+    }
+
     if (expect(builder, ElementType.PRIMITIVE_TYPE_BIT_SET)) {
       typeInfo.isPrimitive = true;
     }
-    else if (tokenType == JavaTokenType.IDENTIFIER) {
-      parseJavaCodeReference(builder, isSet(flags, EAT_LAST_DOT), true, false, false, false, isSet(flags, DIAMONDS), typeInfo);
-    }
-    else if ((isSet(flags, WILDCARD) || badWildcard) && tokenType == JavaTokenType.QUEST) {
-      builder.advanceLexer();
+    else if ((isSet(flags, WILDCARD) || badWildcard) && (tokenType == JavaTokenType.QUEST || isKeywordAny(builder))) {
+      if (tokenType == JavaTokenType.QUEST) {
+        builder.advanceLexer();
+      }
+      else {
+        dummy(builder);
+      }
       completeWildcardType(builder, isSet(flags, WILDCARD), type);
       typeInfo.marker = type;
       return typeInfo;
     }
+    else if (tokenType == JavaTokenType.IDENTIFIER) {
+      parseJavaCodeReference(builder, isSet(flags, EAT_LAST_DOT), true, false, false, false, isSet(flags, DIAMONDS), typeInfo);
+    }
+    else if (tokenType == JavaTokenType.VAR_KEYWORD) {
+      builder.advanceLexer();
+      type.done(JavaElementType.TYPE);
+      typeInfo.marker = type;
+      return typeInfo;
+    }
     else if (isSet(flags, DIAMONDS) && tokenType == JavaTokenType.GT) {
-      emptyElement(builder, JavaElementType.DIAMOND_TYPE);
+      if (anno == null) {
+        emptyElement(builder, JavaElementType.DIAMOND_TYPE);
+      }
+      else {
+        error(builder, JavaPsiBundle.message("expected.identifier"));
+        typeInfo.hasErrors = true;
+      }
       type.done(JavaElementType.TYPE);
       typeInfo.marker = type;
       return typeInfo;
@@ -120,18 +138,19 @@ public class ReferenceParser {
     else {
       type.drop();
       if (anno != null && isSet(flags, INCOMPLETE_ANNO)) {
-        error(builder, JavaErrorMessages.message("expected.type"));
+        error(builder, JavaPsiBundle.message("expected.type"));
+        typeInfo.marker = anno;
         typeInfo.hasErrors = true;
         return typeInfo;
       }
       return null;
     }
 
+    type.done(JavaElementType.TYPE);
     while (true) {
-      type.done(JavaElementType.TYPE);
       myParser.getDeclarationParser().parseAnnotations(builder);
 
-      final PsiBuilder.Marker bracket = builder.mark();
+      PsiBuilder.Marker bracket = builder.mark();
       if (!expect(builder, JavaTokenType.LBRACKET)) {
         bracket.drop();
         break;
@@ -142,15 +161,16 @@ public class ReferenceParser {
       }
       bracket.drop();
       typeInfo.isArray = true;
-
-      type = type.precede();
     }
 
     if (isSet(flags, ELLIPSIS) && builder.getTokenType() == JavaTokenType.ELLIPSIS) {
-      type = type.precede();
       builder.advanceLexer();
-      type.done(JavaElementType.TYPE);
       typeInfo.isVarArg = true;
+    }
+
+    if (typeInfo.isVarArg || typeInfo.isArray) {
+      type = type.precede();
+      type.done(JavaElementType.TYPE);
     }
 
     typeInfo.marker = type;
@@ -160,7 +180,7 @@ public class ReferenceParser {
   private void completeWildcardType(PsiBuilder builder, boolean wildcard, PsiBuilder.Marker type) {
     if (expect(builder, WILDCARD_KEYWORD_SET)) {
       if (parseTypeInfo(builder, EAT_LAST_DOT) == null) {
-        error(builder, JavaErrorMessages.message("expected.type"));
+        error(builder, JavaPsiBundle.message("expected.type"));
       }
     }
 
@@ -168,7 +188,7 @@ public class ReferenceParser {
       type.done(JavaElementType.TYPE);
     }
     else {
-      type.error(JavaErrorMessages.message("wildcard.not.expected"));
+      type.error(JavaPsiBundle.message("error.message.wildcard.not.expected"));
     }
   }
 
@@ -177,8 +197,8 @@ public class ReferenceParser {
     return parseJavaCodeReference(builder, eatLastDot, parameterList, false, false, isNew, diamonds, new TypeInfo());
   }
 
-  public boolean parseImportCodeReference(final PsiBuilder builder, final boolean isStatic) {
-    final TypeInfo typeInfo = new TypeInfo();
+  public boolean parseImportCodeReference(PsiBuilder builder, boolean isStatic) {
+    TypeInfo typeInfo = new TypeInfo();
     parseJavaCodeReference(builder, true, false, true, isStatic, false, false, typeInfo);
     return !typeInfo.hasErrors;
   }
@@ -193,7 +213,7 @@ public class ReferenceParser {
     if (!expect(builder, JavaTokenType.IDENTIFIER)) {
       refElement.rollbackTo();
       if (isImport) {
-        error(builder, JavaErrorMessages.message("expected.identifier"));
+        error(builder, JavaPsiBundle.message("expected.identifier"));
       }
       typeInfo.hasErrors = true;
       return null;
@@ -202,11 +222,10 @@ public class ReferenceParser {
     if (parameterList) {
       typeInfo.isParameterized = parseReferenceParameterList(builder, true, diamonds);
     }
-    else {
+    else if (!isStaticImport) {
       emptyElement(builder, JavaElementType.REFERENCE_PARAMETER_LIST);
     }
 
-    boolean hasIdentifier;
     while (builder.getTokenType() == JavaTokenType.DOT) {
       refElement.done(JavaElementType.JAVA_CODE_REFERENCE);
 
@@ -214,43 +233,34 @@ public class ReferenceParser {
         return refElement;
       }
 
-      final PsiBuilder.Marker dotPos = builder.mark();
+      PsiBuilder.Marker dotPos = builder.mark();
       builder.advanceLexer();
 
       myParser.getDeclarationParser().parseAnnotations(builder);
 
-      if (expect(builder, JavaTokenType.IDENTIFIER)) {
-        hasIdentifier = true;
-      }
-      else if (isImport && expect(builder, JavaTokenType.ASTERISK)) {
+      if (isImport && expect(builder, JavaTokenType.ASTERISK)) {
         dotPos.drop();
         return refElement;
       }
-      else {
+      else if (!expect(builder, JavaTokenType.IDENTIFIER)) {
         if (!eatLastDot) {
           dotPos.rollbackTo();
           return refElement;
         }
-        hasIdentifier = false;
+
+        typeInfo.hasErrors = true;
+        if (isImport) {
+          error(builder, JavaPsiBundle.message("import.statement.identifier.or.asterisk.expected."));
+        }
+        else {
+          error(builder, JavaPsiBundle.message("expected.identifier"));
+        }
+        dotPos.drop();
+        return refElement;
       }
       dotPos.drop();
 
-      final PsiBuilder.Marker prevElement = refElement;
       refElement = refElement.precede();
-
-      if (!hasIdentifier) {
-        typeInfo.hasErrors = true;
-        if (isImport) {
-          error(builder, JavaErrorMessages.message("import.statement.identifier.or.asterisk.expected."));
-          refElement.drop();
-          return prevElement;
-        }
-        else {
-          error(builder, JavaErrorMessages.message("expected.identifier"));
-          emptyElement(builder, JavaElementType.REFERENCE_PARAMETER_LIST);
-          break;
-        }
-      }
 
       if (parameterList) {
         typeInfo.isParameterized = parseReferenceParameterList(builder, true, diamonds);
@@ -264,8 +274,8 @@ public class ReferenceParser {
     return refElement;
   }
 
-  public boolean parseReferenceParameterList(final PsiBuilder builder, final boolean wildcard, final boolean diamonds) {
-    final PsiBuilder.Marker list = builder.mark();
+  public boolean parseReferenceParameterList(PsiBuilder builder, boolean wildcard, boolean diamonds) {
+    PsiBuilder.Marker list = builder.mark();
     if (!expect(builder, JavaTokenType.LT)) {
       list.done(JavaElementType.REFERENCE_PARAMETER_LIST);
       return false;
@@ -275,7 +285,7 @@ public class ReferenceParser {
     boolean isOk = true;
     while (true) {
       if (parseTypeInfo(builder, flags, true) == null) {
-        error(builder, JavaErrorMessages.message("expected.identifier"));
+        error(builder, JavaPsiBundle.message("expected.identifier"));
       }
       else {
         IElementType tokenType = builder.getTokenType();
@@ -299,38 +309,36 @@ public class ReferenceParser {
   }
 
   @NotNull
-  public PsiBuilder.Marker parseTypeParameters(final PsiBuilder builder) {
-    final PsiBuilder.Marker list = builder.mark();
+  public PsiBuilder.Marker parseTypeParameters(PsiBuilder builder) {
+     PsiBuilder.Marker list = builder.mark();
     if (!expect(builder, JavaTokenType.LT)) {
       list.done(JavaElementType.TYPE_PARAMETER_LIST);
       return list;
     }
 
-    while (true) {
-      final PsiBuilder.Marker param = parseTypeParameter(builder);
+    do {
+      PsiBuilder.Marker param = parseTypeParameter(builder);
       if (param == null) {
-        error(builder, JavaErrorMessages.message("expected.type.parameter"));
-      }
-      if (!expect(builder, JavaTokenType.COMMA)) {
-        break;
+        error(builder, JavaPsiBundle.message("expected.type.parameter"));
       }
     }
+    while (expect(builder, JavaTokenType.COMMA));
 
     if (!expect(builder, JavaTokenType.GT)) {
       // hack for completion
       if (builder.getTokenType() == JavaTokenType.IDENTIFIER) {
         if (builder.lookAhead(1) == JavaTokenType.GT) {
-          final PsiBuilder.Marker errorElement = builder.mark();
+          PsiBuilder.Marker errorElement = builder.mark();
           builder.advanceLexer();
-          errorElement.error(JavaErrorMessages.message("unexpected.identifier"));
+          errorElement.error(JavaPsiBundle.message("unexpected.identifier"));
           builder.advanceLexer();
         }
         else {
-          error(builder, JavaErrorMessages.message("expected.gt"));
+          error(builder, JavaPsiBundle.message("expected.gt"));
         }
       }
       else {
-        error(builder, JavaErrorMessages.message("expected.gt"));
+        error(builder, JavaPsiBundle.message("expected.gt"));
       }
     }
 
@@ -339,18 +347,16 @@ public class ReferenceParser {
   }
 
   @Nullable
-  public PsiBuilder.Marker parseTypeParameter(final PsiBuilder builder) {
-    final PsiBuilder.Marker param = builder.mark();
+  public PsiBuilder.Marker parseTypeParameter(PsiBuilder builder) {
+    PsiBuilder.Marker param = builder.mark();
 
     myParser.getDeclarationParser().parseAnnotations(builder);
 
-    if (EXPERIMENTAL_FEATURES && "any".equals(builder.getTokenText()) && getLanguageLevel(builder).isAtLeast(LanguageLevel.JDK_1_9)) {
-      PsiBuilder.Marker mark = builder.mark();
-      builder.advanceLexer();
-      mark.done(JavaElementType.DUMMY_ELEMENT);
+    if (isKeywordAny(builder)) {
+      dummy(builder);
     }
 
-    final boolean wild = expect(builder, JavaTokenType.QUEST);
+    boolean wild = expect(builder, JavaTokenType.QUEST);
     if (!wild && !expect(builder, JavaTokenType.IDENTIFIER)) {
       param.rollbackTo();
       return null;
@@ -362,34 +368,43 @@ public class ReferenceParser {
       param.done(JavaElementType.TYPE_PARAMETER);
     }
     else {
-      param.error(JavaErrorMessages.message("wildcard.not.expected"));
+      param.error(JavaPsiBundle.message("error.message.wildcard.not.expected"));
     }
     return param;
   }
 
-  @NotNull
-  public PsiBuilder.Marker parseReferenceList(final PsiBuilder builder, final IElementType start,
-                                              @Nullable final IElementType type, final IElementType delimiter) {
-    final PsiBuilder.Marker element = builder.mark();
+  public boolean parseReferenceList(PsiBuilder builder, IElementType start, @Nullable IElementType type, IElementType delimiter) {
+    PsiBuilder.Marker element = builder.mark();
 
+    boolean endsWithError = false;
     if (expect(builder, start)) {
-      while (true) {
-        final PsiBuilder.Marker classReference = parseJavaCodeReference(builder, true, true, false, false);
+      do {
+        endsWithError = false;
+        PsiBuilder.Marker classReference = parseJavaCodeReference(builder, false, true, false, false);
         if (classReference == null) {
-          error(builder, JavaErrorMessages.message("expected.identifier"));
-        }
-        if (!expect(builder, delimiter)) {
-          break;
+          error(builder, JavaPsiBundle.message("expected.identifier"));
+          endsWithError = true;
         }
       }
+      while (expect(builder, delimiter));
     }
 
     if (type != null) {
       element.done(type);
     }
     else {
-      element.error(JavaErrorMessages.message("bound.not.expected"));
+      element.error(JavaPsiBundle.message("bound.not.expected"));
     }
-    return element;
+    return endsWithError;
+  }
+
+  private static boolean isKeywordAny(PsiBuilder builder) {
+    return getLanguageLevel(builder).isAtLeast(LanguageLevel.JDK_X) && "any".equals(builder.getTokenText());
+  }
+
+  private static void dummy(PsiBuilder builder) {
+    PsiBuilder.Marker mark = builder.mark();
+    builder.advanceLexer();
+    mark.done(JavaElementType.DUMMY_ELEMENT);
   }
 }

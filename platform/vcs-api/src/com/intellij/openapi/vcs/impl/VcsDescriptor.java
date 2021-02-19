@@ -15,59 +15,92 @@
  */
 package com.intellij.openapi.vcs.impl;
 
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.Computable;
-import com.intellij.openapi.vcs.VcsBundle;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-public class VcsDescriptor implements Comparable<VcsDescriptor> {
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+
+public class VcsDescriptor {
+
   private final String myName;
   private final boolean myCrawlUpToCheckUnderVcs;
+  private final boolean myAreChildrenValidMappings;
   private final String myDisplayName;
-  private final String myAdministrativePattern;
-  private boolean myIsNone;
+  private final List<String> myAdministrativePatterns;
 
-  public VcsDescriptor(String administrativePattern, String displayName, String name, boolean crawlUpToCheckUnderVcs) {
-    myAdministrativePattern = administrativePattern;
+  public VcsDescriptor(String administrativePattern,
+                       String displayName,
+                       String name,
+                       boolean crawlUpToCheckUnderVcs,
+                       boolean areChildrenValidMappings) {
+    myAdministrativePatterns = parseAdministrativePatterns(administrativePattern);
     myDisplayName = displayName;
     myName = name;
     myCrawlUpToCheckUnderVcs = crawlUpToCheckUnderVcs;
+    myAreChildrenValidMappings = areChildrenValidMappings;
+  }
+
+  @NotNull
+  private static List<String> parseAdministrativePatterns(@Nullable String administrativePattern) {
+    if (administrativePattern == null) return Collections.emptyList();
+    return ContainerUtil.map(administrativePattern.split(","), it -> it.trim());
+  }
+
+  public boolean areChildrenValidMappings() {
+    return myAreChildrenValidMappings;
   }
 
   public boolean probablyUnderVcs(final VirtualFile file) {
-    if (file == null || (! file.isDirectory()) || (! file.isValid())) return false;
-    if (myAdministrativePattern == null) return false;
-    return ApplicationManager.getApplication().runReadAction(new Computable<Boolean>() {
-      @Override
-      public Boolean compute() {
-        if (checkFileForBeingAdministrative(file)) return true;
-        if (myCrawlUpToCheckUnderVcs) {
-          VirtualFile current = file.getParent();
-          while (current != null) {
-            if (checkFileForBeingAdministrative(current)) return true;
-            current = current.getParent();
-          }
-        }
-        return false;
-      }
-    });
+    return probablyUnderVcs(file, myCrawlUpToCheckUnderVcs);
   }
 
-  private boolean checkFileForBeingAdministrative(final VirtualFile file) {
-    return ApplicationManager.getApplication().runReadAction(new Computable<Boolean>() {
-      @Override
-      public Boolean compute() {
-        final String[] patterns = myAdministrativePattern.split(",");
-        for (String pattern : patterns) {
-          final VirtualFile child = file.findChild(pattern.trim());
-          if (child != null) return true;
+  public boolean probablyUnderVcs(final VirtualFile file, boolean crawlUp) {
+    if (file == null || !file.isDirectory() || !file.isValid()) return false;
+    if (myAdministrativePatterns.isEmpty()) return false;
+
+    if (crawlUp) {
+      return ReadAction.compute(() -> {
+        VirtualFile current = file;
+        while (current != null) {
+          if (matchesVcsDirPattern(current)) return true;
+          current = current.getParent();
         }
         return false;
-      }
-    });
+      });
+    }
+    else {
+      return ReadAction.compute(() -> matchesVcsDirPattern(file));
+    }
   }
 
+  private boolean matchesVcsDirPattern(@NotNull VirtualFile file) {
+    for (String pattern : myAdministrativePatterns) {
+      VirtualFile child = file.findChild(pattern);
+      if (child != null) return true;
+    }
+    return false;
+  }
+
+  public boolean hasVcsDirPattern() {
+    return !myAdministrativePatterns.isEmpty();
+  }
+
+  public boolean matchesVcsDirPattern(@NotNull String dirName) {
+    return myAdministrativePatterns.contains(dirName);
+  }
+
+  /**
+   * @deprecated Prefer {@link AbstractVcs#getDisplayName()}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public String getDisplayName() {
     return myDisplayName == null ? myName : myDisplayName;
   }
@@ -77,30 +110,12 @@ public class VcsDescriptor implements Comparable<VcsDescriptor> {
   }
 
   @Override
-  public int compareTo(VcsDescriptor o) {
-    return Comparing.compare(myDisplayName, o.myDisplayName);
-  }
-
-  @Override
   public boolean equals(Object o) {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
 
     VcsDescriptor that = (VcsDescriptor)o;
-
-    if (myName != null ? !myName.equals(that.myName) : that.myName != null) return false;
-
-    return true;
-  }
-
-  public boolean isNone() {
-    return myIsNone;
-  }
-
-  public static VcsDescriptor createFictive() {
-    final VcsDescriptor vcsDescriptor = new VcsDescriptor(null, VcsBundle.message("none.vcs.presentation"), null, false);
-    vcsDescriptor.myIsNone = true;
-    return vcsDescriptor;
+    return Objects.equals(myName, that.myName);
   }
 
   @Override
@@ -110,6 +125,6 @@ public class VcsDescriptor implements Comparable<VcsDescriptor> {
 
   @Override
   public String toString() {
-    return getDisplayName();
+    return myName;
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,9 @@
  */
 package com.intellij.xdebugger.frame;
 
-import com.intellij.util.NotNullFunction;
 import com.intellij.xdebugger.Obsolescent;
 import com.intellij.xdebugger.frame.presentation.XValuePresentation;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -28,8 +28,6 @@ import javax.swing.*;
  * Represents a node in debugger tree. This interface isn't supposed to be implemented by a plugin.
  *
  * @see XValue
- *
- * @author nik
  */
 public interface XValueNode extends Obsolescent {
   /**
@@ -56,29 +54,14 @@ public interface XValueNode extends Obsolescent {
   void setPresentation(@Nullable Icon icon, @NotNull XValuePresentation presentation, boolean hasChildren);
 
   /**
-   * @deprecated use {@link #setPresentation(javax.swing.Icon, XValuePresentation, boolean)}
+   * @deprecated use {@link #setPresentation(Icon, XValuePresentation, boolean)}
    */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   void setPresentation(@Nullable Icon icon, @NonNls @Nullable String type, @NonNls @NotNull String separator, @NonNls @Nullable String value, boolean hasChildren);
 
   /**
-   * The same as {@link #setPresentation(javax.swing.Icon, String, String, boolean)} but allows to change default processing of
-   * {@code value} parameter using custom {@code valuePresenter} function. By default only invisible characters like tabs or line separators
-   * are escaped in the value. {@code valuePresenter} function doesn't affect 'Copy Value' action. It can be used to escape additional
-   * characters and/or surround value by quotes.
-   *
-   * @deprecated use {@link #setPresentation(javax.swing.Icon, XValuePresentation, boolean)}
-   */
-  void setPresentation(@Nullable Icon icon, @NonNls @Nullable String type, @NonNls @NotNull String value,
-                       @Nullable NotNullFunction<String, String> valuePresenter, boolean hasChildren);
-
-  /**
-   * @deprecated use {@link #setPresentation(javax.swing.Icon, XValuePresentation, boolean)}
-   */
-  void setPresentation(@Nullable Icon icon, @NonNls @Nullable String type, @NonNls @NotNull String separator, @NonNls @NotNull String value,
-                       @Nullable NotNullFunction<String, String> valuePresenter, boolean hasChildren);
-
-  /**
-   * If string representation of the value is too long to show in the tree pass truncated value to {@link #setPresentation(javax.swing.Icon, String, String, boolean)}
+   * If string representation of the value is too long to show in the tree pass truncated value to {@link #setPresentation(Icon, String, String, boolean)}
    * method and call this method to provide full value.
    * This will add a link to the node and show popup with full value if an user clicks on that link.
    * @param fullValueEvaluator will be used to obtain full text of the value

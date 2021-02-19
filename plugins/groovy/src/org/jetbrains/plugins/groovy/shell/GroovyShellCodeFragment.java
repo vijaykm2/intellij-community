@@ -1,44 +1,28 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.shell;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.PsiImmediateClassType;
+import com.intellij.psi.scope.ElementClassHint;
 import com.intellij.psi.scope.NameHint;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.testFramework.LightVirtualFile;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.debugger.fragments.GroovyCodeFragment;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefinition;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GrClassReferenceType;
 import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GrLightVariable;
-import org.jetbrains.plugins.groovy.lang.resolve.processors.ClassHint;
+import org.jetbrains.plugins.groovy.lang.resolve.ResolveUtil;
 
+import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Created by Max Medvedev on 9/8/13
- */
 public class GroovyShellCodeFragment extends GroovyCodeFragment {
 
-  private final Map<String, PsiVariable> myVariables = ContainerUtil.newHashMap();
-  private final Map<String, GrTypeDefinition> myTypeDefinitions = ContainerUtil.newHashMap();
+  private final Map<String, PsiVariable> myVariables = new HashMap<>();
+  private final Map<String, GrTypeDefinition> myTypeDefinitions = new HashMap<>();
 
   public GroovyShellCodeFragment(Project project, LightVirtualFile virtualFile) {
     super(project, virtualFile);
@@ -89,10 +73,9 @@ public class GroovyShellCodeFragment extends GroovyCodeFragment {
   }
 
   private boolean processVariables(@NotNull PsiScopeProcessor processor, @NotNull ResolveState state) {
-    ClassHint classHint = processor.getHint(ClassHint.KEY);
-    if (classHint != null &&
-        !classHint.shouldProcess(ClassHint.ResolveKind.METHOD) &&
-        !classHint.shouldProcess(ClassHint.ResolveKind.PROPERTY)) {
+    ElementClassHint classHint = processor.getHint(ElementClassHint.KEY);
+    if (!ResolveUtil.shouldProcessMethods(classHint) &&
+        !ResolveUtil.shouldProcessProperties(classHint)) {
       return true;
     }
 
@@ -119,8 +102,8 @@ public class GroovyShellCodeFragment extends GroovyCodeFragment {
   }
 
   private boolean processTypeDefinitions(@NotNull PsiScopeProcessor processor, @NotNull ResolveState state) {
-    ClassHint classHint = processor.getHint(ClassHint.KEY);
-    if (classHint != null && !classHint.shouldProcess(ClassHint.ResolveKind.CLASS)) {
+    ElementClassHint classHint = processor.getHint(ElementClassHint.KEY);
+    if (!ResolveUtil.shouldProcessClasses(classHint)) {
       return true;
     }
 

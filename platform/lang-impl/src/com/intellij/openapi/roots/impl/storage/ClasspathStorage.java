@@ -1,83 +1,127 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.impl.storage;
 
+import com.intellij.ProjectTopics;
 import com.intellij.application.options.PathMacrosCollector;
-import com.intellij.openapi.components.ServiceManager;
-import com.intellij.openapi.components.impl.stores.IModuleStore;
-import com.intellij.openapi.components.impl.stores.StateStorageBase;
-import com.intellij.openapi.components.impl.stores.StorageDataBase;
+import com.intellij.configurationStore.*;
+import com.intellij.notification.Notification;
+import com.intellij.notification.NotificationType;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.components.PathMacroSubstitutor;
+import com.intellij.openapi.components.TrackingPathMacroSubstitutor;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.ModuleUtilCore;
+import com.intellij.openapi.project.ModuleListener;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.roots.ModifiableRootModel;
+import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.roots.ModuleRootModel;
-import com.intellij.openapi.roots.impl.ModuleRootManagerImpl;
 import com.intellij.openapi.roots.impl.ModuleRootManagerImpl.ModuleRootManagerState;
 import com.intellij.openapi.roots.impl.RootModelImpl;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.io.FileUtilRt;
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.VirtualFileAdapter;
-import com.intellij.openapi.vfs.VirtualFileEvent;
-import com.intellij.openapi.vfs.tracker.VirtualFileTracker;
-import com.intellij.util.PathUtil;
+import com.intellij.openapi.vfs.VirtualFileManager;
+import com.intellij.openapi.vfs.newvfs.BulkFileListener;
+import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent;
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
+import com.intellij.util.Function;
+import com.intellij.util.messages.MessageBusConnection;
 import org.jdom.Element;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.serialization.JpsProjectLoader;
 
 import java.io.IOException;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-public class ClasspathStorage extends StateStorageBase<ClasspathStorage.MyStorageData> {
-  @NonNls public static final String SPECIAL_STORAGE = "special";
+// Boolean - false as not loaded, true as loaded
+public final class ClasspathStorage extends StateStorageBase<Boolean> {
+  private static final Key<Boolean> ERROR_NOTIFIED_KEY = Key.create("ClasspathStorage.ERROR_NOTIFIED_KEY");
+  private static final Logger LOG = Logger.getInstance(ClasspathStorage.class);
 
   private final ClasspathStorageProvider.ClasspathConverter myConverter;
 
-  public ClasspathStorage(@NotNull Module module, @NotNull IModuleStore moduleStore) {
-    super(moduleStore.getStateStorageManager().getMacroSubstitutor());
+  private final PathMacroSubstitutor myPathMacroSubstitutor;
 
-    ClasspathStorageProvider provider = getProvider(ClassPathStorageUtil.getStorageType(module));
-    assert provider != null;
-    myConverter = provider.createConverter(module);
-    assert myConverter != null;
-
-    VirtualFileTracker virtualFileTracker = ServiceManager.getService(VirtualFileTracker.class);
-    if (virtualFileTracker != null) {
-      List<String> urls = myConverter.getFileUrls();
-      for (String url : urls) {
-        final Listener listener = module.getProject().getMessageBus().syncPublisher(PROJECT_STORAGE_TOPIC);
-        virtualFileTracker.addTracker(url, new VirtualFileAdapter() {
-          @Override
-          public void contentsChanged(@NotNull VirtualFileEvent event) {
-            listener.storageFileChanged(event, ClasspathStorage.this);
-          }
-        }, true, module);
-      }
+  public ClasspathStorage(@NotNull Module module, @NotNull StateStorageManager storageManager) {
+    String storageType = module.getOptionValue(JpsProjectLoader.CLASSPATH_ATTRIBUTE);
+    if (storageType == null) {
+      throw new IllegalStateException("Classpath storage requires non-default storage type");
     }
+
+    ClasspathStorageProvider provider = getProvider(storageType);
+    if (provider == null) {
+      if (module.getUserData(ERROR_NOTIFIED_KEY) == null) {
+        Notification n = new Notification(StorageUtilKt.NOTIFICATION_GROUP_ID,
+                                          ProjectBundle.message("notification.title.cannot.load.module.0", module.getName()),
+                                          ProjectBundle.message("notification.content.support.for.0.format.is.not.installed", storageType), NotificationType.ERROR);
+        n.notify(module.getProject());
+        module.putUserData(ERROR_NOTIFIED_KEY, Boolean.TRUE);
+        LOG.info("Classpath storage provider " + storageType + " not found");
+      }
+
+      myConverter = new MissingClasspathConverter();
+    }
+    else {
+      myConverter = provider.createConverter(module);
+    }
+
+    myPathMacroSubstitutor = storageManager.getMacroSubstitutor();
+
+    final List<String> paths = myConverter.getFilePaths();
+    MessageBusConnection busConnection = module.getProject().getMessageBus().connect(module);
+    busConnection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
+      @Override
+      public void after(@NotNull List<? extends VFileEvent> events) {
+        if (paths.isEmpty()) {
+          return;
+        }
+
+        for (VFileEvent event : events) {
+          if (!event.isFromRefresh() ||
+              !(event instanceof VFileContentChangeEvent) ||
+              !StateStorageManagerKt.isFireStorageFileChangedEvent(event)) {
+            continue;
+          }
+
+          String eventPath = event.getPath();
+          for (String path : paths) {
+            if (path.equals(eventPath)) {
+              StoreReloadManager.getInstance().storageFilesChanged(Collections.singletonMap(module, Collections.singletonList(ClasspathStorage.this)));
+              return;
+            }
+          }
+        }
+      }
+    });
+
+    busConnection.subscribe(ProjectTopics.MODULES, new ModuleListener() {
+      @Override
+      public void modulesRenamed(@NotNull Project project,
+                                 @NotNull List<? extends Module> modules,
+                                 @NotNull Function<? super Module, String> oldNameProvider) {
+        for (Module renamedModule : modules) {
+          if (renamedModule.equals(module)) {
+            ClasspathStorageProvider provider = getProvider(ClassPathStorageUtil.getStorageType(module));
+            if (provider != null) {
+              provider.moduleRenamed(module, oldNameProvider.fun(module), module.getName());
+              provider.modulePathChanged(module);
+            }
+          }
+        }
+      }
+    });
   }
 
   @Nullable
   @Override
-  protected <S> S deserializeState(@Nullable Element serializedState, @NotNull Class<S> stateClass, @Nullable S mergeInto) {
+  public <S> S deserializeState(@Nullable Element serializedState, @NotNull Class<S> stateClass, @Nullable S mergeInto) {
     if (serializedState == null) {
       return null;
     }
@@ -88,36 +132,31 @@ public class ClasspathStorage extends StateStorageBase<ClasspathStorage.MyStorag
     return (S)state;
   }
 
-  static class MyStorageData extends StorageDataBase {
-    private boolean loaded;
-
-    @NotNull
-    @Override
-    public Set<String> getComponentNames() {
-      return Collections.emptySet();
-    }
-
-    @Override
-    public boolean hasState(@NotNull String componentName) {
-      return !loaded;
-    }
+  @Override
+  protected boolean hasState(@NotNull Boolean storageData, @NotNull String componentName) {
+    return !storageData;
   }
 
   @Nullable
   @Override
-  protected Element getStateAndArchive(@NotNull MyStorageData storageData, Object component, @NotNull String componentName) {
-    if (storageData.loaded) {
+  public Element getSerializedState(@NotNull Boolean storageData, Object component, @NotNull String componentName, boolean archive) {
+    if (storageData) {
       return null;
     }
 
     Element element = new Element("component");
-    try {
+    ApplicationManager.getApplication().runReadAction(() -> {
       ModifiableRootModel model = null;
       try {
-        model = ((ModuleRootManagerImpl)component).getModifiableModel();
+        model = ((ModuleRootManager)component).getModifiableModel();
         // IDEA-137969 Eclipse integration: external remove of classpathentry is not synchronized
         model.clear();
-        myConverter.readClasspath(model);
+        try {
+          myConverter.readClasspath(model);
+        }
+        catch (IOException e) {
+          throw new RuntimeException(e);
+        }
         ((RootModelImpl)model).writeExternal(element);
       }
       catch (WriteExternalException e) {
@@ -128,38 +167,42 @@ public class ClasspathStorage extends StateStorageBase<ClasspathStorage.MyStorag
           model.dispose();
         }
       }
+    });
 
-      if (myPathMacroSubstitutor != null) {
-        myPathMacroSubstitutor.expandPaths(element);
-        myPathMacroSubstitutor.addUnknownMacros("NewModuleRootManager", PathMacrosCollector.getMacroNames(element));
+
+    if (myPathMacroSubstitutor != null) {
+      myPathMacroSubstitutor.expandPaths(element);
+      if (myPathMacroSubstitutor instanceof TrackingPathMacroSubstitutor) {
+        ((TrackingPathMacroSubstitutor)myPathMacroSubstitutor).addUnknownMacros("NewModuleRootManager", PathMacrosCollector.getMacroNames(element));
       }
     }
-    catch (IOException e) {
-      throw new RuntimeException(e);
-    }
 
-    storageData.loaded = true;
+    getStorageDataRef().set(true);
     return element;
   }
 
+  @NotNull
   @Override
-  protected MyStorageData loadData() {
-    return new MyStorageData();
+  protected Boolean loadData() {
+    return false;
   }
 
   @Override
-  @NotNull
-  public ExternalizationSession startExternalization() {
+  @Nullable
+  public SaveSessionProducer createSaveSessionProducer() {
     return myConverter.startExternalization();
   }
 
   @Override
-  public void analyzeExternalChangesAndUpdateIfNeed(@NotNull Collection<VirtualFile> changedFiles, @NotNull Set<String> componentNames) {
+  public void analyzeExternalChangesAndUpdateIfNeeded(@NotNull Set<? super String> componentNames) {
     // if some file changed, so, changed
     componentNames.add("NewModuleRootManager");
-    if (myStorageData != null) {
-      myStorageData.loaded = false;
-    }
+    getStorageDataRef().set(false);
+  }
+
+  @Override
+  public boolean isUseVfsForWrite() {
+    return true;
   }
 
   @Nullable
@@ -177,13 +220,8 @@ public class ClasspathStorage extends StateStorageBase<ClasspathStorage.MyStorag
   }
 
   @NotNull
-  public static String getModuleDir(@NotNull Module module) {
-    return PathUtil.getParentPath(FileUtilRt.toSystemIndependentName(module.getModuleFilePath()));
-  }
-
-  @NotNull
   public static String getStorageRootFromOptions(@NotNull Module module) {
-    String moduleRoot = getModuleDir(module);
+    String moduleRoot = ModuleUtilCore.getModuleDirPath(module);
     String storageRef = module.getOptionValue(JpsProjectLoader.CLASSPATH_DIR_ATTRIBUTE);
     if (storageRef == null) {
       return moduleRoot;
@@ -210,28 +248,30 @@ public class ClasspathStorage extends StateStorageBase<ClasspathStorage.MyStorag
       provider.detach(module);
     }
 
-    provider = getProvider(storageId);
-    if (provider == null) {
-      module.clearOption(JpsProjectLoader.CLASSPATH_ATTRIBUTE);
-      module.clearOption(JpsProjectLoader.CLASSPATH_DIR_ATTRIBUTE);
-    }
-    else {
-      module.setOption(JpsProjectLoader.CLASSPATH_ATTRIBUTE, storageId);
-      module.setOption(JpsProjectLoader.CLASSPATH_DIR_ATTRIBUTE, provider.getContentRoot(model));
+    ClasspathStorageProvider newProvider = getProvider(storageId);
+    module.setOption(JpsProjectLoader.CLASSPATH_ATTRIBUTE, newProvider == null ? null : storageId);
+    module.setOption(JpsProjectLoader.CLASSPATH_DIR_ATTRIBUTE, newProvider == null ? null : newProvider.getContentRoot(model));
+    if (newProvider != null) {
+      newProvider.attach(model);
     }
   }
 
-  public static void moduleRenamed(@NotNull Module module, @NotNull String newName) {
+  public static void modulePathChanged(@NotNull Module module) {
     ClasspathStorageProvider provider = getProvider(ClassPathStorageUtil.getStorageType(module));
     if (provider != null) {
-      provider.moduleRenamed(module, newName);
+      provider.modulePathChanged(module);
     }
   }
 
-  public static void modulePathChanged(Module module, String newPath) {
-    ClasspathStorageProvider provider = getProvider(ClassPathStorageUtil.getStorageType(module));
-    if (provider != null) {
-      provider.modulePathChanged(module, newPath);
+  private static class MissingClasspathConverter implements ClasspathStorageProvider.ClasspathConverter {
+    @NotNull
+    @Override
+    public List<String> getFilePaths() {
+      return Collections.emptyList();
+    }
+
+    @Override
+    public void readClasspath(@NotNull ModifiableRootModel model) {
     }
   }
 }

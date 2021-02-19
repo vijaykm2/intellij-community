@@ -30,8 +30,9 @@ public class MavenProjectsProcessorPluginsResolvingTask extends MavenProjectsPro
     myNativeMavenProject = nativeMavenProject;
   }
 
+  @Override
   public void perform(Project project, MavenEmbeddersManager embeddersManager, MavenConsole console, MavenProgressIndicator indicator)
     throws MavenProcessCanceledException {
-    myTree.resolvePlugins(myMavenProject, myNativeMavenProject, embeddersManager, console, indicator);
+    myResolver.resolvePlugins(myMavenProject, myNativeMavenProject, embeddersManager, console, indicator);
   }
 }

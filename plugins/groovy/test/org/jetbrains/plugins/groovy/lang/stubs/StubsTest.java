@@ -8,7 +8,7 @@ import com.intellij.psi.stubs.NamedStub;
 import com.intellij.psi.stubs.StubElement;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.IStubFileElementType;
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 import junit.framework.Assert;
 import org.jetbrains.plugins.groovy.util.TestUtils;
 
@@ -17,21 +17,21 @@ import java.util.List;
 /**
  * @author ilyas
  */
-public class StubsTest extends LightCodeInsightFixtureTestCase {
+public class StubsTest extends LightJavaCodeInsightFixtureTestCase {
   
-  public void testConfig_object() throws Throwable { doTest(); }
-  public void testSlurper() throws Throwable { doTest(); }
-  public void testStub1() throws Throwable { doTest(); }
-  public void testStub_field1() throws Throwable { doTest(); }
-  public void testStub_method1() throws Throwable { doTest(); }
-  public void testTypeParameters() throws Throwable { doTest(); }
+  public void testConfig_object() { doTest(); }
+  public void testSlurper() { doTest(); }
+  public void testStub1() { doTest(); }
+  public void testStub_field1() { doTest(); }
+  public void testStub_method1() { doTest(); }
+  public void testTypeParameters() { doTest(); }
 
   @Override
   protected String getBasePath() {
     return TestUtils.getTestDataPath() + "groovy/stubs";
   }
 
-  public void doTest() throws Exception {
+  public void doTest() {
     final List<String> data = TestUtils.readInput(getTestDataPath() + "/" + getTestName(true) + ".test");
     String fileText = data.get(0);
 

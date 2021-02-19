@@ -1,23 +1,7 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * @author: Eugene Zhuravlev
- * Date: Jul 4, 2003
- * Time: 7:39:27 PM
  */
 package com.intellij.uiDesigner.make;
 
@@ -32,25 +16,22 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.uiDesigner.compiler.Utils;
 import com.intellij.uiDesigner.lw.LwRootContainer;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.*;
 
 final class BindingsCache {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.uiDesigner.make.BindingsCache");
+  private static final Logger LOG = Logger.getInstance(BindingsCache.class);
   @NonNls
   private static final String BINDINGS_FILE_NAME = "formbinding.dat";
-  private StateCache<MyState> myCache;
+  private final StateCache<MyState> myCache;
 
-  public BindingsCache(final Project project) {
+  BindingsCache(final Project project) {
     final File cacheStoreDirectory = CompilerPaths.getCacheStoreDirectory(project);
+    StateCache<MyState> cache;
     try {
-      if (cacheStoreDirectory != null) {
-        FileUtil.createParentDirs(cacheStoreDirectory);
-        myCache = createCache(cacheStoreDirectory);
-      }
-      else {
-        myCache = null;
-      }
+      FileUtil.createParentDirs(cacheStoreDirectory);
+      cache = createCache(cacheStoreDirectory);
     }
     catch (IOException e) {
       LOG.info(e);
@@ -60,21 +41,24 @@ final class BindingsCache {
         }
       }
       try {
-        myCache = createCache(cacheStoreDirectory);
+        cache = createCache(cacheStoreDirectory);
       }
       catch (IOException e1) {
         LOG.info(e1);
-        myCache = null;
+        cache = null;
       }
     }
+    myCache = cache;
   }
 
-  private static StateCache<MyState> createCache(final File cacheStoreDirectory) throws IOException {
-    return new StateCache<MyState>(new File(cacheStoreDirectory, BINDINGS_FILE_NAME)) {
+  private static @NotNull StateCache<MyState> createCache(final File cacheStoreDirectory) throws IOException {
+    return new StateCache<>(new File(cacheStoreDirectory, BINDINGS_FILE_NAME)) {
+      @Override
       public MyState read(final DataInput stream) throws IOException {
         return new MyState(stream.readLong(), stream.readUTF());
       }
 
+      @Override
       public void write(final MyState myState, final DataOutput out) throws IOException {
         out.writeLong(myState.getFormTimeStamp());
         out.writeUTF(myState.getClassName());
@@ -112,7 +96,7 @@ final class BindingsCache {
     }
     return null;
   }
-    
+
   private void updateCache(final VirtualFile formFile, final String classToBind) {
     if (myCache != null) {
       final String url = formFile.getUrl();
@@ -145,7 +129,7 @@ final class BindingsCache {
     private final long myFormTimeStamp;
     private final String myClassName;
 
-    public MyState(final long formTimeStamp, final String className){
+    MyState(final long formTimeStamp, final String className){
       myFormTimeStamp = formTimeStamp;
       myClassName = className;
     }

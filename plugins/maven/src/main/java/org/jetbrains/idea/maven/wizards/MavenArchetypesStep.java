@@ -1,32 +1,21 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.wizards;
 
 import com.intellij.ide.util.projectWizard.ModuleWizardStep;
 import com.intellij.ide.wizard.StepAdapter;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.*;
+import com.intellij.ui.render.RenderingUtil;
 import com.intellij.ui.treeStructure.Tree;
-import com.intellij.util.containers.Convertor;
 import com.intellij.util.ui.AsyncProcessIcon;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.tree.TreeUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.indices.MavenIndicesManager;
 import org.jetbrains.idea.maven.model.MavenArchetype;
@@ -40,12 +29,11 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 24.09.13
  */
 public class MavenArchetypesStep extends ModuleWizardStep implements Disposable {
 
@@ -61,10 +49,10 @@ public class MavenArchetypesStep extends ModuleWizardStep implements Disposable 
   private final AsyncProcessIcon myLoadingIcon = new AsyncProcessIcon.Big(getClass() + ".loading");
 
   private boolean skipUpdateUI;
-  private final MavenModuleBuilder myBuilder;
+  private final AbstractMavenModuleBuilder myBuilder;
   @Nullable private final StepAdapter myStep;
 
-  public MavenArchetypesStep(MavenModuleBuilder builder, @Nullable StepAdapter step) {
+  public MavenArchetypesStep(AbstractMavenModuleBuilder builder, @Nullable StepAdapter step) {
     myBuilder = builder;
     myStep = step;
     Disposer.register(this, myLoadingIcon);
@@ -77,7 +65,7 @@ public class MavenArchetypesStep extends ModuleWizardStep implements Disposable 
 
     JPanel loadingPanel = new JPanel(new GridBagLayout());
     JPanel bp = new JPanel(new BorderLayout(10, 10));
-    bp.add(new JLabel("Loading archetype list..."), BorderLayout.NORTH);
+    bp.add(new JLabel(MavenWizardBundle.message("maven.structure.wizard.loading.archetypes.list")), BorderLayout.NORTH);
     bp.add(myLoadingIcon, BorderLayout.CENTER);
 
     loadingPanel.add(bp, new GridBagConstraints());
@@ -95,6 +83,7 @@ public class MavenArchetypesStep extends ModuleWizardStep implements Disposable 
     });
 
     myAddArchetypeButton.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         doAddArchetype();
       }
@@ -106,17 +95,16 @@ public class MavenArchetypesStep extends ModuleWizardStep implements Disposable 
     myArchetypesTree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
 
     myArchetypesTree.getSelectionModel().addTreeSelectionListener(new TreeSelectionListener() {
+      @Override
       public void valueChanged(TreeSelectionEvent e) {
         updateArchetypeDescription();
         archetypeMayBeChanged();
       }
     });
 
-    new TreeSpeedSearch(myArchetypesTree, new Convertor<TreePath, String>() {
-      public String convert(TreePath path) {
-        MavenArchetype info = getArchetypeInfoFromPathComponent(path.getLastPathComponent());
-        return info.groupId + ":" + info.artifactId + ":" + info.version;
-      }
+    new TreeSpeedSearch(myArchetypesTree, path -> {
+      MavenArchetype info = getArchetypeInfoFromPathComponent(path.getLastPathComponent());
+      return info.groupId + ":" + info.artifactId + ":" + info.version;
     }).setComparator(new SpeedSearchComparator(false));
 
     myArchetypeDescriptionField.setEditable(false);
@@ -173,27 +161,25 @@ public class MavenArchetypesStep extends ModuleWizardStep implements Disposable 
   }
 
   private static TreeNode groupAndSortArchetypes(Set<MavenArchetype> archetypes) {
-    List<MavenArchetype> list = new ArrayList<MavenArchetype>(archetypes);
+    List<MavenArchetype> list = new ArrayList<>(archetypes);
 
-    Collections.sort(list, new Comparator<MavenArchetype>() {
-      public int compare(MavenArchetype o1, MavenArchetype o2) {
-        String key1 = o1.groupId + ":" + o1.artifactId;
-        String key2 = o2.groupId + ":" + o2.artifactId;
+    list.sort((o1, o2) -> {
+      String key1 = o1.groupId + ":" + o1.artifactId;
+      String key2 = o2.groupId + ":" + o2.artifactId;
 
-        int result = key1.compareToIgnoreCase(key2);
-        if (result != 0) return result;
+      int result = key1.compareToIgnoreCase(key2);
+      if (result != 0) return result;
 
-        return o2.version.compareToIgnoreCase(o1.version);
-      }
+      return o2.version.compareToIgnoreCase(o1.version);
     });
 
-    Map<String, List<MavenArchetype>> map = new TreeMap<String, List<MavenArchetype>>();
+    Map<String, List<MavenArchetype>> map = new TreeMap<>();
 
     for (MavenArchetype each : list) {
       String key = each.groupId + ":" + each.artifactId;
       List<MavenArchetype> versions = map.get(key);
       if (versions == null) {
-        versions = new ArrayList<MavenArchetype>();
+        versions = new ArrayList<>();
         map.put(key, versions);
       }
       versions.add(each);
@@ -227,41 +213,46 @@ public class MavenArchetypesStep extends ModuleWizardStep implements Disposable 
   public void updateArchetypesList(final MavenArchetype selected) {
     ApplicationManager.getApplication().assertIsDispatchThread();
 
-    myLoadingIcon.setBackground(myArchetypesTree.getBackground());
+    myLoadingIcon.setBackground(RenderingUtil.getBackground(myArchetypesTree));
 
     ((CardLayout)myArchetypesPanel.getLayout()).show(myArchetypesPanel, "loading");
 
     final Object currentUpdaterMarker = new Object();
     myCurrentUpdaterMarker = currentUpdaterMarker;
 
-    ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
-      public void run() {
-        final Set<MavenArchetype> archetypes = MavenIndicesManager.getInstance().getArchetypes();
+    ApplicationManager.getApplication().executeOnPooledThread(() -> {
+      MavenIndicesManager mavenIndicesManager = MavenIndicesManager.getInstance(findProject());
+      final Set<MavenArchetype> archetypes = mavenIndicesManager.getArchetypes();
 
-        //noinspection SSBasedInspection
-        SwingUtilities.invokeLater(new Runnable() {
-          public void run() {
-            if (currentUpdaterMarker != myCurrentUpdaterMarker) return; // Other updater has been run.
+      //noinspection SSBasedInspection
+      SwingUtilities.invokeLater(() -> {
+        if (currentUpdaterMarker != myCurrentUpdaterMarker) return; // Other updater has been run.
 
-            ((CardLayout)myArchetypesPanel.getLayout()).show(myArchetypesPanel, "archetypes");
+        ((CardLayout)myArchetypesPanel.getLayout()).show(myArchetypesPanel, "archetypes");
 
-            TreeNode root = groupAndSortArchetypes(archetypes);
-            TreeModel model = new DefaultTreeModel(root);
-            myArchetypesTree.setModel(model);
+        TreeNode root = groupAndSortArchetypes(archetypes);
+        TreeModel model = new DefaultTreeModel(root);
+        myArchetypesTree.setModel(model);
 
-            if (selected != null) {
-              TreePath path = findNodePath(selected, model, model.getRoot());
-              if (path != null) {
-                myArchetypesTree.expandPath(path.getParentPath());
-                TreeUtil.selectPath(myArchetypesTree, path, true);
-              }
-            }
-
-            updateArchetypeDescription();
+        if (selected != null) {
+          TreePath path = findNodePath(selected, model, model.getRoot());
+          if (path != null) {
+            myArchetypesTree.expandPath(path.getParentPath());
+            TreeUtil.selectPath(myArchetypesTree, path, true);
           }
-        });
-      }
+        }
+
+        updateArchetypeDescription();
+      });
     });
+  }
+
+  // todo DefaultProject usage may lead to plugin classloader leak on the plugin unload
+  @NotNull
+  private static Project findProject() {
+    ProjectManager projectManager = ProjectManager.getInstance();
+    Project[] openProjects = projectManager.getOpenProjects();
+    return openProjects.length != 0 ? openProjects[0] : projectManager.getDefaultProject();
   }
 
   public boolean isSkipUpdateUI() {
@@ -292,7 +283,7 @@ public class MavenArchetypesStep extends ModuleWizardStep implements Disposable 
     }
 
     MavenArchetype archetype = dialog.getArchetype();
-    MavenIndicesManager.getInstance().addArchetype(archetype);
+    MavenIndicesManager.getInstance(findProject()).addArchetype(archetype);
     updateArchetypesList(archetype);
   }
 
@@ -312,7 +303,8 @@ public class MavenArchetypesStep extends ModuleWizardStep implements Disposable 
   }
 
   private static class MyRenderer extends ColoredTreeCellRenderer {
-    public void customizeCellRenderer(JTree tree,
+    @Override
+    public void customizeCellRenderer(@NotNull JTree tree,
                                       Object value,
                                       boolean selected,
                                       boolean expanded,

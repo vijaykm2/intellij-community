@@ -1,184 +1,194 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl;
 
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.AbstractPainter;
 import com.intellij.openapi.ui.GraphicsConfig;
 import com.intellij.openapi.ui.Painter;
-import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.Strings;
+import com.intellij.openapi.wm.IdeFrame;
+import com.intellij.ui.ComponentUtil;
+import com.intellij.ui.scale.ScaleContext;
 import com.intellij.util.ImageLoader;
-import com.intellij.util.ObjectUtils;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.SVGLoader;
 import com.intellij.util.ui.JBUI;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.StartupUiUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.imageio.ImageIO;
+import javax.imageio.stream.MemoryCacheImageInputStream;
 import javax.swing.*;
 import java.awt.*;
-import java.awt.image.VolatileImage;
-import java.io.File;
+import java.awt.geom.AffineTransform;
+import java.awt.geom.Point2D;
+import java.awt.geom.Rectangle2D;
+import java.awt.image.*;
+import java.io.InputStream;
 import java.net.URL;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.*;
 
 final class PaintersHelper implements Painter.Listener {
-  private final Set<Painter> myPainters = ContainerUtil.newLinkedHashSet();
-  private final Map<Painter, Component> myPainter2Component = ContainerUtil.newLinkedHashMap();
+  private static final Logger LOG = Logger.getInstance(PaintersHelper.class);
 
-  private final JComponent myRootComponent;
+  private final Set<Painter> painters = new LinkedHashSet<>();
+  private final Map<Painter, Component> painterToComponent = new LinkedHashMap<>();
 
-  public PaintersHelper(@NotNull JComponent component) {
-    myRootComponent = component;
+  private final JComponent rootComponent;
+
+  PaintersHelper(@NotNull JComponent component) {
+    rootComponent = component;
   }
 
-  public boolean hasPainters() {
-    return !myPainters.isEmpty();
+  boolean hasPainters() {
+    return !painters.isEmpty();
   }
 
-  public void addPainter(@NotNull Painter painter, @Nullable Component component) {
-    myPainters.add(painter);
-    myPainter2Component.put(painter, component == null ? myRootComponent : component);
+  public boolean needsRepaint() {
+    for (Painter painter : painters) {
+      if (painter.needsRepaint()) return true;
+    }
+    return false;
+  }
+
+  void addPainter(@NotNull Painter painter, @Nullable Component component) {
+    painters.add(painter);
+    painterToComponent.put(painter, component == null ? rootComponent : component);
     painter.addListener(this);
   }
 
-  public void removePainter(@NotNull Painter painter) {
+  void removePainter(@NotNull Painter painter) {
     painter.removeListener(this);
-    myPainters.remove(painter);
-    myPainter2Component.remove(painter);
+    painters.remove(painter);
+    painterToComponent.remove(painter);
   }
 
   public void clear() {
-    for (Painter painter : myPainters) {
+    for (Painter painter : painters) {
       painter.removeListener(this);
     }
-    myPainters.clear();
-    myPainter2Component.clear();
+    painters.clear();
+    painterToComponent.clear();
   }
 
   public void paint(Graphics g) {
-    paint(g, myRootComponent);
+    runAllPainters(g, computeOffsets(g, rootComponent));
   }
 
-  public void paint(Graphics g, JComponent current) {
-    if (myPainters.isEmpty()) return;
-    Rectangle clip = ObjectUtils.notNull(g.getClipBounds(), current.getBounds());
-
-    Graphics2D g2d = (Graphics2D)g;
-    for (Painter painter : myPainters) {
-      Component component = myPainter2Component.get(painter);
-      if (component.getParent() == null) continue;
-      Rectangle componentBounds = SwingUtilities.convertRectangle(component.getParent(), component.getBounds(), current);
-
-      if (!painter.needsRepaint()) {
-        continue;
-      }
-
-      if (clip.contains(componentBounds) || clip.intersects(componentBounds)) {
-        Point targetPoint = SwingUtilities.convertPoint(current, 0, 0, component);
-        Rectangle targetRect = new Rectangle(targetPoint, component.getSize());
-        g2d.setClip(clip.intersection(componentBounds));
-        g2d.translate(-targetRect.x, -targetRect.y);
-        painter.paint(component, g2d);
-        g2d.translate(targetRect.x, targetRect.y);
-      }
+  void runAllPainters(Graphics gg, @Nullable Offsets offsets) {
+    if (painters.isEmpty() || offsets == null) return;
+    Graphics2D g = (Graphics2D)gg;
+    AffineTransform orig = g.getTransform();
+    int i = 0;
+    for (Painter painter : painters) {
+      if (!painter.needsRepaint()) continue;
+      Component cur = painterToComponent.get(painter);
+      // restore transform at the time of computeOffset()
+      g.setTransform(offsets.transform);
+      g.translate(offsets.offsets[i++], offsets.offsets[i++]);
+      painter.paint(cur, g);
     }
+    g.setTransform(orig);
+  }
 
+  @Nullable Offsets computeOffsets(Graphics gg, @NotNull JComponent component) {
+    if (painters.isEmpty()) return null;
+    Offsets offsets = new Offsets();
+    offsets.offsets = new int[painters.size() * 2];
+    // store current graphics transform
+    Graphics2D g = (Graphics2D)gg;
+    offsets.transform = new AffineTransform(g.getTransform());
+    // calculate relative offsets for painters
+    Rectangle r = null;
+    Component prev = null;
+    int i = 0;
+    for (Painter painter : painters) {
+      if (!painter.needsRepaint()) continue;
+
+      Component cur = painterToComponent.get(painter);
+      if (cur != prev || r == null) {
+        Container curParent = cur.getParent();
+        if (curParent == null) continue;
+        r = SwingUtilities.convertRectangle(curParent, cur.getBounds(), component);
+        prev = cur;
+      }
+      // component offsets don't include graphics scale, so compensate
+      offsets.offsets[i++] = r.x;
+      offsets.offsets[i++] = r.y;
+    }
+    return offsets;
+  }
+
+  public static class Offsets {
+    AffineTransform transform;
+    int[] offsets;
   }
 
   @Override
-  public void onNeedsRepaint(Painter painter, JComponent dirtyComponent) {
+  public void onNeedsRepaint(@NotNull Painter painter, JComponent dirtyComponent) {
     if (dirtyComponent != null && dirtyComponent.isShowing()) {
-      Rectangle rec = SwingUtilities.convertRectangle(dirtyComponent, dirtyComponent.getBounds(), myRootComponent);
-      myRootComponent.repaint(rec);
+      Rectangle rec = SwingUtilities.convertRectangle(dirtyComponent, dirtyComponent.getBounds(), rootComponent);
+      rootComponent.repaint(rec);
     }
     else {
-      myRootComponent.repaint();
+      rootComponent.repaint();
     }
   }
 
-  public enum FillType {
-    BG_CENTER, TILE, SCALE,
-    CENTER, TOP_CENTER, BOTTOM_CENTER,
-    TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT
+  static void initWallpaperPainter(@NotNull String propertyName, @NotNull PaintersHelper painters) {
+    painters.addPainter(new MyImagePainter(painters.rootComponent, propertyName), null);
   }
 
-  public static AbstractPainter newWallpaperPainter(final String propertyName) {
+  static AbstractPainter newImagePainter(@NotNull Image image,
+                                         @NotNull IdeBackgroundUtil.Fill fillType,
+                                         @NotNull IdeBackgroundUtil.Anchor anchor,
+                                         float alpha,
+                                         @NotNull Insets insets) {
     return new ImagePainter() {
-      Image image;
-      float alpha;
-      Insets insets;
-      FillType fillType;
-
-      String current;
+      @Override
+      public boolean needsRepaint() {
+        return true;
+      }
 
       @Override
       public void executePaint(Component component, Graphics2D g) {
-        String value = StringUtil.notNullize(System.getProperty(propertyName), propertyName + ".png");
-        if (!Comparing.equal(value, current)) {
-          current = value;
-          image = scaled = null;
-          insets = JBUI.emptyInsets();
-          String[] parts = value.split(",");
-          try {
-            alpha = StringUtil.parseInt(parts.length > 1 ? parts[1]: "", 10) / 100f;
-            try {
-              fillType =  FillType.valueOf(parts.length > 2 ? parts[2].toUpperCase(Locale.ENGLISH) : "");
-            }
-            catch (IllegalArgumentException e) {
-              fillType = FillType.SCALE;
-            }
-            String filePath = parts[0];
-
-            URL url = filePath.contains("://") ? new URL(filePath) :
-                      (FileUtil.isAbsolutePlatformIndependent(filePath)
-                       ? new File(filePath)
-                       : new File(PathManager.getConfigPath(), filePath)).toURI().toURL();
-            image = ImageLoader.loadFromUrl(url);
-          }
-          catch (Exception ignored) {
-          }
-        }
-        if (image == null) return;
-        executePaint(g, component, image, fillType, alpha, insets);
+        executePaint(g, component, image, fillType, anchor, alpha, insets);
       }
     };
   }
 
-  public static AbstractPainter newImagePainter(final Image image, final FillType fillType, final float alpha, final Insets insets) {
-    return new ImagePainter() {
-      @Override
-      public void executePaint(Component component, Graphics2D g) {
-        executePaint(g, component, image, fillType, alpha, insets);
-      }
-    };
+  private static final class Cached {
+    final VolatileImage image;
+    final Rectangle src;
+    final Rectangle dst;
+    long touched;
+
+    Cached(VolatileImage image, Rectangle src, Rectangle dst) {
+      this.image = image;
+      this.src = src;
+      this.dst = dst;
+    }
   }
 
   private abstract static class ImagePainter extends AbstractPainter {
 
-    VolatileImage scaled;
+    final Map<GraphicsConfiguration, Cached> cachedMap = new HashMap<>();
 
-    @Override
-    public boolean needsRepaint() { return true; }
-
-    public void executePaint(Graphics2D g, Component component, Image image, FillType fillType, float alpha, Insets insets) {
+    void executePaint(@NotNull Graphics2D g,
+                      @NotNull Component component,
+                      @NotNull Image image,
+                      @NotNull IdeBackgroundUtil.Fill fillType,
+                      @NotNull IdeBackgroundUtil.Anchor anchor,
+                      float alpha,
+                      @NotNull Insets insets) {
       int cw0 = component.getWidth();
       int ch0 = component.getHeight();
       Insets i = JBUI.insets(insets.top * ch0 / 100, insets.left * cw0 / 100, insets.bottom * ch0 / 100, insets.right * cw0 / 100);
@@ -188,93 +198,329 @@ final class PaintersHelper implements Painter.Listener {
       int h = image.getHeight(null);
       if (w <= 0 || h <= 0) return;
       // performance: pre-compute scaled image or tiles
-      if (fillType == FillType.SCALE || fillType == FillType.TILE) {
-        int sw0 = scaled == null ? -1 : scaled.getWidth(null);
-        int sh0 = scaled == null ? -1 : scaled.getHeight(null);
-        int sw, sh;
-        if (fillType == FillType.SCALE) {
-          boolean useWidth = cw * h > ch * w;
-          sw = useWidth ? cw : w * ch / h;
-          sh = useWidth ? h * cw / w : ch;
+      @Nullable
+      GraphicsConfiguration cfg = g.getDeviceConfiguration();
+      Cached cached = cachedMap.get(cfg);
+      VolatileImage scaled = cached == null ? null : cached.image;
+      Rectangle src0 = new Rectangle();
+      Rectangle dst0 = new Rectangle();
+      calcSrcDst(src0, dst0, w, h, cw, ch, fillType);
+      alignRect(src0, w, h, anchor);
+      if (fillType == IdeBackgroundUtil.Fill.TILE) {
+        alignRect(dst0, cw, ch, anchor);
+      }
+      int sw0 = scaled == null ? -1 : scaled.getWidth(null);
+      int sh0 = scaled == null ? -1 : scaled.getHeight(null);
+      boolean repaint = cached == null || !cached.src.equals(src0) || !cached.dst.equals(dst0);
+      while ((scaled = validateImage(cfg, scaled)) == null || repaint) {
+        int sw = Math.min(cw, dst0.width);
+        int sh = Math.min(ch, dst0.height);
+        if (scaled == null || sw0 < sw || sh0 < sh) {
+          scaled = createImage(cfg, sw, sh);
+          cachedMap.put(cfg, cached = new Cached(scaled, src0, dst0));
         }
         else {
-          sw = cw < w ? w : (cw + w) / w * w;
-          sh = ch < h ? h : (ch + h) / h * h;
-        }
-        if (sw0 != sw || sh0 != sh || scaled != null && scaled.contentsLost()) {
-          if (sw0 != sw || sh0 != sh || scaled == null) {
-            scaled = createImage(g, sw, sh);
-          }
-          Graphics2D gg = scaled.createGraphics();
-          gg.setComposite(AlphaComposite.Src);
-          if (fillType == FillType.SCALE) {
-            gg.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            gg.drawImage(image, 0, 0, sw, sh, null);
-          }
-          else {
-            for (int x = 0; x < sw; x += w) {
-              for (int y = 0; y < sh; y += h) {
-                UIUtil.drawImage(gg, image, x, y, null);
-              }
-            }
-          }
-          gg.dispose();
-        }
-        w = sw;
-        h = sh;
-      }
-      else if (scaled == null || scaled.contentsLost()) {
-        if (scaled == null) {
-          scaled = createImage(g, w, h);
+          cached.src.setBounds(src0);
+          cached.dst.setBounds(dst0);
         }
         Graphics2D gg = scaled.createGraphics();
         gg.setComposite(AlphaComposite.Src);
-        gg.drawImage(image, 0, 0, null);
+        if (fillType == IdeBackgroundUtil.Fill.SCALE) {
+          gg.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                              RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+          StartupUiUtil.drawImage(gg, image, dst0, src0, null);
+        }
+        else if (fillType == IdeBackgroundUtil.Fill.TILE) {
+          Rectangle r = new Rectangle(0, 0, 0, 0);
+          for (int x = 0; x < dst0.width; x += w) {
+            for (int y = 0; y < dst0.height; y += h) {
+              r.setBounds(dst0.x + x, dst0.y + y, src0.width, src0.height);
+              StartupUiUtil.drawImage(gg, image, r, src0, null);
+            }
+          }
+        }
+        else {
+          StartupUiUtil.drawImage(gg, image, dst0, src0, null);
+        }
         gg.dispose();
+        repaint = false;
+      }
+      long currentTime = System.currentTimeMillis();
+      cached.touched = currentTime;
+      if (cachedMap.size() > 2) {
+        clearImages(currentTime);
+      }
+      Rectangle src = new Rectangle(0, 0, cw, ch);
+      Rectangle dst = new Rectangle(i.left, i.top, cw, ch);
+      if (fillType != IdeBackgroundUtil.Fill.TILE) {
+        alignRect(src, dst0.width, dst0.height, anchor);
       }
 
-      int x, y;
-      if (fillType == FillType.CENTER || fillType == FillType.BG_CENTER ||
-          fillType == FillType.SCALE || fillType == FillType.TILE ||
-          fillType == FillType.TOP_CENTER || fillType == FillType.BOTTOM_CENTER) {
-        x = i.left + (cw - w) / 2;
-        y = fillType == FillType.TOP_CENTER ? i.top :
-            fillType == FillType.BOTTOM_CENTER ? ch0 - i.bottom - h :
-            i.top + (ch - h) / 2;
+      float adjustedAlpha = Boolean.TRUE.equals(g.getRenderingHint(IdeBackgroundUtil.ADJUST_ALPHA)) ? 0.65f * alpha : alpha;
+      GraphicsConfig gc = new GraphicsConfig(g).setAlpha(adjustedAlpha);
+      StartupUiUtil.drawImage(g, scaled, dst, src, null, null);
+      gc.restore();
+    }
+
+    static void calcSrcDst(Rectangle src,
+                           Rectangle dst,
+                           int w,
+                           int h,
+                           int cw,
+                           int ch,
+                           IdeBackgroundUtil.Fill fillType) {
+      if (fillType == IdeBackgroundUtil.Fill.SCALE) {
+        boolean useWidth = cw * h > ch * w;
+        int sw = useWidth ? w : cw * h / ch;
+        int sh = useWidth ? ch * w / cw : h;
+
+        src.setBounds(0, 0, sw, sh);
+        dst.setBounds(0, 0, cw, ch);
       }
-      else if (fillType == FillType.TOP_LEFT || fillType == FillType.TOP_RIGHT ||
-               fillType == FillType.BOTTOM_LEFT || fillType == FillType.BOTTOM_RIGHT) {
-        x = fillType == FillType.TOP_LEFT || fillType == FillType.BOTTOM_LEFT ? i.left : cw0 - i.right - w;
-        y = fillType == FillType.TOP_LEFT || fillType == FillType.TOP_RIGHT ? i.top : ch0 - i.bottom - h;
+      else if (fillType == IdeBackgroundUtil.Fill.TILE) {
+        int dw = cw < w ? w : ((cw / w + 1) / 2 * 2 + 1) * w;
+        int dh = ch < h ? h : ((ch / h + 1) / 2 * 2 + 1) * h;
+        // tile rectangles are not clipped for proper anchor support
+        src.setBounds(0, 0, w, h);
+        dst.setBounds(0, 0, dw, dh);
       }
       else {
-        return;
+        src.setBounds(0, 0, Math.min(w, cw), Math.min(h, ch));
+        dst.setBounds(src);
       }
+    }
 
-      GraphicsConfig cfg = new GraphicsConfig(g).setAlpha(alpha);
-
-      UIUtil.drawImage(g, scaled, x, y, null);
-      if (fillType == FillType.BG_CENTER) {
-        g.setColor(component.getBackground());
-        g.fillRect(0, 0, x, ch0);
-        g.fillRect(x, 0, w, h);
-        g.fillRect(x + w, 0, x, ch0);
-        g.fillRect(x, y + h, w, y);
+    static void alignRect(Rectangle r, int w, int h, IdeBackgroundUtil.Anchor anchor) {
+      if (anchor == IdeBackgroundUtil.Anchor.TOP_CENTER ||
+          anchor == IdeBackgroundUtil.Anchor.CENTER ||
+          anchor == IdeBackgroundUtil.Anchor.BOTTOM_CENTER) {
+        r.x = (w - r.width) / 2;
+        r.y = anchor == IdeBackgroundUtil.Anchor.TOP_CENTER ? 0 :
+              anchor == IdeBackgroundUtil.Anchor.BOTTOM_CENTER ? h - r.height :
+              (h - r.height) / 2;
       }
+      else {
+        r.x = anchor == IdeBackgroundUtil.Anchor.TOP_LEFT ||
+              anchor == IdeBackgroundUtil.Anchor.MIDDLE_LEFT ||
+              anchor == IdeBackgroundUtil.Anchor.BOTTOM_LEFT ? 0 : w - r.width;
+        r.y = anchor == IdeBackgroundUtil.Anchor.TOP_LEFT || anchor == IdeBackgroundUtil.Anchor.TOP_RIGHT ? 0 :
+              anchor == IdeBackgroundUtil.Anchor.BOTTOM_LEFT || anchor == IdeBackgroundUtil.Anchor.BOTTOM_RIGHT ? h - r.height :
+              (h - r.height) / 2;
+      }
+    }
 
-      cfg.restore();
+    void clearImages(long currentTime) {
+      boolean all = currentTime <= 0;
+      for (Iterator<GraphicsConfiguration> it = cachedMap.keySet().iterator(); it.hasNext(); ) {
+        GraphicsConfiguration cfg = it.next();
+        Cached c = cachedMap.get(cfg);
+        if (all || currentTime - c.touched > 2 * 60 * 1000L) {
+          it.remove();
+          LOG.info(logPrefix(cfg, c.image) + "image flushed" +
+                   (all ? "" : "; untouched for " + StringUtil.formatDuration(currentTime - c.touched)));
+          c.image.flush();
+        }
+      }
+    }
+
+    @Nullable
+    private static VolatileImage validateImage(@Nullable GraphicsConfiguration cfg, @Nullable VolatileImage image) {
+      if (image == null) return null;
+      boolean lost1 = image.contentsLost();
+      int validated = image.validate(cfg);
+      boolean lost2 = image.contentsLost();
+      if (lost1 || lost2 || validated != VolatileImage.IMAGE_OK) {
+        LOG.info(logPrefix(cfg, image) + "image flushed" +
+                 ": contentsLost=" + lost1 + "||" + lost2 + "; validate=" + validated);
+        image.flush();
+        return null;
+      }
+      return image;
     }
 
     @NotNull
-    private static VolatileImage createImage(Graphics2D g, int w, int h) {
-      GraphicsConfiguration configuration = g.getDeviceConfiguration();
+    private static VolatileImage createImage(@Nullable GraphicsConfiguration cfg, int w, int h) {
+      GraphicsConfiguration safe = cfg != null ? cfg : GraphicsEnvironment.getLocalGraphicsEnvironment()
+        .getDefaultScreenDevice().getDefaultConfiguration();
+      VolatileImage image;
       try {
-        return configuration.createCompatibleVolatileImage(w, h, new ImageCapabilities(true), Transparency.TRANSLUCENT);
+        image = safe.createCompatibleVolatileImage(w, h, new ImageCapabilities(true), Transparency.TRANSLUCENT);
       }
       catch (Exception e) {
-        return configuration.createCompatibleVolatileImage(w, h, Transparency.TRANSLUCENT);
+        image = safe.createCompatibleVolatileImage(w, h, Transparency.TRANSLUCENT);
       }
+      // validate first time (it's always RESTORED & cleared)
+      image.validate(cfg);
+      image.setAccelerationPriority(1f);
+      ImageCapabilities caps = image.getCapabilities();
+      LOG.info(logPrefix(cfg, image) +
+               (caps.isAccelerated() ? "" : "non-") + "accelerated " +
+               (caps.isTrueVolatile() ? "" : "non-") + "volatile " +
+               "image created");
+      return image;
+    }
+
+    @NotNull
+    private static String logPrefix(@Nullable GraphicsConfiguration cfg, @NotNull VolatileImage image) {
+      return "(" + (cfg == null ? "null" : cfg.getClass().getSimpleName()) + ") "
+             + image.getWidth() + "x" + image.getHeight() + " ";
+    }
+
+    @NotNull
+    static BufferedImageFilter flipFilter(boolean flipV, boolean flipH) {
+      return new BufferedImageFilter(new BufferedImageOp() {
+        @Override
+        public BufferedImage filter(BufferedImage src, BufferedImage dest) {
+          AffineTransform tx = AffineTransform.getScaleInstance(flipH ? -1 : 1, flipV ? -1 : 1);
+          tx.translate(flipH ? -src.getWidth(null) : 0, flipV ? -src.getHeight(null) : 0);
+          AffineTransformOp op = new AffineTransformOp(tx, AffineTransformOp.TYPE_NEAREST_NEIGHBOR);
+          return op.filter(src, dest);
+        }
+
+        @Override
+        public Rectangle2D getBounds2D(BufferedImage src) { return null;}
+
+        @Override
+        public BufferedImage createCompatibleDestImage(BufferedImage src, ColorModel destCM) { return null;}
+
+        @Override
+        public Point2D getPoint2D(Point2D srcPt, Point2D dstPt) { return null;}
+
+        @Override
+        public RenderingHints getRenderingHints() { return null;}
+      });
+    }
+  }
+
+  private static final class MyImagePainter extends ImagePainter {
+    private final JComponent rootComponent;
+    private final String propertyName;
+
+    private Image image;
+    private float alpha;
+    private Insets insets;
+    private IdeBackgroundUtil.Fill fillType;
+    private IdeBackgroundUtil.Anchor anchor;
+
+    private String current;
+
+    private MyImagePainter(@NotNull JComponent rootComponent, @NotNull String propertyName) {
+      this.rootComponent = rootComponent;
+      this.propertyName = propertyName;
+    }
+
+    @Override
+    public boolean needsRepaint() {
+      return ensureImageLoaded();
+    }
+
+    @Override
+    public void executePaint(Component component, Graphics2D g) {
+      if (image == null) {
+        // covered by needsRepaint()
+        return;
+      }
+      executePaint(g, component, image, fillType, anchor, alpha, insets);
+    }
+
+    boolean ensureImageLoaded() {
+      IdeFrame frame = ComponentUtil.getParentOfType(IdeFrame.class, rootComponent);
+      Project project = frame == null ? null : frame.getProject();
+      String value = IdeBackgroundUtil.getBackgroundSpec(project, propertyName);
+      if (!Objects.equals(value, current)) {
+        current = value;
+        loadImageAsync(value);
+        // keep the current image for a while
+      }
+      return image != null;
+    }
+
+    private void resetImage(String value, Image newImage, float newAlpha, IdeBackgroundUtil.Fill newFill, IdeBackgroundUtil.Anchor newAnchor) {
+      if (!Objects.equals(current, value)) {
+        return;
+      }
+
+      boolean prevOk = image != null;
+      clearImages(-1);
+      image = newImage;
+      insets = JBUI.emptyInsets();
+      alpha = newAlpha;
+      fillType = newFill;
+      anchor = newAnchor;
+      boolean newOk = newImage != null;
+      if (prevOk || newOk) {
+        ModalityState modalityState = ModalityState.stateForComponent(rootComponent);
+        if (modalityState.dominates(ModalityState.NON_MODAL)) {
+          ComponentUtil.getActiveWindow().repaint();
+        }
+        else {
+          IdeBackgroundUtil.repaintAllWindows();
+        }
+      }
+    }
+
+    private void loadImageAsync(@Nullable String propertyValue) {
+      String[] parts = (propertyValue == null ? propertyName + ".png" : propertyValue).split(",");
+      float newAlpha = Math.abs(Math.min(StringUtil.parseInt(parts.length > 1 ? parts[1] : "", 10) / 100f, 1f));
+      IdeBackgroundUtil.Fill newFillType = StringUtil.parseEnum(parts.length > 2 ? Strings.toUpperCase(parts[2]) : "", IdeBackgroundUtil.Fill.SCALE, IdeBackgroundUtil.Fill.class);
+      IdeBackgroundUtil.Anchor newAnchor = StringUtil.parseEnum(parts.length > 3 ? Strings.toUpperCase(parts[3]) : "", IdeBackgroundUtil.Anchor.CENTER, IdeBackgroundUtil.Anchor.class);
+      String flip = parts.length > 4 ? parts[4] : "none";
+      String filePath = parts[0];
+
+      if (Strings.isEmpty(filePath)) {
+        resetImage(propertyValue, null, newAlpha, newFillType, newAnchor);
+        return;
+      }
+
+      ModalityState modalityState = ModalityState.stateForComponent(rootComponent);
+      boolean flipH = "flipHV".equals(flip) || "flipH".equals(flip);
+      boolean flipV = "flipHV".equals(flip) || "flipV".equals(flip);
+      ApplicationManager.getApplication().executeOnPooledThread(() -> {
+        Image image = null;
+        try {
+          InputStream stream;
+          boolean isSvg = filePath.endsWith(".svg");
+          if (filePath.contains("://") && !filePath.startsWith("http")) {
+            stream = new URL(filePath).openStream();
+          }
+          else {
+            Path path = Paths.get(filePath);
+            if (!path.isAbsolute()) {
+              path = PathManager.getConfigDir().resolve(path);
+            }
+            path.normalize();
+            stream = Files.newInputStream(path.normalize());
+          }
+
+          try (stream) {
+            if (isSvg) {
+              image = SVGLoader.load(stream, 1);
+            }
+            else {
+              image = ImageIO.read(new MemoryCacheImageInputStream(stream));
+            }
+          }
+
+          BufferedImageFilter flipFilter = flipV || flipH ? flipFilter(flipV, flipH) : null;
+          image = ImageLoader.convertImage(
+            image,
+            flipFilter == null ? Collections.emptyList() : Collections.singletonList(flipFilter),
+            ImageLoader.ALLOW_FLOAT_SCALING, ScaleContext.create(),
+            true,
+            !isSvg, 1,
+            isSvg,
+            new ImageLoader.Dimension2DDouble(image.getWidth(null), image.getHeight(null)));
+        }
+        catch (Exception e) {
+          LOG.warn(e);
+        }
+        finally {
+          Image finalImage = image;
+          ApplicationManager.getApplication().invokeLater(() -> {
+            resetImage(propertyValue, finalImage, newAlpha, newFillType, newAnchor);
+          }, modalityState);
+        }
+      });
     }
   }
 }

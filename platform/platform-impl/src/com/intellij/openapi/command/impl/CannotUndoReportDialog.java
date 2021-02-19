@@ -1,27 +1,20 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.command.impl;
 
-import com.intellij.CommonBundle;
+import com.intellij.ide.IdeBundle;
+import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.command.undo.DocumentReference;
+import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.ui.SimpleListCellRenderer;
+import com.intellij.util.EditSourceOnDoubleClickHandler;
+import com.intellij.util.EditSourceOnEnterKeyHandler;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -29,30 +22,48 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.util.Collection;
 
-/**
- * @author max
- */
-public class CannotUndoReportDialog extends DialogWrapper {
-  private JList myProblemFilesList;
+public class CannotUndoReportDialog extends DialogWrapper implements DataProvider {
+  private static final int FILE_TEXT_PREVIEW_CHARS_LIMIT = 40;
+  private final Project myProject;
+
+  private JList<DocumentReference> myProblemFilesList;
   private JPanel myPanel;
   private JLabel myProblemMessageLabel;
 
-  public CannotUndoReportDialog(Project project, @Nls String problemText, Collection<DocumentReference> files) {
+  public CannotUndoReportDialog(Project project, @Nls String problemText, Collection<? extends DocumentReference> files) {
     super(project, false);
+    myProject = project;
 
-    DefaultListModel model = new DefaultListModel();
+    DefaultListModel<DocumentReference> model = new DefaultListModel<>();
     for (DocumentReference file : files) {
-      final VirtualFile vFile = file.getFile();
-      if (vFile != null) {
-        model.add(0, vFile.getPresentableUrl());
-      }
-      else {
-        model.add(0, "<unknown file>");
-      }
+      model.addElement(file);
     }
+    myProblemFilesList.setCellRenderer(new SimpleListCellRenderer<>() {
+      @Override
+      public void customize(@NotNull JList<? extends DocumentReference> list,
+                            DocumentReference file,
+                            int index,
+                            boolean selected,
+                            boolean hasFocus) {
+        final VirtualFile vFile = file.getFile();
+        if (vFile != null) {
+          setText(vFile.getPresentableUrl());
+        }
+        else {
+          Document document = file.getDocument();
+          CharSequence content = document == null ? null : document.getImmutableCharSequence();
+          if (content != null && content.length() > FILE_TEXT_PREVIEW_CHARS_LIMIT) {
+            content = content.subSequence(0, FILE_TEXT_PREVIEW_CHARS_LIMIT) + "...";
+          }
+          setText(IdeBundle.message("list.item.temporary.file.0", content == null ? "" : " [" + content + "]"));
+        }
+      }
+    });
 
     myProblemFilesList.setModel(model);
-    setTitle(CommonBundle.message("cannot.undo.dialog.title"));
+    EditSourceOnDoubleClickHandler.install(myProblemFilesList, () -> doOKAction());
+    EditSourceOnEnterKeyHandler.install(myProblemFilesList, () -> doOKAction());
+    setTitle(IdeBundle.message("cannot.undo.title"));
 
     myProblemMessageLabel.setText(problemText);
     myProblemMessageLabel.setIcon(Messages.getErrorIcon());
@@ -60,13 +71,27 @@ public class CannotUndoReportDialog extends DialogWrapper {
     init();
   }
 
-  @NotNull
-  protected Action[] createActions() {
+  @Override
+  protected Action @NotNull [] createActions() {
     return new Action[]{getOKAction()};
   }
 
+  @Override
   @Nullable
   protected JComponent createCenterPanel() {
     return myPanel;
+  }
+
+  @Nullable
+  @Override
+  public Object getData(@NotNull String dataId) {
+    if (CommonDataKeys.NAVIGATABLE.is(dataId)) {
+      DocumentReference value = myProblemFilesList.getSelectedValue();
+      VirtualFile file = value != null ? value.getFile() : null;
+      if (file != null) {
+        return new OpenFileDescriptor(myProject, file);
+      }
+    }
+    return null;
   }
 }

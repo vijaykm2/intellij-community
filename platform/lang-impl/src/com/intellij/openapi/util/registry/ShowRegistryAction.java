@@ -16,22 +16,24 @@
 
 package com.intellij.openapi.util.registry;
 
+import com.intellij.ide.lightEdit.LightEditCompatible;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.project.DumbAware;
+import org.jetbrains.annotations.NotNull;
 
-public class ShowRegistryAction extends AnAction implements DumbAware {
+public class ShowRegistryAction extends AnAction implements DumbAware, LightEditCompatible {
 
   private RegistryUi myUi;
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     e.getPresentation().setEnabled(myUi == null);
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     myUi = new RegistryUi() {
       @Override
       public void dispose() {

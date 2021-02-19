@@ -1,56 +1,49 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.impl;
 
+import com.intellij.ide.ActivityTracker;
 import com.intellij.ide.CommonActionsManager;
 import com.intellij.ide.DataManager;
-import com.intellij.ide.IdeBundle;
 import com.intellij.ide.projectView.impl.ProjectRootsUtil;
 import com.intellij.ide.structureView.*;
 import com.intellij.ide.structureView.impl.StructureViewComposite;
 import com.intellij.ide.structureView.newStructureView.StructureViewComponent;
+import com.intellij.lang.LangBundle;
+import com.intellij.lang.PsiStructureViewFactory;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.FileEditorProvider;
 import com.intellij.openapi.fileEditor.ex.FileEditorProviderManager;
 import com.intellij.openapi.fileEditor.impl.EditorWindow;
 import com.intellij.openapi.fileEditor.impl.FileEditorManagerImpl;
-import com.intellij.openapi.module.InternalModuleType;
+import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleUtil;
+import com.intellij.openapi.module.ModuleType;
 import com.intellij.openapi.module.ModuleUtilCore;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.impl.ProjectManagerImpl;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.PersistentFSConstants;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.openapi.wm.ToolWindowManager;
-import com.intellij.openapi.wm.ex.ToolWindowEx;
-import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
+import com.intellij.ui.components.JBPanelWithEmptyText;
 import com.intellij.ui.content.*;
+import com.intellij.ui.switcher.QuickActionProvider;
+import com.intellij.util.BitUtil;
+import com.intellij.util.messages.Topic;
+import com.intellij.util.ui.TimerUtil;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.MergingUpdateQueue;
 import com.intellij.util.ui.update.Update;
@@ -62,14 +55,24 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.HierarchyListener;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+
+import static com.intellij.openapi.application.ApplicationManager.getApplication;
 
 /**
  * @author Eugene Belyaev
  */
-public class StructureViewWrapperImpl implements StructureViewWrapper, Disposable {
+public final class StructureViewWrapperImpl implements StructureViewWrapper, Disposable {
+  public static final Topic<Runnable> STRUCTURE_CHANGED = new Topic<>("structure view changed", Runnable.class, Topic.BroadcastDirection.NONE);
+  private static final Logger LOG = Logger.getInstance(StructureViewWrapperImpl.class);
+  private static final DataKey<StructureViewWrapper> WRAPPER_DATA_KEY = DataKey.create("WRAPPER_DATA_KEY");
+  private static final int REFRESH_TIME = 100; // time to check if a context file selection is changed or not
+  private static final int REBUILD_TIME = 100; // time to wait and merge requests to rebuild a tree model
+
   private final Project myProject;
-  private final ToolWindowEx myToolWindow;
+  private final ToolWindow myToolWindow;
 
   private VirtualFile myFile;
 
@@ -79,52 +82,73 @@ public class StructureViewWrapperImpl implements StructureViewWrapper, Disposabl
 
   private JPanel[] myPanels = new JPanel[0];
   private final MergingUpdateQueue myUpdateQueue;
-  private final String myKey = new String("DATA_SELECTOR");
-
-  // -------------------------------------------------------------------------
-  // Constructor
-  // -------------------------------------------------------------------------
 
   private Runnable myPendingSelection;
   private boolean myFirstRun = true;
+  private int myActivityCount;
 
-  public StructureViewWrapperImpl(Project project, ToolWindowEx toolWindow) {
+  public StructureViewWrapperImpl(@NotNull Project project, @NotNull ToolWindow toolWindow) {
     myProject = project;
     myToolWindow = toolWindow;
+    JComponent component = toolWindow.getComponent();
 
-    myUpdateQueue = new MergingUpdateQueue("StructureView", Registry.intValue("structureView.coalesceTime"), false, myToolWindow.getComponent(), this, myToolWindow.getComponent(), true);
+    //noinspection TestOnlyProblems
+    if (ProjectManagerImpl.isLight(project)) {
+      LOG.error("StructureViewWrapperImpl must be not created for light project.");
+    }
+
+    myUpdateQueue = new MergingUpdateQueue("StructureView", REBUILD_TIME, false, component, this, component)
+      .usePassThroughInUnitTestMode();
     myUpdateQueue.setRestartTimerOnAdd(true);
 
-    final TimerListener timerListener = new TimerListener() {
-      @Override
-      public ModalityState getModalityState() {
-        return ModalityState.stateForComponent(myToolWindow.getComponent());
-      }
+    // to check on the next turn
+    Timer timer = TimerUtil.createNamedTimer("StructureView", REFRESH_TIME, event -> {
+      if (!component.isShowing()) return;
 
-      @Override
-      public void run() {
-        checkUpdate();
-      }
-    };
-    ActionManager.getInstance().addTimerListener(500, timerListener);
+      int count = ActivityTracker.getInstance().getCount();
+      if (count == myActivityCount) return;
+
+      ModalityState state = ModalityState.stateForComponent(component);
+      if (ModalityState.current().dominates(state)) return;
+
+      boolean successful = loggedRun("check if update needed", this::checkUpdate);
+      if (successful) myActivityCount = count; // to check on the next turn
+    });
+
+    LOG.debug("timer to check if update needed: add");
+    timer.start();
     Disposer.register(this, new Disposable() {
       @Override
       public void dispose() {
-        ActionManager.getInstance().removeTimerListener(timerListener);
+        LOG.debug("timer to check if update needed: remove");
+        timer.stop();
       }
     });
 
-    myToolWindow.getComponent().addHierarchyListener(new HierarchyListener() {
+    component.addHierarchyListener(new HierarchyListener() {
       @Override
       public void hierarchyChanged(HierarchyEvent e) {
-        if ((e.getChangeFlags() & HierarchyEvent.DISPLAYABILITY_CHANGED) != 0) {
-          scheduleRebuild();
+        if (BitUtil.isSet(e.getChangeFlags(), HierarchyEvent.DISPLAYABILITY_CHANGED)) {
+          boolean visible = myToolWindow.isVisible();
+          LOG.debug("displayability changed: " + visible);
+          if (visible) {
+            loggedRun("update file", StructureViewWrapperImpl.this::checkUpdate);
+            scheduleRebuild();
+          }
+          else if (!myProject.isDisposed()) {
+            myFile = null;
+            loggedRun("clear a structure on hide", StructureViewWrapperImpl.this::rebuild);
+          }
         }
       }
     });
-    myToolWindow.getContentManager().addContentManagerListener(new ContentManagerAdapter() {
+    if (component.isShowing()) {
+      loggedRun("initial structure rebuild", this::checkUpdate);
+      scheduleRebuild();
+    }
+    myToolWindow.getContentManager().addContentManagerListener(new ContentManagerListener() {
       @Override
-      public void selectionChanged(ContentManagerEvent event) {
+      public void selectionChanged(@NotNull ContentManagerEvent event) {
         if (myStructureView instanceof StructureViewComposite) {
           StructureViewComposite.StructureViewDescriptor[] views = ((StructureViewComposite)myStructureView).getStructureViews();
           for (StructureViewComposite.StructureViewDescriptor view : views) {
@@ -137,6 +161,19 @@ public class StructureViewWrapperImpl implements StructureViewWrapper, Disposabl
       }
     });
     Disposer.register(myToolWindow.getContentManager(), this);
+
+    PsiStructureViewFactory.EP_NAME.addChangeListener(this::clearCaches, this);
+
+    StructureViewBuilder.EP_NAME.addChangeListener(this::clearCaches, this);
+    getApplication().getMessageBus().connect(this).subscribe(STRUCTURE_CHANGED, this::clearCaches);
+  }
+
+  private void clearCaches() {
+    StructureViewComponent.clearStructureViewState(myProject);
+    if (myStructureView != null) {
+      myStructureView.disableStoreState();
+    }
+    rebuild();
   }
 
   private void checkUpdate() {
@@ -144,31 +181,26 @@ public class StructureViewWrapperImpl implements StructureViewWrapper, Disposabl
 
     final Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
     final boolean insideToolwindow = SwingUtilities.isDescendingFrom(myToolWindow.getComponent(), owner);
+    if (insideToolwindow) LOG.debug("inside structure view");
     if (!myFirstRun && (insideToolwindow || JBPopupFactory.getInstance().isPopupActive())) {
       return;
     }
 
     final DataContext dataContext = DataManager.getInstance().getDataContext(owner);
-    if (dataContext.getData(myKey) == this) return;
+    if (WRAPPER_DATA_KEY.getData(dataContext) == this) return;
     if (CommonDataKeys.PROJECT.getData(dataContext) != myProject) return;
 
-    final VirtualFile[] files = hasFocus() ? null : CommonDataKeys.VIRTUAL_FILE_ARRAY.getData(dataContext);
-    if (!myToolWindow.isVisible()) {
-      if (files != null && files.length > 0) {
-        myFile = files[0];
-      }
-      return;
-    }
-
+    VirtualFile[] files = insideToolwindow ? null : CommonDataKeys.VIRTUAL_FILE_ARRAY.getData(dataContext);
     if (files != null && files.length == 1) {
       setFile(files[0]);
     }
     else if (files != null && files.length > 1) {
       setFile(null);
-    } else if (myFirstRun) {
-      final FileEditorManagerImpl editorManager = (FileEditorManagerImpl)FileEditorManager.getInstance(myProject);
-      final List<Pair<VirtualFile,EditorWindow>> history = editorManager.getSelectionHistory();
-      if (! history.isEmpty()) {
+    }
+    else if (myFirstRun) {
+      FileEditorManagerImpl editorManager = (FileEditorManagerImpl)FileEditorManager.getInstance(myProject);
+      List<Pair<VirtualFile, EditorWindow>> history = editorManager.getSelectionHistory();
+      if (!history.isEmpty()) {
         setFile(history.get(0).getFirst());
       }
     }
@@ -176,28 +208,24 @@ public class StructureViewWrapperImpl implements StructureViewWrapper, Disposabl
     myFirstRun = false;
   }
 
-  private boolean hasFocus() {
-    final JComponent tw = myToolWindow.getComponent();
-    Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-    while (owner != null) {
-      if (owner == tw) return true;
-      owner = owner.getParent();
-    }
-    return false;
-  }
-
-  private void setFile(VirtualFile file) {
+  private void setFile(@Nullable VirtualFile file) {
     boolean forceRebuild = !Comparing.equal(file, myFile);
     if (!forceRebuild && myStructureView != null) {
       StructureViewModel model = myStructureView.getTreeModel();
       StructureViewTreeElement treeElement = model.getRoot();
       Object value = treeElement.getValue();
-      if (value == null || value instanceof PsiElement && !((PsiElement)value).isValid()) {
+      if (value == null ||
+          value instanceof PsiElement && !((PsiElement)value).isValid() ||
+          myStructureView instanceof StructureViewComposite && ((StructureViewComposite)myStructureView).isOutdated()) {
         forceRebuild = true;
+      }
+      else if (file != null) {
+        forceRebuild = FileEditorManager.getInstance(myProject).getSelectedEditor(file) != myFileEditor;
       }
     }
     if (forceRebuild) {
       myFile = file;
+      LOG.debug("show structure for file: ", file);
       scheduleRebuild();
     }
   }
@@ -219,16 +247,14 @@ public class StructureViewWrapperImpl implements StructureViewWrapper, Disposabl
     // this is dirty hack since some bright minds decided to used different TreeUi every time, so selection may be followed
     // by rebuild on completely different instance of TreeUi
 
-    Runnable runnable = new Runnable() {
-      @Override
-      public void run() {
-        if (myStructureView != null) {
-          if (!Comparing.equal(myFileEditor, fileEditor)) {
-            myFile = file;
-            rebuild();
-          }
-          myStructureView.navigateToSelectedElement(requestFocus);
-        }
+    Runnable runnable = () -> {
+      if (!Comparing.equal(myFileEditor, fileEditor)) {
+        myFile = file;
+        LOG.debug("replace file on selection: ", file);
+        loggedRun("rebuild a structure immediately: ", this::rebuild);
+      }
+      if (myStructureView != null) {
+        myStructureView.navigateToSelectedElement(requestFocus);
       }
     };
 
@@ -246,19 +272,27 @@ public class StructureViewWrapperImpl implements StructureViewWrapper, Disposabl
   }
 
   private void scheduleRebuild() {
+    if (!myToolWindow.isVisible()) return;
+    LOG.debug("request to rebuild a structure");
     myUpdateQueue.queue(new Update("rebuild") {
       @Override
       public void run() {
         if (myProject.isDisposed()) return;
-        rebuild();
+        if (!getApplication().isDispatchThread()) {
+          LOG.error("EDT-based MergingUpdateQueue on background thread");
+        }
+        loggedRun("rebuild a structure: ", StructureViewWrapperImpl.this::rebuild);
       }
     });
   }
 
   public void rebuild() {
     if (myProject.isDisposed()) return;
-    PsiDocumentManager.getInstance(myProject).commitAllDocuments();
+
     Dimension referenceSize = null;
+
+    Container container = myToolWindow.getComponent();
+    boolean wasFocused = UIUtil.isFocusAncestor(container);
 
     if (myStructureView != null) {
       if (myStructureView instanceof StructureView.Scrollable) {
@@ -295,7 +329,7 @@ public class StructureViewWrapperImpl implements StructureViewWrapper, Disposabl
       if (file.isDirectory()) {
         if (ProjectRootsUtil.isModuleContentRoot(file, myProject)) {
           Module module = ModuleUtilCore.findModuleForFile(file, myProject);
-          if (module != null && !(ModuleUtil.getModuleType(module) instanceof InternalModuleType)) {
+          if (module != null && !ModuleType.isInternal(module)) {
             myModuleStructureComponent = new ModuleStructureComponent(module);
             createSinglePanel(myModuleStructureComponent.getComponent());
             Disposer.register(this, myModuleStructureComponent);
@@ -304,49 +338,49 @@ public class StructureViewWrapperImpl implements StructureViewWrapper, Disposabl
       }
       else {
         FileEditor editor = FileEditorManager.getInstance(myProject).getSelectedEditor(file);
-        boolean needDisposeEditor = false;
-        if (editor == null) {
-          editor = createTempFileEditor(file);
-          needDisposeEditor = true;
-        }
-        if (editor != null && editor.isValid()) {
-          final StructureViewBuilder structureViewBuilder = editor.getStructureViewBuilder();
-          if (structureViewBuilder != null) {
-            myStructureView = structureViewBuilder.createStructureView(editor, myProject);
-            myFileEditor = editor;
-            Disposer.register(this, myStructureView);
-            updateHeaderActions(myStructureView);
+        StructureViewBuilder structureViewBuilder =
+          editor != null && editor.isValid() ? editor.getStructureViewBuilder() :
+          createStructureViewBuilder(file);
+        if (structureViewBuilder != null) {
+          myStructureView = structureViewBuilder.createStructureView(editor, myProject);
+          myFileEditor = editor;
+          Disposer.register(this, myStructureView);
 
-            if (myStructureView instanceof StructureView.Scrollable) {
-              ((StructureView.Scrollable)myStructureView).setReferenceSizeWhileInitializing(referenceSize);
-            }
-
-            if (myStructureView instanceof StructureViewComposite) {
-              final StructureViewComposite composite = (StructureViewComposite)myStructureView;
-              final StructureViewComposite.StructureViewDescriptor[] views = composite.getStructureViews();
-              myPanels = new JPanel[views.length];
-              names = new String[views.length];
-              for (int i = 0; i < myPanels.length; i++) {
-                myPanels[i] = createContentPanel(views[i].structureView.getComponent());
-                names[i] = views[i].title;
-              }
-            }
-            else {
-              createSinglePanel(myStructureView.getComponent());
-            }
-
-            myStructureView.restoreState();
-            myStructureView.centerSelectedRow();
+          if (myStructureView instanceof StructureView.Scrollable) {
+            ((StructureView.Scrollable)myStructureView).setReferenceSizeWhileInitializing(referenceSize);
           }
-        }
-        if (needDisposeEditor && editor != null) {
-          Disposer.dispose(editor);
+
+          if (myStructureView instanceof StructureViewComposite) {
+            final StructureViewComposite composite = (StructureViewComposite)myStructureView;
+            final StructureViewComposite.StructureViewDescriptor[] views = composite.getStructureViews();
+            myPanels = new JPanel[views.length];
+            names = new String[views.length];
+            for (int i = 0; i < myPanels.length; i++) {
+              myPanels[i] = createContentPanel(views[i].structureView.getComponent());
+              names[i] = views[i].title;
+            }
+          }
+          else {
+            createSinglePanel(myStructureView.getComponent());
+          }
+
+          myStructureView.restoreState();
+          myStructureView.centerSelectedRow();
         }
       }
     }
 
+    updateHeaderActions(myStructureView);
+
     if (myModuleStructureComponent == null && myStructureView == null) {
-      createSinglePanel(new JLabel(IdeBundle.message("message.nothing.to.show.in.structure.view"), SwingConstants.CENTER));
+      JBPanelWithEmptyText panel = new JBPanelWithEmptyText() {
+        @Override
+        public Color getBackground() {
+          return UIUtil.getTreeBackground();
+        }
+      };
+      panel.getEmptyText().setText(LangBundle.message("panel.empty.text.no.structure"));
+      createSinglePanel(panel);
     }
 
     for (int i = 0; i < myPanels.length; i++) {
@@ -363,15 +397,21 @@ public class StructureViewWrapperImpl implements StructureViewWrapper, Disposabl
       selection.run();
     }
 
+    if (wasFocused) {
+      FocusTraversalPolicy policy = container.getFocusTraversalPolicy();
+      Component component = policy == null ? null : policy.getDefaultComponent(container);
+      if (component != null) IdeFocusManager.getInstance(myProject).requestFocusInProject(component, myProject);
+    }
   }
 
-  private void updateHeaderActions(StructureView structureView) {
-    AnAction[] titleActions = AnAction.EMPTY_ARRAY;
+  private void updateHeaderActions(@Nullable StructureView structureView) {
+    List<AnAction> titleActions = Collections.emptyList();
     if (structureView instanceof StructureViewComponent) {
       JTree tree = ((StructureViewComponent)structureView).getTree();
-      titleActions = new AnAction[]{
-        CommonActionsManager.getInstance().createExpandAllHeaderAction(tree),
-        CommonActionsManager.getInstance().createCollapseAllHeaderAction(tree)};
+      CommonActionsManager commonActionManager = CommonActionsManager.getInstance();
+      titleActions = Arrays.asList(
+        commonActionManager.createExpandAllHeaderAction(tree),
+        commonActionManager.createCollapseAllHeaderAction(tree));
     }
     myToolWindow.setTitleActions(titleActions);
   }
@@ -383,18 +423,29 @@ public class StructureViewWrapperImpl implements StructureViewWrapper, Disposabl
 
   private ContentPanel createContentPanel(JComponent component) {
     final ContentPanel panel = new ContentPanel();
-    panel.setBackground(UIUtil.getTreeTextBackground());
+    panel.setBackground(UIUtil.getTreeBackground());
     panel.add(component, BorderLayout.CENTER);
     return panel;
   }
 
   @Nullable
-  private FileEditor createTempFileEditor(@NotNull VirtualFile file) {
+  private StructureViewBuilder createStructureViewBuilder(@NotNull VirtualFile file) {
     if (file.getLength() > PersistentFSConstants.getMaxIntellisenseFileSize()) return null;
 
-    FileEditorProviderManager editorProviderManager = FileEditorProviderManager.getInstance();
-    final FileEditorProvider[] providers = editorProviderManager.getProviders(myProject, file);
-    return providers.length == 0 ? null : providers[0].createEditor(myProject, file);
+    FileEditorProvider[] providers = FileEditorProviderManager.getInstance().getProviders(myProject, file);
+    FileEditorProvider provider = providers.length == 0 ? null : providers[0];
+    if (provider == null) return null;
+    if (provider instanceof TextEditorProvider) {
+      return StructureViewBuilder.PROVIDER.getStructureViewBuilder(file.getFileType(), file, myProject);
+    }
+
+    FileEditor editor = provider.createEditor(myProject, file);
+    try {
+      return editor.getStructureViewBuilder();
+    }
+    finally {
+      Disposer.dispose(editor);
+    }
   }
 
 
@@ -406,14 +457,36 @@ public class StructureViewWrapperImpl implements StructureViewWrapper, Disposabl
   }
 
   private class ContentPanel extends JPanel implements DataProvider {
-    public ContentPanel() {
+    ContentPanel() {
       super(new BorderLayout());
     }
 
     @Override
-    public Object getData(@NonNls String dataId) {
-      if (dataId.equals(myKey)) return StructureViewWrapperImpl.this;
+    public Object getData(@NotNull @NonNls String dataId) {
+      if (WRAPPER_DATA_KEY.is(dataId)) return StructureViewWrapperImpl.this;
+      if (QuickActionProvider.KEY.is(dataId)) {
+        return myStructureView instanceof QuickActionProvider ? myStructureView : null;
+      }
       return null;
+    }
+  }
+
+  private static boolean loggedRun(@NotNull String message, @NotNull Runnable task) {
+    try {
+      if (LOG.isTraceEnabled()) LOG.trace(message + ": started");
+      task.run();
+      return true;
+    }
+    catch (ProcessCanceledException exception) {
+      LOG.debug(message, ": canceled");
+      return false;
+    }
+    catch (Throwable throwable) {
+      LOG.warn(message, throwable);
+      return false;
+    }
+    finally {
+      if (LOG.isTraceEnabled()) LOG.trace(message + ": finished");
     }
   }
 }

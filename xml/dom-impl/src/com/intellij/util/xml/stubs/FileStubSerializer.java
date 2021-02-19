@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,19 +20,17 @@ import com.intellij.util.xml.XmlFileHeader;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
+import java.util.Objects;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 8/8/12
  */
 public class FileStubSerializer implements ObjectStubSerializer<FileStub, Stub> {
-
-  public static FileStubSerializer INSTANCE = new FileStubSerializer();
 
   @NotNull
   @Override
   public String getExternalId() {
-    return "FileStubSerializer";
+    return "xml.FileStubSerializer";
   }
 
   @Override
@@ -47,7 +45,8 @@ public class FileStubSerializer implements ObjectStubSerializer<FileStub, Stub> 
   @NotNull
   @Override
   public FileStub deserialize(@NotNull StubInputStream dataStream, Stub parentStub) throws IOException {
-    return new FileStub(dataStream.readName(), dataStream.readName(), dataStream.readName(), dataStream.readName());
+    return new FileStub(Objects.requireNonNull(dataStream.readNameString()),
+                        dataStream.readNameString(), dataStream.readNameString(), dataStream.readNameString());
   }
 
   @Override

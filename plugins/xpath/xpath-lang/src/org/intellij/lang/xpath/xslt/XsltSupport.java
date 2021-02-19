@@ -15,22 +15,18 @@
  */
 package org.intellij.lang.xpath.xslt;
 
+import com.intellij.ide.highlighter.XmlFileType;
+import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.editor.DefaultLanguageHighlighterColors;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.util.Key;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiLanguageInjectionHost;
 import com.intellij.psi.impl.PsiFileEx;
-import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.psi.util.*;
 import com.intellij.psi.xml.*;
-import com.intellij.ui.LayeredIcon;
 import com.intellij.util.SmartList;
 import com.intellij.util.xml.NanoXmlUtil;
-import gnu.trove.THashMap;
-import gnu.trove.THashSet;
 import icons.XpathIcons;
 import org.intellij.lang.xpath.XPathFile;
 import org.intellij.lang.xpath.xslt.impl.XsltChecker;
@@ -38,22 +34,21 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class XsltSupport {
-
-  public static final String XALAN_EXTENSION_PREFIX = "http://xml.apache.org/xalan/";
+public final class XsltSupport {
+  private static final String XALAN_EXTENSION_PREFIX = "http://xml.apache.org/xalan/";
   public static final String XSLT_NS = "http://www.w3.org/1999/XSL/Transform";
   public static final String PLUGIN_EXTENSIONS_NS = "urn:idea:xslt-plugin#extensions";
-  public static final Key<ParameterizedCachedValue<XsltChecker.LanguageLevel, PsiFile>> FORCE_XSLT_KEY = Key.create("FORCE_XSLT");
+  private static final Key<ParameterizedCachedValue<XsltChecker.LanguageLevel, PsiFile>> FORCE_XSLT_KEY = Key.create("FORCE_XSLT");
   public static final TextAttributesKey XSLT_DIRECTIVE =
     TextAttributesKey.createTextAttributesKey("XSLT_DIRECTIVE", DefaultLanguageHighlighterColors.TEMPLATE_LANGUAGE_COLOR);
 
-  private static final Map<String, String> XPATH_ATTR_MAP = new THashMap<String, String>(10);
-  private static final Map<String, Set<String>> XPATH_AVT_MAP = new THashMap<String, Set<String>>(10);
+  private static final Map<String, String> XPATH_ATTR_MAP = new HashMap<>(10);
+  private static final Map<String, Set<String>> XPATH_AVT_MAP = new HashMap<>(10);
 
   static {
     XPATH_ATTR_MAP.put("select", "");
@@ -67,39 +62,35 @@ public class XsltSupport {
     XPATH_ATTR_MAP.put("value", "number");
     XPATH_ATTR_MAP.put("use", "key");
 
-    XPATH_AVT_MAP.put("element", new THashSet<String>(Arrays.asList("name", "namespace")));
-    XPATH_AVT_MAP.put("attribute", new THashSet<String>(Arrays.asList("name", "namespace")));
-    XPATH_AVT_MAP.put("namespace", new THashSet<String>(Arrays.asList("name")));
-    XPATH_AVT_MAP.put("processing-instruction", new THashSet<String>(Arrays.asList("name")));
+    XPATH_AVT_MAP.put("element", Set.of("name", "namespace"));
+    XPATH_AVT_MAP.put("attribute", Set.of("name", "namespace"));
+    XPATH_AVT_MAP.put("namespace", Set.of("name"));
+    XPATH_AVT_MAP.put("processing-instruction", Set.of("name"));
 
-    XPATH_AVT_MAP.put("number", new THashSet<String>(
-      Arrays.asList("format", "lang", "letter-value", "grouping-separator", "grouping-size", "ordinal")));
-    XPATH_AVT_MAP.put("sort", new THashSet<String>(Arrays.asList("lang", "data-type", "order", "case-order", "collation")));
+    XPATH_AVT_MAP.put("number", Set.of("format", "lang", "letter-value", "grouping-separator", "grouping-size", "ordinal"));
+    XPATH_AVT_MAP.put("sort", Set.of("lang", "data-type", "order", "case-order", "collation"));
 
-    XPATH_AVT_MAP.put("message", new THashSet<String>(Arrays.asList("terminate")));
-    XPATH_AVT_MAP.put("value-of", new THashSet<String>(Arrays.asList("separator")));
+    XPATH_AVT_MAP.put("message", Set.of("terminate"));
+    XPATH_AVT_MAP.put("value-of", Set.of("separator"));
 
-    XPATH_AVT_MAP.put("result-document", new THashSet<String>(Arrays.asList("format", "href", "method", "byte-order-mark",
-                                                                            "cdata-section-elements", "doctype-public", "doctype-system",
-                                                                            "encoding", "escape-uri-attributes", "include-content-type",
-                                                                            "indent", "media-type", "normalization-form",
-                                                                            "omit-xml-declaration", "standalone", "undeclare-prefixes",
-                                                                            "output-version")));
+    XPATH_AVT_MAP.put("result-document", Set.of("format", "href", "method", "byte-order-mark",
+                                                           "cdata-section-elements", "doctype-public", "doctype-system",
+                                                           "encoding", "escape-uri-attributes", "include-content-type",
+                                                           "indent", "media-type", "normalization-form",
+                                                           "omit-xml-declaration", "standalone", "undeclare-prefixes",
+                                                           "output-version"));
   }
 
   private XsltSupport() {
   }
 
-  @NotNull
-  public static PsiFile[] getFiles(XmlAttribute attribute) {
+  public static PsiFile @NotNull [] getFiles(XmlAttribute attribute) {
     final XmlAttributeValue value = attribute.getValueElement();
     if (value != null) {
-      final List<PsiFile> files = new SmartList<PsiFile>();
-      InjectedLanguageUtil.enumerate(value, new PsiLanguageInjectionHost.InjectedPsiVisitor() {
-        public void visit(@NotNull PsiFile injectedPsi, @NotNull List<PsiLanguageInjectionHost.Shred> places) {
-          if (injectedPsi instanceof XPathFile) {
-            files.add(injectedPsi);
-          }
+      final List<PsiFile> files = new SmartList<>();
+      InjectedLanguageManager.getInstance(value.getProject()).enumerate(value, (injectedPsi, places) -> {
+        if (injectedPsi instanceof XPathFile) {
+          files.add(injectedPsi);
         }
       });
       return files.isEmpty() ? PsiFile.EMPTY_ARRAY : PsiUtilCore.toPsiFileArray(files);
@@ -108,7 +99,8 @@ public class XsltSupport {
   }
 
   public static boolean isXsltAttribute(@NotNull XmlAttribute attribute) {
-    return isXsltTag(attribute.getParent());
+    XmlTag parent = attribute.getParent();
+    return parent != null && isXsltTag(parent);
   }
 
   public static boolean isXsltTag(@NotNull XmlTag tag) {
@@ -236,7 +228,7 @@ public class XsltSupport {
   }
 
   public static boolean isXsltFile(@NotNull PsiFile psiFile) {
-    if (psiFile.getFileType() != StdFileTypes.XML) return false;
+    if (psiFile.getFileType() != XmlFileType.INSTANCE) return false;
 
     if (!(psiFile instanceof XmlFile)) return false;
 
@@ -351,12 +343,13 @@ public class XsltSupport {
   }
 
   public static Icon createXsltIcon(Icon icon) {
-    return LayeredIcon.create(icon, XpathIcons.Xslt_filetype_overlay);
+    return XpathIcons.XsltFiletypeOverlay;
   }
 
   private static class XsltSupportProvider implements ParameterizedCachedValueProvider<XsltChecker.LanguageLevel, PsiFile> {
     public static final ParameterizedCachedValueProvider<XsltChecker.LanguageLevel, PsiFile> INSTANCE = new XsltSupportProvider();
 
+    @Override
     public CachedValueProvider.Result<XsltChecker.LanguageLevel> compute(PsiFile psiFile) {
       if (!(psiFile instanceof XmlFile)) {
         return CachedValueProvider.Result.create(XsltChecker.LanguageLevel.NONE, PsiModificationTracker.MODIFICATION_COUNT);

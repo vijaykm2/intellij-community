@@ -1,31 +1,23 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.ui.laf.darcula.ui;
 
-import com.intellij.ide.ui.laf.darcula.DarculaUIUtil;
-import com.intellij.openapi.ui.GraphicsConfig;
-import com.intellij.ui.Gray;
+import com.intellij.ui.JBColor;
+import com.intellij.util.ui.JBInsets;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.MacUIUtil;
 import com.intellij.util.ui.UIUtil;
 
 import javax.swing.*;
 import javax.swing.border.Border;
-import javax.swing.plaf.InsetsUIResource;
 import javax.swing.plaf.UIResource;
 import java.awt.*;
+import java.awt.geom.Ellipse2D;
+import java.awt.geom.Path2D;
+import java.awt.geom.RoundRectangle2D;
+import java.util.Objects;
+
+import static com.intellij.ide.ui.laf.darcula.DarculaUIUtil.*;
+import static com.intellij.ide.ui.laf.darcula.ui.DarculaButtonUI.*;
 
 /**
  * @author Konstantin Bulenkov
@@ -33,49 +25,103 @@ import java.awt.*;
 public class DarculaButtonPainter implements Border, UIResource {
   private static final int myOffset = 4;
 
+  private static final Color GOTIT_BORDER_COLOR_START = JBColor.namedColor("GotItTooltip.startBorderColor",
+                                                                           JBUI.CurrentTheme.Button.buttonOutlineColorStart(false));
+  private static final Color GOTIT_BORDER_COLOR_END = JBColor.namedColor("GotItTooltip.endBorderColor",
+                                                                         JBUI.CurrentTheme.Button.buttonOutlineColorEnd(false));
+
+
   @Override
   public void paintBorder(Component c, Graphics g, int x, int y, int width, int height) {
-    final Graphics2D g2d = (Graphics2D)g;
-    final Insets ins = getBorderInsets(c);
-    final int yOff = (ins.top + ins.bottom) / 4;
-    final boolean square = DarculaButtonUI.isSquare(c);
-    int offset = JBUI.scale(square ? 1 : getOffset());
-    int w = c.getWidth();
-    int h = c.getHeight();
-    int diam = JBUI.scale(22);
+    Graphics2D g2 = (Graphics2D)g.create();
 
-    if (c.hasFocus()) {
-      if (DarculaButtonUI.isHelpButton((JComponent)c)) {
-          DarculaUIUtil.paintFocusOval(g2d, (w - diam) / 2, (h - diam) / 2, diam, diam);
-      } else {
-        DarculaUIUtil.paintFocusRing(g2d, offset, yOff, width - 2 * offset, height - 2 * yOff);
-      }
-    } else {
-      final GraphicsConfig config = new GraphicsConfig(g);
-      g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-      g2d.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_DEFAULT);
-      g2d.setPaint(UIUtil.getGradientPaint(width / 2, y + yOff + JBUI.scale(1), Gray._80.withAlpha(90), width / 2, height - 2 * yOff, Gray._90.withAlpha(90)));
-      //g.drawRoundRect(x + offset + 1, y + yOff + 1, width - 2 * offset, height - 2*yOff, 5, 5);
-      ((Graphics2D)g).setPaint(Gray._100.withAlpha(180));
-      if (DarculaButtonUI.isHelpButton((JComponent)c)) {
-        g.drawOval((w - diam) / 2, (h - diam) / 2, diam, diam);
-      } else {
-        g.translate(x,y);
-        int r = JBUI.scale(square ? 3 : 5);
-        g.drawRoundRect(offset, yOff, width - 2 * offset, height - 2 * yOff, r, r);
-        g.translate(-x,-y);
+    try {
+      g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+      g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL,
+                          MacUIUtil.USE_QUARTZ ? RenderingHints.VALUE_STROKE_PURE : RenderingHints.VALUE_STROKE_NORMALIZE);
+
+      boolean isSmallComboButton = isSmallVariant(c);
+      int diam = HELP_BUTTON_DIAMETER.get();
+      float lw = LW.getFloat();
+      float bw = isSmallComboButton || isGotItButton(c) ? 0 : BW.getFloat();
+      float arc = isTag(c) ? height - bw * 2 - lw * 2: BUTTON_ARC.getFloat();
+
+      Rectangle r = new Rectangle(x, y, width, height);
+      boolean paintComboFocus = isSmallComboButton && c.isFocusable() && c.hasFocus();
+      if (paintComboFocus) { // a11y support
+        g2.setColor(JBUI.CurrentTheme.Focus.focusColor());
+
+        Path2D border = new Path2D.Float(Path2D.WIND_EVEN_ODD);
+        border.append(new RoundRectangle2D.Float(r.x, r.y, r.width, r.height, arc + lw, arc + lw), false);
+        border.append(new RoundRectangle2D.Float(r.x + lw * 2, r.y + lw * 2, r.width - lw * 4, r.height - lw * 4, arc, arc), false);
+        g2.fill(border);
       }
 
-      config.restore();
+      if (!isGotItButton(c)) JBInsets.removeFrom(r, JBUI.insets(1));
+
+      g2.translate(r.x, r.y);
+
+      if (!isSmallComboButton) {
+        if (c.hasFocus()) {
+          if (UIUtil.isHelpButton(c)) {
+            paintFocusOval(g2, (r.width - diam) / 2.0f, (r.height - diam) / 2.0f, diam, diam);
+          }
+          else if (isTag(c)) {
+            paintTag(g2, r.width, r.height, c.hasFocus(), computeOutlineFor(c));
+          }
+          else {
+            Outline type = isDefaultButton((JComponent)c) ? Outline.defaultButton : Outline.focus;
+            paintOutlineBorder(g2, r.width, r.height, arc, true, true, type);
+          }
+        }
+        else if (isTag(c)) {
+          paintTag(g2, r.width, r.height, c.hasFocus(), computeOutlineFor(c));
+        }
+      }
+
+      g2.setPaint(getBorderPaint(c));
+
+      if (UIUtil.isHelpButton(c)) {
+        g2.draw(new Ellipse2D.Float((r.width - diam) / 2.0f, (r.height - diam) / 2.0f, diam, diam));
+      }
+      else if (!paintComboFocus) {
+        Path2D border = new Path2D.Float(Path2D.WIND_EVEN_ODD);
+        border.append(new RoundRectangle2D.Float(bw, bw, r.width - bw * 2, r.height - bw * 2, arc, arc), false);
+
+        arc = arc > lw ? arc - lw : 0.0f;
+        border.append(new RoundRectangle2D.Float(bw + lw, bw + lw, r.width - (bw + lw) * 2, r.height - (bw + lw) * 2, arc, arc), false);
+
+        g2.fill(border);
+      }
+    }
+    finally {
+      g2.dispose();
+    }
+  }
+
+  public Paint getBorderPaint(Component button) {
+    AbstractButton b = (AbstractButton)button;
+    Color borderColor = (Color)b.getClientProperty("JButton.borderColor");
+    Rectangle r = new Rectangle(b.getSize());
+    JBInsets.removeFrom(r, b.getInsets());
+    boolean defButton = isDefaultButton(b);
+
+    if (button.isEnabled()) {
+      return Objects.requireNonNullElseGet(borderColor, () ->
+        isGotItButton(button) ? new GradientPaint(0, 0, GOTIT_BORDER_COLOR_START, 0, r.height, GOTIT_BORDER_COLOR_END) :
+        button.hasFocus() ? JBUI.CurrentTheme.Button.focusBorderColor(defButton) :
+                            new GradientPaint(0, 0, JBUI.CurrentTheme.Button.buttonOutlineColorStart(defButton),
+                                              0, r.height, JBUI.CurrentTheme.Button.buttonOutlineColorEnd(defButton)));
+    }
+    else {
+      return JBUI.CurrentTheme.Button.disabledOutlineColor();
     }
   }
 
   @Override
   public Insets getBorderInsets(Component c) {
-    if (DarculaButtonUI.isSquare(c)) {
-      return JBUI.insets(2, 0, 2, 0).asUIResource();
-    }
-    return JBUI.insets(8, 16, 8, 14).asUIResource();
+    return isGotItButton(c) ? JBUI.emptyInsets().asUIResource() :
+            isSmallVariant(c) ? JBUI.insets(1, 2).asUIResource() : JBUI.insets(3).asUIResource();
   }
 
   protected int getOffset() {

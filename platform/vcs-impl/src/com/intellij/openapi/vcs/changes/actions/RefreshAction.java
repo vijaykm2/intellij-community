@@ -1,39 +1,35 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.actions;
 
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.vcs.changes.ChangeListManager;
-import com.intellij.openapi.vcs.changes.ChangesViewRefresher;
-import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
+import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.ProjectLevelVcsManager;
+import com.intellij.openapi.vcs.changes.*;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collection;
+
+import static com.intellij.openapi.vcs.changes.actions.VcsActionUsagesCollectorKt.logRefreshActionPerformed;
+
 /**
  * @author yole
- * @since 02.11.2006
  */
 public class RefreshAction extends AnAction implements DumbAware {
-  public void actionPerformed(AnActionEvent e) {
+  @Override
+  public void update(@NotNull AnActionEvent e) {
+    Project project = e.getProject();
+    boolean isEnabled = project != null && ProjectLevelVcsManager.getInstance(project).hasActiveVcss();
+    e.getPresentation().setEnabledAndVisible(isEnabled);
+  }
+
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     if (project == null) return;
     doRefresh(project);
@@ -45,20 +41,35 @@ public class RefreshAction extends AnAction implements DumbAware {
     FileDocumentManager.getInstance().saveAllDocuments();
     invokeCustomRefreshes(project);
 
-    VirtualFileManager.getInstance().asyncRefresh(new Runnable() {
-      public void run() {
-        // already called in EDT or under write action
-        if (!project.isDisposed()) {
-          VcsDirtyScopeManager.getInstance(project).markEverythingDirty();
-        }
+    VirtualFileManager.getInstance().asyncRefresh(() -> {
+      // already called in EDT or under write action
+      if (!project.isDisposed()) {
+        performRefreshAndTrackChanges(project);
       }
     });
   }
 
   private static void invokeCustomRefreshes(@NotNull Project project) {
-    ChangesViewRefresher[] extensions = ChangesViewRefresher.EP_NAME.getExtensions();
+    ChangesViewRefresher[] extensions = ChangesViewRefresher.EP_NAME.getExtensions(project);
     for (ChangesViewRefresher refresher : extensions) {
       refresher.refresh(project);
     }
+  }
+
+  private static void performRefreshAndTrackChanges(Project project) {
+    ChangeListManagerEx changeListManager = ChangeListManagerEx.getInstanceEx(project);
+
+    Collection<Change> changesBeforeUpdate = changeListManager.getAllChanges();
+    Collection<FilePath> unversionedBefore = changeListManager.getUnversionedFilesPaths();
+    boolean wasUpdatingBefore = changeListManager.isInUpdate();
+
+    VcsDirtyScopeManager.getInstance(project).markEverythingDirty();
+
+    changeListManager.invokeAfterUpdate(true, () -> {
+      Collection<Change> changesAfterUpdate = changeListManager.getAllChanges();
+      Collection<FilePath> unversionedAfter = changeListManager.getUnversionedFilesPaths();
+
+      logRefreshActionPerformed(project, changesBeforeUpdate, changesAfterUpdate, unversionedBefore, unversionedAfter, wasUpdatingBefore);
+    });
   }
 }

@@ -15,34 +15,26 @@
  */
 package com.intellij.util.containers;
 
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.util.LowMemoryWatcher;
-import jsr166e.extra.SequenceLock;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
-/**
-* User: Maxim.Mossienko
-* Date: 2/4/13
-* Time: 4:50 PM
-*/
 public class RecentStringInterner {
   private final int myStripeMask;
   private final SLRUCache<String, String>[] myInterns;
   private final Lock[] myStripeLocks;
-  // LowMemoryWatcher relies on field holding it
-  @SuppressWarnings({"FieldCanBeLocal", "UnusedDeclaration"})
-  private final LowMemoryWatcher myLowMemoryWatcher;
 
-  public RecentStringInterner() {
-    this(8192);
-  }
-
-  public RecentStringInterner(int capacity) {
+  public RecentStringInterner(@NotNull Disposable parentDisposable) {
     final int stripes = 16;
     //noinspection unchecked
     myInterns = new SLRUCache[stripes];
     myStripeLocks = new Lock[myInterns.length];
+    int capacity = 8192;
     for(int i = 0; i < myInterns.length; ++i) {
       myInterns[i] = new SLRUCache<String, String>(capacity / stripes, capacity / stripes) {
         @NotNull
@@ -52,38 +44,36 @@ public class RecentStringInterner {
         }
 
         @Override
-        protected void putToProtectedQueue(String key, String value) {
+        protected void putToProtectedQueue(String key, @NotNull String value) {
           super.putToProtectedQueue(value, value);
         }
       };
-      myStripeLocks[i] = new SequenceLock();
+      myStripeLocks[i] = new ReentrantLock();
     }
 
     assert Integer.highestOneBit(stripes) == stripes;
     myStripeMask = stripes - 1;
-    myLowMemoryWatcher = LowMemoryWatcher.register(new Runnable() {
-      @Override
-      public void run() {
-        clear();
-      }
-    });
+    LowMemoryWatcher.register(this::clear, parentDisposable);
   }
 
-  public String get(String s) {
+  @Nullable
+  @Contract("null -> null")
+  public String get(@Nullable String s) {
     if (s == null) return null;
     final int stripe = Math.abs(s.hashCode()) & myStripeMask;
+    myStripeLocks[stripe].lock();
     try {
-      myStripeLocks[stripe].lock();
       return myInterns[stripe].get(s);
-    } finally {
+    }
+    finally {
       myStripeLocks[stripe].unlock();
     }
   }
 
   public void clear() {
     for(int i = 0; i < myInterns.length; ++i) {
+      myStripeLocks[i].lock();
       try {
-        myStripeLocks[i].lock();
         myInterns[i].clear();
       }
       finally {

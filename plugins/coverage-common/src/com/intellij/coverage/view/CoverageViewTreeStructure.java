@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.coverage.view;
 
 import com.intellij.coverage.CoverageSuitesBundle;
@@ -6,15 +7,12 @@ import com.intellij.ide.util.treeView.AbstractTreeStructure;
 import com.intellij.ide.util.treeView.NodeDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
+import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
 import java.util.List;
 
-/**
- * User: anna
- * Date: 1/2/12
- */
 public class CoverageViewTreeStructure extends AbstractTreeStructure {
   private final Project myProject;
   final CoverageSuitesBundle myData;
@@ -31,11 +29,14 @@ public class CoverageViewTreeStructure extends AbstractTreeStructure {
   }
 
 
+  @NotNull
+  @Override
   public Object getRootElement() {
     return myRootNode;
   }
 
-  public Object[] getChildElements(final Object element) {
+  @Override
+  public Object @NotNull [] getChildElements(@NotNull final Object element) {
     return getChildren(element, myData, myStateBean);
   }
 
@@ -43,36 +44,40 @@ public class CoverageViewTreeStructure extends AbstractTreeStructure {
                               final CoverageSuitesBundle bundle,
                               CoverageViewManager.StateBean stateBean) {
     if (element instanceof CoverageListRootNode && stateBean.myFlattenPackages) {
-      final Collection<? extends AbstractTreeNode> children = ((CoverageListRootNode)element).getChildren();
-      return children.toArray(new Object[children.size()]);
+      final Collection<? extends AbstractTreeNode<?>> children = ((CoverageListRootNode)element).getChildren();
+      return ArrayUtil.toObjectArray(children);
     }
     if (element instanceof CoverageListNode) {
-      List<AbstractTreeNode> children = bundle.getCoverageEngine().createCoverageViewExtension(((CoverageListNode)element).getProject(),
+      List<AbstractTreeNode<?>> children = bundle.getCoverageEngine().createCoverageViewExtension(((CoverageListNode)element).getProject(),
                                                                                                bundle, stateBean)
         .getChildrenNodes((CoverageListNode)element);
-      return children.toArray(new CoverageListNode[children.size()]);
+      return children.toArray(new CoverageListNode[0]);
     }
     return null;
   }
 
- 
-  public Object getParentElement(final Object element) {
+
+  @Override
+  public Object getParentElement(@NotNull final Object element) {
     final PsiElement psiElement = (PsiElement)element;
     return myCoverageViewExtension.getParentElement(psiElement);
   }
 
+  @Override
   @NotNull
-  public CoverageViewDescriptor createDescriptor(final Object element, final NodeDescriptor parentDescriptor) {
+  public CoverageViewDescriptor createDescriptor(@NotNull final Object element, final NodeDescriptor parentDescriptor) {
     return new CoverageViewDescriptor(myProject, parentDescriptor, element);
   }
 
+  @Override
   public void commit() {
   }
 
+  @Override
   public boolean hasSomethingToCommit() {
     return false;
   }
-  
+
   public boolean supportFlattenPackages() {
     return myCoverageViewExtension.supportFlattenPackages();
   }

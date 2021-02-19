@@ -1,32 +1,19 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.uiDesigner.compiler;
 
 import com.intellij.compiler.instrumentation.FailSafeClassReader;
 import com.intellij.compiler.instrumentation.InstrumentationClassFinder;
 import com.intellij.compiler.instrumentation.InstrumenterClassWriter;
 import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.uiDesigner.compiler.*;
 import com.intellij.uiDesigner.compiler.Utils;
+import com.intellij.uiDesigner.compiler.*;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.lw.CompiledClassPropertiesProvider;
 import com.intellij.uiDesigner.lw.LwRootContainer;
-import gnu.trove.THashMap;
-import gnu.trove.THashSet;
+import com.intellij.util.containers.FileCollectionFactory;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.ModuleChunk;
 import org.jetbrains.jps.ProjectPaths;
@@ -40,7 +27,10 @@ import org.jetbrains.jps.incremental.messages.BuildMessage;
 import org.jetbrains.jps.incremental.messages.CompilerMessage;
 import org.jetbrains.jps.incremental.messages.ProgressMessage;
 import org.jetbrains.jps.incremental.storage.OneToManyPathsMapping;
+import org.jetbrains.jps.model.JpsDummyElement;
 import org.jetbrains.jps.model.JpsProject;
+import org.jetbrains.jps.model.java.JpsJavaSdkType;
+import org.jetbrains.jps.model.library.sdk.JpsSdk;
 import org.jetbrains.jps.uiDesigner.model.JpsUiDesignerConfiguration;
 import org.jetbrains.jps.uiDesigner.model.JpsUiDesignerExtensionService;
 import org.jetbrains.org.objectweb.asm.ClassReader;
@@ -50,10 +40,9 @@ import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 11/20/12
  */
-public class FormsInstrumenter extends FormsBuilder {
-  public static final String BUILDER_NAME = "forms";
+public final class FormsInstrumenter extends FormsBuilder {
+  public static final @NlsSafe String BUILDER_NAME = "forms";
 
   public FormsInstrumenter() {
     super(BuilderCategory.CLASS_INSTRUMENTER, BUILDER_NAME);
@@ -74,7 +63,7 @@ public class FormsInstrumenter extends FormsBuilder {
       return ExitCode.NOTHING_DONE;
     }
 
-    final Set<File> formsToCompile = new THashSet<File>(FileUtil.FILE_HASHING_STRATEGY);
+    final Set<File> formsToCompile = FileCollectionFactory.createCanonicalFileSet();
     for (Collection<File> files : srcToForms.values()) {
       formsToCompile.addAll(files);
     }
@@ -82,23 +71,22 @@ public class FormsInstrumenter extends FormsBuilder {
     if (JavaBuilderUtil.isCompileJavaIncrementally(context)) {
       final ProjectBuilderLogger logger = context.getLoggingManager().getProjectBuilderLogger();
       if (logger.isEnabled()) {
-        logger.logCompiledFiles(formsToCompile, getPresentableName(), "Compiling forms:");
+        logger.logCompiledFiles(formsToCompile, "forms", "Compiling forms:");
       }
     }
 
     try {
       final Collection<File> platformCp = ProjectPaths.getPlatformCompilationClasspath(chunk, false);
 
-      final List<File> classpath = new ArrayList<File>();
-      classpath.addAll(ProjectPaths.getCompilationClasspath(chunk, false));
+      final List<File> classpath = new ArrayList<>(ProjectPaths.getCompilationClasspath(chunk, false));
       classpath.add(getResourcePath(GridConstraints.class)); // forms_rt.jar
       final Map<File, String> chunkSourcePath = ProjectPaths.getSourceRootsWithDependents(chunk);
       classpath.addAll(chunkSourcePath.keySet()); // sourcepath for loading forms resources
-
-      final InstrumentationClassFinder finder = ClassProcessingBuilder.createInstrumentationClassFinder(platformCp, classpath, outputConsumer);
+      final JpsSdk<JpsDummyElement> sdk = chunk.representativeTarget().getModule().getSdk(JpsJavaSdkType.INSTANCE);
+      final InstrumentationClassFinder finder = ClassProcessingBuilder.createInstrumentationClassFinder(sdk, platformCp, classpath, outputConsumer);
 
       try {
-        final Map<File, Collection<File>> processed = instrumentForms(context, chunk, chunkSourcePath, finder, formsToCompile, outputConsumer);
+        final Map<File, Collection<File>> processed = instrumentForms(context, chunk, chunkSourcePath, finder, formsToCompile, outputConsumer, config.isUseDynamicBundles());
 
         final OneToManyPathsMapping sourceToFormMap = context.getProjectDescriptor().dataManager.getSourceToFormMap();
 
@@ -106,7 +94,7 @@ public class FormsInstrumenter extends FormsBuilder {
           final File src = entry.getKey();
           final Collection<File> forms = entry.getValue();
 
-          final Collection<String> formPaths = new ArrayList<String>(forms.size());
+          final Collection<String> formPaths = new ArrayList<>(forms.size());
           for (File form : forms) {
             formPaths.add(form.getPath());
           }
@@ -123,26 +111,31 @@ public class FormsInstrumenter extends FormsBuilder {
       }
     }
     finally {
-      context.processMessage(new ProgressMessage("Finished instrumenting forms [" + chunk.getPresentableShortName() + "]"));
+      context.processMessage(new ProgressMessage(FormBundle.message("finish.progress.message", chunk.getPresentableShortName())));
     }
 
     return ExitCode.OK;
   }
 
+  @NotNull
   @Override
   public List<String> getCompilableFileExtensions() {
     return Collections.emptyList();
   }
 
   private Map<File, Collection<File>> instrumentForms(
-    CompileContext context, ModuleChunk chunk, final Map<File, String> chunkSourcePath, final InstrumentationClassFinder finder, Collection<File> forms, OutputConsumer outConsumer
-  ) throws ProjectBuildException {
+    CompileContext context,
+    ModuleChunk chunk,
+    final Map<File, String> chunkSourcePath,
+    final InstrumentationClassFinder finder,
+    Collection<File> forms,
+    OutputConsumer outConsumer,
+    boolean useDynamicBundles) throws ProjectBuildException {
 
-    final Map<File, Collection<File>> instrumented = new THashMap<File, Collection<File>>(FileUtil.FILE_HASHING_STRATEGY);
-    final Map<String, File> class2form = new HashMap<String, File>();
+    final Map<File, Collection<File>> instrumented = FileCollectionFactory.createCanonicalFileMap();
+    final Map<String, File> class2form = new HashMap<>();
 
-    final MyNestedFormLoader nestedFormsLoader =
-      new MyNestedFormLoader(chunkSourcePath, ProjectPaths.getOutputPathsWithDependents(chunk));
+    final MyNestedFormLoader nestedFormsLoader = new MyNestedFormLoader(chunkSourcePath, ProjectPaths.getOutputPathsWithDependents(chunk), finder);
 
     for (File formFile : forms) {
       final LwRootContainer rootContainer;
@@ -166,10 +159,10 @@ public class FormsInstrumenter extends FormsBuilder {
         continue;
       }
       catch (Exception e) {
-        throw new ProjectBuildException("Cannot process form file " + formFile.getAbsolutePath(), e);
+        throw new ProjectBuildException(FormBundle.message("cannot.process.form.file", formFile.getAbsolutePath()), e);
       }
 
-      final String classToBind = rootContainer.getClassToBind();
+      final @NlsSafe String classToBind = rootContainer.getClassToBind();
       if (classToBind == null) {
         continue;
       }
@@ -177,7 +170,7 @@ public class FormsInstrumenter extends FormsBuilder {
       final CompiledClass compiled = findClassFile(outConsumer, classToBind);
       if (compiled == null) {
         context.processMessage(new CompilerMessage(
-          getPresentableName(), BuildMessage.Kind.WARNING, "Class to bind does not exist: " + classToBind, formFile.getAbsolutePath())
+          getPresentableName(), BuildMessage.Kind.WARNING, FormBundle.message("class.to.bind.does.not.exist", classToBind), formFile.getAbsolutePath())
         );
         continue;
       }
@@ -187,25 +180,28 @@ public class FormsInstrumenter extends FormsBuilder {
         context.processMessage(
           new CompilerMessage(
             getPresentableName(), BuildMessage.Kind.WARNING,
-            formFile.getAbsolutePath() + ": The form is bound to the class " + classToBind + ".\nAnother form " + alreadyProcessedForm.getAbsolutePath() + " is also bound to this class",
+            FormBundle.message("form.is.bound.to.the.class.from.another.form", formFile.getAbsolutePath(), classToBind, alreadyProcessedForm.getAbsolutePath()),
             formFile.getAbsolutePath())
         );
         continue;
       }
 
       class2form.put(classToBind, formFile);
-      addBinding(compiled.getSourceFile(), formFile, instrumented);
+      for (File file : compiled.getSourceFiles()) {
+        addBinding(file, formFile, instrumented);
+      }
+
 
       try {
-        context.processMessage(new ProgressMessage("Instrumenting forms... [" + chunk.getPresentableShortName() + "]"));
+        context.processMessage(new ProgressMessage(FormBundle.message("progress.message", chunk.getPresentableShortName())));
 
         final BinaryContent originalContent = compiled.getContent();
         final ClassReader classReader =
           new FailSafeClassReader(originalContent.getBuffer(), originalContent.getOffset(), originalContent.getLength());
 
-        final int version = ClassProcessingBuilder.getClassFileVersion(classReader);
-        final InstrumenterClassWriter classWriter = new InstrumenterClassWriter(ClassProcessingBuilder.getAsmClassWriterFlags(version), finder);
-        final AsmCodeGenerator codeGenerator = new AsmCodeGenerator(rootContainer, finder, nestedFormsLoader, false, classWriter);
+        final int flags = InstrumenterClassWriter.getAsmClassWriterFlags(InstrumenterClassWriter.getClassFileVersion(classReader));
+        final InstrumenterClassWriter classWriter = new InstrumenterClassWriter(classReader, flags, finder);
+        final AsmCodeGenerator codeGenerator = new AsmCodeGenerator(rootContainer, finder, nestedFormsLoader, false, useDynamicBundles, classWriter);
         final byte[] patchedBytes = codeGenerator.patchClass(classReader);
         if (patchedBytes != null) {
           compiled.setContent(new BinaryContent(patchedBytes));
@@ -213,8 +209,9 @@ public class FormsInstrumenter extends FormsBuilder {
 
         final FormErrorInfo[] warnings = codeGenerator.getWarnings();
         for (final FormErrorInfo warning : warnings) {
+          @NlsSafe String message = warning.getErrorMessage();
           context.processMessage(
-            new CompilerMessage(getPresentableName(), BuildMessage.Kind.WARNING, warning.getErrorMessage(), formFile.getAbsolutePath())
+            new CompilerMessage(getPresentableName(), BuildMessage.Kind.WARNING, message, formFile.getAbsolutePath())
           );
         }
 
@@ -227,11 +224,13 @@ public class FormsInstrumenter extends FormsBuilder {
             }
             message.append(formFile.getAbsolutePath()).append(": ").append(error.getErrorMessage());
           }
-          context.processMessage(new CompilerMessage(getPresentableName(), BuildMessage.Kind.ERROR, message.toString()));
+          @NlsSafe String text = message.toString();
+          context.processMessage(new CompilerMessage(getPresentableName(), BuildMessage.Kind.ERROR, text));
         }
       }
       catch (Exception e) {
-        context.processMessage(new CompilerMessage(getPresentableName(), BuildMessage.Kind.ERROR, "Forms instrumentation failed" + e.getMessage(), formFile.getAbsolutePath()));
+        context.processMessage(new CompilerMessage(getPresentableName(), BuildMessage.Kind.ERROR, FormBundle.message(
+          "forms.instrumentation.failed", e.getMessage()), formFile.getAbsolutePath()));
       }
     }
     return instrumented;
@@ -260,17 +259,20 @@ public class FormsInstrumenter extends FormsBuilder {
   private static class MyNestedFormLoader implements NestedFormLoader {
     private final Map<File, String> mySourceRoots;
     private final Collection<File> myOutputRoots;
-    private final HashMap<String, LwRootContainer> myCache = new HashMap<String, LwRootContainer>();
+    private final InstrumentationClassFinder myClassFinder;
+    private final HashMap<String, LwRootContainer> myCache = new HashMap<>();
 
     /**
      * @param sourceRoots all source roots for current module chunk and all dependent recursively
      * @param outputRoots output roots for this module chunk and all dependent recursively
      */
-    public MyNestedFormLoader(Map<File, String> sourceRoots, Collection<File> outputRoots) {
+    MyNestedFormLoader(Map<File, String> sourceRoots, Collection<File> outputRoots, InstrumentationClassFinder classFinder) {
       mySourceRoots = sourceRoots;
       myOutputRoots = outputRoots;
+      myClassFinder = classFinder;
     }
 
+    @Override
     public LwRootContainer loadForm(String formFileName) throws Exception {
       if (myCache.containsKey(formFileName)) {
         return myCache.get(formFileName);
@@ -297,6 +299,16 @@ public class FormsInstrumenter extends FormsBuilder {
         }
       }
 
+      InputStream fromLibraries = null;
+      try {
+        fromLibraries = myClassFinder.getResourceAsStream(relPath);
+      }
+      catch (IOException ignored) {
+      }
+      if (fromLibraries != null) {
+        return loadForm(formFileName, fromLibraries);
+      }
+
       throw new Exception("Cannot find nested form file " + formFileName);
     }
 
@@ -306,6 +318,7 @@ public class FormsInstrumenter extends FormsBuilder {
       return container;
     }
 
+    @Override
     public String getClassToBindName(LwRootContainer container) {
       final String className = container.getClassToBind();
       for (File outputRoot : myOutputRoots) {

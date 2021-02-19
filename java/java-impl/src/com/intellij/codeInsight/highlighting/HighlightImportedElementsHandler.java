@@ -1,32 +1,16 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.highlighting;
 
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.ide.util.NavigationItemListCellRenderer;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.ui.popup.JBPopup;
-import com.intellij.openapi.ui.popup.PopupChooserBuilder;
+import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.ui.components.JBList;
 import com.intellij.util.Consumer;
-import com.intellij.util.Function;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -40,7 +24,7 @@ public class HighlightImportedElementsHandler extends HighlightUsagesHandlerBase
   private final PsiElement myTarget;
   private final PsiImportStatementBase myImportStatement;
   private final boolean myImportStatic;
-  private Map<PsiMember,List<PsiElement>> myClassReferenceListMap = null;
+  private Map<PsiMember, List<PsiElement>> myClassReferenceListMap;
 
   public HighlightImportedElementsHandler(Editor editor, PsiFile file, PsiElement target, PsiImportStatementBase importStatement) {
     super(editor, file);
@@ -50,7 +34,7 @@ public class HighlightImportedElementsHandler extends HighlightUsagesHandlerBase
   }
 
   @Override
-  public List<PsiMember> getTargets() {
+  public @NotNull List<PsiMember> getTargets() {
     final PsiJavaCodeReferenceElement importReference = myImportStatement.getImportReference();
     if (importReference == null) {
       return Collections.emptyList();
@@ -74,13 +58,13 @@ public class HighlightImportedElementsHandler extends HighlightUsagesHandlerBase
     if (myClassReferenceListMap.isEmpty()) {
       return Collections.emptyList();
     }
-    return new ArrayList<PsiMember>(myClassReferenceListMap.keySet());
+    return new ArrayList<>(myClassReferenceListMap.keySet());
   }
 
   @Override
-  protected void selectTargets(final List<PsiMember> targets, final Consumer<List<PsiMember>> selectionConsumer) {
+  protected void selectTargets(final @NotNull List<? extends PsiMember> targets, final @NotNull Consumer<? super List<? extends PsiMember>> selectionConsumer) {
     if (targets.isEmpty()) {
-      selectionConsumer.consume(Collections.<PsiMember>emptyList());
+      selectionConsumer.consume(Collections.emptyList());
       return;
     }
     if (targets.size() == 1) {
@@ -91,48 +75,38 @@ public class HighlightImportedElementsHandler extends HighlightUsagesHandlerBase
       selectionConsumer.consume(targets);
       return;
     }
-    Collections.sort(targets, new PsiMemberComparator());
-    final List<Object> model = new ArrayList<Object>();
-    model.add(CodeInsightBundle.message("highlight.thrown.exceptions.chooser.all.entry"));
+    targets.sort(new PsiMemberComparator());
+    final List<Object> model = new ArrayList<>();
+    String allListed = CodeInsightBundle.message("highlight.thrown.exceptions.chooser.all.entry");
+    model.add(allListed);
     model.addAll(targets);
-    final JList list = new JBList(model);
-    list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-    final ListCellRenderer renderer = new NavigationItemListCellRenderer();
-    list.setCellRenderer(renderer);
-    final PopupChooserBuilder builder = new PopupChooserBuilder(list);
-    builder.setFilteringEnabled(new Function<Object, String>() {
-      @Override
-      public String fun(Object o) {
+    final ListCellRenderer<Object> renderer = new NavigationItemListCellRenderer();
+    JBPopupFactory.getInstance()
+      .createPopupChooserBuilder(model)
+      .setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
+      .setRenderer(renderer)
+      .setNamerForFiltering(o -> {
         if (o instanceof PsiMember) {
           final PsiMember member = (PsiMember)o;
           return member.getName();
         }
         return o.toString();
-      }
-    });
-    if (myImportStatic) {
-      builder.setTitle(CodeInsightBundle.message("highlight.imported.members.chooser.title"));
-    } else {
-      builder.setTitle(CodeInsightBundle.message("highlight.imported.classes.chooser.title"));
-    }
-    builder.setItemChoosenCallback(new Runnable() {
-      @Override
-      public void run() {
-        final int index= list.getSelectedIndex();
-        if (index == 0) {
+      })
+      .setTitle(myImportStatic ?
+                JavaBundle.message("highlight.imported.members.chooser.title") :
+                JavaBundle.message("highlight.imported.classes.chooser.title"))
+      .setItemChosenCallback((selectedValue) -> {
+        if (selectedValue.equals(allListed)) {
           selectionConsumer.consume(targets);
         }
         else {
-          selectionConsumer.consume(Collections.singletonList(targets.get(index - 1)));
+          selectionConsumer.consume(Collections.singletonList((PsiMember)selectedValue));
         }
-      }
-    });
-    final JBPopup popup = builder.createPopup();
-    popup.showInBestPositionFor(myEditor);
+    }).createPopup().showInBestPositionFor(myEditor);
   }
 
   @Override
-  public void computeUsages(List<PsiMember> targets) {
+  public void computeUsages(@NotNull List<? extends PsiMember> targets) {
     if (targets.isEmpty()) {
       buildStatusText("import", 0);
       return;
@@ -152,12 +126,12 @@ public class HighlightImportedElementsHandler extends HighlightUsagesHandlerBase
 
   static class ReferenceCollector extends JavaRecursiveElementVisitor {
 
-    private final Map<PsiMember, List<PsiElement>> classReferenceListMap = new HashMap<PsiMember, List<PsiElement>>();
+    private final Map<PsiMember, List<PsiElement>> classReferenceListMap = new HashMap<>();
     private final PsiElement[] myImportTargets;
     private final boolean myOnDemand;
     private final boolean myImportStatic;
 
-    ReferenceCollector(@NotNull PsiElement[] importTargets, boolean onDemand, boolean importStatic) {
+    ReferenceCollector(PsiElement @NotNull [] importTargets, boolean onDemand, boolean importStatic) {
       this.myImportTargets = importTargets;
       this.myOnDemand = onDemand;
       this.myImportStatic = importStatic;
@@ -269,7 +243,7 @@ public class HighlightImportedElementsHandler extends HighlightUsagesHandlerBase
     private void addReference(PsiMember referencedMember, PsiJavaCodeReferenceElement reference) {
       List<PsiElement> referenceList = classReferenceListMap.get(referencedMember);
       if (referenceList == null) {
-        referenceList = new ArrayList<PsiElement>();
+        referenceList = new ArrayList<>();
         classReferenceListMap.put(referencedMember, referenceList);
       }
       referenceList.add(reference.getReferenceNameElement());

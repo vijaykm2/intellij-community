@@ -1,68 +1,62 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework;
 
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.impl.event.EditorEventMulticasterImpl;
-import com.intellij.openapi.project.ProjectManager;
-import com.intellij.openapi.project.impl.ProjectManagerImpl;
 import com.intellij.openapi.vfs.encoding.EncodingManager;
+import com.intellij.psi.PsiDocumentManager;
+import com.intellij.psi.impl.PsiDocumentManagerBase;
 import com.intellij.util.containers.hash.LinkedHashMap;
+import org.jetbrains.annotations.TestOnly;
 import org.junit.Assert;
 
+import java.util.ArrayList;
+import java.util.EventListener;
 import java.util.List;
 import java.util.Map;
 
-/**
- * @author cdr
- */
-public class EditorListenerTracker {
-  private final Map<Class, List> before;
-  private final boolean myDefaultProjectInitialized;
+@TestOnly
+public final class EditorListenerTracker {
+  private final Map<Class<? extends EventListener>, List<? extends EventListener>> before;
 
   public EditorListenerTracker() {
     EncodingManager.getInstance(); //adds listeners
-    EditorEventMulticasterImpl multicaster = (EditorEventMulticasterImpl)EditorFactory.getInstance().getEventMulticaster();
-    before = multicaster.getListeners();
-    myDefaultProjectInitialized = ((ProjectManagerImpl)ProjectManager.getInstance()).isDefaultProjectInitialized();
+    before = ((EditorEventMulticasterImpl)EditorFactory.getInstance().getEventMulticaster()).getListeners();
   }
 
   public void checkListenersLeak() throws AssertionError {
     try {
-      // listeners may hang on default project
-      if (myDefaultProjectInitialized != ((ProjectManagerImpl)ProjectManager.getInstance()).isDefaultProjectInitialized()) return;
-
       EditorEventMulticasterImpl multicaster = (EditorEventMulticasterImpl)EditorFactory.getInstance().getEventMulticaster();
-      Map<Class, List> after = multicaster.getListeners();
-      Map<Class, List> leaked = new LinkedHashMap<Class, List>();
-      for (Map.Entry<Class, List> entry : after.entrySet()) {
-        Class aClass = entry.getKey();
-        List beforeList = before.get(aClass);
-        List afterList = entry.getValue();
+      Map<Class<? extends EventListener>, List<? extends EventListener>> after = multicaster.getListeners();
+      Map<Class<? extends EventListener>, List<? extends EventListener>> leaked = new LinkedHashMap<>();
+      for (Map.Entry<Class<? extends EventListener>, List<? extends EventListener>> entry : after.entrySet()) {
+        Class<? extends EventListener> aClass = entry.getKey();
+        List<? extends EventListener> beforeList = before.get(aClass);
+        List<EventListener> afterList = new ArrayList<>(entry.getValue());
         if (beforeList != null) {
           afterList.removeAll(beforeList);
         }
+        // listeners may hang on default project which comes and goes unpredictably, so just ignore them
+        afterList.removeIf(listener -> {
+          //noinspection CastConflictsWithInstanceof
+          if (listener instanceof PsiDocumentManager && ((PsiDocumentManagerBase)listener).isDefaultProject()) {
+            return true;
+          }
+
+          // app level listener
+          String name = listener.getClass().getName();
+          return name.startsWith("com.intellij.copyright.CopyrightManagerDocumentListener$") ||
+                 name.startsWith("com.intellij.model.BranchServiceImpl$") ||
+                 name.startsWith("com.jetbrains.liveEdit.highlighting.ElementHighlighterCaretListener");
+        });
         if (!afterList.isEmpty()) {
           leaked.put(aClass, afterList);
         }
       }
 
-      for (Map.Entry<Class, List> entry : leaked.entrySet()) {
-        Class aClass = entry.getKey();
-        List list = entry.getValue();
+      for (Map.Entry<Class<? extends EventListener>, List<? extends EventListener>> entry : leaked.entrySet()) {
+        Class<? extends EventListener> aClass = entry.getKey();
+        List<? extends EventListener> list = entry.getValue();
         Assert.fail("Listeners leaked for " + aClass+":\n"+list);
       }
     }

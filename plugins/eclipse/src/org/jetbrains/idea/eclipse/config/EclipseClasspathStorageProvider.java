@@ -15,11 +15,10 @@
  */
 package org.jetbrains.idea.eclipse.config;
 
-import com.intellij.openapi.application.AccessToken;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.components.PathMacroManager;
-import com.intellij.openapi.editor.DocumentRunnable;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.roots.impl.storage.ClasspathStorage;
@@ -29,10 +28,18 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.workspaceModel.ide.JpsFileEntitySource;
+import com.intellij.workspaceModel.ide.VirtualFileUrlManagerUtil;
+import com.intellij.workspaceModel.ide.WorkspaceModel;
+import com.intellij.workspaceModel.ide.impl.legacyBridge.module.ModuleManagerComponentBridge;
+import com.intellij.workspaceModel.ide.legacyBridge.ModuleBridge;
+import com.intellij.workspaceModel.storage.EntitySource;
+import com.intellij.workspaceModel.storage.WorkspaceEntityStorage;
+import com.intellij.workspaceModel.storage.bridgeEntities.ModuleEntity;
+import com.intellij.workspaceModel.storage.url.VirtualFileUrlManager;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.eclipse.EclipseBundle;
 import org.jetbrains.idea.eclipse.EclipseXml;
 import org.jetbrains.idea.eclipse.conversion.DotProjectFileHelper;
@@ -41,27 +48,28 @@ import org.jetbrains.idea.eclipse.conversion.EclipseClasspathWriter;
 import org.jetbrains.jps.eclipse.model.JpsEclipseClasspathSerializer;
 
 import java.io.IOException;
+import java.util.function.Function;
 
 /**
  * @author Vladislav.Kaznacheev
  */
 public class EclipseClasspathStorageProvider implements ClasspathStorageProvider {
-  public static final String DESCR = EclipseBundle.message("eclipse.classpath.storage.description");
-
+  @NotNull
   @Override
   @NonNls
   public String getID() {
     return JpsEclipseClasspathSerializer.CLASSPATH_STORAGE_ID;
   }
 
+  @NotNull
   @Override
   @Nls
   public String getDescription() {
-    return DESCR;
+    return getDescr();
   }
 
   @Override
-  public void assertCompatible(final ModuleRootModel model) throws ConfigurationException {
+  public void assertCompatible(@NotNull final ModuleRootModel model) throws ConfigurationException {
     final String moduleName = model.getModule().getName();
     for (OrderEntry entry : model.getOrderEntries()) {
       if (entry instanceof LibraryOrderEntry) {
@@ -72,37 +80,54 @@ public class EclipseClasspathStorageProvider implements ClasspathStorageProvider
               libraryEntry.getRootUrls(OrderRootType.CLASSES).length != 1 ||
               library.isJarDirectory(library.getUrls(OrderRootType.CLASSES)[0])) {
             throw new ConfigurationException(
-              "Library \'" +
-              entry.getPresentableName() +
-              "\' from module \'" +
-              moduleName +
-              "\' dependencies is incompatible with eclipse format which supports only one library content root");
+              EclipseBundle.message("incompatible.eclipse.module.format.message.library.root", entry.getPresentableName(), moduleName));
           }
         }
       }
     }
     if (model.getContentRoots().length == 0) {
-      throw new ConfigurationException("Module \'" + moduleName + "\' has no content roots thus is not compatible with eclipse format");
+      throw new ConfigurationException(EclipseBundle.message("incompatible.eclipse.module.format.message.no.content.roots", moduleName));
     }
     final String output = model.getModuleExtension(CompilerModuleExtension.class).getCompilerOutputUrl();
     final String contentRoot = getContentRoot(model);
     if (output == null ||
         !StringUtil.startsWith(VfsUtilCore.urlToPath(output), contentRoot) &&
         PathMacroManager.getInstance(model.getModule()).collapsePath(output).equals(output)) {
-      throw new ConfigurationException("Module \'" +
-                                       moduleName +
-                                       "\' output path is incompatible with eclipse format which supports output under content root only.\nPlease make sure that \"Inherit project compile output path\" is not selected");
+      throw new ConfigurationException(EclipseBundle.message("incompatible.eclipse.module.format.message.output", moduleName));
     }
   }
 
   @Override
   public void detach(@NotNull Module module) {
     EclipseModuleManagerImpl.getInstance(module).setDocumentSet(null);
+    updateEntitySource(module, source -> ((EclipseProjectFile)source).getInternalSource());
   }
 
-  @Nullable
+  private static void updateEntitySource(Module module, Function<? super EntitySource, ? extends EntitySource> updateSource) {
+    if (WorkspaceModel.isEnabled()) {
+      ModuleBridge moduleBridge = (ModuleBridge)module;
+      WorkspaceEntityStorage moduleEntityStorage = moduleBridge.getEntityStorage().getCurrent();
+      ModuleEntity moduleEntity = ModuleManagerComponentBridge.findModuleEntity(moduleEntityStorage, moduleBridge);
+      if (moduleEntity != null) {
+        EntitySource entitySource = moduleEntity.getEntitySource();
+        ModuleManagerComponentBridge.changeModuleEntitySource(moduleBridge, moduleEntityStorage, updateSource.apply(entitySource), moduleBridge.getDiff());
+      }
+    }
+  }
+
   @Override
-  public ClasspathConverter createConverter(Module module) {
+  public void attach(@NotNull ModuleRootModel model) {
+    updateEntitySource(model.getModule(), source -> {
+      VirtualFileUrlManager virtualFileUrlManager = VirtualFileUrlManagerUtil.getInstance(VirtualFileUrlManager.Companion, model.getModule().getProject());
+      String contentRoot = getContentRoot(model);
+      String classpathFileUrl = VfsUtilCore.pathToUrl(contentRoot) + "/" + EclipseXml.CLASSPATH_FILE;
+      return new EclipseProjectFile(virtualFileUrlManager.fromUrl(classpathFileUrl), (JpsFileEntitySource)source);
+    });
+  }
+
+  @NotNull
+  @Override
+  public ClasspathConverter createConverter(@NotNull Module module) {
     return new EclipseClasspathConverter(module);
   }
 
@@ -113,7 +138,7 @@ public class EclipseClasspathStorageProvider implements ClasspathStorageProvider
   }
 
   @Override
-  public void modulePathChanged(Module module, String path) {
+  public void modulePathChanged(@NotNull Module module) {
     final EclipseModuleManagerImpl moduleManager = EclipseModuleManagerImpl.getInstance(module);
     if (moduleManager != null) {
       moduleManager.setDocumentSet(null);
@@ -134,32 +159,31 @@ public class EclipseClasspathStorageProvider implements ClasspathStorageProvider
       fileCache.register(EclipseXml.CLASSPATH_FILE, storageRoot);
       fileCache.register(EclipseXml.PROJECT_FILE, storageRoot);
       fileCache.register(EclipseXml.PLUGIN_XML_FILE, storageRoot);
-      fileCache.register(module.getName() + EclipseXml.IDEA_SETTINGS_POSTFIX, ClasspathStorage.getModuleDir(module));
+      fileCache.register(module.getName() + EclipseXml.IDEA_SETTINGS_POSTFIX, ModuleUtilCore.getModuleDirPath(module));
     }
     return fileCache;
   }
 
   @Override
-  public void moduleRenamed(@NotNull Module module, @NotNull String newName) {
+  public void moduleRenamed(@NotNull Module module, @NotNull String oldName, @NotNull String newName) {
     try {
       CachedXmlDocumentSet fileSet = getFileCache(module);
-      VirtualFile root = LocalFileSystem.getInstance().findFileByPath(ClasspathStorage.getModuleDir(module));
-      VirtualFile source = root == null ? null : root.findChild(module.getName() + EclipseXml.IDEA_SETTINGS_POSTFIX);
+      VirtualFile root = LocalFileSystem.getInstance().findFileByPath(ModuleUtilCore.getModuleDirPath(module));
+      VirtualFile source = root == null ? null : root.findChild(oldName + EclipseXml.IDEA_SETTINGS_POSTFIX);
       if (source != null && source.isValid()) {
-        AccessToken token = ApplicationManager.getApplication().acquireWriteActionLock(DocumentRunnable.IgnoreDocumentRunnable.class);
-        try {
-          source.rename(this, newName + EclipseXml.IDEA_SETTINGS_POSTFIX);
-        }
-        finally {
-          token.finish();
-        }
+        WriteAction.run(() -> source.rename(this, newName + EclipseXml.IDEA_SETTINGS_POSTFIX));
       }
 
       DotProjectFileHelper.saveDotProjectFile(module, fileSet.getParent(EclipseXml.PROJECT_FILE));
-      fileSet.register(newName + EclipseXml.IDEA_SETTINGS_POSTFIX, ClasspathStorage.getModuleDir(module));
+      fileSet.unregister(oldName + EclipseXml.IDEA_SETTINGS_POSTFIX);
+      fileSet.register(newName + EclipseXml.IDEA_SETTINGS_POSTFIX, ModuleUtilCore.getModuleDirPath(module));
     }
     catch (IOException e) {
       EclipseClasspathWriter.LOG.warn(e);
     }
+  }
+
+  public static @Nls String getDescr() {
+    return EclipseBundle.message("eclipse.classpath.storage.description");
   }
 }

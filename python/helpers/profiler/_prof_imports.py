@@ -1,3 +1,4 @@
+import os
 import sys
 
 IS_PY3K = False
@@ -8,19 +9,33 @@ try:
 except AttributeError:
     pass  #Not all versions have sys.version_info
 
+import _shaded_thriftpy
+profiler = _shaded_thriftpy.load(os.path.join(os.path.dirname(os.path.realpath(__file__)), "profiler.thrift"), module_name="profiler_thrift")
+
+
+from _shaded_thriftpy.protocol.binary import TBinaryProtocolFactory
+from _shaded_thriftpy.transport import TMemoryBuffer
+
+# noinspection PyUnresolvedReferences
+from profiler_thrift import ProfilerRequest, ProfilerResponse, Stats, FuncStat, Function, TreeStats, CallTreeStat
+
+def serialize(thrift_object,
+              protocol_factory=TBinaryProtocolFactory()):
+    transport = TMemoryBuffer()
+    protocol = protocol_factory.get_protocol(transport)
+    thrift_object.write(protocol)
+    return transport.getvalue()
+
+def deserialize(base,
+                buf,
+                protocol_factory=TBinaryProtocolFactory()):
+    transport = TMemoryBuffer(buf)
+    protocol = protocol_factory.get_protocol(transport)
+    base.read(protocol)
+    return base
+
 
 if IS_PY3K:
-    # noinspection PyUnresolvedReferences
-    from thriftpy3 import TSerialization
-    # noinspection PyUnresolvedReferences
-    from thriftpy3.protocol import TJSONProtocol, TBinaryProtocol
-    # noinspection PyUnresolvedReferences
-    from profilerpy3.ttypes import ProfilerRequest, ProfilerResponse, Stats, FuncStat, Function
+    import pkgutil
 else:
-    # noinspection PyUnresolvedReferences
-    from thrift import TSerialization
-    # noinspection PyUnresolvedReferences
-    from thrift.protocol import TJSONProtocol, TBinaryProtocol
-    # noinspection PyUnresolvedReferences
-    from profiler.ttypes import ProfilerRequest, ProfilerResponse, Stats, FuncStat, Function
-
+    from _imps import _pydev_pkgutil_old as pkgutil

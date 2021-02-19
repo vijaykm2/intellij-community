@@ -15,12 +15,14 @@
  */
 package git4idea.test;
 
+import com.intellij.dvcs.ignore.VcsRepositoryIgnoredFilesHolder;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vfs.VirtualFile;
 import git4idea.GitLocalBranch;
+import git4idea.GitVcs;
 import git4idea.branch.GitBranchesCollection;
 import git4idea.repo.*;
+import git4idea.status.GitStagingAreaHolder;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -39,6 +41,17 @@ public class MockGitRepository implements GitRepository {
   @NotNull
   @Override
   public VirtualFile getGitDir() {
+    throw new UnsupportedOperationException();
+  }
+
+  @NotNull
+  @Override
+  public GitRepositoryFiles getRepositoryFiles() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public @NotNull GitStagingAreaHolder getStagingAreaHolder() {
     throw new UnsupportedOperationException();
   }
 
@@ -75,6 +88,12 @@ public class MockGitRepository implements GitRepository {
   @NotNull
   @Override
   public Collection<GitBranchTrackInfo> getBranchTrackInfos() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Nullable
+  @Override
+  public GitBranchTrackInfo getBranchTrackInfo(@NotNull String localBranchName) {
     throw new UnsupportedOperationException();
   }
 
@@ -118,10 +137,16 @@ public class MockGitRepository implements GitRepository {
     throw new UnsupportedOperationException();
   }
 
-  @Nullable
+  @NotNull
   @Override
-  public AbstractVcs getVcs() {
-    return null;
+  public GitVcs getVcs() {
+    throw new UnsupportedOperationException();
+  }
+
+  @NotNull
+  @Override
+  public Collection<GitSubmoduleInfo> getSubmodules() {
+    throw new UnsupportedOperationException();
   }
 
   @Nullable
@@ -143,6 +168,12 @@ public class MockGitRepository implements GitRepository {
   @NotNull
   @Override
   public String toLogString() {
+    throw new UnsupportedOperationException();
+  }
+
+  @NotNull
+  @Override
+  public VcsRepositoryIgnoredFilesHolder getIgnoredFilesHolder() {
     throw new UnsupportedOperationException();
   }
 

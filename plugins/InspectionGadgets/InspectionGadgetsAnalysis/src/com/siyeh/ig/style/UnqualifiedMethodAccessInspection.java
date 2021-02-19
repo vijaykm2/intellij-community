@@ -1,5 +1,5 @@
 /*
- * Copyright 2006-2012 Bas Leijdekkers
+ * Copyright 2006-2017 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,10 @@
 package com.siyeh.ig.style;
 
 import com.intellij.codeInspection.CleanupLocalInspectionTool;
-import com.intellij.psi.*;
+import com.intellij.psi.PsiMethod;
+import com.intellij.psi.PsiMethodCallExpression;
+import com.intellij.psi.PsiModifier;
+import com.intellij.psi.PsiReferenceExpression;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -25,12 +28,6 @@ import com.siyeh.ig.fixes.AddThisQualifierFix;
 import org.jetbrains.annotations.NotNull;
 
 public class UnqualifiedMethodAccessInspection extends BaseInspection implements CleanupLocalInspectionTool {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("unqualified.method.access.display.name");
-  }
 
   @Override
   public BaseInspectionVisitor buildVisitor() {
@@ -45,35 +42,25 @@ public class UnqualifiedMethodAccessInspection extends BaseInspection implements
 
   @Override
   public InspectionGadgetsFix buildFix(Object... infos) {
-    return new AddThisQualifierFix();
+    final PsiReferenceExpression expressionToQualify = (PsiReferenceExpression)infos[0];
+    final PsiMethod methodAccessed = (PsiMethod)infos[1];
+    return AddThisQualifierFix.buildFix(expressionToQualify, methodAccessed);
   }
 
   private static class UnqualifiedMethodAccessVisitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitReferenceExpression(@NotNull PsiReferenceExpression expression) {
-      super.visitReferenceExpression(expression);
-      final PsiExpression qualifierExpression = expression.getQualifierExpression();
-      if (qualifierExpression != null) {
+    public void visitMethodCallExpression(PsiMethodCallExpression expression) {
+      super.visitMethodCallExpression(expression);
+      final PsiReferenceExpression methodExpression = expression.getMethodExpression();
+      if (methodExpression.getQualifierExpression() != null) {
         return;
       }
-      final PsiReferenceParameterList parameterList = expression.getParameterList();
-      if (parameterList == null) {
+      final PsiMethod method = expression.resolveMethod();
+      if (method == null || method.isConstructor() || method.hasModifierProperty(PsiModifier.STATIC)) {
         return;
       }
-      final PsiElement element = expression.resolve();
-      if (!(element instanceof PsiMethod)) {
-        return;
-      }
-      final PsiMethod method = (PsiMethod)element;
-      if (method.isConstructor() || method.hasModifierProperty(PsiModifier.STATIC)) {
-        return;
-      }
-      final PsiClass containingClass = method.getContainingClass();
-      if (containingClass instanceof PsiAnonymousClass) {
-        return;
-      }
-      registerError(expression);
+      registerError(methodExpression, methodExpression, method);
     }
   }
 }

@@ -15,23 +15,22 @@
  */
 package org.jetbrains.plugins.javaFX.fxml.refs;
 
+import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiReferenceBase;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.xml.XmlAttributeValue;
+import com.intellij.util.containers.JBIterable;
 import com.intellij.xml.util.ColorSampleLookupValue;
 import com.intellij.xml.util.UserColorLookup;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.plugins.javaFX.fxml.JavaFxCommonClassNames;
+import org.jetbrains.plugins.javaFX.fxml.JavaFxCommonNames;
 
-/**
- * User: anna
- * Date: 3/7/13
- */
 public class JavaFxColorReference extends PsiReferenceBase<XmlAttributeValue> {
   public JavaFxColorReference(XmlAttributeValue value) {
     super(value);
@@ -42,24 +41,20 @@ public class JavaFxColorReference extends PsiReferenceBase<XmlAttributeValue> {
   public PsiElement resolve() {
     final Project project = getElement().getProject();
     final PsiClass psiClass =
-      JavaPsiFacade.getInstance(project).findClass(JavaFxCommonClassNames.JAVAFX_SCENE_COLOR, GlobalSearchScope.allScope(project));
+      JavaPsiFacade.getInstance(project).findClass(JavaFxCommonNames.JAVAFX_SCENE_COLOR, GlobalSearchScope.allScope(project));
     if (psiClass != null) {
-      return psiClass.findFieldByName(getCanonicalText().toUpperCase(), false);
+      return psiClass.findFieldByName(StringUtil.toUpperCase(getCanonicalText()), false);
     }
     return null;
   }
 
-  @NotNull
   @Override
-  public Object[] getVariants() {
-    final ColorSampleLookupValue[] lookupValues = ColorSampleLookupValue.getColors();
-    final Object[] vars = new Object[lookupValues.length + 1];
-    for (int i = 0; i < lookupValues.length; i++) {
-      final ColorSampleLookupValue value = lookupValues[i];
-      vars[i] = new ColorSampleLookupValue(value.getName(), value.getValue(), true);
-    }
-    vars[lookupValues.length] = new UserColorLookup();
-    return vars;
+  public LookupElement @NotNull [] getVariants() {
+    return JBIterable
+      .of(ColorSampleLookupValue.getColors())
+      .map(color -> new ColorSampleLookupValue(color.getName(), color.getValue(), true).toLookupElement())
+      .append(new UserColorLookup())
+      .toArray(LookupElement.EMPTY_ARRAY);
   }
 
   @Override

@@ -1,5 +1,5 @@
 /*
- * Copyright 2008-2013 Bas Leijdekkers
+ * Copyright 2008-2015 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,19 +21,11 @@ import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
-import com.siyeh.ig.psiutils.ParenthesesUtils;
+import com.siyeh.ig.psiutils.ControlFlowUtils;
 import com.siyeh.ig.psiutils.VariableAccessUtils;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 public class VariableNotUsedInsideIfInspection extends BaseInspection {
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("variable.not.used.inside.if.display.name");
-  }
 
   @Override
   @NotNull
@@ -82,7 +74,7 @@ public class VariableNotUsedInsideIfInspection extends BaseInspection {
     @Override
     public void visitIfStatement(PsiIfStatement statement) {
       super.visitIfStatement(statement);
-      final PsiExpression condition = ParenthesesUtils.stripParentheses(statement.getCondition());
+      final PsiExpression condition = PsiUtil.skipParenthesizedExprDown(statement.getCondition());
       if (!(condition instanceof PsiBinaryExpression)) {
         return;
       }
@@ -120,11 +112,11 @@ public class VariableNotUsedInsideIfInspection extends BaseInspection {
     }
 
     private static PsiReferenceExpression extractVariableReference(PsiBinaryExpression expression) {
-      final PsiExpression lhs = ParenthesesUtils.stripParentheses(expression.getLOperand());
+      final PsiExpression lhs = PsiUtil.skipParenthesizedExprDown(expression.getLOperand());
       if (lhs == null) {
         return null;
       }
-      final PsiExpression rhs = ParenthesesUtils.stripParentheses(expression.getROperand());
+      final PsiExpression rhs = PsiUtil.skipParenthesizedExprDown(expression.getROperand());
       if (rhs == null) {
         return null;
       }
@@ -146,12 +138,7 @@ public class VariableNotUsedInsideIfInspection extends BaseInspection {
     private static boolean contextExits(PsiElement context) {
       if (context instanceof PsiBlockStatement) {
         final PsiBlockStatement blockStatement = (PsiBlockStatement)context;
-        final PsiCodeBlock codeBlock = blockStatement.getCodeBlock();
-        final PsiStatement[] statements = codeBlock.getStatements();
-        if (statements.length == 0) {
-          return false;
-        }
-        final PsiStatement lastStatement = statements[statements.length - 1];
+        final PsiStatement lastStatement = ControlFlowUtils.getLastStatementInBlock(blockStatement.getCodeBlock());
         return statementExits(lastStatement);
       }
       else {

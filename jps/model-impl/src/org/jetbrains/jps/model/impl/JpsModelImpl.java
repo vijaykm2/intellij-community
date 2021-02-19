@@ -20,12 +20,9 @@ import org.jetbrains.jps.model.JpsElementReference;
 import org.jetbrains.jps.model.JpsEventDispatcher;
 import org.jetbrains.jps.model.JpsModel;
 
-/**
- * @author nik
- */
 public class JpsModelImpl implements JpsModel {
-  private JpsProjectImpl myProject;
-  private JpsGlobalImpl myGlobal;
+  private final JpsProjectImpl myProject;
+  private final JpsGlobalImpl myGlobal;
   private JpsModelImpl myOriginalModel;
   private final JpsEventDispatcher myEventDispatcher;
 
@@ -42,11 +39,13 @@ public class JpsModelImpl implements JpsModel {
     myGlobal = new JpsGlobalImpl(original.myGlobal, this, eventDispatcher);
   }
 
+  @Override
   @NotNull
   public JpsProjectImpl getProject() {
     return myProject;
   }
 
+  @Override
   @NotNull
   public JpsGlobalImpl getGlobal() {
     return myGlobal;

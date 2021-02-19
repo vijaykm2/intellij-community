@@ -15,6 +15,7 @@
  */
 package com.intellij.framework;
 
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -24,13 +25,14 @@ import javax.swing.*;
  * in the New Project dialog or the tree displayed in the "Add Framework Support" dialog).
  *
  * @author Dmitry Avdeev
- * @since 09.10.13
  */
 public interface FrameworkOrGroup {
   @NotNull
   String getId();
 
-  String getPresentableName();
+  @NotNull
+  @Nls(capitalization = Nls.Capitalization.Sentence) String getPresentableName();
 
+  @NotNull
   Icon getIcon();
 }

@@ -1,29 +1,15 @@
-/*
- * Copyright 2006-2007 Bas Leijdekkers
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.threading;
 
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleManager;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
+import com.siyeh.ig.psiutils.CommentTracker;
+import com.siyeh.ig.psiutils.ControlFlowUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -31,16 +17,8 @@ public class MethodMayBeSynchronizedInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "method.may.be.synchronized.display.name");
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... infos) {
-    return InspectionGadgetsBundle.message(
-      "method.may.be.synchronized.problem.descriptor");
+    return InspectionGadgetsBundle.message("method.may.be.synchronized.problem.descriptor");
   }
 
   @Override
@@ -54,68 +32,45 @@ public class MethodMayBeSynchronizedInspection extends BaseInspection {
     return new MethodMayBeSynchronizedVisitor();
   }
 
-  private static class MethodMayBeSynchronizedQuickFix
-    extends InspectionGadgetsFix {
+  private static class MethodMayBeSynchronizedQuickFix extends InspectionGadgetsFix {
 
     @Override
     @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message(
-        "method.may.be.synchronized.quickfix");
-    }
-
-    @NotNull
-    @Override
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("method.may.be.synchronized.quickfix");
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
-      final PsiElement identifier = descriptor.getPsiElement();
-      final PsiMethod method = (PsiMethod)identifier.getParent();
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
+      final PsiMethod method = (PsiMethod)descriptor.getPsiElement().getParent();
       final PsiCodeBlock methodBody = method.getBody();
-      if (methodBody == null) {
-        return;
-      }
-      final PsiStatement[] methodStatements = methodBody.getStatements();
-      if (methodStatements.length != 1) {
-        return;
-      }
-      final PsiStatement statement = methodStatements[0];
+      final PsiStatement statement = ControlFlowUtils.getOnlyStatementInBlock(methodBody);
       if (!(statement instanceof PsiSynchronizedStatement)) {
         return;
       }
-      final PsiSynchronizedStatement synchronizedStatement =
-        (PsiSynchronizedStatement)statement;
+      final PsiSynchronizedStatement synchronizedStatement = (PsiSynchronizedStatement)statement;
       final PsiCodeBlock body = synchronizedStatement.getBody();
       if (body == null) {
         return;
       }
-      final PsiStatement[] statements = body.getStatements();
-      if (statements.length > 0) {
-        final PsiElement added =
-          methodBody.addRangeBefore(
-            statements[0],
-            statements[statements.length - 1],
-            synchronizedStatement);
-        final CodeStyleManager codeStyleManager =
-          CodeStyleManager.getInstance(project);
-        codeStyleManager.reformat(added);
+      final CommentTracker tracker = new CommentTracker();
+      tracker.markUnchanged(body);
+      tracker.grabComments(methodBody);
+      final PsiCodeBlock newBlock = (PsiCodeBlock)methodBody.replace(body);
+      PsiElement first = newBlock.getFirstBodyElement();
+      if (first instanceof PsiWhiteSpace) first = first.getNextSibling();
+      if (first != null) {
+        tracker.insertCommentsBefore(first);
       }
-      synchronizedStatement.delete();
       final PsiModifierList modifierList = method.getModifierList();
       modifierList.setModifierProperty(PsiModifier.SYNCHRONIZED, true);
     }
   }
 
-  private static class MethodMayBeSynchronizedVisitor
-    extends BaseInspectionVisitor {
+  private static class MethodMayBeSynchronizedVisitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitSynchronizedStatement(
-      PsiSynchronizedStatement statement) {
+    public void visitSynchronizedStatement(PsiSynchronizedStatement statement) {
       super.visitSynchronizedStatement(statement);
       final PsiElement parent = statement.getParent();
       if (!(parent instanceof PsiCodeBlock)) {
@@ -126,24 +81,16 @@ public class MethodMayBeSynchronizedInspection extends BaseInspection {
         return;
       }
       final PsiMethod method = (PsiMethod)grandParent;
-      final PsiCodeBlock body = method.getBody();
-      if (body == null) {
-        return;
-      }
-      final PsiStatement[] statements = body.getStatements();
-      if (statements.length != 1) {
+      if (!ControlFlowUtils.hasStatementCount(method.getBody(), 1)) {
         return;
       }
       final PsiExpression lockExpression = statement.getLockExpression();
       if (method.hasModifierProperty(PsiModifier.STATIC)) {
-        if (!(lockExpression
-                instanceof PsiClassObjectAccessExpression)) {
+        if (!(lockExpression instanceof PsiClassObjectAccessExpression)) {
           return;
         }
-        final PsiClassObjectAccessExpression classExpression =
-          (PsiClassObjectAccessExpression)lockExpression;
-        final PsiTypeElement typeElement =
-          classExpression.getOperand();
+        final PsiClassObjectAccessExpression classExpression = (PsiClassObjectAccessExpression)lockExpression;
+        final PsiTypeElement typeElement = classExpression.getOperand();
         final PsiType type = typeElement.getType();
         if (!(type instanceof PsiClassType)) {
           return;
@@ -154,25 +101,22 @@ public class MethodMayBeSynchronizedInspection extends BaseInspection {
         if (aClass != containingClass) {
           return;
         }
-        registerMethodError(method);
       }
       else {
         if (!(lockExpression instanceof PsiThisExpression)) {
           return;
         }
-        final PsiThisExpression thisExpression =
-          (PsiThisExpression)lockExpression;
-        final PsiJavaCodeReferenceElement qualifier =
-          thisExpression.getQualifier();
+        final PsiThisExpression thisExpression = (PsiThisExpression)lockExpression;
+        final PsiJavaCodeReferenceElement qualifier = thisExpression.getQualifier();
         if (qualifier != null) {
           final PsiElement target = qualifier.resolve();
           final PsiClass containingClass = method.getContainingClass();
-          if (!containingClass.equals(target)) {
+          if (containingClass == null || !containingClass.equals(target)) {
             return;
           }
         }
-        registerMethodError(method);
       }
+      registerMethodError(method);
     }
   }
 }

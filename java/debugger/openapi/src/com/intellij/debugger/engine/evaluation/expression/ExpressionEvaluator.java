@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,10 +18,18 @@ package com.intellij.debugger.engine.evaluation.expression;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluationContext;
 import com.sun.jdi.Value;
+import org.jetbrains.annotations.ApiStatus;
 
 public interface ExpressionEvaluator {
-  //call evaluate before
-  Value getValue();
+
+  /**
+   * @deprecated obsolete API, use {@link #evaluate(EvaluationContext)}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  default Value getValue() {
+    return null;
+  }
 
   //call evaluate before
   Modifier getModifier();

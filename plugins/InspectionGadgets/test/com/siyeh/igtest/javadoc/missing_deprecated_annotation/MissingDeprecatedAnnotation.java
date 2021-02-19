@@ -21,7 +21,7 @@ public class <warning descr="Missing '@Deprecated' annotation">MissingDeprecated
 
 }
 @Deprecated
-class <warning descr="Missing '@deprecated' Javadoc tag explanation">Two</warning> {
+class <warning descr="Missing '@deprecated' Javadoc tag explanation"><caret>Two</warning> {
 
   /**
    * @deprecated
@@ -34,4 +34,30 @@ class <warning descr="Missing '@deprecated' Javadoc tag explanation">Two</warnin
 
   @Deprecated
   String <warning descr="Missing '@deprecated' Javadoc tag explanation">s</warning>;
+}
+class Parent {
+  /** @deprecated don't use */
+  @Deprecated
+  public void some() {
+  }
+}
+
+class Child extends Parent {
+  @Deprecated
+  @Override
+  public void some() {
+    super.some();
+  }
+}
+class Debugger {
+  /**
+   * @deprecated {@link XDebuggerManager#getCurrentSession()} is used instead
+   */
+  @Deprecated
+  public void getCurrentSession() {}
+
+  /**
+   * @deprecated use {@link #CONTENT_ROOT_ICON_CLOSED}
+   */
+  @Deprecated String CONTENT_ROOT_ICON_OPEN = null;
 }

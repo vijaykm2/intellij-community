@@ -15,114 +15,109 @@
  */
 package com.intellij.diff.tools.simple;
 
-import com.intellij.diff.comparison.ComparisonManager;
-import com.intellij.diff.comparison.ComparisonPolicy;
 import com.intellij.diff.fragments.MergeLineFragment;
+import com.intellij.diff.tools.util.base.DiffViewerBase;
+import com.intellij.diff.tools.util.text.MergeInnerDifferences;
 import com.intellij.diff.util.*;
+import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.editor.ex.EditorEx;
-import com.intellij.openapi.editor.markup.RangeHighlighter;
-import com.intellij.openapi.editor.markup.SeparatorPlacement;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.editor.markup.GutterIconRenderer;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.List;
+import javax.swing.*;
 
-public class SimpleThreesideDiffChange {
-  @NotNull private final MergeLineFragment myFragment;
-  @NotNull private final List<EditorEx> myEditors;
+public class SimpleThreesideDiffChange extends ThreesideDiffChangeBase {
+  @NotNull private final SimpleThreesideDiffViewer myViewer;
+  @Nullable private final MergeInnerDifferences myInnerFragments;
 
-  @NotNull private ConflictType myType;
+  private final int[] myLineStarts = new int[3];
+  private final int[] myLineEnds = new int[3];
 
-  @NotNull private final List<RangeHighlighter> myHighlighters = new ArrayList<RangeHighlighter>();
-
-  private int[] myLineStartShifts = new int[3];
-  private int[] myLineEndShifts = new int[3];
+  private boolean myIsValid = true;
 
   public SimpleThreesideDiffChange(@NotNull MergeLineFragment fragment,
-                                   @NotNull List<EditorEx> editors,
-                                   @NotNull ComparisonPolicy policy) {
-    myFragment = fragment;
-    myEditors = editors;
+                                   @NotNull MergeConflictType conflictType,
+                                   @Nullable MergeInnerDifferences innerFragments,
+                                   @NotNull SimpleThreesideDiffViewer viewer) {
+    super(conflictType);
+    myViewer = viewer;
+    myInnerFragments = innerFragments;
 
-    myType = calcType(fragment, editors, policy);
+    for (ThreeSide side : ThreeSide.values()) {
+      myLineStarts[side.getIndex()] = fragment.getStartLine(side);
+      myLineEnds[side.getIndex()] = fragment.getEndLine(side);
+    }
 
-    installHighlighter();
+    reinstallHighlighters();
   }
 
-  public void installHighlighter() {
-    assert myHighlighters.isEmpty();
+  @RequiresEdt
+  public void reinstallHighlighters() {
+    destroyHighlighters();
+    installHighlighters();
 
-    createHighlighter(ThreeSide.BASE);
-    if (myType.isLeftChange()) createHighlighter(ThreeSide.LEFT);
-    if (myType.isRightChange()) createHighlighter(ThreeSide.RIGHT);
+    destroyInnerHighlighters();
+    installInnerHighlighters();
+
+    destroyOperations();
+    installOperations();
   }
 
-  public void destroyHighlighter() {
-    for (RangeHighlighter highlighter : myHighlighters) {
-      highlighter.dispose();
-    }
-    myHighlighters.clear();
-  }
-
-  //
-  // Highlighting
-  //
-
-  private void createHighlighter(@NotNull ThreeSide side) {
-    Editor editor = side.select(myEditors);
-    Document document = editor.getDocument();
-
-    TextDiffType type = getDiffType();
-    int startLine = myFragment.getStartLine(side);
-    int endLine = myFragment.getEndLine(side);
-
-    int start;
-    int end;
-    if (startLine == endLine) {
-      start = end = startLine < DiffUtil.getLineCount(document) ? document.getLineStartOffset(startLine) : document.getTextLength();
-    }
-    else {
-      start = document.getLineStartOffset(startLine);
-      end = document.getLineEndOffset(endLine - 1);
-      if (end < document.getTextLength()) end++;
-    }
-
-    myHighlighters.add(DiffDrawUtil.createHighlighter(editor, start, end, type));
-
-    if (startLine == endLine) {
-      if (startLine != 0) myHighlighters.add(DiffDrawUtil.createLineMarker(editor, endLine - 1, type, SeparatorPlacement.BOTTOM, true));
-    }
-    else {
-      myHighlighters.add(DiffDrawUtil.createLineMarker(editor, startLine, type, SeparatorPlacement.TOP));
-      myHighlighters.add(DiffDrawUtil.createLineMarker(editor, endLine - 1, type, SeparatorPlacement.BOTTOM));
-    }
+  @Override
+  protected void installOperations() {
+    myOperations.add(createAcceptOperation(ThreeSide.LEFT, ThreeSide.BASE));
+    myOperations.add(createAcceptOperation(ThreeSide.RIGHT, ThreeSide.BASE));
+    myOperations.add(createAcceptOperation(ThreeSide.BASE, ThreeSide.LEFT));
+    myOperations.add(createAcceptOperation(ThreeSide.BASE, ThreeSide.RIGHT));
   }
 
   //
   // Getters
   //
 
+  @Override
   public int getStartLine(@NotNull ThreeSide side) {
-    return myFragment.getStartLine(side) + side.select(myLineStartShifts);
+    return side.select(myLineStarts);
   }
 
+  @Override
   public int getEndLine(@NotNull ThreeSide side) {
-    return myFragment.getEndLine(side) + side.select(myLineEndShifts);
+    return side.select(myLineEnds);
+  }
+
+  @Override
+  public boolean isResolved(@NotNull ThreeSide side) {
+    return false;
   }
 
   @NotNull
-  public TextDiffType getDiffType() {
-    return myType.getDiffType();
+  @Override
+  protected Editor getEditor(@NotNull ThreeSide side) {
+    return myViewer.getEditor(side);
   }
 
-  @NotNull
-  public ConflictType getType() {
-    return myType;
+  @Nullable
+  @Override
+  protected MergeInnerDifferences getInnerFragments() {
+    return myInnerFragments;
+  }
+
+  public boolean isValid() {
+    return myIsValid;
+  }
+
+  public void markInvalid() {
+    myIsValid = false;
+
+    destroyOperations();
   }
 
   //
@@ -132,140 +127,79 @@ public class SimpleThreesideDiffChange {
   public boolean processChange(int oldLine1, int oldLine2, int shift, @NotNull ThreeSide side) {
     int line1 = getStartLine(side);
     int line2 = getEndLine(side);
+    int sideIndex = side.getIndex();
 
-    if (line2 <= oldLine1) return false;
-    if (line1 >= oldLine2) {
-      myLineStartShifts[side.getIndex()] += shift;
-      myLineEndShifts[side.getIndex()] += shift;
-      return false;
-    }
+    DiffUtil.UpdatedLineRange newRange = DiffUtil.updateRangeOnModification(line1, line2, oldLine1, oldLine2, shift);
+    myLineStarts[sideIndex] = newRange.startLine;
+    myLineEnds[sideIndex] = newRange.endLine;
 
-    if (line1 <= oldLine1 && line2 >= oldLine2) {
-      myLineEndShifts[side.getIndex()] += shift;
-      return false;
-    }
-
-    return true;
+    return newRange.damaged;
   }
 
   //
-  // Type
+  // Modification
   //
+
+  static @NotNull @Nls String getApplyActionText(@NotNull DiffViewerBase viewer,
+                                                 @NotNull ThreeSide sourceSide,
+                                                 @NotNull ThreeSide modifiedSide) {
+    Key<@Nls String> key = null;
+    if (sourceSide == ThreeSide.BASE && modifiedSide == ThreeSide.LEFT) {
+      key = DiffUserDataKeysEx.VCS_DIFF_ACCEPT_BASE_TO_LEFT_ACTION_TEXT;
+    }
+    else if (sourceSide == ThreeSide.BASE && modifiedSide == ThreeSide.RIGHT) {
+      key = DiffUserDataKeysEx.VCS_DIFF_ACCEPT_BASE_TO_RIGHT_ACTION_TEXT;
+    }
+    else if (sourceSide == ThreeSide.LEFT && modifiedSide == ThreeSide.BASE) {
+      key = DiffUserDataKeysEx.VCS_DIFF_ACCEPT_LEFT_TO_BASE_ACTION_TEXT;
+    }
+    else if (sourceSide == ThreeSide.RIGHT && modifiedSide == ThreeSide.BASE) {
+      key = DiffUserDataKeysEx.VCS_DIFF_ACCEPT_RIGHT_TO_BASE_ACTION_TEXT;
+    }
+    if (key != null) {
+      String customValue = DiffUtil.getUserData(viewer.getRequest(), viewer.getContext(), key);
+      if (customValue != null) return customValue;
+    }
+
+    return DiffBundle.message("action.presentation.diff.accept.text");
+  }
 
   @NotNull
-  private static ConflictType calcType(@NotNull MergeLineFragment fragment,
-                                       @NotNull List<EditorEx> editors,
-                                       @NotNull ComparisonPolicy policy) {
-    boolean isLeftEmpty = isIntervalEmpty(fragment, ThreeSide.LEFT);
-    boolean isBaseEmpty = isIntervalEmpty(fragment, ThreeSide.BASE);
-    boolean isRightEmpty = isIntervalEmpty(fragment, ThreeSide.RIGHT);
-    assert !isLeftEmpty || !isBaseEmpty || !isRightEmpty;
+  private DiffGutterOperation createAcceptOperation(@NotNull ThreeSide sourceSide, @NotNull ThreeSide modifiedSide) {
+    EditorEx editor = myViewer.getEditor(sourceSide);
+    int offset = DiffGutterOperation.lineToOffset(editor, getStartLine(sourceSide));
 
-    if (isBaseEmpty) {
-      if (isLeftEmpty) { // --=
-        return new ConflictType(TextDiffType.INSERTED, false, true);
-      }
-      else if (isRightEmpty) { // =--
-        return new ConflictType(TextDiffType.INSERTED, true, false);
-      }
-      else { // =-=
-        boolean equalModifications = compareLeftAndRight(fragment, editors, policy);
-        return new ConflictType(equalModifications ? TextDiffType.INSERTED : TextDiffType.CONFLICT);
-      }
-    }
-    else {
-      if (isLeftEmpty && isRightEmpty) { // -=-
-        return new ConflictType(TextDiffType.DELETED);
-      }
-      else { // -==, ==-, ===
-        boolean unchangedLeft = compareWithBase(fragment, editors, ThreeSide.LEFT);
-        boolean unchangedRight = compareWithBase(fragment, editors, ThreeSide.RIGHT);
-        assert !unchangedLeft || !unchangedRight;
+    return new DiffGutterOperation.Simple(editor, offset, () -> {
+      boolean isOtherEditable = myViewer.isEditable(modifiedSide);
+      if (!isOtherEditable) return null;
 
-        if (unchangedLeft) return new ConflictType(isRightEmpty ? TextDiffType.DELETED : TextDiffType.MODIFIED, false, true);
-        if (unchangedRight) return new ConflictType(isLeftEmpty ? TextDiffType.DELETED : TextDiffType.MODIFIED, true, false);
+      boolean isChanged = sourceSide != ThreeSide.BASE && isChange(sourceSide) ||
+                          modifiedSide != ThreeSide.BASE && isChange(modifiedSide);
+      if (!isChanged) return null;
 
-        boolean equalModifications = compareLeftAndRight(fragment, editors, policy);
-        return new ConflictType(equalModifications ? TextDiffType.MODIFIED : TextDiffType.CONFLICT);
-      }
-    }
+      String text = getApplyActionText(myViewer, sourceSide, modifiedSide);
+      Side arrowDirection = Side.fromLeft(sourceSide == ThreeSide.LEFT ||
+                                          modifiedSide == ThreeSide.RIGHT);
+      Icon icon = DiffUtil.getArrowIcon(arrowDirection);
+
+      return createIconRenderer(sourceSide, modifiedSide, text, icon,
+                                () -> myViewer.replaceChange(this, sourceSide, modifiedSide));
+    });
   }
 
-  private static boolean compareLeftAndRight(@NotNull MergeLineFragment fragment,
-                                             @NotNull List<EditorEx> editors,
-                                             @NotNull ComparisonPolicy policy) {
-    CharSequence content1 = getRangeContent(fragment, editors, ThreeSide.LEFT);
-    CharSequence content2 = getRangeContent(fragment, editors, ThreeSide.RIGHT);
-
-    if (policy == ComparisonPolicy.IGNORE_WHITESPACES) {
-      if (content1 == null) content1 = "";
-      if (content2 == null) content2 = "";
-    }
-
-    if (content1 == null && content2 == null) return true;
-    if (content1 == null ^ content2 == null) return false;
-
-    return ComparisonManager.getInstance().isEquals(content1, content2, policy);
-  }
-
-  private static boolean compareWithBase(@NotNull MergeLineFragment fragment,
-                                         @NotNull List<EditorEx> editors,
-                                         @NotNull ThreeSide side) {
-    CharSequence content1 = getRangeContent(fragment, editors, ThreeSide.BASE);
-    CharSequence content2 = getRangeContent(fragment, editors, side);
-
-    return StringUtil.equals(content1, content2);
-  }
-
-  @Nullable
-  private static CharSequence getRangeContent(@NotNull MergeLineFragment fragment,
-                                              @NotNull List<EditorEx> editors,
-                                              @NotNull ThreeSide side) {
-    DocumentEx document = side.select(editors).getDocument();
-    int line1 = fragment.getStartLine(side);
-    int line2 = fragment.getEndLine(side);
-    if (line1 == line2) return null;
-    return DiffUtil.getLinesContent(document, line1, line2);
-  }
-
-  private static boolean isIntervalEmpty(@NotNull MergeLineFragment fragment, @NotNull ThreeSide side) {
-    return fragment.getStartLine(side) == fragment.getEndLine(side);
-  }
-
-  //
-  // Helpers
-  //
-
-  public static class ConflictType {
-    @NotNull private final TextDiffType myType;
-    private final boolean myLeftChange;
-    private final boolean myRightChange;
-
-    public ConflictType(@NotNull TextDiffType type) {
-      this(type, true, true);
-    }
-
-    public ConflictType(@NotNull TextDiffType type, boolean leftChange, boolean rightChange) {
-      myType = type;
-      myLeftChange = leftChange;
-      myRightChange = rightChange;
-    }
-
-    @NotNull
-    public TextDiffType getDiffType() {
-      return myType;
-    }
-
-    public boolean isLeftChange() {
-      return myLeftChange;
-    }
-
-    public boolean isRightChange() {
-      return myRightChange;
-    }
-
-    public boolean isChange(@NotNull Side side) {
-      return side.isLeft() ? myLeftChange : myRightChange;
-    }
+  private GutterIconRenderer createIconRenderer(@NotNull final ThreeSide sourceSide,
+                                                @NotNull final ThreeSide modifiedSide,
+                                                @NotNull final @NlsContexts.Tooltip String tooltipText,
+                                                @NotNull final Icon icon,
+                                                @NotNull final Runnable perform) {
+    return new DiffGutterRenderer(icon, tooltipText) {
+      @Override
+      protected void handleMouseClick() {
+        if (!isValid()) return;
+        final Project project = myViewer.getProject();
+        final Document document = myViewer.getEditor(modifiedSide).getDocument();
+        DiffUtil.executeWriteCommand(document, project, DiffBundle.message("message.replace.change.command"), perform);
+      }
+    };
   }
 }

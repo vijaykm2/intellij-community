@@ -15,13 +15,14 @@
  */
 package com.intellij.ide.structureView.impl.java;
 
+import com.intellij.ide.structureView.customRegions.CustomRegionTreeElement;
 import com.intellij.openapi.diagnostic.Logger;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Comparator;
 
 public class VisibilityComparator implements Comparator {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.structureView.impl.java.VisibilityComparator");
+  private static final Logger LOG = Logger.getInstance(VisibilityComparator.class);
   private static final int GROUP_ACCESS_SUBLEVEL = 1;
   public static Comparator IMSTANCE = new VisibilityComparator(null);
 
@@ -47,7 +48,9 @@ public class VisibilityComparator implements Comparator {
       return ((AccessLevelProvider)element).getAccessLevel() * (GROUP_ACCESS_SUBLEVEL + 1) + ((AccessLevelProvider)element).getSubLevel();
     }
     else {
-      LOG.error(element.getClass().getName());
+      if (!(element instanceof CustomRegionTreeElement)) {
+        LOG.error(element.getClass().getName());
+      }
       return UNKNOWN_ACCESS_LEVEL;
     }    
   }

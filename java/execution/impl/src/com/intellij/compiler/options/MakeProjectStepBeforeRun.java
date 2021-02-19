@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler.options;
 
 import com.intellij.execution.BeforeRunTask;
@@ -26,6 +12,8 @@ import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.compiler.CompileContext;
 import com.intellij.openapi.compiler.CompileScope;
+import com.intellij.openapi.compiler.CompilerManager;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import org.jetbrains.annotations.NotNull;
@@ -33,7 +21,8 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
-public class MakeProjectStepBeforeRun extends BeforeRunTaskProvider<MakeProjectStepBeforeRun.MakeProjectBeforeRunTask> {
+public class MakeProjectStepBeforeRun extends BeforeRunTaskProvider<MakeProjectStepBeforeRun.MakeProjectBeforeRunTask>
+  implements DumbAware {
   public static final Key<MakeProjectBeforeRunTask> ID = Key.create("MakeProject");
 
   private final Project myProject;
@@ -53,10 +42,6 @@ public class MakeProjectStepBeforeRun extends BeforeRunTaskProvider<MakeProjectS
   }
 
   @Override
-  public String getDescription(MakeProjectBeforeRunTask task) {
-    return getName();
-  }
-  @Override
   public Icon getIcon() {
     return AllIcons.Actions.Compile;
   }
@@ -66,21 +51,9 @@ public class MakeProjectStepBeforeRun extends BeforeRunTaskProvider<MakeProjectS
     return AllIcons.Actions.Compile;
   }
 
-  public boolean configureTask(RunConfiguration runConfiguration, MakeProjectBeforeRunTask task) {
-    return false;
-  }
-
   @Override
-  public boolean canExecuteTask(RunConfiguration configuration, MakeProjectBeforeRunTask task) {
-    return true;
-  }
-
-  public boolean executeTask(DataContext context, final RunConfiguration configuration, final ExecutionEnvironment env, MakeProjectBeforeRunTask task) {
+  public boolean executeTask(@NotNull DataContext context, @NotNull final RunConfiguration configuration, @NotNull final ExecutionEnvironment env, @NotNull MakeProjectBeforeRunTask task) {
     return CompileStepBeforeRun.doMake(myProject, configuration, env, false, true);
-  }
-
-  public boolean isConfigurable() {
-    return false;
   }
 
   @Nullable
@@ -90,11 +63,12 @@ public class MakeProjectStepBeforeRun extends BeforeRunTaskProvider<MakeProjectS
 
   @Nullable
   public static RunConfiguration getRunConfiguration(final CompileScope compileScope) {
-    return compileScope.getUserData(CompileStepBeforeRun.RUN_CONFIGURATION);
+    return compileScope.getUserData(CompilerManager.RUN_CONFIGURATION_KEY);
   }
 
 
-  public MakeProjectBeforeRunTask createTask(RunConfiguration runConfiguration) {
+  @Override
+  public MakeProjectBeforeRunTask createTask(@NotNull RunConfiguration runConfiguration) {
     return !(runConfiguration instanceof RemoteConfiguration) && runConfiguration instanceof RunProfileWithCompileBeforeLaunchOption
            ? new MakeProjectBeforeRunTask()
            : null;

@@ -1,29 +1,19 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.intention.impl.config;
 
+import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.ide.ui.search.SearchUtil;
 import com.intellij.ide.ui.search.SearchableOptionsRegistrar;
 import com.intellij.openapi.options.MasterDetails;
 import com.intellij.openapi.ui.DetailsComponent;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.GuiUtils;
+import com.intellij.ui.IdeBorderFactory;
 import com.intellij.util.Alarm;
+import com.intellij.util.ArrayUtil;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
@@ -33,7 +23,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public class IntentionSettingsPanel implements MasterDetails {
+public final class IntentionSettingsPanel implements MasterDetails {
   private JPanel myPanel;
   private final IntentionSettingsTree myIntentionSettingsTree;
   private final IntentionDescriptionPanel myIntentionDescriptionPanel = new IntentionDescriptionPanel();
@@ -45,21 +35,19 @@ public class IntentionSettingsPanel implements MasterDetails {
   private final Alarm myResetAlarm = new Alarm();
 
   public IntentionSettingsPanel() {
+    myDescriptionPanel.setBorder(IdeBorderFactory.createTitledBorder(
+      CodeInsightBundle.message("dialog.intention.settings.description.panel.title"), false, JBUI.insetsTop(8)).setShowLine(false));
+
     myIntentionSettingsTree = new IntentionSettingsTree() {
       @Override
       protected void selectionChanged(Object selected) {
         if (selected instanceof IntentionActionMetaData) {
           final IntentionActionMetaData actionMetaData = (IntentionActionMetaData)selected;
-          final Runnable runnable = new Runnable() {
-            @Override
-            public void run() {
-              intentionSelected(actionMetaData);
-              if (myDetailsComponent != null) {
-                String[] text = new String[actionMetaData.myCategory.length + 1];
-                System.arraycopy(actionMetaData.myCategory, 0, text,0,actionMetaData.myCategory.length);
-                text[text.length - 1] = actionMetaData.getFamily();
-                myDetailsComponent.setText(text);
-              }
+          final Runnable runnable = () -> {
+            intentionSelected(actionMetaData);
+            if (myDetailsComponent != null) {
+              String[] text = ArrayUtil.append(actionMetaData.myCategory, actionMetaData.getFamily());
+              myDetailsComponent.setText(text);
             }
           };
           myResetAlarm.cancelAllRequests();
@@ -75,11 +63,14 @@ public class IntentionSettingsPanel implements MasterDetails {
 
       @Override
       protected List<IntentionActionMetaData> filterModel(String filter, final boolean force) {
-        final List<IntentionActionMetaData> list = IntentionManagerSettings.getInstance().getMetaData();
-        if (filter == null || filter.length() == 0) return list;
-        final HashSet<String> quoted = new HashSet<String>();
+        List<IntentionActionMetaData> list = IntentionManagerSettings.getInstance().getMetaData();
+        if (filter == null || filter.length() == 0) {
+          return list;
+        }
+
+        Set<String> quoted = new HashSet<>();
         List<Set<String>> keySetList = SearchUtil.findKeys(filter, quoted);
-        List<IntentionActionMetaData> result = new ArrayList<IntentionActionMetaData>();
+        List<IntentionActionMetaData> result = new ArrayList<>();
         for (IntentionActionMetaData metaData : list) {
           if (isIntentionAccepted(metaData, filter, force, keySetList, quoted)){
             result.add(metaData);
@@ -113,12 +104,7 @@ public class IntentionSettingsPanel implements MasterDetails {
 
   public void reset() {
     myIntentionSettingsTree.reset();
-    SwingUtilities.invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        myIntentionDescriptionPanel.init(myPanel.getWidth() / 2);
-      }
-    });
+    SwingUtilities.invokeLater(() -> myIntentionDescriptionPanel.init(myPanel.getWidth() / 2));
   }
 
   @Override
@@ -168,10 +154,11 @@ public class IntentionSettingsPanel implements MasterDetails {
   }
 
   private static boolean isIntentionAccepted(IntentionActionMetaData metaData, @NonNls String filter, boolean forceInclude,
-                                             final List<Set<String>> keySetList, final HashSet<String> quoted) {
+                                             List<? extends Set<String>> keySetList, @NotNull Set<String> quoted) {
     if (StringUtil.containsIgnoreCase(metaData.getFamily(), filter)) {
       return true;
     }
+
     for (String category : metaData.myCategory) {
       if (category != null && StringUtil.containsIgnoreCase(category, filter)) {
         return true;
@@ -212,12 +199,9 @@ public class IntentionSettingsPanel implements MasterDetails {
   }
 
   public Runnable showOption(final String option) {
-    return new Runnable() {
-      @Override
-      public void run() {
-        myIntentionSettingsTree.filter(myIntentionSettingsTree.filterModel(option, true));
-        myIntentionSettingsTree.setFilter(option);
-      }
+    return () -> {
+      myIntentionSettingsTree.filter(myIntentionSettingsTree.filterModel(option, true));
+      myIntentionSettingsTree.setFilter(option);
     };
   }
 }

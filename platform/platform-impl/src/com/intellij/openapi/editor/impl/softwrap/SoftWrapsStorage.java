@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2010 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,11 @@
  */
 package com.intellij.openapi.editor.impl.softwrap;
 
+import com.intellij.diagnostic.Dumpable;
 import com.intellij.openapi.editor.SoftWrap;
 import com.intellij.openapi.editor.TextChange;
 import com.intellij.openapi.editor.ex.SoftWrapChangeListener;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -32,16 +34,15 @@ import java.util.List;
  * Not thread-safe.
  *
  * @author Denis Zhdanov
- * @since Jun 29, 2010 3:04:20 PM
  */
-public class SoftWrapsStorage {
+public class SoftWrapsStorage implements Dumpable {
 
-  private final List<SoftWrapImpl>        myWraps     = new ArrayList<SoftWrapImpl>();
-  private final List<SoftWrapImpl>        myWrapsView = Collections.unmodifiableList(myWraps);
+  private final List<SoftWrapImpl> myWraps = new ArrayList<>();
+  private final List<SoftWrapImpl> myWrapsView = Collections.unmodifiableList(myWraps);
   private final List<SoftWrapChangeListener> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
 
   /**
-   * @return    <code>true</code> if there is at least one soft wrap registered at the current storage; <code>false</code> otherwise
+   * @return    {@code true} if there is at least one soft wrap registered at the current storage; {@code false} otherwise
    */
   public boolean isEmpty() {
     return myWraps.isEmpty();
@@ -62,40 +63,21 @@ public class SoftWrapsStorage {
   }
 
   /**
-   * Tries to find index of the target soft wrap stored at {@link #myWraps} collection. <code>'Target'</code> soft wrap is the one
+   * Tries to find index of the target soft wrap stored at {@link #myWraps} collection. {@code 'Target'} soft wrap is the one
    * that starts at the given offset.
    *
    * @param offset    target offset
    * @return          index that conforms to {@link Collections#binarySearch(List, Object)} contract, i.e. non-negative returned
-   *                  index points to soft wrap that starts at the given offset; <code>'-(negative value) - 1'</code> points
+   *                  index points to soft wrap that starts at the given offset; {@code '-(negative value) - 1'} points
    *                  to position at {@link #myWraps} collection where soft wrap for the given index should be inserted
    */
   public int getSoftWrapIndex(int offset) {
-    int start = 0;
-    int end = myWraps.size() - 1;
-
-    // We use custom inline implementation of binary search here because profiling shows that standard Collections.binarySearch()
-    // is a bottleneck. The most probable reason is a big number of interface calls.
-    while (start <= end) {
-      int i = (start + end) >>> 1;
-      SoftWrap softWrap = myWraps.get(i);
-      int softWrapOffset = softWrap.getStart();
-      if (softWrapOffset > offset) {
-        end = i - 1;
-      }
-      else if (softWrapOffset < offset) {
-        start = i + 1;
-      }
-      else {
-        return i;
-      }
-    }
-    return -(start + 1);
+    return ObjectUtils.binarySearch(0, myWraps.size(), i -> Integer.compare(myWraps.get(i).getStart(), offset));
   }
 
   /**
    * Allows to answer how many soft wraps which {@link TextChange#getStart() start offsets} belong to given
-   * <code>[start; end]</code> interval are registered withing the current storage.
+   * {@code [start; end]} interval are registered withing the current storage.
    * 
    * @param startOffset   target start offset (inclusive)
    * @param endOffset     target end offset (inclusive)
@@ -126,19 +108,17 @@ public class SoftWrapsStorage {
    * Inserts given soft wrap to {@link #myWraps} collection at the given index.
    *
    * @param softWrap          soft wrap to store
-   * @return                  previous soft wrap object stored for the same offset if any; <code>null</code> otherwise
+   * @return                  previous soft wrap object stored for the same offset if any; {@code null} otherwise
    */
-  @SuppressWarnings({"ForLoopReplaceableByForEach"})
-  @Nullable
-  public SoftWrap storeOrReplace(SoftWrapImpl softWrap) {
+  public void storeOrReplace(SoftWrapImpl softWrap) {
     int i = getSoftWrapIndex(softWrap.getStart());
     if (i >= 0) {
-      return myWraps.set(i, softWrap);
+      myWraps.set(i, softWrap);
+      return;
     }
 
     i = -i - 1;
     myWraps.add(i, softWrap);
-    return null;
   }
 
   public void remove(SoftWrapImpl softWrap) {
@@ -168,7 +148,7 @@ public class SoftWrapsStorage {
     }
 
     List<SoftWrapImpl> tail = myWraps.subList(startIndex, myWraps.size());
-    List<SoftWrapImpl> result = new ArrayList<SoftWrapImpl>(tail);
+    List<SoftWrapImpl> result = new ArrayList<>(tail);
     tail.clear();
     return result;
   }
@@ -177,7 +157,7 @@ public class SoftWrapsStorage {
    * Adds soft wraps to storage. They are supposed to be sorted by their offsets, and have offsets larger than offsets for soft wraps 
    * existing in storage at the moment.
    */
-  public void addAll(List<SoftWrapImpl> softWraps) {
+  public void addAll(List<? extends SoftWrapImpl> softWraps) {
     myWraps.addAll(softWraps);
   }
 
@@ -193,7 +173,7 @@ public class SoftWrapsStorage {
    * Registers given listener within the current model
    *
    * @param listener    listener to register
-   * @return            <code>true</code> if given listener was not registered before; <code>false</code> otherwise
+   * @return            {@code true} if given listener was not registered before; {@code false} otherwise
    */
   public boolean addSoftWrapChangeListener(@NotNull SoftWrapChangeListener listener) {
     return myListeners.add(listener);
@@ -203,5 +183,11 @@ public class SoftWrapsStorage {
     for (SoftWrapChangeListener listener : myListeners) {
       listener.softWrapsChanged();
     }
+  }
+
+  @NotNull
+  @Override
+  public String dumpState() {
+    return myWraps.toString();
   }
 }

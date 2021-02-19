@@ -1,94 +1,63 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileEditor.impl.text;
 
 import com.intellij.codeHighlighting.BackgroundEditorHighlighter;
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.structureView.StructureViewBuilder;
-import com.intellij.openapi.application.ApplicationNamesInfo;
-import com.intellij.openapi.fileEditor.*;
-import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.application.Experiments;
+import com.intellij.openapi.editor.ex.EditorEx;
+import com.intellij.openapi.fileEditor.FileEditor;
+import com.intellij.openapi.fileEditor.FileEditorLocation;
+import com.intellij.openapi.fileEditor.FileEditorState;
+import com.intellij.openapi.fileEditor.FileEditorStateLevel;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.UserDataHolderBase;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.SingleRootFileViewProvider;
-import org.jdom.Element;
+import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.beans.PropertyChangeListener;
 
-/**
- * @author peter
- */
-public class LargeFileEditorProvider implements FileEditorProvider, DumbAware {
-
+public final class LargeFileEditorProvider extends TextEditorProvider {
   @Override
   public boolean accept(@NotNull Project project, @NotNull VirtualFile file) {
-    if (file.isDirectory() || !file.isValid()) {
-      return false;
-    }
-    return SingleRootFileViewProvider.isTooLargeForContentLoading(file);
+    return TextEditorProvider.isTextFile(file)
+           && SingleRootFileViewProvider.isTooLargeForContentLoading(file)
+           && !(Experiments.getInstance().isFeatureEnabled("new.large.text.file.viewer")
+                && !file.getFileType().isBinary()
+                && file.isInLocalFileSystem());
   }
 
   @Override
-  @NotNull
-  public FileEditor createEditor(@NotNull Project project, @NotNull final VirtualFile file) {
-    return new LargeFileEditor(file);
+  public @NotNull FileEditor createEditor(@NotNull Project project, final @NotNull VirtualFile file) {
+    return file.getFileType().isBinary() ? new LargeBinaryFileEditor(file) : new LargeTextFileEditor(project, file, this);
   }
 
   @Override
-  public void disposeEditor(@NotNull FileEditor editor) {
-    Disposer.dispose(editor);
-  }
-
-  @Override
-  @NotNull
-  public FileEditorState readState(@NotNull Element element, @NotNull Project project, @NotNull VirtualFile file) {
-    return FileEditorState.INSTANCE;
-  }
-
-  @Override
-  public void writeState(@NotNull FileEditorState _state, @NotNull Project project, @NotNull Element element) {
-  }
-
-  @Override
-  @NotNull
-  public String getEditorTypeId() {
+  public @NotNull String getEditorTypeId() {
     return "LargeFileEditor";
   }
 
-  @Override
-  @NotNull
-  public FileEditorPolicy getPolicy() {
-    return FileEditorPolicy.NONE;
+  public static class LargeTextFileEditor extends TextEditorImpl {
+    LargeTextFileEditor(@NotNull Project project, @NotNull VirtualFile file, @NotNull TextEditorProvider provider) {
+      super(project, file, provider);
+      ObjectUtils.consumeIfCast(getEditor(), EditorEx.class, editorEx -> editorEx.setViewer(true));
+    }
   }
 
-  private static class LargeFileEditor extends UserDataHolderBase implements FileEditor {
+  private static class LargeBinaryFileEditor extends UserDataHolderBase implements FileEditor {
     private final VirtualFile myFile;
 
-    public LargeFileEditor(VirtualFile file) {
+    LargeBinaryFileEditor(VirtualFile file) {
       myFile = file;
     }
 
-    @NotNull
     @Override
-    public JComponent getComponent() {
-      JLabel label = new JLabel(
-        "File " + myFile.getPath() + " is too large for " + ApplicationNamesInfo.getInstance().getFullProductName() + " editor");
+    public @NotNull JComponent getComponent() {
+      JLabel label = new JLabel(IdeBundle.message("binary.file.too.large", myFile.getPath(), StringUtil.formatFileSize(myFile.getLength())));
       label.setHorizontalAlignment(SwingConstants.CENTER);
       return label;
     }
@@ -98,21 +67,18 @@ public class LargeFileEditorProvider implements FileEditorProvider, DumbAware {
       return null;
     }
 
-    @NotNull
     @Override
-    public String getName() {
-      return "Large file editor";
+    public @NotNull String getName() {
+      return IdeBundle.message("large.file.editor.name");
     }
 
-    @NotNull
     @Override
-    public FileEditorState getState(@NotNull FileEditorStateLevel level) {
+    public @NotNull FileEditorState getState(@NotNull FileEditorStateLevel level) {
       return new TextEditorState();
     }
 
     @Override
-    public void setState(@NotNull FileEditorState state) {
-    }
+    public void setState(@NotNull FileEditorState state) { }
 
     @Override
     public boolean isModified() {
@@ -125,20 +91,16 @@ public class LargeFileEditorProvider implements FileEditorProvider, DumbAware {
     }
 
     @Override
-    public void selectNotify() {
-    }
+    public void selectNotify() { }
 
     @Override
-    public void deselectNotify() {
-    }
+    public void deselectNotify() { }
 
     @Override
-    public void addPropertyChangeListener(@NotNull PropertyChangeListener listener) {
-    }
+    public void addPropertyChangeListener(@NotNull PropertyChangeListener listener) { }
 
     @Override
-    public void removePropertyChangeListener(@NotNull PropertyChangeListener listener) {
-    }
+    public void removePropertyChangeListener(@NotNull PropertyChangeListener listener) { }
 
     @Override
     public BackgroundEditorHighlighter getBackgroundHighlighter() {
@@ -156,8 +118,6 @@ public class LargeFileEditorProvider implements FileEditorProvider, DumbAware {
     }
 
     @Override
-    public void dispose() {
-    }
-
+    public void dispose() { }
   }
 }

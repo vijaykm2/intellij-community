@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
  */
 package com.intellij.diff.settings;
 
-import com.intellij.openapi.options.ConfigurationException;
+import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.options.SearchableConfigurable;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
@@ -32,16 +32,10 @@ public class ExternalDiffSettingsConfigurable implements SearchableConfigurable 
     return getHelpTopic();
   }
 
-  @Nullable
-  @Override
-  public Runnable enableSearch(String option) {
-    return null;
-  }
-
   @Nls
   @Override
   public String getDisplayName() {
-    return "External Diff Tools";
+    return DiffBundle.message("configurable.ExternalDiffSettingsConfigurable.display.name");
   }
 
   @NotNull
@@ -56,7 +50,7 @@ public class ExternalDiffSettingsConfigurable implements SearchableConfigurable 
     if (mySettingsPane == null) {
       mySettingsPane = new ExternalDiffSettingsPanel();
     }
-    return mySettingsPane.getPanel();
+    return mySettingsPane.createComponent();
   }
 
   @Override
@@ -65,7 +59,7 @@ public class ExternalDiffSettingsConfigurable implements SearchableConfigurable 
   }
 
   @Override
-  public void apply() throws ConfigurationException {
+  public void apply() {
     if (mySettingsPane != null) {
       mySettingsPane.apply();
     }

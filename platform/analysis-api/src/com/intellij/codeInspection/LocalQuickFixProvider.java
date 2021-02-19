@@ -21,9 +21,7 @@ import org.jetbrains.annotations.Nullable;
  * This can be implemented by a {@link com.intellij.psi.PsiReference} to provide quick fixes for unresolved references.
  *
  * User: anna
- * Date: 30-Nov-2006
  */
 public interface LocalQuickFixProvider {
-  @Nullable
-  LocalQuickFix[] getQuickFixes();
+  LocalQuickFix @Nullable [] getQuickFixes();
 }

@@ -4,6 +4,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
+import com.intellij.tasks.TaskBundle;
 import com.intellij.tasks.config.BaseRepositoryEditor;
 import com.intellij.ui.TextFieldWithAutoCompletion;
 import com.intellij.ui.components.JBLabel;
@@ -29,7 +30,7 @@ public class BugzillaRepositoryEditor extends BaseRepositoryEditor<BugzillaRepos
 
   public BugzillaRepositoryEditor(Project project,
                                   BugzillaRepository repository,
-                                  Consumer<BugzillaRepository> changeListener) {
+                                  Consumer<? super BugzillaRepository> changeListener) {
     super(project, repository, changeListener);
 
     myUseHttpAuthenticationCheckBox.setVisible(false);
@@ -40,12 +41,7 @@ public class BugzillaRepositoryEditor extends BaseRepositoryEditor<BugzillaRepos
     myTestButton.setEnabled(myRepository.isConfigured());
 
     if (myRepository.isConfigured()) {
-      ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
-        @Override
-        public void run() {
-          installProductAndComponentCompletion();
-        }
-      });
+      ApplicationManager.getApplication().executeOnPooledThread(() -> installProductAndComponentCompletion());
     }
   }
 
@@ -69,11 +65,11 @@ public class BugzillaRepositoryEditor extends BaseRepositoryEditor<BugzillaRepos
   @Nullable
   @Override
   protected JComponent createCustomPanel() {
-    myProductLabel = new JBLabel("Product:", SwingConstants.RIGHT);
-    myProductInput = TextFieldWithAutoCompletion.create(myProject, Collections.<String>emptyList(), true,
+    myProductLabel = new JBLabel(TaskBundle.message("bugzilla.label.product"), SwingConstants.RIGHT);
+    myProductInput = TextFieldWithAutoCompletion.create(myProject, Collections.emptyList(), true,
                                                         myRepository.getProductName());
-    myComponentLabel = new JBLabel("Component:", SwingConstants.RIGHT);
-    myComponentInput = TextFieldWithAutoCompletion.create(myProject, Collections.<String>emptyList(), false,
+    myComponentLabel = new JBLabel(TaskBundle.message("bugzilla.label.component"), SwingConstants.RIGHT);
+    myComponentInput = TextFieldWithAutoCompletion.create(myProject, Collections.emptyList(), false,
                                                           myRepository.getComponentName());
     return FormBuilder.createFormBuilder()
       .addLabeledComponent(myProductLabel, myProductInput)

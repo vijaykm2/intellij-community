@@ -26,7 +26,7 @@ import com.intellij.psi.util.PsiUtilCore;
  * @author Dennis.Ushakov
  */
 public abstract class MemberInfoBase<T extends PsiElement> {
-  protected static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.extractSuperclass.MemberInfo");
+  protected static final Logger LOG = Logger.getInstance(MemberInfoBase.class);
   private SmartPsiElementPointer<T> myMember;
   protected boolean isStatic;
   protected String displayName;
@@ -70,7 +70,9 @@ public abstract class MemberInfoBase<T extends PsiElement> {
 
   public T getMember() {
     T element = myMember.getElement();
-    PsiUtilCore.ensureValid(element);
+    if (element != null) {
+      PsiUtilCore.ensureValid(element);
+    }
     return element;
   }
 

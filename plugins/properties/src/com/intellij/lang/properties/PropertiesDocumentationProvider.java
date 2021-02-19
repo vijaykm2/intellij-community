@@ -26,6 +26,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.ui.GuiUtils;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -33,6 +34,7 @@ import org.jetbrains.annotations.Nullable;
 import java.awt.*;
 
 public class PropertiesDocumentationProvider extends AbstractDocumentationProvider {
+  @Override
   @Nullable
   public String getQuickNavigateInfo(PsiElement element, PsiElement originalElement) {
     if (element instanceof IProperty) {
@@ -52,9 +54,10 @@ public class PropertiesDocumentationProvider extends AbstractDocumentationProvid
     if (raw == null) {
       return "<i>empty</i>";
     }
-    return StringUtil.escapeXml(raw);
+    return StringUtil.escapeXmlEntities(raw);
   }
 
+  @Override
   public String generateDoc(final PsiElement element, @Nullable final PsiElement originalElement) {
     if (element instanceof IProperty) {
       IProperty property = (IProperty)element;
@@ -62,13 +65,19 @@ public class PropertiesDocumentationProvider extends AbstractDocumentationProvid
 
       @NonNls String info = "";
       if (text != null) {
-        TextAttributes attributes = EditorColorsManager.getInstance().getGlobalScheme().getAttributes(PropertiesHighlighter.PROPERTY_COMMENT).clone();
+        TextAttributes attributes = EditorColorsManager.getInstance().getGlobalScheme().getAttributes(PropertiesHighlighter.PropertiesComponent.PROPERTY_COMMENT.getTextAttributesKey()).clone();
         Color background = attributes.getBackgroundColor();
         if (background != null) {
           info +="<div bgcolor=#"+ GuiUtils.colorToHex(background)+">";
         }
-        String doc = StringUtil.join(StringUtil.split(text, "\n"), "<br>");
-        info += "<font color=#" + GuiUtils.colorToHex(attributes.getForegroundColor()) + ">" + doc + "</font>\n<br>";
+        String doc = StringUtil.join(ContainerUtil.map(StringUtil.split(text, "\n"), s -> {
+          final String trimHash = StringUtil.trimStart(s, PropertiesCommenter.HASH_COMMENT_PREFIX);
+          final String trimExclamation = StringUtil.trimStart(trimHash, PropertiesCommenter.EXCLAMATION_COMMENT_PREFIX);
+          return trimExclamation.trim();
+        }), "<br>");
+        final Color foreground = attributes.getForegroundColor();
+        info += foreground != null ? "<font color=#" + GuiUtils.colorToHex(foreground) + ">" + doc + "</font>" : doc;
+        info += "\n<br>";
         if (background != null) {
           info += "</div>";
         }

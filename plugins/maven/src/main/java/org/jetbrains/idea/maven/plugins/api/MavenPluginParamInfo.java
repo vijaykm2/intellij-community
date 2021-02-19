@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.plugins.api;
 
 import com.intellij.lang.Language;
@@ -24,7 +25,7 @@ import java.util.*;
 /**
  * @author Sergey Evdokimov
  */
-public class MavenPluginParamInfo {
+public final class MavenPluginParamInfo {
 
   private static final Logger LOG = Logger.getInstance(MavenPluginParamInfo.class);
 
@@ -37,7 +38,7 @@ public class MavenPluginParamInfo {
     Map<String, Map> res = myMap;
 
     if (res == null) {
-      res = new HashMap<String, Map>();
+      res = new HashMap<>();
 
       for (MavenPluginDescriptor pluginDescriptor : MavenPluginDescriptor.EP_NAME.getExtensions()) {
         if (pluginDescriptor.params == null) continue;
@@ -154,7 +155,7 @@ public class MavenPluginParamInfo {
         ParamInfo info = goalsMap.get(goal.getStringValue());
         if (info != null) {
           if (infos == null) {
-            infos = new SmartList<ParamInfo>();
+            infos = new SmartList<>();
           }
 
           infos.add(info);
@@ -181,7 +182,7 @@ public class MavenPluginParamInfo {
 
   public static class ParamInfoList implements Iterable<ParamInfo> {
 
-    private static final ParamInfoList EMPTY = new ParamInfoList(null, Collections.<ParamInfo>emptyList());
+    private static final ParamInfoList EMPTY = new ParamInfoList(null, Collections.emptyList());
 
     private final MavenDomConfiguration domCfg;
 
@@ -202,7 +203,7 @@ public class MavenPluginParamInfo {
     }
   }
 
-  public static class ParamInfo {
+  public static final class ParamInfo {
     private final ClassLoader myClassLoader;
 
     private final MavenPluginDescriptor.Param myParam;
@@ -313,7 +314,7 @@ public class MavenPluginParamInfo {
     }
   }
 
-  private static class PsiReferenceProviderWrapper implements MavenParamReferenceProvider, MavenSoftAwareReferenceProvider {
+  private static final class PsiReferenceProviderWrapper implements MavenParamReferenceProvider, MavenSoftAwareReferenceProvider {
 
     private final PsiReferenceProvider myProvider;
 

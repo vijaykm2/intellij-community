@@ -15,9 +15,9 @@
  */
 package org.jetbrains.plugins.groovy.codeInspection.control;
 
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.branch.GrContinueStatement;
@@ -25,23 +25,9 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.branch.GrContinueSta
 public class GroovyContinueInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONTROL_FLOW;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Continue statement";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "#ref statement #loc";
+    return GroovyBundle.message("inspection.message.ref.statement");
 
   }
 
@@ -54,7 +40,7 @@ public class GroovyContinueInspection extends BaseInspection {
   private static class Visitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitContinueStatement(GrContinueStatement continueStatement) {
+    public void visitContinueStatement(@NotNull GrContinueStatement continueStatement) {
       super.visitContinueStatement(continueStatement);
       registerError(continueStatement);
     }

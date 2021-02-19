@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.xml;
 
 import com.intellij.codeInsight.unwrap.LanguageUnwrappers;
@@ -28,15 +14,15 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.XmlChildRole;
 import com.intellij.psi.xml.XmlTag;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 
 public class XmlUnwrapDescriptor implements UnwrapDescriptor {
+  @NotNull
   @Override
-  public List<Pair<PsiElement, Unwrapper>> collectUnwrappers(Project project, Editor editor, PsiFile file) {
+  public List<Pair<PsiElement, Unwrapper>> collectUnwrappers(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file) {
     int offset = editor.getCaretModel().getOffset();
 
     PsiElement e1 = file.findElementAt(offset);
@@ -50,7 +36,7 @@ public class XmlUnwrapDescriptor implements UnwrapDescriptor {
       }
     }
 
-    List<Pair<PsiElement, Unwrapper>> result = new ArrayList<Pair<PsiElement, Unwrapper>>();
+    List<Pair<PsiElement, Unwrapper>> result = new ArrayList<>();
 
     FileViewProvider viewProvider = file.getViewProvider();
 
@@ -62,19 +48,14 @@ public class XmlUnwrapDescriptor implements UnwrapDescriptor {
         PsiElement tag = PsiTreeUtil.getParentOfType(e, XmlTag.class);
         while (tag != null) {
           if (XmlChildRole.START_TAG_NAME_FINDER.findChild(tag.getNode()) != null) { // Exclude implicit tags suck as 'jsp:root'
-            result.add(new Pair<PsiElement, Unwrapper>(tag, new XmlEnclosingTagUnwrapper()));
+            result.add(new Pair<>(tag, new XmlEnclosingTagUnwrapper()));
           }
           tag = PsiTreeUtil.getParentOfType(tag, XmlTag.class);
         }
       }
     }
 
-    Collections.sort(result, new Comparator<Pair<PsiElement, Unwrapper>>() {
-      @Override
-      public int compare(Pair<PsiElement, Unwrapper> o1, Pair<PsiElement, Unwrapper> o2) {
-        return o2.first.getTextOffset() - o1.first.getTextOffset();
-      }
-    });
+    result.sort((o1, o2) -> o2.first.getTextOffset() - o1.first.getTextOffset());
 
     return result;
   }

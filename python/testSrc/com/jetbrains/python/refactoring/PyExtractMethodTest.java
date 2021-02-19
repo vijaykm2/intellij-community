@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.refactoring;
 
 import com.intellij.lang.LanguageRefactoringSupport;
@@ -23,18 +9,9 @@ import com.jetbrains.python.fixtures.LightMarkedTestCase;
 import com.jetbrains.python.psi.LanguageLevel;
 import com.jetbrains.python.refactoring.extractmethod.PyExtractMethodUtil;
 
-/**
- * @author oleg
- */
 public class PyExtractMethodTest extends LightMarkedTestCase {
   private void doTest(String newName, LanguageLevel level) {
-    setLanguageLevel(level);
-    try {
-      doTest(newName);
-    }
-    finally {
-      setLanguageLevel(null);
-    }
+    runWithLanguageLevel(level, () -> doTest(newName));
   }
 
   private void doTest(String newName) {
@@ -102,11 +79,11 @@ public class PyExtractMethodTest extends LightMarkedTestCase {
   }
 
   public void testNameCollisionFile() {
-    doFail("hello", "Method name clashes with already existing name");
+    doFail("hello", "The method name clashes with an already existing name");
   }
 
   public void testNameCollisionSuperClass() {
-    doFail("hello", "Method name clashes with already existing name");
+    doFail("hello", "The method name clashes with an already existing name");
   }
 
   public void testOutNotEmptyStatements() {
@@ -134,11 +111,11 @@ public class PyExtractMethodTest extends LightMarkedTestCase {
   }
 
   public void testWrongSelectionIfPart() {
-    doFail("bar", "Cannot perform extract method using selected element(s)");
+    doFail("bar", "Cannot perform extract method using the selected element(s)");
   }
 
   public void testWrongSelectionFromImportStar() {
-    doFail("bar", "Cannot perform refactoring with star import statement inside code block");
+    doFail("bar", "Cannot perform refactoring with a star import statement inside a code block");
   }
 
   public void testPy479() {
@@ -231,22 +208,22 @@ public class PyExtractMethodTest extends LightMarkedTestCase {
 
   // PY-6625
   public void testNonlocal() {
-    doTest("baz", LanguageLevel.PYTHON30);
+    doTest("baz", LanguageLevel.PYTHON34);
   }
 
   // PY-7381
   public void testYield() {
-    doFail("bar", "Cannot perform refactoring with 'yield' statement inside code block");
+    doFail("bar", "Cannot perform refactoring with a 'yield' statement inside a code block");
   }
 
   // PY-7382
   public void testYield33() {
-    doTest("bar", LanguageLevel.PYTHON33);
+    doTest("bar", LanguageLevel.PYTHON34);
   }
 
   // PY-7399
   public void testYieldFrom33() {
-    doTest("bar", LanguageLevel.PYTHON33);
+    doTest("bar", LanguageLevel.PYTHON34);
   }
 
   public void testDuplicateSingleLine() {
@@ -276,6 +253,23 @@ public class PyExtractMethodTest extends LightMarkedTestCase {
 
   // PY-6620
   public void testProhibitedAtClassLevel() {
-    doFail("foo", "Cannot perform refactoring at class level");
+    doFail("foo", "Cannot perform refactoring at a class level");
+  }
+
+  public void testAsyncDef() {
+    doTest("bar", LanguageLevel.PYTHON35);
+  }
+
+  public void testAwaitExpression() {
+    doTest("bar", LanguageLevel.PYTHON35);
+  }
+
+  public void testCommentsPrecedingSourceStatement() {
+    doTest("func");
+  }
+
+  // PY-28972
+  public void testInterruptedOuterLoop() {
+    doFail("foo", "Cannot perform refactoring when execution flow is interrupted");
   }
 }

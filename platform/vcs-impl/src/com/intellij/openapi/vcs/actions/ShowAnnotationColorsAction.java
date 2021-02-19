@@ -16,32 +16,31 @@ import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.ToggleAction;
-import com.intellij.openapi.editor.ex.EditorGutterComponentEx;
+import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.vcs.VcsBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
-import java.util.List;
 
 /**
  * @author Konstantin Bulenkov
  */
-public class ShowAnnotationColorsAction extends ActionGroup {
+public class ShowAnnotationColorsAction extends ActionGroup implements DumbAware {
   private final AnAction[] myChildren;
 
-  public ShowAnnotationColorsAction(EditorGutterComponentEx gutter) {
-    super("Colors", true);
+  public ShowAnnotationColorsAction() {
+    super(VcsBundle.messagePointer("annotations.color.mode.group.colors"), true);
 
-    final ArrayList<AnAction> kids = new ArrayList<AnAction>(ShortNameType.values().length);
+    final ArrayList<AnAction> kids = new ArrayList<>(ShortNameType.values().length);
     for (ColorMode type : ColorMode.values()) {
-      kids.add(new SetColorModeAction(type, gutter));
+      kids.add(new SetColorModeAction(type));
     }
-    myChildren = kids.toArray(new AnAction[kids.size()]);
+    myChildren = kids.toArray(AnAction.EMPTY_ARRAY);
   }
 
-  @NotNull
   @Override
-  public AnAction[] getChildren(@Nullable AnActionEvent e) {
+  public AnAction @NotNull [] getChildren(@Nullable AnActionEvent e) {
     return myChildren;
   }
 
@@ -54,27 +53,26 @@ public class ShowAnnotationColorsAction extends ActionGroup {
     return ColorMode.ORDER;
   }
 
-  public static class SetColorModeAction extends ToggleAction {
+  private static class SetColorModeAction extends ToggleAction implements DumbAware {
     private final ColorMode myType;
-    private final EditorGutterComponentEx myGutter;
 
-    public SetColorModeAction(ColorMode type, EditorGutterComponentEx gutter) {
+    SetColorModeAction(ColorMode type) {
       super(type.getDescription());
       myType = type;
-      myGutter = gutter;
     }
 
     @Override
-    public boolean isSelected(AnActionEvent e) {
+    public boolean isSelected(@NotNull AnActionEvent e) {
       return myType == getType();
     }
 
     @Override
-    public void setSelected(AnActionEvent e, boolean enabled) {
+    public void setSelected(@NotNull AnActionEvent e, boolean enabled) {
       if (enabled) {
         myType.set();
       }
-      myGutter.revalidateMarkup();
+
+      AnnotateActionGroup.revalidateMarkupInAllEditors();
     }
   }
 }

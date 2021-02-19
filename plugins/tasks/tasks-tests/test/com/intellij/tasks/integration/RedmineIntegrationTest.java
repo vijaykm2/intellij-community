@@ -1,6 +1,6 @@
 package com.intellij.tasks.integration;
 
-import com.intellij.openapi.util.Condition;
+import com.intellij.configurationStore.XmlSerializer;
 import com.intellij.tasks.Task;
 import com.intellij.tasks.TaskBundle;
 import com.intellij.tasks.TaskManagerTestCase;
@@ -10,6 +10,8 @@ import com.intellij.tasks.redmine.RedmineRepository;
 import com.intellij.tasks.redmine.RedmineRepositoryType;
 import com.intellij.tasks.redmine.model.RedmineProject;
 import com.intellij.util.containers.ContainerUtil;
+import one.util.streamex.StreamEx;
+import org.jdom.Element;
 
 import java.util.List;
 
@@ -18,6 +20,7 @@ import java.util.List;
  */
 public class RedmineIntegrationTest extends TaskManagerTestCase {
   private static final String REDMINE_2_0_TEST_SERVER_URL = "http://trackers-tests.labs.intellij.net:8072";
+  private static final String API_ACCESS_KEY = "b60d03b2449869ee1a4ba331011a32e50475f820";
 
   private RedmineRepository myRepository;
 
@@ -76,7 +79,7 @@ public class RedmineIntegrationTest extends TaskManagerTestCase {
   // IDEA-122845
   // Redmine doesn't send 401 or 403 errors, when issues are downloaded with wrong credentials (and anonymous access is allowed),
   // so current user information is fetched instead.
-  public void testCredentialsCheck() throws Exception {
+  public void testCredentialsCheck() {
     myRepository.setPassword("wrong-password");
     try {
       //noinspection ConstantConditions
@@ -89,7 +92,7 @@ public class RedmineIntegrationTest extends TaskManagerTestCase {
   }
 
   // IDEA-138740
-  public void testProjectSpecificUrlCheck() throws Exception {
+  public void testProjectSpecificUrlCheck() {
     myRepository.setUrl(REDMINE_2_0_TEST_SERVER_URL + "/projects/prj-1");
     try {
       //noinspection ConstantConditions
@@ -111,18 +114,38 @@ public class RedmineIntegrationTest extends TaskManagerTestCase {
 
   public void testIssueFilteringByProject() throws Exception {
     final List<RedmineProject> allProjects = myRepository.fetchProjects();
-    final RedmineProject project = ContainerUtil.find(allProjects, new Condition<RedmineProject>() {
-      @Override
-      public boolean value(RedmineProject project) {
-        return project.getName().equals("With-Minus");
-      }
-    });
+    final RedmineProject project = ContainerUtil.find(allProjects, project1 -> project1.getName().equals("With-Minus"));
     assertNotNull(project);
     myRepository.setCurrentProject(project);
     final Task[] issues = myRepository.getIssues("", 0, 10, false);
     assertNotNull(issues);
     assertEquals(1, issues.length);
     assertEquals(issues[0].getSummary(), "This issue was created for project filtering tests. Do not change it.");
+  }
+
+  // ZD-611794
+  public void testSingleIssueRequestedWithApiKey() throws Exception {
+    myRepository.setUseHttpAuthentication(false);
+    myRepository.setAPIKey(API_ACCESS_KEY);
+    try {
+      assertNotNull(myRepository.findTask("1"));
+    }
+    finally {
+      myRepository.setAPIKey("");
+      myRepository.setUseHttpAuthentication(true);
+    }
+  }
+
+  // IDEA-200933
+  public void testUnspecifiedProjectIdSerialized() {
+    myRepository.setCurrentProject(RedmineRepository.UNSPECIFIED_PROJECT);
+    final List<Element> options = XmlSerializer.serialize(myRepository).getChildren("option");
+    final String serializedId = StreamEx.of(options)
+      .findFirst(elem -> "currentProject".equals(elem.getAttributeValue("name")))
+      .map(elem -> elem.getChild("RedmineProject"))
+      .map(elem -> elem.getAttributeValue("id"))
+      .orElse(null);
+    assertEquals("-1", serializedId);
   }
 
   @Override

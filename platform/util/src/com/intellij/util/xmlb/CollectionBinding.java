@@ -1,56 +1,61 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.xmlb;
 
+import com.intellij.serialization.ClassUtil;
+import com.intellij.serialization.MutableAccessor;
+import com.intellij.util.SmartList;
+import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.lang.reflect.ParameterizedType;
 import java.util.*;
 
-class CollectionBinding extends AbstractCollectionBinding  {
-  public CollectionBinding(@NotNull ParameterizedType type, @Nullable MutableAccessor accessor) {
-    super(XmlSerializerImpl.typeToClass(type.getActualTypeArguments()[0]), accessor);
+final class CollectionBinding extends AbstractCollectionBinding  {
+  CollectionBinding(@NotNull ParameterizedType type, @Nullable MutableAccessor accessor) {
+    super(ClassUtil.typeToClass(type.getActualTypeArguments()[0]), accessor);
   }
-  
-  @Override
-  Object processResult(Collection result, Object target) {
-    if (myAccessor == null) {
-      return result;
-    }
-    
-    assert target != null: "Null target in " + myAccessor;
-    assert target instanceof Collection : "Wrong target: " + target.getClass() + " in " + myAccessor;
-    Collection c = (Collection)target;
-    c.clear();
-    //noinspection unchecked
-    c.addAll(result);
 
-    return target;
+  @Override
+  protected @NotNull Object doDeserializeList(@Nullable Object context, @NotNull List<? extends Element> elements) {
+    Collection<Object> result;
+    boolean isContextMutable = context != null && ClassUtil.isMutableCollection(context);
+    if (isContextMutable) {
+      //noinspection unchecked
+      result = (Collection<Object>)context;
+      result.clear();
+    }
+    else {
+      result = context instanceof Set ? new HashSet<>() : new SmartList<>();
+    }
+
+    for (Element node : elements) {
+      result.add(deserializeItem(node, context));
+    }
+
+    return result;
   }
 
   @NotNull
   @Override
-  Collection<Object> getIterable(@NotNull Object o) {
-    //noinspection unchecked
-    return o instanceof Set ? new TreeSet((Set)o) : (Collection<Object>)o;
+  Collection<?> getIterable(@NotNull Object o) {
+    Collection<?> collection = (Collection<?>)o;
+    if (collection.size() < 2 || ((isSortOrderedSet() && o instanceof LinkedHashSet)) || o instanceof SortedSet) {
+      // no need to sort
+      return collection;
+    }
+    else if (o instanceof Set) {
+      List<?> result = new ArrayList<>(collection);
+      result.sort(null);
+      return result;
+    }
+    else {
+      return collection;
+    }
   }
 
   @Override
-  protected String getCollectionTagName(@Nullable final Object target) {
+  protected @NotNull String getCollectionTagName(@Nullable Object target) {
     if (target instanceof Set) {
       return Constants.SET;
     }
@@ -60,10 +65,5 @@ class CollectionBinding extends AbstractCollectionBinding  {
     else {
       return "collection";
     }
-  }
-
-  @Override
-  protected Collection createCollection(@NotNull String tagName) {
-    return tagName.equals(Constants.SET) ? new HashSet() : super.createCollection(tagName);
   }
 }

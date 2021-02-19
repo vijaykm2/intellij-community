@@ -1,20 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler.options;
 
+import com.intellij.codeInsight.NullableNotNullDialog;
+import com.intellij.codeInsight.NullableNotNullManager;
 import com.intellij.compiler.CompilerConfiguration;
 import com.intellij.compiler.CompilerConfigurationImpl;
 import com.intellij.compiler.CompilerWorkspaceConfiguration;
@@ -22,18 +10,19 @@ import com.intellij.compiler.MalformedPatternException;
 import com.intellij.compiler.impl.javaCompiler.javac.JavacConfiguration;
 import com.intellij.compiler.server.BuildManager;
 import com.intellij.ide.PowerSaveMode;
-import com.intellij.openapi.compiler.CompilerBundle;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.DocumentAdapter;
 import com.intellij.ui.Gray;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.RawCommandLineEditor;
 import com.intellij.ui.components.JBLabel;
-import com.intellij.util.containers.ContainerUtilRt;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.execution.ParametersListUtil;
 import com.intellij.xml.util.XmlStringUtil;
 import org.jetbrains.annotations.NotNull;
@@ -41,13 +30,13 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 import static com.intellij.compiler.options.CompilerOptionsFilter.Setting;
 
 public class CompilerUIConfigurable implements SearchableConfigurable, Configurable.NoScroll {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.compiler.options.CompilerUIConfigurable");
+  private static final Logger LOG = Logger.getInstance(CompilerUIConfigurable.class);
 
   private static final Set<Setting> EXTERNAL_BUILD_SETTINGS = EnumSet.of(
     Setting.EXTERNAL_BUILD, Setting.AUTO_MAKE, Setting.PARALLEL_COMPILATION, Setting.REBUILD_MODULE_ON_DEPENDENCY_CHANGE,
@@ -67,32 +56,49 @@ public class CompilerUIConfigurable implements SearchableConfigurable, Configura
   private JCheckBox            myCbDisplayNotificationPopup;
   private JCheckBox            myCbEnableAutomake;
   private JCheckBox            myCbParallelCompilation;
-  private JTextField           myHeapSizeField;
+  private JTextField           mySharedHeapSizeField;
   private JTextField           mySharedVMOptionsField;
+  private JTextField           myHeapSizeField;
   private JTextField           myVMOptionsField;
-  private JLabel               myHeapSizeLabel;
+  private JLabel               mySharedHeapSizeLabel;
   private JLabel               mySharedVMOptionsLabel;
+  private JLabel               myHeapSizeLabel;
   private JLabel               myVMOptionsLabel;
   private JCheckBox            myCbRebuildOnDependencyChange;
   private JLabel               myResourcePatternsLabel;
   private JLabel               myEnableAutomakeLegendLabel;
   private JLabel               myParallelCompilationLegendLabel;
+  private JButton              myConfigureAnnotations;
+  private JLabel myWarningLabel;
+  private JPanel myAssertNotNullPanel;
 
   public CompilerUIConfigurable(@NotNull final Project project) {
     myProject = project;
 
-    myPatternLegendLabel.setText(XmlStringUtil.wrapInHtml(
-                                   "Use <b>;</b> to separate patterns and <b>!</b> to negate a pattern. " +
-                                   "Accepted wildcards: <b>?</b> &mdash; exactly one symbol; <b>*</b> &mdash; zero or more symbols; " +
-                                   "<b>/</b> &mdash; path separator; <b>/**/</b> &mdash; any number of directories; " +
-                                   "<i>&lt;dir_name&gt;</i>:<i>&lt;pattern&gt;</i> &mdash; restrict to source roots with the specified name"
-    ));
+    myPatternLegendLabel.setText(XmlStringUtil.wrapInHtml(JavaCompilerBundle.message("compiler.ui.pattern.legend.text")));
+
+    /*"All source files located in the generated sources output directory WILL BE EXCLUDED from annotation processing. " +*/
+    myWarningLabel.setText(JavaCompilerBundle.message("settings.warning"));
+    myWarningLabel.setFont(myWarningLabel.getFont().deriveFont(Font.BOLD));
+
     myPatternLegendLabel.setForeground(new JBColor(Gray._50, Gray._130));
     tweakControls(project);
-    myVMOptionsField.getDocument().addDocumentListener(new DocumentAdapter() {
-      protected void textChanged(DocumentEvent e) {
-        mySharedVMOptionsField.setEnabled(e.getDocument().getLength() == 0);
+    DocumentAdapter updateStateListener = new DocumentAdapter() {
+      @Override
+      protected void textChanged(@NotNull DocumentEvent e) {
+        mySharedVMOptionsField.setEnabled(myVMOptionsField.getDocument().getLength() == 0);
+        mySharedHeapSizeField.setEnabled(
+          myHeapSizeField.getDocument().getLength() == 0 &&
+          ContainerUtil.find(ParametersListUtil.parse(myVMOptionsField.getText()),
+                             s -> StringUtil.startsWithIgnoreCase(s, "-Xmx")) == null
+        );
       }
+    };
+    myVMOptionsField.getDocument().addDocumentListener(updateStateListener);
+    myHeapSizeField.getDocument().addDocumentListener(updateStateListener);
+    myConfigureAnnotations.addActionListener(e -> {
+      NullableNotNullDialog.showDialogWithInstrumentationOptions(myPanel);
+      myCbAssertNotNull.setSelected(!NullableNotNullManager.getInstance(myProject).getInstrumentedNotNulls().isEmpty());
     });
   }
 
@@ -121,21 +127,19 @@ public class CompilerUIConfigurable implements SearchableConfigurable, Configura
         }
       }
     }
-    
-    Map<Setting, Collection<JComponent>> controls = ContainerUtilRt.newHashMap();
-    controls.put(Setting.RESOURCE_PATTERNS,
-                 ContainerUtilRt.<JComponent>newArrayList(myResourcePatternsLabel, myResourcePatternsField, myPatternLegendLabel));
-    controls.put(Setting.CLEAR_OUTPUT_DIR_ON_REBUILD, Collections.<JComponent>singleton(myCbClearOutputDirectory));
-    controls.put(Setting.ADD_NOT_NULL_ASSERTIONS, Collections.<JComponent>singleton(myCbAssertNotNull));
-    controls.put(Setting.AUTO_SHOW_FIRST_ERROR_IN_EDITOR, Collections.<JComponent>singleton(myCbAutoShowFirstError));
-    controls.put(Setting.DISPLAY_NOTIFICATION_POPUP, Collections.<JComponent>singleton(myCbDisplayNotificationPopup));
-    controls.put(Setting.AUTO_MAKE, ContainerUtilRt.<JComponent>newArrayList(myCbEnableAutomake, myEnableAutomakeLegendLabel));
-    controls.put(Setting.PARALLEL_COMPILATION,
-                 ContainerUtilRt.<JComponent>newArrayList(myCbParallelCompilation, myParallelCompilationLegendLabel));
-    controls.put(Setting.REBUILD_MODULE_ON_DEPENDENCY_CHANGE, ContainerUtilRt.<JComponent>newArrayList(myCbRebuildOnDependencyChange));
-    controls.put(Setting.HEAP_SIZE, ContainerUtilRt.<JComponent>newArrayList(myHeapSizeLabel, myHeapSizeField));
-    controls.put(Setting.COMPILER_VM_OPTIONS, ContainerUtilRt.<JComponent>newArrayList(myVMOptionsLabel, myVMOptionsField, mySharedVMOptionsLabel, mySharedVMOptionsField));
-    
+
+    Map<Setting, Collection<JComponent>> controls = new HashMap<>();
+    controls.put(Setting.RESOURCE_PATTERNS, ContainerUtil.newArrayList(myResourcePatternsLabel, myResourcePatternsField, myPatternLegendLabel));
+    controls.put(Setting.CLEAR_OUTPUT_DIR_ON_REBUILD, Collections.singleton(myCbClearOutputDirectory));
+    controls.put(Setting.ADD_NOT_NULL_ASSERTIONS, Collections.singleton(myAssertNotNullPanel));
+    controls.put(Setting.AUTO_SHOW_FIRST_ERROR_IN_EDITOR, Collections.singleton(myCbAutoShowFirstError));
+    controls.put(Setting.DISPLAY_NOTIFICATION_POPUP, Collections.singleton(myCbDisplayNotificationPopup));
+    controls.put(Setting.AUTO_MAKE, ContainerUtil.newArrayList(myCbEnableAutomake, myEnableAutomakeLegendLabel));
+    controls.put(Setting.PARALLEL_COMPILATION, ContainerUtil.newArrayList(myCbParallelCompilation, myParallelCompilationLegendLabel));
+    controls.put(Setting.REBUILD_MODULE_ON_DEPENDENCY_CHANGE, ContainerUtil.newArrayList(myCbRebuildOnDependencyChange));
+    controls.put(Setting.HEAP_SIZE, ContainerUtil.newArrayList(myHeapSizeLabel, myHeapSizeField, mySharedHeapSizeLabel, mySharedHeapSizeField));
+    controls.put(Setting.COMPILER_VM_OPTIONS, ContainerUtil.newArrayList(myVMOptionsLabel, myVMOptionsField, mySharedVMOptionsLabel, mySharedVMOptionsField));
+
     for (Setting setting : myDisabledSettings) {
       Collection<JComponent> components = controls.get(setting);
       if (components != null) {
@@ -146,6 +150,7 @@ public class CompilerUIConfigurable implements SearchableConfigurable, Configura
     }
   }
 
+  @Override
   public void reset() {
 
     final CompilerConfigurationImpl configuration = (CompilerConfigurationImpl)CompilerConfiguration.getInstance(myProject);
@@ -155,10 +160,12 @@ public class CompilerUIConfigurable implements SearchableConfigurable, Configura
     myCbClearOutputDirectory.setSelected(workspaceConfiguration.CLEAR_OUTPUT_DIRECTORY);
     myCbAssertNotNull.setSelected(configuration.isAddNotNullAssertions());
     myCbEnableAutomake.setSelected(workspaceConfiguration.MAKE_PROJECT_ON_SAVE);
-    myCbParallelCompilation.setSelected(workspaceConfiguration.PARALLEL_COMPILATION);
+    myCbParallelCompilation.setSelected(configuration.isParallelCompilationEnabled());
     myCbRebuildOnDependencyChange.setSelected(workspaceConfiguration.REBUILD_ON_DEPENDENCY_CHANGE);
+    int heapSize = workspaceConfiguration.COMPILER_PROCESS_HEAP_SIZE;
+    myHeapSizeField.setText(heapSize > 0 ? String.valueOf(heapSize) : "");
     final int javacPreferred = JavacConfiguration.getOptions(myProject, JavacConfiguration.class).MAXIMUM_HEAP_SIZE; // for compatibility with older projects
-    myHeapSizeField.setText(String.valueOf(configuration.getBuildProcessHeapSize(javacPreferred)));
+    mySharedHeapSizeField.setText(String.valueOf(configuration.getBuildProcessHeapSize(javacPreferred)));
     final String options = workspaceConfiguration.COMPILER_PROCESS_ADDITIONAL_VM_OPTIONS;
     myVMOptionsField.setText(options == null ? "" : options.trim());
     mySharedVMOptionsField.setText(configuration.getBuildProcessVMOptions());
@@ -168,10 +175,11 @@ public class CompilerUIConfigurable implements SearchableConfigurable, Configura
     myResourcePatternsField.setText(patternsToString(configuration.getResourceFilePatterns()));
 
     if (PowerSaveMode.isEnabled()) {
-      myEnableAutomakeLegendLabel.setText("(disabled in Power Save mode)");
+      myEnableAutomakeLegendLabel.setText(JavaCompilerBundle.message("disabled.in.power.save.mode"));
       myEnableAutomakeLegendLabel.setFont(myEnableAutomakeLegendLabel.getFont().deriveFont(Font.BOLD));
-    } else {
-      myEnableAutomakeLegendLabel.setText("(only works while not running / debugging)");
+    }
+    else {
+      myEnableAutomakeLegendLabel.setText(JavaCompilerBundle.message("only.works.while.not.running.debugging"));
       myEnableAutomakeLegendLabel.setFont(myEnableAutomakeLegendLabel.getFont().deriveFont(Font.PLAIN));
     }
   }
@@ -187,6 +195,7 @@ public class CompilerUIConfigurable implements SearchableConfigurable, Configura
     return extensionsString.toString();
   }
 
+  @Override
   public void apply() throws ConfigurationException {
 
     CompilerConfigurationImpl configuration = (CompilerConfigurationImpl)CompilerConfiguration.getInstance(myProject);
@@ -204,15 +213,17 @@ public class CompilerUIConfigurable implements SearchableConfigurable, Configura
       if (!myDisabledSettings.contains(Setting.AUTO_MAKE)) {
         workspaceConfiguration.MAKE_PROJECT_ON_SAVE = myCbEnableAutomake.isSelected();
       }
-      if (!myDisabledSettings.contains(Setting.PARALLEL_COMPILATION)) {
-        workspaceConfiguration.PARALLEL_COMPILATION = myCbParallelCompilation.isSelected();
+      if (!myDisabledSettings.contains(Setting.PARALLEL_COMPILATION) && configuration.isParallelCompilationEnabled() != myCbParallelCompilation.isSelected()) {
+        configuration.setParallelCompilationEnabled(myCbParallelCompilation.isSelected());
       }
       if (!myDisabledSettings.contains(Setting.REBUILD_MODULE_ON_DEPENDENCY_CHANGE)) {
         workspaceConfiguration.REBUILD_ON_DEPENDENCY_CHANGE = myCbRebuildOnDependencyChange.isSelected();
       }
       if (!myDisabledSettings.contains(Setting.HEAP_SIZE)) {
         try {
-          configuration.setBuildProcessHeapSize(Integer.parseInt(myHeapSizeField.getText().trim()));
+          String heapSizeText = myHeapSizeField.getText().trim();
+          workspaceConfiguration.COMPILER_PROCESS_HEAP_SIZE = heapSizeText.isEmpty() ? 0 : Integer.parseInt(heapSizeText);
+          configuration.setBuildProcessHeapSize(Integer.parseInt(mySharedHeapSizeField.getText().trim()));
         }
         catch (NumberFormatException ignored) {
           LOG.info(ignored);
@@ -230,16 +241,18 @@ public class CompilerUIConfigurable implements SearchableConfigurable, Configura
     if (!myDisabledSettings.contains(Setting.RESOURCE_PATTERNS)) {
       configuration.removeResourceFilePatterns();
       String extensionString = myResourcePatternsField.getText().trim();
-      applyResourcePatterns(extensionString, (CompilerConfigurationImpl)CompilerConfiguration.getInstance(myProject));
+      applyResourcePatterns(extensionString, configuration);
     }
-    
-    BuildManager.getInstance().clearState(myProject);
+
+    if (!myProject.isDefault()) {
+      BuildManager.getInstance().clearState(myProject);
+    }
   }
 
-  private static void applyResourcePatterns(String extensionString, final CompilerConfigurationImpl configuration)
+  public static void applyResourcePatterns(String extensionString, final CompilerConfigurationImpl configuration)
     throws ConfigurationException {
     StringTokenizer tokenizer = new StringTokenizer(extensionString, ";", false);
-    List<String[]> errors = new ArrayList<String[]>();
+    List<String[]> errors = new ArrayList<>();
 
     while (tokenizer.hasMoreTokens()) {
       String namePattern = tokenizer.nextToken();
@@ -262,12 +275,15 @@ public class CompilerUIConfigurable implements SearchableConfigurable, Configura
       }
 
       throw new ConfigurationException(
-        CompilerBundle.message("error.compiler.configurable.malformed.patterns", pattersnsWithErrors.toString()), CompilerBundle.message("bad.resource.patterns.dialog.title")
+        JavaCompilerBundle.message("error.compiler.configurable.malformed.patterns", pattersnsWithErrors.toString()), JavaCompilerBundle
+        .message("bad.resource.patterns.dialog.title")
       );
     }
   }
 
+  @Override
   public boolean isModified() {
+    final CompilerConfiguration configuration = CompilerConfiguration.getInstance(myProject);
     final CompilerWorkspaceConfiguration workspaceConfiguration = CompilerWorkspaceConfiguration.getInstance(myProject);
     boolean isModified = !myDisabledSettings.contains(Setting.AUTO_SHOW_FIRST_ERROR_IN_EDITOR)
                          && ComparingUtils.isModified(myCbAutoShowFirstError, workspaceConfiguration.AUTO_SHOW_ERRORS_IN_EDITOR);
@@ -276,15 +292,17 @@ public class CompilerUIConfigurable implements SearchableConfigurable, Configura
     isModified |= !myDisabledSettings.contains(Setting.AUTO_MAKE)
                   && ComparingUtils.isModified(myCbEnableAutomake, workspaceConfiguration.MAKE_PROJECT_ON_SAVE);
     isModified |= !myDisabledSettings.contains(Setting.PARALLEL_COMPILATION)
-                  && ComparingUtils.isModified(myCbParallelCompilation, workspaceConfiguration.PARALLEL_COMPILATION);
+                  && ComparingUtils.isModified(myCbParallelCompilation, configuration.isParallelCompilationEnabled());
     isModified |= !myDisabledSettings.contains(Setting.REBUILD_MODULE_ON_DEPENDENCY_CHANGE)
                   && ComparingUtils.isModified(myCbRebuildOnDependencyChange, workspaceConfiguration.REBUILD_ON_DEPENDENCY_CHANGE);
+    isModified |= !myDisabledSettings.contains(Setting.HEAP_SIZE)
+                  && ComparingUtils.isModified(myHeapSizeField, 0, workspaceConfiguration.COMPILER_PROCESS_HEAP_SIZE);
     isModified |= !myDisabledSettings.contains(Setting.COMPILER_VM_OPTIONS)
                   && ComparingUtils.isModified(myVMOptionsField, workspaceConfiguration.COMPILER_PROCESS_ADDITIONAL_VM_OPTIONS);
 
     final CompilerConfigurationImpl compilerConfiguration = (CompilerConfigurationImpl)CompilerConfiguration.getInstance(myProject);
     isModified |= !myDisabledSettings.contains(Setting.HEAP_SIZE)
-                  && ComparingUtils.isModified(myHeapSizeField, compilerConfiguration.getBuildProcessHeapSize(0));
+                  && ComparingUtils.isModified(mySharedHeapSizeField, compilerConfiguration.getBuildProcessHeapSize(0));
     isModified |= !myDisabledSettings.contains(Setting.COMPILER_VM_OPTIONS)
                   && ComparingUtils.isModified(mySharedVMOptionsField, compilerConfiguration.getBuildProcessVMOptions());
     isModified |= !myDisabledSettings.contains(Setting.ADD_NOT_NULL_ASSERTIONS)
@@ -297,28 +315,25 @@ public class CompilerUIConfigurable implements SearchableConfigurable, Configura
     return isModified;
   }
 
+  @Override
   public String getDisplayName() {
-    return "General";
+    return JavaCompilerBundle.message("configurable.CompilerUIConfigurable.display.name");
   }
 
+  @Override
   public String getHelpTopic() {
     return null;
   }
 
+  @Override
   @NotNull
   public String getId() {
     return "compiler.general";
   }
 
-  public Runnable enableSearch(String option) {
-    return null;
-  }
-
+  @Override
   public JComponent createComponent() {
     return myPanel;
-  }
-
-  public void disposeUIResources() {
   }
 
   private void createUIComponents() {

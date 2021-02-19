@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.impl.softwrap;
 
 import com.intellij.openapi.editor.SoftWrap;
 import com.intellij.openapi.editor.SoftWrapModel;
+import com.intellij.openapi.editor.VisualPosition;
 import com.intellij.openapi.editor.impl.CaretImpl;
 import com.intellij.openapi.editor.impl.EditorImpl;
 
@@ -24,9 +11,8 @@ import com.intellij.openapi.editor.impl.EditorImpl;
  * Holds utility methods for soft wraps-related processing.
  *
  * @author Denis Zhdanov
- * @since Aug 11, 2010 11:03:43 AM
  */
-public class SoftWrapHelper {
+public final class SoftWrapHelper {
 
   private SoftWrapHelper() {
   }
@@ -44,8 +30,7 @@ public class SoftWrapHelper {
    * This method allows to answer if caret offset of the given editor points to soft wrap and visual caret position
    * belongs to the visual line where soft wrap end is located.
    *
-   * @param editor    target editor
-   * @return          <code>true</code> if caret offset of the given editor points to visual position that belongs to
+   * @return          {@code true} if caret offset of the given editor points to visual position that belongs to
    *                  visual line where soft wrap end is located
    */
   public static boolean isCaretAfterSoftWrap(CaretImpl caret) {
@@ -60,6 +45,8 @@ public class SoftWrapHelper {
       return false;
     }
 
-    return editor.offsetToVisualLine(offset) == caret.getVisualPosition().line;
+    VisualPosition afterWrapPosition = editor.offsetToVisualPosition(offset, false, false);
+    VisualPosition caretPosition = caret.getVisualPosition();
+    return caretPosition.line == afterWrapPosition.line && caretPosition.column <= afterWrapPosition.column;
   }
 }

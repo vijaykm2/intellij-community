@@ -22,7 +22,7 @@ import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.TextRange;
 
 public class InlineFragment implements Fragment {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.diff.impl.fragments.InlineFragment");
+  private static final Logger LOG = Logger.getInstance(InlineFragment.class);
   private final TextRange myRange1;
   private final TextRange myRange2;
   private final TextDiffTypeEnum myType;
@@ -58,7 +58,7 @@ public class InlineFragment implements Fragment {
   }
 
   @Override
-  public Fragment getSubfragmentAt(int offset, FragmentSide side, Condition<Fragment> condition) {
+  public Fragment getSubfragmentAt(int offset, FragmentSide side, Condition<? super Fragment> condition) {
     LOG.assertTrue(getRange(side).getStartOffset() <= offset &&
                    offset < getRange(side).getEndOffset() &&
                    condition.value(this));

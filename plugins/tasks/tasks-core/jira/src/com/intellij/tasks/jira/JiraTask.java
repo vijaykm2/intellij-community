@@ -1,8 +1,12 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.jira;
 
+import com.intellij.icons.AllIcons;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.tasks.*;
-import icons.TasksIcons;
+import com.intellij.ui.DeferredIconImpl;
+import com.intellij.util.ObjectUtils;
+import icons.TasksCoreIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -17,21 +21,28 @@ import java.util.Date;
  */
 public abstract class JiraTask extends Task {
   protected final TaskRepository myRepository;
+  // Deferred icon must be stored as a field because otherwise it's going to initiate repainting 
+  // of the containing component and will be re-built anew indefinitely.
+  // It can be accessed not only in EDT, e.g. to get completion items for tasks.
+  private volatile Icon myIcon;
 
   protected JiraTask(@NotNull TaskRepository repository) {
     myRepository = repository;
   }
 
+  @Override
   @NotNull
   public abstract String getId();
 
+  @Override
   @NotNull
   public abstract String getSummary();
 
+  @Override
   public abstract String getDescription();
 
-  @NotNull
-  public abstract Comment[] getComments();
+  @Override
+  public abstract Comment @NotNull [] getComments();
 
   // iconUrl will be null in JIRA versions prior 5.x.x
   @Nullable
@@ -59,7 +70,17 @@ public abstract class JiraTask extends Task {
   @Override
   @NotNull
   public final Icon getIcon() {
-    return getIconByUrl(getIconUrl());
+    if (myIcon == null) {
+      // getIconUrl() shouldn't be called before the instance is properly initialized
+      final String iconUrl = getIconUrl();
+      if (StringUtil.isEmpty(iconUrl)) {
+        myIcon = TasksCoreIcons.Jira;
+      }
+      else {
+        myIcon = new DeferredIconImpl<>(TasksCoreIcons.Jira, iconUrl, false, JiraTask::getIconByUrl);
+      }
+    }
+    return myIcon;
   }
 
   @Nullable
@@ -73,6 +94,7 @@ public abstract class JiraTask extends Task {
     return getState() == TaskState.RESOLVED;
   }
 
+  @Override
   public final boolean isIssue() {
     return true;
   }
@@ -85,18 +107,8 @@ public abstract class JiraTask extends Task {
    * @return task con.
    */
   @NotNull
-  protected final Icon getIconByUrl(@Nullable String iconUrl) {
-    if (StringUtil.isEmpty(iconUrl)) {
-      return TasksIcons.Jira;
-    }
-    Icon icon;
-    if (isClosed()) {
-      icon = CachedIconLoader.getDisabledIcon(iconUrl);
-    }
-    else {
-      icon = CachedIconLoader.getIcon(iconUrl);
-    }
-    return icon != null ? icon : TasksIcons.Other;
+  protected static Icon getIconByUrl(@Nullable String iconUrl) {
+    return ObjectUtils.notNull(CachedIconLoader.getIcon(iconUrl), AllIcons.FileTypes.Any_type);
   }
 
   /**
@@ -127,7 +139,7 @@ public abstract class JiraTask extends Task {
    * Map task's type name in JIRA's API to corresponding {@link TaskType} item.
    *
    * @param type issue's type name
-   * @return {@link TaskType} item or {@link TaskType.OTHER}, if none matches
+   * @return {@link TaskType} item or {@link TaskType#OTHER}, if none matches
    */
   @SuppressWarnings("MethodMayBeStatic")
   protected final TaskType getTypeByName(@Nullable String type) {

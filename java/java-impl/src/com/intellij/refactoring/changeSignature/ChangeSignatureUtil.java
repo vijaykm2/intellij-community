@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.changeSignature;
 
 import com.intellij.lang.LanguageRefactoringSupport;
+import com.intellij.lang.refactoring.RefactoringSupportProvider;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.psi.JavaTokenType;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMethod;
@@ -30,11 +16,12 @@ import com.intellij.util.IncorrectOperationException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * @author dsl
  */
-public class ChangeSignatureUtil {
+public final class ChangeSignatureUtil {
   private ChangeSignatureUtil() { }
 
   public interface ChildrenGenerator<Parent extends PsiElement, Child extends PsiElement> {
@@ -43,7 +30,7 @@ public class ChangeSignatureUtil {
 
   public static <Parent extends PsiElement, Child extends PsiElement> void synchronizeList(
     Parent list,
-    List<Child> newElements,
+    List<? extends Child> newElements,
     ChildrenGenerator<Parent, Child> generator,
     boolean[] shouldRemoveChild) throws IncorrectOperationException
   {
@@ -56,7 +43,7 @@ public class ChangeSignatureUtil {
       if (index == newElements.size()) break;
 
       if (elementsToRemove == null) {
-        elementsToRemove = new ArrayList<Child>();
+        elementsToRemove = new ArrayList<>();
         for (int i = 0; i < shouldRemoveChild.length; i++) {
           if (shouldRemoveChild[i] && i < elements.size()) {
             elementsToRemove.add(elements.get(i));
@@ -110,7 +97,8 @@ public class ChangeSignatureUtil {
   }
 
   public static void invokeChangeSignatureOn(PsiMethod method, Project project) {
-    ChangeSignatureHandler handler = LanguageRefactoringSupport.INSTANCE.forLanguage(method.getLanguage()).getChangeSignatureHandler();
+    RefactoringSupportProvider provider = LanguageRefactoringSupport.INSTANCE.forContext(method);
+    ChangeSignatureHandler handler = provider != null ? provider.getChangeSignatureHandler() : null;
     if (handler != null) {
       handler.invoke(project, new PsiElement[]{method}, null);
     }
@@ -119,6 +107,6 @@ public class ChangeSignatureUtil {
   public static boolean deepTypeEqual(PsiType type1, PsiType type2) {
     if (type1 == type2) return true;
     if (type1 == null || !type1.equals(type2)) return false;
-    return Comparing.equal(type1.getCanonicalText(true), type2.getCanonicalText(true));
+    return Objects.equals(type1.getCanonicalText(true), type2.getCanonicalText(true));
   }
 }

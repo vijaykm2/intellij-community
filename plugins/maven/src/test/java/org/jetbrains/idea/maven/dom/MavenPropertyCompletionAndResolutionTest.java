@@ -1,35 +1,26 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.dom;
 
 import com.intellij.codeInsight.completion.CompletionType;
 import com.intellij.lang.properties.IProperty;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.xml.XmlTag;
-import org.jetbrains.idea.maven.dom.model.MavenDomProfiles;
-import org.jetbrains.idea.maven.dom.model.MavenDomProfilesModel;
-import org.jetbrains.idea.maven.dom.model.MavenDomSettingsModel;
+import com.intellij.testFramework.TemporaryDirectory;
+import org.jetbrains.idea.maven.MavenCustomRepositoryHelper;
+import org.jetbrains.idea.maven.dom.converters.MavenDependencyCompletionUtil;
+import org.jetbrains.idea.maven.dom.model.*;
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles;
+import org.jetbrains.idea.maven.utils.Path;
 import org.jetbrains.idea.maven.vfs.MavenPropertiesVirtualFileSystem;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 
@@ -236,6 +227,7 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>parent</artifactId>" +
                      "<version>1</version>" +
+                     "<packaging>pom</packaging>" +
 
                      "<build>" +
                      " <directory>dir</directory>" +
@@ -716,6 +708,53 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
     assertResolved(myProjectPom, findTag(parent, "project.properties.foo"));
   }
 
+
+  public void testImportDependencyChainedProperty() throws IOException {
+    MavenCustomRepositoryHelper helper = new MavenCustomRepositoryHelper(myDir, "local1");
+    setRepositoryPath(helper.getTestDataPath("local1"));
+    VfsUtil.markDirtyAndRefresh(false, true, true, LocalFileSystem.getInstance().findFileByIoFile(getRepositoryFile()));
+
+    createProjectPom("<groupId>test</groupId>" +
+                     "<artifactId>project</artifactId>" +
+                     "<version>1</version>" +
+                     "<modules>" +
+                     "   <module>m1</module>" +
+                     "</modules>" +
+                     "<dependencyManagement>" +
+                     "    <dependencies>" +
+                     "        <dependency>" +
+                     "            <groupId>org.deptest</groupId>" +
+                     "            <artifactId>bom-depparent</artifactId>" +
+                     "            <version>1.0</version>" +
+                     "            <type>pom</type>" +
+                     "            <scope>import</scope>" +
+                     "        </dependency>" +
+                     "    </dependencies>" +
+                     "</dependencyManagement>");
+
+    createModulePom("m1", "<parent>" +
+                          "    <groupId>test</groupId>" +
+                          "    <artifactId>project</artifactId>" +
+                          "    " +
+                          "    <version>1</version>" +
+                          "  </parent>" +
+                          "<artifactId>m1</artifactId>" +
+                          "<dependencies>" +
+                          "  <dependency>" +
+                          "    <groupId>org.example</groupId>" +
+                          "    <artifactId>something</artifactId>" +
+                          "  </dependency>" +
+                          "</dependencies>");
+    importProject();
+
+
+    MavenDomProjectModel model = MavenDomUtil.getMavenDomModel(myProject, myProjectPom, MavenDomProjectModel.class);
+
+    MavenDomDependency dependency = MavenDependencyCompletionUtil.findManagedDependency(model, myProject, "org.example", "something");
+    assertNotNull(dependency);
+    assertEquals("42", dependency.getVersion().getStringValue());
+  }
+
   public void testSystemProperties() throws Exception {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
@@ -736,7 +775,7 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
     assertResolved(myProjectPom, MavenPropertiesVirtualFileSystem.getInstance().findEnvProperty(myProject, getEnvVar()).getPsiElement());
   }
 
-  public void testUpperCaseEnvPropertiesOnWindows() throws Exception {
+  public void testUpperCaseEnvPropertiesOnWindows() {
     if (!SystemInfo.isWindows) return;
 
     createProjectPom("<groupId>test</groupId>" +
@@ -776,7 +815,7 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
     assertUnresolved(myProjectPom);
   }
 
-  public void testHighlightUnresolvedProperties() throws Exception {
+  public void testHighlightUnresolvedProperties() {
     createProjectPom("<groupId>test</groupId>\n" +
                      "<artifactId>child</artifactId>\n" +
                      "<version>1</version>\n" +
@@ -898,7 +937,7 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
     assertContain(variants, "user.home", "env." + getEnvVar());
   }
 
-  public void testDoNotIncludeCollectionPropertiesInCompletion() throws Exception {
+  public void testDoNotIncludeCollectionPropertiesInCompletion() {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
                      "<version>1</version>" +
@@ -906,7 +945,7 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
     assertCompletionVariantsDoNotInclude(myProjectPom, "project.dependencies", "env.\\=C\\:", "idea.config.path");
   }
 
-  public void testCompletingAfterOpenBrace() throws Exception {
+  public void testCompletingAfterOpenBrace() {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
                      "<version>1</version>" +
@@ -915,7 +954,7 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
     assertCompletionVariantsInclude(myProjectPom, "project.groupId", "groupId");
   }
 
-  public void testCompletingAfterOpenBraceInOpenTag() throws Exception {
+  public void testCompletingAfterOpenBraceInOpenTag() {
     if (ignore()) return;
 
     createProjectPom("<groupId>test</groupId>" +
@@ -926,7 +965,7 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
     assertCompletionVariantsInclude(myProjectPom, "project.groupId", "groupId");
   }
 
-  public void testCompletingAfterOpenBraceAndSomeText() throws Exception {
+  public void testCompletingAfterOpenBraceAndSomeText() {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
                      "<version>1</version>" +
@@ -937,7 +976,7 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
     assertDoNotContain(variants, "groupId");
   }
 
-  public void testCompletingAfterOpenBraceAndSomeTextWithDot() throws Exception {
+  public void testCompletingAfterOpenBraceAndSomeTextWithDot() {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
                      "<version>1</version>" +
@@ -948,7 +987,7 @@ public class MavenPropertyCompletionAndResolutionTest extends MavenDomTestCase {
     assertDoNotContain(variants, "project.name");
   }
 
-  public void testDoNotCompleteAfterNonWordCharacter() throws Exception {
+  public void testDoNotCompleteAfterNonWordCharacter() {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
                      "<version>1</version>" +

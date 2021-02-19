@@ -15,17 +15,15 @@
  */
 package com.intellij.xdebugger.impl.actions;
 
-import org.jetbrains.annotations.NotNull;
 import com.intellij.xdebugger.impl.DebuggerSupport;
+import org.jetbrains.annotations.NotNull;
 
-/**
- * @author nik
- */
 public class RunToCursorAction extends XDebuggerActionBase {
   public RunToCursorAction() {
     super(true);
   }
 
+  @Override
   @NotNull
   protected DebuggerActionHandler getHandler(@NotNull final DebuggerSupport debuggerSupport) {
     return debuggerSupport.getRunToCursorHandler();

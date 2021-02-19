@@ -16,11 +16,8 @@
 package hg4idea.test.validator;
 
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.ui.UIUtil;
 import hg4idea.test.HgPlatformTest;
-import hg4idea.test.HgTestUtil;
 import org.jetbrains.annotations.NotNull;
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -45,12 +42,8 @@ public class HgReferenceValidatorTest extends HgPlatformTest {
   @NotNull private final String myBranchName;
   private final boolean myExpected;
 
-
-  @Override
   @Before
-  public void setUp() throws Exception {
-    super.setUp();
-    HgTestUtil.updateDirectoryMappings(myProject, myRepository);
+  public void before() {
     HgRepository hgRepository = HgRepositoryImpl.getInstance(myRepository, myProject, myProject);
     assertNotNull(hgRepository);
     myValidator = new HgBranchReferenceValidator(hgRepository);
@@ -63,23 +56,7 @@ public class HgReferenceValidatorTest extends HgPlatformTest {
     hgRepository.update();
   }
 
-  @Override
-  @After
-  public void tearDown() throws Exception {
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          HgReferenceValidatorTest.super.tearDown();
-        }
-        catch (Exception e) {
-          throw new RuntimeException(e);
-        }
-      }
-    });
-  }
-
-  @SuppressWarnings({"JUnitTestCaseWithNonTrivialConstructors", "UnusedParameters"})
+  @SuppressWarnings({"JUnitTestCaseWithNonTrivialConstructors"})
   public HgReferenceValidatorTest(@NotNull String name, @NotNull String branchName, boolean expected) {
     myBranchName = branchName;
     myExpected = expected;

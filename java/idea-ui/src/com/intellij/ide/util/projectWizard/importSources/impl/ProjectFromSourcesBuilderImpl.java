@@ -1,37 +1,21 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.projectWizard.importSources.impl;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeBundle;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.util.importProject.LibraryDescriptor;
 import com.intellij.ide.util.importProject.ModuleDescriptor;
 import com.intellij.ide.util.importProject.ModuleInsight;
 import com.intellij.ide.util.importProject.ProjectDescriptor;
-import com.intellij.ide.util.newProjectWizard.modes.ImportImlMode;
 import com.intellij.ide.util.projectWizard.ExistingModuleLoader;
 import com.intellij.ide.util.projectWizard.ModuleBuilder;
 import com.intellij.ide.util.projectWizard.WizardContext;
 import com.intellij.ide.util.projectWizard.importSources.*;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.*;
-import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.SdkTypeId;
 import com.intellij.openapi.roots.*;
@@ -47,9 +31,11 @@ import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.packaging.artifacts.ModifiableArtifactModel;
 import com.intellij.projectImport.ProjectImportBuilder;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.MultiMap;
 import org.jdom.Element;
 import org.jdom.JDOMException;
@@ -63,15 +49,13 @@ import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Jul 17, 2007
  */
-public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implements ProjectFromSourcesBuilder {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.util.projectWizard.importSources.impl.ProjectFromSourcesBuilderImpl");
-  private static final String NAME = "Existing Sources";
+public final class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implements ProjectFromSourcesBuilder {
+  private static final Logger LOG = Logger.getInstance(ProjectFromSourcesBuilderImpl.class);
   private String myBaseProjectPath;
-  private final List<ProjectConfigurationUpdater> myUpdaters = new ArrayList<ProjectConfigurationUpdater>();
-  private final Map<ProjectStructureDetector, ProjectDescriptor> myProjectDescriptors = new LinkedHashMap<ProjectStructureDetector, ProjectDescriptor>();
-  private MultiMap<ProjectStructureDetector, DetectedProjectRoot> myRoots = MultiMap.emptyInstance();
+  private final List<ProjectConfigurationUpdater> myUpdaters = new ArrayList<>();
+  private final Map<ProjectStructureDetector, ProjectDescriptor> myProjectDescriptors = new LinkedHashMap<>();
+  private MultiMap<ProjectStructureDetector, DetectedProjectRoot> myRoots = MultiMap.empty();
   private final WizardContext myContext;
   private final ModulesProvider myModulesProvider;
   private Set<String> myModuleNames;
@@ -89,7 +73,7 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
   @Override
   public Set<String> getExistingModuleNames() {
     if (myModuleNames == null) {
-      myModuleNames = new HashSet<String>();
+      myModuleNames = new HashSet<>();
       for (Module module : myModulesProvider.getModules()) {
         myModuleNames.add(module.getName());
       }
@@ -101,7 +85,7 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
   @Override
   public Set<String> getExistingProjectLibraryNames() {
     if (myProjectLibrariesNames == null) {
-      myProjectLibrariesNames = new HashSet<String>();
+      myProjectLibrariesNames = new HashSet<>();
       final LibrariesContainer container = LibrariesContainerFactory.createContainer(myContext, myModulesProvider);
       for (Library library : container.getLibraries(LibrariesContainer.LibraryLevel.PROJECT)) {
         myProjectLibrariesNames.add(library.getName());
@@ -141,7 +125,7 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
   @NotNull
   @Override
   public String getName() {
-    return NAME;
+    return JavaUiBundle.message("existing.sources");
   }
 
   @Override
@@ -150,74 +134,76 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
   }
 
   @Override
-  public List getList() {
-    return null;
-  }
-
-  @Override
   public boolean isMarked(Object element) {
     return false;
-  }
-
-  @Override
-  public void setList(List list) throws ConfigurationException {
   }
 
   @Override
   public void setOpenProjectSettingsAfter(boolean on) {
   }
 
-  public void setFileToImport(String path) {
+  @Override
+  public void setFileToImport(@NotNull String path) {
     setBaseProjectPath(path);
   }
 
-  public List<Module> commit(@NotNull final Project project, final ModifiableModuleModel model, final ModulesProvider modulesProvider) {
-    final boolean fromProjectStructure = model != null;
+  @Override
+  public List<Module> commit(@NotNull Project project, ModifiableModuleModel model, ModulesProvider modulesProvider) {
+    boolean fromProjectStructure = model != null;
     ModifiableModelsProvider modelsProvider = new IdeaModifiableModelsProvider();
-    final LibraryTable.ModifiableModel projectLibraryTable = modelsProvider.getLibraryTableModifiableModel(project);
-    final Map<LibraryDescriptor, Library> projectLibs = new HashMap<LibraryDescriptor, Library>();
-    final List<Module> result = new ArrayList<Module>();
+    LibraryTable.ModifiableModel projectLibraryTable = modelsProvider.getLibraryTableModifiableModel(project);
+    Map<LibraryDescriptor, Library> projectLibs = new HashMap<>();
+    List<Module> result = new ArrayList<>();
     try {
-      AccessToken token = WriteAction.start();
-      try {
+      WriteAction.run(() -> {
         // create project-level libraries
         for (ProjectDescriptor projectDescriptor : getSelectedDescriptors()) {
           for (LibraryDescriptor lib : projectDescriptor.getLibraries()) {
-              final Collection<File> files = lib.getJars();
-              final Library projectLib = projectLibraryTable.createLibrary(lib.getName());
-              final Library.ModifiableModel libraryModel = projectLib.getModifiableModel();
-              for (File file : files) {
-                libraryModel.addRoot(VfsUtil.getUrlForLibraryRoot(file), OrderRootType.CLASSES);
-              }
-              libraryModel.commit();
-              projectLibs.put(lib, projectLib);
+            final Collection<File> files = lib.getJars();
+            final Library projectLib = projectLibraryTable.createLibrary(lib.getName());
+            final Library.ModifiableModel libraryModel = projectLib.getModifiableModel();
+            for (File file : files) {
+              libraryModel.addRoot(VfsUtil.getUrlForLibraryRoot(file), OrderRootType.CLASSES);
+            }
+            libraryModel.commit();
+            projectLibs.put(lib, projectLib);
           }
         }
         if (!fromProjectStructure) {
           projectLibraryTable.commit();
         }
-      }
-      finally {
-        token.finish();
-      }
+      });
     }
     catch (Exception e) {
       LOG.info(e);
       Messages.showErrorDialog(IdeBundle.message("error.adding.module.to.project", e.getMessage()), IdeBundle.message("title.add.module"));
     }
 
-    final Map<ModuleDescriptor, Module> descriptorToModuleMap = new HashMap<ModuleDescriptor, Module>();
+    final Map<ModuleDescriptor, Module> descriptorToModuleMap = new HashMap<>();
 
+    ModulesProvider updatedModulesProvider = fromProjectStructure ? modulesProvider : new DefaultModulesProvider(project);
     try {
-      AccessToken token = WriteAction.start();
-      try {
+      WriteAction.run(() -> {
         final ModifiableModuleModel moduleModel = fromProjectStructure ? model : ModuleManager.getInstance(project).getModifiableModel();
+        Map<String, Module> contentRootToModule = new HashMap<>();
+        for (Module module : moduleModel.getModules()) {
+          for (String url : updatedModulesProvider.getRootModel(module).getContentRootUrls()) {
+            contentRootToModule.put(url, module);
+          }
+        }
         for (ProjectDescriptor descriptor : getSelectedDescriptors()) {
           for (final ModuleDescriptor moduleDescriptor : descriptor.getModules()) {
+            for (File contentRoot : moduleDescriptor.getContentRoots()) {
+              String url = VfsUtilCore.fileToUrl(contentRoot);
+              Module existingModule = contentRootToModule.get(url);
+              if (existingModule != null && ArrayUtil.contains(existingModule, moduleModel.getModules())) {
+                moduleModel.disposeModule(existingModule);
+              }
+            }
             final Module module;
             if (moduleDescriptor.isReuseExistingElement()) {
               final ExistingModuleLoader moduleLoader =
-                ImportImlMode.setUpLoader(FileUtil.toSystemIndependentName(moduleDescriptor.computeModuleFilePath()));
+                ExistingModuleLoader.setUpLoader(FileUtil.toSystemIndependentName(moduleDescriptor.computeModuleFilePath()));
               module = moduleLoader.createModule(moduleModel);
             }
             else {
@@ -231,10 +217,7 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
         if (!fromProjectStructure) {
           moduleModel.commit();
         }
-      }
-      finally {
-        token.finish();
-      }
+      });
     }
     catch (Exception e) {
       LOG.info(e);
@@ -243,8 +226,7 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
 
     // setup dependencies between modules
     try {
-      AccessToken token = WriteAction.start();
-      try {
+      WriteAction.run(() -> {
         for (ProjectDescriptor data : getSelectedDescriptors()) {
           for (final ModuleDescriptor descriptor : data.getModules()) {
             final Module module = descriptorToModuleMap.get(descriptor);
@@ -265,37 +247,26 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
             rootModel.commit();
           }
         }
-      }
-      finally {
-        token.finish();
-      }
+      });
     }
     catch (Exception e) {
       LOG.info(e);
       Messages.showErrorDialog(IdeBundle.message("error.adding.module.to.project", e.getMessage()), IdeBundle.message("title.add.module"));
     }
 
-    AccessToken token = WriteAction.start();
-    try {
-      ModulesProvider updatedModulesProvider = fromProjectStructure ? modulesProvider : new DefaultModulesProvider(project);
+    WriteAction.run(() -> {
       for (ProjectConfigurationUpdater updater : myUpdaters) {
         updater.updateProject(project, modelsProvider, updatedModulesProvider);
       }
-    }
-    finally {
-      token.finish();
-    }
-
-
+    });
     return result;
   }
 
-  @Nullable
   @Override
-  public List<Module> commit(Project project,
-                             ModifiableModuleModel model,
-                             ModulesProvider modulesProvider,
-                             ModifiableArtifactModel artifactModel) {
+  public @NotNull List<Module> commit(Project project,
+                                      ModifiableModuleModel model,
+                                      ModulesProvider modulesProvider,
+                                      ModifiableArtifactModel artifactModel) {
     return commit(project, model, modulesProvider);
   }
 
@@ -307,8 +278,9 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
     myUpdaters.add(updater);
   }
 
+  @Override
   public boolean hasRootsFromOtherDetectors(ProjectStructureDetector thisDetector) {
-    for (ProjectStructureDetector projectStructureDetector : Extensions.getExtensions(ProjectStructureDetector.EP_NAME)) {
+    for (ProjectStructureDetector projectStructureDetector : ProjectStructureDetector.EP_NAME.getExtensionList()) {
       if (projectStructureDetector != thisDetector && !getProjectRoots(projectStructureDetector).isEmpty()) {
         return true;
       }
@@ -317,12 +289,12 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
   }
 
   @Override
-  public void setupModulesByContentRoots(ProjectDescriptor projectDescriptor, Collection<DetectedProjectRoot> roots) {
+  public void setupModulesByContentRoots(ProjectDescriptor projectDescriptor, Collection<? extends DetectedProjectRoot> roots) {
     if (projectDescriptor.getModules().isEmpty()) {
-      List<ModuleDescriptor> modules = new ArrayList<ModuleDescriptor>();
+      List<ModuleDescriptor> modules = new ArrayList<>();
       for (DetectedProjectRoot root : roots) {
         if (root instanceof DetectedContentRoot) {
-          modules.add(new ModuleDescriptor(root.getDirectory(), ((DetectedContentRoot)root).getModuleType(), Collections.<DetectedSourceRoot>emptyList()));
+          modules.add(new ModuleDescriptor(root.getDirectory(), ((DetectedContentRoot)root).getModuleType(), Collections.emptyList()));
         }
       }
       projectDescriptor.setModules(modules);
@@ -332,7 +304,7 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
   @NotNull
   private static Module createModule(ProjectDescriptor projectDescriptor, final ModuleDescriptor descriptor,
                                      final Map<LibraryDescriptor, Library> projectLibs, final ModifiableModuleModel moduleModel)
-    throws InvalidDataException, IOException, ModuleWithNameAlreadyExists, JDOMException, ConfigurationException {
+    throws InvalidDataException {
 
     final String moduleFilePath = descriptor.computeModuleFilePath();
     ModuleBuilder.deleteModuleFile(moduleFilePath);
@@ -406,10 +378,10 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
   }
 
   private static boolean isTestRootName(final String name) {
-    return "test".equalsIgnoreCase(name) || 
-           "tests".equalsIgnoreCase(name) || 
-           "testSource".equalsIgnoreCase(name) || 
-           "testSources".equalsIgnoreCase(name) || 
+    return "test".equalsIgnoreCase(name) ||
+           "tests".equalsIgnoreCase(name) ||
+           "testSource".equalsIgnoreCase(name) ||
+           "testSources".equalsIgnoreCase(name) ||
            "testSrc".equalsIgnoreCase(name) ||
            "tst".equalsIgnoreCase(name);
   }
@@ -423,8 +395,10 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
     for (ProjectDescriptor projectDescriptor : getSelectedDescriptors()) {
       for (ModuleDescriptor moduleDescriptor : projectDescriptor.getModules()) {
         try {
-          final ModuleType moduleType = getModuleType(moduleDescriptor);
-          if (moduleType != null && !moduleType.createModuleBuilder().isSuitableSdkType(sdkTypeId)) return false;
+          final ModuleType<?> moduleType = getModuleType(moduleDescriptor);
+          if (moduleType != null && !moduleType.createModuleBuilder().isSuitableSdkType(sdkTypeId)) {
+            return false;
+          }
         }
         catch (Exception ignore) {
         }
@@ -434,11 +408,11 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
   }
 
   @Nullable
-  private static ModuleType getModuleType(ModuleDescriptor moduleDescriptor) throws InvalidDataException, JDOMException, IOException {
+  private static ModuleType<?> getModuleType(ModuleDescriptor moduleDescriptor) throws InvalidDataException, JDOMException, IOException {
     if (moduleDescriptor.isReuseExistingElement()) {
       final File file = new File(moduleDescriptor.computeModuleFilePath());
       if (file.exists()) {
-        final Element rootElement = JDOMUtil.loadDocument(file).getRootElement();
+        final Element rootElement = JDOMUtil.load(file);
         final String type = rootElement.getAttributeValue("type");
         if (type != null) {
           return ModuleTypeManager.getInstance().findByID(type);

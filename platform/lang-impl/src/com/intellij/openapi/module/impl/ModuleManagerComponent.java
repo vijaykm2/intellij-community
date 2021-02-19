@@ -1,89 +1,87 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.module.impl;
 
 import com.intellij.ProjectTopics;
+import com.intellij.diagnostic.Activity;
+import com.intellij.diagnostic.StartUpMeasurer;
 import com.intellij.notification.Notification;
+import com.intellij.notification.NotificationGroup;
 import com.intellij.notification.NotificationType;
 import com.intellij.notification.Notifications;
-import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
-import com.intellij.openapi.components.StoragePathMacros;
-import com.intellij.openapi.components.StorageScheme;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.ModuleType;
 import com.intellij.openapi.module.UnknownModuleType;
-import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectBundle;
-import com.intellij.openapi.project.impl.ProjectLifecycleListener;
-import com.intellij.util.messages.MessageBus;
+import com.intellij.openapi.project.impl.ProjectServiceContainerInitializedListener;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.util.messages.MessageBusConnection;
-import com.intellij.util.messages.MessageHandler;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.jps.model.serialization.JpsProjectLoader;
 
-import java.io.IOException;
-import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
- * @author yole
+ * This class isn't used in the new implementation of project model, which is based on {@link com.intellij.workspaceModel.ide Workspace Model}.
+ * It shouldn't be used directly, its base class {@link ModuleManagerEx} should be used instead.
  */
 @State(
-  name = ModuleManagerImpl.COMPONENT_NAME,
-  storages = {
-    @Storage(file = StoragePathMacros.PROJECT_FILE),
-    @Storage(file = StoragePathMacros.PROJECT_CONFIG_DIR + "/modules.xml", scheme = StorageScheme.DIRECTORY_BASED)
-  }
+  name = JpsProjectLoader.MODULE_MANAGER_COMPONENT,
+  storages = @Storage("modules.xml"),
+  useLoadedStateAsExisting = false /* why after loadState we get empty state on getState, test CMakeWorkspaceContentRootsTest */
 )
+@ApiStatus.Internal
 public class ModuleManagerComponent extends ModuleManagerImpl {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.module.impl.ModuleManagerComponent");
-  private final ProgressManager myProgressManager;
-  private final MessageBusConnection myConnection;
+  private final MessageBusConnection myMessageBusConnection;
 
-  public ModuleManagerComponent(Project project, ProgressManager progressManager, MessageBus bus) {
-    super(project, bus);
-    myConnection = bus.connect(project);
-    myProgressManager = progressManager;
-    myConnection.setDefaultHandler(new MessageHandler() {
-      @Override
-      public void handle(Method event, Object... params) {
-        cleanCachedStuff();
+  public ModuleManagerComponent(@NotNull Project project) {
+    super(project);
+
+    myMessageBusConnection = project.getMessageBus().connect(this);
+    myMessageBusConnection.setDefaultHandler(() -> cleanCachedStuff());
+    myMessageBusConnection.subscribe(ProjectTopics.PROJECT_ROOTS);
+
+    // default project doesn't have modules
+    if (project.isDefault()) {
+      return;
+    }
+
+    myMessageBusConnection.subscribe(VirtualFileManager.VFS_CHANGES, new ModuleFileListener(this));
+  }
+
+  static final class MyProjectServiceContainerInitializedListener implements ProjectServiceContainerInitializedListener {
+    @Override
+    public void serviceCreated(@NotNull Project project) {
+      Activity activity = StartUpMeasurer.startMainActivity("module loading");
+      ModuleManager moduleManager = getInstance(project);
+      if (!(moduleManager instanceof ModuleManagerImpl)) {
+        return;
       }
-    });
 
-    myConnection.subscribe(ProjectTopics.PROJECT_ROOTS);
-    myConnection.subscribe(ProjectLifecycleListener.TOPIC, new ProjectLifecycleListener.Adapter() {
-      @Override
-      public void projectComponentsInitialized(final Project project) {
-        long t = System.currentTimeMillis();
-        loadModules(myModuleModel);
-        t = System.currentTimeMillis() - t;
-        LOG.info(myModuleModel.getModules().length + " module(s) loaded in " + t + " ms");
-      }
-    });
-
+      ModuleManagerImpl manager = (ModuleManagerImpl)moduleManager;
+      manager.loadModules(manager.myModuleModel);
+      activity.end();
+      activity.setDescription("module count: " + manager.myModuleModel.getModules().length);
+    }
   }
 
   @Override
-  protected void showUnknownModuleTypeNotification(@NotNull List<Module> modulesWithUnknownTypes) {
+  public void unloadNewlyAddedModulesIfPossible(@NotNull Set<ModulePath> modulesToLoad, @NotNull List<UnloadedModuleDescriptionImpl> modulesToUnload) {
+    UnloadedModulesListChange change = AutomaticModuleUnloader.getInstance(myProject).processNewModules(modulesToLoad, modulesToUnload);
+    modulesToLoad.removeAll(change.getToUnload());
+    modulesToUnload.addAll(change.getToUnloadDescriptions());
+  }
+
+  @Override
+  protected void showUnknownModuleTypeNotification(@NotNull List<? extends Module> modulesWithUnknownTypes) {
     if (!ApplicationManager.getApplication().isHeadlessEnvironment() && !modulesWithUnknownTypes.isEmpty()) {
       String message;
       if (modulesWithUnknownTypes.size() == 1) {
@@ -102,7 +100,7 @@ public class ModuleManagerComponent extends ModuleManagerImpl {
       // it is not modal warning at all
       //Messages.showWarningDialog(myProject, message, ProjectBundle.message("module.unknown.type.title"));
       Notifications.Bus.notify(new Notification(
-        "Module Manager",
+        NotificationGroup.createIdWithTitle("Module Manager", ProjectBundle.message("notification.group.module.manager")),
         ProjectBundle.message("module.unknown.type.title"),
         message,
         NotificationType.WARNING
@@ -113,15 +111,29 @@ public class ModuleManagerComponent extends ModuleManagerImpl {
   @NotNull
   @Override
   protected ModuleEx createModule(@NotNull String filePath) {
-    return new ModuleImpl(filePath, myProject);
+    return new ModuleImpl(ModulePathKt.getModuleNameByFilePath(filePath), myProject, filePath);
   }
 
   @NotNull
   @Override
-  protected ModuleEx createAndLoadModule(@NotNull String filePath) throws IOException {
-    ModuleImpl module = new ModuleImpl(filePath, myProject);
-    module.getStateStore().load();
-    return module;
+  protected ModuleEx createNonPersistentModule(@NotNull String name) {
+    return new ModuleImpl(name, myProject);
+  }
+
+  @NotNull
+  @Override
+  protected ModuleEx createAndLoadModule(@NotNull String filePath) {
+    return createModule(filePath);
+  }
+
+  @Override
+  protected void setUnloadedModuleNames(@NotNull List<String> unloadedModuleNames) {
+    super.setUnloadedModuleNames(unloadedModuleNames);
+    if (!unloadedModuleNames.isEmpty()) {
+      List<String> loadedModules = new ArrayList<>(myModuleModel.myModules.keySet());
+      loadedModules.removeAll(new HashSet<>(unloadedModuleNames));
+      AutomaticModuleUnloader.getInstance(myProject).setLoadedModules(loadedModules);
+    }
   }
 
   @Override
@@ -131,39 +143,13 @@ public class ModuleManagerComponent extends ModuleManagerImpl {
 
   @Override
   protected void fireModulesAdded() {
-    Runnable runnableWithProgress = new Runnable() {
-      @Override
-      public void run() {
-        for (final Module module : myModuleModel.myPathToModule.values()) {
-          final Application app = ApplicationManager.getApplication();
-          final Runnable swingRunnable = new Runnable() {
-            @Override
-            public void run() {
-              fireModuleAddedInWriteAction(module);
-            }
-          };
-          if (app.isDispatchThread()) {
-            swingRunnable.run();
-          }
-          else {
-            ProgressIndicator pi = ProgressManager.getInstance().getProgressIndicator();
-            app.invokeAndWait(swingRunnable, pi.getModalityState());
-          }
-        }
-      }
-    };
-
-    ProgressIndicator progressIndicator = myProgressManager.getProgressIndicator();
-    if (progressIndicator == null) {
-      myProgressManager.runProcessWithProgressSynchronously(runnableWithProgress, "Initializing modules...", false, myProject);
-    }
-    else {
-      runnableWithProgress.run();
+    for (Module module : myModuleModel.getModules()) {
+      fireModuleAddedInWriteAction((ModuleEx)module);
     }
   }
 
   @Override
   protected void deliverPendingEvents() {
-    myConnection.deliverImmediately();
+    myMessageBusConnection.deliverImmediately();
   }
 }

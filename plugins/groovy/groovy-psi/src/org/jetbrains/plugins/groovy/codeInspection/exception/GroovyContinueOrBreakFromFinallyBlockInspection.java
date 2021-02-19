@@ -15,9 +15,9 @@
  */
 package org.jetbrains.plugins.groovy.codeInspection.exception;
 
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.utils.ControlFlowUtils;
@@ -28,23 +28,9 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.branch.GrContinueSta
 public class GroovyContinueOrBreakFromFinallyBlockInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return ERROR_HANDLING;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "'continue' or 'break' inside 'finally' block";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "'#ref' inside 'finally' block #loc";
+    return GroovyBundle.message("inspection.message.ref.inside.finally.block");
 
   }
 
@@ -56,7 +42,7 @@ public class GroovyContinueOrBreakFromFinallyBlockInspection extends BaseInspect
 
   private static class Visitor extends BaseInspectionVisitor {
     @Override
-    public void visitContinueStatement(GrContinueStatement continueStatement) {
+    public void visitContinueStatement(@NotNull GrContinueStatement continueStatement) {
 
       super.visitContinueStatement(continueStatement);
       if (!ControlFlowUtils.isInFinallyBlock(continueStatement)) {
@@ -73,7 +59,7 @@ public class GroovyContinueOrBreakFromFinallyBlockInspection extends BaseInspect
     }
 
     @Override
-    public void visitBreakStatement(GrBreakStatement breakStatement) {
+    public void visitBreakStatement(@NotNull GrBreakStatement breakStatement) {
 
       super.visitBreakStatement(breakStatement);
       if (!ControlFlowUtils.isInFinallyBlock(breakStatement)) {

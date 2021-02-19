@@ -1,62 +1,41 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.merge;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsException;
-import com.intellij.openapi.vcs.history.VcsRevisionNumber;
-import com.intellij.openapi.vcs.merge.MergeData;
-import com.intellij.openapi.vcs.merge.MergeProvider;
-import com.intellij.openapi.vcs.merge.MergeProvider2;
-import com.intellij.openapi.vcs.merge.MergeSession;
+import com.intellij.openapi.vcs.merge.*;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.MultiMap;
 import com.intellij.util.ui.ColumnInfo;
 import com.intellij.vcsUtil.VcsFileUtil;
-import com.intellij.vcsUtil.VcsRunnable;
 import com.intellij.vcsUtil.VcsUtil;
-import git4idea.GitFileRevision;
-import git4idea.GitRevisionNumber;
 import git4idea.GitUtil;
+import git4idea.commands.Git;
 import git4idea.commands.GitCommand;
-import git4idea.commands.GitSimpleHandler;
+import git4idea.commands.GitLineHandler;
 import git4idea.i18n.GitBundle;
+import git4idea.repo.GitConflict;
+import git4idea.repo.GitConflict.ConflictSide;
 import git4idea.repo.GitRepository;
 import git4idea.util.GitFileUtils;
 import git4idea.util.StringScanner;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+
+import static git4idea.merge.GitMergeUtil.*;
 
 /**
  * Merge-changes provider for Git, used by IDEA internal 3-way merge tool
  */
 public class GitMergeProvider implements MergeProvider2 {
-  private static final int ORIGINAL_REVISION_NUM = 1; // common parent
-  private static final int YOURS_REVISION_NUM = 2; // file content on the local branch: "Yours"
-  private static final int THEIRS_REVISION_NUM = 3; // remote file content: "Theirs"
-
   private static final Logger LOG = Logger.getInstance(GitMergeProvider.class);
 
   @NotNull private final Project myProject;
@@ -87,12 +66,17 @@ public class GitMergeProvider implements MergeProvider2 {
   }
 
   @NotNull
+  public Project getProject() {
+    return myProject;
+  }
+
+  @NotNull
   private static Set<VirtualFile> findReverseRoots(@NotNull Project project, @NotNull ReverseRequest reverseOrDetect) {
-    Set<VirtualFile> reverseMap = ContainerUtil.newHashSet();
+    Set<VirtualFile> reverseMap = new HashSet<>();
     for (GitRepository repository : GitUtil.getRepositoryManager(project).getRepositories()) {
       boolean reverse;
       if (reverseOrDetect == ReverseRequest.DETECT) {
-        reverse = repository.getState().equals(GitRepository.State.REBASING);
+        reverse = isReverseRoot(repository);
       }
       else {
         reverse = reverseOrDetect == ReverseRequest.REVERSE;
@@ -107,109 +91,15 @@ public class GitMergeProvider implements MergeProvider2 {
   @Override
   @NotNull
   public MergeData loadRevisions(@NotNull final VirtualFile file) throws VcsException {
-    final MergeData mergeData = new MergeData();
-    final VirtualFile root = GitUtil.getGitRoot(file);
-    final FilePath path = VcsUtil.getFilePath(file.getPath());
-
-    VcsRunnable runnable = new VcsRunnable() {
-      @Override
-      @SuppressWarnings({"ConstantConditions"})
-      public void run() throws VcsException {
-        GitFileRevision original = new GitFileRevision(myProject, path, new GitRevisionNumber(":" + ORIGINAL_REVISION_NUM));
-        GitFileRevision current = new GitFileRevision(myProject, path, new GitRevisionNumber(":" + yoursRevision(root)));
-        GitFileRevision last = new GitFileRevision(myProject, path, new GitRevisionNumber(":" + theirsRevision(root)));
-        try {
-          try {
-            mergeData.ORIGINAL = original.getContent();
-          }
-          catch (Exception ex) {
-            /// unable to load original revision, use the current instead
-            /// This could happen in case if rebasing.
-            mergeData.ORIGINAL = file.contentsToByteArray();
-          }
-          mergeData.CURRENT = loadRevisionCatchingErrors(current);
-          mergeData.LAST = loadRevisionCatchingErrors(last);
-          mergeData.LAST_REVISION_NUMBER = findLastRevisionNumber(root);
-        }
-        catch (IOException e) {
-          throw new IllegalStateException("Failed to load file content", e);
-        }
-      }
-    };
-    VcsUtil.runVcsProcessWithProgress(runnable, GitBundle.message("merge.load.files"), false, myProject);
-    return mergeData;
-  }
-
-  @Nullable
-  private VcsRevisionNumber findLastRevisionNumber(@NotNull VirtualFile root) {
-    if (myReverseRoots.contains(root)) {
-      return resolveHead(root);
-    }
-    else {
-      try {
-        return GitRevisionNumber.resolve(myProject, root, "MERGE_HEAD");
-      }
-      catch (VcsException e) {
-        LOG.info("Couldn't resolve the MERGE_HEAD in " + root, e); // this may be not a bug, just cherry-pick
-        try {
-          return GitRevisionNumber.resolve(myProject, root, "CHERRY_PICK_HEAD");
-        }
-        catch (VcsException e1) {
-          LOG.info("Couldn't resolve neither MERGE_HEAD, nor the CHERRY_PICK_HEAD in " + root, e1);
-          // for now, we don't know: maybe it is a conflicted file from rebase => then resolve the head.
-          return resolveHead(root);
-        }
-      }
-    }
-  }
-
-  @Nullable
-  private GitRevisionNumber resolveHead(@NotNull VirtualFile root) {
-    try {
-      return GitRevisionNumber.resolve(myProject, root, "HEAD");
-    }
-    catch (VcsException e) {
-      LOG.error("Couldn't resolve the HEAD in " + root, e);
-      return null;
-    }
-  }
-
-  private static byte[] loadRevisionCatchingErrors(@NotNull GitFileRevision revision) throws VcsException, IOException {
-    try {
-      return revision.getContent();
-    } catch (VcsException e) {
-      String m = e.getMessage().trim();
-      if (m.startsWith("fatal: ambiguous argument ")
-          || (m.startsWith("fatal: Path '") && m.contains("' exists on disk, but not in '"))
-          || (m.contains("is in the index, but not at stage "))) {
-        return ArrayUtil.EMPTY_BYTE_ARRAY;
-      }
-      else {
-        throw e;
-      }
-    }
-  }
-
-  /**
-   * @return number for "yours" revision  (taking {@code reverse} flag in account)
-   * @param root
-   */
-  private int yoursRevision(@NotNull VirtualFile root) {
-    return myReverseRoots.contains(root) ? THEIRS_REVISION_NUM : YOURS_REVISION_NUM;
-  }
-
-  /**
-   * @return number for "theirs" revision (taking {@code reverse} flag in account)
-   * @param root
-   */
-  private int theirsRevision(@NotNull VirtualFile root) {
-    return myReverseRoots.contains(root) ? YOURS_REVISION_NUM : THEIRS_REVISION_NUM;
+    VirtualFile root = GitUtil.getRootForFile(myProject, file);
+    FilePath path = VcsUtil.getFilePath(file);
+    return loadMergeData(myProject, root, path, myReverseRoots.contains(root));
   }
 
   @Override
   public void conflictResolvedForFile(@NotNull VirtualFile file) {
     try {
-      GitFileUtils.addFiles(myProject, GitUtil.getGitRoot(file), file);
+      GitFileUtils.addFilesForce(myProject, GitUtil.getRootForFile(myProject, file), Collections.singletonList(file));
     }
     catch (VcsException e) {
       LOG.error("Confirming conflict resolution failed", e);
@@ -224,7 +114,37 @@ public class GitMergeProvider implements MergeProvider2 {
   @Override
   @NotNull
   public MergeSession createMergeSession(@NotNull List<VirtualFile> files) {
-    return new MyMergeSession(files);
+    return ProgressManager.getInstance().runProcessWithProgressSynchronously(
+      () -> new MyMergeSession(files),
+      GitBundle.message("merge.progress.indicator.loading.unmerged.files.title"),
+      true,
+      myProject
+    );
+  }
+
+  @Override
+  public MergeDialogCustomizer createDefaultMergeDialogCustomizer() {
+    return new GitDefaultMergeDialogCustomizer(myProject);
+  }
+
+  @NotNull
+  public static @NlsContexts.ColumnName String calcColumnName(boolean isTheirs, @NlsSafe @Nullable String branchName) {
+    if (isTheirs) {
+      if (branchName != null) {
+        return GitBundle.message("merge.tool.column.theirs.with.branch.status", branchName);
+      }
+      else {
+        return GitBundle.message("merge.tool.column.theirs.status");
+      }
+    }
+    else {
+      if (branchName != null) {
+        return GitBundle.message("merge.tool.column.yours.with.branch.status", branchName);
+      }
+      else {
+        return GitBundle.message("merge.tool.column.yours.status");
+      }
+    }
   }
 
   /**
@@ -233,35 +153,32 @@ public class GitMergeProvider implements MergeProvider2 {
   private static class Conflict {
     VirtualFile myFile;
     VirtualFile myRoot;
-    Status myStatusTheirs;
-    Status myStatusYours;
-
-    enum Status {
-      MODIFIED, // modified on the branch
-      DELETED // deleted on the branch
-    }
+    GitConflict.Status myStatusTheirs;
+    GitConflict.Status myStatusYours;
   }
-
 
   /**
    * The merge session, it queries conflict information.
    */
-  private class MyMergeSession implements MergeSession {
-    Map<VirtualFile, Conflict> myConflicts = new HashMap<VirtualFile, Conflict>();
+  private class MyMergeSession implements MergeSessionEx {
+    private final Map<VirtualFile, GitConflict> myConflicts = new HashMap<>();
+    private final String currentBranchName;
+    private final String mergeHeadBranchName;
 
     MyMergeSession(List<VirtualFile> filesToMerge) {
       // get conflict type by the file
       try {
-        for (Map.Entry<VirtualFile, List<VirtualFile>> e : GitUtil.sortFilesByGitRoot(filesToMerge).entrySet()) {
-          Map<String, Conflict> cs = new HashMap<String, Conflict>();
-          VirtualFile root = e.getKey();
+        Map<GitRepository, List<VirtualFile>> filesByRoot = GitUtil.sortFilesByRepository(myProject, filesToMerge);
+        for (Map.Entry<GitRepository, List<VirtualFile>> e : filesByRoot.entrySet()) {
+          Map<String, Conflict> cs = new HashMap<>();
+          VirtualFile root = e.getKey().getRoot();
           List<VirtualFile> files = e.getValue();
-          GitSimpleHandler h = new GitSimpleHandler(myProject, root, GitCommand.LS_FILES);
+          GitLineHandler h = new GitLineHandler(myProject, root, GitCommand.LS_FILES);
           h.setStdoutSuppressed(true);
           h.setSilent(true);
           h.addParameters("--exclude-standard", "--unmerged", "-t", "-z");
           h.endOptions();
-          String output = h.run();
+          String output = Git.getInstance().runCommand(h).getOutputOrThrow();
           StringScanner s = new StringScanner(output);
           while (s.hasMoreData()) {
             if (!"M".equals(s.spaceToken())) {
@@ -278,110 +195,144 @@ public class GitMergeProvider implements MergeProvider2 {
               c.myRoot = root;
               cs.put(file, c);
             }
-            if (source == theirsRevision(root)) {
-              c.myStatusTheirs = Conflict.Status.MODIFIED;
+            if (source == THEIRS_REVISION_NUM) {
+              c.myStatusTheirs = GitConflict.Status.MODIFIED;
             }
-            else if (source == yoursRevision(root)) {
-              c.myStatusYours = Conflict.Status.MODIFIED;
+            else if (source == YOURS_REVISION_NUM) {
+              c.myStatusYours = GitConflict.Status.MODIFIED;
             }
             else if (source != ORIGINAL_REVISION_NUM) {
               throw new IllegalStateException("Unknown revision " + source + " for the file: " + file);
             }
           }
+
           for (VirtualFile f : files) {
             String path = VcsFileUtil.relativePath(root, f);
             Conflict c = cs.get(path);
-            LOG.assertTrue(c != null, String.format("The conflict not found for file: %s(%s)%nFull ls-files output: %n%s%nAll files: %n%s",
-                                                    f.getPath(), path, output, files));
+            if (c == null) {
+              LOG.error(String.format("The conflict not found for file: %s(%s)%nFull ls-files output: %n%s%nAll files: %n%s",
+                                      f.getPath(), path, output, files));
+              continue;
+            }
             c.myFile = f;
             if (c.myStatusTheirs == null) {
-              c.myStatusTheirs = Conflict.Status.DELETED;
+              c.myStatusTheirs = GitConflict.Status.DELETED;
             }
             if (c.myStatusYours == null) {
-              c.myStatusYours = Conflict.Status.DELETED;
+              c.myStatusYours = GitConflict.Status.DELETED;
             }
-            myConflicts.put(f, c);
+            myConflicts.put(f, new GitConflict(root, VcsUtil.getFilePath(f), c.myStatusYours, c.myStatusTheirs));
           }
         }
+        currentBranchName = GitDefaultMergeDialogCustomizerKt.getSingleCurrentBranchName(filesByRoot.keySet());
+        mergeHeadBranchName = GitDefaultMergeDialogCustomizerKt.getSingleMergeBranchName(filesByRoot.keySet());
       }
       catch (VcsException ex) {
         throw new IllegalStateException("The git operation should not fail in this context", ex);
       }
     }
 
-    @NotNull
     @Override
-    public ColumnInfo[] getMergeInfoColumns() {
-      return new ColumnInfo[]{new StatusColumn(false), new StatusColumn(true)};
+    public ColumnInfo @NotNull [] getMergeInfoColumns() {
+      return new ColumnInfo[]{new StatusColumn(false, currentBranchName), new StatusColumn(true, mergeHeadBranchName)};
     }
 
     @Override
     public boolean canMerge(@NotNull VirtualFile file) {
-      Conflict c = myConflicts.get(file);
-      return c != null;
+      GitConflict c = myConflicts.get(file);
+      return c != null && !file.isDirectory();
     }
 
     @Override
-    public void conflictResolvedForFile(VirtualFile file, @NotNull Resolution resolution) {
-      Conflict c = myConflicts.get(file);
-      assert c != null : "Conflict was not loaded for the file: " + file.getPath();
-      try {
-        Conflict.Status status;
-        switch (resolution) {
-          case AcceptedTheirs:
-            status = c.myStatusTheirs;
-            break;
-          case AcceptedYours:
-            status = c.myStatusYours;
-            break;
-          case Merged:
-            status = Conflict.Status.MODIFIED;
-            break;
-          default:
-            throw new IllegalArgumentException("Unsupported resolution for unmergable files(" + file.getPath() + "): " + resolution);
+    public void conflictResolvedForFile(@NotNull VirtualFile file, @NotNull Resolution resolution) {
+      conflictResolvedForFiles(Collections.singletonList(file), resolution);
+    }
+
+    @Override
+    public void conflictResolvedForFiles(@NotNull List<? extends VirtualFile> files, @NotNull Resolution resolution) {
+      MultiMap<VirtualFile, GitConflict> byRoot = groupConflictsByRoot(files);
+
+      for (VirtualFile root : byRoot.keySet()) {
+        Collection<GitConflict> conflicts = byRoot.get(root);
+        ConflictSide resolutionSide = resolution != Resolution.Merged ? getAcceptedConflictSide(resolution, root) : null;
+
+        try {
+          markConflictResolved(myProject, root, conflicts, resolutionSide);
         }
-        switch (status) {
-          case MODIFIED:
-            GitFileUtils.addFiles(myProject, c.myRoot, file);
-            break;
-          case DELETED:
-            GitFileUtils.deleteFiles(myProject, c.myRoot, file);
-            break;
-          default:
-            throw new IllegalArgumentException("Unsupported status(" + file.getPath() + "): " + status);
+        catch (VcsException e) {
+          LOG.error(String.format("Unexpected exception during the git operation. Files - %s",
+                                  ContainerUtil.map(conflicts, GitConflict::getFilePath)), e);
         }
       }
-      catch (VcsException e) {
-        LOG.error("Unexpected exception during the git operation (" + file.getPath() + ")", e);
+    }
+
+    @Override
+    public void acceptFilesRevisions(@NotNull List<? extends VirtualFile> files, @NotNull Resolution resolution) throws VcsException {
+      assert resolution == Resolution.AcceptedYours || resolution == Resolution.AcceptedTheirs;
+
+      MultiMap<VirtualFile, GitConflict> byRoot = groupConflictsByRoot(files);
+
+      for (VirtualFile root : byRoot.keySet()) {
+        Collection<GitConflict> conflicts = byRoot.get(root);
+        ConflictSide conflictSide = getAcceptedConflictSide(resolution, root);
+
+        acceptOneVersion(myProject, root, conflicts, conflictSide);
       }
+    }
+
+    @NotNull
+    private ConflictSide getAcceptedConflictSide(@NotNull Resolution resolution, @NotNull VirtualFile root) {
+      assert resolution == Resolution.AcceptedYours || resolution == Resolution.AcceptedTheirs;
+      boolean isReversed = myReverseRoots.contains(root);
+      boolean acceptYours = !isReversed ? resolution == Resolution.AcceptedYours
+                                        : resolution == Resolution.AcceptedTheirs;
+      return acceptYours ? ConflictSide.OURS : ConflictSide.THEIRS;
+    }
+
+    @NotNull
+    private MultiMap<VirtualFile, GitConflict> groupConflictsByRoot(@NotNull List<? extends VirtualFile> files) {
+      MultiMap<VirtualFile, GitConflict> byRoot = MultiMap.create();
+      for (VirtualFile file: files) {
+        GitConflict c = myConflicts.get(file);
+        if (c == null) {
+          LOG.error("Conflict was not loaded for the file: " + file.getPath());
+          continue;
+        }
+
+        byRoot.putValue(c.getRoot(), c);
+      }
+      return byRoot;
     }
 
     /**
      * The column shows either "yours" or "theirs" status
      */
-    class StatusColumn extends ColumnInfo<VirtualFile, String> {
-      /**
-       * if false, "yours" status is displayed, otherwise "theirs"
-       */
-      private final boolean myIsTheirs;
+    private class StatusColumn extends ColumnInfo<VirtualFile, String> {
+      private final boolean myIsLast;
 
-      public StatusColumn(boolean isTheirs) {
-        super(isTheirs ? GitBundle.message("merge.tool.column.theirs.status") : GitBundle.message("merge.tool.column.yours.status"));
-        myIsTheirs = isTheirs;
+      StatusColumn(boolean isLast, @Nullable String branchName) {
+        super(calcColumnName(isLast, branchName));
+        myIsLast = isLast;
       }
 
       @Override
       public String valueOf(VirtualFile file) {
-        Conflict c = myConflicts.get(file);
-        assert c != null : "No conflict for the file " + file;
-        Conflict.Status s = myIsTheirs ? c.myStatusTheirs : c.myStatusYours;
-        switch (s) {
+        GitConflict c = myConflicts.get(file);
+        if (c == null) {
+          return "";
+        }
+        boolean isReversed = myReverseRoots.contains(c.getRoot());
+        GitConflict.Status currentStatus = c.getStatus(ConflictSide.OURS, isReversed);
+        GitConflict.Status lastStatus = c.getStatus(ConflictSide.THEIRS, isReversed);
+        GitConflict.Status status = myIsLast ? lastStatus : currentStatus;
+        switch (status) {
+          case ADDED:
           case MODIFIED:
             return GitBundle.message("merge.tool.column.status.modified");
           case DELETED:
             return GitBundle.message("merge.tool.column.status.deleted");
           default:
-            throw new IllegalStateException("Unknown status " + s + " for file " + file.getPath());
+            throw new IllegalStateException("Unknown status " + status + " for file " + file.getPath());
         }
       }
 

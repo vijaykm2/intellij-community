@@ -31,12 +31,8 @@ public class OneButtonGroupInspection extends BaseFormInspection {
     super("OneButtonGroup");
   }
 
-  @NotNull
-  @Override public String getDisplayName() {
-    return UIDesignerBundle.message("inspection.one.button.group");
-  }
-
-  protected void checkComponentProperties(Module module, IComponent component, FormErrorCollector collector) {
+  @Override
+  protected void checkComponentProperties(Module module, @NotNull IComponent component, FormErrorCollector collector) {
     final IRootContainer root = FormEditingUtil.getRoot(component);
     if (root == null) return;
     String groupName = root.getButtonGroupName(component);

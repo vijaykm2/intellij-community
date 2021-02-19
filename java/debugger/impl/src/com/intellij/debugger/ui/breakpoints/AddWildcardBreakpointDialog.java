@@ -15,6 +15,7 @@
  */
 package com.intellij.debugger.ui.breakpoints;
 
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
@@ -23,7 +24,6 @@ import javax.swing.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Jan 10, 2006
  */
 public class AddWildcardBreakpointDialog extends DialogWrapper {
   private JPanel myPanel;
@@ -32,22 +32,24 @@ public class AddWildcardBreakpointDialog extends DialogWrapper {
 
   public AddWildcardBreakpointDialog(Project project) {
     super(project, true);
-    setTitle("Add Method Breakpoint");
+    setTitle(JavaDebuggerBundle.message("add.method.breakpoint"));
     init();
   }
 
+  @Override
   protected void doOKAction() {
     if (getClassPattern().length() == 0) {
-      Messages.showErrorDialog(myPanel, "Class pattern not specified");
+      Messages.showErrorDialog(myPanel, JavaDebuggerBundle.message("class.pattern.not.specified"));
       return;
     }
     if (getMethodName().length() == 0) {
-      Messages.showErrorDialog(myPanel, "Method name not specified");
+      Messages.showErrorDialog(myPanel, JavaDebuggerBundle.message("method.name.not.specified"));
       return;
     }
     super.doOKAction();
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return myClassPatternField;
   }
@@ -60,6 +62,7 @@ public class AddWildcardBreakpointDialog extends DialogWrapper {
     return myMethodNameField.getText().trim();
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return myPanel;
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,23 +15,57 @@
  */
 package com.siyeh.ig.migration;
 
-import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
-import junit.framework.TestCase;
+import com.intellij.codeHighlighting.HighlightDisplayLevel;
+import com.intellij.codeInsight.daemon.HighlightDisplayKey;
+import com.intellij.codeInspection.LocalInspectionTool;
+import com.intellij.codeInspection.ex.InspectionProfileImpl;
+import com.intellij.profile.codeInspection.InspectionProfileManager;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Bas Leijdekkers
  */
-public class EqualsReplaceableByObjectsCallInspectionTest extends LightInspectionTestCase {
+public class EqualsReplaceableByObjectsCallInspectionTest extends LightJavaInspectionTestCase {
+  private EqualsReplaceableByObjectsCallInspection myInspection = new EqualsReplaceableByObjectsCallInspection();
+
+  @Override
+  public void setUp() throws Exception {
+    super.setUp();
+    final InspectionProfileImpl profile = InspectionProfileManager.getInstance(getProject()).getCurrentProfile();
+    profile.setErrorLevel(HighlightDisplayKey.find("EqualsReplaceableByObjectsCall"), HighlightDisplayLevel.WARNING, getProject());
+  }
+
+  @Override
+  protected void tearDown() throws Exception {
+    myInspection = null;
+    super.tearDown();
+  }
 
   public void testEqualsReplaceableByObjectsCall() {
-    doTest();
+    testEqualsReplaceable(false);
+  }
+
+  public void testEqualsReplaceableByObjectsCallCheckNull() {
+    testEqualsReplaceable(true);
+  }
+
+  protected void testEqualsReplaceable(boolean checkNotNull) {
+    boolean oldNotNull = myInspection.checkNotNull;
+    try {
+      myInspection.checkNotNull = checkNotNull;
+
+      myFixture.configureByFile(getTestName(false) + ".java");
+      myFixture.testHighlighting(true, true, false);
+    }
+    finally {
+      myInspection.checkNotNull = oldNotNull;
+    }
   }
 
   @Nullable
   @Override
-  protected InspectionProfileEntry getInspection() {
-    return new EqualsReplaceableByObjectsCallInspection();
+  protected LocalInspectionTool getInspection() {
+    return myInspection;
   }
 }

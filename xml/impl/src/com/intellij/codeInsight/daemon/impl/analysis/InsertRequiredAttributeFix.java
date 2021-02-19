@@ -15,16 +15,16 @@
  */
 package com.intellij.codeInsight.daemon.impl.analysis;
 
-import com.intellij.codeInsight.FileModificationService;
-import com.intellij.codeInsight.daemon.XmlErrorMessages;
+import com.intellij.codeInsight.editorActions.XmlEditUtil;
 import com.intellij.codeInsight.intention.HighPriorityAction;
-import com.intellij.codeInsight.lookup.LookupElement;
-import com.intellij.codeInsight.lookup.LookupElementBuilder;
-import com.intellij.codeInsight.template.*;
+import com.intellij.codeInsight.template.Expression;
+import com.intellij.codeInsight.template.Template;
+import com.intellij.codeInsight.template.TemplateManager;
+import com.intellij.codeInsight.template.impl.ConstantNode;
 import com.intellij.codeInspection.LocalQuickFixAndIntentionActionOnPsiElement;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.command.CommandProcessor;
+import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
@@ -36,22 +36,20 @@ import com.intellij.psi.xml.XmlTag;
 import com.intellij.xml.XmlAttributeDescriptor;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlExtension;
+import com.intellij.xml.XmlExtension.AttributeValuePresentation;
+import com.intellij.xml.psi.XmlPsiBundle;
 import com.intellij.xml.util.HtmlUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * User: anna
- * Date: 18-Nov-2005
- */
 public class InsertRequiredAttributeFix extends LocalQuickFixAndIntentionActionOnPsiElement implements HighPriorityAction {
   private final String myAttrName;
   private final String[] myValues;
   @NonNls
   private static final String NAME_TEMPLATE_VARIABLE = "name";
 
-  public InsertRequiredAttributeFix(@NotNull XmlTag tag, @NotNull String attrName,@NotNull String... values) {
+  public InsertRequiredAttributeFix(@NotNull XmlTag tag, @NotNull String attrName, String @NotNull ... values) {
     super(tag);
     myAttrName = attrName;
     myValues = values;
@@ -60,22 +58,21 @@ public class InsertRequiredAttributeFix extends LocalQuickFixAndIntentionActionO
   @Override
   @NotNull
   public String getText() {
-    return XmlErrorMessages.message("insert.required.attribute.quickfix.text", myAttrName);
+    return XmlPsiBundle.message("xml.quickfix.insert.required.attribute.text", myAttrName);
   }
 
   @Override
   @NotNull
   public String getFamilyName() {
-    return XmlErrorMessages.message("insert.required.attribute.quickfix.family");
+    return XmlPsiBundle.message("xml.quickfix.insert.required.attribute.family");
   }
 
   @Override
   public void invoke(@NotNull final Project project,
                      @NotNull PsiFile file,
-                     @Nullable("is null when called from inspection") final Editor editor,
+                     @Nullable final Editor editor,
                      @NotNull PsiElement startElement,
                      @NotNull PsiElement endElement) {
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
     XmlTag myTag = (XmlTag)startElement;
     ASTNode treeElement = SourceTreeToPsiMap.psiElementToTree(myTag);
 
@@ -102,90 +99,46 @@ public class InsertRequiredAttributeFix extends LocalQuickFixAndIntentionActionO
     if (anchor == null) return;
 
     final Template template = TemplateManager.getInstance(project).createTemplate("", "");
+    String valuePostfix = "\"";
     if (indirectSyntax) {
       if (anchorIsEmptyTag) template.addTextSegment(">");
       template.addTextSegment("<jsp:attribute name=\"" + myAttrName + "\">");
-    } else {
-      template.addTextSegment(" " + myAttrName + (!insertShorthand ? "=\"" : ""));
+    }
+    else {
+      template.addTextSegment(" " + myAttrName);
+      if (!insertShorthand) {
+        String quote = XmlEditUtil.getAttributeQuote(file);
+        AttributeValuePresentation presentation = XmlExtension.getExtension(file).getAttributeValuePresentation(myTag, myAttrName, quote);
+
+        valuePostfix = presentation.getPostfix();
+        template.addTextSegment("=" + presentation.getPrefix());
+      }
     }
 
-    Expression expression = new Expression() {
-      final TextResult result = new TextResult("");
-
-      @Override
-      public Result calculateResult(ExpressionContext context) {
-        return result;
-      }
-
-      @Override
-      public Result calculateQuickResult(ExpressionContext context) {
-        return null;
-      }
-
-      @Override
-      public LookupElement[] calculateLookupItems(ExpressionContext context) {
-        final LookupElement[] items = new LookupElement[myValues.length];
-
-        for (int i = 0; i < items.length; i++) {
-          items[i] = LookupElementBuilder.create(myValues[i]);
-        }
-        return items;
-      }
-    };
+    Expression expression = new ConstantNode("").withLookupStrings(myValues);
     if (!insertShorthand) template.addVariable(NAME_TEMPLATE_VARIABLE, expression, expression, true);
 
     if (indirectSyntax) {
       template.addTextSegment("</jsp:attribute>");
       template.addEndVariable();
       if (anchorIsEmptyTag) template.addTextSegment("</" + myTag.getName() + ">");
-    } else if (!insertShorthand) {
-      template.addTextSegment("\"");
+    }
+    else if (!insertShorthand) {
+      template.addTextSegment(valuePostfix);
     }
 
     final PsiElement anchor1 = anchor;
 
-    final Runnable runnable = new Runnable() {
-      @Override
-      public void run() {
-        ApplicationManager.getApplication().runWriteAction(
-          new Runnable() {
-            @Override
-            public void run() {
-              int textOffset = anchor1.getTextOffset();
-              if (!anchorIsEmptyTag && indirectSyntax) ++textOffset;
-              editor.getCaretModel().moveToOffset(textOffset);
-              if (anchorIsEmptyTag && indirectSyntax) {
-                editor.getDocument().deleteString(textOffset,textOffset + 2);
-              }
-              TemplateManager.getInstance(project).startTemplate(editor, template);
-            }
-          }
-        );
-      }
-    };
-
-    if (!ApplicationManager.getApplication().isUnitTestMode()) {
-      Runnable commandRunnable = new Runnable() {
-        @Override
-        public void run() {
-          CommandProcessor.getInstance().executeCommand(
-            project,
-            runnable,
-            getText(),
-            getFamilyName()
-          );
+    ApplicationManager.getApplication().invokeLater(() -> {
+      WriteCommandAction.runWriteCommandAction(project, getText(), getFamilyName(), () -> {
+        int textOffset = anchor1.getTextOffset();
+        if (!anchorIsEmptyTag && indirectSyntax) ++textOffset;
+        editor.getCaretModel().moveToOffset(textOffset);
+        if (anchorIsEmptyTag && indirectSyntax) {
+          editor.getDocument().deleteString(textOffset, textOffset + 2);
         }
-      };
-
-      ApplicationManager.getApplication().invokeLater(commandRunnable);
-    }
-    else {
-      runnable.run();
-    }
-  }
-
-  @Override
-  public boolean startInWriteAction() {
-    return true;
+        TemplateManager.getInstance(project).startTemplate(editor, template);
+      });
+    });
   }
 }

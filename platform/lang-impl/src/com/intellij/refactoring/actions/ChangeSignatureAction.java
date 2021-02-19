@@ -15,7 +15,7 @@
  */
 package com.intellij.refactoring.actions;
 
-import com.intellij.lang.Language;
+import com.intellij.lang.ContextAwareActionHandler;
 import com.intellij.lang.LanguageRefactoringSupport;
 import com.intellij.lang.refactoring.RefactoringSupportProvider;
 import com.intellij.openapi.actionSystem.DataContext;
@@ -27,6 +27,7 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiNameIdentifierOwner;
 import com.intellij.psi.PsiReference;
 import com.intellij.refactoring.RefactoringActionHandler;
+import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.changeSignature.ChangeSignatureHandler;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import org.jetbrains.annotations.NotNull;
@@ -44,21 +45,25 @@ public class ChangeSignatureAction extends BasePlatformRefactoringAction {
   }
 
   @Override
-  public boolean isEnabledOnElements(@NotNull PsiElement[] elements) {
-    return elements.length == 1 && findTargetMember(elements[0]) != null;
+  public boolean isEnabledOnElements(PsiElement @NotNull [] elements) {
+    if (elements.length == 1) {
+      PsiElement member = findTargetMember(elements[0]);
+      return member != null && getChangeSignatureHandler(member) != null;
+    }
+    return false;
   }
 
   @Override
   protected boolean isAvailableOnElementInEditorAndFile(@NotNull final PsiElement element, @NotNull final Editor editor, @NotNull PsiFile file, @NotNull DataContext context) {
     PsiElement targetMember = findTargetMember(element);
     if (targetMember == null) {
-      final ChangeSignatureHandler targetHandler = getChangeSignatureHandler(file.getLanguage());
+      final ChangeSignatureHandler targetHandler = getChangeSignatureHandler(file);
       if (targetHandler != null) {
         return true;
       }
       return false;
     }
-    final ChangeSignatureHandler targetHandler = getChangeSignatureHandler(targetMember.getLanguage());
+    final ChangeSignatureHandler targetHandler = getChangeSignatureHandler(targetMember);
     if (targetHandler == null) return false;
     return true;
   }
@@ -66,7 +71,7 @@ public class ChangeSignatureAction extends BasePlatformRefactoringAction {
   @Nullable
   private static PsiElement findTargetMember(@Nullable PsiElement element) {
     if (element == null) return null;
-    final ChangeSignatureHandler fileHandler = getChangeSignatureHandler(element.getLanguage());
+    final ChangeSignatureHandler fileHandler = getChangeSignatureHandler(element);
     if (fileHandler != null) {
       final PsiElement targetMember = fileHandler.findTargetMember(element);
       if (targetMember != null) return targetMember;
@@ -90,32 +95,40 @@ public class ChangeSignatureAction extends BasePlatformRefactoringAction {
   @Nullable
   @Override
   protected RefactoringActionHandler getRefactoringHandler(@NotNull RefactoringSupportProvider provider, final PsiElement element) {
-    return new RefactoringActionHandler() {
+    abstract class ContextAwareChangeSignatureHandler implements RefactoringActionHandler, ContextAwareActionHandler {}
+
+    return new ContextAwareChangeSignatureHandler() {
+      @Override
+      public boolean isAvailableForQuickList(@NotNull Editor editor, @NotNull PsiFile file, @NotNull DataContext dataContext) {
+        return findTargetMember(element) != null;
+      }
+
       @Override
       public void invoke(@NotNull Project project, Editor editor, PsiFile file, DataContext dataContext) {
         editor.getScrollingModel().scrollToCaret(ScrollType.MAKE_VISIBLE);
         final PsiElement targetMember = findTargetMember(element);
         if (targetMember == null) {
-          final ChangeSignatureHandler handler = getChangeSignatureHandler(file.getLanguage());
+          final ChangeSignatureHandler handler = getChangeSignatureHandler(file);
           if (handler != null) {
             final String notFoundMessage = handler.getTargetNotFoundMessage();
             if (notFoundMessage != null) {
-              CommonRefactoringUtil.showErrorHint(project, editor, notFoundMessage, ChangeSignatureHandler.REFACTORING_NAME, null);
+              CommonRefactoringUtil.showErrorHint(project, editor, notFoundMessage, RefactoringBundle
+                .message("changeSignature.refactoring.name"), null);
             }
           }
           return;
         }
-        final ChangeSignatureHandler handler = getChangeSignatureHandler(targetMember.getLanguage());
+        final ChangeSignatureHandler handler = getChangeSignatureHandler(targetMember);
         if (handler == null) return;
         handler.invoke(project, new PsiElement[]{targetMember}, dataContext);
       }
 
       @Override
-      public void invoke(@NotNull Project project, @NotNull PsiElement[] elements, DataContext dataContext) {
+      public void invoke(@NotNull Project project, PsiElement @NotNull [] elements, DataContext dataContext) {
         if (elements.length != 1) return;
         final PsiElement targetMember = findTargetMember(elements[0]);
         if (targetMember == null) return;
-        final ChangeSignatureHandler handler = getChangeSignatureHandler(targetMember.getLanguage());
+        final ChangeSignatureHandler handler = getChangeSignatureHandler(targetMember);
         if (handler == null) return;
         handler.invoke(project, new PsiElement[]{targetMember}, dataContext);
       }
@@ -123,7 +136,8 @@ public class ChangeSignatureAction extends BasePlatformRefactoringAction {
   }
 
   @Nullable
-  private static ChangeSignatureHandler getChangeSignatureHandler(Language language) {
-    return LanguageRefactoringSupport.INSTANCE.forLanguage(language).getChangeSignatureHandler();
+  private static ChangeSignatureHandler getChangeSignatureHandler(@NotNull PsiElement language) {
+    RefactoringSupportProvider provider = LanguageRefactoringSupport.INSTANCE.forContext(language);
+    return provider != null ? provider.getChangeSignatureHandler() : null;
   }
 }

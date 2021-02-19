@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,30 +17,26 @@ package com.intellij.openapi.roots;
 
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author nik
- */
-public abstract class JavaModuleExternalPaths extends ModuleExtension<JavaModuleExternalPaths> {
+@ApiStatus.NonExtendable
+public abstract class JavaModuleExternalPaths extends ModuleExtension {
 
   public static JavaModuleExternalPaths getInstance(Module module) {
     return ModuleRootManager.getInstance(module).getModuleExtension(JavaModuleExternalPaths.class);
   }
 
-  @NotNull
-  public abstract VirtualFile[] getExternalAnnotationsRoots();
+  public abstract VirtualFile @NotNull [] getExternalAnnotationsRoots();
 
-  @NotNull
-  public abstract String[] getExternalAnnotationsUrls();
+  public abstract String @NotNull [] getExternalAnnotationsUrls();
 
-  public abstract void setExternalAnnotationUrls(@NotNull String[] urls);
+  public abstract void setExternalAnnotationUrls(String @NotNull [] urls);
 
 
-  @NotNull
-  public abstract String[] getJavadocUrls();
+  public abstract String @NotNull [] getJavadocUrls();
 
-  public abstract void setJavadocUrls(@NotNull String[] urls);
+  public abstract void setJavadocUrls(String @NotNull [] urls);
 
 
 }

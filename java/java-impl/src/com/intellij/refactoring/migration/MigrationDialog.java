@@ -1,28 +1,12 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.migration;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.refactoring.HelpID;
-import com.intellij.refactoring.RefactoringBundle;
-import com.intellij.ui.ScrollPaneFactory;
-import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nls;
 
 import javax.swing.*;
 import java.awt.event.ActionEvent;
@@ -30,11 +14,11 @@ import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
 
-public class MigrationDialog extends DialogWrapper{
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.migration.MigrationDialog");
+public class MigrationDialog extends DialogWrapper {
+  private static final Logger LOG = Logger.getInstance(MigrationDialog.class);
 
   private JPanel myPanel;
-  private JComboBox myMapComboBox;
+  private JComboBox<MigrationMap> myMapComboBox;
   private JTextArea myDescriptionTextArea;
   private JButton myEditMapButton;
   private JButton myNewMapButton;
@@ -45,49 +29,51 @@ public class MigrationDialog extends DialogWrapper{
   private JSeparator mySeparator;
   private JScrollPane myDescriptionScroll;
 
-
   public MigrationDialog(Project project, MigrationMapSet migrationMapSet) {
     super(project, true);
     myProject = project;
     myMigrationMapSet = migrationMapSet;
-    setTitle(RefactoringBundle.message("migration.dialog.title"));
+    setTitle(JavaRefactoringBundle.message("migration.dialog.title"));
     setHorizontalStretch(1.2f);
-    setOKButtonText(RefactoringBundle.message("migration.dialog.ok.button.text"));
+    setOKButtonText(JavaRefactoringBundle.message("migration.dialog.ok.button.text"));
     init();
   }
 
-  @NotNull
-  protected Action[] createActions(){
-    return new Action[]{getOKAction(),getCancelAction(),getHelpAction()};
+  @Override
+  protected String getHelpId() {
+    return HelpID.MIGRATION;
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return myMapComboBox;
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     class MyTextArea extends JTextArea {
-      public MyTextArea(String s, int a, int b) {
+      MyTextArea(@Nls String s, int a, int b) {
         super(s, a, b);
         setFocusable(false);
       }
     }
 
     initMapCombobox();
-    myDescriptionTextArea = new MyTextArea("", 3, 40);
-    JScrollPane scrollPane = ScrollPaneFactory.createScrollPane(myDescriptionTextArea);
+    myDescriptionTextArea = new MyTextArea("", 10, 40);
     myDescriptionScroll.getViewport().add(myDescriptionTextArea);
     myDescriptionScroll.setBorder(null);
-    myDescriptionScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-    myDescriptionScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_NEVER);
+    myDescriptionScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+    myDescriptionScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
     myDescriptionTextArea.setEditable(false);
     myDescriptionTextArea.setFont(promptLabel.getFont());
     myDescriptionTextArea.setBackground(myPanel.getBackground());
     myDescriptionTextArea.setLineWrap(true);
+    myDescriptionTextArea.setWrapStyleWord(true);
     updateDescription();
 
     myMapComboBox.addActionListener(
       new ActionListener() {
+        @Override
         public void actionPerformed(ActionEvent event) {
           updateDescription();
         }
@@ -96,6 +82,7 @@ public class MigrationDialog extends DialogWrapper{
 
     myEditMapButton.addActionListener(
       new ActionListener() {
+        @Override
         public void actionPerformed(ActionEvent event) {
           editMap();
         }
@@ -104,6 +91,7 @@ public class MigrationDialog extends DialogWrapper{
 
     myRemoveMapButton.addActionListener(
       new ActionListener() {
+        @Override
         public void actionPerformed(ActionEvent event) {
           removeMap();
         }
@@ -112,6 +100,7 @@ public class MigrationDialog extends DialogWrapper{
 
     myNewMapButton.addActionListener(
       new ActionListener() {
+        @Override
         public void actionPerformed(ActionEvent event) {
           addNewMap();
         }
@@ -120,8 +109,9 @@ public class MigrationDialog extends DialogWrapper{
 
     myMapComboBox.registerKeyboardAction(
       new ActionListener() {
+        @Override
         public void actionPerformed(ActionEvent e) {
-          if (myMapComboBox.isPopupVisible()){
+          if (myMapComboBox.isPopupVisible()) {
             myMapComboBox.setPopupVisible(false);
           }
           else{
@@ -137,11 +127,11 @@ public class MigrationDialog extends DialogWrapper{
   }
 
   private void updateDescription() {
-    if (myDescriptionTextArea == null){
+    if (myDescriptionTextArea == null) {
       return;
     }
     MigrationMap map = getMigrationMap();
-    if (map == null){
+    if (map == null) {
       myDescriptionTextArea.setText("");
       return;
     }
@@ -150,11 +140,11 @@ public class MigrationDialog extends DialogWrapper{
 
   private void editMap() {
     MigrationMap oldMap = getMigrationMap();
-    if (oldMap == null){
+    if (oldMap == null) {
       return;
     }
     MigrationMap newMap = oldMap.cloneMap();
-    if (editMap(newMap)){
+    if (editMap(newMap)) {
       myMigrationMapSet.replaceMap(oldMap, newMap);
       initMapCombobox();
       myMapComboBox.setSelectedItem(newMap);
@@ -181,7 +171,7 @@ public class MigrationDialog extends DialogWrapper{
 
   private void addNewMap() {
     MigrationMap migrationMap = new MigrationMap();
-    if (editMap(migrationMap)){
+    if (editMap(migrationMap)) {
       myMigrationMapSet.addMap(migrationMap);
       initMapCombobox();
       myMapComboBox.setSelectedItem(migrationMap);
@@ -196,13 +186,13 @@ public class MigrationDialog extends DialogWrapper{
 
   private void removeMap() {
     MigrationMap map = getMigrationMap();
-    if (map == null){
+    if (map == null) {
       return;
     }
     myMigrationMapSet.removeMap(map);
     MigrationMap[] maps = myMigrationMapSet.getMaps();
     initMapCombobox();
-    if (maps.length > 0){
+    if (maps.length > 0) {
       myMapComboBox.setSelectedItem(maps[0]);
     }
     try {
@@ -217,12 +207,8 @@ public class MigrationDialog extends DialogWrapper{
     return (MigrationMap)myMapComboBox.getSelectedItem();
   }
 
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(HelpID.MIGRATION);
-  }
-
   private void initMapCombobox() {
-    if (myMapComboBox.getItemCount() > 0){
+    if (myMapComboBox.getItemCount() > 0) {
       myMapComboBox.removeAllItems();
     }
     MigrationMap[] maps = myMigrationMapSet.getMaps();

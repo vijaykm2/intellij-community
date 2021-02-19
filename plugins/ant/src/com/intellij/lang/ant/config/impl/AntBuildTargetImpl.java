@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.ant.config.impl;
 
+import com.intellij.ide.util.PsiNavigationSupport;
 import com.intellij.lang.ant.AntSupport;
 import com.intellij.lang.ant.config.*;
 import com.intellij.lang.ant.config.execution.ExecutionHandler;
@@ -23,19 +10,22 @@ import com.intellij.lang.ant.dom.AntDomProject;
 import com.intellij.lang.ant.dom.AntDomRecursiveVisitor;
 import com.intellij.lang.ant.dom.AntDomTarget;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.xml.DomTarget;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 public class AntBuildTargetImpl implements AntBuildTargetBase {
 
@@ -45,7 +35,7 @@ public class AntBuildTargetImpl implements AntBuildTargetBase {
   private final int myHashCode;
   private final String myName;
   private final String myDisplayName;
-  private final String myDescription;
+  private final @Nls String myDescription;
   private final Project myProject;
   private final int myTextOffset;
 
@@ -69,7 +59,7 @@ public class AntBuildTargetImpl implements AntBuildTargetBase {
     else {
       myTextOffset = target.getXmlTag().getTextOffset();
     }
-    
+
     final String desc = target.getDescription().getRawText();
     myDescription = (desc != null && desc.trim().length() > 0) ? desc : null;
   }
@@ -83,40 +73,48 @@ public class AntBuildTargetImpl implements AntBuildTargetBase {
       return false;
     }
     final AntBuildTargetImpl that = (AntBuildTargetImpl)obj;
-    return Comparing.equal(myName, that.myName) && Comparing.equal(myFile, that.myFile);
+    return Objects.equals(myName, that.myName) && Comparing.equal(myFile, that.myFile);
   }
 
+  @Override
   public Project getProject() {
     return myProject;
   }
 
+  @Override
   @Nullable
-  public String getName() {
+  public @NlsSafe String getName() {
     return myName;
   }
 
+  @Override
   @Nullable
-  public String getDisplayName() {
+  public @NlsSafe String getDisplayName() {
     return myDisplayName;
   }
 
+  @Override
   @Nullable
-  public String getNotEmptyDescription() {
+  public @Nls(capitalization = Nls.Capitalization.Sentence) String getNotEmptyDescription() {
     return myDescription;
   }
 
+  @Override
   public boolean isDefault() {
     return myIsDefault;
   }
 
+  @Override
   public VirtualFile getContainingFile() {
     return myFile;
   }
 
+  @Override
   public AntBuildModelBase getModel() {
     return myModel;
   }
 
+  @Override
   @Nullable
   public String getActionId() {
     final StringBuilder name = new StringBuilder();
@@ -131,6 +129,7 @@ public class AntBuildTargetImpl implements AntBuildTargetBase {
     return name.toString();
   }
 
+  @Override
   @Nullable
   public BuildTask findTask(final String taskName) {
     final PsiFile psiFile = PsiManager.getInstance(myProject).findFile(myFile);
@@ -138,8 +137,9 @@ public class AntBuildTargetImpl implements AntBuildTargetBase {
     if (domProject != null) {
       final AntDomTarget antTarget = domProject.findDeclaredTarget(myName);
       if (antTarget != null) {
-        final Ref<AntDomElement> result = new Ref<AntDomElement>(null);
+        final Ref<AntDomElement> result = new Ref<>(null);
         antTarget.accept(new AntDomRecursiveVisitor() {
+          @Override
           public void visitAntDomElement(AntDomElement element) {
             if (result.get() != null) {
               return;
@@ -160,10 +160,14 @@ public class AntBuildTargetImpl implements AntBuildTargetBase {
     return null;
   }
 
-  public OpenFileDescriptor getOpenFileDescriptor() {
-    return (myFile == null) ? null : new OpenFileDescriptor(myProject, myFile, myTextOffset);
+  @Override
+  public Navigatable getOpenFileDescriptor() {
+    return (myFile == null)
+           ? null
+           : PsiNavigationSupport.getInstance().createNavigatable(myProject, myFile, myTextOffset);
   }
 
+  @Override
   public void run(DataContext dataContext, List<BuildFileProperty> additionalProperties, AntBuildListener buildListener) {
     AntBuildModel model = getModel();
     if (model == null) {
@@ -176,7 +180,6 @@ public class AntBuildTargetImpl implements AntBuildTargetBase {
       throw new IllegalStateException("Target '" + getName() + "' is invalid: build file is null");
     }
 
-    String[] targets = isDefault() ? ArrayUtil.EMPTY_STRING_ARRAY : new String[]{getName()};
-    ExecutionHandler.runBuild((AntBuildFileBase)buildFile, targets, null, dataContext, additionalProperties, buildListener);
+    ExecutionHandler.runBuild((AntBuildFileBase)buildFile, isDefault()? Collections.emptyList() : getTargetNames(), null, dataContext, additionalProperties, buildListener);
   }
 }

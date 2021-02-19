@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.appengine.inspections;
 
+import com.intellij.appengine.JavaGoogleAppEngineBundle;
 import com.intellij.appengine.facet.AppEngineFacet;
 import com.intellij.appengine.sdk.AppEngineSdk;
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
@@ -37,10 +24,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author nik
- */
-public class AppEngineForbiddenCodeInspection extends BaseJavaLocalInspectionTool {
+public class AppEngineForbiddenCodeInspection extends AbstractBaseJavaLocalInspectionTool {
 
   @Override
   public ProblemDescriptor[] checkFile(@NotNull PsiFile file, @NotNull final InspectionManager manager, final boolean isOnTheFly) {
@@ -56,8 +40,8 @@ public class AppEngineForbiddenCodeInspection extends BaseJavaLocalInspectionToo
     }
 
     final ProjectFileIndex fileIndex = ProjectRootManager.getInstance(project).getFileIndex();
-    final List<ProblemDescriptor> problems = new ArrayList<ProblemDescriptor>();
-    file.accept(new JavaRecursiveElementVisitor() {
+    final List<ProblemDescriptor> problems = new ArrayList<>();
+    file.accept(new JavaRecursiveElementWalkingVisitor() {
       @Override
       public void visitDocComment(PsiDocComment comment) {
       }
@@ -67,7 +51,8 @@ public class AppEngineForbiddenCodeInspection extends BaseJavaLocalInspectionToo
         final PsiModifierList modifierList = method.getModifierList();
         if (modifierList.hasModifierProperty(PsiModifier.NATIVE)) {
           if (!isNativeMethodAllowed(method)) {
-            problems.add(manager.createProblemDescriptor(modifierList, "Native methods aren't allowed in App Engine application", isOnTheFly,
+            problems.add(manager.createProblemDescriptor(modifierList, JavaGoogleAppEngineBundle.message(
+              "inspection.message.native.methods.not.allowed"), isOnTheFly,
                                                          LocalQuickFix.EMPTY_ARRAY, ProblemHighlightType.GENERIC_ERROR_OR_WARNING));
           }
         }
@@ -82,7 +67,8 @@ public class AppEngineForbiddenCodeInspection extends BaseJavaLocalInspectionToo
           if (resolved instanceof PsiClass) {
             final String qualifiedName = ((PsiClass)resolved).getQualifiedName();
             if (qualifiedName != null && appEngineSdk.isMethodInBlacklist(qualifiedName, "new")) {
-              final String message = "App Engine application should not create new instances of '" + qualifiedName + "' class";
+              final String message = JavaGoogleAppEngineBundle
+                .message("inspection.message.application.should.not.create.new.instances.0", qualifiedName);
               problems.add(manager.createProblemDescriptor(classReference, message, isOnTheFly, LocalQuickFix.EMPTY_ARRAY,
                                                            ProblemHighlightType.GENERIC_ERROR_OR_WARNING));
             }
@@ -102,8 +88,8 @@ public class AppEngineForbiddenCodeInspection extends BaseJavaLocalInspectionToo
             final String qualifiedName = psiClass.getQualifiedName();
             final String methodName = method.getName();
             if (qualifiedName != null && appEngineSdk.isMethodInBlacklist(qualifiedName, methodName)) {
-              final String message =
-                  "AppEngine application should not call '" + StringUtil.getShortName(qualifiedName) + "." + methodName + "' method";
+              final String message = JavaGoogleAppEngineBundle.message("inspection.message.application.should.not.call.method",
+                                                                       StringUtil.getShortName(qualifiedName), methodName);
               problems.add(manager.createProblemDescriptor(methodExpression, message, isOnTheFly, LocalQuickFix.EMPTY_ARRAY,
                                                            ProblemHighlightType.GENERIC_ERROR_OR_WARNING));
             }
@@ -125,7 +111,9 @@ public class AppEngineForbiddenCodeInspection extends BaseJavaLocalInspectionToo
                 if (entry instanceof JdkOrderEntry) {
                   final String className = ClassUtil.getJVMClassName((PsiClass)resolved);
                   if (className != null && !appEngineSdk.isClassInWhiteList(className)) {
-                    problems.add(manager.createProblemDescriptor(reference, "Class '" + className + "' is not included in App Engine JRE White List",
+                    problems.add(manager.createProblemDescriptor(reference,
+                                                                 JavaGoogleAppEngineBundle
+                                                                   .message("inspection.message.class.not.included.in.white.list", className),
                                                                  isOnTheFly, LocalQuickFix.EMPTY_ARRAY,
                                                                  ProblemHighlightType.GENERIC_ERROR_OR_WARNING));
                   }
@@ -137,7 +125,7 @@ public class AppEngineForbiddenCodeInspection extends BaseJavaLocalInspectionToo
         super.visitReferenceElement(reference);
       }
     });
-    return problems.toArray(new ProblemDescriptor[problems.size()]);
+    return problems.toArray(ProblemDescriptor.EMPTY_ARRAY);
   }
 
   private static boolean isNativeMethodAllowed(PsiMethod method) {
@@ -160,18 +148,14 @@ public class AppEngineForbiddenCodeInspection extends BaseJavaLocalInspectionToo
     return HighlightDisplayLevel.ERROR;
   }
 
+  @Override
   @Nls
   @NotNull
   public String getGroupDisplayName() {
-    return "Google App Engine";
+    return JavaGoogleAppEngineBundle.message("plugin.name");
   }
 
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Forbidden code in App Engine applications";
-  }
-
+  @Override
   @NotNull
   public String getShortName() {
     return "AppEngineForbiddenCode";

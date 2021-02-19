@@ -1,67 +1,69 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl;
 
-import com.intellij.openapi.fileEditor.impl.EditorTabbedContainer;
+import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.project.ProjectManager;
+import com.intellij.openapi.project.ProjectUtilCore;
+import com.intellij.openapi.roots.ProjectFileIndex;
+import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.platform.ProjectBaseDirectory;
+import com.intellij.openapi.vfs.newvfs.VfsPresentationUtil;
+import com.intellij.util.PlatformUtils;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.File;
+import java.util.Arrays;
 
 /**
  * @author yole
  */
 public class PlatformFrameTitleBuilder extends FrameTitleBuilder {
   @Override
-  public String getProjectTitle(@NotNull final Project project) {
-    final String basePath = project.getBasePath();
+  public String getProjectTitle(@NotNull Project project) {
+    String basePath = project.getBasePath();
     if (basePath == null) return project.getName();
 
-    if (basePath.equals(project.getName())) {
+    Project[] projects = ProjectManager.getInstance().getOpenProjects();
+    int sameNamedProjects = ContainerUtil.count(Arrays.asList(projects), (it) -> it.getName().equals(project.getName()));
+    if (sameNamedProjects == 1 && !UISettings.getInstance().getFullPathsInWindowHeader()) {
+      return project.getName();
+    }
+
+    basePath = FileUtil.toSystemDependentName(basePath);
+    if (basePath.equals(project.getName()) && !UISettings.getInstance().getFullPathsInWindowHeader()) {
       return "[" + FileUtil.getLocationRelativeToUserHome(basePath) + "]";
     }
     else {
-      return project.getName() + " - [" + FileUtil.getLocationRelativeToUserHome(basePath) + "]";
+      return project.getName() + " [" + FileUtil.getLocationRelativeToUserHome(basePath) + "]";
     }
   }
 
   @Override
-  public String getFileTitle(@NotNull final Project project, @NotNull final VirtualFile file) {
-    String fileTitle = EditorTabbedContainer.calcTabTitle(project, file);
-    if (SystemInfo.isMac) return fileTitle;
-
-    VirtualFile parent = file.getParent();
-    if (parent == null || !fileTitle.endsWith(file.getPresentableName())) return fileTitle;
-
-    String url = FileUtil.getLocationRelativeToUserHome(parent.getPresentableUrl() + File.separator + file.getName());
-
-    VirtualFile baseDir = ProjectBaseDirectory.getInstance(project).getBaseDir();
-    if (baseDir == null) baseDir = project.getBaseDir();
-
-    if (baseDir != null) {
-      final String projectHomeUrl = FileUtil.getLocationRelativeToUserHome(baseDir.getPresentableUrl());
-      if (url.startsWith(projectHomeUrl)) {
-        url = "..." + url.substring(projectHomeUrl.length());
-      }
+  public String getFileTitle(@NotNull Project project, @NotNull VirtualFile file) {
+    String fileTitle = VfsPresentationUtil.getPresentableNameForUI(project, file);
+    if (!fileTitle.endsWith(file.getPresentableName()) || file.getParent() == null) {
+      return fileTitle;
     }
 
-    return url;
+    if (UISettings.getInstance().getFullPathsInWindowHeader()) {
+      return ProjectUtilCore.displayUrlRelativeToProject(file, file.getPresentableUrl(), project, true, false);
+    }
+
+    ProjectFileIndex fileIndex = ProjectRootManager.getInstance(project).getFileIndex();
+    if (!fileIndex.isInContent(file)) {
+      String pathWithLibrary = ProjectUtilCore.decorateWithLibraryName(file, project, file.getPresentableName());
+      if (pathWithLibrary != null) {
+        return pathWithLibrary;
+      }
+      return FileUtil.getLocationRelativeToUserHome(file.getPresentableUrl());
+    }
+
+    if (PlatformUtils.isCidr() || PlatformUtils.isRider()) {
+      return fileTitle;
+    }
+
+    return ProjectUtilCore.appendModuleName(file, project, fileTitle, false);
   }
 }

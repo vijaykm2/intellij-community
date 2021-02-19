@@ -20,8 +20,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles;
 import org.jetbrains.idea.maven.model.MavenProfileKind;
+import org.jetbrains.idea.maven.project.MavenProjectBundle;
 import org.jetbrains.idea.maven.project.MavenProjectsManager;
-import org.jetbrains.idea.maven.project.ProjectBundle;
 import org.jetbrains.idea.maven.utils.MavenDataKeys;
 import org.jetbrains.idea.maven.utils.actions.MavenAction;
 import org.jetbrains.idea.maven.utils.actions.MavenActionUtil;
@@ -30,7 +30,8 @@ import java.util.Map;
 import java.util.Set;
 
 public class ToggleProfileAction extends MavenAction {
-  public void update(AnActionEvent e) {
+  @Override
+  public void update(@NotNull AnActionEvent e) {
     super.update(e);
     if (!isAvailable(e)) return;
 
@@ -39,21 +40,21 @@ public class ToggleProfileAction extends MavenAction {
     String text;
     switch (targetState) {
       case NONE:
-        text = ProjectBundle.message("maven.profile.deactivate");
+        text = MavenProjectBundle.message("maven.profile.deactivate");
         break;
       case EXPLICIT:
-        text = ProjectBundle.message("maven.profile.activate");
+        text = MavenProjectBundle.message("maven.profile.activate");
         break;
       case IMPLICIT:
       default:
-        text = ProjectBundle.message("maven.profile.default");
+        text = MavenProjectBundle.message("maven.profile.default");
         break;
     }
     e.getPresentation().setText(text);
   }
 
   @Override
-  protected boolean isAvailable(AnActionEvent e) {
+  protected boolean isAvailable(@NotNull AnActionEvent e) {
     if (!super.isAvailable(e)) return false;
 
     return getTargetState(e) != null;

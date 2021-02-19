@@ -14,14 +14,10 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 26-Dec-2007
- */
 package com.intellij.openapi.roots.ui.configuration.libraryEditor;
 
 import com.intellij.icons.AllIcons;
-import com.intellij.openapi.project.ProjectBundle;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.ui.SdkPathEditor;
 import com.intellij.openapi.roots.ui.OrderRootTypeUIFactory;
@@ -36,7 +32,7 @@ public class NativeLibraryOrderRootTypeUIFactory implements OrderRootTypeUIFacto
 
   @Override
   public String getNodeText() {
-    return ProjectBundle.message("project.roots.native.library.node.text");
+    return JavaUiBundle.message("project.roots.native.library.node.text");
   }
 
   @Override

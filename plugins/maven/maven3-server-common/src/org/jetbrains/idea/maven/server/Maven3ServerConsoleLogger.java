@@ -4,7 +4,7 @@ import org.codehaus.plexus.logging.Logger;
 
 import java.rmi.RemoteException;
 
-public class Maven3ServerConsoleLogger implements Logger {
+public class Maven3ServerConsoleLogger extends MavenRemoteObject implements Logger {
   private static final String LINE_SEPARATOR = System.getProperty("line.separator");
 
   private MavenServerConsole myWrappee;
@@ -19,7 +19,7 @@ public class Maven3ServerConsoleLogger implements Logger {
 
     if (myWrappee != null) {
       try {
-        myWrappee.printMessage(level, message, throwable);
+        myWrappee.printMessage(level, message, wrapException(throwable));
       }
       catch (RemoteException e) {
         //todo throw new RuntimeRemoteException(e); ???
@@ -31,78 +31,97 @@ public class Maven3ServerConsoleLogger implements Logger {
     myWrappee = wrappee;
   }
 
+  @Override
   public void debug(String string, Throwable throwable) {
     doPrint(MavenServerConsole.LEVEL_DEBUG, string, throwable);
   }
 
+  @Override
   public void info(String string, Throwable throwable) {
     doPrint(MavenServerConsole.LEVEL_INFO, string, throwable);
   }
 
+  @Override
   public void warn(String string, Throwable throwable) {
     doPrint(MavenServerConsole.LEVEL_WARN, string, throwable);
   }
 
+  @Override
   public void error(String string, Throwable throwable) {
     doPrint(MavenServerConsole.LEVEL_ERROR, string, throwable);
   }
 
+  @Override
   public void fatalError(String string, Throwable throwable) {
     doPrint(MavenServerConsole.LEVEL_FATAL, string, throwable);
   }
 
+  @Override
   public void debug(String message) {
     debug(message, null);
   }
 
+  @Override
   public boolean isDebugEnabled() {
     return getThreshold() <= MavenServerConsole.LEVEL_DEBUG;
   }
 
+  @Override
   public void info(String message) {
     info(message, null);
   }
 
+  @Override
   public boolean isInfoEnabled() {
     return getThreshold() <= MavenServerConsole.LEVEL_INFO;
   }
 
+  @Override
   public void warn(String message) {
     warn(message, null);
   }
 
+  @Override
   public boolean isWarnEnabled() {
     return getThreshold() <= MavenServerConsole.LEVEL_WARN;
   }
 
+  @Override
   public void error(String message) {
     error(message, null);
   }
 
+  @Override
   public boolean isErrorEnabled() {
     return getThreshold() <= MavenServerConsole.LEVEL_ERROR;
   }
 
+  @Override
   public void fatalError(String message) {
     fatalError(message, null);
   }
 
+  @Override
   public boolean isFatalErrorEnabled() {
     return getThreshold() <= MavenServerConsole.LEVEL_FATAL;
   }
 
+  @Override
   public void setThreshold(int threshold) {
     this.myThreshold = threshold;
   }
 
+  @Override
   public int getThreshold() {
     return myThreshold;
   }
 
+  @Override
   public Logger getChildLogger(String s) {
     return null;
   }
 
+  @Override
   public String getName() {
     return toString();
   }

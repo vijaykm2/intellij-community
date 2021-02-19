@@ -1,5 +1,6 @@
 package com.intellij.util.ui.classpath;
 
+import com.intellij.openapi.util.NlsSafe;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.NonNls;
 import org.jdom.Element;
@@ -14,13 +15,10 @@ import java.util.Collections;
 import java.util.ArrayList;
 import java.io.IOException;
 
-/**
- * @author nik
- */
 public class GlobalLibraryReferenceElement implements SimpleClasspathElement {
   @NonNls public static final String NAME_ATTRIBUTE = "name";
   @NonNls public static final String LEVEL_ATTRIBUTE = "level";
-  private final String myLibraryName;
+  @NlsSafe private final String myLibraryName;
 
   public GlobalLibraryReferenceElement(@NotNull String libraryName) {
     myLibraryName = libraryName;
@@ -63,7 +61,7 @@ public class GlobalLibraryReferenceElement implements SimpleClasspathElement {
   public List<String> getClassesRootUrls() {
     final Library library = getLibrary();
     if (library != null) {
-      final List<String> list = new ArrayList<String>();
+      final List<String> list = new ArrayList<>();
       for (VirtualFile file : library.getFiles(OrderRootType.CLASSES)) {
         list.add(file.getUrl());
       }

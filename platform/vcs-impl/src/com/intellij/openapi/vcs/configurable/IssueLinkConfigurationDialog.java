@@ -1,30 +1,20 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.configurable;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.vcs.IssueNavigationConfiguration;
 import com.intellij.openapi.vcs.IssueNavigationLink;
+import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.ui.DocumentAdapter;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.text.MessageFormat;
+import java.util.ArrayList;
 
 /**
  * @author yole
@@ -40,39 +30,44 @@ public class IssueLinkConfigurationDialog extends DialogWrapper {
   protected IssueLinkConfigurationDialog(Project project) {
     super(project, false);
     init();
-    myIssueIDTextField.getDocument().addDocumentListener(new DocumentAdapter() {
-      protected void textChanged(DocumentEvent e) {
+    DocumentAdapter documentChangeListener = new DocumentAdapter() {
+      @Override
+      protected void textChanged(@NotNull DocumentEvent e) {
         updateFeedback();
       }
-    });
-    myExampleIssueIDTextField.getDocument().addDocumentListener(new DocumentAdapter() {
-      protected void textChanged(final DocumentEvent e) {
-        updateFeedback();
-      }
-    });
+    };
+    myIssueIDTextField.getDocument().addDocumentListener(documentChangeListener);
+    myIssueLinkTextField.getDocument().addDocumentListener(documentChangeListener);
+    myExampleIssueIDTextField.getDocument().addDocumentListener(documentChangeListener);
+
+    myIssueIDTextField.setText("Task_([A-Za-z]+)_(\\d+)"); //NON-NLS // placeholder
+    myIssueLinkTextField.setText("https://example.com/issue/$1/$2"); //NON-NLS // placeholder
+    myExampleIssueIDTextField.setText("Task_DA_113"); //NON-NLS // placeholder
   }
 
   private void updateFeedback() {
     myErrorLabel.setText(" ");
     try {
-      Pattern p = Pattern.compile(myIssueIDTextField.getText());
       if (myIssueIDTextField.getText().length() > 0) {
-        final Matcher matcher = p.matcher(myExampleIssueIDTextField.getText());
-        if (matcher.matches()) {
-          myExampleIssueLinkTextField.setText(matcher.replaceAll(myIssueLinkTextField.getText()));
+        ArrayList<IssueNavigationConfiguration.LinkMatch> matches = new ArrayList<>();
+        IssueNavigationConfiguration.findIssueLinkMatches(myExampleIssueIDTextField.getText(), getLink(), matches);
+        IssueNavigationConfiguration.LinkMatch firstMatch = ContainerUtil.getFirstItem(matches);
+        if (firstMatch != null) {
+          myExampleIssueLinkTextField.setText(firstMatch.getTargetUrl());
         }
         else {
-          myExampleIssueLinkTextField.setText("<no match>");
+          myExampleIssueLinkTextField.setText(VcsBundle.message("add.issue.dialog.issue.no.match"));
         }
       }
     }
-    catch(Exception ex) {
-      myErrorLabel.setText("Invalid regular expression: " + ex.getMessage());
+    catch (Exception ex) {
+      myErrorLabel.setText(VcsBundle.message("add.issue.dialog.invalid.regular.expression", ex.getMessage()));
       myExampleIssueLinkTextField.setText("");
     }
     setOKActionEnabled(myErrorLabel.getText().equals(" "));
   }
 
+  @Override
   @Nullable
   protected JComponent createCenterPanel() {
     return myPanel;
@@ -93,6 +88,7 @@ public class IssueLinkConfigurationDialog extends DialogWrapper {
     myIssueLinkTextField.setText(link.getLinkRegexp());
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return myIssueIDTextField;
   }

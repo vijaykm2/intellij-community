@@ -1,91 +1,102 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.ui.search;
 
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsSafe;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * User: anna
- * Date: 17-Mar-2006
- */
-public class OptionDescription implements Comparable{
-  private String myOption;
-  private final String myHit;
-  private String myPath;
-  private String myConfigurableId;
+import java.util.Objects;
 
-  public OptionDescription(final String option, final String hit, final String path) {
-    myOption = option;
-    myHit = hit;
-    myPath = path;
+public class OptionDescription implements Comparable<OptionDescription> {
+  private final @Nls String myOption;
+  private final @NlsSafe String myHit;
+  private final @NlsSafe String myPath;
+  private final @NonNls String myConfigurableId;
+  private final @Nls String myGroupName;
+
+  public OptionDescription(@NlsSafe String hit) {
+    this(null, hit, null);
   }
 
-  public OptionDescription(String hit) {
-    myHit = hit;
+  public OptionDescription(@Nls String option, @NlsSafe String hit, @NlsSafe String path) {
+    this(option, null, hit, path);
   }
 
+  public OptionDescription(@Nls String option, @NonNls String configurableId, @NlsSafe String hit, @NlsSafe String path) {
+    this(option, configurableId, hit, path, null);
+  }
 
-  public OptionDescription(final String option, final String configurableId, final String hit, final String path) {
+  public OptionDescription(@Nls String option,
+                           @NonNls String configurableId,
+                           @NlsSafe String hit,
+                           @NlsSafe String path,
+                           @Nls String groupName) {
     myOption = option;
     myHit = hit;
     myPath = path;
     myConfigurableId = configurableId;
+    myGroupName = groupName;
   }
 
+  @Nls
   public String getOption() {
     return myOption;
   }
 
+  @NlsSafe
   @Nullable
-  public String getHit() {
+  public final String getHit() {
     return myHit;
   }
 
   @Nullable
-  public String getPath() {
+  public final String getPath() {
     return myPath;
   }
 
-
-  public String getConfigurableId() {
+  @NonNls
+  public final String getConfigurableId() {
     return myConfigurableId;
   }
 
-  public String toString() {
+  @Nls
+  public final String getGroupName() {
+    return myGroupName;
+  }
+
+  @NlsSafe
+  public String getValue() {
+    return null;
+  }
+
+  public boolean hasExternalEditor() {
+    return false;
+  }
+
+  public void invokeInternalEditor() {
+  }
+
+  public final String toString() {
     return myHit;
   }
 
-
-  public boolean equals(final Object o) {
+  public final boolean equals(final Object o) {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
 
     final OptionDescription that = (OptionDescription)o;
 
-    if (myConfigurableId != null ? !myConfigurableId.equals(that.myConfigurableId) : that.myConfigurableId != null) return false;
-    if (myHit != null ? !myHit.equals(that.myHit) : that.myHit != null) return false;
-    if (myOption != null ? !myOption.equals(that.myOption) : that.myOption != null) return false;
-    if (myPath != null ? !myPath.equals(that.myPath) : that.myPath != null) return false;
+    if (!Objects.equals(myConfigurableId, that.myConfigurableId)) return false;
+    if (!Objects.equals(myHit, that.myHit)) return false;
+    if (!Objects.equals(myOption, that.myOption)) return false;
+    if (!Objects.equals(myPath, that.myPath)) return false;
 
     return true;
   }
 
-  public int hashCode() {
+  public final int hashCode() {
     int result;
     result = (myOption != null ? myOption.hashCode() : 0);
     result = 31 * result + (myHit != null ? myHit.hashCode() : 0);
@@ -94,13 +105,13 @@ public class OptionDescription implements Comparable{
     return result;
   }
 
-  public int compareTo(final Object o) {
-    final OptionDescription description = ((OptionDescription)o);
-    if (Comparing.strEqual(myHit, description.getHit())){
-      return myOption != null ? myOption.compareTo(description.getOption()) : 0;
+  @Override
+  public final int compareTo(final OptionDescription o) {
+    if (Comparing.strEqual(myHit, o.getHit())) {
+      return myOption != null ? myOption.compareTo(o.getOption()) : 0;
     }
-    if (myHit != null && description.getHit() != null){
-      return myHit.compareTo(description.getHit());
+    if (myHit != null && o.getHit() != null) {
+      return myHit.compareTo(o.getHit());
     }
     return 0;
   }

@@ -14,20 +14,23 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 09.07.2002
- * Time: 12:39:20
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.makeStatic;
 
-import com.intellij.psi.*;
+import com.intellij.model.ModelBranch;
+import com.intellij.psi.PsiElement;
+import com.intellij.usageView.UsageInfo;
+import org.jetbrains.annotations.NotNull;
 
-public class SelfUsageInfo extends InternalUsageInfo {
+import java.util.Objects;
+
+public final class SelfUsageInfo extends InternalUsageInfo {
   SelfUsageInfo(PsiElement element, PsiElement referencedElement) {
     super(element, referencedElement);
+  }
+
+  @Override
+  public @NotNull UsageInfo obtainBranchCopy(@NotNull ModelBranch branch) {
+    return new SelfUsageInfo(branch.obtainPsiCopy(Objects.requireNonNull(getElement())),
+                                 branch.obtainPsiCopy(myReferencedElement));
   }
 }

@@ -15,13 +15,14 @@
  */
 package com.intellij.codeInsight.highlighting;
 
-import com.intellij.codeInsight.CodeInsightBundle;
+import com.intellij.java.JavaBundle;
 import com.intellij.navigation.ItemPresentation;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.util.Consumer;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
@@ -39,7 +40,7 @@ public class HighlightOverridingMethodsHandler extends HighlightUsagesHandlerBas
   }
 
   @Override
-  public List<PsiClass> getTargets() {
+  public @NotNull List<PsiClass> getTargets() {
     PsiReferenceList list = PsiKeyword.EXTENDS.equals(myTarget.getText()) ? myClass.getExtendsList() : myClass.getImplementsList();
     if (list == null) return Collections.emptyList();
     final PsiClassType[] classTypes = list.getReferencedTypes();
@@ -47,17 +48,17 @@ public class HighlightOverridingMethodsHandler extends HighlightUsagesHandlerBas
   }
 
   @Override
-  protected void selectTargets(final List<PsiClass> targets, final Consumer<List<PsiClass>> selectionConsumer) {
-    new ChooseClassAndDoHighlightRunnable(targets, myEditor, CodeInsightBundle.message("highlight.overridden.classes.chooser.title")) {
+  protected void selectTargets(final @NotNull List<? extends PsiClass> targets, final @NotNull Consumer<? super List<? extends PsiClass>> selectionConsumer) {
+    new ChooseClassAndDoHighlightRunnable(targets, myEditor, JavaBundle.message("highlight.overridden.classes.chooser.title")) {
       @Override
-      protected void selected(PsiClass... classes) {
+      protected void selected(PsiClass @NotNull ... classes) {
         selectionConsumer.consume(Arrays.asList(classes));
       }
     }.run();
   }
 
   @Override
-  public void computeUsages(final List<PsiClass> classes) {
+  public void computeUsages(final @NotNull List<? extends PsiClass> classes) {
     for (PsiMethod method : myClass.getMethods()) {
       List<HierarchicalMethodSignature> superSignatures = method.getHierarchicalMethodSignature().getSuperSignatures();
       for (HierarchicalMethodSignature superSignature : superSignatures) {
@@ -84,12 +85,12 @@ public class HighlightOverridingMethodsHandler extends HighlightUsagesHandlerBas
       else {
         name = "";
       }
-      myHintText = CodeInsightBundle.message("no.methods.overriding.0.are.found", classes.size(), name);
+      myHintText = JavaBundle.message("no.methods.overriding.0.are.found", classes.size(), name);
     }
     else {
       addOccurrence(myTarget);
       final int methodCount = myReadUsages.size()-1;  // exclude 'target' keyword
-      myStatusText = CodeInsightBundle.message("status.bar.overridden.methods.highlighted.message", methodCount,
+      myStatusText = JavaBundle.message("status.bar.overridden.methods.highlighted.message", methodCount,
                                                                         HighlightUsagesHandler.getShortcutText());
     }
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2010 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,8 @@ package com.intellij.refactoring.changeSignature;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.MultiLineLabelUI;
+import com.intellij.openapi.wm.IdeFocusManager;
+import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.util.RadioUpDownListener;
 import com.intellij.ui.EditorTextField;
 
@@ -25,10 +27,6 @@ import javax.swing.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
-/**
- * User: anna
- * Date: Sep 13, 2010
- */
 public class DefaultValueChooser extends DialogWrapper{
   private JRadioButton myLeaveBlankRadioButton;
   private JRadioButton myFeelLuckyRadioButton;
@@ -47,19 +45,17 @@ public class DefaultValueChooser extends DialogWrapper{
         myValueEditor.setEnabled(myUseValueRadioButton.isSelected());
         if (myUseValueRadioButton.isSelected()) {
           myValueEditor.selectAll();
-          myValueEditor.requestFocus();
+          IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myValueEditor, true));
         }
       }
     };
     myLeaveBlankRadioButton.addActionListener(actionListener);
     myFeelLuckyRadioButton.addActionListener(actionListener);
     myUseValueRadioButton.addActionListener(actionListener);
-    setTitle("Default value for parameter \"" + name + "\" needed");
+    setTitle(RefactoringBundle.message("change.signature.default.value.chooser.title", name));
     myLeaveBlankRadioButton.setSelected(true);
     myValueEditor.setEnabled(false);
-    myFeelLuckyDescription.setText("Variables of the same type would be searched in the method call place.\n" +
-                                   "When exactly one variable is found, it would be used.\n" +
-                                   "Otherwise parameter place would be left blank.");
+    myFeelLuckyDescription.setText(RefactoringBundle.message("change.signature.default.value.description"));
     myFeelLuckyDescription.setUI(new MultiLineLabelUI());
     myBlankDescription.setUI(new MultiLineLabelUI());
     myValueEditor.setText(defaultValue);

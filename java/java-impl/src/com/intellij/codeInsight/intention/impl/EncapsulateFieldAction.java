@@ -1,21 +1,9 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.intention.impl;
 
-import com.intellij.codeInsight.CodeInsightBundle;
+import com.intellij.ide.DataManager;
+import com.intellij.java.JavaBundle;
+import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -33,7 +21,7 @@ public class EncapsulateFieldAction extends BaseRefactoringIntentionAction {
   @NotNull
   @Override
   public String getText() {
-    return CodeInsightBundle.message("intention.encapsulate.field.text");
+    return JavaBundle.message("intention.encapsulate.field.text");
   }
 
   @NotNull
@@ -59,18 +47,19 @@ public class EncapsulateFieldAction extends BaseRefactoringIntentionAction {
       return;
     }
 
-    new EncapsulateFieldsHandler().invoke(project, new PsiElement[]{field}, null);
+    DataContext dataContext = DataManager.getInstance().getDataContext(editor.getComponent());
+    new EncapsulateFieldsHandler().invoke(project, new PsiElement[]{field}, dataContext);
   }
 
 
   @Nullable
   protected static PsiField getField(@Nullable PsiElement element) {
-    if (element == null || !(element instanceof PsiIdentifier)) {
+    if (!(element instanceof PsiIdentifier)) {
       return null;
     }
 
     final PsiElement parent = element.getParent();
-    if (parent == null || !(parent instanceof PsiReferenceExpression)) {
+    if (!(parent instanceof PsiReferenceExpression)) {
       return null;
     }
     final PsiReferenceExpression ref = (PsiReferenceExpression)parent;
@@ -80,9 +69,14 @@ public class EncapsulateFieldAction extends BaseRefactoringIntentionAction {
     }
 
     final PsiElement resolved = ref.resolve();
-    if (resolved == null || !(resolved instanceof PsiField)) {
+    if (!(resolved instanceof PsiField)) {
       return null;
     }
     return (PsiField)resolved;
+  }
+
+  @Override
+  public boolean startInWriteAction() {
+    return false;
   }
 }

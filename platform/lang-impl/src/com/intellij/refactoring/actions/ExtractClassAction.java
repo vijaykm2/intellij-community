@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2010 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,16 +15,14 @@
  */
 package com.intellij.refactoring.actions;
 
-import com.intellij.lang.Language;
-import com.intellij.lang.LanguageRefactoringSupport;
 import com.intellij.lang.refactoring.RefactoringSupportProvider;
-import com.intellij.psi.PsiElement;
+import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.refactoring.RefactoringActionHandler;
-import com.intellij.refactoring.lang.ElementsHandler;
 import org.jetbrains.annotations.NotNull;
 
-public class ExtractClassAction extends BasePlatformRefactoringAction {
+import static com.intellij.refactoring.actions.ExtractSuperActionBase.removeFirstWordInMainMenu;
 
+public class ExtractClassAction extends BasePlatformRefactoringAction {
   @Override
   protected RefactoringActionHandler getRefactoringHandler(@NotNull RefactoringSupportProvider provider) {
     return provider.getExtractClassHandler();
@@ -33,5 +31,11 @@ public class ExtractClassAction extends BasePlatformRefactoringAction {
   @Override
   public boolean isAvailableInEditorOnly(){
       return false;
+  }
+
+  @Override
+  public void update(@NotNull AnActionEvent e) {
+    super.update(e);
+    removeFirstWordInMainMenu(this, e);
   }
 }

@@ -16,9 +16,9 @@
 package org.jetbrains.plugins.groovy.codeInspection.confusing;
 
 import com.intellij.psi.tree.IElementType;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
@@ -28,23 +28,9 @@ import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 public class GroovyResultOfIncrementOrDecrementUsedInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONFUSING_CODE_CONSTRUCTS;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Result of increment or decrement used";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "Result of increment or decrement expression used #loc";
+    return GroovyBundle.message("inspection.message.result.increment.or.decrement.expression.used");
   }
 
   @NotNull
@@ -56,7 +42,7 @@ public class GroovyResultOfIncrementOrDecrementUsedInspection extends BaseInspec
   private static class Visitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitUnaryExpression(GrUnaryExpression grUnaryExpression) {
+    public void visitUnaryExpression(@NotNull GrUnaryExpression grUnaryExpression) {
       super.visitUnaryExpression(grUnaryExpression);
 
       final IElementType tokenType = grUnaryExpression.getOperationTokenType();

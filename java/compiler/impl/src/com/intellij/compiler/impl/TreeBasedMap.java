@@ -1,40 +1,25 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler.impl;
 
-import com.intellij.util.containers.StringInterner;
-import com.intellij.util.containers.EmptyIterator;
+import com.intellij.util.containers.Interner;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Stack;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Jun 18, 2006
  */
 public class TreeBasedMap<T> {
-  private Node<T> myRoot = new Node<T>();
-  private final StringInterner myInterner;
+  private Node<T> myRoot = new Node<>();
+  private final Interner<String> myInterner;
   private final char mySeparator;
   private int mySize = 0;
 
-  public TreeBasedMap(StringInterner table, final char separator) {
+  public TreeBasedMap(Interner<String> table, final char separator) {
     myInterner = table;
     mySeparator = separator;
   }
@@ -63,12 +48,12 @@ public class TreeBasedMap<T> {
     }
 
     @Nullable
-    public Node<T> findRelative(String text, boolean create, final StringInterner table) {
+    public Node<T> findRelative(String text, boolean create, final Interner<String> table) {
       return findRelative(text, 0, create, table);
     }
 
     @Nullable
-    private Node<T> findRelative(final String text, final int nameStartIndex, final boolean create, final StringInterner table) {
+    private Node<T> findRelative(final String text, final int nameStartIndex, final boolean create, final Interner<String> table) {
       if (myChildren == null && !create) {
         return null;
       }
@@ -95,12 +80,12 @@ public class TreeBasedMap<T> {
     }
 
     @NotNull
-    private Node<T> addChild(final StringInterner table, final String text, final int nameStartIndex, final int nameEndIndex) {
+    private Node<T> addChild(final Interner<String> table, final String text, final int nameStartIndex, final int nameEndIndex) {
       if (myChildren == null) {
-        myChildren = new HashMap<String, Node<T>>(3, 0.95f);
+        myChildren = new HashMap<>(3, 0.95f);
       }
 
-      Node<T> newChild = new Node<T>();
+      Node<T> newChild = new Node<>();
       final String key = table.intern(text.substring(nameStartIndex, nameEndIndex));
       myChildren.put(key, newChild);
 
@@ -147,7 +132,7 @@ public class TreeBasedMap<T> {
   }
 
   public void removeAll() {
-    myRoot = new Node<T>();
+    myRoot = new Node<>();
   }
 
   public Iterator<String> getKeysIterator() {
@@ -156,18 +141,20 @@ public class TreeBasedMap<T> {
 
 
   private class KeysIterator implements Iterator<String> {
-    private final Stack<PathElement<T>> myCurrentNodePath = new Stack<PathElement<T>>();
+    private final Stack<PathElement<T>> myCurrentNodePath = new Stack<>();
     private final StringBuilder myCurrentName = new StringBuilder();
 
-    public KeysIterator() {
+    KeysIterator() {
       pushNode("", myRoot);
       findNextNode();
     }
 
+    @Override
     public boolean hasNext() {
       return myCurrentNodePath.size() > 0;
     }
 
+    @Override
     public String next() {
       final String key = myCurrentName.toString();
       popNode();
@@ -175,6 +162,7 @@ public class TreeBasedMap<T> {
       return key;
     }
 
+    @Override
     public void remove() {
       throw new UnsupportedOperationException("Remove not supported");
     }
@@ -183,9 +171,9 @@ public class TreeBasedMap<T> {
       final HashMap<String, Node<T>> childrenMap = node.myChildren;
       final boolean hasChildren = childrenMap != null && childrenMap.size() > 0;
       if (hasChildren || node.mappingExists()) {
-        myCurrentNodePath.push(new PathElement<T>(node, hasChildren? childrenMap.keySet().iterator() : EmptyIterator.<String>getInstance()));
+        myCurrentNodePath.push(new PathElement<>(node, hasChildren ? childrenMap.keySet().iterator() : Collections.emptyIterator()));
         if (myCurrentNodePath.size() > 2) {
-          // do not add separator before the Root and its direct child nodes 
+          // do not add separator before the Root and its direct child nodes
           myCurrentName.append(mySeparator);
         }
         myCurrentName.append(name);
@@ -230,7 +218,7 @@ public class TreeBasedMap<T> {
   private class PathElement<T> {
     final @NotNull Iterator<String> iterator;
     final @NotNull Node<T> node;
-    public PathElement(@NotNull final Node<T> node, Iterator<String> iterator) {
+    PathElement(@NotNull final Node<T> node, Iterator<String> iterator) {
       this.node = node;
       this.iterator = iterator;
     }

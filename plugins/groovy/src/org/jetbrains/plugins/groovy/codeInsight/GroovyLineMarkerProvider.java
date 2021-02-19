@@ -1,24 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.codeInsight;
 
-import com.intellij.codeHighlighting.Pass;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzerSettings;
 import com.intellij.codeInsight.daemon.LineMarkerInfo;
-import com.intellij.codeInsight.daemon.LineMarkerProvider;
 import com.intellij.codeInsight.daemon.impl.JavaLineMarkerProvider;
 import com.intellij.codeInsight.daemon.impl.MarkerType;
 import com.intellij.icons.AllIcons;
@@ -29,7 +13,6 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
 import com.intellij.openapi.editor.markup.SeparatorPlacement;
 import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
@@ -38,9 +21,6 @@ import com.intellij.psi.search.searches.AllOverridingMethodsSearch;
 import com.intellij.psi.search.searches.SuperMethodsSearch;
 import com.intellij.psi.util.MethodSignatureBackedByPsiMethod;
 import com.intellij.util.FunctionUtil;
-import com.intellij.util.Processor;
-import com.intellij.util.containers.HashSet;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.lang.groovydoc.psi.api.GrDocComment;
 import org.jetbrains.plugins.groovy.lang.groovydoc.psi.api.GrDocCommentOwner;
@@ -60,26 +40,15 @@ import org.jetbrains.plugins.groovy.lang.psi.util.GrTraitUtil;
 import org.jetbrains.plugins.groovy.lang.psi.util.GroovyPropertyUtils;
 
 import javax.swing.*;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 /**
  * @author ilyas
  * Same logic as for Java LMP
  */
-public class GroovyLineMarkerProvider implements LineMarkerProvider {
-  protected final DaemonCodeAnalyzerSettings myDaemonSettings;
-  protected final EditorColorsManager myColorsManager;
-
-  public GroovyLineMarkerProvider(DaemonCodeAnalyzerSettings daemonSettings, EditorColorsManager colorsManager) {
-    myDaemonSettings = daemonSettings;
-    myColorsManager = colorsManager;
-  }
-
+final class GroovyLineMarkerProvider extends JavaLineMarkerProvider {
   @Override
-  public LineMarkerInfo getLineMarkerInfo(@NotNull final PsiElement element) {
+  public LineMarkerInfo<?> getLineMarkerInfo(final @NotNull PsiElement element) {
     final PsiElement parent = element.getParent();
     if (parent instanceof PsiNameIdentifierOwner) {
       if (parent instanceof GrField && element == ((GrField)parent).getNameIdentifierGroovy()) {
@@ -91,8 +60,8 @@ public class GroovyLineMarkerProvider implements LineMarkerProvider {
                                 superMethod.getBody() != null && GrTraitUtil.isTrait(superMethod.getContainingClass());
             final Icon icon = overrides ? AllIcons.Gutter.OverridingMethod : AllIcons.Gutter.ImplementingMethod;
             final MarkerType type = GroovyMarkerTypes.OVERRIDING_PROPERTY_TYPE;
-            return new LineMarkerInfo<PsiElement>(element, element.getTextRange(), icon, Pass.UPDATE_ALL, type.getTooltip(), type.getNavigationHandler(),
-                                                  GutterIconRenderer.Alignment.LEFT);
+            return new LineMarkerInfo<>(element, element.getTextRange(), icon, type.getTooltip(), type.getNavigationHandler(),
+                                        GutterIconRenderer.Alignment.LEFT);
           }
         }
       }
@@ -100,13 +69,13 @@ public class GroovyLineMarkerProvider implements LineMarkerProvider {
                element == ((GrMethod)parent).getNameIdentifierGroovy() &&
                hasSuperMethods((GrMethod)element.getParent())) {
         final Icon icon = AllIcons.Gutter.OverridingMethod;
-        final MarkerType type = GroovyMarkerTypes.OVERRIDING_METHOD;
-        return new LineMarkerInfo<PsiElement>(element, element.getTextRange(), icon, Pass.UPDATE_ALL, type.getTooltip(),
-                                              type.getNavigationHandler(), GutterIconRenderer.Alignment.LEFT);
+        final MarkerType type = GroovyMarkerTypes.GR_OVERRIDING_METHOD;
+        return new LineMarkerInfo<>(element, element.getTextRange(), icon, type.getTooltip(), type.getNavigationHandler(),
+                                    GutterIconRenderer.Alignment.LEFT);
       }
     }
     //need to draw method separator above docComment
-    if (myDaemonSettings.SHOW_METHOD_SEPARATORS && element.getFirstChild() == null) {
+    if (DaemonCodeAnalyzerSettings.getInstance().SHOW_METHOD_SEPARATORS && element.getFirstChild() == null) {
       PsiElement element1 = element;
       boolean isMember = false;
       while (element1 != null && !(element1 instanceof PsiFile) && element1.getPrevSibling() == null) {
@@ -118,7 +87,7 @@ public class GroovyLineMarkerProvider implements LineMarkerProvider {
       }
       if (isMember && !(element1 instanceof PsiAnonymousClass || element1.getParent() instanceof PsiAnonymousClass)) {
         PsiFile file = element1.getContainingFile();
-        Document document = file == null ? null : PsiDocumentManager.getInstance(file.getProject()).getDocument(file);
+        Document document = file == null ? null : PsiDocumentManager.getInstance(file.getProject()).getLastCommittedDocument(file);
         boolean drawSeparator = false;
         if (document != null) {
           CharSequence documentChars = document.getCharsSequence();
@@ -138,10 +107,9 @@ public class GroovyLineMarkerProvider implements LineMarkerProvider {
             comment = ((GrDocCommentOwner)element1).getDocComment();
           }
           LineMarkerInfo info =
-            new LineMarkerInfo<PsiElement>(element, comment != null ? comment.getTextRange() : element.getTextRange(), null,
-                                           Pass.UPDATE_ALL, FunctionUtil.<Object, String>nullConstant(), null,
-                                           GutterIconRenderer.Alignment.RIGHT);
-          EditorColorsScheme scheme = myColorsManager.getGlobalScheme();
+            new LineMarkerInfo<>(element, comment != null ? comment.getTextRange() : element.getTextRange(), null,
+                                 FunctionUtil.<Object, String>nullConstant(), null, GutterIconRenderer.Alignment.RIGHT);
+          EditorColorsScheme scheme = EditorColorsManager.getInstance().getGlobalScheme();
           info.separatorColor = scheme.getColor(CodeInsightColors.METHOD_SEPARATORS_COLOR);
           info.separatorPlacement = SeparatorPlacement.TOP;
           return info;
@@ -152,7 +120,7 @@ public class GroovyLineMarkerProvider implements LineMarkerProvider {
     return null;
   }
 
-  private static boolean hasSuperMethods(GrMethod method) {
+  private static boolean hasSuperMethods(@NotNull GrMethod method) {
     final GrReflectedMethod[] reflectedMethods = method.getReflectedMethods();
     if (reflectedMethods.length > 0) {
       for (GrReflectedMethod reflectedMethod : reflectedMethods) {
@@ -166,7 +134,7 @@ public class GroovyLineMarkerProvider implements LineMarkerProvider {
     }
   }
 
-  private static int getGroovyCategory(PsiElement element, CharSequence documentChars) {
+  private static int getGroovyCategory(@NotNull PsiElement element, @NotNull CharSequence documentChars) {
     if (element instanceof GrVariableDeclarationImpl) {
       GrVariable[] variables = ((GrVariableDeclarationImpl)element).getVariables();
       if (variables.length == 1 && variables[0] instanceof GrField && variables[0].getInitializerGroovy() instanceof GrClosableBlock) {
@@ -191,8 +159,8 @@ public class GroovyLineMarkerProvider implements LineMarkerProvider {
   }
 
   @Override
-  public void collectSlowLineMarkers(@NotNull final List<PsiElement> elements, @NotNull final Collection<LineMarkerInfo> result) {
-    Set<PsiMethod> methods = new HashSet<PsiMethod>();
+  public void collectSlowLineMarkers(final @NotNull List<? extends PsiElement> elements, final @NotNull Collection<? super LineMarkerInfo<?>> result) {
+    Set<PsiMethod> methods = new HashSet<>();
     for (PsiElement element : elements) {
       ProgressManager.checkCanceled();
       if (element instanceof GrField) {
@@ -208,16 +176,16 @@ public class GroovyLineMarkerProvider implements LineMarkerProvider {
         }
       }
       else if (element instanceof PsiClass && !(element instanceof PsiTypeParameter)) {
-        JavaLineMarkerProvider.collectInheritingClasses((PsiClass)element, result);
+        result.addAll(collectInheritingClasses((PsiClass)element));
       }
     }
     collectOverridingMethods(methods, result);
   }
 
-  private static void collectOverridingMethods(final Set<PsiMethod> methods, Collection<LineMarkerInfo> result) {
-    final Set<PsiElement> overridden = new HashSet<PsiElement>();
+  private static void collectOverridingMethods(final @NotNull Set<? extends PsiMethod> methods, @NotNull Collection<? super LineMarkerInfo<?>> result) {
+    final Set<PsiElement> overridden = new HashSet<>();
 
-    Set<PsiClass> classes = new THashSet<PsiClass>();
+    Set<PsiClass> classes = new HashSet<>();
     for (PsiMethod method : methods) {
       ProgressManager.checkCanceled();
       final PsiClass parentClass = method.getContainingClass();
@@ -227,19 +195,16 @@ public class GroovyLineMarkerProvider implements LineMarkerProvider {
     }
 
     for (final PsiClass aClass : classes) {
-      AllOverridingMethodsSearch.search(aClass).forEach(new Processor<Pair<PsiMethod, PsiMethod>>() {
-        @Override
-        public boolean process(final Pair<PsiMethod, PsiMethod> pair) {
-          ProgressManager.checkCanceled();
+      AllOverridingMethodsSearch.search(aClass).forEach(pair -> {
+        ProgressManager.checkCanceled();
 
-          final PsiMethod superMethod = pair.getFirst();
-          if (isCorrectTarget(superMethod) && isCorrectTarget(pair.getSecond())) {
-            if (methods.remove(superMethod)) {
-              overridden.add(PsiImplUtil.handleMirror(superMethod));
-            }
+        final PsiMethod superMethod = pair.getFirst();
+        if (isCorrectTarget(superMethod) && isCorrectTarget(pair.getSecond())) {
+          if (methods.remove(superMethod)) {
+            overridden.add(PsiImplUtil.handleMirror(superMethod));
           }
-          return !methods.isEmpty();
         }
+        return !methods.isEmpty();
       });
     }
 
@@ -248,23 +213,17 @@ public class GroovyLineMarkerProvider implements LineMarkerProvider {
 
       element = PsiImplUtil.handleMirror(element);
 
-      PsiElement range;
-      if (element instanceof GrNamedElement) {
-        range = ((GrNamedElement)element).getNameIdentifierGroovy();
-      }
-      else {
-        range = element;
-      }
+      PsiElement range = element instanceof GrNamedElement ? ((GrNamedElement)element).getNameIdentifierGroovy() : element;
 
       final MarkerType type = element instanceof GrField ? GroovyMarkerTypes.OVERRIDEN_PROPERTY_TYPE
-                                                         : GroovyMarkerTypes.OVERRIDEN_METHOD;
-      LineMarkerInfo info = new LineMarkerInfo<PsiElement>(range, range.getTextRange(), icon, Pass.UPDATE_OVERRIDEN_MARKERS, type.getTooltip(),
-                                                           type.getNavigationHandler(), GutterIconRenderer.Alignment.RIGHT);
+                                                         : GroovyMarkerTypes.GR_OVERRIDDEN_METHOD;
+      LineMarkerInfo<?> info = new LineMarkerInfo<>(range, range.getTextRange(), icon, type.getTooltip(), type.getNavigationHandler(),
+                                                    GutterIconRenderer.Alignment.RIGHT);
       result.add(info);
     }
   }
 
-  private static boolean isCorrectTarget(PsiMethod method) {
+  private static boolean isCorrectTarget(@NotNull PsiMethod method) {
     if (method instanceof GrTraitMethod) return false;
 
     final PsiElement navigationElement = method.getNavigationElement();

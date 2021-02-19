@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.util.duplicates;
 
 import com.intellij.codeInsight.PsiEquivalenceUtil;
@@ -28,7 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public class MatchUtil {
+public final class MatchUtil {
   @Nullable
   public static String getChangedSignature(Match match, final PsiMethod method, final boolean shouldBeStatic, String visibility) {
     final PsiType returnType = match.getChangedReturnType(method);
@@ -92,13 +78,13 @@ public class MatchUtil {
     final List<ParameterInfoImpl> newParameters = patchParams(match.myChangedParams, psiMethod);
     final ChangeSignatureProcessor csp = new ChangeSignatureProcessor(psiMethod.getProject(), psiMethod, false, null, psiMethod.getName(),
                                                                       expressionType != null ? expressionType : psiMethod.getReturnType(),
-                                                                      newParameters.toArray(new ParameterInfoImpl[newParameters.size()]));
+                                                                      newParameters.toArray(new ParameterInfoImpl[0]));
 
     csp.run();
   }
 
   public static List<ParameterInfoImpl> patchParams(Map<PsiVariable, PsiType> changedParams, final PsiMethod psiMethod) {
-    final ArrayList<ParameterInfoImpl> newParameters = new ArrayList<ParameterInfoImpl>();
+    final ArrayList<ParameterInfoImpl> newParameters = new ArrayList<>();
     final PsiParameter[] oldParameters = psiMethod.getParameterList().getParameters();
     for (int i = 0; i < oldParameters.length; i++) {
       final PsiParameter oldParameter = oldParameters[i];
@@ -109,7 +95,7 @@ public class MatchUtil {
           break;
         }
       }
-      newParameters.add(new ParameterInfoImpl(i, oldParameter.getName(), type));
+      newParameters.add(ParameterInfoImpl.create(i).withName(oldParameter.getName()).withType(type));
     }
     return newParameters;
   }

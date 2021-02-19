@@ -26,7 +26,7 @@ import com.intellij.psi.tree.ChildRoleBase;
 import org.jetbrains.annotations.NotNull;
 
 public class PsiSynchronizedStatementImpl extends CompositePsiElement implements PsiSynchronizedStatement, Constants {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiSynchronizedStatementImpl");
+  private static final Logger LOG = Logger.getInstance(PsiSynchronizedStatementImpl.class);
 
   public PsiSynchronizedStatementImpl() {
     super(SYNCHRONIZED_STATEMENT);
@@ -67,7 +67,7 @@ public class PsiSynchronizedStatementImpl extends CompositePsiElement implements
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
     if (i == SYNCHRONIZED_KEYWORD) {
@@ -100,6 +100,7 @@ public class PsiSynchronizedStatementImpl extends CompositePsiElement implements
     }
   }
 
+  @Override
   public String toString() {
     return "PsiSynchronizedStatement";
   }

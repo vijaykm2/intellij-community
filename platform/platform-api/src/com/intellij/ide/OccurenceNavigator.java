@@ -15,9 +15,45 @@
  */
 package com.intellij.ide;
 
+import com.intellij.openapi.util.NlsActions.ActionText;
 import com.intellij.pom.Navigatable;
+import org.jetbrains.annotations.NotNull;
 
 public interface OccurenceNavigator {
+  OccurenceNavigator EMPTY = new OccurenceNavigator() {
+    @Override
+    public boolean hasNextOccurence() {
+      return false;
+    }
+
+    @Override
+    public boolean hasPreviousOccurence() {
+      return false;
+    }
+
+    @Override
+    public OccurenceInfo goNextOccurence() {
+      return null;
+    }
+
+    @Override
+    public OccurenceInfo goPreviousOccurence() {
+      return null;
+    }
+
+    @NotNull
+    @Override
+    public String getNextOccurenceActionName() {
+      return "";
+    }
+
+    @NotNull
+    @Override
+    public String getPreviousOccurenceActionName() {
+      return "";
+    }
+  };
+
   class OccurenceInfo {
     private final Navigatable myNavigateable;
     private final int myOccurenceNumber;
@@ -54,6 +90,10 @@ public interface OccurenceNavigator {
   boolean hasPreviousOccurence();
   OccurenceInfo goNextOccurence();
   OccurenceInfo goPreviousOccurence();
+  @ActionText
+  @NotNull
   String getNextOccurenceActionName();
+  @ActionText
+  @NotNull
   String getPreviousOccurenceActionName();
 }

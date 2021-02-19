@@ -31,7 +31,7 @@ public class CheckLevelHighlightInfoHolder extends HighlightInfoHolder {
   private final HighlightInfoHolder myHolder;
   private PsiElement myLevel;
 
-  public CheckLevelHighlightInfoHolder(PsiFile file, HighlightInfoHolder holder) {
+  public CheckLevelHighlightInfoHolder(@NotNull PsiFile file, @NotNull HighlightInfoHolder holder) {
     super(file);
     myHolder = holder;
   }
@@ -64,7 +64,8 @@ public class CheckLevelHighlightInfoHolder extends HighlightInfoHolder {
     if (info == null) return false;
     PsiElement psiElement = info.psiElement;
     if (psiElement != null && !PsiTreeUtil.isAncestor(myLevel, psiElement,false)) {
-      throw new RuntimeException("Info: '" + info + "' reported for the element '" + psiElement + "'; but it was at the level " + myLevel);
+      throw new RuntimeException("Info: '" + info + "' reported for the element '" + psiElement + "' (" +psiElement.getTextRange()+")"+
+                                 "; but it was at the level '" + myLevel+ "' (" +myLevel.getTextRange()+")");
     }
     return myHolder.add(info);
   }
@@ -75,7 +76,7 @@ public class CheckLevelHighlightInfoHolder extends HighlightInfoHolder {
   }
 
   @Override
-  public boolean addAll(Collection<? extends HighlightInfo> highlightInfos) {
+  public boolean addAll(@NotNull Collection<? extends HighlightInfo> highlightInfos) {
     return myHolder.addAll(highlightInfos);
   }
 
@@ -84,6 +85,7 @@ public class CheckLevelHighlightInfoHolder extends HighlightInfoHolder {
     return myHolder.size();
   }
 
+  @NotNull
   @Override
   public HighlightInfo get(int i) {
     return myHolder.get(i);

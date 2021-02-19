@@ -20,6 +20,7 @@ import com.intellij.codeInsight.guess.GuessManager;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.PsiTypeLookupItem;
 import com.intellij.codeInsight.template.*;
+import com.intellij.codeInsight.template.impl.ConstantNode;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.ScrollType;
@@ -30,6 +31,7 @@ import com.intellij.refactoring.introduceField.ElementToWorkOn;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
 
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -38,7 +40,7 @@ public class JavaWithCastSurrounder extends JavaExpressionSurrounder {
 
   @Override
   public boolean isApplicable(PsiExpression expr) {
-    return true;
+    return !PsiType.VOID.equals(expr.getType());
   }
 
   @Override
@@ -70,30 +72,14 @@ public class JavaWithCastSurrounder extends JavaExpressionSurrounder {
     final Template template = templateManager.createTemplate("", "");
     template.setToReformat(true);
 
-    Set<LookupElement> itemSet = new LinkedHashSet<LookupElement>();
+    Set<LookupElement> itemSet = new LinkedHashSet<>();
     for (PsiType type : suggestedTypes) {
       itemSet.add(PsiTypeLookupItem.createLookupItem(type, null));
     }
-    final LookupElement[] lookupItems = itemSet.toArray(new LookupElement[itemSet.size()]);
 
     final Result result = suggestedTypes.length > 0 ? new PsiTypeResult(suggestedTypes[0], project) : null;
 
-    Expression expr = new Expression() {
-      @Override
-      public LookupElement[] calculateLookupItems(ExpressionContext context) {
-        return lookupItems.length > 1 ? lookupItems : null;
-      }
-
-      @Override
-      public Result calculateResult(ExpressionContext context) {
-        return result;
-      }
-
-      @Override
-      public Result calculateQuickResult(ExpressionContext context) {
-        return null;
-      }
-    };
+    Expression expr = new ConstantNode(result).withLookupItems(itemSet.size() > 1 ? itemSet : Collections.emptySet());
     template.addTextSegment("((");
     template.addVariable(TYPE_TEMPLATE_VARIABLE, expr, expr, true);
     template.addTextSegment(")" + exprText + ")");

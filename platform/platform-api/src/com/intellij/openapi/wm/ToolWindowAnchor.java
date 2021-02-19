@@ -1,46 +1,51 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm;
 
 import com.intellij.ide.ui.UISettings;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.ui.UIBundle;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
+/**
+ * Anchor for positioning {@link ToolWindow tool window} (TOP, LEFT, BOTTOM, RIGHT).
+ */
 public final class ToolWindowAnchor {
-  public static final ToolWindowAnchor TOP = new ToolWindowAnchor("top");
-  public static final ToolWindowAnchor LEFT = new ToolWindowAnchor("left");
-  public static final ToolWindowAnchor BOTTOM = new ToolWindowAnchor("bottom");
-  public static final ToolWindowAnchor RIGHT = new ToolWindowAnchor("right");
+  public static final @NotNull ToolWindowAnchor TOP = new ToolWindowAnchor("top", "action.text.anchor.top", "action.text.anchor.top.capitalized");
+  public static final @NotNull ToolWindowAnchor LEFT = new ToolWindowAnchor("left", "action.text.anchor.left", "action.text.anchor.left.capitalized");
+  public static final @NotNull ToolWindowAnchor BOTTOM = new ToolWindowAnchor("bottom", "action.text.anchor.bottom", "action.text.anchor.bottom.capitalized");
+  public static final @NotNull ToolWindowAnchor RIGHT = new ToolWindowAnchor("right", "action.text.anchor.right", "action.text.anchor.right.capitalized");
+  private final @NotNull String myText;
 
-  private final String myText;
+  private final @NotNull String bundleKey;
+  private final @NotNull String capitalizedBundleKey;
 
-  private ToolWindowAnchor(@NonNls String text){
+  private ToolWindowAnchor(@NotNull String text,
+                           @NotNull String bundleKey,
+                           @NotNull String capitalizedBundleKey){
+    this.bundleKey = bundleKey;
+    this.capitalizedBundleKey = capitalizedBundleKey;
     myText = text;
   }
 
-  public String toString(){
+  public @NotNull String toString() {
     return myText;
+  }
+
+  public @NotNull @Nls String getDisplayName() {
+    return UIBundle.message(bundleKey);
+  }
+
+  public @NotNull @Nls String getCapitalizedDisplayName() {
+    return UIBundle.message(capitalizedBundleKey);
   }
 
   public boolean isHorizontal() {
     return this == TOP || this == BOTTOM;
   }
 
-  public static ToolWindowAnchor get(int swingOrientationConstant) {
+  public static @NotNull ToolWindowAnchor get(int swingOrientationConstant) {
     switch(swingOrientationConstant) {
       case SwingConstants.TOP:
         return TOP;
@@ -56,13 +61,22 @@ public final class ToolWindowAnchor {
   }
 
   public boolean isSplitVertically() {
-    return (this == LEFT && !UISettings.getInstance().LEFT_HORIZONTAL_SPLIT) || (this == RIGHT && !UISettings.getInstance().RIGHT_HORIZONTAL_SPLIT);
+    return this == LEFT && !UISettings.getInstance().getLeftHorizontalSplit()
+           || this == RIGHT && !UISettings.getInstance().getRightHorizontalSplit();
   }
 
-  public static ToolWindowAnchor fromText(String anchor) {
-    for (ToolWindowAnchor a : new ToolWindowAnchor[]{TOP, LEFT, BOTTOM, RIGHT}) {
-      if (a.myText.equals(anchor)) return a;
+  public static @NotNull ToolWindowAnchor fromText(@NotNull String anchor) {
+    switch (anchor) {
+      case "top":
+        return TOP;
+      case "left":
+        return LEFT;
+      case "bottom":
+        return BOTTOM;
+      case "right":
+        return RIGHT;
+      default:
+        throw new IllegalArgumentException("Unknown anchor constant: " + anchor);
     }
-    throw new IllegalArgumentException("Unknown anchor constant: " + anchor);
   }
 }

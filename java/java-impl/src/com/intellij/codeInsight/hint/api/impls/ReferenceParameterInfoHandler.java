@@ -15,11 +15,9 @@
  */
 package com.intellij.codeInsight.hint.api.impls;
 
-import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.lang.parameterInfo.*;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
-import com.intellij.util.Function;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -29,20 +27,6 @@ import java.util.Arrays;
  * @author Maxim.Mossienko
  */
 public class ReferenceParameterInfoHandler implements ParameterInfoHandler<PsiReferenceParameterList,PsiTypeParameter> {
-  @Override
-  public Object[] getParametersForLookup(final LookupElement item, final ParameterInfoContext context) {
-    return null;
-  }
-
-  @Override
-  public Object[] getParametersForDocumentation(final PsiTypeParameter p, final ParameterInfoContext context) {
-    return new Object[] {p};
-  }
-
-  @Override
-  public boolean couldShowInLookup() {
-    return false;
-  }
 
   @Override
   public PsiReferenceParameterList findElementForParameterInfo(@NotNull final CreateParameterInfoContext context) {
@@ -80,18 +64,7 @@ public class ReferenceParameterInfoHandler implements ParameterInfoHandler<PsiRe
     int index = ParameterInfoUtils.getCurrentParameterIndex(parameterOwner.getNode(), context.getOffset(), JavaTokenType.COMMA);
     context.setCurrentParameter(index);
     final Object[] objectsToView = context.getObjectsToView();
-    context.setHighlightedParameter(index < objectsToView.length && index >= 0 ? (PsiElement)objectsToView[index]:null);
-  }
-
-  @Override
-  @NotNull
-  public String getParameterCloseChars() {
-    return ",>";
-  }
-
-  @Override
-  public boolean tracksParameterIndex() {
-    return true;
+    context.setHighlightedParameter(index < objectsToView.length && index >= 0 ? objectsToView[index] : null);
   }
 
   @Override
@@ -100,18 +73,13 @@ public class ReferenceParameterInfoHandler implements ParameterInfoHandler<PsiRe
   }
 
   private static void updateTypeParameter(PsiTypeParameter typeParameter, ParameterInfoUIContext context) {
-    @NonNls StringBuffer buffer = new StringBuffer();
+    @NonNls StringBuilder buffer = new StringBuilder();
     buffer.append(typeParameter.getName());
     int highlightEndOffset = buffer.length();
     buffer.append(" extends ");
     buffer.append(StringUtil.join(
       Arrays.asList(typeParameter.getSuperTypes()),
-      new Function<PsiClassType, String>() {
-        @Override
-        public String fun(final PsiClassType t) {
-          return t.getPresentableText();
-        }
-      }, ", "));
+      t -> t.getPresentableText(), ", "));
 
     context.setupUIComponentPresentation(buffer.toString(), 0, highlightEndOffset, false, false, false,
                                          context.getDefaultParameterColor());

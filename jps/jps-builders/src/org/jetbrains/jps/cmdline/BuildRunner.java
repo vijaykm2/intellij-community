@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.cmdline;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.io.FileUtil;
-import gnu.trove.THashSet;
+import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.util.containers.FileCollectionFactory;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.api.BuildType;
@@ -28,6 +15,7 @@ import org.jetbrains.jps.builders.impl.BuildDataPathsImpl;
 import org.jetbrains.jps.builders.impl.BuildRootIndexImpl;
 import org.jetbrains.jps.builders.impl.BuildTargetIndexImpl;
 import org.jetbrains.jps.builders.impl.BuildTargetRegistryImpl;
+import org.jetbrains.jps.builders.java.JavaModuleBuildTargetType;
 import org.jetbrains.jps.builders.java.dependencyView.Callbacks;
 import org.jetbrains.jps.builders.logging.BuildLoggingManager;
 import org.jetbrains.jps.builders.storage.BuildDataPaths;
@@ -35,10 +23,11 @@ import org.jetbrains.jps.incremental.*;
 import org.jetbrains.jps.incremental.fs.BuildFSState;
 import org.jetbrains.jps.incremental.messages.BuildMessage;
 import org.jetbrains.jps.incremental.messages.CompilerMessage;
+import org.jetbrains.jps.incremental.relativizer.PathRelativizerService;
 import org.jetbrains.jps.incremental.storage.BuildDataManager;
 import org.jetbrains.jps.incremental.storage.BuildTargetsState;
-import org.jetbrains.jps.incremental.storage.ProjectTimestamps;
-import org.jetbrains.jps.incremental.storage.Timestamps;
+import org.jetbrains.jps.incremental.storage.ProjectStamps;
+import org.jetbrains.jps.incremental.storage.StampsStorage;
 import org.jetbrains.jps.indices.ModuleExcludeIndex;
 import org.jetbrains.jps.indices.impl.IgnoredFileIndexImpl;
 import org.jetbrains.jps.indices.impl.ModuleExcludeIndexImpl;
@@ -50,13 +39,10 @@ import java.util.*;
 
 import static org.jetbrains.jps.api.CmdlineRemoteProto.Message.ControllerMessage.ParametersMessage.TargetTypeBuildScope;
 
-/**
- * @author nik
- */
-public class BuildRunner {
-  private static final Logger LOG = Logger.getInstance("#org.jetbrains.jps.cmdline.BuildRunner");
+public final class BuildRunner {
+  private static final Logger LOG = Logger.getInstance(BuildRunner.class);
   public static final boolean PARALLEL_BUILD_ENABLED = Boolean.parseBoolean(System.getProperty(GlobalOptions.COMPILE_PARALLEL_OPTION, "false"));
-  private static final boolean STORE_TEMP_CACHES_IN_MEMORY = PARALLEL_BUILD_ENABLED || Boolean.valueOf(System.getProperty(GlobalOptions.USE_MEMORY_TEMP_CACHE_OPTION, "true"));
+  public static final boolean PARALLEL_BUILD_AUTOMAKE_ENABLED = PARALLEL_BUILD_ENABLED && Boolean.parseBoolean(System.getProperty(GlobalOptions.ALLOW_PARALLEL_AUTOMAKE_OPTION, "true"));
   private final JpsModelLoader myModelLoader;
   private List<String> myFilePaths = Collections.emptyList();
   private Map<String, String> myBuilderParams = Collections.emptyMap();
@@ -67,11 +53,11 @@ public class BuildRunner {
   }
 
   public void setFilePaths(List<String> filePaths) {
-    myFilePaths = filePaths != null? filePaths : Collections.<String>emptyList();
+    myFilePaths = filePaths != null? filePaths : Collections.emptyList();
   }
 
   public void setBuilderParams(Map<String, String> builderParams) {
-    myBuilderParams = builderParams != null? builderParams : Collections.<String, String>emptyMap();
+    myBuilderParams = builderParams != null? builderParams : Collections.emptyMap();
   }
 
   public ProjectDescriptor load(MessageHandler msgHandler, File dataStorageRoot, BuildFSState fsState) throws IOException {
@@ -84,36 +70,45 @@ public class BuildRunner {
     BuildTargetIndexImpl targetIndex = new BuildTargetIndexImpl(targetRegistry, buildRootIndex);
     BuildTargetsState targetsState = new BuildTargetsState(dataPaths, jpsModel, buildRootIndex);
 
-    ProjectTimestamps projectTimestamps = null;
+    PathRelativizerService relativizer = new PathRelativizerService(jpsModel.getProject());
+
+    ProjectStamps projectStamps = null;
     BuildDataManager dataManager = null;
     try {
-      projectTimestamps = new ProjectTimestamps(dataStorageRoot, targetsState);
-      dataManager = new BuildDataManager(dataPaths, targetsState, STORE_TEMP_CACHES_IN_MEMORY);
+      projectStamps = new ProjectStamps(dataStorageRoot, targetsState, relativizer);
+      dataManager = new BuildDataManager(dataPaths, targetsState, relativizer);
       if (dataManager.versionDiffers()) {
         myForceCleanCaches = true;
-        msgHandler.processMessage(new CompilerMessage("build", BuildMessage.Kind.INFO, "Dependency data format has changed, project rebuild required"));
+        msgHandler.processMessage(new CompilerMessage(getRootCompilerName(), BuildMessage.Kind.INFO,
+                                                      JpsBuildBundle.message("build.message.dependency.data.format.has.changed.project.rebuild.required")));
       }
     }
     catch (Exception e) {
       // second try
       LOG.info(e);
-      if (projectTimestamps != null) {
-        projectTimestamps.close();
+      if (projectStamps != null) {
+        projectStamps.close();
       }
       if (dataManager != null) {
         dataManager.close();
       }
       myForceCleanCaches = true;
-      FileUtil.delete(dataStorageRoot);
+      FileUtilRt.delete(dataStorageRoot);
       targetsState = new BuildTargetsState(dataPaths, jpsModel, buildRootIndex);
-      projectTimestamps = new ProjectTimestamps(dataStorageRoot, targetsState);
-      dataManager = new BuildDataManager(dataPaths, targetsState, STORE_TEMP_CACHES_IN_MEMORY);
+      projectStamps = new ProjectStamps(dataStorageRoot, targetsState, relativizer);
+      dataManager = new BuildDataManager(dataPaths, targetsState, relativizer);
       // second attempt succeeded
-      msgHandler.processMessage(new CompilerMessage("build", BuildMessage.Kind.INFO, "Project rebuild forced: " + e.getMessage()));
+      msgHandler.processMessage(new CompilerMessage(getRootCompilerName(), BuildMessage.Kind.INFO,
+                                                    JpsBuildBundle.message("build.message.project.rebuild.forced.0", e.getMessage())));
     }
 
-    return new ProjectDescriptor(jpsModel, fsState, projectTimestamps, dataManager, BuildLoggingManager.DEFAULT, index, targetsState,
+    return new ProjectDescriptor(jpsModel, fsState, projectStamps, dataManager, BuildLoggingManager.DEFAULT, index, targetsState,
                                  targetIndex, buildRootIndex, ignoredFileIndex);
+  }
+
+  @NotNull
+  public static @Nls String getRootCompilerName() {
+    return JpsBuildBundle.message("builder.name.root");
   }
 
   public void setForceCleanCaches(boolean forceCleanCaches) {
@@ -126,10 +121,10 @@ public class BuildRunner {
                        MessageHandler msgHandler,
                        BuildType buildType,
                        List<TargetTypeBuildScope> scopes, final boolean includeDependenciesToScope) throws Exception {
-    for (int attempt = 0; attempt < 2; attempt++) {
+    for (int attempt = 0; attempt < 2 && !cs.isCanceled(); attempt++) {
       final boolean forceClean = myForceCleanCaches && myFilePaths.isEmpty();
       final CompileScope compileScope = createCompilationScope(pd, scopes, myFilePaths, forceClean, includeDependenciesToScope);
-      final IncProjectBuilder builder = new IncProjectBuilder(pd, BuilderRegistry.getInstance(), myBuilderParams, cs, constantSearch, Utils.IS_TEST_MODE);
+      final IncProjectBuilder builder = new IncProjectBuilder(pd, BuilderRegistry.getInstance(), myBuilderParams, cs, Utils.IS_TEST_MODE);
       builder.addMessageHandler(msgHandler);
       try {
         switch (buildType) {
@@ -161,9 +156,9 @@ public class BuildRunner {
 
   private static CompileScope createCompilationScope(ProjectDescriptor pd, List<TargetTypeBuildScope> scopes, Collection<String> paths,
                                                      final boolean forceClean, final boolean includeDependenciesToScope) throws Exception {
-    Set<BuildTargetType<?>> targetTypes = new HashSet<BuildTargetType<?>>();
-    Set<BuildTargetType<?>> targetTypesToForceBuild = new HashSet<BuildTargetType<?>>();
-    Set<BuildTarget<?>> targets = new HashSet<BuildTarget<?>>();
+    Set<BuildTargetType<?>> targetTypes = new HashSet<>();
+    Set<BuildTargetType<?>> targetTypesToForceBuild = new HashSet<>();
+    Set<BuildTarget<?>> targets = new HashSet<>();
     Map<BuildTarget<?>, Set<File>> files;
 
     final TargetTypeRegistry typeRegistry = TargetTypeRegistry.getInstance();
@@ -196,21 +191,31 @@ public class BuildRunner {
       includeDependenciesToScope(targetTypes, targets, targetTypesToForceBuild, pd);
     }
 
-    final Timestamps timestamps = pd.timestamps.getStorage();
+    final StampsStorage<? extends StampsStorage.Stamp> stampsStorage = pd.getProjectStamps().getStampStorage();
     if (!paths.isEmpty()) {
-      files = new HashMap<BuildTarget<?>, Set<File>>();
+      boolean forceBuildAllModuleBasedTargets = false;
+      for (BuildTargetType<?> type : targetTypesToForceBuild) {
+        if (type instanceof JavaModuleBuildTargetType) {
+          forceBuildAllModuleBasedTargets = true;
+          break;
+        }
+      }
+      files = new HashMap<>();
       for (String path : paths) {
         final File file = new File(path);
         final Collection<BuildRootDescriptor> descriptors = pd.getBuildRootIndex().findAllParentDescriptors(file, null);
         for (BuildRootDescriptor descriptor : descriptors) {
           Set<File> fileSet = files.get(descriptor.getTarget());
           if (fileSet == null) {
-            fileSet = new THashSet<File>(FileUtil.FILE_HASHING_STRATEGY);
+            fileSet = FileCollectionFactory.createCanonicalFileSet();
             files.put(descriptor.getTarget(), fileSet);
           }
-          fileSet.add(file);
-          if (targetTypesToForceBuild.contains(descriptor.getTarget().getTargetType())) {
-            pd.fsState.markDirty(null, file, descriptor, timestamps, false);
+          final boolean added = fileSet.add(file);
+          if (added) {
+            final BuildTargetType<?> targetType = descriptor.getTarget().getTargetType();
+            if (targetTypesToForceBuild.contains(targetType) || (forceBuildAllModuleBasedTargets && targetType instanceof ModuleBasedBuildTargetType)) {
+              pd.fsState.markDirty(null, file, descriptor, stampsStorage, false);
+            }
           }
         }
       }
@@ -222,8 +227,8 @@ public class BuildRunner {
     return new CompileScopeImpl(targetTypes, targetTypesToForceBuild, targets, files);
   }
 
-  private static void includeDependenciesToScope(Set<BuildTargetType<?>> targetTypes, Set<BuildTarget<?>> targets,
-                                                 Set<BuildTargetType<?>> targetTypesToForceBuild, ProjectDescriptor descriptor) {
+  private static void includeDependenciesToScope(Set<? extends BuildTargetType<?>> targetTypes, Set<BuildTarget<?>> targets,
+                                                 Set<? super BuildTargetType<?>> targetTypesToForceBuild, ProjectDescriptor descriptor) {
     //todo[nik] get rid of CompileContext parameter for BuildTargetIndex.getDependencies() and use it here
     TargetOutputIndex dummyIndex = new TargetOutputIndex() {
       @Override
@@ -232,9 +237,9 @@ public class BuildRunner {
       }
     };
 
-    List<BuildTarget<?>> current = new ArrayList<BuildTarget<?>>(targets);
+    List<BuildTarget<?>> current = new ArrayList<>(targets);
     while (!current.isEmpty()) {
-      List<BuildTarget<?>> next = new ArrayList<BuildTarget<?>>();
+      List<BuildTarget<?>> next = new ArrayList<>();
       for (BuildTarget<?> target : current) {
         for (BuildTarget<?> depTarget : target.computeDependencies(descriptor.getBuildTargetIndex(), dummyIndex)) {
           if (!targets.contains(depTarget) && !targetTypes.contains(depTarget.getTargetType())) {

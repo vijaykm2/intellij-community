@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.ui;
 
 import com.intellij.execution.ExecutionBundle;
@@ -31,6 +17,7 @@ import com.intellij.ui.TextFieldWithHistory;
 import com.intellij.ui.components.JBCheckBox;
 import com.intellij.util.PathUtil;
 import net.miginfocom.swing.MigLayout;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -41,8 +28,11 @@ import java.util.ArrayList;
 
 /**
  * User: anna
- * Date: Jun 21, 2005
+ *
+ * @deprecated use {@link JrePathEditor} instead
  */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
 public class AlternativeJREPanel extends JPanel implements PanelWithAnchor {
   private final ComponentWithBrowseButton<TextFieldWithHistory> myPathField;
   private final JBCheckBox myCbEnabled;
@@ -54,17 +44,19 @@ public class AlternativeJREPanel extends JPanel implements PanelWithAnchor {
 
     myFieldWithHistory = new TextFieldWithHistory();
     myFieldWithHistory.setHistorySize(-1);
-    final ArrayList<String> foundJDKs = new ArrayList<String>();
+    final ArrayList<String> foundJDKs = new ArrayList<>();
     final Sdk[] allJDKs = ProjectJdkTable.getInstance().getAllJdks();
 
     for (Sdk sdk : allJDKs) {
       foundJDKs.add(sdk.getName());
     }
 
-    for (JreProvider provider : JreProvider.EP_NAME.getExtensions()) {
-      String path = provider.getJrePath();
-      if (!StringUtil.isEmpty(path)) {
-        foundJDKs.add(path);
+    for (JreProvider provider : JreProvider.EP_NAME.getExtensionList()) {
+      if (provider.isAvailable()) {
+        String path = provider.getJrePath();
+        if (!StringUtil.isEmpty(path)) {
+          foundJDKs.add(path);
+        }
       }
     }
 
@@ -83,7 +75,7 @@ public class AlternativeJREPanel extends JPanel implements PanelWithAnchor {
       }
     }
     myFieldWithHistory.setHistory(foundJDKs);
-    myPathField = new ComponentWithBrowseButton<TextFieldWithHistory>(myFieldWithHistory, null);
+    myPathField = new ComponentWithBrowseButton<>(myFieldWithHistory, null);
     myPathField.addBrowseFolderListener(ExecutionBundle.message("run.configuration.select.alternate.jre.label"),
                                         ExecutionBundle.message("run.configuration.select.jre.dir.label"),
                                         null, BrowseFilesListener.SINGLE_DIRECTORY_DESCRIPTOR,
@@ -96,6 +88,7 @@ public class AlternativeJREPanel extends JPanel implements PanelWithAnchor {
     InsertPathAction.addTo(myFieldWithHistory.getTextEditor());
 
     myCbEnabled.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         enabledChanged();
       }
@@ -144,9 +137,5 @@ public class AlternativeJREPanel extends JPanel implements PanelWithAnchor {
   public void setAnchor(JComponent anchor) {
     myAnchor = anchor;
     myCbEnabled.setAnchor(anchor);
-  }
-
-  public JBCheckBox getCbEnabled() {
-    return myCbEnabled;
   }
 }

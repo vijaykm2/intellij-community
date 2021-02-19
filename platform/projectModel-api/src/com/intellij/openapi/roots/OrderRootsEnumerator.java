@@ -18,6 +18,7 @@ package com.intellij.openapi.roots;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.NotNullFunction;
 import com.intellij.util.PathsList;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -25,21 +26,18 @@ import org.jetbrains.annotations.NotNull;
  *
  * @see OrderEnumerator#classes()
  * @see OrderEnumerator#sources()
- *
- * @author nik
  */
+@ApiStatus.NonExtendable
 public interface OrderRootsEnumerator {
   /**
    * @return all roots processed by this enumerator
    */
-  @NotNull
-  VirtualFile[] getRoots();
+  VirtualFile @NotNull [] getRoots();
 
   /**
    * @return urls of all roots processed by this enumerator
    */
-  @NotNull
-  String[] getUrls();
+  String @NotNull [] getUrls();
 
   /**
    * @return list of path to all roots processed by this enumerator
@@ -48,7 +46,7 @@ public interface OrderRootsEnumerator {
   PathsList getPathsList();
 
   /**
-   * Add all source roots processed by this enumerator to <code>list</code>
+   * Add all source roots processed by this enumerator to {@code list}
    * @param list list
    */
   void collectPaths(@NotNull PathsList list);
@@ -65,7 +63,7 @@ public interface OrderRootsEnumerator {
 
   /**
    * This method makes sense only when dependencies of a module are processed (i.e. the enumerator instance is obtained by using {@link OrderEnumerator#orderEntries(com.intellij.openapi.module.Module)} or
-   * {@link ModuleRootModel#orderEntries()}). It instructs the enumerator to skip the output of the main module (if {@link com.intellij.openapi.roots.OrderEnumerator#productionOnly()}
+   * {@link ModuleRootModel#orderEntries()}). It instructs the enumerator to skip the output of the main module (if {@link OrderEnumerator#productionOnly()}
    * option is not specified then only the test output will be skipped)
    *
    * @return this instance
@@ -74,11 +72,11 @@ public interface OrderRootsEnumerator {
   OrderRootsEnumerator withoutSelfModuleOutput();
 
   /**
-   * Use <code>provider</code> to obtain roots of an library or jdk order entry instead of {@link OrderEntry#getFiles(OrderRootType)} method. Note that
+   * Use {@code provider} to obtain roots of an library or jdk order entry instead of {@link OrderEntry#getFiles(OrderRootType)} method. Note that
    * this option won't affect result of {@link #getUrls()} method
    * @param provider function to evaluate roots for an order entry
    * @return this instance
    */
   @NotNull
-  OrderRootsEnumerator usingCustomRootProvider(@NotNull NotNullFunction<OrderEntry, VirtualFile[]> provider);
+  OrderRootsEnumerator usingCustomRootProvider(@NotNull NotNullFunction<? super OrderEntry, VirtualFile[]> provider);
 }

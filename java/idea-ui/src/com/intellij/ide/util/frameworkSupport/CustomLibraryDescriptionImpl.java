@@ -22,9 +22,6 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Collections;
 import java.util.Set;
 
-/**
- * @author nik
- */
 public class CustomLibraryDescriptionImpl extends CustomLibraryDescriptionBase {
   private final DownloadableLibraryType myLibraryType;
 
@@ -42,5 +39,10 @@ public class CustomLibraryDescriptionImpl extends CustomLibraryDescriptionBase {
   @Override
   public DownloadableLibraryType getDownloadableLibraryType() {
     return myLibraryType;
+  }
+
+  @Override
+  public String toString() {
+    return "CustomLibraryDescriptionImpl(" + myLibraryType.getKind().getKindId() + ")";
   }
 }

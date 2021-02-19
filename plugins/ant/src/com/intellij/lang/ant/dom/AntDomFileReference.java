@@ -16,6 +16,7 @@
 package com.intellij.lang.ant.dom;
 
 import com.intellij.lang.ant.AntBundle;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.psi.impl.source.resolve.reference.impl.providers.FileReference;
@@ -30,23 +31,22 @@ public class AntDomFileReference extends FileReference implements AntDomReferenc
     super(set, range, index, text);
   }
 
+  @Override
   @Nullable
-  public String getText() {
+  public @NlsSafe String getText() {
     final AntDomFileReferenceSet refSet = getFileReferenceSet();
     final String _path = AntStringResolver.computeString(refSet.getAttributeValue(), super.getText());
     final String text = FileUtil.toSystemIndependentName(_path);
     return text.endsWith("/")? text.substring(0, text.length() - "/".length()) : text;
   }
 
-  @NotNull public Object[] getVariants() {
-    return super.getVariants();
-  }
-
+  @Override
   @NotNull
   public AntDomFileReferenceSet getFileReferenceSet() {
     return (AntDomFileReferenceSet)super.getFileReferenceSet();
   }
 
+  @Override
   @NotNull
   public String getUnresolvedMessagePattern() {
     return AntBundle.message("file.doesnt.exist", getCanonicalRepresentationText());
@@ -58,10 +58,12 @@ public class AntDomFileReference extends FileReference implements AntDomReferenc
     return AntStringResolver.computeString(getFileReferenceSet().getAttributeValue(), value);
   }
 
+  @Override
   public boolean shouldBeSkippedByAnnotator() {
     return mySkipByAnnotator;
   }
 
+  @Override
   public void setShouldBeSkippedByAnnotator(boolean value) {
     mySkipByAnnotator = value;
   }

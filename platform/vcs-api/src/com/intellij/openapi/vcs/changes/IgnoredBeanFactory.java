@@ -1,40 +1,41 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 
-public class IgnoredBeanFactory {
+public final class IgnoredBeanFactory {
   private IgnoredBeanFactory() {
   }
 
-  public static IgnoredFileBean ignoreUnderDirectory(final @NonNls String path, Project p) {
-    final String correctedPath = (path.endsWith("/") || path.endsWith(File.separator)) ? path : path + "/";
+  @NotNull
+  public static IgnoredFileBean ignoreUnderDirectory(@NotNull @NlsSafe String path, @Nullable Project p) {
+    String correctedPath = (path.endsWith("/") || path.endsWith(File.separator)) ? path : path + "/";
     return new IgnoredFileBean(correctedPath, IgnoreSettingsType.UNDER_DIR, p);
   }
 
-  public static IgnoredFileBean ignoreFile(final @NonNls String path, Project p) {
-    // todo check??
+  @NotNull
+  public static IgnoredFileBean ignoreFile(@NotNull @NlsSafe String path, @Nullable Project p) {
     return new IgnoredFileBean(path, IgnoreSettingsType.FILE, p);
   }
 
-  public static IgnoredFileBean withMask(final String mask) {
+  @NotNull
+  public static IgnoredFileBean ignoreFile(@NotNull VirtualFile file, @Nullable Project p) {
+    if (file.isDirectory()) {
+      return ignoreUnderDirectory(file.getPath(), p);
+    }
+
+    return ignoreFile(file.getPath(), p);
+  }
+
+  @NotNull
+  public static IgnoredFileBean withMask(@NotNull @NonNls String mask) {
     return new IgnoredFileBean(mask);
   }
 }

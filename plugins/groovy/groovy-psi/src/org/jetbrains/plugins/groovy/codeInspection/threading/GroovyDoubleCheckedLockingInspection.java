@@ -19,9 +19,9 @@ import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiModifier;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.utils.ControlFlowUtils;
@@ -45,29 +45,16 @@ public class GroovyDoubleCheckedLockingInspection extends BaseInspection {
   public boolean ignoreOnVolatileVariables = false;
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return THREADING_ISSUES;
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Double-checked locking";
-  }
-
-  @Override
   @NotNull
   protected String buildErrorString(Object... infos) {
-    return "Double-checked locking #loc";
+    return GroovyBundle.message("inspection.message.double.checked.locking");
   }
 
   @Override
   @Nullable
   public JComponent createOptionsPanel() {
-    return new SingleCheckboxOptionsPanel("Ignore double-checked locking on volatile fields", this,
-        "ignoreOnVolatileVariables"
+    return new SingleCheckboxOptionsPanel(GroovyBundle.message("checkbox.ignore.double.checked.locking.on.volatile.fields"), this,
+                                          "ignoreOnVolatileVariables"
     );
   }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2013 Bas Leijdekkers
+ * Copyright 2010-2016 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package com.siyeh.ig.psiutils;
 
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.siyeh.ig.callMatcher.CallMatcher;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
 
@@ -25,22 +26,24 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public class FormatUtils {
+public final class FormatUtils {
+  public static final CallMatcher STRING_FORMATTED = CallMatcher.instanceCall(CommonClassNames.JAVA_LANG_STRING, "formatted")
+    .parameterTypes("java.lang.Object...");
+
 
   /**
-   * @noinspection StaticCollection
    */
   @NonNls
-  public static final Set<String> formatMethodNames = new HashSet<String>(2);
+  public static final Set<String> formatMethodNames = new HashSet<>(2);
   /**
-   * @noinspection StaticCollection
    */
-  public static final Set<String> formatClassNames = new HashSet<String>(4);
+  public static final Set<String> formatClassNames = new HashSet<>(4);
 
   static {
     formatMethodNames.add("format");
     formatMethodNames.add("printf");
 
+    formatClassNames.add("java.io.Console");
     formatClassNames.add("java.io.PrintWriter");
     formatClassNames.add("java.io.PrintStream");
     formatClassNames.add("java.util.Formatter");
@@ -50,7 +53,7 @@ public class FormatUtils {
   private FormatUtils() {}
 
   public static boolean isFormatCall(PsiMethodCallExpression expression) {
-    return isFormatCall(expression, Collections.<String>emptyList(), Collections.<String>emptyList());
+    return isFormatCall(expression, Collections.emptyList(), Collections.emptyList());
   }
 
   public static boolean isFormatCall(PsiMethodCallExpression expression, List<String> optionalMethods, List<String> optionalClasses) {

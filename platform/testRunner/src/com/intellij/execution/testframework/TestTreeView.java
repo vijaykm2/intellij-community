@@ -1,55 +1,48 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * User: anna
- * Date: 25-May-2007
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.testframework;
 
 import com.intellij.execution.Location;
 import com.intellij.ide.CopyProvider;
 import com.intellij.ide.actions.CopyReferenceAction;
+import com.intellij.ide.util.treeView.NodeDescriptor;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.ide.CopyPasteManager;
+import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.PsiElement;
+import com.intellij.ui.AnimatedIcon;
 import com.intellij.ui.PopupHandler;
 import com.intellij.ui.TreeSpeedSearch;
+import com.intellij.ui.popup.HintUpdateSupply;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.EditSourceOnDoubleClickHandler;
-import com.intellij.util.containers.Convertor;
+import com.intellij.util.EditSourceOnEnterKeyHandler;
 import com.intellij.util.ui.tree.TreeUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.plaf.TreeUI;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreeCellRenderer;
 import javax.swing.tree.TreePath;
 import java.awt.datatransfer.StringSelection;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
+
+import static com.intellij.ui.render.RenderingHelper.SHRINK_LONG_RENDERER;
 
 public abstract class TestTreeView extends Tree implements DataProvider, CopyProvider {
   public static final DataKey<TestFrameworkRunningModel> MODEL_DATA_KEY = DataKey.create("testFrameworkModel.dataId");
 
   private TestFrameworkRunningModel myModel;
+
+  public TestTreeView() {
+    setLargeModel(true);
+  }
 
   protected abstract TreeCellRenderer getRenderer(TestConsoleProperties properties);
 
@@ -73,6 +66,7 @@ public abstract class TestTreeView extends Tree implements DataProvider, CopyPro
     myModel = model;
     Disposer.register(myModel, myModel.getRoot());
     Disposer.register(myModel, new Disposable() {
+      @Override
       public void dispose() {
         setModel(null);
         myModel = null;
@@ -80,17 +74,12 @@ public abstract class TestTreeView extends Tree implements DataProvider, CopyPro
     });
     installHandlers();
     setCellRenderer(getRenderer(myModel.getProperties()));
+    putClientProperty(SHRINK_LONG_RENDERER, true);
+    putClientProperty(AnimatedIcon.ANIMATION_IN_RENDERER_ALLOWED, true);
   }
 
-  public void setUI(final TreeUI ui) {
-    super.setUI(ui);
-    final int fontHeight = getFontMetrics(getFont()).getHeight();
-    final int iconHeight = PoolOfTestIcons.PASSED_ICON.getIconHeight();
-    setRowHeight(Math.max(fontHeight, iconHeight) + 2);
-    setLargeModel(true);
-  }
-
-  public Object getData(final String dataId) {
+  @Override
+  public Object getData(@NotNull final String dataId) {
     if (PlatformDataKeys.COPY_PROVIDER.is(dataId)) {
       return this;
     }
@@ -98,7 +87,7 @@ public abstract class TestTreeView extends Tree implements DataProvider, CopyPro
     if (LangDataKeys.PSI_ELEMENT_ARRAY.is(dataId)) {
       TreePath[] paths = getSelectionPaths();
       if (paths != null && paths.length > 1) {
-        final List<PsiElement> els = new ArrayList<PsiElement>(paths.length);
+        final List<PsiElement> els = new ArrayList<>(paths.length);
         for (TreePath path : paths) {
           if (isPathSelected(path.getParentPath())) continue;
           AbstractTestProxy test = getSelectedTest(path);
@@ -109,14 +98,14 @@ public abstract class TestTreeView extends Tree implements DataProvider, CopyPro
             }
           }
         }
-        return els.isEmpty() ? null : els.toArray(new PsiElement[els.size()]);
+        return els.isEmpty() ? null : els.toArray(PsiElement.EMPTY_ARRAY);
       }
     }
 
     if (Location.DATA_KEYS.is(dataId)) {
       TreePath[] paths = getSelectionPaths();
       if (paths != null && paths.length > 1) {
-        final List<Location<?>> locations = new ArrayList<Location<?>>(paths.length);
+        final List<Location<?>> locations = new ArrayList<>(paths.length);
         for (TreePath path : paths) {
           if (isPathSelected(path.getParentPath())) continue;
           AbstractTestProxy test = getSelectedTest(path);
@@ -127,7 +116,17 @@ public abstract class TestTreeView extends Tree implements DataProvider, CopyPro
             }
           }
         }
-        return locations.isEmpty() ? null : locations.toArray(new Location[locations.size()]);
+        return locations.isEmpty() ? null : locations.toArray(new Location[0]);
+      }
+    }
+
+    if (AbstractTestProxy.DATA_KEYS.is(dataId)) {
+      TreePath[] paths = getSelectionPaths();
+      if (paths != null) {
+        return Arrays.stream(paths)
+          .map(path -> getSelectedTest(path))
+          .filter(Objects::nonNull)
+          .toArray(AbstractTestProxy[]::new);
       }
     }
 
@@ -139,18 +138,32 @@ public abstract class TestTreeView extends Tree implements DataProvider, CopyPro
     if (selectionPath == null) return null;
     final AbstractTestProxy testProxy = getSelectedTest(selectionPath);
     if (testProxy == null) return null;
-    return TestsUIUtil.getData(testProxy, dataId, myModel);
+    try {
+      return TestsUIUtil.getData(testProxy, dataId, myModel);
+    }
+    catch (IndexNotReadyException ignore) {
+      return null;
+    }
   }
 
   @Override
   public void performCopy(@NotNull DataContext dataContext) {
     final PsiElement element = CommonDataKeys.PSI_ELEMENT.getData(dataContext);
-    CopyPasteManager.getInstance().setContents(new StringSelection(CopyReferenceAction.elementToFqn(element)));
+    final String fqn;
+    if (element != null) {
+      fqn = CopyReferenceAction.elementToFqn(element);
+    }
+    else {
+      AbstractTestProxy selectedTest = getSelectedTest();
+      fqn = selectedTest != null ? selectedTest.getLocationUrl() : null;
+    }
+    CopyPasteManager.getInstance().setContents(new StringSelection(fqn));
   }
 
   @Override
   public boolean isCopyEnabled(@NotNull DataContext dataContext) {
-    return CommonDataKeys.PSI_ELEMENT.getData(dataContext) != null;
+    AbstractTestProxy test = getSelectedTest();
+    return test != null && test.getLocationUrl() != null;
   }
 
   @Override
@@ -160,14 +173,29 @@ public abstract class TestTreeView extends Tree implements DataProvider, CopyPro
 
   protected void installHandlers() {
     EditSourceOnDoubleClickHandler.install(this);
-    new TreeSpeedSearch(this, new Convertor<TreePath, String>() {
-      public String convert(final TreePath path) {
-        final AbstractTestProxy testProxy = getSelectedTest(path);
-        if (testProxy == null) return null;
-        return testProxy.getName();
-      }
-    });
+    EditSourceOnEnterKeyHandler.install(this);
+    new TreeSpeedSearch(this, path -> {
+      final AbstractTestProxy testProxy = getSelectedTest(path);
+      if (testProxy == null) return null;
+      return getPresentableName(testProxy);
+    }, Registry.is("tests.view.node.expanding.search"));
     TreeUtil.installActions(this);
     PopupHandler.installPopupHandler(this, IdeActions.GROUP_TESTTREE_POPUP, ActionPlaces.TESTTREE_VIEW_POPUP);
+    HintUpdateSupply.installHintUpdateSupply(this, obj -> {
+      if (obj instanceof DefaultMutableTreeNode) {
+        Object userObject = ((DefaultMutableTreeNode)obj).getUserObject();
+        if (userObject instanceof NodeDescriptor) {
+          Object element = ((NodeDescriptor)userObject).getElement();
+          if (element instanceof AbstractTestProxy) {
+            return (PsiElement)TestsUIUtil.getData((AbstractTestProxy)element, CommonDataKeys.PSI_ELEMENT.getName(), myModel);
+          }
+        }
+      }
+      return null;
+    });
+  }
+
+  protected String getPresentableName(AbstractTestProxy testProxy) {
+    return testProxy.getName();
   }
 }

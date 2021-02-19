@@ -4,7 +4,6 @@ class C {
         if (o instanceof String && f == null) {
             String s = (String) o;
             <caret>
-
         }
     }
 }

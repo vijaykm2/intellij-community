@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.projectView;
 
 import com.intellij.ide.projectView.PresentationData;
@@ -20,37 +6,39 @@ import com.intellij.ide.projectView.TreeStructureProvider;
 import com.intellij.ide.projectView.ViewSettings;
 import com.intellij.ide.projectView.impl.AbstractProjectViewPSIPane;
 import com.intellij.ide.projectView.impl.ClassesTreeStructureProvider;
+import com.intellij.ide.util.treeView.AbstractTreeBuilder;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
-import com.intellij.ide.util.treeView.NodeDescriptor;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Computable;
 import com.intellij.psi.*;
 import com.intellij.refactoring.rename.RenameProcessor;
 import com.intellij.testFramework.PlatformTestUtil;
+import com.intellij.ui.tree.AsyncTreeModel;
+import com.intellij.ui.tree.TreeVisitor;
 import com.intellij.uiDesigner.projectView.FormMergerTreeStructureProvider;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ui.tree.TreeUtil;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.List;
 
 @SuppressWarnings({"HardCodedStringLiteral"})
 public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
-  public void testStandardProviders() throws Exception{
+  public void testStandardProviders() {
     PsiFile element = JavaDirectoryService.getInstance().getClasses(getPackageDirectory())[0].getContainingFile();
     final AbstractProjectViewPSIPane pane = myStructure.createPane();
     getProjectTreeStructure().setProviders();
     pane.select(element, element.getContainingFile().getVirtualFile(), true);
+    PlatformTestUtil.waitWhileBusy(pane.getTree());
     PlatformTestUtil.assertTreeEqual(pane.getTree(), "-Project\n" +
                                                      " -PsiDirectory: standardProviders\n" +
                                                      "  -PsiDirectory: src\n" +
@@ -62,21 +50,15 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
                                                      "     Form1.form\n" +
                                                      "     Form1.java\n" +
                                                      "     Form2.form\n" +
-                                                     getRootFiles() +
                                                      " +External Libraries\n"
     );
     final PsiClass[] classes = JavaDirectoryService.getInstance()
       .getPackage(getContentDirectory().findSubdirectory("src").findSubdirectory("com").findSubdirectory("package1")).getClasses();
     sortClassesByName(classes);
-    WriteCommandAction.runWriteCommandAction(null, new Runnable() {
-      public void run() {
-        classes[0].delete();
-      }
-    });
+    WriteCommandAction.runWriteCommandAction(null, () -> classes[0].delete());
 
 
-    PlatformTestUtil.waitForAlarm(600);
-
+    PlatformTestUtil.waitWhileBusy(pane.getTree());
     PlatformTestUtil.assertTreeEqual(pane.getTree(), "-Project\n" +
                                                      " -PsiDirectory: standardProviders\n" +
                                                      "  -PsiDirectory: src\n" +
@@ -87,25 +69,24 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
                                                      "     Form1.form\n" +
                                                      "     Form1.java\n" +
                                                      "     Form2.form\n" +
-                                                     getRootFiles() +
                                                      " +External Libraries\n");
 
   }
 
-  public void testUpdateProjectView() throws Exception {
+  public void testUpdateProjectView() {
     getProjectTreeStructure().setProviders(new ClassesTreeStructureProvider(myProject), new FormMergerTreeStructureProvider(myProject));
 
     final AbstractProjectViewPSIPane pane = myStructure.createPane();
     final JTree tree = pane.getTree();
     PlatformTestUtil.assertTreeEqual(tree, "-Project\n" +
                                            " +PsiDirectory: updateProjectView\n" +
-                                           getRootFiles() +
                                            " +External Libraries\n");
 
     final PsiJavaFile classFile = (PsiJavaFile)getContentDirectory().findSubdirectory("src").findSubdirectory("com").findSubdirectory("package1").findFile("Form1.java");
     final PsiClass aClass = classFile.getClasses()[0];
     final PsiFile containingFile = aClass.getContainingFile();
     pane.select(aClass, containingFile.getVirtualFile(), true);
+    PlatformTestUtil.waitWhileBusy(pane.getTree());
     PlatformTestUtil.assertTreeEqual(pane.getTree(), "-Project\n" +
                                                      " -PsiDirectory: updateProjectView\n" +
                                                      "  -PsiDirectory: src\n" +
@@ -118,17 +99,12 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
                                                      "     -Form:Form1\n" +
                                                      "      [Form1]\n" +
                                                      "      Form1.form\n" +
-                                                     getRootFiles() +
                                                      " +External Libraries\n", true);
 
-    CommandProcessor.getInstance().executeCommand(myProject, new Runnable() {
-      @Override
-      public void run() {
-        new RenameProcessor(myProject, aClass, "Form1_renamed", false, false).run();
-      }
-    }, null, null);
+    CommandProcessor.getInstance().executeCommand(myProject,
+                                                  () -> new RenameProcessor(myProject, aClass, "Form1_renamed", false, false).run(), null, null);
 
-    PlatformTestUtil.waitForAlarm(600);
+    PlatformTestUtil.waitWhileBusy(pane.getTree());
     PlatformTestUtil.assertTreeEqual(tree, "-Project\n" +
                                            " -PsiDirectory: updateProjectView\n" +
                                            "  -PsiDirectory: src\n" +
@@ -141,20 +117,19 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
                                            "     -Form:Form1_renamed\n" +
                                            "      Form1.form\n" +
                                            "      [Form1_renamed]\n" +
-                                           getRootFiles() +
                                            " +External Libraries\n", true);
 
-    TreeUtil.collapseAll(pane.getTree(), -1);
+    TreeUtil.collapseAll(pane.getTree(), 0);
     PlatformTestUtil.assertTreeEqual(tree, "-Project\n" +
                                            " +PsiDirectory: updateProjectView\n" +
-                                           getRootFiles() +
                                            " +External Libraries\n");
 
     final PsiClass aClass2 = JavaDirectoryService.getInstance()
       .createClass(getContentDirectory().findSubdirectory("src").findSubdirectory("com").findSubdirectory("package1"), "Class6");
-    PlatformTestUtil.waitForAlarm(600);
+
     final PsiFile containingFile2 = aClass2.getContainingFile();
     pane.select(aClass2, containingFile2.getVirtualFile(), true);
+    PlatformTestUtil.waitWhileBusy(pane.getTree());
     PlatformTestUtil.assertTreeEqual(pane.getTree(), "-Project\n" +
                                                      " -PsiDirectory: updateProjectView\n" +
                                                      "  -PsiDirectory: src\n" +
@@ -166,11 +141,10 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
                                                      "     [Class6]\n" +
                                                      "     Form2.form\n" +
                                                      "     +Form:Form1_renamed\n" +
-                                                     getRootFiles() +
                                                      " +External Libraries\n", true);
   }
 
-  public void testShowClassMembers() throws Exception{
+  public void testShowClassMembers() {
 
     getProjectTreeStructure().setProviders(new ClassesTreeStructureProvider(myProject), new FormMergerTreeStructureProvider(myProject));
 
@@ -178,7 +152,6 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
     final JTree tree = pane.getTree();
     PlatformTestUtil.assertTreeEqual(tree, "-Project\n" +
                                            " +PsiDirectory: showClassMembers\n" +
-                                           getRootFiles() +
                                            " +External Libraries\n");
 
     myStructure.setShowMembers(true);
@@ -187,6 +160,7 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
     PsiClass aClass = classFile.getClasses()[0];
     PsiFile containingFile = aClass.getContainingFile();
     pane.select(aClass, containingFile.getVirtualFile(), true);
+    PlatformTestUtil.waitWhileBusy(pane.getTree());
     PlatformTestUtil.assertTreeEqual(pane.getTree(), "-Project\n" +
                                                      " -PsiDirectory: showClassMembers\n" +
                                                      "  -PsiDirectory: src\n" +
@@ -198,31 +172,21 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
                                                      "      myField1:boolean\n" +
                                                      "      myField2:boolean\n" +
                                                      "     +Class2\n" +
-                                                     getRootFiles() +
                                                      " +External Libraries\n", true);
 
 
     final Document document = FileDocumentManager.getInstance().getDocument(containingFile.getVirtualFile());
     final int caretPosition = document.getText().indexOf("public class InnerClass") - 1;
 
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      public void run() {
-        CommandProcessor.getInstance().executeCommand(myProject,
-                                                      new Runnable() {
-                                                        @Override
-                                                        public void run() {
-                                                          document.insertString(caretPosition, "\n");
-                                                        }
-                                                      },
-                                                      "typing",
-                                                      null);
-      }
-    });
+    ApplicationManager.getApplication().runWriteAction(() -> CommandProcessor.getInstance().executeCommand(myProject,
+                                                                                                         () -> document.insertString(caretPosition, "\n"),
+                                                                                                         "typing",
+                                                                                                         null));
 
 
     PsiDocumentManager.getInstance(myProject).commitDocument(document);
-    PlatformTestUtil.waitForAlarm(600);
 
+    PlatformTestUtil.waitWhileBusy(pane.getTree());
     PlatformTestUtil.assertTreeEqual(pane.getTree(), "-Project\n" +
                                                      " -PsiDirectory: showClassMembers\n" +
                                                      "  -PsiDirectory: src\n" +
@@ -234,7 +198,6 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
                                                      "      myField1:boolean\n" +
                                                      "      myField2:boolean\n" +
                                                      "     +Class2\n" +
-                                                     getRootFiles() +
                                                      " +External Libraries\n", true);
 
     classFile = (PsiJavaFile)getContentDirectory().findSubdirectory("src").findSubdirectory("com").findSubdirectory("package1").findFile("Class1.java");
@@ -242,6 +205,7 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
     final PsiField lastField = aClass.getFields()[1];
     pane.select(lastField, containingFile.getVirtualFile(), true);
 
+    PlatformTestUtil.waitWhileBusy(pane.getTree());
     PlatformTestUtil.assertTreeEqual(pane.getTree(), "-Project\n" +
                                                      " -PsiDirectory: showClassMembers\n" +
                                                      "  -PsiDirectory: src\n" +
@@ -253,29 +217,23 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
                                                      "      myField1:boolean\n" +
                                                      "      [myField2:boolean]\n" +
                                                      "     +Class2\n" +
-                                                     getRootFiles() +
                                                      " +External Libraries\n", true);
 
-    CommandProcessor.getInstance().executeCommand(myProject, new Runnable() {
-      @Override
-      public void run() {
-        ApplicationManager.getApplication().runWriteAction(new Runnable() {
-          @Override
-          public void run() {
-            try {
-              assertEquals("myField2", lastField.getName());
-              lastField.setName("_firstField");
-            }
-            catch (IncorrectOperationException e) {
-              fail(e.getMessage());
-            }
-          }
-        });
+    CommandProcessor.getInstance().executeCommand(myProject, () -> ApplicationManager.getApplication().runWriteAction(() -> {
+      try {
+        assertEquals("myField2", lastField.getName());
+        lastField.setName("_firstField");
       }
-    }, null, null);
+      catch (IncorrectOperationException e) {
+        fail(e.getMessage());
+      }
+    }), null, null);
 
-    PlatformTestUtil.waitForAlarm(600);
-
+    PlatformTestUtil.waitWhileBusy(pane.getTree());
+    if (tree.getModel() instanceof AsyncTreeModel) {
+      // TODO:SAM new model loses selection of moved node for now
+      tree.setSelectionPath(PlatformTestUtil.waitForPromise(pane.promisePathToElement(lastField)));
+    }
     PlatformTestUtil.assertTreeEqual(pane.getTree(), "-Project\n" +
                                                      " -PsiDirectory: showClassMembers\n" +
                                                      "  -PsiDirectory: src\n" +
@@ -287,16 +245,17 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
                                                      "      [_firstField:boolean]\n" +
                                                      "      myField1:boolean\n" +
                                                      "     +Class2\n" +
-                                                     getRootFiles() +
                                                      " +External Libraries\n", true);
   }
 
-  public void testAnnoyingScrolling() throws Exception{
-                                  
+  public void testAnnoyingScrolling() {
+
     getProjectTreeStructure().setProviders(new ClassesTreeStructureProvider(myProject));
 
     final AbstractProjectViewPSIPane pane = myStructure.createPane();
     final JTree tree = pane.getTree();
+    AbstractTreeBuilder builder = pane.getTreeBuilder();
+    if (builder != null) builder.setPassthroughMode(false);
 
     myStructure.setShowMembers(true);
 
@@ -305,33 +264,34 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
     PsiFile containingFile = aClass.getContainingFile();
     PsiDirectory directory = containingFile.getContainingDirectory();
     pane.select(aClass, containingFile.getVirtualFile(), true);
+    PlatformTestUtil.waitWhileBusy(tree);
     Point viewPosition = ((JViewport)tree.getParent()).getViewPosition();
     for (int i=0;i<100;i++) {
       JavaDirectoryService.getInstance().createClass(directory, "A" + i);
     }
-    PlatformTestUtil.waitForAlarm(600);
+    PlatformTestUtil.waitWhileBusy(pane.getTree());
     Point viewPositionAfter = ((JViewport)tree.getParent()).getViewPosition();
     assertEquals(viewPosition, viewPositionAfter);
 
   }
 
-  class NodeWrapper extends AbstractTreeNode<Object> {
+  static class NodeWrapper extends AbstractTreeNode<Object> {
     String myName;
-    List<NodeWrapper> myChildren = new ArrayList<NodeWrapper>();
+    List<NodeWrapper> myChildren = new ArrayList<>();
 
-    public NodeWrapper(final Project project, final String value) {
+    NodeWrapper(final Project project, final String value) {
       super(project, new Object());
       myName = value;
     }
 
     @Override
     @NotNull
-    public Collection<? extends AbstractTreeNode> getChildren() {
+    public Collection<? extends AbstractTreeNode<?>> getChildren() {
       return myChildren;
     }
 
     @Override
-    protected void update(final PresentationData presentation) {
+    protected void update(@NotNull final PresentationData presentation) {
       presentation.setPresentableText(myName);
     }
 
@@ -344,7 +304,7 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
     }
   }
 
-  public void testUpdatingAfterRename() throws Exception{
+  public void testUpdatingAfterRename() {
 
     final NodeWrapper rootWrapper = new NodeWrapper(myProject, "1");
 
@@ -384,19 +344,16 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
 
     final JTree tree = pane.getTree();
 
-    pane.getTreeBuilder().setNodeDescriptorComparator(new Comparator<NodeDescriptor>() {
-      @Override
-      public int compare(final NodeDescriptor o1, final NodeDescriptor o2) {
-        if (o1 instanceof NodeWrapper && o2 instanceof NodeWrapper) {
-          return ((NodeWrapper)o1).getName().compareTo(((NodeWrapper)o2).getName());
-        }
-        else {
-          return 0;
-        }
+    pane.installComparator((o1, o2) -> {
+      if (o1 instanceof NodeWrapper && o2 instanceof NodeWrapper) {
+        return ((NodeWrapper)o1).getName().compareTo(((NodeWrapper)o2).getName());
+      }
+      else {
+        return 0;
       }
     });
 
-    tree.expandRow(2);
+    PlatformTestUtil.expand(tree, 0, 2);
     TreeUtil.selectPath(tree, tree.getPathForRow(4));
 
     PlatformTestUtil.assertTreeEqual(tree, "-Project\n" +
@@ -411,7 +368,16 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
     wr12.setName("01.2");
     wr122.setName("01.2.2");
 
-    pane.getTreeBuilder().updateFromRoot();
+    AbstractTreeBuilder builder = pane.getTreeBuilder();
+    if (builder == null) {
+      // TODO:SAM new model loses selection of moved node for now
+      TreeVisitor visitor = new TreeVisitor.ByTreePath<>(tree.getSelectionPath(), o -> o);
+      PlatformTestUtil.waitForCallback(pane.updateFromRoot(false));
+      tree.setSelectionPath(PlatformTestUtil.waitForPromise(TreeUtil.promiseMakeVisible(tree, visitor)));
+    }
+    else {
+      builder.updateFromRoot();
+    }
 
     PlatformTestUtil.assertTreeEqual(tree, "-Project\n" +
                                            " -1\n" +
@@ -429,22 +395,87 @@ public class ProjectViewUpdatingTest extends BaseProjectViewTestCase {
     return new TreeStructureProvider() {
       @NotNull
       @Override
-      public Collection<AbstractTreeNode> modify(@NotNull AbstractTreeNode parent, @NotNull Collection<AbstractTreeNode> children, ViewSettings settings) {
+      public Collection<AbstractTreeNode<?>> modify(@NotNull AbstractTreeNode<?> parent, @NotNull Collection<AbstractTreeNode<?>> children, ViewSettings settings) {
 
         if (parent instanceof NodeWrapper) {
           return children;
         }
-        List<AbstractTreeNode> result = new ArrayList<AbstractTreeNode>();
+        List<AbstractTreeNode<?>> result = new ArrayList<>();
         result.add(rootWrapper);
         return result;
-      }
-
-      @Override
-      @Nullable
-      public Object getData(Collection<AbstractTreeNode> selected, String dataName) {
-        return null;
       }
     };
   }
 
+  public void testHideEmptyMiddlePackages() {
+    myStructure.setProviders(new ClassesTreeStructureProvider(myProject));
+    myStructure.setHideEmptyMiddlePackages(true);
+    myStructure.setShowMembers(true);
+    myStructure.setShowLibraryContents(false);
+
+    PsiDirectory directory = getPackageDirectory("com/company");
+    AbstractProjectViewPSIPane pane = myStructure.createPane();
+    JTree tree = pane.getTree();
+
+    assertTreeEqual(tree, " +PsiDirectory: hideEmptyMiddlePackages\n");
+
+    TreeUtil.promiseExpandAll(tree);
+
+    assertTreeEqual(tree, " -PsiDirectory: hideEmptyMiddlePackages\n" +
+                          "  -PsiDirectory: src\n" +
+                          "   -PsiDirectory: name\n" + // com.company.name
+                          "    -I\n" +
+                          "     m():void\n");
+
+    directory = createSubdirectory(directory, "a");
+    // PSI listener is notified synchronously and starts modifying new tree model
+    // unfortunately this approach does not work for old tree builders
+    AbstractTreeBuilder builder = pane.getTreeBuilder();
+    if (builder != null) builder.queueUpdateFrom(directory, true);
+    PlatformTestUtil.waitWhileBusy(tree);
+    TreeUtil.promiseExpandAll(tree);
+
+    assertTreeEqual(tree, " -PsiDirectory: hideEmptyMiddlePackages\n" +
+                          "  -PsiDirectory: src\n" +
+                          "   -PsiDirectory: company\n" + // com.company
+                          "    PsiDirectory: a\n" +
+                          "    -PsiDirectory: name\n" +
+                          "     -I\n" +
+                          "      m():void\n");
+
+    directory = createSubdirectory(directory, "b");
+    if (builder != null) builder.queueUpdateFrom(directory, true);
+
+    assertTreeEqual(tree, " -PsiDirectory: hideEmptyMiddlePackages\n" +
+                          "  -PsiDirectory: src\n" +
+                          "   -PsiDirectory: company\n" + // com.company
+                          "    PsiDirectory: b\n" + // a.b
+                          "    -PsiDirectory: name\n" +
+                          "     -I\n" +
+                          "      m():void\n");
+
+    directory = createSubdirectory(directory, "z");
+    if (builder != null) builder.queueUpdateFrom(directory, true);
+
+    assertTreeEqual(tree, " -PsiDirectory: hideEmptyMiddlePackages\n" +
+                          "  -PsiDirectory: src\n" +
+                          "   -PsiDirectory: company\n" + // com.company
+                          "    PsiDirectory: z\n" + // a.b.z
+                          "    -PsiDirectory: name\n" +
+                          "     -I\n" +
+                          "      m():void\n");
+  }
+
+  private static void assertTreeEqual(@NotNull JTree tree, @NotNull String expected) {
+    PlatformTestUtil.waitWhileBusy(tree);
+    PlatformTestUtil.assertTreeEqual(tree, "-Project\n" + expected);
+  }
+
+  private static PsiDirectory createSubdirectory(@NotNull PsiDirectory directory, @NotNull String name) {
+    return compute(directory.getProject(), () -> directory.createSubdirectory(name));
+  }
+
+  private static <T> T compute(@NotNull Project project, @NotNull Computable<T> computable) {
+    return WriteCommandAction.runWriteCommandAction(project, computable);
+  }
 }

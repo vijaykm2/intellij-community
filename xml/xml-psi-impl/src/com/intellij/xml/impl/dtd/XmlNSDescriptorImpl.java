@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.impl.dtd;
 
 import com.intellij.codeInsight.daemon.Validator;
@@ -33,39 +19,36 @@ import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlNSDescriptorEx;
 import com.intellij.xml.impl.ExternalDocumentValidator;
 import com.intellij.xml.util.XmlUtil;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/**
- * @author Mike
- */
-public class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocument>, DumbAware {
+public final class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocument>, DumbAware {
   private XmlElement myElement;
   private XmlFile myDescriptorFile;
 
   private static final SimpleFieldCache<CachedValue<Map<String, XmlElementDescriptor>>, XmlNSDescriptorImpl> myCachedDeclsCache = new
-    SimpleFieldCache<CachedValue<Map<String, XmlElementDescriptor>>, XmlNSDescriptorImpl>() {
-    @Override
-    protected final CachedValue<Map<String, XmlElementDescriptor>> compute(final XmlNSDescriptorImpl xmlNSDescriptor) {
-      return xmlNSDescriptor.doBuildDeclarationMap();
-    }
+    SimpleFieldCache<>() {
+      @Override
+      protected final CachedValue<Map<String, XmlElementDescriptor>> compute(final XmlNSDescriptorImpl xmlNSDescriptor) {
+        return xmlNSDescriptor.doBuildDeclarationMap();
+      }
 
-    @Override
-    protected final CachedValue<Map<String, XmlElementDescriptor>> getValue(final XmlNSDescriptorImpl xmlNSDescriptor) {
-      return xmlNSDescriptor.myCachedDecls;
-    }
+      @Override
+      protected final CachedValue<Map<String, XmlElementDescriptor>> getValue(final XmlNSDescriptorImpl xmlNSDescriptor) {
+        return xmlNSDescriptor.myCachedDecls;
+      }
 
-    @Override
-    protected final void putValue(final CachedValue<Map<String, XmlElementDescriptor>> cachedValue, final XmlNSDescriptorImpl xmlNSDescriptor) {
-      xmlNSDescriptor.myCachedDecls = cachedValue;
-    }
-  };
+      @Override
+      protected final void putValue(final CachedValue<Map<String, XmlElementDescriptor>> cachedValue,
+                                    final XmlNSDescriptorImpl xmlNSDescriptor) {
+        xmlNSDescriptor.myCachedDecls = cachedValue;
+      }
+    };
 
   private volatile CachedValue<Map<String, XmlElementDescriptor>> myCachedDecls;
-  private static final XmlUtil.DuplicationInfoProvider<XmlElementDecl> XML_ELEMENT_DECL_PROVIDER = new XmlUtil.DuplicationInfoProvider<XmlElementDecl>() {
+  private static final XmlUtil.DuplicationInfoProvider<XmlElementDecl> XML_ELEMENT_DECL_PROVIDER = new XmlUtil.DuplicationInfoProvider<>() {
     @Override
     public String getName(@NotNull final XmlElementDecl psiElement) {
       return psiElement.getName();
@@ -91,14 +74,9 @@ public class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocum
     return myDescriptorFile;
   }
 
-  @Override
-  public boolean isHierarhyEnabled() {
-    return false;
-  }
-
   public XmlElementDescriptor[] getElements() {
     final Collection<XmlElementDescriptor> declarations = buildDeclarationMap().values();
-    return declarations.toArray(new XmlElementDescriptor[declarations.size()]);
+    return declarations.toArray(XmlElementDescriptor.EMPTY_ARRAY);
   }
 
   private Map<String,XmlElementDescriptor> buildDeclarationMap() {
@@ -107,31 +85,28 @@ public class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocum
 
   // Read-only calculation
   private CachedValue<Map<String, XmlElementDescriptor>> doBuildDeclarationMap() {
-    return CachedValuesManager.getManager(myElement.getProject()).createCachedValue(new CachedValueProvider<Map<String, XmlElementDescriptor>>() {
-      @Override
-      public Result<Map<String, XmlElementDescriptor>> compute() {
-        final List<XmlElementDecl> result = new ArrayList<XmlElementDecl>();
-        myElement.processElements(new FilterElementProcessor(new ClassFilter(XmlElementDecl.class), result), getDeclaration());
-        final Map<String, XmlElementDescriptor> ret = new LinkedHashMap<String, XmlElementDescriptor>((int)(result.size() * 1.5));
-        Set<PsiFile> dependencies = new THashSet<PsiFile>(1);
-        dependencies.add(myDescriptorFile);
+    return CachedValuesManager.getManager(myElement.getProject()).createCachedValue(() -> {
+      final List<XmlElementDecl> result = new ArrayList<>();
+      myElement.processElements(new FilterElementProcessor(new ClassFilter(XmlElementDecl.class), result), getDeclaration());
+      final Map<String, XmlElementDescriptor> ret = new LinkedHashMap<>((int)(result.size() * 1.5));
+      Set<PsiFile> dependencies = new HashSet<>(1);
+      dependencies.add(myDescriptorFile);
 
-        for (final XmlElementDecl xmlElementDecl : result) {
-          final String name = xmlElementDecl.getName();
-          if (name != null) {
-            if (!ret.containsKey(name)) {
-              ret.put(name, new XmlElementDescriptorImpl(xmlElementDecl));
-              // if element descriptor was produced from entity reference use proper dependency
-              PsiElement dependingElement = xmlElementDecl.getUserData(XmlElement.DEPENDING_ELEMENT);
-              if (dependingElement != null) {
-                PsiFile dependingElementContainingFile = dependingElement.getContainingFile();
-                if (dependingElementContainingFile != null) dependencies.add(dependingElementContainingFile);
-              }
+      for (final XmlElementDecl xmlElementDecl : result) {
+        final String name = xmlElementDecl.getName();
+        if (name != null) {
+          if (!ret.containsKey(name)) {
+            ret.put(name, new XmlElementDescriptorImpl(xmlElementDecl));
+            // if element descriptor was produced from entity reference use proper dependency
+            PsiElement dependingElement = xmlElementDecl.getUserData(XmlElement.DEPENDING_ELEMENT);
+            if (dependingElement != null) {
+              PsiFile dependingElementContainingFile = dependingElement.getContainingFile();
+              if (dependingElementContainingFile != null) dependencies.add(dependingElementContainingFile);
             }
           }
         }
-        return new Result<Map<String, XmlElementDescriptor>>(ret, dependencies.toArray());
-       }
+      }
+      return new CachedValueProvider.Result<>(ret, dependencies.toArray());
      }, false);
   }
 
@@ -142,8 +117,7 @@ public class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocum
   }
 
   @Override
-  @NotNull
-  public XmlElementDescriptor[] getRootElementsDescriptors(@Nullable final XmlDocument document) {
+  public XmlElementDescriptor @NotNull [] getRootElementsDescriptors(@Nullable final XmlDocument document) {
     // Suggest more appropriate variant if DOCTYPE <element_name> exists
     final XmlProlog prolog = document != null ? document.getProlog():null;
 
@@ -194,14 +168,14 @@ public class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocum
   }
 
   @Override
-  public Object[] getDependences(){
+  public Object @NotNull [] getDependencies(){
     return new Object[]{myElement, ExternalResourceManager.getInstance()};
   }
 
   @Override
   public void validate(@NotNull XmlDocument document, @NotNull ValidationHost host) {
     if (document.getLanguage() == DTDLanguage.INSTANCE) {
-      final List<XmlElementDecl> decls = new ArrayList<XmlElementDecl>(3);
+      final List<XmlElementDecl> decls = new ArrayList<>(3);
 
       XmlUtil.processXmlElements(document, new PsiElementProcessor() {
         @Override
@@ -211,8 +185,8 @@ public class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocum
         }
       }, false);
       XmlUtil.doDuplicationCheckForElements(
-        decls.toArray(new XmlElementDecl[decls.size()]),
-        new HashMap<String, XmlElementDecl>(decls.size()),
+        decls.toArray(new XmlElementDecl[0]),
+        new HashMap<>(decls.size()),
         XML_ELEMENT_DECL_PROVIDER,
         host
       );

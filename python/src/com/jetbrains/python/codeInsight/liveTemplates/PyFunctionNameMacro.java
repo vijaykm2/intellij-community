@@ -31,14 +31,9 @@ public class PyFunctionNameMacro extends Macro {
     return "pyFunctionName";
   }
 
-  @Override
-  public String getPresentableName() {
-    return "pyFunctionName()";
-  }
-
   @Nullable
   @Override
-  public Result calculateResult(@NotNull Expression[] params, ExpressionContext context) {
+  public Result calculateResult(Expression @NotNull [] params, ExpressionContext context) {
     PsiElement place = context.getPsiElementAtStartOffset();
     PyFunction pyFunction = PsiTreeUtil.getParentOfType(place, PyFunction.class);
     if (pyFunction == null) {

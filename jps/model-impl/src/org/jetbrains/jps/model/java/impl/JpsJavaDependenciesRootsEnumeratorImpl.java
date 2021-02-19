@@ -21,9 +21,6 @@ import org.jetbrains.jps.model.library.JpsOrderRootType;
 import org.jetbrains.jps.model.module.*;
 import org.jetbrains.jps.model.module.impl.JpsDependenciesRootsEnumeratorBase;
 
-/**
- * @author nik
- */
 public class JpsJavaDependenciesRootsEnumeratorImpl extends JpsDependenciesRootsEnumeratorBase<JpsJavaDependenciesEnumeratorImpl> implements JpsJavaDependenciesRootsEnumerator {
   private boolean myWithoutSelfModuleOutput;
 
@@ -37,7 +34,8 @@ public class JpsJavaDependenciesRootsEnumeratorImpl extends JpsDependenciesRoots
     return this;
   }
 
-  protected boolean processModuleRootUrls(JpsModule module, JpsDependencyElement dependencyElement, Consumer<String> urlConsumer) {
+  @Override
+  protected boolean processModuleRootUrls(JpsModule module, JpsDependencyElement dependencyElement, Consumer<? super String> urlConsumer) {
     boolean includeProduction, includeTests;
     if (dependencyElement instanceof JpsModuleDependency) {
       boolean productionOnTests = myDependenciesEnumerator.isProductionOnTests(dependencyElement);

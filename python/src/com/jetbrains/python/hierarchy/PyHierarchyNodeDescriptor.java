@@ -15,7 +15,6 @@
  */
 package com.jetbrains.python.hierarchy;
 
-import com.intellij.ide.IdeBundle;
 import com.intellij.ide.hierarchy.HierarchyNodeDescriptor;
 import com.intellij.ide.util.treeView.NodeDescriptor;
 import com.intellij.navigation.ItemPresentation;
@@ -26,26 +25,10 @@ import com.intellij.psi.PsiElement;
 import com.jetbrains.python.psi.PyClass;
 import com.jetbrains.python.psi.PyFunction;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
-/**
- * Created by IntelliJ IDEA.
- * User: Alexey.Ivanov
- * Date: Jul 31, 2009
- * Time: 6:26:37 PM
- */
 public class PyHierarchyNodeDescriptor extends HierarchyNodeDescriptor {
   public PyHierarchyNodeDescriptor(final NodeDescriptor parentDescriptor, @NotNull final PsiElement element, final boolean isBase) {
     super(element.getProject(), parentDescriptor, element, isBase);
-  }
-
-  @Nullable
-  public PsiElement getPsiElement() {
-    return myElement;
-  }
-
-  public boolean isValid() {
-    return myElement != null && myElement.isValid();
   }
 
   @Override
@@ -55,13 +38,9 @@ public class PyHierarchyNodeDescriptor extends HierarchyNodeDescriptor {
 
     myHighlightedText = new CompositeAppearance();
 
-    NavigatablePsiElement element = (NavigatablePsiElement)myElement;
+    NavigatablePsiElement element = (NavigatablePsiElement)getPsiElement();
     if (element == null) {
-      final String invalidPrefix = IdeBundle.message("node.hierarchy.invalid");
-      if (!myHighlightedText.getText().startsWith(invalidPrefix)) {
-        myHighlightedText.getBeginning().addText(invalidPrefix, HierarchyNodeDescriptor.getInvalidPrefixAttributes());
-      }
-      return true;
+      return invalidElement();
     }
 
     final ItemPresentation presentation = element.getPresentation();

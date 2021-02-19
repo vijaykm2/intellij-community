@@ -15,19 +15,24 @@
  */
 package com.intellij.dvcs.repo;
 
+import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
+import org.jetbrains.annotations.CalledInAny;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
 /**
- * RepositoryManager initializes and stores {@link Repository repositories} for Git or Hgroots defined in the project.
- *
- * @author Kirill Likhodedov
+ * The RepositoryManager stores and maintains the mapping between VCS roots (represented by {@link VirtualFile}s)
+ * and {@link Repository repositories} containing information and valuable methods specific for DVCS repositories.
  */
 public interface RepositoryManager<T extends Repository> {
+
+  @NotNull
+  AbstractVcs getVcs();
 
   /**
    * Returns the Repository instance which tracks the VCS repository located in the given root directory,
@@ -37,6 +42,7 @@ public interface RepositoryManager<T extends Repository> {
    * via {@link #addExternalRepository(VirtualFile, Repository)}.
    */
   @Nullable
+  @RequiresBackgroundThread
   T getRepositoryForRoot(@Nullable VirtualFile root);
 
   boolean isExternal(@NotNull T repository);
@@ -45,14 +51,23 @@ public interface RepositoryManager<T extends Repository> {
    * Returns the {@link Repository} which the given file belongs to, or {@code null} if the file is not under any Git or Hg repository.
    */
   @Nullable
+  @RequiresBackgroundThread
   T getRepositoryForFile(@NotNull VirtualFile file);
 
   /**
    * Returns the {@link Repository} which the given file belongs to, or {@code null} if the file is not under any Git ot Hg repository.
    */
   @Nullable
+  @RequiresBackgroundThread
   T getRepositoryForFile(@NotNull FilePath file);
 
+  @Nullable
+  @CalledInAny
+  T getRepositoryForFileQuick(@NotNull FilePath file);
+
+  @Nullable
+  @CalledInAny
+  T getRepositoryForRootQuick(@Nullable VirtualFile root);
   /**
    * @return all repositories tracked by the manager.
    */

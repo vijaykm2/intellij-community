@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl.welcomeScreen;
 
 import com.intellij.ide.ProjectGroupActionGroup;
-import com.intellij.ide.RecentProjectsManager;
+import com.intellij.ide.RecentProjectListActionProvider;
+import com.intellij.ide.lightEdit.LightEditCompatible;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
@@ -33,10 +20,10 @@ import java.util.List;
 /**
  * @author Konstantin Bulenkov
  */
-public abstract class RecentProjectsWelcomeScreenActionBase extends DumbAwareAction {
+public abstract class RecentProjectsWelcomeScreenActionBase extends DumbAwareAction implements LightEditCompatible {
   @Nullable
-  public static DefaultListModel getDataModel(AnActionEvent e) {
-    final JList list = getList(e);
+  public static DefaultListModel getDataModel(@NotNull AnActionEvent e) {
+    JList list = getList(e);
     if (list != null) {
       ListModel model = list.getModel();
       if (model instanceof NameFilteringListModel) {
@@ -50,11 +37,11 @@ public abstract class RecentProjectsWelcomeScreenActionBase extends DumbAwareAct
   }
 
   @NotNull
-  public static List<AnAction> getSelectedElements(AnActionEvent e) {
-    final JList list = getList(e);
-    final List<AnAction> actions = new ArrayList<AnAction>();
+  public static List<AnAction> getSelectedElements(@NotNull AnActionEvent e) {
+    JList list = getList(e);
+    List<AnAction> actions = new ArrayList<>();
     if (list != null) {
-      for (Object value : list.getSelectedValues()) {
+      for (Object value : list.getSelectedValuesList()) {
         if (value instanceof AnAction) {
           actions.add((AnAction)value);
         }
@@ -64,15 +51,15 @@ public abstract class RecentProjectsWelcomeScreenActionBase extends DumbAwareAct
   }
 
   @Nullable
-  public static JList getList(AnActionEvent e) {
-    final Component component = e.getData(PlatformDataKeys.CONTEXT_COMPONENT);
+  public static JList getList(@NotNull AnActionEvent e) {
+    Component component = e.getData(PlatformDataKeys.CONTEXT_COMPONENT);
     if (component instanceof JList) {
       return (JList)component;
     }
     return null;
   }
 
-  public static boolean hasGroupSelected(AnActionEvent e) {
+  public static boolean hasGroupSelected(@NotNull AnActionEvent e) {
     for (AnAction action : getSelectedElements(e)) {
       if (action instanceof ProjectGroupActionGroup) {
         return true;
@@ -81,8 +68,8 @@ public abstract class RecentProjectsWelcomeScreenActionBase extends DumbAwareAct
     return false;
   }
 
-  public static void rebuildRecentProjectsList(AnActionEvent e) {
-    final DefaultListModel model = getDataModel(e);
+  public static void rebuildRecentProjectsList(@NotNull AnActionEvent e) {
+    DefaultListModel model = getDataModel(e);
     if (model != null) {
       rebuildRecentProjectDataModel(model);
     }
@@ -90,7 +77,7 @@ public abstract class RecentProjectsWelcomeScreenActionBase extends DumbAwareAct
 
   public static void rebuildRecentProjectDataModel(@NotNull DefaultListModel model) {
     model.clear();
-    for (AnAction action : RecentProjectsManager.getInstance().getRecentProjectsActions(false, FlatWelcomeFrame.isUseProjectGroups())) {
+    for (AnAction action : RecentProjectListActionProvider.getInstance().getActions(false, true)) {
       //noinspection unchecked
       model.addElement(action);
     }

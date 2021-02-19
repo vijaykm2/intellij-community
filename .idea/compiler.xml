@@ -4,12 +4,15 @@
     <option name="BUILD_JARS_ON_MAKE" value="false" />
   </component>
   <component name="CompilerConfiguration">
-    <option name="DEFAULT_COMPILER" value="Javac" />
+    <option name="BUILD_PROCESS_HEAP_SIZE" value="1100" />
+    <option name="BUILD_PROCESS_ADDITIONAL_VM_OPTIONS" value="-Dgroovyc.in.process=true -Dgroovyc.asm.resolving.only=false" />
     <excludeFromCompile>
-      <file url="file://$PROJECT_DIR$/jps/jps-builders/src/org/jetbrains/jps/incremental/java/OptimizedFileManager.java" />
-      <file url="file://$PROJECT_DIR$/jps/jps-builders/src/org/jetbrains/jps/javac/OptimizedFileManager.java" />
-      <file url="file://$PROJECT_DIR$/jps/jps-builders/src/org/jetbrains/jps/javac/OptimizedFileManager17.java" />
-      <file url="file://$PROJECT_DIR$/java/java-tests/testSrc/com/intellij/index/IndexTestGenerator.scala" />
+      <file url="file://$PROJECT_DIR$/java/execution/jshell-frontend/src/com/intellij/execution/jshell/frontend/Main.java" />
+      <file url="file://$PROJECT_DIR$/android/tools-base/sdk-common/src/test/java/com/android/ide/common/blame/parser/SourceFragmentPositionRangeJsonTest.java" />
+      <file url="file://$PROJECT_DIR$/android/uitest-framework/testSrc/com/android/tools/idea/tests/gui/framework/fixture/RecordingDialogFixture.java" />
+      <file url="file://$PROJECT_DIR$/android/uitest-framework/testSrc/com/android/tools/idea/tests/gui/framework/fixture/TestClassNameInputDialogFixture.java" />
+      <file url="file://$PROJECT_DIR$/android/android-uitests/testSrc/com/android/tools/idea/tests/gui/espresso/EspressoRecorderTest.java" />
+      <file url="file://$PROJECT_DIR$/plugins/javaFX/javaFX-CE/testSrc/org/jetbrains/plugins/javaFX/fxml/JavaFxGenerateDefaultPropertyValuesScript.java" />
     </excludeFromCompile>
     <resourceExtensions>
       <entry name=".+\.(properties|gif|png|jpeg|jpg|xml|dtd|tld|xsd|ft|html|template)" />
@@ -24,33 +27,6 @@
       <entry name="!*.iml" />
       <entry name="!*.gant" />
     </wildcardResourcePatterns>
-    <annotationProcessing>
-      <profile default="true" name="Default" enabled="false">
-        <processorPath useClasspath="true" />
-      </profile>
-    </annotationProcessing>
-    <bytecodeTargetLevel target="1.6">
-      <module name="annotations" target="1.5" />
-      <module name="gradle-jps-plugin" target="1.6" />
-      <module name="groovy-rt-constants" target="1.5" />
-      <module name="groovy_rt" target="1.5" />
-      <module name="intellilang-jps-plugin" target="1.6" />
-      <module name="java-runtime" target="1.3" />
-      <module name="javac2" target="1.5" />
-      <module name="javaFX-jps-plugin" target="1.6" />
-      <module name="jps-builders" target="1.6" />
-      <module name="jps-launcher" target="1.6" />
-      <module name="jps-model-api" target="1.6" />
-      <module name="jps-model-impl" target="1.6" />
-      <module name="jps-model-serialization" target="1.6" />
-      <module name="jps-standalone-builder" target="1.6" />
-      <module name="junit_rt" target="1.3" />
-      <module name="maven-jps-plugin" target="1.6" />
-      <module name="remote-servers-agent-rt" target="1.5" />
-      <module name="testng_rt" target="1.5" />
-      <module name="ui-designer-jps-plugin" target="1.6" />
-      <module name="util-rt" target="1.6" />
-    </bytecodeTargetLevel>
   </component>
   <component name="EclipseCompilerSettings">
     <option name="GENERATE_NO_WARNINGS" value="true" />
@@ -61,7 +37,15 @@
     <option name="DEPRECATION" value="false" />
   </component>
   <component name="JavacSettings">
+    <option name="PREFER_TARGET_JDK_COMPILER" value="false" />
+    <option name="ADDITIONAL_OPTIONS_STRING" value="-Xlint:unchecked" />
+    <option name="ADDITIONAL_OPTIONS_OVERRIDE">
+      <module name="intellij.android.adt.ui" options="-Xlint:unchecked --add-exports java.desktop/sun.swing=ALL-UNNAMED" />
+      <module name="intellij.android.core" options="-Xlint:unchecked --add-exports java.desktop/sun.awt.image=ALL-UNNAMED" />
+      <module name="intellij.platform.ide" options="-Xlint:unchecked --add-exports java.desktop/sun.swing=ALL-UNNAMED --add-exports java.desktop/sun.awt=ALL-UNNAMED" />
+      <module name="intellij.platform.ide.impl" options="-Xlint:unchecked --add-exports java.desktop/sun.awt=ALL-UNNAMED --add-exports java.desktop/sun.font=ALL-UNNAMED --add-exports java.desktop/java.awt.peer=ALL-UNNAMED --add-exports jdk.attach/sun.tools.attach=ALL-UNNAMED --add-exports java.desktop/sun.awt.image=ALL-UNNAMED --add-exports java.desktop/sun.awt.datatransfer=ALL-UNNAMED --add-exports java.desktop/sun.swing=ALL-UNNAMED" />
+      <module name="intellij.platform.lang.impl" options="-Xlint:unchecked --add-exports java.desktop/sun.awt.image=ALL-UNNAMED --add-exports java.desktop/sun.awt=ALL-UNNAMED" />
+    </option>
     <option name="MAXIMUM_HEAP_SIZE" value="400" />
   </component>
 </project>
-

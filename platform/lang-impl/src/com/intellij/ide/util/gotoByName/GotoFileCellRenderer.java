@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.util.gotoByName;
 
@@ -20,8 +6,6 @@ import com.intellij.ide.util.PlatformModuleRendererFactory;
 import com.intellij.ide.util.PsiElementListCellRenderer;
 import com.intellij.navigation.ItemPresentation;
 import com.intellij.navigation.NavigationItem;
-import com.intellij.openapi.editor.colors.EditorColorsManager;
-import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
@@ -35,11 +19,13 @@ import com.intellij.ui.ColoredListCellRenderer;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.ui.FilePathSplittingPolicy;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
 import java.io.File;
+import java.util.Objects;
 
 public class GotoFileCellRenderer extends PsiElementListCellRenderer<PsiFileSystemItem> {
   private final int myMaxWidth;
@@ -51,21 +37,6 @@ public class GotoFileCellRenderer extends PsiElementListCellRenderer<PsiFileSyst
   @Override
   public String getElementText(PsiFileSystemItem element) {
     return element.getName();
-  }
-
-  @Override
-  public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-    if (value == ChooseByNameBase.NON_PREFIX_SEPARATOR) {
-      Object previousElement = index > 0 ? list.getModel().getElementAt(index - 1) : null;
-      return ChooseByNameBase.renderNonPrefixSeparatorComponent(getBackgroundColor(previousElement));
-    }
-    else {
-      Component component = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-      EditorColorsScheme scheme = EditorColorsManager.getInstance().getGlobalScheme();
-      Font editorFont = new Font(scheme.getEditorFontName(), Font.PLAIN, scheme.getEditorFontSize());
-      setFont(editorFont);
-      return component;
-    }
   }
 
   @Override
@@ -82,19 +53,18 @@ public class GotoFileCellRenderer extends PsiElementListCellRenderer<PsiFileSyst
   }
 
   @Nullable
-  static String getRelativePath(final VirtualFile virtualFile, final Project project) {
-    String url = virtualFile.getPresentableUrl();
+  public static String getRelativePath(final VirtualFile virtualFile, final Project project) {
     if (project == null) {
-      return url;
+      return virtualFile.getPresentableUrl();
     }
-    VirtualFile root = ProjectFileIndex.SERVICE.getInstance(project).getContentRootForFile(virtualFile);
+    VirtualFile root = getAnyRoot(virtualFile, project);
     if (root != null) {
-      return root.getName() + File.separatorChar + VfsUtilCore.getRelativePath(virtualFile, root, File.separatorChar);
+      return getRelativePathFromRoot(virtualFile, root);
     }
 
+    String url = virtualFile.getPresentableUrl();
     final VirtualFile baseDir = project.getBaseDir();
     if (baseDir != null) {
-      //noinspection ConstantConditions
       final String projectHomeUrl = baseDir.getPresentableUrl();
       if (url.startsWith(projectHomeUrl)) {
         final String cont = url.substring(projectHomeUrl.length());
@@ -105,6 +75,20 @@ public class GotoFileCellRenderer extends PsiElementListCellRenderer<PsiFileSyst
     return url;
   }
 
+  @Nullable
+  public static VirtualFile getAnyRoot(@NotNull VirtualFile virtualFile, @NotNull Project project) {
+    ProjectFileIndex index = ProjectFileIndex.SERVICE.getInstance(project);
+    VirtualFile root = index.getContentRootForFile(virtualFile);
+    if (root == null) root = index.getClassRootForFile(virtualFile);
+    if (root == null) root = index.getSourceRootForFile(virtualFile);
+    return root;
+  }
+
+  @NotNull
+  static String getRelativePathFromRoot(@NotNull VirtualFile file, @NotNull VirtualFile root) {
+    return root.getName() + File.separatorChar + VfsUtilCore.getRelativePath(file, root, File.separatorChar);
+  }
+
   @Override
   protected boolean customizeNonPsiElementLeftRenderer(ColoredListCellRenderer renderer,
                                                        JList list,
@@ -112,25 +96,29 @@ public class GotoFileCellRenderer extends PsiElementListCellRenderer<PsiFileSyst
                                                        int index,
                                                        boolean selected,
                                                        boolean hasFocus) {
+    return doCustomizeNonPsiElementLeftRenderer(renderer, list, value, getNavigationItemAttributes(value));
+  }
+
+  public static boolean doCustomizeNonPsiElementLeftRenderer(ColoredListCellRenderer renderer,
+                                                             JList list,
+                                                             Object value,
+                                                             TextAttributes attributes) {
     if (!(value instanceof NavigationItem)) return false;
 
     NavigationItem item = (NavigationItem)value;
 
-    TextAttributes attributes = getNavigationItemAttributes(item);
-
     SimpleTextAttributes nameAttributes = attributes != null ? SimpleTextAttributes.fromTextAttributes(attributes) : null;
 
     Color color = list.getForeground();
-    if (nameAttributes == null) nameAttributes = new SimpleTextAttributes(Font.PLAIN, color);
+    if (nameAttributes == null) nameAttributes = new SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, color);
 
-    renderer.append(item + " ", nameAttributes);
-    ItemPresentation itemPresentation = item.getPresentation();
-    assert itemPresentation != null;
-    renderer.setIcon(itemPresentation.getIcon(true));
+    ItemPresentation presentation = Objects.requireNonNull(item.getPresentation());
+    renderer.append(presentation.getPresentableText() + " ", nameAttributes);
+    renderer.setIcon(presentation.getIcon(true));
 
-    String locationString = itemPresentation.getLocationString();
+    String locationString = presentation.getLocationString();
     if (!StringUtil.isEmpty(locationString)) {
-      renderer.append(locationString, new SimpleTextAttributes(Font.PLAIN, JBColor.GRAY));
+      renderer.append(locationString, new SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, JBColor.GRAY));
     }
     return true;
   }

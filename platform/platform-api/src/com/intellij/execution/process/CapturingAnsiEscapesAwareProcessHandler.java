@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,13 +26,12 @@ import org.jetbrains.annotations.NotNull;
  * @author traff
  */
 public class CapturingAnsiEscapesAwareProcessHandler extends CapturingProcessHandler {
-  public CapturingAnsiEscapesAwareProcessHandler(@NotNull GeneralCommandLine commandLine)
-    throws ExecutionException {
+  public CapturingAnsiEscapesAwareProcessHandler(@NotNull GeneralCommandLine commandLine) throws ExecutionException {
     super(commandLine);
   }
 
-  public CapturingAnsiEscapesAwareProcessHandler(Process process) {
-    super(process);
+  public CapturingAnsiEscapesAwareProcessHandler(@NotNull Process process, @NotNull String commandLine) {
+    super(process, null, commandLine);
   }
 
   @Override
@@ -41,7 +40,7 @@ public class CapturingAnsiEscapesAwareProcessHandler extends CapturingProcessHan
   }
   
   
-  private static class AnsiEscapesAwareAdapter extends CapturingProcessAdapter implements AnsiEscapeDecoder.ColoredTextAcceptor {
+  protected static class AnsiEscapesAwareAdapter extends CapturingProcessAdapter implements AnsiEscapeDecoder.ColoredTextAcceptor {
     private final AnsiEscapeDecoder myAnsiEscapeDecoder = new AnsiEscapeDecoder() {
       @Override
       @NotNull
@@ -55,12 +54,12 @@ public class CapturingAnsiEscapesAwareProcessHandler extends CapturingProcessHan
     }
 
     @Override
-    public void onTextAvailable(ProcessEvent event, Key outputType) {
+    public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
       myAnsiEscapeDecoder.escapeText(event.getText(), outputType, this);
     }
 
     @Override
-    public void coloredTextAvailable(String text, Key attributes) {
+    public void coloredTextAvailable(@NotNull String text, @NotNull Key attributes) {
       addToOutput(text, attributes);
     }
   }

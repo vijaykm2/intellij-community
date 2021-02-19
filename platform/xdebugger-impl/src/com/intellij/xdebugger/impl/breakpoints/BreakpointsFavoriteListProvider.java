@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.breakpoints;
 
 import com.intellij.icons.AllIcons;
@@ -20,12 +6,16 @@ import com.intellij.ide.favoritesTreeView.AbstractFavoritesListProvider;
 import com.intellij.ide.favoritesTreeView.FavoritesManager;
 import com.intellij.ide.projectView.PresentationData;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
+import com.intellij.idea.ActionsBundle;
+import com.intellij.openapi.extensions.ExtensionNotApplicableException;
 import com.intellij.openapi.project.Project;
 import com.intellij.pom.Navigatable;
 import com.intellij.ui.CheckedTreeNode;
 import com.intellij.ui.ColoredTreeCellRenderer;
 import com.intellij.ui.CommonActionsPanel;
+import com.intellij.util.PlatformUtils;
 import com.intellij.util.SingleAlarm;
+import com.intellij.xdebugger.XDebuggerBundle;
 import com.intellij.xdebugger.XDebuggerManager;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointGroup;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointGroupingRule;
@@ -41,33 +31,28 @@ import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreeNode;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
-/**
- * User: Vassiliy.Kudryashov
- */
 public class BreakpointsFavoriteListProvider extends AbstractFavoritesListProvider<Object>
   implements BreakpointPanelProvider.BreakpointsListener {
 
   private final List<BreakpointPanelProvider> myBreakpointPanelProviders;
   private final BreakpointItemsTreeController myTreeController;
-  private final List<XBreakpointGroupingRule> myRulesAvailable = new ArrayList<XBreakpointGroupingRule>();
+  private final List<XBreakpointGroupingRule> myRulesAvailable = new ArrayList<>();
 
-  private final Set<XBreakpointGroupingRule> myRulesEnabled = new TreeSet<XBreakpointGroupingRule>(XBreakpointGroupingRule.PRIORITY_COMPARATOR);
+  private final Set<XBreakpointGroupingRule> myRulesEnabled = new TreeSet<>(XBreakpointGroupingRule.PRIORITY_COMPARATOR);
 
-  private final SingleAlarm myRebuildAlarm = new SingleAlarm(new Runnable() {
-    @Override
-    public void run() {
-      updateChildren();
-    }
-  }, 100);
-  private final FavoritesManager myFavoritesManager;
+  private final SingleAlarm myRebuildAlarm = new SingleAlarm(this::updateChildren, 100);
 
-  public BreakpointsFavoriteListProvider(Project project, FavoritesManager favoritesManager) {
+  public BreakpointsFavoriteListProvider(@NotNull Project project) {
     super(project, "Breakpoints");
+
+    if (PlatformUtils.isDataGrip()) {
+      throw ExtensionNotApplicableException.INSTANCE;
+    }
+
     myBreakpointPanelProviders = XBreakpointUtil.collectPanelProviders();
-    myFavoritesManager = favoritesManager;
     myTreeController = new BreakpointItemsTreeController(myRulesAvailable);
     myTreeController.setTreeView(new BreakpointsSimpleTree(myProject, myTreeController));
     for (final BreakpointPanelProvider provider : myBreakpointPanelProviders) {
@@ -82,7 +67,7 @@ public class BreakpointsFavoriteListProvider extends AbstractFavoritesListProvid
     myRebuildAlarm.cancelAndRequest();
   }
 
-  private void getEnabledGroupingRules(Collection<XBreakpointGroupingRule> rules) {
+  private void getEnabledGroupingRules(Collection<? super XBreakpointGroupingRule> rules) {
     rules.clear();
     XBreakpointsDialogState settings = ((XBreakpointManagerImpl)XDebuggerManager.getInstance(myProject).getBreakpointManager()).getBreakpointsDialogSettings();
 
@@ -96,7 +81,7 @@ public class BreakpointsFavoriteListProvider extends AbstractFavoritesListProvid
   private void updateChildren() {
     if (myProject.isDisposed()) return;
     myChildren.clear();
-    List<BreakpointItem> items = new ArrayList<BreakpointItem>();
+    List<BreakpointItem> items = new ArrayList<>();
     for (final BreakpointPanelProvider provider : myBreakpointPanelProviders) {
       provider.provideBreakpointItems(myProject, items);
     }
@@ -112,20 +97,20 @@ public class BreakpointsFavoriteListProvider extends AbstractFavoritesListProvid
         replicate((DefaultMutableTreeNode)child, myNode, myChildren);
       }
     }
-    myFavoritesManager.fireListeners(getListName(myProject));
+    FavoritesManager.getInstance(myProject).fireListeners(getListName(myProject));
   }
 
-  private void replicate(DefaultMutableTreeNode source, AbstractTreeNode destination, final List<AbstractTreeNode<Object>> destinationChildren) {
-    final ArrayList<AbstractTreeNode<Object>> copyChildren = new ArrayList<AbstractTreeNode<Object>>();
-    AbstractTreeNode<Object> copy = new AbstractTreeNode<Object>(myProject, source.getUserObject()) {
+  private void replicate(DefaultMutableTreeNode source, AbstractTreeNode<?> destination, List<? super AbstractTreeNode<Object>> destinationChildren) {
+    List<AbstractTreeNode<Object>> copyChildren = new ArrayList<>();
+    AbstractTreeNode<Object> copy = new AbstractTreeNode<>(myProject, source.getUserObject()) {
       @NotNull
       @Override
-      public Collection<? extends AbstractTreeNode> getChildren() {
+      public Collection<? extends AbstractTreeNode<?>> getChildren() {
         return copyChildren;
       }
 
       @Override
-      protected void update(PresentationData presentation) {
+      protected void update(@NotNull PresentationData presentation) {
       }
     };
 
@@ -146,13 +131,7 @@ public class BreakpointsFavoriteListProvider extends AbstractFavoritesListProvid
     if (node.getValue() instanceof Navigatable && ((Navigatable)node.getValue()).canNavigate()) {
       return true;
     }
-    Collection<? extends AbstractTreeNode> children = node.getChildren();
-    for (AbstractTreeNode child : children) {
-      if (checkNavigatable(child)) {
-        return true;
-      }
-    }
-    return false;
+    return node.getChildren().stream().anyMatch(BreakpointsFavoriteListProvider::checkNavigatable);
   }
 
   @Nullable
@@ -160,9 +139,9 @@ public class BreakpointsFavoriteListProvider extends AbstractFavoritesListProvid
   public String getCustomName(@NotNull CommonActionsPanel.Buttons type) {
     switch (type) {
       case EDIT:
-        return "Edit breakpoint";
+        return ActionsBundle.actionText("EditBreakpoint");
       case REMOVE:
-        return "Remove breakpoint";
+        return XDebuggerBundle.message("xdebugger.remove.line.breakpoint.action.text");
       default:
         return null;
     }
@@ -170,7 +149,15 @@ public class BreakpointsFavoriteListProvider extends AbstractFavoritesListProvid
 
   @Override
   public boolean willHandle(@NotNull CommonActionsPanel.Buttons type, Project project, @NotNull Set<Object> selectedObjects) {
-    return (selectedObjects.size() == 1 && (type == CommonActionsPanel.Buttons.EDIT || type == CommonActionsPanel.Buttons.REMOVE)) &&
+    if (selectedObjects.size() >= 1 && type == CommonActionsPanel.Buttons.REMOVE) {
+      for (Object selectedObject : selectedObjects) {
+        if (!(((AbstractTreeNode)selectedObject).getValue() instanceof BreakpointItem)) {
+          return false; // Not all selected items are breakpoints
+        }
+      }
+      return true;
+    }
+    return selectedObjects.size() == 1 && type == CommonActionsPanel.Buttons.EDIT &&
            ((AbstractTreeNode)selectedObjects.iterator().next()).getValue() instanceof BreakpointItem;
   }
 
@@ -184,15 +171,18 @@ public class BreakpointsFavoriteListProvider extends AbstractFavoritesListProvid
       bounds = tree.getVisibleRect().intersection(bounds);
     }
     Point whereToShow = new Point((int)bounds.getCenterX(), (int)bounds.getCenterY());
-    BreakpointItem breakpointItem = (BreakpointItem)((AbstractTreeNode)selectedObjects.iterator().next()).getValue();
     switch (type) {
       case EDIT:
+        BreakpointItem breakpointItem = (BreakpointItem)((AbstractTreeNode)selectedObjects.iterator().next()).getValue();
         DebuggerSupport debuggerSupport = XBreakpointUtil.getDebuggerSupport(myProject, breakpointItem);
-        if (debuggerSupport == null) return;
+        if (debuggerSupport == null || breakpointItem == null) return;
         debuggerSupport.getEditBreakpointAction().editBreakpoint(myProject, component, whereToShow, breakpointItem);
         break;
       case REMOVE:
-        breakpointItem.removed(myProject);
+        for (Object selectedObject : selectedObjects) {
+          BreakpointItem removeBreakpointItem = (BreakpointItem)((AbstractTreeNode)selectedObject).getValue();
+          removeBreakpointItem.removed(myProject);
+        }
         break;
       default: break;
     }

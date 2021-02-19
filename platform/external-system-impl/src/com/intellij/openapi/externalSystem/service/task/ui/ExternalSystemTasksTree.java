@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service.task.ui;
 
 import com.intellij.openapi.externalSystem.model.ProjectSystemId;
@@ -23,9 +9,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.ui.TreeSpeedSearch;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.Alarm;
-import com.intellij.util.Producer;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.ContainerUtilRt;
 import com.intellij.util.ui.tree.TreeModelAdapter;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -34,31 +17,25 @@ import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
 import javax.swing.event.TreeModelEvent;
 import javax.swing.event.TreeWillExpandListener;
-import javax.swing.tree.ExpandVetoException;
 import javax.swing.tree.TreePath;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.util.*;
+import java.util.function.Supplier;
 
 /**
  * @author Denis Zhdanov
- * @since 5/13/13 4:18 PM
  */
-public class ExternalSystemTasksTree extends Tree implements Producer<ExternalTaskExecutionInfo> {
+public class ExternalSystemTasksTree extends Tree implements Supplier<ExternalTaskExecutionInfo> {
 
   private static final int COLLAPSE_STATE_PROCESSING_DELAY_MILLIS = 200;
 
-  @NotNull private static final Comparator<TreePath> PATH_COMPARATOR = new Comparator<TreePath>() {
-    @Override
-    public int compare(TreePath o1, TreePath o2) {
-      return o2.getPathCount() - o1.getPathCount();
-    }
-  };
+  @NotNull private static final Comparator<TreePath> PATH_COMPARATOR = (o1, o2) -> o2.getPathCount() - o1.getPathCount();
 
   @NotNull private final Alarm myCollapseStateAlarm = new Alarm(Alarm.ThreadToUse.SWING_THREAD);
 
   /** Holds list of paths which 'expand/collapse' state should be restored. */
-  @NotNull private final Set<TreePath> myPathsToProcessCollapseState = ContainerUtilRt.newHashSet();
+  @NotNull private final Set<TreePath> myPathsToProcessCollapseState = new HashSet<>();
 
   @NotNull private final Map<String/*tree path*/, Boolean/*expanded*/> myExpandedStateHolder;
 
@@ -75,14 +52,14 @@ public class ExternalSystemTasksTree extends Tree implements Producer<ExternalTa
 
     addTreeWillExpandListener(new TreeWillExpandListener() {
       @Override
-      public void treeWillExpand(TreeExpansionEvent event) throws ExpandVetoException {
+      public void treeWillExpand(TreeExpansionEvent event) {
         if (!mySuppressCollapseTracking) {
           myExpandedStateHolder.put(getPath(event.getPath()), true);
         }
       }
 
       @Override
-      public void treeWillCollapse(TreeExpansionEvent event) throws ExpandVetoException {
+      public void treeWillCollapse(TreeExpansionEvent event) {
         if (!mySuppressCollapseTracking) {
           myExpandedStateHolder.put(getPath(event.getPath()), false);
         }
@@ -106,7 +83,7 @@ public class ExternalSystemTasksTree extends Tree implements Producer<ExternalTa
     getActionMap().put("Enter", new AbstractAction() {
       @Override
       public void actionPerformed(ActionEvent e) {
-        ExternalTaskExecutionInfo task = produce();
+        ExternalTaskExecutionInfo task = get();
         if (task == null) {
           return;
         }
@@ -125,23 +102,20 @@ public class ExternalSystemTasksTree extends Tree implements Producer<ExternalTa
   private void scheduleCollapseStateAppliance(@NotNull TreePath path) {
     myPathsToProcessCollapseState.add(path);
     myCollapseStateAlarm.cancelAllRequests();
-    myCollapseStateAlarm.addRequest(new Runnable() {
-      @Override
-      public void run() {
-        // We assume that the paths collection is modified only from the EDT, so, ConcurrentModificationException doesn't have
-        // a chance.
-        // Another thing is that we sort the paths in order to process the longest first. That is related to the JTree specifics
-        // that it automatically expands parent paths on child path expansion.
-        List<TreePath> paths = ContainerUtilRt.newArrayList(myPathsToProcessCollapseState);
-        myPathsToProcessCollapseState.clear();
-        Collections.sort(paths, PATH_COMPARATOR);
-        for (TreePath treePath : paths) {
-          applyCollapseState(treePath);
-        }
-        final TreePath rootPath = new TreePath(getModel().getRoot());
-        if (isCollapsed(rootPath)) {
-          expandPath(rootPath);
-        }
+    myCollapseStateAlarm.addRequest(() -> {
+      // We assume that the paths collection is modified only from the EDT, so, ConcurrentModificationException doesn't have
+      // a chance.
+      // Another thing is that we sort the paths in order to process the longest first. That is related to the JTree specifics
+      // that it automatically expands parent paths on child path expansion.
+      List<TreePath> paths = new ArrayList<>(myPathsToProcessCollapseState);
+      myPathsToProcessCollapseState.clear();
+      paths.sort(PATH_COMPARATOR);
+      for (TreePath treePath : paths) {
+        applyCollapseState(treePath);
+      }
+      final TreePath rootPath = new TreePath(getModel().getRoot());
+      if (isCollapsed(rootPath)) {
+        expandPath(rootPath);
       }
     }, COLLAPSE_STATE_PROCESSING_DELAY_MILLIS);
   }
@@ -184,13 +158,13 @@ public class ExternalSystemTasksTree extends Tree implements Producer<ExternalTa
 
   @Nullable
   @Override
-  public ExternalTaskExecutionInfo produce() {
+  public ExternalTaskExecutionInfo get() {
     TreePath[] selectionPaths = getSelectionPaths();
     if (selectionPaths == null || selectionPaths.length == 0) {
       return null;
     }
 
-    Map<String, ExternalTaskExecutionInfo> map = ContainerUtil.newHashMap();
+    Map<String, ExternalTaskExecutionInfo> map = new HashMap<>();
     for (TreePath selectionPath : selectionPaths) {
       Object component = selectionPath.getLastPathComponent();
       if (!(component instanceof ExternalSystemNode)) {

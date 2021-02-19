@@ -1,12 +1,11 @@
 package com.intellij.remoteServer.impl.runtime;
 
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
 import com.intellij.remoteServer.configuration.RemoteServer;
+import com.intellij.remoteServer.configuration.RemoteServerListener;
 import com.intellij.remoteServer.configuration.ServerConfiguration;
 import com.intellij.remoteServer.runtime.ServerConnection;
 import com.intellij.remoteServer.runtime.ServerConnectionManager;
-import com.intellij.util.Alarm;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -15,18 +14,15 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * @author nik
- */
 public class ServerConnectionManagerImpl extends ServerConnectionManager {
 
-  private final Map<RemoteServer<?>, ServerConnection> myConnections = new HashMap<RemoteServer<?>, ServerConnection>();
+  private final Map<RemoteServer<?>, ServerConnection> myConnections = new HashMap<>();
   private final ServerConnectionEventDispatcher myEventDispatcher = new ServerConnectionEventDispatcher();
 
   @NotNull
   @Override
   public <C extends ServerConfiguration> ServerConnection getOrCreateConnection(@NotNull RemoteServer<C> server) {
-    ApplicationManager.getApplication().assertIsDispatchThread();
+    ApplicationManager.getApplication().assertIsWriteThread();
     ServerConnection connection = myConnections.get(server);
     if (connection == null) {
       connection = doCreateConnection(server, this);
@@ -45,7 +41,7 @@ public class ServerConnectionManagerImpl extends ServerConnectionManager {
   private <C extends ServerConfiguration> ServerConnection doCreateConnection(@NotNull RemoteServer<C> server,
                                                                               ServerConnectionManagerImpl manager) {
     ServerTaskExecutorImpl executor = new ServerTaskExecutorImpl();
-    return new ServerConnectionImpl(server, server.getType().createConnector(server, executor), manager, getEventDispatcher());
+    return new ServerConnectionImpl<>(server, server.getType().createConnector(server, executor), manager, getEventDispatcher());
   }
 
   @Nullable
@@ -54,8 +50,8 @@ public class ServerConnectionManagerImpl extends ServerConnectionManager {
     return myConnections.get(server);
   }
 
-  public void removeConnection(RemoteServer<?> server) {
-    ApplicationManager.getApplication().assertIsDispatchThread();
+  void removeConnection(RemoteServer<?> server) {
+    ApplicationManager.getApplication().assertIsWriteThread();
     myConnections.remove(server);
   }
 
@@ -66,7 +62,23 @@ public class ServerConnectionManagerImpl extends ServerConnectionManager {
   @NotNull
   @Override
   public Collection<ServerConnection> getConnections() {
-    ApplicationManager.getApplication().assertIsDispatchThread();
+    ApplicationManager.getApplication().assertIsWriteThread();
     return Collections.unmodifiableCollection(myConnections.values());
+  }
+
+  public static class DisconnectFromRemovedServer implements RemoteServerListener {
+    @Override
+    public void serverRemoved(@NotNull RemoteServer<?> server) {
+      ServerConnectionManagerImpl impl = (ServerConnectionManagerImpl)ServerConnectionManager.getInstance();
+      ServerConnection<?> connection = impl.getConnection(server);
+      if (connection != null) {
+        connection.disconnect();
+      }
+    }
+
+    @Override
+    public void serverAdded(@NotNull RemoteServer<?> server) {
+      //
+    }
   }
 }

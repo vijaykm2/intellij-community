@@ -24,10 +24,10 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.util.IncorrectOperationException;
-import org.jetbrains.annotations.NotNull;
-
 import org.intellij.lang.xpath.psi.XPathToken;
 import org.intellij.lang.xpath.psi.impl.XPathChangeUtil;
+import org.intellij.plugins.xpathView.XPathBundle;
+import org.jetbrains.annotations.NotNull;
 
 public class ConvertToEntityFix extends AbstractFix {
     private final XPathToken myToken;
@@ -38,11 +38,18 @@ public class ConvertToEntityFix extends AbstractFix {
         myValue = myToken.getText().replaceAll("<", "&lt;");
     }
 
+    @Override
     @NotNull
     public String getText() {
-        return "Convert '" + myToken.getText() + "' to '" + myValue + "'";
+        return XPathBundle.message("intention.name.convert.to.entity", myToken.getText(), myValue);
     }
 
+    @Override
+    public String getFamilyName() {
+        return XPathBundle.message("intention.family.name.convert.to.entity");
+    }
+
+    @Override
     public boolean isAvailableImpl(@NotNull Project project, Editor editor, PsiFile file) {
         if (!myToken.isValid()) {
             return false;
@@ -53,6 +60,7 @@ public class ConvertToEntityFix extends AbstractFix {
         return context != null && context.isValid();
     }
 
+    @Override
     public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
         final XmlAttribute attribute = PsiTreeUtil.getContextOfType(myToken.getContainingFile(), XmlAttribute.class, true);
         assert attribute != null;
@@ -71,6 +79,7 @@ public class ConvertToEntityFix extends AbstractFix {
         myToken.replace(child);
     }
 
+    @Override
     protected boolean requiresEditor() {
         return false;
     }

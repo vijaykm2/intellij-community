@@ -35,7 +35,7 @@ public class ManifestSyntaxHighlighterFactory extends SyntaxHighlighterFactory {
   public static final SyntaxHighlighter HIGHLIGHTER = new SyntaxHighlighterBase() {
     private final Map<IElementType, TextAttributesKey> myAttributes;
     {
-      myAttributes = new HashMap<IElementType, TextAttributesKey>();
+      myAttributes = new HashMap<>();
       myAttributes.put(ManifestTokenType.HEADER_NAME, ManifestColorsAndFonts.HEADER_NAME_KEY);
       myAttributes.put(ManifestTokenType.COLON, ManifestColorsAndFonts.HEADER_ASSIGNMENT_KEY);
       myAttributes.put(ManifestTokenType.HEADER_VALUE_PART, ManifestColorsAndFonts.HEADER_VALUE_KEY);
@@ -47,9 +47,8 @@ public class ManifestSyntaxHighlighterFactory extends SyntaxHighlighterFactory {
       return new ManifestLexer();
     }
 
-    @NotNull
     @Override
-    public TextAttributesKey[] getTokenHighlights(IElementType tokenType) {
+    public TextAttributesKey @NotNull [] getTokenHighlights(IElementType tokenType) {
       return pack(myAttributes.get(tokenType));
     }
   };

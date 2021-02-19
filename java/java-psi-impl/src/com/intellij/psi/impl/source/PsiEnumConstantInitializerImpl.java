@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,8 +24,8 @@ import com.intellij.psi.impl.light.LightClassReference;
 import org.jetbrains.annotations.NotNull;
 
 public class PsiEnumConstantInitializerImpl extends PsiClassImpl implements PsiEnumConstantInitializer {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.PsiEnumConstantInitializerImpl");
-  private PsiClassType myCachedBaseType = null;
+  private static final Logger LOG = Logger.getInstance(PsiEnumConstantInitializerImpl.class);
+  private PsiClassType myCachedBaseType;
 
   public PsiEnumConstantInitializerImpl(final PsiClassStub stub) {
     super(stub, JavaStubElementTypes.ENUM_CONSTANT_INITIALIZER);
@@ -69,15 +69,10 @@ public class PsiEnumConstantInitializerImpl extends PsiClassImpl implements PsiE
 
   private PsiClass getBaseClass() {
     PsiElement parent = getParent();
-    LOG.assertTrue(parent instanceof PsiEnumConstant);
+    LOG.assertTrue(parent instanceof PsiEnumConstant, parent);
     PsiClass containingClass = ((PsiEnumConstant)parent).getContainingClass();
     LOG.assertTrue(containingClass != null);
     return containingClass;
-  }
-
-  @Override
-  public PsiElement getParent() {
-    return getParentByStub();
   }
 
   @Override
@@ -89,10 +84,11 @@ public class PsiEnumConstantInitializerImpl extends PsiClassImpl implements PsiE
   @Override
   @NotNull
   public PsiClassType getBaseClassType() {
-    if (myCachedBaseType == null) {
-      myCachedBaseType = JavaPsiFacade.getInstance(getProject()).getElementFactory().createType(getBaseClass());
+    PsiClassType cachedBaseType = myCachedBaseType;
+    if (cachedBaseType == null) {
+      myCachedBaseType = cachedBaseType = JavaPsiFacade.getElementFactory(getProject()).createType(getBaseClass());
     }
-    return myCachedBaseType;
+    return cachedBaseType;
   }
 
   @Override
@@ -126,8 +122,7 @@ public class PsiEnumConstantInitializerImpl extends PsiClassImpl implements PsiE
   }
 
   @Override
-  @NotNull
-  public PsiClassType[] getSuperTypes() {
+  public PsiClassType @NotNull [] getSuperTypes() {
     return new PsiClassType[]{getBaseClassType()};
   }
 
@@ -166,6 +161,7 @@ public class PsiEnumConstantInitializerImpl extends PsiClassImpl implements PsiE
     }
   }
 
+  @Override
   public String toString() {
     return "PsiAnonymousClass (PsiEnumConstantInitializerImpl)):";
   }

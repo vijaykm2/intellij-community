@@ -19,14 +19,22 @@ import com.intellij.diff.requests.DiffRequest;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.util.UserDataHolder;
-import org.jetbrains.annotations.CalledInBackground;
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 public interface DiffRequestProducer {
+  @Nls
   @NotNull
   String getName();
 
-  @CalledInBackground
+  /*
+   * Should be called either in EDT or without ReadLock.
+   * Some implementors might need WriteLock, so usage of Application.invokeAndWait() is possible.
+   *
+   * Valid ModalityState should be passed with ProgressIndicator.getModalityState().
+   */
+  @RequiresBackgroundThread
   @NotNull
   DiffRequest process(@NotNull UserDataHolder context, @NotNull ProgressIndicator indicator)
     throws DiffRequestProducerException, ProcessCanceledException;

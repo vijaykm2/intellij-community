@@ -2,15 +2,16 @@ package com.intellij.tasks.generic;
 
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.xmlb.annotations.Tag;
+import com.jayway.jsonpath.Configuration;
 import com.jayway.jsonpath.InvalidPathException;
 import com.jayway.jsonpath.JsonPath;
+import com.jayway.jsonpath.spi.json.JsonProvider;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -21,15 +22,15 @@ import java.util.Map;
 public final class JsonPathResponseHandler extends SelectorBasedResponseHandler {
 
   private static final Map<Class<?>, String> JSON_TYPES = ContainerUtil.newHashMap(
-    new Pair<Class<?>, String>(Map.class, "JSON object"),
-    new Pair<Class<?>, String>(List.class, "JSON array"),
-    new Pair<Class<?>, String>(String.class, "JSON string"),
-    new Pair<Class<?>, String>(Integer.class, "JSON number"),
-    new Pair<Class<?>, String>(Double.class, "JSON number"),
-    new Pair<Class<?>, String>(Boolean.class, "JSON boolean")
+    new Pair<>(Map.class, "JSON object"),
+    new Pair<>(List.class, "JSON array"),
+    new Pair<>(String.class, "JSON string"),
+    new Pair<>(Integer.class, "JSON number"),
+    new Pair<>(Double.class, "JSON number"),
+    new Pair<>(Boolean.class, "JSON boolean")
   );
 
-  private final Map<String, JsonPath> myCompiledCache = new HashMap<String, JsonPath>();
+  private final Map<String, JsonPath> myCompiledCache = new HashMap<>();
 
   /**
    * Serialization constructor
@@ -85,12 +86,8 @@ public final class JsonPathResponseHandler extends SelectorBasedResponseHandler 
     if (list == null) {
       return ContainerUtil.emptyList();
     }
-    return ContainerUtil.map2List(list, new Function<Object, Object>() {
-      @Override
-      public Object fun(Object o) {
-        return o.toString();
-      }
-    }).subList(0, Math.min(list.size(), max));
+    JsonProvider jsonProvider = Configuration.defaultConfiguration().jsonProvider();
+    return ContainerUtil.getFirstItems(ContainerUtil.map2List(list, o -> jsonProvider.toJson(o)), max);
   }
 
   @Nullable
@@ -102,7 +99,7 @@ public final class JsonPathResponseHandler extends SelectorBasedResponseHandler 
       return null;
     }
     if (value instanceof String || value instanceof Number || value instanceof Boolean) {
-      return value.toString();
+      return value.toString(); //NON-NLS
     }
     throw new Exception(String.format("JsonPath expression '%s' should match string value. Got '%s' instead",
                                       selector.getPath(), value));

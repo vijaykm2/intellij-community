@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,16 +15,16 @@
  */
 package com.intellij.codeInsight.generation;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.CodeInsightSettings;
 import com.intellij.codeInsight.generation.ui.GenerateEqualsWizard;
 import com.intellij.codeInsight.hint.HintManager;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Computable;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.util.IncorrectOperationException;
@@ -36,10 +36,10 @@ import java.util.List;
  * @author dsl
  */
 public class GenerateEqualsHandler extends GenerateMembersHandlerBase {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.generation.GenerateEqualsHandler");
-  private PsiField[] myEqualsFields = null;
-  private PsiField[] myHashCodeFields = null;
-  private PsiField[] myNonNullFields = null;
+  private static final Logger LOG = Logger.getInstance(GenerateEqualsHandler.class);
+  private PsiField[] myEqualsFields;
+  private PsiField[] myHashCodeFields;
+  private PsiField[] myNonNullFields;
   private static final PsiElementClassMember[] DUMMY_RESULT = new PsiElementClassMember[1]; //cannot return empty array, but this result won't be used anyway
 
   public GenerateEqualsHandler() {
@@ -57,28 +57,25 @@ public class GenerateEqualsHandler extends GenerateMembersHandlerBase {
     final PsiMethod equalsMethod = GenerateEqualsHelper.findMethod(aClass, GenerateEqualsHelper.getEqualsSignature(project, scope));
     final PsiMethod hashCodeMethod = GenerateEqualsHelper.findMethod(aClass, GenerateEqualsHelper.getHashCodeSignature());
 
-    boolean needEquals = equalsMethod == null;
-    boolean needHashCode = hashCodeMethod == null;
+    boolean needEquals = needToGenerateMethod(equalsMethod);
+    boolean needHashCode = needToGenerateMethod(hashCodeMethod);
     if (!needEquals && !needHashCode) {
       String text = aClass instanceof PsiAnonymousClass
-                    ? CodeInsightBundle.message("generate.equals.and.hashcode.already.defined.warning.anonymous")
-                    : CodeInsightBundle.message("generate.equals.and.hashcode.already.defined.warning", aClass.getQualifiedName());
+                    ? JavaBundle.message("generate.equals.and.hashcode.already.defined.warning.anonymous")
+                    : JavaBundle.message("generate.equals.and.hashcode.already.defined.warning", aClass.getQualifiedName());
 
       if (Messages.showYesNoDialog(project, text,
-                                   CodeInsightBundle.message("generate.equals.and.hashcode.already.defined.title"),
+                                   JavaBundle.message("generate.equals.and.hashcode.already.defined.title"),
                                    Messages.getQuestionIcon()) == Messages.YES) {
-        if (!ApplicationManager.getApplication().runWriteAction(new Computable<Boolean>() {
-          @Override
-          public Boolean compute() {
-            try {
-              equalsMethod.delete();
-              hashCodeMethod.delete();
-              return Boolean.TRUE;
-            }
-            catch (IncorrectOperationException e) {
-              LOG.error(e);
-              return Boolean.FALSE;
-            }
+        if (!WriteAction.compute(() -> {
+          try {
+            equalsMethod.delete();
+            hashCodeMethod.delete();
+            return Boolean.TRUE;
+          }
+          catch (IncorrectOperationException e) {
+            LOG.error(e);
+            return Boolean.FALSE;
           }
         }).booleanValue()) {
           return null;
@@ -91,26 +88,44 @@ public class GenerateEqualsHandler extends GenerateMembersHandlerBase {
         return null;
       }
     }
-    boolean hasNonStaticFields = false;
-    for (PsiField field : aClass.getFields()) {
-      if (!field.hasModifierProperty(PsiModifier.STATIC)) {
-        hasNonStaticFields = true;
-        break;
-      }
-    }
+    boolean hasNonStaticFields = hasNonStaticFields(aClass);
     if (!hasNonStaticFields) {
-      HintManager.getInstance().showErrorHint(editor, "No fields to include in equals/hashCode have been found");
+      HintManager.getInstance().showErrorHint(editor, JavaBundle.message("generate.equals.no.fields.for.generation"));
       return null;
     }
 
-    GenerateEqualsWizard wizard = new GenerateEqualsWizard(project, aClass, needEquals, needHashCode);
-    if (!wizard.showAndGet()) {
-      return null;
+    if (ApplicationManager.getApplication().isUnitTestMode()) {
+      myEqualsFields = myHashCodeFields = aClass.getFields();
+      myNonNullFields = PsiField.EMPTY_ARRAY;
+    } else {
+      GenerateEqualsWizard wizard = new GenerateEqualsWizard(project, aClass, needEquals, needHashCode);
+      if (!wizard.showAndGet()) {
+        return null;
+      }
+      myEqualsFields = wizard.getEqualsFields();
+      myHashCodeFields = wizard.getHashCodeFields();
+      myNonNullFields = wizard.getNonNullFields();
     }
-    myEqualsFields = wizard.getEqualsFields();
-    myHashCodeFields = wizard.getHashCodeFields();
-    myNonNullFields = wizard.getNonNullFields();
+
     return DUMMY_RESULT;
+  }
+
+  static boolean needToGenerateMethod(PsiMethod equalsMethod) {
+    return equalsMethod == null || !equalsMethod.isPhysical();
+  }
+
+  public static boolean hasNonStaticFields(PsiClass aClass) {
+    for (PsiField field : aClass.getFields()) {
+      if (!field.hasModifierProperty(PsiModifier.STATIC)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @Override
+  protected boolean hasMembers(@NotNull PsiClass aClass) {
+    return hasNonStaticFields(aClass);
   }
 
   @Override

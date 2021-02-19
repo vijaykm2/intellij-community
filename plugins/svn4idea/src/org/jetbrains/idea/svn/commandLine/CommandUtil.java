@@ -1,27 +1,40 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.commandLine;
 
 import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.text.DateFormatUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.svn.api.Depth;
+import org.jetbrains.idea.svn.api.Revision;
+import org.jetbrains.idea.svn.api.Target;
 import org.jetbrains.idea.svn.diff.DiffOptions;
 import org.jetbrains.idea.svn.status.StatusType;
-import org.tmatesoft.svn.core.wc.SVNRevision;
-import org.tmatesoft.svn.core.wc2.SvnTarget;
 
-import javax.xml.bind.JAXBContext;
-import javax.xml.bind.JAXBException;
-import javax.xml.bind.Unmarshaller;
+import javax.xml.bind.*;
 import java.io.File;
 import java.io.StringReader;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * @author Konstantin Kolosovsky.
- */
-public class CommandUtil {
+import static com.intellij.openapi.util.text.StringUtil.join;
+import static java.util.Arrays.asList;
+
+public final class CommandUtil {
+
+  private static final Logger LOG = Logger.getInstance(CommandUtil.class);
+
+  private static final Map<Class<?>, JAXBContext> cachedContexts = new ConcurrentHashMap<>();
+
+  private static final @NonNls String IGNORE_SPACE_CHANGE_DIFF_EXTENSION = "--ignore-space-change";
+  private static final @NonNls String IGNORE_ALL_SPACE_DIFF_EXTENSION = "--ignore-all-space";
+  private static final @NonNls String IGNORE_EOL_STYLE_DIFF_EXTENSION = "--ignore-eol-style";
 
   /**
    * Puts given value to parameters if condition is satisfied
@@ -30,35 +43,45 @@ public class CommandUtil {
    * @param condition
    * @param value
    */
-  public static void put(@NotNull List<String> parameters, boolean condition, @NotNull String value) {
+  public static void put(@NotNull List<? super String> parameters, boolean condition, @NonNls @NotNull String value) {
     if (condition) {
       parameters.add(value);
     }
   }
 
-  public static void put(@NotNull List<String> parameters, @NotNull File path) {
-    put(parameters, path.getAbsolutePath(), SVNRevision.UNDEFINED);
+  public static void put(@NotNull List<? super String> parameters, @NonNls @NotNull String @NotNull ... values) {
+    ContainerUtil.addAll(parameters, values);
   }
 
-  public static void put(@NotNull List<String> parameters, @NotNull File path, boolean usePegRevision) {
+  public static void put(@NotNull List<? super String> parameters, @NotNull File path) {
+    put(parameters, path.getAbsolutePath(), Revision.UNDEFINED);
+  }
+
+  public static void put(@NotNull List<? super String> parameters, @NotNull File path, boolean usePegRevision) {
     if (usePegRevision) {
       put(parameters, path);
-    } else {
+    }
+    else {
       parameters.add(path.getAbsolutePath());
     }
   }
 
-  public static void put(@NotNull List<String> parameters, @NotNull File path, @Nullable SVNRevision pegRevision) {
+  public static void put(@NotNull List<? super String> parameters, @NotNull File path, @Nullable Revision pegRevision) {
     put(parameters, path.getAbsolutePath(), pegRevision);
   }
 
-  public static void put(@NotNull List<String> parameters, @NotNull String path, @Nullable SVNRevision pegRevision) {
+  public static void put(@NotNull List<? super String> parameters, @NotNull String path, @Nullable Revision pegRevision) {
+    parameters.add(format(path, pegRevision));
+  }
+
+  @NotNull
+  public static String format(@NotNull String path, @Nullable Revision pegRevision) {
     StringBuilder builder = new StringBuilder(path);
 
     boolean hasAtSymbol = path.contains("@");
     boolean hasPegRevision = pegRevision != null &&
-                             !SVNRevision.UNDEFINED.equals(pegRevision) &&
-                             !SVNRevision.WORKING.equals(pegRevision) &&
+                             !Revision.UNDEFINED.equals(pegRevision) &&
+                             !Revision.WORKING.equals(pegRevision) &&
                              pegRevision.isValid();
 
     if (hasPegRevision || hasAtSymbol) {
@@ -69,83 +92,70 @@ public class CommandUtil {
       builder.append(format(pegRevision));
     }
 
-    parameters.add(builder.toString());
+    return builder.toString();
   }
 
-  public static void put(@NotNull List<String> parameters, @NotNull SvnTarget target) {
-    put(parameters, target.getPathOrUrlString(), target.getPegRevision());
+  public static void put(@NotNull List<? super String> parameters, @NotNull Target target) {
+    put(parameters, target.getPath(), target.getPegRevision());
   }
 
-  public static void put(@NotNull List<String> parameters, @NotNull SvnTarget target, boolean usePegRevision) {
+  public static void put(@NotNull List<? super String> parameters, @NotNull Target target, boolean usePegRevision) {
     if (usePegRevision) {
       put(parameters, target);
     } else {
-      parameters.add(target.getPathOrUrlString());
+      parameters.add(target.getPath());
     }
   }
 
-  public static void put(@NotNull List<String> parameters, @Nullable Depth depth) {
+  public static void put(@NotNull List<? super String> parameters, @Nullable Depth depth) {
     put(parameters, depth, false);
   }
 
-  public static void put(@NotNull List<String> parameters, @Nullable Depth depth, boolean sticky) {
+  public static void put(@NotNull List<? super String> parameters, @Nullable Depth depth, boolean sticky) {
     if (depth != null && !Depth.UNKNOWN.equals(depth)) {
-      parameters.add("--depth");
-      parameters.add(depth.getName());
+      put(parameters, "--depth", depth.getName());
 
       if (sticky) {
-        parameters.add("--set-depth");
-        parameters.add(depth.getName());
+        put(parameters, "--set-depth", depth.getName());
       }
     }
   }
 
-  public static void put(@NotNull List<String> parameters, @Nullable SVNRevision revision) {
-    if (revision != null && !SVNRevision.UNDEFINED.equals(revision) && !SVNRevision.WORKING.equals(revision) && revision.isValid()) {
-      parameters.add("--revision");
-      parameters.add(format(revision));
+  public static void put(@NotNull List<? super String> parameters, @Nullable Revision revision) {
+    if (revision != null && !Revision.UNDEFINED.equals(revision) && !Revision.WORKING.equals(revision) && revision.isValid()) {
+      put(parameters, "--revision", format(revision));
     }
   }
 
-  public static void put(@NotNull List<String> parameters, @NotNull SVNRevision startRevision, @NotNull SVNRevision endRevision) {
-    parameters.add("--revision");
-    parameters.add(format(startRevision) + ":" + format(endRevision));
+  public static void put(@NotNull List<? super String> parameters, @NotNull Revision startRevision, @NotNull Revision endRevision) {
+    put(parameters, "--revision", format(startRevision) + ":" + format(endRevision));
   }
 
   @NotNull
-  public static String format(@NotNull SVNRevision revision) {
-    return revision.getDate() != null ? "{" + DateFormatUtil.ISO8601_DATE_FORMAT.format(revision.getDate()) + "}" : revision.toString();
+  public static String format(@NotNull Revision revision) {
+    return revision.getDate() != null ? "{" + DateFormatUtil.getIso8601Format().format(revision.getDate()) + "}" : revision.toString();
   }
 
-  public static void put(@NotNull List<String> parameters, @Nullable DiffOptions diffOptions) {
-    if (diffOptions != null) {
-      StringBuilder builder = new StringBuilder();
+  public static void put(@NotNull List<? super String> parameters, @Nullable DiffOptions diffOptions) {
+    if (diffOptions == null) return;
 
-      if (diffOptions.isIgnoreAllWhitespace()) {
-        builder.append(" --ignore-space-change");
-      }
-      if (diffOptions.isIgnoreAmountOfWhitespace()) {
-        builder.append(" --ignore-all-space");
-      }
-      if (diffOptions.isIgnoreEOLStyle()) {
-        builder.append(" --ignore-eol-style");
-      }
+    List<String> extensions = asList(
+      diffOptions.isIgnoreAllWhitespace() ? IGNORE_SPACE_CHANGE_DIFF_EXTENSION : null,
+      diffOptions.isIgnoreAmountOfWhitespace() ? IGNORE_ALL_SPACE_DIFF_EXTENSION : null,
+      diffOptions.isIgnoreEOLStyle() ? IGNORE_EOL_STYLE_DIFF_EXTENSION : null
+    );
+    String value = join(extensions, " ");
 
-      String value = builder.toString().trim();
-
-      if (!StringUtil.isEmpty(value)) {
-        parameters.add("--extensions");
-        parameters.add(value);
-      }
+    if (!StringUtil.isEmpty(value)) {
+      put(parameters, "--extensions", value);
     }
   }
 
-  public static void putChangeLists(@NotNull List<String> parameters, @Nullable Iterable<String> changeLists) {
-    if (changeLists != null) {
-      for (String changeList : changeLists) {
-        parameters.add("--cl");
-        parameters.add(changeList);
-      }
+  public static void putChangeLists(@NotNull List<? super String> parameters, @Nullable Iterable<String> changeLists) {
+    if (changeLists == null) return;
+
+    for (String changeList : changeLists) {
+      put(parameters, "--cl", changeList);
     }
   }
 
@@ -154,10 +164,21 @@ public class CommandUtil {
   }
 
   public static <T> T parse(@NotNull String data, @NotNull Class<T> type) throws JAXBException {
-    JAXBContext context = JAXBContext.newInstance(type);
+    if (!cachedContexts.containsKey(type)) {
+      cachedContexts.put(type, JAXBContext.newInstance(type));
+    }
+    JAXBContext context = cachedContexts.get(type);
     Unmarshaller unmarshaller = context.createUnmarshaller();
 
-    return (T) unmarshaller.unmarshal(new StringReader(data.trim()));
+    unmarshaller.setEventHandler(new ValidationEventHandler() {
+      @Override
+      public boolean handleEvent(@NotNull ValidationEvent event) {
+        // Fail on exceptions, but not on other errors like "unexpected element" as sometimes we do not use all provided xml data.
+        return event.getLinkedException() == null;
+      }
+    });
+    //noinspection unchecked
+    return (T)unmarshaller.unmarshal(new StringReader(data.trim()));
   }
 
   @NotNull
@@ -203,11 +224,23 @@ public class CommandUtil {
     return contentsStatus;
   }
 
-  public static File correctUpToExistingParent(File base) {
-    while (base != null) {
-      if (base.exists() && base.isDirectory()) return base;
-      base = base.getParentFile();
+  @Nullable
+  public static File findExistingParent(@Nullable File file) {
+    while (file != null) {
+      if (file.exists() && file.isDirectory()) return file;
+      file = file.getParentFile();
     }
     return null;
+  }
+
+  @NotNull
+  public static File requireExistingParent(@NotNull File file) {
+    File result = findExistingParent(file);
+
+    if (result == null) {
+      LOG.error("Existing parent not found for " + file.getAbsolutePath());
+    }
+
+    return Objects.requireNonNull(result);
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2012 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2016 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,12 +19,13 @@ import com.intellij.codeInsight.NullableNotNullManager;
 import com.intellij.codeInsight.intention.AddAnnotationPsiFix;
 import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.psi.*;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.DelegatingFix;
 import com.siyeh.ig.InspectionGadgetsFix;
-import com.siyeh.ig.psiutils.ParenthesesUtils;
+import com.siyeh.ig.psiutils.TypeUtils;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -36,15 +37,8 @@ public class AssignmentToNullInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("assignment.to.null.display.name");
-  }
-
-  @Override
-  @NotNull
   public String buildErrorString(Object... infos) {
-    return InspectionGadgetsBundle.message(
-      "assignment.to.null.problem.descriptor");
+    return InspectionGadgetsBundle.message("assignment.to.null.problem.descriptor");
   }
 
   @Override
@@ -53,19 +47,30 @@ public class AssignmentToNullInspection extends BaseInspection {
     if (!(info instanceof PsiReferenceExpression)) {
       return null;
     }
-    final PsiElement target = ((PsiReferenceExpression)info).resolve();
+    final PsiReferenceExpression referenceExpression = (PsiReferenceExpression)info;
+    if (TypeUtils.isOptional(referenceExpression.getType())) {
+      return null;
+    }
+    final PsiElement target = referenceExpression.resolve();
     if (!(target instanceof PsiVariable)) {
       return null;
     }
+    final PsiVariable variable = (PsiVariable)target;
+    if (NullableNotNullManager.isNotNull(variable)) {
+      return null;
+    }
     final NullableNotNullManager manager = NullableNotNullManager.getInstance(target.getProject());
-    return new DelegatingFix(new AddAnnotationPsiFix(manager.getDefaultNullable(), (PsiVariable)target,PsiNameValuePair.EMPTY_ARRAY));
+    String annotation = manager.getDefaultNullable();
+    if (JavaPsiFacade.getInstance(variable.getProject()).findClass(annotation, variable.getResolveScope()) == null) {
+      return null;
+    }
+    return new DelegatingFix(new AddAnnotationPsiFix(annotation, variable));
   }
 
   @Override
   public JComponent createOptionsPanel() {
     return new SingleCheckboxOptionsPanel(InspectionGadgetsBundle.message(
-      "assignment.to.null.option"), this,
-                                          "ignoreAssignmentsToFields");
+      "assignment.to.null.option"), this, "ignoreAssignmentsToFields");
   }
 
   @Override
@@ -94,8 +99,7 @@ public class AssignmentToNullInspection extends BaseInspection {
       }
       final PsiAssignmentExpression assignmentExpression =
         (PsiAssignmentExpression)parent;
-      final PsiExpression lhs = ParenthesesUtils.stripParentheses(
-        assignmentExpression.getLExpression());
+      final PsiExpression lhs = PsiUtil.skipParenthesizedExprDown(assignmentExpression.getLExpression());
       if (lhs == null || isReferenceToNullableVariable(lhs)) {
         return;
       }

@@ -15,12 +15,14 @@
  */
 package org.intellij.images.options.impl;
 
-import com.intellij.openapi.components.*;
-import com.intellij.openapi.util.InvalidDataException;
-import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.RoamingType;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
 import org.intellij.images.options.Options;
 import org.intellij.images.options.OptionsManager;
 import org.jdom.Element;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Options configurable manager.
@@ -29,7 +31,7 @@ import org.jdom.Element;
  */
 @State(
   name = "Images.OptionsManager",
-  storages = {@Storage(file = StoragePathMacros.APP_CONFIG + "/images.support.xml", roamingType = RoamingType.DISABLED)}
+  storages = @Storage(value = "images.support.xml", roamingType = RoamingType.DISABLED)
 )
 final class OptionsManagerImpl extends OptionsManager implements PersistentStateComponent<Element> {
   private final OptionsImpl options = new OptionsImpl();
@@ -42,22 +44,12 @@ final class OptionsManagerImpl extends OptionsManager implements PersistentState
   @Override
   public Element getState() {
     Element element = new Element("state");
-    try {
-      options.writeExternal(element);
-    }
-    catch (WriteExternalException e) {
-      throw new RuntimeException(e);
-    }
+    options.writeExternal(element);
     return element;
   }
 
   @Override
-  public void loadState(final Element state) {
-    try {
-      options.readExternal(state);
-    }
-    catch (InvalidDataException e) {
-      throw new RuntimeException(e);
-    }
+  public void loadState(@NotNull final Element state) {
+    options.readExternal(state);
   }
 }

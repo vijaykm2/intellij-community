@@ -1,3 +1,4 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.console;
 
 import com.intellij.execution.impl.ConsoleViewImpl;
@@ -5,14 +6,13 @@ import com.intellij.execution.ui.ConsoleView;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.LangDataKeys;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.SelectionModel;
 import com.intellij.openapi.options.ShowSettingsUtil;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -49,30 +49,29 @@ public class FoldLinesLikeThis extends DumbAwareAction {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final Editor editor = e.getData(CommonDataKeys.EDITOR);
 
     final boolean enabled = e.getData(LangDataKeys.CONSOLE_VIEW) != null &&  editor != null && getSingleLineSelection(editor) != null;
-    e.getPresentation().setEnabled(enabled);
-    e.getPresentation().setVisible(enabled);
+    e.getPresentation().setEnabledAndVisible(enabled);
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Editor editor = e.getData(CommonDataKeys.EDITOR);
     assert editor != null;
     final String selection = getSingleLineSelection(editor);
     assert selection != null;
-    ShowSettingsUtil.getInstance().editConfigurable(editor.getProject(), new ConsoleFoldingConfigurable() {
+    ShowSettingsUtil.getInstance().editConfigurable(editor.getProject(), new ConsoleConfigurable() {
+      @Override
+      protected boolean editFoldingsOnly() {
+        return true;
+      }
+
       @Override
       public void reset() {
         super.reset();
-        ApplicationManager.getApplication().invokeLater(new Runnable() {
-          @Override
-          public void run() {
-            addRule(selection);
-          }
-        }, ModalityState.stateForComponent(createComponent()));
+        UIUtil.invokeLaterIfNeeded(() -> addRule(selection));
       }
     });
     final ConsoleView consoleView = e.getData(LangDataKeys.CONSOLE_VIEW);

@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.xml;
 
 import com.intellij.psi.xml.XmlFile;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -52,7 +38,7 @@ public abstract class MergingFileDescription<T extends DomElement> extends DomFi
     final DomManager domManager = element.getManager();
 
     XmlFile xmlFile = element.getFile();
-    Set<XmlFile> files = new HashSet<XmlFile>();
+    Set<XmlFile> files = new HashSet<>();
     files.add(xmlFile);
     final XmlFile originalFile = (XmlFile)xmlFile.getOriginalFile();
     if (originalFile != xmlFile) {
@@ -65,7 +51,7 @@ public abstract class MergingFileDescription<T extends DomElement> extends DomFi
     files.addAll(getFilesToMerge(element));
 
 
-    ArrayList<T> roots = new ArrayList<T>(files.size());
+    ArrayList<T> roots = new ArrayList<>(files.size());
     for (XmlFile file: files) {
       final DomFileElement<T> fileElement = domManager.getFileElement(file);
       if (fileElement != null) {
@@ -95,7 +81,7 @@ public abstract class MergingFileDescription<T extends DomElement> extends DomFi
     final DomFileElement<T> root = DomUtil.getFileElement(element);
     Object o = getMergedRoot(root);
     for (final JavaMethod method : methods) {
-      o = method.invoke(o, ArrayUtil.EMPTY_OBJECT_ARRAY);
+      o = method.invoke(o, ArrayUtilRt.EMPTY_OBJECT_ARRAY);
     }
     return (DomElement)o;
   }

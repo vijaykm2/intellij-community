@@ -25,9 +25,6 @@ import org.jetbrains.jps.incremental.messages.BuildMessage;
 import java.io.File;
 import java.io.IOException;
 
-/**
- * @author nik
- */
 public class JpsMavenJavaBuildingTest extends JpsBuildTestCase {
   public void testCompileJava() throws IOException {
     File srcDir = PathManagerEx.findFileUnderProjectHome("plugins/maven/jps-plugin/testData/compiler/classpathTest", getClass());
@@ -35,7 +32,7 @@ public class JpsMavenJavaBuildingTest extends JpsBuildTestCase {
     FileUtil.copyDir(srcDir, workDir);
     addJdk("1.6");
     loadProject(workDir.getAbsolutePath());
-    BuildResult result = doBuild(CompileScopeTestBuilder.rebuild().all());
+    BuildResult result = doBuild(CompileScopeTestBuilder.rebuild().allModules());
     result.assertFailed();
     BuildMessage message = assertOneElement(result.getMessages(BuildMessage.Kind.ERROR));
     assertTrue(message.toString(), message.getMessageText().contains("Maven project configuration") && message.getMessageText().contains("isn't available."));

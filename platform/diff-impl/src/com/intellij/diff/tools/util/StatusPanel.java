@@ -1,46 +1,35 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diff.tools.util;
 
-import com.intellij.openapi.diff.DiffBundle;
-import com.intellij.ui.IdeBorderFactory;
-import com.intellij.util.ui.AnimatedIcon;
-import com.intellij.util.ui.AsyncProcessIcon;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.util.ui.*;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
 
-public abstract class StatusPanel extends JPanel {
+public class StatusPanel extends JPanel {
   private final JLabel myTextLabel;
   private final AnimatedIcon myBusySpinner;
 
   public StatusPanel() {
-    super(new BorderLayout());
+    super(new GridBagLayout());
     myTextLabel = new JLabel("");
+    myTextLabel.setVisible(false);
     myBusySpinner = new AsyncProcessIcon("StatusPanelSpinner");
     myBusySpinner.setVisible(false);
 
-    add(myTextLabel, BorderLayout.CENTER);
-    add(myBusySpinner, BorderLayout.WEST);
-    setBorder(IdeBorderFactory.createEmptyBorder(0, 4, 0, 4));
+    GridBag bag = new GridBag().setDefaultInsets(JBInsets.create(0, 2)).setDefaultFill(GridBagConstraints.BOTH)
+      .setDefaultWeightY(1.0);
+    add(myBusySpinner, bag.next());
+    add(myTextLabel, bag.next().weightx(1.0));
+    setBorder(JBUI.Borders.empty(0, 2));
   }
 
   public void update() {
-    int count = getChangesCount();
-    myTextLabel.setText(DiffBundle.message("diff.count.differences.status.text", count));
+    String message = getMessage();
+    myTextLabel.setVisible(message != null);
+    myTextLabel.setText(message);
   }
 
   public void setBusy(boolean busy) {
@@ -54,5 +43,9 @@ public abstract class StatusPanel extends JPanel {
     }
   }
 
-  protected abstract int getChangesCount();
+  @NlsContexts.Label
+  @Nullable
+  protected String getMessage() {
+    return null;
+  }
 }

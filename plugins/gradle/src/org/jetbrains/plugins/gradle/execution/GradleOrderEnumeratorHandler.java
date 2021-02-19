@@ -1,70 +1,87 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.execution;
 
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ex.ApplicationEx;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.externalSystem.model.ExternalProject;
-import com.intellij.openapi.externalSystem.model.ExternalSourceDirectorySet;
-import com.intellij.openapi.externalSystem.model.ExternalSourceSet;
+import com.intellij.openapi.extensions.ExtensionPointName;
+import com.intellij.openapi.externalSystem.ExternalSystemModulePropertyManager;
 import com.intellij.openapi.externalSystem.model.project.ExternalSystemSourceType;
-import com.intellij.openapi.externalSystem.service.project.manage.ProjectDataManager;
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
-import com.intellij.openapi.externalSystem.util.ExternalSystemConstants;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.CompilerModuleExtension;
 import com.intellij.openapi.roots.ModuleRootModel;
 import com.intellij.openapi.roots.OrderEnumerationHandler;
 import com.intellij.openapi.roots.OrderRootType;
-import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.vfs.*;
+import com.intellij.openapi.vfs.VfsUtilCore;
+import org.gradle.util.GradleVersion;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.plugins.gradle.service.project.data.ExternalProjectDataService;
+import org.jetbrains.plugins.gradle.model.ExternalProject;
+import org.jetbrains.plugins.gradle.model.ExternalSourceDirectorySet;
+import org.jetbrains.plugins.gradle.model.ExternalSourceSet;
+import org.jetbrains.plugins.gradle.service.project.data.ExternalProjectDataCache;
+import org.jetbrains.plugins.gradle.settings.GradleLocalSettings;
+import org.jetbrains.plugins.gradle.settings.GradleProjectSettings;
+import org.jetbrains.plugins.gradle.settings.GradleSettings;
 import org.jetbrains.plugins.gradle.util.GradleConstants;
 
 import java.io.File;
 import java.util.Collection;
+import java.util.Map;
 
 public class GradleOrderEnumeratorHandler extends OrderEnumerationHandler {
   private static final Logger LOG = Logger.getInstance(GradleOrderEnumeratorHandler.class);
+  private final boolean myResolveModulePerSourceSet;
+  private final boolean myShouldProcessDependenciesRecursively;
 
-  public static class FactoryImpl extends Factory {
-    @Override
-    public boolean isApplicable(@NotNull Project project) {
-      return true;
+  public GradleOrderEnumeratorHandler(@NotNull Module module) {
+    String rootProjectPath = ExternalSystemApiUtil.getExternalRootProjectPath(module);
+    if (rootProjectPath != null) {
+      GradleProjectSettings settings = GradleSettings.getInstance(module.getProject()).getLinkedProjectSettings(rootProjectPath);
+      myResolveModulePerSourceSet = settings != null && settings.isResolveModulePerSourceSet();
+      String gradleVersion = GradleLocalSettings.getInstance(module.getProject()).getGradleVersion(rootProjectPath);
+      myShouldProcessDependenciesRecursively = gradleVersion != null && GradleVersion.version(gradleVersion).compareTo(GradleVersion.version("2.5")) < 0;
     }
-
-    @Override
-    public boolean isApplicable(@NotNull Module module) {
-      CompilerModuleExtension compilerModuleExtension = CompilerModuleExtension.getInstance(module);
-      if (compilerModuleExtension != null && compilerModuleExtension.isCompilerOutputPathInherited()) return false;
-      return ExternalSystemApiUtil.isExternalSystemAwareModule(GradleConstants.SYSTEM_ID, module);
-    }
-
-    @Override
-    public OrderEnumerationHandler createHandler(@Nullable Module module) {
-      return INSTANCE;
+    else {
+      myShouldProcessDependenciesRecursively = false;
+      myResolveModulePerSourceSet = false;
     }
   }
 
-  private static final GradleOrderEnumeratorHandler INSTANCE = new GradleOrderEnumeratorHandler();
+  public static class FactoryImpl extends Factory {
+    private static final ExtensionPointName<FactoryImpl> EP_NAME =
+      ExtensionPointName.create("org.jetbrains.plugins.gradle.orderEnumerationHandlerFactory");
+
+    @Override
+    public boolean isApplicable(@NotNull Module module) {
+      return ExternalSystemApiUtil.isExternalSystemAwareModule(GradleConstants.SYSTEM_ID, module);
+    }
+
+    @NotNull
+    @Override
+    public GradleOrderEnumeratorHandler createHandler(@NotNull Module module) {
+      for (FactoryImpl factory : EP_NAME.getExtensions()) {
+        if (factory.isApplicable(module)) {
+          return factory.createHandler(module);
+        }
+      }
+      return new GradleOrderEnumeratorHandler(module);
+    }
+  }
+
+  @Override
+  public boolean shouldAddRuntimeDependenciesToTestCompilationClasspath() {
+    return myResolveModulePerSourceSet;
+  }
+
+  @Override
+  public boolean shouldIncludeTestsFromDependentModulesToTestClasspath() {
+    return !myResolveModulePerSourceSet;
+  }
+
+  @Override
+  public boolean shouldProcessDependenciesRecursively() {
+    return myShouldProcessDependenciesRecursively;
+  }
 
   @Override
   public boolean addCustomModuleRoots(@NotNull OrderRootType type,
@@ -75,55 +92,55 @@ public class GradleOrderEnumeratorHandler extends OrderEnumerationHandler {
     if (!type.equals(OrderRootType.CLASSES)) return false;
     if (!ExternalSystemApiUtil.isExternalSystemAwareModule(GradleConstants.SYSTEM_ID, rootModel.getModule())) return false;
 
-    final String gradleProjectPath = rootModel.getModule().getOptionValue(ExternalSystemConstants.ROOT_PROJECT_PATH_KEY);
+    final String gradleProjectPath = ExternalSystemModulePropertyManager.getInstance(rootModel.getModule()).getRootProjectPath();
     if (gradleProjectPath == null) {
-      LOG.error("Root project path of the Gradle project not found for " + rootModel.getModule());
+      LOG.warn("Root project path of the Gradle project not found for " + rootModel.getModule());
       return false;
     }
 
-    final ExternalProjectDataService externalProjectDataService =
-      (ExternalProjectDataService)ServiceManager.getService(ProjectDataManager.class).getDataService(ExternalProjectDataService.KEY);
-
-    assert externalProjectDataService != null;
-    final ExternalProject externalRootProject =
-      externalProjectDataService.getRootExternalProject(GradleConstants.SYSTEM_ID, new File(gradleProjectPath));
+    Project project = rootModel.getModule().getProject();
+    final ExternalProjectDataCache externalProjectDataCache = ExternalProjectDataCache.getInstance(project);
+    assert externalProjectDataCache != null;
+    final ExternalProject externalRootProject = externalProjectDataCache.getRootExternalProject(gradleProjectPath);
     if (externalRootProject == null) {
       LOG.debug("Root external project was not yep imported for the project path: " + gradleProjectPath);
       return false;
     }
 
-    ExternalProject externalProject = externalProjectDataService.findExternalProject(externalRootProject, rootModel.getModule());
-    if (externalProject == null) return false;
-
-    if (includeTests) {
-      addOutputModuleRoots(externalProject.getSourceSets().get("test"), ExternalSystemSourceType.TEST_RESOURCE, result);
+    Map<String, ExternalSourceSet> externalSourceSets = externalProjectDataCache.findExternalProject(externalRootProject, rootModel.getModule());
+    if (externalSourceSets.isEmpty()) {
+      return false;
     }
-    if (includeProduction) {
-      addOutputModuleRoots(externalProject.getSourceSets().get("main"), ExternalSystemSourceType.RESOURCE, result);
+
+    boolean isDelegatedBuildEnabled = GradleProjectSettings.isDelegatedBuildEnabled(rootModel.getModule());
+    for (ExternalSourceSet sourceSet : externalSourceSets.values()) {
+      if (includeTests) {
+        if (isDelegatedBuildEnabled) {
+          addOutputModuleRoots(sourceSet.getSources().get(ExternalSystemSourceType.TEST), result, true);
+        }
+        addOutputModuleRoots(sourceSet.getSources().get(ExternalSystemSourceType.TEST_RESOURCE), result, isDelegatedBuildEnabled);
+      }
+      if (includeProduction) {
+        if (isDelegatedBuildEnabled) {
+          addOutputModuleRoots(sourceSet.getSources().get(ExternalSystemSourceType.SOURCE), result, true);
+        }
+        addOutputModuleRoots(sourceSet.getSources().get(ExternalSystemSourceType.RESOURCE), result, isDelegatedBuildEnabled);
+      }
     }
 
     return true;
   }
 
-  private static void addOutputModuleRoots(@Nullable ExternalSourceSet externalSourceSet,
-                                           @NotNull ExternalSystemSourceType sourceType,
-                                           @NotNull Collection<String> result) {
-    if (externalSourceSet == null) return;
-    final ExternalSourceDirectorySet directorySet = externalSourceSet.getSources().get(sourceType);
+  private static void addOutputModuleRoots(@Nullable ExternalSourceDirectorySet directorySet,
+                                           @NotNull Collection<? super String> result, boolean isGradleAwareMake) {
     if (directorySet == null) return;
-
-    if (directorySet.isCompilerOutputPathInherited()) return;
-    final String path = directorySet.getOutputDir().getAbsolutePath();
-    VirtualFile virtualFile = VirtualFileManager.getInstance().findFileByUrl(path);
-    if (virtualFile == null) {
-      if(!directorySet.getOutputDir().exists()){
-        FileUtil.createDirectory(directorySet.getOutputDir());
-      }
-      ApplicationEx app = (ApplicationEx)ApplicationManager.getApplication();
-      if (app.isDispatchThread() || !app.holdsReadLock()) {
-        LocalFileSystem.getInstance().refreshAndFindFileByIoFile(directorySet.getOutputDir());
+    if (isGradleAwareMake) {
+      for (File outputDir : directorySet.getGradleOutputDirs()) {
+        result.add(VfsUtilCore.pathToUrl(outputDir.getPath()));
       }
     }
-    result.add(VfsUtilCore.pathToUrl(path));
+    else if (!directorySet.isCompilerOutputPathInherited()) {
+      result.add(VfsUtilCore.pathToUrl(directorySet.getOutputDir().getPath()));
+    }
   }
 }

@@ -1,81 +1,94 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.merge;
 
 import com.intellij.notification.Notification;
-import com.intellij.notification.NotificationListener;
+import com.intellij.notification.NotificationAction;
+import com.intellij.notification.NotificationType;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.Task;
+import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.text.HtmlBuilder;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.AbstractVcsHelper;
+import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vcs.merge.MergeDialogCustomizer;
 import com.intellij.openapi.vcs.merge.MergeProvider;
-import com.intellij.openapi.vcs.update.RefreshVFsSynchronously;
+import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.Function;
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.ui.UIUtil;
-import git4idea.GitPlatformFacade;
+import git4idea.GitDisposable;
 import git4idea.GitUtil;
-import git4idea.GitVcs;
+import git4idea.changes.GitChangeUtils;
 import git4idea.commands.Git;
-import git4idea.commands.GitCommandResult;
+import git4idea.i18n.GitBundle;
 import git4idea.repo.GitRepository;
 import git4idea.repo.GitRepositoryManager;
-import git4idea.util.StringScanner;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
-import javax.swing.event.HyperlinkEvent;
-import java.io.File;
 import java.util.*;
 
+import static com.intellij.openapi.util.NlsContexts.NotificationContent;
+import static com.intellij.openapi.util.NlsContexts.NotificationTitle;
+import static com.intellij.openapi.vcs.VcsNotifier.IMPORTANT_ERROR_NOTIFICATION;
+import static git4idea.GitNotificationIdsHolder.CANNOT_RESOLVE_CONFLICT;
+import static git4idea.GitNotificationIdsHolder.CONFLICT_RESOLVING_ERROR;
+
 /**
- *
  * The class is highly customizable, since the procedure of resolving conflicts is very common in Git operations.
- * @author Kirill Likhodedov
  */
 public class GitConflictResolver {
 
   private static final Logger LOG = Logger.getInstance(GitConflictResolver.class);
 
-  @NotNull protected final Project myProject;
-  @NotNull private final Git myGit;
-  @NotNull private final GitPlatformFacade myPlatformFacade;
-  private final Collection<VirtualFile> myRoots;
-  private final Params myParams;
+  @NotNull private final Collection<? extends VirtualFile> myRoots;
+  @NotNull private final Params myParams;
 
+  @NotNull protected final Project myProject;
   @NotNull private final GitRepositoryManager myRepositoryManager;
-  private final AbstractVcsHelper myVcsHelper;
+  @NotNull private final AbstractVcsHelper myVcsHelper;
 
   /**
    * Customizing parameters - mostly String notification texts, etc.
    */
   public static class Params {
     private boolean reverse;
-    private String myErrorNotificationTitle = "";
-    private String myErrorNotificationAdditionalDescription = "";
+    private @NotificationTitle String myErrorNotificationTitle = "";
+    private @NotificationContent String myErrorNotificationAdditionalDescription = "";
     private String myMergeDescription = "";
-    private MergeDialogCustomizer myMergeDialogCustomizer = new MergeDialogCustomizer() {
-      @Override public String getMultipleFileMergeDescription(Collection<VirtualFile> files) {
-        return myMergeDescription;
-      }
-    };
+    private MergeDialogCustomizer myMergeDialogCustomizer;
+
+    public Params() {
+      myMergeDialogCustomizer = new MergeDialogCustomizer() {
+        @NotNull
+        @Override
+        public String getMultipleFileMergeDescription(@NotNull Collection<VirtualFile> files) {
+          return myMergeDescription;
+        }
+      };
+    }
+
+    public Params(Project project) {
+      myMergeDialogCustomizer = new GitDefaultMergeDialogCustomizer(project) {
+        @NotNull
+        @Override public String getMultipleFileMergeDescription(@NotNull Collection<VirtualFile> files) {
+          if (!StringUtil.isEmpty(myMergeDescription)) {
+            return myMergeDescription;
+          }
+          return super.getMultipleFileMergeDescription(files);
+        }
+      };
+    }
 
     /**
      * @param reverseMerge specify {@code true} if reverse merge provider has to be used for merging - it is the case of rebase or stash.
@@ -85,17 +98,17 @@ public class GitConflictResolver {
       return this;
     }
 
-    public Params setErrorNotificationTitle(String errorNotificationTitle) {
+    public Params setErrorNotificationTitle(@NotificationTitle String errorNotificationTitle) {
       myErrorNotificationTitle = errorNotificationTitle;
       return this;
     }
 
-    public Params setErrorNotificationAdditionalDescription(String errorNotificationAdditionalDescription) {
+    public Params setErrorNotificationAdditionalDescription(@NotificationContent String errorNotificationAdditionalDescription) {
       myErrorNotificationAdditionalDescription = errorNotificationAdditionalDescription;
       return this;
     }
 
-    public Params setMergeDescription(String mergeDescription) {
+    public Params setMergeDescription(@Nls String mergeDescription) {
       myMergeDescription = mergeDescription;
       return this;
     }
@@ -104,18 +117,23 @@ public class GitConflictResolver {
       myMergeDialogCustomizer = mergeDialogCustomizer;
       return this;
     }
-    
   }
 
-  public GitConflictResolver(@NotNull Project project, @NotNull Git git, @NotNull GitPlatformFacade platformFacade,
-                             @NotNull Collection<VirtualFile> roots, @NotNull Params params) {
+  /**
+   * @deprecated use {@link #GitConflictResolver(Project, Collection, Params)} instead
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.2")
+  public GitConflictResolver(@NotNull Project project, @NotNull Git git, @NotNull Collection<? extends VirtualFile> roots, @NotNull Params params) {
+    this(project, roots, params);
+  }
+
+  public GitConflictResolver(@NotNull Project project, @NotNull Collection<? extends VirtualFile> roots, @NotNull Params params) {
     myProject = project;
-    myGit = git;
-    myPlatformFacade = platformFacade;
     myRoots = roots;
     myParams = params;
-    myRepositoryManager = myPlatformFacade.getRepositoryManager(myProject);
-    myVcsHelper = myPlatformFacade.getVcsHelper(project);
+    myRepositoryManager = GitUtil.getRepositoryManager(myProject);
+    myVcsHelper = AbstractVcsHelper.getInstance(project);
   }
 
   /**
@@ -153,16 +171,27 @@ public class GitConflictResolver {
    * In the basic implementation no action is performed, {@code true} is returned.
    * @return Return value is returned from {@link #merge()}
    */
+  @RequiresBackgroundThread
   protected boolean proceedAfterAllMerged() throws VcsException {
     return true;
   }
 
   /**
    * Invoke the merge dialog, but execute nothing after merge is completed.
-   * @return true if all changes were merged, false if unresolved merges remain.
    */
-  public final boolean mergeNoProceed() {
-    return merge(true);
+  @RequiresBackgroundThread
+  public final void mergeNoProceed() {
+    merge(true);
+  }
+
+  @RequiresEdt
+  public final void mergeNoProceedInBackground() {
+    new Task.Backgroundable(myProject, GitBundle.message("apply.changes.resolving.conflicts.progress.title")) {
+      @Override
+      public void run(@NotNull ProgressIndicator indicator) {
+        mergeNoProceed();
+      }
+    }.queue();
   }
 
   /**
@@ -170,7 +199,8 @@ public class GitConflictResolver {
    */
   protected void notifyUnresolvedRemain() {
     notifyWarning(myParams.myErrorNotificationTitle,
-                  "You have to <a href='resolve'>resolve</a> all conflicts first." + myParams.myErrorNotificationAdditionalDescription);
+                  GitBundle.message("merge.unresolved.conflicts.remaining.notification.body") +
+                  myParams.myErrorNotificationAdditionalDescription);
   }
 
   /**
@@ -178,13 +208,18 @@ public class GitConflictResolver {
    * notification.
    */
   private void notifyUnresolvedRemainAfterNotification() {
-    notifyWarning("Not all conflicts resolved",
-                  "You should <a href='resolve'>resolve</a> all conflicts before update. <br>" +
+    notifyWarning(GitBundle.message("merge.unresolved.conflicts.remaining.notification.title"),
                   myParams.myErrorNotificationAdditionalDescription);
   }
 
-  private void notifyWarning(String title, String content) {
-    VcsNotifier.getInstance(myProject).notifyImportantWarning(title, content, new ResolveNotificationListener());
+  protected void notifyWarning(@NotificationTitle @NotNull String title, @NotificationContent @NotNull String content) {
+    Notification notification = IMPORTANT_ERROR_NOTIFICATION.createNotification(title, content, NotificationType.WARNING, null,
+                                                                                CANNOT_RESOLVE_CONFLICT);
+    notification.addAction(NotificationAction.createSimple(GitBundle.messagePointer("action.NotificationAction.text.resolve"), () -> {
+      notification.expire();
+      BackgroundTaskUtil.executeOnPooledThread(GitDisposable.getInstance(myProject), () -> mergeNoProceed());
+    }));
+    VcsNotifier.getInstance(myProject).notify(notification);
   }
 
   private boolean merge(boolean mergeDialogInvokedFromNotification) {
@@ -192,7 +227,7 @@ public class GitConflictResolver {
       final Collection<VirtualFile> initiallyUnmergedFiles = getUnmergedFiles(myRoots);
       if (initiallyUnmergedFiles.isEmpty()) {
         LOG.info("merge: no unmerged files");
-        return mergeDialogInvokedFromNotification ? true : proceedIfNothingToMerge();
+        return mergeDialogInvokedFromNotification || proceedIfNothingToMerge();
       }
       else {
         showMergeDialog(initiallyUnmergedFiles);
@@ -200,7 +235,7 @@ public class GitConflictResolver {
         final Collection<VirtualFile> unmergedFilesAfterResolve = getUnmergedFiles(myRoots);
         if (unmergedFilesAfterResolve.isEmpty()) {
           LOG.info("merge no more unmerged files");
-          return mergeDialogInvokedFromNotification ? true : proceedAfterAllMerged();
+          return mergeDialogInvokedFromNotification || proceedAfterAllMerged();
         } else {
           LOG.info("mergeFiles unmerged files remain: " + unmergedFilesAfterResolve);
           if (mergeDialogInvokedFromNotification) {
@@ -211,59 +246,39 @@ public class GitConflictResolver {
         }
       }
     } catch (VcsException e) {
-      if (((GitVcs)myPlatformFacade.getVcs(myProject)).getExecutableValidator().checkExecutableAndNotifyIfNeeded()) {
-        notifyException(e);
-      }
+      notifyException(e);
     }
     return false;
 
   }
 
-  private void showMergeDialog(final Collection<VirtualFile> initiallyUnmergedFiles) {
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override public void run() {
-        final MergeProvider mergeProvider = myParams.reverse ?
-                                            new GitMergeProvider(myProject, true) : new GitMergeProvider(myProject, false);
-        myVcsHelper.showMergeDialog(new ArrayList<VirtualFile>(initiallyUnmergedFiles), mergeProvider, myParams.myMergeDialogCustomizer);
-      }
+  private void showMergeDialog(@NotNull Collection<? extends VirtualFile> initiallyUnmergedFiles) {
+    TransactionGuard.getInstance().assertWriteSafeContext(ModalityState.defaultModalityState());
+    ApplicationManager.getApplication().invokeAndWait(() -> {
+      MergeProvider mergeProvider = new GitMergeProvider(myProject, myParams.reverse);
+      myVcsHelper.showMergeDialog(new ArrayList<>(initiallyUnmergedFiles), mergeProvider, myParams.myMergeDialogCustomizer);
     });
   }
 
-  private void notifyException(VcsException e) {
+  private void notifyException(@NotNull VcsException e) {
     LOG.info("mergeFiles ", e);
-    final String description = "Couldn't check the working tree for unmerged files because of an error.";
-    VcsNotifier.getInstance(myProject).notifyError(myParams.myErrorNotificationTitle,
-                                                   description + myParams.myErrorNotificationAdditionalDescription + "<br/>" +
-                                                   e.getLocalizedMessage(),
-                                                   new ResolveNotificationListener()
+    final String description = GitBundle.message(
+      "conflict.resolver.unmerged.files.check.error.notification.description.text",
+      myParams.myErrorNotificationAdditionalDescription
     );
-  }
-
-
-  @NotNull
-  protected NotificationListener getResolveLinkListener() {
-    return new ResolveNotificationListener();
-  }
-
-  private class ResolveNotificationListener implements NotificationListener {
-    @Override public void hyperlinkUpdate(@NotNull final Notification notification, @NotNull HyperlinkEvent event) {
-      if (event.getEventType() == HyperlinkEvent.EventType.ACTIVATED && event.getDescription().equals("resolve")) {
-        notification.expire();
-        ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
-          @Override public void run() {
-            mergeNoProceed();
-          }
-        });
-      }
-    }
+    VcsNotifier.getInstance(myProject).notifyError(
+      CONFLICT_RESOLVING_ERROR, myParams.myErrorNotificationTitle,
+      new HtmlBuilder().appendRaw(description).br().appendRaw(e.getLocalizedMessage()).toString()
+    );
   }
 
   /**
    * @return unmerged files in the given Git roots, all in a single collection.
-   * @see #getUnmergedFiles(com.intellij.openapi.vfs.VirtualFile)
+   * @see #getUnmergedFiles(VirtualFile)
    */
-  private Collection<VirtualFile> getUnmergedFiles(@NotNull Collection<VirtualFile> roots) throws VcsException {
-    final Collection<VirtualFile> unmergedFiles = new HashSet<VirtualFile>();
+  @NotNull
+  private Collection<VirtualFile> getUnmergedFiles(@NotNull Collection<? extends VirtualFile> roots) throws VcsException {
+    final Collection<VirtualFile> unmergedFiles = new HashSet<>();
     for (VirtualFile root : roots) {
       unmergedFiles.addAll(getUnmergedFiles(root));
     }
@@ -272,56 +287,17 @@ public class GitConflictResolver {
 
   /**
    * @return unmerged files in the given Git root.
-   * @see #getUnmergedFiles(java.util.Collection
+   * @see #getUnmergedFiles(Collection)
    */
+  @NotNull
   private Collection<VirtualFile> getUnmergedFiles(@NotNull VirtualFile root) throws VcsException {
-    return unmergedFiles(root);
-  }
-
-  /**
-   * Parse changes from lines
-   *
-   *
-   * @param root    the git root
-   * @return a set of unmerged files
-   * @throws com.intellij.openapi.vcs.VcsException if the input format does not matches expected format
-   */
-  private List<VirtualFile> unmergedFiles(final VirtualFile root) throws VcsException {
     GitRepository repository = myRepositoryManager.getRepositoryForRoot(root);
     if (repository == null) {
       LOG.error("Repository not found for root " + root);
       return Collections.emptyList();
     }
 
-    GitCommandResult result = myGit.getUnmergedFiles(repository);
-    if (!result.success()) {
-      throw new VcsException(result.getErrorOutputAsJoinedString());
-    }
-
-    String output = StringUtil.join(result.getOutput(), "\n");
-    HashSet<String> unmergedPaths = ContainerUtil.newHashSet();
-    for (StringScanner s = new StringScanner(output); s.hasMoreData();) {
-      if (s.isEol()) {
-        s.nextLine();
-        continue;
-      }
-      s.boundedToken('\t');
-      String relative = s.line();
-      unmergedPaths.add(GitUtil.unescapePath(relative));
-    }
-
-    if (unmergedPaths.size() == 0) {
-      return Collections.emptyList();
-    }
-    else {
-      List<File> files = ContainerUtil.map(unmergedPaths, new Function<String, File>() {
-        @Override
-        public File fun(String path) {
-          return new File(root.getPath(), path);
-        }
-      });
-      return ContainerUtil.sorted(RefreshVFsSynchronously.refreshFiles(files), GitUtil.VIRTUAL_FILE_COMPARATOR);
-    }
+    List<FilePath> files = GitChangeUtils.getUnmergedFiles(repository);
+    return ContainerUtil.mapNotNull(files, it -> LocalFileSystem.getInstance().refreshAndFindFileByPath(it.getPath()));
   }
-
 }

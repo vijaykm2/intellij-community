@@ -5,8 +5,8 @@ public class UnqualifiedFieldAccess {
         private String field;
 
         public void x () {
-                field = "foofoo";
-                final String s = String.valueOf(field.hashCode());
+                <warning descr="Instance field access 'field' is not qualified with 'this'">field</warning> = "foofoo";
+                final String s = String.valueOf(<warning descr="Instance field access 'field' is not qualified with 'this'">field</warning>.hashCode());
                 System.out.println(s);
         }
 
@@ -16,11 +16,21 @@ public class UnqualifiedFieldAccess {
       void foo() {
         new Object() {
           void foo() {
-            i  = 0;
+            <warning descr="Instance field access 'i' is not qualified with 'this'">i</warning>  = 0;
           }
         };
       }
     };
+    class A {
+      int i;
+      void a() {
+        new Object() {
+          void b() {
+            System.out.println(<warning descr="Instance field access 'i' is not qualified with 'this'">i</warning>);
+          }
+        };
+      }
+    }
   }
 
   void simpleAnonymous() {
@@ -28,7 +38,7 @@ public class UnqualifiedFieldAccess {
       String s;
 
       void foo() {
-        System.out.println(s);
+        System.out.println(<warning descr="Instance field access 's' is not qualified with 'this'">s</warning>);
       }
     };
   }

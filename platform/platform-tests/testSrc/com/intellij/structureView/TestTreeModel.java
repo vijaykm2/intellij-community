@@ -33,8 +33,8 @@ import java.util.List;
 
 public class TestTreeModel implements StructureViewModel{
   private final StringTreeElement myRoot;
-  private final List<Filter> myFilters = new ArrayList<Filter>();
-  private final List<Sorter> mySorters = new ArrayList<Sorter>();
+  private final List<Filter> myFilters = new ArrayList<>();
+  private final List<Sorter> mySorters = new ArrayList<>();
 
   public TestTreeModel(StringTreeElement root) {
     myRoot = root;
@@ -48,22 +48,19 @@ public class TestTreeModel implements StructureViewModel{
   }
 
   @Override
-  @NotNull
-  public Filter[] getFilters() {
-    return myFilters.toArray(new Filter[myFilters.size()]);
+  public Filter @NotNull [] getFilters() {
+    return myFilters.toArray(Filter.EMPTY_ARRAY);
   }
 
   @Override
-  @NotNull
-  public Grouper[] getGroupers() {
+  public Grouper @NotNull [] getGroupers() {
     return new Grouper[]{new TestGrouper(new String[]{"a", "b", "c"}),
                          new TestGrouper(new String[]{"d", "e", "f"})};
   }
 
   @Override
-  @NotNull
-  public Sorter[] getSorters() {
-    return mySorters.toArray(new Sorter[mySorters.size()]);
+  public Sorter @NotNull [] getSorters() {
+    return mySorters.toArray(Sorter.EMPTY_ARRAY);
   }
 
   public void addFlter(Filter filter) {
@@ -75,17 +72,16 @@ public class TestTreeModel implements StructureViewModel{
   }
 
   public static class StringTreeElement implements StructureViewTreeElement {
-    private final Collection<StructureViewTreeElement> myChildren = new ArrayList<StructureViewTreeElement>();
+    private final Collection<StructureViewTreeElement> myChildren = new ArrayList<>();
     private final String myValue;
 
     public StringTreeElement(@NonNls String value) {
       myValue = value;
     }
 
-    @NotNull
     @Override
-    public StructureViewTreeElement[] getChildren() {
-      return myChildren.toArray(new StructureViewTreeElement[myChildren.size()]);
+    public StructureViewTreeElement @NotNull [] getChildren() {
+      return myChildren.toArray(StructureViewTreeElement.EMPTY_ARRAY);
 
     }
 

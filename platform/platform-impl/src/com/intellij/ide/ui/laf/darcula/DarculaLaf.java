@@ -1,69 +1,79 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.ui.laf.darcula;
 
+import com.intellij.ide.IdeEventQueue;
+import com.intellij.ide.ui.UITheme;
 import com.intellij.ide.ui.laf.DarculaMetalTheme;
 import com.intellij.ide.ui.laf.IdeaLaf;
 import com.intellij.ide.ui.laf.LafManagerImpl;
-import com.intellij.openapi.util.IconLoader;
-import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.Application;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.ui.ColorUtil;
-import com.intellij.util.containers.hash.HashMap;
+import com.intellij.ui.TableActions;
+import com.intellij.ui.scale.JBUIScale;
+import com.intellij.ui.scale.ScaleContext;
+import com.intellij.util.Alarm;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.MultiResolutionImageProvider;
+import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import sun.awt.AppContext;
 
 import javax.swing.*;
-import javax.swing.plaf.*;
+import javax.swing.plaf.FontUIResource;
 import javax.swing.plaf.basic.BasicLookAndFeel;
 import javax.swing.plaf.metal.DefaultMetalTheme;
 import javax.swing.plaf.metal.MetalLookAndFeel;
 import javax.swing.text.html.HTMLEditorKit;
 import javax.swing.text.html.StyleSheet;
 import java.awt.*;
+import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.util.*;
-import java.util.List;
 
 /**
  * @author Konstantin Bulenkov
  */
-public class DarculaLaf extends BasicLookAndFeel {
-  public static final String NAME = "Darcula";
-  BasicLookAndFeel base;
+public class DarculaLaf extends BasicLookAndFeel implements UserDataHolder {
+  private static final Logger LOG = Logger.getInstance(DarculaLaf.class);
 
-  public DarculaLaf() {
+  private static final Object SYSTEM = new Object();
+  public static final @NlsSafe String NAME = "Darcula";
+  private static final @NlsSafe String DESCRIPTION = "IntelliJ Dark Look and Feel";
+  private BasicLookAndFeel base;
+
+  protected Disposable myDisposable;
+  private Alarm myMnemonicAlarm;
+  private final UserDataHolderBase myUserData = new UserDataHolderBase();
+  private static boolean myAltPressed;
+
+  protected BasicLookAndFeel createBaseLookAndFeel() {
     try {
-      if (SystemInfo.isWindows || SystemInfo.isLinux) {
-        base = new IdeaLaf();
-      } else {
+      if (SystemInfo.isMac) {
         final String name = UIManager.getSystemLookAndFeelClassName();
-        base = (BasicLookAndFeel)Class.forName(name).newInstance();
+        Constructor<?> constructor = Class.forName(name).getDeclaredConstructor();
+        constructor.setAccessible(true);
+        return (BasicLookAndFeel)constructor.newInstance();
+      }
+      else {
+        return new IdeaLaf();
       }
     }
     catch (Exception e) {
       log(e);
     }
+    return null;
   }
 
   private void callInit(String method, UIDefaults defaults) {
@@ -77,40 +87,50 @@ public class DarculaLaf extends BasicLookAndFeel {
     }
   }
 
-  @SuppressWarnings("UnusedParameters")
-  private static void log(Exception e) {
-//    everything is gonna be alright
-//    e.printStackTrace();
+  @Nullable
+  @Override
+  public <T> T getUserData(@NotNull Key<T> key) {
+    return myUserData.getUserData(key);
+  }
+
+  @Override
+  public <T> void putUserData(@NotNull Key<T> key, @Nullable T value) {
+    myUserData.putUserData(key, value);
+  }
+
+  protected static void log(Exception e) {
+    LOG.error(e.getMessage());
+  }
+
+  @NotNull
+  private static Font toFont(UIDefaults defaults, Object key) {
+    Object value = defaults.get(key);
+    if (value instanceof Font) {
+      return (Font)value;
+    }
+    else if (value instanceof UIDefaults.ActiveValue) {
+      value = ((UIDefaults.ActiveValue)value).createValue(defaults);
+      if (value instanceof Font) {
+        return (Font)value;
+      }
+    }
+    throw new UnsupportedOperationException("Unable to extract Font from \"" + key + "\"");
   }
 
   @Override
   public UIDefaults getDefaults() {
     try {
-      final Method superMethod = BasicLookAndFeel.class.getDeclaredMethod("getDefaults");
-      superMethod.setAccessible(true);
-      final UIDefaults metalDefaults = (UIDefaults)superMethod.invoke(new MetalLookAndFeel());
+      UIDefaults metalDefaults = new MetalLookAndFeel().getDefaults();
+      UIDefaults defaults = base.getDefaults();
 
-      final UIDefaults defaults = (UIDefaults)superMethod.invoke(base);
-      if (SystemInfo.isLinux) {
-        if (!Registry.is("darcula.use.native.fonts.on.linux")) {
-          Font font = findFont("DejaVu Sans");
-          if (font != null) {
-            for (Object key : defaults.keySet()) {
-              if (key instanceof String && ((String)key).endsWith(".font")) {
-                defaults.put(key, new FontUIResource(font.deriveFont(13f)));
-              }
-            }
-          }
-        } else if (Arrays.asList("CN", "JP", "KR", "TW").contains(Locale.getDefault().getCountry())) {
-          for (Object key : defaults.keySet()) {
-            if (key instanceof String && ((String)key).endsWith(".font")) {
-              final Font font = defaults.getFont(key);
-              if (font != null) {
-                defaults.put(key, new FontUIResource("Dialog", font.getStyle(), font.getSize()));
-              }
-            }
-          }
-        }
+      if (SystemInfo.isLinux && Arrays.asList("CN", "JP", "KR", "TW").contains(Locale.getDefault().getCountry())) {
+        defaults.keySet().stream().
+          filter(key -> StringUtil.endsWith(key.toString(), ".font")).
+          forEach(key -> {
+            Font font = toFont(defaults, key);
+            Font uiFont = new FontUIResource("Dialog", font.getStyle(), font.getSize());
+            defaults.put(key, uiFont);
+          });
       }
 
       LafManagerImpl.initInputMapDefaults(defaults);
@@ -120,14 +140,20 @@ public class DarculaLaf extends BasicLookAndFeel {
       defaults.remove("Spinner.arrowButtonBorder");
       defaults.put("Spinner.arrowButtonSize", JBUI.size(16, 5).asUIResource());
       MetalLookAndFeel.setCurrentTheme(createMetalTheme());
-      if (SystemInfo.isWindows && Registry.is("ide.win.frame.decoration")) {
-        JFrame.setDefaultLookAndFeelDecorated(true);
-        JDialog.setDefaultLookAndFeelDecorated(true);
-      }
-      if (SystemInfo.isLinux && JBUI.isHiDPI()) {
+      if (SystemInfo.isLinux && JBUIScale.isUsrHiDPI()) {
         applySystemFonts(defaults);
       }
-      defaults.put("EditorPane.font", defaults.getFont("TextField.font"));
+      if (SystemInfo.isMac) {
+        defaults.put("RootPane.defaultButtonWindowKeyBindings", new Object[]{
+          "ENTER", "press",
+          "released ENTER", "release",
+          "ctrl ENTER","press",
+          "ctrl released ENTER","release",
+          "meta ENTER", "press",
+          "meta released ENTER", "release"
+        });
+      }
+      defaults.put("EditorPane.font", toFont(defaults, "TextField.font"));
       return defaults;
     }
     catch (Exception e) {
@@ -138,32 +164,26 @@ public class DarculaLaf extends BasicLookAndFeel {
 
   private static void applySystemFonts(UIDefaults defaults) {
     try {
-      String fqn = UIManager.getSystemLookAndFeelClassName();
-      Object systemLookAndFeel = Class.forName(fqn).newInstance();
+      String fqn = StartupUiUtil.getSystemLookAndFeelClassName();
+      Constructor<?> constructor = Class.forName(fqn).getDeclaredConstructor();
+      constructor.setAccessible(true);
+      Object systemLookAndFeel = constructor.newInstance();
       final Method superMethod = BasicLookAndFeel.class.getDeclaredMethod("getDefaults");
       superMethod.setAccessible(true);
-      final UIDefaults systemDefaults = (UIDefaults)superMethod.invoke(systemLookAndFeel);
+      Map<Object, Object> systemDefaults = (UIDefaults)superMethod.invoke(systemLookAndFeel);
       for (Map.Entry<Object, Object> entry : systemDefaults.entrySet()) {
         if (entry.getValue() instanceof Font) {
           defaults.put(entry.getKey(), entry.getValue());
         }
       }
-    } catch (Exception e) {
+    }
+    catch (Exception e) {
       log(e);
     }
   }
 
   protected DefaultMetalTheme createMetalTheme() {
     return new DarculaMetalTheme();
-  }
-
-  private static Font findFont(String name) {
-    for (Font font : GraphicsEnvironment.getLocalGraphicsEnvironment().getAllFonts()) {
-      if (font.getName().equals(name)) {
-        return font;
-      }
-    }
-    return null;
   }
 
   private static void patchComboBox(UIDefaults metalDefaults, UIDefaults defaults) {
@@ -173,9 +193,8 @@ public class DarculaLaf extends BasicLookAndFeel {
     defaults.put("ComboBox.actionMap", metalDefaults.get("ComboBox.actionMap"));
   }
 
-  @SuppressWarnings("IOResourceOpenedButNotSafelyClosed")
   private void patchStyledEditorKit(UIDefaults defaults) {
-    URL url = getClass().getResource(getPrefix() + (JBUI.isHiDPI() ? "@2x.css" : ".css"));
+    URL url = getClass().getResource(getPrefix() + (JBUIScale.isUsrHiDPI() ? "@2x.css" : ".css"));
     StyleSheet styleSheet = UIUtil.loadStyleSheet(url);
     defaults.put("StyledEditorKit.JBDefaultStyle", styleSheet);
     try {
@@ -188,70 +207,69 @@ public class DarculaLaf extends BasicLookAndFeel {
     }
   }
 
+  @NotNull
   protected String getPrefix() {
     return "darcula";
   }
 
-  private void call(String method) {
-    try {
-      final Method superMethod = BasicLookAndFeel.class.getDeclaredMethod(method);
-      superMethod.setAccessible(true);
-      superMethod.invoke(base);
-    }
-    catch (Exception ignore) {
-      log(ignore);
-    }
+  @Nullable
+  protected String getSystemPrefix() {
+    String osSuffix = SystemInfo.isMac ? "mac" : SystemInfo.isWindows ? "windows" : "linux";
+    return getPrefix() + "_" + osSuffix;
   }
 
+  @Override
   public void initComponentDefaults(UIDefaults defaults) {
     callInit("initComponentDefaults", defaults);
   }
 
-  @SuppressWarnings({"HardCodedStringLiteral"})
   protected void initIdeaDefaults(UIDefaults defaults) {
     loadDefaults(defaults);
-    defaults.put("Table.ancestorInputMap", new UIDefaults.LazyInputMap(new Object[] {
+    defaults.put("Table.ancestorInputMap", new UIDefaults.LazyInputMap(new Object[]{
       "ctrl C", "copy",
+      "meta C", "copy",
       "ctrl V", "paste",
+      "meta V", "paste",
       "ctrl X", "cut",
+      "meta X", "cut",
       "COPY", "copy",
       "PASTE", "paste",
       "CUT", "cut",
       "control INSERT", "copy",
       "shift INSERT", "paste",
       "shift DELETE", "cut",
-      "RIGHT", "selectNextColumn",
-      "KP_RIGHT", "selectNextColumn",
-      "LEFT", "selectPreviousColumn",
-      "KP_LEFT", "selectPreviousColumn",
-      "DOWN", "selectNextRow",
-      "KP_DOWN", "selectNextRow",
-      "UP", "selectPreviousRow",
-      "KP_UP", "selectPreviousRow",
-      "shift RIGHT", "selectNextColumnExtendSelection",
-      "shift KP_RIGHT", "selectNextColumnExtendSelection",
-      "shift LEFT", "selectPreviousColumnExtendSelection",
-      "shift KP_LEFT", "selectPreviousColumnExtendSelection",
-      "shift DOWN", "selectNextRowExtendSelection",
-      "shift KP_DOWN", "selectNextRowExtendSelection",
-      "shift UP", "selectPreviousRowExtendSelection",
-      "shift KP_UP", "selectPreviousRowExtendSelection",
-      "PAGE_UP", "scrollUpChangeSelection",
-      "PAGE_DOWN", "scrollDownChangeSelection",
+      "RIGHT", TableActions.Right.ID,
+      "KP_RIGHT", TableActions.Right.ID,
+      "LEFT", TableActions.Left.ID,
+      "KP_LEFT", TableActions.Left.ID,
+      "DOWN", TableActions.Down.ID,
+      "KP_DOWN", TableActions.Down.ID,
+      "UP", TableActions.Up.ID,
+      "KP_UP", TableActions.Up.ID,
+      "shift RIGHT", TableActions.ShiftRight.ID,
+      "shift KP_RIGHT", TableActions.ShiftRight.ID,
+      "shift LEFT", TableActions.ShiftLeft.ID,
+      "shift KP_LEFT", TableActions.ShiftLeft.ID,
+      "shift DOWN", TableActions.ShiftDown.ID,
+      "shift KP_DOWN", TableActions.ShiftDown.ID,
+      "shift UP", TableActions.ShiftUp.ID,
+      "shift KP_UP", TableActions.ShiftUp.ID,
+      "PAGE_UP", TableActions.PageUp.ID,
+      "PAGE_DOWN", TableActions.PageDown.ID,
       "HOME", "selectFirstColumn",
       "END", "selectLastColumn",
-      "shift PAGE_UP", "scrollUpExtendSelection",
-      "shift PAGE_DOWN", "scrollDownExtendSelection",
+      "shift PAGE_UP", TableActions.ShiftPageUp.ID,
+      "shift PAGE_DOWN", TableActions.ShiftPageDown.ID,
       "shift HOME", "selectFirstColumnExtendSelection",
       "shift END", "selectLastColumnExtendSelection",
       "ctrl PAGE_UP", "scrollLeftChangeSelection",
       "ctrl PAGE_DOWN", "scrollRightChangeSelection",
-      "ctrl HOME", "selectFirstRow",
-      "ctrl END", "selectLastRow",
+      "ctrl HOME", TableActions.CtrlHome.ID,
+      "ctrl END", TableActions.CtrlEnd.ID,
       "ctrl shift PAGE_UP", "scrollRightExtendSelection",
       "ctrl shift PAGE_DOWN", "scrollLeftExtendSelection",
-      "ctrl shift HOME", "selectFirstRowExtendSelection",
-      "ctrl shift END", "selectLastRowExtendSelection",
+      "ctrl shift HOME", TableActions.CtrlShiftHome.ID,
+      "ctrl shift END", TableActions.CtrlShiftEnd.ID,
       "TAB", "selectNextColumnCell",
       "shift TAB", "selectPreviousColumnCell",
       //"ENTER", "selectNextRowCell",
@@ -263,24 +281,34 @@ public class DarculaLaf extends BasicLookAndFeel {
     }));
   }
 
-  @SuppressWarnings("IOResourceOpenedButNotSafelyClosed")
   protected void loadDefaults(UIDefaults defaults) {
-    final Properties properties = new Properties();
-    final String osSuffix = SystemInfo.isMac ? "mac" : SystemInfo.isWindows ? "windows" : "linux";
+    Properties properties = new Properties();
     try {
-      InputStream stream = getClass().getResourceAsStream(getPrefix() + ".properties");
-      properties.load(stream);
-      stream.close();
+      try (InputStream stream = getClass().getResourceAsStream(getPrefix() + ".properties")) {
+        properties.load(stream);
+      }
 
-      stream = getClass().getResourceAsStream(getPrefix() + "_" + osSuffix + ".properties");
-      properties.load(stream);
-      stream.close();
+      String systemPrefix = getSystemPrefix();
+      if (StringUtil.isNotEmpty(systemPrefix)) {
+        try (InputStream stream = getClass().getResourceAsStream(systemPrefix + ".properties")) {
+          properties.load(stream);
+        }
+      }
 
-      HashMap<String, Object> darculaGlobalSettings = new HashMap<String, Object>();
-      final String prefix = getPrefix() + ".";
+      Map<String, Object> darculaGlobalSettings = new HashMap<>();
+      String prefix = getPrefix();
+      prefix = prefix.substring(prefix.lastIndexOf("/") + 1) + ".";
+
       for (String key : properties.stringPropertyNames()) {
         if (key.startsWith(prefix)) {
-          darculaGlobalSettings.put(key.substring(prefix.length()), parseValue(key, properties.getProperty(key)));
+          Object value = parseValue(key, properties.getProperty(key));
+          String darculaKey = key.substring(prefix.length());
+          if (value == SYSTEM) {
+            darculaGlobalSettings.remove(darculaKey);
+          }
+          else {
+            darculaGlobalSettings.put(darculaKey, value);
+          }
         }
       }
 
@@ -289,91 +317,39 @@ public class DarculaLaf extends BasicLookAndFeel {
           final String s = (String)key;
           final String darculaKey = s.substring(s.lastIndexOf('.') + 1);
           if (darculaGlobalSettings.containsKey(darculaKey)) {
+            UIManager.getDefaults().remove(key); // MultiUIDefaults misses correct property merging
             defaults.put(key, darculaGlobalSettings.get(darculaKey));
           }
         }
       }
 
       for (String key : properties.stringPropertyNames()) {
-        final String value = properties.getProperty(key);
-        defaults.put(key, parseValue(key, value));
+        UIManager.getDefaults().remove(key); // MultiUIDefaults misses correct property merging
+        defaults.put(key, parseValue(key, properties.getProperty(key)));
       }
     }
-    catch (IOException e) {log(e);}
+    catch (IOException e) {
+      log(e);
+    }
   }
 
   protected Object parseValue(String key, @NotNull String value) {
-    if ("null".equals(value)) {
-      return null;
+    if ("system".equals(value)) {
+      return SYSTEM;
     }
 
-    if (key.endsWith("Insets")) {
-      return parseInsets(value);
-    } else if (key.endsWith("Border") || key.endsWith("border")) {
-
-      try {
-        if (StringUtil.split(value, ",").size() == 4) {
-          return new BorderUIResource.EmptyBorderUIResource(parseInsets(value));
-        } else {
-          return Class.forName(value).newInstance();
-        }
-      } catch (Exception e) {
-        log(e);
-      }
-    } else {
-      final Color color = parseColor(value);
-      final Integer invVal = getInteger(value);
-      final Boolean boolVal = "true".equals(value) ? Boolean.TRUE : "false".equals(value) ? Boolean.FALSE : null;
-      Icon icon = value.startsWith("AllIcons.") ? IconLoader.getIcon(value) : null;
-      if (icon == null && value.endsWith(".png")) {
-        icon = IconLoader.findIcon(value, DarculaLaf.class, true);
-      }
-      if (color != null) {
-        return  new ColorUIResource(color);
-      } else if (invVal != null) {
-        return invVal;
-      } else if (icon != null) {
-        return new IconUIResource(icon);
-      } else if (boolVal != null) {
-        return boolVal;
+    if (value.endsWith(".png") || value.endsWith(".svg")) {
+      Icon icon = IconLoader.findIcon(value, getClass(), true, false);
+      if (icon != null) {
+        return icon;
       }
     }
-    return value;
-  }
 
-  private static Insets parseInsets(String value) {
-    final List<String> numbers = StringUtil.split(value, ",");
-    return new InsetsUIResource(Integer.parseInt(numbers.get(0)),
-                                           Integer.parseInt(numbers.get(1)),
-                                           Integer.parseInt(numbers.get(2)),
-                                           Integer.parseInt(numbers.get(3)));
-  }
-
-  @SuppressWarnings("UseJBColor")
-  private static Color parseColor(String value) {
-    if (value != null && value.length() == 8) {
-      final Color color = ColorUtil.fromHex(value.substring(0, 6));
-      if (color != null) {
-        try {
-          int alpha = Integer.parseInt(value.substring(6, 8), 16);
-          return new ColorUIResource(new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha));
-        } catch (Exception ignore){}
-      }
-      return null;
-    }
-    return ColorUtil.fromHex(value, null);
-  }
-
-  private static Integer getInteger(String value) {
-    try {
-      return Integer.parseInt(value);
-    }
-    catch (NumberFormatException e) {
-      return null;
-    }
+    return UITheme.parseValue(key, value, getClass().getClassLoader());
   }
 
   @Override
+  @Nls(capitalization = Nls.Capitalization.Title)
   public String getName() {
     return NAME;
   }
@@ -385,7 +361,7 @@ public class DarculaLaf extends BasicLookAndFeel {
 
   @Override
   public String getDescription() {
-    return "IntelliJ Dark Look and Feel";
+    return DESCRIPTION;
   }
 
   @Override
@@ -410,27 +386,98 @@ public class DarculaLaf extends BasicLookAndFeel {
 
   @Override
   public void initialize() {
-    call("initialize");
+    myDisposable = Disposer.newDisposable();
+    base = createBaseLookAndFeel();
+
+    try {
+      base.initialize();
+    }
+    catch (Exception ignore) {
+    }
+    Application application = ApplicationManager.getApplication();
+    if (application != null) {
+      Disposer.register(application, myDisposable);
+    }
+    myMnemonicAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, myDisposable);
+    IdeEventQueue.getInstance().addDispatcher(e -> {
+      if (e instanceof KeyEvent && ((KeyEvent)e).getKeyCode() == KeyEvent.VK_ALT) {
+        processAltKey((KeyEvent)e);
+      }
+      return false;
+    }, myDisposable);
+  }
+
+  @SuppressWarnings("AssignmentToStaticFieldFromInstanceMethod")
+  private void processAltKey(KeyEvent e) {
+    myAltPressed = e.getID() == KeyEvent.KEY_PRESSED;
+    myMnemonicAlarm.cancelAllRequests();
+    final Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+    if (focusOwner != null) {
+      myMnemonicAlarm.addRequest(() -> repaintMnemonics(focusOwner, myAltPressed), 10);
+    }
+  }
+
+  public static boolean isAltPressed() {
+    return myAltPressed;
+  }
+
+  private static void repaintMnemonics(@NotNull Component focusOwner, boolean pressed) {
+    if (pressed != myAltPressed) return;
+    Window window = SwingUtilities.windowForComponent(focusOwner);
+    if (window != null) {
+      for (Component component : window.getComponents()) {
+        if (component instanceof JComponent) {
+          for (JComponent c : UIUtil.findComponentsOfType((JComponent)component, JComponent.class)) {
+            if ((c instanceof JLabel && ((JLabel)c).getDisplayedMnemonicIndex() != -1)
+                || (c instanceof AbstractButton && ((AbstractButton)c).getDisplayedMnemonicIndex() != -1)
+            ) {
+              c.repaint();
+            }
+          }
+        }
+      }
+    }
   }
 
   @Override
   public void uninitialize() {
-    call("uninitialize");
+    try {
+      base.initialize();
+    }
+    catch (Exception ignore) {
+    }
+    Disposer.dispose(myDisposable);
+    myDisposable = null;
   }
 
   @Override
   protected void loadSystemColors(UIDefaults defaults, String[] systemColors, boolean useNative) {
     try {
-      final Method superMethod = BasicLookAndFeel.class.getDeclaredMethod("loadSystemColors",
-                                                                   UIDefaults.class,
-                                                                   String[].class,
-                                                                   boolean.class);
+      Method superMethod = BasicLookAndFeel.class.getDeclaredMethod("loadSystemColors",
+                                                                    UIDefaults.class,
+                                                                    String[].class,
+                                                                    boolean.class);
       superMethod.setAccessible(true);
       superMethod.invoke(base, defaults, systemColors, useNative);
     }
-    catch (Exception ignore) {
-      log(ignore);
+    catch (Exception e) {
+      log(e);
     }
+  }
+
+  @Override
+  public Icon getDisabledIcon(JComponent component, Icon icon) {
+    if (icon == null) return null;
+
+    ScaleContext ctx = ScaleContext.create(component);
+    icon = MultiResolutionImageProvider.convertFromJBIcon(icon, ctx);
+    Icon disabledIcon = super.getDisabledIcon(component, icon);
+    disabledIcon = MultiResolutionImageProvider.convertFromMRIcon(disabledIcon, ctx);
+
+    if (disabledIcon != null) {
+      return disabledIcon;
+    }
+    return IconLoader.getDisabledIcon(icon, component);
   }
 
   @Override

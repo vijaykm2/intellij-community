@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.xdebugger.XDebuggerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -33,8 +34,6 @@ import java.util.Collections;
  * &lt;extensions defaultExtensionNs="com.intellij"&gt;<br>
  * &nbsp;&nbsp;&lt;xdebugger.settings implementation="qualified-class-name"/&gt;<br>
  * &lt;/extensions&gt;
- *
- * @author nik
  */
 public abstract class XDebuggerSettings<T> implements PersistentStateComponent<T> {
   public static final ExtensionPointName<XDebuggerSettings> EXTENSION_POINT = ExtensionPointName.create("com.intellij.xdebugger.settings");
@@ -53,11 +52,12 @@ public abstract class XDebuggerSettings<T> implements PersistentStateComponent<T
     return myId;
   }
 
-  @Nullable
-  @Deprecated
   /**
    * @deprecated Please use {@link #createConfigurables(DebuggerSettingsCategory)}
    */
+  @Nullable
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public Configurable createConfigurable() {
     return null;
   }

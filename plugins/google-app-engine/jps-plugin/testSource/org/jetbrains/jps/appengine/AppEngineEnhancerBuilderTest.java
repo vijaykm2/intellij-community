@@ -30,33 +30,30 @@ import org.jetbrains.jps.model.module.JpsModule;
 
 import java.io.File;
 
-/**
- * @author nik
- */
 public class AppEngineEnhancerBuilderTest extends JpsBuildTestCase {
   public void testChangeFile() {
     String file = createFile("src/A.java", "class A{}");
     addAppEngineModule("a", true, PathUtil.getParentPath(file));
-    makeAll();
+    buildAllModules();
     assertEnhanced("out/production/a/A.class");
 
-    makeAll();
+    buildAllModules();
     assertEnhanced();
 
     change(file);
-    makeAll();
+    buildAllModules();
     assertEnhanced("out/production/a/A.class");
   }
 
   public void testDoNotRunEnhancerIfDisabled() {
     String file = createFile("src/A.java", "class A{}");
     addAppEngineModule("a", false, PathUtil.getParentPath(file));
-    makeAll();
+    buildAllModules();
     assertEnhanced();
   }
 
   private void assertEnhanced(final String... paths) {
-    assertCompiled(AppEngineEnhancerBuilder.NAME, paths);
+    assertCompiled(AppEngineEnhancerBuilder.NAME_SUPPLIER.get(), paths);
   }
 
   private void addAppEngineModule(final String moduleName, final boolean runEnhancerOnMake, String srcRoot) {

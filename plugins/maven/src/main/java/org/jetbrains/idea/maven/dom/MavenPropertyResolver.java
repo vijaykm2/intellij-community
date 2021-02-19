@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.dom;
 
 import com.intellij.openapi.module.Module;
@@ -20,7 +6,9 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.xml.XmlElement;
 import com.intellij.psi.xml.XmlTag;
 import org.jdom.Element;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.maven.dom.model.MavenDomParent;
 import org.jetbrains.idea.maven.dom.model.MavenDomProfile;
 import org.jetbrains.idea.maven.dom.model.MavenDomProjectModel;
 import org.jetbrains.idea.maven.dom.model.MavenDomProperties;
@@ -41,8 +29,8 @@ import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class MavenPropertyResolver {
-  public static final Pattern PATTERN = Pattern.compile("\\$\\{(.+?)\\}|@(.+?)@");
+public final class MavenPropertyResolver {
+  public static final Pattern PATTERN = Pattern.compile("\\$\\{(.+?)}|@(.+?)@");
 
   public static void doFilterText(Module module,
                                   String text,
@@ -63,7 +51,7 @@ public class MavenPropertyResolver {
     doFilterText(MavenFilteredPropertyPsiReferenceProvider.getDelimitersPattern(mavenProject),
                  manager,
                  mavenProject,
-                 text,
+                 null, text,
                  additionalProperties,
                  propertyEscapeString,
                  escapeWindowsPath,
@@ -73,7 +61,8 @@ public class MavenPropertyResolver {
 
   private static void doFilterText(Pattern pattern,
                                    MavenProjectsManager mavenProjectsManager,
-                                   MavenProject mavenProject,
+                                   @Nullable MavenProject mavenProject,
+                                   MavenDomProjectModel projectDom,
                                    String text,
                                    Properties additionalProperties,
                                    @Nullable String escapeString,
@@ -114,7 +103,7 @@ public class MavenPropertyResolver {
       assert propertyName != null;
 
       if (resolvedProperties == null) {
-        resolvedProperties = new HashMap<String, String>();
+        resolvedProperties = new HashMap<>();
       }
 
       String propertyValue = resolvedProperties.get(propertyName);
@@ -124,7 +113,15 @@ public class MavenPropertyResolver {
           continue;
         }
 
-        String resolved = doResolveProperty(propertyName, mavenProjectsManager, mavenProject, additionalProperties);
+
+        String resolved;
+        if (mavenProject != null) {
+          resolved = doResolvePropertyForMavenProject(propertyName, mavenProjectsManager, mavenProject, additionalProperties);
+        }
+        else {
+          resolved = doResolvePropertyForMavenDomModel(propertyName, mavenProjectsManager, projectDom, additionalProperties);
+        }
+
         if (resolved == null) {
           out.append(matcher.group());
           continue;
@@ -133,7 +130,8 @@ public class MavenPropertyResolver {
         resolvedProperties.put(propertyName, null);
 
         StringBuilder sb = new StringBuilder();
-        doFilterText(pattern, mavenProjectsManager, mavenProject, resolved, additionalProperties, null, escapeWindowsPath, resolvedProperties, sb);
+        doFilterText(pattern, mavenProjectsManager, mavenProject, projectDom, resolved, additionalProperties, null, escapeWindowsPath,
+                     resolvedProperties, sb);
         propertyValue = sb.toString();
 
         resolvedProperties.put(propertyName, propertyValue);
@@ -150,6 +148,12 @@ public class MavenPropertyResolver {
     out.append(text, last, text.length());
   }
 
+  /**
+   * Resolve properties from the string (either like {@code ${propertyName}} or like {@code @propertyName@}).
+   * @param text text string to resolve properties in
+   * @param projectDom a project dom
+   * @return string with the properties resolved
+   */
   public static String resolve(String text, MavenDomProjectModel projectDom) {
     XmlElement element = projectDom.getXmlElement();
     if (element == null) return text;
@@ -159,11 +163,11 @@ public class MavenPropertyResolver {
     MavenProjectsManager manager = MavenProjectsManager.getInstance(projectDom.getManager().getProject());
 
     MavenProject mavenProject = manager.findProject(file);
-    if (mavenProject == null) return text;
 
     StringBuilder res = new StringBuilder();
     try {
-      doFilterText(PATTERN, manager, mavenProject, text, collectPropertiesFromDOM(mavenProject, projectDom), null, false, null, res);
+      doFilterText(PATTERN, manager, mavenProject, projectDom, text, collectPropertiesFromDOM(mavenProject, projectDom), null, false, null,
+                   res);
     }
     catch (IOException e) {
       throw new RuntimeException(e); // never thrown
@@ -172,19 +176,25 @@ public class MavenPropertyResolver {
     return res.toString();
   }
 
-  private static Properties collectPropertiesFromDOM(MavenProject project, MavenDomProjectModel projectDom) {
+  public static Properties collectPropertiesFromDOM(@Nullable MavenProject project, MavenDomProjectModel projectDom) {
     Properties result = new Properties();
 
     collectPropertiesFromDOM(projectDom.getProperties(), result);
 
+    if (project != null) {
+      collectPropertiesForActivatedProfiles(project, projectDom, result);
+    }
+    return result;
+  }
+
+  private static void collectPropertiesForActivatedProfiles(@NotNull MavenProject project,
+                                                            MavenDomProjectModel projectDom, Properties result) {
     Collection<String> activeProfiles = project.getActivatedProfilesIds().getEnabledProfiles();
     for (MavenDomProfile each : projectDom.getProfiles().getProfiles()) {
       XmlTag idTag = each.getId().getXmlTag();
       if (idTag == null || !activeProfiles.contains(idTag.getValue().getTrimmedText())) continue;
       collectPropertiesFromDOM(each.getProperties(), result);
     }
-
-    return result;
   }
 
   private static void collectPropertiesFromDOM(MavenDomProperties props, Properties result) {
@@ -197,10 +207,10 @@ public class MavenPropertyResolver {
   }
 
   @Nullable
-  private static String doResolveProperty(String propName,
-                                          MavenProjectsManager projectsManager,
-                                          MavenProject mavenProject,
-                                          Properties additionalProperties) {
+  private static String doResolvePropertyForMavenProject(String propName,
+                                                         MavenProjectsManager projectsManager,
+                                                         MavenProject mavenProject,
+                                                         Properties additionalProperties) {
     boolean hasPrefix = false;
     String unprefixed = propName;
 
@@ -258,6 +268,12 @@ public class MavenPropertyResolver {
     result = MavenUtil.getPropertiesFromMavenOpts().get(propName);
     if (result != null) return result;
 
+    result = mavenProject.getMavenConfig().get(propName);
+    if (result != null) return result;
+
+    result = mavenProject.getJvmConfig().get(propName);
+    if (result != null) return result;
+
     result = MavenServerUtil.collectSystemProperties().getProperty(propName);
     if (result != null) return result;
 
@@ -272,6 +288,53 @@ public class MavenPropertyResolver {
 
     if ("settings.localRepository".equals(propName)) {
       return mavenProject.getLocalRepository().getAbsolutePath();
+    }
+
+    return null;
+  }
+
+  @Nullable
+  private static String doResolvePropertyForMavenDomModel(String propName,
+                                                          MavenProjectsManager projectsManager,
+                                                          MavenDomProjectModel projectDom,
+                                                          Properties additionalProperties) {
+    if (propName.startsWith("parent.")) {
+      MavenDomParent parentDomElement = projectDom.getMavenParent();
+      if (!parentDomElement.exists()) {
+        return null;
+      }
+      MavenId parentId = new MavenId(parentDomElement.getGroupId().getStringValue(), parentDomElement.getArtifactId().getStringValue(),
+                                     parentDomElement.getVersion().getStringValue());
+
+      propName = propName.substring("parent.".length());
+
+      if (propName.equals("groupId")) {
+        return parentId.getGroupId();
+      }
+      if (propName.equals("artifactId")) {
+        return parentId.getArtifactId();
+      }
+      if (propName.equals("version")) {
+        return parentId.getVersion();
+      }
+      return null;
+    }
+
+
+    String result;
+
+    result = MavenUtil.getPropertiesFromMavenOpts().get(propName);
+    if (result != null) return result;
+
+    result = MavenServerUtil.collectSystemProperties().getProperty(propName);
+    if (result != null) return result;
+
+    result = additionalProperties.getProperty(propName);
+    if (result != null) return result;
+
+
+    if ("settings.localRepository".equals(propName)) {
+      return MavenProjectsManager.getInstance(projectDom.getManager().getProject()).getLocalRepository().getAbsolutePath();
     }
 
     return null;

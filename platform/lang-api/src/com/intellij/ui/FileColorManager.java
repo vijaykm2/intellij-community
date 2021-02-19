@@ -1,25 +1,11 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,8 +16,8 @@ import java.util.Collection;
  * @author spleaner
  */
 public abstract class FileColorManager {
-  public static FileColorManager getInstance(@NotNull final Project project) {
-    return ServiceManager.getService(project, FileColorManager.class);
+  public static FileColorManager getInstance(@NotNull Project project) {
+    return project.getService(FileColorManager.class);
   }
 
   public abstract boolean isEnabled();
@@ -44,25 +30,30 @@ public abstract class FileColorManager {
 
   public abstract Project getProject();
 
-  @SuppressWarnings({"MethodMayBeStatic"})
   @Nullable
-  public abstract Color getColor(@NotNull String name);
+  public abstract Color getColor(@NotNull @NonNls String id);
 
-  @SuppressWarnings({"MethodMayBeStatic"})
-  public abstract Collection<String> getColorNames();
+  @NotNull
+  @Nls
+  public abstract String getColorName(@NotNull @NonNls String id);
+
+  public abstract Collection<@NonNls String> getColorIDs();
+
+  public abstract Collection<@Nls String> getColorNames();
 
   @Nullable
-  public abstract Color getFileColor(@NotNull final PsiFile file);
-
   public abstract Color getFileColor(@NotNull final VirtualFile file);
 
-  public abstract boolean isShared(@NotNull final String scopeName);
+  @Nullable
+  public abstract Color getScopeColor(@NotNull String scopeName);
 
-  public abstract boolean isColored(@NotNull String scopeName, final boolean shared);
+  public abstract boolean isShared(@NotNull final String scopeName);
 
   @Nullable
   public abstract Color getRendererBackground(VirtualFile file);
 
   @Nullable
   public abstract Color getRendererBackground(PsiFile file);
+
+  public abstract void addScopeColor(@NotNull String scopeName, @NotNull String colorName, boolean isProjectLevel);
 }

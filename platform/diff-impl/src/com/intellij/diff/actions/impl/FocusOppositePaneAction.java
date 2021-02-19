@@ -17,8 +17,9 @@ package com.intellij.diff.actions.impl;
 
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.EmptyAction;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.project.DumbAware;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -32,7 +33,7 @@ public class FocusOppositePaneAction extends AnAction implements DumbAware {
 
   public FocusOppositePaneAction(boolean scrollToPosition) {
     myScrollToPosition = scrollToPosition;
-    setEnabledInModalContext(true);
+    ActionUtil.copyFrom(this, getActionId());
   }
 
   @Override
@@ -40,8 +41,13 @@ public class FocusOppositePaneAction extends AnAction implements DumbAware {
     throw new UnsupportedOperationException();
   }
 
-  public void setupAction(@NotNull JComponent component) {
-    String action = myScrollToPosition ? "Diff.FocusOppositePaneAndScroll" : "Diff.FocusOppositePane";
-    EmptyAction.setupAction(this, action, component);
+  public void install(@NotNull JComponent component) {
+    registerCustomShortcutSet(getShortcutSet(), component);
+  }
+
+  @NonNls
+  @NotNull
+  private String getActionId() {
+    return myScrollToPosition ? "Diff.FocusOppositePaneAndScroll" : "Diff.FocusOppositePane";
   }
 }

@@ -20,38 +20,27 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.util.IncorrectOperationException;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
-import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrBinaryExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrParenthesizedExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrUnaryExpression;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
+import static org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.T_NEQ;
+import static org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.T_NOT;
+
 public class GroovyDoubleNegationInspection extends BaseInspection {
-
-  @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONFUSING_CODE_CONSTRUCTS;
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Double negation";
-  }
 
   @Override
   @NotNull
   protected String buildErrorString(Object... infos) {
-    return "Double negation #ref #loc";
+    return GroovyBundle.message("inspection.message.double.negation.ref");
   }
 
   @Override
@@ -60,40 +49,31 @@ public class GroovyDoubleNegationInspection extends BaseInspection {
     return new DoubleNegationFix();
   }
 
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
-  }
-
   private static class DoubleNegationFix extends GroovyFix {
 
     @Override
     @NotNull
-    public String getName() {
-      return "Remove double negation";
+    public String getFamilyName() {
+      return GroovyBundle.message("intention.family.name.remove.double.negation");
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor)
-        throws IncorrectOperationException {
-      final GrUnaryExpression expression =
-          (GrUnaryExpression) descriptor.getPsiElement();
+    protected void doFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) throws IncorrectOperationException {
+      final GrUnaryExpression expression = (GrUnaryExpression)descriptor.getPsiElement();
       GrExpression operand = (GrExpression)PsiUtil.skipParentheses(expression.getOperand(), false);
       if (operand instanceof GrUnaryExpression) {
-        final GrUnaryExpression prefixExpression =
-            (GrUnaryExpression) operand;
+        final GrUnaryExpression prefixExpression = (GrUnaryExpression)operand;
         final GrExpression innerOperand = prefixExpression.getOperand();
         if (innerOperand == null) {
           return;
         }
         replaceExpression(expression, innerOperand.getText());
-      } else if (operand instanceof GrBinaryExpression) {
-        final GrBinaryExpression binaryExpression =
-            (GrBinaryExpression) operand;
+      }
+      else if (operand instanceof GrBinaryExpression) {
+        final GrBinaryExpression binaryExpression = (GrBinaryExpression)operand;
         final GrExpression lhs = binaryExpression.getLeftOperand();
         final String lhsText = lhs.getText();
-        final StringBuilder builder =
-            new StringBuilder(lhsText);
+        final StringBuilder builder = new StringBuilder(lhsText);
         builder.append("==");
         final GrExpression rhs = binaryExpression.getRightOperand();
         if (rhs != null) {
@@ -114,20 +94,18 @@ public class GroovyDoubleNegationInspection extends BaseInspection {
   private static class DoubleNegationVisitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitUnaryExpression(GrUnaryExpression expression) {
-      super.visitUnaryExpression(expression);
+    public void visitUnaryExpression(@NotNull GrUnaryExpression expression) {
       final IElementType tokenType = expression.getOperationTokenType();
-      if (!GroovyTokenTypes.mLNOT.equals(tokenType)) {
+      if (!T_NOT.equals(tokenType)) {
         return;
       }
       checkParent(expression);
     }
 
     @Override
-    public void visitBinaryExpression(GrBinaryExpression expression) {
-      super.visitBinaryExpression(expression);
+    public void visitBinaryExpression(@NotNull GrBinaryExpression expression) {
       final IElementType tokenType = expression.getOperationTokenType();
-      if (!GroovyTokenTypes.mNOT_EQUAL.equals(tokenType)) {
+      if (!T_NEQ.equals(tokenType)) {
         return;
       }
       checkParent(expression);
@@ -141,11 +119,9 @@ public class GroovyDoubleNegationInspection extends BaseInspection {
       if (!(parent instanceof GrUnaryExpression)) {
         return;
       }
-      final GrUnaryExpression prefixExpression =
-          (GrUnaryExpression) parent;
-      final IElementType parentTokenType =
-          prefixExpression.getOperationTokenType();
-      if (!GroovyTokenTypes.mLNOT.equals(parentTokenType)) {
+      final GrUnaryExpression prefixExpression = (GrUnaryExpression)parent;
+      final IElementType parentTokenType = prefixExpression.getOperationTokenType();
+      if (!T_NOT.equals(parentTokenType)) {
         return;
       }
       registerError(prefixExpression);

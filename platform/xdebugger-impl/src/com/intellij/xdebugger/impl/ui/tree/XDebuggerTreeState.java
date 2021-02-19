@@ -1,36 +1,22 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.ui.tree;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.MultiMap;
+import com.intellij.xdebugger.XNamedTreeNode;
 import com.intellij.xdebugger.impl.ui.tree.nodes.RestorableStateNode;
 import com.intellij.xdebugger.impl.ui.tree.nodes.XDebuggerTreeNode;
-import gnu.trove.THashMap;
+import java.awt.Rectangle;
+import java.util.List;
+import java.util.Objects;
+import javax.swing.JViewport;
+import javax.swing.tree.TreeNode;
+import javax.swing.tree.TreePath;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.tree.TreePath;
-import java.awt.*;
-import java.util.List;
-import java.util.Map;
-
-/**
- * @author nik
- */
-public class XDebuggerTreeState {
+public final class XDebuggerTreeState {
   private final NodeInfo myRootInfo;
   private Rectangle myLastVisibleNodeRect;
 
@@ -60,19 +46,21 @@ public class XDebuggerTreeState {
   private void addChildren(final XDebuggerTree tree, final NodeInfo nodeInfo, final XDebuggerTreeNode treeNode) {
     if (tree.isExpanded(treeNode.getPath())) {
       List<? extends XDebuggerTreeNode> children = treeNode.getLoadedChildren();
-      if (children != null) {
-        nodeInfo.myExpanded = true;
-        for (XDebuggerTreeNode child : children) {
-          final TreePath path = child.getPath();
-          final Rectangle bounds = tree.getPathBounds(path);
-          if (bounds != null && tree.getVisibleRect().contains(bounds)) {
+      nodeInfo.myExpanded = true;
+      for (XDebuggerTreeNode child : children) {
+        TreePath path = child.getPath();
+        Rectangle bounds = tree.getPathBounds(path);
+        if (bounds != null) {
+          Rectangle treeVisibleRect =
+            tree.getParent() instanceof JViewport ? ((JViewport)tree.getParent()).getViewRect() : tree.getVisibleRect();
+          if (treeVisibleRect.contains(bounds)) {
             myLastVisibleNodeRect = bounds;
           }
-          NodeInfo childInfo = createNode(child, tree.isPathSelected(path));
-          if (childInfo != null) {
-            nodeInfo.addChild(childInfo);
-            addChildren(tree, childInfo, child);
-          }
+        }
+        NodeInfo childInfo = createNode(child, tree.isPathSelected(path));
+        if (childInfo != null) {
+          nodeInfo.addChild(childInfo);
+          addChildren(tree, childInfo, child);
         }
       }
     }
@@ -94,7 +82,7 @@ public class XDebuggerTreeState {
     private final String myValue;
     private boolean myExpanded;
     private final boolean mySelected;
-    private Map<String, NodeInfo> myChildren;
+    private MultiMap<String, NodeInfo> myChildren; // MultiMap to allow several nodes with the same name
 
     public NodeInfo(final String name, final String value, boolean selected) {
       myName = name;
@@ -104,9 +92,9 @@ public class XDebuggerTreeState {
 
     public void addChild(@NotNull NodeInfo child) {
       if (myChildren == null) {
-        myChildren = new THashMap<String, NodeInfo>();
+        myChildren = new MultiMap<>();
       }
-      myChildren.put(child.myName, child);
+      myChildren.putValue(child.myName, child);
     }
 
     public boolean isExpanded() {
@@ -122,8 +110,30 @@ public class XDebuggerTreeState {
     }
 
     @Nullable
-    public NodeInfo removeChild(String name) {
-      return myChildren != null ? myChildren.remove(name) : null;
+    public NodeInfo getChild(XNamedTreeNode node) {
+      String name = node.getName();
+      if (myChildren == null) {
+        return null;
+      }
+      List<NodeInfo> infos = (List<NodeInfo>)myChildren.get(name);
+      if (infos.size() > 1) {
+        TreeNode parent = node.getParent();
+        if (parent instanceof XDebuggerTreeNode) {
+          int idx = 0;
+          for (XDebuggerTreeNode treeNode : ((XDebuggerTreeNode)parent).getLoadedChildren()) {
+            if (treeNode == node) {
+              break;
+            }
+            if (treeNode instanceof XNamedTreeNode && Objects.equals(((XNamedTreeNode)treeNode).getName(), name)) {
+              idx++;
+            }
+          }
+          if (idx < infos.size()) {
+            return infos.get(idx);
+          }
+        }
+      }
+      return ContainerUtil.getFirstItem(infos);
     }
   }
 }

@@ -15,10 +15,11 @@
  */
 package com.intellij.codeInspection.i18n;
 
-import com.intellij.codeInsight.FileModificationService;
+import com.intellij.analysis.AnalysisBundle;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
-import com.intellij.codeInspection.InspectionsBundle;
 import com.intellij.codeInspection.SuppressIntentionAction;
+import com.intellij.java.i18n.JavaI18nBundle;
+import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -30,9 +31,6 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 
-/**
-* User: cdr
-*/
 class SuppressByCommentOutAction extends SuppressIntentionAction {
   private final String nonNlsCommentPattern;
 
@@ -42,7 +40,6 @@ class SuppressByCommentOutAction extends SuppressIntentionAction {
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, @NotNull PsiElement element) throws IncorrectOperationException {
-    if (!FileModificationService.getInstance().preparePsiElementForWrite(element)) return;
     element = findJavaCodeUpThere(element);
     PsiFile file = element.getContainingFile();
     editor = InjectedLanguageUtil.openEditorFor(file, project);
@@ -81,8 +78,9 @@ class SuppressByCommentOutAction extends SuppressIntentionAction {
   }
 
   private static PsiElement findJavaCodeUpThere(PsiElement element) {
+    InjectedLanguageManager injectedManager = InjectedLanguageManager.getInstance(element.getProject());
     while (element != null) {
-      if (element.getLanguage() == JavaLanguage.INSTANCE) return element;
+      if (element.getLanguage() == JavaLanguage.INSTANCE && !injectedManager.isInjectedFragment(element.getContainingFile())) return element;
       element = element.getContext();
     }
     return null;
@@ -91,12 +89,12 @@ class SuppressByCommentOutAction extends SuppressIntentionAction {
   @Override
   @NotNull
   public String getFamilyName() {
-    return InspectionsBundle.message("suppress.inspection.family");
+    return AnalysisBundle.message("suppress.inspection.family");
   }
 
   @NotNull
   @Override
   public String getText() {
-    return "Suppress with '" + nonNlsCommentPattern + "' comment";
+    return JavaI18nBundle.message("intention.text.suppress.with.0.comment", nonNlsCommentPattern);
   }
 }

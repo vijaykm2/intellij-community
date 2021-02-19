@@ -12,7 +12,7 @@ import java.util.Arrays;
 /**
  * Allows to build control that shows target matrix-like information.
  * <p/>
- * <code>'Matrix-like'</code> here means that there is a set of columns and a number of rows where every row contains values for
+ * {@code 'Matrix-like'} here means that there is a set of columns and a number of rows where every row contains values for
  * every column.
  * <p/>
  * Example:
@@ -28,7 +28,6 @@ import java.util.Arrays;
  * Not thread-safe.
  * 
  * @author Denis Zhdanov
- * @since 3/14/12 3:52 PM
  */
 public class MatrixControlBuilder {
   
@@ -44,7 +43,7 @@ public class MatrixControlBuilder {
   private final int[]       myColumnWidths;
   private final FontMetrics myFontMetrics;
 
-  public MatrixControlBuilder(@NotNull String ... columns) {
+  public MatrixControlBuilder(String @NotNull ... columns) {
     myModel.addColumn(""); // Row name
     for (String column : columns) {
       myModel.addColumn(column);
@@ -55,8 +54,8 @@ public class MatrixControlBuilder {
         return getPreferredSize();
       }
     };
+    myTable.setShowGrid(false);
     myTable.setFocusable(false);
-    myTable.setStriped(true);
     DefaultTableCellRenderer renderer = new DefaultTableCellRenderer();
     renderer.setHorizontalAlignment(SwingConstants.CENTER);
     for (int i = 0, max = myTable.getColumnCount(); i < max; i++) {
@@ -86,7 +85,7 @@ public class MatrixControlBuilder {
    * @param values  new row values
    * @throws IllegalArgumentException   if given row values imply number of columns that differs from the number of already configured one
    */
-  public void addRow(@NotNull String name, @NotNull Object... values) throws IllegalArgumentException {
+  public void addRow(@NotNull String name, Object @NotNull ... values) throws IllegalArgumentException {
     if (values.length != myModel.getColumnCount() - 1) {
       StringBuilder columns = new StringBuilder();
       for (int i = 1, max = myModel.getColumnCount(); i < max; i++) {

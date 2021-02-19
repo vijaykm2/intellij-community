@@ -1,38 +1,23 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.introduce.parameter;
 
 import com.intellij.codeInsight.ChangeContextUtil;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.lang.findUsages.DescriptiveNameUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.impl.ExpressionConverter;
 import com.intellij.psi.search.searches.MethodReferencesSearch;
 import com.intellij.psi.search.searches.ReferencesSearch;
+import com.intellij.psi.util.PsiEditorUtil;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.psi.util.PsiUtilBase;
 import com.intellij.refactoring.BaseRefactoringProcessor;
 import com.intellij.refactoring.IntroduceParameterRefactoring;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.introduceParameter.ChangedMethodCallInfo;
-import com.intellij.psi.impl.ExpressionConverter;
 import com.intellij.refactoring.introduceParameter.ExternalUsageInfo;
 import com.intellij.refactoring.introduceParameter.InternalUsageInfo;
 import com.intellij.refactoring.ui.UsageViewDescriptorAdapter;
@@ -44,14 +29,13 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
-import gnu.trove.TIntProcedure;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.GroovyLanguage;
 import org.jetbrains.plugins.groovy.codeInspection.utils.ControlFlowUtils;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
-import org.jetbrains.plugins.groovy.lang.psi.api.signatures.GrClosureSignature;
+import org.jetbrains.plugins.groovy.lang.psi.api.signatures.GrSignature;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.*;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.arguments.GrArgumentList;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrClosableBlock;
@@ -79,6 +63,7 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.IntConsumer;
 
 /**
  * @author Medvedev Max
@@ -108,11 +93,10 @@ public class GrIntroduceClosureParameterProcessor extends BaseRefactoringProcess
 
   @Override
   @NotNull
-  protected UsageViewDescriptor createUsageViewDescriptor(final UsageInfo[] usages) {
+  protected UsageViewDescriptor createUsageViewDescriptor(final UsageInfo @NotNull [] usages) {
     return new UsageViewDescriptorAdapter() {
-      @NotNull
       @Override
-      public PsiElement[] getElements() {
+      public PsiElement @NotNull [] getElements() {
         return new PsiElement[]{toSearchFor != null ? toSearchFor : toReplaceIn};
       }
 
@@ -124,9 +108,9 @@ public class GrIntroduceClosureParameterProcessor extends BaseRefactoringProcess
   }
 
   @Override
-  protected boolean preprocessUsages(Ref<UsageInfo[]> refUsages) {
+  protected boolean preprocessUsages(@NotNull Ref<UsageInfo[]> refUsages) {
     UsageInfo[] usagesIn = refUsages.get();
-    MultiMap<PsiElement, String> conflicts = new MultiMap<PsiElement, String>();
+    MultiMap<PsiElement, String> conflicts = new MultiMap<>();
 
     if (!mySettings.generateDelegate()) {
       detectAccessibilityConflicts(usagesIn, conflicts);
@@ -141,7 +125,7 @@ public class GrIntroduceClosureParameterProcessor extends BaseRefactoringProcess
         for (UsageInfo usageInfo : usagesIn) {
           if (!(usageInfo.getElement() instanceof PsiMethod) && !(usageInfo instanceof InternalUsageInfo)) {
             if (!PsiTreeUtil.isAncestor(containingClass, usageInfo.getElement(), false)) {
-              conflicts.putValue(expression, RefactoringBundle
+              conflicts.putValue(expression, JavaRefactoringBundle
                 .message("parameter.initializer.contains.0.but.not.all.calls.to.method.are.in.its.class", CommonRefactoringUtil.htmlEmphasize(PsiKeyword.SUPER)));
               break;
             }
@@ -169,10 +153,9 @@ public class GrIntroduceClosureParameterProcessor extends BaseRefactoringProcess
       mySettings.replaceFieldsWithGetters() != IntroduceParameterRefactoring.REPLACE_FIELDS_WITH_GETTERS_NONE, myProject);
   }
 
-  @NotNull
   @Override
-  protected UsageInfo[] findUsages() {
-    ArrayList<UsageInfo> result = new ArrayList<UsageInfo>();
+  protected UsageInfo @NotNull [] findUsages() {
+    ArrayList<UsageInfo> result = new ArrayList<>();
 
     if (!mySettings.generateDelegate() && toSearchFor != null) {
       Collection<PsiReference> refs;
@@ -217,33 +200,23 @@ public class GrIntroduceClosureParameterProcessor extends BaseRefactoringProcess
       }
     }
 
-    final UsageInfo[] usageInfos = result.toArray(new UsageInfo[result.size()]);
+    final UsageInfo[] usageInfos = result.toArray(UsageInfo.EMPTY_ARRAY);
     return UsageViewUtil.removeDuplicatedUsages(usageInfos);
   }
 
   private static Collection<PsiReference> findUsagesForLocal(GrClosableBlock initializer, final GrVariable var) {
     final Instruction[] flow = ControlFlowUtils.findControlFlowOwner(initializer).getControlFlow();
-    final ArrayList<BitSet> writes = ControlFlowUtils.inferWriteAccessMap(flow, var);
+    final List<BitSet> writes = ControlFlowUtils.inferWriteAccessMap(flow, var);
 
     Instruction writeInstr = null;
 
     final PsiElement parent = initializer.getParent();
     if (parent instanceof GrVariable) {
-      writeInstr = ContainerUtil.find(flow, new Condition<Instruction>() {
-        @Override
-        public boolean value(Instruction instruction) {
-          return instruction.getElement() == var;
-        }
-      });
+      writeInstr = ContainerUtil.find(flow, instruction -> instruction.getElement() == var);
     }
     else if (parent instanceof GrAssignmentExpression) {
       final GrReferenceExpression refExpr = (GrReferenceExpression)((GrAssignmentExpression)parent).getLValue();
-      final Instruction instruction = ContainerUtil.find(flow, new Condition<Instruction>() {
-        @Override
-        public boolean value(Instruction instruction) {
-          return instruction.getElement() == refExpr;
-        }
-      });
+      final Instruction instruction = ContainerUtil.find(flow, instruction1 -> instruction1.getElement() == refExpr);
 
       LOG.assertTrue(instruction != null);
       final BitSet prev = writes.get(instruction.num());
@@ -254,7 +227,7 @@ public class GrIntroduceClosureParameterProcessor extends BaseRefactoringProcess
 
     LOG.assertTrue(writeInstr != null);
 
-    Collection<PsiReference> result = new ArrayList<PsiReference>();
+    Collection<PsiReference> result = new ArrayList<>();
     for (Instruction instruction : flow) {
       if (!(instruction instanceof ReadWriteVariableInstruction)) continue;
       if (((ReadWriteVariableInstruction)instruction).isWrite()) continue;
@@ -276,7 +249,7 @@ public class GrIntroduceClosureParameterProcessor extends BaseRefactoringProcess
   }
 
   @Override
-  protected void performRefactoring(UsageInfo[] usages) {
+  protected void performRefactoring(UsageInfo @NotNull [] usages) {
     processExternalUsages(usages, mySettings, myParameterInitializer.getExpression());
     processClosure(usages, mySettings);
 
@@ -316,7 +289,7 @@ public class GrIntroduceClosureParameterProcessor extends BaseRefactoringProcess
     final StringPartInfo info = settings.getStringPartInfo();
     if (info != null) {
       final GrExpression expr = info.replaceLiteralWithConcatenation(settings.getName());
-      final Editor editor = PsiUtilBase.findEditor(expr);
+      final Editor editor = PsiEditorUtil.findEditor(expr);
       if (editor != null) {
         editor.getSelectionModel().removeSelection();
         editor.getCaretModel().moveToOffset(expr.getTextRange().getEndOffset());
@@ -337,19 +310,15 @@ public class GrIntroduceClosureParameterProcessor extends BaseRefactoringProcess
     final FieldConflictsResolver fieldConflictsResolver = new FieldConflictsResolver(name, block);
 
     final GrParameter[] parameters = block.getParameters();
-    settings.parametersToRemove().forEachDescending(new TIntProcedure() {
-      @Override
-      public boolean execute(final int paramNum) {
-        try {
-          PsiParameter param = parameters[paramNum];
-          param.delete();
-        }
-        catch (IncorrectOperationException e) {
-          LOG.error(e);
-        }
-        return true;
+    for (int i = settings.parametersToRemove().size() - 1; i >= 0; i--) {
+      try {
+        PsiParameter param = parameters[settings.parametersToRemove().getInt(i)];
+        param.delete();
       }
-    });
+      catch (IncorrectOperationException e) {
+        LOG.error(e);
+      }
+    }
 
     final PsiType type = settings.getSelectedType();
     final String typeText = type == null ? null : type.getCanonicalText();
@@ -415,7 +384,7 @@ public class GrIntroduceClosureParameterProcessor extends BaseRefactoringProcess
 
     final GrExpression anchor = getAnchorForArgument(oldArgs, toReplaceIn.isVarArgs(), toReplaceIn.getParameterList());
 
-    GrClosureSignature signature = GrClosureSignatureUtil.createSignature(callExpression);
+    GrSignature signature = GrClosureSignatureUtil.createSignature(callExpression);
     if (signature == null) signature = GrClosureSignatureUtil.createSignature(toReplaceIn);
 
     final GrClosureSignatureUtil.ArgInfo<PsiElement>[] actualArgs = GrClosureSignatureUtil
@@ -453,9 +422,8 @@ public class GrIntroduceClosureParameterProcessor extends BaseRefactoringProcess
       GroovyIntroduceParameterUtil.removeParametersFromCall(actualArgs, settings.parametersToRemove());
     }
 
-    if (argList.getAllArguments().length == 0 && PsiImplUtil.hasClosureArguments(callExpression)) {
+    if (argList.getAllArguments().length == 0 && callExpression.hasClosureArguments()) {
       final GrArgumentList emptyArgList = ((GrMethodCallExpression)factory.createExpressionFromText("foo{}")).getArgumentList();
-      LOG.assertTrue(emptyArgList != null);
       argList.replace(emptyArgList);
     }
 
@@ -597,24 +565,21 @@ public class GrIntroduceClosureParameterProcessor extends BaseRefactoringProcess
     final GroovyResolveResult resolveResult = methodCall.advancedResolve();
     final PsiElement resolved = resolveResult.getElement();
     LOG.assertTrue(resolved instanceof PsiMethod);
-    final GrClosureSignature signature = GrClosureSignatureUtil.createSignature((PsiMethod)resolved, resolveResult.getSubstitutor());
+    final GrSignature signature = GrClosureSignatureUtil.createSignature((PsiMethod)resolved, resolveResult.getSubstitutor());
     final GrClosureSignatureUtil.ArgInfo<PsiElement>[] argInfos = GrClosureSignatureUtil.mapParametersToArguments(signature, methodCall);
     LOG.assertTrue(argInfos != null);
-    settings.parametersToRemove().forEach(new TIntProcedure() {
-      @Override
-      public boolean execute(int value) {
-        final List<PsiElement> args = argInfos[value].args;
-        for (PsiElement arg : args) {
-          arg.delete();
-        }
-        return true;
+    settings.parametersToRemove().forEach((IntConsumer)value -> {
+      final List<PsiElement> args = argInfos[value].args;
+      for (PsiElement arg : args) {
+        arg.delete();
       }
     });
   }
 
+  @NotNull
   @Override
   protected String getCommandName() {
-    return RefactoringBundle.message("introduce.parameter.command", DescriptiveNameUtil.getDescriptiveName(mySettings.getToReplaceIn()));
+    return JavaRefactoringBundle.message("introduce.parameter.command", DescriptiveNameUtil.getDescriptiveName(mySettings.getToReplaceIn()));
   }
 
 

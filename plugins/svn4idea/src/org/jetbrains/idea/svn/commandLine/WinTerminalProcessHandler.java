@@ -1,22 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.commandLine;
 
+import com.intellij.execution.process.ProcessOutputTypes;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.io.BaseDataReader;
+import com.intellij.util.io.BaseOutputReader;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -28,13 +17,30 @@ public class WinTerminalProcessHandler extends TerminalProcessHandler {
   private static final String NON_CSI_ESCAPE_CODE = "\u001B.[@-_]";
   private static final String CSI_ESCAPE_CODE = "\u001B\\[(.*?)[@-~]";
 
-  public WinTerminalProcessHandler(@NotNull Process process, boolean forceUtf8, boolean forceBinary) {
-    super(process, forceUtf8, forceBinary);
+  public WinTerminalProcessHandler(@NotNull Process process, @NotNull String commandLine, boolean forceUtf8, boolean forceBinary) {
+    super(process, commandLine, forceUtf8, forceBinary);
   }
 
   @Override
   protected boolean processHasSeparateErrorStream() {
     return true;
+  }
+
+  @NotNull
+  @Override
+  protected BaseDataReader createErrorDataReader() {
+    return new SimpleOutputReader(createProcessErrReader(), ProcessOutputTypes.STDERR, BaseOutputReader.Options.BLOCKING,
+                                  "error stream of " + myPresentableName);
+  }
+
+  @NotNull
+  @Override
+  protected BaseOutputReader.Options readerOptions() {
+    // Currently, when blocking policy is used, reading stops when nothing was actually read (stream ended).
+    // This is an issue for reading output in Windows as redirection to file is used. And so file is actually
+    // empty when first read attempt is performed (thus no output is read at all).
+    // So here we ensure non-blocking policy is used for such cases.
+    return BaseOutputReader.Options.NON_BLOCKING;
   }
 
   @NotNull

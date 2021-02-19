@@ -1,66 +1,100 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.ui.filter;
 
+import com.intellij.icons.AllIcons;
+import com.intellij.ide.DataManager;
 import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
+import com.intellij.openapi.ui.popup.ListPopup;
+import com.intellij.openapi.ui.popup.ListPopupStep;
+import com.intellij.openapi.ui.popup.PopupStep;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vcs.ui.PopupListElementRendererWithIcon;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.Function;
+import com.intellij.ui.LayeredIcon;
+import com.intellij.ui.popup.WizardPopup;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.vcs.log.*;
-import com.intellij.vcs.log.data.VcsLogBranchFilterImpl;
-import com.intellij.vcs.log.data.VcsLogUiProperties;
-import com.intellij.vcs.log.impl.VcsLogUtil;
+import com.intellij.util.ui.EmptyIcon;
+import com.intellij.vcs.log.VcsLogBundle;
+import com.intellij.vcs.log.VcsLogDataPack;
+import com.intellij.vcs.log.VcsRef;
+import com.intellij.vcs.log.impl.MainVcsLogUiProperties;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.awt.event.InputEvent;
+import java.awt.event.MouseEvent;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
+import java.util.function.Supplier;
 
-public class BranchFilterPopupComponent extends MultipleValueFilterPopupComponent<VcsLogBranchFilter> {
-  private VcsLogClassicFilterUi.BranchFilterModel myBranchFilterModel;
+import static com.intellij.vcs.log.visible.filters.VcsLogFilterObject.fromBranchPatterns;
 
-  public BranchFilterPopupComponent(@NotNull VcsLogUiProperties uiProperties,
+public class BranchFilterPopupComponent
+  extends MultipleValueFilterPopupComponent<BranchFilters, VcsLogClassicFilterUi.BranchFilterModel> {
+  private final VcsLogClassicFilterUi.BranchFilterModel myBranchFilterModel;
+
+  public BranchFilterPopupComponent(@NotNull MainVcsLogUiProperties uiProperties,
                                     @NotNull VcsLogClassicFilterUi.BranchFilterModel filterModel) {
-    super("Branch", uiProperties, filterModel);
+    super("Branch", VcsLogBundle.messagePointer("vcs.log.branch.filter.label"), uiProperties, filterModel);
     myBranchFilterModel = filterModel;
   }
 
   @NotNull
   @Override
-  protected String getText(@NotNull VcsLogBranchFilter filter) {
-    return displayableText(filter.getBranchNames());
+  protected List<String> getFilterValues(@NotNull BranchFilters filters) {
+    return VcsLogClassicFilterUi.BranchFilterModel.getFilterPresentation(filters);
   }
 
+  @Override
   @Nullable
-  @Override
-  protected String getToolTip(@NotNull VcsLogBranchFilter filter) {
-    return tooltip(filter.getBranchNames());
-  }
-
-  @NotNull
-  @Override
-  protected VcsLogBranchFilter createFilter(@NotNull Collection<String> values) {
-    return new VcsLogBranchFilterImpl(values);
+  protected BranchFilters createFilter(@NotNull List<String> values) {
+    return myFilterModel.createFilterFromPresentation(values);
   }
 
   @Override
   @NotNull
-  protected Collection<String> getValues(@Nullable VcsLogBranchFilter filter) {
-    return filter == null ? Collections.<String>emptySet() : filter.getBranchNames();
+  protected MultilinePopupBuilder.CompletionPrefixProvider getCompletionPrefixProvider() {
+    return (text, offset) -> {
+      int index = 0;
+      for (String s : getCompletionSeparators()) {
+        int separatorIndex = text.lastIndexOf(s, offset - s.length());
+        if (separatorIndex > index) {
+          index = separatorIndex + s.length();
+        }
+      }
+      String prefix = text.substring(index, offset);
+      return StringUtil.trimLeading(prefix, '-');
+    };
+  }
+
+  @Override
+  protected @NotNull List<String> parseLocalizedValues(@NotNull Collection<String> values) {
+    return new ArrayList<>(values);
+  }
+
+  @Override
+  protected @NotNull List<String> getLocalizedValues(@NotNull Collection<String> values) {
+    return new ArrayList<>(values);
+  }
+
+  @NotNull
+  private static List<String> getCompletionSeparators() {
+    List<String> separators = new ArrayList<>();
+    for (char c : MultilinePopupBuilder.SEPARATORS) {
+      separators.add(String.valueOf(c));
+    }
+    separators.add("..");
+    return separators;
+  }
+
+  @NotNull
+  @Override
+  protected ListPopup createPopupMenu() {
+    return new MyBranchLogSpeedSearchPopup();
   }
 
   @Override
@@ -70,126 +104,156 @@ public class BranchFilterPopupComponent extends MultipleValueFilterPopupComponen
     actionGroup.add(createAllAction());
     actionGroup.add(createSelectMultipleValuesAction());
 
-    actionGroup.add(constructActionGroup(myFilterModel.getDataPack(), createRecentItemsActionGroup(), new Function<String, AnAction>() {
-      @Override
-      public AnAction fun(String name) {
-        return createPredefinedValueAction(Collections.singleton(name));
-      }
-    }, myBranchFilterModel.getVisibleRoots()));
+    VcsLogDataPack logData = myFilterModel.getDataPack();
+
+    List<List<String>> branchFilters = processRecentBranchFilters(
+      ContainerUtil.map2Set(logData.getRefs().getBranches(), VcsRef::getName),
+      getRecentValuesFromSettings());
+
+    actionGroup.add(new MyBranchPopupBuilder(logData, myBranchFilterModel.getVisibleRoots(), branchFilters).build());
+
     return actionGroup;
-  }
-
-  public static ActionGroup constructActionGroup(@NotNull VcsLogDataPack dataPack, @Nullable ActionGroup recentItemsGroup,
-                                                 @NotNull Function<String, AnAction> actionGetter, @Nullable Collection<VirtualFile> visibleRoots) {
-    Groups groups = prepareGroups(dataPack, visibleRoots);
-    return getFilteredActionGroup(groups, recentItemsGroup, actionGetter);
-  }
-
-  private static Groups prepareGroups(@NotNull VcsLogDataPack dataPack, @Nullable Collection<VirtualFile> visibleRoots) {
-    Groups filteredGroups = new Groups();
-    Collection<VcsRef> allRefs = dataPack.getRefs().getBranches();
-    for (Map.Entry<VirtualFile, Collection<VcsRef>> entry : VcsLogUtil.groupRefsByRoot(allRefs).entrySet()) {
-      VirtualFile root = entry.getKey();
-      if (visibleRoots != null && !visibleRoots.contains(root)) continue;
-      Collection<VcsRef> refs = entry.getValue();
-      VcsLogProvider provider = dataPack.getLogProviders().get(root);
-      VcsLogRefManager refManager = provider.getReferenceManager();
-      List<RefGroup> refGroups = refManager.group(refs);
-
-      orderRefGroups(refGroups, filteredGroups);
-    }
-    return filteredGroups;
-  }
-
-  private static DefaultActionGroup getFilteredActionGroup(@NotNull Groups groups, @Nullable ActionGroup recentItems,
-                                                           @NotNull Function<String, AnAction> actionGetter) {
-    DefaultActionGroup actionGroup = new DefaultActionGroup();
-    for (String single : groups.singletonGroups) {
-      actionGroup.add(actionGetter.fun(single));
-    }
-    if (recentItems != null) {
-      actionGroup.add(recentItems);
-    }
-    for (Map.Entry<String, TreeSet<String>> group : groups.expandedGroups.entrySet()) {
-      actionGroup.addSeparator(group.getKey());
-      for (String action : group.getValue()) {
-        actionGroup.add(actionGetter.fun(action));
-      }
-    }
-    actionGroup.addSeparator();
-    for (Map.Entry<String, TreeSet<String>> group : groups.collapsedGroups.entrySet()) {
-      DefaultActionGroup popupGroup = new DefaultActionGroup(group.getKey(), true);
-      for (String action : group.getValue()) {
-        popupGroup.add(actionGetter.fun(action));
-      }
-      actionGroup.add(popupGroup);
-    }
-    return actionGroup;
-  }
-
-  private static class Groups {
-    private final TreeSet<String> singletonGroups = ContainerUtil.newTreeSet();
-    private final TreeMap<String, TreeSet<String>> expandedGroups = ContainerUtil.newTreeMap();
-    private final TreeMap<String, TreeSet<String>> collapsedGroups = ContainerUtil.newTreeMap();
-  }
-
-  private static void orderRefGroups(List<RefGroup> groups, Groups filteredGroups) {
-    for (final RefGroup group : groups) {
-      if (group.getRefs().size() == 1) {
-        String name = group.getRefs().iterator().next().getName();
-        if (!filteredGroups.singletonGroups.contains(name)) {
-          filteredGroups.singletonGroups.add(name);
-        }
-      }
-      else if (group.isExpanded()) {
-        addToGroup(group, filteredGroups.expandedGroups);
-      }
-      else {
-        addToGroup(group, filteredGroups.collapsedGroups);
-      }
-    }
-  }
-
-  private static void addToGroup(final RefGroup group, TreeMap<String, TreeSet<String>> groupToAdd) {
-    TreeSet<String> existingGroup = groupToAdd.get(group.getName());
-
-    TreeSet<String> actions = new TreeSet<String>();
-    for (VcsRef ref : group.getRefs()) {
-      actions.add(ref.getName());
-    }
-
-    if (existingGroup == null) {
-      groupToAdd.put(group.getName(), actions);
-    }
-    else {
-      for (String action : actions) {
-        existingGroup.add(action);
-      }
-    }
-  }
-
-  @NotNull
-  @Override
-  protected List<List<String>> getRecentValuesFromSettings() {
-    return myUiProperties.getRecentlyFilteredBranchGroups();
-  }
-
-  @Override
-  protected void rememberValuesInSettings(@NotNull Collection<String> values) {
-    if (values.size() > 1) { // all branches are in the popup => no need to save single one, only in case of multiple selection
-      myUiProperties.addRecentlyFilteredBranchGroup(new ArrayList<String>(values));
-    }
   }
 
   @NotNull
   @Override
   protected List<String> getAllValues() {
-    return ContainerUtil.map(myFilterModel.getDataPack().getRefs().getBranches(), new Function<VcsRef, String>() {
-      @Override
-      public String fun(VcsRef ref) {
-        return ref.getName();
-      }
-    });
+    Collection<VcsRef> branches = myFilterModel.getDataPack().getRefs().getBranches();
+    if (myBranchFilterModel.getVisibleRoots() != null) {
+      branches = ContainerUtil.filter(branches, branch -> myBranchFilterModel.getVisibleRoots().contains(branch.getRoot()));
+    }
+    return ContainerUtil.map(branches, VcsRef::getName);
   }
 
+  @NotNull
+  private static List<List<String>> processRecentBranchFilters(@NotNull Set<String> availableBranches,
+                                                               @NotNull List<List<String>> recentBranchFilters) {
+    if (availableBranches.isEmpty()) {
+      return recentBranchFilters;
+    }
+
+    return ContainerUtil.filter(recentBranchFilters, recentFilter ->
+      !fromBranchPatterns(recentFilter, availableBranches, true).isEmpty());
+  }
+
+  private class MyBranchPopupBuilder extends BranchPopupBuilder {
+    protected MyBranchPopupBuilder(@NotNull VcsLogDataPack dataPack,
+                                   @Nullable Collection<VirtualFile> visibleRoots,
+                                   @Nullable List<? extends List<String>> recentItems) {
+      super(dataPack, visibleRoots, recentItems);
+    }
+
+    @NotNull
+    @Override
+    public AnAction createAction(@NotNull String name, @NotNull Collection<? extends VcsRef> refs) {
+      return new BranchFilterAction(() -> name, refs);
+    }
+
+    @Override
+    protected void createRecentAction(@NotNull DefaultActionGroup actionGroup, @NotNull List<String> recentItems) {
+      actionGroup.add(new PredefinedValueAction(recentItems));
+    }
+
+    @NotNull
+    @Override
+    protected AnAction createCollapsedAction(@NotNull String actionName, @NotNull Collection<? extends VcsRef> refs) {
+      return new BranchFilterAction(() -> actionName, refs);
+    }
+
+    @Override
+    protected void createFavoritesAction(@NotNull DefaultActionGroup actionGroup, @NotNull List<String> favorites) {
+      actionGroup.add(new PredefinedValueAction(favorites, VcsLogBundle.messagePointer("vcs.log.branch.filter.favorites"), false));
+    }
+
+    private class BranchFilterAction extends PredefinedValueAction {
+      @NotNull private final LayeredIcon myIcon;
+      @NotNull private final LayeredIcon myHoveredIcon;
+      @NotNull private final Collection<? extends VcsRef> myReferences;
+      private boolean myIsFavorite;
+
+      BranchFilterAction(@NotNull Supplier<String> displayName, @NotNull Collection<? extends VcsRef> references) {
+        super(new ArrayList<>(ContainerUtil.map2LinkedSet(references, ref -> ref.getName())), displayName, true);
+        myReferences = references;
+        myIcon = new LayeredIcon(AllIcons.Nodes.Favorite, EmptyIcon.ICON_16);
+        myHoveredIcon = new LayeredIcon(AllIcons.Nodes.Favorite, AllIcons.Nodes.NotFavoriteOnHover);
+        getTemplatePresentation().setIcon(myIcon);
+        getTemplatePresentation().setSelectedIcon(myHoveredIcon);
+
+        myIsFavorite = isFavorite();
+        updateIcons();
+      }
+
+      private boolean isFavorite() {
+        for (VcsRef ref : myReferences) {
+          if (myDataPack.getLogProviders().get(ref.getRoot()).getReferenceManager().isFavorite(ref)) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      private void updateIcons() {
+        myIcon.setLayerEnabled(0, myIsFavorite);
+        myHoveredIcon.setLayerEnabled(0, myIsFavorite);
+
+        myIcon.setLayerEnabled(1, !myIsFavorite);
+        myHoveredIcon.setLayerEnabled(1, !myIsFavorite);
+      }
+
+      public void setFavorite(boolean favorite) {
+        for (VcsRef ref : myReferences) {
+          myDataPack.getLogProviders().get(ref.getRoot()).getReferenceManager().setFavorite(ref, favorite);
+        }
+        myIsFavorite = isFavorite();
+        updateIcons();
+      }
+
+      public void toggle() {
+        setFavorite(!myIsFavorite);
+      }
+    }
+  }
+
+  private class MyBranchLogSpeedSearchPopup extends BranchLogSpeedSearchPopup {
+    private PopupListElementRendererWithIcon myListElementRenderer;
+
+    MyBranchLogSpeedSearchPopup() {
+      super(BranchFilterPopupComponent.this.createActionGroup(), DataManager.getInstance().getDataContext(BranchFilterPopupComponent.this));
+    }
+
+    protected MyBranchLogSpeedSearchPopup(@Nullable WizardPopup parent,
+                                          @NotNull ListPopupStep step,
+                                          @Nullable Object value) {
+      super(parent, step, DataManager.getInstance().getDataContext(BranchFilterPopupComponent.this), value);
+    }
+
+    @Override
+    public void handleSelect(boolean handleFinalChoices, InputEvent e) {
+      MyBranchPopupBuilder.BranchFilterAction branchAction =
+        getSpecificAction(getList().getSelectedValue(), MyBranchPopupBuilder.BranchFilterAction.class);
+      if (branchAction != null && e instanceof MouseEvent && myListElementRenderer.isIconAt(((MouseEvent)e).getPoint())) {
+        branchAction.toggle();
+        getList().repaint();
+      }
+      else {
+        super.handleSelect(handleFinalChoices, e);
+      }
+    }
+
+    @Override
+    protected PopupListElementRendererWithIcon getListElementRenderer() {
+      if (myListElementRenderer == null) {
+        myListElementRenderer = new PopupListElementRendererWithIcon(this);
+      }
+      return myListElementRenderer;
+    }
+
+    @Override
+    protected WizardPopup createPopup(WizardPopup parent, PopupStep step, Object parentValue) {
+      if (step instanceof ListPopupStep) {
+        return new MyBranchLogSpeedSearchPopup(parent, (ListPopupStep)step, parentValue);
+      }
+      return super.createPopup(parent, step, parentValue);
+    }
+  }
 }

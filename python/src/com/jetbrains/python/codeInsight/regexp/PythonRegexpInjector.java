@@ -1,36 +1,19 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.codeInsight.regexp;
 
 import com.intellij.lang.Language;
 import com.intellij.lang.injection.MultiHostInjector;
 import com.intellij.lang.injection.MultiHostRegistrar;
-import com.intellij.openapi.util.Pair;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiPolyVariantReference;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
-import com.intellij.psi.impl.source.tree.injected.MultiHostRegistrarImpl;
-import com.intellij.psi.impl.source.tree.injected.Place;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.ArrayUtil;
 import com.jetbrains.python.codeInsight.PyInjectionUtil;
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
+import com.jetbrains.python.psi.types.TypeEvalContext;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,7 +25,7 @@ import java.util.List;
  * @author yole
  */
 public class PythonRegexpInjector implements MultiHostInjector {
-  private static class RegexpMethodDescriptor {
+  private static final class RegexpMethodDescriptor {
     @NotNull private final String methodName;
     private final int argIndex;
 
@@ -52,7 +35,7 @@ public class PythonRegexpInjector implements MultiHostInjector {
     }
   }
 
-  private final List<RegexpMethodDescriptor> myDescriptors = new ArrayList<RegexpMethodDescriptor>();
+  private final List<RegexpMethodDescriptor> myDescriptors = new ArrayList<>();
 
   public PythonRegexpInjector() {
     addMethod("compile");
@@ -63,6 +46,7 @@ public class PythonRegexpInjector implements MultiHostInjector {
     addMethod("finditer");
     addMethod("sub");
     addMethod("subn");
+    addMethod("fullmatch");
   }
 
   private void addMethod(@NotNull String name) {
@@ -71,43 +55,40 @@ public class PythonRegexpInjector implements MultiHostInjector {
 
   @Override
   public void getLanguagesToInject(@NotNull MultiHostRegistrar registrar, @NotNull PsiElement context) {
-    final PsiElement contextParent = context.getParent();
-    if (PyInjectionUtil.getLargestStringLiteral(context) == context && contextParent instanceof PyArgumentList) {
-      final PyExpression[] args = ((PyArgumentList)contextParent).getArguments();
-      int index = ArrayUtil.indexOf(args, context);
-      PyCallExpression call = PsiTreeUtil.getParentOfType(context, PyCallExpression.class);
+    final PyArgumentList argumentList = PyUtil.as(context.getParent(), PyArgumentList.class);
+    if (PyInjectionUtil.getLargestStringLiteral(context) == context && argumentList != null) {
+      final PyCallExpression call = PsiTreeUtil.getParentOfType(context, PyCallExpression.class);
       if (call != null) {
-        final PyExpression callee = call.getCallee();
-        if (callee instanceof PyReferenceExpression && canBeRegexpCall(callee)) {
-          final PsiPolyVariantReference ref = ((PyReferenceExpression)callee).getReference(PyResolveContext.noImplicits());
-          if (ref != null) {
-            final PsiElement element = ref.resolve();
-            if (element != null && ScopeUtil.getScopeOwner(element) instanceof PyFile &&
-                element.getContainingFile().getName().equals("re.py") && isRegexpMethod(element, index)) {
-              final Language language = isVerbose(call) ? PythonVerboseRegexpLanguage.INSTANCE : PythonRegexpLanguage.INSTANCE;
-              registrar.startInjecting(language);
-              final PyInjectionUtil.InjectionResult result = PyInjectionUtil.registerStringLiteralInjection(context, registrar);
-              if (result.isInjected()) {
-                registrar.doneInjecting();
-                if (!result.isStrict()) {
-                  final PsiFile file = getInjectedFile(registrar);
-                  if (file != null) {
-                    file.putUserData(InjectedLanguageUtil.FRANKENSTEIN_INJECTION, Boolean.TRUE);
-                  }
-                }
-              }
-            }
-          }
+        final RegexpMethodDescriptor methodDescriptor = findRegexpMethodDescriptor(resolvePossibleRegexpCall(call));
+        if (methodDescriptor != null && methodDescriptor.argIndex == ArrayUtil.indexOf(argumentList.getArguments(), context)) {
+          injectRegexpLanguage(registrar, context, isVerbose(call));
         }
       }
     }
   }
 
   @Nullable
-  private static PsiFile getInjectedFile(@NotNull MultiHostRegistrar registrar) {
-    // Don't add a dependency on IntelliLang here now, but this injector should become IntelliLang-based in the future
-    final List<Pair<Place,PsiFile>> result = ((MultiHostRegistrarImpl)registrar).getResult();
-    return result == null || result.isEmpty() ? null : result.get(result.size() - 1).second;
+  private PsiElement resolvePossibleRegexpCall(@NotNull PyCallExpression call) {
+    final PyExpression callee = call.getCallee();
+
+    if (callee instanceof PyReferenceExpression && canBeRegexpCall(callee)) {
+      final PyReferenceExpression referenceExpression = (PyReferenceExpression)callee;
+      final TypeEvalContext context = TypeEvalContext.codeAnalysis(call.getProject(), call.getContainingFile());
+      return referenceExpression.getReference(PyResolveContext.defaultContext().withTypeEvalContext(context)).resolve();
+    }
+
+    return null;
+  }
+
+  private static void injectRegexpLanguage(@NotNull MultiHostRegistrar registrar, @NotNull PsiElement context, boolean verbose) {
+    final Language language = verbose ? PythonVerboseRegexpLanguage.INSTANCE : PythonRegexpLanguage.INSTANCE;
+    final PyInjectionUtil.InjectionResult result = PyInjectionUtil.registerStringLiteralInjection(context, registrar, language);
+    if (result.isInjected() && !result.isStrict()) {
+      final PsiFile file = InjectedLanguageUtil.getCachedInjectedFileWithLanguage(context, language);
+      if (file != null) {
+        file.putUserData(InjectedLanguageUtil.FRANKENSTEIN_INJECTION, Boolean.TRUE);
+      }
+    }
   }
 
   @NotNull
@@ -118,50 +99,47 @@ public class PythonRegexpInjector implements MultiHostInjector {
   }
 
   private static boolean isVerbose(@NotNull PyCallExpression call) {
-    PyExpression[] arguments = call.getArguments();
-    if (arguments.length <= 1) {
-      return false;
-    }
-    return isVerbose(arguments[arguments.length-1]);
+    final PyExpression[] arguments = call.getArguments();
+    return arguments.length > 1 && isVerbose(arguments[arguments.length - 1]);
   }
 
-  private static boolean isVerbose(@Nullable PyExpression expr) {
-    if (expr instanceof PyKeywordArgument) {
-      PyKeywordArgument keywordArgument = (PyKeywordArgument)expr;
-      if (!"flags".equals(keywordArgument.getName())) {
-        return false;
-      }
-      return isVerbose(keywordArgument.getValueExpression());
+  private static boolean isVerbose(@Nullable PyExpression expression) {
+    if (expression instanceof PyKeywordArgument) {
+      final PyKeywordArgument keywordArgument = (PyKeywordArgument)expression;
+      return "flags".equals(keywordArgument.getName()) && isVerbose(keywordArgument.getValueExpression());
     }
-    if (expr instanceof PyReferenceExpression) {
-      return "VERBOSE".equals(((PyReferenceExpression)expr).getReferencedName());
+    if (expression instanceof PyReferenceExpression) {
+      final String flagName = ((PyReferenceExpression)expression).getReferencedName();
+      return "VERBOSE".equals(flagName) || "X".equals(flagName);
     }
-    if (expr instanceof PyBinaryExpression) {
-      return isVerbose(((PyBinaryExpression)expr).getLeftExpression()) || isVerbose(((PyBinaryExpression)expr).getRightExpression());
+    if (expression instanceof PyBinaryExpression) {
+      final PyBinaryExpression binaryExpression = (PyBinaryExpression)expression;
+      return isVerbose(binaryExpression.getLeftExpression()) || isVerbose(binaryExpression.getRightExpression());
     }
     return false;
   }
 
-  private boolean isRegexpMethod(@NotNull PsiElement element, int index) {
-    if (!(element instanceof PyFunction)) {
-      return false;
+  @Nullable
+  private RegexpMethodDescriptor findRegexpMethodDescriptor(@Nullable PsiElement element) {
+    if (element == null ||
+        !(ScopeUtil.getScopeOwner(element) instanceof PyFile) ||
+        !ArrayUtil.contains(element.getContainingFile().getName(), "re.py", "re.pyi") ||
+        !(element instanceof PyFunction)) {
+      return null;
     }
-    final String name = ((PyFunction)element).getName();
-    for (RegexpMethodDescriptor descriptor : myDescriptors) {
-      if (descriptor.methodName.equals(name) && descriptor.argIndex == index) {
-        return true;
-      }
-    }
-    return false;
+
+    final String functionName = ((PyFunction)element).getName();
+    return myDescriptors
+      .stream()
+      .filter(descriptor -> descriptor.methodName.equals(functionName))
+      .findAny()
+      .orElse(null);
   }
 
   private boolean canBeRegexpCall(@NotNull PyExpression callee) {
-    String text = callee.getText();
-    for (RegexpMethodDescriptor descriptor : myDescriptors) {
-      if (text.endsWith(descriptor.methodName)) {
-        return true;
-      }
-    }
-    return false;
+    final String text = callee.getText();
+    return myDescriptors
+      .stream()
+      .anyMatch(descriptor -> text.endsWith(descriptor.methodName));
   }
 }

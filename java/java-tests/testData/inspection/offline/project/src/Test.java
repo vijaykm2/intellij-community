@@ -1,7 +1,3 @@
-/**
- * User: anna
- * Date: 25-Apr-2006
- */
 public class Test {
   private boolean myFlag = false;
   @SuppressWarnings({"PointlessBooleanExpression"})
@@ -48,5 +44,9 @@ public class Test {
   void ff() {
       long d = 5;
       int a = 0;
+  }
+
+  void m() {
+    "".equals("");
   }
 }

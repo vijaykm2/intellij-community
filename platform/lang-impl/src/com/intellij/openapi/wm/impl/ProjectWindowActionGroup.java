@@ -1,40 +1,30 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl;
 
+import com.intellij.ide.lightEdit.LightEdit;
+import com.intellij.ide.lightEdit.LightEditService;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.platform.ModuleAttachProcessor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 /**
  * @author Bas Leijdekkers
  */
-public class ProjectWindowActionGroup extends DefaultActionGroup {
-
+public final class ProjectWindowActionGroup extends DefaultActionGroup {
   private ProjectWindowAction latest = null;
 
   public void addProject(@NotNull Project project) {
@@ -55,9 +45,9 @@ public class ProjectWindowActionGroup extends DefaultActionGroup {
     latest = windowAction;
   }
 
-  @NotNull
-  private static String getProjectDisplayName(@NotNull final Project project) {
-    final String name = ModuleAttachProcessor.getMultiProjectDisplayName(project);
+  private static @NlsActions.ActionText String getProjectDisplayName(Project project) {
+    if (LightEdit.owns(project)) return LightEditService.WINDOW_NAME;
+    String name = ModuleAttachProcessor.getMultiProjectDisplayName(project);
     return name != null ? name : project.getName();
   }
 
@@ -92,7 +82,7 @@ public class ProjectWindowActionGroup extends DefaultActionGroup {
     return true;
   }
 
-  public void activateNextWindow(AnActionEvent e) {
+  public void activateNextWindow(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     if (project == null) {
       return;
@@ -107,7 +97,7 @@ public class ProjectWindowActionGroup extends DefaultActionGroup {
     }
   }
 
-  public void activatePreviousWindow(AnActionEvent e) {
+  public void activatePreviousWindow(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     if (project == null) {
       return;
@@ -150,7 +140,7 @@ public class ProjectWindowActionGroup extends DefaultActionGroup {
       final ProjectWindowAction windowAction = (ProjectWindowAction) child;
       if (projectName.equals(windowAction.getProjectName())) {
         if (result == null) {
-          result = new ArrayList<ProjectWindowAction>();
+          result = new ArrayList<>();
         }
         result.add(windowAction);
       }
@@ -160,4 +150,19 @@ public class ProjectWindowActionGroup extends DefaultActionGroup {
     }
     return result;
   }
+
+  @Override
+  public AnAction @NotNull [] getChildren(@Nullable AnActionEvent event) {
+    AnAction[] children = super.getChildren(event);
+    Arrays.sort(children, SORT_BY_NAME);
+    return children;
+  }
+
+  private static @Nullable String getProjectName(AnAction action) {
+    return action instanceof ProjectWindowAction ? ((ProjectWindowAction)action).getProjectName() : null;
+  }
+
+  private static final Comparator<AnAction> SORT_BY_NAME = (action1, action2) -> {
+    return StringUtil.naturalCompare(getProjectName(action1), getProjectName(action2));
+  };
 }

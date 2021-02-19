@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2016 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,37 +15,40 @@
  */
 package com.siyeh.ig.threading;
 
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.util.Key;
 import com.intellij.psi.*;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PropertyUtil;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.containers.HashMap;
+import com.intellij.util.containers.BooleanStack;
+import com.intellij.util.containers.Stack;
+import com.siyeh.ig.psiutils.SynchronizationUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 
-class VariableAccessVisitor extends JavaRecursiveElementVisitor {
+class VariableAccessVisitor extends JavaRecursiveElementWalkingVisitor {
 
   private final PsiClass aClass;
-  private final Set<PsiField> m_synchronizedAccesses =
-    new HashSet<PsiField>(2);
-  private final Set<PsiField> m_unsynchronizedAccesses =
-    new HashSet<PsiField>(2);
-  private final Set<PsiMethod> methodsAlwaysSynchronized =
-    new HashSet<PsiMethod>();
-  private final Set<PsiMethod> methodsNotAlwaysSynchronized =
-    new HashSet<PsiMethod>();
-  private final Set<PsiMethod> unusedMethods = new HashSet<PsiMethod>();
-  private final Set<PsiMethod> usedMethods = new HashSet<PsiMethod>();
-  private boolean m_inInitializer = false;
-  private boolean m_inSynchronizedContext = false;
-  private boolean privateMethodUsagesCalculated = false;
+  private final Set<PsiField> m_synchronizedAccesses = new HashSet<>(2);
+  private final Set<PsiField> m_unsynchronizedAccesses = new HashSet<>(2);
+  private final Set<PsiMethod> methodsAlwaysSynchronized = new HashSet<>();
+  private final Set<PsiMethod> methodsNotAlwaysSynchronized = new HashSet<>();
+  private final Set<PsiMethod> unusedMethods = new HashSet<>();
+  private final Set<PsiMethod> usedMethods = new HashSet<>();
+  private boolean m_inInitializer;
+  private int m_inSynchronizedContextCount;
+  private final Stack<Integer> contextStack = new Stack<>();
+  private final BooleanStack contextInitializerStack = new BooleanStack();
+  private boolean privateMethodUsagesCalculated;
   private final boolean countGettersAndSetters;
 
-  VariableAccessVisitor(PsiClass aClass, boolean countGettersAndSetters) {
+  VariableAccessVisitor(@NotNull PsiClass aClass, boolean countGettersAndSetters) {
     this.aClass = aClass;
     this.countGettersAndSetters = countGettersAndSetters;
   }
@@ -53,12 +56,24 @@ class VariableAccessVisitor extends JavaRecursiveElementVisitor {
   @Override
   public void visitClass(PsiClass classToVisit) {
     calculatePrivateMethodUsagesIfNecessary();
-    final boolean wasInSync = m_inSynchronizedContext;
     if (!classToVisit.equals(aClass)) {
-      m_inSynchronizedContext = false;
+      contextStack.push(m_inSynchronizedContextCount);
+      m_inSynchronizedContextCount = 0;
+
+      contextInitializerStack.push(m_inInitializer);
+      m_inInitializer = false;
     }
     super.visitClass(classToVisit);
-    m_inSynchronizedContext = wasInSync;
+  }
+
+  @Override
+  public void visitLambdaExpression(PsiLambdaExpression expression) {
+    contextStack.push(m_inSynchronizedContextCount);
+    m_inSynchronizedContextCount = 0;
+
+    contextInitializerStack.push(m_inInitializer);
+    m_inInitializer = false;
+    super.visitLambdaExpression(expression);
   }
 
   @Override
@@ -73,8 +88,9 @@ class VariableAccessVisitor extends JavaRecursiveElementVisitor {
       return;
     }
     if (m_inInitializer) {
+      return;
     }
-    else if (m_inSynchronizedContext) {
+    if (m_inSynchronizedContextCount > 0) {
       m_synchronizedAccesses.add((PsiField)element);
     }
     else if (ref.getParent() instanceof PsiSynchronizedStatement) {
@@ -109,8 +125,9 @@ class VariableAccessVisitor extends JavaRecursiveElementVisitor {
       return;
     }
     if (m_inInitializer) {
+      return;
     }
-    else if (m_inSynchronizedContext) {
+    if (m_inSynchronizedContextCount > 0) {
       m_synchronizedAccesses.add(field);
     }
     else {
@@ -120,12 +137,25 @@ class VariableAccessVisitor extends JavaRecursiveElementVisitor {
 
   @Override
   public void visitCodeBlock(PsiCodeBlock block) {
-    final boolean wasInSync = m_inSynchronizedContext;
     if (block.getParent() instanceof PsiSynchronizedStatement) {
-      m_inSynchronizedContext = true;
+      m_inSynchronizedContextCount++;
     }
     super.visitCodeBlock(block);
-    m_inSynchronizedContext = wasInSync;
+  }
+
+  private static final Key<Boolean> CODE_BLOCK_CONTAINS_HOLDS_LOCK_CALL = Key.create("CODE_BLOCK_CONTAINS_HOLDS_LOCK_CALL");
+
+  @Override
+  public void visitAssertStatement(PsiAssertStatement statement) {
+    final PsiExpression condition = statement.getAssertCondition();
+    if (SynchronizationUtil.isCallToHoldsLock(condition)) {
+      m_inSynchronizedContextCount++;
+      PsiElement codeBlock = statement.getParent();
+      if (codeBlock != null) {
+        codeBlock.putUserData(CODE_BLOCK_CONTAINS_HOLDS_LOCK_CALL, true);
+      }
+    }
+    super.visitAssertStatement(statement);
   }
 
   @Override
@@ -138,22 +168,14 @@ class VariableAccessVisitor extends JavaRecursiveElementVisitor {
     final boolean methodIsSynchronized =
       method.hasModifierProperty(PsiModifier.SYNCHRONIZED)
       || methodIsAlwaysUsedSynchronized(method);
-    boolean wasInSync = false;
     if (methodIsSynchronized) {
-      wasInSync = m_inSynchronizedContext;
-      m_inSynchronizedContext = true;
+      m_inSynchronizedContextCount++;
     }
     final boolean isConstructor = method.isConstructor();
     if (isConstructor) {
       m_inInitializer = true;
     }
     super.visitMethod(method);
-    if (methodIsSynchronized) {
-      m_inSynchronizedContext = wasInSync;
-    }
-    if (isConstructor) {
-      m_inInitializer = false;
-    }
   }
 
   private boolean methodIsAlwaysUsedSynchronized(PsiMethod method) {
@@ -177,18 +199,18 @@ class VariableAccessVisitor extends JavaRecursiveElementVisitor {
 
   private void determineUsageMap(HashMap<PsiMethod,
     Collection<PsiReference>> referenceMap) {
-    final Set<PsiMethod> remainingMethods =
-      new HashSet<PsiMethod>(usedMethods);
+    final Set<PsiMethod> remainingMethods = new HashSet<>(usedMethods);
     boolean stabilized = false;
     while (!stabilized) {
+      ProgressManager.checkCanceled();
       stabilized = true;
-      final Set<PsiMethod> methodsDeterminedThisPass =
-        new HashSet<PsiMethod>();
+      final Set<PsiMethod> methodsDeterminedThisPass = new HashSet<>();
       for (PsiMethod method : remainingMethods) {
-        final Collection<PsiReference> references =
-          referenceMap.get(method);
+        ProgressManager.checkCanceled();
+        final Collection<PsiReference> references = referenceMap.get(method);
         boolean areAllReferencesSynchronized = true;
         for (PsiReference reference : references) {
+          ProgressManager.checkCanceled();
           if (isKnownToBeUsed(reference)) {
             if (isInKnownUnsynchronizedContext(reference)) {
               methodsNotAlwaysSynchronized.add(method);
@@ -217,17 +239,18 @@ class VariableAccessVisitor extends JavaRecursiveElementVisitor {
   private void determineUsedMethods(
     Set<PsiMethod> privateMethods,
     HashMap<PsiMethod, Collection<PsiReference>> referenceMap) {
-    final Set<PsiMethod> remainingMethods =
-      new HashSet<PsiMethod>(privateMethods);
+    final Set<PsiMethod> remainingMethods = new HashSet<>(privateMethods);
     boolean stabilized = false;
     while (!stabilized) {
+      ProgressManager.checkCanceled();
       stabilized = true;
-      final Set<PsiMethod> methodsDeterminedThisPass =
-        new HashSet<PsiMethod>();
+      final Set<PsiMethod> methodsDeterminedThisPass = new HashSet<>();
       for (PsiMethod method : remainingMethods) {
+        ProgressManager.checkCanceled();
         final Collection<PsiReference> references =
           referenceMap.get(method);
         for (PsiReference reference : references) {
+          ProgressManager.checkCanceled();
           if (isKnownToBeUsed(reference)) {
             usedMethods.add(method);
             methodsDeterminedThisPass.add(method);
@@ -242,21 +265,21 @@ class VariableAccessVisitor extends JavaRecursiveElementVisitor {
 
   private static HashMap<PsiMethod, Collection<PsiReference>>
   buildReferenceMap(Set<PsiMethod> privateMethods) {
-    final HashMap<PsiMethod, Collection<PsiReference>> referenceMap =
-      new HashMap();
+    final HashMap<PsiMethod, Collection<PsiReference>> referenceMap = new HashMap<>();
     for (PsiMethod method : privateMethods) {
+      ProgressManager.checkCanceled();
       final SearchScope scope = method.getUseScope();
-      final Collection<PsiReference> references =
-        ReferencesSearch.search(method, scope).findAll();
+      final Collection<PsiReference> references = ReferencesSearch.search(method, scope).findAll();
       referenceMap.put(method, references);
     }
     return referenceMap;
   }
 
   private Set<PsiMethod> findPrivateMethods() {
-    final Set<PsiMethod> privateMethods = new HashSet<PsiMethod>();
+    final Set<PsiMethod> privateMethods = new HashSet<>();
     final PsiMethod[] methods = aClass.getMethods();
     for (PsiMethod method : methods) {
+      ProgressManager.checkCanceled();
       if (method.hasModifierProperty(PsiModifier.PRIVATE)) {
         privateMethods.add(method);
       }
@@ -280,8 +303,7 @@ class VariableAccessVisitor extends JavaRecursiveElementVisitor {
 
   private boolean isInKnownSynchronizedContext(PsiReference reference) {
     final PsiElement element = reference.getElement();
-    if (PsiTreeUtil.getParentOfType(element,
-                                    PsiSynchronizedStatement.class) != null) {
+    if (PsiTreeUtil.getParentOfType(element, PsiSynchronizedStatement.class) != null) {
       return true;
     }
     final PsiMethod method =
@@ -300,8 +322,7 @@ class VariableAccessVisitor extends JavaRecursiveElementVisitor {
 
   private boolean isInKnownUnsynchronizedContext(PsiReference reference) {
     final PsiElement element = reference.getElement();
-    if (PsiTreeUtil.getParentOfType(element,
-                                    PsiSynchronizedStatement.class) != null) {
+    if (PsiTreeUtil.getParentOfType(element, PsiSynchronizedStatement.class) != null) {
       return false;
     }
     final PsiMethod method =
@@ -325,19 +346,43 @@ class VariableAccessVisitor extends JavaRecursiveElementVisitor {
   public void visitClassInitializer(@NotNull PsiClassInitializer initializer) {
     m_inInitializer = true;
     super.visitClassInitializer(initializer);
-    m_inInitializer = false;
   }
 
   @Override
   public void visitField(@NotNull PsiField field) {
     m_inInitializer = true;
     super.visitField(field);
-    m_inInitializer = false;
   }
 
-  public Set<PsiField> getInappropriatelyAccessedFields() {
+  @Override
+  protected void elementFinished(@NotNull PsiElement element) {
+    if (element instanceof PsiField ||
+        element instanceof PsiClassInitializer ||
+        element instanceof PsiMethod && ((PsiMethod)element).isConstructor()) {
+      m_inInitializer = false;
+    }
+    if (element instanceof PsiClass && !element.equals(aClass) || element instanceof PsiLambdaExpression) {
+      m_inSynchronizedContextCount = contextStack.pop();
+      m_inInitializer = contextInitializerStack.pop();
+    }
+    if (element instanceof PsiCodeBlock && element.getParent() instanceof PsiSynchronizedStatement) {
+      m_inSynchronizedContextCount--;
+    }
+    else if (element instanceof PsiMethod) {
+      final PsiMethod method = (PsiMethod)element;
+      if (method.hasModifierProperty(PsiModifier.SYNCHRONIZED) || methodIsAlwaysUsedSynchronized(method)) {
+        m_inSynchronizedContextCount--;
+      }
+    }
+    if (element.getUserData(CODE_BLOCK_CONTAINS_HOLDS_LOCK_CALL) != null) {
+      m_inSynchronizedContextCount--;
+      element.putUserData(CODE_BLOCK_CONTAINS_HOLDS_LOCK_CALL, null);
+    }
+  }
+
+  Set<PsiField> getInappropriatelyAccessedFields() {
     final Set<PsiField> out =
-      new HashSet<PsiField>(m_synchronizedAccesses);
+      new HashSet<>(m_synchronizedAccesses);
     out.retainAll(m_unsynchronizedAccesses);
     return out;
   }

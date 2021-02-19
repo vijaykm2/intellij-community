@@ -21,7 +21,6 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiJavaFile;
-import com.intellij.psi.PsiMethod;
 import org.jetbrains.annotations.NotNull;
 
 public class GenerateSuperMethodCallAction extends BaseCodeInsightAction {
@@ -36,10 +35,6 @@ public class GenerateSuperMethodCallAction extends BaseCodeInsightAction {
     if (!(file instanceof PsiJavaFile)) {
       return false;
     }
-    PsiMethod method = GenerateSuperMethodCallHandler.canInsertSuper(project, editor, file);
-    if (method == null) {
-      return false;
-    }
-    return true;
+    return GenerateSuperMethodCallHandler.canInsertSuper(editor, file) != null;
   }
 }

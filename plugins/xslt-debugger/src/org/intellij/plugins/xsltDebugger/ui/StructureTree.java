@@ -16,22 +16,21 @@
 
 package org.intellij.plugins.xsltDebugger.ui;
 
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.DataProvider;
+import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.pom.Navigatable;
 import com.intellij.ui.PopupHandler;
 import com.intellij.ui.treeStructure.Tree;
 import org.intellij.plugins.xsltDebugger.ui.actions.CopyValueAction;
 import org.intellij.plugins.xsltDebugger.ui.actions.NavigateAction;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreePath;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 17.06.2007
- */
-public class StructureTree extends Tree implements TypeSafeDataProvider {
+public class StructureTree extends Tree implements DataProvider {
   public StructureTree(GeneratedStructureModel model) {
     super(model);
 
@@ -39,27 +38,24 @@ public class StructureTree extends Tree implements TypeSafeDataProvider {
     setRootVisible(false);
     setShowsRootHandles(true);
 
-    final DefaultActionGroup structureContextActions = new DefaultActionGroup("StructureContext", true);
+    final DefaultActionGroup structureContextActions = DefaultActionGroup.createPopupGroup(() -> "StructureContext");
     structureContextActions.add(NavigateAction.getInstance());
     structureContextActions.add(new CopyValueAction(this));
     PopupHandler.installFollowingSelectionTreePopup(this, structureContextActions, "XSLT.Debugger.GeneratedStructure", ActionManager.getInstance());
   }
 
-  public void calcData(DataKey key, DataSink sink) {
-    if (key.equals(CommonDataKeys.NAVIGATABLE)) {
-      final TreePath selection = getSelectionPath();
-      if (selection != null) {
-        final Object o = selection.getLastPathComponent();
-        if (o instanceof Navigatable) {
-          sink.put(CommonDataKeys.NAVIGATABLE, (Navigatable)o);
-        }
-      }
-    } else if (key.equals(CopyValueAction.SELECTED_NODE)) {
-      final TreePath selection = getSelectionPath();
-      if (selection != null) {
-        final Object o = selection.getLastPathComponent();
-        sink.put(CopyValueAction.SELECTED_NODE, (DefaultMutableTreeNode)o);
-      }
+  @Nullable
+  @Override
+  public Object getData(@NotNull String dataId) {
+    if (CommonDataKeys.NAVIGATABLE.is(dataId)) {
+      TreePath selection = getSelectionPath();
+      Object o = selection == null ? null : selection.getLastPathComponent();
+      return o instanceof Navigatable ? o : null;
     }
+    else if (CopyValueAction.SELECTED_NODE.is(dataId)) {
+      TreePath selection = getSelectionPath();
+      return selection == null ? null : selection.getLastPathComponent();
+    }
+    return null;
   }
 }

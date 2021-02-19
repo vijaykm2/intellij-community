@@ -15,7 +15,6 @@
  */
 package com.intellij.psi.impl.source.resolve.reference.impl.providers;
 
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
@@ -23,9 +22,6 @@ import com.intellij.psi.PsiReference;
 import com.intellij.psi.PsiReferenceProvider;
 import com.intellij.psi.filters.ElementFilter;
 import com.intellij.psi.xml.XmlAttribute;
-import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.Function;
 import com.intellij.util.ProcessingContext;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xml.util.XmlUtil;
@@ -37,7 +33,7 @@ import java.util.List;
 import java.util.StringTokenizer;
 
 /**
- * @by Maxim.Mossienko
+ * @author Maxim.Mossienko
  */
 public class URIReferenceProvider extends PsiReferenceProvider {
 
@@ -61,8 +57,7 @@ public class URIReferenceProvider extends PsiReferenceProvider {
   private static final String NAMESPACE_ATTR_NAME = "namespace";
 
   @Override
-  @NotNull
-  public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull final ProcessingContext context) {
+  public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull final ProcessingContext context) {
     final String text = element.getText();
     String s = StringUtil.unquoteString(text);
     final PsiElement parent = element.getParent();
@@ -70,7 +65,7 @@ public class URIReferenceProvider extends PsiReferenceProvider {
     if (parent instanceof XmlAttribute &&
         XmlUtil.SCHEMA_LOCATION_ATT.equals(((XmlAttribute)parent).getLocalName()) &&
         XmlUtil.XML_SCHEMA_INSTANCE_URI.equals(((XmlAttribute)parent).getNamespace())) {
-      final List<PsiReference> refs = new ArrayList<PsiReference>(2);
+      final List<PsiReference> refs = new ArrayList<>(2);
       final StringTokenizer tokenizer = new StringTokenizer(s);
 
       while(tokenizer.hasMoreElements()) {
@@ -78,26 +73,9 @@ public class URIReferenceProvider extends PsiReferenceProvider {
         int offset = text.indexOf(namespace);
         TextRange range = new TextRange(offset, offset + namespace.length());
         final URLReference urlReference = new URLReference(element, range, true) {
-          @NotNull
           @Override
-          public Object[] getVariants() {
-            XmlTag tag = (XmlTag)parent.getParent();
-            XmlAttribute[] attributes = tag.getAttributes();
-
-            return ContainerUtil.mapNotNull(attributes, new Function<XmlAttribute, Object>() {
-              @Override
-              public Object fun(final XmlAttribute attribute) {
-                final String attributeValue = attribute.getValue();
-                return attributeValue != null &&
-                       attribute.isNamespaceDeclaration() &&
-                       ContainerUtil.find(refs, new Condition<PsiReference>() {
-                         @Override
-                         public boolean value(PsiReference ref) {
-                           return ref.getCanonicalText().equals(attributeValue);
-                         }
-                       }) == null ? attributeValue + " " : null;
-              }
-            }, ArrayUtil.EMPTY_OBJECT_ARRAY);
+          public boolean isSchemaLocation() {
+            return true;
           }
         };
         refs.add(urlReference);
@@ -111,7 +89,7 @@ public class URIReferenceProvider extends PsiReferenceProvider {
         }
       }
 
-      return refs.toArray(new PsiReference[refs.size()]);
+      return refs.toArray(PsiReference.EMPTY_ARRAY);
     }
 
     PsiReference reference = getUrlReference(element, s);

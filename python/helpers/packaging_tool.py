@@ -33,7 +33,7 @@ def error(message, retcode):
 
 
 def error_no_pip():
-    tb = sys.exc_traceback
+    type, value, tb = sys.exc_info()
     if tb is not None and tb.tb_next is None:
         error("Python packaging tool 'pip' not found", ERROR_NO_PIP)
     else:
@@ -46,67 +46,58 @@ def do_list():
     except ImportError:
         error("Python packaging tool 'setuptools' not found", ERROR_NO_SETUPTOOLS)
     for pkg in pkg_resources.working_set:
-        requires = ':'.join([str(x) for x in pkg.requires()])
+        try:
+            requirements = pkg.requires()
+        except Exception:
+            requirements = []
+        requires = ':'.join([str(x) for x in requirements])
         sys.stdout.write('\t'.join([pkg.project_name, pkg.version, pkg.location, requires])+chr(10))
     sys.stdout.flush()
 
 
 def do_install(pkgs):
-    try:
-        import pip
-    except ImportError:
-        error_no_pip()
-    return pip.main(['install'] + pkgs)
+    run_pip(['install'] + pkgs)
 
 
 def do_uninstall(pkgs):
+    run_pip(['uninstall', '-y'] + pkgs)
+
+
+def run_pip(args):
+    import runpy
+    sys.argv[1:] = args
+    # pip.__main__ has been around since 2010 but support for executing it automatically
+    # was added in runpy.run_module only in Python 2.7/3.1
+    module_name = 'pip.__main__' if sys.version_info < (2, 7) else 'pip'
     try:
-        import pip
+        runpy.run_module(module_name, run_name='__main__', alter_sys=True)
     except ImportError:
         error_no_pip()
-    return pip.main(['uninstall', '-y'] + pkgs)
 
 
-def do_pyvenv(path, system_site_packages):
+def do_pyvenv(args):
+    import runpy
     try:
-        import venv
+        import ensurepip
+        sys.argv[1:] = args
+    except ImportError:
+        sys.argv[1:] = ['--without-pip'] + args
+
+    try:
+        runpy.run_module('venv', run_name='__main__', alter_sys=True)
     except ImportError:
         error("Standard Python 'venv' module not found", ERROR_EXCEPTION)
-    venv.create(path, system_site_packages=system_site_packages)
-
-
-def do_untar(name):
-    import tempfile
-
-    directory_name = tempfile.mkdtemp("pycharm-management")
-
-    import tarfile
-
-    tar = tarfile.open(name)
-    for item in tar:
-        tar.extract(item, directory_name)
-
-    sys.stdout.write(directory_name+chr(10))
-    sys.stdout.flush()
-    return 0
-
-
-def mkdtemp_ifneeded():
-    try:
-        ind = sys.argv.index('--build-dir')
-        if not os.path.exists(sys.argv[ind + 1]):
-            import tempfile
-
-            sys.argv[ind + 1] = tempfile.mkdtemp('pycharm-packaging')
-            return sys.argv[ind + 1]
-    except:
-        pass
-
-    return None
 
 
 def main():
-    retcode = 0
+    try:
+        # As a workaround for #885 in setuptools, don't expose other helpers
+        # in sys.path so as not no confuse it with possible combination of
+        # namespace/ordinary packages
+        sys.path.remove(os.path.dirname(__file__))
+    except ValueError:
+        pass
+
     try:
         if len(sys.argv) < 2:
             usage()
@@ -119,42 +110,25 @@ def main():
             if len(sys.argv) < 2:
                 usage()
 
-            rmdir = mkdtemp_ifneeded()
-
             pkgs = sys.argv[2:]
-            retcode = do_install(pkgs)
+            do_install(pkgs)
 
-            if rmdir is not None:
-                import shutil
-                shutil.rmtree(rmdir)
-
-
-        elif cmd == 'untar':
-            if len(sys.argv) < 2:
-                usage()
-            name = sys.argv[2]
-            retcode = do_untar(name)
         elif cmd == 'uninstall':
             if len(sys.argv) < 2:
                 usage()
             pkgs = sys.argv[2:]
-            retcode = do_uninstall(pkgs)
+            do_uninstall(pkgs)
         elif cmd == 'pyvenv':
             opts, args = getopt.getopt(sys.argv[2:], '', ['system-site-packages'])
             if len(args) != 1:
                 usage()
-            path = args[0]
-            system_site_packages = False
-            for opt, arg in opts:
-                if opt == '--system-site-packages':
-                    system_site_packages = True
-            do_pyvenv(path, system_site_packages)
+            do_pyvenv(sys.argv[2:])
         else:
             usage()
     except Exception:
         traceback.print_exc()
         exit(ERROR_EXCEPTION)
-    exit(retcode)
+
 
 if __name__ == '__main__':
     main()

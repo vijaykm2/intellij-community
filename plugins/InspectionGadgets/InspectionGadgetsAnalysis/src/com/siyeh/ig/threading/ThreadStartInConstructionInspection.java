@@ -34,13 +34,6 @@ public class ThreadStartInConstructionInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "thread.start.in.construction.display.name");
-  }
-
-  @Override
-  @NotNull
   public String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message(
       "thread.start.in.construction.problem.descriptor");
@@ -69,8 +62,7 @@ public class ThreadStartInConstructionInspection extends BaseInspection {
       }
     }
 
-    private class ThreadStartVisitor extends JavaRecursiveElementVisitor {
-
+    private class ThreadStartVisitor extends JavaRecursiveElementWalkingVisitor {
       @Override
       public void visitClass(PsiClass aClass) {
         // Do not recurse into.
@@ -94,7 +86,7 @@ public class ThreadStartInConstructionInspection extends BaseInspection {
         }
         final PsiParameterList parameterList =
           method.getParameterList();
-        if (parameterList.getParametersCount() != 0) {
+        if (!parameterList.isEmpty()) {
           return;
         }
         final PsiClass methodClass = method.getContainingClass();

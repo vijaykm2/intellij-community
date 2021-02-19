@@ -27,7 +27,7 @@ import com.intellij.psi.tree.ChildRoleBase;
 import org.jetbrains.annotations.NotNull;
 
 public class PsiThisExpressionImpl extends ExpressionPsiElement implements PsiThisExpression, Constants {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiThisExpressionImpl");
+  private static final Logger LOG = Logger.getInstance(PsiThisExpressionImpl.class);
 
   public PsiThisExpressionImpl() {
     super(THIS_EXPRESSION);
@@ -86,7 +86,7 @@ public class PsiThisExpressionImpl extends ExpressionPsiElement implements PsiTh
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
     if (i == JAVA_CODE_REFERENCE) {
@@ -113,6 +113,7 @@ public class PsiThisExpressionImpl extends ExpressionPsiElement implements PsiTh
     }
   }
 
+  @Override
   public String toString() {
     return "PsiThisExpression:" + getText();
   }

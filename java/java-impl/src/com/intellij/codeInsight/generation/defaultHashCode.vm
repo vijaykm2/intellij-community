@@ -52,7 +52,7 @@ public int hashCode() {
   #elseif ($field.boolean)
     ($fName ? 1 : 0)##
   #elseif ($field.float)
-    ($fName != +0.0f ? Float.floatToIntBits($fName) : 0)##
+    ($fName != +0.0f ? java.lang.Float.floatToIntBits($fName) : 0)##
   #elseif ($field.double)
     #set($tempName = "#getTempVarName()")
     (int) ($tempName ^ ($tempName >>> 32))##
@@ -73,7 +73,7 @@ public int hashCode() {
     final ##
     #end
   #set($tempName = "#getTempVarName()")
-  long $tempName = Double.doubleToLongBits($field.accessor);
+  long $tempName = java.lang.Double.doubleToLongBits($field.accessor);
   #end
 #end
 ##
@@ -114,13 +114,14 @@ public int hashCode() {
 #macro(addTempAssignment $field)
   #if ($field.double)
     #set($tempName = "#getTempVarName()")
-    $tempName = Double.doubleToLongBits($field.accessor);
+    $tempName = java.lang.Double.doubleToLongBits($field.accessor);
   #end
 #end
 ##
 #macro(addFieldHashCode $field $brace)
 #set($name = $field.accessor)
 #if ($field.notNull)#adjustHashCodeToArrays($field)
+#elseif ($field.array && $java_version > 4)#adjustHashCodeToArrays($field)
   #else
     #if ($brace)(##
     #end

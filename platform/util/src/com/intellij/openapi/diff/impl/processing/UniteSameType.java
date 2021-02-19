@@ -24,15 +24,14 @@ import com.intellij.util.diff.FilesTooBigForDiffException;
 import org.jetbrains.annotations.NotNull;
 
 class UniteSameType implements DiffCorrection {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.diff.impl.processing.UniteSameType");
+  private static final Logger LOG = Logger.getInstance(UniteSameType.class);
   public static final DiffCorrection INSTANCE = new UniteSameType();
   @Override
   public DiffFragment[] correct(DiffFragment[] fragments) {
     return unitSameTypes(covertSequentialOneSideToChange(unitSameTypes(fragments)));
   }
 
-  @NotNull
-  private static DiffFragment[] unitSameTypes(@NotNull DiffFragment[] fragments) {
+  private static DiffFragment @NotNull [] unitSameTypes(DiffFragment @NotNull [] fragments) {
     if (fragments.length < 2) return fragments;
     DiffCorrection.FragmentsCollector collector = new DiffCorrection.FragmentsCollector();
     DiffFragment previous = fragments[0];
@@ -50,16 +49,16 @@ class UniteSameType implements DiffCorrection {
     return collector.toArray();
   }
 
-  @NotNull
-  private static DiffFragment[] covertSequentialOneSideToChange(@NotNull DiffFragment[] fragments) {
+  private static DiffFragment @NotNull [] covertSequentialOneSideToChange(DiffFragment @NotNull [] fragments) {
     if (fragments.length < 2) return fragments;
     DiffCorrection.FragmentsCollector collector = new DiffCorrection.FragmentsCollector();
 //    DiffFragment previous = fragments[0];
     DiffFragment previous = null;
-    for (int i = 0; i < fragments.length; i++) {
-      DiffFragment fragment = fragments[i];
+    for (DiffFragment fragment : fragments) {
       if (fragment.isOneSide()) {
-        if (previous == null) previous = fragment;
+        if (previous == null) {
+          previous = fragment;
+        }
         else {
           FragmentSide side = FragmentSide.chooseSide(fragment);
           DiffString previousText = side.getText(previous);
@@ -67,7 +66,8 @@ class UniteSameType implements DiffCorrection {
           previous = side.createFragment(DiffString.concatenateNullable(previousText, side.getText(fragment)),
                                          side.getOtherText(previous), true);
         }
-      } else {
+      }
+      else {
         if (previous != null) collector.add(previous);
         previous = null;
         collector.add(fragment);

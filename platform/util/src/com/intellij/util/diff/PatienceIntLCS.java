@@ -17,7 +17,7 @@ package com.intellij.util.diff;
 
 import java.util.BitSet;
 
-public class PatienceIntLCS {
+class PatienceIntLCS {
   private final int[] myFirst;
   private final int[] mySecond;
 
@@ -29,11 +29,11 @@ public class PatienceIntLCS {
   private final BitSet myChanges1;
   private final BitSet myChanges2;
 
-  public PatienceIntLCS(int[] first, int[] second) {
+  PatienceIntLCS(int[] first, int[] second) {
     this(first, second, 0, first.length, 0, second.length, new BitSet(first.length), new BitSet(second.length));
   }
 
-  public PatienceIntLCS(int[] first, int[] second, int start1, int count1, int start2, int count2, BitSet changes1, BitSet changes2) {
+  PatienceIntLCS(int[] first, int[] second, int start1, int count1, int start2, int count2, BitSet changes1, BitSet changes2) {
     myFirst = first;
     mySecond = second;
     myStart1 = start1;
@@ -46,42 +46,58 @@ public class PatienceIntLCS {
   }
 
   public void execute() throws FilesTooBigForDiffException {
-    if (myCount1 == 0 && myCount2 == 0) {
+    execute(false);
+  }
+
+  public void execute(boolean failOnSmallReduction) throws FilesTooBigForDiffException {
+    int thresholdCheckCounter = failOnSmallReduction ? 2 : -1;
+    execute(myStart1, myCount1, myStart2, myCount2, thresholdCheckCounter);
+  }
+
+  private void execute(int start1, int count1, int start2, int count2, int thresholdCheckCounter) throws FilesTooBigForDiffException {
+    if (count1 == 0 && count2 == 0) {
       return;
     }
 
-    if (myCount1 == 0 || myCount2 == 0) {
-      addChange(myStart1, myCount1, myStart2, myCount2);
+    if (count1 == 0 || count2 == 0) {
+      addChange(start1, count1, start2, count2);
       return;
     }
 
-    int startOffset = matchForward(myStart1, myStart2);
-    int start1 = myStart1 + startOffset;
-    int start2 = myStart2 + startOffset;
+    int startOffset = matchForward(start1, count1, start2, count2);
+    start1 += startOffset;
+    start2 += startOffset;
+    count1 -= startOffset;
+    count2 -= startOffset;
 
-    int endOffset = matchBackward(myStart1 + myCount1 - 1, myStart2 + myCount2 - 1, start1, start2);
-    int count1 = myCount1 - startOffset - endOffset;
-    int count2 = myCount2 - startOffset - endOffset;
+    int endOffset = matchBackward(start1, count1, start2, count2);
+    count1 -= endOffset;
+    count2 -= endOffset;
 
     if (count1 == 0 || count2 == 0) {
       addChange(start1, count1, start2, count2);
     }
     else {
+      if (thresholdCheckCounter == 0) checkReduction(count1, count2);
+      thresholdCheckCounter = Math.max(-1, thresholdCheckCounter - 1);
+
       UniqueLCS uniqueLCS = new UniqueLCS(myFirst, mySecond, start1, count1, start2, count2);
       int[][] matching = uniqueLCS.execute();
 
       if (matching == null) {
-        IntLCS intLCS = new IntLCS(myFirst, mySecond, start1, count1, start2, count2, myChanges1, myChanges2);
-        intLCS.execute();
+        if (thresholdCheckCounter >= 0) checkReduction(count1, count2);
+        MyersLCS intLCS = new MyersLCS(myFirst, mySecond, start1, count1, start2, count2, myChanges1, myChanges2);
+        intLCS.executeLinear();
       }
       else {
         int s1, s2, c1, c2;
         int matched = matching[0].length;
         assert matched > 0;
 
-        PatienceIntLCS patienceDiff =
-          new PatienceIntLCS(myFirst, mySecond, start1, matching[0][0], start2, matching[1][0], myChanges1, myChanges2);
-        patienceDiff.execute();
+        c1 = matching[0][0];
+        c2 = matching[1][0];
+
+        execute(start1, c1, start2, c2, thresholdCheckCounter);
 
         for (int i = 1; i < matching[0].length; i++) {
           s1 = matching[0][i - 1] + 1;
@@ -91,8 +107,7 @@ public class PatienceIntLCS {
           c2 = matching[1][i] - s2;
 
           if (c1 > 0 || c2 > 0) {
-            patienceDiff = new PatienceIntLCS(myFirst, mySecond, start1 + s1, c1, start2 + s2, c2, myChanges1, myChanges2);
-            patienceDiff.execute();
+            execute(start1 + s1, c1, start2 + s2, c2, thresholdCheckCounter);
           }
         }
 
@@ -113,38 +128,43 @@ public class PatienceIntLCS {
           c2 = count2 - s2;
         }
 
-        patienceDiff = new PatienceIntLCS(myFirst, mySecond, start1 + s1, c1, start2 + s2, c2, myChanges1, myChanges2);
-        patienceDiff.execute();
+        execute(start1 + s1, c1, start2 + s2, c2, thresholdCheckCounter);
       }
     }
   }
 
-  private int matchForward(int offset1, int offset2) {
-    final int size = Math.min(myCount1 + myStart1 - offset1, myCount2 + myStart2 - offset2);
+  private int matchForward(int start1, int count1, int start2, int count2) {
+    final int size = Math.min(count1, count2);
     int idx = 0;
     for (int i = 0; i < size; i++) {
-      if (!(myFirst[offset1 + i] == mySecond[offset2 + i])) break;
+      if (!(myFirst[start1 + i] == mySecond[start2 + i])) break;
       ++idx;
     }
     return idx;
   }
 
-  private int matchBackward(int offset1, int offset2, int processedOffset1, int processedOffset2) {
-    final int size = Math.min(offset1 - processedOffset1 - 1, offset2 - processedOffset2 - 1);
+  private int matchBackward(int start1, int count1, int start2, int count2) {
+    final int size = Math.min(count1, count2);
     int idx = 0;
-    for (int i = 0; i < size; i++) {
-      if (!(myFirst[offset1 - i] == mySecond[offset2 - i])) break;
+    for (int i = 1; i <= size; i++) {
+      if (!(myFirst[start1 + count1 - i] == mySecond[start2 + count2 - i])) break;
       ++idx;
     }
     return idx;
   }
 
-  public void addChange(int start1, int count1, int start2, int count2) {
+  private void addChange(int start1, int count1, int start2, int count2) {
     myChanges1.set(start1, start1 + count1);
     myChanges2.set(start2, start2 + count2);
   }
 
   public BitSet[] getChanges() {
     return new BitSet[]{myChanges1, myChanges2};
+  }
+
+  private void checkReduction(int count1, int count2) throws FilesTooBigForDiffException {
+    if (count1 * 2 < myCount1) return;
+    if (count2 * 2 < myCount2) return;
+    throw new FilesTooBigForDiffException();
   }
 }

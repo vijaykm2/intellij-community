@@ -20,7 +20,6 @@ import com.intellij.psi.*;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.Processor;
 import com.intellij.util.Query;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
@@ -37,21 +36,15 @@ import java.util.Set;
 public class ExceptionFromCatchWhichDoesntWrapInspection extends BaseInspection {
 
   @SuppressWarnings("PublicField")
-  public boolean ignoreGetMessage = false;
+  public boolean ignoreGetMessage;
 
   @SuppressWarnings("PublicField")
-  public boolean ignoreCantWrap = false;
+  public boolean ignoreCantWrap;
 
   @Override
   @NotNull
   public String getID() {
     return "ThrowInsideCatchBlockWhichIgnoresCaughtException";
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("exception.from.catch.which.doesnt.wrap.display.name");
   }
 
   @Override
@@ -133,11 +126,11 @@ public class ExceptionFromCatchWhichDoesntWrapInspection extends BaseInspection 
 
   private class ReferenceFinder extends JavaRecursiveElementVisitor {
 
-    private final Set<PsiReferenceExpression> visited = new HashSet();
-    private boolean argumentsContainCatchParameter = false;
+    private final Set<PsiReferenceExpression> visited = new HashSet<>();
+    private boolean argumentsContainCatchParameter;
     private final PsiParameter parameter;
 
-    public ReferenceFinder(PsiParameter parameter) {
+    ReferenceFinder(PsiParameter parameter) {
       this.parameter = parameter;
     }
 
@@ -152,26 +145,23 @@ public class ExceptionFromCatchWhichDoesntWrapInspection extends BaseInspection 
         if (target instanceof PsiLocalVariable) {
           final PsiLocalVariable variable = (PsiLocalVariable)target;
           final Query<PsiReference> query = ReferencesSearch.search(variable, variable.getUseScope(), false);
-          query.forEach(new Processor<PsiReference>() {
-            @Override
-            public boolean process(PsiReference reference) {
-              final PsiElement element = reference.getElement();
-              final PsiElement parent = PsiTreeUtil.skipParentsOfType(element, PsiParenthesizedExpression.class);
-              if (!(parent instanceof PsiReferenceExpression)) {
-                return true;
-              }
-              final PsiElement grandParent = parent.getParent();
-              if (!(grandParent instanceof PsiMethodCallExpression)) {
-                return true;
-              }
-              final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)grandParent;
-              final PsiExpressionList argumentList = methodCallExpression.getArgumentList();
-              final PsiExpression[] arguments = argumentList.getExpressions();
-              for (PsiExpression argument : arguments) {
-                argument.accept(ReferenceFinder.this);
-              }
+          query.forEach(reference -> {
+            final PsiElement element = reference.getElement();
+            final PsiElement parent = PsiTreeUtil.skipParentsOfType(element, PsiParenthesizedExpression.class);
+            if (!(parent instanceof PsiReferenceExpression)) {
               return true;
             }
+            final PsiElement grandParent = parent.getParent();
+            if (!(grandParent instanceof PsiMethodCallExpression)) {
+              return true;
+            }
+            final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)grandParent;
+            final PsiExpressionList argumentList = methodCallExpression.getArgumentList();
+            final PsiExpression[] arguments = argumentList.getExpressions();
+            for (PsiExpression argument : arguments) {
+              argument.accept(this);
+            }
+            return true;
           });
           final PsiExpression initializer = variable.getInitializer();
           if (initializer != null) {
@@ -180,10 +170,7 @@ public class ExceptionFromCatchWhichDoesntWrapInspection extends BaseInspection 
         }
         return;
       }
-      if (ignoreGetMessage) {
-        argumentsContainCatchParameter = true;
-      }
-      else {
+      if (!ignoreGetMessage) {
         final PsiElement parent = expression.getParent();
         if (parent instanceof PsiReferenceExpression) {
           final PsiElement grandParent = parent.getParent();
@@ -191,11 +178,11 @@ public class ExceptionFromCatchWhichDoesntWrapInspection extends BaseInspection 
             return;
           }
         }
-        argumentsContainCatchParameter = true;
       }
+      argumentsContainCatchParameter = true;
     }
 
-    public boolean usesParameter() {
+    boolean usesParameter() {
       return argumentsContainCatchParameter;
     }
   }

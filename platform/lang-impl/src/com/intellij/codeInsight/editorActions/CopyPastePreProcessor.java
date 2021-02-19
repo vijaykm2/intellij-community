@@ -37,8 +37,14 @@ public interface CopyPastePreProcessor {
   String preprocessOnCopy(final PsiFile file, final int[] startOffsets, final int[] endOffsets, String text);
 
   /**
-   * Replaces pasted text. <code>text</code> value should be returned if no processing is required.
+   * Replaces pasted text. {@code text} value should be returned if no processing is required.
    */
   @NotNull
   String preprocessOnPaste(final Project project, final PsiFile file, final Editor editor, String text, final RawText rawText);
+
+  //For performance optimization implementations can return false in case when they dont have access to any other documents(psi file)
+  // except current one
+  default boolean requiresAllDocumentsToBeCommitted(@NotNull Editor editor, @NotNull Project project) {
+    return true;
+  }
 }

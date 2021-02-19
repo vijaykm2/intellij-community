@@ -15,10 +15,10 @@
  */
 package org.jetbrains.plugins.groovy.codeInspection.confusing;
 
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.literals.GrLiteral;
@@ -26,23 +26,9 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.literals
 public class GroovyOctalIntegerInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONFUSING_CODE_CONSTRUCTS;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Octal integer";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "Octal integer #ref #loc";
+    return GroovyBundle.message("inspection.message.octal.integer.ref");
   }
 
   @NotNull
@@ -50,7 +36,7 @@ public class GroovyOctalIntegerInspection extends BaseInspection {
   public BaseInspectionVisitor buildVisitor() {
     return new BaseInspectionVisitor() {
       @Override
-      public void visitLiteralExpression(GrLiteral literal) {
+      public void visitLiteralExpression(@NotNull GrLiteral literal) {
         super.visitLiteralExpression(literal);
         @NonNls final String text = literal.getText();
         if (!text.startsWith("0")) return;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,10 +28,10 @@ import org.jetbrains.annotations.NotNull;
 
 public class PyChangeSignatureProcessor extends ChangeSignatureProcessorBase {
 
-  protected PyChangeSignatureProcessor(Project project,
-                                       PyFunction method,
-                                       String newName,
-                                       PyParameterInfo[] parameterInfo) {
+  public PyChangeSignatureProcessor(Project project,
+                                    PyFunction method,
+                                    String newName,
+                                    PyParameterInfo[] parameterInfo) {
     super(project, generateChangeInfo(method, newName, parameterInfo));
   }
 
@@ -43,7 +43,7 @@ public class PyChangeSignatureProcessor extends ChangeSignatureProcessorBase {
 
   @NotNull
   @Override
-  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo[] usages) {
+  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo @NotNull [] usages) {
     return new PyChangeSignatureUsageViewDescriptor(usages);
   }
 }

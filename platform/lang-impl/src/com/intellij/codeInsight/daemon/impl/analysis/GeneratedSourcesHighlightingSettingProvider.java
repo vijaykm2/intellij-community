@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,18 +21,10 @@ import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author nik
- */
 public class GeneratedSourcesHighlightingSettingProvider extends DefaultHighlightingSettingProvider {
   @Nullable
   @Override
   public FileHighlightingSetting getDefaultSetting(@NotNull Project project, @NotNull VirtualFile file) {
-    for (GeneratedSourcesFilter filter : GeneratedSourcesFilter.EP_NAME.getExtensions()) {
-      if (filter.isGeneratedSource(file, project)) {
-        return FileHighlightingSetting.SKIP_INSPECTION;
-      }
-    }
-    return null;
+    return GeneratedSourcesFilter.isGeneratedSourceByAnyFilter(file, project) ? FileHighlightingSetting.SKIP_INSPECTION : null;
   }
 }

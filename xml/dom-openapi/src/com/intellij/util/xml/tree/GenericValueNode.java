@@ -68,13 +68,12 @@ public class GenericValueNode extends AbstractDomElementNode {
   }
 
   @Override
-  public SimpleNode[] getChildren() {
+  public SimpleNode @NotNull [] getChildren() {
     return NO_CHILDREN;
   }
 
   @Override
-  @NotNull
-  public Object[] getEqualityObjects() {
+  public Object @NotNull [] getEqualityObjects() {
     return new Object[]{myModelElement};
   }
 }

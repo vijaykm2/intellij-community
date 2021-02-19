@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2018 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,11 +20,15 @@ import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.StdModuleTypes;
 import com.intellij.openapi.module.impl.ModuleEx;
 import com.intellij.openapi.module.impl.scopes.LibraryScope;
-import com.intellij.openapi.roots.*;
+import com.intellij.openapi.roots.DependencyScope;
+import com.intellij.openapi.roots.ModuleRootManager;
+import com.intellij.openapi.roots.ModuleRootModificationUtil;
+import com.intellij.openapi.roots.OrderEnumerator;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.impl.ResolveScopeManager;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.testFramework.ModuleTestCase;
+import com.intellij.testFramework.JavaModuleTestCase;
 import com.intellij.testFramework.PsiTestUtil;
 import com.intellij.testFramework.fixtures.impl.LightTempDirTestFixtureImpl;
 import com.intellij.util.PathsList;
@@ -35,19 +39,28 @@ import java.util.Collections;
 /**
  * @author yole
  */
-public class ModuleScopesTest extends ModuleTestCase {
+public class ModuleScopesTest extends JavaModuleTestCase {
   private LightTempDirTestFixtureImpl myFixture;
 
   @Override
   protected void setUp() throws Exception {
     super.setUp();
     myFixture = new LightTempDirTestFixtureImpl();
+    myFixture.setUp();
   }
 
   @Override
   protected void tearDown() throws Exception {
-    super.tearDown();
-    myFixture.deleteAll();
+    try {
+      myFixture.tearDown();
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      myFixture = null;
+      super.tearDown();
+    }
   }
 
   public void testBasics() throws Exception {
@@ -113,23 +126,20 @@ public class ModuleScopesTest extends ModuleTestCase {
                                     final boolean exported) {
     final Module moduleB = createModule(name + ".iml", StdModuleTypes.JAVA);
 
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      @Override
-      public void run() {
-        VirtualFile rootB = myFixture.findOrCreateDir(name);
-        VirtualFile outB = myFixture.findOrCreateDir("out");
+    ApplicationManager.getApplication().runWriteAction(() -> {
+      VirtualFile rootB = myFixture.findOrCreateDir(name);
+      VirtualFile outB = myFixture.findOrCreateDir("out");
 
-        ModuleRootModificationUtil.addDependency(moduleA, moduleB, scope, exported);
+      ModuleRootModificationUtil.addDependency(moduleA, moduleB, scope, exported);
 
-        PsiTestUtil.addSourceRoot(moduleB, rootB);
-        PsiTestUtil.setCompilerOutputPath(moduleB, outB.getUrl(), false);
-      }
+      PsiTestUtil.addSourceRoot(moduleB, rootB);
+      PsiTestUtil.setCompilerOutputPath(moduleB, outB.getUrl(), false);
     });
 
     return moduleB;
   }
 
-  public void testModuleTwiceInDependents() throws IOException {
+  public void testModuleTwiceInDependents() {
     Module m = createModule("m.iml", StdModuleTypes.JAVA);
     Module a = createModule("a.iml", StdModuleTypes.JAVA);
     Module b = createModule("b.iml", StdModuleTypes.JAVA);
@@ -142,13 +152,49 @@ public class ModuleScopesTest extends ModuleTestCase {
     
     VirtualFile root = myFixture.findOrCreateDir("c");
     PsiTestUtil.addSourceContentToRoots(c, root);
-    VirtualFile file = root.createChildData(this, "x.txt");
+    VirtualFile file = createChildData(root, "x.txt");
 
     GlobalSearchScope deps = m.getModuleWithDependentsScope();
     assertTrue(deps.contains(file));
   }
 
-  public void testTestOnlyLibraryDependency() throws IOException {
+  public void testModuleContentWithDependenciesScopeRootOrdering() {
+    Module m = createModule("m.iml", StdModuleTypes.JAVA);
+    Module a = createModule("a.iml", StdModuleTypes.JAVA);
+    Module b = createModule("b.iml", StdModuleTypes.JAVA);
+    Module c = createModule("c.iml", StdModuleTypes.JAVA);
+
+    ModuleRootModificationUtil.addDependency(b, m, DependencyScope.COMPILE, true);
+    ModuleRootModificationUtil.addDependency(a, b, DependencyScope.COMPILE, true);
+    ModuleRootModificationUtil.addDependency(a, m, DependencyScope.COMPILE, true);
+    ModuleRootModificationUtil.addDependency(c, a, DependencyScope.COMPILE, true);
+
+    VirtualFile mRoot = myFixture.findOrCreateDir("m");
+    PsiTestUtil.addSourceContentToRoots(m, mRoot);
+    VirtualFile aRoot = myFixture.findOrCreateDir("a");
+    PsiTestUtil.addSourceContentToRoots(a, aRoot);
+    VirtualFile bRoot = myFixture.findOrCreateDir("b");
+    PsiTestUtil.addSourceContentToRoots(b, bRoot);
+    VirtualFile cRoot = myFixture.findOrCreateDir("c");
+    PsiTestUtil.addSourceContentToRoots(c, cRoot);
+    VirtualFile file = createChildData(cRoot, "x.txt");
+
+    GlobalSearchScope deps = c.getModuleContentWithDependenciesScope();
+    assertTrue(deps.contains(file));
+
+    assertTrue(deps.compare(mRoot, aRoot) < 0);
+    assertTrue(deps.compare(mRoot, bRoot) < 0);
+    assertTrue(deps.compare(mRoot, cRoot) < 0);
+    assertTrue(deps.compare(bRoot, aRoot) < 0);
+    assertTrue(deps.compare(bRoot, cRoot) < 0);
+    assertTrue(deps.compare(aRoot, cRoot) < 0);
+    assertTrue(deps.compare(cRoot, mRoot) > 0);
+    assertTrue(deps.compare(cRoot, aRoot) > 0);
+    assertTrue(deps.compare(cRoot, bRoot) > 0);
+    assertEquals(0, deps.compare(cRoot, cRoot));
+  }
+
+  public void testTestOnlyLibraryDependency() {
     Module m = createModule("a.iml", StdModuleTypes.JAVA);
     addLibrary(m, DependencyScope.TEST);
     VirtualFile libraryClass = myFixture.createFile("lib/Test.class");
@@ -162,7 +208,7 @@ public class ModuleScopesTest extends ModuleTestCase {
     assertEmpty(productionCompilationClasspath);
   }
 
-  public void testRuntimeModuleDependency() throws IOException {
+  public void testRuntimeModuleDependency() {
     Module moduleA = createModule("a.iml", StdModuleTypes.JAVA);
     addDependentModule(moduleA, DependencyScope.RUNTIME);
     final VirtualFile[] runtimeClasspath = getRuntimeClasspath(moduleA);
@@ -173,7 +219,7 @@ public class ModuleScopesTest extends ModuleTestCase {
     assertEmpty(production);
   }
 
-  public void testRuntimeLibraryDependency() throws IOException {
+  public void testRuntimeLibraryDependency() {
     Module m = createModule("a.iml", StdModuleTypes.JAVA);
     VirtualFile libraryRoot = addLibrary(m, DependencyScope.RUNTIME);
 
@@ -193,7 +239,7 @@ public class ModuleScopesTest extends ModuleTestCase {
     assertTrue(m.getModuleRuntimeScope(false).contains(libraryClass));
   }
 
-  public void testProvidedModuleDependency() throws IOException {
+  public void testProvidedModuleDependency() {
     Module moduleA = createModule("a.iml", StdModuleTypes.JAVA);
     addDependentModule(moduleA, DependencyScope.PROVIDED);
     VirtualFile[] runtimeClasspath = getRuntimeClasspath(moduleA);
@@ -202,7 +248,7 @@ public class ModuleScopesTest extends ModuleTestCase {
     assertEquals(1, compilationClasspath.length);
   }
 
-  public void testProvidedLibraryDependency() throws IOException {
+  public void testProvidedLibraryDependency() {
     Module m = createModule("a.iml", StdModuleTypes.JAVA);
     VirtualFile libraryRoot = addLibrary(m, DependencyScope.PROVIDED);
 
@@ -237,15 +283,15 @@ public class ModuleScopesTest extends ModuleTestCase {
     final VirtualFile libraryRoot = myFixture.findOrCreateDir("lib");
 
     ModuleRootModificationUtil.addModuleLibrary(m, "l", Collections.singletonList(libraryRoot.getUrl()),
-                                                Collections.<String>emptyList(), scope);
+                                                Collections.emptyList(), scope);
     return libraryRoot;
   }
 
-  public void testLibUnderModuleContent() throws IOException {
+  public void testLibUnderModuleContent() {
     VirtualFile lib = myFixture.findOrCreateDir("lib");
     PsiTestUtil.addContentRoot(myModule, lib);
 
-    VirtualFile file = lib.createChildData(this, "a.txt");
+    VirtualFile file = createChildData(lib, "a.txt");
     addLibrary(myModule, DependencyScope.COMPILE);
     assertTrue(myModule.getModuleWithDependenciesAndLibrariesScope(false).contains(file));
   }
@@ -272,5 +318,24 @@ public class ModuleScopesTest extends ModuleTestCase {
     assertNotSame(depsTests, depsTests2);
     assertEquals(deps, deps2);
     assertEquals(depsTests, depsTests2);
+  }
+
+  public void testHonorExportsWhenCalculatingLibraryScope() throws IOException {
+    Module a = createModule("a.iml", StdModuleTypes.JAVA);
+    Module b = createModule("b.iml", StdModuleTypes.JAVA);
+    Module c = createModule("c.iml", StdModuleTypes.JAVA);
+    ModuleRootModificationUtil.addDependency(a, b, DependencyScope.COMPILE, true);
+    ModuleRootModificationUtil.addDependency(b, c, DependencyScope.COMPILE, true);
+
+    final VirtualFile libFile1 = myFixture.createFile("lib1/a.txt", "");
+    final VirtualFile libFile2 = myFixture.createFile("lib2/a.txt", "");
+
+    ModuleRootModificationUtil.addModuleLibrary(a, "l", Collections.singletonList(libFile1.getParent().getUrl()),
+                                                Collections.emptyList(), Collections.emptyList(), DependencyScope.COMPILE, true);
+    ModuleRootModificationUtil.addModuleLibrary(c, "l", Collections.singletonList(libFile2.getParent().getUrl()),
+                                                Collections.emptyList(), Collections.emptyList(), DependencyScope.COMPILE, true);
+
+    assertTrue(ResolveScopeManager.getElementResolveScope(getPsiManager().findFile(libFile1)).contains(libFile2));
+    assertTrue(ResolveScopeManager.getElementResolveScope(getPsiManager().findFile(libFile2)).contains(libFile1));
   }
 }

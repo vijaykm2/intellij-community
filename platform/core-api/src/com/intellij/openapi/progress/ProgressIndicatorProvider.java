@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package com.intellij.openapi.progress;
 
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -32,16 +31,8 @@ public abstract class ProgressIndicatorProvider {
 
   @Nullable
   public static ProgressIndicator getGlobalProgressIndicator() {
-    return getInstance().getProgressIndicator();
-  }
-
-  @NotNull
-  @Deprecated // use ProgressManager.executeNonCancelableSection() instead
-  public abstract NonCancelableSection startNonCancelableSection();
-
-  @NotNull
-  public static NonCancelableSection startNonCancelableSectionIfSupported() {
-    return getInstance().startNonCancelableSection();
+    ProgressManager instance = ProgressManager.ourInstance;
+    return instance == null ? null : instance.getProgressIndicator();
   }
 
   public static void checkCanceled() throws ProcessCanceledException {

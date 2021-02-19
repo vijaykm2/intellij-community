@@ -35,7 +35,7 @@ import java.util.List;
  *
  * @author Ilya.Kazakevich
  */
-@SuppressWarnings({"DeserializableClassInSecureContext", "SerializableClassInSecureContext"}) // Who will serialize panel?
+@SuppressWarnings({"SerializableClassInSecureContext"}) // Who will serialize panel?
 final class PanelWithActions extends JPanel {
   private PanelWithActions() {
 
@@ -54,7 +54,7 @@ final class PanelWithActions extends JPanel {
   static JComponent wrap(@NotNull final JComponent dataComponent,
                          @NotNull final Collection<Runnable> closeListeners,
                          @Nullable final JComponent actionListenerComponent,
-                         @NotNull final AnAction... customActions) {
+                         final AnAction @NotNull ... customActions) {
     final PanelWithActions instance = new PanelWithActions();
 
     // Box layout: panel goes to the left, console to the right
@@ -64,13 +64,15 @@ final class PanelWithActions extends JPanel {
     // use actions from console itself
 
 
-    final List<AnAction> actionList = new ArrayList<AnAction>(Arrays.asList(customActions));
+    final List<AnAction> actionList = new ArrayList<>(Arrays.asList(customActions));
     final DefaultActionGroup toolbarActions = new DefaultActionGroup();
     actionList.add(new MyCloseAction(closeListeners));
     toolbarActions.addAll(actionList);
 
     final ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.EDITOR_TOOLBAR, toolbarActions, false);
     toolbar.setTargetComponent(dataComponent);
+    // This method forces toolbar to add action buttons to its panel to make #getComponents() and #getPreferredSize() work correctly
+    toolbar.updateActionsImmediately();
 
     // TODO: Move GUI and alignment out of here.
     final JComponent toolbarComponent = toolbar.getComponent();
@@ -90,7 +92,7 @@ final class PanelWithActions extends JPanel {
    */
   private static final class MyCloseAction extends CloseAction {
     @NotNull
-    private final Collection<Runnable> myCloseListeners = new ArrayList<Runnable>();
+    private final Collection<Runnable> myCloseListeners = new ArrayList<>();
 
     /**
      * @param closeListeners engines to be called when user clicks "close"
@@ -100,13 +102,13 @@ final class PanelWithActions extends JPanel {
     }
 
     @Override
-    public void update(final AnActionEvent e) {
+    public void update(@NotNull final AnActionEvent e) {
       super.update(e);
-      e.getPresentation().setText(PyBundle.message("windowWithActions.closeWindow"));
+      e.getPresentation().setText(PyBundle.messagePointer("windowWithActions.closeWindow"));
     }
 
     @Override
-    public void actionPerformed(final AnActionEvent e) {
+    public void actionPerformed(@NotNull final AnActionEvent e) {
       super.actionPerformed(e);
       for (final Runnable closeListener : myCloseListeners) {
         closeListener.run();

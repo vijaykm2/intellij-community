@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package com.jetbrains.python.testing;
 
-import com.google.common.collect.Lists;
 import com.intellij.execution.DefaultExecutionResult;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.ExecutionResult;
@@ -24,43 +23,47 @@ import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.configurations.ParamsGroup;
 import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.runners.ExecutionEnvironment;
-import com.intellij.execution.testframework.TestFrameworkRunningModel;
+import com.intellij.execution.target.TargetEnvironment;
+import com.intellij.execution.target.TargetEnvironmentRequest;
+import com.intellij.execution.target.value.TargetEnvironmentFunctions;
 import com.intellij.execution.testframework.autotest.ToggleAutoTestAction;
 import com.intellij.execution.testframework.sm.SMTestRunnerConnectionUtil;
+import com.intellij.execution.testframework.sm.runner.SMTestLocator;
 import com.intellij.execution.testframework.sm.runner.ui.SMTRunnerConsoleView;
 import com.intellij.execution.testframework.ui.BaseTestsOutputConsoleView;
 import com.intellij.execution.ui.ConsoleView;
-import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Getter;
+import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.LocalFileSystem;
-import com.intellij.openapi.vfs.VirtualFile;
+import com.jetbrains.python.HelperPackage;
 import com.jetbrains.python.PythonHelpersLocator;
 import com.jetbrains.python.console.PythonDebugLanguageConsoleView;
-import com.jetbrains.python.run.AbstractPythonRunConfiguration;
-import com.jetbrains.python.run.CommandLinePatcher;
-import com.jetbrains.python.run.PythonCommandLineState;
-import com.jetbrains.python.sdk.PythonSdkType;
+import com.jetbrains.python.run.*;
+import com.jetbrains.python.sdk.PythonSdkUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.concurrency.AsyncPromise;
 
-import java.io.File;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * @author yole
  */
-public abstract class PythonTestCommandLineStateBase extends PythonCommandLineState {
-  protected final AbstractPythonRunConfiguration myConfiguration;
+public abstract class PythonTestCommandLineStateBase<T extends AbstractPythonRunConfiguration<?>> extends PythonCommandLineState {
+  protected final T myConfiguration;
 
-  public AbstractPythonRunConfiguration getConfiguration() {
+  public T getConfiguration() {
     return myConfiguration;
   }
 
-  public PythonTestCommandLineStateBase(AbstractPythonRunConfiguration configuration, ExecutionEnvironment env) {
+  public PythonTestCommandLineStateBase(T configuration, ExecutionEnvironment env) {
     super(configuration, env);
     myConfiguration = configuration;
+    setRunWithPty(false);
   }
 
   @Override
@@ -72,26 +75,37 @@ public abstract class PythonTestCommandLineStateBase extends PythonCommandLineSt
 
     if (isDebug()) {
       final ConsoleView testsOutputConsoleView = SMTestRunnerConnectionUtil.createConsole(PythonTRunnerConsoleProperties.FRAMEWORK_NAME,
-                                                                                      consoleProperties,
-                                                                                      getEnvironment());
-      final ConsoleView consoleView = new PythonDebugLanguageConsoleView(project, PythonSdkType.findSdkByPath(myConfiguration.getInterpreterPath()), testsOutputConsoleView);
+                                                                                          consoleProperties);
+      final ConsoleView consoleView =
+        new PythonDebugLanguageConsoleView(project, PythonSdkUtil.findSdkByPath(myConfiguration.getInterpreterPath()),
+                                           testsOutputConsoleView, true);
       consoleView.attachToProcess(processHandler);
+      addTracebackFilter(project, consoleView, processHandler);
       return consoleView;
     }
     final ConsoleView consoleView = SMTestRunnerConnectionUtil.createAndAttachConsole(PythonTRunnerConsoleProperties.FRAMEWORK_NAME,
                                                                                       processHandler,
-                                                                                      consoleProperties,
-                                                                                      getEnvironment());
+                                                                                      consoleProperties);
     addTracebackFilter(project, consoleView, processHandler);
     return consoleView;
   }
 
   protected PythonTRunnerConsoleProperties createConsoleProperties(Executor executor) {
-    return new PythonTRunnerConsoleProperties(myConfiguration, executor, false);
+    final PythonTRunnerConsoleProperties properties = new PythonTRunnerConsoleProperties(myConfiguration, executor, true, getTestLocator());
+    if (myConfiguration.isIdTestBased()) {
+      properties.makeIdTestBased();
+    }
+    return properties;
   }
 
+  @Nullable
+  protected SMTestLocator getTestLocator() {
+    return null;  // by default, the IDE will use a "file://" protocol locator
+  }
+
+  @NotNull
   @Override
-  public GeneralCommandLine generateCommandLine() throws ExecutionException {
+  public GeneralCommandLine generateCommandLine() {
     GeneralCommandLine cmd = super.generateCommandLine();
 
     setWorkingDirectory(cmd);
@@ -104,70 +118,134 @@ public abstract class PythonTestCommandLineStateBase extends PythonCommandLineSt
     return cmd;
   }
 
+  @Override
+  protected @NotNull PythonExecution buildPythonExecution(@NotNull TargetEnvironmentRequest targetEnvironmentRequest) {
+    PythonScriptExecution testScriptExecution = PythonScripts.prepareHelperScriptExecution(getRunner(), targetEnvironmentRequest);
+    addBeforeParameters(testScriptExecution);
+    addTestSpecsAsParameters(testScriptExecution, getTestSpecs());
+    addAfterParameters(targetEnvironmentRequest, testScriptExecution);
+    return testScriptExecution;
+  }
+
   protected void setWorkingDirectory(@NotNull final GeneralCommandLine cmd) {
-    final String workingDirectory = myConfiguration.getWorkingDirectory();
-    if (!StringUtil.isEmptyOrSpaces(workingDirectory)) {
-      cmd.withWorkDirectory(workingDirectory);
+    String workingDirectory = myConfiguration.getWorkingDirectory();
+    if (StringUtil.isEmptyOrSpaces(workingDirectory)) {
+      workingDirectory = myConfiguration.getWorkingDirectorySafe();
     }
-    else if (myConfiguration instanceof AbstractPythonTestRunConfiguration) {
-      final String folderName = ((AbstractPythonTestRunConfiguration)myConfiguration).getFolderName();
-      if (!StringUtil.isEmptyOrSpaces(folderName)) {
-        cmd.withWorkDirectory(folderName);
-      }
-      else {
-        final String scriptName = ((AbstractPythonTestRunConfiguration)myConfiguration).getScriptName();
-        if (StringUtil.isEmptyOrSpaces(scriptName)) return;
-        final VirtualFile script = LocalFileSystem.getInstance().findFileByPath(scriptName);
-        if (script == null) return;
-        cmd.withWorkDirectory(script.getParent().getPath());
-      }
-    }
+    cmd.withWorkDirectory(workingDirectory);
   }
 
   @Override
-  public ExecutionResult execute(Executor executor, CommandLinePatcher... patchers) throws ExecutionException {
-    final ProcessHandler processHandler = startProcess(patchers);
-    final ConsoleView console = createAndAttachConsole(myConfiguration.getProject(), processHandler, executor);
-
-    List<AnAction> actions = Lists
-      .newArrayList(createActions(console, processHandler));
+  public ExecutionResult execute(Executor executor, PythonProcessStarter processStarter, CommandLinePatcher... patchers)
+    throws ExecutionException {
+    final ProcessHandler processHandler = startProcess(processStarter, patchers);
+    ConsoleView console = invokeAndWait(() -> createAndAttachConsole(myConfiguration.getProject(), processHandler, executor));
 
     DefaultExecutionResult executionResult =
-      new DefaultExecutionResult(console, processHandler, actions.toArray(new AnAction[actions.size()]));
+      new DefaultExecutionResult(console, processHandler, createActions(console, processHandler));
 
     PyRerunFailedTestsAction rerunFailedTestsAction = new PyRerunFailedTestsAction(console);
     if (console instanceof SMTRunnerConsoleView) {
       rerunFailedTestsAction.init(((BaseTestsOutputConsoleView)console).getProperties());
-      rerunFailedTestsAction.setModelProvider(new Getter<TestFrameworkRunningModel>() {
-      @Override
-      public TestFrameworkRunningModel get() {
-        return ((SMTRunnerConsoleView)console).getResultsViewer();
-      }
-    });
+      rerunFailedTestsAction.setModelProvider(() -> ((SMTRunnerConsoleView)console).getResultsViewer());
     }
 
     executionResult.setRestartActions(rerunFailedTestsAction, new ToggleAutoTestAction());
     return executionResult;
   }
 
-  protected void addBeforeParameters(GeneralCommandLine cmd) throws ExecutionException {}
-  protected void addAfterParameters(GeneralCommandLine cmd) throws ExecutionException {}
+  @Override
+  public @NotNull ExecutionResult execute(Executor executor, @NotNull PythonScriptTargetedCommandLineBuilder converter)
+    throws ExecutionException {
+    ProcessHandler processHandler = startProcess(converter);
+    ConsoleView console = invokeAndWait(() -> createAndAttachConsole(myConfiguration.getProject(), processHandler, executor));
 
-  protected void addTestRunnerParameters(GeneralCommandLine cmd) throws ExecutionException {
-    ParamsGroup script_params = cmd.getParametersList().getParamsGroup(GROUP_SCRIPT);
-    assert script_params != null;
-    script_params.addParameter(new File(PythonHelpersLocator.getHelpersRoot(), getRunner()).getAbsolutePath());
+    DefaultExecutionResult executionResult =
+      new DefaultExecutionResult(console, processHandler, createActions(console, processHandler));
+
+    PyRerunFailedTestsAction rerunFailedTestsAction = new PyRerunFailedTestsAction(console);
+    if (console instanceof SMTRunnerConsoleView) {
+      rerunFailedTestsAction.init(((BaseTestsOutputConsoleView)console).getProperties());
+      rerunFailedTestsAction.setModelProvider(() -> ((SMTRunnerConsoleView)console).getResultsViewer());
+    }
+
+    executionResult.setRestartActions(rerunFailedTestsAction, new ToggleAutoTestAction());
+    return executionResult;
+  }
+
+  protected static <T, E extends Throwable> @NotNull T invokeAndWait(ThrowableComputable<@NotNull T, E> computable) {
+    AsyncPromise<T> promise = new AsyncPromise<>();
+    ApplicationManager.getApplication().invokeAndWait(() -> {
+      try {
+        promise.setResult(computable.compute());
+      }
+      catch (Throwable error) {
+        promise.setError(error);
+      }
+    });
+    return Objects.requireNonNull(promise.get(), "The execution was cancelled");
+  }
+
+  /**
+   * To be deprecated.
+   * <p>
+   * The part of the legacy implementation based on {@link GeneralCommandLine}.
+   */
+  protected void addBeforeParameters(GeneralCommandLine cmd) {}
+
+  /**
+   * To be deprecated.
+   * <p>
+   * The part of the legacy implementation based on {@link GeneralCommandLine}.
+   */
+  protected void addAfterParameters(GeneralCommandLine cmd) {}
+
+  /**
+   * To be deprecated.
+   * <p>
+   * The part of the legacy implementation based on {@link GeneralCommandLine}.
+   */
+  protected void addTestRunnerParameters(GeneralCommandLine cmd) {
+    ParamsGroup scriptParams = cmd.getParametersList().getParamsGroup(GROUP_SCRIPT);
+    assert scriptParams != null;
+    getRunner().addToGroup(scriptParams, cmd);
     addBeforeParameters(cmd);
-    script_params.addParameters(getTestSpecs());
+    myConfiguration.addTestSpecsAsParameters(scriptParams, getTestSpecs());
     addAfterParameters(cmd);
   }
 
+  protected void addBeforeParameters(@NotNull PythonScriptExecution testScriptExecution) {}
+
+  /**
+   * Adds test specs (like method, class, script, etc) to list of runner parameters.
+   */
+  protected void addTestSpecsAsParameters(@NotNull PythonScriptExecution testScriptExecution, @NotNull final List<String> testSpecs) {
+    // By default we simply add them as arguments
+    testSpecs.forEach(parameter -> testScriptExecution.addParameter(parameter));
+  }
+
+  protected void addAfterParameters(@NotNull TargetEnvironmentRequest targetEnvironmentRequest,
+                                    @NotNull PythonScriptExecution testScriptExecution) {}
+
   @Override
-  public void addPredefinedEnvironmentVariables(Map<String, String> envs, boolean passParentEnvs) {
-    super.addPredefinedEnvironmentVariables(envs, passParentEnvs);
+  public void customizeEnvironmentVars(Map<String, String> envs, boolean passParentEnvs) {
+    super.customizeEnvironmentVars(envs, passParentEnvs);
     envs.put("PYCHARM_HELPERS_DIR", PythonHelpersLocator.getHelperPath("pycharm"));
   }
 
-  protected abstract String getRunner();
+  @Override
+  public void customizePythonExecutionEnvironmentVars(@NotNull TargetEnvironmentRequest targetEnvironmentRequest,
+                                                      @NotNull Map<String, Function<TargetEnvironment, String>> envs,
+                                                      boolean passParentEnvs) {
+    super.customizePythonExecutionEnvironmentVars(targetEnvironmentRequest, envs, passParentEnvs);
+    String pycharmHelperPath = PythonHelpersLocator.getHelperPath("pycharm");
+    Function<TargetEnvironment, String> targetPycharmHelpersPath =
+      TargetEnvironmentFunctions.getTargetEnvironmentValueForLocalPath(targetEnvironmentRequest, pycharmHelperPath);
+    envs.put("PYCHARM_HELPERS_DIR", targetPycharmHelpersPath);
+  }
+
+  protected abstract HelperPackage getRunner();
+
+  @NotNull
   protected abstract List<String> getTestSpecs();
 }

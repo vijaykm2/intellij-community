@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,12 +16,13 @@
 
 package com.intellij.usages.impl;
 
+import com.intellij.openapi.application.AppUIExecutor;
 import com.intellij.openapi.project.Project;
-import com.intellij.ui.IdeBorderFactory;
+import com.intellij.ui.components.JBPanelWithEmptyText;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usages.UsageContextPanel;
 import com.intellij.usages.UsageViewPresentation;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,10 +30,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.List;
 
-/**
- * @author cdr
- */
-public abstract class UsageContextPanelBase extends JPanel implements UsageContextPanel {
+public abstract class UsageContextPanelBase extends JBPanelWithEmptyText implements UsageContextPanel {
   protected final Project myProject;
   @NotNull protected final UsageViewPresentation myPresentation;
   protected volatile boolean isDisposed;
@@ -41,7 +39,7 @@ public abstract class UsageContextPanelBase extends JPanel implements UsageConte
     myProject = project;
     myPresentation = presentation;
     setLayout(new BorderLayout());
-    setBorder(IdeBorderFactory.createBorder());
+    setBorder(JBUI.Borders.empty());
   }
 
   @NotNull
@@ -57,15 +55,9 @@ public abstract class UsageContextPanelBase extends JPanel implements UsageConte
   }
 
   @Override
-  public final void updateLayout(@Nullable final List<UsageInfo> infos) {
-    UIUtil.invokeLaterIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        if (isDisposed || myProject.isDisposed()) return;
-        updateLayoutLater(infos);
-      }
-    });
+  public final void updateLayout(@Nullable final List<? extends UsageInfo> infos) {
+    AppUIExecutor.onUiThread().withDocumentsCommitted(myProject).expireWith(this).execute(() -> updateLayoutLater(infos));
   }
 
-  protected abstract void updateLayoutLater(@Nullable List<UsageInfo> infos);
+  protected abstract void updateLayoutLater(@Nullable List<? extends UsageInfo> infos);
 }

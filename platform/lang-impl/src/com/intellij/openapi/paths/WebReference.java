@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,22 +16,35 @@
 package com.intellij.openapi.paths;
 
 import com.intellij.ide.BrowserUtil;
+import com.intellij.model.psi.PsiExternalReferenceHost;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiReferenceBase;
+import com.intellij.psi.*;
 import com.intellij.psi.impl.FakePsiElement;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Eugene.Kudelevsky
  */
 public class WebReference extends PsiReferenceBase<PsiElement> {
+  @Nullable private final String myUrl;
+  
   public WebReference(@NotNull PsiElement element) {
+    this(element, (String)null);
+  }
+  
+  public WebReference(@NotNull PsiElement element, @Nullable String url) {
     super(element, true);
+    myUrl = url;
   }
 
   public WebReference(@NotNull PsiElement element, @NotNull TextRange textRange) {
+    this(element, textRange, null);
+  }
+
+  public WebReference(@NotNull PsiElement element, TextRange textRange, @Nullable String url) {
     super(element, textRange, true);
+    myUrl = url;
   }
 
   @Override
@@ -39,17 +52,11 @@ public class WebReference extends PsiReferenceBase<PsiElement> {
     return new MyFakePsiElement();
   }
 
-  protected String getUrl() {
-    return getValue();
+  public String getUrl() {
+    return myUrl != null ? myUrl : getValue();
   }
 
-  @NotNull
-  @Override
-  public Object[] getVariants() {
-    return EMPTY_ARRAY;
-  }
-
-  class MyFakePsiElement extends FakePsiElement {
+  class MyFakePsiElement extends FakePsiElement implements SyntheticElement {
     @Override
     public PsiElement getParent() {
       return myElement;
@@ -77,5 +84,13 @@ public class WebReference extends PsiReferenceBase<PsiElement> {
       final TextRange elementRange = myElement.getTextRange();
       return elementRange != null ? rangeInElement.shiftRight(elementRange.getStartOffset()) : rangeInElement;
     }
+  }
+
+  /**
+   * Optimization method to greatly reduce frequency of potentially expensive {@link PsiElement#getReferences()} calls
+   * @return true if the element is able to contain WebReference
+   */
+  public static boolean isWebReferenceWorthy(@NotNull PsiElement element) {
+    return element instanceof HintedReferenceHost || element instanceof ContributedReferenceHost || element instanceof PsiExternalReferenceHost;
   }
 }

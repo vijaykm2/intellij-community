@@ -22,12 +22,12 @@ import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiMethod;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Arrays;
+import java.util.Collections;
 
 /**
  * Inserts the method at the caret position.
  */
-public class InsertAtCaretStrategy implements InsertNewMethodStrategy {
+public final class InsertAtCaretStrategy implements InsertNewMethodStrategy {
 
   private static final InsertAtCaretStrategy instance = new InsertAtCaretStrategy();
 
@@ -37,10 +37,11 @@ public class InsertAtCaretStrategy implements InsertNewMethodStrategy {
     return instance;
   }
 
+  @Override
   public PsiMethod insertNewMethod(PsiClass clazz, @NotNull PsiMethod newMethod, Editor editor) {
     int offset = (editor != null) ? editor.getCaretModel().getOffset() : (clazz.getTextRange().getEndOffset() - 1);
-    final PsiGenerationInfo<PsiMethod> generationInfo = new PsiGenerationInfo<PsiMethod>(newMethod, false);
-    GenerateMembersUtil.insertMembersAtOffset(clazz.getContainingFile(), offset, Arrays.asList(generationInfo));
+    final PsiGenerationInfo<PsiMethod> generationInfo = new PsiGenerationInfo<>(newMethod, false);
+    GenerateMembersUtil.insertMembersAtOffset(clazz, offset, Collections.singletonList(generationInfo));
     return generationInfo.getPsiMember();
   }
 

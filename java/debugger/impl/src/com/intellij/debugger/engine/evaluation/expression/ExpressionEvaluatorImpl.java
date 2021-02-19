@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
  */
 package com.intellij.debugger.engine.evaluation.expression;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
 import com.intellij.debugger.engine.evaluation.EvaluationContext;
@@ -23,26 +23,12 @@ import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.sun.jdi.Value;
 
-/**
- * Created by IntelliJ IDEA.
- * User: lex
- * Date: Jul 15, 2003
- * Time: 1:44:35 PM
- * To change this template use Options | File Templates.
- */
 public class ExpressionEvaluatorImpl implements ExpressionEvaluator {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.engine.evaluation.expression.ExpressionEvaluator");
-  Evaluator myEvaluator;
-  Value myValue;
+  private static final Logger LOG = Logger.getInstance(ExpressionEvaluator.class);
+  private final Evaluator myEvaluator;
 
   public ExpressionEvaluatorImpl(Evaluator evaluator) {
     myEvaluator = evaluator;
-  }
-
-  //call evaluate before
-  @Override
-  public Value getValue() {
-    return myValue;
   }
 
   //call evaluate before
@@ -55,7 +41,7 @@ public class ExpressionEvaluatorImpl implements ExpressionEvaluator {
   @Override
   public Value evaluate(final EvaluationContext context) throws EvaluateException {
     if (!context.getDebugProcess().isAttached()) {
-      throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("error.vm.disconnected"));
+      throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("error.vm.disconnected"));
     }
     try {
       if (context.getFrameProxy() == null) {
@@ -66,16 +52,16 @@ public class ExpressionEvaluatorImpl implements ExpressionEvaluator {
 
       if (value != null && !(value instanceof Value)) {
         throw EvaluateExceptionUtil
-          .createEvaluateException(DebuggerBundle.message("evaluation.error.invalid.expression", ""));
+          .createEvaluateException(JavaDebuggerBundle.message("evaluation.error.invalid.expression", ""));
       }
 
-      myValue = (Value)value;
-      return myValue;
+      return (Value)value;
+    }
+    catch (ReturnEvaluator.ReturnException r) {
+      return (Value)r.getReturnValue();
     }
     catch (Throwable/*IncompatibleThreadStateException*/ e) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug(e);
-      }
+      LOG.debug(e);
       if (e instanceof EvaluateException) {
         throw ((EvaluateException)e);
       }

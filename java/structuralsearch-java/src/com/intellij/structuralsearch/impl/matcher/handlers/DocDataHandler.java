@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.impl.matcher.handlers;
 
 import com.intellij.psi.JavaDocTokenType;
@@ -6,6 +7,7 @@ import com.intellij.psi.javadoc.PsiDocTagValue;
 import com.intellij.psi.javadoc.PsiDocToken;
 import com.intellij.structuralsearch.impl.matcher.MatchContext;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -20,7 +22,8 @@ public class DocDataHandler extends MatchingHandler {
     Pattern.CASE_INSENSITIVE
   );
 
-  public boolean match(PsiElement node, PsiElement match, MatchContext context) {
+  @Override
+  public boolean match(PsiElement node, PsiElement match, @NotNull MatchContext context) {
     String text1 = node.getText();
 
     text1 = getTextFromNode(node, text1);

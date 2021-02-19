@@ -16,10 +16,15 @@
 
 package com.intellij.ide.hierarchy;
 
+import com.intellij.icons.AllIcons;
+import com.intellij.ide.tags.TagManager;
 import com.intellij.ide.util.treeView.NodeRenderer;
+import com.intellij.ui.RowIcon;
+import com.intellij.util.IconUtil;
+import com.intellij.util.ui.tree.TreeUtil;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import javax.swing.tree.DefaultMutableTreeNode;
 import java.awt.*;
 
 /**
@@ -39,16 +44,29 @@ public final class HierarchyNodeRenderer extends NodeRenderer {
   }
 
   @Override
-  public void customizeCellRenderer(final JTree tree, final Object value, final boolean selected, final boolean expanded, final boolean leaf,
-                                    final int row, final boolean hasFocus) {
-    if (value instanceof DefaultMutableTreeNode) {
-      final DefaultMutableTreeNode node = (DefaultMutableTreeNode)value;
-      final Object object = node.getUserObject();
-      if (object instanceof HierarchyNodeDescriptor) {
-        final HierarchyNodeDescriptor descriptor = (HierarchyNodeDescriptor)object;
-        descriptor.getHighlightedText().customize(this);
-        setIcon(descriptor.getIcon());
+  public void customizeCellRenderer(@NotNull JTree tree, Object value,
+                                    boolean selected, boolean expanded, boolean leaf,
+                                    int row, boolean hasFocus) {
+    Object userObject = TreeUtil.getUserObject(value);
+    if (userObject instanceof HierarchyNodeDescriptor) {
+      HierarchyNodeDescriptor descriptor = (HierarchyNodeDescriptor)userObject;
+      Icon tagIcon = TagManager.appendTags(descriptor.getPsiElement(), this);
+      descriptor.getHighlightedText().customize(this);
+      Icon icon = fixIconIfNeeded(descriptor.getIcon(), selected, hasFocus);
+      if (tagIcon != null) {
+        icon = new RowIcon(tagIcon, icon);
       }
+      setIcon(icon);
     }
+    else {
+      super.customizeCellRenderer(tree, value, selected, expanded, leaf, row, hasFocus);
+    }
+  }
+
+  @Override
+  protected Icon fixIconIfNeeded(Icon icon, boolean selected, boolean hasFocus) {
+    return IconUtil.replaceInnerIcon(super.fixIconIfNeeded(icon, selected, hasFocus),
+                                     selected ? AllIcons.General.Modified : AllIcons.General.ModifiedSelected,
+                                     selected ? AllIcons.General.ModifiedSelected : AllIcons.General.Modified);
   }
 }

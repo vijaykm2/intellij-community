@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.codeInspection;
 
@@ -23,7 +11,6 @@ import org.jetbrains.annotations.Nullable;
  * Collects the results of a global inspection.
  *
  * @author anna
- * @since 6.0
  * @see GlobalInspectionTool#runInspection
  */
 public interface ProblemDescriptionsProcessor {
@@ -33,15 +20,18 @@ public interface ProblemDescriptionsProcessor {
    * @param refEntity the reference graph node.
    * @return the problems found for the specified node.
    */
-  @Nullable
-  CommonProblemDescriptor[] getDescriptions(@NotNull RefEntity refEntity);
+  default CommonProblemDescriptor @Nullable [] getDescriptions(@NotNull RefEntity refEntity) {
+    return CommonProblemDescriptor.EMPTY_ARRAY;
+  }
 
   /**
    * Drops all problems which have been collected for the specified reference graph node.
    *
    * @param refEntity the reference graph node.
    */
-  void ignoreElement(@NotNull RefEntity refEntity);
+  default void ignoreElement(@NotNull RefEntity refEntity) {}
+
+  default void resolveProblem(@NotNull CommonProblemDescriptor descriptor) {}
 
   /**
    * Registers a problem or several problems, with optional quickfixes, for the specified
@@ -50,7 +40,19 @@ public interface ProblemDescriptionsProcessor {
    * @param refEntity                the reference graph node.
    * @param commonProblemDescriptors the descriptors for the problems to register.
    */
-  void addProblemElement(@Nullable RefEntity refEntity, @NotNull CommonProblemDescriptor... commonProblemDescriptors);
+  default void addProblemElement(@Nullable RefEntity refEntity, CommonProblemDescriptor @NotNull ... commonProblemDescriptors) {
+  }
 
-  RefEntity getElement(@NotNull CommonProblemDescriptor descriptor);
+  default RefEntity getElement(@NotNull CommonProblemDescriptor descriptor) {
+    return null;
+  }
+
+  static void resolveAllProblemsInElement(@NotNull ProblemDescriptionsProcessor processor, @NotNull RefEntity element) {
+    CommonProblemDescriptor[] descriptors = processor.getDescriptions(element);
+    if (descriptors != null) {
+      for (CommonProblemDescriptor descriptor : descriptors) {
+        processor.resolveProblem(descriptor);
+      }
+    }
+  }
 }

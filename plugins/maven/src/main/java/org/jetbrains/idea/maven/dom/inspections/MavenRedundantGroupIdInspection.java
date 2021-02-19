@@ -1,11 +1,11 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.dom.inspections;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInspection.*;
+import com.intellij.codeInspection.util.IntentionFamilyName;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
@@ -22,28 +22,26 @@ import org.jetbrains.idea.maven.dom.model.MavenDomProjectModel;
  */
 public class MavenRedundantGroupIdInspection extends XmlSuppressableInspectionTool {
 
+  @Override
   @NotNull
   public String getGroupDisplayName() {
     return MavenDomBundle.message("inspection.group");
   }
 
-  @NotNull
-  public String getDisplayName() {
-    return MavenDomBundle.message("inspection.redundant.groupId.name");
-  }
-
+  @Override
   @NotNull
   public String getShortName() {
     return "MavenRedundantGroupId";
   }
 
+  @Override
   @NotNull
   public HighlightDisplayLevel getDefaultLevel() {
     return HighlightDisplayLevel.WARNING;
   }
 
-  @Nullable
-  public ProblemDescriptor[] checkFile(@NotNull PsiFile file, @NotNull InspectionManager manager, boolean isOnTheFly) {
+  @Override
+  public ProblemDescriptor @Nullable [] checkFile(@NotNull PsiFile file, @NotNull InspectionManager manager, boolean isOnTheFly) {
     if (file instanceof XmlFile && (file.isPhysical() || ApplicationManager.getApplication().isUnitTestMode())) {
       DomFileElement<MavenDomProjectModel> model =
         DomManager.getDomManager(file.getProject()).getFileElement((XmlFile)file, MavenDomProjectModel.class);
@@ -60,20 +58,21 @@ public class MavenRedundantGroupIdInspection extends XmlSuppressableInspectionTo
           if (groupId.equals(parentGroupId)) {
             XmlTag xmlTag = projectModel.getGroupId().getXmlTag();
 
-            LocalQuickFix fix = new LocalQuickFixBase("Remove unnecessary <groupId>") {
+            LocalQuickFix fix = new LocalQuickFix() {
+              @Override
+              public @IntentionFamilyName @NotNull String getFamilyName() {
+                return MavenDomBundle.message("inspection.redundant.groupId.fix");
+              }
+
               @Override
               public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
-                PsiElement xmlTag = descriptor.getPsiElement();
-
-                if (xmlTag.isValid() && FileModificationService.getInstance().preparePsiElementForWrite(xmlTag)) {
-                  xmlTag.delete();
-                }
+                descriptor.getPsiElement().delete();
               }
             };
 
             return new ProblemDescriptor[]{
               manager.createProblemDescriptor(xmlTag,
-                                              "Definition of groupId is redundant, because it's inherited from the parent",
+                                              MavenDomBundle.message("inspection.redundant.groupId.fix.description"),
                                               fix, ProblemHighlightType.GENERIC_ERROR_OR_WARNING, isOnTheFly)
             };
           }

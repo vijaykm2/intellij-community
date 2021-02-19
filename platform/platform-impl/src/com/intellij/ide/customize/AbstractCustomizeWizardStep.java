@@ -1,24 +1,14 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.customize;
 
 import com.intellij.ui.ClickListener;
 import com.intellij.ui.ColorUtil;
+import com.intellij.ui.components.JBLabel;
+import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.border.Border;
@@ -31,15 +21,31 @@ public abstract class AbstractCustomizeWizardStep extends JPanel {
   protected static final int SMALL_GAP = 10;
   protected static final int GAP = 20;
 
-  protected abstract String getTitle();
+  @Nls(capitalization = Nls.Capitalization.Title)
+  public abstract String getTitle();
 
-  protected abstract String getHTMLHeader();
+  /**
+   * Content for title under top navigation.
+   *
+   * @return either a HTML string prefixed with <html>, or a text string not prefixed with <html>, which will be processed with StringUtil.escapeXmlEntities
+   */
+  @Nls
+  public abstract String getHTMLHeader();
 
-  protected abstract String getHTMLFooter();
+  /**
+   * Content for footer above buttons.
+   *
+   * @return either a HTML string prefixed with <html>, or a text string not prefixed with <html>, which will be processed with StringUtil.escapeXmlEntities
+   */
+  @Nullable
+  @Nls
+  public String getHTMLFooter() {
+    return null;
+  }
 
   @NotNull
   protected static Color getSelectionBackground() {
-    return ColorUtil.mix(UIUtil.getListSelectionBackground(), UIUtil.getLabelBackground(), UIUtil.isUnderDarcula() ? .5 : .75);
+    return ColorUtil.mix(UIUtil.getListSelectionBackground(true), UIUtil.getLabelBackground(), StartupUiUtil.isUnderDarcula() ? .5 : .75);
   }
 
   public static Border createSmallEmptyBorder() {
@@ -48,6 +54,10 @@ public abstract class AbstractCustomizeWizardStep extends JPanel {
 
   public static BorderLayout createSmallBorderLayout() {
     return new BorderLayout(SMALL_GAP, SMALL_GAP);
+  }
+
+  public static void applyHeaderFooterStyle(@NotNull JBLabel label) {
+    label.setForeground(UIUtil.getLabelDisabledForeground());
   }
 
   protected static JPanel createBigButtonPanel(LayoutManager layout, final JToggleButton anchorButton, final Runnable action) {
@@ -80,7 +90,7 @@ public abstract class AbstractCustomizeWizardStep extends JPanel {
     return panel;
   }
 
-  Component getDefaultFocusedComponent() {
+  public Component getDefaultFocusedComponent() {
     return null;
   }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,20 +22,25 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.MultiLineLabelUI;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.PsiElement;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Supplier;
 
 public abstract class MethodHierarchyBrowserBase extends HierarchyBrowserBaseEx {
+  public static final String METHOD_TYPE = "Method {0}";
 
-  @SuppressWarnings({"UnresolvedPropertyKey"})
-  public static final String METHOD_TYPE = IdeBundle.message("title.hierarchy.method");
-
+  /** @deprecated Not used. See {@link com.intellij.ide.hierarchy.method.OverrideImplementMethodAction#getMethodHierarchyBrowser(AnActionEvent)}*/
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.2")
+  @Deprecated
   public static final DataKey<MethodHierarchyBrowserBase> DATA_KEY = DataKey.create("com.intellij.ide.hierarchy.MethodHierarchyBrowserBase");
-  @Deprecated @NonNls public static final String METHOD_HIERARCHY_BROWSER_DATA_KEY = DATA_KEY.getName();
 
   public MethodHierarchyBrowserBase(final Project project, final PsiElement method) {
     super(project, method);
@@ -48,21 +53,27 @@ public abstract class MethodHierarchyBrowserBase extends HierarchyBrowserBaseEx 
   }
 
   @Override
+  protected Map<String, Supplier<String>> getPresentableNameMap() {
+    HashMap<String, Supplier<String>> map = new HashMap<>();
+    map.put(METHOD_TYPE, MethodHierarchyBrowserBase::getMethodType);
+    return map;
+  }
+
+  @Override
   @NotNull
   protected String getNextOccurenceActionNameImpl() {
     return IdeBundle.message("hierarchy.method.next.occurence.name");
   }
 
-  protected static JPanel createStandardLegendPanel(final String methodDefinedText,
-                                                    final String methodNotDefinedLegallyText,
-                                                    final String methodShouldBeDefined) {
+  protected static JPanel createStandardLegendPanel(@NlsContexts.Label String methodDefinedText,
+                                                    @NlsContexts.Label String methodNotDefinedLegallyText,
+                                                    @NlsContexts.Label String methodShouldBeDefined) {
     final JPanel panel = new JPanel(new GridBagLayout());
 
-    JLabel label;
     final GridBagConstraints gc =
-      new GridBagConstraints(0, 0, 1, 1, 1, 0, GridBagConstraints.WEST, GridBagConstraints.HORIZONTAL, new Insets(3, 5, 0, 5), 0, 0);
+      new GridBagConstraints(0, 0, 1, 1, 1, 0, GridBagConstraints.WEST, GridBagConstraints.HORIZONTAL, JBUI.insets(3, 5, 0, 5), 0, 0);
 
-    label = new JLabel(methodDefinedText, AllIcons.Hierarchy.MethodDefined, SwingConstants.LEFT);
+    JLabel label = new JLabel(methodDefinedText, AllIcons.Hierarchy.MethodDefined, SwingConstants.LEFT);
     label.setUI(new MultiLineLabelUI());
     label.setIconTextGap(10);
     panel.add(label, gc);
@@ -86,12 +97,7 @@ public abstract class MethodHierarchyBrowserBase extends HierarchyBrowserBaseEx 
   protected void prependActions(@NotNull DefaultActionGroup actionGroup) {
     actionGroup.add(new AlphaSortAction());
     actionGroup.add(new ShowImplementationsOnlyAction());
-  }
-
-  @Override
-  @NotNull
-  protected String getBrowserDataKey() {
-    return DATA_KEY.getName();
+    actionGroup.add(new ChangeScopeAction());
   }
 
   @Override
@@ -100,32 +106,25 @@ public abstract class MethodHierarchyBrowserBase extends HierarchyBrowserBaseEx 
     return ActionPlaces.METHOD_HIERARCHY_VIEW_TOOLBAR;
   }
 
-  final class ShowImplementationsOnlyAction extends ToggleAction {
-    public ShowImplementationsOnlyAction() {
-      super(IdeBundle.message("action.hide.non.implementations"), null,
-            AllIcons.General.Filter); // TODO[anton] use own icon!!!
+  private final class ShowImplementationsOnlyAction extends ToggleAction {
+    private ShowImplementationsOnlyAction() {
+      super(IdeBundle.messagePointer("action.hide.non.implementations"), AllIcons.General.Filter);
     }
 
     @Override
-    public final boolean isSelected(final AnActionEvent event) {
+    public final boolean isSelected(@NotNull final AnActionEvent event) {
       return HierarchyBrowserManager.getInstance(myProject).getState().HIDE_CLASSES_WHERE_METHOD_NOT_IMPLEMENTED;
     }
 
     @Override
-    public final void setSelected(final AnActionEvent event, final boolean flag) {
+    public final void setSelected(@NotNull final AnActionEvent event, final boolean flag) {
       HierarchyBrowserManager.getInstance(myProject).getState().HIDE_CLASSES_WHERE_METHOD_NOT_IMPLEMENTED = flag;
-
       // invokeLater is called to update state of button before long tree building operation
-      ApplicationManager.getApplication().invokeLater(new Runnable() {
-        @Override
-        public void run() {
-          doRefresh(true);
-        }
-      });
+      ApplicationManager.getApplication().invokeLater(() -> doRefresh(true));
     }
 
     @Override
-    public final void update(final AnActionEvent event) {
+    public final void update(@NotNull final AnActionEvent event) {
       super.update(event);
       final Presentation presentation = event.getPresentation();
       presentation.setEnabled(isValidBase());
@@ -134,8 +133,12 @@ public abstract class MethodHierarchyBrowserBase extends HierarchyBrowserBaseEx 
 
   public static class BaseOnThisMethodAction extends BaseOnThisElementAction {
     public BaseOnThisMethodAction() {
-      super(IdeBundle.message("action.base.on.this.method"), IdeActions.ACTION_METHOD_HIERARCHY, DATA_KEY.getName());
+      super(IdeBundle.messagePointer("action.base.on.this.method"), MethodHierarchyBrowserBase.class, LanguageMethodHierarchy.INSTANCE);
     }
   }
 
+  @SuppressWarnings("UnresolvedPropertyKey")
+  public static String getMethodType() {
+    return IdeBundle.message("title.hierarchy.method");
+  }
 }

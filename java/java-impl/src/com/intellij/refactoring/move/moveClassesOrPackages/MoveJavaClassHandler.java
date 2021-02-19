@@ -16,8 +16,8 @@
 package com.intellij.refactoring.move.moveClassesOrPackages;
 
 import com.intellij.codeInsight.ChangeContextUtil;
+import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.psi.*;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -33,7 +33,7 @@ import java.util.Set;
  * @author Maxim.Medvedev
  */
 public class MoveJavaClassHandler implements MoveClassHandler {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.move.moveClassesOrPackages.MoveJavaClassHandler");
+  private static final Logger LOG = Logger.getInstance(MoveJavaClassHandler.class);
 
   @Override
   public void finishMoveClass(@NotNull PsiClass aClass) {
@@ -49,6 +49,7 @@ public class MoveJavaClassHandler implements MoveClassHandler {
     }
   }
 
+  @Override
   public PsiClass doMoveClass(@NotNull final PsiClass aClass, @NotNull PsiDirectory moveDestination) throws IncorrectOperationException {
     PsiFile file = aClass.getContainingFile();
     final PsiPackage newPackage = JavaDirectoryService.getInstance().getPackage(moveDestination);
@@ -83,7 +84,7 @@ public class MoveJavaClassHandler implements MoveClassHandler {
   }
 
   private static void correctOldClassReferences(final PsiClass newClass, final PsiClass oldClass) {
-    final Set<PsiImportStatementBase> importsToDelete = new HashSet<PsiImportStatementBase>();
+    final Set<PsiImportStatementBase> importsToDelete = new HashSet<>();
     newClass.getContainingFile().accept(new JavaRecursiveElementVisitor() {
       @Override
       public void visitReferenceElement(PsiJavaCodeReferenceElement reference) {
@@ -131,10 +132,11 @@ public class MoveJavaClassHandler implements MoveClassHandler {
     }
   }
 
+  @Override
   public String getName(PsiClass clazz) {
     final PsiFile file = clazz.getContainingFile();
     if (!(file instanceof PsiJavaFile)) return null;
-    return ((PsiJavaFile)file).getClasses().length > 1 ? clazz.getName() + "." + StdFileTypes.JAVA.getDefaultExtension() : file.getName();
+    return ((PsiJavaFile)file).getClasses().length > 1 ? clazz.getName() + "." + JavaFileType.INSTANCE.getDefaultExtension() : file.getName();
   }
 
   @Override

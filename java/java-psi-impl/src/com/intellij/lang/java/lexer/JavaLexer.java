@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.java.lexer;
 
 import com.intellij.lexer.LexerBase;
@@ -21,29 +7,49 @@ import com.intellij.psi.JavaTokenType;
 import com.intellij.psi.TokenType;
 import com.intellij.psi.impl.source.tree.JavaDocElementType;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.text.CharArrayUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Set;
 
-public class JavaLexer extends LexerBase {
-  private static final Set<String> KEYWORDS = ContainerUtil.newTroveSet(
-    "abstract", "default", "if", "private", "this", "boolean", "do", "implements", "protected", "throw", "break", "double", "import",
-    "public", "throws", "byte", "else", "instanceof", "return", "transient", "case", "extends", "int", "short", "try", "catch", "final",
-    "interface", "static", "void", "char", "finally", "long", "strictfp", "volatile", "class", "float", "native", "super", "while",
-    "const", "for", "new", "switch", "continue", "goto", "package", "synchronized", "true", "false", "null");
+import static com.intellij.psi.PsiKeyword.*;
+
+public final class JavaLexer extends LexerBase {
+  private static final Set<String> KEYWORDS = new HashSet<>(Arrays.asList(
+    ABSTRACT, BOOLEAN, BREAK, BYTE, CASE, CATCH, CHAR, CLASS, CONST, CONTINUE, DEFAULT, DO, DOUBLE, ELSE, EXTENDS, FINAL, FINALLY,
+    FLOAT, FOR, GOTO, IF, IMPLEMENTS, IMPORT, INSTANCEOF, INT, INTERFACE, LONG, NATIVE, NEW, PACKAGE, PRIVATE, PROTECTED, PUBLIC,
+    RETURN, SHORT, STATIC, STRICTFP, SUPER, SWITCH, SYNCHRONIZED, THIS, THROW, THROWS, TRANSIENT, TRY, VOID, VOLATILE, WHILE,
+    TRUE, FALSE, NULL, NON_SEALED));
+
+  private static final Set<CharSequence> JAVA9_KEYWORDS = CollectionFactory.createCharSequenceSet(Arrays.asList(OPEN, MODULE, REQUIRES, EXPORTS, OPENS, USES, PROVIDES, TRANSITIVE, TO, WITH));
 
   public static boolean isKeyword(String id, @NotNull LanguageLevel level) {
     return KEYWORDS.contains(id) ||
-           level.isAtLeast(LanguageLevel.JDK_1_4) && "assert".equals(id) ||
-           level.isAtLeast(LanguageLevel.JDK_1_5) && "enum".equals(id);
+           level.isAtLeast(LanguageLevel.JDK_1_4) && ASSERT.equals(id) ||
+           level.isAtLeast(LanguageLevel.JDK_1_5) && ENUM.equals(id);
+  }
+
+  public static boolean isSoftKeyword(CharSequence id, @NotNull LanguageLevel level) {
+    return id != null &&
+           (level.isAtLeast(LanguageLevel.JDK_1_9) && JAVA9_KEYWORDS.contains(id) ||
+            level.isAtLeast(LanguageLevel.JDK_10) && VAR.contentEquals(id) ||
+            level.isAtLeast(LanguageLevel.JDK_15_PREVIEW) && RECORD.contentEquals(id) ||
+            level.isAtLeast(LanguageLevel.JDK_14) && YIELD.contentEquals(id) ||
+            (isSealedAvailable(level) && (SEALED.contentEquals(id) || PERMITS.contentEquals(id))));
+  }
+
+  public static boolean isSealedAvailable(@NotNull LanguageLevel level) {
+    return level.isAtLeast(LanguageLevel.JDK_15_PREVIEW) && (level == LanguageLevel.JDK_X || level.isPreview());
   }
 
   private final _JavaLexer myFlexLexer;
   private CharSequence myBuffer;
-  private char[] myBufferArray;
+  private char @Nullable [] myBufferArray;
   private int myBufferIndex;
   private int myBufferEndOffset;
   private int myTokenEndOffset;  // positioned after the last symbol of the current token
@@ -71,7 +77,7 @@ public class JavaLexer extends LexerBase {
 
   @Override
   public final IElementType getTokenType() {
-    if (myTokenType == null) _locateToken();
+    locateToken();
     return myTokenType;
   }
 
@@ -82,26 +88,27 @@ public class JavaLexer extends LexerBase {
 
   @Override
   public final int getTokenEnd() {
-    if (myTokenType == null) _locateToken();
+    locateToken();
     return myTokenEndOffset;
   }
 
   @Override
   public final void advance() {
-    if (myTokenType == null) _locateToken();
+    locateToken();
     myTokenType = null;
   }
 
-  private void _locateToken() {
+  private void locateToken() {
+    if (myTokenType != null) return;
+
     if (myTokenEndOffset == myBufferEndOffset) {
-      myTokenType = null;
       myBufferIndex = myBufferEndOffset;
       return;
     }
 
     myBufferIndex = myTokenEndOffset;
 
-    char c = myBufferArray != null ? myBufferArray[myBufferIndex] : myBuffer.charAt(myBufferIndex);
+    char c = charAt(myBufferIndex);
     switch (c) {
       case ' ':
       case '\t':
@@ -118,16 +125,16 @@ public class JavaLexer extends LexerBase {
           myTokenEndOffset = myBufferEndOffset;
         }
         else {
-          char nextChar = myBufferArray != null ? myBufferArray[myBufferIndex + 1] : myBuffer.charAt(myBufferIndex + 1);
+          char nextChar = charAt(myBufferIndex + 1);
           if (nextChar == '/') {
             myTokenType = JavaTokenType.END_OF_LINE_COMMENT;
             myTokenEndOffset = getLineTerminator(myBufferIndex + 2);
           }
           else if (nextChar == '*') {
             if (myBufferIndex + 2 >= myBufferEndOffset ||
-                (myBufferArray != null ? myBufferArray[myBufferIndex + 2] : myBuffer.charAt(myBufferIndex + 2)) != '*' ||
+                (charAt(myBufferIndex + 2)) != '*' ||
                 (myBufferIndex + 3 < myBufferEndOffset &&
-                 (myBufferArray != null ? myBufferArray[myBufferIndex + 3] : myBuffer.charAt(myBufferIndex + 3)) == '/')) {
+                 (charAt(myBufferIndex + 3)) == '/')) {
               myTokenType = JavaTokenType.C_STYLE_COMMENT;
               myTokenEndOffset = getClosingComment(myBufferIndex + 2);
             }
@@ -142,10 +149,29 @@ public class JavaLexer extends LexerBase {
         }
         break;
 
-      case '"':
+      case '#' :
+        if (myBufferIndex == 0 && myBufferIndex + 1 < myBufferEndOffset && charAt(myBufferIndex + 1) == '!') {
+          myTokenType = JavaTokenType.END_OF_LINE_COMMENT;
+          myTokenEndOffset = getLineTerminator(myBufferIndex + 2);
+        }
+        else {
+          flexLocateToken();
+        }
+        break;
       case '\'':
-        myTokenType = c == '"' ? JavaTokenType.STRING_LITERAL : JavaTokenType.CHARACTER_LITERAL;
-        myTokenEndOffset = getClosingParenthesis(myBufferIndex + 1, c);
+        myTokenType = JavaTokenType.CHARACTER_LITERAL;
+        myTokenEndOffset = getClosingQuote(myBufferIndex + 1, c);
+        break;
+
+      case '"':
+        if (myBufferIndex + 2 < myBufferEndOffset && charAt(myBufferIndex + 2) == '"' && charAt(myBufferIndex + 1) == '"') {
+          myTokenType = JavaTokenType.TEXT_BLOCK_LITERAL;
+          myTokenEndOffset = getTextBlockEnd(myBufferIndex + 2);
+        }
+        else {
+          myTokenType = JavaTokenType.STRING_LITERAL;
+          myTokenEndOffset = getClosingQuote(myBufferIndex + 1, c);
+        }
         break;
 
       default:
@@ -163,12 +189,12 @@ public class JavaLexer extends LexerBase {
     }
 
     int pos = offset;
-    char c = myBufferArray != null ? myBufferArray[pos] : myBuffer.charAt(pos);
+    char c = charAt(pos);
 
     while (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f') {
       pos++;
       if (pos == myBufferEndOffset) return pos;
-      c = myBufferArray != null ? myBufferArray[pos] : myBuffer.charAt(pos);
+      c = charAt(pos);
     }
 
     return pos;
@@ -181,36 +207,45 @@ public class JavaLexer extends LexerBase {
       myTokenEndOffset = myFlexLexer.getTokenEnd();
     }
     catch (IOException e) { /* impossible */ }
-    catch (Error e) {
-      throw new IllegalArgumentException("Non-parsable text `" + myBuffer + "`");
-    }
   }
 
-  private int getClosingParenthesis(int offset, char c) {
+  private int getClosingQuote(int offset, char quoteChar) {
     if (offset >= myBufferEndOffset) {
       return myBufferEndOffset;
     }
 
     int pos = offset;
-    char cur = myBufferArray != null ? myBufferArray[pos] : myBuffer.charAt(pos);
+    char c = charAt(pos);
 
     while (true) {
-      while (cur != c && cur != '\n' && cur != '\r' && cur != '\\') {
+      while (c != quoteChar && c != '\n' && c != '\r' && c != '\\') {
         pos++;
         if (pos >= myBufferEndOffset) return myBufferEndOffset;
-        cur = myBufferArray != null ? myBufferArray[pos] : myBuffer.charAt(pos);
+        c = charAt(pos);
       }
 
-      if (cur == '\\') {
+      if (c == '\\') {
         pos++;
         if (pos >= myBufferEndOffset) return myBufferEndOffset;
-        cur = myBufferArray != null ? myBufferArray[pos] : myBuffer.charAt(pos);
-        if (cur == '\n' || cur == '\r') continue;
-        pos++;
+        c = charAt(pos);
+        if (c == '\n' || c == '\r') continue;
+        if (c == 'u') {
+          do {
+            pos++;
+          }
+          while (pos < myBufferEndOffset && charAt(pos) == 'u');
+          if (pos + 3 >= myBufferEndOffset) return myBufferEndOffset;
+          boolean isBackSlash = charAt(pos) == '0' && charAt(pos + 1) == '0' && charAt(pos + 2) == '5' && charAt(pos + 3) == 'c';
+          // on encoded backslash we also need to skip escaped symbol (e.g. \\u005c" is translated to \")
+          pos += (isBackSlash ? 5 : 4);
+        }
+        else {
+          pos++;
+        }
         if (pos >= myBufferEndOffset) return myBufferEndOffset;
-        cur = myBufferArray != null ? myBufferArray[pos] : myBuffer.charAt(pos);
+        c = charAt(pos);
       }
-      else if (cur == c) {
+      else if (c == quoteChar) {
         break;
       }
       else {
@@ -226,8 +261,8 @@ public class JavaLexer extends LexerBase {
     int pos = offset;
 
     while (pos < myBufferEndOffset - 1) {
-      char c = myBufferArray != null ? myBufferArray[pos] : myBuffer.charAt(pos);
-      if (c == '*' && (myBufferArray != null ? myBufferArray[pos + 1] : myBuffer.charAt(pos + 1)) == '/') {
+      char c = charAt(pos);
+      if (c == '*' && (charAt(pos + 1)) == '/') {
         break;
       }
       pos++;
@@ -240,12 +275,33 @@ public class JavaLexer extends LexerBase {
     int pos = offset;
 
     while (pos < myBufferEndOffset) {
-      char c = myBufferArray != null ? myBufferArray[pos] : myBuffer.charAt(pos);
+      char c = charAt(pos);
       if (c == '\r' || c == '\n') break;
       pos++;
     }
 
     return pos;
+  }
+
+  private int getTextBlockEnd(int offset) {
+    int pos = offset;
+
+    while ((pos = getClosingQuote(pos + 1, '"')) < myBufferEndOffset) {
+      char current = charAt(pos);
+      if (current == '\\') {
+        pos++;
+      }
+      else if (current == '"' && pos + 1 < myBufferEndOffset && charAt(pos + 1) == '"') {
+        pos += 2;
+        break;
+      }
+    }
+
+    return pos;
+  }
+
+  private char charAt(int position) {
+    return myBufferArray != null ? myBufferArray[position] : myBuffer.charAt(position);
   }
 
   @NotNull

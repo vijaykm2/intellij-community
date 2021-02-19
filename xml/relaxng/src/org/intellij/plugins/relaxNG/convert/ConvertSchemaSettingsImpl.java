@@ -16,11 +16,13 @@
 
 package org.intellij.plugins.relaxNG.convert;
 
+import com.intellij.application.options.CodeStyle;
+import com.intellij.ide.highlighter.DTDFileType;
+import com.intellij.ide.highlighter.XmlFileType;
 import com.intellij.openapi.actionSystem.LangDataKeys;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
 import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectRootManager;
@@ -30,8 +32,9 @@ import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.encoding.EncodingProjectManager;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.ui.DocumentAdapter;
+import com.intellij.util.ArrayUtil;
+import org.intellij.plugins.relaxNG.RelaxngBundle;
 import org.intellij.plugins.relaxNG.compact.RncFileType;
 import org.jetbrains.annotations.NotNull;
 
@@ -45,11 +48,6 @@ import java.io.File;
 import java.nio.charset.Charset;
 import java.util.*;
 
-/*
-* Created by IntelliJ IDEA.
-* User: sweinreuter
-* Date: 16.11.2007
-*/
 public class ConvertSchemaSettingsImpl implements ConvertSchemaSettings {
   static final String OUTPUT_TYPE = "output-type";
   static final String OUTPUT_PATH = "output-path";
@@ -68,7 +66,7 @@ public class ConvertSchemaSettingsImpl implements ConvertSchemaSettings {
   private JRadioButton myOutputXsd;
   private JRadioButton myOutputDtd;
 
-  private ComboBox myEncoding;
+  private ComboBox<String> myEncoding;
 
   private JTextField myIndent;
   private JTextField myLineLength;
@@ -78,13 +76,13 @@ public class ConvertSchemaSettingsImpl implements ConvertSchemaSettings {
   public ConvertSchemaSettingsImpl(Project project, @NotNull SchemaType inputType, VirtualFile firstFile) {
     myProject = project;
     myInputType = inputType;
-    
+
     final FileType type;
     switch (inputType) {
       case RNG:
         myOutputRng.setVisible(false);
         myOutputXsd.setSelected(true);
-        type = StdFileTypes.XML;
+        type = XmlFileType.INSTANCE;
         break;
       case RNC:
         myOutputRnc.setVisible(false);
@@ -94,16 +92,16 @@ public class ConvertSchemaSettingsImpl implements ConvertSchemaSettings {
       case XSD:
         myOutputXsd.setVisible(false);
         myOutputRng.setSelected(true);
-        type = StdFileTypes.XML;
+        type = XmlFileType.INSTANCE;
         break;
       case DTD:
         myOutputDtd.setVisible(false);
         myOutputRng.setSelected(true);
-        type = StdFileTypes.DTD;
+        type = DTDFileType.INSTANCE;
         break;
       case XML:
         myOutputRng.setSelected(true);
-        type = StdFileTypes.XML;
+        type = XmlFileType.INSTANCE;
         break;
       default:
         assert false;
@@ -111,7 +109,7 @@ public class ConvertSchemaSettingsImpl implements ConvertSchemaSettings {
     }
 
     final Charset[] charsets = CharsetToolkit.getAvailableCharsets();
-    final List<String> suggestions = new ArrayList<String>(charsets.length);
+    final List<String> suggestions = new ArrayList<>(charsets.length);
     for (Charset charset : charsets) {
       if (charset.canEncode()) {
         String name = charset.name();
@@ -119,11 +117,11 @@ public class ConvertSchemaSettingsImpl implements ConvertSchemaSettings {
       }
     }
 
-    myEncoding.setModel(new DefaultComboBoxModel(suggestions.toArray()));
+    myEncoding.setModel(new DefaultComboBoxModel<>(ArrayUtil.toStringArray(suggestions)));
     final Charset charset = EncodingProjectManager.getInstance(project).getDefaultCharset();
-    myEncoding.setSelectedItem(charset.name());
+    myEncoding.setSelectedItem(charset.name()); //NON-NLS
 
-    final CodeStyleSettings styleSettings = CodeStyleSettingsManager.getSettings(project);
+    final CodeStyleSettings styleSettings = CodeStyle.getSettings(project);
     final int indent = styleSettings.getIndentSize(type);
     myIndent.setText(String.valueOf(indent));
 
@@ -135,13 +133,13 @@ public class ConvertSchemaSettingsImpl implements ConvertSchemaSettings {
     final Module module = ProjectRootManager.getInstance(project).getFileIndex().getModuleForFile(firstFile);
     descriptor.putUserData(LangDataKeys.MODULE_CONTEXT, module);
 
-    myOutputDestination.addBrowseFolderListener("Schema Conversion Destination",
-            "Please select the destination the generated file(s) should be placed at", project, descriptor);
+    myOutputDestination.addBrowseFolderListener(RelaxngBundle.message("relaxng.convert-schema.settings.destination.title"),
+                                                RelaxngBundle.message("relaxng.convert-schema.settings.destination.message"), project, descriptor);
 
     final JTextField tf = myOutputDestination.getTextField();
     tf.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         myPropertyChangeSupport.firePropertyChange(OUTPUT_PATH, null, getOutputDestination());
       }
     });
@@ -204,14 +202,14 @@ public class ConvertSchemaSettingsImpl implements ConvertSchemaSettings {
   public int getLineLength() {
     return parseInt(myLineLength.getText());
   }
-  
+
   @Override
   public String getOutputDestination() {
     return myOutputDestination.getText();
   }
 
   @Override
-  public void addAdvancedSettings(List<String> inputParams, List<String> outputParams) {
+  public void addAdvancedSettings(List<? super String> inputParams, List<? super String> outputParams) {
     setParams(myInputOptions, inputParams);
 
     if (getOutputType() == SchemaType.XSD) {
@@ -219,7 +217,7 @@ public class ConvertSchemaSettingsImpl implements ConvertSchemaSettings {
     }
   }
 
-  private static void setParams(Map<String, ?> map, List<String> inputParams) {
+  private static void setParams(Map<String, ?> map, List<? super String> inputParams) {
     final Set<String> set = map.keySet();
     for (String s : set) {
       final Object value = map.get(s);

@@ -15,10 +15,13 @@
  */
 package com.intellij.diff.actions;
 
-import com.intellij.diff.DiffRequestFactory;
+import com.intellij.diff.chains.DiffRequestChain;
+import com.intellij.diff.chains.SimpleDiffRequestChain;
 import com.intellij.diff.requests.DiffRequest;
+import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.ide.highlighter.ArchiveFileType;
 import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.idea.ActionsBundle;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataKey;
@@ -27,49 +30,56 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.Arrays;
+import java.util.Set;
 
 public class CompareFilesAction extends BaseShowDiffAction {
   public static final DataKey<DiffRequest> DIFF_REQUEST = DataKey.create("CompareFilesAction.DiffRequest");
 
-  public static final String LAST_USED_FILE_KEY = "two.files.diff.last.used.file";
-  public static final String LAST_USED_FOLDER_KEY = "two.files.diff.last.used.folder";
+  @NonNls public static final String LAST_USED_FILE_KEY = "two.files.diff.last.used.file";
+  @NonNls public static final String LAST_USED_FOLDER_KEY = "two.files.diff.last.used.folder";
 
   @Override
   public void update(@NotNull AnActionEvent e) {
     super.update(e);
 
+    String text = ActionsBundle.message("action.compare.files.text");
+
     VirtualFile[] files = e.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY);
-
-    String text = "Compare Files";
-    if (files != null && files.length == 1) {
-      text = "Compare With...";
-    }
-    else if (files != null && files.length == 2) {
-      Type type1 = getType(files[0]);
-      Type type2 = getType(files[1]);
-
-      if (type1 != type2) {
-        text = "Compare";
+    if (files != null) {
+      if (files.length == 1) {
+        text = ActionsBundle.message("action.compare.with.text");
       }
-      else {
-        switch (type1) {
-          case FILE:
-            text = "Compare Files";
-            break;
-          case DIRECTORY:
-            text = "Compare Directories";
-            break;
-          case ARCHIVE:
-            text = "Compare Archives";
-            break;
+      else if (files.length == 2 || files.length == 3) {
+        Set<Type> types = ContainerUtil.map2Set(files, CompareFilesAction::getType);
+        if (types.size() != 1) {
+          text = ActionsBundle.message("action.compare.text");
+        }
+        else {
+          switch (types.iterator().next()) {
+            case FILE:
+              text = ActionsBundle.message("action.compare.files.text");
+              break;
+            case DIRECTORY:
+              text = ActionsBundle.message("action.CompareDirs.text");
+              break;
+            case ARCHIVE:
+              text = ActionsBundle.message("action.compare.archives.text");
+              break;
+          }
         }
       }
     }
+
     e.getPresentation().setText(text);
   }
 
+  @Override
   protected boolean isAvailable(@NotNull AnActionEvent e) {
     DiffRequest request = e.getData(DIFF_REQUEST);
     if (request != null) {
@@ -81,36 +91,60 @@ public class CompareFilesAction extends BaseShowDiffAction {
       return false;
     }
 
-    if (files.length == 1) {
-      return files[0].isValid();
+    if (files.length == 0 || files.length > 3) return false;
+    boolean hasContent = ContainerUtil.all(Arrays.asList(files), BaseShowDiffAction::hasContent);
+    if (!hasContent) return false;
+
+    if (files.length == 3) {
+      Set<Type> types = ContainerUtil.map2Set(files, CompareFilesAction::getType);
+      if (types.contains(Type.DIRECTORY) || types.contains(Type.ARCHIVE)) return false;
     }
-    else if (files.length == 2) {
-      return files[0].isValid() && files[1].isValid();
-    }
-    else {
-      return false;
-    }
+
+    return true;
+  }
+
+  @Nullable
+  protected DiffRequest getDiffRequest(@NotNull AnActionEvent e) {
+    return e.getData(DIFF_REQUEST);
   }
 
   @Nullable
   @Override
-  protected DiffRequest getDiffRequest(@NotNull AnActionEvent e) {
+  protected DiffRequestChain getDiffRequestChain(@NotNull AnActionEvent e) {
     Project project = e.getProject();
-    DiffRequest diffRequest = e.getData(DIFF_REQUEST);
+    DiffRequest diffRequest = getDiffRequest(e);
     if (diffRequest != null) {
-      return diffRequest;
+      return new SimpleDiffRequestChain(diffRequest);
     }
 
-    VirtualFile[] data = e.getRequiredData(CommonDataKeys.VIRTUAL_FILE_ARRAY);
-    if (data.length == 1) {
-      VirtualFile otherFile = getOtherFile(project, data[0]);
-      if (otherFile == null) return null;
-      if (!data[0].isValid()) return null;
-      return DiffRequestFactory.getInstance().createFromFiles(project, data[0], otherFile);
+    VirtualFile file1;
+    VirtualFile file2;
+    VirtualFile baseFile = null;
+
+    VirtualFile[] files = e.getRequiredData(CommonDataKeys.VIRTUAL_FILE_ARRAY);
+    if (files.length == 1) {
+      file1 = files[0];
+      file2 = getOtherFile(project, file1);
+      if (file2 == null || !hasContent(file2)) return null;
+    }
+    else if (files.length == 2) {
+      file1 = files[0];
+      file2 = files[1];
     }
     else {
-      return DiffRequestFactory.getInstance().createFromFiles(project, data[0], data[1]);
+      file1 = files[0];
+      baseFile = files[1];
+      file2 = files[2];
     }
+
+    // getOtherFile() shows dialog that can invalidate files
+    if (!file1.isValid() || !file2.isValid() || (baseFile != null && !baseFile.isValid())) return null;
+
+    Set<Type> types = ContainerUtil.map2Set(files, CompareFilesAction::getType);
+    if (types.contains(Type.DIRECTORY)) FeatureUsageTracker.getInstance().triggerFeatureUsed("dir.diff");
+    if (types.contains(Type.ARCHIVE)) FeatureUsageTracker.getInstance().triggerFeatureUsed("jar.diff");
+
+    return createMutableChainFromFiles(project, file1, file2, baseFile);
   }
 
   @Nullable
@@ -120,7 +154,7 @@ public class CompareFilesAction extends BaseShowDiffAction {
 
     Type type = getType(file);
     if (type == Type.DIRECTORY || type == Type.ARCHIVE) {
-      descriptor = new FileChooserDescriptor(false, true, true, false, false, false);
+      descriptor = new FileChooserDescriptor(false, true, true, true, true, false);
       key = LAST_USED_FOLDER_KEY;
     }
     else {
@@ -150,8 +184,8 @@ public class CompareFilesAction extends BaseShowDiffAction {
   @NotNull
   private static Type getType(@Nullable VirtualFile file) {
     if (file == null) return Type.FILE;
-    if (file.isDirectory()) return Type.DIRECTORY;
     if (file.getFileType() instanceof ArchiveFileType) return Type.ARCHIVE;
+    if (file.isDirectory()) return Type.DIRECTORY;
     return Type.FILE;
   }
 

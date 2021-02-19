@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,10 @@
  */
 package com.intellij.testFramework;
 
-import com.intellij.openapi.module.ModuleType;
-import com.intellij.openapi.module.StdModuleTypes;
+import com.intellij.openapi.module.ModuleTypeId;
 import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.projectRoots.impl.JavaSdkImpl;
 import com.intellij.psi.impl.JavaPsiFacadeEx;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * A test case that provides IDEA application and project. Note both are reused for each test run in the session so
@@ -31,13 +30,8 @@ import com.intellij.psi.impl.JavaPsiFacadeEx;
  * so it contains classes that is really needed in order to speed up tests startup.
  */
 public abstract class LightIdeaTestCase extends LightPlatformTestCase {
-  @SuppressWarnings({"JUnitTestCaseWithNonTrivialConstructors"})
-  public LightIdeaTestCase() {
-    IdeaTestCase.initPlatformPrefix();
-  }
-
-  public static JavaPsiFacadeEx getJavaFacade() {
-    return JavaPsiFacadeEx.getInstanceEx(ourProject);
+  public JavaPsiFacadeEx getJavaFacade() {
+    return JavaPsiFacadeEx.getInstanceEx(getProject());
   }
 
   @Override
@@ -45,8 +39,9 @@ public abstract class LightIdeaTestCase extends LightPlatformTestCase {
     return IdeaTestUtil.getMockJdk17();
   }
 
+  @NotNull
   @Override
-  protected ModuleType getModuleType() {
-    return StdModuleTypes.JAVA;
+  protected String getModuleTypeId() {
+    return ModuleTypeId.JAVA_MODULE;
   }
 }

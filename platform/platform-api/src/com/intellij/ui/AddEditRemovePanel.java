@@ -15,8 +15,11 @@
  */
 package com.intellij.ui;
 
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsContexts.ColumnName;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.ui.ComponentWithEmptyText;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.StatusText;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -37,16 +40,16 @@ import java.util.List;
 @SuppressWarnings("unchecked")
 public abstract class AddEditRemovePanel<T> extends PanelWithButtons implements ComponentWithEmptyText {
   private JBTable myTable;
-  private TableModel myModel;
+  private final TableModel myModel;
   private List<T> myData;
   private AbstractTableModel myTableModel;
-  private String myLabel;
+  private final @NlsContexts.Label String myLabel;
 
   public AddEditRemovePanel(TableModel<T> model, List<T> data) {
     this(model, data, null);
   }
 
-  public AddEditRemovePanel(TableModel<T> model, List<T> data, @Nullable String label) {
+  public AddEditRemovePanel(TableModel<T> model, List<T> data, @Nullable @NlsContexts.Label String label) {
     myModel = model;
     myData = data;
     myLabel = label;
@@ -63,11 +66,15 @@ public abstract class AddEditRemovePanel<T> extends PanelWithButtons implements 
   @Nullable
   protected abstract T editItem(T o);
 
+  public boolean isUpDownSupported() {
+    return false;
+  }
+
   @Override
   protected void initPanel() {
     setLayout(new BorderLayout());
 
-    final JPanel panel = ToolbarDecorator.createDecorator(myTable)
+    ToolbarDecorator decorator = ToolbarDecorator.createDecorator(myTable)
       .setAddAction(new AnActionButtonRunnable() {
         @Override
         public void run(AnActionButton button) {
@@ -89,17 +96,35 @@ public abstract class AddEditRemovePanel<T> extends PanelWithButtons implements 
           }
           doEdit();
         }
-      })
-      .disableUpAction()
-      .disableDownAction()
-      .createPanel();
+      });
+
+    if (isUpDownSupported()) {
+      decorator
+        .setMoveUpAction(new AnActionButtonRunnable() {
+          @Override
+          public void run(AnActionButton button) {
+            doUp();
+          }})
+        .setMoveDownAction(new AnActionButtonRunnable() {
+          @Override
+          public void run(AnActionButton button) {
+            doDown();
+          }
+        });
+    }
+    else {
+      decorator.disableUpAction().disableDownAction();
+    }
+
+    final JPanel panel = decorator.createPanel();
     add(panel, BorderLayout.CENTER);
     final String label = getLabelText();
     if (label != null) {
-      UIUtil.addBorder(panel, IdeBorderFactory.createTitledBorder(label, false));
+      UIUtil.addBorder(panel, IdeBorderFactory.createTitledBorder(label, false, JBUI.insetsTop(8)).setShowLine(false));
     }
   }
 
+  @Override
   protected String getLabelText(){
     return myLabel;
   }
@@ -110,6 +135,7 @@ public abstract class AddEditRemovePanel<T> extends PanelWithButtons implements 
     return myTable.getEmptyText();
   }
 
+  @Override
   protected JComponent createMainComponent(){
     initTable();
 
@@ -118,22 +144,27 @@ public abstract class AddEditRemovePanel<T> extends PanelWithButtons implements 
 
   private void initTable() {
     myTableModel = new AbstractTableModel() {
+      @Override
       public int getColumnCount(){
         return myModel.getColumnCount();
       }
 
+      @Override
       public int getRowCount(){
         return myData != null ? myData.size() : 0;
       }
 
+      @Override
       public Class getColumnClass(int columnIndex){
         return myModel.getColumnClass(columnIndex);
       }
 
+      @Override
       public String getColumnName(int column){
         return myModel.getColumnName(column);
       }
 
+      @Override
       public Object getValueAt(int rowIndex, int columnIndex){
         return myModel.getField(myData.get(rowIndex), columnIndex);
       }
@@ -154,10 +185,9 @@ public abstract class AddEditRemovePanel<T> extends PanelWithButtons implements 
     myTable.setModel(myTableModel);
     myTable.setShowColumns(false);
     myTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
-    myTable.setStriped(true);
     new DoubleClickListener() {
       @Override
-      protected boolean onDoubleClick(MouseEvent event) {
+      protected boolean onDoubleClick(@NotNull MouseEvent event) {
         doEdit();
         return true;
       }
@@ -168,6 +198,7 @@ public abstract class AddEditRemovePanel<T> extends PanelWithButtons implements 
     return new JBTable();
   }
 
+  @Override
   protected JButton[] createButtons(){
     return new JButton[0];
   }
@@ -191,7 +222,7 @@ public abstract class AddEditRemovePanel<T> extends PanelWithButtons implements 
       myTableModel.fireTableRowsUpdated(selected, selected);
     }
   }
-  
+
   protected void doRemove() {
     if (myTable.isEditing()) {
       myTable.getCellEditor().stopCellEditing();
@@ -217,6 +248,14 @@ public abstract class AddEditRemovePanel<T> extends PanelWithButtons implements 
     if (selection >= 0) {
       myTable.setRowSelectionInterval(selection, selection);
     }
+  }
+
+  protected void doUp() {
+    TableUtil.moveSelectedItemsUp(myTable);
+  }
+
+  protected void doDown() {
+    TableUtil.moveSelectedItemsDown(myTable);
   }
 
   public void setData(List<T> data) {
@@ -249,7 +288,7 @@ public abstract class AddEditRemovePanel<T> extends PanelWithButtons implements 
 
     public abstract int getColumnCount();
     @Nullable
-    public abstract String getColumnName(int columnIndex);
+    public abstract @ColumnName String getColumnName(int columnIndex);
     public abstract Object getField(T o, int columnIndex);
 
     public Class getColumnClass(int columnIndex) { return String.class; }

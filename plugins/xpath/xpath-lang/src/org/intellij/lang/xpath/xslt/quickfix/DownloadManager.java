@@ -18,8 +18,6 @@ package org.intellij.lang.xpath.xslt.quickfix;
 import com.intellij.javaee.ExternalResourceManager;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
-import com.intellij.openapi.application.Result;
-import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
@@ -29,7 +27,9 @@ import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
+import com.intellij.util.ExceptionUtil;
 import com.intellij.util.io.HttpRequests;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
@@ -58,11 +58,11 @@ public abstract class DownloadManager {
       return;
     }
 
-    myProgress.setText("Downloading " + location);
+    myProgress.setText(XPathBundle.message("progress.text.downloading", location));
 
     File file = null;
     try {
-      file = HttpRequests.request(location).connect(new HttpRequests.RequestProcessor<File>() {
+      file = HttpRequests.request(location).connect(new HttpRequests.RequestProcessor<>() {
         @Override
         public File process(@NotNull HttpRequests.Request request) throws IOException {
           String name = Integer.toHexString(System.identityHashCode(this)) + "_" +
@@ -73,31 +73,22 @@ public abstract class DownloadManager {
       });
 
       try {
-        final File _file = file;
         //noinspection unchecked
         final Set<String>[] resourceDependencies = new Set[1];
-        new WriteAction() {
-          @Override
-          protected void run(@NotNull Result result) throws Throwable {
-            final VirtualFile vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(_file);
-            if (vf != null) {
-              final PsiFile psiFile = PsiManager.getInstance(myProject).findFile(vf);
-              if (psiFile != null && isAccepted(psiFile)) {
-                resourceDependencies[0] = getResourceDependencies(psiFile);
-                resourceManager.addResource(location, _file.getAbsolutePath());
-              }
-              else {
-                ApplicationManager.getApplication().invokeLater(
-                  new Runnable() {
-                    @Override
-                    public void run() {
-                      Messages.showErrorDialog(myProject, "Not a valid file: " + vf.getPresentableUrl(), "Download Problem");
-                    }
-                  }, myProject.getDisposed());
-              }
-            }
+        final VirtualFile vf = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file);
+        if (vf != null) {
+          PsiFile psiFile = PsiManager.getInstance(myProject).findFile(vf);
+          if (psiFile != null && isAccepted(psiFile)) {
+            resourceDependencies[0] = getResourceDependencies(psiFile);
+            resourceManager.addResource(location, file.getAbsolutePath());
           }
-        }.execute();
+          else {
+            ApplicationManager.getApplication().invokeLater(
+              () -> Messages.showErrorDialog(myProject,
+                                             XPathBundle.message("dialog.message.not.valid.file", vf.getPresentableUrl()),
+                                             XPathBundle.message("dialog.title.download.problem")), myProject.getDisposed());
+          }
+        }
 
         if (resourceDependencies[0] != null) {
           for (String s : resourceDependencies[0]) {
@@ -111,13 +102,11 @@ public abstract class DownloadManager {
         Throwable e = err.getCause();
         if (e instanceof InvocationTargetException) {
           Throwable targetException = ((InvocationTargetException)e).getTargetException();
-          if (targetException instanceof RuntimeException) {
-            throw (RuntimeException)targetException;
-          }
-          else if (targetException instanceof IOException) {
+          ExceptionUtil.rethrowUnchecked(targetException);
+          if (targetException instanceof IOException) {
             throw (IOException)targetException;
           }
-          else if (!(targetException instanceof InterruptedException)) {
+          if (!(targetException instanceof InterruptedException)) {
             Logger.getInstance(getClass().getName()).error(e);
           }
         }

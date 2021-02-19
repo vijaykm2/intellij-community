@@ -15,16 +15,14 @@
  */
 package org.jetbrains.jps.cmdline;
 
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.builders.BuildRootIndex;
 import org.jetbrains.jps.builders.BuildTargetIndex;
 import org.jetbrains.jps.builders.logging.BuildLoggingManager;
 import org.jetbrains.jps.incremental.CompilerEncodingConfiguration;
-import org.jetbrains.jps.incremental.FSCache;
 import org.jetbrains.jps.incremental.fs.BuildFSState;
 import org.jetbrains.jps.incremental.storage.BuildDataManager;
 import org.jetbrains.jps.incremental.storage.BuildTargetsState;
-import org.jetbrains.jps.incremental.storage.ProjectTimestamps;
+import org.jetbrains.jps.incremental.storage.ProjectStamps;
 import org.jetbrains.jps.indices.IgnoredFileIndex;
 import org.jetbrains.jps.indices.ModuleExcludeIndex;
 import org.jetbrains.jps.model.JpsModel;
@@ -39,28 +37,26 @@ import java.util.Set;
 
 /**
 * @author Eugene Zhuravlev
-*         Date: 1/8/12
 */
 public final class ProjectDescriptor {
   private final JpsProject myProject;
   private final JpsModel myModel;
   public final BuildFSState fsState;
-  public final ProjectTimestamps timestamps;
+  private final ProjectStamps myProjectStamps;
   public final BuildDataManager dataManager;
   private final BuildLoggingManager myLoggingManager;
   private final BuildTargetsState myTargetsState;
   private final ModuleExcludeIndex myModuleExcludeIndex;
   private int myUseCounter = 1;
-  private Set<JpsSdk<?>> myProjectJavaSdks;
-  private CompilerEncodingConfiguration myEncodingConfiguration;
+  private final Set<JpsSdk<?>> myProjectJavaSdks;
+  private final CompilerEncodingConfiguration myEncodingConfiguration;
   private final BuildRootIndex myBuildRootIndex;
   private final BuildTargetIndex myBuildTargetIndex;
   private final IgnoredFileIndex myIgnoredFileIndex;
-  private FSCache myFSCache = FSCache.NO_CACHE;
 
   public ProjectDescriptor(JpsModel model,
                            BuildFSState fsState,
-                           ProjectTimestamps timestamps,
+                           ProjectStamps projectStamps,
                            BuildDataManager dataManager,
                            BuildLoggingManager loggingManager,
                            final ModuleExcludeIndex moduleExcludeIndex,
@@ -70,13 +66,13 @@ public final class ProjectDescriptor {
     myIgnoredFileIndex = ignoredFileIndex;
     myProject = model.getProject();
     this.fsState = fsState;
-    this.timestamps = timestamps;
+    myProjectStamps = projectStamps;
     this.dataManager = dataManager;
     myBuildTargetIndex = buildTargetIndex;
     myBuildRootIndex = buildRootIndex;
     myLoggingManager = loggingManager;
     myModuleExcludeIndex = moduleExcludeIndex;
-    myProjectJavaSdks = new HashSet<JpsSdk<?>>();
+    myProjectJavaSdks = new HashSet<>();
     myEncodingConfiguration = new CompilerEncodingConfiguration(model, buildRootIndex);
     for (JpsModule module : myProject.getModules()) {
       final JpsSdk<?> sdk = module.getSdk(JpsJavaSdkType.INSTANCE);
@@ -85,15 +81,6 @@ public final class ProjectDescriptor {
       }
     }
     myTargetsState = targetsState;
-  }
-
-  @NotNull
-  public FSCache getFSCache() {
-    return myFSCache;
-  }
-
-  public void setFSCache(FSCache cache) {
-    myFSCache = cache == null? FSCache.NO_CACHE : cache;
   }
 
   public BuildRootIndex getBuildRootIndex() {
@@ -136,7 +123,7 @@ public final class ProjectDescriptor {
     }
     if (shouldClose) {
       try {
-        timestamps.close();
+        myProjectStamps.close();
       }
       finally {
         try {
@@ -159,5 +146,9 @@ public final class ProjectDescriptor {
 
   public JpsProject getProject() {
     return myProject;
+  }
+
+  public ProjectStamps getProjectStamps() {
+    return myProjectStamps;
   }
 }

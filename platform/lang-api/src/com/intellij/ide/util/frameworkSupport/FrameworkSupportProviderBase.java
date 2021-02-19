@@ -16,9 +16,12 @@
 
 package com.intellij.ide.util.frameworkSupport;
 
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.roots.ModifiableRootModel;
 import com.intellij.openapi.roots.libraries.Library;
+import com.intellij.openapi.util.NlsContexts;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -26,12 +29,9 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author nik
- */
 public abstract class FrameworkSupportProviderBase extends FrameworkSupportProvider {
 
-  protected FrameworkSupportProviderBase(final @NonNls @NotNull String id, final @NotNull String title) {
+  protected FrameworkSupportProviderBase(final @NonNls @NotNull String id, final @NotNull @Nls(capitalization = Nls.Capitalization.Title) String title) {
     super(id, title);
   }
 
@@ -42,13 +42,13 @@ public abstract class FrameworkSupportProviderBase extends FrameworkSupportProvi
     return Collections.emptyList();
   }
 
-  public String getVersionLabelText() {
-    return "Version:";
+  public @NlsContexts.Label String getVersionLabelText() {
+    return LangBundle.message("label.framework.version");
   }
 
   @Override
   @NotNull
-  public FrameworkSupportConfigurableBase createConfigurable(final @NotNull FrameworkSupportModel model) {
+  public FrameworkSupportConfigurable createConfigurable(final @NotNull FrameworkSupportModel model) {
     return new FrameworkSupportConfigurableBase(this, model, getVersions(), getVersionLabelText());
   }
 }

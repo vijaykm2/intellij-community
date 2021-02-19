@@ -15,13 +15,11 @@
  */
 package com.intellij.packaging.artifacts;
 
+import com.intellij.openapi.roots.ProjectModelExternalSource;
 import com.intellij.packaging.elements.CompositePackagingElement;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author nik
- */
 public interface ModifiableArtifactModel extends ArtifactModel {
 
   @NotNull
@@ -29,6 +27,10 @@ public interface ModifiableArtifactModel extends ArtifactModel {
 
   @NotNull
   ModifiableArtifact addArtifact(final @NotNull String name, @NotNull ArtifactType artifactType, CompositePackagingElement<?> rootElement);
+
+  @NotNull
+  ModifiableArtifact addArtifact(@NotNull String name, @NotNull ArtifactType artifactType, CompositePackagingElement<?> rootElement,
+                                 @Nullable ProjectModelExternalSource externalSource);
 
   void removeArtifact(@NotNull Artifact artifact);
 

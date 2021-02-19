@@ -21,10 +21,10 @@ import javax.swing.text.BadLocationException;
 /**
  * @author yole
  */
-public class TextAreaDocument extends TextComponentDocument {
+class TextAreaDocument extends TextComponentDocument {
   private final JTextArea myTextArea;
 
-  public TextAreaDocument(final JTextArea textComponent) {
+  TextAreaDocument(final JTextArea textComponent) {
     super(textComponent);
     myTextArea = textComponent;
   }
@@ -70,11 +70,10 @@ public class TextAreaDocument extends TextComponentDocument {
       return 0;
     }
     try {
-      int endOffset = myTextArea.getLineEndOffset(line) - 1;
-      int startOffset = myTextArea.getLineStartOffset(line);
       int l = 0;
       String text = getText();
-      while(l < endOffset - startOffset && (text.charAt(endOffset - l) == '\r' || text.charAt(endOffset - l) == '\n')) {
+      for (int pos = myTextArea.getLineEndOffset(line) - 1; pos >= myTextArea.getLineStartOffset(line); pos--) {
+        if (text.charAt(pos) != '\r' && text.charAt(pos) != '\n') break;
         l++;
       }
       return l;

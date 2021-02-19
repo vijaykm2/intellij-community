@@ -1,32 +1,30 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.commands;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
-import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.vcs.log.Hash;
+import com.intellij.vcs.log.impl.HashImpl;
+import com.intellij.vcs.log.util.VcsLogUtil;
 import com.intellij.vcsUtil.VcsFileUtil;
-import git4idea.*;
+import com.intellij.vcsUtil.VcsUtil;
+import git4idea.GitContentRevision;
+import git4idea.branch.GitRebaseParams;
 import git4idea.config.GitVersionSpecialty;
-import git4idea.history.GitHistoryUtils;
+import git4idea.push.GitPushParams;
+import git4idea.rebase.GitHandlerRebaseEditorManager;
+import git4idea.rebase.GitInteractiveRebaseEditorHandler;
+import git4idea.rebase.GitRebaseEditorHandler;
+import git4idea.rebase.GitRebaseResumeMode;
 import git4idea.repo.GitRemote;
 import git4idea.repo.GitRepository;
 import git4idea.reset.GitResetMode;
@@ -35,22 +33,19 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
-import static java.util.Collections.singleton;
+import static git4idea.GitUtil.COMMENT_CHAR;
+import static java.util.Arrays.asList;
+import static java.util.Collections.*;
 
 /**
  * Easy-to-use wrapper of common native Git commands.
  * Most of them return result as {@link GitCommandResult}.
- *
- * @author Kirill Likhodedov
  */
-@SuppressWarnings("StringToUpperCaseOrToLowerCaseWithoutLocale")
-public class GitImpl implements Git {
+public class GitImpl extends GitImplBase {
 
-  private final Logger LOG = Logger.getInstance(Git.class);
+  private static final Logger LOG = Logger.getInstance(Git.class);
+  public static final List<String> REBASE_CONFIG_PARAMS = singletonList("core.commentChar=" + COMMENT_CHAR);
 
   public GitImpl() {
   }
@@ -60,52 +55,106 @@ public class GitImpl implements Git {
    */
   @NotNull
   @Override
-  public GitCommandResult init(@NotNull Project project, @NotNull VirtualFile root, @NotNull GitLineHandlerListener... listeners) {
+  public GitCommandResult init(@NotNull Project project, @NotNull VirtualFile root, GitLineHandlerListener @NotNull ... listeners) {
     GitLineHandler h = new GitLineHandler(project, root, GitCommand.INIT);
     for (GitLineHandlerListener listener : listeners) {
       h.addLineListener(listener);
     }
     h.setSilent(false);
     h.setStdoutSuppressed(false);
-    return run(h);
+    return runCommand(h);
+  }
+
+  @Override
+  public Set<FilePath> ignoredFilePaths(@NotNull Project project, @NotNull VirtualFile root, @Nullable Collection<? extends FilePath> paths)
+    throws VcsException {
+    Set<FilePath> ignoredFiles = new HashSet<>();
+
+    if (paths == null) {
+      ignoredFiles.addAll(ignoredFilePathsNoChunk(project, root, null));
+    }
+    else {
+      for (List<String> relativePaths : VcsFileUtil.chunkPaths(root, paths)) {
+        ignoredFiles.addAll(ignoredFilePathsNoChunk(project, root, relativePaths));
+      }
+    }
+    return ignoredFiles;
+  }
+
+  @Override
+  public Set<FilePath> ignoredFilePathsNoChunk(@NotNull Project project, @NotNull VirtualFile root, @Nullable List<String> paths)
+    throws VcsException {
+    GitLineHandler h = new GitLineHandler(project, root, GitCommand.STATUS);
+    h.setSilent(true);
+    h.addParameters("--ignored", "--porcelain", "-z");
+    if (paths != null) {
+      h.addParameters(paths);
+    }
+    h.endOptions();
+
+    final String output = runCommand(h).getOutputOrThrow();
+    return parseFiles(root, output, "!! ");
+  }
+
+  @NotNull
+  private static Set<FilePath> parseFiles(@NotNull VirtualFile root,
+                                          @Nullable String output,
+                                          @NotNull String fileStatusPrefix) throws VcsException {
+    if (StringUtil.isEmptyOrSpaces(output)) return emptySet();
+
+    final Set<FilePath> files = new HashSet<>();
+    for (String relPath : output.split("\u0000")) {
+      ProgressManager.checkCanceled();
+      if (!fileStatusPrefix.isEmpty() && !relPath.startsWith(fileStatusPrefix)) continue;
+
+      String relativePath = relPath.substring(fileStatusPrefix.length());
+      files.add(GitContentRevision.createPath(root, relativePath, relativePath.endsWith("/")));
+    }
+
+    return files;
   }
 
   /**
    * <p>Queries Git for the unversioned files in the given paths. </p>
    * <p>Ignored files are left ignored, i. e. no information is returned about them (thus this method may also be used as a
-   *    ignored files checker.</p>
+   * ignored files checker.</p>
    *
    * @param files files that are to be checked for the unversioned files among them.
-   *              <b>Pass <code>null</code> to query the whole repository.</b>
+   *              <b>Pass {@code null} to query the whole repository.</b>
    * @return Unversioned not ignored files from the given scope.
    */
   @Override
   @NotNull
   public Set<VirtualFile> untrackedFiles(@NotNull Project project, @NotNull VirtualFile root,
-                                         @Nullable Collection<VirtualFile> files) throws VcsException {
-    final Set<VirtualFile> untrackedFiles = new HashSet<VirtualFile>();
+                                         @Nullable Collection<? extends VirtualFile> files) throws VcsException {
+    return ContainerUtil.map2SetNotNull(
+      untrackedFilePaths(project, root,
+                         files != null ? ContainerUtil.mapNotNull(files, VcsUtil::getFilePath) : null), FilePath::getVirtualFile);
+  }
+
+  @Override
+  public Set<FilePath> untrackedFilePaths(@NotNull Project project, @NotNull VirtualFile root, @Nullable Collection<FilePath> files)
+    throws VcsException {
+    final Set<FilePath> untrackedFiles = new HashSet<>();
 
     if (files == null) {
-      untrackedFiles.addAll(untrackedFilesNoChunk(project, root, null));
+      untrackedFiles.addAll(untrackedFilePathsNoChunk(project, root, null));
     }
     else {
-      for (List<String> relativePaths : VcsFileUtil.chunkFiles(root, files)) {
-        untrackedFiles.addAll(untrackedFilesNoChunk(project, root, relativePaths));
+      for (List<String> relativePaths : VcsFileUtil.chunkPaths(root, files)) {
+        untrackedFiles.addAll(untrackedFilePathsNoChunk(project, root, relativePaths));
       }
     }
 
     return untrackedFiles;
   }
 
-  // relativePaths are guaranteed to fit into command line length limitations.
-  @Override
   @NotNull
-  public Collection<VirtualFile> untrackedFilesNoChunk(@NotNull Project project,
-                                                       @NotNull VirtualFile root,
-                                                       @Nullable List<String> relativePaths)
-    throws VcsException {
-    final Set<VirtualFile> untrackedFiles = new HashSet<VirtualFile>();
-    GitSimpleHandler h = new GitSimpleHandler(project, root, GitCommand.LS_FILES);
+  @Override
+  public Collection<FilePath> untrackedFilePathsNoChunk(@NotNull Project project,
+                                                        @NotNull VirtualFile root,
+                                                        @Nullable List<String> relativePaths) throws VcsException {
+    GitLineHandler h = new GitLineHandler(project, root, GitCommand.LS_FILES);
     h.setSilent(true);
     h.addParameters("--exclude-standard", "--others", "-z");
     h.endOptions();
@@ -113,41 +162,28 @@ public class GitImpl implements Git {
       h.addParameters(relativePaths);
     }
 
-    final String output = h.run();
-    if (StringUtil.isEmptyOrSpaces(output)) {
-      return untrackedFiles;
-    }
-
-    for (String relPath : output.split("\u0000")) {
-      VirtualFile f = root.findFileByRelativePath(relPath);
-      if (f == null) {
-        // files was created on disk, but VirtualFile hasn't yet been created,
-        // when the GitChangeProvider has already been requested about changes.
-        LOG.info(String.format("VirtualFile for path [%s] is null", relPath));
-      } else {
-        untrackedFiles.add(f);
-      }
-    }
-
-    return untrackedFiles;
+    final String output = runCommand(h).getOutputOrThrow();
+    return parseFiles(root, output, "");
   }
-  
+
   @Override
   @NotNull
   public GitCommandResult clone(@NotNull final Project project, @NotNull final File parentDirectory, @NotNull final String url,
-                                @NotNull final String clonedDirectoryName, @NotNull final GitLineHandlerListener... listeners) {
-    return run(new Computable<GitLineHandler>() {
-      @Override
-      public GitLineHandler compute() {
-        GitLineHandler handler = new GitLineHandler(project, parentDirectory, GitCommand.CLONE);
-        handler.setStdoutSuppressed(false);
-        handler.setUrl(url);
-        handler.addParameters("--progress");
-        handler.addParameters(url);
-        handler.addParameters(clonedDirectoryName);
-        addListeners(handler, listeners);
-        return handler;
+                                @NotNull final String clonedDirectoryName, final GitLineHandlerListener @NotNull ... listeners) {
+    return runCommand(() -> {
+      GitLineHandler handler = new GitLineHandler(project, parentDirectory, GitCommand.CLONE);
+      handler.setSilent(false);
+      handler.setStderrSuppressed(false);
+      handler.setUrl(url);
+      handler.addParameters("--progress");
+      if (GitVersionSpecialty.CLONE_RECURSE_SUBMODULES.existsIn(project) && Registry.is("git.clone.recurse.submodules")) {
+        handler.addParameters("--recurse-submodules");
       }
+      handler.addParameters(url);
+      handler.endOptions();
+      handler.addParameters(clonedDirectoryName);
+      addListeners(handler, listeners);
+      return handler;
     });
   }
 
@@ -156,7 +192,7 @@ public class GitImpl implements Git {
   public GitCommandResult config(@NotNull GitRepository repository, String... params) {
     final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.CONFIG);
     h.addParameters(params);
-    return run(h);
+    return runCommand(h);
   }
 
   @NotNull
@@ -168,18 +204,22 @@ public class GitImpl implements Git {
     diff.setStdoutSuppressed(true);
     diff.setStderrSuppressed(true);
     diff.setSilent(true);
-    return run(diff);
+    return runCommand(diff);
   }
 
   @NotNull
   @Override
-  public GitCommandResult checkAttr(@NotNull GitRepository repository, @NotNull Collection<String> attributes,
-                                    @NotNull Collection<VirtualFile> files) {
+  public GitCommandResult checkAttr(@NotNull final GitRepository repository,
+                                    @NotNull final Collection<String> attributes,
+                                    @NotNull Collection<? extends VirtualFile> files) {
+    List<String> relativeFilePaths = ContainerUtil.map(files, file -> VcsFileUtil.relativePath(repository.getRoot(), file));
+
     final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.CHECK_ATTR);
-    h.addParameters(new ArrayList<String>(attributes));
+    h.addParameters("--stdin");
+    h.addParameters(new ArrayList<>(attributes));
     h.endOptions();
-    h.addRelativeFiles(files);
-    return run(h);
+    h.setInputProcessor(GitHandlerInputProcessorUtil.writeLines(relativeFilePaths, h.getCharset()));
+    return runCommand(h);
   }
 
   @NotNull
@@ -188,34 +228,22 @@ public class GitImpl implements Git {
     final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.STASH);
     h.addParameters("save");
     h.addParameters(message);
-    return run(h);
+    return runCommand(h);
   }
 
   @NotNull
   @Override
-  public GitCommandResult stashPop(@NotNull GitRepository repository, @NotNull GitLineHandlerListener... listeners) {
+  public GitCommandResult stashPop(@NotNull GitRepository repository, GitLineHandlerListener @NotNull ... listeners) {
     final GitLineHandler handler = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.STASH);
     handler.addParameters("pop");
     addListeners(handler, listeners);
-    return run(handler);
-  }
-
-  @NotNull
-  @Override
-  public List<GitCommit> history(@NotNull GitRepository repository, @NotNull String range) {
-    try {
-      return GitHistoryUtils.history(repository.getProject(), repository.getRoot(), range);
-    }
-    catch (VcsException e) {
-      // this is critical, because we need to show the list of unmerged commits, and it shouldn't happen => inform user and developer
-      throw new GitExecutionException("Couldn't get [git log " + range + "] on repository [" + repository.getRoot() + "]", e);
-    }
+    return runCommand(handler);
   }
 
   @Override
   @NotNull
   public GitCommandResult merge(@NotNull GitRepository repository, @NotNull String branchToMerge,
-                                @Nullable List<String> additionalParams, @NotNull GitLineHandlerListener... listeners) {
+                                @Nullable List<String> additionalParams, GitLineHandlerListener @NotNull ... listeners) {
     final GitLineHandler mergeHandler = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.MERGE);
     mergeHandler.setSilent(false);
     mergeHandler.addParameters(branchToMerge);
@@ -225,7 +253,7 @@ public class GitImpl implements Git {
     for (GitLineHandlerListener listener : listeners) {
       mergeHandler.addLineListener(listener);
     }
-    return run(mergeHandler);
+    return runCommand(mergeHandler);
   }
 
 
@@ -236,10 +264,29 @@ public class GitImpl implements Git {
   @NotNull
   @Override
   public GitCommandResult checkout(@NotNull GitRepository repository,
-                                          @NotNull String reference,
-                                          @Nullable String newBranch,
-                                          boolean force,
-                                          @NotNull GitLineHandlerListener... listeners) {
+                                   @NotNull String reference,
+                                   @Nullable String newBranch,
+                                   boolean force,
+                                   boolean detach,
+                                   GitLineHandlerListener @NotNull ... listeners) {
+    return checkout(repository, reference, newBranch, force, detach, false, listeners);
+  }
+
+  /**
+   * {@code git checkout <reference>} <br/>
+   * {@code git checkout -b <newBranch> <reference>} <br/>
+   * or withReset<br/>
+   * {@code git checkout -B <newBranch> <reference>}
+   */
+  @NotNull
+  @Override
+  public GitCommandResult checkout(@NotNull GitRepository repository,
+                                   @NotNull String reference,
+                                   @Nullable String newBranch,
+                                   boolean force,
+                                   boolean detach,
+                                   boolean withReset,
+                                   GitLineHandlerListener @NotNull ... listeners) {
     final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.CHECKOUT);
     h.setSilent(false);
     h.setStdoutSuppressed(false);
@@ -247,15 +294,16 @@ public class GitImpl implements Git {
       h.addParameters("--force");
     }
     if (newBranch == null) { // simply checkout
-      h.addParameters(reference);
-    } 
-    else { // checkout reference as new branch
-      h.addParameters("-b", newBranch, reference);
+      h.addParameters(detach ? reference + "^0" : reference); // we could use `--detach` here, but it is supported only since 1.7.5.
     }
+    else { // checkout reference as new branch
+      h.addParameters(withReset ? "-B" : "-b", newBranch, reference);
+    }
+    h.endOptions();
     for (GitLineHandlerListener listener : listeners) {
       h.addLineListener(listener);
     }
-    return run(h);
+    return runCommand(h);
   }
 
   /**
@@ -264,8 +312,8 @@ public class GitImpl implements Git {
   @NotNull
   @Override
   public GitCommandResult checkoutNewBranch(@NotNull GitRepository repository, @NotNull String branchName,
-                                                   @Nullable GitLineHandlerListener listener) {
-    final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.CHECKOUT.readLockingCommand());
+                                            @Nullable GitLineHandlerListener listener) {
+    final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.CHECKOUT);
     h.setSilent(false);
     h.setStdoutSuppressed(false);
     h.addParameters("-b");
@@ -273,7 +321,7 @@ public class GitImpl implements Git {
     if (listener != null) {
       h.addLineListener(listener);
     }
-    return run(h);
+    return runCommand(h);
   }
 
   @NotNull
@@ -289,7 +337,22 @@ public class GitImpl implements Git {
     if (listener != null) {
       h.addLineListener(listener);
     }
-    return run(h);
+    return runCommand(h);
+  }
+
+  @NotNull
+  @Override
+  public GitCommandResult deleteTag(@NotNull GitRepository repository,
+                                    @NotNull String tagName,
+                                    GitLineHandlerListener @NotNull ... listeners) {
+    final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.TAG);
+    h.setSilent(false);
+    h.addParameters("-d");
+    h.addParameters(tagName);
+    for (GitLineHandlerListener listener : listeners) {
+      h.addLineListener(listener);
+    }
+    return runCommand(h);
   }
 
   /**
@@ -298,9 +361,9 @@ public class GitImpl implements Git {
   @NotNull
   @Override
   public GitCommandResult branchDelete(@NotNull GitRepository repository,
-                                              @NotNull String branchName,
-                                              boolean force,
-                                              @NotNull GitLineHandlerListener... listeners) {
+                                       @NotNull String branchName,
+                                       boolean force,
+                                       GitLineHandlerListener @NotNull ... listeners) {
     final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.BRANCH);
     h.setSilent(false);
     h.setStdoutSuppressed(false);
@@ -309,38 +372,63 @@ public class GitImpl implements Git {
     for (GitLineHandlerListener listener : listeners) {
       h.addLineListener(listener);
     }
-    return run(h);
+    return runCommand(h);
   }
 
-  /**
-   * Get branches containing the commit.
-   * {@code git branch --contains <commit>}
-   */
   @Override
   @NotNull
-  public GitCommandResult branchContains(@NotNull GitRepository repository, @NotNull String commit) {
-    final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.BRANCH);
-    h.addParameters("--contains", commit);
-    return run(h);
+  public GitCommandResult branchCreate(@NotNull GitRepository repository, @NotNull String branchName, @NotNull String startPoint) {
+    return branchCreate(repository, branchName, startPoint, false);
   }
 
-  /**
-   * Create branch without checking it out.
-   * {@code git branch <branchName>}
-   */
   @Override
   @NotNull
-  public GitCommandResult branchCreate(@NotNull GitRepository repository, @NotNull String branchName) {
+  public GitCommandResult branchCreate(@NotNull GitRepository repository,
+                                       @NotNull String branchName,
+                                       @NotNull String startPoint,
+                                       boolean force) {
     final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.BRANCH);
     h.setStdoutSuppressed(false);
+    if (force) {
+      h.addParameters("-f");
+    }
     h.addParameters(branchName);
-    return run(h);
+    h.addParameters(startPoint);
+    return runCommand(h);
+  }
+
+  @Override
+  public @NotNull GitCommandResult setUpstream(@NotNull GitRepository repository,
+                                               @NotNull String upstreamBranchName,
+                                               @NotNull String branchName) {
+    GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.BRANCH);
+    h.setStdoutSuppressed(false);
+    if (GitVersionSpecialty.KNOWS_SET_UPSTREAM_TO.existsIn(repository)) {
+      h.addParameters("--set-upstream-to", upstreamBranchName, branchName);
+    }
+    else {
+      h.addParameters("--set-upstream", branchName, upstreamBranchName);
+    }
+    return runCommand(h);
+  }
+
+  @NotNull
+  @Override
+  public GitCommandResult renameBranch(@NotNull GitRepository repository,
+                                       @NotNull String currentName,
+                                       @NotNull String newName,
+                                       GitLineHandlerListener @NotNull ... listeners) {
+    GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.BRANCH);
+    h.setSilent(false);
+    h.setStdoutSuppressed(false);
+    h.addParameters("-m", currentName, newName);
+    return runCommand(h);
   }
 
   @Override
   @NotNull
   public GitCommandResult reset(@NotNull GitRepository repository, @NotNull GitResetMode mode, @NotNull String target,
-                                @NotNull GitLineHandlerListener... listeners) {
+                                GitLineHandlerListener @NotNull ... listeners) {
     return reset(repository, mode.getArgument(), target, listeners);
   }
 
@@ -351,15 +439,15 @@ public class GitImpl implements Git {
   }
 
   @NotNull
-  private static GitCommandResult reset(@NotNull GitRepository repository, @NotNull String argument, @Nullable String target,
-                                        @NotNull GitLineHandlerListener... listeners) {
+  private GitCommandResult reset(@NotNull GitRepository repository, @NotNull String argument, @Nullable String target,
+                                 GitLineHandlerListener @NotNull ... listeners) {
     final GitLineHandler handler = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.RESET);
     handler.addParameters(argument);
     if (target != null) {
       handler.addParameters(target);
     }
     addListeners(handler, listeners);
-    return run(handler);
+    return runCommand(handler);
   }
 
   /**
@@ -372,7 +460,7 @@ public class GitImpl implements Git {
     final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.REV_LIST);
     h.addParameters("-1");
     h.addParameters(branchName);
-    return run(h);
+    return runCommand(h);
   }
 
   @Override
@@ -382,20 +470,18 @@ public class GitImpl implements Git {
                                @Nullable String url,
                                @NotNull String spec,
                                boolean updateTracking,
-                               @NotNull GitLineHandlerListener... listeners) {
-    return doPush(repository, remote, singleton(url), spec, false, updateTracking, null, listeners);
+                               GitLineHandlerListener @NotNull ... listeners) {
+    return doPush(repository, remote, singleton(url), spec, false, updateTracking, false, Collections.emptyList(), null, listeners);
   }
 
   @Override
   @NotNull
   public GitCommandResult push(@NotNull GitRepository repository,
-                               @NotNull GitRemote remote,
-                               @NotNull String spec,
-                               boolean force,
-                               boolean updateTracking,
-                               @Nullable String tagMode,
+                               @NotNull GitPushParams pushParams,
                                GitLineHandlerListener... listeners) {
-    return doPush(repository, remote.getName(), remote.getPushUrls(), spec, force, updateTracking, tagMode, listeners);
+    return doPush(repository, pushParams.getRemote().getName(), pushParams.getRemote().getPushUrls(), pushParams.getSpec(),
+                  pushParams.isForce(), pushParams.shouldSetupTracking(), pushParams.shouldSkipHooks(), pushParams.getForceWithLease(),
+                  pushParams.getTagMode(), listeners);
   }
 
   @NotNull
@@ -405,48 +491,76 @@ public class GitImpl implements Git {
                                   @NotNull final String spec,
                                   final boolean force,
                                   final boolean updateTracking,
+                                  final boolean skipHook,
+                                  final List<? extends GitPushParams.ForceWithLease> forceWithLease,
                                   @Nullable final String tagMode,
-                                  @NotNull final GitLineHandlerListener... listeners) {
-    return runCommand(new Computable<GitLineHandler>() {
-      @Override
-      public GitLineHandler compute() {
-        final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.PUSH);
-        h.setUrls(remoteUrls);
-        h.setSilent(false);
-        h.setStdoutSuppressed(false);
-        addListeners(h, listeners);
-        h.addProgressParameter();
-        h.addParameters("--porcelain");
-        h.addParameters(remoteName);
-        h.addParameters(spec);
-        if (updateTracking) {
-          h.addParameters("--set-upstream");
-        }
-        if (force) {
-          h.addParameters("--force");
-        }
-        if (tagMode != null) {
-          h.addParameters(tagMode);
-        }
-        return h;
+                                  final GitLineHandlerListener @NotNull ... listeners) {
+    return runCommand(() -> {
+      final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.PUSH);
+      h.setUrls(remoteUrls);
+      h.setSilent(false);
+      h.setStdoutSuppressed(false);
+      addListeners(h, listeners);
+      if(GitVersionSpecialty.ABLE_TO_USE_PROGRESS_IN_REMOTE_COMMANDS.existsIn(repository)) {
+        h.addParameters("--progress");
       }
+      h.addParameters("--porcelain");
+      h.addParameters(remoteName);
+      h.addParameters(spec);
+      if (updateTracking) {
+        h.addParameters("--set-upstream");
+      }
+      if (GitVersionSpecialty.SUPPORTS_FORCE_PUSH_WITH_LEASE.existsIn(repository) &&
+          !forceWithLease.isEmpty()) {
+        for (GitPushParams.ForceWithLease lease : forceWithLease) {
+          String parameter = lease.getParameter();
+          if (parameter != null) {
+            h.addParameters("--force-with-lease=" + parameter);
+          }
+          else {
+            h.addParameters("--force-with-lease");
+          }
+        }
+      }
+      else if (force) {
+        h.addParameters("--force");
+      }
+      if (tagMode != null) {
+        h.addParameters(tagMode);
+      }
+      if (skipHook) {
+        h.addParameters("--no-verify");
+      }
+      return h;
     });
   }
 
   @NotNull
   @Override
-  public GitCommandResult show(@NotNull GitRepository repository, @NotNull String... params) {
+  public GitCommandResult show(@NotNull GitRepository repository, String @NotNull ... params) {
     final GitLineHandler handler = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.SHOW);
     handler.addParameters(params);
-    return run(handler);
+    return runCommand(handler);
   }
 
   @Override
   @NotNull
   public GitCommandResult cherryPick(@NotNull GitRepository repository, @NotNull String hash, boolean autoCommit,
-                                     @NotNull GitLineHandlerListener... listeners) {
+                                     GitLineHandlerListener @NotNull ... listeners) {
+    return cherryPick(repository, hash, autoCommit, true, listeners);
+  }
+
+  @NotNull
+  @Override
+  public GitCommandResult cherryPick(@NotNull GitRepository repository,
+                                     @NotNull String hash,
+                                     boolean autoCommit,
+                                     boolean addCherryPickedFromSuffix,
+                                     GitLineHandlerListener @NotNull ... listeners) {
     final GitLineHandler handler = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.CHERRY_PICK);
-    handler.addParameters("-x");
+    if (addCherryPickedFromSuffix) {
+      handler.addParameters("-x");
+    }
     if (!autoCommit) {
       handler.addParameters("-n");
     }
@@ -454,7 +568,7 @@ public class GitImpl implements Git {
     addListeners(handler, listeners);
     handler.setSilent(false);
     handler.setStdoutSuppressed(false);
-    return run(handler);
+    return runCommand(handler);
   }
 
   @NotNull
@@ -463,7 +577,7 @@ public class GitImpl implements Git {
     GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.LS_FILES);
     h.addParameters("--unmerged");
     h.setSilent(true);
-    return run(h);
+    return runCommand(h);
   }
 
   /**
@@ -474,25 +588,35 @@ public class GitImpl implements Git {
   @NotNull
   public GitCommandResult fetch(@NotNull final GitRepository repository,
                                 @NotNull final GitRemote remote,
-                                @NotNull final List<GitLineHandlerListener> listeners,
+                                @NotNull final List<? extends GitLineHandlerListener> listeners,
                                 final String... params) {
-    return runCommand(new Computable<GitLineHandler>() {
-      @Override
-      public GitLineHandler compute() {
-        final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.FETCH);
-        h.setSilent(false);
-        h.setStdoutSuppressed(false);
-        h.setUrls(remote.getUrls());
-        h.addParameters(remote.getName());
-        h.addParameters(params);
-        h.addProgressParameter();
-        GitVcs vcs = GitVcs.getInstance(repository.getProject());
-        if (vcs != null && GitVersionSpecialty.SUPPORTS_FETCH_PRUNE.existsIn(vcs.getVersion())) {
-          h.addParameters("--prune");
-        }
-        addListeners(h, listeners);
-        return h;
+    return fetch(repository, remote, listeners, null, params);
+  }
+
+  @NotNull
+  public GitCommandResult fetch(@NotNull final GitRepository repository,
+                                @NotNull final GitRemote remote,
+                                @NotNull final List<? extends GitLineHandlerListener> listeners,
+                                @Nullable GitAuthenticationGate authenticationGate,
+                                final String... params) {
+    return runCommand(() -> {
+      GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.FETCH);
+      if (authenticationGate != null) {
+        h.setAuthenticationGate(authenticationGate);
       }
+      h.setSilent(false);
+      h.setStdoutSuppressed(false);
+      h.setUrls(remote.getUrls());
+      h.addParameters(remote.getName());
+      h.addParameters(params);
+      if(GitVersionSpecialty.ABLE_TO_USE_PROGRESS_IN_REMOTE_COMMANDS.existsIn(repository)) {
+        h.addParameters("--progress");
+      }
+      if (GitVersionSpecialty.SUPPORTS_FETCH_PRUNE.existsIn(repository)) {
+        h.addParameters("--prune");
+      }
+      addListeners(h, listeners);
+      return h;
     });
   }
 
@@ -501,7 +625,31 @@ public class GitImpl implements Git {
   public GitCommandResult addRemote(@NotNull GitRepository repository, @NotNull String name, @NotNull String url) {
     GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.REMOTE);
     h.addParameters("add", name, url);
-    return run(h);
+    return runCommand(h);
+  }
+
+  @NotNull
+  @Override
+  public GitCommandResult removeRemote(@NotNull GitRepository repository, @NotNull GitRemote remote) {
+    GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.REMOTE);
+    h.addParameters("remove", remote.getName());
+    return runCommand(h);
+  }
+
+  @NotNull
+  @Override
+  public GitCommandResult renameRemote(@NotNull GitRepository repository, @NotNull String oldName, @NotNull String newName) {
+    GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.REMOTE);
+    h.addParameters("rename", oldName, newName);
+    return runCommand(h);
+  }
+
+  @NotNull
+  @Override
+  public GitCommandResult setRemoteUrl(@NotNull GitRepository repository, @NotNull String remoteName, @NotNull String newUrl) {
+    GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.REMOTE);
+    h.addParameters("set-url", remoteName, newUrl);
+    return runCommand(h);
   }
 
   @NotNull
@@ -509,7 +657,7 @@ public class GitImpl implements Git {
   public GitCommandResult lsRemote(@NotNull final Project project,
                                    @NotNull final File workingDir,
                                    @NotNull final String url) {
-    return doLsRemote(project, workingDir, url, singleton(url));
+    return doLsRemote(project, workingDir, url, singleton(url), emptyList());
   }
 
   @NotNull
@@ -518,141 +666,196 @@ public class GitImpl implements Git {
                                    @NotNull VirtualFile workingDir,
                                    @NotNull GitRemote remote,
                                    String... additionalParameters) {
-    return doLsRemote(project, VfsUtilCore.virtualToIoFile(workingDir), remote.getName(), remote.getUrls(), additionalParameters);
+    return lsRemoteRefs(project, workingDir, remote, emptyList(), additionalParameters);
+  }
+
+  @NotNull
+  @Override
+  public GitCommandResult lsRemoteRefs(@NotNull Project project,
+                                       @NotNull VirtualFile workingDir,
+                                       @NotNull GitRemote remote,
+                                       @NotNull List<String> refs,
+                                       String... additionalParameters) {
+    return doLsRemote(project, VfsUtilCore.virtualToIoFile(workingDir), remote.getName(), remote.getUrls(), refs, additionalParameters);
   }
 
   @NotNull
   @Override
   public GitCommandResult remotePrune(@NotNull final GitRepository repository, @NotNull final GitRemote remote) {
-    return run(new Computable<GitLineHandler>() {
-      @Override
-      public GitLineHandler compute() {
-        GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.REMOTE.writeLockingCommand());
-        h.setStdoutSuppressed(false);
-        h.addParameters("prune");
-        h.addParameters(remote.getName());
-        h.setUrls(remote.getUrls());
-        return h;
-      }
+    return runCommand(() -> {
+      GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.REMOTE.writeLockingCommand());
+      h.setStdoutSuppressed(false);
+      h.addParameters("prune");
+      h.addParameters(remote.getName());
+      h.setUrls(remote.getUrls());
+      return h;
     });
   }
 
   @NotNull
-  private static GitCommandResult doLsRemote(@NotNull final Project project,
-                                             @NotNull final File workingDir,
-                                             @NotNull final String remoteId,
-                                             @NotNull final Collection<String> authenticationUrls,
-                                             final String... additionalParameters) {
-    return run(new Computable<GitLineHandler>() {
-      @Override
-      public GitLineHandler compute() {
-        GitLineHandler h = new GitLineHandler(project, workingDir, GitCommand.LS_REMOTE);
-        h.addParameters(additionalParameters);
-        h.addParameters(remoteId);
-        h.setUrls(authenticationUrls);
-        return h;
+  @Override
+  public GitRebaseCommandResult rebase(@NotNull GitRepository repository,
+                                       @NotNull GitRebaseParams parameters,
+                                       GitLineHandlerListener @NotNull ... listeners) {
+    Project project = repository.getProject();
+    VirtualFile root = repository.getRoot();
+    GitLineHandler handler = new GitLineHandler(project, root, GitCommand.REBASE, REBASE_CONFIG_PARAMS);
+    handler.addParameters(parameters.asCommandLineArguments());
+    addListeners(handler, listeners);
+
+    if (parameters.isInteractive()) {
+      GitRebaseEditorHandler editorHandler = parameters.getEditorHandler();
+      if (editorHandler == null) {
+        editorHandler = createEditor(project, root, handler, true);
       }
+      return runWithEditor(handler, editorHandler);
+    }
+    return GitRebaseCommandResult.normal(runCommand(handler));
+  }
+
+  @NotNull
+  @Override
+  public GitRebaseCommandResult rebaseAbort(@NotNull GitRepository repository, GitLineHandlerListener @NotNull ... listeners) {
+    GitLineHandler handler = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.REBASE);
+    handler.addParameters("--abort");
+    addListeners(handler, listeners);
+    return GitRebaseCommandResult.normal(runCommand(handler));
+  }
+
+  @NotNull
+  @Override
+  public GitRebaseCommandResult rebaseContinue(@NotNull GitRepository repository, GitLineHandlerListener @NotNull ... listeners) {
+    return rebaseResume(repository, GitRebaseResumeMode.CONTINUE, listeners);
+  }
+
+  @NotNull
+  @Override
+  public GitRebaseCommandResult rebaseSkip(@NotNull GitRepository repository, GitLineHandlerListener @NotNull ... listeners) {
+    return rebaseResume(repository, GitRebaseResumeMode.SKIP, listeners);
+  }
+
+  @NotNull
+  private GitRebaseCommandResult rebaseResume(@NotNull GitRepository repository,
+                                              @NotNull GitRebaseResumeMode rebaseMode,
+                                              GitLineHandlerListener @NotNull [] listeners) {
+    Project project = repository.getProject();
+    VirtualFile root = repository.getRoot();
+    GitLineHandler handler = new GitLineHandler(project, root, GitCommand.REBASE, REBASE_CONFIG_PARAMS);
+    handler.addParameters(rebaseMode.asCommandLineArgument());
+    addListeners(handler, listeners);
+    return runWithEditor(handler, createEditor(project, root, handler, false));
+  }
+
+  @NotNull
+  private GitRebaseCommandResult runWithEditor(@NotNull GitLineHandler handler, @NotNull GitRebaseEditorHandler editorHandler) {
+    try (GitHandlerRebaseEditorManager ignored = GitHandlerRebaseEditorManager.prepareEditor(handler, editorHandler)) {
+      GitCommandResult result = runCommand(handler);
+      if (editorHandler.wasCommitListEditorCancelled()) return GitRebaseCommandResult.cancelledInCommitList(result);
+      if (editorHandler.wasUnstructuredEditorCancelled()) return GitRebaseCommandResult.cancelledInCommitMessage(result);
+      return GitRebaseCommandResult.normal(result);
+    }
+  }
+
+  @VisibleForTesting
+  @NotNull
+  protected GitInteractiveRebaseEditorHandler createEditor(@NotNull Project project,
+                                                           @NotNull VirtualFile root,
+                                                           @NotNull GitLineHandler handler,
+                                                           boolean commitListAware) {
+    GitInteractiveRebaseEditorHandler editor = new GitInteractiveRebaseEditorHandler(project, root);
+    if (!commitListAware) {
+      editor.setRebaseEditorShown();
+    }
+    return editor;
+  }
+
+  @NotNull
+  @Override
+  public GitCommandResult revert(@NotNull GitRepository repository,
+                                 @NotNull String commit,
+                                 boolean autoCommit,
+                                 GitLineHandlerListener @NotNull ... listeners) {
+    GitLineHandler handler = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.REVERT);
+    handler.addParameters(commit);
+    if (!autoCommit) {
+      handler.addParameters("--no-commit");
+    }
+    addListeners(handler, listeners);
+    return runCommand(handler);
+  }
+
+  @Nullable
+  @Override
+  public Hash resolveReference(@NotNull GitRepository repository, @NotNull String ref) {
+    VirtualFile root = repository.getRoot();
+    GitLineHandler handler = new GitLineHandler(repository.getProject(), root, GitCommand.REV_PARSE);
+    handler.addParameters("--verify");
+    handler.addParameters(ref + "^{commit}");
+    GitCommandResult result = Git.getInstance().runCommand(handler);
+    String output = result.getOutputAsJoinedString();
+    if (result.success()) {
+      if (VcsLogUtil.HASH_REGEX.matcher(output).matches()) {
+        return HashImpl.build(output);
+      }
+      else {
+        LOG.error("Invalid output for git rev-parse " + ref + " in " + root + ": " + output);
+        return null;
+      }
+    }
+    else {
+      LOG.debug("Reference [" + ref + "] is unknown to Git in " + root);
+      return null;
+    }
+  }
+
+  @NotNull
+  private GitCommandResult doLsRemote(@NotNull final Project project,
+                                      @NotNull final File workingDir,
+                                      @NotNull final String remoteId,
+                                      @NotNull final Collection<String> authenticationUrls,
+                                      @NotNull final List<String> refs,
+                                      final String... additionalParameters) {
+    return runCommand(() -> {
+      GitLineHandler h = new GitLineHandler(project, workingDir, GitCommand.LS_REMOTE);
+      h.addParameters(additionalParameters);
+      h.addParameters(remoteId);
+      h.addParameters(refs);
+      h.setUrls(authenticationUrls);
+      return h;
     });
   }
 
-  private static void addListeners(@NotNull GitLineHandler handler, @NotNull GitLineHandlerListener... listeners) {
-    addListeners(handler, Arrays.asList(listeners));
+  @Override
+  @NotNull
+  public GitCommandResult getObjectType(@NotNull GitRepository repository, @NotNull String object) {
+    GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.CAT_FILE);
+    h.setSilent(true);
+    h.addParameters("-t", object);
+    return runCommand(h);
   }
 
-  private static void addListeners(@NotNull GitLineHandler handler, @NotNull List<GitLineHandlerListener> listeners) {
+  @Override
+  @Nullable
+  public GitObjectType getObjectTypeEnum(@NotNull GitRepository repository, @NotNull String object) {
+    GitCommandResult result = getObjectType(repository, object);
+    if (!result.success()) return null;
+    String string = result.getOutputAsJoinedString();
+    try {
+      return GitObjectType.valueOf(StringUtil.toUpperCase(string));
+    }
+    catch (IllegalArgumentException e) {
+      LOG.warn(e);
+      return null;
+    }
+  }
+
+  private static void addListeners(@NotNull GitLineHandler handler, GitLineHandlerListener @NotNull ... listeners) {
+    addListeners(handler, asList(listeners));
+  }
+
+  private static void addListeners(@NotNull GitLineHandler handler, @NotNull List<? extends GitLineHandlerListener> listeners) {
     for (GitLineHandlerListener listener : listeners) {
       handler.addLineListener(listener);
     }
   }
-
-  @NotNull
-  private static GitCommandResult run(@NotNull Computable<GitLineHandler> handlerConstructor) {
-    final List<String> errorOutput = new ArrayList<String>();
-    final List<String> output = new ArrayList<String>();
-    final AtomicInteger exitCode = new AtomicInteger();
-    final AtomicBoolean startFailed = new AtomicBoolean();
-    final AtomicReference<Throwable> exception = new AtomicReference<Throwable>();
-
-    int authAttempt = 0;
-    boolean authFailed;
-    boolean success;
-    do {
-      errorOutput.clear();
-      output.clear();
-      exitCode.set(0);
-      startFailed.set(false);
-      exception.set(null);
-
-      GitLineHandler handler = handlerConstructor.compute();
-      handler.addLineListener(new GitLineHandlerListener() {
-        @Override public void onLineAvailable(String line, Key outputType) {
-          if (isError(line)) {
-            errorOutput.add(line);
-          } else {
-            output.add(line);
-          }
-        }
-
-        @Override public void processTerminated(int code) {
-          exitCode.set(code);
-        }
-
-        @Override public void startFailed(Throwable t) {
-          startFailed.set(true);
-          errorOutput.add("Failed to start Git process");
-          exception.set(t);
-        }
-      });
-
-      handler.runInCurrentThread(null);
-      authFailed = handler.hasHttpAuthFailed();
-      success = !startFailed.get() && errorOutput.isEmpty() && (handler.isIgnoredErrorCode(exitCode.get()) || exitCode.get() == 0);
-    }
-    while (authFailed && authAttempt++ < 2);
-    return new GitCommandResult(success, exitCode.get(), errorOutput, output, null);
-  }
-
-  /**
-   * Runs the given {@link GitLineHandler} in the current thread and returns the {@link GitCommandResult}.
-   */
-  @NotNull
-  private static GitCommandResult run(@NotNull GitLineHandler handler) {
-    return run(new Computable.PredefinedValueComputable<GitLineHandler>(handler));
-  }
-
-  @Override
-  @NotNull
-  public GitCommandResult runCommand(@NotNull Computable<GitLineHandler> handlerConstructor) {
-    return run(handlerConstructor);
-  }
-
-  @NotNull
-  @Override
-  public GitCommandResult runCommand(@NotNull final GitLineHandler handler) {
-    return runCommand(new Computable<GitLineHandler>() {
-      @Override
-      public GitLineHandler compute() {
-        return handler;
-      }
-    });
-  }
-
-  /**
-   * Check if the line looks line an error message
-   */
-  private static boolean isError(String text) {
-    for (String indicator : ERROR_INDICATORS) {
-      if (text.trim().toLowerCase().startsWith(indicator.toLowerCase())) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  // could be upper-cased, so should check case-insensitively
-  public static final String[] ERROR_INDICATORS = {
-    "error", "remote: error", "fatal",
-    "Cannot", "Could not", "Interactive rebase already started", "refusing to pull", "cannot rebase:", "conflict",
-    "unable"
-  };
 }

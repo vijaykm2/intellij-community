@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.uiDesigner.make;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PluginPathManager;
 import com.intellij.openapi.command.CommandProcessor;
-import com.intellij.openapi.projectRoots.impl.JavaSdkImpl;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -27,15 +12,16 @@ import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.search.ProjectScope;
 import com.intellij.testFramework.IdeaTestUtil;
-import com.intellij.testFramework.PsiTestCase;
+import com.intellij.testFramework.JavaPsiTestCase;
 import com.intellij.testFramework.PsiTestUtil;
+import com.intellij.util.ThrowableRunnable;
 
 import java.io.IOException;
 
 /**
  * @author yole
  */
-public class FormSourceCodeGeneratorTest extends PsiTestCase {
+public class FormSourceCodeGeneratorTest extends JavaPsiTestCase {
   private VirtualFile myTestProjectRoot;
   private FormSourceCodeGenerator myGenerator;
 
@@ -45,7 +31,7 @@ public class FormSourceCodeGeneratorTest extends PsiTestCase {
 
     String root = PluginPathManager.getPluginHomePath("ui-designer") + "/testData/sourceCodeGenerator/" + getTestName(true);
     PsiTestUtil.removeAllRoots(myModule, IdeaTestUtil.getMockJdk17());
-    myTestProjectRoot = PsiTestUtil.createTestProjectStructure(myProject, myModule, root, myFilesToDelete);
+    myTestProjectRoot = createTestProjectStructure(root);
     myGenerator = new FormSourceCodeGenerator(getProject());
   }
 
@@ -87,18 +73,39 @@ public class FormSourceCodeGeneratorTest extends PsiTestCase {
     doTest();
   }
 
+  public void testSetupCallWithComments() throws IOException {
+    doTest();
+  }
+
+  public void testInitializerWithComments() throws IOException {
+    doTest();
+  }
+
+  public void testTitledBorder() throws IOException {
+    doTest();
+  }
+
+  public void testBorderNullTitle() throws IOException {
+    doTest();
+  }
+
+  public void testTitledBorderInternal() throws IOException {
+    inInternalMode(() -> doTest());
+  }
+
+  public void testTitleFromBundle() throws IOException {
+    doTest();
+  }
+
   private void doTest() throws IOException {
     final VirtualFile form = myTestProjectRoot.findChild("Test.form");
     assertNotNull(form);
-    CommandProcessor.getInstance().executeCommand(myProject, new Runnable() {
-      @Override
-      public void run() {
-        try {
-          myGenerator.generate(form);
-        }
-        catch (Exception e) {
-          fail(e.getMessage());
-        }
+    CommandProcessor.getInstance().executeCommand(myProject, () -> {
+      try {
+        ApplicationManager.getApplication().runWriteAction(() -> myGenerator.generate(form));
+      }
+      catch (Exception e) {
+        fail(e.getMessage());
       }
     }, "", null);
 
@@ -111,5 +118,14 @@ public class FormSourceCodeGeneratorTest extends PsiTestCase {
     assertNotNull(psiFile);
     final String text = StringUtil.convertLineSeparators(psiFile.getText());
     assertEquals(expectedText, text);
+  }
+
+  private static void inInternalMode(ThrowableRunnable<IOException> runnable) throws IOException {
+    System.getProperties().setProperty("idea.is.internal", "true");
+    try {
+      runnable.run();
+    } finally {
+      System.getProperties().setProperty("idea.is.internal", "false");
+    }
   }
 }

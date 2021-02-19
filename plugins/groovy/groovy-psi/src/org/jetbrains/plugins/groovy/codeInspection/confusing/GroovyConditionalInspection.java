@@ -15,9 +15,9 @@
  */
 package org.jetbrains.plugins.groovy.codeInspection.confusing;
 
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrConditionalExpression;
@@ -25,23 +25,9 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrCondit
 public class GroovyConditionalInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONFUSING_CODE_CONSTRUCTS;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Conditional expression";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "Conditional expression #loc";
+    return GroovyBundle.message("inspection.message.conditional.expression");
 
   }
 
@@ -54,7 +40,7 @@ public class GroovyConditionalInspection extends BaseInspection {
   private static class Visitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitConditionalExpression(GrConditionalExpression grConditionalExpression) {
+    public void visitConditionalExpression(@NotNull GrConditionalExpression grConditionalExpression) {
       super.visitConditionalExpression(grConditionalExpression);
       registerError(grConditionalExpression);
     }

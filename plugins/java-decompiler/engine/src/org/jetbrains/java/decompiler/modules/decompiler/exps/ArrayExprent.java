@@ -1,33 +1,18 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.decompiler.modules.decompiler.exps;
 
-import org.jetbrains.java.decompiler.main.TextBuffer;
 import org.jetbrains.java.decompiler.main.collectors.BytecodeMappingTracer;
 import org.jetbrains.java.decompiler.modules.decompiler.ExprProcessor;
 import org.jetbrains.java.decompiler.modules.decompiler.vars.CheckTypesResult;
 import org.jetbrains.java.decompiler.struct.gen.VarType;
 import org.jetbrains.java.decompiler.util.InterpreterUtil;
+import org.jetbrains.java.decompiler.util.TextBuffer;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
 public class ArrayExprent extends Exprent {
-
   private Exprent array;
   private Exprent index;
   private final VarType hardType;
@@ -57,10 +42,12 @@ public class ArrayExprent extends Exprent {
     }
   }
 
+  @Override
   public int getExprentUse() {
     return array.getExprentUse() & index.getExprentUse() & Exprent.MULTIPLE_USES;
   }
 
+  @Override
   public CheckTypesResult checkExprTypeBounds() {
     CheckTypesResult result = new CheckTypesResult();
     result.addMinTypeExprent(index, VarType.VARTYPE_BYTECHAR);
@@ -68,8 +55,9 @@ public class ArrayExprent extends Exprent {
     return result;
   }
 
+  @Override
   public List<Exprent> getAllExprents() {
-    List<Exprent> lst = new ArrayList<Exprent>();
+    List<Exprent> lst = new ArrayList<>();
     lst.add(array);
     lst.add(index);
     return lst;
@@ -91,7 +79,7 @@ public class ArrayExprent extends Exprent {
 
     tracer.addMapping(bytecode);
 
-    return res.append("[").append(index.toJava(indent, tracer)).append("]");
+    return res.append('[').append(index.toJava(indent, tracer)).append(']');
   }
 
   @Override
@@ -107,7 +95,7 @@ public class ArrayExprent extends Exprent {
   @Override
   public boolean equals(Object o) {
     if (o == this) return true;
-    if (o == null || !(o instanceof ArrayExprent)) return false;
+    if (!(o instanceof ArrayExprent)) return false;
 
     ArrayExprent arr = (ArrayExprent)o;
     return InterpreterUtil.equalObjects(array, arr.getArray()) &&

@@ -23,7 +23,7 @@ import org.junit.Test
 class LinearBekExpandTest {
   fun runTest(beforeLinearBekBuilder: TestGraphBuilder.() -> Unit, afterExpansionBuilder: TestGraphBuilder.() -> Unit, fromNodeToExpand: Int, toNodeToExpand: Int) {
     val afterLinearBek = runLinearBek(beforeLinearBekBuilder)
-    afterLinearBek.expandEdge(GraphEdge.createNormalEdge(fromNodeToExpand, toNodeToExpand, GraphEdgeType.DOTTED));
+    afterLinearBek.expandEdge(GraphEdge.createNormalEdge(fromNodeToExpand, toNodeToExpand, GraphEdgeType.DOTTED))
     assertEquals(afterExpansionBuilder, afterLinearBek)
   }
 
@@ -42,7 +42,7 @@ class LinearBekExpandTest {
     |/             |
     6              6
      */
-  Test fun recursiveExpansionTest() = runTest({
+  @Test fun recursiveExpansionTest() = runTest({
     0(5, 1)
     1(3, 2)
     2(4)
@@ -74,7 +74,7 @@ class LinearBekExpandTest {
     \/               |
     6                6
      */
-  Test fun smallRecursiveBranchesTest() = runTest({
+  @Test fun smallRecursiveBranchesTest() = runTest({
     0(3, 1)
     1(5, 2)
     2(6)
@@ -112,7 +112,7 @@ class LinearBekExpandTest {
    |/
    9
    */
-  Test fun severalCollapsesTest() {
+  @Test fun severalCollapsesTest() {
     val builder: TestGraphBuilder.() -> Unit = {
       0(4, 1)
       1(2)
@@ -156,7 +156,7 @@ class LinearBekExpandTest {
   |/
   4
   */
-  Test fun replaceDottedEdgeTest() {
+  @Test fun replaceDottedEdgeTest() {
     val builder: TestGraphBuilder.() -> Unit = {
       0(3, 1)
       1(3, 2)

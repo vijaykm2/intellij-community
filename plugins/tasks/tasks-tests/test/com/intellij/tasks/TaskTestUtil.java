@@ -22,7 +22,7 @@ public class TaskTestUtil {
     assertTrue(TaskUtil.tasksEqual(t1, t2));
   }
 
-  public static void  assertTasksEqual(@NotNull Task[] t1, @NotNull Task[] t2) {
+  public static void  assertTasksEqual(Task @NotNull [] t1, Task @NotNull [] t2) {
     assertTrue(TaskUtil.tasksEqual(t1, t2));
   }
 
@@ -32,9 +32,9 @@ public class TaskTestUtil {
    * @see #assertTasksEqual(Task, Task)
    */
   public static class TaskBuilder extends Task {
-    private String myId;
-    private String mySummary;
-    private TaskRepository myRepository;
+    private final String myId;
+    private final String mySummary;
+    private final TaskRepository myRepository;
     private String myDescription;
     private String myIssueUrl;
     private Comment[] myComments = Comment.EMPTY_ARRAY;
@@ -62,7 +62,7 @@ public class TaskTestUtil {
       return this;
     }
 
-    public TaskBuilder withComments(@NotNull Comment... comments) {
+    public TaskBuilder withComments(Comment @NotNull ... comments) {
       myComments = comments;
       return this;
     }
@@ -128,9 +128,8 @@ public class TaskTestUtil {
       return myDescription;
     }
 
-    @NotNull
     @Override
-    public Comment[] getComments() {
+    public Comment @NotNull [] getComments() {
       return myComments;
     }
 

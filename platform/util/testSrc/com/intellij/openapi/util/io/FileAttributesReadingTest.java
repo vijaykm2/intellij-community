@@ -1,91 +1,101 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.util.io;
 
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.win32.FileInfo;
 import com.intellij.openapi.util.io.win32.IdeaWin32;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.CharsetToolkit;
+import com.intellij.testFramework.rules.TempDirectory;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.TimeoutUtil;
+import com.intellij.util.system.CpuArch;
 import org.jetbrains.annotations.NotNull;
-import org.junit.After;
-import org.junit.Before;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
+import org.junit.AfterClass;
 import org.junit.BeforeClass;
+import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.attribute.DosFileAttributeView;
 import java.util.Arrays;
 
 import static com.intellij.openapi.util.io.IoTestUtil.assertTimestampsEqual;
+import static com.intellij.openapi.util.io.IoTestUtil.assumeUnix;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.*;
+import static org.junit.Assume.assumeFalse;
 import static org.junit.Assume.assumeTrue;
 
-public class FileAttributesReadingTest {
-  private final byte[] myTestData = new byte[]{'t', 'e', 's', 't'};
-  private File myTempDirectory;
-
-  @BeforeClass
-  public static void checkMediator() throws Exception {
-    final String expectedName = SystemInfo.isWindows ? "IdeaWin32" : "JnaUnix";
-    assertEquals(expectedName, FileSystemUtil.getMediatorName());
-  }
-
-  @Before
-  public void setUp() throws Exception {
-    myTempDirectory = FileUtil.createTempDirectory(getClass().getSimpleName() + ".", ".tmp").getCanonicalFile();
-  }
-
-  @After
-  public void tearDown() throws Exception {
-    if (myTempDirectory != null) {
-      FileUtil.delete(myTempDirectory);
+public abstract class FileAttributesReadingTest {
+  public static class MainTest extends FileAttributesReadingTest {
+    @BeforeClass
+    public static void setUpClass() {
+      assumeFalse(SystemInfo.isMac && CpuArch.isArm64());  // macOS/ARM64 only supports NIO2 mediator
+      assertEquals(SystemInfo.isWindows ? "IdeaWin32" : "JnaUnix", getMediatorName());
     }
   }
 
-  @Test
-  public void missingFile() throws Exception {
-    final File file = FileUtil.createTempFile(myTempDirectory, "test.", ".txt", false);
+  public static class Nio2Test extends FileAttributesReadingTest {
+    @BeforeClass
+    public static void setUpClass() {
+      System.setProperty(FileSystemUtil.FORCE_USE_NIO2_KEY, "true");
+      assertEquals("Nio2", getMediatorName());
+    }
+  }
 
-    final FileAttributes attributes = FileSystemUtil.getAttributes(file);
+  @AfterClass
+  public static void tearDownClass() {
+    System.clearProperty(FileSystemUtil.FORCE_USE_NIO2_KEY);
+  }
+
+  @Rule public TempDirectory tempDir = new TempDirectory();
+
+  private final byte[] myTestData = {'t', 'e', 's', 't'};
+
+  @Test
+  public void missingFile() {
+    File file = new File(tempDir.getRoot(), "missing.txt");
+    assertFalse(file.exists());
+    FileAttributes attributes = getAttributes(file.getPath());
     assertNull(attributes);
 
-    final String target = FileSystemUtil.resolveSymLink(file);
+    String target = resolveSymLink(file);
     assertNull(target);
   }
 
   @Test
-  public void regularFile() throws Exception {
-    final File file = FileUtil.createTempFile(myTempDirectory, "test.", ".txt");
-    FileUtil.writeToFile(file, myTestData);
+  public void regularFile() throws IOException {
+    File file = tempDir.newFile("file.txt");
+    Files.write(file.toPath(), myTestData);
 
     assertFileAttributes(file);
 
-    final String target = FileSystemUtil.resolveSymLink(file);
+    String target = resolveSymLink(file);
     assertEquals(file.getPath(), target);
   }
 
   @Test
-  public void directory() throws Exception {
-    final File file = FileUtil.createTempDirectory(myTempDirectory, "test.", ".tmp");
+  public void readOnlyFile() throws IOException {
+    File file = tempDir.newFile("file.txt");
+    NioFiles.setReadOnly(file.toPath(), true);
+    FileAttributes attributes = getAttributes(file);
+    assertEquals(FileAttributes.Type.FILE, attributes.getType());
+    assertFalse(attributes.isWritable());
+  }
 
-    final FileAttributes attributes = getAttributes(file);
-    assertEquals(FileAttributes.Type.DIRECTORY, attributes.type);
-    assertEquals(0, attributes.flags);
+  @Test
+  public void directory() {
+    File file = tempDir.newDirectory("dir");
+
+    FileAttributes attributes = getAttributes(file);
+    assertEquals(FileAttributes.Type.DIRECTORY, attributes.getType());
+    assertFalse(attributes.isSymLink());
+    assertFalse(attributes.isHidden());
+    assertTrue(attributes.isWritable());
     assertEquals(file.length(), attributes.length);
     assertTimestampsEqual(file.lastModified(), attributes.lastModified);
     assertTrue(attributes.isWritable());
@@ -93,200 +103,262 @@ public class FileAttributesReadingTest {
       assertDirectoriesEqual(file);
     }
 
-    final String target = FileSystemUtil.resolveSymLink(file);
+    String target = resolveSymLink(file);
     assertEquals(file.getPath(), target);
   }
 
   @Test
-  public void root() throws Exception {
-    final File file = new File(SystemInfo.isWindows ? "C:\\" : "/");
+  public void readOnlyDirectory() throws IOException {
+    File dir = tempDir.newDirectory("dir");
+    NioFiles.setReadOnly(dir.toPath(), true);
+    FileAttributes attributes = getAttributes(dir);
+    assertEquals(FileAttributes.Type.DIRECTORY, attributes.getType());
+    assertEquals(SystemInfo.isWindows, attributes.isWritable());
+  }
 
-    final FileAttributes attributes = getAttributes(file);
-    assertEquals(FileAttributes.Type.DIRECTORY, attributes.type);
+  @Test
+  public void root() {
+    File file = new File(SystemInfo.isWindows ? "C:\\" : "/");
+
+    FileAttributes attributes = getAttributes(file);
+    assertEquals(file + " " + attributes, FileAttributes.Type.DIRECTORY, attributes.getType());
+    assertFalse(file + " " + attributes, attributes.isSymLink());
     if (SystemInfo.isWindows) {
       assertDirectoriesEqual(file);
     }
   }
 
   @Test
-  public void badNames() throws Exception {
-    final File file = FileUtil.createTempFile(myTempDirectory, "test.", ".txt");
-    FileUtil.writeToFile(file, myTestData);
+  public void badNames() throws IOException {
+    File file = tempDir.newFile("file.txt");
+    Files.write(file.toPath(), myTestData);
 
     assertFileAttributes(new File(file.getPath() + StringUtil.repeat(File.separator, 3)));
     assertFileAttributes(new File(file.getPath().replace(File.separator, StringUtil.repeat(File.separator, 3))));
     assertFileAttributes(new File(file.getPath().replace(File.separator, File.separator + "." + File.separator)));
     assertFileAttributes(
-      new File(myTempDirectory, File.separator + ".." + File.separator + myTempDirectory.getName() + File.separator + file.getName()));
+      new File(tempDir.getRoot(), File.separator + ".." + File.separator + tempDir.getRoot().getName() + File.separator + file.getName()));
 
     if (SystemInfo.isUnix) {
-      final File backSlashFile = FileUtil.createTempFile(myTempDirectory, "test\\", "\\txt");
-      FileUtil.writeToFile(backSlashFile, myTestData);
+      File backSlashFile = tempDir.newFile("file\\txt");
+      Files.write(backSlashFile.toPath(), myTestData);
       assertFileAttributes(backSlashFile);
     }
   }
 
   @Test
-  public void special() throws Exception {
-    assumeTrue(SystemInfo.isUnix);
-    final File file = new File("/dev/null");
+  public void special() {
+    assumeUnix();
+    File file = new File("/dev/null");
 
-    final FileAttributes attributes = getAttributes(file);
-    assertEquals(FileAttributes.Type.SPECIAL, attributes.type);
-    assertEquals(0, attributes.flags);
+    FileAttributes attributes = getAttributes(file);
+    assertEquals(FileAttributes.Type.SPECIAL, attributes.getType());
+    assertFalse(attributes.isSymLink());
+    assertFalse(attributes.isHidden());
+    assertTrue(attributes.isWritable());
     assertEquals(0, attributes.length);
     assertTrue(attributes.isWritable());
 
-    final String target = FileSystemUtil.resolveSymLink(file);
+    String target = resolveSymLink(file);
     assertEquals(file.getPath(), target);
   }
 
   @Test
-  public void linkToFile() throws Exception {
-    assumeTrue(SystemInfo.areSymLinksSupported);
+  public void linkToFile() throws IOException {
+    IoTestUtil.assumeSymLinkCreationIsSupported();
 
-    final File file = FileUtil.createTempFile(myTempDirectory, "test.", ".txt");
-    FileUtil.writeToFile(file, myTestData);
+    File file = tempDir.newFile("file.txt");
+    Files.write(file.toPath(), myTestData);
     assertTrue(file.setLastModified(file.lastModified() - 5000));
     assertTrue(file.setWritable(false, false));
-    final File link = IoTestUtil.createSymLink(file.getPath(), new File(myTempDirectory, "link").getPath());
+    File link = new File(tempDir.getRoot(), "link");
+    IoTestUtil.createSymbolicLink(link.toPath(), file.toPath());
 
-    final FileAttributes attributes = getAttributes(link);
-    assertEquals(FileAttributes.Type.FILE, attributes.type);
-    assertEquals(FileAttributes.SYM_LINK | FileAttributes.READ_ONLY, attributes.flags);
+    FileAttributes attributes = getAttributes(link);
+    assertEquals(FileAttributes.Type.FILE, attributes.getType());
+    assertTrue(attributes.isSymLink());
+    assertFalse(attributes.isHidden());
+    assertFalse(attributes.isWritable());
+
     assertEquals(myTestData.length, attributes.length);
     assertTimestampsEqual(file.lastModified(), attributes.lastModified);
     assertFalse(attributes.isWritable());
 
-    final String target = FileSystemUtil.resolveSymLink(link);
+    String target = resolveSymLink(link);
     assertEquals(file.getPath(), target);
   }
 
   @Test
-  public void doubleLink() throws Exception {
-    assumeTrue(SystemInfo.areSymLinksSupported);
+  public void doubleLink() throws IOException {
+    IoTestUtil.assumeSymLinkCreationIsSupported();
 
-    final File file = FileUtil.createTempFile(myTempDirectory, "test.", ".txt");
-    FileUtil.writeToFile(file, myTestData);
+    File file = tempDir.newFile("file.txt");
+    Files.write(file.toPath(), myTestData);
     assertTrue(file.setLastModified(file.lastModified() - 5000));
     assertTrue(file.setWritable(false, false));
-    final File link1 = IoTestUtil.createSymLink(file.getPath(), new File(myTempDirectory, "link1").getPath());
-    final File link2 = IoTestUtil.createSymLink(link1.getPath(), new File(myTempDirectory, "link2").getPath());
+    File link1 = new File(tempDir.getRoot(), "link1");
+    IoTestUtil.createSymbolicLink(link1.toPath(), file.toPath());
+    File link2 = new File(tempDir.getRoot(), "link2");
+    IoTestUtil.createSymbolicLink(link2.toPath(), link1.toPath());
 
-    final FileAttributes attributes = getAttributes(link2);
-    assertEquals(FileAttributes.Type.FILE, attributes.type);
-    assertEquals(FileAttributes.SYM_LINK | FileAttributes.READ_ONLY, attributes.flags);
+    FileAttributes attributes = getAttributes(link2);
+    assertEquals(FileAttributes.Type.FILE, attributes.getType());
+    assertTrue(attributes.isSymLink());
+    assertFalse(attributes.isHidden());
+    assertFalse(attributes.isWritable());
+
     assertEquals(myTestData.length, attributes.length);
     assertTimestampsEqual(file.lastModified(), attributes.lastModified);
     assertFalse(attributes.isWritable());
 
-    final String target = FileSystemUtil.resolveSymLink(link2);
+    String target = resolveSymLink(link2);
     assertEquals(file.getPath(), target);
   }
 
   @Test
-  public void linkToDirectory() throws Exception {
-    assumeTrue(SystemInfo.areSymLinksSupported);
+  public void linkToDirectory() throws IOException {
+    IoTestUtil.assumeSymLinkCreationIsSupported();
 
-    final File file = FileUtil.createTempDirectory(myTempDirectory, "test.", ".tmp");
-    if (SystemInfo.isUnix) assertTrue(file.setWritable(false, false));
-    assertTrue(file.setLastModified(file.lastModified() - 5000));
-    final File link = IoTestUtil.createSymLink(file.getPath(), new File(myTempDirectory, "link").getPath());
+    File dir = tempDir.newDirectory("dir");
+    if (SystemInfo.isUnix) assertTrue(dir.setWritable(false, false));
+    assertTrue(dir.setLastModified(dir.lastModified() - 5000));
+    File link = new File(tempDir.getRoot(), "link");
+    IoTestUtil.createSymbolicLink(link.toPath(), dir.toPath());
 
-    final FileAttributes attributes = getAttributes(link);
-    assertEquals(FileAttributes.Type.DIRECTORY, attributes.type);
-    assertEquals(SystemInfo.isUnix ? FileAttributes.SYM_LINK | FileAttributes.READ_ONLY : FileAttributes.SYM_LINK, attributes.flags);
-    assertEquals(file.length(), attributes.length);
-    assertTimestampsEqual(file.lastModified(), attributes.lastModified);
+    FileAttributes attributes = getAttributes(link);
+    assertEquals(FileAttributes.Type.DIRECTORY, attributes.getType());
+    assertTrue(attributes.isSymLink());
+    assertFalse(attributes.isHidden());
+    assertEquals(SystemInfo.isUnix, !attributes.isWritable());
+    assertEquals(dir.length(), attributes.length);
+    assertTimestampsEqual(dir.lastModified(), attributes.lastModified);
     if (SystemInfo.isUnix) assertFalse(attributes.isWritable());
 
-    final String target = FileSystemUtil.resolveSymLink(link);
-    assertEquals(file.getPath(), target);
-  }
-
-  @Test
-  public void missingLink() throws Exception {
-    assumeTrue(SystemInfo.areSymLinksSupported);
-
-    final File file = FileUtil.createTempFile(myTempDirectory, "test.", ".txt", false);
-    final File link = IoTestUtil.createSymLink(file.getPath(), new File(myTempDirectory, "link").getPath(), false);
-
-    final FileAttributes attributes = getAttributes(link);
-    assertNull(attributes.type);
-    assertEquals(FileAttributes.SYM_LINK, attributes.flags);
-    assertEquals(0, attributes.length);
-
-    final String target = FileSystemUtil.resolveSymLink(link);
-    assertNull(target, target);
-  }
-
-  @Test
-  public void selfLink() throws Exception {
-    assumeTrue(SystemInfo.areSymLinksSupported);
-
-    final File dir = FileUtil.createTempDirectory(myTempDirectory, "test.", ".dir");
-    final File link = IoTestUtil.createSymLink(dir.getPath(), new File(dir, "link").getPath());
-
-    final FileAttributes attributes = getAttributes(link);
-    assertEquals(FileAttributes.Type.DIRECTORY, attributes.type);
-    assertEquals(FileAttributes.SYM_LINK, attributes.flags);
-    assertTimestampsEqual(dir.lastModified(), attributes.lastModified);
-
-    final String target = FileSystemUtil.resolveSymLink(link);
+    String target = resolveSymLink(link);
     assertEquals(dir.getPath(), target);
   }
 
   @Test
-  public void junction() throws Exception {
-    assumeTrue(SystemInfo.isWindows);
+  public void missingLink() throws IOException {
+    IoTestUtil.assumeSymLinkCreationIsSupported();
 
-    final File target = FileUtil.createTempDirectory(myTempDirectory, "temp.", ".dir");
-    final File path = FileUtil.createTempFile(myTempDirectory, "junction.", ".dir", false);
-    final File junction = IoTestUtil.createJunction(target.getPath(), path.getAbsolutePath());
+    File file = new File(tempDir.getRoot(), "file.txt");
+    assertFalse(file.exists());
+    File link = new File(tempDir.getRoot(), "link");
+    assertFalse(link.exists());
+    IoTestUtil.createSymbolicLink(link.toPath(), file.toPath());
 
-    FileAttributes attributes = getAttributes(junction);
-    assertEquals(FileAttributes.Type.DIRECTORY, attributes.type);
-    assertEquals(0, attributes.flags);
+    FileAttributes attributes = getAttributes(link);
+    assertNull(attributes.getType());
+    assertTrue(attributes.isSymLink());
+    assertFalse(attributes.isHidden());
     assertTrue(attributes.isWritable());
+    assertEquals(0, attributes.length);
 
-    final String resolved1 = FileSystemUtil.resolveSymLink(junction);
-    assertEquals(SystemInfo.isWinVistaOrNewer ? target.getPath() : junction.getPath(), resolved1);
-
-    FileUtil.delete(target);
-
-    attributes = getAttributes(junction);
-    assertEquals(FileAttributes.Type.DIRECTORY, attributes.type);
-    assertEquals(0, attributes.flags);
-    assertTrue(attributes.isWritable());
-
-    final String resolved2 = FileSystemUtil.resolveSymLink(junction);
-    assertEquals(SystemInfo.isWinVistaOrNewer ? null : junction.getPath(), resolved2);
+    String target = resolveSymLink(link);
+    assertNull(target, target);
   }
 
   @Test
-  public void hiddenDir() throws Exception {
-    assumeTrue(SystemInfo.isWindows);
-    File dir = IoTestUtil.createTestDir(myTempDirectory, "dir");
+  public void selfLink() throws IOException {
+    IoTestUtil.assumeSymLinkCreationIsSupported();
+
+    File dir = tempDir.newDirectory("dir");
+    File link = new File(dir, "link");
+    IoTestUtil.createSymbolicLink(link.toPath(), dir.toPath());
+
+    FileAttributes attributes = getAttributes(link);
+    assertEquals(FileAttributes.Type.DIRECTORY, attributes.getType());
+    assertTrue(attributes.isSymLink());
+    assertFalse(attributes.isHidden());
+    assertTrue(attributes.isWritable());
+    assertTimestampsEqual(dir.lastModified(), attributes.lastModified);
+
+    String target = resolveSymLink(link);
+    assertEquals(dir.getPath(), target);
+  }
+
+  @Test
+  public void innerSymlinkResolve() throws IOException {
+    IoTestUtil.assumeSymLinkCreationIsSupported();
+
+    File file = tempDir.newFile("dir/file.txt");
+    File link = new File(tempDir.getRoot(), "link");
+    IoTestUtil.createSymbolicLink(link.toPath(), file.getParentFile().toPath());
+
+    String target = resolveSymLink(new File(link.getPath() + '/' + file.getName()));
+    assertEquals(file.getPath(), target);
+  }
+
+  @Test
+  public void junction() throws IOException {
+    assumeTrue("vista-or-newer expected but got: "+SystemInfo.getOsNameAndVersion(), SystemInfo.isWinVistaOrNewer);
+
+    File target = tempDir.newDirectory("dir");
+    File junction = IoTestUtil.createJunction(target.getPath(), tempDir.getRoot() + "/junction.dir");
+
+    try {
+      FileAttributes attributes = getAttributes(junction);
+      assertEquals(FileAttributes.Type.DIRECTORY, attributes.getType());
+      assertTrue(attributes.isSymLink());
+      assertFalse(attributes.isHidden());
+      assertTrue(attributes.isWritable());
+
+      String resolved1 = resolveSymLink(junction);
+      assertEquals(target.getPath(), resolved1);
+
+      Files.delete(target.toPath());
+
+      attributes = getAttributes(junction);
+      assertNull(attributes.getType());
+      assertTrue(attributes.isSymLink());
+      assertFalse(attributes.isHidden());
+      assertTrue(attributes.isWritable());
+
+      String resolved2 = resolveSymLink(junction);
+      assertNull(resolved2);
+    }
+    finally {
+      IoTestUtil.deleteJunction(junction.getPath());
+    }
+  }
+
+  @Test
+  public void innerJunctionResolve() {
+    assumeTrue("vista-or-newer expected but got: "+SystemInfo.getOsNameAndVersion(), SystemInfo.isWinVistaOrNewer);
+
+    File file = tempDir.newFile("dir/file.txt");
+    File junction = new File(tempDir.getRoot(), "junction");
+    IoTestUtil.createJunction(file.getParent(), junction.getPath());
+
+    String target = resolveSymLink(new File(junction.getPath() + '/' + file.getName()));
+    assertEquals(file.getPath(), target);
+  }
+
+  @Test
+  public void hiddenDir() throws IOException {
+    IoTestUtil.assumeWindows();
+    File dir = tempDir.newDirectory("dir");
     FileAttributes attributes = getAttributes(dir);
     assertFalse(attributes.isHidden());
-    IoTestUtil.setHidden(dir.getPath(), true);
+    Files.getFileAttributeView(dir.toPath(), DosFileAttributeView.class).setHidden(true);
     attributes = getAttributes(dir);
     assertTrue(attributes.isHidden());
   }
 
   @Test
-  public void hiddenFile() throws Exception {
-    assumeTrue(SystemInfo.isWindows);
-    File file = IoTestUtil.createTestFile(myTempDirectory, "file");
+  public void hiddenFile() throws IOException {
+    IoTestUtil.assumeWindows();
+    File file = tempDir.newFile("file");
     FileAttributes attributes = getAttributes(file);
     assertFalse(attributes.isHidden());
-    IoTestUtil.setHidden(file.getPath(), true);
+    Files.getFileAttributeView(file.toPath(), DosFileAttributeView.class).setHidden(true);
     attributes = getAttributes(file);
     assertTrue(attributes.isHidden());
   }
 
   @Test
-  public void notSoHiddenRoot() throws Exception {
+  public void notSoHiddenRoot() {
     if (SystemInfo.isWindows) {
       File absRoot = new File("C:\\");
       FileAttributes absAttributes = getAttributes(absRoot);
@@ -304,84 +376,78 @@ public class FileAttributesReadingTest {
   }
 
   @Test
-  public void wellHiddenFile() throws Exception {
-    assumeTrue(SystemInfo.isWindows);
-    final File file = new File("C:\\Documents and Settings\\desktop.ini");
-    assumeTrue(file.exists());
+  public void wellHiddenFile() {
+    IoTestUtil.assumeWindows();
+    File file = new File("C:\\Documents and Settings\\desktop.ini");
+    assumeTrue(file +" is not there", file.exists());
 
-    final FileAttributes attributes = getAttributes(file, false);
-    assertEquals(FileAttributes.Type.FILE, attributes.type);
-    assertEquals(FileAttributes.HIDDEN, attributes.flags);
+    FileAttributes attributes = getAttributes(file, false);
+    assertEquals(FileAttributes.Type.FILE, attributes.getType());
+    assertFalse(attributes.isSymLink());
+    assertTrue(attributes.isHidden());
+    assertTrue(attributes.isWritable());
     assertEquals(file.length(), attributes.length);
     assertTimestampsEqual(file.lastModified(), attributes.lastModified);
   }
 
   @Test
-  public void extraLongName() throws Exception {
+  public void extraLongName() throws IOException {
     String prefix = StringUtil.repeatSymbol('a', 128) + ".";
-    File dir = FileUtil.createTempDirectory(
-      FileUtil.createTempDirectory(
-        FileUtil.createTempDirectory(
-          FileUtil.createTempDirectory(
-            myTempDirectory, prefix, ".dir"),
-          prefix, ".dir"),
-        prefix, ".dir"),
-      prefix, ".dir");
-    File file = FileUtil.createTempFile(dir, prefix, ".txt");
-    assertTrue(file.exists());
-    FileUtil.writeToFile(file, myTestData);
+    File file = tempDir.newFile(prefix + ".dir/" + prefix + ".dir/" + prefix + ".dir/" + prefix + ".dir/" + prefix + ".dir/" + prefix + ".txt");
+    Files.write(file.toPath(), myTestData);
 
     assertFileAttributes(file);
     if (SystemInfo.isWindows) {
-      assertDirectoriesEqual(dir);
+      assertDirectoriesEqual(file.getParentFile());
     }
 
-    String target = FileSystemUtil.resolveSymLink(file);
+    String target = resolveSymLink(file);
     assertEquals(file.getPath(), target);
 
     if (SystemInfo.isWindows) {
-      String path = myTempDirectory.getPath();
+      StringBuilder path = new StringBuilder(tempDir.getRoot().getPath());
       int length = 250 - path.length();
       for (int i = 0; i < length / 10; i++) {
-        path += "\\x_x_x_x_x";
+        path.append("\\x_x_x_x_x");
       }
 
-      File baseDir = new File(path);
+      File baseDir = new File(path.toString());
       assertTrue(baseDir.mkdirs());
       assertTrue(getAttributes(baseDir).isDirectory());
 
       for (int i = 1; i <= 100; i++) {
-        dir = new File(baseDir, StringUtil.repeat("x", i));
+        File dir = new File(baseDir, StringUtil.repeat("x", i));
         assertTrue(dir.mkdir());
         assertTrue(getAttributes(dir).isDirectory());
 
         file = new File(dir, "file.txt");
-        FileUtil.writeToFile(file, "test".getBytes(CharsetToolkit.UTF8_CHARSET));
+        Files.write(file.toPath(), myTestData);
         assertTrue(file.exists());
         assertFileAttributes(file);
 
-        target = FileSystemUtil.resolveSymLink(file);
+        target = resolveSymLink(file);
         assertEquals(file.getPath(), target);
       }
     }
   }
 
   @Test
-  public void subst() throws Exception {
-    assumeTrue(SystemInfo.isWindows);
+  public void subst() {
+    IoTestUtil.assumeWindows();
 
-    FileUtil.createTempFile(myTempDirectory, "test.", ".txt");  // just to populate a directory
-    final File substRoot = IoTestUtil.createSubst(myTempDirectory.getPath());
+    tempDir.newFile("file.txt");  // just to populate a directory
+    File substRoot = IoTestUtil.createSubst(tempDir.getRoot().getPath());
     try {
-      final FileAttributes attributes = getAttributes(substRoot);
-      assertEquals(FileAttributes.Type.DIRECTORY, attributes.type);
+      FileAttributes attributes = getAttributes(substRoot);
+      assertEquals(substRoot + " " + attributes, FileAttributes.Type.DIRECTORY, attributes.getType());
+      assertFalse(substRoot + " " + attributes, attributes.isSymLink());
       assertDirectoriesEqual(substRoot);
 
-      final File[] children = substRoot.listFiles();
+      File[] children = substRoot.listFiles();
       assertNotNull(children);
       assertEquals(1, children.length);
-      final File file = children[0];
-      final String target = FileSystemUtil.resolveSymLink(file);
+      File file = children[0];
+      String target = resolveSymLink(file);
       assertEquals(file.getPath(), target);
     }
     finally {
@@ -390,59 +456,68 @@ public class FileAttributesReadingTest {
   }
 
   @Test
-  public void hardLink() throws Exception {
-    final File target = FileUtil.createTempFile(myTempDirectory, "test.", ".txt");
-    final File link = IoTestUtil.createHardLink(target.getPath(), myTempDirectory.getPath() + "/link");
+  public void hardLink() throws IOException {
+    IoTestUtil.assumeSymLinkCreationIsSupported();
+    File target = tempDir.newFile("file.txt");
+    File link = new File(tempDir.getRoot(), "link");
+    Files.createLink(link.toPath(), target.toPath());
 
-    FileAttributes attributes = getAttributes(link, SystemInfo.areSymLinksSupported);  // ignore XP
-    assertEquals(FileAttributes.Type.FILE, attributes.type);
+    FileAttributes attributes = getAttributes(link, SystemInfo.isUnix || SystemInfo.isWinVistaOrNewer);  // ignore XP
+    assertEquals(FileAttributes.Type.FILE, attributes.getType());
     assertEquals(target.length(), attributes.length);
     assertTimestampsEqual(target.lastModified(), attributes.lastModified);
 
-    FileUtil.writeToFile(target, myTestData);
+    Files.write(target.toPath(), myTestData);
     assertTrue(target.setLastModified(attributes.lastModified - 5000));
     assertTrue(target.length() > 0);
     assertTimestampsEqual(attributes.lastModified - 5000, target.lastModified());
 
-    attributes = getAttributes(link, SystemInfo.areSymLinksSupported);  // ignore XP
-    assertEquals(FileAttributes.Type.FILE, attributes.type);
+    if (SystemInfo.isWindows) {
+      byte[] bytes = Files.readAllBytes(link.toPath());
+      assertEquals(myTestData.length, bytes.length);
+    }
+
+    attributes = getAttributes(link, SystemInfo.isUnix || SystemInfo.isWinVistaOrNewer);  // ignore XP
+    assertEquals(FileAttributes.Type.FILE, attributes.getType());
     assertEquals(target.length(), attributes.length);
     assertTimestampsEqual(target.lastModified(), attributes.lastModified);
 
-    final String resolved = FileSystemUtil.resolveSymLink(link);
+    String resolved = resolveSymLink(link);
     assertEquals(link.getPath(), resolved);
   }
 
   @Test
-  public void stamps() throws Exception {
-    FileAttributes attributes = FileSystemUtil.getAttributes(myTempDirectory);
-    assumeTrue(attributes != null && attributes.lastModified > (attributes.lastModified/1000)*1000);
+  public void stamps() throws IOException, InterruptedException {
+    FileAttributes attributes = getAttributes(tempDir.getRoot());
+    assumeTrue("expected FS has millisecond resolution but got lastModified: " + attributes.lastModified,
+               attributes.lastModified > attributes.lastModified / 1000 * 1000);
 
     long t1 = System.currentTimeMillis();
     TimeoutUtil.sleep(10);
-    File file = IoTestUtil.createTestFile(myTempDirectory, "test.txt");
+    File file = tempDir.newFile("test.txt");
     TimeoutUtil.sleep(10);
     long t2 = System.currentTimeMillis();
     attributes = getAttributes(file);
-    assertTrue(attributes.lastModified + " not in " + t1 + ".." + t2, t1 <= attributes.lastModified && attributes.lastModified <= t2);
+    assertThat(attributes.lastModified).isBetween(t1, t2);
 
     t1 = System.currentTimeMillis();
     TimeoutUtil.sleep(10);
-    FileUtil.writeToFile(file, myTestData);
+    Files.write(file.toPath(), myTestData);
     TimeoutUtil.sleep(10);
     t2 = System.currentTimeMillis();
     attributes = getAttributes(file);
-    assertTrue(attributes.lastModified + " not in " + t1 + ".." + t2, t1 <= attributes.lastModified && attributes.lastModified <= t2);
+    assertThat(attributes.lastModified).isBetween(t1, t2);
 
-    ProcessBuilder cmd = SystemInfo.isWindows ? new ProcessBuilder("attrib", "-A", file.getPath()) : new ProcessBuilder("chmod", "644", file.getPath());
+    ProcessBuilder cmd = SystemInfo.isWindows
+                         ? new ProcessBuilder("attrib", "-A", file.getPath()) : new ProcessBuilder("chmod", "644", file.getPath());
     assertEquals(0, cmd.start().waitFor());
     attributes = getAttributes(file);
-    assertTrue(attributes.lastModified + " not in " + t1 + ".." + t2, t1 <= attributes.lastModified && attributes.lastModified <= t2);
+    assertThat(attributes.lastModified).isBetween(t1, t2);
   }
 
   @Test
-  public void notOwned() throws Exception {
-    assumeTrue(SystemInfo.isUnix);
+  public void notOwned() {
+    assumeUnix();
     File userHome = new File(SystemProperties.getUserHome());
 
     FileAttributes homeAttributes = getAttributes(userHome);
@@ -454,23 +529,80 @@ public class FileAttributesReadingTest {
     assertFalse(parentAttributes.isWritable());
   }
 
+  @Test
+  public void permissionsCloning() {
+    assumeUnix();
+
+    File donor = tempDir.newFile("donor");
+    File recipient = tempDir.newFile("recipient");
+    assertTrue(donor.setWritable(true, true));
+    assertTrue(donor.setExecutable(true, true));
+    assertTrue(recipient.setWritable(false, false));
+    assertTrue(recipient.setExecutable(false, false));
+    assertNotEquals(donor.canWrite(), recipient.canWrite());
+    assertNotEquals(donor.canExecute(), recipient.canExecute());
+
+    assertTrue(clonePermissions(donor.getPath(), recipient.getPath(), true));
+    assertNotEquals(donor.canWrite(), recipient.canWrite());
+    assertEquals(donor.canExecute(), recipient.canExecute());
+
+    assertTrue(clonePermissions(donor.getPath(), recipient.getPath(), false));
+    assertEquals(donor.canWrite(), recipient.canWrite());
+    assertEquals(donor.canExecute(), recipient.canExecute());
+  }
+
+  static boolean clonePermissions(@NotNull String source, @NotNull String target, boolean execOnly) {
+    try {
+      return FileSystemUtil.computeMediator().clonePermissions(source, target, execOnly);
+    }
+    catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+  @Test
+  public void unicodeName() throws IOException {
+    String name = IoTestUtil.getUnicodeName();
+    assumeTrue("Unicode names not supported", name != null);
+    File file = tempDir.newFile(name + ".txt");
+    Files.write(file.toPath(), myTestData);
+
+    assertFileAttributes(file);
+
+    String target = resolveSymLink(file);
+    assertEquals(file.getPath(), target);
+  }
+
+  @Nullable
+  private static String resolveSymLink(File file) {
+    try {
+      String realPath = FileSystemUtil.computeMediator().resolveSymLink(file.getAbsolutePath());
+      if (realPath != null && (SystemInfo.isWindows && realPath.startsWith("\\\\") || new File(realPath).exists())) {
+        return realPath;
+      }
+      return null;
+    }
+    catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
 
   @NotNull
-  private static FileAttributes getAttributes(@NotNull final File file) {
+  private static FileAttributes getAttributes(@NotNull File file) {
     return getAttributes(file, true);
   }
 
   @NotNull
-  private static FileAttributes getAttributes(@NotNull final File file, final boolean checkList) {
-    final FileAttributes attributes = FileSystemUtil.getAttributes(file);
-    assertNotNull(attributes);
+  private static FileAttributes getAttributes(@NotNull File file, boolean checkList) {
+    String path = file.getPath();
+    FileAttributes attributes = getAttributes(path);
+    assertNotNull(path + ", exists=" + file.exists(), attributes);
 
     if (SystemInfo.isWindows && checkList) {
-      final String parent = file.getParent();
+      String parent = file.getParent();
       if (parent != null) {
-        final FileInfo[] infos = IdeaWin32.getInstance().listChildren(parent);
-        assertNotNull(infos);
-        for (FileInfo info : infos) {
+        FileInfo[] children = IdeaWin32.getInstance().listChildren(parent);
+        assertNotNull(children);
+        for (FileInfo info : children) {
           if (file.getName().equals(info.getName())) {
             assertEquals(attributes, info.toFileAttributes());
             return attributes;
@@ -483,22 +615,40 @@ public class FileAttributesReadingTest {
     return attributes;
   }
 
-  private static void assertFileAttributes(@NotNull final File file) {
-    final FileAttributes attributes = getAttributes(file);
-    assertEquals(FileAttributes.Type.FILE, attributes.type);
-    assertEquals(0, attributes.flags);
+  @Nullable
+  private static FileAttributes getAttributes(String path) {
+    try {
+      return FileSystemUtil.computeMediator().getAttributes(path);
+    }
+    catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private static void assertFileAttributes(@NotNull File file) {
+    FileAttributes attributes = getAttributes(file);
+    assertEquals(FileAttributes.Type.FILE, attributes.getType());
+    assertFalse(attributes.isSymLink());
+    assertFalse(attributes.isHidden());
+    assertTrue(attributes.isWritable());
     assertEquals(file.length(), attributes.length);
     assertTimestampsEqual(file.lastModified(), attributes.lastModified);
     assertTrue(attributes.isWritable());
   }
 
-  private static void assertDirectoriesEqual(@NotNull final File dir) {
-    final String[] list1 = dir.list();
+  private static void assertDirectoriesEqual(@NotNull File dir) {
+    String[] list1 = dir.list();
     assertNotNull(list1);
-    final FileInfo[] list2 = IdeaWin32.getInstance().listChildren(dir.getPath());
+    FileInfo[] list2 = IdeaWin32.getInstance().listChildren(dir.getPath());
     assertNotNull(list2);
     if (list1.length + 2 != list2.length) {
       assertEquals(Arrays.toString(list1), Arrays.toString(list2));
     }
+  }
+
+  @TestOnly
+  private static String getMediatorName() {
+    Object mediator = FileSystemUtil.computeMediator();
+    return mediator.getClass().getSimpleName().replace("MediatorImpl", "");
   }
 }

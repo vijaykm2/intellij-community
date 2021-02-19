@@ -15,12 +15,14 @@
  */
 package com.intellij.openapi.externalSystem.service.project;
 
+import com.intellij.openapi.externalSystem.importing.ProjectResolverPolicy;
 import com.intellij.openapi.externalSystem.model.DataNode;
 import com.intellij.openapi.externalSystem.model.ExternalSystemException;
 import com.intellij.openapi.externalSystem.model.project.ProjectData;
 import com.intellij.openapi.externalSystem.model.settings.ExternalSystemExecutionSettings;
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId;
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -28,7 +30,6 @@ import org.jetbrains.annotations.Nullable;
  * Defines common interface for resolving external system project..
  *
  * @author Denis Zhdanov
- * @since 4/9/13 3:53 PM
  */
 public interface ExternalSystemProjectResolver<S extends ExternalSystemExecutionSettings> {
 
@@ -42,21 +43,35 @@ public interface ExternalSystemProjectResolver<S extends ExternalSystemExecution
    *                      And should not include any 'heavy' tasks like not trivial code generations.
    *                      It is supposed to be fast.
    * @param settings      settings to use for the project resolving;
-   *                      <code>null</code> as indication that no specific settings are required
+   *                      {@code null} as indication that no specific settings are required
    * @param listener      callback to be notified about the execution
    * @return object-level representation of the target external system project;
-   * <code>null</code> if it's not possible to resolve the project due to the objective reasons
+   * {@code null} if it's not possible to resolve the project due to the objective reasons
    * @throws ExternalSystemException  in case when unexpected exception occurs during project info construction
    * @throws IllegalArgumentException if given path is invalid
    * @throws IllegalStateException    if it's not possible to resolve target project info
    */
   @Nullable
-  DataNode<ProjectData> resolveProjectInfo(@NotNull ExternalSystemTaskId id,
+  default DataNode<ProjectData> resolveProjectInfo(@NotNull ExternalSystemTaskId id,
                                            @NotNull String projectPath,
                                            boolean isPreviewMode,
                                            @Nullable S settings,
                                            @NotNull ExternalSystemTaskNotificationListener listener)
-    throws ExternalSystemException, IllegalArgumentException, IllegalStateException;
+    throws ExternalSystemException, IllegalArgumentException, IllegalStateException {
+    return resolveProjectInfo(id, projectPath, isPreviewMode, settings, null, listener);
+  }
+
+  @Nullable
+  @ApiStatus.Experimental
+  default DataNode<ProjectData> resolveProjectInfo(@NotNull ExternalSystemTaskId id,
+                                                   @NotNull String projectPath,
+                                                   boolean isPreviewMode,
+                                                   @Nullable S settings,
+                                                   @Nullable ProjectResolverPolicy resolverPolicy,
+                                                   @NotNull ExternalSystemTaskNotificationListener listener)
+    throws ExternalSystemException, IllegalArgumentException, IllegalStateException {
+    return resolveProjectInfo(id, projectPath, isPreviewMode, settings, listener);
+  }
 
   /**
    * @param taskId   id of the 'resolve project info' task

@@ -1,64 +1,58 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.configurations;
 
+import com.intellij.execution.BeforeRunTask;
+import com.intellij.execution.configuration.RunConfigurationExtensionBase;
+import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.JDOMExternalizable;
+import com.intellij.openapi.util.NlsActions;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.PlatformUtils;
+import com.intellij.util.xmlb.annotations.Transient;
+import org.jdom.Element;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Collections;
+import java.util.List;
+
 /**
- * Interface for run configurations which can be managed by a user and displayed in the UI.
+ * A run configuration which can be managed by a user and displayed in the UI.
+ * <p>
+ * If debugger is provided by plugin, it should also implement {@link RunConfigurationWithSuppressedDefaultDebugAction}.
+ * Otherwise (in case of disabled plugin) debug action may be enabled in UI but with no reaction.
  *
  * @see com.intellij.execution.RunManager
  * @see RunConfigurationBase
- *
- * If debugger is provided by plugin, RunConfiguration should also implement RunConfigurationWithSuppressedDefaultDebugAction
- * Otherwise (in case of disabled plugin) debug action may be enabled in UI but with no reaction
- * @see RunConfigurationWithSuppressedDefaultDebugAction
- *
  * @see RefactoringListenerProvider
+ * @see RunConfigurationExtensionBase
  */
-public interface RunConfiguration extends RunProfile, JDOMExternalizable, Cloneable {
+public interface RunConfiguration extends RunProfile, Cloneable {
   DataKey<RunConfiguration> DATA_KEY = DataKey.create("runtimeConfiguration");
 
   /**
    * Returns the type of the run configuration.
-   *
-   * @return the configuration type.
    */
-  @NotNull
-  ConfigurationType getType();
+  default @NotNull ConfigurationType getType() {
+    ConfigurationFactory factory = getFactory();
+    return factory == null ? UnknownConfigurationType.getInstance() : factory.getType();
+  }
 
   /**
    * Returns the factory that has created the run configuration.
-   *
-   * @return the factory instance.
    */
-  ConfigurationFactory getFactory();
+  @Nullable ConfigurationFactory getFactory();
 
+  // do not annotate as Nullable because in this case Kotlin compiler will forbid field style access (because of different nullability for getter and setter).
   /**
    * Sets the name of the configuration.
-   *
-   * @param name the new name of the configuration.
    */
-  void setName(String name);
+  void setName(@NlsSafe String name);
 
   /**
    * Returns the UI control for editing the run configuration settings. If additional control over validation is required, the object
@@ -68,13 +62,10 @@ public interface RunConfiguration extends RunProfile, JDOMExternalizable, Clonea
    *
    * @return the settings editor component.
    */
-  @NotNull
-  SettingsEditor<? extends RunConfiguration> getConfigurationEditor();
+  @NotNull SettingsEditor<? extends RunConfiguration> getConfigurationEditor();
 
   /**
    * Returns the project in which the run configuration exists.
-   *
-   * @return the project instance.
    */
   Project getProject();
 
@@ -85,8 +76,9 @@ public interface RunConfiguration extends RunProfile, JDOMExternalizable, Clonea
    * @param provider source of assorted information about the configuration being edited.
    * @return the per-runner settings.
    */
-  @Nullable
-  ConfigurationPerRunnerSettings createRunnerSettings(ConfigurationInfoProvider provider);
+  default @Nullable ConfigurationPerRunnerSettings createRunnerSettings(ConfigurationInfoProvider provider) {
+    return null;
+  }
 
   /**
    * Creates a UI control for editing the settings for a specific {@link ProgramRunner}. Can return null if the configuration has no
@@ -95,8 +87,9 @@ public interface RunConfiguration extends RunProfile, JDOMExternalizable, Clonea
    * @param runner the runner the settings for which need to be edited.
    * @return the editor for the per-runner settings.
    */
-  @Nullable
-  SettingsEditor<ConfigurationPerRunnerSettings> getRunnerSettingsEditor(ProgramRunner runner);
+  default @Nullable SettingsEditor<ConfigurationPerRunnerSettings> getRunnerSettingsEditor(ProgramRunner runner) {
+    return null;
+  }
 
   /**
    * Clones the run configuration.
@@ -110,8 +103,34 @@ public interface RunConfiguration extends RunProfile, JDOMExternalizable, Clonea
    *
    * @return the unique ID of the configuration.
    */
-  @Deprecated
-  int getUniqueID();
+  default int getUniqueID() {
+    return System.identityHashCode(this);
+  }
+
+  /**
+   * Returns the unique identifier of the run configuration. Return null if not applicable.
+   * Used only for non-managed RC type.
+   */
+  default @Nullable @NonNls String getId() {
+    return null;
+  }
+
+  @Transient
+  default @NotNull @NlsActions.ActionText String getPresentableType() {
+    if (PlatformUtils.isPhpStorm()) {
+      return " (" + StringUtil.first(getType().getDisplayName(), 10, true) + ")";
+    }
+    return "";
+  }
+
+  /**
+   * If this method returns true, disabled executor buttons (e.g. Run) will be hidden when this configuration is selected.
+   * Note that this will lead to UI flickering when switching between this configuration and others for which this property
+   * is false, so you should avoid overriding this method unless you're really sure of what you're doing.
+   */
+  default boolean hideDisabledExecutorButtons() {
+    return false;
+  }
 
   /**
    * Checks whether the run configuration settings are valid.
@@ -122,5 +141,49 @@ public interface RunConfiguration extends RunProfile, JDOMExternalizable, Clonea
    * @throws RuntimeConfigurationError     if the configuration settings contain a fatal problem which makes it impossible
    *                                       to execute the run configuration.
    */
-  void checkConfiguration() throws RuntimeConfigurationException;
+  default void checkConfiguration() throws RuntimeConfigurationException {
+  }
+
+  default void readExternal(@NotNull Element element) {
+  }
+
+  default void writeExternal(@NotNull Element element) {
+  }
+
+  default @NotNull List<BeforeRunTask<?>> getBeforeRunTasks() {
+    return Collections.emptyList();
+  }
+
+  default void setBeforeRunTasks(@NotNull List<BeforeRunTask<?>> value) {
+  }
+
+  default boolean isAllowRunningInParallel() {
+    return false;
+  }
+
+  default void setAllowRunningInParallel(boolean value) {
+  }
+
+  /**
+   * Allows to customize handling when restart the run configuration not allowing running in parallel.
+   *
+   * @return the further actions.
+   */
+  default RestartSingletonResult restartSingleton(@NotNull ExecutionEnvironment environment) {
+    return RestartSingletonResult.ASK_AND_RESTART;
+  }
+
+  /**
+   * Further actions to restart the run configuration not allowing running in parallel.
+   *
+   * @see RunConfiguration#restartSingleton
+   */
+  enum RestartSingletonResult {
+    /** Ask user to stop and restart the run configuration. */
+    ASK_AND_RESTART,
+    /** Stop and restart the run configuration without additional interaction with user. */
+    RESTART,
+    /** No further action is needed. */
+    NO_FURTHER_ACTION
+  }
 }

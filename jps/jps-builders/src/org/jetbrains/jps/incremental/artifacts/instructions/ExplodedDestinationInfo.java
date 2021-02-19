@@ -17,7 +17,7 @@
 package org.jetbrains.jps.incremental.artifacts.instructions;
 
 /**
- * @author nik
+ * Specifies target place in an artifact output which is located in the local file system (i.e. not inside a JAR file)
  */
 public class ExplodedDestinationInfo extends DestinationInfo {
   public ExplodedDestinationInfo(final String outputPath) {

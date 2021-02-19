@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source;
 
 import com.intellij.lang.ASTNode;
@@ -23,19 +9,18 @@ import com.intellij.psi.*;
 import com.intellij.psi.impl.CheckUtil;
 import com.intellij.psi.impl.ElementPresentationUtil;
 import com.intellij.psi.impl.PsiImplUtil;
-import com.intellij.psi.impl.cache.TypeInfo;
 import com.intellij.psi.impl.java.stubs.JavaStubElementTypes;
 import com.intellij.psi.impl.java.stubs.PsiParameterStub;
-import com.intellij.psi.impl.source.resolve.graphInference.FunctionalInterfaceParameterizationUtil;
 import com.intellij.psi.impl.source.tree.CompositeElement;
 import com.intellij.psi.impl.source.tree.JavaSharedImplUtil;
+import com.intellij.psi.infos.MethodCandidateInfo;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.stubs.IStubElementType;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.psi.util.PsiUtil;
 import com.intellij.reference.SoftReference;
-import com.intellij.ui.RowIcon;
+import com.intellij.ui.IconManager;
+import com.intellij.ui.icons.RowIcon;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.PlatformIcons;
 import org.jetbrains.annotations.NotNull;
@@ -45,9 +30,9 @@ import java.lang.ref.Reference;
 import java.util.Arrays;
 
 public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> implements PsiParameter {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.PsiParameterImpl");
+  private static final Logger LOG = Logger.getInstance(PsiParameterImpl.class);
 
-  private volatile Reference<PsiType> myCachedType = null;
+  private volatile Reference<PsiType> myCachedType;
 
   public PsiParameterImpl(@NotNull PsiParameterStub stub) {
     this(stub, JavaStubElementTypes.PARAMETER);
@@ -68,16 +53,19 @@ public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> imple
       if (parameterIndex > -1) {
         final PsiLambdaExpression lambdaExpression = PsiTreeUtil.getParentOfType(param, PsiLambdaExpression.class);
         if (lambdaExpression != null) {
-
-          PsiType type = FunctionalInterfaceParameterizationUtil.getGroundTargetType(LambdaUtil.getFunctionalInterfaceType(lambdaExpression, true), lambdaExpression);
+          final PsiType functionalInterfaceType = MethodCandidateInfo.ourOverloadGuard.doPreventingRecursion(param, false,
+                                                                                                              () -> LambdaUtil.getFunctionalInterfaceType(lambdaExpression, true));
+          PsiType type = lambdaExpression.getGroundTargetType(functionalInterfaceType);
           if (type instanceof PsiIntersectionType) {
             final PsiType[] conjuncts = ((PsiIntersectionType)type).getConjuncts();
             for (PsiType conjunct : conjuncts) {
-              final PsiType lambdaParameterFromType = getLambdaParameterFromType(parameterIndex, lambdaExpression, conjunct);
-              if (lambdaParameterFromType != null) return lambdaParameterFromType;
+              final PsiType lambdaParameterFromType = LambdaUtil.getLambdaParameterFromType(conjunct, parameterIndex);
+              if (lambdaParameterFromType != null) {
+                return lambdaParameterFromType;
+              }
             }
           } else {
-            final PsiType lambdaParameterFromType = getLambdaParameterFromType(parameterIndex, lambdaExpression, type);
+            final PsiType lambdaParameterFromType = LambdaUtil.getLambdaParameterFromType(type, parameterIndex);
             if (lambdaParameterFromType != null) {
               return lambdaParameterFromType;
             }
@@ -86,23 +74,6 @@ public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> imple
       }
     }
     return new PsiLambdaParameterType(param);
-  }
-
-  private static PsiType getLambdaParameterFromType(int parameterIndex, PsiLambdaExpression lambdaExpression, PsiType conjunct) {
-    final PsiClassType.ClassResolveResult resolveResult = PsiUtil.resolveGenericsClassInType(conjunct);
-    if (resolveResult != null) {
-      final PsiMethod method = LambdaUtil.getFunctionalInterfaceMethod(conjunct);
-      if (method != null) {
-        final PsiParameter[] parameters = method.getParameterList().getParameters();
-        if (parameterIndex < parameters.length) {
-          final PsiType psiType = LambdaUtil.getSubstitutor(method, resolveResult).substitute(parameters[parameterIndex].getType());
-          if (!LambdaUtil.dependsOnTypeParams(psiType, conjunct, lambdaExpression)) {
-            return psiType;
-          }
-        }
-      }
-    }
-    return null;
   }
 
   @Override
@@ -122,34 +93,24 @@ public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> imple
   @Override
   @NotNull
   public final String getName() {
-    PsiParameterStub stub = getStub();
+    PsiParameterStub stub = getGreenStub();
     if (stub != null) {
       return stub.getName();
     }
 
-    return getParameterIdentifier().getText();
+    return getNameIdentifier().getText();
   }
 
   @Override
   public final PsiElement setName(@NotNull String name) throws IncorrectOperationException {
-    if (this instanceof PsiReceiverParameter) {
-      throw new IncorrectOperationException("Cannot rename receiver parameter");
-    }
-
-    PsiImplUtil.setName(getParameterIdentifier(), name);
+    PsiImplUtil.setName(getNameIdentifier(), name);
     return this;
   }
 
   @Override
-  public final PsiIdentifier getNameIdentifier() {
-    return PsiTreeUtil.getChildOfType(this, PsiIdentifier.class);
-  }
-
   @NotNull
-  private PsiElement getParameterIdentifier() {
-    PsiJavaToken identifier = PsiTreeUtil.getChildOfAnyType(this, PsiIdentifier.class, PsiKeyword.class);
-    assert identifier != null : getClass() + ":" + getText();
-    return identifier;
+  public final PsiIdentifier getNameIdentifier() {
+    return PsiTreeUtil.getRequiredChildOfType(this, PsiIdentifier.class);
   }
 
   @Override
@@ -164,30 +125,22 @@ public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> imple
     PsiParameterStub stub = getStub();
     if (stub != null) {
       PsiType type = SoftReference.dereference(myCachedType);
-      if (type != null) return type;
-
-      String typeText = TypeInfo.createTypeText(stub.getType(true));
-      assert typeText != null : stub;
-      try {
-        type = JavaPsiFacade.getInstance(getProject()).getParserFacade().createTypeFromText(typeText, this);
-        myCachedType = new SoftReference<PsiType>(type);
-        return type;
+      if (type == null) {
+        type = JavaSharedImplUtil.createTypeFromStub(this, stub.getType());
+        myCachedType = new SoftReference<>(type);
       }
-      catch (IncorrectOperationException e) {
-        LOG.error(e);
-        return null;
-      }
+      return type;
     }
 
     myCachedType = null;
 
     PsiTypeElement typeElement = getTypeElement();
-    if (typeElement == null) {
+    if (typeElement == null || isLambdaParameter() && typeElement.isInferredType()) {
       assert isLambdaParameter() : this;
       return getLambdaParameterType(this);
     }
     else {
-      return JavaSharedImplUtil.getType(typeElement, getParameterIdentifier());
+      return JavaSharedImplUtil.getType(typeElement, getNameIdentifier());
     }
   }
 
@@ -200,7 +153,6 @@ public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> imple
   public PsiTypeElement getTypeElement() {
     for (PsiElement child = getFirstChild(); child != null; child = child.getNextSibling()) {
       if (child instanceof PsiTypeElement) {
-        //noinspection unchecked
         return (PsiTypeElement)child;
       }
     }
@@ -251,6 +203,7 @@ public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> imple
     }
   }
 
+  @Override
   public String toString() {
     return "PsiParameter:" + getName();
   }
@@ -291,7 +244,7 @@ public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> imple
 
   @Override
   public boolean isVarArgs() {
-    final PsiParameterStub stub = getStub();
+    final PsiParameterStub stub = getGreenStub();
     if (stub != null) {
       return stub.isParameterTypeEllipsis();
     }
@@ -308,7 +261,7 @@ public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> imple
 
   @Override
   public Icon getElementIcon(final int flags) {
-    final RowIcon baseIcon = createLayeredIcon(this, PlatformIcons.PARAMETER_ICON, 0);
+    final RowIcon baseIcon = IconManager.getInstance().createLayeredIcon(this, PlatformIcons.PARAMETER_ICON, 0);
     return ElementPresentationUtil.addVisibilityIcon(this, flags, baseIcon);
   }
   @Override
@@ -330,7 +283,7 @@ public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> imple
       PsiElement gParent = parent.getParent();
       if (gParent instanceof PsiMethod) {
         PsiElement originalMethod = gParent.getOriginalElement();
-        if (originalMethod instanceof PsiMethod) {
+        if (originalMethod instanceof PsiMethod && originalMethod != gParent) {
           int index = ((PsiParameterList)parent).getParameterIndex(this);
           PsiParameter[] originalParameters = ((PsiMethod)originalMethod).getParameterList().getParameters();
           if (index < originalParameters.length) {
@@ -341,5 +294,4 @@ public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> imple
     }
     return this;
   }
-
 }

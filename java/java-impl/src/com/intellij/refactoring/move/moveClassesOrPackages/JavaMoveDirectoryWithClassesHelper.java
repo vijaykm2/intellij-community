@@ -1,17 +1,21 @@
 package com.intellij.refactoring.move.moveClassesOrPackages;
 
 import com.intellij.codeInsight.ChangeContextUtil;
+import com.intellij.codeInsight.daemon.impl.analysis.JavaModuleGraphUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
+import com.intellij.psi.util.FileTypeUtils;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.refactoring.PackageWrapper;
 import com.intellij.refactoring.listeners.RefactoringElementListener;
 import com.intellij.refactoring.util.RefactoringConflictsUtil;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.util.Function;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.MultiMap;
-import com.intellij.psi.util.FileTypeUtils;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
@@ -24,7 +28,7 @@ public class JavaMoveDirectoryWithClassesHelper extends MoveDirectoryWithClasses
                          boolean searchInComments,
                          boolean searchInNonJavaFiles,
                          Project project) {
-    final Set<String> packageNames = new HashSet<String>();
+    final Set<String> packageNames = new HashSet<>();
     for (PsiFile psiFile : filesToMove) {
       if (psiFile instanceof PsiClassOwner) {
         final PsiClass[] classes = ((PsiClassOwner)psiFile).getClasses();
@@ -51,7 +55,7 @@ public class JavaMoveDirectoryWithClassesHelper extends MoveDirectoryWithClasses
           for (PsiReference reference : ReferencesSearch.search(aPackage, GlobalSearchScope.projectScope(project))) {
             final PsiElement element = reference.getElement();
             final PsiImportStatementBase statementBase = PsiTreeUtil.getParentOfType(element, PsiImportStatementBase.class);
-            if (statementBase != null && statementBase.isOnDemand()) {
+            if (statementBase != null && statementBase.isOnDemand() && !isUnderRefactoring(statementBase, directoriesToMove)) {
               usages.add(new RemoveOnDemandImportStatementsUsageInfo(statementBase));
             }
           }
@@ -60,9 +64,9 @@ public class JavaMoveDirectoryWithClassesHelper extends MoveDirectoryWithClasses
     }
   }
 
-  private static boolean isUnderRefactoring(PsiDirectory packageDirectory, PsiDirectory[] directoriesToMove) {
+  private static boolean isUnderRefactoring(PsiElement psiElement, PsiDirectory[] directoriesToMove) {
     for (PsiDirectory directory : directoriesToMove) {
-      if (PsiTreeUtil.isAncestor(directory, packageDirectory, true)) {
+      if (PsiTreeUtil.isAncestor(directory, psiElement, true)) {
         return true;
       }
     }
@@ -79,11 +83,16 @@ public class JavaMoveDirectoryWithClassesHelper extends MoveDirectoryWithClasses
       return false;
     }
 
+    final PsiClass[] classes = ((PsiClassOwner)file).getClasses();
+    if (classes.length == 0) {
+      return false;
+    }
+
     if (FileTypeUtils.isInServerPageFile(file)) {
       return false;
     }
 
-    for (PsiClass psiClass : ((PsiClassOwner)file).getClasses()) {
+    for (PsiClass psiClass : classes) {
       final PsiClass newClass = MoveClassesOrPackagesUtil.doMoveClass(psiClass, moveDestination);
       oldToNewElementsMapping.put(psiClass, newClass);
       listener.elementMoved(newClass);
@@ -92,7 +101,7 @@ public class JavaMoveDirectoryWithClassesHelper extends MoveDirectoryWithClasses
   }
 
   @Override
-  public void postProcessUsages(UsageInfo[] usages, Function<PsiDirectory, PsiDirectory> newDirMapper) {
+  public void postProcessUsages(UsageInfo[] usages, Function<? super PsiDirectory, ? extends PsiDirectory> newDirMapper) {
     for (UsageInfo usage : usages) {
       if (usage instanceof RemoveOnDemandImportStatementsUsageInfo) {
         final PsiElement element = usage.getElement();
@@ -100,6 +109,36 @@ public class JavaMoveDirectoryWithClassesHelper extends MoveDirectoryWithClasses
           element.delete();
         }
       }
+      if (usage instanceof MoveDirectoryUsageInfo) {
+        MoveDirectoryUsageInfo moveDirUsage = (MoveDirectoryUsageInfo)usage;
+        PsiDirectory sourceDirectory = moveDirUsage.getSourceDirectory();
+        if (sourceDirectory == null) continue;
+        PsiJavaModule moduleDescriptor = JavaModuleGraphUtil.findDescriptorByElement(sourceDirectory);
+        if (moduleDescriptor == null) continue;
+
+        JavaDirectoryService directoryService = JavaDirectoryService.getInstance();
+        PsiPackage oldPackage = directoryService.getPackage(sourceDirectory);
+        if (oldPackage == null) continue;
+        PsiDirectory targetDirectory = ObjectUtils.tryCast(moveDirUsage.getTargetFileItem(), PsiDirectory.class);
+        if (targetDirectory == null) continue;
+        PsiPackage newPackage = directoryService.getPackage(targetDirectory);
+        if (newPackage == null) continue;
+
+        renamePackageStatements(moduleDescriptor.getExports(), oldPackage, newPackage);
+        renamePackageStatements(moduleDescriptor.getOpens(), oldPackage, newPackage);
+      }
+    }
+  }
+
+  private static void renamePackageStatements(@NotNull Iterable<PsiPackageAccessibilityStatement> packageStatements,
+                                              @NotNull PsiPackage oldPackage,
+                                              @NotNull PsiPackage newPackage) {
+    for (PsiPackageAccessibilityStatement exportStatement : packageStatements) {
+      PsiJavaCodeReferenceElement packageReference = exportStatement.getPackageReference();
+      if (packageReference == null) continue;
+      if (!oldPackage.equals(packageReference.resolve())) continue;
+      packageReference.bindToElement(newPackage);
+      break;
     }
   }
 
@@ -110,6 +149,12 @@ public class JavaMoveDirectoryWithClassesHelper extends MoveDirectoryWithClasses
                                PsiDirectory directory,
                                MultiMap<PsiElement, String> conflicts) {
     RefactoringConflictsUtil.analyzeModuleConflicts(project, files, infos, directory, conflicts);
+    if (directory != null) {
+      PsiPackage aPackage = JavaDirectoryService.getInstance().getPackage(directory);
+      if (aPackage != null) {
+        MoveClassesOrPackagesProcessor.detectPackageLocalsUsed(conflicts, files.toArray(PsiElement.EMPTY_ARRAY), new PackageWrapper(aPackage));
+      }
+    }
   }
 
   @Override
@@ -123,7 +168,7 @@ public class JavaMoveDirectoryWithClassesHelper extends MoveDirectoryWithClasses
   }
 
   private static class RemoveOnDemandImportStatementsUsageInfo extends UsageInfo {
-    public RemoveOnDemandImportStatementsUsageInfo(PsiImportStatementBase statementBase) {
+    RemoveOnDemandImportStatementsUsageInfo(PsiImportStatementBase statementBase) {
       super(statementBase);
     }
   }

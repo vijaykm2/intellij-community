@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.extractMethod;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -24,18 +10,17 @@ import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.RedundantCastUtil;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.Processor;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
  * @author ven
  */
-public class ExtractMethodUtil {
+public final class ExtractMethodUtil {
+  private static final Logger LOG = Logger.getInstance(ExtractMethodUtil.class);
   private static final Key<PsiMethod> RESOLVE_TARGET_KEY = Key.create("RESOLVE_TARGET_KEY");
-  private static final Logger LOG = Logger.getInstance("com.intellij.refactoring.extractMethod.ExtractMethodUtil");
 
   private ExtractMethodUtil() { }
 
@@ -43,14 +28,12 @@ public class ExtractMethodUtil {
                                                         final SearchScope processConflictsScope,
                                                         final String overloadName,
                                                         final PsiElement extractedFragment) {
-    final Map<PsiMethodCallExpression, PsiMethod> ret = new HashMap<PsiMethodCallExpression, PsiMethod>();
+    final Map<PsiMethodCallExpression, PsiMethod> ret = new HashMap<>();
     encodeInClass(targetClass, overloadName, extractedFragment, ret);
 
-    ClassInheritorsSearch.search(targetClass, processConflictsScope, true).forEach(new Processor<PsiClass>() {
-      public boolean process(PsiClass inheritor) {
-        encodeInClass(inheritor, overloadName, extractedFragment, ret);
-        return true;
-      }
+    ClassInheritorsSearch.search(targetClass, processConflictsScope, true).allowParallelProcessing().forEach(inheritor -> {
+      encodeInClass(inheritor, overloadName, extractedFragment, ret);
+      return true;
     });
 
     return ret;
@@ -115,12 +98,12 @@ public class ExtractMethodUtil {
     throws IncorrectOperationException {
     final PsiMethod newTarget = call.resolveMethod();
     final PsiManager manager = oldTarget.getManager();
-    final PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+    final PsiElementFactory factory = JavaPsiFacade.getElementFactory(manager.getProject());
     if (!manager.areElementsEquivalent(oldTarget, newTarget)) {
       final PsiParameter[] oldParameters = oldTarget.getParameterList().getParameters();
       if (oldParameters.length > 0) {
         final PsiMethodCallExpression copy = (PsiMethodCallExpression)call.copy();
-        final PsiExpression[] args = copy.getArgumentList().getExpressions();
+        PsiExpression[] args = copy.getArgumentList().getExpressions();
         for (int i = 0; i < args.length; i++) {
           PsiExpression arg = args[i];
           PsiType paramType = i < oldParameters.length ? oldParameters[i].getType() : oldParameters[oldParameters.length - 1].getType();
@@ -134,11 +117,13 @@ public class ExtractMethodUtil {
           arg.replace(cast);
         }
 
-        for (int i = 0; i < copy.getArgumentList().getExpressions().length; i++) {
-          PsiExpression oldarg = call.getArgumentList().getExpressions()[i];
-          PsiTypeCastExpression cast = (PsiTypeCastExpression)copy.getArgumentList().getExpressions()[i];
+        args = copy.getArgumentList().getExpressions();
+        PsiExpression[] oldArgs = call.getArgumentList().getExpressions();
+        for (int i = 0; i < args.length; i++) {
+          PsiExpression oldArg = oldArgs[i];
+          PsiTypeCastExpression cast = (PsiTypeCastExpression)args[i];
           if (!RedundantCastUtil.isCastRedundant(cast)) {
-            oldarg.replace(cast);
+            oldArg.replace(cast);
           }
         }
       }

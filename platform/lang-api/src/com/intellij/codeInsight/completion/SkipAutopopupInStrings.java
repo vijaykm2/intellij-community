@@ -19,9 +19,7 @@ import com.intellij.lang.LanguageParserDefinitions;
 import com.intellij.lang.ParserDefinition;
 import com.intellij.patterns.PlatformPatterns;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiErrorElement;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.ThreeState;
 import org.jetbrains.annotations.NotNull;
@@ -30,11 +28,6 @@ import org.jetbrains.annotations.NotNull;
  * @author peter
  */
 public class SkipAutopopupInStrings extends CompletionConfidence {
-  @NotNull
-  @Override
-  public ThreeState shouldFocusLookup(@NotNull CompletionParameters parameters) {
-    return ThreeState.UNSURE;
-  }
 
   @NotNull
   @Override
@@ -48,19 +41,10 @@ public class SkipAutopopupInStrings extends CompletionConfidence {
 
   public static boolean isInStringLiteral(PsiElement element) {
     ParserDefinition definition = LanguageParserDefinitions.INSTANCE.forLanguage(PsiUtilCore.findLanguageFromElement(element));
-    if (definition == null) {
-      return false;
-    }
-
-    return isStringLiteral(element, definition) || isStringLiteral(element.getParent(), definition) ||
-            isStringLiteralWithError(element, definition) || isStringLiteralWithError(element.getParent(), definition);
+    return definition != null && (isStringLiteral(element, definition) || isStringLiteral(element.getParent(), definition));
   }
 
   private static boolean isStringLiteral(PsiElement element, ParserDefinition definition) {
     return PlatformPatterns.psiElement().withElementType(definition.getStringLiteralElements()).accepts(element);
-  }
-
-  private static boolean isStringLiteralWithError(PsiElement element, ParserDefinition definition) {
-    return isStringLiteral(element, definition) && PsiTreeUtil.nextLeaf(element) instanceof PsiErrorElement;
   }
 }

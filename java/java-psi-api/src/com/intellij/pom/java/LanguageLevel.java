@@ -1,80 +1,113 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.pom.java;
 
-import com.intellij.core.JavaCoreBundle;
+import com.intellij.core.JavaPsiBundle;
+import com.intellij.openapi.projectRoots.JavaSdkVersion;
 import com.intellij.openapi.roots.LanguageLevelModuleExtension;
 import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.openapi.util.Key;
+import com.intellij.util.lang.JavaVersion;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.function.Supplier;
+
 /**
+ * Represents a language level (i.e. features available) of a Java code.
+ * The {@link org.jetbrains.jps.model.java.LanguageLevel} class is a compiler-side counterpart of this enum.
+ *
  * @author dsl
  * @see LanguageLevelProjectExtension
  * @see LanguageLevelModuleExtension
+ * @see JavaSdkVersion
  */
 public enum LanguageLevel {
-  JDK_1_3("Java 1.3", JavaCoreBundle.message("jdk.1.3.language.level.description")),
-  JDK_1_4("Java 1.4", JavaCoreBundle.message("jdk.1.4.language.level.description")),
-  JDK_1_5("Java 5.0", JavaCoreBundle.message("jdk.1.5.language.level.description")),
-  JDK_1_6("Java 6", JavaCoreBundle.message("jdk.1.6.language.level.description")),
-  JDK_1_7("Java 7", JavaCoreBundle.message("jdk.1.7.language.level.description")),
-  JDK_1_8("Java 8", JavaCoreBundle.message("jdk.1.8.language.level.description")),
-  JDK_1_9("Java 9", JavaCoreBundle.message("jdk.1.9.language.level.description"));
+  JDK_1_3(JavaPsiBundle.messagePointer("jdk.1.3.language.level.description"), 3),
+  JDK_1_4(JavaPsiBundle.messagePointer("jdk.1.4.language.level.description"), 4),
+  JDK_1_5(JavaPsiBundle.messagePointer("jdk.1.5.language.level.description"), 5),
+  JDK_1_6(JavaPsiBundle.messagePointer("jdk.1.6.language.level.description"), 6),
+  JDK_1_7(JavaPsiBundle.messagePointer("jdk.1.7.language.level.description"), 7),
+  JDK_1_8(JavaPsiBundle.messagePointer("jdk.1.8.language.level.description"), 8),
+  JDK_1_9(JavaPsiBundle.messagePointer("jdk.1.9.language.level.description"), 9),
+  JDK_10(JavaPsiBundle.messagePointer("jdk.10.language.level.description"), 10),
+  JDK_11(JavaPsiBundle.messagePointer("jdk.11.language.level.description"), 11),
+  JDK_12(JavaPsiBundle.messagePointer("jdk.12.language.level.description"), 12),
+  JDK_13(JavaPsiBundle.messagePointer("jdk.13.language.level.description"), 13),
+  JDK_14(JavaPsiBundle.messagePointer("jdk.14.language.level.description"), 14),
+  JDK_15(JavaPsiBundle.messagePointer("jdk.15.language.level.description"), 15),
+  JDK_15_PREVIEW(JavaPsiBundle.messagePointer("jdk.15.preview.language.level.description"), 15),
+  JDK_16(JavaPsiBundle.messagePointer("jdk.16.language.level.description"), 16),
+  JDK_16_PREVIEW(JavaPsiBundle.messagePointer("jdk.16.preview.language.level.description"), 16),
+  
+  JDK_X(JavaPsiBundle.messagePointer("jdk.X.language.level.description"), 17);
 
-  public static final LanguageLevel HIGHEST = JDK_1_8; // TODO! when language level 9 is really supported, update this field
+  public static final LanguageLevel HIGHEST = JDK_15;
   public static final Key<LanguageLevel> KEY = Key.create("LANGUAGE_LEVEL");
 
-  private final String myName;
-  private final String myPresentableText;
+  private final Supplier<@Nls String> myPresentableText;
+  private final JavaVersion myVersion;
+  private final boolean myPreview;
 
-  LanguageLevel(@NotNull @NonNls String name, @NotNull @Nls String presentableText) {
-    myName = name;
-    myPresentableText = presentableText;
+  LanguageLevel(Supplier<@Nls String> presentableTextSupplier, int major) {
+    myPresentableText = presentableTextSupplier;
+    myVersion = JavaVersion.compose(major);
+    myPreview = name().endsWith("_PREVIEW");
   }
 
-  @NotNull
-  @NonNls
-  public String getName() {
-    return myName;
+  public boolean isPreview() {
+    return myPreview;
+  }
+
+  /**
+   * @return corresponding preview level, or {@code null} if level has no paired preview level
+   */
+  public @Nullable LanguageLevel getPreviewLevel() {
+    if (myPreview) return this;
+    try {
+      return valueOf(name() + "_PREVIEW");
+    }
+    catch (IllegalArgumentException e) {
+      return null;
+    }
   }
 
   @NotNull
   @Nls
   public String getPresentableText() {
-    return myPresentableText;
+    return myPresentableText.get();
   }
 
   public boolean isAtLeast(@NotNull LanguageLevel level) {
     return compareTo(level) >= 0;
   }
 
-  @Nullable
-  public static LanguageLevel parse(@Nullable String value) {
-    if ("1.3".equals(value)) return JDK_1_3;
-    if ("1.4".equals(value)) return JDK_1_4;
-    if ("1.5".equals(value)) return JDK_1_5;
-    if ("1.6".equals(value)) return JDK_1_6;
-    if ("1.7".equals(value)) return JDK_1_7;
-    if ("1.8".equals(value)) return JDK_1_8;
-    if ("1.9".equals(value)) return JDK_1_9;
+  public boolean isLessThan(@NotNull LanguageLevel level) {
+    return compareTo(level) < 0;
+  }
 
+  @NotNull
+  public JavaVersion toJavaVersion() {
+    return myVersion;
+  }
+
+  /** @deprecated use {@link org.jetbrains.jps.model.java.JpsJavaSdkType#complianceOption(JavaVersion)} */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
+  public String getCompilerComplianceDefaultOption() {
+    return myVersion.feature <= 8 ? "1." + myVersion.feature : String.valueOf(myVersion.feature);
+  }
+
+  /** See {@link JavaVersion#parse(String)} for supported formats. */
+  @Nullable
+  public static LanguageLevel parse(@Nullable String compilerComplianceOption) {
+    if (compilerComplianceOption != null) {
+      JavaSdkVersion sdkVersion = JavaSdkVersion.fromVersionString(compilerComplianceOption);
+      if (sdkVersion != null) {
+        return sdkVersion.getMaxLanguageLevel();
+      }
+    }
     return null;
   }
 }

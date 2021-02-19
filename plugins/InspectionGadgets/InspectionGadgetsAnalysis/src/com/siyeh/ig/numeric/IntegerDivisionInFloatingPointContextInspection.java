@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2014 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2019 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import com.intellij.psi.tree.IElementType;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
+import com.siyeh.ig.psiutils.ComparisonUtils;
 import com.siyeh.ig.psiutils.ExpectedTypeUtils;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -27,14 +28,10 @@ import org.jetbrains.annotations.NotNull;
 import java.util.HashSet;
 import java.util.Set;
 
-public class IntegerDivisionInFloatingPointContextInspection
-  extends BaseInspection {
+public class IntegerDivisionInFloatingPointContextInspection extends BaseInspection {
 
-  /**
-   * @noinspection StaticCollection
-   */
   @NonNls
-  private static final Set<String> s_integralTypes = new HashSet<String>(10);
+  static final Set<String> s_integralTypes = new HashSet<>(10);
 
   static {
     s_integralTypes.add("int");
@@ -51,13 +48,6 @@ public class IntegerDivisionInFloatingPointContextInspection
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "integer.division.in.floating.point.context.display.name");
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message(
       "integer.division.in.floating.point.context.problem.descriptor");
@@ -68,8 +58,9 @@ public class IntegerDivisionInFloatingPointContextInspection
     return new IntegerDivisionInFloatingPointContextVisitor();
   }
 
-  private static class IntegerDivisionInFloatingPointContextVisitor
-    extends BaseInspectionVisitor {
+  private static class IntegerDivisionInFloatingPointContextVisitor extends BaseInspectionVisitor {
+
+    IntegerDivisionInFloatingPointContextVisitor() {}
 
     @Override
     public void visitPolyadicExpression(@NotNull PsiPolyadicExpression expression) {
@@ -78,42 +69,38 @@ public class IntegerDivisionInFloatingPointContextInspection
       if (!tokenType.equals(JavaTokenType.DIV)) {
         return;
       }
-      for (PsiExpression operand : expression.getOperands()) {
-        if (!isIntegral(operand.getType())) {
-          return;
-        }
+      if (!hasIntegerDivision(expression)) {
+        return;
       }
       final PsiExpression context = getContainingExpression(expression);
-      if (context == null) {
-        return;
-      }
-      final PsiType contextType =
-        ExpectedTypeUtils.findExpectedType(context, true);
-      if (contextType == null) {
-        return;
-      }
-      if (!(contextType.equals(PsiType.FLOAT)
-            || contextType.equals(PsiType.DOUBLE))) {
+      final PsiType contextType = ExpectedTypeUtils.findExpectedType(context, true);
+      if (!PsiType.FLOAT.equals(contextType) && !PsiType.DOUBLE.equals(contextType)) {
         return;
       }
       registerError(expression);
     }
 
-    private static boolean isIntegral(PsiType type) {
-      if (type == null) {
-        return false;
-      }
-      final String text = type.getCanonicalText();
-      return text != null && s_integralTypes.contains(text);
+    private static boolean hasIntegerDivision(@NotNull PsiPolyadicExpression expression) {
+      final PsiExpression[] operands = expression.getOperands();
+      return operands.length >= 2 && isIntegral(operands[0].getType()) && isIntegral(operands[1].getType());
     }
 
-    private static PsiExpression getContainingExpression(
-      PsiExpression expression) {
+    private static boolean isIntegral(PsiType type) {
+      return type != null && s_integralTypes.contains(type.getCanonicalText());
+    }
+
+    private static @NotNull PsiExpression getContainingExpression(@NotNull PsiExpression expression) {
       final PsiElement parent = expression.getParent();
-      if (parent instanceof PsiBinaryExpression ||
-          parent instanceof PsiParenthesizedExpression ||
-          parent instanceof PsiPrefixExpression ||
-          parent instanceof PsiConditionalExpression) {
+      if (parent instanceof PsiBinaryExpression) {
+        final PsiBinaryExpression binaryExpression = (PsiBinaryExpression)parent;
+        return !ComparisonUtils.isComparisonOperation(binaryExpression.getOperationTokenType())
+               ? getContainingExpression(binaryExpression)
+               : expression;
+      }
+      else if (parent instanceof PsiPolyadicExpression ||
+               parent instanceof PsiParenthesizedExpression ||
+               parent instanceof PsiPrefixExpression ||
+               parent instanceof PsiConditionalExpression) {
         return getContainingExpression((PsiExpression)parent);
       }
       return expression;

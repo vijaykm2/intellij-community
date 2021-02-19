@@ -18,7 +18,7 @@ package com.intellij.diff;
 import com.intellij.diff.requests.DiffRequest;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.AnAction;
-import org.jetbrains.annotations.CalledInAwt;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -26,7 +26,10 @@ import javax.swing.*;
 import java.util.List;
 
 public interface FrameDiffTool extends DiffTool {
-  @CalledInAwt
+  /**
+   * Creates viewer for the given request. Clients should call {@link #canShow(DiffContext, DiffRequest)} first.
+   */
+  @RequiresEdt
   @NotNull
   DiffViewer createComponent(@NotNull DiffContext context, @NotNull DiffRequest request);
 
@@ -37,14 +40,22 @@ public interface FrameDiffTool extends DiffTool {
     @Nullable
     JComponent getPreferredFocusedComponent();
 
+    /**
+     * Should be called after adding {@link #getComponent()} to the components hierarchy.
+     */
     @NotNull
-    @CalledInAwt
+    @RequiresEdt
     ToolbarComponents init();
+
+    @Override
+    @RequiresEdt
+    void dispose();
   }
 
   class ToolbarComponents {
     @Nullable public List<AnAction> toolbarActions;
     @Nullable public List<AnAction> popupActions;
     @Nullable public JComponent statusPanel;
+    public boolean needTopToolbarBorder = false;
   }
 }

@@ -1,35 +1,18 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.execution.junit2.configuration;
 
-import com.intellij.codeInsight.completion.CompletionResultSet;
-import com.intellij.codeInsight.lookup.LookupElementBuilder;
+import com.intellij.application.options.ModuleDescriptionsComboBox;
 import com.intellij.execution.ExecutionBundle;
+import com.intellij.execution.JUnitBundle;
+import com.intellij.execution.MethodBrowser;
 import com.intellij.execution.configuration.BrowseModuleValueActionListener;
 import com.intellij.execution.junit.JUnitConfiguration;
-import com.intellij.execution.junit.JUnitConfigurationType;
 import com.intellij.execution.junit.JUnitUtil;
 import com.intellij.execution.junit.TestClassFilter;
 import com.intellij.execution.testframework.SourceScope;
 import com.intellij.execution.testframework.TestSearchScope;
-import com.intellij.execution.ui.AlternativeJREPanel;
-import com.intellij.execution.ui.ClassBrowser;
-import com.intellij.execution.ui.CommonJavaParametersPanel;
-import com.intellij.execution.ui.ConfigurationModuleSelector;
+import com.intellij.execution.ui.*;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.util.ClassFilter;
 import com.intellij.ide.util.PackageChooserDialog;
@@ -41,19 +24,28 @@ import com.intellij.openapi.fileTypes.PlainTextLanguage;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.*;
+import com.intellij.openapi.ui.ComponentWithBrowseButton;
+import com.intellij.openapi.ui.LabeledComponent;
+import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.openapi.ui.ex.MessagesEx;
+import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vcs.changes.ChangeListManager;
+import com.intellij.openapi.vcs.changes.LocalChangeList;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
+import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.rt.execution.junit.RepeatCount;
 import com.intellij.ui.*;
 import com.intellij.ui.components.JBLabel;
-import com.intellij.util.IconUtil;
-import com.intellij.util.TextFieldCompletionProvider;
+import com.intellij.ui.components.fields.ExpandableTextField;
+import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.indexing.DumbModeAccessType;
 import com.intellij.util.ui.UIUtil;
-import gnu.trove.TIntArrayList;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -66,17 +58,29 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Supplier;
 
-public class JUnitConfigurable extends SettingsEditor<JUnitConfiguration> implements PanelWithAnchor {
-  private static final List<TIntArrayList> ourEnabledFields = Arrays.asList(
-    new TIntArrayList(new int[]{0}),
-    new TIntArrayList(new int[]{1}),
-    new TIntArrayList(new int[]{1, 2}),
-    new TIntArrayList(new int[]{3}),
-    new TIntArrayList(new int[]{4}),
-    new TIntArrayList(new int[]{5})
-  );
-
+public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEditor<T> implements PanelWithAnchor {
+  private static final List<IntArrayList> ourEnabledFields = Arrays.asList(
+    new IntArrayList(new int[]{0}),
+    new IntArrayList(new int[]{1}),
+    new IntArrayList(new int[]{1, 2}),
+    new IntArrayList(new int[]{3}),
+    new IntArrayList(new int[]{4}),
+    new IntArrayList(new int[]{5}),
+    new IntArrayList(new int[]{1, 2}),
+    new IntArrayList(new int[]{6}),
+    new IntArrayList(new int[]{1, 2})
+    );
+  private static final String[] FORK_MODE_ALL =
+    {JUnitConfiguration.FORK_NONE, JUnitConfiguration.FORK_METHOD, JUnitConfiguration.FORK_KLASS};
+  private static final String[] FORK_MODE = {JUnitConfiguration.FORK_NONE, JUnitConfiguration.FORK_METHOD};
+  private static final String[] FORK_MODE_NONE = {JUnitConfiguration.FORK_NONE};
+  private final ConfigurationModuleSelector myModuleSelector;
+  private final LabeledComponent[] myTestLocations = new LabeledComponent[6];
+  private final JUnitConfigurationModel myModel;
+  private final BrowseModuleValueActionListener[] myBrowsers;
   private JComponent myPackagePanel;
   private LabeledComponent<EditorTextFieldWithBrowseButton> myPackage;
   private LabeledComponent<TextFieldWithBrowseButton> myDir;
@@ -84,50 +88,180 @@ public class JUnitConfigurable extends SettingsEditor<JUnitConfiguration> implem
   private LabeledComponent<EditorTextFieldWithBrowseButton> myClass;
   private LabeledComponent<EditorTextFieldWithBrowseButton> myMethod;
   private LabeledComponent<EditorTextFieldWithBrowseButton> myCategory;
-
   // Fields
   private JPanel myWholePanel;
-  private LabeledComponent<JComboBox> myModule;
+  private LabeledComponent<ModuleDescriptionsComboBox> myModule;
+  private LabeledComponent<JCheckBox> myUseModulePath;
   private CommonJavaParametersPanel myCommonJavaParameters;
   private JRadioButton myWholeProjectScope;
   private JRadioButton mySingleModuleScope;
   private JRadioButton myModuleWDScope;
-  private TextFieldWithBrowseButton myPatternTextField;
-
-  private final ConfigurationModuleSelector myModuleSelector;
-  private final LabeledComponent[] myTestLocations = new LabeledComponent[6];
-  private final JUnitConfigurationModel myModel;
-
-  private final BrowseModuleValueActionListener[] myBrowsers;
-  private AlternativeJREPanel myAlternativeJREPanel;
-  private JComboBox myForkCb;
+  private final TextFieldWithBrowseButton myPatternTextField;
+  private JrePathEditor myJrePathEditor;
+  private LabeledComponent<ShortenCommandLineModeCombo> myShortenClasspathModeCombo;
+  private JComboBox<String> myForkCb;
   private JBLabel myTestLabel;
-  private JComboBox myTypeChooser;
+  private JComboBox<Integer> myTypeChooser;
   private JBLabel mySearchForTestsLabel;
   private JPanel myScopesPanel;
-  private JComboBox myRepeatCb;
+  private JComboBox<String> myRepeatCb;
   private JTextField myRepeatCountField;
-  private static final String[] FORK_MODE_ALL = {JUnitConfiguration.FORK_NONE, JUnitConfiguration.FORK_METHOD, JUnitConfiguration.FORK_KLASS};
-  private static final String[] FORK_MODE = {JUnitConfiguration.FORK_NONE, JUnitConfiguration.FORK_METHOD};
-  private Project myProject;
+  private LabeledComponent<JComboBox<String>> myChangeListLabeledComponent;
+  private LabeledComponent<RawCommandLineEditor> myUniqueIdField;
+  private LabeledComponent<RawCommandLineEditor> myTagsField;
+  private final Project myProject;
   private JComponent anchor;
 
   public JUnitConfigurable(final Project project) {
     myProject = project;
     myModel = new JUnitConfigurationModel(project);
     myModuleSelector = new ConfigurationModuleSelector(project, getModulesComponent());
+    myJrePathEditor.setDefaultJreSelector(DefaultJreSelector.fromModuleDependencies(getModulesComponent(), false));
     myCommonJavaParameters.setModuleContext(myModuleSelector.getModule());
     myCommonJavaParameters.setHasModuleMacro();
     myModule.getComponent().addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         myCommonJavaParameters.setModuleContext(myModuleSelector.getModule());
+        myModel.reloadTestKindModel(JUnitConfigurable.this.myTypeChooser, myModuleSelector.getModule());
       }
     });
-    myBrowsers = new BrowseModuleValueActionListener[]{
+    final TestClassBrowser classBrowser = new TestClassBrowser(myProject, myModuleSelector, myPackage.getComponent());
+    myClass.setComponent(new EditorTextFieldWithBrowseButton(myProject, true, createClassVisibilityChecker(classBrowser)));
+
+    myModel.reloadTestKindModel(myTypeChooser, myModuleSelector.getModule());
+    myTypeChooser.setRenderer(SimpleListCellRenderer.create("", value -> JUnitConfigurationModel.getKindName(value)));
+
+    myTestLocations[JUnitConfigurationModel.ALL_IN_PACKAGE] = myPackage;
+    myTestLocations[JUnitConfigurationModel.CLASS] = myClass;
+    myTestLocations[JUnitConfigurationModel.METHOD] = myMethod;
+    myTestLocations[JUnitConfigurationModel.DIR] = myDir;
+    myTestLocations[JUnitConfigurationModel.CATEGORY] = myCategory;
+
+    myRepeatCb.setModel(new DefaultComboBoxModel<>(RepeatCount.REPEAT_TYPES));
+
+    //noinspection HardCodedStringLiteral
+    myRepeatCb.setSelectedItem(RepeatCount.ONCE);
+    myRepeatCb.addActionListener(new ActionListener() {
+      @Override
+      public void actionPerformed(ActionEvent e) {
+        myRepeatCountField.setEnabled(RepeatCount.N.equals(myRepeatCb.getSelectedItem()));
+      }
+    });
+
+    myRepeatCb.setRenderer(SimpleListCellRenderer.create("", value -> JUnitConfigurationModel.getRepeatModeName(value)));
+    myForkCb.setRenderer(SimpleListCellRenderer.create("", value -> JUnitConfigurationModel.getForkModeName(value)));
+
+    final JPanel panel = myPattern.getComponent();
+    panel.setLayout(new BorderLayout());
+    myPatternTextField = new TextFieldWithBrowseButton(new ExpandableTextField(text -> Arrays.asList(text.split("\\|\\|")),
+                                                                               strings -> StringUtil.join(strings, "||")));
+    myPatternTextField.setButtonIcon(AllIcons.General.Add);
+    panel.add(myPatternTextField, BorderLayout.CENTER);
+    myTestLocations[JUnitConfigurationModel.PATTERN] = myPattern;
+
+    final FileChooserDescriptor dirFileChooser = FileChooserDescriptorFactory.createSingleFolderDescriptor();
+    dirFileChooser.setHideIgnored(false);
+    final JTextField textField = myDir.getComponent().getTextField();
+    InsertPathAction.addTo(textField, dirFileChooser);
+    FileChooserFactory.getInstance().installFileCompletion(textField, dirFileChooser, true, null);
+    // Done
+
+    myBrowsers = createBrowsers(project, myModuleSelector, myPackage.getComponent(), myPatternTextField, myCategory.getComponent(), () -> getClassName());
+    myModel.setListener((oldType, newType) -> onTypeChanged(newType));
+
+    myTypeChooser.addActionListener(new ActionListener() {
+      @Override
+      public void actionPerformed(ActionEvent e) {
+        myModel.setType((Integer)Objects.requireNonNull(myTypeChooser.getSelectedItem()));
+        changePanel();
+      }
+    }
+    );
+
+    myRepeatCb.addActionListener(new ActionListener() {
+      @Override
+      public void actionPerformed(ActionEvent e) {
+        int testType = (Integer)Objects.requireNonNull(myTypeChooser.getSelectedItem());
+        if (testType == JUnitConfigurationModel.CLASS || testType == JUnitConfigurationModel.METHOD) {
+          String[] model = getForkModel(testType, JUnitConfigurable.this.myRepeatCb.getSelectedItem());
+          myForkCb.setModel(new DefaultComboBoxModel<>(model));
+        }
+      }
+    });
+    myModel.setType(JUnitConfigurationModel.CLASS);
+    installDocuments();
+    addRadioButtonsListeners(new JRadioButton[]{myWholeProjectScope, mySingleModuleScope, myModuleWDScope}, null);
+    myWholeProjectScope.addChangeListener(new ChangeListener() {
+      @Override
+      public void stateChanged(final ChangeEvent e) {
+        onScopeChanged();
+      }
+    });
+
+    UIUtil.setEnabled(myCommonJavaParameters.getProgramParametersComponent(), false, true);
+
+    setAnchor(mySearchForTestsLabel);
+    myJrePathEditor.setAnchor(myModule.getLabel());
+    myUseModulePath.setAnchor(myModule.getLabel());
+    myCommonJavaParameters.setAnchor(myModule.getLabel());
+    myShortenClasspathModeCombo.setAnchor(myModule.getLabel());
+
+    setupChangeLists(project, myChangeListLabeledComponent.getComponent());
+
+    myShortenClasspathModeCombo.setComponent(new ShortenCommandLineModeCombo(myProject, myJrePathEditor, myModule.getComponent()) {
+      @Override
+      protected boolean productionOnly() {
+        return false;
+      }
+    });
+
+    myUseModulePath.getComponent().setText(ExecutionBundle.message("use.module.path.checkbox.label"));
+    myUseModulePath.getComponent().setSelected(true);
+    if (!project.isDefault()) {
+      myUseModulePath.setVisible(FilenameIndex.getFilesByName(project, PsiJavaModule.MODULE_INFO_FILE, GlobalSearchScope.projectScope(myProject)).length > 0);
+    }
+  }
+
+  static void setupChangeLists(Project project, JComboBox<String> comboBox) {
+    final DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
+    comboBox.setModel(model);
+    model.addElement(JUnitBundle.message("test.discovery.by.all.changes.combo.item"));
+
+    if (!project.isDefault()) {
+      final List<LocalChangeList> changeLists = ChangeListManager.getInstance(project).getChangeLists();
+      for (LocalChangeList changeList : changeLists) {
+        model.addElement(changeList.getName());
+      }
+    }
+  }
+
+  public static BrowseModuleValueActionListener[] createBrowsers(Project project,
+                                                                 ConfigurationModuleSelector moduleSelector,
+                                                                 EditorTextFieldWithBrowseButton packageField,
+                                                                 TextFieldWithBrowseButton patternField,
+                                                                 EditorTextFieldWithBrowseButton categoryField,
+                                                                 Supplier<String> className) {
+    return new BrowseModuleValueActionListener[]{
       new PackageChooserActionListener(project),
-      new TestClassBrowser(project),
-      new MethodBrowser(project),
-      new TestsChooserActionListener(project),
+      new TestClassBrowser(project, moduleSelector, packageField),
+      new MethodBrowser(project) {
+        @Override
+        protected Condition<PsiMethod> getFilter(PsiClass testClass) {
+          return new JUnitUtil.TestMethodFilter(testClass);
+        }
+
+        @Override
+        protected String getClassName() {
+          return className.get();
+        }
+
+        @Override
+        protected ConfigurationModuleSelector getModuleSelector() {
+          return moduleSelector;
+        }
+      },
+      new TestsChooserActionListener(project, moduleSelector, packageField, patternField),
       new BrowseModuleValueActionListener(project) {
         @Override
         protected String showDialog() {
@@ -139,108 +273,32 @@ public class JUnitConfigurable extends SettingsEditor<JUnitConfiguration> implem
           return null;
         }
       },
-      new CategoryBrowser(project)
+      new CategoryBrowser(project, moduleSelector, categoryField),
+      null
     };
-    // Garbage support
-    final DefaultComboBoxModel aModel = new DefaultComboBoxModel();
-    aModel.addElement(JUnitConfigurationModel.ALL_IN_PACKAGE);
-    aModel.addElement(JUnitConfigurationModel.DIR);
-    aModel.addElement(JUnitConfigurationModel.PATTERN);
-    aModel.addElement(JUnitConfigurationModel.CLASS);
-    aModel.addElement(JUnitConfigurationModel.METHOD);
-    aModel.addElement(JUnitConfigurationModel.CATEGORY);
-    myTypeChooser.setModel(aModel);
-    myTypeChooser.setRenderer(new ListCellRendererWrapper<Integer>() {
-      @Override
-      public void customize(JList list, Integer value, int index, boolean selected, boolean hasFocus) {
-        switch (value) {
-          case JUnitConfigurationModel.ALL_IN_PACKAGE:
-            setText("All in package");
-            break;
-          case JUnitConfigurationModel.DIR:
-            setText("All in directory");
-            break;
-          case JUnitConfigurationModel.PATTERN:
-            setText("Pattern");
-            break;
-          case JUnitConfigurationModel.CLASS:
-            setText("Class");
-            break;
-          case JUnitConfigurationModel.METHOD:
-            setText("Method");
-            break;
-          case JUnitConfigurationModel.CATEGORY:
-            setText("Category");
-            break;
-        }
-      }
-    });
-
-    myTestLocations[JUnitConfigurationModel.ALL_IN_PACKAGE] = myPackage;
-    myTestLocations[JUnitConfigurationModel.CLASS] = myClass;
-    myTestLocations[JUnitConfigurationModel.METHOD] = myMethod;
-    myTestLocations[JUnitConfigurationModel.DIR] = myDir;
-    myTestLocations[JUnitConfigurationModel.CATEGORY] = myCategory;
-
-    myRepeatCb.setModel(new DefaultComboBoxModel(RepeatCount.REPEAT_TYPES));
-    myRepeatCb.setSelectedItem(RepeatCount.ONCE);
-    myRepeatCb.addActionListener(new ActionListener() {
-      @Override
-      public void actionPerformed(ActionEvent e) {
-        myRepeatCountField.setEnabled(RepeatCount.N.equals(myRepeatCb.getSelectedItem()));
-      }
-    });
-
-    final JPanel panel = myPattern.getComponent();
-    panel.setLayout(new BorderLayout());
-    myPatternTextField = new TextFieldWithBrowseButton();
-    myPatternTextField.setButtonIcon(IconUtil.getAddIcon());
-    panel.add(myPatternTextField, BorderLayout.CENTER);
-    final FixedSizeButton editBtn = new FixedSizeButton();
-    editBtn.setIcon(AllIcons.Actions.ShowViewer);
-    editBtn.addActionListener(new ActionListener() {
-      public void actionPerformed(ActionEvent e) {
-        Messages.showTextAreaDialog(myPatternTextField.getTextField(), "Configure suite tests", "EditParametersPopupWindow");
-      }
-    });
-    panel.add(editBtn, BorderLayout.EAST);
-    myTestLocations[JUnitConfigurationModel.PATTERN] = myPattern;
-
-    final FileChooserDescriptor dirFileChooser = FileChooserDescriptorFactory.createSingleFolderDescriptor();
-    dirFileChooser.setHideIgnored(false);
-    final JTextField textField = myDir.getComponent().getTextField();
-    InsertPathAction.addTo(textField, dirFileChooser);
-    FileChooserFactory.getInstance().installFileCompletion(textField, dirFileChooser, true, null);
-    // Done
-
-    myModel.setListener(this);
-
-    myTypeChooser.addActionListener(new ActionListener() {
-      @Override
-      public void actionPerformed(ActionEvent e) {
-        final Object selectedItem = myTypeChooser.getSelectedItem();
-        myModel.setType((Integer)selectedItem);
-        changePanel();
-      }
-    }
-    );
-    myModel.setType(JUnitConfigurationModel.CLASS);
-    installDocuments();
-    addRadioButtonsListeners(new JRadioButton[]{myWholeProjectScope, mySingleModuleScope, myModuleWDScope}, null);
-    myWholeProjectScope.addChangeListener(new ChangeListener() {
-      public void stateChanged(final ChangeEvent e) {
-        onScopeChanged();
-      }
-    });
-
-    UIUtil.setEnabled(myCommonJavaParameters.getProgramParametersComponent(), false, true);
-
-    setAnchor(mySearchForTestsLabel);
-    myModule.setAnchor(myAlternativeJREPanel.getCbEnabled());
-    myCommonJavaParameters.setAnchor(myAlternativeJREPanel.getCbEnabled());
   }
 
-  public void applyEditorTo(final JUnitConfiguration configuration) {
+  private static void addRadioButtonsListeners(final JRadioButton[] radioButtons, ChangeListener listener) {
+    final ButtonGroup group = new ButtonGroup();
+    for (final JRadioButton radioButton : radioButtons) {
+      radioButton.getModel().addChangeListener(listener);
+      group.add(radioButton);
+    }
+    if (group.getSelection() == null) group.setSelected(radioButtons[0].getModel(), true);
+  }
+
+  @Override
+  public void applyEditorTo(@NotNull final JUnitConfiguration configuration) {
+    configuration.setRepeatMode((String)myRepeatCb.getSelectedItem());
+    try {
+      configuration.setRepeatCount(Integer.parseInt(myRepeatCountField.getText()));
+    }
+    catch (NumberFormatException e) {
+      configuration.setRepeatCount(1);
+    }
+    configuration.getPersistentData().setUniqueIds(setArrayFromText(myUniqueIdField.getComponent().getText()));
+    configuration.getPersistentData().setTags(myTagsField.getComponent().getText());
+    configuration.getPersistentData().setChangeList((String)myChangeListLabeledComponent.getComponent().getSelectedItem());
     myModel.apply(getModuleSelector().getModule(), configuration);
     applyHelpersTo(configuration);
     final JUnitConfiguration.Data data = configuration.getPersistentData();
@@ -253,22 +311,39 @@ public class JUnitConfigurable extends SettingsEditor<JUnitConfiguration> implem
     else if (myModuleWDScope.isSelected()) {
       data.setScope(TestSearchScope.MODULE_WITH_DEPENDENCIES);
     }
-    configuration.setAlternativeJrePath(myAlternativeJREPanel.getPath());
-    configuration.setAlternativeJrePathEnabled(myAlternativeJREPanel.isPathEnabled());
+    configuration.setAlternativeJrePath(myJrePathEditor.getJrePathOrName());
+    configuration.setAlternativeJrePathEnabled(myJrePathEditor.isAlternativeJreSelected());
 
     myCommonJavaParameters.applyTo(configuration);
     configuration.setForkMode((String)myForkCb.getSelectedItem());
-    configuration.setRepeatMode((String)myRepeatCb.getSelectedItem());
-    try {
-      configuration.setRepeatCount(Integer.parseInt(myRepeatCountField.getText()));
-    }
-    catch (NumberFormatException e) {
-      configuration.setRepeatCount(1);
-    }
+    configuration.setShortenCommandLine(myShortenClasspathModeCombo.getComponent().getSelectedItem());
+
+    configuration.setUseModulePath(myUseModulePath.isVisible() && myUseModulePath.getComponent().isSelected());
   }
 
-  public void resetEditorFrom(final JUnitConfiguration configuration) {
+  static String[] setArrayFromText(String text) {
+    if (text.isEmpty()) {
+      return ArrayUtilRt.EMPTY_STRING_ARRAY;
+    }
+    return text.split(" ");
+  }
+
+  @Override
+  public void resetEditorFrom(@NotNull final JUnitConfiguration configuration) {
+    final int count = configuration.getRepeatCount();
+    myRepeatCountField.setText(String.valueOf(count));
+    myRepeatCountField.setEnabled(count > 1);
+
+    //noinspection HardCodedStringLiteral
+    myRepeatCb.setSelectedItem(configuration.getRepeatMode());
+
     myModel.reset(configuration);
+    myChangeListLabeledComponent.getComponent().setSelectedItem(configuration.getPersistentData().getChangeList());
+    String[] ids = configuration.getPersistentData().getUniqueIds();
+    myUniqueIdField.getComponent().setText(ids != null ? StringUtil.join(ids, " ") : null);
+
+    myTagsField.getComponent().setText(configuration.getPersistentData().getTags());
+
     myCommonJavaParameters.reset(configuration);
     getModuleSelector().reset(configuration);
     final TestSearchScope scope = configuration.getPersistentData().getScope();
@@ -281,92 +356,71 @@ public class JUnitConfigurable extends SettingsEditor<JUnitConfiguration> implem
     else {
       myWholeProjectScope.setSelected(true);
     }
-    myAlternativeJREPanel.init(configuration.getAlternativeJrePath(), configuration.isAlternativeJrePathEnabled());
+    myJrePathEditor
+      .setPathOrName(configuration.getAlternativeJrePath(), configuration.isAlternativeJrePathEnabled());
+    //noinspection HardCodedStringLiteral
     myForkCb.setSelectedItem(configuration.getForkMode());
-    final int count = configuration.getRepeatCount();
-    myRepeatCountField.setText(String.valueOf(count));
-    myRepeatCountField.setEnabled(count > 1);
-    myRepeatCb.setSelectedItem(configuration.getRepeatMode());
+    myShortenClasspathModeCombo.getComponent().setSelectedItem(configuration.getShortenCommandLine());
+    myUseModulePath.getComponent().setSelected(configuration.isUseModulePath());
   }
 
   private void changePanel () {
-    String selectedItem = (String)myForkCb.getSelectedItem();
-    if (selectedItem == null) {
-      selectedItem = JUnitConfiguration.FORK_NONE;
-    }
     final Integer selectedType = (Integer)myTypeChooser.getSelectedItem();
-    if (selectedType == JUnitConfigurationModel.ALL_IN_PACKAGE) {
-      myPackagePanel.setVisible(true);
-      myScopesPanel.setVisible(true);
-      myPattern.setVisible(false);
-      myClass.setVisible(false);
-      myCategory.setVisible(false);
-      myMethod.setVisible(false);
-      myDir.setVisible(false);
-      myForkCb.setEnabled(true);
-      myForkCb.setModel(new DefaultComboBoxModel(FORK_MODE_ALL));
-      myForkCb.setSelectedItem(selectedItem);
-    } else if (selectedType == JUnitConfigurationModel.DIR) {
-      myPackagePanel.setVisible(false);
-      myScopesPanel.setVisible(false);
-      myDir.setVisible(true);
-      myPattern.setVisible(false);
-      myClass.setVisible(false);
-      myCategory.setVisible(false);
-      myMethod.setVisible(false);
-      myForkCb.setEnabled(true);
-      myForkCb.setModel(new DefaultComboBoxModel(FORK_MODE_ALL));
-      myForkCb.setSelectedItem(selectedItem);
-    }
-    else if (selectedType == JUnitConfigurationModel.CLASS) {
-      myPackagePanel.setVisible(false);
-      myScopesPanel.setVisible(false);
-      myPattern.setVisible(false);
-      myDir.setVisible(false);
-      myClass.setVisible(true);
-      myCategory.setVisible(false);
-      myMethod.setVisible(false);
-      myForkCb.setEnabled(true);
-      myForkCb.setModel(new DefaultComboBoxModel(FORK_MODE));
-      myForkCb.setSelectedItem(selectedItem != JUnitConfiguration.FORK_KLASS ? selectedItem : JUnitConfiguration.FORK_METHOD);
-    }
-    else if (selectedType == JUnitConfigurationModel.METHOD){
-      myPackagePanel.setVisible(false);
-      myScopesPanel.setVisible(false);
-      myPattern.setVisible(false);
-      myDir.setVisible(false);
-      myClass.setVisible(true);
-      myCategory.setVisible(false);
-      myMethod.setVisible(true);
-      myForkCb.setEnabled(false);
-      myForkCb.setSelectedItem(JUnitConfiguration.FORK_NONE);
-    } else if (selectedType == JUnitConfigurationModel.CATEGORY) {
-      myPackagePanel.setVisible(false);
-      myScopesPanel.setVisible(true);
-      myDir.setVisible(false);
-      myPattern.setVisible(false);
-      myClass.setVisible(false);
-      myCategory.setVisible(true);
-      myMethod.setVisible(false);
-      myForkCb.setEnabled(true);
-      myForkCb.setModel(new DefaultComboBoxModel(FORK_MODE_ALL));
-      myForkCb.setSelectedItem(selectedItem);
-    } 
-    else {
-      myPackagePanel.setVisible(false);
-      myScopesPanel.setVisible(true);
-      myPattern.setVisible(true);
-      myDir.setVisible(false);
-      myClass.setVisible(false);
-      myCategory.setVisible(false);
-      myMethod.setVisible(true);
-      myForkCb.setEnabled(true);
-      myForkCb.setModel(new DefaultComboBoxModel(FORK_MODE_ALL));
-      myForkCb.setSelectedItem(selectedItem);
-    }
+    if (selectedType == null) return;
+    myPackagePanel.setVisible(selectedType == JUnitConfigurationModel.ALL_IN_PACKAGE);
+    myScopesPanel.setVisible(selectedType == JUnitConfigurationModel.PATTERN ||
+                             selectedType == JUnitConfigurationModel.ALL_IN_PACKAGE ||
+                             selectedType == JUnitConfigurationModel.TAGS ||
+                             selectedType == JUnitConfigurationModel.CATEGORY);
+    myPattern.setVisible(selectedType == JUnitConfigurationModel.PATTERN);
+    myDir.setVisible(selectedType == JUnitConfigurationModel.DIR);
+    myClass.setVisible(selectedType == JUnitConfigurationModel.CLASS ||
+                       selectedType == JUnitConfigurationModel.METHOD ||
+                       selectedType == JUnitConfigurationModel.BY_SOURCE_POSITION);
+    myMethod.setVisible(selectedType == JUnitConfigurationModel.PATTERN ||
+                        selectedType == JUnitConfigurationModel.METHOD ||
+                        selectedType == JUnitConfigurationModel.BY_SOURCE_POSITION);
+    myCategory.setVisible(selectedType == JUnitConfigurationModel.CATEGORY);
+    myUniqueIdField.setVisible(selectedType == JUnitConfigurationModel.UNIQUE_ID);
+    myTagsField.setVisible(selectedType == JUnitConfigurationModel.TAGS);
+    myChangeListLabeledComponent.setVisible(selectedType == JUnitConfigurationModel.BY_SOURCE_CHANGES);
+
+    myForkCb.setModel(new DefaultComboBoxModel<>(getForkModel(selectedType, myRepeatCb.getSelectedItem())));
+    myForkCb.setSelectedItem(updateForkMethod(selectedType, (String)myForkCb.getSelectedItem()));
   }
 
-  public JComboBox getModulesComponent() {
+  @NotNull
+  public static String updateForkMethod(Integer selectedType, String forkMethod) {
+    if (forkMethod == null) {
+      forkMethod = JUnitConfiguration.FORK_NONE;
+    }
+    else if (selectedType == JUnitConfigurationModel.CLASS && forkMethod == JUnitConfiguration.FORK_KLASS) {
+      forkMethod = JUnitConfiguration.FORK_METHOD;
+    }
+    return forkMethod;
+  }
+
+  public static String[] getForkModel(int selectedType, Object repeat) {
+    if (selectedType != JUnitConfigurationModel.CLASS &&
+        selectedType != JUnitConfigurationModel.METHOD &&
+        selectedType != JUnitConfigurationModel.BY_SOURCE_POSITION) {
+      return FORK_MODE_ALL;
+    }
+
+    boolean isMethod = selectedType == JUnitConfigurationModel.METHOD ||
+                       selectedType == JUnitConfigurationModel.BY_SOURCE_POSITION;
+    boolean once = RepeatCount.ONCE.equals(repeat);
+    String[] model = FORK_MODE;
+    if (once && isMethod) {
+      model = FORK_MODE_NONE;
+    }
+    else if (!once && !isMethod) {
+      model = FORK_MODE_ALL;
+    }
+    return model;
+  }
+
+  public ModuleDescriptionsComboBox getModulesComponent() {
     return myModule.getComponent();
   }
 
@@ -378,25 +432,30 @@ public class JUnitConfigurable extends SettingsEditor<JUnitConfiguration> implem
     for (int i = 0; i < myTestLocations.length; i++) {
       final LabeledComponent testLocation = getTestLocation(i);
       final JComponent component = testLocation.getComponent();
-      final ComponentWithBrowseButton field;
-      final Object document;
+      final ComponentWithBrowseButton<? extends JComponent> field;
+      Object document;
       if (component instanceof TextFieldWithBrowseButton) {
         field = (TextFieldWithBrowseButton)component;
         document = new PlainDocument();
         ((TextFieldWithBrowseButton)field).getTextField().setDocument((Document)document);
-        myModel.setJUnitDocument(i, document);
-      } else if (component instanceof EditorTextFieldWithBrowseButton) {
-        field = (ComponentWithBrowseButton)component;
+      }
+      else if (component instanceof EditorTextFieldWithBrowseButton) {
+        field = (EditorTextFieldWithBrowseButton)component;
         document = ((EditorTextField)field.getChildComponent()).getDocument();
-        myModel.setJUnitDocument(i, document);
       }
       else {
         field = myPatternTextField;
         document = new PlainDocument();
         ((TextFieldWithBrowseButton)field).getTextField().setDocument((Document)document);
-        myModel.setJUnitDocument(i, document);
+
       }
       myBrowsers[i].setField(field);
+      if (myBrowsers[i] instanceof MethodBrowser) {
+        final EditorTextField childComponent = (EditorTextField)field.getChildComponent();
+        ((MethodBrowser)myBrowsers[i]).installCompletion(childComponent);
+        document = childComponent.getDocument();
+      }
+      myModel.setJUnitDocument(i, document);
     }
   }
 
@@ -405,27 +464,10 @@ public class JUnitConfigurable extends SettingsEditor<JUnitConfiguration> implem
   }
 
   private void createUIComponents() {
-    myPackage = new LabeledComponent<EditorTextFieldWithBrowseButton>();
+    myPackage = new LabeledComponent<>();
     myPackage.setComponent(new EditorTextFieldWithBrowseButton(myProject, false));
 
-    myClass = new LabeledComponent<EditorTextFieldWithBrowseButton>();
-    final TestClassBrowser classBrowser = new TestClassBrowser(myProject);
-    myClass.setComponent(new EditorTextFieldWithBrowseButton(myProject, true, new JavaCodeFragment.VisibilityChecker() {
-      @Override
-      public Visibility isDeclarationVisible(PsiElement declaration, PsiElement place) {
-        try {
-          if (declaration instanceof PsiClass && (classBrowser.getFilter().isAccepted(((PsiClass)declaration)) || classBrowser.findClass(((PsiClass)declaration).getQualifiedName()) != null && place.getParent() != null)) {
-            return Visibility.VISIBLE;
-          }
-        }
-        catch (ClassBrowser.NoFilterException e) {
-          return Visibility.NOT_VISIBLE;
-        }
-        return Visibility.NOT_VISIBLE;
-      }
-    }));
-
-    myCategory = new LabeledComponent<EditorTextFieldWithBrowseButton>();
+    myCategory = new LabeledComponent<>();
     myCategory.setComponent(new EditorTextFieldWithBrowseButton(myProject, true, new JavaCodeFragment.VisibilityChecker() {
       @Override
       public Visibility isDeclarationVisible(PsiElement declaration, PsiElement place) {
@@ -436,28 +478,32 @@ public class JUnitConfigurable extends SettingsEditor<JUnitConfiguration> implem
       }
     }));
 
-    myMethod = new LabeledComponent<EditorTextFieldWithBrowseButton>();
-    final EditorTextFieldWithBrowseButton textFieldWithBrowseButton = new EditorTextFieldWithBrowseButton(myProject, true, 
-                                                                                                          JavaCodeFragment.VisibilityChecker.EVERYTHING_VISIBLE, 
-                                                                                                          PlainTextLanguage.INSTANCE.getAssociatedFileType());
-    new TextFieldCompletionProvider() {
+    myMethod = new LabeledComponent<>();
+    myMethod.setComponent(new EditorTextFieldWithBrowseButton(myProject, true,
+                                                              JavaCodeFragment.VisibilityChecker.EVERYTHING_VISIBLE,
+                                                              PlainTextLanguage.INSTANCE.getAssociatedFileType()));
+
+    myShortenClasspathModeCombo = new LabeledComponent<>();
+  }
+
+  @NotNull
+  public static JavaCodeFragment.VisibilityChecker createClassVisibilityChecker(TestClassBrowser classBrowser) {
+    return new JavaCodeFragment.VisibilityChecker() {
       @Override
-      protected void addCompletionVariants(@NotNull String text, int offset, @NotNull String prefix, @NotNull CompletionResultSet result) {
-        final String className = getClassName();
-        if (className.trim().length() == 0) {
-          return;
-        }
-        final PsiClass testClass = getModuleSelector().findClass(className);
-        if (testClass == null) return;
-        final JUnitUtil.TestMethodFilter filter = new JUnitUtil.TestMethodFilter(testClass);
-        for (PsiMethod psiMethod : testClass.getAllMethods()) {
-          if (filter.value(psiMethod)) {
-            result.addElement(LookupElementBuilder.create(psiMethod.getName()));
+      public Visibility isDeclarationVisible(PsiElement declaration, PsiElement place) {
+        try {
+          if (declaration instanceof PsiClass &&
+              (classBrowser.getFilter().isAccepted(((PsiClass)declaration)) ||
+               classBrowser.findClass(((PsiClass)declaration).getQualifiedName()) != null && place.getParent() != null)) {
+            return Visibility.VISIBLE;
           }
         }
+        catch (ClassBrowser.NoFilterException e) {
+          return Visibility.NOT_VISIBLE;
+        }
+        return Visibility.NOT_VISIBLE;
       }
-    }.apply(textFieldWithBrowseButton.getChildComponent());
-    myMethod.setComponent(textFieldWithBrowseButton);
+    };
   }
 
   @Override
@@ -476,27 +522,23 @@ public class JUnitConfigurable extends SettingsEditor<JUnitConfiguration> implem
     myPattern.setAnchor(anchor);
     myPackage.setAnchor(anchor);
     myCategory.setAnchor(anchor);
-  }
-
-  private static void addRadioButtonsListeners(final JRadioButton[] radioButtons, ChangeListener listener) {
-    final ButtonGroup group = new ButtonGroup();
-    for (final JRadioButton radioButton : radioButtons) {
-      radioButton.getModel().addChangeListener(listener);
-      group.add(radioButton);
-    }
-    if (group.getSelection() == null) group.setSelected(radioButtons[0].getModel(), true);
+    myUniqueIdField.setAnchor(anchor);
+    myTagsField.setAnchor(anchor);
+    myChangeListLabeledComponent.setAnchor(anchor);
   }
 
   public void onTypeChanged(final int newType) {
     myTypeChooser.setSelectedItem(newType);
-    final TIntArrayList enabledFields = ourEnabledFields.get(newType);
+    final IntList enabledFields = ourEnabledFields.size() > newType ? ourEnabledFields.get(newType) : null;
     for (int i = 0; i < myTestLocations.length; i++)
-      getTestLocation(i).setEnabled(enabledFields.contains(i));
+      getTestLocation(i).setEnabled(enabledFields != null && enabledFields.contains(i));
     /*if (newType == JUnitConfigurationModel.PATTERN) {
       myModule.setEnabled(false);
     } else */if (newType != JUnitConfigurationModel.ALL_IN_PACKAGE &&
                  newType != JUnitConfigurationModel.PATTERN &&
-                 newType != JUnitConfigurationModel.CATEGORY) {
+                 newType != JUnitConfigurationModel.CATEGORY &&
+                 newType != JUnitConfigurationModel.TAGS &&
+                 newType != JUnitConfigurationModel.UNIQUE_ID) {
       myModule.setEnabled(true);
     }
     else {
@@ -504,120 +546,11 @@ public class JUnitConfigurable extends SettingsEditor<JUnitConfiguration> implem
     }
   }
 
-  private static class PackageChooserActionListener extends BrowseModuleValueActionListener {
-    public PackageChooserActionListener(final Project project) {super(project);}
-
-    protected String showDialog() {
-      final PackageChooserDialog dialog = new PackageChooserDialog(ExecutionBundle.message("choose.package.dialog.title"), getProject());
-      dialog.show();
-      final PsiPackage aPackage = dialog.getSelectedPackage();
-      return aPackage != null ? aPackage.getQualifiedName() : null;
-    }
-  }
-
-  private class TestsChooserActionListener extends TestClassBrowser {
-    public TestsChooserActionListener(final Project project) {
-      super(project);
-    }
-
-    @Override
-    protected void onClassChoosen(PsiClass psiClass) {
-      final JTextField textField = myPatternTextField.getTextField();
-      final String text = textField.getText();
-      textField.setText(text + (text.length() > 0 ? "||" : "") + psiClass.getQualifiedName());
-    }
-
-    @Override
-    protected ClassFilter.ClassFilterWithScope getFilter() throws NoFilterException {
-      try {
-        return TestClassFilter.create(SourceScope.wholeProject(getProject()), null);
-      }
-      catch (JUnitUtil.NoJUnitException ignore) {
-        throw new NoFilterException(new MessagesEx.MessageInfo(getProject(),
-                                                               ignore.getMessage(),
-                                                               ExecutionBundle.message("cannot.browse.test.inheritors.dialog.title")));
-      }
-    }
-
-    @Override
-    public void actionPerformed(ActionEvent e) {
-      showDialog();
-    }
-  }
-
   private void onScopeChanged() {
-    final Integer selectedItem = (Integer)myTypeChooser.getSelectedItem();
-    final boolean allInPackageAllInProject = (selectedItem == JUnitConfigurationModel.ALL_IN_PACKAGE ||
-                                              selectedItem == JUnitConfigurationModel.PATTERN ||
-                                              selectedItem == JUnitConfigurationModel.CATEGORY) && myWholeProjectScope.isSelected();
+    final boolean allInPackageAllInProject = myModel.disableModuleClasspath(myWholeProjectScope.isSelected());
     myModule.setEnabled(!allInPackageAllInProject);
     if (allInPackageAllInProject) {
       myModule.getComponent().setSelectedItem(null);
-    }
-  }
-
-  private class TestClassBrowser extends ClassBrowser {
-    public TestClassBrowser(final Project project) {
-      super(project, ExecutionBundle.message("choose.test.class.dialog.title"));
-    }
-
-    protected void onClassChoosen(final PsiClass psiClass) {
-      setPackage(JUnitUtil.getContainingPackage(psiClass));
-    }
-
-    protected PsiClass findClass(final String className) {
-      return getModuleSelector().findClass(className);
-    }
-
-    protected ClassFilter.ClassFilterWithScope getFilter() throws NoFilterException {
-      final ConfigurationModuleSelector moduleSelector = getModuleSelector();
-      final Module module = moduleSelector.getModule();
-      if (module == null) {
-        throw NoFilterException.moduleDoesntExist(moduleSelector);
-      }
-      final ClassFilter.ClassFilterWithScope classFilter;
-      try {
-        final JUnitConfiguration configurationCopy =
-          new JUnitConfiguration(ExecutionBundle.message("default.junit.configuration.name"), getProject(),
-                                 JUnitConfigurationType.getInstance().getConfigurationFactories()[0]);
-        applyEditorTo(configurationCopy);
-        classFilter = TestClassFilter
-          .create(configurationCopy.getTestObject().getSourceScope(), configurationCopy.getConfigurationModule().getModule());
-      }
-      catch (JUnitUtil.NoJUnitException e) {
-        throw NoFilterException.noJUnitInModule(module);
-      }
-      return classFilter;
-    }
-  }
-
-  private class MethodBrowser extends BrowseModuleValueActionListener {
-    public MethodBrowser(final Project project) {
-      super(project);
-    }
-
-    protected String showDialog() {
-      final String className = getClassName();
-      if (className.trim().length() == 0) {
-        Messages.showMessageDialog(getField(), ExecutionBundle.message("set.class.name.message"),
-                                   ExecutionBundle.message("cannot.browse.method.dialog.title"), Messages.getInformationIcon());
-        return null;
-      }
-      final PsiClass testClass = getModuleSelector().findClass(className);
-      if (testClass == null) {
-        Messages.showMessageDialog(getField(), ExecutionBundle.message("class.does.not.exists.error.message", className),
-                                   ExecutionBundle.message("cannot.browse.method.dialog.title"),
-                                   Messages.getInformationIcon());
-        return null;
-      }
-      final MethodListDlg dlg = new MethodListDlg(testClass, new JUnitUtil.TestMethodFilter(testClass), getField());
-      if (dlg.showAndGet()) {
-        final PsiMethod method = dlg.getSelected();
-        if (method != null) {
-          return method.getName();
-        }
-      }
-      return null;
     }
   }
 
@@ -625,12 +558,7 @@ public class JUnitConfigurable extends SettingsEditor<JUnitConfiguration> implem
     return ((LabeledComponent<EditorTextFieldWithBrowseButton>)getTestLocation(JUnitConfigurationModel.CLASS)).getComponent().getText();
   }
 
-  private void setPackage(final PsiPackage aPackage) {
-    if (aPackage == null) return;
-    ((LabeledComponent<EditorTextFieldWithBrowseButton>)getTestLocation(JUnitConfigurationModel.ALL_IN_PACKAGE)).getComponent()
-      .setText(aPackage.getQualifiedName());
-  }
-
+  @Override
   @NotNull
   public JComponent createEditor() {
     return myWholePanel;
@@ -641,29 +569,151 @@ public class JUnitConfigurable extends SettingsEditor<JUnitConfiguration> implem
     getModuleSelector().applyTo(currentState);
   }
 
-  private class CategoryBrowser extends ClassBrowser {
-    public CategoryBrowser(Project project) {
-      super(project, "Category Interface");
+  private static class PackageChooserActionListener extends BrowseModuleValueActionListener {
+    PackageChooserActionListener(final Project project) {
+      super(project);
     }
 
+    @Override
+    protected String showDialog() {
+      final PackageChooserDialog dialog = new PackageChooserDialog(ExecutionBundle.message("choose.package.dialog.title"), getProject());
+      dialog.show();
+      final PsiPackage aPackage = dialog.getSelectedPackage();
+      return aPackage != null ? aPackage.getQualifiedName() : null;
+    }
+  }
+
+  private static class TestsChooserActionListener extends TestClassBrowser {
+    private final TextFieldWithBrowseButton myPatternTextField;
+
+    TestsChooserActionListener(final Project project, ConfigurationModuleSelector moduleSelector,
+                               EditorTextFieldWithBrowseButton packageField, TextFieldWithBrowseButton patternField) {
+      super(project, moduleSelector, packageField);
+      myPatternTextField = patternField;
+    }
+
+    @Override
+    protected void onClassChosen(@NotNull PsiClass psiClass) {
+      final JTextField textField = myPatternTextField.getTextField();
+      final String text = textField.getText();
+      textField.setText(text + (text.length() > 0 ? "||" : "") + psiClass.getQualifiedName());
+    }
+
+    @Override
+    protected ClassFilter.ClassFilterWithScope getFilter() throws NoFilterException {
+      return DumbModeAccessType.RELIABLE_DATA_ONLY.ignoreDumbMode(() -> {
+        try {
+          return TestClassFilter.create(SourceScope.wholeProject(getProject()), null);
+        }
+        catch (JUnitUtil.NoJUnitException e) {
+          throw new NoFilterException(new MessagesEx.MessageInfo(getProject(),
+                                                                 e.getMessage(),
+                                                                 JUnitBundle.message("cannot.browse.test.inheritors.dialog.title")));
+        }
+      });
+    }
+
+    @Override
+    public void actionPerformed(ActionEvent e) {
+      showDialog();
+    }
+  }
+
+  public static class TestClassBrowser extends ClassBrowser {
+    private final ConfigurationModuleSelector myModuleSelector;
+    private final EditorTextFieldWithBrowseButton myPackageTextField;
+
+    TestClassBrowser(final Project project, ConfigurationModuleSelector moduleSelector, EditorTextFieldWithBrowseButton packageTextField) {
+      super(project, ExecutionBundle.message("choose.test.class.dialog.title"));
+      myModuleSelector = moduleSelector;
+      myPackageTextField = packageTextField;
+    }
+
+    @Override
+    protected void onClassChosen(@NotNull PsiClass psiClass) {
+      myPackageTextField.setText(StringUtil.getPackageName(Objects.requireNonNull(psiClass.getQualifiedName())));
+    }
+
+    @Override
     protected PsiClass findClass(final String className) {
       return myModuleSelector.findClass(className);
     }
 
+    @Override
+    protected ClassFilter.ClassFilterWithScope getFilter() throws NoFilterException {
+      final Module module = myModuleSelector.getModule();
+      if (module == null) {
+        final Project project = myModuleSelector.getProject();
+        final String moduleName = myModuleSelector.getModuleName();
+        throw new NoFilterException(new MessagesEx.MessageInfo(
+          project,
+          moduleName.isEmpty() ? JUnitBundle.message("no.module.selected.error.message")
+                               : JUnitBundle.message("module.does.not.exists", moduleName, project.getName()),
+          JUnitBundle.message("cannot.browse.test.inheritors.dialog.title")));
+      }
+      final ClassFilter.ClassFilterWithScope classFilter;
+      try {
+        final JUnitConfiguration configurationCopy = new JUnitConfiguration(JUnitBundle.message("default.junit.configuration.name"), getProject());
+        myModuleSelector.applyTo(configurationCopy);
+        SourceScope sourceScope = SourceScope.modulesWithDependencies(configurationCopy.getModules());
+        GlobalSearchScope globalSearchScope = sourceScope.getGlobalSearchScope();
+        if (JUnitUtil.isJUnit5(globalSearchScope, getProject())) {
+          return new ClassFilter.ClassFilterWithScope() {
+            @Override
+            public GlobalSearchScope getScope() {
+              return globalSearchScope;
+            }
+
+            @Override
+            public boolean isAccepted(PsiClass aClass) {
+              return JUnitUtil.isTestClass(aClass,true, true);
+            }
+          };
+        }
+        classFilter = TestClassFilter.create(sourceScope, configurationCopy.getConfigurationModule().getModule());
+      }
+      catch (JUnitUtil.NoJUnitException e) {
+        throw new NoFilterException(new MessagesEx.MessageInfo(
+          module.getProject(),
+          JUnitBundle.message("junit.not.found.in.module.error.message", module.getName()),
+          JUnitBundle.message("cannot.browse.test.inheritors.dialog.title")));
+      }
+      return classFilter;
+    }
+  }
+
+  private static class CategoryBrowser extends ClassBrowser {
+    private final ConfigurationModuleSelector myModuleSelector;
+    private final EditorTextFieldWithBrowseButton myCategoryField;
+
+    CategoryBrowser(Project project, ConfigurationModuleSelector moduleSelector, EditorTextFieldWithBrowseButton categoryField) {
+      super(project, JUnitBundle.message("category.interface.dialog.title"));
+      myModuleSelector = moduleSelector;
+      myCategoryField = categoryField;
+    }
+
+    @Override
+    protected PsiClass findClass(final String className) {
+      return myModuleSelector.findClass(className);
+    }
+
+    @Override
     protected ClassFilter.ClassFilterWithScope getFilter() throws NoFilterException {
       final Module module = myModuleSelector.getModule();
       final GlobalSearchScope scope;
       if (module == null) {
-        scope = GlobalSearchScope.allScope(myProject);
+        scope = GlobalSearchScope.allScope(getProject());
       }
       else {
         scope = GlobalSearchScope.moduleWithDependenciesAndLibrariesScope(module);
       }
       return new ClassFilter.ClassFilterWithScope() {
+        @Override
         public GlobalSearchScope getScope() {
           return scope;
         }
 
+        @Override
         public boolean isAccepted(final PsiClass aClass) {
           return true;
         }
@@ -671,9 +721,8 @@ public class JUnitConfigurable extends SettingsEditor<JUnitConfiguration> implem
     }
 
     @Override
-    protected void onClassChoosen(PsiClass psiClass) {
-      ((LabeledComponent<EditorTextFieldWithBrowseButton>)getTestLocation(JUnitConfigurationModel.CATEGORY)).getComponent()
-        .setText(psiClass.getQualifiedName());
+    protected void onClassChosen(@NotNull PsiClass psiClass) {
+      myCategoryField.setText(psiClass.getQualifiedName());
     }
   }
 }

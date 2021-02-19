@@ -1,134 +1,171 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.spellchecker.settings;
 
 import com.intellij.openapi.components.*;
-import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.spellchecker.SpellCheckerManager;
+import com.intellij.spellchecker.util.SPFileUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 
+import java.nio.file.Paths;
 import java.util.*;
 
-@State(
-  name = "SpellCheckerSettings",
-  storages = {@Storage(
-    file = StoragePathMacros.WORKSPACE_FILE)})
+import static com.intellij.openapi.util.io.FileUtilRt.extensionEquals;
+import static com.intellij.openapi.util.text.StringUtil.notNullize;
+import static com.intellij.openapi.util.text.StringUtil.parseInt;
+
+@State(name = "SpellCheckerSettings", storages = @Storage(StoragePathMacros.WORKSPACE_FILE))
 public class SpellCheckerSettings implements PersistentStateComponent<Element> {
   // For xml serialization
   private static final String SPELLCHECKER_MANAGER_SETTINGS_TAG = "SpellCheckerSettings";
 
   private static final String FOLDERS_ATTR_NAME = "Folders";
   private static final String FOLDER_ATTR_NAME = "Folder";
-  private static final String DICTIONARIES_ATTR_NAME = "Dictionaries";
-  private static final String DICTIONARY_ATTR_NAME = "Dictionary";
 
-  private static final String BUNDLED_DICTIONARIES_ATTR_NAME = "BundledDictionaries";
-  private static final String BUNDLED_DICTIONARY_ATTR_NAME = "BundledDictionary";
+  private static final String CUSTOM_DICTIONARIES_ATTR_NAME = "CustomDictionaries";
+  private static final String CUSTOM_DICTIONARY_ATTR_NAME = "CustomDictionary";
+
+  private static final String RUNTIME_DICTIONARIES_ATTR_NAME = "RuntimeDictionaries";
+  private static final String RUNTIME_DICTIONARY_ATTR_NAME = "RuntimeDictionary";
+
+  private static final String DICTIONARY_TO_SAVE_ATTR_NAME = "DefaultDictionary";
+  private static final String DEFAULT_DICTIONARY_TO_SAVE = SpellCheckerManager.DictionaryLevel.PROJECT.getName();
+  private static final String USE_SINGLE_DICT_ATTR_NAME = "UseSingleDictionary";
+  private static final boolean DEFAULT_USE_SINGLE_DICT = true;
+  private static final String SETTINGS_TRANSFERRED = "transferred"; 
 
   // Paths
-  private List<String> myDictionaryFoldersPaths = new ArrayList<String>();
-  private Set<String> myDisabledDictionariesPaths = new HashSet<String>();
+  private final List<String> myOldDictionaryFoldersPaths = new ArrayList<>();
+  private List<String> myCustomDictionariesPaths = new ArrayList<>();
 
-  private Set<String> myBundledDisabledDictionariesPaths = new HashSet<String>();
+  private Set<String> myRuntimeDisabledDictionariesNames = new HashSet<>();
+  private String myDictionaryToSave = DEFAULT_DICTIONARY_TO_SAVE;
+  private boolean myUseSingleDictionaryToSave = DEFAULT_USE_SINGLE_DICT;
+  private boolean mySettingsTransferred = false;
 
-  public static SpellCheckerSettings getInstance(Project project) {
+  @NlsSafe
+  public String getDictionaryToSave() {
+    //This is NLS safe since dictionary names are NLS
+    return myDictionaryToSave;
+  }
+
+  public void setDictionaryToSave(String dictionaryToSave) {
+    myDictionaryToSave = dictionaryToSave;
+  }
+
+  public boolean isUseSingleDictionaryToSave() {
+    return myUseSingleDictionaryToSave;
+  }
+
+  public void setUseSingleDictionaryToSave(boolean useSingleDictionaryToSave) {
+    this.myUseSingleDictionaryToSave = useSingleDictionaryToSave;
+  }
+
+  public boolean isSettingsTransferred() {
+    return mySettingsTransferred;
+  }
+
+  public void setSettingsTransferred(boolean settingsTransferred) {
+    mySettingsTransferred = settingsTransferred;
+  }
+
+  public static @NotNull SpellCheckerSettings getInstance(Project project) {
     return ServiceManager.getService(project, SpellCheckerSettings.class);
   }
 
-
-  public List<String> getDictionaryFoldersPaths() {
-    return myDictionaryFoldersPaths;
+  public List<String> getCustomDictionariesPaths() {
+    return myCustomDictionariesPaths;
   }
 
-  public void setDictionaryFoldersPaths(List<String> dictionaryFoldersPaths) {
-    myDictionaryFoldersPaths = dictionaryFoldersPaths;
+  public void setCustomDictionariesPaths(List<String> customDictionariesPaths) {
+    myCustomDictionariesPaths = customDictionariesPaths;
   }
 
-  public Set<String> getDisabledDictionariesPaths() {
-    return myDisabledDictionariesPaths;
+  public Set<String> getRuntimeDisabledDictionariesNames() {
+    return myRuntimeDisabledDictionariesNames;
   }
 
-
-  public void setDisabledDictionariesPaths(Set<String> disabledDictionariesPaths) {
-    myDisabledDictionariesPaths = disabledDictionariesPaths;
+  public void setRuntimeDisabledDictionariesNames(Set<String> runtimeDisabledDictionariesNames) {
+    myRuntimeDisabledDictionariesNames = runtimeDisabledDictionariesNames;
   }
 
-
-  public Set<String> getBundledDisabledDictionariesPaths() {
-    return myBundledDisabledDictionariesPaths;
+  public boolean isDefaultAdvancedSettings() {
+    return myUseSingleDictionaryToSave == DEFAULT_USE_SINGLE_DICT &&
+           myDictionaryToSave == DEFAULT_DICTIONARY_TO_SAVE;
   }
 
-  public void setBundledDisabledDictionariesPaths(Set<String> bundledDisabledDictionariesPaths) {
-    myBundledDisabledDictionariesPaths = bundledDisabledDictionariesPaths;
-  }
-
-  @SuppressWarnings({"ConstantConditions"})
+  @Override
   public Element getState() {
-    if (myBundledDisabledDictionariesPaths.isEmpty() &&
-        myDictionaryFoldersPaths.isEmpty() &&
-        myDisabledDictionariesPaths.isEmpty()) {
+    if (myRuntimeDisabledDictionariesNames.isEmpty() &&
+        myOldDictionaryFoldersPaths.isEmpty() &&
+        myCustomDictionariesPaths.isEmpty() &&
+        myUseSingleDictionaryToSave == DEFAULT_USE_SINGLE_DICT &&
+        myDictionaryToSave.equals(DEFAULT_DICTIONARY_TO_SAVE) && !mySettingsTransferred) {
       return null;
     }
 
     final Element element = new Element(SPELLCHECKER_MANAGER_SETTINGS_TAG);
-    // bundled
-    element.setAttribute(BUNDLED_DICTIONARIES_ATTR_NAME, String.valueOf(myBundledDisabledDictionariesPaths.size()));
-    Iterator<String> iterator = myBundledDisabledDictionariesPaths.iterator();
+    // runtime
+    element.setAttribute(RUNTIME_DICTIONARIES_ATTR_NAME, String.valueOf(myRuntimeDisabledDictionariesNames.size()));
+    Iterator<String> iterator  = myRuntimeDisabledDictionariesNames.iterator();
     int i = 0;
     while (iterator.hasNext()) {
-      element.setAttribute(BUNDLED_DICTIONARY_ATTR_NAME + i, iterator.next());
+      element.setAttribute(RUNTIME_DICTIONARY_ATTR_NAME + i, iterator.next());
       i++;
     }
     // user
-    element.setAttribute(FOLDERS_ATTR_NAME, String.valueOf(myDictionaryFoldersPaths.size()));
-    for (int j = 0; j < myDictionaryFoldersPaths.size(); j++) {
-      element.setAttribute(FOLDER_ATTR_NAME + j, myDictionaryFoldersPaths.get(j));
+    // save custom dictionaries parents because of back compatibility
+    element.setAttribute(FOLDERS_ATTR_NAME, String.valueOf(myCustomDictionariesPaths.size()));
+    for (int j = 0; j < myCustomDictionariesPaths.size(); j++) {
+      element.setAttribute(FOLDER_ATTR_NAME + j, Paths.get(myCustomDictionariesPaths.get(j)).getParent().toString());
     }
-    element.setAttribute(DICTIONARIES_ATTR_NAME, String.valueOf(myDisabledDictionariesPaths.size()));
-    iterator = myDisabledDictionariesPaths.iterator();
-    i = 0;
-    while (iterator.hasNext()) {
-      element.setAttribute(DICTIONARY_ATTR_NAME + i, iterator.next());
-      i++;
+    // store new dictionaries settings
+    element.setAttribute(CUSTOM_DICTIONARIES_ATTR_NAME, String.valueOf(myCustomDictionariesPaths.size()));
+    for (int j = 0; j < myCustomDictionariesPaths.size(); j++) {
+      element.setAttribute(CUSTOM_DICTIONARY_ATTR_NAME + j, myCustomDictionariesPaths.get(j));
     }
-
+    element.setAttribute(DICTIONARY_TO_SAVE_ATTR_NAME, myDictionaryToSave);
+    element.setAttribute(USE_SINGLE_DICT_ATTR_NAME, String.valueOf(myUseSingleDictionaryToSave));
+    element.setAttribute(SETTINGS_TRANSFERRED, String.valueOf(mySettingsTransferred));
     return element;
   }
 
 
+  @Override
   public void loadState(@NotNull final Element element) {
-    myBundledDisabledDictionariesPaths.clear();
-    myDictionaryFoldersPaths.clear();
-    myDisabledDictionariesPaths.clear();
+    myRuntimeDisabledDictionariesNames.clear();
+    myCustomDictionariesPaths.clear();
+    myOldDictionaryFoldersPaths.clear();
     try {
-      // bundled
-      final int bundledDictionariesSize = Integer.valueOf(element.getAttributeValue(BUNDLED_DICTIONARIES_ATTR_NAME));
-      for (int i = 0; i < bundledDictionariesSize; i++) {
-        myBundledDisabledDictionariesPaths.add(element.getAttributeValue(BUNDLED_DICTIONARY_ATTR_NAME + i));
+      // runtime
+      final int runtimeDictionariesSize = parseInt(element.getAttributeValue(RUNTIME_DICTIONARIES_ATTR_NAME), 0);
+      for (int i = 0; i < runtimeDictionariesSize; i++) {
+        myRuntimeDisabledDictionariesNames.add(element.getAttributeValue(RUNTIME_DICTIONARY_ATTR_NAME + i));
       }
       // user
-      final int foldersSize = Integer.valueOf(element.getAttributeValue(FOLDERS_ATTR_NAME));
-      for (int i = 0; i < foldersSize; i++) {
-        myDictionaryFoldersPaths.add(element.getAttributeValue(FOLDER_ATTR_NAME + i));
+      // cover old dictionary folders settings (if no new settings available)
+      if (element.getAttributeValue(CUSTOM_DICTIONARIES_ATTR_NAME) == null) {
+        final int foldersSize = parseInt(element.getAttributeValue(FOLDERS_ATTR_NAME), 0);
+        for (int i = 0; i < foldersSize; i++) {
+          myOldDictionaryFoldersPaths.add(element.getAttributeValue(FOLDER_ATTR_NAME + i));
+        }
+        myOldDictionaryFoldersPaths.forEach(folder -> SPFileUtil.processFilesRecursively(folder, file -> {
+          if (extensionEquals(file, "dic")) {
+            myCustomDictionariesPaths.add(file);
+          }
+        }));
       }
-      final int scriptsSize = Integer.valueOf(element.getAttributeValue(DICTIONARIES_ATTR_NAME));
-      for (int i = 0; i < scriptsSize; i++) {
-        myDisabledDictionariesPaths.add(element.getAttributeValue(DICTIONARY_ATTR_NAME + i));
+      // cover new dictionaries settings
+      final int customDictSize = parseInt(element.getAttributeValue(CUSTOM_DICTIONARIES_ATTR_NAME), 0);
+      for (int i = 0; i < customDictSize; i++) {
+        myCustomDictionariesPaths.add(element.getAttributeValue(CUSTOM_DICTIONARY_ATTR_NAME + i));
       }
+      myDictionaryToSave = notNullize(element.getAttributeValue(DICTIONARY_TO_SAVE_ATTR_NAME), DEFAULT_DICTIONARY_TO_SAVE);
+      myUseSingleDictionaryToSave =
+        Boolean.parseBoolean(notNullize(element.getAttributeValue(USE_SINGLE_DICT_ATTR_NAME), String.valueOf(DEFAULT_USE_SINGLE_DICT)));
+      mySettingsTransferred = Boolean.parseBoolean(notNullize(element.getAttributeValue(SETTINGS_TRANSFERRED), "false"));
     }
     catch (Exception ignored) {
     }

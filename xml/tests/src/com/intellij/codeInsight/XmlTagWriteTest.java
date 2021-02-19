@@ -20,22 +20,19 @@ import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.psi.XmlElementFactory;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.psi.xml.XmlText;
-import com.intellij.testFramework.LightCodeInsightTestCase;
+import com.intellij.testFramework.LightJavaCodeInsightTestCase;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.xml.util.XmlUtil;
 
 /**
  * @author lesya, dsl
  */
-public class XmlTagWriteTest extends LightCodeInsightTestCase{
+public class XmlTagWriteTest extends LightJavaCodeInsightTestCase {
   public void test1() throws IncorrectOperationException {
     XmlElementFactory elementFactory = XmlElementFactory.getInstance(getProject());
     final XmlTag xmlTag = XmlElementFactory.getInstance(getProject()).createTagFromText("<tag1/>");
-    WriteCommandAction.runWriteCommandAction(null, new Runnable() {
-      @Override
-      public void run() {
-        xmlTag.add(xmlTag.createChildTag("tag2", XmlUtil.EMPTY_URI, null, false));
-      }
+    WriteCommandAction.runWriteCommandAction(null, () -> {
+      xmlTag.add(xmlTag.createChildTag("tag2", XmlUtil.EMPTY_URI, null, false));
     });
 
 
@@ -48,11 +45,8 @@ public class XmlTagWriteTest extends LightCodeInsightTestCase{
 
   public void test2() throws IncorrectOperationException {
     final XmlTag xmlTag = XmlElementFactory.getInstance(getProject()).createTagFromText("<tag1></tag1>");
-    WriteCommandAction.runWriteCommandAction(null, new Runnable(){
-      @Override
-      public void run() {
-        xmlTag.add(xmlTag.createChildTag("tag2", XmlUtil.EMPTY_URI, null, false));
-      }
+    WriteCommandAction.runWriteCommandAction(null, () -> {
+      xmlTag.add(xmlTag.createChildTag("tag2", XmlUtil.EMPTY_URI, null, false));
     });
 
 
@@ -63,16 +57,11 @@ public class XmlTagWriteTest extends LightCodeInsightTestCase{
     assertEquals("tag2", createdFromText.getSubTags()[0].getName());
   }
 
-  public void test3() throws Exception{
+  public void test3() {
     final XmlTag tag = XmlElementFactory.getInstance(getProject()).createTagFromText("<b>\n0123456</b>");
     final XmlText text = (XmlText) tag.getValue().getChildren()[0];
     String textS = text.getText();
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      @Override
-      public void run() {
-        text.insertText("lala", 2);
-      }
-    });
+    ApplicationManager.getApplication().runWriteAction(() -> text.insertText("lala", 2));
 
     XmlText text2 = (XmlText)tag.getValue().getChildren()[0];
     assertEquals(textS.substring(0, 2) + "lala" + textS.substring(2), text2.getText());

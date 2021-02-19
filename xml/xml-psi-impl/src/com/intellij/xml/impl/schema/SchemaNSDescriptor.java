@@ -16,11 +16,11 @@
 package com.intellij.xml.impl.schema;
 
 import com.intellij.codeInsight.daemon.Validator;
-import com.intellij.codeInsight.daemon.XmlErrorMessages;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.xml.XmlElementDescriptor;
+import com.intellij.xml.psi.XmlPsiBundle;
 import com.intellij.xml.util.XmlUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -41,14 +41,14 @@ public class SchemaNSDescriptor extends XmlNSDescriptorImpl {
 
   @NonNls private static final String NAME_ATTR_NAME = "name";
 
-  private static final Validator<XmlTag> ELEMENT_VALIDATOR = new Validator<XmlTag>() {
+  private static final Validator<XmlTag> ELEMENT_VALIDATOR = new Validator<>() {
     @Override
     public void validate(@NotNull final XmlTag tag, @NotNull ValidationHost host) {
       if (!isFromSchemaNs(tag)) return;
       final boolean hasRefAttribute = tag.getAttributeValue(REF_ATTR_NAME) != null;
 
       if (hasRefAttribute) {
-        for(XmlAttribute attr:tag.getAttributes()) {
+        for (XmlAttribute attr : tag.getAttributes()) {
           final String name = attr.getName();
 
           if (name.indexOf(':') == -1 &&
@@ -58,7 +58,7 @@ public class SchemaNSDescriptor extends XmlNSDescriptorImpl {
               !REF_ATTR_NAME.equals(name)) {
             host.addMessage(
               attr.getNameElement(),
-              XmlErrorMessages.message("xml.schema.validation.attr.not.allowed.with.ref", name),
+              XmlPsiBundle.message("xml.schema.validation.attr.not.allowed.with.ref", name),
               ValidationHost.ErrorType.ERROR
             );
           }
@@ -75,7 +75,7 @@ public class SchemaNSDescriptor extends XmlNSDescriptorImpl {
           if (maxOccurs < minOccurs) {
             host.addMessage(
               tag.getAttribute(MAX_OCCURS_ATTR_VALUE, null).getValueElement(),
-              XmlErrorMessages.message("xml.schema.validation.max.occurs.should.be.not.less.than.min.occurs"),
+              XmlPsiBundle.message("xml.schema.validation.max.occurs.should.be.not.less.than.min.occurs"),
               ValidationHost.ErrorType.ERROR
             );
           }
@@ -88,14 +88,14 @@ public class SchemaNSDescriptor extends XmlNSDescriptorImpl {
       if (!hasRefAttribute && tag.getAttributeValue(NAME_ATTR_NAME) == null) {
         host.addMessage(
           tag,
-          XmlErrorMessages.message("xml.schema.validation.name.or.ref.should.present"),
+          XmlPsiBundle.message("xml.schema.validation.name.or.ref.should.present"),
           ValidationHost.ErrorType.ERROR
         );
       }
     }
   };
 
-  private static final Validator<XmlTag> ATTRIBUTE_VALIDATOR = new Validator<XmlTag>() {
+  private static final Validator<XmlTag> ATTRIBUTE_VALIDATOR = new Validator<>() {
     @Override
     public void validate(@NotNull final XmlTag tag, @NotNull ValidationHost host) {
       if (!isFromSchemaNs(tag)) return;
@@ -103,7 +103,7 @@ public class SchemaNSDescriptor extends XmlNSDescriptorImpl {
       if (tag.getAttributeValue(REF_ATTR_NAME) == null && tag.getAttributeValue(NAME_ATTR_NAME) == null) {
         host.addMessage(
           tag,
-          XmlErrorMessages.message("xml.schema.validation.name.or.ref.should.present"),
+          XmlPsiBundle.message("xml.schema.validation.name.or.ref.should.present"),
           ValidationHost.ErrorType.ERROR
         );
       }
@@ -111,20 +111,20 @@ public class SchemaNSDescriptor extends XmlNSDescriptorImpl {
       if (tag.getAttributeValue(DEFAULT_ATTR_NAME) != null && tag.getAttributeValue(FIXED_ATTR_NAME) != null) {
         host.addMessage(
           tag.getAttribute(DEFAULT_ATTR_NAME, null).getNameElement(),
-          XmlErrorMessages.message("xml.schema.validation.default.or.fixed.should.be.specified.but.not.both"),
+          XmlPsiBundle.message("xml.schema.validation.default.or.fixed.should.be.specified.but.not.both"),
           ValidationHost.ErrorType.ERROR
         );
 
         host.addMessage(
           tag.getAttribute(FIXED_ATTR_NAME, null).getNameElement(),
-          XmlErrorMessages.message("xml.schema.validation.default.or.fixed.should.be.specified.but.not.both"),
+          XmlPsiBundle.message("xml.schema.validation.default.or.fixed.should.be.specified.but.not.both"),
           ValidationHost.ErrorType.ERROR
         );
       }
     }
   };
 
-  private static final XmlUtil.DuplicationInfoProvider<XmlTag> SCHEMA_ATTR_DUP_INFO_PROVIDER = new XmlUtil.DuplicationInfoProvider<XmlTag>() {
+  private static final XmlUtil.DuplicationInfoProvider<XmlTag> SCHEMA_ATTR_DUP_INFO_PROVIDER = new XmlUtil.DuplicationInfoProvider<>() {
     @Override
     public String getName(@NotNull final XmlTag t) {
       return t.getAttributeValue(NAME_ATTR_NAME);
@@ -143,7 +143,7 @@ public class SchemaNSDescriptor extends XmlNSDescriptorImpl {
     }
   };
 
-  private static final Validator<XmlTag> ELEMENT_AND_ATTR_VALIDATOR = new Validator<XmlTag>() {
+  private static final Validator<XmlTag> ELEMENT_AND_ATTR_VALIDATOR = new Validator<>() {
     @Override
     public void validate(@NotNull final XmlTag tag, @NotNull ValidationHost host) {
       if (!isFromSchemaNs(tag)) return;
@@ -152,7 +152,7 @@ public class SchemaNSDescriptor extends XmlNSDescriptorImpl {
 
       XmlUtil.doDuplicationCheckForElements(
         attrDeclTags,
-        new HashMap<String, XmlTag>(attrDeclTags.length),
+        new HashMap<>(attrDeclTags.length),
         SCHEMA_ATTR_DUP_INFO_PROVIDER,
         host
       );
@@ -161,7 +161,7 @@ public class SchemaNSDescriptor extends XmlNSDescriptorImpl {
 
       XmlUtil.doDuplicationCheckForElements(
         elementDeclTags,
-        new HashMap<String, XmlTag>(elementDeclTags.length),
+        new HashMap<>(elementDeclTags.length),
         SCHEMA_ATTR_DUP_INFO_PROVIDER,
         host
       );

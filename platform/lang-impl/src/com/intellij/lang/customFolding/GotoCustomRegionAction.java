@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.customFolding;
 
 import com.intellij.ide.IdeBundle;
@@ -32,11 +18,11 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.psi.FileViewProvider;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
-import com.intellij.util.containers.HashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.Set;
 
 /**
@@ -44,7 +30,7 @@ import java.util.Set;
  */
 public class GotoCustomRegionAction extends AnAction implements DumbAware, PopupAction {
   @Override
-  public void actionPerformed(final AnActionEvent e) {
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     final Project project = e.getProject();
     final Editor editor = e.getData(CommonDataKeys.EDITOR);
     if (Boolean.TRUE.equals(e.getData(PlatformDataKeys.IS_MODAL_CONTEXT))) {
@@ -58,17 +44,13 @@ public class GotoCustomRegionAction extends AnAction implements DumbAware, Popup
       CommandProcessor processor = CommandProcessor.getInstance();
       processor.executeCommand(
         project,
-        new Runnable() {
-          @Override
-          public void run() {
-            Collection<FoldingDescriptor> foldingDescriptors = getCustomFoldingDescriptors(editor, project);
-            if (foldingDescriptors.size() > 0) {
-              CustomFoldingRegionsPopup regionsPopup = new CustomFoldingRegionsPopup(foldingDescriptors, editor, project);
-              regionsPopup.show();
-            }
-            else {
-              notifyCustomRegionsUnavailable(editor, project);
-            }
+        () -> {
+          Collection<FoldingDescriptor> foldingDescriptors = getCustomFoldingDescriptors(editor, project);
+          if (foldingDescriptors.size() > 0) {
+            CustomFoldingRegionsPopup.show(foldingDescriptors, editor, project);
+          }
+          else {
+            notifyCustomRegionsUnavailable(editor, project);
           }
         },
         IdeBundle.message("goto.custom.region.command"),
@@ -77,19 +59,18 @@ public class GotoCustomRegionAction extends AnAction implements DumbAware, Popup
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     Presentation presentation = e.getPresentation();
-    presentation.setText(IdeBundle.message("goto.custom.region.menu.item"));
+    presentation.setText(IdeBundle.messagePointer("goto.custom.region.menu.item"));
     final Editor editor = e.getData(CommonDataKeys.EDITOR);
     final Project project = e.getProject();
     boolean isAvailable = editor != null && project != null;
-    presentation.setEnabled(isAvailable);
-    presentation.setVisible(isAvailable);
+    presentation.setEnabledAndVisible(isAvailable);
   }
 
   @NotNull
   private static Collection<FoldingDescriptor> getCustomFoldingDescriptors(@NotNull Editor editor, @NotNull Project project) {
-    Set<FoldingDescriptor> foldingDescriptors = new HashSet<FoldingDescriptor>();
+    Set<FoldingDescriptor> foldingDescriptors = new HashSet<>();
     final Document document = editor.getDocument();
     PsiDocumentManager documentManager = PsiDocumentManager.getInstance(project);
     PsiFile file = documentManager != null ? documentManager.getPsiFile(document) : null;
@@ -116,7 +97,7 @@ public class GotoCustomRegionAction extends AnAction implements DumbAware, Popup
   @Nullable
   private static CustomFoldingBuilder getCustomFoldingBuilder(FoldingBuilder builder, FoldingDescriptor descriptor) {
     if (builder instanceof CustomFoldingBuilder) return (CustomFoldingBuilder)builder;
-    FoldingBuilder originalBuilder = descriptor.getElement().getUserData(CompositeFoldingBuilder.FOLDING_BUILDER);
+    FoldingBuilder originalBuilder = CompositeFoldingBuilder.getOriginalBuilder(descriptor);
     if (originalBuilder instanceof CustomFoldingBuilder) return (CustomFoldingBuilder)originalBuilder;
     return null;
   }

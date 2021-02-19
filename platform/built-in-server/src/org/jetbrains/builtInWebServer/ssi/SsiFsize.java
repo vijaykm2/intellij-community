@@ -16,6 +16,7 @@
  */
 package org.jetbrains.builtInWebServer.ssi;
 
+import com.intellij.openapi.util.NlsSafe;
 import io.netty.buffer.ByteBufUtf8Writer;
 import org.jetbrains.annotations.NotNull;
 
@@ -30,12 +31,13 @@ import java.util.List;
  * @author Dan Sandberg
  * @author David Becker
  */
+@SuppressWarnings("HardCodedStringLiteral")
 final class SsiFsize implements SsiCommand {
   private static final int ONE_KILOBYTE = 1024;
   private static final int ONE_MEGABYTE = 1024 * 1024;
 
   @Override
-  public long process(@NotNull SsiProcessingState state, @NotNull String commandName, @NotNull List<String> paramNames, @NotNull String[] paramValues, @NotNull ByteBufUtf8Writer writer) {
+  public long process(@NotNull SsiProcessingState state, @NotNull String commandName, @NotNull List<String> paramNames, String @NotNull [] paramValues, @NotNull ByteBufUtf8Writer writer) {
     long lastModified = 0;
     String configErrMsg = state.configErrorMessage;
     for (int i = 0; i < paramNames.size(); i++) {
@@ -48,7 +50,7 @@ final class SsiFsize implements SsiCommand {
         writer.write(formatSize(state.ssiExternalResolver.getFileSize(substitutedValue, virtual), state.configSizeFmt));
       }
       else {
-        SsiProcessor.LOG.info("#fsize--Invalid attribute: " + paramName);
+        SsiProcessorKt.getLOG().info("#fsize--Invalid attribute: " + paramName);
         writer.write(configErrMsg);
       }
     }
@@ -57,6 +59,7 @@ final class SsiFsize implements SsiCommand {
 
   // We try to mimic Apache here, as we do everywhere
   // All the 'magic' numbers are from the util_script.c Apache source file.
+  @NlsSafe
   private static String formatSize(long size, @NotNull String format) {
     if (format.equalsIgnoreCase("bytes")) {
       return new DecimalFormat("#,##0").format(size);
@@ -70,13 +73,13 @@ final class SsiFsize implements SsiCommand {
       result = "1k";
     }
     else if (size < ONE_MEGABYTE) {
-      result = Long.toString((size + 512) / ONE_KILOBYTE) + "k";
+      result = (size + 512) / ONE_KILOBYTE + "k";
     }
     else if (size < 99 * ONE_MEGABYTE) {
       result = new DecimalFormat("0.0M").format(size / (double)ONE_MEGABYTE);
     }
     else {
-      result = Long.toString((size + (529 * ONE_KILOBYTE)) / ONE_MEGABYTE) + "M";
+      result = (size + (529 * ONE_KILOBYTE)) / ONE_MEGABYTE + "M";
     }
 
     int charsToAdd = 5 - result.length();
@@ -88,10 +91,6 @@ final class SsiFsize implements SsiCommand {
       return result;
     }
 
-    StringBuilder buf = new StringBuilder();
-    for (int i = 0; i < charsToAdd; i++) {
-      buf.append(' ');
-    }
-    return buf.append(result).toString();
+    return " ".repeat(charsToAdd) + result;
   }
 }

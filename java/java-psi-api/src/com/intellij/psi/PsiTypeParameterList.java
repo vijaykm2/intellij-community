@@ -15,6 +15,8 @@
  */
 package com.intellij.psi;
 
+import org.jetbrains.annotations.NotNull;
+
 /**
  * Represents a list of generic type parameters for a class or method.
  *
@@ -26,7 +28,7 @@ public interface PsiTypeParameterList extends PsiElement {
    *
    * @return the array of type parameters.
    */
-  PsiTypeParameter[] getTypeParameters();
+  PsiTypeParameter @NotNull [] getTypeParameters();
 
   /**
    * Returns the index of the specified parameter in the list.

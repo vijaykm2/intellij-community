@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.download.impl;
 
 import com.intellij.facet.frameworks.LibrariesDownloadAssistant;
@@ -29,36 +15,23 @@ import org.jetbrains.annotations.Nullable;
 
 import java.net.URL;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
-/**
- * @author nik
- */
 public abstract class FileSetVersionsFetcherBase<FS extends DownloadableFileSetDescription, F extends DownloadableFileDescription> implements DownloadableFileSetVersions<FS> {
-  private static final Comparator<DownloadableFileSetDescription> VERSIONS_COMPARATOR = new Comparator<DownloadableFileSetDescription>() {
-    @Override
-    public int compare(DownloadableFileSetDescription o1, DownloadableFileSetDescription o2) {
-      return -StringUtil.compareVersionNumbers(o1.getVersionString(), o2.getVersionString());
-    }
-  };
+  private static final Comparator<DownloadableFileSetDescription> VERSIONS_COMPARATOR =
+    (o1, o2) -> -StringUtil.compareVersionNumbers(o1.getVersionString(), o2.getVersionString());
   protected final String myGroupId;
   private final URL[] myLocalUrls;
 
-  public FileSetVersionsFetcherBase(@Nullable String groupId, @NotNull URL[] localUrls) {
+  public FileSetVersionsFetcherBase(@Nullable String groupId, URL @NotNull [] localUrls) {
     myLocalUrls = localUrls;
     myGroupId = groupId;
   }
 
   @Override
   public void fetchVersions(@NotNull final FileSetVersionsCallback<FS> callback) {
-    ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
-      @Override
-      public void run() {
-        callback.onSuccess(fetchVersions());
-      }
-    });
+    ApplicationManager.getApplication().executeOnPooledThread(() -> callback.onSuccess(fetchVersions()));
   }
 
   @NotNull
@@ -72,10 +45,10 @@ public abstract class FileSetVersionsFetcherBase<FS extends DownloadableFileSetD
     else {
       versions = LibrariesDownloadAssistant.getVersions(myLocalUrls);
     }
-    final List<FS> result = new ArrayList<FS>();
+    final List<FS> result = new ArrayList<>();
     for (Artifact version : versions) {
       final ArtifactItem[] items = version.getItems();
-      final List<F> files = new ArrayList<F>();
+      final List<F> files = new ArrayList<>();
       for (ArtifactItem item : items) {
         String url = item.getUrl();
         final String prefix = version.getUrlPrefix();
@@ -92,7 +65,7 @@ public abstract class FileSetVersionsFetcherBase<FS extends DownloadableFileSetD
       }
       result.add(createVersion(version, files));
     }
-    Collections.sort(result, VERSIONS_COMPARATOR);
+    result.sort(VERSIONS_COMPARATOR);
     return result;
   }
 

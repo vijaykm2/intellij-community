@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.diff.impl.processing;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -29,23 +15,28 @@ import org.jetbrains.annotations.TestOnly;
 
 import java.util.ArrayList;
 
+/**
+ * @deprecated See {@link com.intellij.diff.comparison.ByWord}
+ * <p>
+ * might produce wrong results - IDEA-75504
+ */
+@Deprecated
 public class ByWord implements DiffPolicy {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.diff.impl.processing.ByWord");
+  private static final Logger LOG = Logger.getInstance(ByWord.class);
   private final ComparisonPolicy myComparisonPolicy;
 
   public ByWord(ComparisonPolicy comparisonPolicy) {
     myComparisonPolicy = comparisonPolicy;
   }
 
-  @NotNull
+  @Override
   @TestOnly
-  public DiffFragment[] buildFragments(@NotNull String text1, @NotNull String text2) throws FilesTooBigForDiffException {
+  public DiffFragment @NotNull [] buildFragments(@NotNull String text1, @NotNull String text2) throws FilesTooBigForDiffException {
     return buildFragments(DiffString.create(text1), DiffString.create(text2));
   }
 
-  @NotNull
   @Override
-  public DiffFragment[] buildFragments(@NotNull DiffString text1, @NotNull DiffString text2) throws FilesTooBigForDiffException {
+  public DiffFragment @NotNull [] buildFragments(@NotNull DiffString text1, @NotNull DiffString text2) throws FilesTooBigForDiffException {
     Word[] words1 = buildWords(text1, myComparisonPolicy);
     Word[] words2 = buildWords(text2, myComparisonPolicy);
     Diff.Change change = Diff.buildChanges(words1, words2);
@@ -84,16 +75,15 @@ public class ByWord implements DiffPolicy {
     return fragments;
   }
 
-  private static int countNotWhitespaces(@NotNull Word[] words) {
+  private static int countNotWhitespaces(Word @NotNull [] words) {
     int counter = 0;
-    for (int i = 0; i < words.length; i++) {
-      Word word = words[i];
+    for (Word word : words) {
       if (!word.isWhitespace()) counter++;
     }
     return counter;
   }
 
-  private static int countEqual(Diff.Change change, @NotNull Word[] words1, @NotNull Word[] words2) {
+  private static int countEqual(Diff.Change change, Word @NotNull [] words1, Word @NotNull [] words2) {
     int counter = 0;
     int position1 = 0;
     int position2 = 0;
@@ -133,15 +123,13 @@ public class ByWord implements DiffPolicy {
     LOG.assertTrue(changed2 == result.getVersion2().getCurrentWordIndex());
   }
 
-  @NotNull
   @TestOnly
-  static Word[] buildWords(@NotNull String text, @NotNull ComparisonPolicy policy) {
+  static Word @NotNull [] buildWords(@NotNull String text, @NotNull ComparisonPolicy policy) {
     return buildWords(DiffString.create(text), policy);
   }
 
-  @NotNull
-  static Word[] buildWords(@NotNull DiffString text, @NotNull ComparisonPolicy policy) {
-    ArrayList<Word> words = new ArrayList<Word>();
+  static Word @NotNull [] buildWords(@NotNull DiffString text, @NotNull ComparisonPolicy policy) {
+    ArrayList<Word> words = new ArrayList<>();
     if (text.isEmpty() || !Character.isWhitespace(text.charAt(0)))
       words.add(policy.createFormatting(text, TextRange.EMPTY_RANGE));
     int start = 0;
@@ -151,7 +139,7 @@ public class ByWord implements DiffPolicy {
       boolean isWhitespace = Character.isWhitespace(nextChar);
       if (withinFormatting) {
         if (isWhitespace) continue;
-        if (start != -1 && start < i) words.add(policy.createFormatting(text, new TextRange(start, i)));
+        if (start < i) words.add(policy.createFormatting(text, new TextRange(start, i)));
         start = -1;
         withinFormatting = false;
       }
@@ -173,18 +161,18 @@ public class ByWord implements DiffPolicy {
       Word lastWord = withinFormatting ? policy.createFormatting(text, range) : new Word(text, range);
       words.add(lastWord);
     }
-    return words.toArray(new Word[words.size()]);
+    return words.toArray(new Word[0]);
   }
 
   private static class FragmentBuilder {
-    private final ArrayList<DiffFragment> myFragments = new ArrayList<DiffFragment>();
+    private final ArrayList<DiffFragment> myFragments = new ArrayList<>();
     private final Version myVersion1;
     private final Version myVersion2;
     private final DiffPolicy.ByChar BY_CHAR;
     private final DiffCorrection.ChangedSpace CORRECTION;
     private final ComparisonPolicy myComparisonPolicy;
 
-    public FragmentBuilder(@NotNull Word[] words1, @NotNull Word[] words2, @NotNull ComparisonPolicy comparisonPolicy, @NotNull DiffString text1, @NotNull DiffString text2) {
+    FragmentBuilder(Word @NotNull [] words1, Word @NotNull [] words2, @NotNull ComparisonPolicy comparisonPolicy, @NotNull DiffString text1, @NotNull DiffString text2) {
       myVersion1 = new Version(words1, text1, this, true);
       myVersion2 = new Version(words2, text2, this, false);
       BY_CHAR = new ByChar(comparisonPolicy);
@@ -192,9 +180,8 @@ public class ByWord implements DiffPolicy {
       myComparisonPolicy = comparisonPolicy;
     }
 
-    @NotNull
-    public DiffFragment[] getFragments() {
-      return myFragments.toArray(new DiffFragment[myFragments.size()]);
+    public DiffFragment @NotNull [] getFragments() {
+      return myFragments.toArray(new DiffFragment[0]);
     }
 
     @NotNull
@@ -203,9 +190,8 @@ public class ByWord implements DiffPolicy {
     @NotNull
     public Version getVersion2() { return myVersion2; }
 
-    private void addAll(@NotNull DiffFragment[] fragments) {
-      for (int i = 0; i < fragments.length; i++) {
-        DiffFragment fragment = fragments[i];
+    private void addAll(DiffFragment @NotNull [] fragments) {
+      for (DiffFragment fragment : fragments) {
         add(fragment);
       }
     }
@@ -241,8 +227,7 @@ public class ByWord implements DiffPolicy {
       myVersion2.incCurrentWord();
     }
 
-    @NotNull
-    private DiffFragment[] fragmentsByChar(@NotNull DiffString text1, @NotNull DiffString text2) throws FilesTooBigForDiffException {
+    private DiffFragment @NotNull [] fragmentsByChar(@NotNull DiffString text1, @NotNull DiffString text2) throws FilesTooBigForDiffException {
       if (text1.isEmpty() && text2.isEmpty()) {
         return DiffFragment.EMPTY_ARRAY;
       }
@@ -325,14 +310,14 @@ public class ByWord implements DiffPolicy {
     }
 
     public static class Version {
-      @NotNull private final Word[] myWords;
+      private final Word @NotNull [] myWords;
       private int myCurrentWord = 0;
       private int myOffset = 0;
       @NotNull private final DiffString myText;
       @NotNull private final FragmentBuilder myBuilder;
       private final FragmentSide mySide;
 
-      public Version(@NotNull Word[] words, @NotNull DiffString text, @NotNull FragmentBuilder builder, boolean delete) {
+      public Version(Word @NotNull [] words, @NotNull DiffString text, @NotNull FragmentBuilder builder, boolean delete) {
         myWords = words;
         myText = text;
         myBuilder = builder;

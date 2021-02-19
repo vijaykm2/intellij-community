@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,9 +18,6 @@ package com.intellij.util;
 
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author cdr
- */
 public class WalkingState<T> {
   public interface TreeGuide<T> {
     T getNextSibling(@NotNull T element);
@@ -84,7 +81,7 @@ public class WalkingState<T> {
           String msg = "Element: " + element + "; next: "+next+"; next.prev: " + nextPrev;
           while (true) {
             T top = myWalker.getParent(element);
-            if (top == null) break;
+            if (top == null || top == root) break;
             element = top;
           }
           assert false : msg+" Top:"+element;
@@ -110,7 +107,7 @@ public class WalkingState<T> {
   /**
    * process in the in-order fashion
    */
-  public static <T> boolean processAll(@NotNull T root, @NotNull TreeGuide<T> treeGuide, @NotNull final Processor<T> processor) {
+  public static <T> boolean processAll(@NotNull T root, @NotNull TreeGuide<T> treeGuide, @NotNull final Processor<? super T> processor) {
     final boolean[] result = {true};
     new WalkingState<T>(treeGuide){
       @Override

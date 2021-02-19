@@ -1,67 +1,33 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections;
 
-import com.jetbrains.python.fixtures.PyTestCase;
+import com.jetbrains.python.fixtures.PyInspectionTestCase;
 import com.jetbrains.python.psi.LanguageLevel;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * User : catherine
  */
-public class PyCompatibilityInspectionTest extends PyTestCase {
-
-  public void testDictCompExpression() {
-    setLanguageLevel(LanguageLevel.PYTHON27);
-    doTest();
-  }
-
-  public void testSetLiteralExpression() {
-    setLanguageLevel(LanguageLevel.PYTHON27);
-    doTest();
-  }
-
-  public void testSetCompExpression() {
-    setLanguageLevel(LanguageLevel.PYTHON27);
-    doTest();
-  }
+public class PyCompatibilityInspectionTest extends PyInspectionTestCase {
 
   public void testExceptBlock() {
-    setLanguageLevel(LanguageLevel.PYTHON27);
-    doTest();
+    doTest(LanguageLevel.PYTHON27);
   }
 
   public void testImportStatement() {
-    setLanguageLevel(LanguageLevel.PYTHON27);
-    doTest();
+    doTest(LanguageLevel.PYTHON27);
   }
 
   public void testImportErrorCaught() {
-    setLanguageLevel(LanguageLevel.PYTHON27);
-    doTest();
+    doTest(LanguageLevel.PYTHON27);
   }
 
   public void testStarExpression() {
-    setLanguageLevel(LanguageLevel.PYTHON30);
-    doTest();
+    doTest(LanguageLevel.PYTHON35);
   }
 
   public void testBinaryExpression() {
-    setLanguageLevel(LanguageLevel.PYTHON27);
-    doTest();
+    doTest(LanguageLevel.PYTHON27);
   }
 
   public void testNumericLiteralExpression() {
@@ -76,25 +42,15 @@ public class PyCompatibilityInspectionTest extends PyTestCase {
     doTest();
   }
 
-  public void testRaiseStatement() {
+  public void testRaiseMultipleArgs() {
     doTest();
   }
 
   public void testRaiseFrom() {
-    setLanguageLevel(LanguageLevel.PYTHON32);
-    doTest();
+    doTest(LanguageLevel.PYTHON34);
   }
 
   public void testReprExpression() {
-    doTest();
-  }
-
-  public void testWithStatement() {
-    setLanguageLevel(LanguageLevel.PYTHON27);
-    doTest();
-  }
-
-  public void testPyClass() {
     doTest();
   }
 
@@ -106,28 +62,15 @@ public class PyCompatibilityInspectionTest extends PyTestCase {
     doTest();
   }
 
-  public void testAssignmentStatement() {
-    doTest();
-  }
-
-  public void testTryExceptStatement() {
-    doTest();
-  }
-
   public void testImportElement() {
     doTest();
   }
 
   public void testCallExpression() {
-    setLanguageLevel(LanguageLevel.PYTHON30);
-    doTest();
+    doTest(LanguageLevel.PYTHON34);
   }
 
   public void testBasestring() {
-    doTest();
-  }
-
-  public void testConditionalExpression() {
     doTest();
   }
 
@@ -137,17 +80,12 @@ public class PyCompatibilityInspectionTest extends PyTestCase {
 
   // PY-7763
   public void testEllipsisAsStatementPy2() {
-    doTest(LanguageLevel.PYTHON33);
+    doTest(LanguageLevel.PYTHON34);
   }
 
   // PY-8606
   public void testEllipsisInSubscriptionPy2() {
-    doTest(LanguageLevel.PYTHON33);
-  }
-
-  // PY-11047
-  public void testRelativeImport() {
-    doTest();
+    doTest(LanguageLevel.PYTHON34);
   }
 
   // PY-15390
@@ -155,18 +93,166 @@ public class PyCompatibilityInspectionTest extends PyTestCase {
     doTest(LanguageLevel.PYTHON35);
   }
 
-  private void doTest(@NotNull LanguageLevel level) {
-    runWithLanguageLevel(level, new Runnable() {
-      @Override
-      public void run() {
-        doTest();
-      }
-    });
+  public void testAsyncAwait() {
+    doTest(LanguageLevel.PYTHON35);
   }
 
-  private void doTest() {
-    myFixture.configureByFile("inspections/PyCompatibilityInspection/" + getTestName(true) + ".py");
-    myFixture.enableInspections(PyCompatibilityInspection.class);
-    myFixture.checkHighlighting(true, false, false);
+  public void testDoubleStarUnpacking() {
+    doTest(LanguageLevel.PYTHON35);
+  }
+
+  public void testArgumentsUnpackingGeneralizations() {
+    doTest(LanguageLevel.PYTHON35);
+  }
+
+  // PY-19523
+  public void testBz2Module() {
+    doTest();
+  }
+
+  public void testUnderscoreBz2Module() {
+    doTest();
+  }
+
+  // PY-19486
+  public void testBackportedEnum() {
+    doTest();
+  }
+
+  // PY-18880
+  public void testBackportedTyping() {
+    doTest();
+  }
+
+  public void testUnderscoresInNumericLiterals() {
+    doTest(LanguageLevel.PYTHON36);
+  }
+
+  public void testVariableAnnotations() {
+    doTest(LanguageLevel.PYTHON36);
+  }
+
+  // PY-20770
+  public void testYieldInsideAsyncDef() {
+    doTest(LanguageLevel.PYTHON36);
+  }
+
+  // PY-20770
+  public void testAsyncComprehensions() {
+    doTest(LanguageLevel.PYTHON36);
+  }
+
+  // PY-20770
+  public void testAwaitInComprehensions() {
+    doTest(LanguageLevel.PYTHON36);
+  }
+
+  // PY-16098
+  public void testWarningAboutAsyncAndAwaitInPy36() {
+    doTest(LanguageLevel.PYTHON36);
+  }
+
+  // PY-22302
+  public void testNoWarningAboutEllipsisInFunctionTypeComments() {
+    doTest();
+  }
+
+  // PY-23355
+  public void testNoWarningAboutStarredExpressionsInFunctionTypeComments() {
+    doTest();
+  }
+
+  public void testBuiltinLong() {
+    doTest();
+  }
+
+  // PY-26510
+  public void testTryExceptEmptyRaise() {
+    doTest();
+  }
+
+  // PY-26510
+  public void testTryFinallyEmptyRaisePy2() {
+    doTest();
+  }
+
+  // PY-26510
+  public void testTryFinallyEmptyRaisePy3() {
+    doTest(LanguageLevel.PYTHON34);
+  }
+
+  // PY-29763
+  public void testTryExceptEmptyRaiseUnderFinallyPy2() {
+    doTestByText("try:\n" +
+                 "   something_that_raises_error1()\n" +
+                 "except BaseException as e:\n" +
+                 "    raise\n" +
+                 "finally:\n" +
+                 "    try:\n" +
+                 "        something_that_raises_error2()\n" +
+                 "    except BaseException as e:\n" +
+                 "        raise   ");
+  }
+
+  // PY-15360
+  public void testTrailingCommaAfterStarArgs() {
+    doTest(LanguageLevel.PYTHON34);
+  }
+
+  // PY-36009
+  public void testEqualitySignInFStrings() {
+    doTest(LanguageLevel.PYTHON38);
+  }
+
+  public void testInputFromSixLib() {
+    doTest(LanguageLevel.PYTHON27);
+  }
+
+  // PY-35512
+  public void testPositionalOnlyParameters() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON38,
+      () -> doTestByText(
+        "def f(pos1, <warning descr=\"Python versions 2.7, 3.5, 3.6, 3.7 do not support positional-only parameters\">/</warning>, pos_or_kwd, *, kwd1):\n" +
+        "    pass"
+      )
+    );
+  }
+
+  // PY-33886
+  public void testAssignmentExpressions() {
+    doTest(LanguageLevel.PYTHON38);
+  }
+
+  // PY-36003
+  public void testContinueInFinallyBlock() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON38,
+      () -> doTestByText("while True:\n" +
+                         "  try:\n" +
+                         "    print(\"a\")\n" +
+                         "  finally:\n" +
+                         "    <warning descr=\"Python versions 2.7, 3.5, 3.6, 3.7 do not support 'continue' inside 'finally' clause\">continue</warning>")
+    );
+  }
+
+  // PY-35961
+  public void testUnpackingInNonParenthesizedTuplesInReturnAndYield() {
+    doTest(LanguageLevel.PYTHON38);
+  }
+
+  // PY-41305
+  public void testExpressionInDecorators() {
+    doTest(LanguageLevel.PYTHON39);
+  }
+
+  private void doTest(@NotNull LanguageLevel level) {
+    runWithLanguageLevel(level, this::doTest);
+  }
+
+  @NotNull
+  @Override
+  protected Class<? extends PyInspection> getInspectionClass() {
+    return PyCompatibilityInspection.class;
   }
 }

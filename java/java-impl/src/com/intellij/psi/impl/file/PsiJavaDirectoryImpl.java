@@ -20,6 +20,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.fileTypes.StdFileTypes;
+import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.JavaDirectoryService;
@@ -31,7 +32,7 @@ import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 
 public class PsiJavaDirectoryImpl extends PsiDirectoryImpl {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.file.PsiJavaDirectoryImpl");
+  private static final Logger LOG = Logger.getInstance(PsiJavaDirectoryImpl.class);
 
   public PsiJavaDirectoryImpl(final PsiManagerImpl manager, final VirtualFile file) {
     super(manager, file);
@@ -40,7 +41,7 @@ public class PsiJavaDirectoryImpl extends PsiDirectoryImpl {
   @Override
   public void checkCreateFile(@NotNull final String name) throws IncorrectOperationException {
     final FileType type = FileTypeManager.getInstance().getFileTypeByFileName(name);
-    if (type == StdFileTypes.CLASS) {
+    if (type == StdFileTypes.CLASS && ProjectRootManager.getInstance(getProject()).getFileIndex().isInSource(getVirtualFile())) {
       throw new IncorrectOperationException("Cannot create class-file");
     }
 

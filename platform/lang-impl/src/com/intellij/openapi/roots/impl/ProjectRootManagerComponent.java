@@ -1,26 +1,15 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.impl;
 
 import com.intellij.ProjectTopics;
-import com.intellij.openapi.application.ApplicationAdapter;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.ide.lightEdit.LightEdit;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.*;
+import com.intellij.openapi.components.ProjectComponent;
 import com.intellij.openapi.components.impl.stores.BatchUpdateListener;
+import com.intellij.openapi.components.impl.stores.IProjectStore;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.fileTypes.FileTypeEvent;
 import com.intellij.openapi.fileTypes.FileTypeListener;
 import com.intellij.openapi.fileTypes.FileTypeManager;
@@ -30,73 +19,101 @@ import com.intellij.openapi.module.impl.ModuleEx;
 import com.intellij.openapi.project.DumbModeTask;
 import com.intellij.openapi.project.DumbServiceImpl;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.impl.ProjectImpl;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.startup.StartupManager;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.EmptyRunnable;
 import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.*;
-import com.intellij.openapi.vfs.ex.VirtualFileManagerAdapter;
+import com.intellij.openapi.vfs.impl.VirtualFilePointerContainerImpl;
+import com.intellij.openapi.vfs.newvfs.NewVirtualFile;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointer;
+import com.intellij.openapi.vfs.pointers.VirtualFilePointerContainer;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerListener;
-import com.intellij.util.containers.HashSet;
+import com.intellij.openapi.vfs.pointers.VirtualFilePointerManager;
+import com.intellij.project.ProjectKt;
+import com.intellij.ui.GuiUtils;
+import com.intellij.util.ConcurrencyUtil;
+import com.intellij.util.ObjectUtils;
+import com.intellij.util.concurrency.AppExecutorUtil;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
+import com.intellij.util.containers.CollectionFactory;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.indexing.FileBasedIndex;
 import com.intellij.util.indexing.FileBasedIndexImpl;
 import com.intellij.util.indexing.FileBasedIndexProjectHandler;
 import com.intellij.util.indexing.UnindexedFilesUpdater;
 import com.intellij.util.messages.MessageBusConnection;
-import gnu.trove.THashSet;
+import com.intellij.workspaceModel.ide.WorkspaceModel;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
+import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 
 /**
  * ProjectRootManager extended with ability to watch events.
  */
-public class ProjectRootManagerComponent extends ProjectRootManagerImpl {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.roots.impl.ProjectManagerComponent");
+public class ProjectRootManagerComponent extends ProjectRootManagerImpl implements ProjectComponent, Disposable {
+  private static final Logger LOG = Logger.getInstance(ProjectRootManagerComponent.class);
+  private static final boolean LOG_CACHES_UPDATE =
+    ApplicationManager.getApplication().isInternal() && !ApplicationManager.getApplication().isUnitTestMode();
 
-  private boolean myPointerChangesDetected = false;
-  private int myInsideRefresh = 0;
-  private final BatchUpdateListener myHandler;
-  private final MessageBusConnection myConnection;
+  private final static ExtensionPointName<WatchedRootsProvider> WATCHED_ROOTS_PROVIDER_EP_NAME = new ExtensionPointName<>("com.intellij.roots.watchedRootsProvider");
 
-  private Set<LocalFileSystem.WatchRequest> myRootsToWatch = new THashSet<LocalFileSystem.WatchRequest>();
-  private final boolean myDoLogCachesUpdate;
+  private final ExecutorService myExecutor = ApplicationManager.getApplication().isUnitTestMode()
+                                             ? ConcurrencyUtil.newSameThreadExecutorService()
+                                             : AppExecutorUtil.createBoundedApplicationPoolExecutor("Project Root Manager", 1);
+  private @NotNull Future<?> myCollectWatchRootsFuture = CompletableFuture.completedFuture(null); // accessed in EDT only
 
-  public ProjectRootManagerComponent(Project project, StartupManager startupManager) {
+  private final OnlyOnceExceptionLogger myRootsChangedLogger = new OnlyOnceExceptionLogger(LOG);
+
+  private boolean myPointerChangesDetected;
+  private int myInsideWriteAction;
+  private @NotNull Set<LocalFileSystem.WatchRequest> myRootsToWatch = CollectionFactory.createSmallMemoryFootprintSet();
+  private Disposable myRootPointersDisposable = Disposer.newDisposable(); // accessed in EDT
+
+  public ProjectRootManagerComponent(@NotNull Project project) {
     super(project);
 
-    myConnection = project.getMessageBus().connect(project);
-    myConnection.subscribe(FileTypeManager.TOPIC, new FileTypeListener() {
+    if (!myProject.isDefault()) {
+      registerListeners();
+    }
+  }
+
+  private void registerListeners() {
+    MessageBusConnection connection = myProject.getMessageBus().connect(this);
+    connection.subscribe(FileTypeManager.TOPIC, new FileTypeListener() {
       @Override
       public void beforeFileTypesChanged(@NotNull FileTypeEvent event) {
-        beforeRootsChange(true);
+        myFileTypesChanged.beforeRootsChanged();
       }
 
       @Override
       public void fileTypesChanged(@NotNull FileTypeEvent event) {
-        rootsChanged(true);
+        myFileTypesChanged.rootsChanged();
       }
     });
 
-    VirtualFileManager.getInstance().addVirtualFileManagerListener(new VirtualFileManagerAdapter() {
-      @Override
-      public void afterRefreshFinish(boolean asynchronous) {
-        doUpdateOnRefresh();
-      }
-    }, project);
-
-    startupManager.registerStartupActivity(new Runnable() {
-      @Override
-      public void run() {
-        myStartupActivityPerformed = true;
-      }
+    if (!LightEdit.owns(myProject)) {
+      VirtualFileManager.getInstance().addVirtualFileManagerListener(new VirtualFileManagerListener() {
+        @Override
+        public void afterRefreshFinish(boolean asynchronous) {
+          doUpdateOnRefresh();
+        }
+      }, this);
+    }
+    StartupManager.getInstance(myProject).registerStartupActivity(() -> {
+      myStartupActivityPerformed = true;
     });
 
-    myHandler = new BatchUpdateListener() {
+    connection.subscribe(BatchUpdateListener.TOPIC, new BatchUpdateListener() {
       @Override
       public void onBatchUpdateStarted() {
         myRootsChanged.levelUp();
@@ -108,194 +125,200 @@ public class ProjectRootManagerComponent extends ProjectRootManagerImpl {
         myRootsChanged.levelDown();
         myFileTypesChanged.levelDown();
       }
-    };
-
-    myConnection.subscribe(VirtualFilePointerListener.TOPIC, new MyVirtualFilePointerListener());
-    myDoLogCachesUpdate = ApplicationManager.getApplication().isInternal() && !ApplicationManager.getApplication().isUnitTestMode();
-  }
-
-  @Override
-  public void initComponent() {
-    super.initComponent();
-    myConnection.subscribe(BatchUpdateListener.TOPIC, myHandler);
+    });
+    Runnable rootsExtensionPointListener = () -> ApplicationManager.getApplication().invokeLater(() -> {
+      WriteAction.run(() -> {
+        makeRootsChange(EmptyRunnable.getInstance(), false, true);
+      });
+    });
+    AdditionalLibraryRootsProvider.EP_NAME.addChangeListener(rootsExtensionPointListener, this);
+    OrderEnumerationHandler.EP_NAME.addChangeListener(rootsExtensionPointListener, this);
   }
 
   @Override
   public void projectOpened() {
-    super.projectOpened();
     addRootsToWatch();
-    AppListener applicationListener = new AppListener();
-    ApplicationManager.getApplication().addApplicationListener(applicationListener, myProject);
+    ApplicationManager.getApplication().addApplicationListener(new AppListener(), myProject);
   }
 
   @Override
   public void projectClosed() {
-    super.projectClosed();
     LocalFileSystem.getInstance().removeWatchedRoots(myRootsToWatch);
   }
 
-  @Override
-  protected void addRootsToWatch() {
-    final Pair<Set<String>, Set<String>> roots = getAllRoots(false);
-    if (roots == null) return;
-    myRootsToWatch = LocalFileSystem.getInstance().replaceWatchedRoots(myRootsToWatch, roots.first, roots.second);
-  }
+  @RequiresEdt
+  private void addRootsToWatch() {
+    if (myProject.isDefault()) return;
+    ApplicationManager.getApplication().assertIsWriteThread();
+    Disposable oldDisposable = myRootPointersDisposable;
+    Disposable newDisposable = Disposer.newDisposable();
 
-  private void beforeRootsChange(boolean fileTypes) {
-    if (myProject.isDisposed()) return;
-    getBatchSession(fileTypes).beforeRootsChanged();
-  }
-
-  private void rootsChanged(boolean fileTypes) {
-    getBatchSession(fileTypes).rootsChanged();
+    myCollectWatchRootsFuture.cancel(false);
+    myCollectWatchRootsFuture = myExecutor.submit(() -> {
+      Pair<Set<String>, Set<String>> watchRoots = ReadAction.compute(() -> myProject.isDisposed() ? null : collectWatchRoots(newDisposable));
+      GuiUtils.invokeLaterIfNeeded(() -> {
+        if (myProject.isDisposed()) return;
+        myRootPointersDisposable = newDisposable;
+        // dispose after the re-creating container to keep VFPs from disposing and re-creating back;
+        // instead, just increment/decrement their usage count
+        Disposer.dispose(oldDisposable);
+        myRootsToWatch = LocalFileSystem.getInstance().replaceWatchedRoots(myRootsToWatch, watchRoots.first, watchRoots.second);
+      }, ModalityState.any());
+    });
   }
 
   private void doUpdateOnRefresh() {
     if (ApplicationManager.getApplication().isUnitTestMode() && (!myStartupActivityPerformed || myProject.isDisposed())) {
       return; // in test mode suppress addition to a queue unless project is properly initialized
     }
-    if (myProject.isDefault()) {
-      return;
+
+    if (LOG_CACHES_UPDATE || LOG.isDebugEnabled()) {
+      LOG.debug("refresh");
     }
-
-    if (myDoLogCachesUpdate) LOG.info("refresh");
-    DumbServiceImpl dumbService = DumbServiceImpl.getInstance(myProject);
-    DumbModeTask task = FileBasedIndexProjectHandler.createChangedFilesIndexingTask(myProject);
-    if (task != null) {
-      dumbService.queueTask(task);
-    }
-  }
-
-  private boolean affectsRoots(VirtualFilePointer[] pointers) {
-    Pair<Set<String>, Set<String>> roots = getAllRoots(true);
-    if (roots == null) return false;
-
-    for (VirtualFilePointer pointer : pointers) {
-      final String path = url2path(pointer.getUrl());
-      if (roots.first.contains(path) || roots.second.contains(path)) return true;
-    }
-
-    return false;
+    FileBasedIndexProjectHandler.scheduleReindexingInDumbMode(myProject);
   }
 
   @Override
   protected void fireBeforeRootsChangeEvent(boolean fileTypes) {
     isFiringEvent = true;
     try {
-      myProject.getMessageBus()
-        .syncPublisher(ProjectTopics.PROJECT_ROOTS)
-        .beforeRootsChange(new ModuleRootEventImpl(myProject, fileTypes));
-    }
-    finally {
-      isFiringEvent= false;
-    }
-  }
-
-  @Override
-  protected void fireRootsChangedEvent(boolean fileTypes) {
-    isFiringEvent = true;
-    try {
-      myProject.getMessageBus()
-        .syncPublisher(ProjectTopics.PROJECT_ROOTS)
-        .rootsChanged(new ModuleRootEventImpl(myProject, fileTypes));
+      myProject.getMessageBus().syncPublisher(ProjectTopics.PROJECT_ROOTS).beforeRootsChange(new ModuleRootEventImpl(myProject, fileTypes));
     }
     finally {
       isFiringEvent = false;
     }
   }
 
-  private static String url2path(String url) {
-    String path = VfsUtilCore.urlToPath(url);
-
-    int separatorIndex = path.indexOf(JarFileSystem.JAR_SEPARATOR);
-    if (separatorIndex < 0) return path;
-    return path.substring(0, separatorIndex);
-  }
-
-  @Nullable
-  private Pair<Set<String>, Set<String>> getAllRoots(boolean includeSourceRoots) {
-    if (myProject.isDefault()) return null;
-
-    final Set<String> recursive = new HashSet<String>();
-    final Set<String> flat = new HashSet<String>();
-
-    final String projectFilePath = myProject.getProjectFilePath();
-    final File projectDirFile = new File(projectFilePath).getParentFile();
-    if (projectDirFile != null && projectDirFile.getName().equals(Project.DIRECTORY_STORE_FOLDER)) {
-      recursive.add(projectDirFile.getAbsolutePath());
-    }
-    else {
-      flat.add(projectFilePath);
-      // may be not existing yet
-      final String workspaceFile = ((ProjectImpl)myProject).getStateStore().getWorkspaceFilePath();
-      if (workspaceFile != null) {
-        flat.add(workspaceFile);
-      }
-    }
-
-    for (WatchedRootsProvider extension : Extensions.getExtensions(WatchedRootsProvider.EP_NAME, myProject)) {
-      recursive.addAll(extension.getRootsToWatch());
-    }
-
-    final Module[] modules = ModuleManager.getInstance(myProject).getModules();
-    for (Module module : modules) {
-      flat.add(module.getModuleFilePath());
-
-      final ModuleRootManager moduleRootManager = ModuleRootManager.getInstance(module);
-
-      addRootsToTrack(moduleRootManager.getContentRootUrls(), recursive, flat);
-
-      if (includeSourceRoots) {
-        addRootsToTrack(moduleRootManager.getSourceRootUrls(), recursive, flat);
-      }
-
-      final OrderEntry[] orderEntries = moduleRootManager.getOrderEntries();
-      for (OrderEntry entry : orderEntries) {
-        if (entry instanceof LibraryOrSdkOrderEntry) {
-          final LibraryOrSdkOrderEntry libSdkEntry = (LibraryOrSdkOrderEntry)entry;
-          for (OrderRootType orderRootType : OrderRootType.getAllTypes()) {
-            addRootsToTrack(libSdkEntry.getRootUrls(orderRootType), recursive, flat);
-          }
-        }
-      }
-    }
-
-    return Pair.create(recursive, flat);
-  }
-
-  private static void addRootsToTrack(final String[] urls, final Collection<String> recursive, final Collection<String> flat) {
-    for (String url : urls) {
-      if (url != null) {
-        final String protocol = VirtualFileManager.extractProtocol(url);
-        if (protocol == null || LocalFileSystem.PROTOCOL.equals(protocol)) {
-          recursive.add(extractLocalPath(url));
-        }
-        else if (JarFileSystem.PROTOCOL.equals(protocol)) {
-          flat.add(extractLocalPath(url));
-        }
-        else if (StandardFileSystems.JRT_PROTOCOL.equals(protocol)) {
-          recursive.add(extractLocalPath(url));
-        }
-      }
-    }
-  }
-
   @Override
-  protected void doSynchronizeRoots() {
+  protected void fireRootsChangedEvent(boolean fileTypes, @Nullable ProjectRootManagerImpl.RootsChangeType changeType) {
+    isFiringEvent = true;
+    try {
+      myProject.getMessageBus().syncPublisher(ProjectTopics.PROJECT_ROOTS).rootsChanged(new ModuleRootEventImpl(myProject, fileTypes));
+    }
+    finally {
+      isFiringEvent = false;
+    }
+
+    synchronizeRoots(changeType);
+    addRootsToWatch();
+  }
+
+  private @NotNull Pair<Set<String>, Set<String>> collectWatchRoots(@NotNull Disposable disposable) {
+    ApplicationManager.getApplication().assertReadAccessAllowed();
+
+    Set<String> recursivePathsToWatch = CollectionFactory.createFilePathSet();
+    Set<String> flatPaths = CollectionFactory.createFilePathSet();
+
+    IProjectStore store = ProjectKt.getStateStore(myProject);
+    Path projectFilePath = store.getProjectFilePath();
+    if (!Project.DIRECTORY_STORE_FOLDER.equals(projectFilePath.getParent().getFileName().toString())) {
+      flatPaths.add(FileUtil.toSystemIndependentName(projectFilePath.toString()));
+      flatPaths.add(FileUtil.toSystemIndependentName(store.getWorkspacePath().toString()));
+    }
+
+    for (AdditionalLibraryRootsProvider extension : AdditionalLibraryRootsProvider.EP_NAME.getExtensionList()) {
+      Collection<VirtualFile> toWatch = extension.getRootsToWatch(myProject);
+      if (!toWatch.isEmpty()) {
+        for (VirtualFile file : toWatch) {
+          recursivePathsToWatch.add(file.getPath());
+        }
+      }
+    }
+
+    for (WatchedRootsProvider extension : WATCHED_ROOTS_PROVIDER_EP_NAME.getExtensionList()) {
+      Set<String> toWatch = extension.getRootsToWatch(myProject);
+      if (!toWatch.isEmpty()) {
+        for (String path : toWatch) {
+          recursivePathsToWatch.add(FileUtil.toSystemIndependentName(path));
+        }
+      }
+    }
+
+    Set<String> excludedUrls = CollectionFactory.createSmallMemoryFootprintSet();
+    // changes in files provided by this method should be watched manually because no-one's bothered to set up correct pointers for them
+    for (DirectoryIndexExcludePolicy excludePolicy : DirectoryIndexExcludePolicy.EP_NAME.getExtensionList(myProject)) {
+      Collections.addAll(excludedUrls, excludePolicy.getExcludeUrlsForProject());
+    }
+
+    // avoid creating empty unnecessary container
+    if (!WorkspaceModel.isEnabled() && (!flatPaths.isEmpty() || !excludedUrls.isEmpty())) {
+      Disposer.register(this, disposable);
+      // creating a container with these URLs with the sole purpose to get events to getRootsValidityChangedListener() when these roots change
+      VirtualFilePointerContainer container =
+        VirtualFilePointerManager.getInstance().createContainer(disposable, getRootsValidityChangedListener());
+
+      flatPaths.forEach(path -> container.add(VfsUtilCore.pathToUrl(path)));
+      ((VirtualFilePointerContainerImpl)container).addAll(excludedUrls);
+    }
+
+    // module roots already fire validity change events, see usages of ProjectRootManagerComponent.getRootsValidityChangedListener
+    collectModuleWatchRoots(recursivePathsToWatch, flatPaths);
+    return new Pair<>(recursivePathsToWatch, flatPaths);
+  }
+
+  private void collectModuleWatchRoots(@NotNull Set<? super String> recursivePaths, @NotNull Set<? super String> flatPaths) {
+    Set<String> urls = CollectionFactory.createFilePathSet();
+
+    for (Module module : ModuleManager.getInstance(myProject).getModules()) {
+      ModuleRootManager rootManager = ModuleRootManager.getInstance(module);
+
+      ContainerUtil.addAll(urls, rootManager.getContentRootUrls());
+
+      rootManager.orderEntries().withoutModuleSourceEntries().withoutDepModules().forEach(entry -> {
+        for (OrderRootType type : OrderRootType.getAllTypes()) {
+          ContainerUtil.addAll(urls, entry.getUrls(type));
+        }
+        return true;
+      });
+    }
+
+    for (String url : urls) {
+      String protocol = VirtualFileManager.extractProtocol(url);
+      if (protocol == null || StandardFileSystems.FILE_PROTOCOL.equals(protocol)) {
+        recursivePaths.add(extractLocalPath(url));
+      }
+      else if (StandardFileSystems.JAR_PROTOCOL.equals(protocol)) {
+        flatPaths.add(extractLocalPath(url));
+      }
+      else if (StandardFileSystems.JRT_PROTOCOL.equals(protocol)) {
+        recursivePaths.add(extractLocalPath(url));
+      }
+    }
+  }
+
+  private void synchronizeRoots(@Nullable ProjectRootManagerImpl.RootsChangeType changeType) {
     if (!myStartupActivityPerformed) return;
 
-    if (myDoLogCachesUpdate) LOG.info(new Throwable("sync roots"));
+    if (changeType == RootsChangeType.ROOTS_REMOVED) {
+      logRootChanges("some project roots were removed");
+      return;
+    }
+
+    logRootChanges("project roots have changed");
 
     DumbServiceImpl dumbService = DumbServiceImpl.getInstance(myProject);
     if (FileBasedIndex.getInstance() instanceof FileBasedIndexImpl) {
-      dumbService.queueTask(new UnindexedFilesUpdater(myProject, false));
+      dumbService.queueTask(new UnindexedFilesUpdater(myProject));
+    }
+  }
+
+  private void logRootChanges(@NotNull String message) {
+    if (ApplicationManager.getApplication().isUnitTestMode()) {
+      LOG.info(message);
+    }
+    else {
+      myRootsChangedLogger.info(message, new Throwable());
     }
   }
 
   @Override
   protected void clearScopesCaches() {
     super.clearScopesCaches();
-    LibraryScopeCache.getInstance(myProject).clear();
+
+    LibraryScopeCache libraryScopeCache = myProject.getServiceIfCreated(LibraryScopeCache.class);
+    if (libraryScopeCache != null) {
+      libraryScopeCache.clear();
+    }
   }
 
   @Override
@@ -307,58 +330,107 @@ public class ProjectRootManagerComponent extends ProjectRootManagerImpl {
     }
   }
 
-  private class AppListener extends ApplicationAdapter {
-    @Override
-    public void beforeWriteActionStart(Object action) {
-      myInsideRefresh++;
-    }
+  @Override
+  public void markRootsForRefresh() {
+    Set<String> paths = CollectionFactory.createFilePathSet();
+    collectModuleWatchRoots(paths, paths);
 
-    @Override
-    public void writeActionFinished(Object action) {
-      if (--myInsideRefresh == 0) {
-        if (myPointerChangesDetected) {
-          myPointerChangesDetected = false;
-          myProject.getMessageBus().syncPublisher(ProjectTopics.PROJECT_ROOTS).rootsChanged(new ModuleRootEventImpl(myProject, false));
-
-          doSynchronizeRoots();
-
-          addRootsToWatch();
-        }
+    LocalFileSystem fs = LocalFileSystem.getInstance();
+    for (String path : paths) {
+      VirtualFile root = fs.findFileByPath(path);
+      if (root instanceof NewVirtualFile) {
+        ((NewVirtualFile)root).markDirtyRecursively();
       }
     }
   }
 
-  private class MyVirtualFilePointerListener implements VirtualFilePointerListener {
+  @Override
+  public void dispose() {
+    myCollectWatchRootsFuture.cancel(false);
+    myExecutor.shutdownNow();
+  }
+
+  private class AppListener implements ApplicationListener {
     @Override
-    public void beforeValidityChanged(@NotNull VirtualFilePointer[] pointers) {
-      if (!myProject.isDisposed()) {
-        if (myInsideRefresh == 0) {
-          if (affectsRoots(pointers)) {
-            beforeRootsChange(false);
-            if (myDoLogCachesUpdate) LOG.info(new Throwable(pointers.length > 0 ? pointers[0].getPresentableUrl():""));
+    public void beforeWriteActionStart(@NotNull Object action) {
+      myInsideWriteAction++;
+    }
+
+    @Override
+    public void writeActionFinished(@NotNull Object action) {
+      if (--myInsideWriteAction == 0 && myPointerChangesDetected) {
+        myPointerChangesDetected = false;
+        myRootsChanged.levelDown();
+      }
+    }
+  }
+
+  private final VirtualFilePointerListener myRootsChangedListener = new VirtualFilePointerListener() {
+    @NotNull
+    private ProjectRootManagerImpl.RootsChangeType getPointersChanges(VirtualFilePointer @NotNull [] pointers) {
+      RootsChangeType result = null;
+      for (VirtualFilePointer pointer : pointers) {
+        if (pointer.isValid()) {
+          if (result == null) {
+            result = RootsChangeType.ROOTS_ADDED;
+          }
+          else if (result != RootsChangeType.ROOTS_ADDED) {
+            return RootsChangeType.GENERIC;
           }
         }
-        else if (!myPointerChangesDetected) {
-          //this is the first pointer changing validity
-          if (affectsRoots(pointers)) {
-            myPointerChangesDetected = true;
-            myProject.getMessageBus().syncPublisher(ProjectTopics.PROJECT_ROOTS).beforeRootsChange(new ModuleRootEventImpl(myProject, false));
-            if (myDoLogCachesUpdate) LOG.info(new Throwable(pointers.length > 0 ? pointers[0].getPresentableUrl():""));
+        else {
+          if (result == null) {
+            result = RootsChangeType.ROOTS_REMOVED;
+          }
+          else if (result != RootsChangeType.ROOTS_REMOVED) {
+            return RootsChangeType.GENERIC;
           }
         }
+      }
+      return ObjectUtils.notNull(result, RootsChangeType.GENERIC);
+    }
+
+    @Override
+    public void beforeValidityChanged(VirtualFilePointer @NotNull [] pointers) {
+      if (myProject.isDisposed()) {
+        return;
+      }
+
+      if (!isInsideWriteAction() && !myPointerChangesDetected) {
+        myPointerChangesDetected = true;
+        //this is the first pointer changing validity
+        myRootsChanged.levelUp();
+      }
+
+      myRootsChanged.beforeRootsChanged();
+      if (LOG_CACHES_UPDATE || LOG.isTraceEnabled()) {
+        LOG.trace(new Throwable(pointers.length > 0 ? pointers[0].getPresentableUrl() : ""));
       }
     }
 
     @Override
-    public void validityChanged(@NotNull VirtualFilePointer[] pointers) {
-      if (!myProject.isDisposed()) {
-        if (myInsideRefresh > 0) {
-          clearScopesCaches();
-        }
-        else if (affectsRoots(pointers)) {
-          rootsChanged(false);
-        }
+    public void validityChanged(VirtualFilePointer @NotNull [] pointers) {
+      RootsChangeType changeType = getPointersChanges(pointers);
+
+      if (myProject.isDisposed()) {
+        return;
+      }
+
+      if (isInsideWriteAction()) {
+        myRootsChanged.rootsChanged(changeType);
+      }
+      else {
+        clearScopesCaches();
       }
     }
+
+    private boolean isInsideWriteAction() {
+      return myInsideWriteAction == 0;
+    }
+  };
+
+  @Override
+  public @NotNull VirtualFilePointerListener getRootsValidityChangedListener() {
+    return myRootsChangedListener;
   }
 }

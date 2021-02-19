@@ -16,20 +16,22 @@
 
 package com.intellij.ui.debugger;
 
-import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.project.DumbAwareAction;
+import org.jetbrains.annotations.NotNull;
 
-public class ShowUiDebuggerAction extends AnAction {
+public class ShowUiDebuggerAction extends DumbAwareAction {
 
   private UiDebugger myDebugger;
 
   @Override
-  public void update(AnActionEvent e) {
-    e.getPresentation().setText("UI Debugger");
+  public void update(@NotNull AnActionEvent e) {
+    e.getPresentation().setText(IdeBundle.messagePointer("action.presentation.ShowUiDebuggerAction.text"));
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     if (myDebugger == null) {
       myDebugger = new UiDebugger() {
         @Override

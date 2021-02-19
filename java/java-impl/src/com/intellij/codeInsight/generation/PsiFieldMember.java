@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,9 +49,8 @@ public class PsiFieldMember extends PsiElementClassMember<PsiField> implements P
     return infos != null && infos.length > 0 ? infos[0] : null;
   }
 
-  @Nullable
   @Override
-  public GenerationInfo[] generateGetters(PsiClass aClass) throws IncorrectOperationException {
+  public GenerationInfo @Nullable [] generateGetters(PsiClass aClass) throws IncorrectOperationException {
     return createGenerateInfos(aClass, GetterSetterPrototypeProvider.generateGetterSetters(getElement(), true, false));
   }
 
@@ -63,8 +62,12 @@ public class PsiFieldMember extends PsiElementClassMember<PsiField> implements P
   }
 
   @Override
-  @Nullable
-  public GenerationInfo[] generateSetters(PsiClass aClass) {
+  public boolean isReadOnlyMember() {
+    return GetterSetterPrototypeProvider.isReadOnlyProperty(getElement());
+  }
+
+  @Override
+  public GenerationInfo @Nullable [] generateSetters(PsiClass aClass) {
     final PsiField field = getElement();
     if (GetterSetterPrototypeProvider.isReadOnlyProperty(field)) {
       return null;
@@ -73,19 +76,19 @@ public class PsiFieldMember extends PsiElementClassMember<PsiField> implements P
   }
 
   private static GenerationInfo[] createGenerateInfos(PsiClass aClass, PsiMethod[] prototypes) {
-    final List<GenerationInfo> methods = new ArrayList<GenerationInfo>();
+    final List<GenerationInfo> methods = new ArrayList<>();
     for (PsiMethod prototype : prototypes) {
       final PsiMethod method = createMethodIfNotExists(aClass, prototype);
       if (method != null) {
         methods.add(new PsiGenerationInfo(method));
       }
     }
-    return methods.isEmpty() ? null : methods.toArray(new GenerationInfo[methods.size()]);
+    return methods.isEmpty() ? null : methods.toArray(GenerationInfo.EMPTY_ARRAY);
   }
 
   @Nullable
   private static PsiMethod createMethodIfNotExists(PsiClass aClass, final PsiMethod template) {
     PsiMethod existing = aClass.findMethodBySignature(template, false);
-    return existing == null ? template : null;
+    return existing == null || !existing.isPhysical() ? template : null;
   }
 }

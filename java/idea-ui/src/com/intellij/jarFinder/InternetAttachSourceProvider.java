@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,9 @@
  */
 package com.intellij.jarFinder;
 
-import com.intellij.codeInsight.AttachSourcesProvider;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -26,8 +25,9 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.roots.LibraryOrderEntry;
 import com.intellij.openapi.roots.OrderRootType;
 import com.intellij.openapi.roots.libraries.Library;
-import com.intellij.openapi.roots.ui.configuration.PathUIUtils;
+import com.intellij.openapi.roots.ui.configuration.LibrarySourceRootDetectorUtil;
 import com.intellij.openapi.util.ActionCallback;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.LocalFileSystem;
@@ -37,6 +37,7 @@ import com.intellij.psi.PsiFile;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.HttpRequests;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -48,25 +49,13 @@ import java.util.regex.Pattern;
 /**
  * @author Sergey Evdokimov
  */
-public class InternetAttachSourceProvider implements AttachSourcesProvider {
+public class InternetAttachSourceProvider extends AbstractAttachSourceProvider {
   private static final Logger LOG = Logger.getInstance(InternetAttachSourceProvider.class);
-  private static final Pattern ARTIFACT_IDENTIFIER = Pattern.compile("[A-Za-z0-9\\.\\-_]+");
-
-  @Nullable
-  protected static VirtualFile getJarByPsiFile(PsiFile psiFile) {
-    VirtualFile virtualFile = psiFile.getVirtualFile();
-    if (virtualFile == null) return null;
-
-    VirtualFile jar = JarFileSystem.getInstance().getVirtualFileForJar(psiFile.getVirtualFile());
-
-    if (jar == null || !jar.getName().endsWith(".jar")) return null;
-
-    return jar;
-  }
+  private static final Pattern ARTIFACT_IDENTIFIER = Pattern.compile("[A-Za-z0-9.\\-_]+");
 
   @NotNull
   @Override
-  public Collection<AttachSourcesAction> getActions(List<LibraryOrderEntry> orderEntries, final PsiFile psiFile) {
+  public Collection<AttachSourcesAction> getActions(List<LibraryOrderEntry> orderEntries, @Nullable PsiFile psiFile) {
     final VirtualFile jar = getJarByPsiFile(psiFile);
     if (jar == null) return Collections.emptyList();
 
@@ -81,7 +70,7 @@ public class InternetAttachSourceProvider implements AttachSourcesProvider {
       return Collections.emptyList();
     }
 
-    final Set<Library> libraries = new HashSet<Library>();
+    final Set<Library> libraries = new HashSet<>();
     for (LibraryOrderEntry orderEntry : orderEntries) {
       ContainerUtil.addIfNotNull(libraries, orderEntry.getLibrary());
     }
@@ -105,10 +94,10 @@ public class InternetAttachSourceProvider implements AttachSourcesProvider {
     final File sourceFile = new File(libSourceDir, sourceFileName);
 
     if (sourceFile.exists()) {
-      return Collections.<AttachSourcesAction>singleton(new LightAttachSourcesAction() {
+      return Collections.singleton(new LightAttachSourcesAction() {
         @Override
-        public String getName() {
-          return "Attach downloaded source";
+        public @NlsContexts.LinkLabel @Nls(capitalization = Nls.Capitalization.Title) String getName() {
+          return JavaUiBundle.message("internet.attach.source.provider.name");
         }
 
         @Override
@@ -119,25 +108,25 @@ public class InternetAttachSourceProvider implements AttachSourcesProvider {
         @Override
         public ActionCallback perform(List<LibraryOrderEntry> orderEntriesContainingFile) {
           attachSourceJar(sourceFile, libraries);
-          return new ActionCallback.Done();
+          return ActionCallback.DONE;
         }
       });
     }
 
-    return Collections.<AttachSourcesAction>singleton(new LightAttachSourcesAction() {
+    return Collections.singleton(new LightAttachSourcesAction() {
       @Override
-      public String getName() {
-        return "Download...";
+      public @Nls(capitalization = Nls.Capitalization.Title) String getName() {
+        return JavaUiBundle.message("internet.attach.source.provider.action.name");
       }
 
       @Override
       public String getBusyText() {
-        return "Searching...";
+        return JavaUiBundle.message("internet.attach.source.provider.action.busy.text");
       }
 
       @Override
       public ActionCallback perform(List<LibraryOrderEntry> orderEntriesContainingFile) {
-        final Task task = new Task.Modal(psiFile.getProject(), "Searching source...", true) {
+        final Task task = new Task.Modal(psiFile.getProject(), JavaUiBundle.message("progress.title.searching.source"), true) {
           @Override
           public void run(@NotNull final ProgressIndicator indicator) {
             String artifactUrl = null;
@@ -149,7 +138,8 @@ public class InternetAttachSourceProvider implements AttachSourcesProvider {
               }
               catch (SourceSearchException e) {
                 LOG.warn(e);
-                showMessage("Downloading failed", e.getMessage(), NotificationType.ERROR);
+                final String title = JavaUiBundle.message("internet.attach.source.provider.action.notification.title.downloading.failed");
+                showMessage(title, e.getMessage(), NotificationType.ERROR);
                 continue;
               }
 
@@ -157,12 +147,16 @@ public class InternetAttachSourceProvider implements AttachSourcesProvider {
             }
 
             if (artifactUrl == null) {
-              showMessage("Sources not found", "Sources for '" + jarName + ".jar' not found", NotificationType.WARNING);
+              showMessage(JavaUiBundle.message("internet.attach.source.provider.action.notification.title.sources.not.found"),
+                          JavaUiBundle.message("internet.attach.source.provider.action.notification.content.sources.for.jar.not.found", jarName),
+                          NotificationType.WARNING);
               return;
             }
 
             if (!(libSourceDir.isDirectory() || libSourceDir.mkdirs())) {
-              showMessage("Downloading failed", "Failed to create directory to store sources: " + libSourceDir, NotificationType.ERROR);
+              showMessage(JavaUiBundle.message("internet.attach.source.provider.action.notification.title.downloading.failed"),
+                          JavaUiBundle.message("internet.attach.source.provider.action.notification.content.failed.to.create.directory", libSourceDir),
+                          NotificationType.ERROR);
               return;
             }
 
@@ -175,7 +169,9 @@ public class InternetAttachSourceProvider implements AttachSourcesProvider {
             }
             catch (IOException e) {
               LOG.warn(e);
-              showMessage("Downloading failed", "Connection problem. See log for more details.", NotificationType.ERROR);
+              showMessage(JavaUiBundle.message("internet.attach.source.provider.action.notification.title.downloading.failed"),
+                          JavaUiBundle.message("internet.attach.source.provider.action.notification.content.connection.problem"),
+                          NotificationType.ERROR);
             }
           }
 
@@ -184,14 +180,16 @@ public class InternetAttachSourceProvider implements AttachSourcesProvider {
             attachSourceJar(sourceFile, libraries);
           }
 
-          private void showMessage(String title, String message, NotificationType notificationType) {
+          private void showMessage(@NlsContexts.NotificationTitle String title,
+                                   @NlsContexts.NotificationContent String message,
+                                   NotificationType notificationType) {
             new Notification("Source searcher", title, message, notificationType).notify(getProject());
           }
         };
 
         task.queue();
 
-        return new ActionCallback.Done();
+        return ActionCallback.DONE;
       }
     });
   }
@@ -206,23 +204,26 @@ public class InternetAttachSourceProvider implements AttachSourcesProvider {
     return true;
   }
 
-  public static void attachSourceJar(@NotNull File sourceJar, @NotNull Collection<Library> libraries) {
-    AccessToken accessToken = WriteAction.start();
-    try {
-      VirtualFile srcFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(sourceJar);
-      if (srcFile == null) return;
+  public static void attachSourceJar(@NotNull File sourceJar, @NotNull Collection<? extends Library> libraries) {
+    VirtualFile srcFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(sourceJar);
+    if (srcFile == null) return;
 
-      VirtualFile jarRoot = JarFileSystem.getInstance().getJarRootForLocalFile(srcFile);
-      if (jarRoot == null) return;
+    VirtualFile jarRoot = JarFileSystem.getInstance().getJarRootForLocalFile(srcFile);
+    if (jarRoot == null) return;
 
-      VirtualFile[] roots = PathUIUtils.scanAndSelectDetectedJavaSourceRoots(null, new VirtualFile[]{jarRoot});
-      if (roots.length == 0) {
-        roots = new VirtualFile[]{jarRoot};
-      }
+    VirtualFile[] roots = LibrarySourceRootDetectorUtil.scanAndSelectDetectedJavaSourceRoots(null, new VirtualFile[]{jarRoot});
+    if (roots.length == 0) {
+      roots = new VirtualFile[]{jarRoot};
+    }
 
+    doAttachSourceJars(libraries, roots);
+  }
+
+  private static void doAttachSourceJars(@NotNull Collection<? extends Library> libraries, VirtualFile[] roots) {
+    WriteAction.run(() -> {
       for (Library library : libraries) {
         Library.ModifiableModel model = library.getModifiableModel();
-        List<VirtualFile> alreadyExistingFiles = Arrays.asList(model.getFiles(OrderRootType.SOURCES));
+        Set<VirtualFile> alreadyExistingFiles = ContainerUtil.newHashSet(model.getFiles(OrderRootType.SOURCES));
 
         for (VirtualFile root : roots) {
           if (!alreadyExistingFiles.contains(root)) {
@@ -231,18 +232,11 @@ public class InternetAttachSourceProvider implements AttachSourcesProvider {
         }
         model.commit();
       }
-    }
-    finally {
-      accessToken.finish();
-    }
+    });
   }
 
   public static File getLibrarySourceDir() {
     String path = System.getProperty("idea.library.source.dir");
-    if (path != null) {
-      return new File(path);
-    }
-
-    return new File(SystemProperties.getUserHome(), ".ideaLibSources");
+    return path != null ? new File(path) : new File(SystemProperties.getUserHome(), ".ideaLibSources");
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
  */
 package com.intellij.psi.impl.source.javadoc;
 
-import com.intellij.codeInsight.daemon.JavaErrorMessages;
+import com.intellij.core.JavaPsiBundle;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiModifier;
@@ -45,16 +45,11 @@ public class ValueDocTagInfo implements JavadocTagInfo {
   }
 
   @Override
-  public Object[] getPossibleValues(PsiElement context, PsiElement place, String prefix) {
-    return null;
-  }
-
-  @Override
   public String checkTagValue(PsiDocTagValue value) {
     boolean hasReference = (value != null && value.getFirstChild() != null);
     if (hasReference) {
       if (!PsiUtil.isLanguageLevel5OrHigher(value)) {
-        return JavaErrorMessages.message("javadoc.value.tag.jdk15.required");
+        return JavaPsiBundle.message("javadoc.value.tag.jdk15.required");
       }
     }
 
@@ -64,15 +59,15 @@ public class ValueDocTagInfo implements JavadocTagInfo {
         PsiElement target = reference.resolve();
         if (target != null) {
           if (!(target instanceof PsiField)) {
-            return JavaErrorMessages.message("javadoc.value.field.required");
+            return JavaPsiBundle.message("javadoc.value.field.required");
           }
           PsiField field = (PsiField) target;
           if (!field.hasModifierProperty(PsiModifier.STATIC)) {
-            return JavaErrorMessages.message("javadoc.value.static.field.required");
+            return JavaPsiBundle.message("javadoc.value.static.field.required");
           }
           if (field.getInitializer() == null ||
               JavaConstantExpressionEvaluator.computeConstantExpression(field.getInitializer(), false) == null) {
-            return JavaErrorMessages.message("javadoc.value.field.with.initializer.required");
+            return JavaPsiBundle.message("javadoc.value.field.with.initializer.required");
           }
         }
       }

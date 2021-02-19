@@ -1,50 +1,33 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.application.impl;
 
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.containers.CollectionFactory;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.WeakList;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-import java.lang.ref.Reference;
-import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
-public class ModalityStateEx extends ModalityState {
-  private static final WeakReference[] EMPTY_REFS_ARRAY = new WeakReference[0];
+public final class ModalityStateEx extends ModalityState {
+  private final WeakList<Object> myModalEntities = new WeakList<>();
+  private static final Set<Object> ourTransparentEntities = Collections.newSetFromMap(CollectionFactory.createConcurrentWeakMap());
 
-  private final WeakReference[] myModalEntities;
+  @SuppressWarnings("unused")
+  public ModalityStateEx() { } // used by reflection to initialize NON_MODAL
 
-  public ModalityStateEx() {
-    this(EMPTY_REFS_ARRAY);
+  ModalityStateEx(Object @NotNull ... modalEntities) {
+    Collections.addAll(myModalEntities, modalEntities);
   }
 
-  public ModalityStateEx(@NotNull Object[] modalEntities) {
-    if (modalEntities.length > 0) {
-      myModalEntities = new WeakReference[modalEntities.length];
-      for (int i = 0; i < modalEntities.length; i++) {
-        Object entity = modalEntities[i];
-        myModalEntities[i] = new WeakReference<Object>(entity);
-      }
-    }
-    else{
-      myModalEntities = EMPTY_REFS_ARRAY;
-    }
+  List<Object> getModalEntities() {
+    return myModalEntities.toStrongList();
   }
 
   @NotNull
@@ -52,53 +35,50 @@ public class ModalityStateEx extends ModalityState {
     return appendEntity(progress);
   }
 
-  @NotNull
-  ModalityStateEx appendEntity(@NotNull Object anEntity){
-    List<Object> list = new ArrayList<Object>(myModalEntities.length+1);
-    for (Reference modalEntity : myModalEntities) {
-      Object entity = modalEntity.get();
-      if (entity == null) continue;
-      list.add(entity);
-    }
+  @NotNull ModalityStateEx appendEntity(@NotNull Object anEntity){
+    List<Object> modalEntities = getModalEntities();
+    List<Object> list = new ArrayList<>(modalEntities.size() + 1);
+    list.addAll(modalEntities);
     list.add(anEntity);
     return new ModalityStateEx(list.toArray());
   }
 
-  private static boolean contains(WeakReference[] array, Object o){
-    for (WeakReference reference : array) {
-      Object o1 = reference.get();
-      if (o1 == null) continue;
-      if (o1.equals(o)) return true;
-    }
-    return false;
+  void forceModalEntities(List<Object> entities) {
+    myModalEntities.clear();
+    myModalEntities.addAll(entities);
   }
 
   @Override
   public boolean dominates(@NotNull ModalityState anotherState){
     if (anotherState == ModalityState.any()) return false;
-    
-    for (WeakReference modalEntity : myModalEntities) {
-      Object entity = modalEntity.get();
-      if (entity == null) continue;
-      if (!contains(((ModalityStateEx)anotherState).myModalEntities, entity)) return true; // I have entity which is absent in anotherState
+    if (myModalEntities.isEmpty()) return false;
+
+    List<Object> otherEntities = ((ModalityStateEx)anotherState).getModalEntities();
+    for (Object entity : getModalEntities()) {
+      if (!otherEntities.contains(entity) && !ourTransparentEntities.contains(entity)) return true; // I have entity which is absent in anotherState
     }
     return false;
   }
 
-  boolean contains(@NotNull Object modalEntity) {
-    return contains(myModalEntities, modalEntity);
-  }
-
   @NonNls
   public String toString() {
-    if (myModalEntities.length == 0) return "ModalityState.NON_MODAL";
-    @NonNls StringBuilder buffer = new StringBuilder();
-    buffer.append("ModalityState:");
-    for (int i = 0; i < myModalEntities.length; i++) {
-      Object entity = myModalEntities[i].get();
-      if (i > 0) buffer.append(", ");
-      buffer.append(entity);
+    return this == NON_MODAL
+           ? "ModalityState.NON_MODAL"
+           : "ModalityState:{" + StringUtil.join(getModalEntities(), it -> "[" + it + "]", ", ") + "}";
+  }
+
+  void removeModality(Object modalEntity) {
+    myModalEntities.remove(modalEntity);
+  }
+
+  void markTransparent() {
+    Object element = ContainerUtil.getLastItem(getModalEntities(), null);
+    if (element != null) {
+      ourTransparentEntities.add(element);
     }
-    return buffer.toString();
+  }
+
+  static void unmarkTransparent(@NotNull Object modalEntity) {
+    ourTransparentEntities.remove(modalEntity);
   }
 }

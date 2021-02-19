@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.codeInspection.resources;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
@@ -21,16 +7,18 @@ import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.compiler.CompilerConfiguration;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
-import org.jetbrains.plugins.groovy.codeInspection.GroovyInspectionBundle;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFileBase;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrStatement;
@@ -39,6 +27,8 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrMethod
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
 
 import java.util.HashSet;
+
+import static com.intellij.psi.util.PointersKt.createSmartPointer;
 
 /**
  * @author Max Medvedev
@@ -49,11 +39,11 @@ public class TypeCustomizerInspection extends BaseInspection {
   protected BaseInspectionVisitor buildVisitor() {
     return new BaseInspectionVisitor() {
       @Override
-      public void visitFile(GroovyFileBase file) {
+      public void visitFile(@NotNull GroovyFileBase file) {
         CompilerConfiguration configuration = CompilerConfiguration.getInstance(file.getProject());
         if (configuration != null && !configuration.isResourceFile(file.getVirtualFile()) && fileSeemsToBeTypeCustomizer(file)) {
           final LocalQuickFix[] fixes = {new AddToResourceFix(file)};
-          final String message = GroovyInspectionBundle.message("type.customizer.is.not.marked.as.a.resource.file");
+          final String message = GroovyBundle.message("type.customizer.is.not.marked.as.a.resource.file");
           registerError(file, message, fixes, ProblemHighlightType.GENERIC_ERROR_OR_WARNING);
         }
       }
@@ -88,41 +78,53 @@ public class TypeCustomizerInspection extends BaseInspection {
   }
 
   private static class AddToResourceFix implements LocalQuickFix {
-    private final PsiFile myFile;
 
-    public AddToResourceFix(PsiFile file) {
-      myFile = file;
+    private final @NotNull SmartPsiElementPointer<PsiFile> myFilePointer;
+
+    AddToResourceFix(@NotNull PsiFile file) {
+      myFilePointer = createSmartPointer(file);
     }
 
     @NotNull
     @Override
     public String getName() {
-      return GroovyInspectionBundle.message("add.to.resources");
+      return GroovyBundle.message("add.to.resources");
+    }
+
+    @Override
+    public boolean startInWriteAction() {
+      return false;
     }
 
     @NotNull
     @Override
     public String getFamilyName() {
-      return GroovyInspectionBundle.message("add.type.customizer.to.resources");
+      return GroovyBundle.message("add.type.customizer.to.resources");
     }
 
     @Override
     public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
-      final VirtualFile virtualFile = myFile.getVirtualFile();
+      PsiFile file = myFilePointer.getElement();
+      if (file == null) return;
+
+      final VirtualFile virtualFile = file.getVirtualFile();
       if (virtualFile == null) return;
 
-      VirtualFile sourceRoot = ProjectRootManager.getInstance(project).getFileIndex().getSourceRootForFile(virtualFile);
-      final VirtualFile projectRoot = project.getBaseDir();
+      final ProjectFileIndex fileIndex = ProjectRootManager.getInstance(project).getFileIndex();
+      final VirtualFile contentRoot = fileIndex.getContentRootForFile(virtualFile);
+      if (contentRoot == null) return;
+
+      final VirtualFile sourceRoot = fileIndex.getSourceRootForFile(virtualFile);
       if (sourceRoot == null) {
-        final String path = VfsUtilCore.getRelativePath(virtualFile, projectRoot, '/');
+        final String path = VfsUtilCore.getRelativePath(virtualFile, contentRoot, '/');
         CompilerConfiguration.getInstance(project).addResourceFilePattern(path);
       }
       else {
         final String path = VfsUtilCore.getRelativePath(virtualFile, sourceRoot, '/');
-        final String sourceRootPath = VfsUtilCore.getRelativePath(sourceRoot, projectRoot, '/');
+        final String sourceRootPath = VfsUtilCore.getRelativePath(sourceRoot, contentRoot, '/');
         CompilerConfiguration.getInstance(project).addResourceFilePattern(sourceRootPath + ':' + path);
       }
-      DaemonCodeAnalyzer.getInstance(project).restart(myFile);
+      DaemonCodeAnalyzer.getInstance(project).restart(file);
     }
   }
 }

@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.intellij.plugins.relaxNG.model.resolve;
 
 import com.intellij.openapi.util.Factory;
@@ -27,37 +26,24 @@ import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashSet;
 import com.intellij.util.xml.DomFileElement;
 import com.intellij.util.xml.DomManager;
-import gnu.trove.THashSet;
+import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
 import org.intellij.plugins.relaxNG.compact.psi.RncFile;
 import org.intellij.plugins.relaxNG.model.*;
 import org.intellij.plugins.relaxNG.xml.dom.RngGrammar;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collections;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
-/*
-* Created by IntelliJ IDEA.
-* User: sweinreuter
-* Date: 24.08.2007
-*/
-public class DefinitionResolver extends CommonElement.Visitor implements
+public final class DefinitionResolver extends CommonElement.Visitor implements
         CachedValueProvider<Map<String, Set<Define>>>, Factory<Set<Define>> {
 
   private static final Key<CachedValue<Map<String, Set<Define>>>> KEY = Key.create("CACHED_DEFINES");
 
-  private static final ThreadLocal<Set<PsiFile>> myVisitedFiles = new ThreadLocal<Set<PsiFile>>();
-  private static final ThreadLocal<Map<String, Set<Define>>> myDefines = new ThreadLocal<Map<String, Set<Define>>>() {
-    @Override
-    protected Map<String, Set<Define>> initialValue() {
-      return ContainerUtil.newHashMap();
-    }
-  };
+  private static final ThreadLocal<Set<PsiFile>> myVisitedFiles = new ThreadLocal<>();
+  private static final ThreadLocal<Map<String, Set<Define>>> myDefines = ThreadLocal.withInitial(() -> new HashMap<>());
 
   private final Grammar myScope;
 
@@ -71,7 +57,7 @@ public class DefinitionResolver extends CommonElement.Visitor implements
 
     final PsiFile value = include.getInclude();
     if (myVisitedFiles.get() == null) {
-      myVisitedFiles.set(ContainerUtil.<PsiFile>newIdentityTroveSet());
+      myVisitedFiles.set(new ReferenceOpenHashSet<>());
     }
     if (value != null && myVisitedFiles.get().add(value)) {
       doVisitRncOrRngFile(value, this);
@@ -118,7 +104,7 @@ public class DefinitionResolver extends CommonElement.Visitor implements
 
   @Override
   public Set<Define> create() {
-    return new THashSet<Define>();
+    return new HashSet<>();
   }
 
   @Override
@@ -192,9 +178,9 @@ public class DefinitionResolver extends CommonElement.Visitor implements
   private static class BackwardDefinitionResolver implements PsiElementProcessor<XmlFile> {
     private final String myValue;
     private Define myResult;
-    private final Set<PsiFile> myVisitedPsiFiles = new HashSet<PsiFile>();
+    private final Set<PsiFile> myVisitedPsiFiles = new HashSet<>();
 
-    public BackwardDefinitionResolver(String value) {
+    BackwardDefinitionResolver(String value) {
       myValue = value;
     }
 

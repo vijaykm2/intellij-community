@@ -1,44 +1,58 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.spellchecker.state;
 
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.*;
+import com.intellij.serviceContainer.NonInjectable;
 import com.intellij.spellchecker.dictionary.EditableDictionary;
+import com.intellij.util.EventDispatcher;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NotNull;
 
 @State(
   name = "CachedDictionaryState",
-  storages = {@Storage(file = StoragePathMacros.APP_CONFIG + "/cachedDictionary.xml", roamingType = RoamingType.DISABLED)}
+  storages = @Storage(value = "cachedDictionary.xml", roamingType = RoamingType.DISABLED),
+  reportStatistic = false
 )
 public class CachedDictionaryState extends DictionaryState implements PersistentStateComponent<DictionaryState> {
   public static final String DEFAULT_NAME = "cached";
+  private final EventDispatcher<DictionaryStateListener> myDictListenerEventDispatcher =
+    EventDispatcher.create(DictionaryStateListener.class);
 
   public CachedDictionaryState() {
     name = DEFAULT_NAME;
   }
 
+  @NotNull
+  public static CachedDictionaryState getInstance() {
+    return ApplicationManager.getApplication().getService(CachedDictionaryState.class);
+  }
+
+  @NonInjectable
   public CachedDictionaryState(EditableDictionary dictionary) {
     super(dictionary);
     name = DEFAULT_NAME;
   }
 
   @Override
-  public void loadState(DictionaryState state) {
+  public void loadState(@NotNull DictionaryState state) {
     if (state.name == null) {
       state.name = DEFAULT_NAME;
     }
     super.loadState(state);
+    myDictListenerEventDispatcher.getMulticaster().dictChanged(getDictionary());
+  }
+
+  /** @deprecated Use {@link CachedDictionaryState#addCachedDictListener(DictionaryStateListener, Disposable)} instead.*/
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3") // Use overload with parentDisposable
+  public void addCachedDictListener(DictionaryStateListener listener) {
+    myDictListenerEventDispatcher.addListener(listener);
+  }
+
+  public void addCachedDictListener(DictionaryStateListener listener, Disposable parentDisposable) {
+    myDictListenerEventDispatcher.addListener(listener, parentDisposable);
   }
 }

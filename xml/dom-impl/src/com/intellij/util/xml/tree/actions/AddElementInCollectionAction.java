@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.util.xml.tree.actions;
 
@@ -20,15 +6,16 @@ import com.intellij.ide.TypePresentationService;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
-import com.intellij.openapi.application.ApplicationBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.ui.popup.ListPopup;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.ui.treeStructure.SimpleNode;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.xml.DomElement;
 import com.intellij.util.xml.DomUtil;
 import com.intellij.util.xml.MergedObject;
+import com.intellij.util.xml.XmlDomBundle;
 import com.intellij.util.xml.reflect.DomCollectionChildDescription;
 import com.intellij.util.xml.tree.BaseDomElementNode;
 import com.intellij.util.xml.tree.DomElementsGroupNode;
@@ -42,9 +29,6 @@ import javax.swing.*;
 import java.lang.reflect.Type;
 import java.util.List;
 
-/**
- * User: Sergey.Vasiliev
- */
 public class AddElementInCollectionAction extends AddDomElementAction {
   private DomModelTreeView myTreeView;
 
@@ -58,7 +42,7 @@ public class AddElementInCollectionAction extends AddDomElementAction {
   protected DomModelTreeView getTreeView(AnActionEvent e) {
     if (myTreeView != null) return myTreeView;
 
-    return DomModelTreeView.DATA_KEY.getData(e.getDataContext());
+    return e.getData(DomModelTreeView.DATA_KEY);
   }
 
   @Override
@@ -88,15 +72,14 @@ public class AddElementInCollectionAction extends AddDomElementAction {
   }
 
   @Override
-  @NotNull
-  protected DomCollectionChildDescription[] getDomCollectionChildDescriptions(final AnActionEvent e) {
+  protected DomCollectionChildDescription @NotNull [] getDomCollectionChildDescriptions(final AnActionEvent e) {
     final DomModelTreeView view = getTreeView(e);
 
     SimpleNode node = view.getTree().getSelectedNode();
     if (node instanceof BaseDomElementNode) {
       List<DomCollectionChildDescription> consolidated = ((BaseDomElementNode)node).getConsolidatedChildrenDescriptions();
       if (consolidated.size() > 0) {
-        return consolidated.toArray(new DomCollectionChildDescription[consolidated.size()]);
+        return consolidated.toArray(DomCollectionChildDescription.EMPTY_ARRAY);
       }
     }
 
@@ -127,13 +110,8 @@ public class AddElementInCollectionAction extends AddDomElementAction {
   }
 
   @Override
-  protected boolean showAsPopup() {
-    return true;
-  }
-
-  @Override
   protected String getActionText(final AnActionEvent e) {
-    String text = ApplicationBundle.message("action.add");
+    String text = XmlDomBundle.message("dom.action.add");
     if (e.getPresentation().isEnabled()) {
       final DomElementsGroupNode selectedNode = getDomElementsGroupNode(getTreeView(e));
       if (selectedNode != null) {
@@ -159,7 +137,7 @@ public class AddElementInCollectionAction extends AddDomElementAction {
 
   @Override
   protected AnAction createAddingAction(final AnActionEvent e,
-                                                final String name,
+                                                final @NlsActions.ActionText String name,
                                                 final Icon icon,
                                                 final Type type,
                                                 final DomCollectionChildDescription description) {
@@ -167,8 +145,9 @@ public class AddElementInCollectionAction extends AddDomElementAction {
     final DomElement parentDomElement = getParentDomElement(e);
 
     if (parentDomElement instanceof MergedObject) {
-      final List<DomElement> implementations = (List<DomElement>)((MergedObject)parentDomElement).getImplementations();
-      final DefaultActionGroup actionGroup = new DefaultActionGroup(name, true);
+      @SuppressWarnings("unchecked") final List<DomElement> implementations =
+        ((MergedObject<DomElement>)parentDomElement).getImplementations();
+      final DefaultActionGroup actionGroup = DefaultActionGroup.createPopupGroup(() -> name);
 
       for (DomElement implementation : implementations) {
         final XmlFile xmlFile = DomUtil.getFile(implementation);
@@ -187,8 +166,8 @@ public class AddElementInCollectionAction extends AddDomElementAction {
     private final Type myType;
     private final DomCollectionChildDescription myDescription;
 
-    public MyDefaultAddAction(final DomElement parent,
-                              final String name,
+    MyDefaultAddAction(final DomElement parent,
+                              final @NlsActions.ActionText String name,
                               final Icon icon,
                               final AnActionEvent e,
                               final Type type,
@@ -219,12 +198,7 @@ public class AddElementInCollectionAction extends AddDomElementAction {
     protected void afterAddition(@NotNull final DomElement newElement) {
       final DomElement copy = newElement.createStableCopy();
 
-      ApplicationManager.getApplication().invokeLater(new Runnable() {
-        @Override
-        public void run() {
-          myView.setSelectedDomElement(copy);
-        }
-      });
+      ApplicationManager.getApplication().invokeLater(() -> myView.setSelectedDomElement(copy));
 
     }
   }

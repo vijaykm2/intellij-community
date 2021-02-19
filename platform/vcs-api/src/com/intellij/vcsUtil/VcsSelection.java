@@ -17,22 +17,25 @@ package com.intellij.vcsUtil;
 
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.SelectionModel;
+import com.intellij.openapi.util.NlsActions.ActionText;
+import com.intellij.openapi.util.NlsContexts.DialogTitle;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vcs.VcsBundle;
+import org.jetbrains.annotations.NotNull;
 
 public class VcsSelection {
   private final Document myDocument;
   private final int mySelectionStartLineNumber;
   private final int mySelectionEndLineNumber;
-  private final String myActionName;
-  private final String myDialogTitle;
+  private final @ActionText String myActionName;
+  private final @DialogTitle String myDialogTitle;
 
-  public VcsSelection(Document document, SelectionModel selectionModel) {
+  public VcsSelection(@NotNull Document document, SelectionModel selectionModel) {
     this(document, new TextRange(selectionModel.getSelectionStart(), selectionModel.getSelectionEnd()),
          VcsBundle.message("action.name.show.history.for.selection"));
   }
 
-  public VcsSelection(Document document, TextRange textRange, String actionName) {
+  public VcsSelection(@NotNull Document document, TextRange textRange, String actionName) {
     myDocument = document;
     int startOffset = textRange.getStartOffset();
     mySelectionStartLineNumber = document.getLineNumber(startOffset);
@@ -42,6 +45,7 @@ public class VcsSelection {
     myDialogTitle = VcsBundle.message("show.history.dialog.title.template", actionName);
   }
 
+  @NotNull
   public Document getDocument() {
     return myDocument;
   }
@@ -54,10 +58,12 @@ public class VcsSelection {
     return mySelectionEndLineNumber;
   }
 
+  @ActionText
   public String getActionName() {
     return myActionName;
   }
 
+  @DialogTitle
   public String getDialogTitle() {
     return myDialogTitle;
   }

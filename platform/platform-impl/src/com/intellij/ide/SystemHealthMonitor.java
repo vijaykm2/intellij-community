@@ -1,123 +1,198 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide;
 
-import com.intellij.concurrency.JobScheduler;
+import com.intellij.diagnostic.VMOptions;
+import com.intellij.execution.ExecutionException;
+import com.intellij.execution.configurations.GeneralCommandLine;
+import com.intellij.execution.process.CapturingProcessHandler;
+import com.intellij.execution.process.UnixProcessManager;
+import com.intellij.ide.actions.EditCustomVmOptionsAction;
 import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.jna.JnaLoader;
 import com.intellij.notification.*;
-import com.intellij.openapi.application.Application;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ApplicationNamesInfo;
-import com.intellij.openapi.application.PathManager;
-import com.intellij.openapi.components.ApplicationComponent;
+import com.intellij.notification.impl.NotificationFullContent;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
+import com.intellij.openapi.application.*;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.ui.MessageType;
+import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.ui.popup.Balloon;
-import com.intellij.openapi.ui.popup.JBPopupFactory;
-import com.intellij.openapi.util.*;
-import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.wm.WindowManager;
-import com.intellij.ui.HyperlinkAdapter;
-import com.intellij.ui.awt.RelativePoint;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.text.Strings;
+import com.intellij.util.MathUtil;
 import com.intellij.util.SystemProperties;
+import com.intellij.util.TimeoutUtil;
+import com.intellij.util.concurrency.AppExecutorUtil;
+import com.intellij.util.lang.JavaVersion;
+import com.intellij.util.system.CpuArch;
+import com.sun.jna.*;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.PropertyKey;
 
 import javax.swing.*;
-import javax.swing.event.HyperlinkEvent;
-import java.awt.*;
 import java.io.File;
-import java.util.concurrent.Callable;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-public class SystemHealthMonitor extends ApplicationComponent.Adapter {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.SystemHealthMonitor");
-
-  private static final NotificationGroup GROUP = new NotificationGroup("System Health", NotificationDisplayType.STICKY_BALLOON, false);
-  private static final NotificationGroup LOG_GROUP = NotificationGroup.logOnlyGroup("System Health (minor)");
-
-  @NotNull private final PropertiesComponent myProperties;
-
-  public SystemHealthMonitor(@NotNull PropertiesComponent properties) {
-    myProperties = properties;
-  }
+final class SystemHealthMonitor extends PreloadingActivity {
+  private static final Logger LOG = Logger.getInstance(SystemHealthMonitor.class);
+  private static final String DISPLAY_ID = "System Health";
 
   @Override
-  public void initComponent() {
-    checkJvm();
+  public void preload(@NotNull ProgressIndicator indicator) {
+    checkIdeDirectories();
+    checkRuntime();
+    checkReservedCodeCacheSize();
+    checkEnvironment();
+    checkSignalBlocking();
     startDiskSpaceMonitoring();
   }
 
-  private void checkJvm() {
-    if (StringUtil.containsIgnoreCase(System.getProperty("java.vm.name", ""), "OpenJDK") && !SystemInfo.isJavaVersionAtLeast("1.7")) {
-      notifyUnsupportedJvm("unsupported.jvm.openjdk.message");
-    }
-    else if (StringUtil.endsWithIgnoreCase(System.getProperty("java.version", ""), "-ea")) {
-      notifyUnsupportedJvm("unsupported.jvm.ea.message");
-    }
-  }
-
-  private void notifyUnsupportedJvm(@PropertyKey(resourceBundle = "messages.IdeBundle") final String key) {
-    final String ignoreKey = "ignore." + key;
-    final String message = IdeBundle.message(key) + IdeBundle.message("unsupported.jvm.link");
-    showNotification(ignoreKey, message, new HyperlinkAdapter() {
-      @Override
-      protected void hyperlinkActivated(HyperlinkEvent e) {
-        myProperties.setValue(ignoreKey, "true");
+  private static void checkIdeDirectories() {
+    if (System.getProperty(PathManager.PROPERTY_PATHS_SELECTOR) != null) {
+      if (System.getProperty(PathManager.PROPERTY_CONFIG_PATH) != null && System.getProperty(PathManager.PROPERTY_PLUGINS_PATH) == null) {
+        showNotification("implicit.plugin.directory.path", null, shorten(PathManager.getPluginsPath()));
       }
-    });
+      if (System.getProperty(PathManager.PROPERTY_SYSTEM_PATH) != null && System.getProperty(PathManager.PROPERTY_LOG_PATH) == null) {
+        showNotification("implicit.log.directory.path", null, shorten(PathManager.getLogPath()));
+      }
+    }
   }
 
-  private void showNotification(final String ignoreKey, final String message, final HyperlinkAdapter hyperlinkAdapter) {
-    if (myProperties.isValueSet(ignoreKey)) {
-      return;
+  private static String shorten(String pathStr) {
+    Path path = Paths.get(pathStr).toAbsolutePath(), userHome = Paths.get(SystemProperties.getUserHome());
+    if (path.startsWith(userHome)) {
+      Path relative = userHome.relativize(path);
+      return SystemInfo.isWindows ? "%USERPROFILE%\\" + relative : "~/" + relative;
     }
+    else {
+      return pathStr;
+    }
+  }
 
-    final Application app = ApplicationManager.getApplication();
-    app.getMessageBus().connect(app).subscribe(AppLifecycleListener.TOPIC, new AppLifecycleListener.Adapter() {
-      @Override
-      public void appFrameCreated(String[] commandLineArgs, @NotNull Ref<Boolean> willOpenProject) {
-        app.invokeLater(new Runnable() {
-          public void run() {
-            JComponent component = WindowManager.getInstance().findVisibleFrame().getRootPane();
-            if (component != null) {
-              Rectangle rect = component.getVisibleRect();
-              JBPopupFactory.getInstance()
-                .createHtmlTextBalloonBuilder(message, MessageType.WARNING, hyperlinkAdapter)
-                .setFadeoutTime(-1)
-                .setHideOnFrameResize(false)
-                .setHideOnLinkClick(true)
-                .setDisposable(app)
-                .createBalloon()
-                .show(new RelativePoint(component, new Point(rect.x + 30, rect.y + rect.height - 10)), Balloon.Position.above);
+  private static void checkRuntime() {
+    if (!(SystemInfo.isJetBrainsJvm || PathManager.isUnderHomeDirectory(SystemProperties.getJavaHome()))) {
+      NotificationAction switchAction = null;
+
+      if ((SystemInfo.isWindows || SystemInfo.isMac || SystemInfo.isLinux) && isJbrOperational()) {
+        String appName = ApplicationNamesInfo.getInstance().getScriptName();
+        String configName = appName + (!SystemInfo.isWindows ? "" : CpuArch.isIntel64() ? "64.exe" : ".exe") + ".jdk";
+        Path configFile = Paths.get(PathManager.getConfigPath(), configName);
+        if (Files.isRegularFile(configFile)) {
+          switchAction = new NotificationAction(IdeBundle.message("action.SwitchToJBR.text")) {
+            @Override
+            public void actionPerformed(@NotNull AnActionEvent e, @NotNull Notification notification) {
+              notification.expire();
+              try {
+                Files.delete(configFile);
+              }
+              catch (IOException x) {
+                LOG.warn("Can't delete JDK configuration file: " + configFile, x);
+              }
+              ApplicationManager.getApplication().restart();
             }
-
-            Notification notification = LOG_GROUP.createNotification(message, NotificationType.WARNING);
-            notification.setImportant(true);
-            Notifications.Bus.notify(notification);
-          }
-        });
+          };
+        }
       }
-    });
+
+      String current = JavaVersion.current() + " by " + SystemInfo.JAVA_VENDOR;
+      showNotification("bundled.jre.version.message", switchAction, current);
+    }
   }
 
-  private static final int ourMaxNumberOfTimesToObserveZeroSpace = 2;
+  private static boolean isJbrOperational() {
+    Path bin = Path.of(PathManager.getBundledRuntimePath(), SystemInfo.isWindows ? "bin/java.exe" : SystemInfo.isMac ? "Contents/Home/bin/java" : "bin/java");
+    if (Files.isRegularFile(bin) && (SystemInfo.isWindows || Files.isExecutable(bin))) {
+      try {
+        return new CapturingProcessHandler(new GeneralCommandLine(bin.toString(), "-version")).runProcess(30_000).getExitCode() == 0;
+      }
+      catch (ExecutionException e) {
+        LOG.debug(e);
+      }
+    }
+
+    return false;
+  }
+
+  private static void checkReservedCodeCacheSize() {
+    int reservedCodeCacheSize = VMOptions.readOption(VMOptions.MemoryKind.CODE_CACHE, true);
+    int minReservedCodeCacheSize = 240;  //todo[r.sh] PluginManagerCore.isRunningFromSources() ? 240 : CpuArch.is32Bit() ? 384 : 512;
+    if (reservedCodeCacheSize > 0 && reservedCodeCacheSize < minReservedCodeCacheSize) {
+      EditCustomVmOptionsAction vmEditAction = new EditCustomVmOptionsAction();
+      NotificationAction action = new NotificationAction(IdeBundle.message("vm.options.edit.action.cap")) {
+        @Override
+        public void actionPerformed(@NotNull AnActionEvent e, @NotNull Notification notification) {
+          notification.expire();
+          ActionUtil.performActionDumbAware(vmEditAction, e);
+        }
+      };
+      showNotification("code.cache.warn.message", vmEditAction.isEnabled() ? action : null, reservedCodeCacheSize, minReservedCodeCacheSize);
+    }
+  }
+
+  private static void checkEnvironment() {
+    List<String> usedVars = Stream.of("_JAVA_OPTIONS", "JDK_JAVA_OPTIONS", "JAVA_TOOL_OPTIONS")
+      .filter(var -> Strings.isNotEmpty(System.getenv(var)))
+      .collect(Collectors.toList());
+    if (!usedVars.isEmpty()) {
+      showNotification("vm.options.env.vars", null, String.join(", ", usedVars));
+    }
+  }
+
+  private static void checkSignalBlocking() {
+    if (SystemInfo.isUnix & JnaLoader.isLoaded()) {
+      try {
+        Memory sa = new Memory(256);
+        LibC libC = Native.load("c", LibC.class);
+        if (libC.sigaction(UnixProcessManager.SIGINT, Pointer.NULL, sa) == 0 && LibC.SIG_IGN.equals(sa.getPointer(0))) {
+          libC.signal(UnixProcessManager.SIGINT, LibC.Handler.TERMINATE);
+          LOG.info("restored ignored INT handler");
+        }
+      }
+      catch (Throwable t) {
+        LOG.warn(t);
+      }
+    }
+  }
+
+  private static void showNotification(@PropertyKey(resourceBundle = "messages.IdeBundle") String key,
+                                       @Nullable NotificationAction action,
+                                       Object... params) {
+    boolean ignored = PropertiesComponent.getInstance().isValueSet("ignore." + key);
+    LOG.warn("issue detected: " + key + (ignored ? " (ignored)" : ""));
+    if (ignored) return;
+
+    Notification notification = new MyNotification(IdeBundle.message(key, params));
+    if (action != null) {
+      notification.addAction(action);
+    }
+    notification.addAction(new NotificationAction(IdeBundle.message("sys.health.acknowledge.action")) {
+      @Override
+      public void actionPerformed(@NotNull AnActionEvent e, @NotNull Notification notification) {
+        notification.expire();
+        PropertiesComponent.getInstance().setValue("ignore." + key, "true");
+      }
+    });
+    notification.setImportant(true);
+
+    Notifications.Bus.notify(notification);
+  }
+
+  private static final class MyNotification extends Notification implements NotificationFullContent {
+    MyNotification(@NotNull @NlsContexts.NotificationContent String content) {
+      super(DISPLAY_ID, "", content, NotificationType.WARNING);
+    }
+  }
 
   private static void startDiskSpaceMonitoring() {
     if (SystemProperties.getBooleanProperty("idea.no.system.path.space.monitoring", false)) {
@@ -126,71 +201,65 @@ public class SystemHealthMonitor extends ApplicationComponent.Adapter {
 
     final File file = new File(PathManager.getSystemPath());
     final AtomicBoolean reported = new AtomicBoolean();
-    final ThreadLocal<Future<Long>> ourFreeSpaceCalculation = new ThreadLocal<Future<Long>>();
+    final ThreadLocal<Future<Long>> ourFreeSpaceCalculation = new ThreadLocal<>();
 
-    JobScheduler.getScheduler().schedule(new Runnable() {
+    AppExecutorUtil.getAppScheduledExecutorService().schedule(new Runnable() {
       private static final long LOW_DISK_SPACE_THRESHOLD = 50 * 1024 * 1024;
       private static final long MAX_WRITE_SPEED_IN_BPS = 500 * 1024 * 1024;  // 500 MB/sec is near max SSD sequential write speed
 
       @Override
       public void run() {
         if (!reported.get()) {
-          Future<Long> future = ourFreeSpaceCalculation.get();
+          Future<@Nullable Long> future = ourFreeSpaceCalculation.get();
           if (future == null) {
-            ourFreeSpaceCalculation.set(future = ApplicationManager.getApplication().executeOnPooledThread(new Callable<Long>() {
-              @Override
-              public Long call() throws Exception {
-                // file.getUsableSpace() can fail and return 0 e.g. after MacOSX restart or awakening from sleep
-                // so several times try to recalculate usable space on receiving 0 to be sure
-                long fileUsableSpace = file.getUsableSpace();
-                for(int i = 0; fileUsableSpace == 0 && i < ourMaxNumberOfTimesToObserveZeroSpace; ++i) {
-                  Thread.sleep(5000);
-                  fileUsableSpace = file.getUsableSpace();
-                }
-
-                return fileUsableSpace;
+            ourFreeSpaceCalculation.set(future = ApplicationManager.getApplication().executeOnPooledThread(() -> {
+              // file.getUsableSpace() can fail and return 0 (e.g. after macOS restart or awakening from sleep)
+              // so several times try to recalculate usable space on receiving 0 to be sure
+              long fileUsableSpace = file.getUsableSpace();
+              while (fileUsableSpace == 0) {
+                TimeoutUtil.sleep(5000);  // hopefully we are not hammering the disk too much
+                fileUsableSpace = file.getUsableSpace();
               }
+              return fileUsableSpace;
             }));
           }
           if (!future.isDone() || future.isCancelled()) {
-            JobScheduler.getScheduler().schedule(this, 1, TimeUnit.SECONDS);
+            restart(1);
             return;
           }
 
           try {
-            final long fileUsableSpace = future.get();
-            final long timeout = Math.max(5, (fileUsableSpace - LOW_DISK_SPACE_THRESHOLD) / MAX_WRITE_SPEED_IN_BPS);
+            Long result = future.get();
+            if (result == null) return;
             ourFreeSpaceCalculation.set(null);
 
-            if (fileUsableSpace < LOW_DISK_SPACE_THRESHOLD) {
-              if (!notificationsComponentIsLoaded()) {
+            long usableSpace = result;
+            long timeout = MathUtil.clamp((usableSpace - LOW_DISK_SPACE_THRESHOLD) / MAX_WRITE_SPEED_IN_BPS, 5, 3600);
+            if (usableSpace < LOW_DISK_SPACE_THRESHOLD) {
+              if (ReadAction.compute(() -> NotificationsConfiguration.getNotificationsConfiguration()) == null) {
                 ourFreeSpaceCalculation.set(future);
-                JobScheduler.getScheduler().schedule(this, 1, TimeUnit.SECONDS);
+                restart(1);
                 return;
               }
               reported.compareAndSet(false, true);
 
-              //noinspection SSBasedInspection
-              SwingUtilities.invokeLater(new Runnable() {
-                @Override
-                public void run() {
-                  String productName = ApplicationNamesInfo.getInstance().getFullProductName();
-                  String message = IdeBundle.message("low.disk.space.message", productName);
-                  if (fileUsableSpace < 100 * 1024) {
-                    LOG.warn(message);
-                    Messages.showErrorDialog(message, "Fatal Configuration Problem");
-                    reported.compareAndSet(true, false);
-                    restart(timeout);
-                  }
-                  else {
-                    GROUP.createNotification(message, file.getPath(), NotificationType.ERROR, null).whenExpired(new Runnable() {
-                      @Override
-                      public void run() {
-                        reported.compareAndSet(true, false);
-                        restart(timeout);
-                      }
-                    }).notify(null);
-                  }
+              SwingUtilities.invokeLater(() -> {
+                String productName = ApplicationNamesInfo.getInstance().getFullProductName();
+                String message = IdeBundle.message("low.disk.space.message", productName);
+                if (usableSpace < 100 * 1024) {
+                  LOG.warn(message + " (" + usableSpace + ")");
+                  Messages.showErrorDialog(message, IdeBundle.message("dialog.title.fatal.configuration.problem"));
+                  reported.compareAndSet(true, false);
+                  restart(timeout);
+                }
+                else {
+                  NotificationGroupManager.getInstance().getNotificationGroup(DISPLAY_ID)
+                    .createNotification(message, file.getPath(), NotificationType.ERROR, null)
+                    .whenExpired(() -> {
+                      reported.compareAndSet(true, false);
+                      restart(timeout);
+                    })
+                    .notify(null);
                 }
               });
             }
@@ -204,19 +273,22 @@ public class SystemHealthMonitor extends ApplicationComponent.Adapter {
         }
       }
 
-      private boolean notificationsComponentIsLoaded() {
-        return ApplicationManager.getApplication().runReadAction(new Computable<NotificationsConfiguration>() {
-          @Override
-          public NotificationsConfiguration compute() {
-            return NotificationsConfiguration.getNotificationsConfiguration();
-          }
-        }) != null;
-      }
-
       private void restart(long timeout) {
-        JobScheduler.getScheduler().schedule(this, timeout, TimeUnit.SECONDS);
+        AppExecutorUtil.getAppScheduledExecutorService().schedule(this, timeout, TimeUnit.SECONDS);
       }
     }, 1, TimeUnit.SECONDS);
   }
 
+  private interface LibC extends Library {
+    Pointer SIG_IGN = new Pointer(1L);
+
+    interface Handler extends Callback {
+      void callback(int sig);
+
+      Handler TERMINATE = sig -> System.exit(128 + sig);  // ref: java.lang.Terminator
+    }
+
+    int sigaction(int sig, Pointer action, Pointer oldAction);
+    Pointer signal(int sig, Handler handler);
+  }
 }

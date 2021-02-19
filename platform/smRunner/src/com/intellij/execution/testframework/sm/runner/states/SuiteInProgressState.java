@@ -15,8 +15,8 @@
  */
 package com.intellij.execution.testframework.sm.runner.states;
 
-import org.jetbrains.annotations.NotNull;
 import com.intellij.execution.testframework.sm.runner.SMTestProxy;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -53,14 +53,6 @@ public class SuiteInProgressState extends TestInProgressState {
 
     //cannot cache because one of child tests may fail in future
     return false;
-  }
-
-  public boolean wasTerminated() {
-    return false;
-  }
-
-  public Magnitude getMagnitude() {
-    return Magnitude.RUNNING_INDEX;
   }
 
   @Override

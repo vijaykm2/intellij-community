@@ -17,19 +17,24 @@ package org.jetbrains.idea.maven.wizards;
 
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.ide.util.projectWizard.ModuleWizardStep;
+import com.intellij.ide.util.projectWizard.ProjectWizardUtil;
 import com.intellij.ide.util.projectWizard.WizardContext;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.model.MavenArchetype;
+import org.jetbrains.idea.maven.model.MavenConstants;
 import org.jetbrains.idea.maven.model.MavenId;
 import org.jetbrains.idea.maven.navigator.SelectMavenProjectDialog;
 import org.jetbrains.idea.maven.project.MavenProject;
+import org.jetbrains.idea.maven.project.MavenProjectBundle;
 import org.jetbrains.idea.maven.project.MavenProjectsManager;
 
 import javax.swing.*;
@@ -48,7 +53,7 @@ public class MavenModuleWizardStep extends ModuleWizardStep {
   private static final String ARCHETYPE_VERSION_KEY = "MavenModuleWizard.archetypeVersionKey";
 
   private final Project myProjectOrNull;
-  private final MavenModuleBuilder myBuilder;
+  private final AbstractMavenModuleBuilder myBuilder;
   private final WizardContext myContext;
   private MavenProject myAggregator;
   private MavenProject myParent;
@@ -75,7 +80,7 @@ public class MavenModuleWizardStep extends ModuleWizardStep {
   @Nullable
   private final MavenArchetypesStep myArchetypes;
 
-  public MavenModuleWizardStep(MavenModuleBuilder builder, WizardContext context, boolean includeArtifacts) {
+  public MavenModuleWizardStep(AbstractMavenModuleBuilder builder, WizardContext context, boolean includeArtifacts) {
     myProjectOrNull = context.getProject();
     myBuilder = builder;
     myContext = context;
@@ -90,9 +95,18 @@ public class MavenModuleWizardStep extends ModuleWizardStep {
     loadSettings();
   }
 
+  /**
+   * @deprecated use {@link MavenModuleWizardStep#MavenModuleWizardStep(AbstractMavenModuleBuilder, WizardContext, boolean)} instead
+   */
+  @Deprecated
+  public MavenModuleWizardStep(MavenModuleBuilder builder, WizardContext context, boolean includeArtifacts) {
+    this((AbstractMavenModuleBuilder)builder, context, includeArtifacts);
+  }
+
   private void initComponents() {
 
     mySelectAggregator.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         myAggregator = doSelectProject(myAggregator);
         updateComponents();
@@ -100,6 +114,7 @@ public class MavenModuleWizardStep extends ModuleWizardStep {
     });
 
     mySelectParent.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         myParent = doSelectProject(myParent);
         updateComponents();
@@ -107,6 +122,7 @@ public class MavenModuleWizardStep extends ModuleWizardStep {
     });
 
     ActionListener updatingListener = new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         updateComponents();
       }
@@ -180,6 +196,7 @@ public class MavenModuleWizardStep extends ModuleWizardStep {
     props.setValue(key, value);
   }
 
+  @Override
   public JComponent getComponent() {
     return myMainPanel;
   }
@@ -187,15 +204,15 @@ public class MavenModuleWizardStep extends ModuleWizardStep {
   @Override
   public boolean validate() throws ConfigurationException {
     if (StringUtil.isEmptyOrSpaces(myGroupIdField.getText())) {
-      throw new ConfigurationException("Please, specify groupId");
+      throw new ConfigurationException(MavenProjectBundle.message("dialog.message.wizard.please.specify.groupid"));
     }
 
     if (StringUtil.isEmptyOrSpaces(myArtifactIdField.getText())) {
-      throw new ConfigurationException("Please, specify artifactId");
+      throw new ConfigurationException(MavenProjectBundle.message("dialog.message.wizard.please.specify.artifactid"));
     }
 
     if (StringUtil.isEmptyOrSpaces(myVersionField.getText())) {
-      throw new ConfigurationException("Please, specify version");
+      throw new ConfigurationException(MavenProjectBundle.message("dialog.message.wizard.please.specify.version"));
     }
 
     return true;
@@ -204,13 +221,14 @@ public class MavenModuleWizardStep extends ModuleWizardStep {
   public MavenProject findPotentialParentProject(Project project) {
     if (!MavenProjectsManager.getInstance(project).isMavenizedProject()) return null;
 
-    VirtualFile parentPom = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(new File(myContext.getProjectFileDirectory(), "pom.xml"));
+    VirtualFile parentPom = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(new File(myContext.getProjectFileDirectory(),
+                                                                                              MavenConstants.POM_XML));
     if (parentPom == null) return null;
 
     return MavenProjectsManager.getInstance(project).findProject(parentPom);
   }
 
-  private static void setTestIfEmpty(@NotNull JTextField artifactIdField, @Nullable String text) {
+  private static void setTextIfEmpty(@NotNull JTextField artifactIdField, @Nullable String text) {
     if (StringUtil.isEmpty(artifactIdField.getText())) {
       artifactIdField.setText(StringUtil.notNullize(text));
     }
@@ -229,14 +247,14 @@ public class MavenModuleWizardStep extends ModuleWizardStep {
     MavenId projectId = myBuilder.getProjectId();
 
     if (projectId == null) {
-      setTestIfEmpty(myArtifactIdField, myBuilder.getName());
-      setTestIfEmpty(myGroupIdField, myParent == null ? myBuilder.getName() : myParent.getMavenId().getGroupId());
-      setTestIfEmpty(myVersionField, myParent == null ? "1.0-SNAPSHOT" : myParent.getMavenId().getVersion());
+      setTextIfEmpty(myArtifactIdField, myBuilder.getName());
+      setTextIfEmpty(myGroupIdField, myParent == null ? myBuilder.getName() : myParent.getMavenId().getGroupId());
+      setTextIfEmpty(myVersionField, myParent == null ? "1.0-SNAPSHOT" : myParent.getMavenId().getVersion());
     }
     else {
-      setTestIfEmpty(myArtifactIdField, projectId.getArtifactId());
-      setTestIfEmpty(myGroupIdField, projectId.getGroupId());
-      setTestIfEmpty(myVersionField, projectId.getVersion());
+      setTextIfEmpty(myArtifactIdField, projectId.getArtifactId());
+      setTextIfEmpty(myGroupIdField, projectId.getGroupId());
+      setTextIfEmpty(myVersionField, projectId.getVersion());
     }
 
     myInheritGroupIdCheckBox.setSelected(myBuilder.isInheritGroupId());
@@ -281,10 +299,23 @@ public class MavenModuleWizardStep extends ModuleWizardStep {
       myInheritGroupIdCheckBox.setEnabled(true);
       myInheritVersionCheckBox.setEnabled(true);
     }
+
+    setTextIfEmpty(myGroupIdField, "org.example");
+    setTextIfEmpty(myArtifactIdField, suggestArtifactId());
   }
 
+  @NotNull
+  private String suggestArtifactId() {
+    if (myContext.isCreatingNewProject()) {
+      String baseDir = myContext.getProjectFileDirectory();
+      return ProjectWizardUtil.findNonExistingFileName(baseDir, "untitled", "");
+    }
+    return "";
+  }
+
+  @Nls
   private static String formatProjectString(MavenProject project) {
-    if (project == null) return "<none>";
+    if (project == null) return MavenProjectBundle.message("maven.parent.label.none");
     return project.getMavenId().getDisplayString();
   }
 

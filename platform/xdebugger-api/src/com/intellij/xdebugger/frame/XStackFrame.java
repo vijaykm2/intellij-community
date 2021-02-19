@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.xdebugger.frame;
 
@@ -28,8 +14,6 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Represents a frame of execution stack. The selected frame is shown in 'Variables' panel of 'Debug' tool window.
  * Override {@link XValueContainer#computeChildren} to show local variable, parameters, fields available in the frame
- *
- * @author nik
  */
 public abstract class XStackFrame extends XValueContainer {
 
@@ -55,7 +39,7 @@ public abstract class XStackFrame extends XValueContainer {
   /**
    * @return source position corresponding to stack frame
    */
-  @Nullable 
+  @Nullable
   public XSourcePosition getSourcePosition() {
     return null;
   }
@@ -69,7 +53,7 @@ public abstract class XStackFrame extends XValueContainer {
     if (position != null) {
       component.append(position.getFile().getName(), SimpleTextAttributes.REGULAR_ATTRIBUTES);
       component.append(":" + (position.getLine() + 1), SimpleTextAttributes.REGULAR_ATTRIBUTES);
-      component.setIcon(AllIcons.Debugger.StackFrame);
+      component.setIcon(AllIcons.Debugger.Frame);
     }
     else {
       component.append(XDebuggerBundle.message("invalid.frame"), SimpleTextAttributes.ERROR_ATTRIBUTES);

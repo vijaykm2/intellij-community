@@ -17,68 +17,70 @@ package com.intellij.openapi.vcs.roots;
 
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
+import java.util.*;
 
-/**
- * @author Nadya Zabrodina
- */
 class VcsRootConfiguration {
 
-  @NotNull private Collection<String> myMockRoots;
+  @NotNull private Collection<String> myVcsRoots;
   @NotNull private Collection<String> myContentRoots;
-  @NotNull private Collection<String> myRoots;
+  @NotNull private Collection<String> myMappings;
   @NotNull private Collection<String> myUnregErrors;
   @NotNull private Collection<String> myExtraErrors;
 
 
-  public VcsRootConfiguration() {
-    myMockRoots = Collections.emptyList();
-    myRoots = Collections.emptyList();
+  VcsRootConfiguration() {
+    myVcsRoots = Collections.emptyList();
+    myMappings = Collections.emptyList();
     myContentRoots = Collections.emptyList();
     myUnregErrors = Collections.emptyList();
     myExtraErrors = Collections.emptyList();
   }
 
-  public VcsRootConfiguration mock(@NotNull String... mockRoots) {
-    myMockRoots = Arrays.asList(mockRoots);
+  @NotNull
+  public VcsRootConfiguration vcsRoots(String @NotNull ... vcsRoots) {
+    myVcsRoots = Arrays.asList(vcsRoots);
     return this;
   }
 
-  public VcsRootConfiguration roots(@NotNull String... roots) {
-    myRoots = Arrays.asList(roots);
+  @NotNull
+  public VcsRootConfiguration mappings(String @NotNull ... mappings) {
+    myMappings = Arrays.asList(mappings);
     return this;
   }
 
-  public VcsRootConfiguration contentRoots(@NotNull String... contentRoots) {
+  @NotNull
+  public VcsRootConfiguration contentRoots(String @NotNull ... contentRoots) {
     myContentRoots = Arrays.asList(contentRoots);
     return this;
   }
 
-  public VcsRootConfiguration unregErrors(@NotNull String... unregErrors) {
+  @NotNull
+  public VcsRootConfiguration unregErrors(String @NotNull ... unregErrors) {
     myUnregErrors = Arrays.asList(unregErrors);
     return this;
   }
 
-  public VcsRootConfiguration extraErrors(@NotNull String... extraErrors) {
+  @NotNull
+  public VcsRootConfiguration extraErrors(String @NotNull ... extraErrors) {
     myExtraErrors = Arrays.asList(extraErrors);
     return this;
   }
 
   @NotNull
-  public Collection<String> getMockRoots() {
-    return myMockRoots;
+  public Collection<String> getVcsRoots() {
+    return myVcsRoots;
   }
 
   @NotNull
   public Collection<String> getContentRoots() {
-    return myContentRoots;
+    Set<String> result = new HashSet<>(myContentRoots);
+    result.addAll(myVcsRoots);
+    return result;
   }
 
   @NotNull
-  public Collection<String> getRoots() {
-    return myRoots;
+  public Collection<String> getVcsMappings() {
+    return myMappings;
   }
 
   @NotNull

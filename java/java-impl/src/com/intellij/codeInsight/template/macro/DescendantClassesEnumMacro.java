@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,10 @@
  */
 package com.intellij.codeInsight.template.macro;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupElementBuilder;
 import com.intellij.codeInsight.template.*;
+import com.intellij.java.JavaBundle;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiElementProcessor;
@@ -40,11 +40,11 @@ public class DescendantClassesEnumMacro extends Macro {
 
   @Override
   public String getPresentableName() {
-    return CodeInsightBundle.message("macro.descendant.classes.enum");
+    return JavaBundle.message("macro.descendant.classes.enum");
   }
 
   @Override
-  public Result calculateResult(@NotNull Expression[] params, ExpressionContext context) {
+  public Result calculateResult(Expression @NotNull [] params, ExpressionContext context) {
     final List<PsiClass> classes = findDescendants(context, params);
     if (classes == null || classes.size() == 0) return null;
     Result[] results = calculateResults(classes);
@@ -52,7 +52,7 @@ public class DescendantClassesEnumMacro extends Macro {
     return results[0];
   }
 
-  private static Result[] calculateResults(final List<PsiClass> classes) {
+  private static Result[] calculateResults(final List<? extends PsiClass> classes) {
     Result[] results = new Result[classes.size()];
     int i = 0;
 
@@ -78,18 +78,17 @@ public class DescendantClassesEnumMacro extends Macro {
       JavaPsiFacade.getInstance(instance.getProject()).findClass(paramResult, GlobalSearchScope.allScope(context.getProject()));
 
     if (myBaseClass != null) {
-      final List<PsiClass> classes = new ArrayList<PsiClass>();
+      final List<PsiClass> classes = new ArrayList<>();
 
-      ClassInheritorsSearch.search(myBaseClass, true).forEach(new PsiElementProcessorAdapter<PsiClass>(new PsiElementProcessor<PsiClass>() {
-          @Override
-          public boolean execute(@NotNull PsiClass element) {
-            if (isAllowAbstract || !isAbstractOrInterface(element)) {
-              classes.add(element);
-            }
-            return true;
+      ClassInheritorsSearch.search(myBaseClass).forEach(new PsiElementProcessorAdapter<>(new PsiElementProcessor<>() {
+        @Override
+        public boolean execute(@NotNull PsiClass element) {
+          if (isAllowAbstract || !isAbstractOrInterface(element)) {
+            classes.add(element);
           }
-
-        }));
+          return true;
+        }
+      }));
 
       return classes;
     }
@@ -98,7 +97,7 @@ public class DescendantClassesEnumMacro extends Macro {
   }
 
   @Override
-  public Result calculateQuickResult(@NotNull Expression[] params, ExpressionContext context) {
+  public Result calculateQuickResult(Expression @NotNull [] params, ExpressionContext context) {
     final List<PsiClass> classes = findDescendants(context, params);
     if (classes == null || classes.size() == 0) return null;
     Result[] results = calculateResults(classes);
@@ -107,11 +106,11 @@ public class DescendantClassesEnumMacro extends Macro {
   }
 
   @Override
-  public LookupElement[] calculateLookupItems(@NotNull Expression[] params, ExpressionContext context) {
+  public LookupElement[] calculateLookupItems(Expression @NotNull [] params, ExpressionContext context) {
     final List<PsiClass> classes = findDescendants(context, params);
     if (classes == null || classes.size() == 0) return null;
 
-    Set<LookupElement> set = new LinkedHashSet<LookupElement>();
+    Set<LookupElement> set = new LinkedHashSet<>();
     boolean isShortName = params.length > 1 && !Boolean.valueOf(params[1].calculateResult(context).toString());
 
     for (PsiClass object : classes) {
@@ -121,7 +120,7 @@ public class DescendantClassesEnumMacro extends Macro {
       }
     }
 
-    return set.toArray(new LookupElement[set.size()]);
+    return set.toArray(LookupElement.EMPTY_ARRAY);
   }
 
   private static boolean isAbstractOrInterface(final PsiClass psiClass) {

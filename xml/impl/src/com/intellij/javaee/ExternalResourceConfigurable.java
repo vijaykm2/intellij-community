@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.javaee;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -26,7 +12,7 @@ import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.AddEditRemovePanel;
 import com.intellij.ui.table.JBTable;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.xml.XmlBundle;
@@ -42,29 +28,28 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-public class ExternalResourceConfigurable extends BaseConfigurable
-  implements Configurable.NoScroll {
+public class ExternalResourceConfigurable extends BaseConfigurable implements Configurable.NoScroll {
   private JPanel myPanel;
   private List<NameLocationPair> myPairs;
   private List<String> myIgnoredUrls;
   private AddEditRemovePanel<NameLocationPair> myExtPanel;
   private AddEditRemovePanel<String> myIgnorePanel;
   @Nullable private final Project myProject;
-  private final List<NameLocationPair> myNewPairs;
+  private final List<? extends NameLocationPair> myNewPairs;
 
   @SuppressWarnings("UnusedDeclaration")
   public ExternalResourceConfigurable(@Nullable Project project) {
-    this(project, Collections.<NameLocationPair>emptyList());
+    this(project, Collections.emptyList());
   }
 
-  public ExternalResourceConfigurable(@Nullable Project project, List<NameLocationPair> newResources) {
+  public ExternalResourceConfigurable(@Nullable Project project, List<? extends NameLocationPair> newResources) {
     myProject = project;
     myNewPairs = newResources;
   }
 
   @Override
   public String getDisplayName() {
-    return XmlBundle.message("display.name.edit.external.resource");
+    return XmlBundle.message("xml.external.resource.display.name");
   }
 
   @Override
@@ -76,7 +61,8 @@ public class ExternalResourceConfigurable extends BaseConfigurable
       }
     };
 
-    myExtPanel = new AddEditRemovePanel<NameLocationPair>(new ExtUrlsTableModel(), myPairs, XmlBundle.message("label.edit.external.resource.configure.external.resources")) {
+    myExtPanel = new AddEditRemovePanel<>(new ExtUrlsTableModel(), myPairs, XmlBundle.message(
+      "xml.external.resource.label.external.resources")) {
       @Override
       protected NameLocationPair addItem() {
         return addExtLocation();
@@ -93,7 +79,7 @@ public class ExternalResourceConfigurable extends BaseConfigurable
         return editExtLocation(o);
       }
     };
-    myExtPanel.getTable().setShowColumns(true);
+    myExtPanel.getTable().setShowGrid(false);
 
     myExtPanel.setRenderer(1, new PathRenderer());
 
@@ -110,7 +96,8 @@ public class ExternalResourceConfigurable extends BaseConfigurable
         setModified(true);
       }
     });
-    myIgnorePanel = new AddEditRemovePanel<String>(new IgnoredUrlsModel(), myIgnoredUrls, XmlBundle.message("label.edit.external.resource.configure.ignored.resources")) {
+    myIgnorePanel = new AddEditRemovePanel<>(new IgnoredUrlsModel(), myIgnoredUrls, XmlBundle.message(
+      "xml.external.resource.label.ignored.resources")) {
       @Override
       protected String addItem() {
         return addIgnoreLocation();
@@ -127,6 +114,7 @@ public class ExternalResourceConfigurable extends BaseConfigurable
         return editIgnoreLocation(o);
       }
     };
+    myIgnorePanel.getTable().setShowGrid(false);
 
     myPanel.add(myExtPanel,
                 new GridBagConstraints(0, 0, 1, 1, 1, 1, GridBagConstraints.NORTH, GridBagConstraints.BOTH, new Insets(0, 0, 0, 0), 0, 0));
@@ -136,40 +124,34 @@ public class ExternalResourceConfigurable extends BaseConfigurable
     myExtPanel.setData(myPairs);
     myIgnorePanel.setData(myIgnoredUrls);
 
-    myExtPanel.getEmptyText().setText(XmlBundle.message("no.external.resources"));
-    myIgnorePanel.getEmptyText().setText(XmlBundle.message("no.ignored.resources"));
+    myExtPanel.getEmptyText().setText(XmlBundle.message("xml.external.resource.empty.text.no.external.resources"));
+    myIgnorePanel.getEmptyText().setText(XmlBundle.message("xml.external.resource.empty.text.no.ignored.resources"));
 
     return myPanel;
   }
 
   @Override
   public void apply() {
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      @Override
-      public void run() {
-        ExternalResourceManagerEx manager = ExternalResourceManagerEx.getInstanceEx();
+    ApplicationManager.getApplication().runWriteAction(() -> {
+      ExternalResourceManagerEx manager = ExternalResourceManagerEx.getInstanceEx();
 
-        if (myProject == null) {
-          manager.clearAllResources();
+      if (myProject == null) {
+        manager.clearAllResources();
+      }
+      else {
+        manager.clearAllResources(myProject);
+      }
+      for (NameLocationPair pair : myPairs) {
+        String s = FileUtil.toSystemIndependentName(StringUtil.notNullize(pair.myLocation));
+        if (myProject == null || pair.myShared) {
+          manager.addResource(pair.myName, s);
         }
         else {
-          manager.clearAllResources(myProject);
-        }
-        for (NameLocationPair pair : myPairs) {
-          String s = FileUtil.toSystemIndependentName(StringUtil.notNullize(pair.myLocation));
-          if (myProject == null || pair.myShared) {
-            manager.addResource(pair.myName, s);
-          }
-          else {
-            manager.addResource(pair.myName, s, myProject);
-          }
-        }
-
-        for (Object myIgnoredUrl : myIgnoredUrls) {
-          String url = (String)myIgnoredUrl;
-          manager.addIgnoredResource(url);
+          manager.addResource(pair.myName, s, myProject);
         }
       }
+
+      manager.addIgnoredResources(myIgnoredUrls, null);
     });
 
     setModified(false);
@@ -178,7 +160,7 @@ public class ExternalResourceConfigurable extends BaseConfigurable
   @Override
   public void reset() {
 
-    myPairs = new ArrayList<NameLocationPair>(myNewPairs);
+    myPairs = new ArrayList<>(myNewPairs);
     ExternalResourceManagerEx manager = ExternalResourceManagerEx.getInstanceEx();
 
     String[] urls = manager.getAvailableUrls();
@@ -196,7 +178,7 @@ public class ExternalResourceConfigurable extends BaseConfigurable
 
     Collections.sort(myPairs);
 
-    myIgnoredUrls = new ArrayList<String>();
+    myIgnoredUrls = new ArrayList<>();
     final String[] ignoredResources = manager.getIgnoredResources();
     ContainerUtil.addAll(myIgnoredUrls, ignoredResources);
 
@@ -286,15 +268,15 @@ public class ExternalResourceConfigurable extends BaseConfigurable
         } else {
           path = LocalFileSystem.getInstance().findFileByPath(loc);
         }
-
-        setForeground(path != null ? isSelected ? UIUtil.getTableSelectionForeground() : Color.black : new Color(210, 0, 0));
+        Color fg = isSelected ? UIUtil.getTableSelectionForeground(hasFocus) : UIUtil.getTableForeground();
+        setForeground(path != null ? fg : new Color(210, 0, 0));
       }
       return rendererComponent;
     }
   }
 
   private static class IgnoredUrlsModel extends AddEditRemovePanel.TableModel<String> {
-    private final String[] myNames = {XmlBundle.message("column.name.edit.external.resource.uri")};
+    private final String[] myNames = {XmlBundle.message("xml.external.resource.column.name.uri")};
 
     @Override
     public int getColumnCount() {
@@ -307,21 +289,6 @@ public class ExternalResourceConfigurable extends BaseConfigurable
     }
 
     @Override
-    public Class getColumnClass(int columnIndex) {
-      return String.class;
-    }
-
-    @Override
-    public boolean isEditable(int column) {
-      return false;
-    }
-
-    @Override
-    public void setValue(Object aValue, String data, int columnIndex) {
-
-    }
-
-    @Override
     public String getColumnName(int column) {
       return myNames[column];
     }
@@ -331,13 +298,13 @@ public class ExternalResourceConfigurable extends BaseConfigurable
     final String[] myNames;
 
     {
-      List<String> names = new ArrayList<String>();
-      names.add(XmlBundle.message("column.name.edit.external.resource.uri"));
-      names.add(XmlBundle.message("column.name.edit.external.resource.location"));
+      List<String> names = new ArrayList<>();
+      names.add(XmlBundle.message("xml.external.resource.column.name.uri"));
+      names.add(XmlBundle.message("xml.external.resource.column.name.location"));
       if (myProject != null) {
         names.add("Project");
       }
-      myNames = ArrayUtil.toStringArray(names);
+      myNames = ArrayUtilRt.toStringArray(names);
     }
 
     @Override

@@ -20,13 +20,11 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * Factory class for {@link XDebugProcess} implementation. Used by {@link XDebuggerManager} to start a new debugging session
- *
- * @author nik
  */
 public abstract class XDebugProcessStarter {
   /**
-   * Create a new instance of {@link XDebugProcess} implementation. Note that <code>session</code> isn't initialized when this method is
-   * called so in order to perform code depending on <code>session</code> parameter override {@link XDebugProcess#sessionInitialized} method
+   * Create a new instance of {@link XDebugProcess} implementation. Note that {@code session} isn't initialized when this method is
+   * called so in order to perform code depending on {@code session} parameter override {@link XDebugProcess#sessionInitialized} method
    * @param session session to be passed to {@link XDebugProcess#XDebugProcess} constructor
    * @return new {@link XDebugProcess} instance
    */

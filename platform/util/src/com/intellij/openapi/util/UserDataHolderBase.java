@@ -1,34 +1,19 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.util;
 
-
-import com.intellij.util.concurrency.AtomicFieldUpdater;
 import com.intellij.util.keyFMap.KeyFMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
-public class UserDataHolderBase implements UserDataHolderEx, Cloneable {
-  public static final Key<KeyFMap> COPYABLE_USER_MAP_KEY = Key.create("COPYABLE_USER_MAP_KEY");
+import java.util.concurrent.atomic.AtomicReference;
 
-  /**
-   * Concurrent writes to this field are via CASes only, using the {@link #updater}
-   */
-  @NotNull private volatile KeyFMap myUserMap = KeyFMap.EMPTY_MAP;
+public class UserDataHolderBase extends AtomicReference<KeyFMap> implements UserDataHolderEx {
+  private static final Key<KeyFMap> COPYABLE_USER_MAP_KEY = Key.create("COPYABLE_USER_MAP_KEY");
+
+  public UserDataHolderBase() {
+    set(KeyFMap.EMPTY_MAP);
+  }
 
   @Override
   protected Object clone() {
@@ -47,22 +32,25 @@ public class UserDataHolderBase implements UserDataHolderEx, Cloneable {
   public String getUserDataString() {
     final KeyFMap userMap = getUserMap();
     final KeyFMap copyableMap = getUserData(COPYABLE_USER_MAP_KEY);
-    return userMap.toString() + (copyableMap == null ? "" : copyableMap.toString());
+    return userMap + (copyableMap == null ? "" : copyableMap.toString());
   }
 
-  public void copyUserDataTo(UserDataHolderBase other) {
+  public void copyUserDataTo(@NotNull UserDataHolderBase other) {
     other.setUserMap(getUserMap());
   }
 
   @Override
   public <T> T getUserData(@NotNull Key<T> key) {
-    //noinspection unchecked
-    return getUserMap().get(key);
+    T t = getUserMap().get(key);
+    if (t == null && key instanceof KeyWithDefaultValue) {
+      t = putUserDataIfAbsent(key, ((KeyWithDefaultValue<T>)key).getDefaultValue());
+    }
+    return t;
   }
 
   @NotNull
   protected KeyFMap getUserMap() {
-    return myUserMap;
+    return get();
   }
 
   @Override
@@ -76,13 +64,12 @@ public class UserDataHolderBase implements UserDataHolderEx, Cloneable {
     }
   }
 
-  protected boolean changeUserMap(KeyFMap oldMap, KeyFMap newMap) {
-    return updater.compareAndSet(this, oldMap, newMap);
+  protected boolean changeUserMap(@NotNull KeyFMap oldMap, @NotNull KeyFMap newMap) {
+    return compareAndSet(oldMap, newMap);
   }
 
   public <T> T getCopyableUserData(@NotNull Key<T> key) {
     KeyFMap map = getUserData(COPYABLE_USER_MAP_KEY);
-    //noinspection unchecked,ConstantConditions
     return map == null ? null : map.get(key);
   }
 
@@ -114,7 +101,7 @@ public class UserDataHolderBase implements UserDataHolderEx, Cloneable {
       }
     }
   }
-                                                            
+
   @Override
   @NotNull
   public <T> T putUserDataIfAbsent(@NotNull final Key<T> key, @NotNull final T value) {
@@ -140,12 +127,10 @@ public class UserDataHolderBase implements UserDataHolderEx, Cloneable {
   }
 
   protected void setUserMap(@NotNull KeyFMap map) {
-    myUserMap = map;
+    set(map);
   }
 
   public boolean isUserDataEmpty() {
     return getUserMap().isEmpty();
   }
-
-  private static final AtomicFieldUpdater<UserDataHolderBase, KeyFMap> updater = AtomicFieldUpdater.forFieldOfType(UserDataHolderBase.class, KeyFMap.class);
 }

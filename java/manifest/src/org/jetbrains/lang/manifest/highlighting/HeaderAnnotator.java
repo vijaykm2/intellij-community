@@ -26,8 +26,10 @@ package org.jetbrains.lang.manifest.highlighting;
 
 import com.intellij.lang.annotation.AnnotationHolder;
 import com.intellij.lang.annotation.Annotator;
+import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.lang.manifest.ManifestBundle;
 import org.jetbrains.lang.manifest.header.HeaderParser;
 import org.jetbrains.lang.manifest.header.HeaderParserRepository;
 import org.jetbrains.lang.manifest.psi.Header;
@@ -35,21 +37,32 @@ import org.jetbrains.lang.manifest.psi.Header;
 /**
  * @author Robert F. Beeger (robert@beeger.net)
  */
-public class HeaderAnnotator implements Annotator {
-  private final HeaderParserRepository myRepository;
-
-  public HeaderAnnotator(@NotNull HeaderParserRepository repository) {
-    myRepository = repository;
-  }
-
+final class HeaderAnnotator implements Annotator {
   @Override
   public void annotate(@NotNull PsiElement psiElement, @NotNull AnnotationHolder holder) {
     if (psiElement instanceof Header) {
       Header header = (Header)psiElement;
-      HeaderParser headerParser = myRepository.getHeaderParser(header.getName());
-      if (headerParser != null) {
-        headerParser.annotate(header, holder);
+      String name = header.getName();
+      if (!isValidName(name)) {
+        holder.newAnnotation(HighlightSeverity.ERROR, ManifestBundle.message("header.name.invalid")).range(header.getNameElement()).create();
+      }
+      else {
+        HeaderParser headerParser = HeaderParserRepository.getInstance().getHeaderParser(name);
+        if (headerParser != null) {
+          headerParser.annotate(header, holder);
+        }
       }
     }
+  }
+
+  private static boolean isValidName(String name) {
+    for (int i = 0; i < name.length(); i++) {
+      char c = name.charAt(i);
+      if (!(c == '-' || c == '_' || Character.isLetterOrDigit(c))) {
+        return false;
+      }
+    }
+
+    return true;
   }
 }

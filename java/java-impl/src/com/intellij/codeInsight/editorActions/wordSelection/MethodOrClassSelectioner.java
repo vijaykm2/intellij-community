@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.editorActions.wordSelection;
 
 import com.intellij.lang.java.JavaLanguage;
@@ -20,9 +6,10 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.javadoc.PsiDocComment;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.psi.util.PsiTreeUtil;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -33,22 +20,20 @@ import java.util.List;
 
 public class MethodOrClassSelectioner extends BasicSelectioner {
   @Override
-  public boolean canSelect(PsiElement e) {
+  public boolean canSelect(@NotNull PsiElement e) {
     return (e instanceof PsiClass && !(e instanceof PsiTypeParameter) || e instanceof PsiMethod) &&
            e.getLanguage() == JavaLanguage.INSTANCE;
   }
 
   @Override
-  public List<TextRange> select(PsiElement e, CharSequence editorText, int cursorOffset, Editor editor) {
-    List<TextRange> result = ContainerUtil.newArrayList(e.getTextRange());
-    result.addAll(expandToWholeLinesWithBlanks(editorText, e.getTextRange()));
+  public List<TextRange> select(@NotNull PsiElement e, @NotNull CharSequence editorText, int cursorOffset, @NotNull Editor editor) {
+    List<TextRange> result = new ArrayList<>();
 
     PsiElement firstChild = e.getFirstChild();
     PsiElement[] children = e.getChildren();
+    int i = 1;
 
     if (firstChild instanceof PsiDocComment) {
-      int i = 1;
-
       while (children[i] instanceof PsiWhiteSpace) {
         i++;
       }
@@ -59,10 +44,10 @@ public class MethodOrClassSelectioner extends BasicSelectioner {
 
       range = TextRange.create(firstChild.getTextRange());
       result.addAll(expandToWholeLinesWithBlanks(editorText, range));
-    }
-    else if (firstChild instanceof PsiComment) {
-      int i = 1;
 
+      firstChild = children[i++];
+    }
+    if (firstChild instanceof PsiComment) {
       while (children[i] instanceof PsiComment || children[i] instanceof PsiWhiteSpace) {
         i++;
       }
@@ -77,11 +62,16 @@ public class MethodOrClassSelectioner extends BasicSelectioner {
       result.addAll(expandToWholeLinesWithBlanks(editorText, range));
     }
 
+    result.add(e.getTextRange());
+    result.addAll(expandToWholeLinesWithBlanks(editorText, e.getTextRange()));
+
     if (e instanceof PsiClass) {
       result.addAll(selectWithTypeParameters((PsiClass)e));
       result.addAll(selectBetweenBracesLines(children, editorText));
     }
-
+    if (e instanceof PsiAnonymousClass) {
+      result.addAll(selectWholeBlock((PsiAnonymousClass)e));
+    }
 
     return result;
   }
@@ -95,7 +85,7 @@ public class MethodOrClassSelectioner extends BasicSelectioner {
     return Collections.emptyList();
   }
 
-  private static Collection<TextRange> selectBetweenBracesLines(@NotNull PsiElement[] children,
+  private static Collection<TextRange> selectBetweenBracesLines(PsiElement @NotNull [] children,
                                                                 @NotNull CharSequence editorText) {
     int start = CodeBlockOrInitializerSelectioner.findOpeningBrace(children);
     // in non-Java PsiClasses, there can be no opening brace
@@ -103,6 +93,16 @@ public class MethodOrClassSelectioner extends BasicSelectioner {
       int end = CodeBlockOrInitializerSelectioner.findClosingBrace(children, start);
 
       return expandToWholeLinesWithBlanks(editorText, new TextRange(start, end));
+    }
+    return Collections.emptyList();
+  }
+
+  private static Collection<TextRange> selectWholeBlock(PsiClass c) {
+    PsiJavaToken[] tokens = PsiTreeUtil.getChildrenOfType(c, PsiJavaToken.class);
+    if (tokens != null && tokens.length == 2 &&
+        tokens[0].getTokenType() == JavaTokenType.LBRACE &&
+        tokens[1].getTokenType() == JavaTokenType.RBRACE) {
+      return Collections.singleton(new TextRange(tokens[0].getTextRange().getStartOffset(), tokens[1].getTextRange().getEndOffset()));
     }
     return Collections.emptyList();
   }

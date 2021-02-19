@@ -17,10 +17,11 @@
 package com.intellij.ide.util.frameworkSupport;
 
 import com.intellij.facet.ui.libraries.LibraryInfo;
-import com.intellij.ui.ListCellRendererWrapper;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.roots.ModifiableRootModel;
 import com.intellij.openapi.roots.libraries.Library;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.ui.SimpleListCellRenderer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,7 +36,7 @@ import java.util.List;
  * @author Dmitry Avdeev
 */
 public class FrameworkSupportConfigurableBase extends FrameworkSupportConfigurable {
-  private JComboBox myVersionComboBox;
+  private JComboBox<FrameworkVersion> myVersionComboBox;
   private final FrameworkSupportProviderBase myFrameworkSupportProvider;
   protected final FrameworkSupportModel myFrameworkSupportModel;
   private final List<FrameworkVersion> myVersions;
@@ -43,23 +44,16 @@ public class FrameworkSupportConfigurableBase extends FrameworkSupportConfigurab
   private JLabel myDescriptionLabel;
 
   public FrameworkSupportConfigurableBase(FrameworkSupportProviderBase frameworkSupportProvider, FrameworkSupportModel model) {
-    this(frameworkSupportProvider, model, Collections.<FrameworkVersion>emptyList(), null);
+    this(frameworkSupportProvider, model, Collections.emptyList(), null);
   }
 
   public FrameworkSupportConfigurableBase(FrameworkSupportProviderBase frameworkSupportProvider, FrameworkSupportModel model,
-                                          @NotNull List<FrameworkVersion> versions, @Nullable String versionLabelText) {
+                                          @NotNull List<FrameworkVersion> versions, @NlsContexts.Label @Nullable String versionLabelText) {
     myFrameworkSupportProvider = frameworkSupportProvider;
     myFrameworkSupportModel = model;
     myVersions = versions;
     myDescriptionLabel.setText(versionLabelText);
-    myVersionComboBox.setRenderer(new ListCellRendererWrapper() {
-      @Override
-      public void customize(JList list, Object value, int index, boolean selected, boolean hasFocus) {
-        if (value instanceof FrameworkVersion) {
-          setText(((FrameworkVersion)value).getVersionName());
-        }
-      }
-    });
+    myVersionComboBox.setRenderer(SimpleListCellRenderer.create("", FrameworkVersion::getVersionName));
     updateAvailableVersions(versions);
     myVersionComboBox.addActionListener(new ActionListener() {
       @Override
@@ -85,7 +79,7 @@ public class FrameworkSupportConfigurableBase extends FrameworkSupportConfigurab
         }
       }
       myVersionComboBox.setSelectedItem(defaultVersion);
-      myVersionComboBox.setPrototypeDisplayValue(maxValue + "_");
+      myVersionComboBox.setPrototypeDisplayValue(new FrameworkVersion(maxValue + "_"));
     }
 
     final boolean hasMoreThanOneVersion = versions.size() >= 2;
@@ -100,9 +94,7 @@ public class FrameworkSupportConfigurableBase extends FrameworkSupportConfigurab
 
   protected void reloadVersions(List<? extends FrameworkVersion> frameworkVersions) {
     myVersions.clear();
-    for (FrameworkVersion version : frameworkVersions) {
-      myVersions.add(version);
-    }
+    myVersions.addAll(frameworkVersions);
   }
 
   @Override
@@ -111,8 +103,7 @@ public class FrameworkSupportConfigurableBase extends FrameworkSupportConfigurab
     return myVersions;
   }
 
-  @NotNull
-  public LibraryInfo[] getLibraries() {
+  public LibraryInfo @NotNull [] getLibraries() {
     return getSelectedVersion().getLibraries();
   }
 

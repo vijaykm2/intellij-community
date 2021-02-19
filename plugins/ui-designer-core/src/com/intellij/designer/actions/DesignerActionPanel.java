@@ -15,6 +15,7 @@
  */
 package com.intellij.designer.actions;
 
+import com.intellij.designer.DesignerBundle;
 import com.intellij.designer.DesignerToolWindowManager;
 import com.intellij.designer.designSurface.ComponentSelectionListener;
 import com.intellij.designer.designSurface.DesignerEditorPanel;
@@ -24,6 +25,7 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.SideBorder;
+import com.intellij.ui.UIBundle;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -100,11 +102,12 @@ public class DesignerActionPanel implements DataProvider {
 
   @NotNull
   private ActionGroup createSelectActionGroup(DesignerEditorPanel designer) {
-    final DefaultActionGroup group = new DefaultActionGroup("_Select", true);
+    final DefaultActionGroup group = DefaultActionGroup.createPopupGroup(() -> DesignerBundle.message("action.select.text"));
 
-    AnAction selectParent = new AnAction("Select Parent", "Select Parent", null) {
+    AnAction selectParent = new AnAction(UIBundle.messagePointer("action.DesignerActionPanel.Anonymous.text.select.parent"),
+                                         UIBundle.messagePointer("action.DesignerActionPanel.Anonymous.description.select.parent"), null) {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         myDesigner.getToolProvider().processKeyEvent(new KeyEvent(myDesigner.getSurfaceArea().getNativeComponent(),
                                                                   KeyEvent.KEY_PRESSED, 0, 0,
                                                                   KeyEvent.VK_ESCAPE,
@@ -176,7 +179,7 @@ public class DesignerActionPanel implements DataProvider {
     boolean newVisible = isVisible(myActionGroup);
     myToolbar.setVisible(newVisible);
     if (oldVisible && newVisible) {
-      ((JComponent)myToolbar.getParent()).revalidate();
+      myToolbar.getParent().revalidate();
     }
   }
 
@@ -236,7 +239,7 @@ public class DesignerActionPanel implements DataProvider {
   }
 
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (PlatformDataKeys.DELETE_ELEMENT_PROVIDER.is(dataId) ||
         PlatformDataKeys.CUT_PROVIDER.is(dataId) ||
         PlatformDataKeys.COPY_PROVIDER.is(dataId) ||

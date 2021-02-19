@@ -16,19 +16,16 @@
 
 package org.intellij.plugins.relaxNG.convert;
 
+import com.intellij.CommonBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.ui.components.JBTabbedPane;
+import org.intellij.plugins.relaxNG.RelaxngBundle;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.Map;
 
-/*
-* Created by IntelliJ IDEA.
-* User: sweinreuter
-* Date: 16.11.2007
-*/
 public class AdvancedOptionsDialog extends DialogWrapper {
   private AdvancedOptions myInputOptions;
   private AdvancedOptions myOutputOptions;
@@ -38,7 +35,7 @@ public class AdvancedOptionsDialog extends DialogWrapper {
 
   protected AdvancedOptionsDialog(Project project, SchemaType inputType, SchemaType outputType) {
     super(project, false);
-    setTitle("Advanced Conversion Options");
+    setTitle(RelaxngBundle.message("relaxng.convert-schema.advanced-options.dialog.title"));
 
     if (inputType == SchemaType.DTD) {
       myInputOptions = new AdvancedDtdOptions();
@@ -56,8 +53,8 @@ public class AdvancedOptionsDialog extends DialogWrapper {
     JComponent root;
     if (myInputOptions != null && myOutputOptions != null) {
       root = new JBTabbedPane();
-      ((JTabbedPane)root).addTab("Input", myInputOptions.getRoot());
-      ((JTabbedPane)root).addTab("Output", myOutputOptions.getRoot());
+      ((JTabbedPane)root).addTab(CommonBundle.message("title.input"), myInputOptions.getRoot());
+      ((JTabbedPane)root).addTab(CommonBundle.message("title.output"), myOutputOptions.getRoot());
     } else if (myInputOptions != null) {
       root = myInputOptions.getRoot();
     } else {

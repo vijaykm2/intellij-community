@@ -16,12 +16,12 @@
 package org.jetbrains.ether;
 
 import org.jetbrains.jps.builders.java.dependencyView.Mappings;
+import org.jetbrains.jps.incremental.relativizer.PathRelativizerService;
 
 import java.io.File;
 
 /**
  * @author: db
- * Date: 14.05.12
  */
 public class StorageDumper {
   private static class Env {
@@ -130,7 +130,7 @@ public class StorageDumper {
         final File parent = new File(oath == null ? "" : oath);
         final File dataStorageRoot = new File(dataPath, "mappings");
 
-        final Mappings mappings = new Mappings(dataStorageRoot, true);
+        final Mappings mappings = new Mappings(dataStorageRoot, new PathRelativizerService());
         try {
           //final File outputPath = new File(parent, "snapshot-" + new SimpleDateFormat("dd-MM-yy(hh-mm-ss)").format(new Date()) + ".log");
           //FileUtil.createIfDoesntExist(outputPath);

@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.xml.ui;
 
 import com.intellij.codeHighlighting.BackgroundEditorHighlighter;
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.UserActivityWatcher;
@@ -64,7 +50,8 @@ public abstract class DomUIFactory {
   }
 
   public static DomUIControl createLargeDescriptionControl(DomElement parent, final boolean commitOnEveryChange) {
-    return getDomUIFactory().createTextControl(new DomCollectionWrapper<String>(parent, parent.getGenericInfo().getCollectionChildDescription("description")), commitOnEveryChange);
+    return getDomUIFactory().createTextControl(
+      new DomCollectionWrapper<>(parent, parent.getGenericInfo().getCollectionChildDescription("description")), commitOnEveryChange);
   }
 
   @NotNull
@@ -107,10 +94,6 @@ public abstract class DomUIFactory {
     return null;
   }
 
-  public static TableCellEditor createCellEditor(GenericDomValue genericDomValue) {
-    return getDomUIFactory().createCellEditor(genericDomValue, DomUtil.extractParameterClassFromGenericType(genericDomValue.getDomElementType()));
-  }
-
   protected abstract TableCellEditor createCellEditor(DomElement element, Class type);
 
   public abstract UserActivityWatcher createEditorAwareUserActivityWatcher();
@@ -135,13 +118,13 @@ public abstract class DomUIFactory {
   }
 
   public static DomUIFactory getDomUIFactory() {
-    return ServiceManager.getService(DomUIFactory.class);
+    return ApplicationManager.getApplication().getService(DomUIFactory.class);
   }
 
   public DomUIControl createCollectionControl(DomElement element, DomCollectionChildDescription description) {
     final ColumnInfo columnInfo = createColumnInfo(description, element);
     final Class aClass = DomUtil.extractParameterClassFromGenericType(description.getType());
-    return new DomCollectionControl<GenericDomValue<?>>(element, description, aClass == null, columnInfo);
+    return new DomCollectionControl<>(element, description, aClass == null, columnInfo);
   }
 
   public ColumnInfo createColumnInfo(final DomCollectionChildDescription description,

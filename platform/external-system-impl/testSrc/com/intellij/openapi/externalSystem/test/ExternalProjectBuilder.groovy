@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package com.intellij.openapi.externalSystem.test
 
+import com.intellij.externalSystem.JavaProjectData
 import com.intellij.openapi.externalSystem.model.DataNode
 import com.intellij.openapi.externalSystem.model.ProjectKeys
 import com.intellij.openapi.externalSystem.model.ProjectSystemId
@@ -29,12 +30,11 @@ import org.jetbrains.annotations.NotNull
 import static com.intellij.openapi.externalSystem.test.ExternalSystemTestUtil.TEST_EXTERNAL_SYSTEM_ID
 /**
  * @author Denis Zhdanov
- * @since 8/8/13 12:42 PM
  */
 class ExternalProjectBuilder extends BuilderSupport {
   
   File projectDir
-  DataNode<ProjectData> projectNode;
+  DataNode<ProjectData> projectNode
   
   @Override
   protected void setParent(Object parent, Object child) {
@@ -57,16 +57,26 @@ class ExternalProjectBuilder extends BuilderSupport {
 
   @Override
   protected Object createNode(Object name, Map attributes) {
+    def projectPath = ExternalSystemApiUtil.normalizePath(projectDir.path)
     switch (name) {
       case 'project':
         ProjectSystemId projectSystemId = attributes.projectSystemId ?: TEST_EXTERNAL_SYSTEM_ID
-        ProjectData projectData = new ProjectData(projectSystemId, attributes.name ?: 'project', projectDir.path, projectDir.path)
+        String externalProjectPath = attributes.projectPath ?: projectPath
+        ProjectData projectData = new ProjectData(projectSystemId, attributes.name ?: 'project', projectPath, externalProjectPath)
         projectNode = new DataNode<ProjectData>(ProjectKeys.PROJECT, projectData, null)
         return projectNode
+      case 'javaProject':
+        ProjectSystemId projectSystemId = attributes.projectSystemId ?: TEST_EXTERNAL_SYSTEM_ID
+        String jdk = attributes.jdk ?: ""
+        String languageLevel = attributes.languageLevel ?: ""
+        JavaProjectData javaProjectData = new JavaProjectData(projectSystemId, "")
+        javaProjectData.setJdkVersion(jdk)
+        javaProjectData.setLanguageLevel(languageLevel)
+        return (current as DataNode).createChild(JavaProjectData.KEY, javaProjectData)
       case 'module':
         ProjectSystemId projectSystemId = attributes.projectSystemId ?: TEST_EXTERNAL_SYSTEM_ID
-        String moduleFilePath = attributes.moduleFilePath ?: projectDir.path
-        String externalConfigPath = attributes.externalConfigPath ?: projectDir.path
+        String moduleFilePath = attributes.moduleFilePath ?: projectPath
+        String externalConfigPath = attributes.externalConfigPath ?: projectPath
         ModuleData moduleData = new ModuleData(attributes.name ?: name as String,
                                                projectSystemId,
                                                ModuleTypeId.JAVA_MODULE,
@@ -95,11 +105,11 @@ class ExternalProjectBuilder extends BuilderSupport {
         return parentNode.createChild(ProjectKeys.CONTENT_ROOT, data)
       case 'folder':
         DataNode<ContentRootData> parentNode = current as DataNode
-        ContentRootData data = parentNode.data;
-        data.storePath(attributes.type, attributes.path)
+        ContentRootData data = parentNode.data
+        data.storePath(attributes.type, attributes.path, attributes.packagePrefix)
         return null
         
-      default: throw new IllegalArgumentException("Unexpected entry: $name");
+      default: throw new IllegalArgumentException("Unexpected entry: $name")
     }
   }
 
@@ -115,7 +125,9 @@ class ExternalProjectBuilder extends BuilderSupport {
     ['bin': LibraryPathType.BINARY, 'src': LibraryPathType.SOURCE, 'doc': LibraryPathType.DOC].each {
       key, type -> attributes[key]?.each { result.addPath(type, it as String) }
     }
-    projectNode.createChild(ProjectKeys.LIBRARY, result)
+    if (attributes.level != 'module') {
+      projectNode.createChild(ProjectKeys.LIBRARY, result)
+    }
     result
   }
 

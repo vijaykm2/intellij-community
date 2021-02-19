@@ -1,58 +1,64 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.application;
 
+import com.intellij.ide.BootstrapBundle;
+import com.intellij.ide.cloudConfig.CloudConfigProvider;
 import com.intellij.openapi.MnemonicHelper;
+import com.intellij.openapi.application.ImportOldConfigsUsagesCollector.ImportOldConfigsState;
+import com.intellij.openapi.fileChooser.FileChooserDescriptor;
+import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
+import com.intellij.openapi.fileChooser.PathChooserDialog;
+import com.intellij.openapi.fileChooser.impl.FileChooserFactoryImpl;
+import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.PathUtil;
-import com.intellij.util.ThreeState;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.local.CoreLocalFileSystem;
+import com.intellij.openapi.vfs.local.CoreLocalVirtualFile;
+import com.intellij.ui.CollectionComboBoxModel;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.event.ChangeEvent;
-import javax.swing.event.ChangeListener;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.function.Function;
 
-/**
- * @author max
- */
-public class ImportOldConfigsPanel extends JDialog {
-  private TextFieldWithBrowseButton myPrevInstallation;
-  private JRadioButton myRbDoNotImport;
-  private JRadioButton myRbImport;
+import static com.intellij.openapi.util.Pair.pair;
+
+class ImportOldConfigsPanel extends JDialog {
   private JPanel myRootPanel;
-  private File myLastSelection = null;
-  private JButton myOkButton;
-  private JLabel mySuggestLabel;
-  private JLabel myHomeLabel;
   private JRadioButton myRbImportAuto;
+  private JRadioButton myRbImport;
+  private TextFieldWithBrowseButton myPrevInstallation;
+  private JRadioButton myCustomButton;
+  private JRadioButton myRbDoNotImport;
+  private JButton myOkButton;
+  private ComboBox<Path> myComboBoxOldPaths;
 
-  private final File myGuessedOldConfig;
-  private final ConfigImportSettings mySettings;
+  private final List<Path> myGuessedOldConfigDirs;
+  private final Function<? super Path, ? extends Pair<Path, Path>> myValidator;
+  private final String myProductName;
+  private Path myLastSelection = null;
+  private Pair<Path, Path> myResult;
 
-  public ImportOldConfigsPanel(final File guessedOldConfig, ConfigImportSettings settings) {
+  ImportOldConfigsPanel(List<Path> guessedOldConfigDirs, Function<? super Path, ? extends Pair<Path, Path>> validator) {
     super((Dialog)null, true);
-    myGuessedOldConfig = guessedOldConfig;
-    mySettings = settings;
+
+    myGuessedOldConfigDirs = guessedOldConfigDirs;
+    myValidator = validator;
+    myProductName = ApplicationNamesInfo.getInstance().getFullProductName();
+    setTitle(BootstrapBundle.message("import.settings.title", myProductName));
     init();
   }
 
@@ -60,164 +66,135 @@ public class ImportOldConfigsPanel extends JDialog {
     MnemonicHelper.init(getContentPane());
 
     ButtonGroup group = new ButtonGroup();
-    group.add(myRbDoNotImport);
-    group.add(myRbImport);
     group.add(myRbImportAuto);
+    group.add(myRbImport);
+    group.add(myRbDoNotImport);
     myRbDoNotImport.setSelected(true);
 
-    String productName = mySettings.getProductName(ThreeState.UNSURE);
-    mySuggestLabel.setText(mySettings.getTitleLabel(productName));
-    myRbDoNotImport.setText(mySettings.getDoNotImportLabel(productName));
-    if (myGuessedOldConfig != null) {
-      myRbImportAuto.setText(mySettings.getAutoImportLabel(myGuessedOldConfig));
-      myRbImportAuto.setSelected(true);
+    if (myGuessedOldConfigDirs.isEmpty()) {
+      myRbImportAuto.setVisible(false);
+      myComboBoxOldPaths.setVisible(false);
     }
     else {
-      myRbImportAuto.setVisible(false);
+      myComboBoxOldPaths.setModel(new CollectionComboBoxModel<>(myGuessedOldConfigDirs));
+      myComboBoxOldPaths.setSelectedItem(myGuessedOldConfigDirs.get(0));
+      myRbImportAuto.setSelected(true);
     }
-    myHomeLabel.setText(mySettings.getHomeLabel(productName));
-
-    myRbImport.addChangeListener(new ChangeListener() {
-      public void stateChanged(ChangeEvent e) {
-        update();
-      }
-    });
-
-    if (myGuessedOldConfig != null) {
-      myPrevInstallation.setText(myGuessedOldConfig.getParent());
+    for (Enumeration<AbstractButton> e = group.getElements(); e.hasMoreElements(); ) {
+      e.nextElement().addChangeListener(event -> update());
     }
-    else if (SystemInfo.isMac) {
-      myPrevInstallation.setText(findPreviousInstallationMac(productName));
+    if (SystemInfo.isMac) {
+      myLastSelection = Paths.get("/Applications");
     }
     else if (SystemInfo.isWindows) {
-      String prevInstall = findPreviousInstallationWindows(productName);
-      if (prevInstall != null) {
-        myPrevInstallation.setText(prevInstall);
+      String programFiles = System.getenv("ProgramFiles");
+      if (programFiles != null) {
+        Path candidate = Paths.get(programFiles, "JetBrains");
+        myLastSelection = Files.isDirectory(candidate) ? candidate : Paths.get(programFiles);
       }
     }
-
-    myPrevInstallation.addActionListener(new ActionListener() {
-      public void actionPerformed(ActionEvent e) {
-        JFileChooser fc = myLastSelection != null ? new JFileChooser(myLastSelection) : new JFileChooser();
-
-        fc.setFileSelectionMode(SystemInfo.isMac ? JFileChooser.FILES_AND_DIRECTORIES : JFileChooser.DIRECTORIES_ONLY);
-        fc.setFileHidingEnabled(!SystemInfo.isLinux);
-
-        int returnVal = fc.showOpenDialog(ImportOldConfigsPanel.this);
+    myPrevInstallation.setTextFieldPreferredWidth(50);
+    myPrevInstallation.addActionListener(e -> {
+      FileChooserDescriptor chooserDescriptor = FileChooserDescriptorFactory.createSingleLocalFileDescriptor();
+      chooserDescriptor.setHideIgnored(false);
+      chooserDescriptor.withFileFilter(file -> file.isDirectory() || ConfigImportHelper.isSettingsFile(file));
+      Ref<File> fileRef = Ref.create();
+      PathChooserDialog chooser = FileChooserFactoryImpl.createNativePathChooserIfEnabled(chooserDescriptor, null, myRootPanel);
+      if (chooser != null) {
+        VirtualFile vf = myLastSelection != null ? new CoreLocalVirtualFile(new CoreLocalFileSystem(), myLastSelection.toFile(), true) : null;
+        chooser.choose(vf, files -> fileRef.set(new File(files.get(0).getPresentableUrl())));
+      }
+      else {
+        JFileChooser fc = new JFileChooser(myLastSelection != null ? myLastSelection.getParent().toFile() : null);
+        fc.setSelectedFile(myLastSelection != null ? myLastSelection.toFile() : null);
+        fc.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
+        fc.setFileHidingEnabled(SystemInfo.isWindows || SystemInfo.isMac);
+        fc.setFileFilter(new FileNameExtensionFilter("settings file", "zip", "jar"));
+        @SuppressWarnings("DuplicatedCode")
+        int returnVal = fc.showOpenDialog(this);
         if (returnVal == JFileChooser.APPROVE_OPTION) {
           File file = fc.getSelectedFile();
           if (file != null) {
-            myLastSelection = file;
+            fileRef.set(file);
             myPrevInstallation.setText(file.getAbsolutePath());
           }
         }
       }
-    });
-
-    myOkButton.addActionListener(new ActionListener() {
-      public void actionPerformed(ActionEvent e) {
-        close();
+      if (!fileRef.isNull()) {
+        myLastSelection = fileRef.get().toPath();
+        myPrevInstallation.setText(fileRef.get().getAbsolutePath());
       }
     });
+
+    myOkButton.addActionListener(e -> close());
+
+    CloudConfigProvider configProvider = CloudConfigProvider.getProvider();
+    if (configProvider != null) {
+      configProvider.initConfigsPanel(group, myCustomButton);
+    }
 
     getContentPane().setLayout(new BorderLayout());
     getContentPane().add(myRootPanel);
     getRootPane().setDefaultButton(myOkButton);
 
-    setTitle(ApplicationBundle.message("title.complete.installation"));
-
     update();
-
     pack();
     setLocationRelativeTo(null);
+    setMinimumSize(getSize());
   }
 
   private void update() {
+    myComboBoxOldPaths.setEnabled(myRbImportAuto.isSelected());
     myPrevInstallation.setEnabled(myRbImport.isSelected());
-  }
-
-  @Nullable
-  private static String findPreviousInstallationWindows(String productName) {
-    String programFiles = System.getenv("ProgramFiles");
-    if (programFiles != null) {
-      File jetbrainsHome = new File(programFiles, "JetBrains");
-      File[] files = jetbrainsHome.isDirectory() ? jetbrainsHome.listFiles() : null;
-      if (files != null) {
-        String latestVersion = null;
-        File latestFile = null;
-        for (File file : files) {
-          if (file.isDirectory() && file.getName().startsWith(productName)) {
-            String versionName = file.getName().substring(productName.length()).trim();
-            if (latestVersion == null || StringUtil.compareVersionNumbers(latestVersion, versionName) > 0) {
-              latestVersion = versionName;
-              latestFile = file;
-            }
-          }
-        }
-        if (latestFile != null) {
-          return latestFile.getAbsolutePath();
-        }
-      }
-    }
-    return null;
-  }
-
-  private static String findPreviousInstallationMac(String productName) {
-    String mostProbable = "/Applications/" + productName;
-    return new File(mostProbable).exists() ? mostProbable : "/Applications";
   }
 
   private void close() {
     if (myRbImport.isSelected()) {
-      String instHome = null;
-      if (myPrevInstallation.getText() != null) {
-        instHome = FileUtil.toSystemDependentName(PathUtil.getCanonicalPath(myPrevInstallation.getText()));
-      }
-
-      String productWithVendor = mySettings.getProductName(ThreeState.YES);
-      if (StringUtil.isEmptyOrSpaces(instHome)) {
-        showError(mySettings.getEmptyHomeErrorText(productWithVendor));
+      String text = myPrevInstallation.getText();
+      if (StringUtil.isEmptyOrSpaces(text)) {
+        showError(BootstrapBundle.message("import.chooser.error.empty", myProductName));
         return;
       }
 
-      String thisInstanceHome = PathManager.getHomePath();
-      if (SystemInfo.isFileSystemCaseSensitive ? thisInstanceHome.equals(instHome) : thisInstanceHome.equalsIgnoreCase(instHome)) {
-        showError(mySettings.getCurrentHomeErrorText(productWithVendor));
-        return;
-      }
+      Path selectedDir = Paths.get(FileUtil.toCanonicalPath(text.trim()));
 
-      if (myRbImport.isSelected() && !ConfigImportHelper.isInstallationHomeOrConfig(instHome, mySettings)) {
-        showError(mySettings.getInvalidHomeErrorText(productWithVendor, instHome));
-        return;
+      if (Files.isRegularFile(selectedDir)) {
+        if (!ConfigImportHelper.isValidSettingsFile(selectedDir.toFile())) {
+          showError(BootstrapBundle.message("import.chooser.error.invalid", selectedDir));
+          return;
+        }
+        myResult = pair(selectedDir, null);
       }
+      else {
+        if (FileUtil.pathsEqual(selectedDir.toString(), PathManager.getHomePath()) ||
+            FileUtil.pathsEqual(selectedDir.toString(), PathManager.getConfigPath())) {
+          showError(BootstrapBundle.message("import.chooser.error.current", myProductName));
+          return;
+        }
 
-      if (!new File(instHome).canRead()) {
-        showError(mySettings.getInaccessibleHomeErrorText(instHome));
-        return;
+        Pair<Path, Path> result = myValidator.apply(selectedDir);
+        if (result == null) {
+          showError(BootstrapBundle.message("import.chooser.error.unrecognized", selectedDir, myProductName));
+          return;
+        }
+
+        myResult = result;
       }
     }
 
-    //noinspection SSBasedInspection
     dispose();
   }
 
-  private void showError(String message) {
-    JOptionPane.showMessageDialog(this, message, mySettings.getInstallationHomeRequiredTitle(), JOptionPane.ERROR_MESSAGE);
+  private void showError(@NlsContexts.DialogMessage String message) {
+    String title = BootstrapBundle.message("import.chooser.error.title");
+    JOptionPane.showMessageDialog(this, message, title, JOptionPane.ERROR_MESSAGE);
   }
 
-  public boolean isImportEnabled() {
-    return myRbImport.isSelected() || myRbImportAuto.isSelected();
-  }
+  @Nullable Pair<Path, Path> getSelectedFile() {
+    ImportOldConfigsState.getInstance().saveImportOldConfigType(myRbImportAuto, myRbImport, myRbDoNotImport, myResult != null);
 
-  public File getSelectedFile() {
-    return myRbImportAuto.isSelected() ? myGuessedOldConfig : new File(myPrevInstallation.getText());
-  }
-
-  public static void main(String[] args) throws Exception {
-    UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-
-    ImportOldConfigsPanel dialog = new ImportOldConfigsPanel(null, new ConfigImportSettings());
-    dialog.setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-    dialog.setVisible(true);
+    if (myRbImportAuto.isSelected()) return pair(myGuessedOldConfigDirs.get(Math.max(myComboBoxOldPaths.getSelectedIndex(), 0)), null);
+    if (myRbImport.isSelected()) return myResult;
+    return null;
   }
 }

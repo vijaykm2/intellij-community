@@ -1,42 +1,31 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.ui;
 
 import com.intellij.openapi.actionSystem.ActionToolbar;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.DataProvider;
-import com.intellij.openapi.util.Ref;
+import com.intellij.ui.JBColor;
+import com.intellij.ui.components.JBPanelWithEmptyText;
+import com.intellij.ui.paint.LinePainter2D;
 import com.intellij.ui.switcher.QuickActionProvider;
-import com.intellij.util.ui.AwtVisitor;
+import com.intellij.util.containers.JBIterable;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ContainerAdapter;
 import java.awt.event.ContainerEvent;
+import java.util.Collections;
 import java.util.List;
 
-public class SimpleToolWindowPanel extends JPanel implements QuickActionProvider, DataProvider {
-
+public class SimpleToolWindowPanel extends JBPanelWithEmptyText implements QuickActionProvider, DataProvider {
   private JComponent myToolbar;
   private JComponent myContent;
 
-  private boolean myBorderless;
+  private final boolean myBorderless;
   protected boolean myVertical;
   private boolean myProvideQuickActions;
 
@@ -66,7 +55,7 @@ public class SimpleToolWindowPanel extends JPanel implements QuickActionProvider
       @Override
       public void componentRemoved(ContainerEvent e) {
         Component child = e.getChild();
-        
+
         if (child instanceof Container) {
           ((Container)child).removeContainerListener(this);
         }
@@ -74,8 +63,24 @@ public class SimpleToolWindowPanel extends JPanel implements QuickActionProvider
     });
   }
 
+  public boolean isVertical() {
+    return myVertical;
+  }
+
+  public void setVertical(boolean vertical) {
+    if (myVertical == vertical) return;
+    removeAll();
+    myVertical = vertical;
+    setContent(myContent);
+    setToolbar(myToolbar);
+  }
+
   public boolean isToolbarVisible() {
     return myToolbar != null && myToolbar.isVisible();
+  }
+
+  public @Nullable JComponent getToolbar() {
+    return myToolbar;
   }
 
   public void setToolbar(@Nullable JComponent c) {
@@ -83,11 +88,15 @@ public class SimpleToolWindowPanel extends JPanel implements QuickActionProvider
       remove(myToolbar);
     }
     myToolbar = c;
+    if (myToolbar instanceof ActionToolbar) {
+      ((ActionToolbar)myToolbar).setOrientation(myVertical ? SwingConstants.HORIZONTAL : SwingConstants.VERTICAL);
+    }
 
     if (c != null) {
       if (myVertical) {
         add(c, BorderLayout.NORTH);
-      } else {
+      }
+      else {
         add(c, BorderLayout.WEST);
       }
     }
@@ -96,8 +105,8 @@ public class SimpleToolWindowPanel extends JPanel implements QuickActionProvider
     repaint();
   }
 
-  @Nullable
-  public Object getData(@NonNls String dataId) {
+  @Override
+  public @Nullable Object getData(@NotNull @NonNls String dataId) {
     return QuickActionProvider.KEY.is(dataId) && myProvideQuickActions ? this : null;
   }
 
@@ -106,37 +115,25 @@ public class SimpleToolWindowPanel extends JPanel implements QuickActionProvider
     return this;
   }
 
-  public List<AnAction> getActions(boolean originalProvider) {
-    final Ref<ActionToolbar> toolbar = new Ref<ActionToolbar>();
-    if (myToolbar != null) {
-      new AwtVisitor(myToolbar) {
-        @Override
-        public boolean visit(Component component) {
-          if (component instanceof ActionToolbar) {
-            toolbar.set((ActionToolbar)component);
-            return true;
-          }
-          return false;
-        }
-      };
-    }
-
-    if (toolbar.get() != null) {
-      return toolbar.get().getActions(originalProvider);
-    }
-
-    return null;
+  @Override
+  public @NotNull List<AnAction> getActions(boolean originalProvider) {
+    return collectActions(myToolbar);
   }
 
+  @Override
   public JComponent getComponent() {
     return this;
   }
 
-  public boolean isCycleRoot() {
-    return false;
+  public @Nullable JComponent getContent() {
+    return myContent;
   }
 
-  public void setContent(JComponent c) {
+  public void setContent(@NotNull JComponent c) {
+    if (myContent != null) {
+      remove(myContent);
+    }
+
     myContent = c;
     add(c, BorderLayout.CENTER);
 
@@ -149,18 +146,28 @@ public class SimpleToolWindowPanel extends JPanel implements QuickActionProvider
   }
 
   @Override
-  protected void paintComponent(final Graphics g) {
+  protected void paintComponent(Graphics g) {
     super.paintComponent(g);
 
     if (myToolbar != null && myToolbar.getParent() == this && myContent != null && myContent.getParent() == this) {
-      g.setColor(UIUtil.getBorderColor());
+      g.setColor(JBColor.border());
       if (myVertical) {
-        final int y = (int)myToolbar.getBounds().getMaxY();
-        g.drawLine(0, y, getWidth(), y);
-      } else {
+        int y = (int)myToolbar.getBounds().getMaxY();
+        LinePainter2D.paint((Graphics2D)g, 0, y, getWidth(), y);
+      }
+      else {
         int x = (int)myToolbar.getBounds().getMaxX();
-        g.drawLine(x, 0, x, getHeight());
+        LinePainter2D.paint((Graphics2D)g, x, 0, x, getHeight());
       }
     }
+  }
+
+  @NotNull
+  public static List<AnAction> collectActions(@Nullable JComponent component) {
+    JBIterable<ActionToolbar> toolbars = UIUtil.uiTraverser(component).traverse().filter(ActionToolbar.class);
+    if (toolbars.size() == 0) {
+      return Collections.emptyList();
+    }
+    return toolbars.flatten(ActionToolbar::getActions).toList();
   }
 }

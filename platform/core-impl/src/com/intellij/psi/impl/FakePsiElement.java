@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.psi.impl;
 
@@ -47,8 +33,7 @@ public abstract class FakePsiElement extends PsiElementBase implements PsiNamedE
   }
 
   @Override
-  @NotNull
-  public PsiElement[] getChildren() {
+  public PsiElement @NotNull [] getChildren() {
     return PsiElement.EMPTY_ARRAY;
   }
 
@@ -111,8 +96,7 @@ public abstract class FakePsiElement extends PsiElementBase implements PsiNamedE
   }
 
   @Override
-  @NotNull
-  public char[] textToCharArray() {
+  public char @NotNull [] textToCharArray() {
     return new char[0];
   }
 
@@ -130,12 +114,6 @@ public abstract class FakePsiElement extends PsiElementBase implements PsiNamedE
   @Override
   public String getPresentableText() {
     return getName();
-  }
-
-  @Override
-  @Nullable
-  public String getLocationString() {
-    return null;
   }
 
   @Override
@@ -160,48 +138,13 @@ public abstract class FakePsiElement extends PsiElementBase implements PsiNamedE
   }
 
   @Override
-  public PsiElement replace(@NotNull PsiElement newElement) throws IncorrectOperationException {
-    throw new UnsupportedOperationException(getClass().getName());
-  }
-
-  @Override
-  public void checkAdd(@NotNull PsiElement element) throws IncorrectOperationException {
-    throw new UnsupportedOperationException(getClass().getName());
-  }
-
-  @Override
-  public PsiElement add(@NotNull PsiElement element) throws IncorrectOperationException {
-    throw new UnsupportedOperationException(getClass().getName());
-  }
-
-  @Override
-  public PsiElement addBefore(@NotNull PsiElement element, PsiElement anchor) throws IncorrectOperationException {
-    throw new UnsupportedOperationException(getClass().getName());
-  }
-
-  @Override
-  public PsiElement addAfter(@NotNull PsiElement element, PsiElement anchor) throws IncorrectOperationException {
-    throw new UnsupportedOperationException(getClass().getName());
-  }
-
-  @Override
-  public void checkDelete() throws IncorrectOperationException {
-    throw new UnsupportedOperationException(getClass().getName());
-  }
-
-  @Override
-  public void delete() throws IncorrectOperationException {
-    throw new UnsupportedOperationException(getClass().getName());
-  }
-
-  @Override
-  public PsiElement copy() {
-    return (PsiElement)clone();
-  }
-
-  @Override
   public PsiManager getManager() {
     final PsiElement parent = getParent();
     return parent != null ? parent.getManager() : null;
+  }
+
+  @Override
+  public boolean isPhysical() {
+    return false;
   }
 }

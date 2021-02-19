@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.xml.index;
 
 import com.intellij.openapi.util.Comparing;
+import com.intellij.util.xml.NanoXmlBuilder;
 import com.intellij.util.xml.NanoXmlUtil;
 import com.intellij.xml.util.XmlUtil;
 import org.jetbrains.annotations.NonNls;
@@ -27,6 +14,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -35,26 +23,23 @@ import java.util.Set;
 /**
  * @author Dmitry Avdeev
  */
-public class XsdNamespaceBuilder extends NanoXmlUtil.IXMLBuilderAdapter implements Comparable<XsdNamespaceBuilder> {
-
+public class XsdNamespaceBuilder implements Comparable<XsdNamespaceBuilder>, NanoXmlBuilder {
   public static String computeNamespace(final InputStream is) {
-    return computeNamespace(new InputStreamReader(is)).getNamespace();
+    return computeNamespace(new InputStreamReader(is, StandardCharsets.UTF_8)).getNamespace();
   }
 
-  public static XsdNamespaceBuilder computeNamespace(final Reader reader) {
+  public static XsdNamespaceBuilder computeNamespace(@NotNull Reader reader) {
     try {
       final XsdNamespaceBuilder builder = new XsdNamespaceBuilder();
       NanoXmlUtil.parse(reader, builder);
-      HashSet<String> tags = new HashSet<String>(builder.getTags());
+      HashSet<String> tags = new HashSet<>(builder.getTags());
       tags.removeAll(builder.myReferencedTags);
       builder.getRootTags().addAll(tags);
       return builder;
     }
     finally {
       try {
-        if (reader != null) {
-          reader.close();
-        }
+        reader.close();
       }
       catch (IOException e) {
         // can never happen
@@ -69,9 +54,9 @@ public class XsdNamespaceBuilder extends NanoXmlUtil.IXMLBuilderAdapter implemen
 
   private String myVersion;
   private final List<String> myTags;
-  private final Set<String> myReferencedTags = new HashSet<String>();
+  private final Set<String> myReferencedTags = new HashSet<>();
   private final List<String> myRootTags;
-  private final List<String> myAttributes = new ArrayList<String>();
+  private final List<String> myAttributes = new ArrayList<>();
 
   @Override
   public void startElement(@NonNls final String name, @NonNls final String nsPrefix, @NonNls final String nsURI, final String systemID, final int lineNr)
@@ -84,7 +69,7 @@ public class XsdNamespaceBuilder extends NanoXmlUtil.IXMLBuilderAdapter implemen
   }
 
   @Override
-  public void endElement(String name, String nsPrefix, String nsURI) throws Exception {
+  public void endElement(String name, String nsPrefix, String nsURI) {
     myCurrentDepth--;
     myCurrentTag = null;
   }
@@ -131,8 +116,8 @@ public class XsdNamespaceBuilder extends NanoXmlUtil.IXMLBuilderAdapter implemen
   }
 
   private XsdNamespaceBuilder() {
-    myTags = new ArrayList<String>();
-    myRootTags = new ArrayList<String>();
+    myTags = new ArrayList<>();
+    myRootTags = new ArrayList<>();
   }
 
   XsdNamespaceBuilder(String namespace, String version, List<String> tags, List<String> rootTags) {

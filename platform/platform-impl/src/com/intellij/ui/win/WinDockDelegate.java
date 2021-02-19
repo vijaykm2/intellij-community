@@ -1,60 +1,108 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.win;
 
-import com.intellij.ide.RecentProjectsManager;
+import com.intellij.ide.RecentProjectListActionProvider;
 import com.intellij.ide.ReopenProjectAction;
-import com.intellij.idea.StartupUtil;
 import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.impl.SystemDock;
+import com.intellij.util.system.CpuArch;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
+import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.List;
+
 
 /**
  * @author Denis Fokin
+ * @author Nikita Provotorov
  */
-public class WinDockDelegate implements SystemDock.Delegate {
-  private static final String javaExe = System.getProperty("java.home") + File.separatorChar + "bin" + File.separatorChar + "javaw.exe";
-  private static final String argsToExecute = " -classpath \"" +
-                                              PathManager.getJarPathForClass(SocketControlHelper.class) +
-                                              "\" com.intellij.ui.win.SocketControlHelper " +
-                                              StartupUtil.getAcquiredPort() +
-                                              " ";
-
-  private static boolean initialized = false;
-  private static final SystemDock.Delegate instance = new WinDockDelegate();
-
-  private WinDockDelegate() {}
+public final class WinDockDelegate implements SystemDock.Delegate {
+  public static @Nullable WinDockDelegate getInstance() {
+    return instance;
+  }
 
   @Override
-  public void updateRecentProjectsMenu () {
-    final AnAction[] recentProjectActions = RecentProjectsManager.getInstance().getRecentProjectsActions(false);
-    RecentTasks.clear();
-    Task[] tasks = new Task[recentProjectActions.length];
-    for (int i = 0; i < recentProjectActions.length; i ++) {
-      ReopenProjectAction rpa = (ReopenProjectAction)recentProjectActions[i];
-      tasks[i] = new Task(javaExe, argsToExecute + RecentTasks.getShortenPath(rpa.getProjectPath()), rpa.getTemplatePresentation().getText());
+  public void updateRecentProjectsMenu() {
+    final List<AnAction> recentProjectActions = RecentProjectListActionProvider.getInstance().getActions(false);
+
+    final Task[] tasks = convertToJumpTasks(recentProjectActions);
+
+    try {
+      wsi.postShellTask((@NotNull final WinShellIntegration.ShellContext ctx) -> {
+        ctx.clearRecentTasksList();
+        ctx.setRecentTasksList(tasks);
+      }).get();
     }
-    RecentTasks.addTasks(tasks);
+    catch (final InterruptedException e) {
+      LOG.warn(e);
+    }
+    catch (final Throwable e) {
+      LOG.error(e);
+    }
   }
-  synchronized public static SystemDock.Delegate getInstance() {
-    if (!initialized) {
-      initialized = true;
+
+
+  private WinDockDelegate(@NotNull final WinShellIntegration wsi) {
+    this.wsi = wsi;
+  }
+
+
+  private static @NotNull Task @NotNull [] convertToJumpTasks(final @NotNull List<AnAction> actions) {
+    final String launcherFileName = ApplicationNamesInfo.getInstance().getScriptName() + (CpuArch.isIntel64() ? "64" : "") + ".exe";
+    final String launcherPath = Paths.get(PathManager.getBinPath(), launcherFileName).toString();
+
+    final Task[] result = new Task[actions.size()];
+
+    int i = 0;
+    for (final var action : actions) {
+      if (!(action instanceof ReopenProjectAction)) {
+        continue;
+      }
+
+      final ReopenProjectAction reopenProjectAction = (ReopenProjectAction)action;
+
+      final String reopenProjectActionPath = reopenProjectAction.getProjectPath();
+      final String reopenProjectActionPathEscaped = "\"" + reopenProjectActionPath + "\"";
+
+      result[i++] = new Task(launcherPath, reopenProjectActionPathEscaped, reopenProjectAction.getTemplatePresentation().getText());
     }
-    return instance;
+
+    if (i < result.length) {
+      return Arrays.copyOf(result, i);
+    }
+
+    return result;
+  }
+
+
+  private final @NotNull WinShellIntegration wsi;
+
+
+  private static final Logger LOG = Logger.getInstance(WinDockDelegate.class);
+  private static final @Nullable WinDockDelegate instance;
+
+  static {
+    @Nullable WinDockDelegate instanceInitializer = null;
+
+    try {
+      if (Registry.is("windows.jumplist")) {
+        final @Nullable var wsi = WinShellIntegration.getInstance();
+        if (wsi != null) {
+          instanceInitializer = new WinDockDelegate(WinShellIntegration.getInstance());
+        }
+      }
+    }
+    catch (Throwable err) {
+      LOG.error(err);
+      instanceInitializer = null;
+    }
+
+    instance = instanceInitializer;
   }
 }

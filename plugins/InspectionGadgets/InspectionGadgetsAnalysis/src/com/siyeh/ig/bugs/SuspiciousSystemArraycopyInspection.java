@@ -1,5 +1,5 @@
 /*
- * Copyright 2005-2009 Bas Leijdekkers
+ * Copyright 2005-2017 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,22 +15,20 @@
  */
 package com.siyeh.ig.bugs;
 
+import com.intellij.codeInsight.PsiEquivalenceUtil;
+import com.intellij.codeInspection.dataFlow.CommonDataflow;
+import com.intellij.codeInspection.dataFlow.SpecialField;
+import com.intellij.codeInspection.dataFlow.rangeSet.LongRangeSet;
+import com.intellij.codeInspection.dataFlow.types.DfIntType;
 import com.intellij.psi.*;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
-import com.siyeh.ig.psiutils.ExpressionUtils;
-import org.jetbrains.annotations.NonNls;
+import com.siyeh.ig.psiutils.MethodCallUtils;
+import com.siyeh.ig.psiutils.TypeUtils;
 import org.jetbrains.annotations.NotNull;
 
 public class SuspiciousSystemArraycopyInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "suspicious.system.arraycopy.display.name");
-  }
 
   @Override
   @NotNull
@@ -48,68 +46,41 @@ public class SuspiciousSystemArraycopyInspection extends BaseInspection {
     return new SuspiciousSystemArraycopyVisitor();
   }
 
-  private static class SuspiciousSystemArraycopyVisitor
-    extends BaseInspectionVisitor {
+  private static class SuspiciousSystemArraycopyVisitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitMethodCallExpression(
-      @NotNull PsiMethodCallExpression expression) {
+    public void visitMethodCallExpression(@NotNull PsiMethodCallExpression expression) {
       super.visitMethodCallExpression(expression);
-      final PsiReferenceExpression methodExpression =
-        expression.getMethodExpression();
-      @NonNls final String name = methodExpression.getReferenceName();
-      if (!"arraycopy".equals(name)) {
+      final PsiClassType objectType = TypeUtils.getObjectType(expression);
+      if (!MethodCallUtils.isCallToMethod(expression, "java.lang.System", PsiType.VOID, "arraycopy",
+                                          objectType, PsiType.INT, objectType, PsiType.INT, PsiType.INT)) {
         return;
       }
-      final PsiExpression qualifierExpression =
-        methodExpression.getQualifierExpression();
-      if (!(qualifierExpression instanceof PsiReferenceExpression)) {
-        return;
-      }
-      final PsiReferenceExpression referenceExpression =
-        (PsiReferenceExpression)qualifierExpression;
-      final String canonicalText = referenceExpression.getCanonicalText();
-      if (!canonicalText.equals("java.lang.System")) {
-        return;
-      }
-      final PsiExpressionList argumentList = expression.getArgumentList();
-      final PsiExpression[] arguments = argumentList.getExpressions();
+      final PsiExpression[] arguments = expression.getArgumentList().getExpressions();
       if (arguments.length != 5) {
         return;
       }
-      final PsiExpression src = arguments[0];
-      final PsiType srcType = src.getType();
       final PsiExpression srcPos = arguments[1];
-      if (isNegativeArgument(srcPos)) {
-        final String errorString = InspectionGadgetsBundle.message(
-          "suspicious.system.arraycopy.problem.descriptor1");
-        registerError(srcPos, errorString);
-      }
       final PsiExpression destPos = arguments[3];
-      if (isNegativeArgument(destPos)) {
-        final String errorString = InspectionGadgetsBundle.message(
-          "suspicious.system.arraycopy.problem.descriptor2");
-        registerError(destPos, errorString);
-      }
       final PsiExpression length = arguments[4];
-      if (isNegativeArgument(length)) {
-        final String errorString = InspectionGadgetsBundle.message(
-          "suspicious.system.arraycopy.problem.descriptor3");
-        registerError(length, errorString);
+      final PsiExpression src = arguments[0];
+      final PsiExpression dest = arguments[2];
+      checkRanges(src, srcPos, dest, destPos, length, expression);
+      final PsiType srcType = src.getType();
+      if (srcType == null) {
+        return;
       }
       boolean notArrayReported = false;
       if (!(srcType instanceof PsiArrayType)) {
-        final String errorString = InspectionGadgetsBundle.message(
-          "suspicious.system.arraycopy.problem.descriptor4");
-        registerError(src, errorString);
+        registerError(src, InspectionGadgetsBundle.message("suspicious.system.arraycopy.problem.descriptor4"));
         notArrayReported = true;
       }
-      final PsiExpression dest = arguments[2];
       final PsiType destType = dest.getType();
+      if (destType == null) {
+        return;
+      }
       if (!(destType instanceof PsiArrayType)) {
-        final String errorString = InspectionGadgetsBundle.message(
-          "suspicious.system.arraycopy.problem.descriptor5");
-        registerError(dest, errorString);
+        registerError(dest, InspectionGadgetsBundle.message("suspicious.system.arraycopy.problem.descriptor5"));
         notArrayReported = true;
       }
       if (notArrayReported) {
@@ -121,31 +92,64 @@ public class SuspiciousSystemArraycopyInspection extends BaseInspection {
       final PsiType destComponentType = destArrayType.getComponentType();
       if (!(srcComponentType instanceof PsiPrimitiveType)) {
         if (!destComponentType.isAssignableFrom(srcComponentType)) {
-          final String errorString = InspectionGadgetsBundle.message(
-            "suspicious.system.arraycopy.problem.descriptor6",
-            srcType.getCanonicalText(),
-            destType.getCanonicalText());
-          registerError(dest, errorString);
+          registerError(dest, InspectionGadgetsBundle.message("suspicious.system.arraycopy.problem.descriptor6",
+                                                              srcType.getCanonicalText(),
+                                                              destType.getCanonicalText()));
         }
       }
       else if (!destComponentType.equals(srcComponentType)) {
-        final String errorString = InspectionGadgetsBundle.message(
-          "suspicious.system.arraycopy.problem.descriptor6",
-          srcType.getCanonicalText(),
-          destType.getCanonicalText());
-        registerError(dest, errorString);
+        registerError(dest, InspectionGadgetsBundle.message("suspicious.system.arraycopy.problem.descriptor6",
+                                                            srcType.getCanonicalText(),
+                                                            destType.getCanonicalText()));
       }
     }
 
-    private static boolean isNegativeArgument(
-      @NotNull PsiExpression argument) {
-      final Object constant =
-        ExpressionUtils.computeConstantExpression(argument);
-      if (!(constant instanceof Integer)) {
-        return false;
+    private void checkRanges(@NotNull PsiExpression src,
+                             @NotNull PsiExpression srcPos,
+                             @NotNull PsiExpression dest,
+                             @NotNull PsiExpression destPos,
+                             @NotNull PsiExpression length,
+                             @NotNull PsiMethodCallExpression call) {
+      CommonDataflow.DataflowResult result = CommonDataflow.getDataflowResult(src);
+      if (result == null) return;
+
+      LongRangeSet srcLengthSet = DfIntType.extractRange(SpecialField.ARRAY_LENGTH.getFromQualifier(result.getDfType(src)));
+      LongRangeSet destLengthSet = DfIntType.extractRange(SpecialField.ARRAY_LENGTH.getFromQualifier(result.getDfType(dest)));
+      LongRangeSet srcPosSet = DfIntType.extractRange(result.getDfType(srcPos));
+      LongRangeSet destPosSet = DfIntType.extractRange(result.getDfType(destPos));
+      LongRangeSet lengthSet = DfIntType.extractRange(result.getDfType(length));
+      LongRangeSet srcPossibleLengthToCopy = srcLengthSet.minus(srcPosSet, false);
+      LongRangeSet destPossibleLengthToCopy = destLengthSet.minus(destPosSet, false);
+      long lengthMin = lengthSet.min();
+      if (lengthMin > destPossibleLengthToCopy.max()) {
+        registerError(length, InspectionGadgetsBundle
+          .message("suspicious.system.arraycopy.problem.descriptor.length.bigger.dest", lengthSet.toString()));
+        return;
       }
-      final Integer integer = (Integer)constant;
-      return integer.intValue() < 0;
+      if (lengthMin > srcPossibleLengthToCopy.max()) {
+        registerError(length, InspectionGadgetsBundle
+          .message("suspicious.system.arraycopy.problem.descriptor.length.bigger.src", lengthSet.toString()));
+        return;
+      }
+
+      if (!PsiEquivalenceUtil.areElementsEquivalent(src, dest)) return;
+      LongRangeSet srcRange = getDefiniteRange(srcPosSet, lengthSet);
+      LongRangeSet destRange = getDefiniteRange(destPosSet, lengthSet);
+      if (srcRange.intersects(destRange)) {
+        PsiElement name = call.getMethodExpression().getReferenceNameElement();
+        PsiElement elementToHighlight = name == null ? call : name;
+        registerError(elementToHighlight,
+                      InspectionGadgetsBundle.message("suspicious.system.arraycopy.problem.descriptor.ranges.intersect"));
+      }
+    }
+
+    @NotNull
+    private static LongRangeSet getDefiniteRange(@NotNull LongRangeSet startSet, @NotNull LongRangeSet lengthSet) {
+      long maxLeftBorder = startSet.max();
+      LongRangeSet lengthMinusOne = lengthSet.minus(LongRangeSet.point(1), false);
+      long minRightBorder = startSet.plus(lengthMinusOne, false).min();
+      if (maxLeftBorder > minRightBorder) return LongRangeSet.empty();
+      return LongRangeSet.range(maxLeftBorder, minRightBorder);
     }
   }
 }

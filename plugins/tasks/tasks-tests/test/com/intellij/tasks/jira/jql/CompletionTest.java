@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.jira.jql;
 
 import com.intellij.tasks.jira.jql.codeinsight.JqlFieldType;
 import com.intellij.tasks.jira.jql.codeinsight.JqlStandardFunction;
-import com.intellij.testFramework.IdeaTestCase;
 import com.intellij.testFramework.fixtures.CodeInsightFixtureTestCase;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.ContainerUtil;
 
 import java.util.List;
@@ -31,12 +16,6 @@ import static com.intellij.tasks.jira.jql.codeinsight.JqlStandardFunction.ALL_FU
  * @author Mikhail Golubev
  */
 public class CompletionTest extends CodeInsightFixtureTestCase {
-
-  @Override
-  public void setUp() throws Exception {
-    IdeaTestCase.initPlatformPrefix();
-    super.setUp();
-  }
 
   @Override
   protected String getBasePath() {
@@ -54,97 +33,97 @@ public class CompletionTest extends CodeInsightFixtureTestCase {
 
   private void checkCompletionVariants(List<String> initial, String... others) {
     myFixture.testCompletionVariants(getTestFilePath(),
-                                     ArrayUtil.toStringArray(ContainerUtil.append(initial, others)));
+                                     ArrayUtilRt.toStringArray(ContainerUtil.append(initial, others)));
   }
 
   private void checkCompletionVariants(String... variants) {
-    checkCompletionVariants(ContainerUtil.<String>emptyList(), variants);
+    checkCompletionVariants(ContainerUtil.emptyList(), variants);
   }
 
-  public void testBeginningOfLine() throws Exception {
+  public void testBeginningOfLine() {
     checkCompletionVariants(ALL_FIELD_NAMES, "not");
   }
 
-  public void testAfterClause() throws Exception {
+  public void testAfterClause() {
     checkCompletionVariants("and", "or", "order by");
   }
 
-  public void testAfterFieldNameInClause() throws Exception {
+  public void testAfterFieldNameInClause() {
     checkCompletionVariants("was", "changed", "not", "is", "in");
   }
 
-  public void testAfterFieldNameInSortKey() throws Exception {
+  public void testAfterFieldNameInSortKey() {
     checkCompletionVariants("asc", "desc");
   }
 
-  public void testAfterIsKeyword() throws Exception {
+  public void testAfterIsKeyword() {
     checkCompletionVariants("empty", "null", "not");
   }
 
-  public void testAfterIsNotKeywords() throws Exception {
+  public void testAfterIsNotKeywords() {
     checkCompletionVariants("empty", "null");
   }
 
-  public void testAfterNotKeywordInTerminalClause() throws Exception {
+  public void testAfterNotKeywordInTerminalClause() {
     checkCompletionVariants("in");
   }
 
-  public void testAfterChangedKeyword() throws Exception {
+  public void testAfterChangedKeyword() {
     checkCompletionVariants("and", "or", "order by",
                             "on", "by", "during", "after", "before", "to", "from");
   }
 
-  public void testAfterWasClause() throws Exception {
+  public void testAfterWasClause() {
     checkCompletionVariants("and", "or", "order by",
                             "on", "by", "during", "after", "before", "to", "from");
   }
 
-  public void testFunctionType1() throws Exception {
+  public void testFunctionType1() {
     checkCompletionVariants("membersOf");
   }
 
-  public void testFunctionType2() throws Exception {
+  public void testFunctionType2() {
     checkCompletionVariants("currentUser");
   }
 
-  public void testFunctionType3() throws Exception {
+  public void testFunctionType3() {
     checkCompletionVariants("currentUser");
   }
 
-  public void testFunctionType4() throws Exception {
+  public void testFunctionType4() {
     checkCompletionVariants(JqlStandardFunction.allOfType(JqlFieldType.DATE, false));
   }
 
-  public void testFunctionType5() throws Exception {
+  public void testFunctionType5() {
     checkCompletionVariants(JqlStandardFunction.allOfType(JqlFieldType.DATE, false));
   }
 
-  public void testAfterLeftParenthesisInSubClause() throws Exception {
+  public void testAfterLeftParenthesisInSubClause() {
     checkCompletionVariants(ALL_FIELD_NAMES, "not");
   }
 
-  public void testAfterSubClause() throws Exception {
+  public void testAfterSubClause() {
     checkCompletionVariants("and", "or", "order by");
   }
 
-  public void testFunctionArguments() throws Exception {
+  public void testFunctionArguments() {
     // only literals accepted so we can't assume anything
-    checkCompletionVariants(ContainerUtil.<String>emptyList());
+    checkCompletionVariants(ContainerUtil.emptyList());
   }
 
-  public void testAfterNotKeywordInNotClause() throws Exception {
+  public void testAfterNotKeywordInNotClause() {
     checkCompletionVariants(ALL_FIELD_NAMES, "not");
   }
 
-  public void testAfterOrderKeyword() throws Exception {
+  public void testAfterOrderKeyword() {
     checkCompletionVariants("by");
   }
 
-  public void testAfterWasKeyword() throws Exception {
+  public void testAfterWasKeyword() {
     checkCompletionVariants(ALL_FUNCTION_NAMES, "not", "in");
   }
 
-  public void testInList() throws Exception {
+  public void testInList() {
     checkCompletionVariants(ALL_FUNCTION_NAMES);
   }
 }

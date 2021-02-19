@@ -18,7 +18,7 @@ package org.jetbrains.plugins.groovy.refactoring.changeSignature;
 import com.intellij.psi.*;
 import com.intellij.refactoring.changeSignature.ThrownExceptionInfo;
 import com.intellij.refactoring.util.CanonicalTypes;
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -29,7 +29,7 @@ import java.util.Arrays;
 /**
  * @author Maxim.Medvedev
  */
-public abstract class ChangeSignatureTestCase extends LightCodeInsightFixtureTestCase {
+public abstract class ChangeSignatureTestCase extends LightJavaCodeInsightFixtureTestCase {
   void executeRefactoring(@Nullable @PsiModifier.ModifierConstant String newVisibility,
                           @Nullable String newName,
                           @Nullable String newReturnType,
@@ -37,7 +37,7 @@ public abstract class ChangeSignatureTestCase extends LightCodeInsightFixtureTes
                           @NotNull GenExceptions genExceptions,
                           boolean generateDelegate) {
     final PsiElement targetElement = new GrChangeSignatureHandler().findTargetMember(myFixture.getFile(), myFixture.getEditor());
-      //TargetElementUtilBase.findTargetElement(myFixture.getEditor(), TargetElementUtilBase.ELEMENT_NAME_ACCEPTED);
+      //TargetElementUtil.findTargetElement(myFixture.getEditor(), TargetElementUtil.ELEMENT_NAME_ACCEPTED);
     assertTrue("<caret> is not on method name", targetElement instanceof GrMethod);
     GrMethod method = (GrMethod)targetElement;
     final PsiElementFactory factory = JavaPsiFacade.getInstance(getProject()).getElementFactory();

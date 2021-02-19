@@ -15,9 +15,9 @@ package org.zmlx.hg4idea.execution;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.zmlx.hg4idea.HgBundle;
 import org.zmlx.hg4idea.action.HgCommandResultNotifier;
 import org.zmlx.hg4idea.util.HgErrorUtil;
 
@@ -25,19 +25,19 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
+
+import static org.zmlx.hg4idea.HgNotificationIdsHolder.REMOTE_AUTH_ERROR;
 
 public class HgRemoteCommandExecutor extends HgCommandExecutor {
 
-  @Nullable private ModalityState myState;
+  @Nullable private final ModalityState myState;
   final boolean myIgnoreAuthorizationRequest;
 
   public HgRemoteCommandExecutor(@NotNull Project project, @Nullable String destination) {
     this(project, destination, null, false);
-  }
-
-  public HgRemoteCommandExecutor(@NotNull Project project, @Nullable String destination, boolean ignoreAuthorizationRequest) {
-    this(project, destination, null, ignoreAuthorizationRequest);
   }
 
   public HgRemoteCommandExecutor(@NotNull Project project,
@@ -48,37 +48,40 @@ public class HgRemoteCommandExecutor extends HgCommandExecutor {
     myIgnoreAuthorizationRequest = ignoreAuthorizationRequest;
   }
 
+  @Override
   @Nullable
   public HgCommandResult executeInCurrentThread(@Nullable final VirtualFile repo, @NotNull final String operation,
                                                 @Nullable final List<String> arguments) {
 
 
-    HgCommandResult result = executeInCurrentThread(repo, operation, arguments, false);
+    HgCommandResult result = executeRemoteCommandInCurrentThread(repo, operation, arguments, false);
     if (!myIgnoreAuthorizationRequest && HgErrorUtil.isAuthorizationError(result)) {
       if (HgErrorUtil.hasAuthorizationInDestinationPath(myDestination)) {
         new HgCommandResultNotifier(myProject)
-          .notifyError(result, "Authorization failed", "Your hgrc file settings have wrong username or password in [paths].\n" +
-                                                       "Please, update your .hg/hgrc file.");
+          .notifyError(REMOTE_AUTH_ERROR,
+                       result,
+                       HgBundle.message("hg4idea.command.executor.remote.auth.failed"),
+                       HgBundle.message("hg4idea.command.executor.remote.auth.failed.msg"));
         return null;
       }
-      result = executeInCurrentThread(repo, operation, arguments, true);
+      result = executeRemoteCommandInCurrentThread(repo, operation, arguments, true);
     }
     return result;
   }
 
   @Nullable
-  private HgCommandResult executeInCurrentThread(@Nullable final VirtualFile repo,
-                                                 @NotNull final String operation,
-                                                 @Nullable final List<String> arguments,
-                                                 boolean forceAuthorization) {
+  private HgCommandResult executeRemoteCommandInCurrentThread(@Nullable final VirtualFile repo,
+                                                              @NotNull final String operation,
+                                                              @Nullable final List<String> arguments,
+                                                              boolean forceAuthorization) {
 
     PassReceiver passReceiver = new PassReceiver(myProject, forceAuthorization, myIgnoreAuthorizationRequest, myState);
     SocketServer passServer = new SocketServer(passReceiver);
     try {
       int passPort = passServer.start();
       HgCommandResult result = super.executeInCurrentThread(repo, operation, prepareArguments(arguments, passPort));
-      if (!HgErrorUtil.isAuthorizationError(result)) {
-        passReceiver.saveCredentials();
+      if (HgErrorUtil.isAuthorizationError(result)) {
+        passReceiver.forgetPassword();
       }
       return result;
     }
@@ -93,7 +96,7 @@ public class HgRemoteCommandExecutor extends HgCommandExecutor {
   }
 
   private List<String> prepareArguments(List<String> arguments, int port) {
-    List<String> cmdArguments = ContainerUtil.newArrayList();
+    List<String> cmdArguments = new ArrayList<>();
     cmdArguments.add("--config");
     cmdArguments.add("extensions.hg4ideapromptextension=" + myVcs.getPromptHooksExtensionFile().getAbsolutePath());
     cmdArguments.add("--config");
@@ -111,12 +114,12 @@ public class HgRemoteCommandExecutor extends HgCommandExecutor {
     super.logCommand(operation, null);
   }
 
-  private static class PassReceiver extends SocketServer.Protocol {
+  private static final class PassReceiver extends SocketServer.Protocol {
     private final Project myProject;
     private HgCommandAuthenticator myAuthenticator;
-    private boolean myForceAuthorization;
-    private boolean mySilentMode;
-    @Nullable private ModalityState myState;
+    private final boolean myForceAuthorization;
+    private final boolean mySilentMode;
+    @Nullable private final ModalityState myState;
 
     private PassReceiver(Project project, boolean forceAuthorization, boolean silent, @Nullable ModalityState state) {
       myProject = project;
@@ -131,25 +134,25 @@ public class HgRemoteCommandExecutor extends HgCommandExecutor {
       DataInputStream dataInputStream = new DataInputStream(socket.getInputStream());
       DataOutputStream out = new DataOutputStream(socket.getOutputStream());
 
-      String command = new String(readDataBlock(dataInputStream));
+      String command = new String(readDataBlock(dataInputStream), StandardCharsets.UTF_8);
       assert "getpass".equals(command) : "Invalid command: " + command;
-      String uri = new String(readDataBlock(dataInputStream));
-      String path = new String(readDataBlock(dataInputStream));
-      String proposedLogin = new String(readDataBlock(dataInputStream));
+      String uri = new String(readDataBlock(dataInputStream), StandardCharsets.UTF_8);
+      String path = new String(readDataBlock(dataInputStream), StandardCharsets.UTF_8);
+      String proposedLogin = new String(readDataBlock(dataInputStream), StandardCharsets.UTF_8);
 
-      HgCommandAuthenticator authenticator = new HgCommandAuthenticator(myProject, myForceAuthorization, mySilentMode);
+      HgCommandAuthenticator authenticator = new HgCommandAuthenticator(myForceAuthorization, mySilentMode);
       boolean ok = authenticator.promptForAuthentication(myProject, proposedLogin, uri, path, myState);
       if (ok) {
         myAuthenticator = authenticator;
-        sendDataBlock(out, authenticator.getUserName().getBytes());
-        sendDataBlock(out, authenticator.getPassword().getBytes());
+        sendDataBlock(out, authenticator.getUserName().getBytes(StandardCharsets.UTF_8));
+        sendDataBlock(out, authenticator.getPassword().getBytes(StandardCharsets.UTF_8));
       }
       return true;
     }
 
-    public void saveCredentials() {
+    public void forgetPassword() {
       if (myAuthenticator == null) return;
-      myAuthenticator.saveCredentials();
+      myAuthenticator.forgetPassword();
     }
   }
 }

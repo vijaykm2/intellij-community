@@ -1,36 +1,29 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.index;
 
+import com.intellij.ide.highlighter.DTDFileType;
+import com.intellij.ide.highlighter.XmlFileType;
+import com.intellij.openapi.fileTypes.FileTypeRegistry;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ProjectFileIndex;
+import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.io.StreamUtil;
+import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.search.FileTypeIndex;
+import com.intellij.psi.search.FilenameIndex;
+import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.xml.XmlFile;
-import com.intellij.util.NullableFunction;
-import com.intellij.util.indexing.DataIndexer;
-import com.intellij.util.indexing.FileBasedIndex;
-import com.intellij.util.indexing.FileContent;
-import com.intellij.util.indexing.ID;
+import com.intellij.util.Function;
+import com.intellij.util.ObjectUtils;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.indexing.*;
 import com.intellij.util.io.DataExternalizer;
-import com.intellij.util.io.DataInputOutputUtil;
 import com.intellij.util.io.IOUtil;
 import com.intellij.util.text.CharArrayUtil;
 import com.intellij.xml.util.XmlUtil;
@@ -43,47 +36,97 @@ import java.util.*;
 /**
  * @author Dmitry Avdeev
  */
-public class XmlNamespaceIndex extends XmlIndex<XsdNamespaceBuilder> {
+public final class XmlNamespaceIndex extends XmlIndex<XsdNamespaceBuilder> {
+  private static final String LOCAL_SCHEMA_ID = "$LOCAL_SCHEMA$";
 
   @Nullable
-  public static String getNamespace(@NotNull VirtualFile file, final Project project, PsiFile context) {
-    if (DumbService.isDumb(project) || (context != null && XmlUtil.isStubBuilding())) {
+  public static String getNamespace(@NotNull VirtualFile file, @NotNull Project project) {
+    if (DumbService.isDumb(project) || XmlUtil.isStubBuilding()) {
       return computeNamespace(file);
     }
-    final List<XsdNamespaceBuilder> list = FileBasedIndex.getInstance().getValues(NAME, file.getUrl(), createFilter(project));
-    return list.size() == 0 ? null : list.get(0).getNamespace();
+    XsdNamespaceBuilder item = getFileNamespace(file, project);
+    if (item == null) {
+      return null;
+    }
+    String namespace = item.getNamespace();
+    return namespace != null ? namespace : file.getUrl();
   }
 
   @Nullable
   public static String computeNamespace(@NotNull VirtualFile file) {
-    InputStream stream = null;
-    try {
-      stream = file.getInputStream();
+    try (InputStream stream = file.getInputStream()) {
       return XsdNamespaceBuilder.computeNamespace(stream);
     }
     catch (IOException e) {
       return null;
     }
-    finally {
-      StreamUtil.closeStream(stream);
-    }
   }
 
-  public static List<IndexedRelevantResource<String, XsdNamespaceBuilder>> getResourcesByNamespace(String namespace,
+  @NotNull
+  public static List<IndexedRelevantResource<String, XsdNamespaceBuilder>> getResourcesByNamespace(@NotNull String namespace,
                                                                                                    @NotNull Project project,
                                                                                                    @Nullable Module module) {
-    List<IndexedRelevantResource<String, XsdNamespaceBuilder>> resources =
-      IndexedRelevantResource.getResources(NAME, namespace, module, project, null);
+    List<IndexedRelevantResource<String, XsdNamespaceBuilder>> resources = IndexedRelevantResource.getResources(NAME, namespace, module, project, null);
+    resources.addAll(getDtdResources(namespace, module, project));
+    ContainerUtil.addIfNotNull(resources, getResourceByLocalFile(namespace, project, module));
     Collections.sort(resources);
     return resources;
   }
 
-  public static List<IndexedRelevantResource<String, XsdNamespaceBuilder>> getAllResources(@Nullable final Module module,
-                                                                                           @NotNull Project project,
-                                                                                           @Nullable NullableFunction<List<IndexedRelevantResource<String, XsdNamespaceBuilder>>, IndexedRelevantResource<String, XsdNamespaceBuilder>> chooser) {
-    return IndexedRelevantResource.getAllResources(NAME, module, project, chooser);
+  @Nullable
+  private static IndexedRelevantResource<String, XsdNamespaceBuilder> getResourceByLocalFile(@NotNull String namespace,
+                                                                                             @NotNull Project project,
+                                                                                             @Nullable Module module) {
+    String protocol = VirtualFileManager.extractProtocol(namespace);
+    VirtualFileManager virtualFileManager = VirtualFileManager.getInstance();
+    if (virtualFileManager.getFileSystem(protocol) instanceof LocalFileSystem) {
+      VirtualFile file = virtualFileManager.findFileByUrl(namespace);
+      if (file != null) {
+        XsdNamespaceBuilder xsdNamespaceBuilder = getFileNamespace(file, project);
+        if (xsdNamespaceBuilder != null) {
+          ResourceRelevance relevance = ResourceRelevance.getRelevance(file, module, ProjectFileIndex.getInstance(project), null);
+          return new IndexedRelevantResource<>(file, file.getUrl(), xsdNamespaceBuilder, relevance);
+        }
+      }
+    }
+    return null;
   }
-  
+
+  @Nullable
+  private static XsdNamespaceBuilder getFileNamespace(@NotNull VirtualFile file, @NotNull Project project) {
+    if (FileTypeRegistry.getInstance().isFileOfType(file, DTDFileType.INSTANCE)) {
+      return new XsdNamespaceBuilder(file.getName(), "", Collections.emptyList(), Collections.emptyList());
+    }
+    Map<String, XsdNamespaceBuilder> data = FileBasedIndex.getInstance().getFileData(NAME, file, project);
+    return ContainerUtil.getFirstItem(data.values());
+  }
+
+  public static List<IndexedRelevantResource<String, XsdNamespaceBuilder>> getAllResources(@Nullable final Module module,
+                                                                                           @NotNull Project project) {
+    List<IndexedRelevantResource<String, XsdNamespaceBuilder>> xmlResources = IndexedRelevantResource.getAllResources(NAME, module, project, null);
+    List<IndexedRelevantResource<String, XsdNamespaceBuilder>> dtdResources = getDtdResources(null, module, project);
+    return ContainerUtil.concat(xmlResources, dtdResources);
+  }
+
+  @NotNull
+  private static List<IndexedRelevantResource<String, XsdNamespaceBuilder>> getDtdResources(@Nullable String namespace,
+                                                                                            @Nullable Module module,
+                                                                                            @NotNull Project project) {
+    AdditionalIndexedRootsScope scope = new AdditionalIndexedRootsScope(GlobalSearchScope.allScope(project));
+    ProjectFileIndex index = ProjectRootManager.getInstance(project).getFileIndex();
+    Function<VirtualFile, IndexedRelevantResource<String, XsdNamespaceBuilder>> resourceFunction = f -> {
+      ResourceRelevance relevance = ResourceRelevance.getRelevance(f, module, index, scope);
+      return new IndexedRelevantResource<>(f, f.getName(), getFileNamespace(f, project), relevance);
+    };
+    Collection<VirtualFile> dtdFiles;
+    if (namespace == null) {
+      dtdFiles = FileTypeIndex.getFiles(DTDFileType.INSTANCE, scope);
+    } else {
+      dtdFiles = ContainerUtil.filter(FilenameIndex.getVirtualFilesByName(project, namespace, scope), f -> FileTypeRegistry.getInstance().isFileOfType(f, DTDFileType.INSTANCE));
+    }
+    return ContainerUtil.map(dtdFiles, resourceFunction);
+  }
+
   public static final ID<String,XsdNamespaceBuilder> NAME = ID.create("XmlNamespaces");
 
   @Override
@@ -92,75 +135,64 @@ public class XmlNamespaceIndex extends XmlIndex<XsdNamespaceBuilder> {
     return NAME;
   }
 
-  @Override
   @NotNull
-  public DataIndexer<String, XsdNamespaceBuilder, FileContent> getIndexer() {
-    return new DataIndexer<String, XsdNamespaceBuilder, FileContent>() {
+  @Override
+  public FileBasedIndex.InputFilter getInputFilter() {
+    return new DefaultFileTypeSpecificInputFilter(XmlFileType.INSTANCE) {
       @Override
-      @NotNull
-      public Map<String, XsdNamespaceBuilder> map(@NotNull final FileContent inputData) {
-        final XsdNamespaceBuilder builder;
-        if ("dtd".equals(inputData.getFile().getExtension())) {
-          builder = new XsdNamespaceBuilder(inputData.getFileName(), "", Collections.<String>emptyList(), Collections.<String>emptyList());
-        }
-        else {
-          builder = XsdNamespaceBuilder.computeNamespace(CharArrayUtil.readerFromCharSequence(inputData.getContentAsText()));
-        }
-        final HashMap<String, XsdNamespaceBuilder> map = new HashMap<String, XsdNamespaceBuilder>(2);
-        String namespace = builder.getNamespace();
-        if (namespace != null) {
-          map.put(namespace, builder);
-        }
-        // so that we could get ns by file url (see getNamespace method above)
-        map.put(inputData.getFile().getUrl(), builder);
-        return map;
+      public boolean acceptInput(@NotNull final VirtualFile file) {
+        return "xsd".equals(file.getExtension());
       }
     };
   }
+
+  @Override
+  @NotNull
+  public DataIndexer<String, XsdNamespaceBuilder, FileContent> getIndexer() {
+    return new DataIndexer<>() {
+      @Override
+      @NotNull
+      public Map<String, XsdNamespaceBuilder> map(@NotNull final FileContent inputData) {
+        XsdNamespaceBuilder builder =
+          XsdNamespaceBuilder.computeNamespace(CharArrayUtil.readerFromCharSequence(inputData.getContentAsText()));
+        String namespace = builder.getNamespace();
+        return Collections.singletonMap(ObjectUtils.notNull(namespace, LOCAL_SCHEMA_ID), builder);
+      }
+    };
+  }
+
+  private static final String NULL_STRING = "\"\"";
 
   @NotNull
   @Override
   public DataExternalizer<XsdNamespaceBuilder> getValueExternalizer() {
-    return new DataExternalizer<XsdNamespaceBuilder>() {
+    return new DataExternalizer<>() {
       @Override
       public void save(@NotNull DataOutput out, XsdNamespaceBuilder value) throws IOException {
-        IOUtil.writeUTF(out, value.getNamespace() == null ? "" : value.getNamespace());
-        IOUtil.writeUTF(out, value.getVersion() == null ? "" : value.getVersion());
-        writeList(out, value.getTags());
-        writeList(out, value.getRootTags());
+        IOUtil.writeUTF(out, value.getNamespace() != null ? value.getNamespace() : NULL_STRING);
+        IOUtil.writeUTF(out, value.getVersion() != null ? value.getVersion() : NULL_STRING);
+        IOUtil.writeStringList(out, value.getTags());
+        IOUtil.writeStringList(out, value.getRootTags());
       }
 
       @Override
       public XsdNamespaceBuilder read(@NotNull DataInput in) throws IOException {
+        String namespace = IOUtil.readUTF(in);
+        if (NULL_STRING.equals(namespace)) namespace = null;
+        String version = IOUtil.readUTF(in);
+        if (NULL_STRING.equals(version)) version = null;
 
-        return new XsdNamespaceBuilder(IOUtil.readUTF(in),
-                                       IOUtil.readUTF(in),
-                                       readList(in),
-                                       readList(in));
+        return new XsdNamespaceBuilder(namespace,
+                                       version,
+                                       IOUtil.readStringList(in),
+                                       IOUtil.readStringList(in));
       }
     };
   }
 
-  private static void writeList(@NotNull DataOutput out, List<String> tags) throws IOException {
-    DataInputOutputUtil.writeINT(out, tags.size());
-    for (String s : tags) {
-      IOUtil.writeUTF(out, s);
-    }
-  }
-
-  @NotNull
-  private static ArrayList<String> readList(@NotNull DataInput in) throws IOException {
-    int count;
-    ArrayList<String> tags = new ArrayList<String>(count = DataInputOutputUtil.readINT(in));
-    for (int i = 0; i < count; i++) {
-      tags.add(IOUtil.readUTF(in));
-    }
-    return tags;
-  }
-
   @Override
   public int getVersion() {
-    return 4;
+    return 8;
   }
 
   @Nullable
@@ -178,22 +210,18 @@ public class XmlNamespaceIndex extends XmlIndex<XsdNamespaceBuilder> {
     if (resources.size() == 1) return resources.get(0);
     final String fileName = schemaLocation == null ? null : new File(schemaLocation).getName();
     IndexedRelevantResource<String, XsdNamespaceBuilder> resource =
-      Collections.max(resources, new Comparator<IndexedRelevantResource<String, XsdNamespaceBuilder>>() {
-        @Override
-        public int compare(IndexedRelevantResource<String, XsdNamespaceBuilder> o1,
-                           IndexedRelevantResource<String, XsdNamespaceBuilder> o2) {
-          if (fileName != null) {
-            int i = Comparing.compare(fileName.equals(o1.getFile().getName()), fileName.equals(o2.getFile().getName()));
-            if (i != 0) return i;
-          }
-          if (tagName != null) {
-            int i = Comparing.compare(o1.getValue().hasTag(tagName), o2.getValue().hasTag(tagName));
-            if (i != 0) return i;
-          }
-          int i = o1.compareTo(o2);
+      Collections.max(resources, (o1, o2) -> {
+        if (fileName != null) {
+          int i = Comparing.compare(fileName.equals(o1.getFile().getName()), fileName.equals(o2.getFile().getName()));
           if (i != 0) return i;
-          return o1.getValue().getRating(tagName, version) - o2.getValue().getRating(tagName, version);
         }
+        if (tagName != null) {
+          int i = Comparing.compare(o1.getValue().hasTag(tagName), o2.getValue().hasTag(tagName));
+          if (i != 0) return i;
+        }
+        int i = o1.compareTo(o2);
+        if (i != 0) return i;
+        return o1.getValue().getRating(tagName, version) - o2.getValue().getRating(tagName, version);
       });
     if (tagName != null && !resource.getValue().hasTag(tagName)) {
       return null;

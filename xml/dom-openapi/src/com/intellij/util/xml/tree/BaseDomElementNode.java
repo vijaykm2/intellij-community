@@ -66,7 +66,7 @@ public class BaseDomElementNode extends AbstractDomElementNode {
   }
 
   @Override
-  public SimpleNode[] getChildren() {
+  public SimpleNode @NotNull [] getChildren() {
     return doGetChildren(myDomElement);
   }
 
@@ -87,7 +87,7 @@ public class BaseDomElementNode extends AbstractDomElementNode {
   protected final SimpleNode[] doGetChildren(final DomElement element) {
     if (!element.isValid()) return NO_CHILDREN;
 
-    List<SimpleNode> children = new ArrayList<SimpleNode>();
+    List<SimpleNode> children = new ArrayList<>();
     final XmlTag tag = element.getXmlTag();
     
     if (tag != null && !(tag.getContainingFile() instanceof XmlFile)) return NO_CHILDREN;
@@ -126,7 +126,7 @@ public class BaseDomElementNode extends AbstractDomElementNode {
       }
     }
 
-    AbstractDomElementNode[] childrenNodes = children.toArray(new AbstractDomElementNode[children.size()]);
+    AbstractDomElementNode[] childrenNodes = children.toArray(new AbstractDomElementNode[0]);
 
     Comparator<AbstractDomElementNode> comparator = DomUtil.getFile(myDomElement).getUserData(COMPARATOR_KEY);
     if (comparator == null) {
@@ -147,12 +147,7 @@ public class BaseDomElementNode extends AbstractDomElementNode {
       if (descriptor != null) {
         final XmlElementDescriptor[] childDescriptors = descriptor.getElementsDescriptors(tag);
         if (childDescriptors != null && childDescriptors.length > 1) {
-          return new Comparator<AbstractDomElementNode>() {
-            @Override
-            public int compare(final AbstractDomElementNode o1, final AbstractDomElementNode o2) {
-              return findDescriptor(childDescriptors, o1.getTagName()) - findDescriptor(childDescriptors, o2.getTagName());
-            }
-          };
+          return Comparator.comparingInt(o -> findDescriptor(childDescriptors, o.getTagName()));
         }
       }
     }
@@ -172,7 +167,7 @@ public class BaseDomElementNode extends AbstractDomElementNode {
   public List<DomCollectionChildDescription> getConsolidatedChildrenDescriptions() {
     if (!myDomElement.isValid()) return Collections.emptyList();
 
-    final List<DomCollectionChildDescription> consolidated = new ArrayList<DomCollectionChildDescription>();
+    final List<DomCollectionChildDescription> consolidated = new ArrayList<>();
     for (DomCollectionChildDescription description : myDomElement.getGenericInfo().getCollectionChildrenDescriptions()) {
       if (isMarkedType(description.getType(), CONSOLIDATED_NODES_KEY)) {
         consolidated.add(description);
@@ -182,8 +177,7 @@ public class BaseDomElementNode extends AbstractDomElementNode {
   }
 
   @Override
-  @NotNull
-  public Object[] getEqualityObjects() {
+  public Object @NotNull [] getEqualityObjects() {
     return new Object[]{myDomElement};
   }
 
@@ -262,11 +256,6 @@ public class BaseDomElementNode extends AbstractDomElementNode {
   @Override
   public boolean isAutoExpandNode() {
     return getParent() == null;
-  }
-
-  @Override
-  public boolean expandOnDoubleClick() {
-    return true;
   }
 
   public boolean isShowContainingFileInfo() {

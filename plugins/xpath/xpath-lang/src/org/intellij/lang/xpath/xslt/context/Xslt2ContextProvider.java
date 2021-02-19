@@ -89,33 +89,33 @@ public class Xslt2ContextProvider extends XsltContextProviderBase {
   }
 
   private static final UserDataCache<FunctionContext, XmlFile, Void> functionContextCache =
-          new UserDataCache<FunctionContext, XmlFile, Void>("xslt2FunctionContext") {
+    new UserDataCache<>("xslt2FunctionContext") {
 
-    @Override
-    protected FunctionContext compute(final XmlFile xmlFile, Void p) {
-      final FunctionContext base = Xslt2FunctionContext.getInstance();
-      return new FunctionContext() {
-        @Override
-        public Map<Pair<QName, Integer>, Function> getFunctions() {
-          return ContainerUtil.union(base.getFunctions(), getCustomFunctions(xmlFile));
-        }
-
-        @Override
-        public boolean allowsExtensions() {
-          return base.allowsExtensions();
-        }
-
-        @Override
-        public Function resolve(QName name, int argCount) {
-          final Function f = base.resolve(name, argCount);
-          if (f == null) {
-            return resolveCustomFunction(xmlFile, name, argCount);
+      @Override
+      protected FunctionContext compute(final XmlFile xmlFile, Void p) {
+        final FunctionContext base = Xslt2FunctionContext.getInstance();
+        return new FunctionContext() {
+          @Override
+          public Map<Pair<QName, Integer>, Function> getFunctions() {
+            return ContainerUtil.union(base.getFunctions(), getCustomFunctions(xmlFile));
           }
-          return f;
-        }
-      };
-    }
-  };
+
+          @Override
+          public boolean allowsExtensions() {
+            return base.allowsExtensions();
+          }
+
+          @Override
+          public Function resolve(QName name, int argCount) {
+            final Function f = base.resolve(name, argCount);
+            if (f == null) {
+              return resolveCustomFunction(xmlFile, name, argCount);
+            }
+            return f;
+          }
+        };
+      }
+    };
 
   @Override
   @NotNull
@@ -127,12 +127,12 @@ public class Xslt2ContextProvider extends XsltContextProviderBase {
   }
 
   private static final UserDataCache<ParameterizedCachedValue<Map<Pair<QName,Integer>,Function>,XmlFile>, XmlFile, Void> ourFunctionCacheProvider =
-    new UserDataCache<ParameterizedCachedValue<Map<Pair<QName,Integer>,Function>,XmlFile>, XmlFile, Void>() {
-    @Override
-    protected ParameterizedCachedValue<Map<Pair<QName,Integer>,Function>,XmlFile> compute(XmlFile file, Void p) {
-      return CachedValuesManager.getManager(file.getProject()).createParameterizedCachedValue(MyFunctionProvider.INSTANCE, false);
-    }
-  };
+    new UserDataCache<>() {
+      @Override
+      protected ParameterizedCachedValue<Map<Pair<QName, Integer>, Function>, XmlFile> compute(XmlFile file, Void p) {
+        return CachedValuesManager.getManager(file.getProject()).createParameterizedCachedValue(MyFunctionProvider.INSTANCE, false);
+      }
+    };
 
   private static Map<Pair<QName, Integer>, Function> getCustomFunctions(XmlFile file) {
     final XmlTag rootTag = file.getRootTag();
@@ -161,14 +161,14 @@ public class Xslt2ContextProvider extends XsltContextProviderBase {
   }
 
   private static class MyFunctionProvider implements ParameterizedCachedValueProvider<Map<Pair<QName, Integer>, Function>, XmlFile> {
-    private static ParameterizedCachedValueProvider<Map<Pair<QName,Integer>,Function>,XmlFile> INSTANCE = new MyFunctionProvider();
+    private static final ParameterizedCachedValueProvider<Map<Pair<QName,Integer>,Function>,XmlFile> INSTANCE = new MyFunctionProvider();
 
     @Override
     public CachedValueProvider.Result<Map<Pair<QName, Integer>, Function>> compute(XmlFile param) {
       final XmlTag rootTag = param.getRootTag();
       assert rootTag != null;
 
-      final Map<Pair<QName, Integer>, Function> candidates = new HashMap<Pair<QName, Integer>, Function>();
+      final Map<Pair<QName, Integer>, Function> candidates = new HashMap<>();
       final XsltFunction[] functions = XsltElementFactory.getInstance().wrapElement(rootTag, XsltStylesheet.class).getFunctions();
       for (XsltFunction function : functions) {
         candidates.put(Pair.create(function.getQName(), function.getParameters().length), function);

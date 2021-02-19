@@ -31,7 +31,7 @@ public class PyArgumentListImplTest extends PyClassRefactoringTest {
   /**
    * Ensures new keyword argument is set into appropriate place
    */
-  public void testAddKeyArgument() throws Exception {
+  public void testAddKeyArgument() {
     final PyKeywordArgument classKeyword = myGenerator.createKeywordArgument(myLanguagelevel, "metaclass", "ABCMeta");
     final PyKeywordArgument functionKeyword = myGenerator.createKeywordArgument(myLanguagelevel, "new_param", "spam");
 
@@ -42,7 +42,7 @@ public class PyArgumentListImplTest extends PyClassRefactoringTest {
   /**
    * Ensures new param (NOT keyword argument) is set into appropriate place
    */
-  public void testAddParam() throws Exception {
+  public void testAddParam() {
     final PyExpression classParameter = myGenerator.createParameter("SuperClass");
     final PyExpression functionParameter = myGenerator.createParameter("new_param");
 
@@ -61,29 +61,22 @@ public class PyArgumentListImplTest extends PyClassRefactoringTest {
     myFixture.configureByFile(getMultiFileBaseName() + "/addArgumentFile.py");
 
     //TODO: newly created expressions has no indent info, it leads to errors in postprocessing formatting. Need to investigate.
-    PostprocessReformattingAspect.getInstance(myFixture.getProject()).disablePostprocessFormattingInside(new Runnable() {
-      @Override
-      public void run() {
-        WriteCommandAction.runWriteCommandAction(myFixture.getProject(), new Runnable() {
-          @Override
-          public void run() {
+    PostprocessReformattingAspect.getInstance(myFixture.getProject()).disablePostprocessFormattingInside(
+      () -> WriteCommandAction.runWriteCommandAction(myFixture.getProject(), () -> {
 
 
-            for (final PyClass aClass : PsiTreeUtil.findChildrenOfType(myFixture.getFile(), PyClass.class)) {
-              final PyArgumentList superClassExpressionList = aClass.getSuperClassExpressionList();
-              assert superClassExpressionList != null : "Class has no expression list!";
-              superClassExpressionList.addArgument(superClassExpression);
-            }
+        for (final PyClass aClass : PsiTreeUtil.findChildrenOfType(myFixture.getFile(), PyClass.class)) {
+          final PyArgumentList superClassExpressionList = aClass.getSuperClassExpressionList();
+          assert superClassExpressionList != null : "Class has no expression list!";
+          superClassExpressionList.addArgument(superClassExpression);
+        }
 
-            for (final PyCallExpression expression : PsiTreeUtil.findChildrenOfType(myFixture.getFile(), PyCallExpression.class)) {
-              final PyArgumentList list = expression.getArgumentList();
-              assert list != null : "Callable statement has no argument list?";
-              list.addArgument(functionExpression);
-            }
-          }
-        });
-      }
-    });
+        for (final PyCallExpression expression : PsiTreeUtil.findChildrenOfType(myFixture.getFile(), PyCallExpression.class)) {
+          final PyArgumentList list = expression.getArgumentList();
+          assert list != null : "Callable statement has no argument list?";
+          list.addArgument(functionExpression);
+        }
+      }));
     myFixture.checkResultByFile(getMultiFileBaseName() + "/addArgumentFile.after.py");
   }
 }

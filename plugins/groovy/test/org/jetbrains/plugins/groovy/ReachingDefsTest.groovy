@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy
 
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.PsiTreeUtil
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 import org.jetbrains.annotations.NotNull
 import org.jetbrains.plugins.groovy.codeInspection.utils.ControlFlowUtils
 import org.jetbrains.plugins.groovy.lang.psi.GrControlFlowOwner
@@ -34,26 +20,39 @@ import org.jetbrains.plugins.groovy.util.TestUtils
 /**
  * @auther ven
  */
-public class ReachingDefsTest extends LightCodeInsightFixtureTestCase {
+class ReachingDefsTest extends LightJavaCodeInsightFixtureTestCase {
 
   String basePath = TestUtils.testDataPath + 'groovy/reachingDefs/'
 
-  public void testAssign() { doTest() }
-  public void testClosure() { doTest() }
-  public void testClosure1() { doTest() }
-  public void testEm1() { doTest() }
-  public void testEm2() { doTest() }
-  public void testEm3() { doTest() }
-  public void testIf1() { doTest() }
-  public void testInner() { doTest() }
-  public void testLocal1() { doTest() }
-  public void testLocal2() { doTest() }
-  public void testSimpl1() { doTest() }
-  public void testSimpl2() { doTest() }
-  public void testSimpl3() { doTest() }
-  public void testWhile1() { doTest() }
+  void testAssign() { doTest() }
 
-  public void doTest() {
+  void testClosure() { doTest() }
+
+  void testClosure1() { doTest() }
+
+  void testEm1() { doTest() }
+
+  void testEm2() { doTest() }
+
+  void testEm3() { doTest() }
+
+  void testIf1() { doTest() }
+
+  void testInner() { doTest() }
+
+  void testLocal1() { doTest() }
+
+  void testLocal2() { doTest() }
+
+  void testSimpl1() { doTest() }
+
+  void testSimpl2() { doTest() }
+
+  void testSimpl3() { doTest() }
+
+  void testWhile1() { doTest() }
+
+  void doTest() {
     final List<String> data = TestUtils.readInput(testDataPath + getTestName(true) + ".test")
     String text = data.get(0)
 
@@ -71,7 +70,7 @@ public class ReachingDefsTest extends LightCodeInsightFixtureTestCase {
     GrStatement lastStatement = getStatement(end, owner)
 
     final GrControlFlowOwner flowOwner = ControlFlowUtils.findControlFlowOwner(firstStatement)
-    final ControlFlowBuilder flowBuilder = new ControlFlowBuilder(firstStatement.getProject(), GrAllVarsInitializedPolicy.getInstance())
+    final ControlFlowBuilder flowBuilder = new ControlFlowBuilder(GrAllVarsInitializedPolicy.getInstance())
     final Instruction[] flow = flowBuilder.buildControlFlow(flowOwner)
     final FragmentVariableInfos fragmentVariableInfos = ReachingDefinitionsCollector.obtainVariableFlowInformation(firstStatement, lastStatement, flowOwner, flow)
 

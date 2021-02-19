@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 04.05.2006
- * Time: 22:32:31
- */
 package org.intellij.lang.xpath.validation;
 
 import com.intellij.openapi.util.Comparing;
@@ -36,7 +30,7 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.xml.namespace.QName;
 
-public class ExpectedTypeUtil {
+public final class ExpectedTypeUtil {
   private ExpectedTypeUtil() {
   }
 
@@ -165,7 +159,7 @@ public class ExpectedTypeUtil {
 
     private XPathType myExpectedType = XPathType.UNKNOWN;
 
-    public ExpectedTypeVisitor(XPathExpression expression) {
+    ExpectedTypeVisitor(XPathExpression expression) {
       myExpression = expression;
     }
 

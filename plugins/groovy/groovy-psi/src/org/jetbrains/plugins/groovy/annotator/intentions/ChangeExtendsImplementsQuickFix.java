@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.annotator.intentions;
 
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
@@ -37,10 +24,6 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
-/**
- * User: Dmitry.Krasilschikov
- * Date: 21.09.2007
- */
 public class ChangeExtendsImplementsQuickFix implements IntentionAction {
   @Nullable
   private final GrExtendsClause myExtendsClause;
@@ -74,10 +57,10 @@ public class ChangeExtendsImplementsQuickFix implements IntentionAction {
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-    Set<String> classes = new LinkedHashSet<String>();
-    Set<String> interfaces = new LinkedHashSet<String>();
-    Set<String> unknownClasses = new LinkedHashSet<String>();
-    Set<String> unknownInterfaces = new LinkedHashSet<String>();
+    Set<String> classes = new LinkedHashSet<>();
+    Set<String> interfaces = new LinkedHashSet<>();
+    Set<String> unknownClasses = new LinkedHashSet<>();
+    Set<String> unknownInterfaces = new LinkedHashSet<>();
 
     if (myExtendsClause != null) {
       collectRefs(myExtendsClause.getReferenceElementsGroovy(), classes, interfaces, myClass.isInterface() ? unknownInterfaces : unknownClasses);
@@ -100,7 +83,7 @@ public class ChangeExtendsImplementsQuickFix implements IntentionAction {
     }
   }
 
-  private static void collectRefs(GrCodeReferenceElement[] refs, Collection<String> classes, Collection<String> interfaces, Collection<String> unknown) {
+  private static void collectRefs(GrCodeReferenceElement[] refs, Collection<? super String> classes, Collection<? super String> interfaces, Collection<? super String> unknown) {
     for (GrCodeReferenceElement ref : refs) {
       final PsiElement extendsElement = ref.resolve();
       String canonicalText = ref.getCanonicalText();
@@ -122,7 +105,7 @@ public class ChangeExtendsImplementsQuickFix implements IntentionAction {
   private void addNewClause(Collection<String> elements, Collection<String> additional, Project project, boolean isExtends) throws IncorrectOperationException {
     if (elements.isEmpty() && additional.isEmpty()) return;
 
-    StringBuilder classText = new StringBuilder();
+    @NlsSafe StringBuilder classText = new StringBuilder();
     classText.append("class A ");
     classText.append(isExtends ? "extends " : "implements ");
 

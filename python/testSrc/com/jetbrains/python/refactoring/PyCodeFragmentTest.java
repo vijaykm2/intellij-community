@@ -1,25 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.refactoring;
 
 import com.intellij.codeInsight.codeFragment.CannotCreateCodeFragmentException;
 import com.intellij.codeInsight.codeFragment.CodeFragment;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.VfsUtil;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -31,25 +17,22 @@ import com.jetbrains.python.psi.PyFile;
 
 import java.util.TreeSet;
 
-/**
- * @author oleg
- */
 public class PyCodeFragmentTest extends LightMarkedTestCase {
   @Override
   public String getTestDataPath() {
     return PythonTestUtil.getTestDataPath() + "/codeInsight/codefragment/";
   }
 
-  final private String BEGIN_MARKER = "<begin>";
-  final private String END_MARKER = "<end>";
-  final private String RESULT_MARKER = "<result>";
+  static final private String BEGIN_MARKER = "<begin>";
+  static final private String END_MARKER = "<end>";
+  static final private String RESULT_MARKER = "<result>";
 
   private void doTest(Pair<String, String>... files2Create) throws Exception {
     final String testName = getTestName(false).toLowerCase();
     final String fullPath = getTestDataPath() + testName + ".test";
 
     final VirtualFile vFile = getVirtualFileByName(fullPath);
-    String fileText = StringUtil.convertLineSeparators(VfsUtil.loadText(vFile), "\n");
+    String fileText = StringUtil.convertLineSeparators(VfsUtilCore.loadText(vFile), "\n");
 
     final int beginMarker = fileText.indexOf(BEGIN_MARKER);
     final int endMarker = fileText.indexOf(END_MARKER);
@@ -59,9 +42,9 @@ public class PyCodeFragmentTest extends LightMarkedTestCase {
     assertTrue(resultMarker != -1);
 
     final StringBuilder builder = new StringBuilder();
-    builder.append(fileText.substring(0, beginMarker));
-    builder.append(fileText.substring(beginMarker + BEGIN_MARKER.length(), endMarker));
-    builder.append((fileText.substring(endMarker + END_MARKER.length(), resultMarker)));
+    builder.append(fileText, 0, beginMarker);
+    builder.append(fileText, beginMarker + BEGIN_MARKER.length(), endMarker);
+    builder.append(fileText, endMarker + END_MARKER.length(), resultMarker);
 
     final String result = fileText.substring(resultMarker + RESULT_MARKER.length());
 
@@ -81,18 +64,18 @@ public class PyCodeFragmentTest extends LightMarkedTestCase {
     if (!(context instanceof ScopeOwner)) {
       context = PsiTreeUtil.getParentOfType(context, ScopeOwner.class);
     }
-    final StringBuffer buffer = new StringBuffer();
+    final StringBuilder buffer = new StringBuilder();
     try {
       final CodeFragment fragment = PyCodeFragmentUtil.createCodeFragment((ScopeOwner)context, startElement, endElement);
       if (fragment.isReturnInstructionInside()) {
         buffer.append("Return instruction inside found").append("\n");
       }
       buffer.append("In:\n");
-      for (String inputVariable : new TreeSet<String>(fragment.getInputVariables())) {
+      for (String inputVariable : new TreeSet<>(fragment.getInputVariables())) {
         buffer.append(inputVariable).append('\n');
       }
       buffer.append("Out:\n");
-      for (String outputVariable : new TreeSet<String>(fragment.getOutputVariables())) {
+      for (String outputVariable : new TreeSet<>(fragment.getOutputVariables())) {
         buffer.append(outputVariable).append('\n');
       }
     }

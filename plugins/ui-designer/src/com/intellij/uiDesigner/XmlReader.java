@@ -16,6 +16,7 @@
 package com.intellij.uiDesigner;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.ui.JBColor;
 import com.intellij.uiDesigner.compiler.RecursiveFormNestingException;
 import com.intellij.uiDesigner.compiler.Utils;
@@ -30,7 +31,6 @@ import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
-import java.text.MessageFormat;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -40,7 +40,7 @@ import java.util.Map;
  * @author Vladimir Kondratyev
  */
 public final class XmlReader {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.uiDesigner.XmlReader");
+  private static final Logger LOG = Logger.getInstance(XmlReader.class);
 
   private XmlReader() {
   }
@@ -107,7 +107,7 @@ public final class XmlReader {
             }
           }
           catch (final Exception exc) {
-            String errorDescription = MessageFormat.format(UIDesignerBundle.message("error.class.cannot.be.instantiated"), lwComponent.getComponentClassName());
+            String errorDescription = UIDesignerBundle.message("error.class.cannot.be.instantiated", lwComponent.getComponentClassName());
             final String message = FormEditingUtil.getExceptionMessage(exc);
             if (message != null) {
               errorDescription += ": " + message;
@@ -221,7 +221,6 @@ public final class XmlReader {
 
     if (component instanceof RadContainer) {
       final RadContainer container = (RadContainer)component;
-      //noinspection ConstantConditions
       final LwContainer lwContainer = (LwContainer)lwComponent;
 
       copyBorder(container, lwContainer);
@@ -234,7 +233,6 @@ public final class XmlReader {
 
     if (component instanceof RadRootContainer) {
       final RadRootContainer radRootContainer = (RadRootContainer)component;
-      //noinspection ConstantConditions
       final LwRootContainer lwRootContainer = (LwRootContainer)lwComponent;
       radRootContainer.setClassToBind(lwRootContainer.getClassToBind());
       radRootContainer.setMainComponentBinding(lwRootContainer.getMainComponentBinding());
@@ -261,7 +259,7 @@ public final class XmlReader {
 
   private static RadErrorComponent createErrorComponent(final ModuleProvider module, final String id, final LwComponent lwComponent, final ClassLoader loader) {
     final String componentClassName = lwComponent.getComponentClassName();
-    final String errorDescription = Utils.validateJComponentClass(loader, componentClassName, true);
+    final @NlsSafe String errorDescription = Utils.validateJComponentClass(loader, componentClassName, true);
     return RadErrorComponent.create(
       module,
       id,

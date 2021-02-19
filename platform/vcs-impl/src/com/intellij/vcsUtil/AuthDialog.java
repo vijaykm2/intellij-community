@@ -13,12 +13,11 @@
 package com.intellij.vcsUtil;
 
 import com.intellij.ide.passwordSafe.PasswordSafe;
-import com.intellij.ide.passwordSafe.config.PasswordSafeSettings;
-import com.intellij.ide.passwordSafe.impl.PasswordSafeImpl;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.net.AuthenticationPanel;
+import com.intellij.openapi.util.NlsContexts;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -32,7 +31,12 @@ public class AuthDialog extends DialogWrapper {
    * On the other hand, if password saving is disabled, the checkbox is not shown.
    * In other cases, {@code rememberByDefault} is used.
    */
-  public AuthDialog(@NotNull Project project, @NotNull String title, @Nullable String description, @Nullable String login, @Nullable String password, boolean rememberByDefault) {
+  public AuthDialog(@NotNull Project project,
+                    @NotNull @NlsContexts.DialogTitle String title,
+                    @Nullable @NlsContexts.Label String description,
+                    @Nullable String login,
+                    @Nullable String password,
+                    boolean rememberByDefault) {
     super(project, false);
     setTitle(title);
     Boolean rememberPassword = decideOnShowRememberPasswordOption(password, rememberByDefault);
@@ -42,9 +46,8 @@ public class AuthDialog extends DialogWrapper {
 
   @Nullable
   private static Boolean decideOnShowRememberPasswordOption(@Nullable String password, boolean rememberByDefault) {
-    final PasswordSafeImpl passwordSafe = (PasswordSafeImpl)PasswordSafe.getInstance();
     // if password saving is disabled, don't show the checkbox.
-    if (passwordSafe.getSettings().getProviderType().equals(PasswordSafeSettings.ProviderType.DO_NOT_STORE)) {
+    if (PasswordSafe.getInstance().isMemoryOnly()) {
       return null;
     }
     // if password is prefilled, it is expected to continue remembering it.

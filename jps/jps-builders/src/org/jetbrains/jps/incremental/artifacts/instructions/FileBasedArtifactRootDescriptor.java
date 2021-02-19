@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.incremental.artifacts.instructions;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.io.FileFilters;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.io.FileUtilRt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.builders.BuildOutputConsumer;
 import org.jetbrains.jps.builders.logging.ProjectBuilderLogger;
@@ -28,6 +14,7 @@ import org.jetbrains.jps.incremental.artifacts.ArtifactBuildTarget;
 import org.jetbrains.jps.incremental.artifacts.ArtifactOutputToSourceMapping;
 import org.jetbrains.jps.incremental.artifacts.IncArtifactBuilder;
 import org.jetbrains.jps.incremental.artifacts.impl.JpsArtifactPathUtil;
+import org.jetbrains.jps.incremental.relativizer.PathRelativizerService;
 
 import java.io.File;
 import java.io.FileFilter;
@@ -35,12 +22,9 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.Collections;
 
-/**
- * @author nik
- */
 public class FileBasedArtifactRootDescriptor extends ArtifactRootDescriptor {
   private static final Logger LOG = Logger.getInstance(FileBasedArtifactRootDescriptor.class);
-  private FileCopyingHandler myCopyingHandler;
+  private final FileCopyingHandler myCopyingHandler;
 
   public FileBasedArtifactRootDescriptor(@NotNull File file,
                                          @NotNull SourceFileFilter filter,
@@ -51,10 +35,8 @@ public class FileBasedArtifactRootDescriptor extends ArtifactRootDescriptor {
     myCopyingHandler = copyingHandler;
   }
 
-  @NotNull
-  private static SourceFileFilter createCompositeFilter(@NotNull final SourceFileFilter baseFilter, @NotNull final FileFilter filter) {
-    if (filter.equals(FileUtilRt.ALL_FILES)) return baseFilter;
-    return new CompositeSourceFileFilter(baseFilter, filter);
+  private static SourceFileFilter createCompositeFilter(SourceFileFilter baseFilter, FileFilter filter) {
+    return filter == FileFilters.EVERYTHING ? baseFilter : new CompositeSourceFileFilter(baseFilter, filter);
   }
 
   @Override
@@ -63,11 +45,12 @@ public class FileBasedArtifactRootDescriptor extends ArtifactRootDescriptor {
   }
 
   @Override
-  public void writeConfiguration(PrintWriter out) {
-    super.writeConfiguration(out);
+  public void writeConfiguration(PrintWriter out, PathRelativizerService relativizer) {
+    super.writeConfiguration(out, relativizer);
     myCopyingHandler.writeConfiguration(out);
   }
 
+  @Override
   public void copyFromRoot(String filePath,
                            int rootIndex, String outputPath,
                            CompileContext context, BuildOutputConsumer outputConsumer,
@@ -95,7 +78,7 @@ public class FileBasedArtifactRootDescriptor extends ArtifactRootDescriptor {
     if (outSrcMapping.getState(targetPath) == null) {
       ProjectBuilderLogger logger = context.getLoggingManager().getProjectBuilderLogger();
       if (logger.isEnabled()) {
-        logger.logCompiledFiles(Collections.singletonList(file), IncArtifactBuilder.BUILDER_NAME, "Copying file:");
+        logger.logCompiledFiles(Collections.singletonList(file), IncArtifactBuilder.BUILDER_ID, "Copying file:");
       }
       myCopyingHandler.copyFile(file, targetFile, context);
       outputConsumer.registerOutputFile(targetFile, Collections.singletonList(filePath));
@@ -110,7 +93,7 @@ public class FileBasedArtifactRootDescriptor extends ArtifactRootDescriptor {
     private final SourceFileFilter myBaseFilter;
     private final FileFilter myFilter;
 
-    public CompositeSourceFileFilter(SourceFileFilter baseFilter, FileFilter filter) {
+    CompositeSourceFileFilter(SourceFileFilter baseFilter, FileFilter filter) {
       myBaseFilter = baseFilter;
       myFilter = filter;
     }

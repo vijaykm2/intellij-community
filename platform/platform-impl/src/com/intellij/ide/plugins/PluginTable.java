@@ -1,43 +1,24 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.plugins;
 
-import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.TableUtil;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.Function;
 import com.intellij.util.ui.ColumnInfo;
 import com.intellij.util.ui.TextTransferable;
+import com.intellij.util.ui.UIUtil;
 import com.intellij.xml.util.XmlStringUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableColumn;
+import java.awt.*;
 import java.awt.datatransfer.Transferable;
 
-/**
- * Created by IntelliJ IDEA.
- * User: stathik
- * Date: Dec 11, 2003
- * Time: 4:19:20 PM
- * To change this template use Options | File Templates.
- */
 public class PluginTable extends JBTable {
   public PluginTable(final PluginTableModel model) {
     super(model);
@@ -47,13 +28,12 @@ public class PluginTable extends JBTable {
       final ColumnInfo columnInfo = model.getColumnInfos()[i];
       column.setCellEditor(columnInfo.getEditor(null));
       if (columnInfo.getColumnClass() == Boolean.class) {
-        TableUtil.setupCheckboxColumn(column);
+        TableUtil.setupCheckboxColumn(column, JBUIScale.scale(16));
       }
     }
 
     setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
     setShowGrid(false);
-    setStriped(true);
     this.setTableHeader(null);
     setTransferHandler(new TransferHandler() {
       @Nullable
@@ -61,18 +41,8 @@ public class PluginTable extends JBTable {
       protected Transferable createTransferable(JComponent c) {
         final IdeaPluginDescriptor[] selectedValues = getSelectedObjects();
         if (selectedValues == null) return null;
-        final String text = StringUtil.join(selectedValues, new Function<IdeaPluginDescriptor, String>() {
-          @Override
-          public String fun(IdeaPluginDescriptor descriptor) {
-            return descriptor.getName();
-          }
-        }, ", ");
-        final String htmlText = "<body>\n<ul>\n" + StringUtil.join(selectedValues, new Function<IdeaPluginDescriptor, String>() {
-          @Override
-          public String fun(IdeaPluginDescriptor descriptor) {
-            return descriptor.getName();
-          }
-        }, "</li>\n<li>") + "</ul>\n</body>\n";
+        final String text = StringUtil.join(selectedValues, descriptor -> descriptor.getName(), ", ");
+        final String htmlText = "<body>\n<ul>\n" + StringUtil.join(selectedValues, descriptor -> descriptor.getName(), "</li>\n<li>") + "</ul>\n</body>\n";
         return new TextTransferable(XmlStringUtil.wrapInHtml(htmlText), text);
       }
 
@@ -81,12 +51,12 @@ public class PluginTable extends JBTable {
         return COPY;
       }
     });
-    if (model.getColumnCount() > 1) {
-      setColumnWidth(1, new JCheckBox().getPreferredSize().width + 4);
-      if (SystemInfo.isMac && model.getColumnCount() == 3) {
-        setColumnWidth(2, 8);
-      }
-    }
+  }
+
+  @Override
+  public void paint(@NotNull Graphics g) {
+    super.paint(g);
+    UIUtil.fixOSXEditorBackground(this);
   }
 
   public void setColumnWidth(final int columnIndex, final int width) {
@@ -100,11 +70,13 @@ public class PluginTable extends JBTable {
     return false;
   }
 
+  @Override
   public void setValueAt(final Object aValue, final int row, final int column) {
     super.setValueAt(aValue, row, column);
     repaint(); //in order to update invalid plugins
   }
 
+  @Override
   public TableCellRenderer getCellRenderer(final int row, final int column) {
     final ColumnInfo columnInfo = ((PluginTableModel)getModel()).getColumnInfos()[column];
     return columnInfo.getRenderer(getObjectAt(row));
@@ -131,7 +103,7 @@ public class PluginTable extends JBTable {
     TableUtil.scrollSelectionToVisible(this);
   }
 
-  public IdeaPluginDescriptor getSelectedObject() {                      
+  public IdeaPluginDescriptor getSelectedObject() {
     IdeaPluginDescriptor selected = null;
     if (getSelectedRowCount() > 0) {
       selected = getObjectAt(getSelectedRow());

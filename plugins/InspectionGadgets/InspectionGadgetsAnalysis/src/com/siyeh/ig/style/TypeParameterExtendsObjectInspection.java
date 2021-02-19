@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2010 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,24 +16,29 @@
 package com.siyeh.ig.style;
 
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.psiutils.TypeUtils;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import javax.swing.*;
 
 public class TypeParameterExtendsObjectInspection extends BaseInspection {
 
+  public boolean ignoreAnnotatedObject = true;
+
+  @Nullable
   @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "type.parameter.extends.object.display.name");
+  public JComponent createOptionsPanel() {
+    return new SingleCheckboxOptionsPanel(InspectionGadgetsBundle.message("type.parameter.extends.object.ignore.annotated"),
+                                          this, "ignoreAnnotatedObject");
   }
 
   @Override
@@ -70,21 +75,13 @@ public class TypeParameterExtendsObjectInspection extends BaseInspection {
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "extends.object.remove.quickfix");
     }
 
-    @NotNull
     @Override
-    public String getFamilyName() {
-      return getName();
-    }
-
-    @Override
-    public void doFix(@NotNull Project project,
-                      ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    public void doFix(@NotNull Project project, ProblemDescriptor descriptor) {
       final PsiElement identifier = descriptor.getPsiElement();
       final PsiElement parent = identifier.getParent();
       if (parent instanceof PsiTypeParameter) {
@@ -122,18 +119,20 @@ public class TypeParameterExtendsObjectInspection extends BaseInspection {
     return new ExtendsObjectVisitor();
   }
 
-  private static class ExtendsObjectVisitor extends BaseInspectionVisitor {
+  private class ExtendsObjectVisitor extends BaseInspectionVisitor {
 
     @Override
     public void visitTypeParameter(PsiTypeParameter parameter) {
       super.visitTypeParameter(parameter);
-      final PsiClassType[] extendsListTypes =
-        parameter.getExtendsListTypes();
+      final PsiClassType[] extendsListTypes = parameter.getExtendsListTypes();
       if (extendsListTypes.length != 1) {
         return;
       }
       final PsiClassType extendsType = extendsListTypes[0];
       if (!extendsType.equalsToText(CommonClassNames.JAVA_LANG_OBJECT)) {
+        return;
+      }
+      if (ignoreAnnotatedObject && extendsType.getAnnotations().length > 0) {
         return;
       }
       final PsiIdentifier nameIdentifier = parameter.getNameIdentifier();
@@ -159,8 +158,8 @@ public class TypeParameterExtendsObjectInspection extends BaseInspection {
       if (!wildcardType.isExtends()) {
         return;
       }
-      final PsiType extendsBound = wildcardType.getBound();
-      if (!TypeUtils.isJavaLangObject(extendsBound)) {
+      final PsiTypeElement extendsBound = (PsiTypeElement)typeElement.getLastChild();
+      if ((ignoreAnnotatedObject && extendsBound.getAnnotations().length > 0) || !TypeUtils.isJavaLangObject(extendsBound.getType())) {
         return;
       }
       final PsiElement firstChild = typeElement.getFirstChild();

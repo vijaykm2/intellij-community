@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,86 +15,45 @@
  */
 package com.intellij.slicer;
 
-import com.intellij.openapi.editor.colors.EditorColorsScheme;
-import com.intellij.openapi.util.Segment;
-import com.intellij.openapi.util.TextRange;
+import com.intellij.java.JavaBundle;
+import com.intellij.lang.LangBundle;
+import com.intellij.lang.Language;
+import com.intellij.lang.java.JavaLanguage;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiFormatUtil;
 import com.intellij.psi.util.PsiFormatUtilBase;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.ui.ColoredTreeCellRenderer;
+import com.intellij.ui.JBColor;
 import com.intellij.ui.SimpleTextAttributes;
-import com.intellij.usageView.UsageTreeColors;
-import com.intellij.usageView.UsageTreeColorsScheme;
 import com.intellij.usages.TextChunk;
-import com.intellij.util.Processor;
-import com.intellij.util.SmartList;
+import com.intellij.util.FontUtil;
 import org.jetbrains.annotations.NotNull;
 
-import javax.swing.*;
-import javax.swing.tree.DefaultMutableTreeNode;
-import java.awt.*;
-import java.util.List;
-
-/**
- * @author cdr
- */
-public class SliceUsageCellRenderer extends ColoredTreeCellRenderer {
-  private static final EditorColorsScheme ourColorsScheme = UsageTreeColorsScheme.getInstance().getScheme();
-  public static final SimpleTextAttributes ourInvalidAttributes = SimpleTextAttributes.fromTextAttributes(ourColorsScheme.getAttributes(UsageTreeColors.INVALID_PREFIX));
-
-  public SliceUsageCellRenderer() {
-    setOpaque(false);
-  }
-
+class SliceUsageCellRenderer extends SliceUsageCellRendererBase {
   @Override
-  public void customizeCellRenderer(@NotNull JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) {
-    assert value instanceof DefaultMutableTreeNode;
-    DefaultMutableTreeNode treeNode = (DefaultMutableTreeNode)value;
-    Object userObject = treeNode.getUserObject();
-    if (userObject == null) return;
-    if (userObject instanceof MyColoredTreeCellRenderer) {
-      MyColoredTreeCellRenderer node = (MyColoredTreeCellRenderer)userObject;
-      node.customizeCellRenderer(this, tree, value, selected, expanded, leaf, row, hasFocus);
-      if (node instanceof SliceNode) {
-        setToolTipText(((SliceNode)node).getPresentation().getTooltip());
-      }
-    }
-    else {
-      append(userObject.toString(), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
-    }
-  }
-
   public void customizeCellRendererFor(@NotNull SliceUsage sliceUsage) {
-    boolean isForcedLeaf = sliceUsage instanceof SliceDereferenceUsage;
+    boolean isForcedLeaf = sliceUsage instanceof JavaSliceDereferenceUsage;
+    //might come SliceTooComplexDFAUsage
+    JavaSliceUsage javaSliceUsage = sliceUsage instanceof JavaSliceUsage ? (JavaSliceUsage)sliceUsage : null;
 
     TextChunk[] text = sliceUsage.getText();
-    final List<TextRange> usageRanges = new SmartList<TextRange>();
-    sliceUsage.processRangeMarkers(new Processor<Segment>() {
-      @Override
-      public boolean process(Segment segment) {
-        usageRanges.add(TextRange.create(segment));
-        return true;
-      }
-    });
-    boolean isInsideContainer = sliceUsage.indexNesting != 0;
-    for (TextChunk textChunk : text) {
+    for (int i = 0, length = text.length; i < length; i++) {
+      TextChunk textChunk = text[i];
       SimpleTextAttributes attributes = textChunk.getSimpleAttributesIgnoreBackground();
       if (isForcedLeaf) {
-        attributes = attributes.derive(attributes.getStyle(), Color.LIGHT_GRAY, attributes.getBgColor(), attributes.getWaveColor());
-      }
-      boolean inUsage = (attributes.getFontStyle() & Font.BOLD) != 0;
-      if (isInsideContainer && inUsage) {
-        //Color darker = Color.BLACK;//attributes.getBgColor() == null ? Color.BLACK : attributes.getBgColor().darker();
-        //attributes = attributes.derive(SimpleTextAttributes.STYLE_OPAQUE, attributes.getFgColor(), UIUtil.getTreeBackground().brighter(), attributes.getWaveColor());
-        //setMyBorder(IdeBorderFactory.createRoundedBorder(10, 3));
-        //setPaintFocusBorder(true);
+        attributes = attributes.derive(attributes.getStyle(), JBColor.LIGHT_GRAY, attributes.getBgColor(), attributes.getWaveColor());
       }
       append(textChunk.getText(), attributes);
+      if (i == 0) {
+        append(FontUtil.spaceAndThinSpace());
+      }
     }
 
-    for (int i=0; i<sliceUsage.indexNesting;i++) {
-      append(" (Tracking container contents"+(sliceUsage.syntheticField.isEmpty() ? "" : " '"+sliceUsage.syntheticField+"'")+")",SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+    if (javaSliceUsage != null && javaSliceUsage.indexNesting != 0) {
+      append(" " + JavaBundle.message("slice.usage.message.tracking.container.contents",
+                                      getContainerName(javaSliceUsage),
+                                      javaSliceUsage.syntheticField.isEmpty() ? "" : "." + javaSliceUsage.syntheticField),
+             SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
     }
 
     PsiElement element = sliceUsage.getElement();
@@ -116,8 +75,53 @@ public class SliceUsageCellRenderer extends ColoredTreeCellRenderer {
                       : aClass != null ? PsiFormatUtil.formatClass(aClass, PsiFormatUtilBase.SHOW_NAME) : null;
     if (location != null) {
       SimpleTextAttributes attributes = SimpleTextAttributes.GRAY_ATTRIBUTES;
-      append(" in " + location, attributes);
+      append(" " + JavaBundle.message("slice.usage.message.location", location), attributes);
     }
+
+    Language language = element == null ? JavaLanguage.INSTANCE : element.getLanguage();
+    if (language != JavaLanguage.INSTANCE) {
+      SliceLanguageSupportProvider foreignSlicing = LanguageSlicing.getProvider(element);
+      if (foreignSlicing == null) {
+        append(" " + JavaBundle.message("slice.usage.message.in.file.stopped.here", language.getDisplayName()),
+               SimpleTextAttributes.EXCLUDED_ATTRIBUTES);
+      }
+    }
+    SliceValueFilter filter = sliceUsage.params.valueFilter;
+    SliceUsage parent = sliceUsage.getParent();
+    SliceValueFilter parentFilter = parent == null ? null : parent.params.valueFilter;
+    String filterText = filter == null ? "" : filter.getPresentationText(sliceUsage.getElement());
+    String parentFilterText = parentFilter == null || parent.getElement() == null ? "" :
+                              parentFilter.getPresentationText(parent.getElement());
+    if (!filterText.isEmpty() && !filterText.equals(parentFilterText)) {
+      String message = LangBundle.message("slice.analysis.title.filter", filterText);
+      append(" " + message, SimpleTextAttributes.GRAY_ATTRIBUTES);
+    }
+    if (javaSliceUsage != null && javaSliceUsage.requiresAssertionViolation) {
+      append(" " + JavaBundle.message("slice.usage.message.assertion.violated"), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+    }
+  }
+
+  @NotNull
+  private static String getContainerName(@NotNull JavaSliceUsage usage) {
+    String result = "";
+    JavaSliceUsage prev = usage;
+    String name = "";
+    while (usage != null) {
+      if (usage.indexNesting != prev.indexNesting) {
+        result = name + (result.isEmpty() ? "" : ".") + result;
+        if (usage.indexNesting == 0) break;
+      }
+      PsiElement element = usage.getElement();
+      if (element instanceof PsiNamedElement) {
+        name = ((PsiNamedElement)element).getName();
+      }
+      else if (element instanceof PsiReference) {
+        name = ((PsiReference)element).getCanonicalText();
+      }
+      prev = usage;
+      usage = (JavaSliceUsage)usage.getParent();
+    }
+    return result;
   }
 }
 

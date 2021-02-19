@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,18 +14,14 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 26-Sep-2008
- */
 package com.intellij.codeInsight.unwrap;
 
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.colors.EditorColors;
-import com.intellij.openapi.editor.colors.EditorColorsManager;
+import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.editor.markup.HighlighterTargetArea;
+import com.intellij.openapi.editor.markup.MarkupModel;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
-import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
@@ -36,30 +32,29 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ScopeHighlighter {
-  public static final NotNullFunction<PsiElement,TextRange> NATURAL_RANGER = new NotNullFunction<PsiElement, TextRange>() {
-    @NotNull
-    @Override
-    public TextRange fun(PsiElement dom) {
-      return dom.getTextRange();
-    }
-  };
-  private final Editor myEditor;
-  private final List<RangeHighlighter> myActiveHighliters = new ArrayList<RangeHighlighter>();
-  private final NotNullFunction<PsiElement, TextRange> myRanger;
+  public static final NotNullFunction<PsiElement,TextRange> NATURAL_RANGER = dom -> dom.getTextRange();
 
-  public ScopeHighlighter(Editor editor) {
+  @NotNull private final Editor myEditor;
+  @NotNull private final List<RangeHighlighter> myActiveHighliters = new ArrayList<>();
+  @NotNull private final NotNullFunction<? super PsiElement, ? extends TextRange> myRanger;
+
+  public ScopeHighlighter(@NotNull Editor editor) {
     this(editor, NATURAL_RANGER);
   }
 
-  public ScopeHighlighter(Editor editor, NotNullFunction<PsiElement, TextRange> ranger) {
+  public ScopeHighlighter(@NotNull Editor editor, @NotNull NotNullFunction<? super PsiElement, ? extends TextRange> ranger) {
     myEditor = editor;
     myRanger = ranger;
   }
 
-  public void highlight(PsiElement wholeAffected, List<PsiElement> toExtract) {
-    dropHighlight();
-
+  public void highlight(@NotNull PsiElement wholeAffected, @NotNull List<? extends PsiElement> toExtract) {
     Pair<TextRange, List<TextRange>> ranges = collectTextRanges(wholeAffected, toExtract);
+
+    highlight(ranges);
+  }
+
+  public void highlight(@NotNull Pair<TextRange, List<TextRange>> ranges) {
+    dropHighlight();
 
     TextRange wholeRange = ranges.first;
 
@@ -67,16 +62,16 @@ public class ScopeHighlighter {
     List<TextRange> rangesToRemove = RangeSplitter.split(wholeRange, rangesToExtract);
 
     for (TextRange r : rangesToRemove) {
-      addHighliter(r, UnwrapHandler.HIGHLIGHTER_LEVEL, getTestAttributesForRemoval());
+      addHighlighter(r, UnwrapHandler.HIGHLIGHTER_LEVEL, EditorColors.DELETED_TEXT_ATTRIBUTES);
     }
     for (TextRange r : rangesToExtract) {
-      addHighliter(r, UnwrapHandler.HIGHLIGHTER_LEVEL, UnwrapHandler.getTestAttributesForExtract());
+      addHighlighter(r, UnwrapHandler.HIGHLIGHTER_LEVEL, EditorColors.SEARCH_RESULT_ATTRIBUTES);
     }
   }
 
-  private Pair<TextRange, List<TextRange>> collectTextRanges(PsiElement wholeElement, List<PsiElement> elementsToExtract) {
+  private Pair<TextRange, List<TextRange>> collectTextRanges(PsiElement wholeElement, List<? extends PsiElement> elementsToExtract) {
     TextRange affectedRange = getRange(wholeElement);
-    List<TextRange> rangesToExtract = new ArrayList<TextRange>();
+    List<TextRange> rangesToExtract = new ArrayList<>();
 
     for (PsiElement e : elementsToExtract) {
       rangesToExtract.add(getRange(e));
@@ -89,9 +84,11 @@ public class ScopeHighlighter {
     return myRanger.fun(e);
   }
 
-  private void addHighliter(TextRange r, int level, TextAttributes attr) {
-    myActiveHighliters.add(myEditor.getMarkupModel().addRangeHighlighter(
-        r.getStartOffset(), r.getEndOffset(), level, attr, HighlighterTargetArea.EXACT_RANGE));
+  private void addHighlighter(TextRange r, int level, TextAttributesKey key) {
+    MarkupModel markupModel = myEditor.getMarkupModel();
+    RangeHighlighter highlighter = markupModel.addRangeHighlighter(key, r.getStartOffset(), r.getEndOffset(), level,
+                                                                   HighlighterTargetArea.EXACT_RANGE);
+    myActiveHighliters.add(highlighter);
   }
 
   public void dropHighlight() {
@@ -99,10 +96,5 @@ public class ScopeHighlighter {
       h.dispose();
     }
     myActiveHighliters.clear();
-  }
-
-  private static TextAttributes getTestAttributesForRemoval() {
-    EditorColorsManager manager = EditorColorsManager.getInstance();
-    return manager.getGlobalScheme().getAttributes(EditorColors.DELETED_TEXT_ATTRIBUTES);
   }
 }

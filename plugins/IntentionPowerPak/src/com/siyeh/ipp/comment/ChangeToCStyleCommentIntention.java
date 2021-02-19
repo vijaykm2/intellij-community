@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2009 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2020 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +17,7 @@ package com.siyeh.ipp.comment;
 
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
-import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.ipp.base.Intention;
 import com.siyeh.ipp.base.PsiElementPredicate;
 import org.jetbrains.annotations.NotNull;
@@ -28,10 +26,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ChangeToCStyleCommentIntention extends Intention {
-
-  private static final Class<PsiWhiteSpace>[] WHITESPACE_CLASS =
-    new Class[]{PsiWhiteSpace.class};
-
   @Override
   @NotNull
   protected PsiElementPredicate getElementPredicate() {
@@ -39,32 +33,25 @@ public class ChangeToCStyleCommentIntention extends Intention {
   }
 
   @Override
-  public void processIntention(PsiElement element)
-    throws IncorrectOperationException {
+  public void processIntention(@NotNull PsiElement element) {
     PsiComment firstComment = (PsiComment)element;
     while (true) {
-      final PsiElement prevComment =
-        PsiTreeUtil.skipSiblingsBackward(firstComment,
-                                         WHITESPACE_CLASS);
-      if (!isEndOfLineComment(prevComment)) {
+      final PsiElement prevComment = PsiTreeUtil.skipWhitespacesBackward(firstComment);
+      if (!(prevComment instanceof PsiComment) || ((PsiComment)prevComment).getTokenType() != JavaTokenType.END_OF_LINE_COMMENT) {
         break;
       }
-      assert prevComment != null;
       firstComment = (PsiComment)prevComment;
     }
-    final JavaPsiFacade psiFacade =
-      JavaPsiFacade.getInstance(element.getProject());
+    final JavaPsiFacade psiFacade = JavaPsiFacade.getInstance(element.getProject());
     final PsiElementFactory factory = psiFacade.getElementFactory();
-    final List<PsiComment> multiLineComments = new ArrayList<PsiComment>();
+    final List<PsiComment> multiLineComments = new ArrayList<>();
     PsiElement nextComment = firstComment;
     String whiteSpace = null;
     while (true) {
-      nextComment = PsiTreeUtil.skipSiblingsForward(nextComment,
-                                                    WHITESPACE_CLASS);
-      if (!isEndOfLineComment(nextComment)) {
+      nextComment = PsiTreeUtil.skipWhitespacesForward(nextComment);
+      if (!(nextComment instanceof PsiComment) || ((PsiComment)nextComment).getTokenType() != JavaTokenType.END_OF_LINE_COMMENT) {
         break;
       }
-      assert nextComment != null;
       if (whiteSpace == null) {
         final PsiElement prevSibling = nextComment.getPrevSibling();
         assert prevSibling != null;
@@ -76,7 +63,7 @@ public class ChangeToCStyleCommentIntention extends Intention {
     final String newCommentString;
     if (multiLineComments.isEmpty()) {
       final String text = getCommentContents(firstComment);
-      newCommentString = "/* " + text + " */";
+      newCommentString = "/* " + text.trim() + " */";
     }
     else {
       final StringBuilder text = new StringBuilder();
@@ -114,17 +101,8 @@ public class ChangeToCStyleCommentIntention extends Intention {
     return whitespace;
   }
 
-  private static boolean isEndOfLineComment(PsiElement element) {
-    if (!(element instanceof PsiComment)) {
-      return false;
-    }
-    final PsiComment comment = (PsiComment)element;
-    final IElementType tokenType = comment.getTokenType();
-    return JavaTokenType.END_OF_LINE_COMMENT.equals(tokenType);
-  }
-
   private static String getCommentContents(@NotNull PsiComment comment) {
     final String text = comment.getText();
-    return StringUtil.replace(text.substring(2), "*/", "* /").trim();
+    return StringUtil.replace(text.substring(2), "*/", "* /");
   }
 }

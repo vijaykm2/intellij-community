@@ -1,25 +1,15 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.incremental.instrumentation;
 
 import com.intellij.compiler.instrumentation.InstrumentationClassFinder;
 import com.intellij.compiler.notNullVerification.NotNullVerifyingInstrumenter;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.ModuleChunk;
+import org.jetbrains.jps.builders.JpsBuildBundle;
 import org.jetbrains.jps.cmdline.ProjectDescriptor;
 import org.jetbrains.jps.incremental.BinaryContent;
 import org.jetbrains.jps.incremental.CompileContext;
@@ -32,12 +22,14 @@ import org.jetbrains.org.objectweb.asm.ClassWriter;
 import org.jetbrains.org.objectweb.asm.Opcodes;
 
 import java.io.File;
+import java.util.Collection;
+import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 11/21/12
  */
 public class NotNullInstrumentingBuilder extends BaseInstrumentingBuilder{
+  private static final Logger LOG = Logger.getInstance(NotNullInstrumentingBuilder.class);
 
   public NotNullInstrumentingBuilder() {
   }
@@ -45,23 +37,23 @@ public class NotNullInstrumentingBuilder extends BaseInstrumentingBuilder{
   @NotNull
   @Override
   public String getPresentableName() {
-    return "NotNull instrumentation";
+    return JpsBuildBundle.message("builder.name.notnull.instrumentation");
   }
 
   @Override
   protected String getProgressMessage() {
-    return "Adding @NotNull assertions...";
+    return JpsBuildBundle.message("progress.message.adding.notnull.assertions");
   }
 
   @Override
   protected boolean isEnabled(CompileContext context, ModuleChunk chunk) {
     final ProjectDescriptor pd = context.getProjectDescriptor();
-    return JpsJavaExtensionService.getInstance().getOrCreateCompilerConfiguration(pd.getProject()).isAddNotNullAssertions();
+    return JpsJavaExtensionService.getInstance().getCompilerConfiguration(pd.getProject()).isAddNotNullAssertions();
   }
 
   @Override
   protected boolean canInstrument(CompiledClass compiledClass, int classFileVersion) {
-    return classFileVersion >= Opcodes.V1_5;
+    return (classFileVersion & 0xFFFF) >= Opcodes.V1_5 && !"module-info".equals(compiledClass.getClassName());
   }
 
   // todo: probably instrument other NotNull-like annotations defined in project settings?
@@ -73,17 +65,21 @@ public class NotNullInstrumentingBuilder extends BaseInstrumentingBuilder{
                                      ClassWriter writer,
                                      InstrumentationClassFinder finder) {
     try {
-      if (NotNullVerifyingInstrumenter.processClassFile(reader, writer)) {
+      final ProjectDescriptor pd = context.getProjectDescriptor();
+      final List<String> notNulls = JpsJavaExtensionService.getInstance().getCompilerConfiguration(pd.getProject()).getNotNullAnnotations();
+      if (NotNullVerifyingInstrumenter.processClassFile(reader, writer, ArrayUtilRt.toStringArray(notNulls))) {
         return new BinaryContent(writer.toByteArray());
       }
     }
     catch (Throwable e) {
-      final StringBuilder msg = new StringBuilder();
-      msg.append("@NotNull instrumentation failed ");
-      final File sourceFile = compiledClass.getSourceFile();
-      msg.append(" for ").append(sourceFile.getName());
-      msg.append(": ").append(e.getMessage());
-      context.processMessage(new CompilerMessage(getPresentableName(), BuildMessage.Kind.ERROR, msg.toString(), sourceFile.getPath()));
+      LOG.error(e);
+      final Collection<File> sourceFiles = compiledClass.getSourceFiles();
+      String msg = JpsBuildBundle.message("build.message.cannot.instrument.0.1",
+                                          ContainerUtil.map(sourceFiles, file -> file.getName()), e.getMessage());
+      context.processMessage(new CompilerMessage(getPresentableName(),
+                                                 BuildMessage.Kind.ERROR,
+                                                 msg,
+                                                 ContainerUtil.getFirstItem(compiledClass.getSourceFilesPaths())));
     }
     return null;
   }

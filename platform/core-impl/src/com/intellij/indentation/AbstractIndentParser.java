@@ -15,47 +15,39 @@
  */
 package com.intellij.indentation;
 
+import com.intellij.core.CoreBundle;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.PsiBuilder;
 import com.intellij.lang.PsiParser;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * User: Andrey.Vokin
- * Date: 3/20/12
- */
 public abstract class AbstractIndentParser implements PsiParser {
-  protected PsiBuilder myBuilder;
+  protected IndentPsiBuilder myBuilder;
 
-  protected int myCurrentIndent;
-
-  protected HashMap<PsiBuilder.Marker, Integer> myIndents;
-  protected HashMap<PsiBuilder.Marker, Boolean> myNewLines;
-
-  protected boolean myNewLine = true;
-
+  @Override
   @NotNull
-  public ASTNode parse(IElementType root, PsiBuilder builder) {
-    myNewLines = new HashMap<PsiBuilder.Marker, Boolean>();
-    myIndents = new HashMap<PsiBuilder.Marker, Integer>();
-    myBuilder = builder;
+  public ASTNode parse(@NotNull IElementType root, @NotNull PsiBuilder builder) {
+    myBuilder = createPsiBuilder(builder);
     parseRoot(root);
     return myBuilder.getTreeBuilt();
+  }
+
+  @NotNull
+  protected IndentPsiBuilder createPsiBuilder(@NotNull PsiBuilder builder) {
+    return new IndentPsiBuilder(builder);
   }
 
   protected abstract void parseRoot(IElementType root);
 
   public PsiBuilder.Marker mark(boolean couldBeRolledBack) {
-    final PsiBuilder.Marker marker = myBuilder.mark();
     if (couldBeRolledBack) {
-      myIndents.put(marker, myCurrentIndent);
-      myNewLines.put(marker, myNewLine);
+      return myBuilder.markWithRollbackPossibility();
     }
-    return marker;
+    return myBuilder.mark();
   }
 
   public PsiBuilder.Marker mark() {
@@ -63,9 +55,6 @@ public abstract class AbstractIndentParser implements PsiParser {
   }
 
   public void done(@NotNull final PsiBuilder.Marker marker, @NotNull final IElementType elementType) {
-    myIndents.remove(marker);
-    myNewLines.remove(marker);
-
     marker.done(elementType);
   }
 
@@ -78,14 +67,6 @@ public abstract class AbstractIndentParser implements PsiParser {
   }
 
   protected void rollbackTo(@NotNull final PsiBuilder.Marker marker) {
-    if (myIndents.get(marker) == null) {
-      throw new RuntimeException("Parser can't rollback marker that was created by mark() method, use mark(true) instead");
-    }
-    myCurrentIndent = myIndents.get(marker);
-    myNewLine = myNewLines.get(marker);
-
-    myIndents.remove(marker);
-    myNewLines.remove(marker);
     marker.rollbackTo();
   }
 
@@ -98,10 +79,10 @@ public abstract class AbstractIndentParser implements PsiParser {
   }
 
   public int getCurrentIndent() {
-    return myCurrentIndent;
+    return myBuilder.getCurrentIndent();
   }
 
-  protected void error(String message) {
+  protected void error(@NotNull @NlsContexts.ParsingError String message) {
     myBuilder.error(message);
   }
 
@@ -127,10 +108,6 @@ public abstract class AbstractIndentParser implements PsiParser {
     return tokenSet.contains(getTokenType());
   }
 
-  protected static boolean tokenIn(@Nullable final IElementType elementType, @NotNull final TokenSet tokenSet) {
-    return tokenSet.contains(elementType);
-  }
-
   @NotNull
   protected String getTokenText() {
     String result = myBuilder.getTokenText();
@@ -141,10 +118,10 @@ public abstract class AbstractIndentParser implements PsiParser {
   }
 
   protected boolean expect(@NotNull final IElementType elementType) {
-    return expect(elementType, "Expected: " + elementType);
+    return expect(elementType, CoreBundle.message("parsing.error.expected.element", elementType));
   }
 
-  protected boolean expect(@NotNull final IElementType elementType, String expectedMessage) {
+  protected boolean expect(@NotNull final IElementType elementType, @NotNull @NlsContexts.ParsingError String expectedMessage) {
     if (getTokenType() == elementType) {
       advance();
       return true;
@@ -164,42 +141,15 @@ public abstract class AbstractIndentParser implements PsiParser {
   }
 
   public boolean isNewLine() {
-    return myNewLine;
+    return myBuilder.isNewLine();
   }
 
   public void advance() {
-    final String tokenText = myBuilder.getTokenText();
-    final int tokenLength = tokenText == null ? 0 : tokenText.length();
-
-    final int whiteSpaceStart = getCurrentOffset() + tokenLength;
     myBuilder.advanceLexer();
-    final int whiteSpaceEnd = getCurrentOffset();
-    final String whiteSpaceText = myBuilder.getOriginalText().subSequence(whiteSpaceStart, whiteSpaceEnd).toString();
-
-    int i = whiteSpaceText.lastIndexOf('\n');
-    if (i >= 0) {
-      myCurrentIndent = whiteSpaceText.length() - i - 1;
-      myNewLine = true;
-    }
-    else {
-      myNewLine = false;
-    }
   }
 
   public void recalculateCurrentIndent() {
-    int i = 0;
-    int firstIndentOffset = myBuilder.getCurrentOffset();
-    while (myBuilder.rawLookup(i) != null && myBuilder.rawLookup(i) != getEolElementType()) {
-      firstIndentOffset = myBuilder.rawTokenTypeStart(i);
-      i--;
-    }
-    int lastIndentOffset = firstIndentOffset;
-    i++;
-    while (myBuilder.rawLookup(i) == getIndentElementType()) {
-      i++;
-      lastIndentOffset = myBuilder.rawTokenTypeStart(i);
-    }
-    myCurrentIndent = lastIndentOffset - firstIndentOffset;
+   myBuilder.recalculateCurrentIndent(getEolElementType(), getIndentElementType());
   }
 
   protected void advanceUntil(TokenSet tokenSet) {
@@ -212,29 +162,29 @@ public abstract class AbstractIndentParser implements PsiParser {
     advanceUntil(TokenSet.EMPTY);
   }
 
-  protected void errorUntil(TokenSet tokenSet, String message) {
+  protected void errorUntil(TokenSet tokenSet, @NotNull @NlsContexts.ParsingError String message) {
     PsiBuilder.Marker errorMarker = mark();
     advanceUntil(tokenSet);
     errorMarker.error(message);
   }
 
-  protected void errorUntilEol(@NotNull String message) {
+  protected void errorUntilEol(@NotNull @NlsContexts.ParsingError String message) {
     PsiBuilder.Marker errorMarker = mark();
     advanceUntilEol();
     errorMarker.error(message);
   }
-  
-  protected void errorUntilEof(@NotNull String message) {
+
+  protected void errorUntilEof() {
     PsiBuilder.Marker errorMarker = mark();
     while (!eof()) {
       advance();
     }
-    errorMarker.error(message);
+    errorMarker.error(CoreBundle.message("parsing.error.unexpected.token"));
   }
 
   protected void expectEolOrEof() {
     if (!isNewLine() && !eof()) {
-      errorUntilEol("End of line expected");
+      errorUntilEol(CoreBundle.message("parsing.error.end.of.line.expected"));
     }
   }
 

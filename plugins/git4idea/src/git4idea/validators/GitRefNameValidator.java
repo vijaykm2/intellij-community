@@ -17,6 +17,7 @@ package git4idea.validators;
 
 import com.intellij.openapi.ui.InputValidator;
 import com.intellij.openapi.util.text.StringUtil;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.regex.Pattern;
 
@@ -24,15 +25,13 @@ import java.util.regex.Pattern;
  * Checks that the specified String is a valid Git reference name.
  * See <a href="http://www.kernel.org/pub/software/scm/git/docs/git-check-ref-format.html">
  * http://www.kernel.org/pub/software/scm/git/docs/git-check-ref-format.html</a>
- *
- * @author Kirill Likhodedov
  */
 public final class GitRefNameValidator implements InputValidator {
 
   private static final GitRefNameValidator INSTANCE = new GitRefNameValidator();
 
   // illegal control characters - from 0 to 31 and 7F (DEL)
-  private static String CONTROL_CHARS;
+  private static final String CONTROL_CHARS;
   static {
     StringBuilder sb = new StringBuilder();
     sb.append("[");
@@ -43,12 +42,20 @@ public final class GitRefNameValidator implements InputValidator {
     sb.append("]");
     CONTROL_CHARS = sb.toString();
   }
-  private static final Pattern ILLEGAL = Pattern.compile(
+  private static final Pattern ILLEGALCHARS = Pattern.compile(
     "(^\\.)|" +                             // begins with a dot
-    "[ ~:\\^\\?\\*\\[\\\\]+|(@\\{)+|" +     // contains invalid character: space, one of ~:^?*[\ or @{ sequence
+    "(^-)|" +                               // begins with '-'
+    "(^/)|" +                               // begins with '/'
     "(\\.\\.)+|" +                          // two dots in a row
-    "(([\\./]|\\.lock)$)|" +                // ends with dot, slash or ".lock"
+    "[ ~:^?*\\[\\\\]+|(@\\{)+|" +           // contains invalid character: space, one of ~:^?*[\ or @{ sequence
     CONTROL_CHARS                           // contains a control character
+  );
+
+  private static final Pattern ILLEGAL = Pattern.compile(
+    "(([./]|\\.lock)$)|" +                  // ends with dot, slash or ".lock"
+    "\\.(?=/)|" +                           // has a dot before slash in the middle
+    "(?<=/)\\.|" +                          // has a dot after slash in the middle
+    ILLEGALCHARS.pattern()
   );
 
   public static GitRefNameValidator getInstance() {
@@ -59,13 +66,26 @@ public final class GitRefNameValidator implements InputValidator {
 
   @Override
   public boolean checkInput(String inputString) {
-    return !StringUtil.isEmptyOrSpaces(inputString) &&
-           !ILLEGAL.matcher(inputString).find() &&
-           !inputString.startsWith("-");
+    return !StringUtil.isEmptyOrSpaces(inputString) && !ILLEGAL.matcher(inputString).find();
   }
 
   @Override
   public boolean canClose(String inputString) {
     return checkInput(inputString);
+  }
+
+  @NotNull
+  public String cleanUpBranchName(@NotNull String branchName) {
+    return deduplicateChars(branchName.replaceAll(ILLEGAL.pattern(), "_").replaceAll("\"", ""));
+  }
+
+  @NotNull
+  public String cleanUpBranchNameOnTyping(@NotNull String branchName) {
+    return branchName.replaceAll(ILLEGALCHARS.pattern(), "_");
+  }
+
+  @NotNull
+  public String deduplicateChars(@NotNull String branchName) {
+    return branchName.replaceAll("(/){2,}", "/" ).replaceAll("(_){2,}", "_");
   }
 }

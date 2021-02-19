@@ -1,27 +1,17 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.ui.popup.BalloonBuilder;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.text.HtmlBuilder;
+import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.awt.RelativePoint;
-import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.PositionTracker;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -34,24 +24,28 @@ import java.awt.event.MouseEvent;
 /**
  * @author Konstantin Bulenkov
  */
-public class GotItMessage {
-  @NotNull private final String myTitle;
-  @NotNull private final String myMessage;
+public final class GotItMessage {
+  @NotNull private final @NlsContexts.PopupContent String myTitle;
+  @NotNull private final @NlsContexts.PopupContent String myMessage;
 
   private Disposable myDisposable;
   private Runnable myCallback;
   private HyperlinkListener myHyperlinkListener = BrowserHyperlinkListener.INSTANCE;
   private boolean myShowCallout = true;
 
-  private GotItMessage(@NotNull String title, @NotNull String message) {
+  private GotItMessage(@NlsContexts.PopupContent @NotNull String title, @NlsContexts.PopupContent @NotNull String message) {
     myTitle = title;
     myMessage =
-      "<html><body><div align='center' style='font-family: " + UIUtil.getLabelFont().getFontName() + "; font-size: " + JBUI.scale(12) + "pt;'>" +
-      StringUtil.replace(message, "\n", "<br>") +
-      "</div></body></html>";
+      new HtmlBuilder()
+        .append(HtmlChunk.div("font-family: \" + UIUtil.getLabelFont().getFontName() + \"; font-size: \" +\n" +
+                              "      JBUIScale.scale(12) + \"pt;")
+                  .attr("align", "center")
+                  .addRaw(StringUtil.replace(message, "\n", "<br>")))
+        .wrapWithHtmlBody()
+        .toString();
   }
 
-  public static GotItMessage createMessage(@NotNull String title, @NotNull String message) {
+  public static GotItMessage createMessage(@NotNull @NlsContexts.PopupContent String title, @NotNull @NlsContexts.PopupContent String message) {
     return new GotItMessage(title, message);
   }
 
@@ -75,7 +69,14 @@ public class GotItMessage {
     return this;
   }
 
-  public void show(RelativePoint point, Balloon.Position position) {
+  public void show(@NotNull RelativePoint point, @NotNull Balloon.Position position) {
+    show(new PositionTracker.Static<>(point), position);
+  }
+
+  public void show(@NotNull PositionTracker<Balloon> tracker, @NotNull Balloon.Position position) {
+    if (myDisposable != null && Disposer.isDisposed(myDisposable)) {
+      return;
+    }
     final GotItPanel panel = new GotItPanel();
     panel.myTitle.setText(myTitle);
 
@@ -111,6 +112,6 @@ public class GotItMessage {
       }
     });
 
-    balloon.show(point, position);
+    balloon.show(tracker, position);
   }
 }

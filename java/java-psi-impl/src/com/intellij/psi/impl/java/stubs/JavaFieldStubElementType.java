@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.java.stubs;
 
 import com.intellij.lang.ASTNode;
@@ -36,19 +22,14 @@ import com.intellij.psi.stubs.StubElement;
 import com.intellij.psi.stubs.StubInputStream;
 import com.intellij.psi.stubs.StubOutputStream;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.io.StringRef;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 
-/**
- * @author max
- */
 public abstract class JavaFieldStubElementType extends JavaStubElementType<PsiFieldStub, PsiField> {
   private static final int INITIALIZER_LENGTH_LIMIT = 1000;
 
-  public JavaFieldStubElementType(@NotNull @NonNls final String id) {
+  public JavaFieldStubElementType(@NotNull String id) {
     super(id);
   }
 
@@ -67,12 +48,14 @@ public abstract class JavaFieldStubElementType extends JavaStubElementType<PsiFi
     }
   }
 
+  @NotNull
   @Override
-  public PsiFieldStub createStub(final LighterAST tree, final LighterASTNode node, final StubElement parentStub) {
+  public PsiFieldStub createStub(@NotNull final LighterAST tree, @NotNull final LighterASTNode node, @NotNull final StubElement parentStub) {
     final TypeInfo typeInfo = TypeInfo.create(tree, node, parentStub);
 
     boolean isDeprecatedByComment = false;
     boolean hasDeprecatedAnnotation = false;
+    boolean hasDocComment = false;
     String name = null;
     String initializer = null;
 
@@ -80,6 +63,7 @@ public abstract class JavaFieldStubElementType extends JavaStubElementType<PsiFi
     for (final LighterASTNode child : tree.getChildren(node)) {
       final IElementType type = child.getTokenType();
       if (type == JavaDocElementType.DOC_COMMENT) {
+        hasDocComment = true;
         isDeprecatedByComment = RecordUtil.isDeprecatedByDocComment(tree, child);
       }
       else if (type == JavaElementType.MODIFIER_LIST) {
@@ -98,7 +82,7 @@ public abstract class JavaFieldStubElementType extends JavaStubElementType<PsiFi
     }
 
     final boolean isEnumConst = node.getTokenType() == JavaElementType.ENUM_CONSTANT;
-    final byte flags = PsiFieldStubImpl.packFlags(isEnumConst, isDeprecatedByComment, hasDeprecatedAnnotation);
+    final byte flags = PsiFieldStubImpl.packFlags(isEnumConst, isDeprecatedByComment, hasDeprecatedAnnotation, hasDocComment);
 
     return new PsiFieldStubImpl(parentStub, name, typeInfo, initializer, flags);
   }
@@ -117,40 +101,33 @@ public abstract class JavaFieldStubElementType extends JavaStubElementType<PsiFi
   }
 
   @Override
-  public void serialize(@NotNull final PsiFieldStub stub, @NotNull final StubOutputStream dataStream) throws IOException {
+  public void serialize(@NotNull PsiFieldStub stub, @NotNull StubOutputStream dataStream) throws IOException {
     dataStream.writeName(stub.getName());
-    TypeInfo.writeTYPE(dataStream, stub.getType(false));
+    TypeInfo.writeTYPE(dataStream, stub.getType());
     dataStream.writeName(stub.getInitializerText());
     dataStream.writeByte(((PsiFieldStubImpl)stub).getFlags());
   }
 
   @NotNull
   @Override
-  public PsiFieldStub deserialize(@NotNull final StubInputStream dataStream, final StubElement parentStub) throws IOException {
-    final StringRef name = dataStream.readName();
-    final TypeInfo type = TypeInfo.readTYPE(dataStream);
-    final StringRef initializerText = dataStream.readName();
-    final byte flags = dataStream.readByte();
+  public PsiFieldStub deserialize(@NotNull StubInputStream dataStream, StubElement parentStub) throws IOException {
+    String name = dataStream.readNameString();
+    TypeInfo type = TypeInfo.readTYPE(dataStream);
+    String initializerText = dataStream.readNameString();
+    byte flags = dataStream.readByte();
     return new PsiFieldStubImpl(parentStub, name, type, initializerText, flags);
   }
 
   @Override
-  public void indexStub(@NotNull final PsiFieldStub stub, @NotNull final IndexSink sink) {
-    final String name = stub.getName();
+  public void indexStub(@NotNull PsiFieldStub stub, @NotNull IndexSink sink) {
+    String name = stub.getName();
     if (name != null) {
       sink.occurrence(JavaStubIndexKeys.FIELDS, name);
       if (RecordUtil.isStaticNonPrivateMember(stub)) {
         sink.occurrence(JavaStubIndexKeys.JVM_STATIC_MEMBERS_NAMES, name);
-        sink.occurrence(JavaStubIndexKeys.JVM_STATIC_MEMBERS_TYPES, stub.getType(false).getShortTypeText());
+        sink.occurrence(JavaStubIndexKeys.JVM_STATIC_MEMBERS_TYPES, stub.getType().getShortTypeText());
       }
     }
   }
 
-  @Override
-  public String getId(final PsiFieldStub stub) {
-    final String name = stub.getName();
-    if (name != null) return name;
-
-    return super.getId(stub);
-  }
 }

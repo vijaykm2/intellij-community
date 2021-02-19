@@ -1,26 +1,13 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework;
 
 import com.intellij.openapi.fileTypes.FileType;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.DeprecatedVirtualFileSystem;
 import com.intellij.openapi.vfs.NonPhysicalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileSystem;
-import com.intellij.util.LocalTimeCounter;
+import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -32,19 +19,19 @@ import java.io.IOException;
  */
 public abstract class LightVirtualFileBase extends VirtualFile {
   private FileType myFileType;
-  private String myName = "";
-  private long myModStamp = LocalTimeCounter.currentTime();
+  private @NlsSafe String myName;
+  private long myModStamp;
   private boolean myIsWritable = true;
   private boolean myValid = true;
   private VirtualFile myOriginalFile;
 
-  public LightVirtualFileBase(final String name, final FileType fileType, final long modificationStamp) {
+  public LightVirtualFileBase(final @NlsSafe String name, final FileType fileType, final long modificationStamp) {
     myName = name;
     myFileType = fileType;
     myModStamp = modificationStamp;
   }
 
-  public void setFileType(final FileType fileType) {
+  public void setFileType(FileType fileType) {
     myFileType = fileType;
   }
 
@@ -56,8 +43,8 @@ public abstract class LightVirtualFileBase extends VirtualFile {
     myOriginalFile = originalFile;
   }
 
-  private static class MyVirtualFileSystem extends DeprecatedVirtualFileSystem implements NonPhysicalFileSystem {
-    @NonNls private static final String PROTOCOL = "mock";
+  private static final class MyVirtualFileSystem extends DeprecatedVirtualFileSystem implements NonPhysicalFileSystem {
+    private static final @NonNls String PROTOCOL = "mock";
 
     private MyVirtualFileSystem() {
       startEventPropagation();
@@ -76,8 +63,7 @@ public abstract class LightVirtualFileBase extends VirtualFile {
     }
 
     @Override
-    public void refresh(boolean asynchronous) {
-    }
+    public void refresh(boolean asynchronous) { }
 
     @Override
     @Nullable
@@ -102,12 +88,12 @@ public abstract class LightVirtualFileBase extends VirtualFile {
   @NotNull
   @Override
   public String getPath() {
-    return "/" + getName();
+    VirtualFile parent = getParent();
+    return (parent == null ? "" : parent.getPath()) + "/" + getName();
   }
 
   @Override
-  @NotNull
-  public String getName() {
+  public @NlsSafe @NotNull String getName() {
     return myName;
   }
 
@@ -168,16 +154,60 @@ public abstract class LightVirtualFileBase extends VirtualFile {
   }
 
   @Override
-  public void refresh(boolean asynchronous, boolean recursive, Runnable postRunnable) {
-  }
+  public void refresh(boolean asynchronous, boolean recursive, Runnable postRunnable) { }
 
   @Override
-  public void setWritable(boolean b) {
-    myIsWritable = b;
+  public void setWritable(boolean writable) {
+    myIsWritable = writable;
   }
 
   @Override
   public void rename(Object requestor, @NotNull String newName) throws IOException {
+    assertWritable();
     myName = newName;
+  }
+
+  void assertWritable() {
+    if (!isWritable()) {
+      throw new IncorrectOperationException("File is not writable: "+this);
+    }
+  }
+
+  @NotNull
+  @Override
+  public VirtualFile createChildDirectory(Object requestor, @NotNull String name) throws IOException {
+    assertWritable();
+    return super.createChildDirectory(requestor, name);
+  }
+
+  @NotNull
+  @Override
+  public VirtualFile createChildData(Object requestor, @NotNull String name) throws IOException {
+    assertWritable();
+    return super.createChildData(requestor, name);
+  }
+
+  @Override
+  public void delete(Object requestor) throws IOException {
+    assertWritable();
+    super.delete(requestor);
+  }
+
+  @Override
+  public void move(Object requestor, @NotNull VirtualFile newParent) throws IOException {
+    assertWritable();
+    super.move(requestor, newParent);
+  }
+
+  @Override
+  public void setBinaryContent(byte @NotNull [] content, long newModificationStamp, long newTimeStamp) throws IOException {
+    assertWritable();
+    super.setBinaryContent(content, newModificationStamp, newTimeStamp);
+  }
+
+  @Override
+  public void setBinaryContent(byte @NotNull [] content, long newModificationStamp, long newTimeStamp, Object requestor) throws IOException {
+    assertWritable();
+    super.setBinaryContent(content, newModificationStamp, newTimeStamp, requestor);
   }
 }

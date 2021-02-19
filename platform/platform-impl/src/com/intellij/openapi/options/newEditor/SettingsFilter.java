@@ -1,65 +1,78 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options.newEditor;
 
 import com.intellij.ide.ui.search.ConfigurableHit;
 import com.intellij.ide.ui.search.SearchableOptionsRegistrar;
+import com.intellij.ide.ui.search.SearchableOptionsRegistrarImpl;
+import com.intellij.internal.statistic.collectors.fus.ui.SettingsCounterUsagesCollector;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurableGroup;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.options.ex.ConfigurableWrapper;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.DocumentAdapter;
 import com.intellij.ui.LightColors;
 import com.intellij.ui.SearchTextField;
 import com.intellij.ui.speedSearch.ElementFilter;
 import com.intellij.ui.treeStructure.SimpleNode;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.event.DocumentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.List;
 import java.util.Set;
 
-abstract class SettingsFilter extends ElementFilter.Active.Impl<SimpleNode> {
-  final OptionsEditorContext myContext = new OptionsEditorContext(this);
-  final Project myProject;
-
-  boolean myDocumentWasChanged;
+public abstract class SettingsFilter extends ElementFilter.Active.Impl<SimpleNode> {
+  final OptionsEditorContext myContext = new OptionsEditorContext();
+  private final @Nullable Project myProject;
 
   private final SearchTextField mySearch;
-  private final ConfigurableGroup[] myGroups;
+  private final List<? extends ConfigurableGroup> myGroups;
 
-  private SearchableOptionsRegistrar myRegistrar = SearchableOptionsRegistrar.getInstance();
   private Set<Configurable> myFiltered;
   private ConfigurableHit myHits;
 
   private boolean myUpdateRejected;
   private Configurable myLastSelected;
 
-  SettingsFilter(Project project, ConfigurableGroup[] groups, SearchTextField search) {
+  private volatile SearchableOptionsRegistrar searchableOptionRegistrar;
+
+  SettingsFilter(@Nullable Project project, @NotNull List<? extends ConfigurableGroup> groups, SearchTextField search) {
+    SearchableOptionsRegistrarImpl optionRegistrar =
+      (SearchableOptionsRegistrarImpl)ApplicationManager.getApplication().getServiceIfCreated(SearchableOptionsRegistrar.class);
+    if (optionRegistrar == null || !optionRegistrar.isInitialized()) {
+      // if not yet computed, preload it to ensure that will be no delay on user typing
+      AppExecutorUtil.getAppExecutorService().execute(() -> {
+        SearchableOptionsRegistrarImpl r = (SearchableOptionsRegistrarImpl)SearchableOptionsRegistrar.getInstance();
+        r.initialize();
+        // must be set only after initializing (to avoid concurrent modifications)
+        searchableOptionRegistrar = r;
+        ApplicationManager.getApplication().invokeLater(() -> {
+           update(r, DocumentEvent.EventType.CHANGE, false, true);
+        }, ModalityState.any(), project == null ? ApplicationManager.getApplication().getDisposed() : project.getDisposed());
+      });
+    }
+    else {
+      searchableOptionRegistrar = optionRegistrar;
+    }
+
     myProject = project;
     myGroups = groups;
     mySearch = search;
     mySearch.addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent event) {
-        update(event.getType(), true, false);
+      protected void textChanged(@NotNull DocumentEvent event) {
+        SearchableOptionsRegistrar registrar = searchableOptionRegistrar;
+        if (registrar != null) {
+          update(registrar, event.getType(), true, false);
+        }
         // request focus if needed on changing the filter text
         IdeFocusManager manager = IdeFocusManager.findInstanceByComponent(mySearch);
         if (manager.getFocusedDescendantFor(mySearch) == null) {
@@ -115,23 +128,25 @@ abstract class SettingsFilter extends ElementFilter.Active.Impl<SimpleNode> {
 
   String getFilterText() {
     String text = mySearch.getText();
-    return text == null ? "" : text.trim();
+    if (text != null) {
+      text = text.trim();
+      if (1 < text.length()) {
+        return text;
+      }
+    }
+    return "";
   }
 
-  void setHoldingFilter(boolean holding) {
+  private void setHoldingFilter(boolean holding) {
     myContext.setHoldingFilter(holding);
     updateSpotlight(false);
   }
 
-  boolean contains(Configurable configurable) {
+  boolean contains(@NotNull Configurable configurable) {
     return myHits != null && myHits.getNameHits().contains(configurable);
   }
 
-  ActionCallback update(boolean adjustSelection, boolean now) {
-    return update(DocumentEvent.EventType.CHANGE, adjustSelection, now);
-  }
-
-  ActionCallback update(String text, boolean adjustSelection, boolean now) {
+  void update(@Nullable String text) {
     try {
       myUpdateRejected = true;
       mySearch.setText(text);
@@ -139,13 +154,18 @@ abstract class SettingsFilter extends ElementFilter.Active.Impl<SimpleNode> {
     finally {
       myUpdateRejected = false;
     }
-    return update(adjustSelection, now);
+
+    SearchableOptionsRegistrar registrar = searchableOptionRegistrar;
+    if (registrar != null) {
+      update(registrar, DocumentEvent.EventType.CHANGE, false, true);
+    }
   }
 
-  private ActionCallback update(DocumentEvent.EventType type, boolean adjustSelection, boolean now) {
+  private void update(@NotNull SearchableOptionsRegistrar optionRegistrar, @NotNull DocumentEvent.EventType type, boolean adjustSelection, boolean now) {
     if (myUpdateRejected) {
-      return new ActionCallback.Rejected();
+      return;
     }
+
     String text = getFilterText();
     if (text.isEmpty()) {
       myContext.setHoldingFilter(false);
@@ -153,7 +173,7 @@ abstract class SettingsFilter extends ElementFilter.Active.Impl<SimpleNode> {
     }
     else {
       myContext.setHoldingFilter(true);
-      myHits = myRegistrar.getConfigurables(myGroups, type, myFiltered, text, myProject);
+      myHits = optionRegistrar.getConfigurables(myGroups, type, myFiltered, text, myProject);
       myFiltered = myHits.getAll();
     }
     mySearch.getTextEditor().setBackground(myFiltered != null && myFiltered.isEmpty()
@@ -163,9 +183,8 @@ abstract class SettingsFilter extends ElementFilter.Active.Impl<SimpleNode> {
 
     Configurable current = myContext.getCurrentConfigurable();
 
-    boolean shouldMoveSelection = myHits == null || (
-      !myHits.getNameFullHits().contains(current) &&
-      !myHits.getContentHits().contains(current));
+    boolean shouldMoveSelection = myHits == null || !myHits.getNameFullHits().contains(current) &&
+                                                    !myHits.getContentHits().contains(current);
 
     if (shouldMoveSelection && type != DocumentEvent.EventType.INSERT && (myFiltered == null || myFiltered.contains(current))) {
       shouldMoveSelection = false;
@@ -189,13 +208,22 @@ abstract class SettingsFilter extends ElementFilter.Active.Impl<SimpleNode> {
     if (candidate == null && current != null) {
       myLastSelected = current;
     }
+    if (myFiltered != null) {
+      SettingsCounterUsagesCollector.SEARCH.log(getConfigurableClass(candidate), myFiltered.size(), text.length());
+    }
     SimpleNode node = !adjustSelection ? null : findNode(candidate);
-    ActionCallback callback = fireUpdate(node, adjustSelection, now);
-    myDocumentWasChanged = true;
-    return callback;
+    fireUpdate(node, adjustSelection, now);
   }
 
-  private static Configurable findConfigurable(Set<Configurable> configurables, Set<Configurable> hits) {
+  @Nullable
+  private static Class<?> getConfigurableClass(Configurable candidate) {
+    if (candidate instanceof ConfigurableWrapper) {
+      return ((ConfigurableWrapper) candidate).getConfigurable().getClass();
+    }
+    return candidate != null ? candidate.getClass() : null;
+  }
+
+  private static Configurable findConfigurable(Set<? extends Configurable> configurables, Set<? extends Configurable> hits) {
     Configurable candidate = null;
     for (Configurable configurable : configurables) {
       if (hits != null && hits.contains(configurable)) {
@@ -211,5 +239,13 @@ abstract class SettingsFilter extends ElementFilter.Active.Impl<SimpleNode> {
   private static boolean isEmptyParent(Configurable configurable) {
     SearchableConfigurable.Parent parent = ConfigurableWrapper.cast(SearchableConfigurable.Parent.class, configurable);
     return parent != null && !parent.hasOwnContent();
+  }
+
+  void reload() {
+    myLastSelected = null;
+    myFiltered = null;
+    myHits = null;
+    mySearch.setText("");
+    myContext.reload();
   }
 }

@@ -25,7 +25,7 @@ import com.intellij.util.xml.DomElement;
  */
 public class MockDomInspection<T extends DomElement> extends BasicDomElementsInspection<T>{
 
-  public MockDomInspection(final Class<T> domClass) {
+  public MockDomInspection(final Class<? extends T> domClass) {
     super(domClass);
   }
 
@@ -34,13 +34,6 @@ public class MockDomInspection<T extends DomElement> extends BasicDomElementsIns
   @NotNull
   public String getGroupDisplayName() {
     throw new UnsupportedOperationException("Method getGroupDisplayName is not yet implemented in " + getClass().getName());
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    throw new UnsupportedOperationException("Method getDisplayName is not yet implemented in " + getClass().getName());
   }
 
   @Override

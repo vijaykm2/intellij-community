@@ -29,15 +29,14 @@ import org.jetbrains.annotations.NonNls;
  * @author yole
  */
 public interface FormInspectionTool {
-  ExtensionPointName<FormInspectionTool> EP_NAME = new ExtensionPointName<FormInspectionTool>("com.intellij.uiDesigner.formInspectionTool");
+  ExtensionPointName<FormInspectionTool> EP_NAME = new ExtensionPointName<>("com.intellij.uiDesigner.formInspectionTool");
 
   @NonNls
   String getShortName();
   void startCheckForm(IRootContainer radRootContainer);
   void doneCheckForm(IRootContainer radRootContainer);
 
-  @Nullable
-  ErrorInfo[] checkComponent(@NotNull GuiEditor editor, @NotNull RadComponent component);
+  ErrorInfo @Nullable [] checkComponent(@NotNull GuiEditor editor, @NotNull RadComponent component);
 
   boolean isActive(PsiElement psiRoot);
 

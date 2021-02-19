@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.keymap.impl.ui;
 
 import com.intellij.diagnostic.PluginException;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.QuickList;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.keymap.KeymapManager;
 import com.intellij.openapi.keymap.ex.KeymapManagerEx;
 import com.intellij.openapi.keymap.impl.ActionShortcutRestrictions;
@@ -27,18 +14,20 @@ import com.intellij.openapi.keymap.impl.KeymapManagerImpl;
 import com.intellij.openapi.keymap.impl.ShortcutRestrictions;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.testFramework.LightPlatformCodeInsightTestCase;
-import com.intellij.testFramework.PlatformTestCase;
+import com.intellij.testFramework.ServiceContainerUtil;
 import com.intellij.util.SmartList;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.picocontainer.MutablePicoContainer;
 
 import javax.swing.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import static com.intellij.testFramework.assertions.Assertions.assertThat;
+
 public class ActionsTreeTest extends LightPlatformCodeInsightTestCase {
+  private static final Logger LOG = Logger.getInstance(ActionsTreeTest.class);
   private static final String ACTION_WITHOUT_TEXT_AND_DESCRIPTION = "DummyWithoutTextAndDescription";
   private static final String ACTION_WITH_TEXT_ONLY = "DummyWithTextOnly";
   private static final String ACTION_WITH_TEXT_AND_DESCRIPTION = "DummyWithTextAndDescription";
@@ -68,10 +57,7 @@ public class ActionsTreeTest extends LightPlatformCodeInsightTestCase {
 
   private ActionShortcutRestrictions mySavedRestrictions;
 
-  static {
-    PlatformTestCase.initPlatformLangPrefix();
-  }
-
+  @Override
   public void setUp() throws Exception {
     super.setUp();
     // create dummy actions
@@ -84,7 +70,7 @@ public class ActionsTreeTest extends LightPlatformCodeInsightTestCase {
     myActionWithUseShortcutOfExistentRedefinedInParent = new MyAction("text", "description");
     myActionWithUseShortcutOfNonExistent = new MyAction("text", "description");
     myActionWithFixedShortcuts = new MyAction("text", "description");
-      
+
     ActionManager actionManager = ActionManager.getInstance();
     actionManager.registerAction(ACTION_WITHOUT_TEXT_AND_DESCRIPTION, myActionWithoutTextAndDescription);
     actionManager.registerAction(ACTION_WITH_TEXT_ONLY, myActionWithTextOnly);
@@ -107,7 +93,7 @@ public class ActionsTreeTest extends LightPlatformCodeInsightTestCase {
       @Override
       public ShortcutRestrictions getForActionId(String actionId) {
         return ACTION_WITH_FIXED_SHORTCUTS.equals(actionId)
-               ? new ShortcutRestrictions(false, false, false, false, false) : ShortcutRestrictions.NO_RESTRICTIONS;
+               ? new ShortcutRestrictions(false, false, false, false, false, false) : ShortcutRestrictions.NO_RESTRICTIONS;
       }
     });
 
@@ -117,13 +103,13 @@ public class ActionsTreeTest extends LightPlatformCodeInsightTestCase {
     assertNotNull(actionManager.getAction(ACTION_EDITOR_CUT_WITHOUT_SHORTCUT));
 
     DefaultActionGroup group = (DefaultActionGroup)actionManager.getAction(IdeActions.GROUP_EDITOR);
-    group.addAll(myActionWithoutTextAndDescription, 
-                 myActionWithTextOnly, 
+    group.addAll(myActionWithoutTextAndDescription,
+                 myActionWithTextOnly,
                  myActionWithTextAndDescription,
-                 myActionExistent, 
-                 myActionWithUseShortcutOfExistent, 
-                 myActionWithUseShortcutOfExistentRedefined, 
-                 myActionWithUseShortcutOfExistentRedefinedInParent, 
+                 myActionExistent,
+                 myActionWithUseShortcutOfExistent,
+                 myActionWithUseShortcutOfExistentRedefined,
+                 myActionWithUseShortcutOfExistentRedefinedInParent,
                  myActionWithUseShortcutOfNonExistent,
                  myActionWithFixedShortcuts);
     // populate action tree
@@ -135,8 +121,7 @@ public class ActionsTreeTest extends LightPlatformCodeInsightTestCase {
     parent.addShortcut(ACTION_WITH_USE_SHORTCUT_OF_EXISTENT_ACTION_REDEFINED_IN_PARENT, shortcut1);
     parent.setName("parent");
     parent.setCanModify(false);
-    KeymapImpl child = parent.deriveKeymap();
-    child.setName("child");
+    KeymapImpl child = parent.deriveKeymap("child");
     child.addShortcut(ACTION_WITH_USE_SHORTCUT_OF_EXISTENT_ACTION_REDEFINED, shortcut2);
     child.addShortcut(ACTION_EDITOR_DELETE_WITH_SHORTCUT, shortcut2);
     myActionsTree.reset(child, new QuickList[0]);
@@ -170,21 +155,22 @@ public class ActionsTreeTest extends LightPlatformCodeInsightTestCase {
       actionManager.unregisterAction(ACTION_WITH_USE_SHORTCUT_OF_NON_EXISTENT_ACTION);
       actionManager.unregisterAction(ACTION_WITH_FIXED_SHORTCUTS);
 
-      ((KeymapManagerImpl)KeymapManager.getInstance()).unbindShortcuts(ACTION_WITH_USE_SHORTCUT_OF_EXISTENT_ACTION);
-      ((KeymapManagerImpl)KeymapManager.getInstance()).unbindShortcuts(ACTION_WITH_USE_SHORTCUT_OF_EXISTENT_ACTION_REDEFINED);
-      ((KeymapManagerImpl)KeymapManager.getInstance()).unbindShortcuts(ACTION_WITH_USE_SHORTCUT_OF_EXISTENT_ACTION_REDEFINED_IN_PARENT);
-      ((KeymapManagerImpl)KeymapManager.getInstance()).unbindShortcuts(ACTION_WITH_USE_SHORTCUT_OF_NON_EXISTENT_ACTION);
+      KeymapManager.getInstance().unbindShortcuts(ACTION_WITH_USE_SHORTCUT_OF_EXISTENT_ACTION);
+      KeymapManager.getInstance().unbindShortcuts(ACTION_WITH_USE_SHORTCUT_OF_EXISTENT_ACTION_REDEFINED);
+      KeymapManager.getInstance().unbindShortcuts(ACTION_WITH_USE_SHORTCUT_OF_EXISTENT_ACTION_REDEFINED_IN_PARENT);
+      KeymapManager.getInstance().unbindShortcuts(ACTION_WITH_USE_SHORTCUT_OF_NON_EXISTENT_ACTION);
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
     }
     finally {
       super.tearDown();
     }
   }
 
-  private static void setRestrictions(ActionShortcutRestrictions restrictions) {
-    MutablePicoContainer picoContainer = (MutablePicoContainer) ApplicationManager.getApplication().getPicoContainer();
-    String restrictionsKey = ActionShortcutRestrictions.class.getName();
-    picoContainer.unregisterComponent(restrictionsKey);
-    picoContainer.registerComponentInstance(restrictionsKey, restrictions);
+  private void setRestrictions(@NotNull ActionShortcutRestrictions restrictions) {
+    ServiceContainerUtil
+      .replaceService(ApplicationManager.getApplication(), ActionShortcutRestrictions.class, restrictions, getTestRootDisposable());
   }
 
   public void testVariousActionsArePresent() {
@@ -210,39 +196,42 @@ public class ActionsTreeTest extends LightPlatformCodeInsightTestCase {
   public void testPresentation() {
     ActionManager manager = ActionManager.getInstance();
 
-    List<String> failures = new SmartList<String>();
-    for (String id : manager.getActionIds("")) {
-      if (!ACTION_WITHOUT_TEXT_AND_DESCRIPTION.equals(id)) {
-        try {
-          AnAction stub = manager.getActionOrStub(id);
-          AnAction action = manager.getAction(id);
-          String message = id + " (" + action.getClass().getName() + ")";
-          if (stub != action) {
-            Presentation before = stub.getTemplatePresentation();
-            Presentation after = action.getTemplatePresentation();
-            checkPresentationProperty("icon", message, before.getIcon(), after.getIcon());
-            checkPresentationProperty("text", message, before.getText(), after.getText());
-            checkPresentationProperty("description", message, before.getDescription(), after.getDescription());
-          }
-          if (action instanceof ActionGroup) {
-            System.out.println("ignored action group: " + message);
-          }
-          else if (StringUtil.isEmpty(action.getTemplatePresentation().getText())) {
-            failures.add("no text: " + message);
-          }
+    List<String> failures = new SmartList<>();
+    for (String id : manager.getActionIdList("")) {
+      if (ACTION_WITHOUT_TEXT_AND_DESCRIPTION.equals(id)) {
+        continue;
+      }
+
+      try {
+        AnAction stub = manager.getActionOrStub(id);
+        AnAction action = manager.getAction(id);
+        String actionIdAndClass = id + " (" + action.getClass().getName() + ")";
+        if (stub != action) {
+          Presentation before = stub.getTemplatePresentation();
+          Presentation after = action.getTemplatePresentation();
+          checkPresentationProperty("icon", actionIdAndClass, before.getIcon(), after.getIcon());
+          checkPresentationProperty("text", actionIdAndClass, before.getText(), after.getText());
+          checkPresentationProperty("description", actionIdAndClass, before.getDescription(), after.getDescription());
         }
-        catch (PluginException exception) {
-          System.out.println(id + " ignored because " + exception.getMessage());
+
+        if (action instanceof ActionGroup) {
+          LOG.debug("ignored action group: " + actionIdAndClass);
         }
+        else if (StringUtil.isEmpty(action.getTemplatePresentation().getText())) {
+          failures.add("no text is defined for template presentation of " + actionIdAndClass + "; even if text is set in 'update' method the internal ID will be shown in Settings | Keymap");
+        }
+      }
+      catch (PluginException exception) {
+        LOG.debug(id + " ignored because " + exception.getMessage());
       }
     }
 
-    assertEmpty(failures);
+    assertThat(failures).isEmpty();
   }
 
   private static void checkPresentationProperty(String name, String message, Object expected, Object actual) {
     if (!(expected == null ? actual == null : expected.equals(actual))) {
-      System.out.println(name + " updated: "+ message + "; old:" + expected + "; new:" + actual);
+      LOG.debug(name + " updated: "+ message + "; old:" + expected + "; new:" + actual);
     }
   }
 
@@ -272,8 +261,8 @@ public class ActionsTreeTest extends LightPlatformCodeInsightTestCase {
       myActionsTree.filter(filter, new QuickList[0]);
     }
 
-    List<String> missing = new ArrayList<String>();
-    List<String> present = new ArrayList<String>();
+    List<String> missing = new ArrayList<>();
+    List<String> present = new ArrayList<>();
     for (String actionId : idsThatMustBePresent) {
       if (!myActionsTree.getMainGroup().containsId(actionId)) missing.add(actionId);
     }
@@ -284,7 +273,7 @@ public class ActionsTreeTest extends LightPlatformCodeInsightTestCase {
                missing.isEmpty() && present.isEmpty());
   }
 
-  private static class MyAction extends AnAction {
+  private static final class MyAction extends AnAction {
     private MyAction(@Nullable String text, @Nullable String description) {
       super(text, description, null);
     }

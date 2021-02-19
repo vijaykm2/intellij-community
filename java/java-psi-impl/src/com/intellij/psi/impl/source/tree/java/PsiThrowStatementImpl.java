@@ -30,7 +30,7 @@ import com.intellij.psi.tree.ChildRoleBase;
 import org.jetbrains.annotations.NotNull;
 
 public class PsiThrowStatementImpl extends CompositePsiElement implements PsiThrowStatement, Constants {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiThrowStatementImpl");
+  private static final Logger LOG = Logger.getInstance(PsiThrowStatementImpl.class);
 
   public PsiThrowStatementImpl() {
     super(THROW_STATEMENT);
@@ -60,7 +60,7 @@ public class PsiThrowStatementImpl extends CompositePsiElement implements PsiThr
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
     if (i == THROW_KEYWORD) {
@@ -89,6 +89,7 @@ public class PsiThrowStatementImpl extends CompositePsiElement implements PsiThr
     }
   }
 
+  @Override
   public String toString() {
     return "PsiThrowStatement";
   }

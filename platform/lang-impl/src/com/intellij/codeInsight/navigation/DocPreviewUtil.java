@@ -1,33 +1,16 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.navigation;
 
 import com.intellij.codeInsight.documentation.DocumentationManagerProtocol;
 import com.intellij.lang.documentation.DocumentationProvider;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
-import com.intellij.util.containers.ContainerUtilRt;
 import gnu.trove.TIntHashSet;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -35,11 +18,10 @@ import java.util.regex.Pattern;
  * Provides utility methods for building documentation preview.
  * <p/>
  * Thread-safe.
- * 
+ *
  * @author Denis Zhdanov
- * @since 7/10/12 8:06 AM
  */
-public class DocPreviewUtil {
+public final class DocPreviewUtil {
 
   private static final TIntHashSet ALLOWED_LINK_SEPARATORS = new TIntHashSet();
   static {
@@ -59,11 +41,11 @@ public class DocPreviewUtil {
   }
 
   /**
-   * We shorten links text from fully qualified name to short names (e.g. from <code>'java.lang.String'</code> to <code>'String'</code>).
+   * We shorten links text from fully qualified name to short names (e.g. from {@code 'java.lang.String'} to {@code 'String'}).
    * There is a possible situation then that we have two replacements where one key is a simple name and another one is a fully qualified
-   * one. We want to apply <code>'from fully qualified name'</code> replacement first then.
+   * one. We want to apply {@code 'from fully qualified name'} replacement first then.
    */
-  private static final Comparator<String> REPLACEMENTS_COMPARATOR = new Comparator<String>() {
+  private static final Comparator<String> REPLACEMENTS_COMPARATOR = new Comparator<>() {
     @Override
     public int compare(@NotNull String o1, @NotNull String o2) {
       String shortName1 = extractShortName(o1);
@@ -103,17 +85,19 @@ public class DocPreviewUtil {
    * @param fullText                   full documentation text (if available)
    */
   @NotNull
-  public static String buildPreview(@NotNull final String header, @Nullable final String qName, @Nullable final String fullText) {
+  public static @Nls String buildPreview(@NotNull @Nls final String header,
+                                         @Nullable final String qName,
+                                         @Nullable @Nls final String fullText) {
     if (fullText == null) {
       return header;
     }
 
     // Build links info.
-    Map<String/*qName*/, String/*address*/> links = ContainerUtilRt.newHashMap();
+    Map<String/*qName*/, String/*address*/> links = new HashMap<>();
     process(fullText, new LinksCollector(links));
-    
+
     // Add derived names.
-    Map<String, String> toAdd = ContainerUtilRt.newHashMap();
+    Map<String, String> toAdd = new HashMap<>();
     for (Map.Entry<String, String> entry : links.entrySet()) {
       String shortName = parseShortName(entry.getKey());
       if (shortName != null) {
@@ -128,20 +112,15 @@ public class DocPreviewUtil {
     if (qName != null) {
       links.put(qName, DocumentationManagerProtocol.PSI_ELEMENT_PROTOCOL + qName);
     }
-    
+
     // Apply links info to the header template.
-    List<TextRange> modifiedRanges = ContainerUtilRt.newArrayList();
-    List<String> sortedReplacements = ContainerUtilRt.newArrayList(links.keySet());
-    Collections.sort(sortedReplacements, REPLACEMENTS_COMPARATOR);
-    StringBuilder buffer = new StringBuilder(header);
+    List<TextRange> modifiedRanges = new ArrayList<>();
+    List<String> sortedReplacements = new ArrayList<>(links.keySet());
+    sortedReplacements.sort(REPLACEMENTS_COMPARATOR);
+    @Nls StringBuilder buffer = new StringBuilder(header);
     replace(buffer, "\n", "<br/>", modifiedRanges);
     for (String replaceFrom : sortedReplacements) {
-      String visibleName = replaceFrom;
-      int i = visibleName.lastIndexOf('.');
-      if (i > 0 && i < visibleName.length() - 1) {
-        visibleName = visibleName.substring(i + 1);
-      }
-      replace(buffer, replaceFrom, String.format("<a href=\"%s\">%s</a>", links.get(replaceFrom), visibleName), modifiedRanges);
+      replace(buffer, replaceFrom, String.format("<a href=\"%s\">%s</a>", links.get(replaceFrom), replaceFrom), modifiedRanges);
     }
     return buffer.toString();
   }
@@ -150,9 +129,9 @@ public class DocPreviewUtil {
    * Tries to build a short name form the given name assuming that it is a full name.
    * <p/>
    * Example: return {@code 'String'} for a given {@code 'java.lang.String'}.
-   * 
+   *
    * @param name  name to process
-   * @return      short name derived from the given full name if possible; <code>null</code> otherwise
+   * @return      short name derived from the given full name if possible; {@code null} otherwise
    */
   @Nullable
   private static String parseShortName(@NotNull String name) {
@@ -164,10 +143,10 @@ public class DocPreviewUtil {
    * Tries to build a long name from the given short name and a link.
    * <p/>
    * Example: return {@code 'java.lang.String'} for a given pair (name {@code 'String'}; address: {@code 'psi_element://java.lang.String'}.
-   * 
+   *
    * @param shortName   short name to process
    * @param address     address to process
-   * @return            long name derived from the given arguments (if any); <code>null</code> otherwise
+   * @return            long name derived from the given arguments (if any); {@code null} otherwise
    */
   @Nullable
   private static String parseLongName(@NotNull String shortName, @NotNull String address) {
@@ -176,16 +155,20 @@ public class DocPreviewUtil {
     if (i > 0 && i < pureAddress.length() - 2) {
       pureAddress = pureAddress.substring(i + 2);
     }
-    
+
     return (pureAddress.equals(shortName) || !pureAddress.endsWith(shortName)) ? null : pureAddress;
   }
 
   private static void replace(@NotNull StringBuilder text,
                               @NotNull String replaceFrom,
                               @NotNull String replaceTo,
-                              @NotNull List<TextRange> readOnlyChanges)
-  {
-    for (int i = text.indexOf(replaceFrom); i >= 0 && i < text.length() - 1; i = text.indexOf(replaceFrom, i + 1)) {
+                              @NotNull List<TextRange> readOnlyChanges) {
+
+    if (replaceFrom.isEmpty()) {
+      return;
+    }
+
+    for (int i = text.indexOf(replaceFrom); i >= 0; i = text.indexOf(replaceFrom, i + 1)) {
       int end = i + replaceFrom.length();
       if (intersects(readOnlyChanges, i, end)) {
         continue;
@@ -197,7 +180,7 @@ public class DocPreviewUtil {
           continue;
         }
         if (i > 0 && !ALLOWED_LINK_SEPARATORS.contains(text.charAt(i - 1))) {
-          // Similar situation but targets head match: from = 'TextRange', text = 'getTextRange()'. 
+          // Similar situation but targets head match: from = 'TextRange', text = 'getTextRange()'.
           continue;
         }
       }
@@ -212,8 +195,8 @@ public class DocPreviewUtil {
       readOnlyChanges.add(new TextRange(i, i + replaceTo.length()));
     }
   }
-  
-  private static boolean intersects(@NotNull List<TextRange> ranges, int start, int end) {
+
+  private static boolean intersects(@NotNull List<? extends TextRange> ranges, int start, int end) {
     for (TextRange range : ranges) {
       if (range.intersectsStrict(start, end)) {
         return true;
@@ -223,8 +206,7 @@ public class DocPreviewUtil {
   }
 
   private enum State {TEXT, INSIDE_OPEN_TAG, INSIDE_CLOSE_TAG}
-  
-  @SuppressWarnings("AssignmentToForLoopParameter")
+
   private static int process(@NotNull String text, @NotNull Callback callback) {
     State state = State.TEXT;
     int dataStartOffset = 0;
@@ -298,9 +280,9 @@ public class DocPreviewUtil {
     }
 
     if (dataStartOffset < text.length()) {
-      callback.onText(text.substring(dataStartOffset, text.length()).replace("&nbsp;", " "));
+      callback.onText(text.substring(dataStartOffset).replace("&nbsp;", " "));
     }
-    
+
     return i;
   }
 

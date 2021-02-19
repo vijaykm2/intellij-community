@@ -22,7 +22,9 @@ namespace local = ""
 		&	img.attrs.width?
 		&	img.attrs.usemap?
 		&	img.attrs.ismap?
+		&	img.attrs.decoding?
 		&	img.attrs.border? # obsolete
+		&	referrerpolicy?
 		&	embedded.content.attrs.crossorigin?
 		&	(	common.attrs.aria.implicit.img
 			|	common.attrs.aria
@@ -59,6 +61,13 @@ namespace local = ""
 		img.attrs.ismap =
 			attribute ismap {
 				w:string "ismap" | w:string ""
+			}
+		img.attrs.decoding =
+			attribute decoding {
+				(	string "sync"
+				|	string "async"
+				|	string "auto"
+				)
 			}
 		img.attrs.border =
 			attribute border {
@@ -128,7 +137,7 @@ namespace local = ""
 		&	embed.attrs.height?
 		&	embed.attrs.width?
 		&	embed.attrs.other*
-		&	(	common.attrs.aria.landmark.application
+		&	(	common.attrs.aria.role.application
 			|	common.attrs.aria.landmark.document
 			|	common.attrs.aria.role.img
 			|	common.attrs.aria.role.presentation
@@ -151,35 +160,43 @@ namespace local = ""
 				common.data.integer.non-negative
 			}
 		embed.attrs.other = # REVISIT common.attrs
-			attribute local:* - ( src 
-			                    | type 
-			                    | height 
-			                    | width 
-			                    | id 
+			attribute local:* - ( src
+			                    | type
+			                    | height
+			                    | width
+			                    | id
+			                    | is
+			                    | slot
 			                    | class
-			                    | title 
-			                    | dir 
-			                    | lang 
-			                    | translate 
-			                    | style 
-			                    | tabindex 
-			                    | contextmenu 
-			                    | contenteditable 
-			                    | draggable 
-			                    | dropzone
+			                    | title
+			                    | dir
+			                    | lang
+			                    | translate
+			                    | style
+			                    | tabindex
+			                    | autofocus
+			                    | contenteditable
+			                    | draggable
 			                    | hidden
+			                    | inputmode
+			                    | nonce
 			                    | onabort
+			                    | onautocomplete
+			                    | onautocompleteerror
 			                    | onblur
+			                    | oncancel
 			                    | oncanplay
 			                    | oncanplaythrough
 			                    | onchange
 			                    | onclick
 			                    | onclose
 			                    | oncontextmenu
+			                    | oncuechange
 			                    | ondblclick
 			                    | ondrag
 			                    | ondragend
 			                    | ondragenter
+			                    | ondragexit
 			                    | ondragleave
 			                    | ondragover
 			                    | ondragstart
@@ -189,6 +206,8 @@ namespace local = ""
 			                    | onended
 			                    | onerror
 			                    | onfocus
+			                    | onfocusin
+			                    | onfocusout
 			                    | oninput
 			                    | oninvalid
 			                    | onkeydown
@@ -199,61 +218,58 @@ namespace local = ""
 			                    | onloadedmetadata
 			                    | onloadstart
 			                    | onmousedown
+			                    | onmouseenter
+			                    | onmouseleave
 			                    | onmousemove
 			                    | onmouseout
 			                    | onmouseover
 			                    | onmouseup
-			                    | onmousewheel
+			                    | onwheel
 			                    | onpause
 			                    | onplay
 			                    | onplaying
 			                    | onprogress
 			                    | onratechange
 			                    | onreset
+			                    | onresize
 			                    | onscroll
 			                    | onseeked
 			                    | onseeking
 			                    | onselect
-			                    | onshow
+			                    | onsort
 			                    | onstalled
 			                    | onsubmit
 			                    | onsuspend
 			                    | ontimeupdate
+			                    | ontoggle
 			                    | onvolumechange
 			                    | onwaiting
-			                    | onafterprint
-			                    | onbeforeprint
-			                    | onbeforeunload
-			                    | onhashchange
-			                    | onmessage
-			                    | onoffline
-			                    | ononline
-			                    | onpopstate
-			                    | onredo
-			                    | onresize
-			                    | onstorage
-			                    | onundo
-			                    | onunload
 			                    | role
 			                    | aria-atomic
 			                    | aria-busy
 			                    | aria-controls
+			                    | aria-current
+			                    | aria-details
 			                    | aria-describedby
 			                    | aria-disabled
 			                    | aria-dropeffect
+			                    | aria-errormessage
 			                    | aria-expanded
 			                    | aria-flowto
 			                    | aria-grabbed
 			                    | aria-haspopup
 			                    | aria-hidden
 			                    | aria-invalid
+			                    | aria-keyshortcuts
 			                    | aria-label
 			                    | aria-labelledby
 			                    | aria-live
 			                    | aria-owns
 			                    | aria-relevant
 			                    | aria-required
+			                    | aria-roledescription
 			                    | spellcheck
+			                    | autocapitalize
 			                    | accesskey
 			                    | itemref
 			                    | itemprop
@@ -320,7 +336,7 @@ namespace local = ""
                                             | its-storage-encoding
                                             | its-line-break-type
                                             | its-annotators-ref
-			                    ) 
+			                    )
 			{
 				string
 			}
@@ -342,7 +358,6 @@ namespace local = ""
 				)
 			|	object.attrs.type
 			)
-		&	object.attrs.typemustmatch?
 #		&	object.attrs.classid?
 #		&	object.attrs.codebase?
 #		&	object.attrs.codetype?
@@ -351,7 +366,7 @@ namespace local = ""
 		&	object.attrs.usemap?
 		&	object.attrs.name?
 		&	common-form.attrs.form?
-		&	(	common.attrs.aria.landmark.application
+		&	(	common.attrs.aria.role.application
 			|	common.attrs.aria.landmark.document
 			|	common.attrs.aria.role.img
 			|	common.attrs.aria.role.presentation
@@ -365,10 +380,6 @@ namespace local = ""
 			attribute type {
 				common.data.mimetype
 			}
-		object.attrs.typemustmatch =
-			attribute typemustmatch {
-				w:string "typemustmatch" | w:string ""
-			} & v5only
 		object.attrs.height =
 			attribute height {
 				common.data.integer.non-negative
@@ -432,9 +443,12 @@ namespace local = ""
 		&	iframe.attrs.width?
 		&	iframe.attrs.height?
 		&	iframe.attrs.sandbox?
-		&	iframe.attrs.seamless?
 		&	iframe.attrs.allowfullscreen?
-		&	(	common.attrs.aria.landmark.application
+		&	iframe.attrs.allowpaymentrequest?
+		&	iframe.attrs.allowusermedia?
+		&	iframe.attrs.allow?
+		&	referrerpolicy?
+		&	(	common.attrs.aria.role.application
 			|	common.attrs.aria.landmark.document
 			|	common.attrs.aria.role.img
 			|	common.attrs.aria.role.presentation
@@ -460,163 +474,28 @@ namespace local = ""
 			attribute width {
 				common.data.integer.non-negative
 			}
-		iframe.attrs.seamless =
-			attribute seamless {
-				w:string "seamless" | w:string ""
-			} & v5only
 		iframe.attrs.sandbox =
-			attribute sandbox
-				{	list 
-					{	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-same-origin" )?
-					,	( w:string "allow-forms" )?
-					,	( w:string "allow-scripts" )?
-					}
-				|	list 
-					{	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-same-origin" )?
-					,	( w:string "allow-scripts" )?
-					,	( w:string "allow-forms" )?
-					}
-				|	list 
-					{	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-forms" )?
-					,	( w:string "allow-same-origin" )?
-					,	( w:string "allow-scripts" )?
-					}
-				|	list 
-					{	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-forms" )?
-					,	( w:string "allow-scripts" )?
-					,	( w:string "allow-same-origin" )?
-					}
-				|	list 
-					{	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-scripts" )?
-					,	( w:string "allow-same-origin" )?
-					,	( w:string "allow-forms" )?
-					}
-				|	list 
-					{	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-scripts" )?
-					,	( w:string "allow-forms" )?
-					,	( w:string "allow-same-origin" )?
-					}
-				|	list 
-					{	( w:string "allow-same-origin" )?
-					,	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-forms" )?
-					,	( w:string "allow-scripts" )?
-					}
-				|	list 
-					{	( w:string "allow-same-origin" )?
-					,	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-scripts" )?
-					,	( w:string "allow-forms" )?
-					}
-				|	list 
-					{	( w:string "allow-forms" )?
-					,	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-same-origin" )?
-					,	( w:string "allow-scripts" )?
-					}
-				|	list 
-					{	( w:string "allow-forms" )?
-					,	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-scripts" )?
-					,	( w:string "allow-same-origin" )?
-					}
-				|	list 
-					{	( w:string "allow-scripts" )?
-					,	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-same-origin" )?
-					,	( w:string "allow-forms" )?
-					}
-				|	list 
-					{	( w:string "allow-scripts" )?
-					,	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-forms" )?
-					,	( w:string "allow-same-origin" )?
-					}
-				|	list 
-					{	( w:string "allow-same-origin" )?
-					,	( w:string "allow-forms" )?
-					,	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-scripts" )?
-					}
-				|	list 
-					{	( w:string "allow-same-origin" )?
-					,	( w:string "allow-scripts" )?
-					,	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-forms" )?
-					}
-				|	list 
-					{	( w:string "allow-forms" )?
-					,	( w:string "allow-same-origin" )?
-					,	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-scripts" )?
-					}
-				|	list 
-					{	( w:string "allow-forms" )?
-					,	( w:string "allow-scripts" )?
-					,	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-same-origin" )?
-					}
-				|	list 
-					{	( w:string "allow-scripts" )?
-					,	( w:string "allow-same-origin" )?
-					,	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-forms" )?
-					}
-				|	list 
-					{	( w:string "allow-scripts" )?
-					,	( w:string "allow-forms" )?
-					,	( w:string "allow-top-navigation" )?
-					,	( w:string "allow-same-origin" )?
-					}
-				|	list 
-					{	( w:string "allow-same-origin" )?
-					,	( w:string "allow-forms" )?
-					,	( w:string "allow-scripts" )?
-					,	( w:string "allow-top-navigation" )?
-					}
-				|	list 
-					{	( w:string "allow-same-origin" )?
-					,	( w:string "allow-scripts" )?
-					,	( w:string "allow-forms" )?
-					,	( w:string "allow-top-navigation" )?
-					}
-				|	list 
-					{	( w:string "allow-forms" )?
-					,	( w:string "allow-same-origin" )?
-					,	( w:string "allow-scripts" )?
-					,	( w:string "allow-top-navigation" )?
-					}
-				|	list 
-					{	( w:string "allow-forms" )?
-					,	( w:string "allow-scripts" )?
-					,	( w:string "allow-same-origin" )?
-					,	( w:string "allow-top-navigation" )?
-					}
-				|	list 
-					{	( w:string "allow-scripts" )?
-					,	( w:string "allow-same-origin" )?
-					,	( w:string "allow-forms" )?
-					,	( w:string "allow-top-navigation" )?
-					}
-				|	list 
-					{	( w:string "allow-scripts" )?
-					,	( w:string "allow-forms" )?
-					,	( w:string "allow-same-origin" )?
-					,	( w:string "allow-top-navigation" )?
-					}
-				} & v5only
+			attribute sandbox {
+				common.data.sandbox-allow-list
+			} & v5only
 		iframe.attrs.allowfullscreen =
 			attribute allowfullscreen {
 				w:string "allowfullscreen" | w:string ""
 			} & v5only
+		iframe.attrs.allowpaymentrequest =
+			attribute allowpaymentrequest {
+				w:string "allowpaymentrequest" | w:string ""
+			} & v5only
+		iframe.attrs.allowusermedia =
+			attribute allowusermedia {
+				w:string "allowusermedia" | w:string ""
+			} & v5only
+		iframe.attrs.allow =
+			attribute allow {
+				common.data.feature-policy
+			}
 	iframe.inner =
-		( ( text & HTMLonly ) | empty )
+		empty
 
 	common.elem.phrasing |= iframe.elem
 
@@ -668,8 +547,7 @@ namespace local = ""
 		&	shared-hyperlink.attrs.type?
 		&	area.attrs.shape?
 		&	(	common.attrs.aria.role.link
-			|	common.attrs.aria.role.presentation
-			|	common.attrs.aria.role.menuitem
+			|	common.attrs.aria.implicit.link
 			)?
 		)
 		area.attrs.alt =

@@ -15,7 +15,6 @@
  */
 package com.intellij.codeInsight.template.macro;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.template.*;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -29,18 +28,13 @@ public class SuggestIndexNameMacro extends Macro {
   }
 
   @Override
-  public String getPresentableName() {
-    return CodeInsightBundle.message("macro.suggest.index.name");
-  }
-
-  @Override
   @NotNull
   public String getDefaultValue() {
     return "a";
   }
 
   @Override
-  public Result calculateResult(@NotNull Expression[] params, final ExpressionContext context) {
+  public Result calculateResult(Expression @NotNull [] params, final ExpressionContext context) {
     if (params.length != 0) return null;
 
     final Project project = context.getProject();

@@ -35,12 +35,7 @@ public class WorkingWithOpenProjectTest extends MavenImportingTestCase {
                   "<version>1</version>");
   }
 
-  @Override
-  protected void tearDown() throws Exception {
-    super.tearDown();
-  }
-
-  public void testShouldNotFailOnNewEmptyPomCreation() throws Exception {
+  public void testShouldNotFailOnNewEmptyPomCreation() {
     createModulePom("module", ""); // should not throw an exception
   }
 
@@ -56,26 +51,22 @@ public class WorkingWithOpenProjectTest extends MavenImportingTestCase {
     PsiTestUtil.addContentRoot(getModule("project"), root);  // should not throw an exception
   }
   
-  public void _testSavingAllDocumentBeforeReimport() throws Exception {
+  public void _testSavingAllDocumentBeforeReimport() {
     // cannot make it work die to order of document listeners
 
     myProjectsManager.listenForExternalChanges();
     final Document d = FileDocumentManager.getInstance().getDocument(myProjectPom);
-    WriteCommandAction.runWriteCommandAction(null, new Runnable() {
-      public void run() {
-        d.setText(createPomXml("<groupId>test</groupId>" +
-                               "<artifactId>project</artifactId>" +
-                               "<version>1</version>" +
+    WriteCommandAction.runWriteCommandAction(null, () -> d.setText(createPomXml("<groupId>test</groupId>" +
+                                                                              "<artifactId>project</artifactId>" +
+                                                                              "<version>1</version>" +
 
-                               "<dependencies>" +
-                               "  <dependency>" +
-                               "    <groupId>junit</groupId>" +
-                               "    <artifactId>junit</artifactId>" +
-                               "    <version>4.0</version>" +
-                               "  </dependency>" +
-                               "</dependencies>"));
-      }
-    });
+                                                                              "<dependencies>" +
+                                                                              "  <dependency>" +
+                                                                              "    <groupId>junit</groupId>" +
+                                                                              "    <artifactId>junit</artifactId>" +
+                                                                              "    <version>4.0</version>" +
+                                                                              "  </dependency>" +
+                                                                              "</dependencies>")));
 
     resolveDependenciesAndImport();
 

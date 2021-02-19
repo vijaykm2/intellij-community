@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,13 +19,12 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 04.10.13
  */
 public class FrameworkRole {
 
   public static FrameworkRole[] UNKNOWN = new FrameworkRole[0];
 
-  /** Groovy etc. */
+  /* Groovy etc. */
 //  public static FrameworkRole JVM_LANGUAGES = new FrameworkRole();
 
   /** servlet-based frameworks like Struts, Tapestry etc. */

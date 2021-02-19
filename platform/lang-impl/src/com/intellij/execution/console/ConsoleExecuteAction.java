@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,9 @@
 package com.intellij.execution.console;
 
 import com.intellij.codeInsight.lookup.Lookup;
+import com.intellij.codeInsight.lookup.LookupFocusDegree;
 import com.intellij.codeInsight.lookup.LookupManager;
+import com.intellij.codeInsight.lookup.impl.LookupImpl;
 import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -33,37 +35,37 @@ import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+@SuppressWarnings("ComponentNotRegistered")
 public class ConsoleExecuteAction extends DumbAwareAction {
   static final String CONSOLE_EXECUTE_ACTION_ID = "Console.Execute";
 
   private final LanguageConsoleView myConsoleView;
   final ConsoleExecuteActionHandler myExecuteActionHandler;
-  private final Condition<LanguageConsoleView> myEnabledCondition;
+  private final Condition<? super LanguageConsoleView> myEnabledCondition;
 
-  @SuppressWarnings("UnusedDeclaration")
   public ConsoleExecuteAction(@NotNull LanguageConsoleView console, @NotNull BaseConsoleExecuteActionHandler executeActionHandler) {
-    this(console, executeActionHandler, CONSOLE_EXECUTE_ACTION_ID, Conditions.<LanguageConsoleView>alwaysTrue());
+    this(console, executeActionHandler, CONSOLE_EXECUTE_ACTION_ID, Conditions.alwaysTrue());
   }
 
-  ConsoleExecuteAction(@NotNull LanguageConsoleView console, final @NotNull ConsoleExecuteActionHandler executeActionHandler, @Nullable Condition<LanguageConsoleView> enabledCondition) {
+  ConsoleExecuteAction(@NotNull LanguageConsoleView console, @NotNull ConsoleExecuteActionHandler executeActionHandler, @Nullable Condition<? super LanguageConsoleView> enabledCondition) {
     this(console, executeActionHandler, CONSOLE_EXECUTE_ACTION_ID, enabledCondition);
   }
 
   public ConsoleExecuteAction(@NotNull LanguageConsoleView console,
                               @NotNull BaseConsoleExecuteActionHandler executeActionHandler,
-                              @Nullable Condition<LanguageConsoleView> enabledCondition) {
+                              @Nullable Condition<? super LanguageConsoleView> enabledCondition) {
     this(console, executeActionHandler, CONSOLE_EXECUTE_ACTION_ID, enabledCondition);
   }
 
   public ConsoleExecuteAction(@NotNull LanguageConsoleView consoleView,
                                @NotNull ConsoleExecuteActionHandler executeActionHandler,
                                @NotNull String emptyExecuteActionId,
-                               @Nullable Condition<LanguageConsoleView> enabledCondition) {
-    super(null, null, AllIcons.Actions.Execute);
+                               @Nullable Condition<? super LanguageConsoleView> enabledCondition) {
+    super(AllIcons.Actions.Execute);
 
     myConsoleView = consoleView;
     myExecuteActionHandler = executeActionHandler;
-    myEnabledCondition = enabledCondition == null ? Conditions.<LanguageConsoleView>alwaysTrue() : enabledCondition;
+    myEnabledCondition = enabledCondition == null ? Conditions.alwaysTrue() : enabledCondition;
 
     EmptyAction.setupAction(this, emptyExecuteActionId, null);
   }
@@ -76,7 +78,8 @@ public class ConsoleExecuteAction extends DumbAwareAction {
     if (enabled) {
       Lookup lookup = LookupManager.getActiveLookup(editor);
       // we should check getCurrentItem() also - fast typing could produce outdated lookup, such lookup reports isCompletion() true
-      enabled = lookup == null || !lookup.isCompletion() || lookup.getCurrentItem() == null;
+      enabled = lookup == null || !lookup.isCompletion() || lookup.getCurrentItem() == null ||
+                lookup instanceof LookupImpl && ((LookupImpl)lookup).getLookupFocusDegree() == LookupFocusDegree.UNFOCUSED;
     }
 
     e.getPresentation().setEnabled(enabled);
@@ -106,14 +109,14 @@ public class ConsoleExecuteAction extends DumbAwareAction {
     myExecuteActionHandler.addToCommandHistoryAndExecute(myConsoleView, text);
   }
 
-  public static abstract class ConsoleExecuteActionHandler {
+  public abstract static class ConsoleExecuteActionHandler {
 
     private boolean myAddToHistory = true;
     final boolean myPreserveMarkup;
 
     boolean myUseProcessStdIn;
 
-    public ConsoleExecuteActionHandler(boolean preserveMarkup) {
+    ConsoleExecuteActionHandler(boolean preserveMarkup) {
       myPreserveMarkup = preserveMarkup;
     }
 

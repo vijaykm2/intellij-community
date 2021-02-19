@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.commander;
 
@@ -40,7 +26,10 @@ import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiDirectory;
@@ -67,7 +56,7 @@ import java.util.List;
  * @author Eugene Belyaev
  */
 public class CommanderPanel extends JPanel {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.commander.CommanderPanel");
+  private static final Logger LOG = Logger.getInstance(CommanderPanel.class);
 
   private static final Color DARK_BLUE = new Color(55, 85, 134);
   private static final Color DARK_BLUE_BRIGHTER = new Color(58, 92, 149);
@@ -103,19 +92,13 @@ public class CommanderPanel extends JPanel {
     myList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 
     if (enablePopupMenu) {
-      myCopyPasteDelegator = new CopyPasteDelegator(myProject, myList) {
-        @Override
-        @NotNull
-        protected PsiElement[] getSelectedElements() {
-          return CommanderPanel.this.getSelectedElements();
-        }
-      };
+      myCopyPasteDelegator = new CopyPasteDelegator(myProject, myList);
     }
 
     myListSpeedSearch = new ListSpeedSearch(myList);
     myListSpeedSearch.setClearSearchOnNavigateNoMatch(true);
 
-    ListScrollingUtil.installActions(myList);
+    ScrollingUtil.installActions(myList);
 
     myList.registerKeyboardAction(new ActionListener() {
       @Override
@@ -138,7 +121,7 @@ public class CommanderPanel extends JPanel {
     });
     new DoubleClickListener() {
       @Override
-      protected boolean onDoubleClick(MouseEvent e) {
+      protected boolean onDoubleClick(@NotNull MouseEvent e) {
         drillDown();
         return true;
       }
@@ -290,7 +273,7 @@ public class CommanderPanel extends JPanel {
     add(myTitlePanel, BorderLayout.NORTH);
     final JScrollPane scrollPane = ScrollPaneFactory.createScrollPane(myList);
     scrollPane.setBorder(null);
-    scrollPane.getVerticalScrollBar().setFocusable(false); // otherwise the scrollbar steals focus and panel switching with tab is broken 
+    scrollPane.getVerticalScrollBar().setFocusable(false); // otherwise the scrollbar steals focus and panel switching with tab is broken
     scrollPane.getHorizontalScrollBar().setFocusable(false);
     add(scrollPane, BorderLayout.CENTER);
 
@@ -300,12 +283,12 @@ public class CommanderPanel extends JPanel {
     myTitlePanel.addMouseListener(new MouseAdapter() {
       @Override
       public void mouseClicked(final MouseEvent e) {
-        myList.requestFocus();
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myList, true));
       }
 
       @Override
       public void mousePressed(final MouseEvent e) {
-        myList.requestFocus();
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myList, true));
       }
     });
   }
@@ -336,10 +319,10 @@ public class CommanderPanel extends JPanel {
   }
 
   @NotNull
-  private List<AbstractTreeNode> getSelectedNodes() {
+  private List<AbstractTreeNode<?>> getSelectedNodes() {
     if (myBuilder == null) return Collections.emptyList();
     final int[] indices = myList.getSelectedIndices();
-    ArrayList<AbstractTreeNode> result = new ArrayList<AbstractTreeNode>();
+    ArrayList<AbstractTreeNode<?>> result = new ArrayList<>();
     for (int index : indices) {
       if (index >= myModel.getSize()) continue;
       Object elementAtIndex = myModel.getElementAt(index);
@@ -360,7 +343,7 @@ public class CommanderPanel extends JPanel {
     if (myBuilder == null) return PsiElement.EMPTY_ARRAY;
     final int[] indices = myList.getSelectedIndices();
 
-    final ArrayList<PsiElement> elements = new ArrayList<PsiElement>();
+    final ArrayList<PsiElement> elements = new ArrayList<>();
     for (int index : indices) {
       final PsiElement element = getSelectedElement(index);
       if (element != null) {
@@ -389,7 +372,6 @@ public class CommanderPanel extends JPanel {
     }
     else {
       final Color color = UIUtil.getPanelBackground();
-      LOG.assertTrue(color != null);
       myTitlePanel.setBackground(color);
       myTitlePanel.setBorder(BorderFactory.createBevelBorder(BevelBorder.LOWERED, color.brighter(), color.darker()));
       myParentTitle.setForeground(JBColor.foreground());
@@ -398,7 +380,7 @@ public class CommanderPanel extends JPanel {
     if (selectedIndices.length == 0 && myList.getModel().getSize() > 0) {
       myList.setSelectedIndex(0);
       if (!myList.hasFocus()) {
-        myList.requestFocus();
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myList, true));
       }
     }
     else if (myList.getModel().getSize() > 0) {
@@ -418,7 +400,7 @@ public class CommanderPanel extends JPanel {
       final int popupIndex = myList.locationToIndex(new Point(x, y));
       if (popupIndex >= 0) {
         myList.setSelectedIndex(popupIndex);
-        myList.requestFocus();
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myList, true));
       }
     }
 
@@ -429,7 +411,7 @@ public class CommanderPanel extends JPanel {
 
   public final void dispose() {
     if (myBuilder != null) {
-      myBuilder.dispose();
+      Disposer.dispose(myBuilder);
       myBuilder = null;
     }
     myProject = null;
@@ -497,7 +479,7 @@ public class CommanderPanel extends JPanel {
     final int[] indices = myList.getSelectedIndices();
     if (indices == null || indices.length == 0) return null;
 
-    final ArrayList<Navigatable> elements = new ArrayList<Navigatable>();
+    final ArrayList<Navigatable> elements = new ArrayList<>();
     for (int index : indices) {
       final Object element = myModel.getElementAt(index);
       if (element instanceof AbstractTreeNode) {
@@ -505,15 +487,14 @@ public class CommanderPanel extends JPanel {
       }
     }
 
-    return elements.toArray(new Navigatable[elements.size()]);
+    return elements.toArray(new Navigatable[0]);
   }
 
-  @Nullable
-  private static PsiElement[] filterInvalidElements(final PsiElement[] elements) {
+  private static PsiElement @Nullable [] filterInvalidElements(final PsiElement[] elements) {
     if (elements == null || elements.length == 0) {
       return null;
     }
-    final List<PsiElement> validElements = new ArrayList<PsiElement>(elements.length);
+    final List<PsiElement> validElements = new ArrayList<>(elements.length);
     for (final PsiElement element : elements) {
       if (element.isValid()) {
         validElements.add(element);
@@ -533,12 +514,12 @@ public class CommanderPanel extends JPanel {
   private static final class MyTitleLabel extends JLabel {
     private final JPanel myPanel;
 
-    public MyTitleLabel(final JPanel panel) {
+    MyTitleLabel(final JPanel panel) {
       myPanel = panel;
     }
 
     @Override
-    public void setText(String text) {
+    public void setText(@NlsContexts.Label String text) {
       if (text == null || text.isEmpty()) {
         text = " ";
       }
@@ -576,20 +557,14 @@ public class CommanderPanel extends JPanel {
       if (!isDirectory) {
         EditorHelper.openInEditor(element);
       }
-      ApplicationManager.getApplication().invokeLater(new Runnable() {
-        @Override
-        public void run() {
-          myBuilder.selectElement(element, PsiUtilCore.getVirtualFile(element));
-          if (!isDirectory) {
-            ApplicationManager.getApplication().invokeLater(new Runnable() {
-              @Override
-              public void run() {
-                if (myMoveFocus) {
-                  ToolWindowManager.getInstance(myProject).activateEditorComponent();
-                }
-              }
-            });
-          }
+      ApplicationManager.getApplication().invokeLater(() -> {
+        myBuilder.selectElement(element, PsiUtilCore.getVirtualFile(element));
+        if (!isDirectory) {
+          ApplicationManager.getApplication().invokeLater(() -> {
+            if (myMoveFocus) {
+              ToolWindowManager.getInstance(myProject).activateEditorComponent();
+            }
+          });
         }
       }, ModalityState.NON_MODAL);
     }
@@ -607,9 +582,8 @@ public class CommanderPanel extends JPanel {
       }
     }
 
-    @NotNull
     @Override
-    public PsiDirectory[] getDirectories() {
+    public PsiDirectory @NotNull [] getDirectories() {
       PsiDirectory directory = getDirectory();
       return directory == null ? PsiDirectory.EMPTY_ARRAY : new PsiDirectory[]{directory};
     }

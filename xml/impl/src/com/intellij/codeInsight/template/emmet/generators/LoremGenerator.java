@@ -1,29 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.template.emmet.generators;
 
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 
 import java.util.*;
 
-/**
- * User: zolotov
- * Date: 1/31/13
- */
 public class LoremGenerator {
   static final String[] COMMON_P = "lorem ipsum dolor sit amet consectetur adipisicing elit".split(" ");
   private static final String[] WORDS = new String[]{"exercitationem", "perferendis", "perspiciatis", "laborum", "eveniet",
@@ -70,12 +52,12 @@ public class LoremGenerator {
    * @return generated paragraph
    */
   public String generate(int wordsCount, boolean startWithCommon) {
-    Collection<String> sentences = new LinkedList<String>();
+    Collection<String> sentences = new LinkedList<>();
     int totalWords = 0;
     String[] words;
 
     if (startWithCommon) {
-      words = Arrays.copyOfRange(COMMON_P, 0, Math.min(wordsCount, COMMON_P.length));
+      words = Arrays.copyOf(COMMON_P, Math.min(wordsCount, COMMON_P.length));
       if (words.length > 5) {
         words[4] += ',';
       }
@@ -140,13 +122,13 @@ public class LoremGenerator {
   private String[] sample(String[] words, int wordsCount) {
     int len = words.length;
     int iterations = Math.min(len, wordsCount);
-    Set<String> result = new TreeSet<String>();
+    Set<String> result = new TreeSet<>();
     while (result.size() < iterations) {
       int i = rand(0, len - 1);
       result.add(words[i]);
     }
 
-    return ArrayUtil.toStringArray(result);
+    return ArrayUtilRt.toStringArray(result);
   }
 
   private char choice(String values) {

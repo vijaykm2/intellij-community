@@ -16,11 +16,13 @@
 package org.zmlx.hg4idea.test;
 
 import com.intellij.openapi.vfs.VirtualFile;
-import org.testng.annotations.Test;
+import org.junit.Test;
 import org.zmlx.hg4idea.command.HgPushCommand;
-import org.zmlx.hg4idea.execution.HgCommandResultHandler;
 
-import static org.testng.Assert.assertNotNull;
+import java.io.File;
+import java.io.IOException;
+
+import static org.junit.Assert.assertNotNull;
 
 /**
  * @author Kirill Likhodedov
@@ -34,11 +36,11 @@ public class HgPushTest extends HgCollaborativeTest {
   @Test
   public void testNativeCommands() throws Exception {
     createFileInCommand(AFILE, "initial content");
-    myRepo.add();
-    myRepo.commit();
-    myRepo.push();
+    addAll();
+    commitAll("add");
+    runHgOnProjectRepo("push");
 
-    myParentRepo.update();
+    updateParentRepo();
     assertNotNull(myParentRepo.getDir().findChild(AFILE));
   }
 
@@ -56,10 +58,15 @@ public class HgPushTest extends HgCollaborativeTest {
     myChangeListManager.checkFilesAreInList(true, vf);
     myChangeListManager.commitFiles(vf);
 
-    final HgPushCommand command = new HgPushCommand(myProject, myRepo.getDir(), myParentRepo.getDir().getUrl());
-    command.execute(HgCommandResultHandler.DUMB);
+    new HgPushCommand(myProject, myRepo.getDir(), myParentRepo.getDir().getPath()).executeInCurrentThread();
 
-    myParentRepo.update();
+    updateParentRepo();
     assertNotNull(myParentRepo.getDir().findChild(AFILE));
+  }
+
+  private void updateParentRepo() throws IOException {
+    VirtualFile parentRepoDir = myParentRepo.getDir();
+    runHg(new File(parentRepoDir.getPath()), "update");
+    parentRepoDir.refresh(false, true);
   }
 }

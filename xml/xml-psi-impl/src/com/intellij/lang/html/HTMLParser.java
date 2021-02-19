@@ -1,22 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.html;
 
 import com.intellij.lang.ASTNode;
@@ -30,15 +12,26 @@ public class HTMLParser implements PsiParser {
 
   @Override
   @NotNull
-  public ASTNode parse(final IElementType root, final PsiBuilder builder) {
-    parseWithoutBuildingTree(root, builder);
+  public ASTNode parse(@NotNull final IElementType root, @NotNull final PsiBuilder builder) {
+    parseWithoutBuildingTree(root, builder, createHtmlParsing(builder));
     return builder.getTreeBuilt();
   }
 
-  public static void parseWithoutBuildingTree(IElementType root, PsiBuilder builder) {
+  public void parseWithoutBuildingTree(@NotNull IElementType root, @NotNull PsiBuilder builder) {
+    parseWithoutBuildingTree(root, builder, createHtmlParsing(builder));
+  }
+
+  private static void parseWithoutBuildingTree(@NotNull IElementType root, @NotNull PsiBuilder builder,
+                                              @NotNull HtmlParsing htmlParsing) {
     builder.enforceCommentTokens(TokenSet.EMPTY);
     final PsiBuilder.Marker file = builder.mark();
-    new HtmlParsing(builder).parseDocument();
+    htmlParsing.parseDocument();
     file.done(root);
+  }
+
+  // to be able to manage what tags treated as single
+  @NotNull
+  protected HtmlParsing createHtmlParsing(@NotNull PsiBuilder builder) {
+    return new HtmlParsing(builder);
   }
 }

@@ -20,29 +20,40 @@ import com.intellij.ide.IdeView;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.LangDataKeys;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.util.PsiEditorUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.module.JpsModuleSourceRootType;
 
 import javax.swing.*;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * @author peter
  */
 public abstract class CreateTemplateInPackageAction<T extends PsiElement> extends CreateFromTemplateAction<T> {
-  private Set<? extends JpsModuleSourceRootType<?>> mySourceRootTypes;
+  private final Set<? extends JpsModuleSourceRootType<?>> mySourceRootTypes;
 
   protected CreateTemplateInPackageAction(String text, String description, Icon icon,
                                           final Set<? extends JpsModuleSourceRootType<?>> rootTypes) {
-    super(text, description, icon);
+    this(() -> text, () -> description, icon, rootTypes);
+  }
+
+  protected CreateTemplateInPackageAction(@NotNull Supplier<String> dynamicText, @NotNull Supplier<String> dynamicDescription, Icon icon,
+                                          final Set<? extends JpsModuleSourceRootType<?>> rootTypes) {
+    super(dynamicText, dynamicDescription, icon);
     mySourceRootTypes = rootTypes;
   }
 
@@ -56,20 +67,37 @@ public abstract class CreateTemplateInPackageAction<T extends PsiElement> extend
   protected abstract PsiElement getNavigationElement(@NotNull T createdElement);
 
   @Override
+  protected void postProcess(@NotNull T createdElement, String templateName, Map<String, String> customProperties) {
+    super.postProcess(createdElement, templateName, customProperties);
+    PsiElement element = getNavigationElement(createdElement);
+    if (element != null) {
+      Editor editor = PsiEditorUtil.findEditor(element);
+      if (editor != null) {
+        editor.getCaretModel().moveToOffset(element.getTextOffset());
+      }
+    }
+  }
+
+  @Override
   protected boolean isAvailable(final DataContext dataContext) {
+    return isAvailable(dataContext, mySourceRootTypes, this::checkPackageExists);
+  }
+
+  public static boolean isAvailable(DataContext dataContext, Set<? extends JpsModuleSourceRootType<?>> sourceRootTypes,
+                                    Predicate<? super PsiDirectory> checkPackageExists) {
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
     final IdeView view = LangDataKeys.IDE_VIEW.getData(dataContext);
     if (project == null || view == null || view.getDirectories().length == 0) {
       return false;
     }
 
-    if (mySourceRootTypes == null) {
+    if (sourceRootTypes == null) {
       return true;
     }
 
     ProjectFileIndex projectFileIndex = ProjectRootManager.getInstance(project).getFileIndex();
     for (PsiDirectory dir : view.getDirectories()) {
-      if (projectFileIndex.isUnderSourceRootOfType(dir.getVirtualFile(), mySourceRootTypes) && checkPackageExists(dir)) {
+      if (projectFileIndex.isUnderSourceRootOfType(dir.getVirtualFile(), sourceRootTypes) && checkPackageExists.test(dir)) {
         return true;
       }
     }
@@ -88,20 +116,17 @@ public abstract class CreateTemplateInPackageAction<T extends PsiElement> extend
       String[] names = className.split("\\.");
 
       for (int i = 0; i < names.length - 1; i++) {
-        String name = names[i];
-        PsiDirectory subDir = dir.findSubdirectory(name);
-
-        if (subDir == null) {
-          subDir = dir.createSubdirectory(name);
-        }
-
-        dir = subDir;
+        dir = CreateFileAction.findOrCreateSubdirectory(dir, names[i]);
       }
 
       className = names[names.length - 1];
     }
 
-    return doCreate(dir, className, templateName);
+    DumbService service = DumbService.getInstance(dir.getProject());
+    PsiDirectory finalDir = dir;
+    String finalClassName = className;
+    return service.computeWithAlternativeResolveEnabled(() ->
+      doCreate(finalDir, finalClassName, templateName));
   }
 
   protected String removeExtension(String templateName, String className) {

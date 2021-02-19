@@ -1,31 +1,13 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.config;
 
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.roots.OrderRootType;
-import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.roots.libraries.Library;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.util.CachedValueProvider;
-import com.intellij.psi.util.CachedValuesManager;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -39,38 +21,36 @@ import java.util.regex.Pattern;
 /**
  * @author ilyas
  */
-public abstract class GroovyConfigUtils extends AbstractConfigUtils {
+public final class GroovyConfigUtils extends AbstractConfigUtils {
 
-  @NonNls public static final Pattern GROOVY_ALL_JAR_PATTERN = Pattern.compile("groovy-all(-minimal)?(-(\\d+(\\.\\d+)*))?\\.jar");
-  public static final int VERSION_GROUP_NUMBER = 3; // version will be in third group in GROOVY_ALL_JAR_PATTERN
-  @NonNls public static final Pattern GROOVY_JAR_PATTERN = Pattern.compile("groovy(-(\\d(\\.\\d)*))?\\.jar");
+  // to avoid java modules deps the same pattern was copied at org.jetbrains.plugins.gradle.service.GradleInstallationManager.GROOVY_ALL_JAR_PATTERN
+  // please update it as well for further changes
+  @NonNls public static final Pattern GROOVY_ALL_JAR_PATTERN = Pattern.compile("groovy-all(-minimal)?(-(?<version>\\d+(\\.\\d+)*(-(?!indy)\\w+(-\\d+)?)?))?(-indy)?\\.jar");
+  @NonNls public static final Pattern GROOVY_JAR_PATTERN = Pattern.compile("groovy(-(?<version>\\d+(\\.\\d+)*(-(?!indy)\\w+(-\\d+)?)?))?(-indy)?\\.jar");
 
-  public static final String NO_VERSION = "<no version>";
-  public static final String GROOVY1_7 = "1.7";
-  public static final String GROOVY1_8 = "1.8";
-  public static final String GROOVY2_0 = "2.0";
-  public static final String GROOVY2_1 = "2.1";
-  public static final String GROOVY2_2 = "2.2";
-  public static final String GROOVY2_2_2 = "2.2.2";
-  public static final String GROOVY2_3 = "2.3";
+  @NlsSafe public static final String NO_VERSION = "<no version>";
+  @NlsSafe public static final String GROOVY1_7 = "1.7";
+  @NlsSafe public static final String GROOVY1_8 = "1.8";
+  @NlsSafe public static final String GROOVY2_0 = "2.0";
+  @NlsSafe public static final String GROOVY2_1 = "2.1";
+  @NlsSafe public static final String GROOVY2_2 = "2.2";
+  @NlsSafe public static final String GROOVY2_2_2 = "2.2.2";
+  @NlsSafe public static final String GROOVY2_3 = "2.3";
+  @NlsSafe public static final String GROOVY2_4 = "2.4";
+  @NlsSafe public static final String GROOVY2_5 = "2.5";
+  @NlsSafe public static final String GROOVY3_0 = "3.0";
 
-  private static GroovyConfigUtils myGroovyConfigUtils;
+  private static final GroovyConfigUtils ourGroovyConfigUtils = new GroovyConfigUtils();
+  @NonNls private static final String LIB = "/lib";
+  @NonNls private static final String EMBEDDABLE = "/embeddable";
 
-  private GroovyConfigUtils() {
-  }
+  private GroovyConfigUtils() {}
 
   public static GroovyConfigUtils getInstance() {
-    if (myGroovyConfigUtils == null) {
-      myGroovyConfigUtils = new GroovyConfigUtils() {
-        {
-          STARTER_SCRIPT_FILE_NAME = "groovy";
-        }};
-    }
-    return myGroovyConfigUtils;
+    return ourGroovyConfigUtils;
   }
 
-  @NotNull
-  public static File[] getGroovyAllJars(@NotNull String path) {
+  public static File @NotNull [] getGroovyAllJars(@NotNull String path) {
     return LibrariesUtil.getFilesInDirectoryByPattern(path, GROOVY_ALL_JAR_PATTERN);
   }
 
@@ -78,20 +58,27 @@ public abstract class GroovyConfigUtils extends AbstractConfigUtils {
     return GROOVY_ALL_JAR_PATTERN.matcher(name).matches() && !name.contains("src") && !name.contains("doc");
   }
 
+  public static boolean isAtLeastGroovy25(@NotNull PsiElement element) {
+    return getInstance().isVersionAtLeast(element, GROOVY2_5);
+  }
+
   @Override
-  @NotNull
-  public String getSDKVersion(@NotNull final String path) {
-    String groovyJarVersion = getSDKJarVersion(path + "/lib", GROOVY_JAR_PATTERN, MANIFEST_PATH, VERSION_GROUP_NUMBER);
+  @NlsSafe
+  public @Nullable String getSDKVersionOrNull(@NlsSafe @NotNull String path) {
+    String groovyJarVersion = getSDKJarVersion(path + LIB, GROOVY_JAR_PATTERN, MANIFEST_PATH);
     if (groovyJarVersion == null) {
-      groovyJarVersion = getSDKJarVersion(path + "/lib", GROOVY_ALL_JAR_PATTERN, MANIFEST_PATH, VERSION_GROUP_NUMBER);
+      groovyJarVersion = getSDKJarVersion(path + LIB, GROOVY_ALL_JAR_PATTERN, MANIFEST_PATH);
     }
     if (groovyJarVersion == null) {
-      groovyJarVersion = getSDKJarVersion(path + "/embeddable", GROOVY_ALL_JAR_PATTERN, MANIFEST_PATH, VERSION_GROUP_NUMBER);
+      groovyJarVersion = getSDKJarVersion(path + EMBEDDABLE, GROOVY_ALL_JAR_PATTERN, MANIFEST_PATH);
     }
     if (groovyJarVersion == null) {
-      groovyJarVersion = getSDKJarVersion(path, GROOVY_ALL_JAR_PATTERN, MANIFEST_PATH, VERSION_GROUP_NUMBER);
+      groovyJarVersion = getSDKJarVersion(path, GROOVY_ALL_JAR_PATTERN, MANIFEST_PATH);
     }
-    return groovyJarVersion == null ? UNDEFINED_VERSION : groovyJarVersion;
+    if (groovyJarVersion == null) {
+      groovyJarVersion = getSDKJarVersion(path, GROOVY_JAR_PATTERN, MANIFEST_PATH);
+    }
+    return groovyJarVersion;
   }
 
   @Override
@@ -101,14 +88,9 @@ public abstract class GroovyConfigUtils extends AbstractConfigUtils {
   }
 
   @Nullable
+  @NlsSafe
   public String getSDKVersion(@NotNull final Module module) {
-    return CachedValuesManager.getManager(module.getProject()).getCachedValue(module, new CachedValueProvider<String>() {
-      @Override
-      public Result<String> compute() {
-        final String path = LibrariesUtil.getGroovyHomePath(module);
-        return Result.create(path == null ? null : getSDKVersion(path), ProjectRootManager.getInstance(module.getProject()));
-      }
-    });
+    return GroovyConfigUtilsKt.getSdkVersion(module);
   }
 
   public boolean isVersionAtLeast(PsiElement psiElement, String version) {
@@ -124,6 +106,7 @@ public abstract class GroovyConfigUtils extends AbstractConfigUtils {
   }
 
   @NotNull
+  @NlsSafe
   public String getSDKVersion(PsiElement psiElement) {
     final Module module = ModuleUtilCore.findModuleForPsiElement(psiElement);
     if (module == null) {
@@ -138,8 +121,8 @@ public abstract class GroovyConfigUtils extends AbstractConfigUtils {
   public boolean isSDKHome(VirtualFile file) {
     if (file != null && file.isDirectory()) {
       final String path = file.getPath();
-      if (LibrariesUtil.getFilesInDirectoryByPattern(path + "/lib", GROOVY_JAR_PATTERN).length > 0 ||
-          LibrariesUtil.getFilesInDirectoryByPattern(path + "/embeddable", GROOVY_ALL_JAR_PATTERN).length > 0 ||
+      if (LibrariesUtil.getFilesInDirectoryByPattern(path + LIB, GROOVY_JAR_PATTERN).length > 0 ||
+          LibrariesUtil.getFilesInDirectoryByPattern(path + EMBEDDABLE, GROOVY_ALL_JAR_PATTERN).length > 0 ||
           LibrariesUtil.getFilesInDirectoryByPattern(path, GROOVY_JAR_PATTERN).length > 0) {
         return true;
       }
@@ -154,11 +137,6 @@ public abstract class GroovyConfigUtils extends AbstractConfigUtils {
   }
 
   public Collection<String> getSDKVersions(Library[] libraries) {
-    return ContainerUtil.map2List(libraries, new Function<Library, String>() {
-      @Override
-      public String fun(Library library) {
-        return getSDKLibVersion(library);
-      }
-    });
+    return ContainerUtil.map2List(libraries, library -> getSDKLibVersion(library));
   }
 }

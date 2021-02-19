@@ -1,43 +1,33 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl;
 
-import com.intellij.openapi.actionSystem.ActionPlaces;
+import com.intellij.ide.IdeBundle;
+import com.intellij.ide.lightEdit.LightEditService;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.ToggleAction;
-import com.intellij.openapi.actionSystem.impl.ActionMenuItem;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
+import com.intellij.openapi.util.NlsActions;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.util.BitUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.KeyEvent;
 
 /**
- * @ author Bas Leijdekkers
+ * @author Bas Leijdekkers
  * This class is programmatically instantiated and registered when opening and closing projects
- * and thus not registered in plugin.xml
+ * and therefore not registered in plugin.xml
  */
-@SuppressWarnings({"ComponentNotRegistered"})
 public class ProjectWindowAction extends ToggleAction implements DumbAware {
 
   private ProjectWindowAction myPrevious;
@@ -45,8 +35,7 @@ public class ProjectWindowAction extends ToggleAction implements DumbAware {
   @NotNull private final String myProjectName;
   @NotNull private final String myProjectLocation;
 
-  public ProjectWindowAction(@NotNull String projectName, @NotNull String projectLocation, ProjectWindowAction previous) {
-    super();
+  public ProjectWindowAction(@NlsSafe @NotNull String projectName, @NotNull String projectLocation, ProjectWindowAction previous) {
     myProjectName = projectName;
     myProjectLocation = projectLocation;
     if (previous != null) {
@@ -94,6 +83,9 @@ public class ProjectWindowAction extends ToggleAction implements DumbAware {
 
   @Nullable
   private Project findProject() {
+    if (LightEditService.WINDOW_NAME.equals(myProjectName)) {
+      return LightEditService.getInstance().getProject();
+    }
     final Project[] projects = ProjectManager.getInstance().getOpenProjects();
     for (Project project : projects) {
       if (myProjectLocation.equals(project.getPresentableUrl())) {
@@ -104,7 +96,7 @@ public class ProjectWindowAction extends ToggleAction implements DumbAware {
   }
 
   @Override
-  public boolean isSelected(AnActionEvent e) {
+  public boolean isSelected(@NotNull AnActionEvent e) {
     // show check mark for active and visible project frame
     final Project project = e.getData(CommonDataKeys.PROJECT);
     if (project == null) {
@@ -114,38 +106,50 @@ public class ProjectWindowAction extends ToggleAction implements DumbAware {
   }
 
   @Override
-  public void setSelected(@Nullable AnActionEvent e, boolean selected) {
-
-    if (e == null) return;
-    boolean macMainMenu = SystemInfo.isMac && ActionPlaces.isMainMenuOrActionSearch(e.getPlace());
-
-    if (!selected && !macMainMenu) {
+  public void setSelected(@NotNull AnActionEvent e, boolean selected) {
+    if (!selected) {
       return;
     }
-
     final Project project = findProject();
     if (project == null) {
       return;
     }
     final JFrame projectFrame = WindowManager.getInstance().getFrame(project);
-    final int frameState = projectFrame.getExtendedState();
+    if (projectFrame == null) {
+      return;
+    }
 
-    if (macMainMenu && !(e.getInputEvent().getSource() instanceof ActionMenuItem) && (projectFrame.getExtendedState() & Frame.ICONIFIED) != 0) {
+    final int frameState = projectFrame.getExtendedState();
+    if (SystemInfo.isMac && BitUtil.isSet(projectFrame.getExtendedState(), Frame.ICONIFIED) && e.getInputEvent() instanceof KeyEvent) {
       // On Mac minimized window should not be restored this way
       return;
     }
 
     if (BitUtil.isSet(frameState, Frame.ICONIFIED)) {
       // restore the frame if it is minimized
-      projectFrame.setExtendedState(frameState ^ Frame.ICONIFIED);
+      projectFrame.setExtendedState(BitUtil.set(frameState, Frame.ICONIFIED, false));
     }
     projectFrame.toFront();
-    projectFrame.requestFocus();
-    //ProjectUtil.focusProjectWindow(project, true);
+    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
+      Component mostRecentFocusOwner = projectFrame.getMostRecentFocusOwner();
+      if (mostRecentFocusOwner != null) {
+        IdeFocusManager.getGlobalInstance().requestFocus(mostRecentFocusOwner, true);
+      }
+    });
   }
 
   @Override
+  @NonNls
   public String toString() {
-    return getTemplatePresentation().getText() + " previous: " + myPrevious.getTemplatePresentation().getText() + " next: " + myNext.getTemplatePresentation().getText();
+    return getTemplatePresentation().getText()
+           + " previous: " + myPrevious.getTemplatePresentation().getText()
+           + " next: " + myNext.getTemplatePresentation().getText();
+  }
+
+  @NlsActions.ActionText
+  @Nullable
+  @Override
+  public String getTemplateText() {
+    return IdeBundle.message("action.switch.project.text");
   }
 }

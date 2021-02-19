@@ -19,6 +19,7 @@ import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.refactoring.changeClassSignature.ChangeClassSignatureDialog;
 import com.intellij.refactoring.changeClassSignature.TypeParameterInfo;
@@ -48,7 +49,7 @@ public class ChangeClassSignatureFromUsageFix extends BaseIntentionAction {
 
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
-    if (!myClass.isValid() || !myParameterList.isValid()) {
+    if (!myClass.isValid() || !myParameterList.isValid() || myClass instanceof PsiCompiledElement) {
       return false;
     }
 
@@ -86,27 +87,48 @@ public class ChangeClassSignatureFromUsageFix extends BaseIntentionAction {
   }
 
   @NotNull
-  private static Map<TypeParameterInfo, PsiTypeCodeFragment> createTypeParameters(@NotNull JavaCodeFragmentFactory factory,
-                                                                                  @NotNull List<PsiTypeParameter> classTypeParameters,
-                                                                                  @NotNull List<PsiTypeElement> typeElements) {
-    final LinkedHashMap<TypeParameterInfo, PsiTypeCodeFragment> result = new LinkedHashMap<TypeParameterInfo, PsiTypeCodeFragment>();
+  private static List<TypeParameterInfoView> createTypeParameters(@NotNull JavaCodeFragmentFactory factory,
+                                                                  @NotNull List<? extends PsiTypeParameter> classTypeParameters,
+                                                                  @NotNull List<? extends PsiTypeElement> typeElements) {
     final TypeParameterNameSuggester suggester = new TypeParameterNameSuggester(classTypeParameters);
 
+    List<TypeParameterInfoView> result = new ArrayList<>();
     int listIndex = 0;
     for (PsiTypeElement typeElement : typeElements) {
       if (listIndex < classTypeParameters.size()) {
         final PsiTypeParameter typeParameter = classTypeParameters.get(listIndex);
 
         if (isAssignable(typeParameter, typeElement.getType())) {
-          result.put(new TypeParameterInfo(listIndex++), null);
+          result.add(new TypeParameterInfoView(new TypeParameterInfo.Existing(listIndex++), null, null));
           continue;
         }
       }
 
-      final PsiType type = typeElement.getType();
-      final String suggestedName = type instanceof PsiClassType ? suggester.suggest((PsiClassType)type) : suggester.suggestUnusedName("T");
-      result.put(new TypeParameterInfo(suggestedName, type),
-                 factory.createTypeCodeFragment(suggestedName, typeElement, true));
+      final PsiType defaultType = typeElement.getType();
+      final String suggestedName;
+      PsiClassType boundType = null;
+      if (defaultType instanceof PsiClassType) {
+        suggestedName = suggester.suggest((PsiClassType)defaultType);
+        final PsiClass resolved = ((PsiClassType)defaultType).resolve();
+        if (resolved != null) {
+          final PsiReferenceList extendsList = resolved.getExtendsList();
+          if (extendsList != null) {
+            final PsiClassType[] types = extendsList.getReferencedTypes();
+            if (types.length == 1) {
+              boundType = types[0];
+            }
+          }
+        }
+      }
+      else {
+        suggestedName = suggester.suggestUnusedName("T");
+      }
+      final PsiTypeCodeFragment boundFragment = ChangeClassSignatureDialog.createTableCodeFragment(boundType, typeElement, factory, true);
+      result.add(new TypeParameterInfoView(new TypeParameterInfo.New(suggestedName, defaultType, null),
+                                           boundFragment,
+                                           boundType == null ? factory.createTypeCodeFragment(suggestedName, typeElement, true)
+                                                             : ChangeClassSignatureDialog
+                                             .createTableCodeFragment(boundType, typeElement, factory, false)));
     }
     return result;
   }
@@ -128,13 +150,13 @@ public class ChangeClassSignatureFromUsageFix extends BaseIntentionAction {
 
 
   private static class TypeParameterNameSuggester {
-    private final Set<String> usedNames = new HashSet<String>();
+    private final Set<String> usedNames = new HashSet<>();
 
-    public TypeParameterNameSuggester(@NotNull PsiTypeParameter... typeParameters) {
+    TypeParameterNameSuggester(PsiTypeParameter @NotNull ... typeParameters) {
       this(Arrays.asList(typeParameters));
     }
 
-    public TypeParameterNameSuggester(@NotNull Collection<PsiTypeParameter> typeParameters) {
+    TypeParameterNameSuggester(@NotNull Collection<? extends PsiTypeParameter> typeParameters) {
       for (PsiTypeParameter p : typeParameters) {
         usedNames.add(p.getName());
       }
@@ -154,7 +176,31 @@ public class ChangeClassSignatureFromUsageFix extends BaseIntentionAction {
 
     @NotNull
     public String suggest(@NotNull PsiClassType type) {
-      return suggestUnusedName(type.getClassName().substring(0, 1).toUpperCase());
+      return suggestUnusedName(StringUtil.toUpperCase(type.getClassName().substring(0, 1)));
+    }
+  }
+
+  public static class TypeParameterInfoView {
+    private final TypeParameterInfo myInfo;
+    private final PsiTypeCodeFragment myBoundValueFragment;
+    private final PsiTypeCodeFragment myDefaultValueFragment;
+
+    public TypeParameterInfoView(TypeParameterInfo info, PsiTypeCodeFragment boundValueFragment, PsiTypeCodeFragment defaultValueFragment) {
+      myInfo = info;
+      myBoundValueFragment = boundValueFragment;
+      myDefaultValueFragment = defaultValueFragment;
+    }
+
+    public TypeParameterInfo getInfo() {
+      return myInfo;
+    }
+
+    public PsiTypeCodeFragment getBoundValueFragment() {
+      return myBoundValueFragment;
+    }
+
+    public PsiTypeCodeFragment getDefaultValueFragment() {
+      return myDefaultValueFragment;
     }
   }
 }

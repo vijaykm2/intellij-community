@@ -1,25 +1,11 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.packaging.impl.ui.properties;
 
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.fileChooser.FileChooser;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -38,10 +24,8 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.List;
+import java.util.Objects;
 
-/**
- * @author nik
- */
 public abstract class ElementWithManifestPropertiesPanel<E extends CompositeElementWithManifest<?>> extends PackagingElementPropertiesPanel {
   private final E myElement;
   private final ArtifactEditorContext myContext;
@@ -63,22 +47,25 @@ public abstract class ElementWithManifestPropertiesPanel<E extends CompositeElem
     ManifestFileUtil.setupMainClassField(context.getProject(), myMainClassField);
 
     myClasspathField.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
-        Messages.showTextAreaDialog(myClasspathField.getTextField(), "Edit Classpath", "classpath-attribute-editor");
+        Messages.showTextAreaDialog(myClasspathField.getTextField(), JavaCompilerBundle.message("edit.classpath"), "classpath-attribute-editor");
       }
     });
     myClasspathField.getTextField().getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         myContext.queueValidation();
       }
     });
     myUseExistingManifestButton.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         chooseManifest();
       }
     });
     myCreateManifestButton.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         createManifest();
       }
@@ -104,7 +91,7 @@ public abstract class ElementWithManifestPropertiesPanel<E extends CompositeElem
                file.getName().equalsIgnoreCase(ManifestFileUtil.MANIFEST_FILE_NAME));
       }
     };
-    descriptor.setTitle("Specify Path to MANIFEST.MF File");
+    descriptor.setTitle(JavaCompilerBundle.message("specify.path.to.manifest.mf.file"));
     final VirtualFile file = FileChooser.chooseFile(descriptor, myContext.getProject(), null);
     if (file == null) return;
 
@@ -131,16 +118,18 @@ public abstract class ElementWithManifestPropertiesPanel<E extends CompositeElem
     ((CardLayout)myPropertiesPanel.getLayout()).show(myPropertiesPanel, card);
   }
 
+  @Override
   public void reset() {
-    myTitleLabel.setText("'" + myElement.getName() + "' manifest properties:");
-    myManifestNotFoundLabel.setText("META-INF/MANIFEST.MF file not found in '" + myElement.getName() + "'");
+    myTitleLabel.setText(JavaCompilerBundle.message("0.manifest.properties", myElement.getName()));
+    myManifestNotFoundLabel.setText(JavaCompilerBundle.message("meta.inf.manifest.mf.file.not.found.in.0", myElement.getName()));
     updateManifest();
   }
 
+  @Override
   public boolean isModified() {
     return myManifestFileConfiguration != null && (!myManifestFileConfiguration.getClasspath().equals(getConfiguredClasspath())
-           || !Comparing.equal(myManifestFileConfiguration.getMainClass(), getConfiguredMainClass())
-           || !Comparing.equal(myManifestFileConfiguration.getManifestFilePath(), getConfiguredManifestPath()));
+           || !Objects.equals(myManifestFileConfiguration.getMainClass(), getConfiguredMainClass())
+           || !Objects.equals(myManifestFileConfiguration.getManifestFilePath(), getConfiguredManifestPath()));
   }
 
   @Nullable
@@ -162,6 +151,7 @@ public abstract class ElementWithManifestPropertiesPanel<E extends CompositeElem
     return StringUtil.split(myClasspathField.getText(), " ");
   }
 
+  @Override
   @NotNull
   public JComponent createComponent() {
     return myMainPanel;

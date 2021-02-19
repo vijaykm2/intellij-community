@@ -35,6 +35,8 @@ final class EditorOptionsImpl implements EditorOptions, JDOMExternalizable {
     private final GridOptions gridOptions;
     private final TransparencyChessboardOptions transparencyChessboardOptions;
     private final ZoomOptions zoomOptions;
+    private boolean fileNameVisible = true;
+    private boolean fileSizeVisible = true;
 
     EditorOptionsImpl(PropertyChangeSupport propertyChangeSupport) {
         gridOptions = new GridOptionsImpl(propertyChangeSupport);
@@ -42,67 +44,77 @@ final class EditorOptionsImpl implements EditorOptions, JDOMExternalizable {
         zoomOptions = new ZoomOptionsImpl(propertyChangeSupport);
     }
 
+    @Override
     public GridOptions getGridOptions() {
         return gridOptions;
     }
 
+    @Override
     public TransparencyChessboardOptions getTransparencyChessboardOptions() {
         return transparencyChessboardOptions;
     }
 
+    @Override
     public ZoomOptions getZoomOptions() {
         return zoomOptions;
     }
 
+    @Override
     public EditorOptions clone() throws CloneNotSupportedException {
         return (EditorOptions)super.clone();
     }
 
+    @Override
     public void inject(EditorOptions options) {
         gridOptions.inject(options.getGridOptions());
         transparencyChessboardOptions.inject(options.getTransparencyChessboardOptions());
         zoomOptions.inject(options.getZoomOptions());
     }
 
+    @Override
     public boolean setOption(String name, Object value) {
         return gridOptions.setOption(name, value) ||
                    transparencyChessboardOptions.setOption(name, value) ||
                    zoomOptions.setOption(name, value);
     }
 
+    @Override
+    public boolean isFileNameVisible() {
+        return fileNameVisible;
+    }
+
+    @Override
+    public void setFileNameVisible(boolean fileNameVisible) {
+        this.fileNameVisible = fileNameVisible;
+    }
+
+    @Override
+    public void setFileSizeVisible(boolean fileSizeVisible) {
+        this.fileSizeVisible = fileSizeVisible;
+    }
+
+    @Override
+    public boolean isFileSizeVisible() {
+        return fileSizeVisible;
+    }
+
+    @Override
     public void readExternal(Element element) throws InvalidDataException {
-        ((JDOMExternalizable)gridOptions).readExternal(element);
         ((JDOMExternalizable)transparencyChessboardOptions).readExternal(element);
-        ((JDOMExternalizable)zoomOptions).readExternal(element);
+        String fileNameVisibleAttr = element.getAttributeValue("fileNameVisible");
+        fileNameVisible = fileNameVisibleAttr == null || Boolean.parseBoolean(fileNameVisibleAttr);
+        String fileSizeVisibleAttr = element.getAttributeValue("fileSizeVisible");
+        fileSizeVisible = fileNameVisibleAttr == null || Boolean.parseBoolean(fileSizeVisibleAttr);
     }
 
+    @Override
     public void writeExternal(Element element) throws WriteExternalException {
-        ((JDOMExternalizable)gridOptions).writeExternal(element);
         ((JDOMExternalizable)transparencyChessboardOptions).writeExternal(element);
-        ((JDOMExternalizable)zoomOptions).writeExternal(element);
-    }
-
-    public boolean equals(Object obj) {
-        if (obj == this) {
-            return true;
+        if (!fileNameVisible) {
+            element.setAttribute("fileNameVisible", "false");
         }
-        if (!(obj instanceof EditorOptions)) {
-            return false;
+        if (!fileSizeVisible) {
+            element.setAttribute("fileSizeVisible", "false");
         }
-        EditorOptions otherOptions = (EditorOptions)obj;
-        GridOptions gridOptions = otherOptions.getGridOptions();
-        TransparencyChessboardOptions chessboardOptions = otherOptions.getTransparencyChessboardOptions();
-        ZoomOptions zoomOptions = otherOptions.getZoomOptions();
-        return gridOptions != null && gridOptions.equals(getGridOptions()) &&
-            chessboardOptions != null && chessboardOptions.equals(getTransparencyChessboardOptions()) &&
-            zoomOptions != null && zoomOptions.equals(getZoomOptions());
-    }
-
-    public int hashCode() {
-        int result;
-        result = (gridOptions != null ? gridOptions.hashCode() : 0);
-        result = 29 * result + (transparencyChessboardOptions != null ? transparencyChessboardOptions.hashCode() : 0);
-        result = 29 * result + (zoomOptions != null ? zoomOptions.hashCode() : 0);
-        return result;
     }
 }

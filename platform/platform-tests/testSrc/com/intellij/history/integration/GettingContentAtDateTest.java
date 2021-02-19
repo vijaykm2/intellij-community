@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.history.integration;
-
 
 import com.intellij.history.FileRevisionTimestampComparator;
 import com.intellij.history.LocalHistory;
@@ -24,16 +9,18 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.util.Clock;
 import com.intellij.openapi.vfs.VirtualFile;
 
+import java.nio.charset.StandardCharsets;
+
 public class GettingContentAtDateTest extends IntegrationTestCase {
   private VirtualFile f;
 
   @Override
   protected void setUpInWriteAction() throws Exception {
     super.setUpInWriteAction();
-    f = myRoot.createChildData(null, "f.txt");
+    f = createChildData(myRoot, "f.txt");
   }
 
-  public void testContentAtDate() throws Exception {
+  public void testContentAtDate() {
     setContent(f, "1", TIMESTAMP_INCREMENT);
     setContent(f, "2", TIMESTAMP_INCREMENT * 2);
 
@@ -44,14 +31,14 @@ public class GettingContentAtDateTest extends IntegrationTestCase {
     assertContentAt(TIMESTAMP_INCREMENT * 3, null);
   }
 
-  public void testContentAtDateForFilteredFilesIsNull() throws Exception {
-    VirtualFile f = myRoot.createChildData(null, "f.class");
+  public void testContentAtDateForFilteredFilesIsNull() {
+    VirtualFile f = createChildData(myRoot, "f.class");
     setContent(f, "1", 1111);
 
     assertContentAt(1111, null);
   }
 
-  public void testGettingFirstAvailableContentAfterPurge() throws Exception {
+  public void testGettingFirstAvailableContentAfterPurge() {
     Clock.setTime(1);
     setContent(f, "1", TIMESTAMP_INCREMENT);
     Clock.setTime(2);
@@ -66,7 +53,7 @@ public class GettingContentAtDateTest extends IntegrationTestCase {
     assertContentAt(TIMESTAMP_INCREMENT * 3, "3");
   }
 
-  public void testGettingMostRecentRevisionContent() throws Exception {
+  public void testGettingMostRecentRevisionContent() {
     setContent(f, "1", TIMESTAMP_INCREMENT);
     setContent(f, "2", TIMESTAMP_INCREMENT * 2);
 
@@ -79,7 +66,7 @@ public class GettingContentAtDateTest extends IntegrationTestCase {
     assertContentAt(c, "2");
   }
 
-  public void testWithUnsavedDocuments() throws Exception {
+  public void testWithUnsavedDocuments() {
     setContent(f, "FILE1", TIMESTAMP_INCREMENT);
 
     Clock.setTime(TIMESTAMP_INCREMENT * 2);
@@ -130,7 +117,7 @@ public class GettingContentAtDateTest extends IntegrationTestCase {
 
   private void assertContentAt(FileRevisionTimestampComparator c, String expected) {
     byte[] actual = LocalHistory.getInstance().getByteContent(f, c);
-    assertEquals(expected, actual == null ? null : new String(actual));
+    assertEquals(expected, actual == null ? null : new String(actual, StandardCharsets.UTF_8));
   }
 
   private FileRevisionTimestampComparator comparator(final long timestamp) {

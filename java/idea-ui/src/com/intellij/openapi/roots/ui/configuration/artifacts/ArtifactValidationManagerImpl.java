@@ -31,14 +31,11 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
-/**
-* @author nik
-*/
 public class ArtifactValidationManagerImpl implements Disposable {
   private final ArtifactErrorPanel myErrorPanel;
   private final ArtifactEditorImpl myArtifactEditor;
-  private final MultiValuesMap<PackagingElementNode<?>, ArtifactProblemDescription> myProblemsForNodes = new MultiValuesMap<PackagingElementNode<?>, ArtifactProblemDescription>(true);
-  private final List<ArtifactProblemDescription> myProblems = new ArrayList<ArtifactProblemDescription>();
+  private final MultiValuesMap<PackagingElementNode<?>, ArtifactProblemDescription> myProblemsForNodes = new MultiValuesMap<>(true);
+  private final List<ArtifactProblemDescription> myProblems = new ArrayList<>();
 
   ArtifactValidationManagerImpl(ArtifactEditorImpl artifactEditor) {
     Disposer.register(artifactEditor, this);
@@ -73,7 +70,7 @@ public class ArtifactValidationManagerImpl implements Disposable {
       final List<ProjectStructureProblemDescription> problemDescriptions = holder.getProblemDescriptions();
       if (problemDescriptions != null) {
         for (ProjectStructureProblemDescription description : problemDescriptions) {
-          final String message = description.getMessage(false);
+          final String message = description.getMessage();
           List<? extends ConfigurationErrorQuickFix> quickFixes = Collections.emptyList();
           if (description instanceof ArtifactProblemDescription) {
             final ArtifactProblemDescription artifactProblem = (ArtifactProblemDescription)description;
@@ -83,7 +80,7 @@ public class ArtifactValidationManagerImpl implements Disposable {
               showProblemInTree(artifactProblem);
             }
           }
-          myErrorPanel.showError(message, quickFixes);
+          myErrorPanel.showError(message, description.getSeverity(), quickFixes);
         }
       }
     }
@@ -91,8 +88,7 @@ public class ArtifactValidationManagerImpl implements Disposable {
   }
 
   private void showProblemInTree(ArtifactProblemDescription problem) {
-    final LayoutTree layoutTree = myArtifactEditor.getLayoutTreeComponent().getLayoutTree();
-    PackagingElementNode<?> node = layoutTree.getRootPackagingNode();
+    PackagingElementNode<?> node = myArtifactEditor.getLayoutTreeComponent().getRootNode();
     final List<PackagingElement<?>> pathToPlace = problem.getPathToPlace();
     if (node != null && pathToPlace != null) {
       List<PackagingElementNode<?>> nodes = node.getNodesByPath(pathToPlace.subList(1, pathToPlace.size()));

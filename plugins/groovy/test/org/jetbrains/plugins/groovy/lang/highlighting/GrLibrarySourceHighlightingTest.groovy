@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,28 +26,29 @@ import com.intellij.psi.impl.compiled.ClsClassImpl
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.testFramework.LightProjectDescriptor
 import com.intellij.testFramework.fixtures.DefaultLightProjectDescriptor
+import org.jetbrains.annotations.NotNull
 import org.jetbrains.plugins.groovy.util.TestUtils
 
 class GrLibrarySourceHighlightingTest extends GrHighlightingTestBase {
 
   final LightProjectDescriptor projectDescriptor = new DefaultLightProjectDescriptor() {
     @Override
-    public void configureModule(Module module, ModifiableRootModel model, ContentEntry contentEntry) {
+    void configureModule(@NotNull Module module, @NotNull ModifiableRootModel model, @NotNull ContentEntry contentEntry) {
       final absoluteBasePath = "${TestUtils.absoluteTestDataPath}${basePath}"
       final lib = JarFileSystem.instance.refreshAndFindFileByPath("$absoluteBasePath/some-library.jar!/")
       final src = LocalFileSystem.instance.refreshAndFindFileByPath("$absoluteBasePath/src/")
 
-      final modifiableModel = model.moduleLibraryTable.createLibrary("some-library").modifiableModel;
+      final modifiableModel = model.moduleLibraryTable.createLibrary("some-library").modifiableModel
       modifiableModel.addRoot lib, OrderRootType.CLASSES
       modifiableModel.addRoot src, OrderRootType.SOURCES
-      modifiableModel.commit();
+      modifiableModel.commit()
     }
   }
 
   final String basePath = "highlighting/librarySources"
 
   void "test no errors trait highlighting"() {
-    def clazz = JavaPsiFacade.getInstance(project).findClass("somepackage.CC", GlobalSearchScope.moduleWithLibrariesScope(myModule))
+    def clazz = JavaPsiFacade.getInstance(project).findClass("somepackage.CC", GlobalSearchScope.moduleWithLibrariesScope(module))
     def psiFile = (clazz as ClsClassImpl).sourceMirrorClass.containingFile
     myFixture.configureFromExistingVirtualFile(psiFile.virtualFile)
     myFixture.testHighlighting()

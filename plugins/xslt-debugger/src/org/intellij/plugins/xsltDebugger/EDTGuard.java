@@ -23,7 +23,7 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
 import com.intellij.util.Alarm;
-import com.intellij.util.containers.ContainerUtil;
+import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import org.intellij.plugins.xsltDebugger.rt.engine.Watchable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -46,11 +46,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * This is just the second best solution though as it would be better to avoid any interaction with the debuggee on the
  * EDT, but, at least right now, it seems to be more reliable against bad surprises.
  */
-class EDTGuard implements InvocationHandler {
+final class EDTGuard implements InvocationHandler {
   // maximum time to wait for a result on the EDT
   private static final long MAX_TIMEOUT = 10 * 1000;
 
-  private final Map<Object, Object> myInstanceCache = ContainerUtil.newIdentityTroveMap();
+  private final Map<Object, Object> myInstanceCache = new Reference2ObjectOpenHashMap<>();
 
   private final Object myTarget;
 
@@ -65,6 +65,7 @@ class EDTGuard implements InvocationHandler {
     myPausedRef = ref;
   }
 
+  @Override
   @Nullable
   public Object invoke(Object proxy, @NotNull Method method, Object[] args) throws Throwable {
     if (SwingUtilities.isEventDispatchThread()) {
@@ -105,13 +106,7 @@ class EDTGuard implements InvocationHandler {
       return convert(method.invoke(myTarget, args));
     } catch (InvocationTargetException e) {
       final Throwable t = e.getTargetException();
-      if (t instanceof RuntimeException) {
-        throw (RuntimeException)t;
-      } else if (t instanceof Error) {
-        throw (Error)t;
-      } else {
-        throw t;
-      }
+      throw t;
     }
   }
 
@@ -155,7 +150,7 @@ class EDTGuard implements InvocationHandler {
   @NotNull
   public static <T, O extends Watchable> T create(@NotNull final O target, final ProcessHandler process) {
     final Pair<LinkedBlockingQueue<Call>, LinkedBlockingQueue<Call.Result>> queue =
-      Pair.create(new LinkedBlockingQueue<Call>(10), new LinkedBlockingQueue<Call.Result>());
+      Pair.create(new LinkedBlockingQueue<>(10), new LinkedBlockingQueue<>());
 
     final Thread thread = new Thread("Async Invocation Thread for " + process) {
       @Override
@@ -190,14 +185,14 @@ class EDTGuard implements InvocationHandler {
     };
     process.addProcessListener(new ProcessAdapter() {
       @Override
-      public void processTerminated(ProcessEvent event) {
+      public void processTerminated(@NotNull ProcessEvent event) {
         synchronized (d) {
           Disposer.dispose(d);
         }
       }
 
       @Override
-      public void processWillTerminate(ProcessEvent event, boolean willBeDestroyed) {
+      public void processWillTerminate(@NotNull ProcessEvent event, boolean willBeDestroyed) {
         if (!willBeDestroyed) {
           synchronized (d) {
             Disposer.dispose(d);
@@ -206,15 +201,10 @@ class EDTGuard implements InvocationHandler {
       }
     });
 
-    final Alarm alarm = new Alarm(Alarm.ThreadToUse.SHARED_THREAD, d);
+    final Alarm alarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, d);
     final Alarm alarm2 = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, alarm);
 
-    final Runnable watchdog = new Runnable() {
-      @Override
-      public void run() {
-        ref.set(true);
-      }
-    };
+    final Runnable watchdog = () -> ref.set(true);
 
     final Runnable ping = new Runnable() {
       @Override
@@ -253,12 +243,12 @@ class EDTGuard implements InvocationHandler {
       private final Object myObject;
       private final Throwable myThrowable;
 
-      public Result(Object o) {
+      Result(Object o) {
         myObject = o;
         myThrowable = null;
       }
 
-      public Result(Throwable o) {
+      Result(Throwable o) {
         myObject = null;
         myThrowable = o;
       }
@@ -276,7 +266,7 @@ class EDTGuard implements InvocationHandler {
       }
     }
 
-    public Call(Method method, Object[] arguments) {
+    Call(Method method, Object[] arguments) {
       myMethod = method;
       myArguments = arguments;
     }

@@ -15,9 +15,9 @@
  */
 package com.intellij.execution.rmi;
 
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import com.intellij.util.containers.ContainerUtilRt;
 
 import java.lang.ref.WeakReference;
 import java.rmi.Remote;
@@ -27,9 +27,13 @@ import java.rmi.server.Unreferenced;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class RemoteObject implements Remote, Unreferenced {
+
+  public static final boolean IN_PROCESS = "true".equals(System.getProperty("idea.rmi.server.in.process"));
+
   private final WeakReference<RemoteObject> myWeakRef;
   private RemoteObject myParent;
   private final Map<RemoteObject, Remote> myChildren = new ConcurrentHashMap<RemoteObject, Remote>();
@@ -42,8 +46,9 @@ public class RemoteObject implements Remote, Unreferenced {
     return myWeakRef;
   }
 
-  @Nullable
+  @Contract("!null->!null")
   public synchronized <T extends Remote> T export(@Nullable T child) throws RemoteException {
+    if (IN_PROCESS) return child;
     if (child == null) return null;
     @SuppressWarnings("unchecked") final T result = (T)UnicastRemoteObject.exportObject(child, 0);
     myChildren.put((RemoteObject)child, result);
@@ -51,12 +56,13 @@ public class RemoteObject implements Remote, Unreferenced {
     return result;
   }
 
-  @Nullable
+  @Contract("!null->!null")
   public <T extends Remote> T export2(@Nullable T child) throws RemoteException {
     return export(child);
   }
 
   public synchronized void unexportChildren() throws RemoteException {
+    if (IN_PROCESS) return;
     final ArrayList<RemoteObject> childrenRefs = new ArrayList<RemoteObject>(myChildren.keySet());
     myChildren.clear();
     for (RemoteObject child : childrenRefs) {
@@ -64,19 +70,26 @@ public class RemoteObject implements Remote, Unreferenced {
     }
   }
 
-  public synchronized void unexportChildren(@NotNull Collection<WeakReference<RemoteObject>> children) throws RemoteException {
+  public synchronized void unexportChildren(@NotNull Collection<? extends WeakReference<RemoteObject>> children) throws RemoteException {
+    if (IN_PROCESS) return;
     if (children.isEmpty()) return;
     final ArrayList<RemoteObject> list = new ArrayList<RemoteObject>(children.size());
     for (WeakReference<? extends RemoteObject> child : children) {
-      ContainerUtilRt.addIfNotNull(child.get(), list);
+      RemoteObject element = child.get();
+      if (element != null) {
+        list.add(element);
+      }
     }
-    myChildren.keySet().removeAll(list);
+    Set<RemoteObject> childrenKeys = myChildren.keySet();
     for (RemoteObject child : list) {
+      childrenKeys.remove(child);
       child.unreferenced();
     }
   }
 
+  @Override
   public synchronized void unreferenced() {
+    if (IN_PROCESS) return;
     if (myParent != null) {
       myParent.myChildren.remove(this);
       myParent = null;
@@ -103,9 +116,8 @@ public class RemoteObject implements Remote, Unreferenced {
     }
 
     if (foreignException) {
-      final RuntimeException wrapper = new RuntimeException(ex.toString());
+      final RuntimeException wrapper = new RuntimeException(ex.toString(), wrapException(ex.getCause()));
       wrapper.setStackTrace(ex.getStackTrace());
-      wrapper.initCause(wrapException(ex.getCause()));
       ex = wrapper;
     }
     return ex;
@@ -113,5 +125,9 @@ public class RemoteObject implements Remote, Unreferenced {
 
   protected boolean isKnownException(Throwable ex) {
     return false;
+  }
+
+  protected Iterable<RemoteObject> getExportedChildren() {
+    return myChildren.keySet();
   }
 }

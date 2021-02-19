@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +17,7 @@ package com.intellij.xdebugger.impl.ui.tree.nodes;
 
 import com.intellij.ui.ColoredTextContainer;
 import com.intellij.ui.SimpleColoredText;
-import com.intellij.ui.TreeSpeedSearch;
 import com.intellij.util.ArrayUtilRt;
-import com.intellij.util.enumeration.EmptyEnumeration;
 import com.intellij.xdebugger.frame.XDebuggerTreeNodeHyperlink;
 import com.intellij.xdebugger.impl.ui.tree.XDebuggerTree;
 import org.jetbrains.annotations.NotNull;
@@ -30,12 +28,9 @@ import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
 import java.util.*;
 
-/**
- * @author nik
- */
-public abstract class XDebuggerTreeNode implements TreeNode, TreeSpeedSearch.PathAwareTreeNode {
+public abstract class XDebuggerTreeNode implements TreeNode {
   protected final XDebuggerTree myTree;
-  private final XDebuggerTreeNode myParent;
+  protected final XDebuggerTreeNode myParent;
   private boolean myLeaf;
   protected final SimpleColoredText myText = new SimpleColoredText();
   private Icon myIcon;
@@ -81,7 +76,7 @@ public abstract class XDebuggerTreeNode implements TreeNode, TreeSpeedSearch.Pat
   @Override
   public Enumeration children() {
     if (isLeaf()) {
-      return EmptyEnumeration.INSTANCE;
+      return Collections.emptyEnumeration();
     }
     return Collections.enumeration(getChildren());
   }
@@ -98,7 +93,7 @@ public abstract class XDebuggerTreeNode implements TreeNode, TreeSpeedSearch.Pat
   }
 
   @Nullable
-  protected XDebuggerTreeNodeHyperlink getLink() {
+  public XDebuggerTreeNodeHyperlink getLink() {
     return null;
   }
 
@@ -110,6 +105,11 @@ public abstract class XDebuggerTreeNode implements TreeNode, TreeSpeedSearch.Pat
   @Nullable
   public Icon getIcon() {
     return myIcon;
+  }
+
+  @Nullable
+  public Object getIconTag() {
+    return null;
   }
 
   protected void fireNodeChanged() {
@@ -160,7 +160,6 @@ public abstract class XDebuggerTreeNode implements TreeNode, TreeSpeedSearch.Pat
     return myTree;
   }
 
-  @Override
   public TreePath getPath() {
     if (myPath == null) {
       TreePath path;
@@ -175,7 +174,7 @@ public abstract class XDebuggerTreeNode implements TreeNode, TreeSpeedSearch.Pat
     return myPath;
   }
 
-  @Nullable
+  @NotNull
   public abstract List<? extends XDebuggerTreeNode> getLoadedChildren();
 
   public abstract void clearChildren();
@@ -189,7 +188,12 @@ public abstract class XDebuggerTreeNode implements TreeNode, TreeSpeedSearch.Pat
     }
   }
 
-  void invokeNodeUpdate(Runnable runnable) {
-    myTree.getLaterInvocator().offer(runnable);
+  public void invokeNodeUpdate(Runnable runnable) {
+    myTree.invokeLater(runnable);
+  }
+
+  @Override
+  public String toString() {
+    return myText.toString();
   }
 }

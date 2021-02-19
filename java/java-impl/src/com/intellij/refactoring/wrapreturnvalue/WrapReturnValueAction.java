@@ -20,15 +20,17 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.RefactoringActionHandler;
-import com.intellij.refactoring.actions.BaseRefactoringAction;
+import com.intellij.refactoring.actions.BaseJavaRefactoringAction;
 import org.jetbrains.annotations.NotNull;
 
-public class WrapReturnValueAction extends BaseRefactoringAction{
+public class WrapReturnValueAction extends BaseJavaRefactoringAction {
 
+  @Override
   protected RefactoringActionHandler getHandler(@NotNull DataContext context){
         return new WrapReturnValueHandler();
     }
 
+  @Override
   public boolean isAvailableInEditorOnly(){
       return false;
   }
@@ -38,12 +40,13 @@ public class WrapReturnValueAction extends BaseRefactoringAction{
     final PsiMethod psiMethod = PsiTreeUtil.getParentOfType(element, PsiMethod.class, false);
     if (psiMethod != null && !(psiMethod instanceof PsiCompiledElement)) {
       final PsiType returnType = psiMethod.getReturnType();
-      return returnType != null && returnType != PsiType.VOID;
+      return returnType != null && !PsiType.VOID.equals(returnType);
     }
     return false;
   }
 
-  public boolean isEnabledOnElements(@NotNull PsiElement[] elements) {
+  @Override
+  public boolean isEnabledOnElements(PsiElement @NotNull [] elements) {
     if (elements.length != 1) {
         return false;
     }

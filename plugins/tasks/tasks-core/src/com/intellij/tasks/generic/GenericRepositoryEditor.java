@@ -1,9 +1,8 @@
 package com.intellij.tasks.generic;
 
-import com.intellij.codeInsight.completion.CompletionParameters;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
-import com.intellij.openapi.util.Condition;
+import com.intellij.tasks.TaskBundle;
 import com.intellij.tasks.TaskManager;
 import com.intellij.tasks.config.BaseRepositoryEditor;
 import com.intellij.ui.EditorTextField;
@@ -26,9 +25,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
-import static com.intellij.tasks.generic.GenericRepositoryUtil.concat;
-import static com.intellij.tasks.generic.GenericRepositoryUtil.createPlaceholdersList;
-import static com.intellij.tasks.generic.GenericRepositoryUtil.prettifyVariableName;
+import static com.intellij.tasks.generic.GenericRepositoryUtil.*;
 import static com.intellij.ui.TextFieldWithAutoCompletion.StringsCompletionProvider;
 
 /**
@@ -56,14 +53,15 @@ public class GenericRepositoryEditor<T extends GenericRepository> extends BaseRe
   private JBCheckBox myDownloadTasksInSeparateRequests;
 
   private Map<JTextField, TemplateVariable> myField2Variable;
-  private Map<JRadioButton, ResponseType> myRadio2ResponseType;
+  private final Map<JRadioButton, ResponseType> myRadio2ResponseType;
 
   public GenericRepositoryEditor(final Project project,
                                  final T repository,
-                                 final Consumer<T> changeListener) {
+                                 final Consumer<? super T> changeListener) {
     super(project, repository, changeListener);
 
     myTest2Button.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         afterTestConnection(TaskManager.getManager(project).testConnection(repository));
       }
@@ -94,9 +92,9 @@ public class GenericRepositoryEditor<T extends GenericRepository> extends BaseRe
     myTextRadioButton.addActionListener(radioButtonListener);
     myJsonRadioButton.addActionListener(radioButtonListener);
 
-    myLoginMethodTypeComboBox.setSelectedItem(myRepository.getLoginMethodType().toString());
-    myTasksListMethodTypeComboBox.setSelectedItem(myRepository.getTasksListMethodType().toString());
-    mySingleTaskMethodComboBox.setSelectedItem(myRepository.getSingleTaskMethodType().toString());
+    myLoginMethodTypeComboBox.setSelectedItem(myRepository.getLoginMethodType().toString()); //NON-NLS
+    myTasksListMethodTypeComboBox.setSelectedItem(myRepository.getTasksListMethodType().toString()); //NON-NLS
+    mySingleTaskMethodComboBox.setSelectedItem(myRepository.getSingleTaskMethodType().toString()); //NON-NLS
 
     // set default listener updating model fields
     installListener(myLoginMethodTypeComboBox);
@@ -106,7 +104,7 @@ public class GenericRepositoryEditor<T extends GenericRepository> extends BaseRe
     installListener(myTasksListURLText);
     installListener(mySingleTaskURLText);
     installListener(myDownloadTasksInSeparateRequests);
-    myTabbedPane.addTab("Server Configuration", myPanel);
+    myTabbedPane.addTab(TaskBundle.message("server.configuration"), myPanel);
 
     // Put appropriate configuration components on the card panel
     ResponseHandler xmlHandler = myRepository.getResponseHandler(ResponseType.XML);
@@ -117,7 +115,7 @@ public class GenericRepositoryEditor<T extends GenericRepository> extends BaseRe
     myCardPanel.add(jsonHandler.getConfigurationComponent(myProject), ResponseType.JSON.getMimeType());
     myCardPanel.add(textHandler.getConfigurationComponent(myProject), ResponseType.TEXT.getMimeType());
 
-    myRadio2ResponseType = new IdentityHashMap<JRadioButton, ResponseType>();
+    myRadio2ResponseType = new IdentityHashMap<>();
     myRadio2ResponseType.put(myJsonRadioButton, ResponseType.JSON);
     myRadio2ResponseType.put(myXmlRadioButton, ResponseType.XML);
     myRadio2ResponseType.put(myTextRadioButton, ResponseType.TEXT);
@@ -128,12 +126,7 @@ public class GenericRepositoryEditor<T extends GenericRepository> extends BaseRe
         final ManageTemplateVariablesDialog dialog = new ManageTemplateVariablesDialog(myManageTemplateVariablesButton);
         dialog.setTemplateVariables(myRepository.getAllTemplateVariables());
         if (dialog.showAndGet()) {
-          myRepository.setTemplateVariables(ContainerUtil.filter(dialog.getTemplateVariables(), new Condition<TemplateVariable>() {
-            @Override
-            public boolean value(TemplateVariable variable) {
-              return !variable.isReadOnly();
-            }
-          }));
+          myRepository.setTemplateVariables(ContainerUtil.filter(dialog.getTemplateVariables(), variable -> !variable.isReadOnly()));
           myCustomPanel.removeAll();
           myCustomPanel.add(createCustomPanel());
           //myCustomPanel.repaint();
@@ -183,7 +176,7 @@ public class GenericRepositoryEditor<T extends GenericRepository> extends BaseRe
   @Nullable
   @Override
   protected JComponent createCustomPanel() {
-    myField2Variable = new IdentityHashMap<JTextField, TemplateVariable>();
+    myField2Variable = new IdentityHashMap<>();
     FormBuilder builder = FormBuilder.createFormBuilder();
     for (final TemplateVariable variable : myRepository.getTemplateVariables()) {
       if (variable.isShownOnFirstTab()) {
@@ -258,18 +251,17 @@ public class GenericRepositoryEditor<T extends GenericRepository> extends BaseRe
 
   private TextFieldWithAutoCompletion<String> createTextFieldWithCompletion(String text, final List<String> variants) {
     final StringsCompletionProvider provider = new StringsCompletionProvider(variants, null) {
-        @Nullable
-        @Override
-        public String getPrefix(@NotNull CompletionParameters parameters) {
-          final String text = parameters.getOriginalFile().getText();
-          final int i = text.lastIndexOf('{', parameters.getOffset() - 1);
-          if (i < 0) {
-            return "";
-          }
-          return text.substring(i, parameters.getOffset());
+      @Nullable
+      @Override
+      public String getPrefix(@NotNull String text, int offset) {
+        final int i = text.lastIndexOf('{', offset - 1);
+        if (i < 0) {
+          return "";
         }
-      };
-    return new TextFieldWithAutoCompletion<String>(myProject, provider, true, text);
+        return text.substring(i, offset);
+      }
+    };
+    return new TextFieldWithAutoCompletion<>(myProject, provider, true, text);
   }
 
   @Override

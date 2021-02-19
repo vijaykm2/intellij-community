@@ -1,7 +1,7 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.json.formatter;
 
 import com.intellij.formatting.*;
-import com.intellij.json.JsonLanguage;
 import com.intellij.json.psi.JsonArray;
 import com.intellij.json.psi.JsonObject;
 import com.intellij.json.psi.JsonProperty;
@@ -9,19 +9,17 @@ import com.intellij.json.psi.JsonPsiUtil;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.TokenType;
-import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.psi.tree.TokenSet;
-import com.intellij.util.Function;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static com.intellij.json.JsonElementTypes.*;
-import static com.intellij.json.JsonParserDefinition.*;
+import static com.intellij.json.JsonParserDefinition.JSON_CONTAINERS;
 import static com.intellij.json.formatter.JsonCodeStyleSettings.ALIGN_PROPERTY_ON_COLON;
 import static com.intellij.json.formatter.JsonCodeStyleSettings.ALIGN_PROPERTY_ON_VALUE;
 import static com.intellij.json.psi.JsonPsiUtil.hasElementType;
@@ -41,7 +39,7 @@ public class JsonBlock implements ASTBlock {
   private final Alignment myAlignment;
   private final Indent myIndent;
   private final Wrap myWrap;
-  private final CodeStyleSettings mySettings;
+  private final JsonCodeStyleSettings myCustomSettings;
   private final SpacingBuilder mySpacingBuilder;
   // lazy initialized on first call to #getSubBlocks()
   private List<Block> mySubBlocks = null;
@@ -51,25 +49,25 @@ public class JsonBlock implements ASTBlock {
 
   public JsonBlock(@Nullable JsonBlock parent,
                    @NotNull ASTNode node,
-                   @NotNull CodeStyleSettings settings,
+                   @NotNull JsonCodeStyleSettings customSettings,
                    @Nullable Alignment alignment,
                    @NotNull Indent indent,
-                   @Nullable Wrap wrap) {
+                   @Nullable Wrap wrap,
+                   @NotNull SpacingBuilder spacingBuilder) {
     myParent = parent;
     myNode = node;
     myPsiElement = node.getPsi();
     myAlignment = alignment;
     myIndent = indent;
     myWrap = wrap;
-    mySettings = settings;
-
-    mySpacingBuilder = JsonFormattingBuilderModel.createSpacingBuilder(settings);
+    mySpacingBuilder = spacingBuilder;
+    myCustomSettings = customSettings;
 
     if (myPsiElement instanceof JsonObject) {
-      myChildWrap = Wrap.createWrap(getCustomSettings().OBJECT_WRAPPING, true);
+      myChildWrap = Wrap.createWrap(myCustomSettings.OBJECT_WRAPPING, true);
     }
     else if (myPsiElement instanceof JsonArray) {
-      myChildWrap = Wrap.createWrap(getCustomSettings().ARRAY_WRAPPING, true);
+      myChildWrap = Wrap.createWrap(myCustomSettings.ARRAY_WRAPPING, true);
     }
     else {
       myChildWrap = null;
@@ -93,25 +91,22 @@ public class JsonBlock implements ASTBlock {
   @Override
   public List<Block> getSubBlocks() {
     if (mySubBlocks == null) {
-      mySubBlocks = ContainerUtil.mapNotNull(myNode.getChildren(null), new Function<ASTNode, Block>() {
-        @Override
-        public Block fun(ASTNode node) {
-          if (isWhitespaceOrEmpty(node)) {
-            return null;
-          }
-          return makeSubBlock(node);
-        }
-      });
+      int propertyAlignment = myCustomSettings.PROPERTY_ALIGNMENT;
+      ASTNode[] children = myNode.getChildren(null);
+      mySubBlocks = new ArrayList<>(children.length);
+      for (ASTNode child: children) {
+        if (isWhitespaceOrEmpty(child)) continue;
+        mySubBlocks.add(makeSubBlock(child, propertyAlignment));
+      }
     }
     return mySubBlocks;
   }
 
-  private Block makeSubBlock(@NotNull ASTNode childNode) {
+  private Block makeSubBlock(@NotNull ASTNode childNode, int propertyAlignment) {
     Indent indent = Indent.getNoneIndent();
     Alignment alignment = null;
     Wrap wrap = null;
 
-    final JsonCodeStyleSettings customSettings = getCustomSettings();
     if (hasElementType(myNode, JSON_CONTAINERS)) {
       if (hasElementType(childNode, COMMA)) {
         wrap = Wrap.createWrap(WrapType.NONE, true);
@@ -122,7 +117,7 @@ public class JsonBlock implements ASTBlock {
         indent = Indent.getNormalIndent();
       }
       else if (hasElementType(childNode, JSON_OPEN_BRACES)) {
-        if (JsonPsiUtil.isPropertyValue(myPsiElement) && customSettings.PROPERTY_ALIGNMENT == ALIGN_PROPERTY_ON_VALUE) {
+        if (JsonPsiUtil.isPropertyValue(myPsiElement) && propertyAlignment == ALIGN_PROPERTY_ON_VALUE) {
           // WEB-13587 Align compound values on opening brace/bracket, not the whole block
           assert myParent != null && myParent.myParent != null && myParent.myParent.myPropertyValueAlignment != null;
           alignment = myParent.myParent.myPropertyValueAlignment;
@@ -132,16 +127,16 @@ public class JsonBlock implements ASTBlock {
     // Handle properties alignment
     else if (hasElementType(myNode, PROPERTY) ) {
       assert myParent != null && myParent.myPropertyValueAlignment != null;
-      if (hasElementType(childNode, COLON) && customSettings.PROPERTY_ALIGNMENT == ALIGN_PROPERTY_ON_COLON) {
+      if (hasElementType(childNode, COLON) && propertyAlignment == ALIGN_PROPERTY_ON_COLON) {
         alignment = myParent.myPropertyValueAlignment;
       }
-      else if (JsonPsiUtil.isPropertyValue(childNode.getPsi()) && customSettings.PROPERTY_ALIGNMENT == ALIGN_PROPERTY_ON_VALUE) {
+      else if (JsonPsiUtil.isPropertyValue(childNode.getPsi()) && propertyAlignment == ALIGN_PROPERTY_ON_VALUE) {
         if (!hasElementType(childNode, JSON_CONTAINERS)) {
           alignment = myParent.myPropertyValueAlignment;
         }
       }
     }
-    return new JsonBlock(this, childNode, mySettings, alignment, indent, wrap);
+    return new JsonBlock(this, childNode, myCustomSettings, alignment, indent, wrap, mySpacingBuilder);
   }
 
   @Nullable
@@ -165,24 +160,6 @@ public class JsonBlock implements ASTBlock {
   @Nullable
   @Override
   public Spacing getSpacing(@Nullable Block child1, @NotNull Block child2) {
-    final CommonCodeStyleSettings commonSettings = getCommonSettings();
-    final ASTNode leftChild = child1 instanceof JsonBlock ? ((JsonBlock)child1).myNode : null;
-    final ASTNode rightChild = child2 instanceof JsonBlock ? ((JsonBlock)child2).myNode : null;
-    // This causes braces/brackets to be on their own lines if whole object/array spans several lines.
-    if (leftChild != null && rightChild != null) {
-      if (hasElementType(leftChild, JSON_BRACES) ^ hasElementType(rightChild, JSON_BRACES)) {
-        final int numSpaces = commonSettings.SPACE_WITHIN_BRACES ? 1 : 0;
-        return Spacing.createDependentLFSpacing(numSpaces, numSpaces, myNode.getTextRange(),
-                                                commonSettings.KEEP_LINE_BREAKS,
-                                                commonSettings.KEEP_BLANK_LINES_IN_CODE);
-      }
-      else if (hasElementType(leftChild, JSON_BRACKETS) ^ hasElementType(rightChild, JSON_BRACKETS)) {
-        final int numSpaces = commonSettings.SPACE_WITHIN_BRACKETS ? 1 : 0;
-        return Spacing.createDependentLFSpacing(numSpaces, numSpaces, myNode.getTextRange(),
-                                                commonSettings.KEEP_LINE_BREAKS,
-                                                commonSettings.KEEP_BLANK_LINES_IN_CODE);
-      }
-    }
     return mySpacingBuilder.getSpacing(this, child1, child2);
   }
 
@@ -194,6 +171,9 @@ public class JsonBlock implements ASTBlock {
       // indents to consist solely of spaces when both USE_TABS and SMART_TAB
       // options are enabled.
       return new ChildAttributes(Indent.getNormalIndent(), null);
+    }
+    else if (myNode.getPsi() instanceof PsiFile) {
+      return new ChildAttributes(Indent.getNoneIndent(), null);
     }
     // Will use continuation indent for cases like { "foo"<caret>  }
     return new ChildAttributes(null, null);
@@ -221,13 +201,5 @@ public class JsonBlock implements ASTBlock {
 
   private static boolean isWhitespaceOrEmpty(ASTNode node) {
     return node.getElementType() == TokenType.WHITE_SPACE || node.getTextLength() == 0;
-  }
-
-  private JsonCodeStyleSettings getCustomSettings() {
-    return mySettings.getCustomSettings(JsonCodeStyleSettings.class);
-  }
-
-  private CommonCodeStyleSettings getCommonSettings() {
-    return mySettings.getCommonSettings(JsonLanguage.INSTANCE);
   }
 }

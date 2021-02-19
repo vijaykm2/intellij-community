@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2008 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,15 +20,15 @@ import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.IncorrectOperationException;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.ClassUtils;
+import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
-import com.siyeh.ig.psiutils.WellFormednessUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -43,26 +43,18 @@ public class MultiplyOrDivideByPowerOfTwoInspection
   public boolean checkDivision = false;
 
   @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "multiply.or.divide.by.power.of.two.display.name");
-  }
-
-  @Override
-  @Nullable
-  public JComponent createOptionsPanel() {
+  public @Nullable JComponent createOptionsPanel() {
     return new SingleCheckboxOptionsPanel(InspectionGadgetsBundle.message(
       "multiply.or.divide.by.power.of.two.divide.option"), this, "checkDivision");
   }
 
   @Override
-  @NotNull
-  public String buildErrorString(Object... infos) {
-    return InspectionGadgetsBundle.message("expression.can.be.replaced.problem.descriptor", calculateReplacementShift((PsiExpression)infos[0]));
+  public @NotNull String buildErrorString(Object... infos) {
+    return InspectionGadgetsBundle.message("expression.can.be.replaced.problem.descriptor",
+                                           calculateReplacementShift((PsiExpression)infos[0], new CommentTracker()));
   }
 
-  static String calculateReplacementShift(PsiExpression expression) {
+  static String calculateReplacementShift(PsiExpression expression, CommentTracker commentTracker) {
     final PsiExpression lhs;
     final PsiExpression rhs;
     final String operator;
@@ -93,19 +85,12 @@ public class MultiplyOrDivideByPowerOfTwoInspection
 
     if (!(rhs instanceof PsiLiteralExpression)) return null;
 
-    final String lhsText;
-    if (ParenthesesUtils.getPrecedence(lhs) > ParenthesesUtils.SHIFT_PRECEDENCE) {
-      lhsText = '(' + lhs.getText() + ')';
-    }
-    else {
-      lhsText = lhs.getText();
-    }
+    final String lhsText = commentTracker.text(lhs, ParenthesesUtils.SHIFT_PRECEDENCE);
     String expString = lhsText + operator + ShiftUtils.getLogBaseTwo((PsiLiteralExpression)rhs);
     final PsiElement parent = expression.getParent();
     if (parent instanceof PsiExpression) {
       if (!(parent instanceof PsiParenthesizedExpression) &&
-          ParenthesesUtils.getPrecedence((PsiExpression)parent) <
-          ParenthesesUtils.SHIFT_PRECEDENCE) {
+          ParenthesesUtils.getPrecedence((PsiExpression)parent) < ParenthesesUtils.SHIFT_PRECEDENCE) {
         expString = '(' + expString + ')';
       }
     }
@@ -135,24 +120,18 @@ public class MultiplyOrDivideByPowerOfTwoInspection
   private static class MultiplyByPowerOfTwoFix extends InspectionGadgetsFix {
 
     @Override
-    @NotNull
-    public String getName() {
+    public @NotNull String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "multiply.or.divide.by.power.of.two.replace.quickfix");
     }
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiExpression expression = (PsiExpression)descriptor.getPsiElement();
-      final String newExpression = calculateReplacementShift(expression);
+      CommentTracker commentTracker = new CommentTracker();
+      final String newExpression = calculateReplacementShift(expression, commentTracker);
       if (newExpression != null) {
-        PsiReplacementUtil.replaceExpression(expression, newExpression);
+        PsiReplacementUtil.replaceExpression(expression, newExpression, commentTracker);
       }
     }
   }
@@ -167,54 +146,30 @@ public class MultiplyOrDivideByPowerOfTwoInspection
     @Override
     public void visitBinaryExpression(@NotNull PsiBinaryExpression expression) {
       super.visitBinaryExpression(expression);
-      final PsiExpression rhs = expression.getROperand();
-      if (rhs == null) {
-        return;
-      }
+      final PsiExpression rhs = PsiUtil.skipParenthesizedExprDown(expression.getROperand());
+      if (rhs == null) return;
 
       final IElementType tokenType = expression.getOperationTokenType();
-      if (!tokenType.equals(JavaTokenType.ASTERISK)) {
-        if (!checkDivision || !tokenType.equals(JavaTokenType.DIV)) {
-          return;
-        }
+      if (tokenType.equals(JavaTokenType.ASTERISK) || (checkDivision && tokenType.equals(JavaTokenType.DIV))) {
+        process(expression, rhs);
       }
-      if (!ShiftUtils.isPowerOfTwo(rhs)) {
-        return;
-      }
-      final PsiType type = expression.getType();
-      if (type == null) {
-        return;
-      }
-      if (!ClassUtils.isIntegral(type)) {
-        return;
-      }
-      registerError(expression, expression);
     }
 
     @Override
     public void visitAssignmentExpression(@NotNull PsiAssignmentExpression expression) {
       super.visitAssignmentExpression(expression);
-      if (!WellFormednessUtils.isWellFormed(expression)) {
-        return;
-      }
       final IElementType tokenType = expression.getOperationTokenType();
-      if (!tokenType.equals(JavaTokenType.ASTERISKEQ)) {
-        if (!checkDivision || !tokenType.equals(JavaTokenType.DIVEQ)) {
-          return;
-        }
+      if (tokenType.equals(JavaTokenType.ASTERISKEQ) || (checkDivision && tokenType.equals(JavaTokenType.DIVEQ))) {
+        process(expression, expression.getRExpression());
       }
-      final PsiExpression rhs = expression.getRExpression();
-      if (!ShiftUtils.isPowerOfTwo(rhs)) {
-        return;
-      }
-      final PsiType type = expression.getType();
-      if (type == null) {
-        return;
-      }
-      if (!ClassUtils.isIntegral(type)) {
-        return;
-      }
-      registerError(expression, expression);
+    }
+
+    private void process(PsiExpression anchor, PsiExpression rhs) {
+      rhs = PsiUtil.skipParenthesizedExprDown(rhs);
+      if (!ShiftUtils.isPowerOfTwo(rhs)) return;
+      final PsiType type = anchor.getType();
+      if (type == null || !ClassUtils.isIntegral(type)) return;
+      registerError(anchor, anchor);
     }
   }
 }

@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 19-Dec-2007
- */
 package com.intellij.codeInspection;
 
 import com.intellij.codeInspection.reference.RefManager;
@@ -29,6 +25,11 @@ public abstract class GlobalJavaBatchInspectionTool extends GlobalInspectionTool
                                              @NotNull final GlobalInspectionContext globalContext,
                                              @NotNull final ProblemDescriptionsProcessor problemDescriptionsProcessor) {
     return queryExternalUsagesRequests(globalContext.getRefManager(), globalContext.getExtension(GlobalJavaInspectionContext.CONTEXT), problemDescriptionsProcessor);
+  }
+
+  @Override
+  public boolean isReadActionNeeded() {
+    return false;
   }
 
   protected boolean queryExternalUsagesRequests(@NotNull RefManager manager, @NotNull GlobalJavaInspectionContext globalContext, @NotNull ProblemDescriptionsProcessor processor) {

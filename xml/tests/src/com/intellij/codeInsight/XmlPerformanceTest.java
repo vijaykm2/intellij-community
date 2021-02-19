@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: Maxim.Mossienko
- * Date: Sep 8, 2006
- * Time: 3:40:30 PM
- */
 package com.intellij.codeInsight;
 
 import com.intellij.codeInsight.daemon.quickFix.LightQuickFixTestCase;
@@ -27,19 +21,17 @@ import com.intellij.ide.DataManager;
 import com.intellij.openapi.editor.actionSystem.EditorActionManager;
 import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.PlatformTestUtil;
-import com.intellij.util.ThrowableRunnable;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
-import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Set;
 
 /**
- * @by Maxim.Mossienko
+ * @author Maxim.Mossienko
  */
 public class XmlPerformanceTest extends LightQuickFixTestCase {
-  private final Set<String> ourTestsWithFolding = new HashSet<String>(Arrays.asList("IndentUnindent2"));
+  private final Set<String> ourTestsWithFolding = ContainerUtil.set("IndentUnindent2");
 
   @Override
   protected String getBasePath() {
@@ -57,11 +49,11 @@ public class XmlPerformanceTest extends LightQuickFixTestCase {
     Class clazz = IdeaTestUtil.class;
   }
 
-  public void testIndentUnindent() throws Exception {
+  public void testIndentUnindent() {
     doIndentTest(2000);
   }
 
-  public void testIndentUnindent2() throws Exception {
+  public void testIndentUnindent2() {
     doIndentTest(2001);
   }
 
@@ -73,18 +65,17 @@ public class XmlPerformanceTest extends LightQuickFixTestCase {
   private void doIndentTest(int time) {
     configureByFile(getBasePath() + getTestName(false)+".xml");
     doHighlighting();
-    myEditor.getSelectionModel().setSelection(0,myEditor.getDocument().getTextLength());
+    getEditor().getSelectionModel().setSelection(0, getEditor().getDocument().getTextLength());
 
-    PlatformTestUtil.startPerformanceTest("Fix long indent/unindent "+time, time, new ThrowableRunnable() {
-      @Override
-      public void run() {
-        EditorActionManager.getInstance().getActionHandler("EditorIndentSelection").execute(myEditor, DataManager.getInstance().getDataContext());
+    PlatformTestUtil.startPerformanceTest("indent/unindent "+time, time, () -> {
+      EditorActionManager.getInstance().getActionHandler("EditorIndentSelection").execute(getEditor(), null,
+                                                                                          DataManager.getInstance().getDataContext());
 
-        EditorActionManager.getInstance().getActionHandler("EditorUnindentSelection").execute(myEditor, DataManager.getInstance().getDataContext());
-      }
-    }).assertTiming();
-    final int startOffset = myEditor.getCaretModel().getOffset();
-    myEditor.getSelectionModel().setSelection(startOffset,startOffset);
+      EditorActionManager.getInstance().getActionHandler("EditorUnindentSelection").execute(getEditor(), null,
+                                                                                            DataManager.getInstance().getDataContext());
+    }).useLegacyScaling().assertTiming();
+    final int startOffset = getEditor().getCaretModel().getOffset();
+    getEditor().getSelectionModel().setSelection(startOffset, startOffset);
     checkResultByFile(getBasePath() + getTestName(false)+".xml");
   }
 }

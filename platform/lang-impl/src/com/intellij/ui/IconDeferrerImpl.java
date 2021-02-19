@@ -1,128 +1,121 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.intellij.ide.ui.VirtualFileAppearanceListener;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.impl.ProjectLifecycleListener;
+import com.intellij.openapi.project.ProjectManager;
+import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.util.LowMemoryWatcher;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
+import com.intellij.openapi.vfs.newvfs.BulkFileListener;
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.intellij.psi.util.PsiModificationTracker;
-import com.intellij.util.Function;
-import com.intellij.util.messages.MessageBus;
+import com.intellij.util.SystemProperties;
 import com.intellij.util.messages.MessageBusConnection;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 
-public class IconDeferrerImpl extends IconDeferrer {
-  private final Object LOCK = new Object();
-  private final Map<Object, Icon> myIconsCache = new LinkedHashMap<Object, Icon>() {
-    @Override
-    protected boolean removeEldestEntry(Map.Entry<Object, Icon> eldest) {
-      return size() > 100;
-    }
-  };
-  private long myLastClearTimestamp = 0;
-  @SuppressWarnings("UnusedDeclaration")
-  private final LowMemoryWatcher myLowMemoryWatcher = LowMemoryWatcher.register(new Runnable() {
-    @Override
-    public void run() {
-      clear();
-    }
-  });
+public final class IconDeferrerImpl extends IconDeferrer {
+  private static final ThreadLocal<Boolean> evaluationIsInProgress = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
-  public IconDeferrerImpl(MessageBus bus) {
-    final MessageBusConnection connection = bus.connect();
-    connection.subscribe(PsiModificationTracker.TOPIC, new PsiModificationTracker.Listener() {
+  private final Cache<Object, Icon> iconCache = Caffeine.newBuilder()
+    // registry should be not used as at this point of time user registry maybe not yet loaded
+    .maximumSize(SystemProperties.getIntProperty("ide.icons.deferrerCacheSize", 1000))
+    // some icon implementations, e.g. ElementBase$ElementIconRequest, requires read action, so, perform cleanup in the requester thread
+    .executor(command -> {
+      try {
+        command.run();
+      }
+      catch (ProcessCanceledException ignore) {
+        // otherwise Caffeine will log it as a warning
+      }
+    })
+    .build();
+
+  private final AtomicLong lastClearTimestamp = new AtomicLong();
+
+  public IconDeferrerImpl() {
+    MessageBusConnection connection = ApplicationManager.getApplication().getMessageBus().connect();
+    connection.subscribe(PsiModificationTracker.TOPIC, this::clearCache);
+    // update "locked" icon
+    connection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
       @Override
-      public void modificationCountChanged() {
-        clear();
+      public void after(@NotNull List<? extends VFileEvent> events) {
+        clearCache();
       }
     });
-    connection.subscribe(ProjectLifecycleListener.TOPIC, new ProjectLifecycleListener.Adapter() {
+    connection.subscribe(ProjectManager.TOPIC, new ProjectManagerListener() {
       @Override
-      public void afterProjectClosed(@NotNull Project project) {
-        clear();
+      public void projectClosed(@NotNull Project project) {
+        clearCache();
       }
     });
-  }
-
-  private void clear() {
-    synchronized (LOCK) {
-      myIconsCache.clear();
-      myLastClearTimestamp++;
-    }
+    connection.subscribe(VirtualFileAppearanceListener.TOPIC, new VirtualFileAppearanceListener() {
+      @Override
+      public void virtualFileAppearanceChanged(@NotNull VirtualFile virtualFile) {
+        clearCache();
+      }
+    });
+    LowMemoryWatcher.register(this::clearCache, connection);
   }
 
   @Override
-  public <T> Icon defer(final Icon base, final T param, @NotNull final Function<T, Icon> f) {
-    return deferImpl(base, param, f, false);
+  public final void clearCache() {
+    lastClearTimestamp.incrementAndGet();
+    iconCache.invalidateAll();
   }
 
   @Override
-  public <T> Icon deferAutoUpdatable(Icon base, T param, @NotNull Function<T, Icon> f) {
-    return deferImpl(base, param, f, true);
+  public <T> @NotNull Icon defer(@Nullable Icon base, T param, @NotNull Function<? super T, ? extends Icon> evaluator) {
+    return deferImpl(base, param, evaluator, false);
   }
 
-  private <T> Icon deferImpl(Icon base, T param, @NotNull Function<T, Icon> f, final boolean autoupdatable) {
-    if (myEvaluationIsInProgress.get().booleanValue()) {
-      return f.fun(param);
-    }
-
-    synchronized (LOCK) {
-      Icon result = myIconsCache.get(param);
-      if (result == null) {
-        final long started = myLastClearTimestamp;
-        result = new DeferredIconImpl<T>(base, param, f, new DeferredIconImpl.IconListener<T>() {
-          @Override
-          public void evalDone(DeferredIconImpl<T> source, T key, @NotNull Icon r) {
-            synchronized (LOCK) {
-              // check if our results is not outdated yet
-              if (started == myLastClearTimestamp) {
-                myIconsCache.put(key, autoupdatable ? source: r);
-              }
-            }
-          }
-        }, autoupdatable);
-        myIconsCache.put(param, result);
-      }
-
-      return result;
-    }
+  @Override
+  public <T> Icon deferAutoUpdatable(Icon base, T param, @NotNull Function<? super T, ? extends Icon> evaluator) {
+    return deferImpl(base, param, evaluator, true);
   }
 
-  private static final ThreadLocal<Boolean> myEvaluationIsInProgress = new ThreadLocal<Boolean>() {
-    @Override
-    protected Boolean initialValue() {
-      return Boolean.FALSE;
+  private <T> @NotNull Icon deferImpl(Icon base, T param, @NotNull Function<? super T, ? extends Icon> evaluator, final boolean autoUpdatable) {
+    if (evaluationIsInProgress.get().booleanValue()) {
+      return evaluator.apply(param);
     }
-  };
+
+    return Objects.requireNonNull(iconCache.get(param, param1 -> {
+      long started = lastClearTimestamp.get();
+      //noinspection unchecked
+      T key = (T)param1;
+      return new DeferredIconImpl<>(base, key, evaluator, (source, result) -> {
+        // check if our results is not outdated yet
+        if (started == lastClearTimestamp.get()) {
+          iconCache.put(key, autoUpdatable ? source : result);
+        }
+      }, autoUpdatable);
+    }));
+  }
 
   static void evaluateDeferred(@NotNull Runnable runnable) {
     try {
-      myEvaluationIsInProgress.set(Boolean.TRUE);
+      evaluationIsInProgress.set(Boolean.TRUE);
       runnable.run();
     }
     finally {
-      myEvaluationIsInProgress.set(Boolean.FALSE);
+      evaluationIsInProgress.set(Boolean.FALSE);
     }
+  }
+
+  @Override
+  public boolean equalIcons(Icon icon1, Icon icon2) {
+    return DeferredIconImpl.equalIcons(icon1, icon2);
   }
 }

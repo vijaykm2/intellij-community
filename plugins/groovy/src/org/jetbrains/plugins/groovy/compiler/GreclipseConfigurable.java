@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.compiler;
 
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
@@ -23,12 +9,13 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.ui.RawCommandLineEditor;
 import com.intellij.ui.components.JBCheckBox;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.incremental.groovy.GreclipseSettings;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 
 import javax.swing.*;
+import java.util.Objects;
 
 /**
  * @author peter
@@ -44,18 +31,11 @@ public class GreclipseConfigurable implements Configurable {
     mySettings = settings;
 
     FileChooserDescriptor descriptor = new FileChooserDescriptor(false, false, true, true, false, false);
-    myJarPath.addBrowseFolderListener(null, "Select path to groovy-eclipse-batch-*.jar with version matching your Groovy distribution", null, descriptor);
+    myJarPath.addBrowseFolderListener(null, GroovyBundle.message("configurable.greclipse.path.chooser.description"), null, descriptor);
   }
 
-  @Nls
   @Override
   public String getDisplayName() {
-    return null;
-  }
-
-  @Nullable
-  @Override
-  public String getHelpTopic() {
     return null;
   }
 
@@ -67,8 +47,8 @@ public class GreclipseConfigurable implements Configurable {
 
   @Override
   public boolean isModified() {
-    return !Comparing.equal(getExternalizableJarPath(), mySettings.greclipsePath) ||
-           !Comparing.equal(myCmdLineParams.getText(), mySettings.cmdLineParams) ||
+    return !Objects.equals(getExternalizableJarPath(), mySettings.greclipsePath) ||
+           !Objects.equals(myCmdLineParams.getText(), mySettings.cmdLineParams) ||
            !Comparing.equal(myGenerateDebugInfo.isSelected(), mySettings.debugInfo);
   }
 
@@ -89,9 +69,5 @@ public class GreclipseConfigurable implements Configurable {
     myJarPath.setText(FileUtil.toSystemDependentName(mySettings.greclipsePath));
     myCmdLineParams.setText(mySettings.cmdLineParams);
     myGenerateDebugInfo.setSelected(mySettings.debugInfo);
-  }
-
-  @Override
-  public void disposeUIResources() {
   }
 }

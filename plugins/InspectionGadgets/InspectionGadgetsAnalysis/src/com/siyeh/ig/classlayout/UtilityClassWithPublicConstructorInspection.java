@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2008 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package com.siyeh.ig.classlayout;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -28,13 +27,6 @@ import org.jetbrains.annotations.NotNull;
 
 public class UtilityClassWithPublicConstructorInspection
   extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "utility.class.with.public.constructor.display.name");
-  }
 
 
   @Override
@@ -76,12 +68,11 @@ public class UtilityClassWithPublicConstructorInspection
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Make constructors private";
+      return InspectionGadgetsBundle.message("utility.class.with.public.constructor.fix.family.name");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement classNameIdentifier = descriptor.getPsiElement();
       final PsiClass psiClass = (PsiClass)classNameIdentifier.getParent();
       if (psiClass == null) {

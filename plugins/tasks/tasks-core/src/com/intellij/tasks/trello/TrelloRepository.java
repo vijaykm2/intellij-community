@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.tasks.trello;
 
@@ -20,7 +6,6 @@ import com.google.gson.JsonParseException;
 import com.google.gson.reflect.TypeToken;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.tasks.CustomTaskState;
 import com.intellij.tasks.Task;
@@ -35,8 +20,6 @@ import com.intellij.tasks.trello.model.TrelloBoard;
 import com.intellij.tasks.trello.model.TrelloCard;
 import com.intellij.tasks.trello.model.TrelloList;
 import com.intellij.tasks.trello.model.TrelloUser;
-import com.intellij.util.Function;
-import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xmlb.annotations.Tag;
 import org.apache.http.*;
@@ -55,10 +38,7 @@ import org.jetbrains.annotations.Nullable;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 /**
  * @author Mikhail Golubev
@@ -127,7 +107,6 @@ public final class TrelloRepository extends NewBaseRepositoryImpl {
     return myIncludeAllCards == repository.myIncludeAllCards;
   }
 
-  @SuppressWarnings("CloneDoesntCallSuperClone")
   @NotNull
   @Override
   public BaseRepository clone() {
@@ -137,12 +116,7 @@ public final class TrelloRepository extends NewBaseRepositoryImpl {
   @Override
   public Task[] getIssues(@Nullable String query, int offset, int limit, boolean withClosed) throws Exception {
     final List<TrelloCard> cards = fetchCards(offset + limit, withClosed);
-    return ContainerUtil.map2Array(cards, Task.class, new Function<TrelloCard, Task>() {
-      @Override
-      public Task fun(TrelloCard card) {
-        return new TrelloTask(card, TrelloRepository.this);
-      }
-    });
+    return ContainerUtil.map2Array(cards, Task.class, card -> new TrelloTask(card, this));
   }
 
   @Nullable
@@ -158,7 +132,7 @@ public final class TrelloRepository extends NewBaseRepositoryImpl {
       final URIBuilder url = new URIBuilder(getRestApiUrl("cards", id))
         .addParameter("actions", "commentCard")
         .addParameter("fields", TrelloCard.REQUIRED_FIELDS);
-      return executeMethod(new HttpGet(url.build()), new GsonSingleObjectDeserializer<TrelloCard>(TrelloUtil.GSON, TrelloCard.class, true));
+      return executeMethod(new HttpGet(url.build()), new GsonSingleObjectDeserializer<>(TrelloUtil.GSON, TrelloCard.class, true));
     }
     // Trello returns string "The requested resource was not found." or "invalid id"
     // if card can't be found, which not only cannot be deserialized, but also not valid JSON at all.
@@ -208,7 +182,7 @@ public final class TrelloRepository extends NewBaseRepositoryImpl {
     try {
       final URIBuilder url = new URIBuilder(getRestApiUrl("members", "me"))
         .addParameter("fields", TrelloUser.REQUIRED_FIELDS);
-      return ObjectUtils.assertNotNull(makeRequestAndDeserializeJsonResponse(url.build(), TrelloUser.class));
+      return Objects.requireNonNull(makeRequestAndDeserializeJsonResponse(url.build(), TrelloUser.class));
     }
     catch (Exception e) {
       LOG.warn("Error while fetching initial user info", e);
@@ -224,7 +198,7 @@ public final class TrelloRepository extends NewBaseRepositoryImpl {
     final URIBuilder url = new URIBuilder(getRestApiUrl("boards", id))
       .addParameter("fields", TrelloBoard.REQUIRED_FIELDS);
     try {
-      return ObjectUtils.assertNotNull(makeRequestAndDeserializeJsonResponse(url.build(), TrelloBoard.class));
+      return Objects.requireNonNull(makeRequestAndDeserializeJsonResponse(url.build(), TrelloBoard.class));
     }
     catch (Exception e) {
       LOG.warn("Error while fetching initial board info", e);
@@ -237,7 +211,7 @@ public final class TrelloRepository extends NewBaseRepositoryImpl {
     final URIBuilder url = new URIBuilder(getRestApiUrl("lists", id))
       .addParameter("fields", TrelloList.REQUIRED_FIELDS);
     try {
-      return ObjectUtils.assertNotNull(makeRequestAndDeserializeJsonResponse(url.build(), TrelloList.class));
+      return Objects.requireNonNull(makeRequestAndDeserializeJsonResponse(url.build(), TrelloList.class));
     }
     catch (Exception e) {
       LOG.warn("Error while fetching initial list info" + id, e);
@@ -302,12 +276,7 @@ public final class TrelloRepository extends NewBaseRepositoryImpl {
     List<TrelloCard> cards = makeRequestAndDeserializeJsonResponse(fetchCardUrl.build(), TrelloUtil.LIST_OF_CARDS_TYPE);
     LOG.debug("Total " + cards.size() + " cards downloaded");
     if (!myIncludeAllCards) {
-      cards = ContainerUtil.filter(cards, new Condition<TrelloCard>() {
-        @Override
-        public boolean value(TrelloCard card) {
-          return card.getIdMembers().contains(myCurrentUser.getId());
-        }
-      });
+      cards = ContainerUtil.filter(cards, card -> card.getIdMembers().contains(myCurrentUser.getId()));
       LOG.debug("Total " + cards.size() + " cards after filtering");
     }
     if (!cards.isEmpty()) {
@@ -325,12 +294,7 @@ public final class TrelloRepository extends NewBaseRepositoryImpl {
         .addParameter("fields", "none");
       final List<TrelloCard> visibleCards = makeRequestAndDeserializeJsonResponse(visibleCardsUrl.build(), TrelloUtil.LIST_OF_CARDS_TYPE);
       LOG.debug("Total " + visibleCards.size() + " visible cards");
-      final Set<String> visibleCardsIDs = ContainerUtil.map2Set(visibleCards, new Function<TrelloCard, String>() {
-        @Override
-        public String fun(TrelloCard card) {
-          return card.getId();
-        }
-      });
+      final Set<String> visibleCardsIDs = ContainerUtil.map2Set(visibleCards, card -> card.getId());
       for (TrelloCard card : cards) {
         card.setVisible(visibleCardsIDs.contains(card.getId()));
       }
@@ -356,13 +320,13 @@ public final class TrelloRepository extends NewBaseRepositoryImpl {
 
   @NotNull
   private <T> List<T> makeRequestAndDeserializeJsonResponse(@NotNull URI url, @NotNull TypeToken<List<T>> type) throws Exception {
-    final List<T> result = executeMethod(new HttpGet(url), new GsonMultipleObjectsDeserializer<T>(TrelloUtil.GSON, type));
-    return ObjectUtils.assertNotNull(result);
+    final List<T> result = executeMethod(new HttpGet(url), new GsonMultipleObjectsDeserializer<>(TrelloUtil.GSON, type));
+    return Objects.requireNonNull(result);
   }
 
   @Nullable
   private <T> T makeRequestAndDeserializeJsonResponse(@NotNull URI url, @NotNull Class<T> cls) throws Exception {
-    return executeMethod(new HttpGet(url), new GsonSingleObjectDeserializer<T>(TrelloUtil.GSON, cls));
+    return executeMethod(new HttpGet(url), new GsonSingleObjectDeserializer<>(TrelloUtil.GSON, cls));
   }
 
   @Override
@@ -442,7 +406,7 @@ public final class TrelloRepository extends NewBaseRepositoryImpl {
     final TrelloCard card = fetchCardById(task.getId());
     if (card != null) {
       final List<TrelloList> lists = fetchBoardLists(card.getIdBoard());
-      final Set<CustomTaskState> result = new HashSet<CustomTaskState>();
+      final Set<CustomTaskState> result = new HashSet<>();
       for (TrelloList list : lists) {
         if (!list.getId().equals(card.getIdList())) {
           result.add(new CustomTaskState(list.getId(), list.getName()));

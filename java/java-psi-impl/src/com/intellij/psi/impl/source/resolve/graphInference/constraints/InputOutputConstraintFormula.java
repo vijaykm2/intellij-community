@@ -22,30 +22,34 @@ import com.intellij.psi.impl.source.resolve.graphInference.InferenceVariable;
 import com.intellij.psi.util.PsiUtil;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-/**
- * User: anna
- * Date: 9/25/13
- */
 public abstract class InputOutputConstraintFormula implements ConstraintFormula {
+  private PsiType myT;
 
-  protected abstract PsiExpression getExpression();
-  protected abstract PsiType getT();
-  protected abstract void setT(PsiType t);
+  protected InputOutputConstraintFormula(PsiType t) {
+    myT = t;
+  }
+
+  public abstract PsiExpression getExpression();
   protected abstract InputOutputConstraintFormula createSelfConstraint(PsiType type, PsiExpression expression);
   protected abstract void collectReturnTypeVariables(InferenceSession session,
                                                      PsiExpression psiExpression,
-                                                     PsiType returnType, 
-                                                     Set<InferenceVariable> result);
+                                                     PsiType returnType,
+                                                     Set<? super InferenceVariable> result);
 
   public Set<InferenceVariable> getInputVariables(InferenceSession session) {
     final PsiExpression psiExpression = getExpression();
-    final PsiType type = getT();
+    final PsiType type = myT;
     if (psiExpression instanceof PsiFunctionalExpression) {
       final InferenceVariable inferenceVariable = session.getInferenceVariable(type);
       if (inferenceVariable != null) {
-        return Collections.singleton(inferenceVariable);
+        final HashSet<InferenceVariable> result = new HashSet<>();
+        result.add(inferenceVariable);
+        return result;
       }
       if (LambdaUtil.isFunctionalType(type)) {
         final PsiType functionType =
@@ -56,7 +60,7 @@ public abstract class InputOutputConstraintFormula implements ConstraintFormula 
         final PsiMethod interfaceMethod = LambdaUtil.getFunctionalInterfaceMethod(resolveResult);
         if (interfaceMethod != null) {
 
-          final Set<InferenceVariable> result = new HashSet<InferenceVariable>();
+          final Set<InferenceVariable> result = new HashSet<>();
           final PsiSubstitutor substitutor = LambdaUtil.getSubstitutor(interfaceMethod, resolveResult);
           if (psiExpression instanceof PsiLambdaExpression && !((PsiLambdaExpression)psiExpression).hasFormalParameterTypes() || 
               psiExpression instanceof PsiMethodReferenceExpression && !((PsiMethodReferenceExpression)psiExpression).isExact()) {
@@ -94,14 +98,23 @@ public abstract class InputOutputConstraintFormula implements ConstraintFormula 
         return thenResult;
       }
     }
+
+    if (psiExpression instanceof PsiSwitchExpression) {
+      Set<InferenceVariable> variables =
+        PsiUtil.getSwitchResultExpressions((PsiSwitchExpression)psiExpression).stream().flatMap(expression -> {
+          Set<InferenceVariable> inputVariables = createSelfConstraint(type, expression).getInputVariables(session);
+          return inputVariables != null ? inputVariables.stream() : Stream.empty();
+        }).collect(Collectors.toSet());
+      return variables.isEmpty() ? null : variables;
+    }
     return null;
   }
 
 
   @Nullable
   public Set<InferenceVariable> getOutputVariables(Set<InferenceVariable> inputVariables, InferenceSession session) {
-    final HashSet<InferenceVariable> mentionedVariables = new HashSet<InferenceVariable>();
-    session.collectDependencies(getT(), mentionedVariables);
+    final HashSet<InferenceVariable> mentionedVariables = new HashSet<>();
+    session.collectDependencies(myT, mentionedVariables);
     if (inputVariables != null) {
       mentionedVariables.removeAll(inputVariables);
     }
@@ -110,14 +123,15 @@ public abstract class InputOutputConstraintFormula implements ConstraintFormula 
 
   @Override
   public void apply(PsiSubstitutor substitutor, boolean cache) {
-    setT(substitutor.substitute(getT()));
-    if (cache) {
-      LambdaUtil.getFunctionalTypeMap().put(getExpression(), getT());
-    }
+    myT = substitutor.substitute(myT);
+  }
+
+  public PsiType getCurrentType() {
+    return myT;
   }
 
   @Override
   public String toString() {
-    return getExpression().getText() + " -> " + getT().getPresentableText();
+    return getExpression().getText() + " -> " + myT.getPresentableText();
   }
 }

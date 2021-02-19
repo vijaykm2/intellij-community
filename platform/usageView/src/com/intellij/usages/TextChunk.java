@@ -17,6 +17,7 @@ package com.intellij.usages;
 
 import com.intellij.openapi.editor.markup.AttributesFlyweight;
 import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.usages.impl.rules.UsageType;
 import org.jetbrains.annotations.NotNull;
@@ -45,15 +46,17 @@ public class TextChunk {
   }
 
   @NotNull
-  public String getText() {
+  public @NlsSafe String getText() {
     return myText;
   }
 
+  @Override
   public String toString() {
     return getText();
   }
 
-  public @Nullable UsageType getType() {
+  @Nullable
+  public UsageType getType() {
     return myType;
   }
 

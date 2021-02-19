@@ -1,22 +1,6 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.frame;
 
-import com.intellij.debugger.ui.DebuggerContentInfo;
-import com.intellij.execution.ui.layout.impl.RunnerContentUi;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.dnd.DnDEvent;
 import com.intellij.ide.dnd.DnDManager;
@@ -24,35 +8,39 @@ import com.intellij.ide.dnd.DnDNativeTarget;
 import com.intellij.openapi.CompositeDisposable;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.EmptyRunnable;
-import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.ui.*;
 import com.intellij.ui.border.CustomLineBorder;
 import com.intellij.util.Alarm;
+import com.intellij.util.SmartList;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.tree.TreeUtil;
 import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XDebuggerBundle;
+import com.intellij.xdebugger.XDebuggerManager;
 import com.intellij.xdebugger.XExpression;
 import com.intellij.xdebugger.frame.XStackFrame;
 import com.intellij.xdebugger.impl.XDebugSessionImpl;
+import com.intellij.xdebugger.impl.XDebuggerManagerImpl;
+import com.intellij.xdebugger.impl.XDebuggerWatchesManager;
 import com.intellij.xdebugger.impl.actions.XDebuggerActions;
 import com.intellij.xdebugger.impl.breakpoints.XExpressionImpl;
-import com.intellij.xdebugger.impl.frame.actions.XWatchesTreeActionBase;
-import com.intellij.xdebugger.impl.ui.XDebugSessionData;
-import com.intellij.xdebugger.impl.ui.XDebugSessionTab;
+import com.intellij.xdebugger.impl.inline.InlineWatch;
+import com.intellij.xdebugger.impl.inline.InlineWatchNode;
+import com.intellij.xdebugger.impl.inline.InlineWatchesRootNode;
+import com.intellij.xdebugger.impl.inline.XInlineWatchesView;
+import com.intellij.xdebugger.impl.ui.*;
 import com.intellij.xdebugger.impl.ui.tree.XDebuggerTree;
-import com.intellij.xdebugger.impl.ui.tree.XDebuggerTreePanel;
-import com.intellij.xdebugger.impl.ui.tree.XDebuggerTreeRestorer;
-import com.intellij.xdebugger.impl.ui.tree.XDebuggerTreeState;
 import com.intellij.xdebugger.impl.ui.tree.actions.XWatchTransferable;
-import com.intellij.xdebugger.impl.ui.tree.nodes.WatchNode;
-import com.intellij.xdebugger.impl.ui.tree.nodes.WatchesRootNode;
-import com.intellij.xdebugger.impl.ui.tree.nodes.XDebuggerTreeNode;
-import com.intellij.xdebugger.impl.ui.tree.nodes.XValueNodeImpl;
+import com.intellij.xdebugger.impl.ui.tree.nodes.*;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -60,43 +48,48 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.event.TreeSelectionEvent;
 import javax.swing.event.TreeSelectionListener;
+import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.event.*;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 
-/**
- * @author nik
- */
-public class XWatchesViewImpl extends XDebugView implements DnDNativeTarget, XWatchesView {
-  private final XDebuggerTreePanel myTreePanel;
-  private XDebuggerTreeState myTreeState;
-  private XDebuggerTreeRestorer myTreeRestorer;
-  private final WatchesRootNode myRootNode;
-  private final JPanel myDecoratedPanel;
+public class XWatchesViewImpl extends XVariablesView implements DnDNativeTarget, XWatchesView, XInlineWatchesView {
+  protected WatchesRootNode myRootNode;
+  private XDebuggerExpressionComboBox myEvaluateComboBox;
+
   private final CompositeDisposable myDisposables = new CompositeDisposable();
-  private boolean myRebuildNeeded;
+  private final boolean myWatchesInVariables;
+  private final boolean inlineWatchesEnabled;
 
-  public XWatchesViewImpl(@NotNull XDebugSessionImpl session) {
-    myTreePanel = new XDebuggerTreePanel(session.getProject(), session.getDebugProcess().getEditorsProvider(), this, null,
-                                         XDebuggerActions.WATCHES_TREE_POPUP_GROUP, session.getValueMarkers());
+  public XWatchesViewImpl(@NotNull XDebugSessionImpl session, boolean watchesInVariables) {
+    this(session, watchesInVariables, watchesInVariables);
+  }
 
-    ActionManager actionManager = ActionManager.getInstance();
+  protected XWatchesViewImpl(@NotNull XDebugSessionImpl session, boolean watchesInVariables, boolean vertical) {
+    this(session, watchesInVariables, vertical, true);
+  }
 
-    XDebuggerTree tree = myTreePanel.getTree();
-    actionManager.getAction(XDebuggerActions.XNEW_WATCH).registerCustomShortcutSet(CommonShortcuts.INSERT, tree, myDisposables);
-    actionManager.getAction(XDebuggerActions.XREMOVE_WATCH).registerCustomShortcutSet(CommonShortcuts.getDelete(), tree, myDisposables);
+  public XWatchesViewImpl(@NotNull XDebugSessionImpl session, boolean watchesInVariables, boolean vertical, boolean withToolbar) {
+    super(session);
+    myWatchesInVariables = watchesInVariables;
+    inlineWatchesEnabled = Registry.is("debugger.watches.inline.enabled");
 
-    CustomShortcutSet f2Shortcut = new CustomShortcutSet(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0));
-    actionManager.getAction(XDebuggerActions.XEDIT_WATCH).registerCustomShortcutSet(f2Shortcut, tree);
+    XDebuggerTree tree = getTree();
+    createNewRootNode(null);
 
-    AnAction copyAction = actionManager.getAction(XDebuggerActions.XCOPY_WATCH);
-    copyAction.registerCustomShortcutSet(ActionManager.getInstance().getAction(IdeActions.ACTION_EDITOR_DUPLICATE).getShortcutSet(), tree);
+    DebuggerUIUtil.registerActionOnComponent(XDebuggerActions.XNEW_WATCH, tree, myDisposables);
+    DebuggerUIUtil.registerActionOnComponent(XDebuggerActions.XREMOVE_WATCH, tree, myDisposables);
+    DebuggerUIUtil.registerActionOnComponent(XDebuggerActions.XCOPY_WATCH, tree, myDisposables);
+    DebuggerUIUtil.registerActionOnComponent(XDebuggerActions.XEDIT_WATCH, tree, myDisposables);
+
+    EmptyAction.registerWithShortcutSet(XDebuggerActions.XNEW_WATCH, CommonShortcuts.getNew(), tree);
+    EmptyAction.registerWithShortcutSet(XDebuggerActions.XREMOVE_WATCH, CommonShortcuts.getDelete(), tree);
 
     DnDManager.getInstance().registerTarget(this, tree);
-    myRootNode = new WatchesRootNode(tree, this, session.getSessionData().getWatchExpressions());
-    tree.setRoot(myRootNode, false);
 
     new AnAction() {
       @Override
@@ -112,68 +105,65 @@ public class XWatchesViewImpl extends XDebugView implements DnDNativeTarget, XWa
       }
     }.registerCustomShortcutSet(CommonShortcuts.getPaste(), tree, myDisposables);
 
-    final ToolbarDecorator decorator = ToolbarDecorator.createDecorator(myTreePanel.getTree()).disableUpDownActions();
-    decorator.setAddAction(new AnActionButtonRunnable() {
-      @Override
-      public void run(AnActionButton button) {
-        executeAction(XDebuggerActions.XNEW_WATCH);
-      }
-    });
-    decorator.setRemoveAction(new AnActionButtonRunnable() {
-      @Override
-      public void run(AnActionButton button) {
-        executeAction(XDebuggerActions.XREMOVE_WATCH);
-      }
-    });
-    decorator.addExtraAction(AnActionButton.fromAction(copyAction));
-    decorator.setMoveUpAction(new AnActionButtonRunnable() {
-      @Override
-      public void run(AnActionButton button) {
-        List<? extends WatchNode> nodes = XWatchesTreeActionBase.getSelectedNodes(getTree(), WatchNode.class);
-        assert nodes.size() == 1;
-        myRootNode.moveUp(nodes.get(0));
-        updateSessionData();
-      }
-    });
-    decorator.setMoveUpActionUpdater(new AnActionButtonUpdater() {
-      @Override
-      public boolean isEnabled(AnActionEvent e) {
-        List<? extends WatchNode> nodes = XWatchesTreeActionBase.getSelectedNodes(getTree(), WatchNode.class);
-        if (nodes.size() != 1) return false;
-        return myRootNode.getIndex(nodes.get(0)) > 0;
-      }
-    });
-    decorator.setMoveDownAction(new AnActionButtonRunnable() {
-      @Override
-      public void run(AnActionButton button) {
-        List<? extends WatchNode> nodes = XWatchesTreeActionBase.getSelectedNodes(getTree(), WatchNode.class);
-        assert nodes.size() == 1;
-        myRootNode.moveDown(nodes.get(0));
-        updateSessionData();
-      }
-    });
-    decorator.setMoveDownActionUpdater(new AnActionButtonUpdater() {
-      @Override
-      public boolean isEnabled(AnActionEvent e) {
-        List<? extends WatchNode> nodes = XWatchesTreeActionBase.getSelectedNodes(getTree(), WatchNode.class);
-        if (nodes.size() != 1) return false;
-        return myRootNode.getIndex(nodes.get(0)) < myRootNode.getChildCount() - 1;
-      }
-    });
-    CustomLineBorder border = new CustomLineBorder(CaptionPanel.CNT_ACTIVE_BORDER_COLOR,
-                                                   SystemInfo.isMac ? 1 : 0, 0,
-                                                   SystemInfo.isMac ? 0 : 1, 0);
-    decorator.setToolbarBorder(border);
-    myDecoratedPanel = new MyPanel(decorator.createPanel());
-    myDecoratedPanel.setBorder(null);
+    if (withToolbar) {
+      ActionToolbarImpl toolbar = (ActionToolbarImpl)ActionManager.getInstance().createActionToolbar(
+        ActionPlaces.DEBUGGER_TOOLBAR,
+        DebuggerSessionTabBase.getCustomizedActionGroup(XDebuggerActions.WATCHES_TREE_TOOLBAR_GROUP),
+        !vertical);
+      toolbar.setBorder(new CustomLineBorder(CaptionPanel.CNT_ACTIVE_BORDER_COLOR, 0, 0,
+                                             vertical ? 0 : 1,
+                                             vertical ? 1 : 0));
+      toolbar.setTargetComponent(tree);
+      getPanel().add(toolbar.getComponent(), vertical ? BorderLayout.WEST : BorderLayout.NORTH);
+    }
 
-    myTreePanel.getTree().getEmptyText().setText(XDebuggerBundle.message("debugger.no.watches"));
-
+    if (!myWatchesInVariables) {
+      getTree().getEmptyText().setText(XDebuggerBundle.message("debugger.no.watches"));
+    }
     installEditListeners();
   }
 
+  @Override
+  JComponent createTopPanel() {
+    if (Registry.is("debugger.new.tool.window.layout")) {
+      XDebuggerTree tree = getTree();
+      myEvaluateComboBox =
+        new XDebuggerExpressionComboBox(tree.getProject(), tree.getEditorsProvider(), "evaluateInVariables", null, false, true) {
+          @Override
+          protected void prepareEditor(EditorEx editor) {
+            super.prepareEditor(editor);
+            editor.setPlaceholder(XDebuggerBundle.message("debugger.evaluate.expression.or.add.a.watch.hint"));
+          }
+        };
+      final JComponent editorComponent = myEvaluateComboBox.getEditorComponent();
+      editorComponent.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
+        .put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "enterStroke");
+      editorComponent.getActionMap().put("enterStroke", new AbstractAction() {
+        @Override
+        public void actionPerformed(ActionEvent e) {
+          myEvaluateComboBox.saveTextInHistory();
+          XDebugSession session = getSession(getTree());
+          myRootNode.addResultNode(session != null ? session.getCurrentStackFrame() : null, myEvaluateComboBox.getExpression());
+        }
+      });
+      JComponent component = myEvaluateComboBox.getComponent();
+      //component.setBackground(tree.getBackground());
+      component.setBorder(JBUI.Borders.customLine(JBColor.border(), 0, 0, 1, 0));
+      return component;
+    }
+    return null;
+  }
+
+  @Override
+  protected void buildTreeAndRestoreState(@NotNull XStackFrame stackFrame) {
+    super.buildTreeAndRestoreState(stackFrame);
+    if (myEvaluateComboBox != null) {
+      myEvaluateComboBox.setSourcePosition(stackFrame.getSourcePosition());
+    }
+  }
+
   private void installEditListeners() {
-    final XDebuggerTree watchTree = myTreePanel.getTree();
+    final XDebuggerTree watchTree = getTree();
     final Alarm quitePeriod = new Alarm();
     final Alarm editAlarm = new Alarm();
     final ClickListener mouseListener = new ClickListener() {
@@ -183,7 +173,7 @@ public class XWatchesViewImpl extends XDebugView implements DnDNativeTarget, XWa
             ((event.getModifiers() & (InputEvent.SHIFT_MASK | InputEvent.ALT_MASK | InputEvent.CTRL_MASK | InputEvent.META_MASK)) !=0) ) {
           return false;
         }
-        boolean sameRow = isAboveSelectedItem(event, watchTree);
+        boolean sameRow = isAboveSelectedItem(event, watchTree, false);
         if (!sameRow || clickCount > 1) {
           editAlarm.cancelAllRequests();
           return false;
@@ -192,12 +182,7 @@ public class XWatchesViewImpl extends XDebugView implements DnDNativeTarget, XWa
         Presentation presentation = editWatchAction.getTemplatePresentation().clone();
         DataContext context = DataManager.getInstance().getDataContext(watchTree);
         final AnActionEvent actionEvent = new AnActionEvent(null, context, "WATCH_TREE", presentation, ActionManager.getInstance(), 0);
-        Runnable runnable = new Runnable() {
-          @Override
-          public void run() {
-            editWatchAction.actionPerformed(actionEvent);
-          }
-        };
+        Runnable runnable = () -> editWatchAction.actionPerformed(actionEvent);
         if (editAlarm.isEmpty() && quitePeriod.isEmpty()) {
           editAlarm.addRequest(runnable, UIUtil.getMultiClickInterval());
         } else {
@@ -208,8 +193,8 @@ public class XWatchesViewImpl extends XDebugView implements DnDNativeTarget, XWa
     };
     final ClickListener mouseEmptySpaceListener = new DoubleClickListener() {
       @Override
-      protected boolean onDoubleClick(MouseEvent event) {
-        if (!isAboveSelectedItem(event, watchTree)) {
+      protected boolean onDoubleClick(@NotNull MouseEvent event) {
+        if (!isAboveSelectedItem(event, watchTree, true)) {
           myRootNode.addNewWatch();
           return true;
         }
@@ -253,12 +238,16 @@ public class XWatchesViewImpl extends XDebugView implements DnDNativeTarget, XWa
   @Override
   public void dispose() {
     Disposer.dispose(myDisposables);
-    DnDManager.getInstance().unregisterTarget(this, myTreePanel.getTree());
+    DnDManager.getInstance().unregisterTarget(this, getTree());
+    super.dispose();
   }
 
-  private static boolean isAboveSelectedItem(MouseEvent event, XDebuggerTree watchTree) {
+  private static boolean isAboveSelectedItem(MouseEvent event, XDebuggerTree watchTree, boolean fullWidth) {
     Rectangle bounds = watchTree.getRowBounds(watchTree.getLeadSelectionRow());
     if (bounds != null) {
+      if (fullWidth) {
+        bounds.x = 0;
+      }
       bounds.width = watchTree.getWidth();
       if (bounds.contains(event.getPoint())) {
         return true;
@@ -267,138 +256,206 @@ public class XWatchesViewImpl extends XDebugView implements DnDNativeTarget, XWa
     return false;
   }
 
-  private void executeAction(@NotNull String watch) {
-    AnAction action = ActionManager.getInstance().getAction(watch);
-    Presentation presentation = action.getTemplatePresentation().clone();
-    DataContext context = DataManager.getInstance().getDataContext(myTreePanel.getTree());
-
-    AnActionEvent actionEvent =
-      new AnActionEvent(null, context, ActionPlaces.DEBUGGER_TOOLBAR, presentation, ActionManager.getInstance(), 0);
-    action.actionPerformed(actionEvent);
-  }
-
   @Override
   public void addWatchExpression(@NotNull XExpression expression, int index, final boolean navigateToWatchNode) {
-    XDebugSession session = getSession(getTree());
-    myRootNode.addWatchExpression(session != null ? session.getDebugProcess().getEvaluator() : null, expression, index, navigateToWatchNode);
-    updateSessionData();
-    if (navigateToWatchNode && session != null) {
-      showWatchesTab((XDebugSessionImpl)session);
-    }
+    addWatchExpression(expression, index, navigateToWatchNode, false);
   }
 
-  private static void showWatchesTab(@NotNull XDebugSessionImpl session) {
-    XDebugSessionTab tab = session.getSessionTab();
-    if (tab != null) {
-      tab.toFront(false, null);
-      // restore watches tab if minimized
-      JComponent component = tab.getUi().getComponent();
-      if (component instanceof DataProvider) {
-        RunnerContentUi ui = RunnerContentUi.KEY.getData(((DataProvider)component));
-        if (ui != null) {
-          ui.restoreContent(DebuggerContentInfo.WATCHES_CONTENT);
+  public void addWatchExpression(@NotNull XExpression expression, int index, final boolean navigateToWatchNode, boolean noDuplicates) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    XDebugSession session = getSession(getTree());
+    boolean found = false;
+    if (noDuplicates) {
+      for (WatchNode child : myRootNode.getWatchChildren()) {
+        if (child.getExpression().equals(expression)) {
+          TreeUtil.selectNode(getTree(), child);
+          found = true;
         }
       }
     }
+    if (!found) {
+      myRootNode.addWatchExpression(session != null ? session.getCurrentStackFrame() : null, expression, index, navigateToWatchNode);
+      updateSessionData();
+    }
+    if (navigateToWatchNode && session != null) {
+      XDebugSessionTab.showWatchesView((XDebugSessionImpl)session);
+    }
   }
 
-  public boolean rebuildNeeded() {
-    return myRebuildNeeded;
-  }
-
-  @Override
-  public void processSessionEvent(@NotNull final SessionEvent event) {
-    if (getMainPanel().isShowing() || ApplicationManager.getApplication().isUnitTestMode()) {
-      myRebuildNeeded = false;
-    }
-    else {
-      myRebuildNeeded = true;
-      return;
-    }
-
-    XDebuggerTree tree = myTreePanel.getTree();
-
-    if (event == SessionEvent.BEFORE_RESUME || event == SessionEvent.SETTINGS_CHANGED) {
-      if (myTreeRestorer != null) {
-        myTreeRestorer.dispose();
-      }
-      myTreeState = XDebuggerTreeState.saveState(tree);
-      if (event == SessionEvent.BEFORE_RESUME) {
-        return;
-      }
-    }
-
-    XDebugSession session = getSession(getMainPanel());
-    XStackFrame stackFrame = session == null ? null : session.getCurrentStackFrame();
-    if (stackFrame != null) {
-      cancelClear();
-      tree.setSourcePosition(stackFrame.getSourcePosition());
-      myRootNode.updateWatches(stackFrame.getEvaluator());
-      if (myTreeState != null) {
-        myTreeRestorer = myTreeState.restoreState(tree);
-      }
-    }
-    else {
-      requestClear();
-    }
+  public void computeWatches() {
+    myRootNode.computeWatches();
   }
 
   @Override
-  protected void clear() {
-    getTree().setSourcePosition(null);
-    myRootNode.updateWatches(null);
+  protected XValueContainerNode doCreateNewRootNode(@Nullable XStackFrame stackFrame) {
+    if (inlineWatchesEnabled) {
+      myRootNode = new InlineWatchesRootNode(getTree(), this, getExpressions(), getInlineExpressions(), stackFrame, myWatchesInVariables);
+    } else {
+      myRootNode = new WatchesRootNode(getTree(), this, getExpressions(), stackFrame, myWatchesInVariables);
+    }
+    return myRootNode;
   }
 
-  public XDebuggerTree getTree() {
-    return myTreePanel.getTree();
+  @NotNull
+  private List<InlineWatch> getInlineExpressions() {
+    return getWatchesManager().getInlineWatches();
   }
 
-  public JPanel getMainPanel() {
-    return myDecoratedPanel;
+  private XDebuggerWatchesManager getWatchesManager() {
+    return ((XDebuggerManagerImpl)XDebuggerManager.getInstance(getTree().getProject()))
+      .getWatchesManager();
+  }
+
+  @Override
+  public void addInlineWatchExpression(@NotNull InlineWatch watch, int index, boolean navigateToWatchNode) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    XDebugSession session = getSession(getTree());
+
+    ((InlineWatchesRootNode)myRootNode).addInlineWatchExpression(session != null ? session.getCurrentStackFrame() : null, watch, index, navigateToWatchNode);
+
+    if (navigateToWatchNode && session != null) {
+      XDebugSessionTab.showWatchesView((XDebugSessionImpl)session);
+    }
+  }
+
+  @Override
+  public void removeInlineWatches(Collection<InlineWatch> watches) {
+    InlineWatchesRootNode rootNode = (InlineWatchesRootNode)myRootNode;
+    @SuppressWarnings("unchecked")
+    List<? extends XDebuggerTreeNode> nodesToRemove =
+      (List<? extends XDebuggerTreeNode>)ContainerUtil.filter(rootNode.getInlineWatchChildren(), node -> watches.contains(node.getWatch()));
+
+    if (!nodesToRemove.isEmpty()) {
+      removeInlineNodes(nodesToRemove, false);
+    }
+  }
+
+
+  private void removeInlineNodes(List<? extends XDebuggerTreeNode> inlineWatches, boolean updateManager) {
+    InlineWatchesRootNode rootNode = (InlineWatchesRootNode)myRootNode;
+    List<? extends InlineWatchNode> inlineWatchChildren = rootNode.getInlineWatchChildren();
+    final int[] minIndex = {Integer.MAX_VALUE};
+    List<InlineWatchNode> toRemoveInlines = new ArrayList<>();
+    inlineWatches.forEach((node) -> {
+      int index = inlineWatchChildren.indexOf(node);
+      if (index != -1) {
+        toRemoveInlines.add((InlineWatchNode)node);
+        minIndex[0] = Math.min(minIndex[0], index);
+      }
+    });
+
+    rootNode.removeInlineChildren(toRemoveInlines);
+
+    List<? extends InlineWatchNode> newChildren = rootNode.getInlineWatchChildren();
+    if (!newChildren.isEmpty()) {
+      InlineWatchNode node = newChildren.get(Math.min(minIndex[0], newChildren.size() - 1));
+      TreeUtil.selectNode(getTree(), node);
+    }
+    if (updateManager) {
+      getWatchesManager().inlineWatchesRemoved(ContainerUtil.map(toRemoveInlines, node -> node.getWatch()), this);
+    }
+  }
+
+  @Override
+  protected void addEmptyMessage(XValueContainerNode root) {
+    if (myWatchesInVariables) {
+      super.addEmptyMessage(root);
+    }
+  }
+
+  @NotNull
+  protected List<XExpression> getExpressions() {
+    XDebuggerTree tree = getTree();
+    XDebugSession session = getSession(tree);
+    List<XExpression> expressions;
+    if (session != null) {
+      expressions = ((XDebugSessionImpl)session).getSessionData().getWatchExpressions();
+    }
+    else {
+      XDebuggerTreeNode root = tree.getRoot();
+      List<? extends WatchNode> current = root instanceof WatchesRootNode
+                                          ? ((WatchesRootNode)tree.getRoot()).getWatchChildren() : Collections.emptyList();
+      List<XExpression> list = new SmartList<>();
+      for (WatchNode child : current) {
+        list.add(child.getExpression());
+      }
+      expressions = list;
+    }
+    return expressions;
+  }
+
+  @Nullable
+  @Override
+  public Object getData(@NotNull @NonNls String dataId) {
+    if (XWatchesView.DATA_KEY.is(dataId)) {
+      return this;
+    }
+    return super.getData(dataId);
   }
 
   @Override
   public void removeWatches(List<? extends XDebuggerTreeNode> nodes) {
-    List<? extends WatchNode> children = myRootNode.getAllChildren();
+    ApplicationManager.getApplication().assertIsDispatchThread();
+
+    List<? extends XDebuggerTreeNode> ordinaryWatches = ContainerUtil.filter(nodes, node -> !(node instanceof InlineWatchNode));
+    List<? extends XDebuggerTreeNode> inlineWatches = ContainerUtil.filter(nodes, node -> node instanceof InlineWatchNode);
+    if (!inlineWatches.isEmpty()) {
+      removeInlineNodes(inlineWatches, true);
+    }
+    if (ordinaryWatches.isEmpty()) return;
+
+    List<? extends WatchNode> children = myRootNode.getWatchChildren();
     int minIndex = Integer.MAX_VALUE;
-    List<XDebuggerTreeNode> toRemove = new ArrayList<XDebuggerTreeNode>();
-    if (children != null) {
-      for (XDebuggerTreeNode node : nodes) {
-        @SuppressWarnings("SuspiciousMethodCalls")
-        int index = children.indexOf(node);
-        if (index != -1) {
-          toRemove.add(node);
-          minIndex = Math.min(minIndex, index);
-        }
+    List<XDebuggerTreeNode> toRemove = new ArrayList<>();
+    for (XDebuggerTreeNode node : ordinaryWatches) {
+      @SuppressWarnings("SuspiciousMethodCalls")
+      int index = children.indexOf(node);
+      if (index != -1) {
+        toRemove.add(node);
+        minIndex = Math.min(minIndex, index);
       }
     }
     myRootNode.removeChildren(toRemove);
 
-    List<? extends WatchNode> newChildren = myRootNode.getAllChildren();
-    if (newChildren != null && !newChildren.isEmpty()) {
-      WatchNode node = minIndex < newChildren.size() ? newChildren.get(minIndex) : newChildren.get(newChildren.size() - 1);
-      TreeUtil.selectNode(myTreePanel.getTree(), node);
+    List<? extends WatchNode> newChildren = myRootNode.getWatchChildren();
+    if (!newChildren.isEmpty()) {
+      WatchNode node = newChildren.get(Math.min(minIndex, newChildren.size() - 1));
+      TreeUtil.selectNode(getTree(), node);
     }
     updateSessionData();
   }
 
   @Override
   public void removeAllWatches() {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    if (inlineWatchesEnabled) {
+      List<? extends InlineWatchNode> children = ((InlineWatchesRootNode)myRootNode).getInlineWatchChildren();
+      if (!children.isEmpty()) {
+        //noinspection unchecked
+        removeInlineNodes((List<? extends XDebuggerTreeNode>)children, true);
+      }
+    }
     myRootNode.removeAllChildren();
     updateSessionData();
   }
 
-  public void updateSessionData() {
-    List<XExpression> watchExpressions = new ArrayList<XExpression>();
-    final List<? extends WatchNode> children = myRootNode.getAllChildren();
-    if (children != null) {
-      for (WatchNode child : children) {
-        watchExpressions.add(child.getExpression());
-      }
-    }
+  public void moveWatchUp(WatchNode node) {
+    myRootNode.moveUp(node);
+    updateSessionData();
+  }
 
+  public void moveWatchDown(WatchNode node) {
+    myRootNode.moveDown(node);
+    updateSessionData();
+  }
+
+  public void updateSessionData() {
+    List<XExpression> expressions = new SmartList<>();
+    List<? extends WatchNode> children = myRootNode.getWatchChildren();
+    for (WatchNode child : children) {
+      expressions.add(child.getExpression());
+    }
     XDebugSession session = getSession(getTree());
-    XExpression[] expressions = watchExpressions.toArray(new XExpression[watchExpressions.size()]);
     if (session != null) {
       ((XDebugSessionImpl)session).setWatchExpressions(expressions);
     }
@@ -416,6 +473,17 @@ public class XWatchesViewImpl extends XDebugView implements DnDNativeTarget, XWa
     boolean possible = false;
     if (object instanceof XValueNodeImpl[]) {
       possible = true;
+      // do not add new watch if node is dragged to itself
+      if (((XValueNodeImpl[])object).length == 1) {
+        Point point = aEvent.getPoint();
+        XDebuggerTree tree = getTree();
+        TreePath path = tree.getClosestPathForLocation(point.x, point.y);
+        if (path != null && path.getLastPathComponent() == ((XValueNodeImpl[])object)[0]) {
+          // the same item is under pointer, filter out place below the tree
+          Rectangle pathBounds = tree.getPathBounds(path);
+          possible = pathBounds != null && pathBounds.y + pathBounds.height < point.y;
+        }
+      }
     }
     else if (object instanceof EventInfo) {
       possible = ((EventInfo)object).getTextForFlavor(DataFlavor.stringFlavor) != null;
@@ -430,46 +498,15 @@ public class XWatchesViewImpl extends XDebugView implements DnDNativeTarget, XWa
   public void drop(DnDEvent aEvent) {
     Object object = aEvent.getAttachedObject();
     if (object instanceof XValueNodeImpl[]) {
-      final XValueNodeImpl[] nodes = (XValueNodeImpl[])object;
-      for (XValueNodeImpl node : nodes) {
-        String expression = node.getValueContainer().getEvaluationExpression();
-        if (expression != null) {
-          //noinspection ConstantConditions
-          addWatchExpression(XExpressionImpl.fromText(expression), -1, false);
-        }
+      for (XValueNodeImpl node : (XValueNodeImpl[])object) {
+        DebuggerUIUtil.addToWatches(this, node);
       }
     }
     else if (object instanceof EventInfo) {
       String text = ((EventInfo)object).getTextForFlavor(DataFlavor.stringFlavor);
       if (text != null) {
-        //noinspection ConstantConditions
         addWatchExpression(XExpressionImpl.fromText(text), -1, false);
       }
-    }
-  }
-
-  @Override
-  public void cleanUpOnLeave() {
-  }
-
-  @Override
-  public void updateDraggedImage(final Image image, final Point dropPoint, final Point imageOffset) {
-  }
-
-  private class MyPanel extends JPanel implements DataProvider {
-    public MyPanel(JPanel panel) {
-      setLayout(new BorderLayout());
-      add(panel);
-      panel.setBorder(null);
-    }
-
-    @Nullable
-    @Override
-    public Object getData(@NonNls String dataId) {
-      if (XWatchesView.DATA_KEY.is(dataId)) {
-        return XWatchesViewImpl.this;
-      }
-      return null;
     }
   }
 }

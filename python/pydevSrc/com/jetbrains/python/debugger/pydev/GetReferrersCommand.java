@@ -1,27 +1,26 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger.pydev;
 
+import com.intellij.util.io.URLUtil;
 import com.jetbrains.python.debugger.PyDebugValue;
 import com.jetbrains.python.debugger.PyDebuggerException;
 import com.jetbrains.python.debugger.PyReferringObjectsValue;
 
 import java.util.List;
 
-/**
- * @author traff
- */
 public class GetReferrersCommand extends RunCustomOperationCommand<List<PyDebugValue>> {
 
   public GetReferrersCommand(RemoteDebugger target, String threadId, String frameId, PyReferringObjectsValue value) {
-    super(target, createVariableLocator(threadId, frameId, value), "from pydevd_referrers import get_referrer_info",
+    super(target, createVariableLocator(threadId, frameId, value), "from _pydevd_bundle.pydevd_referrers import get_referrer_info",
           "get_referrer_info");
   }
 
   @Override
   protected ResponseProcessor<List<PyDebugValue>> createResponseProcessor() {
-    return new ResponseProcessor<List<PyDebugValue>>() {
+    return new ResponseProcessor<>() {
       @Override
       protected List<PyDebugValue> parseResponse(ProtocolFrame response) throws PyDebuggerException {
-        return ProtocolParser.parseReferrers(decode(response.getPayload()), getDebugger().getDebugProcess());
+        return ProtocolParser.parseReferrers(URLUtil.decode(response.getPayload()), getDebugger().getDebugProcess());
       }
     };
   }

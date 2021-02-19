@@ -16,9 +16,9 @@
 package org.jetbrains.plugins.groovy.codeInspection.bugs;
 
 import com.intellij.psi.PsiElement;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.utils.ControlFlowUtils;
@@ -32,29 +32,10 @@ import org.jetbrains.plugins.groovy.lang.psi.api.types.GrCodeReferenceElement;
 public class GroovyResultOfObjectAllocationIgnoredInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return PROBABLE_BUGS;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Result of object allocation ignored";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "Result of <code>new #ref" + (args[0].equals(new Integer(0)) ? "()" : "[]") + "</code> is ignored #loc";
+    return GroovyBundle.message("inspection.message.result.of.new.ref.is.ignored", args[0].equals(0) ? "()" : "[]");
 
-  }
-
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
   }
 
   @NotNull
@@ -66,7 +47,7 @@ public class GroovyResultOfObjectAllocationIgnoredInspection extends BaseInspect
   private static class Visitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitNewExpression(GrNewExpression newExpression) {
+    public void visitNewExpression(@NotNull GrNewExpression newExpression) {
       super.visitNewExpression(newExpression);
       final GrCodeReferenceElement refElement = newExpression.getReferenceElement();
       if (refElement == null) return;      //new expression is not correct so we shouldn't check it

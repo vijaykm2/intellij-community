@@ -1,19 +1,17 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger.pydev;
 
-import com.google.common.collect.Lists;
 import com.jetbrains.python.console.pydev.PydevCompletionVariant;
 import com.jetbrains.python.debugger.PyDebuggerException;
 import com.jetbrains.python.debugger.PydevXmlUtils;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author traff
- */
 public class GetCompletionsCommand extends AbstractFrameCommand {
 
-  private String myActionToken;
+  private final String myActionToken;
   private List<PydevCompletionVariant> myCompletions = null;
 
   public GetCompletionsCommand(final RemoteDebugger debugger,
@@ -31,7 +29,12 @@ public class GetCompletionsCommand extends AbstractFrameCommand {
   }
 
   @Override
-  protected void processResponse(ProtocolFrame response) throws PyDebuggerException {
+  protected long getResponseTimeout() {
+    return RemoteDebugger.SHORT_TIMEOUT;
+  }
+
+  @Override
+  protected void processResponse(@NotNull ProtocolFrame response) throws PyDebuggerException {
     super.processResponse(response);
     try {
       myCompletions = PydevXmlUtils.xmlToCompletions(response.getPayload(), myActionToken);
@@ -54,7 +57,7 @@ public class GetCompletionsCommand extends AbstractFrameCommand {
       return myCompletions;
     }
     else {
-      return Lists.newArrayList();
+      return new ArrayList<>();
     }
   }
 }

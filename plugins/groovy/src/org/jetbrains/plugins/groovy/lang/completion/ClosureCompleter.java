@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.completion;
 
 import com.intellij.codeInsight.CodeInsightUtilCore;
@@ -29,7 +15,7 @@ import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.impl.compiled.ClsMethodImpl;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.completion.closureParameters.ClosureParameterInfo;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
@@ -39,8 +25,9 @@ import org.jetbrains.plugins.groovy.lang.psi.api.types.GrTypeElement;
 import org.jetbrains.plugins.groovy.lang.psi.expectedTypes.SupertypeConstraint;
 import org.jetbrains.plugins.groovy.lang.psi.expectedTypes.TypeConstraint;
 import org.jetbrains.plugins.groovy.template.expressions.ChooseTypeExpression;
-import org.jetbrains.plugins.groovy.template.expressions.ParameterNameExpression;
+import org.jetbrains.plugins.groovy.template.expressions.StringParameterNameExpression;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -77,7 +64,7 @@ public abstract class ClosureCompleter {
                                             int offset,
                                             PsiSubstitutor substitutor,
                                             PsiMethod method,
-                                            final List<ClosureParameterInfo> parameters) {
+                                            final List<? extends ClosureParameterInfo> parameters) {
     document.insertString(offset, "{\n}");
     PsiDocumentManager.getInstance(context.getProject()).commitDocument(document);
     final GrClosableBlock closure =
@@ -88,7 +75,7 @@ public abstract class ClosureCompleter {
     return true;
   }
 
-  public static void runTemplate(List<ClosureParameterInfo> parameters,
+  public static void runTemplate(List<? extends ClosureParameterInfo> parameters,
                                  GrClosableBlock block,
                                  PsiSubstitutor substitutor,
                                  PsiMethod method, final Project project,
@@ -101,7 +88,7 @@ public abstract class ClosureCompleter {
     StringBuilder buffer = new StringBuilder();
     buffer.append("{");
 
-    List<PsiType> paramTypes = ContainerUtil.newArrayList();
+    List<PsiType> paramTypes = new ArrayList<>();
     for (ClosureParameterInfo parameter : parameters) {
       final String type = parameter.getType();
       final String name = parameter.getName();
@@ -144,7 +131,7 @@ public abstract class ClosureCompleter {
         builder.replaceElement(p.getModifierList(), expression);
       }
 
-      builder.replaceElement(nameIdentifier, new ParameterNameExpression(nameIdentifier.getText()));
+      builder.replaceElement(nameIdentifier, new StringParameterNameExpression(nameIdentifier.getText()));
     }
 
     final GrClosableBlock afterPostprocess = CodeInsightUtilCore.forcePsiPostprocessAndRestoreElement(templateClosure);
@@ -154,24 +141,21 @@ public abstract class ClosureCompleter {
 
     TemplateEditingListener templateListener = new TemplateEditingAdapter() {
       @Override
-      public void templateFinished(Template template, boolean brokenOff) {
-        ApplicationManager.getApplication().runWriteAction(new Runnable() {
-          @Override
-          public void run() {
-            PsiDocumentManager.getInstance(project).commitDocument(document);
-            final CaretModel caretModel = editor.getCaretModel();
-            final int offset = caretModel.getOffset();
-            GrClosableBlock block = PsiTreeUtil.findElementOfClassAtOffset(file, offset - 1, GrClosableBlock.class, false);
-            if (block != null) {
-              final PsiElement arrow = block.getArrow();
-              if (arrow != null) {
-                caretModel.moveToOffset(arrow.getTextRange().getEndOffset());
-              }
-
-              // fix space before closure lbrace
-              final TextRange range = block.getTextRange();
-              CodeStyleManager.getInstance(project).reformatRange(block.getParent(), range.getStartOffset() - 1, range.getEndOffset(), true);
+      public void templateFinished(@NotNull Template template, boolean brokenOff) {
+        ApplicationManager.getApplication().runWriteAction(() -> {
+          PsiDocumentManager.getInstance(project).commitDocument(document);
+          final CaretModel caretModel = editor.getCaretModel();
+          final int offset = caretModel.getOffset();
+          GrClosableBlock block1 = PsiTreeUtil.findElementOfClassAtOffset(file, offset - 1, GrClosableBlock.class, false);
+          if (block1 != null) {
+            final PsiElement arrow = block1.getArrow();
+            if (arrow != null) {
+              caretModel.moveToOffset(arrow.getTextRange().getEndOffset());
             }
+
+            // fix space before closure lbrace
+            final TextRange range1 = block1.getTextRange();
+            CodeStyleManager.getInstance(project).reformatRange(block1.getParent(), range1.getStartOffset() - 1, range1.getEndOffset(), true);
           }
         });
       }

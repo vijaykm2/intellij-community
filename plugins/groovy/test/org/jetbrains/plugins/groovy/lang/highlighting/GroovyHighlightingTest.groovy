@@ -1,129 +1,117 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.highlighting
 
-import com.intellij.testFramework.IdeaTestUtil
-import com.siyeh.ig.junit.JUnitAbstractTestClassNamingConventionInspection
-import com.siyeh.ig.junit.JUnitTestClassNamingConventionInspection
+import com.siyeh.ig.junit.AbstractTestClassNamingConvention
+import com.siyeh.ig.junit.TestClassNamingConvention
 import org.jetbrains.plugins.groovy.codeInspection.assignment.GroovyAssignabilityCheckInspection
-import org.jetbrains.plugins.groovy.codeInspection.confusing.GrUnusedIncDecInspection
+import org.jetbrains.plugins.groovy.codeInspection.bugs.GroovyConstructorNamedArgumentsInspection
+import org.jetbrains.plugins.groovy.codeInspection.naming.NewGroovyClassNamingConventionInspection
 import org.jetbrains.plugins.groovy.codeInspection.untypedUnresolvedAccess.GrUnresolvedAccessInspection
-import org.jetbrains.plugins.groovy.codeInspection.unusedDef.UnusedDefInspection
+import org.jetbrains.plugins.groovy.transformations.TransformationUtilKt
+
 /**
  * @author peter
  */
-public class GroovyHighlightingTest extends GrHighlightingTestBase {
+class GroovyHighlightingTest extends GrHighlightingTestBase {
 
-  public void testDuplicateClosurePrivateVariable() {
-    doTest();
+  void testDuplicateClosurePrivateVariable() {
+    doTest()
   }
 
-  public void testClosureRedefiningVariable() {
-    doTest();
+  void testClosureRedefiningVariable() {
+    doTest()
   }
 
-  public void testCircularInheritance() {
-    doTest();
+  void testCircularInheritance() {
+    TransformationUtilKt.disableAssertOnRecursion(testRootDisposable)
+    doTest()
   }
 
-  public void testEmptyTupleType() {
-    doTest();
+  void testEmptyTupleType() {
+    doTest()
   }
 
-  public void testMapDeclaration() {
-    doTest();
+  void testMapDeclaration() {
+    doTest()
   }
 
-  public void testShouldNotImplementGroovyObjectMethods() {
-    addGroovyObject();
-    myFixture.addFileToProject("Foo.groovy", "class Foo {}");
-    myFixture.testHighlighting(false, false, false, getTestName(false) + ".java");
+  void testShouldNotImplementGroovyObjectMethods() {
+    addGroovyObject()
+    myFixture.addFileToProject("Foo.groovy", "class Foo {}")
+    myFixture.testHighlighting(false, false, false, getTestName(false) + ".java")
   }
 
-  public void testJavaClassImplementingGroovyInterface() {
-    addGroovyObject();
-    myFixture.addFileToProject("Foo.groovy", "interface Foo {}");
-    myFixture.testHighlighting(false, false, false, getTestName(false) + ".java");
+  void testJavaClassImplementingGroovyInterface() {
+    addGroovyObject()
+    myFixture.addFileToProject("Foo.groovy", "interface Foo {}")
+    myFixture.testHighlighting(false, false, false, getTestName(false) + ".java")
   }
 
-  public void testDuplicateFields() {
-    doTest();
+  void testDuplicateFields() {
+    doTest()
   }
 
-  public void testNoDuplicationThroughClosureBorder() {
-    myFixture.addClass("package groovy.lang; public interface Closure {}");
-    doTest();
+  void testNoDuplicationThroughClosureBorder() {
+    myFixture.addClass("package groovy.lang; public interface Closure {}")
+    doTest()
   }
 
-  public void testRecursiveMethodTypeInference() {
-    doTest();
+  void testRecursiveMethodTypeInference() {
+    doTest()
   }
 
-  public void testSuperClassNotExists() {
+  void testSuperClassNotExists() {
     doRefTest()
   }
 
-  public void testAnonymousClassConstructor() { doTest(); }
+  void testAnonymousClassConstructor() { doTest() }
 
-  public void testAnonymousClassAbstractMethod() { doTest(); }
+  void testAnonymousClassAbstractMethod() { doTest() }
 
   //public void _testAnonymousClassStaticMethod() { doTest(); }
 
-  public void testAnonymousClassShouldImplementMethods() { doTest(); }
+  void testAnonymousClassShouldImplementMethods() { doTest() }
 
-  public void testAnonymousClassShouldImplementSubstitutedMethod() { doTest(); }
+  void testAnonymousClassShouldImplementSubstitutedMethod() { doTest() }
 
-  public void testUnresolvedLhsAssignment() { doRefTest() }
+  void testUnresolvedLhsAssignment() { doRefTest() }
 
-  public void testUnresolvedAccess() { doRefTest() }
+  void testUnresolvedAccess() { doRefTest() }
 
-  public void testBooleanProperties() { doRefTest() }
+  void testBooleanProperties() { doRefTest() }
 
-  public void testDuplicateInnerClass() { doTest(); }
+  void testDuplicateInnerClass() { doTest() }
 
-  public void testThisInStaticContext() { doTest(); }
+  void testThisInStaticContext() { doTest() }
 
-  public void testLocalVariableInStaticContext() { doTest(); }
+  void testLocalVariableInStaticContext() { doTest() }
 
-  public void testModifiersInPackageAndImportStatements() {
-    myFixture.copyFileToProject(getTestName(false) + ".groovy", "x/" + getTestName(false) + ".groovy");
-    myFixture.testHighlighting(true, false, false, "x/" + getTestName(false) + ".groovy");
+  void testModifiersInPackageAndImportStatements() {
+    myFixture.copyFileToProject(getTestName(false) + ".groovy", "x/" + getTestName(false) + ".groovy")
+    myFixture.testHighlighting(true, false, false, "x/" + getTestName(false) + ".groovy")
   }
 
-  public void testBreakOutside() { doTest(); }
+  void testBreakOutside() { doTest() }
 
-  public void testUndefinedLabel() { doTest(); }
+  void testUndefinedLabel() { doTest() }
 
-  public void testNestedMethods() {
-    doTest();
+  void testNestedMethods() {
+    doTest()
   }
 
-  public void testRawOverriddenMethod() { doTest(); }
+  void testRawOverriddenMethod() { doTest() }
 
-  public void testFQNJavaClassesUsages() {
-    doTest();
+  void testFQNJavaClassesUsages() {
+    doTest()
   }
 
-  public void testGstringAssignableToString() { doTest(); }
+  void testGstringAssignableToString() { doTest() }
 
-  public void testGstringAssignableToStringInClosureParameter() { doTest(); }
+  void testGstringAssignableToStringInClosureParameter() { doTest() }
 
-  public void testEachOverRange() { doTest(); }
+  void testEachOverRange() { doTest() }
 
-  public void testEllipsisParam() {
+  void testEllipsisParam() {
     myFixture.configureByText('a.groovy', '''\
 class A {
   def foo(int... x){}
@@ -133,126 +121,124 @@ class A {
     myFixture.checkHighlighting(true, false, false)
   }
 
-  public void testStringAndGStringUpperBound() { doTest(); }
+  void testStringAndGStringUpperBound() { doTest() }
 
-  public void testWithMethod() { doTest(); }
+  void testWithMethod() { doTest() }
 
-  public void testArrayLikeAccess() { doTest(); }
+  void testArrayLikeAccess() { doTest() }
 
-  public void testSetInitializing() { doTest(); }
+  void testSetInitializing() { doTest() }
 
-  public void testEmptyTupleAssignability() { doTest(); }
+  void testEmptyTupleAssignability() { doTest() }
 
-  public void testGrDefFieldsArePrivateInJavaCode() {
-    myFixture.configureByText("X.groovy", "public class X{def x=5}");
-    myFixture.testHighlighting(true, false, false, getTestName(false) + ".java");
+  void testGrDefFieldsArePrivateInJavaCode() {
+    myFixture.configureByText("X.groovy", "public class X{def x=5}")
+    myFixture.testHighlighting(true, false, false, getTestName(false) + ".java")
   }
 
-  public void testSuperConstructorInvocation() { doTest(); }
+  void testSuperConstructorInvocation() { doTest(new GroovyAssignabilityCheckInspection()) }
 
-  public void testDuplicateMapKeys() { doTest(); }
+  void testDuplicateMapKeys() { doTest() }
 
-  public void testIndexPropertyAccess() { doTest(); }
+  void testIndexPropertyAccess() { doTest() }
 
-  public void testPropertyAndFieldDeclaration() { doTest(); }
+  void testPropertyAndFieldDeclaration() { doTest() }
 
-  public void testGenericsMethodUsage() { doTest(); }
+  void testGenericsMethodUsage() { doTest() }
 
-  public void testWildcardInExtendsList() { doTest(); }
+  void testWildcardInExtendsList() { doTest() }
 
-  public void testOverrideAnnotation() { doTest(); }
+  void testOverrideAnnotation() { doTest() }
 
-  public void testClosureCallWithTupleTypeArgument() { doTest(); }
+  void testClosureCallWithTupleTypeArgument() { doTest() }
 
-  public void testMethodDuplicates() { doTest(); }
+  void testMethodDuplicates() { doTest() }
 
-  public void testAmbiguousCodeBlock() { doTest(); }
+  void testNotAmbiguousClosableBlock() { doTest() }
 
-  public void testAmbiguousCodeBlockInMethodCall() { doTest(); }
+  void testDuplicateParameterInClosableBlock() { doTest() }
 
-  public void testNotAmbiguousClosableBlock() { doTest(); }
-
-  public void testDuplicateParameterInClosableBlock() { doTest(); }
-
-  public void testCyclicInheritance() { doTest(); }
-
-  public void testNoDefaultConstructor() { doTest(); }
-
-  public void testNumberDuplicatesInMaps() { doTest(); }
-
-  public void testBuiltInTypeInstantiation() { doTest(); }
-
-  public void testSOEInFieldDeclarations() { doTest(); }
-
-  public void testVeryLongDfaWithComplexGenerics() {
-    IdeaTestUtil.assertTiming("", 10000, 1, new Runnable() {
-      @Override
-      public void run() {
-        doTest(new GroovyAssignabilityCheckInspection(), new UnusedDefInspection(), new GrUnusedIncDecInspection());
-      }
-    });
+  void testCyclicInheritance() {
+    TransformationUtilKt.disableAssertOnRecursion(testRootDisposable)
+    doTest()
   }
 
-  public void testWrongAnnotation() { doTest(); }
+  void testNoDefaultConstructor() { doTest() }
 
-  public void testAmbiguousMethods() {
-    myFixture.copyFileToProject(getTestName(false) + ".java");
-    doTest();
+  void testNumberDuplicatesInMaps() { doTest() }
+
+  void testBuiltInTypeInstantiation() { doTest() }
+
+  void 'test void array type'() {
+    testHighlighting '''\
+<error descr="Illegal type: 'void'">void</error>[] foo() {}
+<error descr="Illegal type: 'void'">void</error>[] bar = foo()
+'''
   }
 
-  public void testGroovyEnumInJavaFile() {
-    myFixture.copyFileToProject(getTestName(false) + ".groovy");
-    myFixture.testHighlighting(true, false, false, getTestName(false) + ".java");
+  void testSOEInFieldDeclarations() { doTest() }
+
+  void testWrongAnnotation() { doTest() }
+
+  void testAmbiguousMethods() {
+    myFixture.copyFileToProject(getTestName(false) + ".java")
+    doTest()
   }
 
-  public void testSOFInDelegate() {
-    doTest();
+  void testGroovyEnumInJavaFile() {
+    myFixture.copyFileToProject(getTestName(false) + ".groovy")
+    myFixture.testHighlighting(true, false, false, getTestName(false) + ".java")
   }
 
-  public void testMethodImplementedByDelegate() {
-    doTest();
+  void testSOFInDelegate() {
+    TransformationUtilKt.disableAssertOnRecursion(testRootDisposable)
+    doTest()
+  }
+
+  void testMethodImplementedByDelegate() {
+    doTest()
   }
 
   //public void _testTestMarkupStubs() {
   //  doRefTest()
   //}
 
-  public void testGdslWildcardTypes() {
+  void testGdslWildcardTypes() {
     myFixture.configureByText("a.groovy",
                               "List<? extends String> la = []; la.get(1); " +
                               "List<? super String> lb = []; lb.get(1); " +
                               "List<?> lc = []; lc.get(1); "
-    );
-    myFixture.checkHighlighting(true, false, false);
+    )
+    myFixture.checkHighlighting(true, false, false)
   }
 
-  public void testDuplicatedNamedArgs() { doTest(); }
+  void testDuplicatedNamedArgs() { doTest() }
 
-  public void testConstructorWithAllParametersOptional() {
-    doTest();
+  void testConstructorWithAllParametersOptional() {
+    doTest()
   }
 
-  public void testTupleConstructorAttributes() {
-    doTest(new GroovyAssignabilityCheckInspection());
+  void testTupleConstructorAttributes() {
+    doTest(new GroovyAssignabilityCheckInspection())
   }
 
-  public void testDelegatedMethodIsImplemented() {
-    doTest();
+  void testDelegatedMethodIsImplemented() {
+    doTest()
   }
 
-  public void testEnumImplementsAllGroovyObjectMethods() {
-    doTest();
+  void testEnumImplementsAllGroovyObjectMethods() {
+    doTest()
   }
 
   //public void _testBuilderMembersAreNotUnresolved() {
   //  doRefTest();
   //}
 
-  public void testRecursiveConstructors() {
-    doTest();
+  void testRecursiveConstructors() {
+    doTest()
   }
 
-  public void testImmutableConstructorFromJava() {
+  void testImmutableConstructorFromJava() {
     myFixture.addFileToProject "a.groovy", '''@groovy.transform.Immutable class Foo { int a; String b }'''
     myFixture.configureByText 'a.java', '''
 class Bar {{
@@ -263,7 +249,7 @@ class Bar {{
     myFixture.checkHighlighting(false, false, false)
   }
 
-  public void testTupleConstructorFromJava() {
+  void testTupleConstructorFromJava() {
     myFixture.addFileToProject "a.groovy", '''@groovy.transform.TupleConstructor class Foo { int a; String b }'''
     myFixture.configureByText 'a.java', '''
 class Bar {{
@@ -275,7 +261,7 @@ class Bar {{
     myFixture.checkHighlighting(false, false, false)
   }
 
-  public void testInheritConstructorsFromJava() {
+  void testInheritConstructorsFromJava() {
     myFixture.addFileToProject "a.groovy", '''
 class Person {
   Person(String first, String last) { }
@@ -306,11 +292,12 @@ class Bar {{
 
   void testExtendingOwnInner() { doTest() }
 
-  void testRegexInCommandArg() { doTest() }
-
-  public void testJUnitConvention() {
+  void testJUnitConvention() {
     myFixture.addClass("package junit.framework; public class TestCase {}")
-    doTest(new JUnitTestClassNamingConventionInspection(), new JUnitAbstractTestClassNamingConventionInspection())
+    def inspection = new NewGroovyClassNamingConventionInspection()
+    inspection.setEnabled(true, TestClassNamingConvention.TEST_CLASS_NAMING_CONVENTION_SHORT_NAME)
+    inspection.setEnabled(true, AbstractTestClassNamingConvention.ABSTRACT_TEST_CLASS_NAMING_CONVENTION_SHORT_NAME)
+    doTest(inspection)
   }
 
   void testDuplicateMethods() {
@@ -360,6 +347,112 @@ class Baz implements I {
     myFixture.testHighlighting(false, false, false)
   }
 
+  void testMethodDelegate() {
+    myFixture.addClass('''\
+package groovy.lang;
+@Target({ElementType.FIELD, ElementType.METHOD})
+public @interface Delegate {}
+''')
+    myFixture.configureByText('a.groovy','''
+class A {
+  def foo(){}
+}
+
+class B {
+  @Delegate A getA(){return new A()}
+}
+
+new B().foo()
+''')
+
+    fixture.checkHighlighting()
+  }
+
+  void testMethodDelegateError() {
+    myFixture.configureByText('a.groovy','''
+class A {
+  def foo(){}
+}
+
+class B {
+  <error>@Delegate</error> A getA(int i){return new A()}
+}
+
+new B().foo()
+''')
+
+    fixture.checkHighlighting()
+  }
+
+
+  void testBuilderSimpleStrategyError() {
+    myFixture.addClass('''\
+package groovy.transform.builder;
+@Target({ ElementType.TYPE})
+
+public @interface Builder {
+  Class<?> builderStrategy();
+  boolean includeSuperProperties() default false;
+}
+''')
+
+    myFixture.addClass('''
+package groovy.transform.builder;
+public class SimpleStrategy {}
+''')
+
+    myFixture.configureByText('a.groovy', '''
+import groovy.transform.builder.Builder
+import groovy.transform.builder.SimpleStrategy
+
+<error>@Builder(builderStrategy = SimpleStrategy, includeSuperProperties = true)</error>
+class Pojo {
+    String name
+    def dynamic
+    int counter
+
+    def method() {}
+}
+''')
+
+    fixture.checkHighlighting()
+  }
+
+  void testBuilderSimpleStrategy() {
+    myFixture.addClass('''\
+package groovy.transform.builder;
+@Target({ ElementType.TYPE})
+
+public @interface Builder {
+  Class<?> builderStrategy();
+  boolean includeSuperProperties() default false;
+}
+''')
+
+    myFixture.addClass('''
+package groovy.transform.builder;
+public class SimpleStrategy {}
+''')
+
+    myFixture.configureByText('a.groovy', '''
+import groovy.transform.builder.Builder
+import groovy.transform.builder.SimpleStrategy
+
+@Builder(builderStrategy = SimpleStrategy)
+class Pojo {
+    String name
+    def dynamic
+    int counter
+
+    def method() {}
+}
+new Pojo().setName("sd").setCounter(5)
+''')
+
+    fixture.checkHighlighting()
+  }
+
+
   void testPrimitiveTypeParams() {
     myFixture.configureByText('a.groovy', '''\
 List<<error descr="Primitive type parameters are not allowed in type parameter list">int</error>> list = new ArrayList<int><EOLError descr="'(' expected"></EOLError>
@@ -369,7 +462,7 @@ List<?> list2
     myFixture.testHighlighting(true, false, false)
   }
 
-  public void testAliasInParameterType() {
+  void testAliasInParameterType() {
     myFixture.configureByText('a_.groovy', '''\
 import java.awt.event.ActionListener
 import java.awt.event.ActionEvent as AE
@@ -387,11 +480,11 @@ public class CorrectImplementor implements ActionListener {
     myFixture.testHighlighting(true, false, false)
   }
 
-  public void testReassignedHighlighting() {
-    myFixture.testHighlighting(true, true, true, getTestName(false) + ".groovy");
+  void testReassignedHighlighting() {
+    myFixture.testHighlighting(true, true, true, getTestName(false) + ".groovy")
   }
 
-  public void testInstanceOf() {
+  void testInstanceOf() {
     myFixture.configureByText('_a.groovy', '''\
 class DslPointcut {}
 
@@ -404,7 +497,7 @@ private def handleImplicitBind(arg) {
     myFixture.testHighlighting(true, false, false)
   }
 
-  public void testIncorrectTypeArguments() {
+  void testIncorrectTypeArguments() {
     myFixture.configureByText('_.groovy', '''\
 class C <T extends String> {}
 C<<warning descr="Type parameter 'java.lang.Double' is not in its bound; should extend 'java.lang.String'">Double</warning>> c
@@ -461,6 +554,14 @@ catch (ClassNotFoundException | <warning descr="Exception 'java.lang.NullPointer
 ''')
   }
 
+  void testTryWithoutCatchFinally() { doTest() }
+
+  void testVariableDeclarationTypeParameters() { doTest() }
+
+  void testAnnotationFieldWithoutType() { doTest() }
+
+  void testVariableDeclarationDuplicateModifiers() { doTest() }
+
   void testCompileStatic() {
     myFixture.addClass('''\
 package groovy.transform;
@@ -479,6 +580,11 @@ print <warning descr="Cannot resolve symbol 'abc'">abc</warning>
 @CompileStatic
 def bar() {
 print <error descr="Cannot resolve symbol 'abc'">abc</error>
+  new Object() {
+    def baz() {
+      print(<error descr="Cannot resolve symbol 'unknown'">unknown</error>)
+    }
+  }
 }
 }
 ''', true, false, false, GrUnresolvedAccessInspection)
@@ -556,7 +662,7 @@ def foo
   }
 
   void testReturnTypeInStaticallyCompiledMethod() {
-    addCompileStatic();
+    addCompileStatic()
     testHighlighting('''\
 import groovy.transform.CompileStatic
 @CompileStatic
@@ -572,82 +678,6 @@ int method(x, y, z) {
     }
 }
 ''')
-  }
-
-  void testReassignedVarInClosure1() {
-    addCompileStatic()
-    testHighlighting("""
-$IMPORT_COMPILE_STATIC
-
-@CompileStatic
-def test() {
-    def var = "abc"
-    def cl = {
-        var = new Date()
-    }
-    cl()
-    var.<error descr="Cannot resolve symbol 'toUpperCase'">toUpperCase</error>()
-}
-""", GrUnresolvedAccessInspection)
-  }
-
-  void testReassignedVarInClosure2() {
-    addCompileStatic()
-    testHighlighting("""
-$IMPORT_COMPILE_STATIC
-
-@CompileStatic
-def test() {
-    def cl = {
-        def var
-        var = new Date()
-    }
-    def var = "abc"
-
-    cl()
-    var.toUpperCase()  //no errors
-}
-""", GrUnresolvedAccessInspection)
-  }
-
-  void testReassignedVarInClosure3() {
-    addCompileStatic()
-    testHighlighting("""
-$IMPORT_COMPILE_STATIC
-
-@CompileStatic
-def test() {
-    def var = "abc"
-    def cl = new Closure(this, this){
-      def call() {
-        var = new Date()
-      }
-    }
-    cl()
-    var.toUpperCase() //no errors
-}
-""", GrUnresolvedAccessInspection)
-  }
-
-  void testReassignedVarInClosure4() {
-    addCompileStatic()
-    testHighlighting("""
-$IMPORT_COMPILE_STATIC
-
-class X {
-  def var
-}
-
-@CompileStatic
-def test() {
-    def var = "abc"
-    new X().with {
-        var = new Date()
-    }
-
-    var.<error descr="Cannot resolve symbol 'toUpperCase'">toUpperCase</error>()
-}
-""", GrUnresolvedAccessInspection)
   }
 
   void testOverrideForVars() {
@@ -759,6 +789,15 @@ new Base() {
 ''')
   }
 
+  void testAnnotationMethodThrowsList() {
+    testHighlighting '''\
+@interface A {
+  int aaa() <error descr="'throws' clause is not allowed in @interface members">throws IOException</error>;
+  int aab() throws<error descr="<type> expected, got ';'"> </error>;
+}
+'''
+  }
+
   void testAnnotationAttributeTypes() {
     testHighlighting('''\
 @interface Int {
@@ -779,10 +818,10 @@ new Base() {
     testHighlighting('''\
 @interface A {
   int a() default 2
-  String b() default <error descr="Cannot assign 'ArrayList<String>' to 'String'">['a']</error>
+  String b() default <error descr="Cannot assign 'List<String>' to 'String'">['a']</error>
   String[][] c() default <error descr="Cannot assign 'String' to 'String[][]'">'f'</error>
   String[][] d() default [['f']]
-  String[][] e() default [[<error descr="Cannot assign 'ArrayList<String>' to 'String'">['f']</error>]]
+  String[][] e() default [[<error descr="Cannot assign 'List<String>' to 'String'">['f']</error>]]
 }
 ''')
   }
@@ -807,7 +846,7 @@ class X {
     testHighlighting('''def (a, b) = [a, a]''')
   }
 
-  public void testSwitchInLoopNoSoe() {
+  void testSwitchInLoopNoSoe() {
     testHighlighting('''
 def foo(File f) {
   while (true) {
@@ -844,7 +883,7 @@ class A {
   class B {}
 }
 
-A.B foo = new A.<warning descr="Cannot reference non-static symbol 'A.B' from static context">B</warning>()
+A.B foo = new A.B()
 ''', GrUnresolvedAccessInspection)
   }
 
@@ -966,8 +1005,8 @@ enum Ee <error descr="Enums may not have 'extends' clause">extends Enum</error> 
 
   void testVarInTupleDuplicate() {
     testHighlighting('''\
-def (a, b)
-def (<error descr="Variable 'b' already defined">b</error>, c, <error descr="Variable 'c' already defined">c</error>)
+def (a, b) = []
+def (<error descr="Variable 'b' already defined">b</error>, c, <error descr="Variable 'c' already defined">c</error>) = []
 ''')
   }
 
@@ -1002,14 +1041,149 @@ class Sub<W extends Window> extends Super<W> {
 ''')
   }
 
-  void testAnonymousBodyOnNewLine() {
-    testHighlighting('''\
-class Foo{}
-print new Foo()
-<error descr="Ambiguous code block">{
-  String toString() {'abc'}
-}</error>
-''')
+  void 'test anonymous body on new line within parenthesized expression'() {
+    testHighlighting '''\
+class Foo {
+  def i
+}
+
+def foo = new Foo()
+{
+}
+
+def bar = (new Foo()
+{
+})
+
+def baz
+baz = new Foo()
+{
+}
+
+baz = (new Foo()
+{
+})
+
+(baz = new Foo()
+{
+})
+
+new Foo()
+{
+}
+
+(new Foo()
+{
+})
+
+new Foo()
+{
+} + 666
+
+(new Foo()
+{
+}) + 444
+
+1 + (new Foo()
+{
+} + 555)
+
+(1 + new Foo()
+{
+} + 112)
+
+new Foo()
+{
+}.getI()
+
+(new Foo()
+{
+}).getI()
+
+(new Foo()
+{
+}.getI())
+
+def mm() {
+    new Foo()
+    {
+    }
+}
+
+def mm2() {
+    (new Foo()
+    {
+    })
+}
+
+def mm4() {
+    return (new Foo()
+    {
+    })
+}
+
+(new Foo()
+{
+    def foo() {
+        // still error
+        new Foo()
+        {
+        }
+    }
+})
+'''
+  }
+
+  void 'test anonymous body on new line within argument list'() {
+    testHighlighting '''\
+class Foo {}
+
+def foo(param) {}
+
+foo(new Foo()
+{
+})
+
+def baz
+foo(baz = new Foo()
+{
+})
+
+foo(new Foo()
+{
+} + 666)
+
+foo(1 + new Foo()
+{
+})
+
+foo(1 + new Foo()
+{
+} + 666)
+
+foo(new Foo()
+{
+}.getI())
+
+foo(new Foo()
+{
+
+}.identity { it })
+
+foo 1 + (new Foo()
+{
+}) + 22
+
+foo(new Foo() {
+    def a() {
+        // still error
+        new Foo()
+        {
+
+        }
+    }
+})
+'''
   }
 
   void testGenerics() {
@@ -1143,7 +1317,6 @@ assert book.toString() == 'Other Title by Other Name'
   }
 
   void testArrayAccessForMapProperty() {
-
     testHighlighting('''\
 def bar() {
     return [list:[1, 2, 3]]
@@ -1151,20 +1324,34 @@ def bar() {
 
 def testConfig = bar()
 print testConfig.list[0]
-print testConfig.<warning descr="Cannot resolve symbol 'foo'">foo</warning>()
-''', true, false, false, GrUnresolvedAccessInspection)
+print <weak_warning descr="Cannot infer argument types">testConfig.foo<warning descr="'foo' cannot be applied to '()'">()</warning></weak_warning>
+''', true, false, true, GrUnresolvedAccessInspection, GroovyAssignabilityCheckInspection)
   }
 
   void testGStringInjectionLFs() {
     testHighlighting('''\
-print "<error descr="GString injection must not contain line feeds">${
-}</error>"
+print "${<error descr="GString injection must not contain line feeds">
+</error>}"
 
 print """${
 }"""
 
-print "<error descr="GString injection must not contain line feeds">${ """
-"""}</error>"
+print "${ """
+""" }"
+
+print "${"\\
+hi"}"
+
+print "${<error descr="GString injection must not contain line feeds">
+  </error>1 + 2
+}"
+
+print "${1 + <error descr="GString injection must not contain line feeds">
+  </error>2
+}"
+
+print "${1 + 2<error descr="GString injection must not contain line feeds">
+</error>}"
 ''')
   }
 
@@ -1469,16 +1656,17 @@ A.foo = 3 //no error
   }
 
   void testSOEIfExtendsItself() {
+    TransformationUtilKt.disableAssertOnRecursion(testRootDisposable)
     testHighlighting('''\
-<error descr="Cyclic inheritance involving 'A'"><error descr="Method 'invokeMethod' is not implemented">class A extends A</error></error> {
+<error descr="Cyclic inheritance involving 'A'">class A extends A</error> {
   def foo
 }
 
-<error descr="Cyclic inheritance involving 'B'"><error descr="Method 'invokeMethod' is not implemented">class B extends C</error></error> {
+<error descr="Cyclic inheritance involving 'B'">class B extends C</error> {
   def foo
 }
 
-<error descr="Cyclic inheritance involving 'C'"><error descr="Method 'invokeMethod' is not implemented">class C extends B</error></error> {
+<error descr="Cyclic inheritance involving 'C'">class C extends B</error> {
 }
 ''')
   }
@@ -1526,7 +1714,7 @@ class MyCommand {
     testHighlighting('''\
 class MyController {
      def list() {
-         def myInnerClass = new MyCommand.<warning descr="Cannot reference non-static symbol 'MyCommand.MyInnerClass' from static context">MyInnerClass</warning>()
+         def myInnerClass = new MyCommand.MyInnerClass()
          print myInnerClass
     }
 }
@@ -1554,8 +1742,6 @@ class MyCommand {
 ''')
 
     myFixture.enableInspections(GrUnresolvedAccessInspection)
-
-    GrUnresolvedAccessInspection.getInstance(myFixture.file, myFixture.project).myHighlightInnerClasses = false
     myFixture.testHighlighting(true, false, true)
   }
 
@@ -1575,8 +1761,6 @@ class MyCommand {
 ''')
 
     myFixture.enableInspections(GrUnresolvedAccessInspection)
-
-    GrUnresolvedAccessInspection.getInstance(myFixture.file, myFixture.project).myHighlightInnerClasses = false
     myFixture.testHighlighting(true, false, true)
   }
 
@@ -1599,7 +1783,9 @@ class A {
   }
 
   void testUnresolvedPropertyWhenGetPropertyDeclared() {
-    myFixture.enableInspections(GrUnresolvedAccessInspection)
+    def inspection = new GrUnresolvedAccessInspection()
+    inspection.myHighlightIfGroovyObjectOverridden = false
+    myFixture.enableInspections(inspection)
     myFixture.configureByText('_.groovy', '''\
 class DelegatesToTest {
     void ideSupport() {
@@ -1627,8 +1813,6 @@ class DslDelegate {
 print new DslDelegate().foo   //resolved
 print new DslDelegate().<warning descr="Cannot resolve symbol 'foo'">foo</warning>() //unresolved
 ''')
-
-    GrUnresolvedAccessInspection.getInstance(myFixture.file, myFixture.project).myHighlightIfGroovyObjectOverridden = false
     myFixture.testHighlighting(true, false, true)
   }
 
@@ -1799,21 +1983,142 @@ foo(<caret>)
     myFixture.getAvailableIntention("Static import method 'A.foo'")
   }
 
-  void testInaccessibleWithCompileStatic() {
-    addCompileStatic()
-    testHighlighting('''
-import groovy.transform.CompileStatic
+  void 'test no SOE in index property assignment with generic function'() {
+    testHighlighting '''
+class Main {
 
-@CompileStatic
-class PrivateTest {
-    void doTest() {
-        Target.<error descr="Access to 'callMe' exceeds its access rights">callMe</error>()
+    static <T> T foo() {}
+
+    static void main(String[] args) {
+        def main = new Main()
+        main[Main] = foo()
+    }
+
+    def putAt(x, String t) {
+        println "Works: $x = $t"
     }
 }
+'''
+    testHighlighting '''
+class Main {
 
-class Target {
-    private static void callMe() {}
+    static <T> T foo() {}
+
+    static void main(String[] args) {
+        def main = new Main()
+        (main[Main]) = foo()
+    }
+
+    def putAt(x, String t) {
+        println "Works: $x = $t"
+    }
 }
-''')
+'''
+  }
+
+  void 'test static GDK method applicable'() {
+    testHighlighting '''
+def doParse() {
+  Date.parse('dd.MM.yyyy', '01.12.2016')
+}
+''', GroovyAssignabilityCheckInspection
+  }
+
+  void 'test unresolved anonymous base class'() {
+    testHighlighting '''
+def foo = new <error descr="Cannot resolve symbol 'Rrrrrrrr'">Rrrrrrrr</error>() {}
+'''
+  }
+
+  void testLocalVariableModifiers() { doTest() }
+
+  void testFieldModifiers() { doTest() }
+
+  void testScriptFieldModifiers() { doTest() }
+
+  void "test allow and do not highlight 'trait', 'as', 'def', 'in' within package"() {
+    myFixture.addClass '''\
+package a.b.c.trait.d.as.e.def.f.in.g;
+public class Foo {} 
+'''
+    testHighlighting '''\
+import a.b.c.<info>trait</info>.d.<info>as</info>.e.<info>def</info>.f.<info>in</info>.g.*
+''', false, true
+  }
+
+  void 'test resolve methods of boxed types on primitive qualifiers'() {
+    testHighlighting '''\
+class Widget {
+    float width = 1.1f
+}
+
+Widget w = new Widget()
+w.width.round()
+w.width.intValue()
+w.width.compareTo(2f)
+''', GrUnresolvedAccessInspection
+  }
+
+  void "test no warning on extension method with spread operator"() {
+    testHighlighting '[1, 2, 3]*.multiply(4)', GrUnresolvedAccessInspection, GroovyAssignabilityCheckInspection
+  }
+
+  void 'test type arguments in import references'() {
+    testHighlighting '''\
+import java.util.List<error descr="Type argument list is not allowed here"><String></error>
+import java.util.Map<error descr="Type argument list is not allowed here"><Integer, String></error>.Entry
+import static java.util.Map<error descr="Type argument list is not allowed here"><Integer, String></error>.*
+import java.util.List<error descr="Type argument list is not allowed here"><String></error> as Foo
+''', false
+  }
+
+  void 'test assign collection to an array in @CS'() {
+    testHighlighting '''\
+Collection<? extends Runnable> foo() {}
+
+@groovy.transform.CompileStatic
+def usage() {
+  Runnable[] ar = foo()
+}
+
+@groovy.transform.CompileStatic
+def usage(Collection<? extends Runnable> cr) {
+  Runnable[] ar = cr //https://issues.apache.org/jira/browse/GROOVY-8983
+}
+'''
+  }
+
+  void 'test map constructor with map literal'() {
+    testHighlighting '''
+class A {
+  String s
+}
+
+new A([s : "abc", <warning>q</warning>: 1])
+''', GroovyConstructorNamedArgumentsInspection
+  }
+
+  void 'test map constructor with final field'() {
+    testHighlighting '''
+class A {
+  final String s
+}
+
+new A([<warning>s</warning> : "abc"])
+''', GroovyConstructorNamedArgumentsInspection
+  }
+
+  void 'test map constructor with raw map assignment'() {
+    testHighlighting '''
+class A {
+  final String s
+}
+
+A a = [<warning>s</warning> : "asd"]
+''', GroovyConstructorNamedArgumentsInspection
+  }
+
+  void testIllegalMethodName() {
+    doTest()
   }
 }

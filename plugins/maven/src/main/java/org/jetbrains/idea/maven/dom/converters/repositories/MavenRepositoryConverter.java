@@ -41,6 +41,7 @@ import java.util.Collections;
 public abstract class MavenRepositoryConverter extends ResolvingConverter<String> {
 
   public static class Id extends MavenRepositoryConverter {
+    @Override
     @NotNull
     public Collection<String> getVariants(final ConvertContext context) {
       Module module = context.getModule();
@@ -59,6 +60,7 @@ public abstract class MavenRepositoryConverter extends ResolvingConverter<String
   }
 
   public static class Name extends MavenRepositoryConverter {
+    @Override
     @NotNull
     public Collection<String> getVariants(final ConvertContext context) {
       Module module = context.getModule();
@@ -73,13 +75,11 @@ public abstract class MavenRepositoryConverter extends ResolvingConverter<String
 
   public static class Url extends MavenUrlConverter {
 
-    @NotNull
     @Override
-    public PsiReference[] createReferences(GenericDomValue value, final PsiElement element, final ConvertContext context) {
+    public PsiReference @NotNull [] createReferences(GenericDomValue value, final PsiElement element, final ConvertContext context) {
       return new PsiReference[]{new WebReference(element) {
-        @NotNull
         @Override
-        public Object[] getVariants() {
+        public Object @NotNull [] getVariants() {
           Module module = context.getModule();
 
           if (module != null) {
@@ -100,6 +100,7 @@ public abstract class MavenRepositoryConverter extends ResolvingConverter<String
     return null;
   }
 
+  @Override
   public String fromString(@Nullable @NonNls final String s, final ConvertContext context) {
     return s;
   }

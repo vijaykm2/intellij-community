@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.resolve
 
 import com.intellij.codeInsight.generation.OverrideImplementUtil
@@ -20,6 +6,7 @@ import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiMirrorElement
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrMethodCall
+import org.jetbrains.plugins.groovy.transformations.TransformationUtilKt
 import org.jetbrains.plugins.groovy.util.TestUtils
 
 /**
@@ -28,16 +15,24 @@ import org.jetbrains.plugins.groovy.util.TestUtils
 class DelegateTest extends GroovyResolveTestCase {
   @Override
   protected String getBasePath() {
-    return "${TestUtils.testDataPath}resolve/delegate/";
+    return "${TestUtils.testDataPath}resolve/delegate/"
   }
 
-  private PsiMirrorElement doTest(String text) {
+  private <T> T doTest(String text, Class<T> clazz) {
     def ref = configureByText(text)
     def resolved = ref.resolve()
 
-    assertNotNull resolved
-    assertInstanceOf resolved, PsiMirrorElement
-    return resolved as PsiMirrorElement
+    if (clazz != null) {
+      assertNotNull resolved
+      assertInstanceOf resolved, clazz
+      return resolved.asType(clazz)
+    } else {
+      assertNull resolved
+    }
+  }
+
+  private PsiMirrorElement doTest(String text) {
+    return doTest(text, PsiMirrorElement)
   }
 
 
@@ -53,6 +48,34 @@ class B {
 
 new B().fo<caret>o()
 ''')
+  }
+
+  void testSimple2() {
+    doTest('''
+class A {
+  def foo(){}
+}
+
+class B {
+  @Delegate A getA(){return new A()}
+}
+
+new B().fo<caret>o()
+''')
+  }
+
+  void testMethodDelegateUnresolved() {
+    doTest('''
+class A {
+  def foo(){}
+}
+
+class B {
+  @Delegate A getA(int i){return new A()}
+}
+
+new B().fo<caret>o()
+''', null)
   }
 
   void testInheritance() {
@@ -119,6 +142,55 @@ new B().fo<caret>o()
     assertEquals 'A2', cc.name
   }
 
+  void testSelectFirst3() {
+    def resolved = doTest('''
+class A1 {
+  def foo(){}
+}
+
+class A2 {
+  def foo(){}
+}
+
+
+class B {
+  @Delegate A2 bar()
+  @Delegate A1 bar2()
+}
+
+new B().fo<caret>o()
+''')
+
+    def prototype = resolved.prototype as PsiMethod
+    def cc = prototype.containingClass
+    assertEquals 'A2', cc.name
+  }
+
+  void testSelectFirst4() {
+    def resolved = doTest('''
+class A1 {
+  def foo(){}
+}
+
+class A2 {
+  def foo(){}
+}
+
+
+class B {
+  @Delegate A1 bar2()
+  @Delegate A2 bar // fields are processed before methods
+  
+}
+
+new B().fo<caret>o()
+''')
+
+    def prototype = resolved.prototype as PsiMethod
+    def cc = prototype.containingClass
+    assertEquals 'A2', cc.name
+  }
+
   void testSubstitutor1() {
     def resolved = doTest('''
 class Base<T> {
@@ -142,6 +214,7 @@ new B().fo<caret>o([''])
   }
 
   void testCycle() {
+    TransformationUtilKt.disableAssertOnRecursion(testRootDisposable)
     def file = myFixture.configureByText('a.groovy', '''
 class A {
     def foo() {}
@@ -176,10 +249,11 @@ new B().test()
 new C().test()
 ''') as GroovyFile
 
-    file.statements.each {
+    def result = file.statements.findAll {
       def method = (it as GrMethodCall).resolveMethod()
-      assertNotNull method
+      !method
     }
+    assert result.size() <= 1: result.collect { it.text }
   }
 
 
@@ -200,6 +274,7 @@ new B().fo<caret>o()''')
   }
 
   void testInheritanceCycle() {
+    TransformationUtilKt.disableAssertOnRecursion(testRootDisposable)
     def file = myFixture.configureByText('a.groovy', '''
 class Base {
   @Delegate A a
@@ -268,6 +343,24 @@ interface Foo {
     assertAllMethodsImplemented('text.groovy', '''\
 class FooImpl implements Foo {
     @Delegate(deprecated = false) Foo delegate
+}
+''')
+  }
+
+  void 'test delegate with generics'() {
+    assertAllMethodsImplemented('a.groovy', '''
+class MyClass {
+    @Delegate
+    HashMap<String, Integer> map = new HashMap<String, Integer>()
+}
+''')
+  }
+
+  void 'test delegate method with generics'() {
+    assertAllMethodsImplemented('a.groovy', '''
+class MyClass {
+    @Delegate
+    HashMap<String, Integer> getMap() {return new HashMap<>}
 }
 ''')
   }

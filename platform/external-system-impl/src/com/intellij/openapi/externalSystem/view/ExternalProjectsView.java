@@ -29,7 +29,6 @@ import java.util.List;
 
 /**
  * @author Vladislav.Soroka
- * @since 4/15/2015
  */
 public interface ExternalProjectsView {
   ExternalSystemUiAware getUiAware();
@@ -45,17 +44,28 @@ public interface ExternalProjectsView {
 
   List<ExternalSystemNode<?>> createNodes(@NotNull ExternalProjectsView externalProjectsView, @Nullable ExternalSystemNode<?> parent, @NotNull DataNode<?> dataNode);
 
+  ExternalProjectsStructure.ErrorLevel getErrorLevelRecursively(@NotNull DataNode node);
+
   Project getProject();
 
   boolean showInheritedTasks();
 
   boolean getGroupTasks();
 
+  boolean getGroupModules();
+
+  boolean useTasksNode();
+
   ProjectSystemId getSystemId();
 
   void handleDoubleClickOrEnter(@NotNull ExternalSystemNode node, @Nullable String actionId, InputEvent inputEvent);
 
   void addListener(@NotNull ExternalProjectsView.Listener listener);
+
+  boolean getShowIgnored();
+
+  @Nullable
+  String getDisplayName(@Nullable DataNode node);
 
   interface Listener {
     void onDoubleClickOrEnter(@NotNull ExternalSystemNode node, InputEvent inputEvent);

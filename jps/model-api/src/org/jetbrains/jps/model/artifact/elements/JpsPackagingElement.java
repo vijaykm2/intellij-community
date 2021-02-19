@@ -18,7 +18,12 @@ package org.jetbrains.jps.model.artifact.elements;
 import org.jetbrains.jps.model.JpsElement;
 
 /**
- * @author nik
+ * Represents a node in the output layout tree of an artifact.
+ *
+ * @see JpsComplexPackagingElement
+ * @see JpsCompositePackagingElement
+ * @see JpsFileCopyPackagingElement
+ * @see JpsDirectoryCopyPackagingElement
  */
 public interface JpsPackagingElement extends JpsElement {
 }

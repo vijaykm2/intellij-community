@@ -28,9 +28,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.util.Collection;
 
-/**
- * @author nik
- */
 public class XBreakpointFileGroupingRule<B> extends XBreakpointGroupingRule<B, XBreakpointFileGroup> {
   public XBreakpointFileGroupingRule() {
     super("by-file", XDebuggerBundle.message("rule.name.group.by.file"));
@@ -41,7 +38,8 @@ public class XBreakpointFileGroupingRule<B> extends XBreakpointGroupingRule<B, X
     return XBreakpointsGroupingPriorities.BY_FILE;
   }
 
-  public XBreakpointFileGroup getGroup(@NotNull final B breakpoint, @NotNull final Collection<XBreakpointFileGroup> groups) {
+  @Override
+  public XBreakpointFileGroup getGroup(@NotNull final B breakpoint, @NotNull final Collection<? extends XBreakpointFileGroup> groups) {
     if (!(breakpoint instanceof XLineBreakpoint)) {
       return null;
     }

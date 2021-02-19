@@ -17,69 +17,74 @@ package com.intellij.openapi.roots.ui.configuration;
 
 import com.intellij.compiler.ModuleCompilerUtil;
 import com.intellij.compiler.ModuleSourceSet;
+import com.intellij.compiler.server.impl.BuildProcessCustomPluginsConfiguration;
+import com.intellij.ide.IdeBundle;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.ModuleManager;
+import com.intellij.openapi.module.UnloadedModuleDescription;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.ModuleRootModel;
+import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.ProjectSdksModel;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.StructureConfigurableContext;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.*;
-import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.text.HtmlBuilder;
+import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.Chunk;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.graph.Graph;
-import com.intellij.util.graph.GraphAlgorithms;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.util.containers.MultiMap;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/**
- * @author nik
- */
 public class GeneralProjectSettingsElement extends ProjectStructureElement {
   public GeneralProjectSettingsElement(@NotNull StructureConfigurableContext context) {
     super(context);
   }
 
+  @NotNull
   @Override
-  public String getPresentableName() {
-    return "Project";
+  public @Nls(capitalization = Nls.Capitalization.Sentence) String getPresentableText() {
+    return IdeBundle.message("title.project");
   }
 
   @Override
-  public String getTypeName() {
-    return "Project";
+  public String getPresentableName() {
+    return myContext.getModulesConfigurator().getProjectStructureConfigurable().getProjectConfig().getProjectName();
+  }
+
+  @Override
+  public @Nls(capitalization = Nls.Capitalization.Sentence) String getTypeName() {
+    return IdeBundle.message("title.project");
   }
 
   @Override
   public void check(ProjectStructureProblemsHolder problemsHolder) {
     final Project project = myContext.getProject();
+    ProjectStructureConfigurable projectStructureConfigurable = myContext.getModulesConfigurator().getProjectStructureConfigurable();
     if (containsModuleWithInheritedSdk()) {
-      ProjectSdksModel model = ProjectStructureConfigurable.getInstance(project).getProjectJdksModel();
+      ProjectSdksModel model = projectStructureConfigurable.getProjectJdksModel();
       Sdk sdk = model.getProjectSdk();
       if (sdk == null) {
-        PlaceInProjectStructureBase place = new PlaceInProjectStructureBase(project, ProjectStructureConfigurable.getInstance(project).createProjectConfigurablePlace(), this);
-        problemsHolder.registerProblem(ProjectBundle.message("project.roots.project.jdk.problem.message"), null,
+        PlaceInProjectStructureBase place = new PlaceInProjectStructureBase(project, projectStructureConfigurable
+          .createProjectConfigurablePlace(), this);
+        problemsHolder.registerProblem(JavaUiBundle.message("project.roots.project.jdk.problem.message"), null,
                                        ProjectStructureProblemType.error("project-sdk-not-defined"), place,
                                        null);
       }
     }
 
 
-    Graph<ModuleSourceSet> graph = ModuleCompilerUtil.createModuleSourceDependenciesGraph(myContext.getModulesConfigurator());
-    Collection<Chunk<ModuleSourceSet>> allSourceSetCycles = extractCycles(
-      GraphAlgorithms.getInstance().computeStronglyConnectedComponents(graph));
-    List<Chunk<ModuleSourceSet>> sourceSetCycles = filterDuplicates(allSourceSetCycles);
+    List<Chunk<ModuleSourceSet>> sourceSetCycles = ModuleCompilerUtil.computeSourceSetCycles(myContext.getModulesConfigurator());
 
-    List<String> cycles = new ArrayList<String>();
+    List<@Nls String> cycles = new ArrayList<>();
 
     for (Chunk<ModuleSourceSet> chunk : sourceSetCycles) {
       final Set<ModuleSourceSet> sourceSets = chunk.getNodes();
-      List<String> names = new ArrayList<String>();
+      List<@Nls String> names = new ArrayList<>();
       for (ModuleSourceSet sourceSet : sourceSets) {
         String name = sourceSet.getDisplayName();
         names.add(names.isEmpty() ? name : StringUtil.decapitalize(name));
@@ -88,26 +93,35 @@ public class GeneralProjectSettingsElement extends ProjectStructureElement {
     }
     if (!cycles.isEmpty()) {
       final PlaceInProjectStructureBase place =
-        new PlaceInProjectStructureBase(project, ProjectStructureConfigurable.getInstance(project).createModulesPlace(), this);
+        new PlaceInProjectStructureBase(project, projectStructureConfigurable.createModulesPlace(), this);
       final String message;
-      final String description;
+      final HtmlChunk description;
       if (cycles.size() > 1) {
-        message = "Circular dependencies";
-        @NonNls final String br = "<br>&nbsp;&nbsp;&nbsp;&nbsp;";
-        StringBuilder cyclesString = new StringBuilder();
-        for (int i = 0; i < cycles.size(); i++) {
-          cyclesString.append(br).append(i + 1).append(". ").append(cycles.get(i));
-        }
-        description = ProjectBundle.message("module.circular.dependency.warning.description", cyclesString);
+        message = JavaUiBundle.message("circular.dependencies.message");
+
+        final String header = JavaUiBundle.message("module.circular.dependency.warning.description");
+
+        final HtmlChunk[] liTags = cycles.stream()
+          .map(c -> HtmlChunk.tag("li").addText(c))
+          .toArray(HtmlChunk[]::new);
+
+        final HtmlChunk.Element ol = HtmlChunk.tag("ol").style("padding-left: 30pt;")
+          .children(liTags);
+
+        description = new HtmlBuilder()
+          .append(HtmlChunk.tag("b").addText(header))
+          .append(ol)
+          .toFragment()
+        ;
       }
       else {
-        message = ProjectBundle.message("module.circular.dependency.warning.short", StringUtil.decapitalize(cycles.get(0)));
-        description = null;
+        message = JavaUiBundle.message("module.circular.dependency.warning.short", StringUtil.decapitalize(cycles.get(0)));
+        description = HtmlChunk.empty();
       }
       problemsHolder.registerProblem(new ProjectStructureProblemDescription(message, description, place,
                                                                             ProjectStructureProblemType
                                                                               .warning("module-circular-dependency"),
-                                                                            Collections.<ConfigurationErrorQuickFix>emptyList()));
+                                                                            Collections.emptyList()));
     }
   }
 
@@ -121,58 +135,42 @@ public class GeneralProjectSettingsElement extends ProjectStructureElement {
     return false;
   }
 
-  private static Collection<Chunk<ModuleSourceSet>> extractCycles(Collection<Chunk<ModuleSourceSet>> chunks) {
-    return ContainerUtil.filter(chunks, new Condition<Chunk<ModuleSourceSet>>() {
-      @Override
-      public boolean value(Chunk<ModuleSourceSet> chunk) {
-        return chunk.getNodes().size() > 1;
-      }
-    });
-  }
-
-  /**
-   * Remove cycles in tests included in cycles between production parts
-   */
-  @NotNull
-  private static List<Chunk<ModuleSourceSet>> filterDuplicates(@NotNull Collection<Chunk<ModuleSourceSet>> sourceSetCycles) {
-    final List<Set<Module>> productionCycles = new ArrayList<Set<Module>>();
-
-    for (Chunk<ModuleSourceSet> cycle : sourceSetCycles) {
-      ModuleSourceSet.Type type = getCommonType(cycle);
-      if (type == ModuleSourceSet.Type.PRODUCTION) {
-        productionCycles.add(ModuleSourceSet.getModules(cycle.getNodes()));
-      }
-    }
-
-    return ContainerUtil.filter(sourceSetCycles, new Condition<Chunk<ModuleSourceSet>>() {
-      @Override
-      public boolean value(Chunk<ModuleSourceSet> chunk) {
-        if (getCommonType(chunk) != ModuleSourceSet.Type.TEST) return true;
-        for (Set<Module> productionCycle : productionCycles) {
-          if (productionCycle.containsAll(ModuleSourceSet.getModules(chunk.getNodes()))) return false;
-        }
-        return true;
-      }
-    });
-  }
-
-  @Nullable
-  private static ModuleSourceSet.Type getCommonType(@NotNull Chunk<ModuleSourceSet> cycle) {
-    ModuleSourceSet.Type type = null;
-    for (ModuleSourceSet set : cycle.getNodes()) {
-      if (type == null) {
-        type = set.getType();
-      }
-      else if (type != set.getType()) {
-        return null;
-      }
-    }
-    return type;
-  }
-
   @Override
   public List<ProjectStructureElementUsage> getUsagesInElement() {
-    return Collections.emptyList();
+    List<ProjectStructureElementUsage> usages = new ArrayList<>();
+
+    Collection<UnloadedModuleDescription> unloadedModules = ModuleManager.getInstance(myContext.getProject()).getUnloadedModuleDescriptions();
+    if (!unloadedModules.isEmpty()) {
+      MultiMap<Module, UnloadedModuleDescription> dependenciesInUnloadedModules = new MultiMap<>();
+      for (UnloadedModuleDescription unloaded : unloadedModules) {
+        for (String moduleName : unloaded.getDependencyModuleNames()) {
+          Module depModule = myContext.getModulesConfigurator().getModuleModel().findModuleByName(moduleName);
+          if (depModule != null) {
+            dependenciesInUnloadedModules.putValue(depModule, unloaded);
+          }
+        }
+      }
+
+      for (Map.Entry<Module, Collection<UnloadedModuleDescription>> entry : dependenciesInUnloadedModules.entrySet()) {
+        usages.add(new UsagesInUnloadedModules(myContext, this, new ModuleProjectStructureElement(myContext, entry.getKey()),
+                                               entry.getValue()));
+      }
+
+      //currently we don't store dependencies on project libraries from unloaded modules in the model, so suppose that all the project libraries are used
+      for (Library library : myContext.getProjectLibrariesProvider().getModifiableModel().getLibraries()) {
+        usages.add(new UsagesInUnloadedModules(myContext, this, new LibraryProjectStructureElement(myContext, library), unloadedModules));
+      }
+    }
+
+    for (String libraryName : BuildProcessCustomPluginsConfiguration.getInstance(myContext.getProject()).getProjectLibraries()) {
+      Library library = myContext.getProjectLibrariesProvider().getModifiableModel().getLibraryByName(libraryName);
+      if (library != null) {
+        usages.add(new UsageInProjectSettings(myContext, new LibraryProjectStructureElement(myContext, library),
+                                              JavaUiBundle.message("label.build.process.configuration")));
+      }
+    }
+
+    return usages;
   }
 
   @Override

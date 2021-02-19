@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,7 +36,7 @@ public class JavaBraceMatcher implements PairedBraceMatcher {
   };
 
   @Override
-  public BracePair[] getPairs() {
+  public BracePair @NotNull [] getPairs() {
     return pairs;
   }
 
@@ -53,7 +53,8 @@ public class JavaBraceMatcher implements PairedBraceMatcher {
             || tokenType == JavaTokenType.RPARENTH
             || tokenType == JavaTokenType.RBRACKET
             || tokenType == JavaTokenType.RBRACE
-            || tokenType == JavaTokenType.LBRACE;
+            || tokenType == JavaTokenType.LBRACE
+            || tokenType == JavaTokenType.DOT;
   }
 
   @Override

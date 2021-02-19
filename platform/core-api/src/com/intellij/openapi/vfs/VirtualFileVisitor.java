@@ -1,38 +1,19 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs;
 
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.Stack;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.List;
-import java.util.Map;
-
 /**
  * @author Dmitry Avdeev
- * @since 31.10.2011
  */
 public abstract class VirtualFileVisitor<T> {
   public static class Option {
     private Option() { }
 
-    private static class LimitOption extends Option {
+    private static final class LimitOption extends Option {
       private final int limit;
 
       private LimitOption(int limit) {
@@ -45,12 +26,13 @@ public abstract class VirtualFileVisitor<T> {
   public static final Option SKIP_ROOT = new Option();
   public static final Option ONE_LEVEL_DEEP = limit(1);
 
+  @NotNull
   public static Option limit(int maxDepth) {
     return new Option.LimitOption(maxDepth);
   }
 
 
-  public static class Result {
+  public static final class Result {
     public final boolean skipChildren;
     public final VirtualFile skipToParent;
 
@@ -75,22 +57,21 @@ public abstract class VirtualFileVisitor<T> {
 
 
   protected static class VisitorException extends RuntimeException {
-    public VisitorException(Throwable cause) {
+    public VisitorException(@NotNull Throwable cause) {
       super(cause);
     }
   }
 
 
   private boolean myFollowSymLinks = true;
-  private boolean mySkipRoot = false;
+  private boolean mySkipRoot;
   private int myDepthLimit = -1;
 
-  private Map<VirtualFile, List<VirtualFile>> myVisitedTargets;
-  private int myLevel = 0;
-  private Stack<T> myValueStack = null;
-  private T myValue = null;
+  private int myLevel;
+  private Stack<T> myValueStack;
+  private T myValue;
 
-  protected VirtualFileVisitor(@NotNull Option... options) {
+  protected VirtualFileVisitor(Option @NotNull ... options) {
     for (Option option : options) {
       if (option == NO_FOLLOW_SYMLINKS) {
         myFollowSymLinks = false;
@@ -101,9 +82,6 @@ public abstract class VirtualFileVisitor<T> {
       else if (option instanceof Option.LimitOption) {
         myDepthLimit = ((Option.LimitOption)option).limit;
       }
-    }
-    if (myFollowSymLinks) {
-      myVisitedTargets = ContainerUtil.newHashMap();
     }
   }
 
@@ -157,12 +135,12 @@ public abstract class VirtualFileVisitor<T> {
    * The visitor maintains the stack of stored values. I.e:
    * This value is held here only during the visiting the current file and all its children. As soon as the visitor finished with
    * the current file and all its subtree and returns to the level up, the value is cleared
-   * and the {@link #getCurrentValue()} returns the previous value which was stored here before the {@link #setValueForChildren} call.
+   * and the {@link #getCurrentValue()} returns the previous value, which was stored here before this method call.
    */
   public final void setValueForChildren(@Nullable T value) {
     myValue = value;
     if (myValueStack == null) {
-      myValueStack = new Stack<T>();
+      myValueStack = new Stack<>();
     }
   }
 
@@ -180,26 +158,12 @@ public abstract class VirtualFileVisitor<T> {
       return true;
     }
 
-    if (!myFollowSymLinks || VfsUtilCore.isInvalidLink(file)) {
+    if (!myFollowSymLinks) {
       return false;
     }
 
-    VirtualFile target = file.getCanonicalFile();
-    List<VirtualFile> links = myVisitedTargets.get(target);
-    if (links == null) {
-      myVisitedTargets.put(target, ContainerUtil.newSmartList(file));
-      return true;
-    }
-
-    boolean hasLoop = false;
-    for (VirtualFile link : links) {
-      if (VfsUtilCore.isAncestor(link, file, true)) {
-        hasLoop = true;
-        break;
-      }
-    }
-    links.add(file);
-    return !hasLoop;
+    // ignore invalid or recursive link or the link with circular path (e.g. "/.../link1/.../link1") - to avoid visiting files twice
+    return !file.isRecursiveOrCircularSymlink();
   }
 
   final boolean depthLimitReached() {

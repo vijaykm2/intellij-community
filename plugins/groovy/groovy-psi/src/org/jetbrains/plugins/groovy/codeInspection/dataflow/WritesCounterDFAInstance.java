@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.codeInspection.dataflow;
 
 import com.intellij.psi.PsiElement;
-import gnu.trove.TObjectIntHashMap;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -28,8 +14,7 @@ import org.jetbrains.plugins.groovy.lang.psi.controlFlow.ReadWriteVariableInstru
 import org.jetbrains.plugins.groovy.lang.psi.dataFlow.DfaInstance;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
-public class WritesCounterDFAInstance implements DfaInstance<TObjectIntHashMap<GrVariable>> {
-
+public final class WritesCounterDFAInstance implements DfaInstance<Object2IntMap<GrVariable>> {
   @Contract("null -> null")
   @Nullable
   private static GrVariable getVariable(@Nullable PsiElement instructionElement) {
@@ -48,7 +33,7 @@ public class WritesCounterDFAInstance implements DfaInstance<TObjectIntHashMap<G
   }
 
   @Override
-  public void fun(TObjectIntHashMap<GrVariable> map, Instruction instruction) {
+  public void fun(@NotNull Object2IntMap<GrVariable> map, @NotNull Instruction instruction) {
     if (!(instruction instanceof ReadWriteVariableInstruction)) return;
 
     final ReadWriteVariableInstruction rwInstruction = (ReadWriteVariableInstruction)instruction;
@@ -57,21 +42,10 @@ public class WritesCounterDFAInstance implements DfaInstance<TObjectIntHashMap<G
     final GrVariable variable = getVariable(instruction.getElement());
     if (variable == null) return;
 
-    int currentVal = map.get(variable);
+    int currentVal = map.getInt(variable);
     if (currentVal == 2) return;
 
     if (currentVal == 0 || currentVal == 1 && !(variable.getParent() instanceof GrForInClause)) currentVal++;
     map.put(variable, currentVal);
-  }
-
-  @NotNull
-  @Override
-  public TObjectIntHashMap<GrVariable> initial() {
-    return new TObjectIntHashMap<GrVariable>();
-  }
-
-  @Override
-  public boolean isForward() {
-    return true;
   }
 }

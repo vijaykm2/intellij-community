@@ -16,56 +16,25 @@
 
 package com.intellij.ide.hierarchy;
 
-import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.actionSystem.Presentation;
-import com.intellij.openapi.actionSystem.ToggleAction;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.actionSystem.PlatformDataKeys;
+import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.util.function.Supplier;
 
-/**
- * @author cdr
- */
-abstract class ChangeViewTypeActionBase extends ToggleAction {
-  public ChangeViewTypeActionBase(final String shortDescription, final String longDescription, final Icon icon) {
+abstract class ChangeViewTypeActionBase extends ChangeHierarchyViewActionBase {
+  ChangeViewTypeActionBase(final String shortDescription, final String longDescription, final Icon icon) {
+    this(() -> shortDescription, () -> longDescription, icon);
+  }
+
+  ChangeViewTypeActionBase(@NotNull Supplier<String> shortDescription, @NotNull Supplier<String> longDescription, final Icon icon) {
     super(shortDescription, longDescription, icon);
   }
 
   @Override
-  public final boolean isSelected(final AnActionEvent event) {
-    final TypeHierarchyBrowserBase browser = getTypeHierarchyBrowser(event.getDataContext());
-    return browser != null && getTypeName().equals(browser.getCurrentViewType());
-  }
-
-  protected abstract String getTypeName();
-
-  @Override
-  public final void setSelected(final AnActionEvent event, final boolean flag) {
-    if (flag) {
-      final TypeHierarchyBrowserBase browser = getTypeHierarchyBrowser(event.getDataContext());
-      //        setWaitCursor();
-      ApplicationManager.getApplication().invokeLater(new Runnable() {
-        @Override
-        public void run() {
-          if (browser != null) {
-            browser.changeView(getTypeName());
-          }
-        }
-      });
-    }
-  }
-
-  @Override
-  public void update(final AnActionEvent event) {
-    // its important to assign the myTypeHierarchyBrowser first
-    super.update(event);
-    final Presentation presentation = event.getPresentation();
-    final TypeHierarchyBrowserBase browser = getTypeHierarchyBrowser(event.getDataContext());
-    presentation.setEnabled(browser != null && browser.isValidBase());
-  }
-
-  protected static TypeHierarchyBrowserBase getTypeHierarchyBrowser(final DataContext context) {
-    return TypeHierarchyBrowserBase.DATA_KEY.getData(context);
+  protected TypeHierarchyBrowserBase getHierarchyBrowser(DataContext context) {
+    return UIUtil.getParentOfType(TypeHierarchyBrowserBase.class, context.getData(PlatformDataKeys.CONTEXT_COMPONENT));
   }
 }

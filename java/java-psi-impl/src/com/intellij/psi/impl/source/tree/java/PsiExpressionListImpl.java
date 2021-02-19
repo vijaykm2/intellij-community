@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.tree.java;
 
 import com.intellij.lang.ASTNode;
@@ -25,21 +11,46 @@ import com.intellij.util.CharTable;
 import org.jetbrains.annotations.NotNull;
 
 public class PsiExpressionListImpl extends CompositePsiElement implements PsiExpressionList {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiExpressionListImpl");
+  private static final Logger LOG = Logger.getInstance(PsiExpressionListImpl.class);
+  private volatile PsiExpression[] myExpressions;
 
   public PsiExpressionListImpl() {
     super(JavaElementType.EXPRESSION_LIST);
   }
 
   @Override
-  @NotNull
-  public PsiExpression[] getExpressions() {
-    return getChildrenAsPsiElements(ElementType.EXPRESSION_BIT_SET, PsiExpression.ARRAY_FACTORY);
+  public PsiExpression @NotNull [] getExpressions() {
+    PsiExpression[] expressions = myExpressions;
+    if (expressions == null) {
+      expressions = getChildrenAsPsiElements(ElementType.EXPRESSION_BIT_SET, PsiExpression.ARRAY_FACTORY);
+      if (expressions.length > 10) {
+        myExpressions = expressions;
+      }
+    }
+    return expressions;
   }
 
   @Override
-  @NotNull
-  public PsiType[] getExpressionTypes() {
+  public void clearCaches() {
+    super.clearCaches();
+    myExpressions = null;
+  }
+
+  @Override
+  public int getExpressionCount() {
+    PsiExpression[] expressions = myExpressions;
+    if (expressions != null) return expressions.length;
+    
+    return countChildren(ElementType.EXPRESSION_BIT_SET);
+  }
+
+  @Override
+  public boolean isEmpty() {
+    return findChildByType(ElementType.EXPRESSION_BIT_SET) == null;
+  }
+
+  @Override
+  public PsiType @NotNull [] getExpressionTypes() {
     PsiExpression[] expressions = getExpressions();
     PsiType[] types = PsiType.createArray(expressions.length);
 
@@ -71,7 +82,7 @@ public class PsiExpressionListImpl extends CompositePsiElement implements PsiExp
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
     if (i == JavaTokenType.COMMA) {
@@ -121,26 +132,14 @@ public class PsiExpressionListImpl extends CompositePsiElement implements PsiExp
       }
     }
     TreeElement firstAdded = super.addInternal(first, last, anchor, before);
-    if (ElementType.EXPRESSION_BIT_SET.contains(first.getElementType())) {
-      JavaSourceUtil.addSeparatingComma(this, first, ElementType.EXPRESSION_BIT_SET);
-      /*ASTNode element = first;
-      for (ASTNode child = element.getTreeNext(); child != null; child = child.getTreeNext()) {
-        if (child.getElementType() == JavaTokenType.COMMA) break;
-        if (ElementType.EXPRESSION_BIT_SET.contains(child.getElementType())) {
-          TreeElement comma = Factory.createSingleLeafElement(JavaTokenType.COMMA, ",", 0, 1, treeCharTab, getManager());
-          super.addInternal(comma, comma, element, Boolean.FALSE);
-          break;
-        }
+    TreeElement element = first;
+    while (true) {
+      if (ElementType.EXPRESSION_BIT_SET.contains(element.getElementType())) {
+        JavaSourceUtil.addSeparatingComma(this, element, ElementType.EXPRESSION_BIT_SET);
+        break;
       }
-      for (ASTNode child = element.getTreePrev(); child != null; child = child.getTreePrev()) {
-        final IElementType t = child.getElementType();
-        if (t == JavaTokenType.COMMA) break;
-        if (ElementType.EXPRESSION_BIT_SET.contains(t) || ElementType.JAVA_COMMENT_BIT_SET.contains(t)) {
-          TreeElement comma = Factory.createSingleLeafElement(JavaTokenType.COMMA, ",", 0, 1, treeCharTab, getManager());
-          super.addInternal(comma, comma, child, Boolean.FALSE);
-          break;
-        }
-      }*/
+      if (element == last) break;
+      element = element.getTreeNext();
     }
     return firstAdded;
   }

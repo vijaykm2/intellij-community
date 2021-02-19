@@ -23,9 +23,6 @@ import org.jetbrains.jps.model.module.JpsModule;
 import org.jetbrains.jps.model.module.JpsModuleDependency;
 import org.jetbrains.jps.model.module.JpsModuleReference;
 
-/**
- * @author nik
- */
 public class JpsModuleDependencyImpl extends JpsDependencyElementBase<JpsModuleDependencyImpl> implements JpsModuleDependency {
   private static final JpsElementChildRole<JpsModuleReference>
     MODULE_REFERENCE_CHILD_ROLE = JpsElementChildRoleBase.create("module reference");
@@ -51,7 +48,7 @@ public class JpsModuleDependencyImpl extends JpsDependencyElementBase<JpsModuleD
   public JpsModule getModule() {
     Ref<JpsModule> moduleRef = myCachedModule;
     if (moduleRef == null) {
-      moduleRef = new Ref<JpsModule>(getModuleReference().resolve());
+      moduleRef = new Ref<>(getModuleReference().resolve());
       myCachedModule = moduleRef;
     }
     return moduleRef.get();

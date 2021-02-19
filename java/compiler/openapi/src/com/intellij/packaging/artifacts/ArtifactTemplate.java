@@ -15,38 +15,20 @@
  */
 package com.intellij.packaging.artifacts;
 
+import com.intellij.openapi.util.NlsActions;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.packaging.elements.CompositePackagingElement;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author nik
- */
 public abstract class ArtifactTemplate {
 
-  public abstract String getPresentableName();
-
-  /**
-   * @deprecated override {@link #createArtifact()} instead
-   */
-  @Deprecated
-  public CompositePackagingElement<?> createRootElement(@NotNull String artifactName) {
-    return null;
-  }
-
-  /**
-   * @deprecated override {@link #createArtifact()} instead
-   */
-  @Deprecated
-  @NotNull
-  public String suggestArtifactName() {
-    return "unnamed";
-  }
+  public abstract @NlsActions.ActionText String getPresentableName();
 
   @Nullable
   public NewArtifactConfiguration createArtifact() {
-    final String name = suggestArtifactName();
-    return new NewArtifactConfiguration(createRootElement(name), name, null);
+    final String name = "unnamed";
+    return new NewArtifactConfiguration(null, name, null);
   }
 
   public void setUpArtifact(@NotNull Artifact artifact, @NotNull NewArtifactConfiguration configuration) {
@@ -57,7 +39,7 @@ public abstract class ArtifactTemplate {
     private final String myArtifactName;
     private final ArtifactType myArtifactType;
 
-    public NewArtifactConfiguration(CompositePackagingElement<?> rootElement, String artifactName, ArtifactType artifactType) {
+    public NewArtifactConfiguration(CompositePackagingElement<?> rootElement, @NlsSafe String artifactName, ArtifactType artifactType) {
       myRootElement = rootElement;
       myArtifactName = artifactName;
       myArtifactType = artifactType;
@@ -67,7 +49,7 @@ public abstract class ArtifactTemplate {
       return myRootElement;
     }
 
-    public String getArtifactName() {
+    public @NlsSafe String getArtifactName() {
       return myArtifactName;
     }
 

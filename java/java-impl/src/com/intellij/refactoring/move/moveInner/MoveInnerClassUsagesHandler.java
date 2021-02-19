@@ -19,10 +19,13 @@ import com.intellij.lang.LanguageExtension;
 import com.intellij.psi.PsiClass;
 import com.intellij.usageView.UsageInfo;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 public interface MoveInnerClassUsagesHandler {
   LanguageExtension<MoveInnerClassUsagesHandler> EP_NAME =
-    new LanguageExtension<MoveInnerClassUsagesHandler>("com.intellij.refactoring.moveInnerClassUsagesHandler");
+    new LanguageExtension<>("com.intellij.refactoring.moveInnerClassUsagesHandler");
 
-  void correctInnerClassUsage(@NotNull UsageInfo usage, @NotNull PsiClass outerClass);
+  void correctInnerClassUsage(@NotNull UsageInfo usage,
+                              @NotNull PsiClass outerClass,
+                              @Nullable String parameterNameOuterClass);
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.packaging.impl.ui.actions;
 
 import com.intellij.notification.Notification;
@@ -20,8 +6,7 @@ import com.intellij.notification.NotificationType;
 import com.intellij.notification.Notifications;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.application.Result;
-import com.intellij.openapi.compiler.CompilerBundle;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.deployment.DeploymentUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -46,18 +31,14 @@ import com.intellij.util.io.zip.JBZipEntry;
 import com.intellij.util.io.zip.JBZipFile;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author nik
- */
-public class PackageFileWorker {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.packaging.impl.ui.actions.PackageFileWorker");
+public final class PackageFileWorker {
+  private static final Logger LOG = Logger.getInstance(PackageFileWorker.class);
   private final File myFile;
   private final String myRelativeOutputPath;
   private final boolean myPackIntoArchives;
@@ -68,36 +49,30 @@ public class PackageFileWorker {
     myPackIntoArchives = packIntoArchives;
   }
 
-  public static void startPackagingFiles(Project project, List<VirtualFile> files, Artifact[] artifacts, final @NotNull Runnable onFinishedInAwt) {
-    startPackagingFiles(project, files, artifacts, true).doWhenProcessed(new Runnable() {
-      @Override
-      public void run() {
-        ApplicationManager.getApplication().invokeLater(onFinishedInAwt);
-      }
-    });
+  public static void startPackagingFiles(Project project, List<? extends VirtualFile> files, Artifact[] artifacts, final @NotNull Runnable onFinishedInAwt) {
+    startPackagingFiles(project, files, artifacts, true).doWhenProcessed(
+      () -> ApplicationManager.getApplication().invokeLater(onFinishedInAwt));
   }
 
-  public static ActionCallback startPackagingFiles(final Project project, final List<VirtualFile> files,
+  public static ActionCallback startPackagingFiles(final Project project, final List<? extends VirtualFile> files,
                                                    final Artifact[] artifacts, final boolean packIntoArchives) {
     final ActionCallback callback = new ActionCallback();
-    ProgressManager.getInstance().run(new Task.Backgroundable(project, "Packaging Files") {
+    ProgressManager.getInstance().run(new Task.Backgroundable(project, JavaCompilerBundle.message("packaging.files")) {
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
         try {
           for (final VirtualFile file : files) {
             indicator.checkCanceled();
-            new ReadAction() {
-              @Override
-              protected void run(final Result result) {
-                try {
-                  packageFile(file, project, artifacts, packIntoArchives);
-                }
-                catch (IOException e) {
-                  String message = CompilerBundle.message("message.tect.package.file.io.error", e.toString());
-                  Notifications.Bus.notify(new Notification("Package File", "Cannot package file", message, NotificationType.ERROR));
-                }
+            ReadAction.run(() -> {
+              try {
+                packageFile(file, project, artifacts, packIntoArchives);
               }
-            }.execute();
+              catch (IOException e) {
+                LOG.info(e);
+                String message = JavaCompilerBundle.message("message.tect.package.file.io.error", e.toString());
+                Notifications.Bus.notify(new Notification("Package File", JavaCompilerBundle.message("cannot.package.file"), message, NotificationType.ERROR));
+              }
+            });
             callback.setDone();
           }
         }
@@ -128,7 +103,7 @@ public class PackageFileWorker {
   }
 
   private void packageFile(String outputPath, List<CompositePackagingElement<?>> parents) throws IOException {
-    List<CompositePackagingElement<?>> parentsList = new ArrayList<CompositePackagingElement<?>>(parents);
+    List<CompositePackagingElement<?>> parentsList = new ArrayList<>(parents);
     Collections.reverse(parentsList);
     if (!parentsList.isEmpty() && parentsList.get(0) instanceof ArtifactRootElement) {
       parentsList = parentsList.subList(1, parentsList.size());
@@ -167,14 +142,11 @@ public class PackageFileWorker {
     final File archiveFile = new File(archivePath);
     if (parents.isEmpty()) {
       LOG.debug("  adding to archive " + archivePath);
-      JBZipFile file = getOrCreateZipFile(archiveFile);
-      try {
-        final String fullPathInArchive = DeploymentUtil.trimForwardSlashes(DeploymentUtil.appendToPath(pathInArchive, myRelativeOutputPath));
+      try (JBZipFile file = getOrCreateZipFile(archiveFile)) {
+        final String fullPathInArchive =
+          DeploymentUtil.trimForwardSlashes(DeploymentUtil.appendToPath(pathInArchive, myRelativeOutputPath));
         final JBZipEntry entry = file.getOrCreateEntry(fullPathInArchive);
-        entry.setData(FileUtil.loadFileBytes(myFile));
-      }
-      finally {
-        file.close();
+        entry.setDataFromFile(myFile);
       }
       return;
     }
@@ -183,21 +155,19 @@ public class PackageFileWorker {
     final String nextPathInArchive = DeploymentUtil.trimForwardSlashes(DeploymentUtil.appendToPath(pathInArchive, element.getName()));
     final List<CompositePackagingElement<?>> parentsTrail = parents.subList(1, parents.size());
     if (element instanceof ArchivePackagingElement) {
-      JBZipFile zipFile = getOrCreateZipFile(archiveFile);
-      try {
+      try (JBZipFile zipFile = getOrCreateZipFile(archiveFile)) {
         final JBZipEntry entry = zipFile.getOrCreateEntry(nextPathInArchive);
         LOG.debug("  extracting to temp file: " + nextPathInArchive + " from " + archivePath);
         final File tempFile = FileUtil.createTempFile("packageFile" + FileUtil.sanitizeFileName(nextPathInArchive),
                                                       FileUtilRt.getExtension(PathUtil.getFileName(nextPathInArchive)));
         if (entry.getSize() != -1) {
-          FileUtil.writeToFile(tempFile, entry.getData());
+          try (OutputStream output = new BufferedOutputStream(new FileOutputStream(tempFile))) {
+            entry.writeDataTo(output);
+          }
         }
         packFile(FileUtil.toSystemIndependentName(tempFile.getAbsolutePath()), "", parentsTrail);
-        entry.setData(FileUtil.loadFileBytes(tempFile));
+        entry.setDataFromFile(tempFile);
         FileUtil.delete(tempFile);
-      }
-      finally {
-        zipFile.close();
       }
     }
     else {
@@ -207,6 +177,11 @@ public class PackageFileWorker {
 
   private static JBZipFile getOrCreateZipFile(File archiveFile) throws IOException {
     FileUtil.createIfDoesntExist(archiveFile);
-    return new JBZipFile(archiveFile);
+    try {
+      return new JBZipFile(archiveFile);
+    }
+    catch (IllegalArgumentException e) {
+      throw new IOException(e);
+    }
   }
 }

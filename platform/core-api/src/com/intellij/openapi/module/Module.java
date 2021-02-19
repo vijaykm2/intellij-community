@@ -1,29 +1,18 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.module;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.components.ComponentManager;
 import com.intellij.openapi.extensions.AreaInstance;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.search.GlobalSearchScope;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import com.intellij.util.messages.MessageBus;
+import org.jetbrains.annotations.*;
+
+import java.io.File;
+import java.nio.file.Path;
 
 /**
  * Represents a module in an IDEA project.
@@ -31,6 +20,7 @@ import org.jetbrains.annotations.Nullable;
  * @see ModuleManager#getModules()
  * @see ModuleComponent
  */
+@SuppressWarnings("DeprecatedIsStillUsed")
 public interface Module extends ComponentManager, AreaInstance, Disposable {
   /**
    * The empty array of modules which cab be reused to avoid unnecessary allocations.
@@ -40,19 +30,36 @@ public interface Module extends ComponentManager, AreaInstance, Disposable {
   @NonNls String ELEMENT_TYPE = "type";
 
   /**
-   * Returns the <code>VirtualFile</code> for the module .iml file.
-   *
-   * @return the virtual file instance.
+   * @deprecated Module level message bus is deprecated. Please use app- or project- level.
    */
-  @Nullable
-  VirtualFile getModuleFile();
+  @Override
+  @Deprecated
+  @NotNull MessageBus getMessageBus();
 
   /**
-   * Returns the path to the module .iml file.
-   *
-   * @return the path to the .iml file.
+   * Returns the {@code VirtualFile} for the module .iml file. Note that location if .iml file may not be related to location of the module
+   * files, it may be stored in a different directory, under .idea/modules or doesn't exist at all if the module configuration is imported
+   * from external project system (e.g. Gradle). So only internal subsystems which deal with serialization are supposed to use this method.
+   * If you need to find a directory (directories) where source files for the module are located, get its {@link com.intellij.openapi.roots.ModuleRootModel#getContentRoots() content roots}.
+   * If you need to get just some directory near to module files (e.g. to select by default in a file chooser), use {@link com.intellij.openapi.project.ProjectUtil#guessModuleDir(com.intellij.openapi.module.Module)}.
    */
-  @NotNull String getModuleFilePath();
+  @ApiStatus.Internal
+  @Nullable VirtualFile getModuleFile();
+
+  /**
+   * Returns path to the module .iml file. This method isn't supposed to be used from plugins, see {@link #getModuleFile()} details.
+   */
+  @ApiStatus.Internal
+  @SystemIndependent @NonNls
+  default @NotNull String getModuleFilePath() {
+    return getModuleNioFile().toString().replace(File.separatorChar, '/');
+  }
+
+  /**
+   * Returns path to the module .iml file. This method isn't supposed to be used from plugins, see {@link #getModuleFile()} details.
+   */
+  @ApiStatus.Internal
+  @NotNull Path getModuleNioFile();
 
   /**
    * Returns the project to which this module belongs.
@@ -66,7 +73,7 @@ public interface Module extends ComponentManager, AreaInstance, Disposable {
    *
    * @return the module name.
    */
-  @NotNull String getName();
+  @NotNull @NlsSafe String getName();
 
   /**
    * Checks if the module instance has been disposed and unloaded.
@@ -79,67 +86,98 @@ public interface Module extends ComponentManager, AreaInstance, Disposable {
   boolean isLoaded();
 
   /**
-   * Sets a custom option for this module.
-   *
-   * @param optionName the name of the custom option.
-   * @param optionValue the value of the custom option.
+   * @deprecated Please store options in your own {@link com.intellij.openapi.components.PersistentStateComponent}
    */
-  void setOption(@NotNull String optionName, @NotNull String optionValue);
+  @Deprecated
+  default void clearOption(@NotNull String key) {
+    setOption(key, null);
+  }
 
   /**
-   * Removes a custom option from this module.
-   *
-   * @param optionName the name of the custom option.
+   * @deprecated Please store options in your own {@link com.intellij.openapi.components.PersistentStateComponent}
    */
-  void clearOption(@NotNull String optionName);
+  @Deprecated
+  void setOption(@NotNull String key, @Nullable String value);
 
   /**
-   * Gets the value of a custom option for this module.
-   *
-   * @param optionName the name of the custom option.
-   * @return the value of the custom option, or null if no value has been set.
+   * @deprecated Please store options in your own {@link com.intellij.openapi.components.PersistentStateComponent}
    */
+  @Deprecated
+  @NonNls
   @Nullable
-  String getOptionValue(@NotNull String optionName);
+  String getOptionValue(@NotNull String key);
 
   /**
-   * Returns module scope including sources and tests, excluding libraries and dependencies.
-   *
-   * @return scope including sources and tests, excluding libraries and dependencies.
+   * @return module scope including source and tests, excluding libraries and dependencies.
    */
   @NotNull
   GlobalSearchScope getModuleScope();
 
+  /**
+   * @param includeTests whether to include test source
+   * @return module scope including source and, optionally, tests, excluding libraries and dependencies.
+   */
   @NotNull
   GlobalSearchScope getModuleScope(boolean includeTests);
 
   /**
-   * Returns module scope including sources, tests, and libraries, excluding dependencies.
-   *
-   * @return scope including sources, tests, and libraries, excluding dependencies.
+   * @return module scope including source, tests, and libraries, excluding dependencies.
    */
   @NotNull
   GlobalSearchScope getModuleWithLibrariesScope();
 
   /**
-   * Returns module scope including sources, tests, and dependencies, excluding libraries.
-   *
-   * @return scope including sources, tests, and dependencies, excluding libraries.
+   * @return module scope including source, tests, and dependencies, excluding libraries.
    */
   @NotNull
   GlobalSearchScope getModuleWithDependenciesScope();
 
+  /**
+   * @return a scope that includes everything in module content roots, without any dependencies or libraries
+   */
   @NotNull
   GlobalSearchScope getModuleContentScope();
+
+  /**
+   * @return a scope that includes everything under the content roots of this module and its dependencies, with test source
+   */
   @NotNull
   GlobalSearchScope getModuleContentWithDependenciesScope();
 
+  /**
+   * @param includeTests whether test source and test dependencies should be included
+   * @return a scope including module source and dependencies with libraries
+   */
   @NotNull
   GlobalSearchScope getModuleWithDependenciesAndLibrariesScope(boolean includeTests);
+
+  /**
+   * @return a scope including everything under the content roots of this module and all modules that depend on it, directly or indirectly (via exported dependencies), excluding test source and resources
+   */
   @NotNull
   GlobalSearchScope getModuleWithDependentsScope();
+
+  /**
+   * @return same as {@link #getModuleWithDependentsScope()}, but with test source/resources included
+   */
   @NotNull
   GlobalSearchScope getModuleTestsWithDependentsScope();
+
+  /**
+   * @param includeTests whether test source and test dependencies should be included
+   * @return a scope including production (and optionally test) source of this module and all modules and libraries it depends upon, including runtime and transitive dependencies, even if they're not exported.
+   */
   @NotNull
   GlobalSearchScope getModuleRuntimeScope(boolean includeTests);
+
+  @Nullable @NonNls
+  default String getModuleTypeName() {
+    //noinspection deprecation
+    return getOptionValue(ELEMENT_TYPE);
+  }
+
+  default void setModuleType(@NotNull @NonNls String name) {
+    //noinspection deprecation
+    setOption(ELEMENT_TYPE, name);
+  }
 }

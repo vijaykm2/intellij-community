@@ -1,31 +1,16 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.application.options.codeStyle.arrangement.group;
 
-import com.intellij.psi.codeStyle.arrangement.std.ArrangementStandardSettingsManager;
 import com.intellij.application.options.codeStyle.arrangement.color.ArrangementColorsProvider;
 import com.intellij.application.options.codeStyle.arrangement.ui.ArrangementEditorAware;
 import com.intellij.application.options.codeStyle.arrangement.ui.ArrangementRepresentationAware;
 import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.psi.codeStyle.arrangement.group.ArrangementGroupingRule;
 import com.intellij.psi.codeStyle.arrangement.std.ArrangementSettingsToken;
+import com.intellij.psi.codeStyle.arrangement.std.ArrangementStandardSettingsManager;
 import com.intellij.psi.codeStyle.arrangement.std.CompositeArrangementSettingsToken;
 import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.table.JBTable;
-import com.intellij.util.containers.ContainerUtilRt;
 import com.intellij.util.ui.AbstractTableCellEditor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -35,20 +20,18 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
 import java.awt.*;
 import java.awt.event.MouseEvent;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * @author Denis Zhdanov
- * @since 11/13/12 7:27 PM
  */
 public class ArrangementGroupingRulesControl extends JBTable {
 
   @NotNull public static final DataKey<ArrangementGroupingRulesControl> KEY = DataKey.create("Arrangement.Rule.Group.Control");
 
-  @NotNull private final Map<ArrangementSettingsToken, ArrangementGroupingComponent> myComponents = ContainerUtilRt.newHashMap();
+  @NotNull private final Map<ArrangementSettingsToken, ArrangementGroupingComponent> myComponents =
+    new HashMap<>();
 
   @NotNull private final ArrangementStandardSettingsManager mySettingsManager;
 
@@ -82,7 +65,7 @@ public class ArrangementGroupingRulesControl extends JBTable {
     return (DefaultTableModel)super.getModel();
   }
 
-  public void setRules(@Nullable List<ArrangementGroupingRule> rules) {
+  public void setRules(@Nullable List<? extends ArrangementGroupingRule> rules) {
     for (ArrangementGroupingComponent component : myComponents.values()) {
       component.setSelected(false);
     }
@@ -96,7 +79,8 @@ public class ArrangementGroupingRulesControl extends JBTable {
       model.removeRow(model.getRowCount() - 1);
     }
 
-    final Set<ArrangementSettingsToken> groupingTokens = ContainerUtilRt.newHashSet(myComponents.keySet());
+    final Set<ArrangementSettingsToken> groupingTokens =
+      new HashSet<>(myComponents.keySet());
     for (ArrangementGroupingRule rule : rules) {
       final ArrangementSettingsToken groupingType = rule.getGroupingType();
       ArrangementGroupingComponent component = myComponents.get(groupingType);
@@ -106,7 +90,8 @@ public class ArrangementGroupingRulesControl extends JBTable {
       groupingTokens.remove(groupingType);
     }
 
-    List<ArrangementSettingsToken> types = ContainerUtilRt.newArrayList(groupingTokens);
+    List<ArrangementSettingsToken> types =
+      new ArrayList<>(groupingTokens);
     types = mySettingsManager.sort(types);
     for (ArrangementSettingsToken type : types) {
       model.addRow(new Object[]{myComponents.get(type)});
@@ -115,7 +100,7 @@ public class ArrangementGroupingRulesControl extends JBTable {
 
   @NotNull
   public List<ArrangementGroupingRule> getRules() {
-    List<ArrangementGroupingRule> result = new ArrayList<ArrangementGroupingRule>();
+    List<ArrangementGroupingRule> result = new ArrayList<>();
     DefaultTableModel model = getModel();
     for (int i = 0, max = model.getRowCount(); i < max; i++) {
       ArrangementGroupingComponent component = (ArrangementGroupingComponent)model.getValueAt(i, 0);
@@ -158,7 +143,6 @@ public class ArrangementGroupingRulesControl extends JBTable {
     super.processMouseEvent(e);
   }
 
-  @SuppressWarnings("ConstantConditions")
   private class MyRenderer implements TableCellRenderer {
     @Override
     public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
@@ -166,6 +150,7 @@ public class ArrangementGroupingRulesControl extends JBTable {
         ArrangementGroupingComponent component = (ArrangementGroupingComponent)value;
         component.setRowIndex(row + 1);
         component.setHighlight(myRowUnderMouse == row || table.isRowSelected(row));
+        component.revalidate();
         return component;
       }
       else if (value instanceof ArrangementRepresentationAware) {
@@ -174,12 +159,11 @@ public class ArrangementGroupingRulesControl extends JBTable {
       return null;
     }
   }
-  
-  @SuppressWarnings("ConstantConditions")
+
   private static class MyEditor extends AbstractTableCellEditor {
-    
+
     @Nullable Object myValue;
-    
+
     @Override
     public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
       if (value instanceof ArrangementEditorAware) {

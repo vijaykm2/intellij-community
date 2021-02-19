@@ -29,7 +29,6 @@ import java.util.List;
 
 /**
  * @author Vladislav.Soroka
- * @since 4/15/2015
  */
 public class ExternalProjectsViewAdapter implements ExternalProjectsView {
   @NotNull
@@ -73,6 +72,11 @@ public class ExternalProjectsViewAdapter implements ExternalProjectsView {
   }
 
   @Override
+  public ExternalProjectsStructure.ErrorLevel getErrorLevelRecursively(@NotNull DataNode node) {
+    return delegate.getErrorLevelRecursively(node);
+  }
+
+  @Override
   public Project getProject() {
     return delegate.getProject();
   }
@@ -88,6 +92,16 @@ public class ExternalProjectsViewAdapter implements ExternalProjectsView {
   }
 
   @Override
+  public boolean getGroupModules() {
+    return delegate.getGroupModules();
+  }
+
+  @Override
+  public boolean useTasksNode() {
+    return delegate.useTasksNode();
+  }
+
+  @Override
   public ProjectSystemId getSystemId() {
     return delegate.getSystemId();
   }
@@ -100,5 +114,15 @@ public class ExternalProjectsViewAdapter implements ExternalProjectsView {
   @Override
   public void addListener(@NotNull Listener listener) {
     delegate.addListener(listener);
+  }
+
+  @Override
+  public boolean getShowIgnored() {
+    return delegate.getShowIgnored();
+  }
+
+  @Override
+  public String getDisplayName(DataNode node) {
+    return delegate.getDisplayName(node);
   }
 }

@@ -15,9 +15,10 @@
  */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightUtil;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.openapi.command.undo.UndoUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
@@ -28,13 +29,15 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class MoveBoundClassToFrontFix extends ExtendsListFix {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.daemon.impl.quickfix.MoveBoundClassToFrontFix");
-  private final String myName;
+  private static final Logger LOG = Logger.getInstance(MoveBoundClassToFrontFix.class);
+  private final @IntentionName String myName;
 
   public MoveBoundClassToFrontFix(@NotNull PsiClass aClass, @NotNull PsiClassType classToExtendFrom) {
     super(aClass, classToExtendFrom, true);
+    PsiClass classToExtendFromPointer = myClassToExtendFromPointer != null ? myClassToExtendFromPointer.getElement() : null;
+
     myName = QuickFixBundle.message("move.bound.class.to.front.fix.text",
-                                    HighlightUtil.formatClass(myClassToExtendFrom),
+                                    classToExtendFromPointer == null ? "<null>" : HighlightUtil.formatClass(classToExtendFromPointer),
                                     HighlightUtil.formatClass(aClass));
   }
 
@@ -53,11 +56,10 @@ public class MoveBoundClassToFrontFix extends ExtendsListFix {
   @Override
   public void invoke(@NotNull Project project,
                      @NotNull PsiFile file,
-                     @Nullable("is null when called from inspection") Editor editor,
+                     @Nullable Editor editor,
                      @NotNull PsiElement startElement,
                      @NotNull PsiElement endElement) {
     final PsiClass myClass = (PsiClass)startElement;
-    if (!FileModificationService.getInstance().prepareFileForWrite(myClass.getContainingFile())) return;
     PsiReferenceList extendsList = myClass.getExtendsList();
     if (extendsList == null) return;
     try {
@@ -76,11 +78,12 @@ public class MoveBoundClassToFrontFix extends ExtendsListFix {
                              @NotNull PsiElement startElement,
                              @NotNull PsiElement endElement) {
     final PsiClass myClass = (PsiClass)startElement;
+    PsiClass classToExtendFrom = myClassToExtendFromPointer != null ? myClassToExtendFromPointer.getElement() : null;
+
     return
-      myClass.isValid()
-      && myClass.getManager().isInProject(myClass)
-      && myClassToExtendFrom != null
-      && myClassToExtendFrom.isValid()
+      BaseIntentionAction.canModify(myClass)
+      && classToExtendFrom != null
+      && classToExtendFrom.isValid()
     ;
   }
 }

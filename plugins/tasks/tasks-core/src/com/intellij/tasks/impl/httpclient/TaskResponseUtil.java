@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.impl.httpclient;
 
 import com.google.gson.Gson;
@@ -21,7 +7,7 @@ import com.google.gson.reflect.TypeToken;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.io.StreamUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.CharsetToolkit;
+import com.intellij.tasks.TaskBundle;
 import com.intellij.tasks.impl.RequestFailedException;
 import com.intellij.tasks.impl.TaskUtil;
 import org.apache.commons.httpclient.HeaderElement;
@@ -40,23 +26,22 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 
 /**
  * @author Mikhail Golubev
  */
-public class TaskResponseUtil {
+public final class TaskResponseUtil {
   public static final Logger LOG = Logger.getInstance(TaskResponseUtil.class);
 
-  public static final String DEFAULT_CHARSET_NAME = CharsetToolkit.UTF8;
-  public final static Charset DEFAULT_CHARSET = Charset.forName(DEFAULT_CHARSET_NAME);
+  public final static Charset DEFAULT_CHARSET = StandardCharsets.UTF_8;
 
   /**
    * Utility class
    */
-  private TaskResponseUtil() {
-  }
+  private TaskResponseUtil() { }
 
   public static Reader getResponseContentAsReader(@NotNull HttpResponse response) throws IOException {
     Header header = response.getEntity().getContentEncoding();
@@ -82,7 +67,10 @@ public class TaskResponseUtil {
     }
     else {
       InputStream stream = response.getResponseBodyAsStream();
-      return stream == null ? "" : StreamUtil.readText(stream, DEFAULT_CHARSET);
+      if (stream == null) return "";
+      try (Reader reader = new InputStreamReader(stream, DEFAULT_CHARSET)) {
+        return StreamUtil.readText(reader);
+      }
     }
   }
 
@@ -102,9 +90,24 @@ public class TaskResponseUtil {
         }
       }
     }
-    return new InputStreamReader(stream, charsetName == null ? DEFAULT_CHARSET_NAME : charsetName);
+    return charsetName != null ? new InputStreamReader(stream, charsetName) : new InputStreamReader(stream, DEFAULT_CHARSET);
   }
 
+  @NotNull
+  public static RequestFailedException forStatusCode(int code) {
+    return new RequestFailedException(messageForStatusCode(code));
+  }
+
+  @NotNull
+  public static String messageForStatusCode(int statusCode) {
+    if (statusCode == HttpStatus.SC_UNAUTHORIZED) {
+      return TaskBundle.message("failure.login");
+    }
+    else if (statusCode == HttpStatus.SC_FORBIDDEN) {
+      return TaskBundle.message("failure.permissions");
+    }
+    return TaskBundle.message("failure.http.error", statusCode, HttpStatus.getStatusText(statusCode));
+  }
 
   public static final class GsonSingleObjectDeserializer<T> implements ResponseHandler<T> {
     private final Gson myGson;
@@ -128,7 +131,7 @@ public class TaskResponseUtil {
         if (statusCode == HttpStatus.SC_NOT_FOUND && myIgnoreNotFound) {
           return null;
         }
-        throw RequestFailedException.forStatusCode(statusCode);
+        throw forStatusCode(statusCode);
       }
       try {
         if (LOG.isDebugEnabled()) {
@@ -169,7 +172,7 @@ public class TaskResponseUtil {
         if (statusCode == HttpStatus.SC_NOT_FOUND && myIgnoreNotFound) {
           return Collections.emptyList();
         }
-        throw RequestFailedException.forStatusCode(statusCode);
+        throw forStatusCode(statusCode);
       }
       try {
         if (LOG.isDebugEnabled()) {
@@ -188,6 +191,51 @@ public class TaskResponseUtil {
       catch (NumberFormatException e) {
         LOG.error("NFE in response: " + getResponseContentAsString(response), e);
         throw new RequestFailedException("Malformed response");
+      }
+    }
+  }
+
+
+  public static void prettyFormatResponseToLog(@NotNull Logger logger, @NotNull HttpMethod response) {
+    if (logger.isDebugEnabled() && response.hasBeenUsed()) {
+      try {
+        String content = TaskResponseUtil.getResponseContentAsString(response);
+        org.apache.commons.httpclient.Header header = response.getRequestHeader(HTTP.CONTENT_TYPE);
+        String contentType = header == null ? "text/plain" : StringUtil.toLowerCase(header.getElements()[0].getName());
+        if (contentType.contains("xml")) {
+          TaskUtil.prettyFormatXmlToLog(logger, content);
+        }
+        else if (contentType.contains("json")) {
+          TaskUtil.prettyFormatJsonToLog(logger, content);
+        }
+        else {
+          logger.debug(content);
+        }
+      }
+      catch (IOException e) {
+        logger.error(e);
+      }
+    }
+  }
+
+  public static void prettyFormatResponseToLog(@NotNull Logger logger, @NotNull HttpResponse response) {
+    if (logger.isDebugEnabled()) {
+      try {
+        String content = TaskResponseUtil.getResponseContentAsString(response);
+        Header header = response.getEntity().getContentType();
+        String contentType = header == null ? "text/plain" : StringUtil.toLowerCase(header.getElements()[0].getName());
+        if (contentType.contains("xml")) {
+          TaskUtil.prettyFormatXmlToLog(logger, content);
+        }
+        else if (contentType.contains("json")) {
+          TaskUtil.prettyFormatJsonToLog(logger, content);
+        }
+        else {
+          logger.debug(content);
+        }
+      }
+      catch (IOException e) {
+        logger.error(e);
       }
     }
   }

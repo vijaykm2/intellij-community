@@ -1,192 +1,129 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.zmlx.hg4idea.status.ui;
 
 import com.intellij.dvcs.DvcsUtil;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.fileEditor.FileEditorManager;
-import com.intellij.openapi.fileEditor.FileEditorManagerEvent;
+import com.intellij.dvcs.repo.VcsRepositoryMappingListener;
+import com.intellij.dvcs.ui.DvcsStatusWidget;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.ListPopup;
-import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.wm.StatusBar;
 import com.intellij.openapi.wm.StatusBarWidget;
-import com.intellij.openapi.wm.impl.status.EditorBasedWidget;
-import com.intellij.util.Consumer;
-import com.intellij.util.messages.MessageBusConnection;
+import com.intellij.openapi.wm.StatusBarWidgetFactory;
+import com.intellij.openapi.wm.impl.status.widget.StatusBarWidgetsManager;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
+import java.util.Objects;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.zmlx.hg4idea.HgBundle;
 import org.zmlx.hg4idea.HgProjectSettings;
-import org.zmlx.hg4idea.HgUpdater;
 import org.zmlx.hg4idea.HgVcs;
 import org.zmlx.hg4idea.branch.HgBranchPopup;
 import org.zmlx.hg4idea.repo.HgRepository;
+import org.zmlx.hg4idea.repo.HgRepositoryManager;
 import org.zmlx.hg4idea.util.HgUtil;
 
-import java.awt.event.MouseEvent;
-
 /**
- * Widget to display basic hg status in the IJ status bar.
+ * Widget to display basic hg status in the status bar.
  */
-public class HgStatusWidget extends EditorBasedWidget
-  implements StatusBarWidget.MultipleTextValuesPresentation,
-             StatusBarWidget.Multiframe, HgUpdater {
-
-  private static final String MAX_STRING = "Hg: Merging default ";
+public class HgStatusWidget extends DvcsStatusWidget<HgRepository> {
+  private static final @NonNls String ID = "hg";
 
   @NotNull private final HgVcs myVcs;
   @NotNull private final HgProjectSettings myProjectSettings;
 
-  private volatile String myText = "";
-  private volatile String myTooltip = "";
-
   public HgStatusWidget(@NotNull HgVcs vcs, @NotNull Project project, @NotNull HgProjectSettings projectSettings) {
-    super(project);
+    super(project, vcs.getShortName());
     myVcs = vcs;
     myProjectSettings = projectSettings;
+
+    project.getMessageBus().connect(this).subscribe(HgVcs.STATUS_TOPIC, (p, root) -> updateLater());
+  }
+
+  @Override
+  public @NotNull String ID() {
+    return ID;
   }
 
   @Override
   public StatusBarWidget copy() {
-    return new HgStatusWidget(myVcs, getProject(), myProjectSettings);
+    return new HgStatusWidget(myVcs, myProject, myProjectSettings);
+  }
+
+  @Nullable
+  @Override
+  @RequiresEdt
+  protected HgRepository guessCurrentRepository(@NotNull Project project) {
+    return DvcsUtil.guessCurrentRepositoryQuick(project, HgUtil.getRepositoryManager(project),
+                                                HgProjectSettings.getInstance(project).getRecentRootPath());
   }
 
   @NotNull
   @Override
-  public String ID() {
-    return HgStatusWidget.class.getName();
+  protected String getFullBranchName(@NotNull HgRepository repository) {
+    return HgUtil.getDisplayableBranchOrBookmarkText(repository);
   }
 
   @Override
-  public WidgetPresentation getPresentation(@NotNull PlatformType type) {
-    return this;
-  }
-
-  @Override
-  public void selectionChanged(@NotNull FileEditorManagerEvent event) {
-    update();
-  }
-
-  @Override
-  public void fileOpened(@NotNull FileEditorManager source, @NotNull VirtualFile file) {
-    update();
-  }
-
-  @Override
-  public void fileClosed(@NotNull FileEditorManager source, @NotNull VirtualFile file) {
-    update();
-  }
-
-  @Override
-  public ListPopup getPopupStep() {
-    Project project = getProject();
-    if (project == null || project.isDisposed()) {
-      return null;
-    }
-    VirtualFile root = HgUtil.getRootForSelectedFile(project);
-    HgRepository repository = HgUtil.getRepositoryManager(project).getRepositoryForRoot(root);
-    if (repository != null) {
-      return HgBranchPopup.getInstance(project, repository).asListPopup();
-    }
-    return null;
-  }
-
-  @Override
-  public String getSelectedValue() {
-    final String text = myText;
-    return StringUtil.isEmpty(text) ? "" : "hg: " + text;
+  protected boolean isMultiRoot(@NotNull Project project) {
+    return HgUtil.getRepositoryManager(project).moreThanOneRoot();
   }
 
   @NotNull
   @Override
-  @Deprecated
-  public String getMaxValue() {
-    return MAX_STRING;
-  }
-
-
-  @Override
-  public String getTooltipText() {
-    return myTooltip;
-  }
-
-
-  @Override
-  // Updates branch information on click
-  public Consumer<MouseEvent> getClickConsumer() {
-    return new Consumer<MouseEvent>() {
-      public void consume(MouseEvent mouseEvent) {
-        update();
-      }
-    };
+  protected ListPopup getPopup(@NotNull Project project, @NotNull HgRepository repository) {
+    return HgBranchPopup.getInstance(project, repository).asListPopup();
   }
 
   @Override
-  public void update(final Project project, @Nullable VirtualFile root) {
-    ApplicationManager.getApplication().invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        update();
-      }
-    });
+  protected void rememberRecentRoot(@NotNull String path) {
+    myProjectSettings.setRecentRootPath(path);
   }
 
-  private void update() {
-    Project project = getProject();
-    if ((project == null) || project.isDisposed()) {
-      emptyTextAndTooltip();
-      return;
+  public static class Listener implements VcsRepositoryMappingListener {
+    private final Project myProject;
+
+    public Listener(@NotNull Project project) {
+      myProject = project;
     }
 
-    final HgRepository repo = HgUtil.getCurrentRepository(project);
-    if (repo == null) { // the file is not under version control => display nothing
-      emptyTextAndTooltip();
-      return;
-    }
-    myTooltip = HgUtil.getDisplayableBranchOrBookmarkText(repo);
-    myText = StringUtil.shortenTextWithEllipsis(myTooltip, MAX_STRING.length(), 5);
-    if (!isDisposed() && myStatusBar != null) {
-      myStatusBar.updateWidget(ID());
+    @Override
+    public void mappingChanged() {
+      myProject.getService(StatusBarWidgetsManager.class).updateWidget(Factory.class);
     }
   }
 
-  public void activate() {
-    Project project = getProject();
-    if (null == project) {
-      return;
+  public static class Factory implements StatusBarWidgetFactory {
+    @Override
+    public @NotNull String getId() {
+      return ID;
     }
 
-    MessageBusConnection busConnection = project.getMessageBus().connect();
-    busConnection.subscribe(HgVcs.STATUS_TOPIC, this);
+    @Override
+    public @Nls @NotNull String getDisplayName() {
+      return HgBundle.message("hg4idea.status.bar.widget.name");
+    }
 
-    DvcsUtil.installStatusBarWidget(myProject, this);
-  }
+    @Override
+    public boolean isAvailable(@NotNull Project project) {
+      return !project.getService(HgRepositoryManager.class).getRepositories().isEmpty();
+    }
 
-  public void deactivate() {
-    if (isDisposed()) return;
-    DvcsUtil.removeStatusBarWidget(myProject, this);
-  }
+    @Override
+    public @NotNull StatusBarWidget createWidget(@NotNull Project project) {
+      return new HgStatusWidget(Objects.requireNonNull(HgVcs.getInstance(project)), project, HgProjectSettings.getInstance(project));
+    }
 
-  public void dispose() {
-    deactivate();
-    super.dispose();
-  }
+    @Override
+    public void disposeWidget(@NotNull StatusBarWidget widget) {
+      Disposer.dispose(widget);
+    }
 
-  private void emptyTextAndTooltip() {
-    myText = "";
-    myTooltip = "";
+    @Override
+    public boolean canBeEnabledOn(@NotNull StatusBar statusBar) {
+      return true;
+    }
   }
 }

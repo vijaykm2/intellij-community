@@ -1,65 +1,83 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.json.psi.impl;
 
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.LiteralTextEscaper;
 import com.intellij.psi.PsiLanguageInjectionHost;
+import kotlin.ranges.IntRange;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Arrays;
+import java.util.stream.IntStream;
+
 public abstract class JSStringLiteralEscaper<T extends PsiLanguageInjectionHost> extends LiteralTextEscaper<T> {
+  /**
+   * Offset in injected string -> offset in host string
+   * Last element contains imaginary offset for the character after the last one in injected string. It would be host string length.
+   * E.g. for "aa\nbb" it is [0,1,2,4,5,6]
+   */
   private int[] outSourceOffsets;
 
   public JSStringLiteralEscaper(T host) {
     super(host);
   }
 
+  @Override
   public boolean decode(@NotNull final TextRange rangeInsideHost, @NotNull StringBuilder outChars) {
     String subText = rangeInsideHost.substring(myHost.getText());
 
-    Ref<int[]> sourceOffsetsRef = new Ref<int[]>();
-    boolean result = parseStringCharacters(subText, outChars, sourceOffsetsRef, isRegExpLiteral());
+    Ref<int[]> sourceOffsetsRef = new Ref<>();
+    boolean result = parseStringCharacters(subText, outChars, sourceOffsetsRef, isRegExpLiteral(), !isOneLine());
     outSourceOffsets = sourceOffsetsRef.get();
     return result;
   }
 
   protected abstract boolean isRegExpLiteral();
 
+  @Override
   public int getOffsetInHost(int offsetInDecoded, @NotNull final TextRange rangeInsideHost) {
     int result = offsetInDecoded < outSourceOffsets.length ? outSourceOffsets[offsetInDecoded] : -1;
     if (result == -1) return -1;
-    return (result <= rangeInsideHost.getLength() ? result : rangeInsideHost.getLength()) + rangeInsideHost.getStartOffset();
+    return Math.min(result, rangeInsideHost.getLength()) + rangeInsideHost.getStartOffset();
   }
 
+  @Override
   public boolean isOneLine() {
     return true;
   }
 
-  public static boolean parseStringCharacters(String chars, StringBuilder outChars, Ref<int[]> sourceOffsetsRef, boolean regExp) {
-    int[] sourceOffsets = new int[chars.length() + 1];
-    sourceOffsetsRef.set(sourceOffsets);
-
+  public static boolean parseStringCharacters(String chars, StringBuilder outChars, Ref<int[]> sourceOffsetsRef, boolean regExp, boolean escapeBacktick) {
     if (chars.indexOf('\\') < 0) {
       outChars.append(chars);
-      for (int i = 0; i < sourceOffsets.length; i++) {
-        sourceOffsets[i] = i;
-      }
+      sourceOffsetsRef.set(IntStream.range(0, chars.length() + 1).toArray());
       return true;
     }
-    int index = 0;
 
+    int[] sourceOffsets = new int[chars.length() + 1];
+    int index = 0;
+    final int outOffset = outChars.length();
+    boolean result = true;
+    loop:
     while (index < chars.length()) {
       char c = chars.charAt(index++);
 
-      sourceOffsets[outChars.length()] = index - 1;
-      sourceOffsets[outChars.length() + 1] = index;
+      sourceOffsets[outChars.length() - outOffset] = index - 1;
+      sourceOffsets[outChars.length() + 1 - outOffset] = index;
 
       if (c != '\\') {
         outChars.append(c);
         continue;
       }
-      if (index == chars.length()) return false;
+      if (index == chars.length()) {
+        result = false;
+        break;
+      }
       c = chars.charAt(index++);
-      if (regExp) {
+      if (escapeBacktick && c == '`') {
+        outChars.append(c);
+      }
+      else if (regExp) {
         if (c != '/') {
           outChars.append('\\');
         }
@@ -147,40 +165,70 @@ public abstract class JSStringLiteralEscaper<T extends PsiLanguageInjectionHost>
                 index += 2;
               }
               catch (Exception e) {
-                return false;
+                result = false;
+                break loop;
               }
             }
             else {
-              return false;
+              result = false;
+              break loop;
             }
             break;
           case 'u':
-            if (index + 4 <= chars.length()) {
+            if (index + 3 <= chars.length() && chars.charAt(index) == '{') {
+              int end = chars.indexOf('}', index + 1);
+              if (end < 0) {
+                result = false;
+                break loop;
+              }
+              try {
+                int v = Integer.parseInt(chars.substring(index + 1, end), 16);
+                c = chars.charAt(index + 1);
+                if (c == '+' || c == '-') {
+                  result = false;
+                  break loop;
+                }
+                outChars.appendCodePoint(v);
+                index = end + 1;
+              } catch (Exception e) {
+                result = false;
+                break loop;
+              }
+            }
+            else if (index + 4 <= chars.length()) {
               try {
                 int v = Integer.parseInt(chars.substring(index, index + 4), 16);
-                //line separators are invalid here
-                if (v == 0x000a || v == 0x000d) return false;
                 c = chars.charAt(index);
-                if (c == '+' || c == '-') return false;
+                if (c == '+' || c == '-') {
+                  result = false;
+                  break loop;
+                }
                 outChars.append((char)v);
                 index += 4;
               }
               catch (Exception e) {
-                return false;
+                result = false;
+                break loop;
               }
             }
             else {
-              return false;
+              result = false;
+              break loop;
             }
             break;
 
           default:
-            return false;
+            outChars.append(c);
+            break;
         }
       }
 
-      sourceOffsets[outChars.length()] = index;
+      sourceOffsets[outChars.length() - outOffset] = index;
     }
-    return true;
+
+    sourceOffsets[outChars.length() - outOffset] = chars.length();
+
+    sourceOffsetsRef.set(Arrays.copyOf(sourceOffsets, outChars.length() - outOffset + 1));
+    return result;
   }
 }

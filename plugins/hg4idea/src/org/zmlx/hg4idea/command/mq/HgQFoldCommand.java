@@ -17,15 +17,16 @@ package org.zmlx.hg4idea.command.mq;
 
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.zmlx.hg4idea.HgBundle;
 import org.zmlx.hg4idea.action.HgCommandResultNotifier;
 import org.zmlx.hg4idea.execution.HgCommandExecutor;
 import org.zmlx.hg4idea.execution.HgCommandResult;
-import org.zmlx.hg4idea.execution.HgCommandResultHandler;
 import org.zmlx.hg4idea.repo.HgRepository;
 import org.zmlx.hg4idea.util.HgErrorUtil;
 
 import java.util.List;
+
+import static org.zmlx.hg4idea.HgNotificationIdsHolder.QFOLD_ERROR;
 
 public class HgQFoldCommand {
   @NotNull private final HgRepository myRepository;
@@ -34,18 +35,17 @@ public class HgQFoldCommand {
     myRepository = repository;
   }
 
-  public void execute(@NotNull final List<String> patchNames) {
+  public void executeInCurrentThread(@NotNull final List<String> patchNames) {
     final Project project = myRepository.getProject();
-    new HgCommandExecutor(project)
-      .execute(myRepository.getRoot(), "qfold", patchNames, new HgCommandResultHandler() {
-        @Override
-        public void process(@Nullable HgCommandResult result) {
-          if (HgErrorUtil.hasErrorsInCommandExecution(result)) {
-            new HgCommandResultNotifier(project)
-              .notifyError(result, "QFold command failed", "Could not fold patches into the current patch");
-          }
-          myRepository.update();
-        }
-      });
+    HgCommandResult result = new HgCommandExecutor(project)
+      .executeInCurrentThread(myRepository.getRoot(), "qfold", patchNames);
+    if (HgErrorUtil.hasErrorsInCommandExecution(result)) {
+      new HgCommandResultNotifier(project)
+        .notifyError(QFOLD_ERROR,
+                     result,
+                     HgBundle.message("action.hg4idea.QFold.error"),
+                     HgBundle.message("action.hg4idea.QFold.error.msg"));
+    }
+    myRepository.update();
   }
 }

@@ -20,9 +20,6 @@ import com.intellij.packaging.artifacts.ArtifactPropertiesProvider;
 import com.intellij.packaging.artifacts.ArtifactType;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author nik
- */
 public class AntArtifactPostprocessingPropertiesProvider extends ArtifactPropertiesProvider {
   public static AntArtifactPostprocessingPropertiesProvider getInstance() {
     return EP_NAME.findExtension(AntArtifactPostprocessingPropertiesProvider.class);
@@ -32,6 +29,7 @@ public class AntArtifactPostprocessingPropertiesProvider extends ArtifactPropert
     super("ant-postprocessing");
   }
 
+  @Override
   @NotNull
   public ArtifactProperties<?> createProperties(@NotNull ArtifactType artifactType) {
     return new AntArtifactProperties(true);

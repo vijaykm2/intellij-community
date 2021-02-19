@@ -23,19 +23,20 @@ import org.intellij.lang.regexp.psi.RegExpClassElement;
 import org.intellij.lang.regexp.psi.RegExpElementVisitor;
 import org.jetbrains.annotations.NotNull;
 
-public class RegExpClassImpl extends RegExpElementImpl implements RegExpClass, RegExpClassElement {
+public class RegExpClassImpl extends RegExpElementImpl implements RegExpClass {
 
     public RegExpClassImpl(ASTNode astNode) {
         super(astNode);
     }
 
+    @Override
     public boolean isNegated() {
-        final ASTNode node = getNode().getFirstChildNode();
+        final ASTNode node = getNode().getFirstChildNode().getTreeNext();
         return node != null && node.getElementType() == RegExpTT.CARET;
     }
 
-    @NotNull
-    public RegExpClassElement[] getElements() {
+    @Override
+    public RegExpClassElement @NotNull [] getElements() {
         final ASTNode[] nodes = getNode().getChildren(RegExpElementTypes.CLASS_ELEMENTS);
         final RegExpClassElement[] e = new RegExpClassElement[nodes.length];
         for (int i = 0; i < e.length; i++) {
@@ -44,6 +45,7 @@ public class RegExpClassImpl extends RegExpElementImpl implements RegExpClass, R
         return e;
     }
 
+    @Override
     public void accept(RegExpElementVisitor visitor) {
         visitor.visitRegExpClass(this);
     }

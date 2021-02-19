@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,18 +22,15 @@ import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMethod;
 import com.intellij.refactoring.changeSignature.ChangeSignatureProcessorBase;
-import com.intellij.refactoring.changeSignature.ChangeSignatureUsageProcessor;
 import com.intellij.refactoring.changeSignature.ChangeSignatureViewDescriptor;
 import com.intellij.refactoring.rename.RenameUtil;
 import com.intellij.refactoring.ui.ConflictsDialog;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewDescriptor;
-import com.intellij.util.containers.HashSet;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Arrays;
-import java.util.Collection;
 import java.util.Set;
 
 /**
@@ -41,7 +38,7 @@ import java.util.Set;
  */
 public class GrChangeSignatureProcessor extends ChangeSignatureProcessorBase {
   public static final Logger LOG =
-    Logger.getInstance("#org.jetbrains.plugins.groovy.refactoring.changeSignature.GrChangeSignatureProcessor");
+    Logger.getInstance(GrChangeSignatureProcessor.class);
 
   public GrChangeSignatureProcessor(Project project, GrChangeInfoImpl changeInfo) {
     super(project, changeInfo);
@@ -54,33 +51,25 @@ public class GrChangeSignatureProcessor extends ChangeSignatureProcessorBase {
 
   @NotNull
   @Override
-  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo[] usages) {
+  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo @NotNull [] usages) {
     return new ChangeSignatureViewDescriptor(getChangeInfo().getMethod());
   }
 
   @Override
-  protected void refreshElements(PsiElement[] elements) {
+  protected void refreshElements(PsiElement @NotNull [] elements) {
     boolean condition = elements.length == 1 && elements[0] instanceof PsiMethod;
     LOG.assertTrue(condition);
     getChangeInfo().updateMethod((PsiMethod)elements[0]);
   }
 
   @Override
-  protected boolean preprocessUsages(Ref<UsageInfo[]> refUsages) {
-    MultiMap<PsiElement, String> conflictDescriptions = new MultiMap<PsiElement, String>();
-    for (ChangeSignatureUsageProcessor usageProcessor : ChangeSignatureUsageProcessor.EP_NAME.getExtensions()) {
-      final MultiMap<PsiElement, String> conflicts = usageProcessor.findConflicts(myChangeInfo, refUsages);
-      for (PsiElement key : conflicts.keySet()) {
-        Collection<String> collection = conflictDescriptions.get(key);
-        if (collection.isEmpty()) collection = new HashSet<String>();
-        collection.addAll(conflicts.get(key));
-        conflictDescriptions.put(key, collection);
-      }
-    }
+  protected boolean preprocessUsages(@NotNull Ref<UsageInfo[]> refUsages) {
+    MultiMap<PsiElement, String> conflictDescriptions = new MultiMap<>();
+    collectConflictsFromExtensions(refUsages, conflictDescriptions, myChangeInfo);
 
     final UsageInfo[] usagesIn = refUsages.get();
     RenameUtil.addConflictDescriptions(usagesIn, conflictDescriptions);
-    Set<UsageInfo> usagesSet = new HashSet<UsageInfo>(Arrays.asList(usagesIn));
+    Set<UsageInfo> usagesSet = ContainerUtil.set(usagesIn);
     RenameUtil.removeConflictUsages(usagesSet);
     if (!conflictDescriptions.isEmpty()) {
       if (ApplicationManager.getApplication().isUnitTestMode()) {
@@ -93,7 +82,7 @@ public class GrChangeSignatureProcessor extends ChangeSignatureProcessorBase {
         return false;
       }
     }
-    refUsages.set(usagesSet.toArray(new UsageInfo[usagesSet.size()]));
+    refUsages.set(usagesSet.toArray(UsageInfo.EMPTY_ARRAY));
     prepareSuccessful();
     return true;
   }

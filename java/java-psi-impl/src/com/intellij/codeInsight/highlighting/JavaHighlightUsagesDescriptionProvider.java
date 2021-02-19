@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,9 @@
  */
 package com.intellij.codeInsight.highlighting;
 
-import com.intellij.lang.LangBundle;
+import com.intellij.core.JavaPsiBundle;
 import com.intellij.psi.*;
+import com.intellij.psi.util.JavaElementKind;
 import com.intellij.psi.util.PsiFormatUtil;
 import com.intellij.psi.util.PsiFormatUtilBase;
 import org.jetbrains.annotations.NotNull;
@@ -25,8 +26,11 @@ import org.jetbrains.annotations.NotNull;
  * @author yole
  */
 public class JavaHighlightUsagesDescriptionProvider implements ElementDescriptionProvider {
+  private static final int METHOD_FLAGS = PsiFormatUtilBase.SHOW_NAME | PsiFormatUtilBase.SHOW_PARAMETERS | PsiFormatUtilBase.SHOW_CONTAINING_CLASS;
+  private static final int VARIABLE_FLAGS = PsiFormatUtilBase.SHOW_NAME | PsiFormatUtilBase.SHOW_CONTAINING_CLASS;
+
   @Override
-  public String getElementDescription(@NotNull final PsiElement element, @NotNull final ElementDescriptionLocation location) {
+  public String getElementDescription(@NotNull PsiElement element, @NotNull ElementDescriptionLocation location) {
     if (!(location instanceof HighlightUsagesDescriptionLocation)) return null;
 
     String elementName = null;
@@ -35,35 +39,17 @@ public class JavaHighlightUsagesDescriptionProvider implements ElementDescriptio
       if (elementName == null) {
         elementName = ((PsiClass)element).getName();
       }
-      elementName = (((PsiClass)element).isInterface() ?
-                     LangBundle.message("java.terms.interface") :
-                     LangBundle.message("java.terms.class")) + " " + elementName;
     }
     else if (element instanceof PsiMethod) {
-      elementName = PsiFormatUtil.formatMethod((PsiMethod)element,
-                                               PsiSubstitutor.EMPTY, PsiFormatUtilBase.SHOW_NAME | PsiFormatUtilBase.SHOW_PARAMETERS |
-                                                                     PsiFormatUtilBase.SHOW_CONTAINING_CLASS,
-                                               PsiFormatUtilBase.SHOW_TYPE);
-      elementName = LangBundle.message("java.terms.method") + " " + elementName;
+      elementName = PsiFormatUtil.formatMethod((PsiMethod)element, PsiSubstitutor.EMPTY, METHOD_FLAGS, PsiFormatUtilBase.SHOW_TYPE);
     }
     else if (element instanceof PsiVariable) {
-      elementName = PsiFormatUtil.formatVariable((PsiVariable)element,
-                                                 PsiFormatUtilBase.SHOW_NAME | PsiFormatUtilBase.SHOW_CONTAINING_CLASS,
-                                                 PsiSubstitutor.EMPTY);
-      if (element instanceof PsiField) {
-        elementName = LangBundle.message("java.terms.field") + " " + elementName;
-      }
-      else if (element instanceof PsiParameter) {
-        elementName = LangBundle.message("java.terms.parameter") + " " + elementName;
-      }
-      else {
-        elementName = LangBundle.message("java.terms.variable") + " " + elementName;
-      }
+      elementName = PsiFormatUtil.formatVariable((PsiVariable)element, VARIABLE_FLAGS, PsiSubstitutor.EMPTY);
     }
     else if (element instanceof PsiPackage) {
       elementName = ((PsiPackage)element).getQualifiedName();
-      elementName = LangBundle.message("java.terms.package") + " " + elementName;
     }
-    return elementName;
+    return elementName == null ? null :
+           JavaPsiBundle.message("element.kind.and.name", JavaElementKind.fromElement(element).subject(), elementName);
   }
 }

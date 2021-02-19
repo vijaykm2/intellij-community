@@ -15,80 +15,33 @@
  */
 package org.intellij.plugins.intelliLang.pattern;
 
-import com.intellij.codeHighlighting.HighlightDisplayLevel;
-import com.intellij.codeInsight.AnnotationUtil;
-import com.intellij.codeInspection.LocalInspectionTool;
-import com.intellij.codeInspection.ProblemsHolder;
-import com.intellij.psi.*;
-import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.openapi.project.Project;
+import com.intellij.psi.PsiType;
 import org.intellij.plugins.intelliLang.Configuration;
+import org.intellij.plugins.intelliLang.IntelliLangBundle;
+import org.intellij.plugins.intelliLang.util.AbstractAnnotationNotApplicableInspection;
 import org.intellij.plugins.intelliLang.util.PsiUtilEx;
-import org.intellij.plugins.intelliLang.util.RemoveAnnotationFix;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-public class PatternAnnotationNotApplicable extends LocalInspectionTool {
+public class PatternAnnotationNotApplicable extends AbstractAnnotationNotApplicableInspection {
 
-  @NotNull
-  public HighlightDisplayLevel getDefaultLevel() {
-    return HighlightDisplayLevel.ERROR;
+  @Override
+  protected String getAnnotationName(Project project) {
+    return Configuration.getProjectInstance(project).getAdvancedConfiguration().getPatternAnnotationClass();
   }
 
-  public boolean isEnabledByDefault() {
-    return true;
+  @Override
+  protected boolean isTypeApplicable(PsiType type) {
+    return type != null && !PsiUtilEx.isString(type);
   }
 
-  @NotNull
-  public String getGroupDisplayName() {
-    return PatternValidator.PATTERN_VALIDATION;
+  @Override
+  protected String getDescriptionTemplate() {
+    return IntelliLangBundle.message("inspection.message.pattern.annotation.only.applicable.to.elements.type.string");
   }
 
-  @NotNull
-  public String getDisplayName() {
-    return "Pattern Annotation not applicable";
-  }
-
-  @NotNull
-  public PsiElementVisitor buildVisitor(@NotNull final ProblemsHolder holder, boolean isOnTheFly) {
-    return new JavaElementVisitor() {
-      final String annotationName = Configuration.getProjectInstance(holder.getProject()).getAdvancedConfiguration().getPatternAnnotationClass();
-
-      @Override
-      public void visitAnnotation(PsiAnnotation annotation) {
-        final String name = annotation.getQualifiedName();
-        if (annotationName.equals(name)) {
-          checkAnnotation(annotation, holder);
-        }
-        else if (name != null) {
-          final PsiClass psiClass = JavaPsiFacade.getInstance(annotation.getProject()).findClass(name, annotation.getResolveScope());
-          if (psiClass != null && AnnotationUtil.isAnnotated(psiClass, annotationName, false, false)) {
-            checkAnnotation(annotation, holder);
-          }
-        }
-      }
-    };
-  }
-
-  private void checkAnnotation(PsiAnnotation annotation, ProblemsHolder holder) {
-    final PsiModifierListOwner owner = PsiTreeUtil.getParentOfType(annotation, PsiModifierListOwner.class);
-    if (owner instanceof PsiVariable) {
-      final PsiType type = ((PsiVariable)owner).getType();
-      if (!PsiUtilEx.isString(type)) {
-        registerProblem(annotation, holder);
-      }
-    }
-    else if (owner instanceof PsiMethod) {
-      final PsiType type = ((PsiMethod)owner).getReturnType();
-      if (type != null && !PsiUtilEx.isString(type)) {
-        registerProblem(annotation, holder);
-      }
-    }
-  }
-
-  private void registerProblem(PsiAnnotation annotation, ProblemsHolder holder) {
-    holder.registerProblem(annotation, "Pattern Annotation is only applicable to elements of type String", new RemoveAnnotationFix(this));
-  }
-
+  @Override
   @NotNull
   @NonNls
   public String getShortName() {

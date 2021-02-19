@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.execution;
 
 import com.intellij.ide.util.treeView.NodeRenderer;
@@ -21,14 +7,15 @@ import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.PopupChooserBuilder;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.TreeSpeedSearch;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.Consumer;
-import com.intellij.util.containers.Convertor;
 import icons.MavenIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.project.MavenProject;
+import org.jetbrains.idea.maven.project.MavenProjectBundle;
 import org.jetbrains.idea.maven.project.MavenProjectsManager;
 import org.jetbrains.idea.maven.utils.MavenProjectNamer;
 
@@ -47,27 +34,21 @@ import java.util.Map;
 /**
  * @author Sergey Evdokimov
  */
-public class MavenSelectProjectPopup {
+public final class MavenSelectProjectPopup {
 
   public static void attachToWorkingDirectoryField(@NotNull final MavenProjectsManager projectsManager,
                                                    final JTextField workingDirectoryField,
                                                    final JButton showModulesButton,
                                                    @Nullable final JComponent focusAfterSelection) {
-    attachToButton(projectsManager, showModulesButton, new Consumer<MavenProject>() {
-      @Override
-      public void consume(MavenProject project) {
-        workingDirectoryField.setText(project.getDirectory());
+    attachToButton(projectsManager, showModulesButton, project -> {
+      workingDirectoryField.setText(project.getDirectory());
 
-        if (focusAfterSelection != null) {
-          ApplicationManager.getApplication().invokeLater(new Runnable() {
-            @Override
-            public void run() {
-              if (workingDirectoryField.hasFocus()) {
-                focusAfterSelection.requestFocus();
-              }
-            }
-          });
-        }
+      if (focusAfterSelection != null) {
+        ApplicationManager.getApplication().invokeLater(() -> {
+          if (workingDirectoryField.hasFocus()) {
+            IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(focusAfterSelection, true));
+          }
+        });
       }
     });
 
@@ -86,13 +67,14 @@ public class MavenSelectProjectPopup {
 
   public static void attachToButton(@NotNull final MavenProjectsManager projectsManager,
                                     @NotNull final JButton button,
-                                    @NotNull final Consumer<MavenProject> callback) {
+                                    @NotNull final Consumer<? super MavenProject> callback) {
     button.addActionListener(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
         List<MavenProject> projectList = projectsManager.getProjects();
         if (projectList.isEmpty()) {
-          JBPopupFactory.getInstance().createMessage("Maven projects not found").showUnderneathOf(button);
+          JBPopupFactory.getInstance().createMessage(
+            MavenProjectBundle.message("popup.content.maven.projects.not.found")).showUnderneathOf(button);
           return;
         }
 
@@ -104,7 +86,7 @@ public class MavenSelectProjectPopup {
         projectTree.setRootVisible(false);
         projectTree.setCellRenderer(new NodeRenderer() {
           @Override
-          public void customizeCellRenderer(JTree tree,
+          public void customizeCellRenderer(@NotNull JTree tree,
                                             Object value,
                                             boolean selected,
                                             boolean expanded,
@@ -121,37 +103,31 @@ public class MavenSelectProjectPopup {
           }
         });
 
-        new TreeSpeedSearch(projectTree, new Convertor<TreePath, String>() {
-          @Override
-          public String convert(TreePath o) {
-            Object lastPathComponent = o.getLastPathComponent();
-            if (!(lastPathComponent instanceof DefaultMutableTreeNode)) return null;
+        new TreeSpeedSearch(projectTree, o -> {
+          Object lastPathComponent = o.getLastPathComponent();
+          if (!(lastPathComponent instanceof DefaultMutableTreeNode)) return null;
 
-            Object userObject = ((DefaultMutableTreeNode)lastPathComponent).getUserObject();
+          Object userObject = ((DefaultMutableTreeNode)lastPathComponent).getUserObject();
 
-            //noinspection SuspiciousMethodCalls
-            return projectsNameMap.get(userObject);
-          }
+          //noinspection SuspiciousMethodCalls
+          return projectsNameMap.get(userObject);
         });
 
-        final Ref<JBPopup> popupRef = new Ref<JBPopup>();
+        final Ref<JBPopup> popupRef = new Ref<>();
 
-        final Runnable clickCallBack = new Runnable() {
-          @Override
-          public void run() {
-            TreePath path = projectTree.getSelectionPath();
-            if (path == null) return;
+        final Runnable clickCallBack = () -> {
+          TreePath path = projectTree.getSelectionPath();
+          if (path == null) return;
 
-            Object lastPathComponent = path.getLastPathComponent();
-            if (!(lastPathComponent instanceof DefaultMutableTreeNode)) return;
+          Object lastPathComponent = path.getLastPathComponent();
+          if (!(lastPathComponent instanceof DefaultMutableTreeNode)) return;
 
-            Object object = ((DefaultMutableTreeNode)lastPathComponent).getUserObject();
-            if (object == null) return; // may be it's the root
+          Object object = ((DefaultMutableTreeNode)lastPathComponent).getUserObject();
+          if (object == null) return; // may be it's the root
 
-            callback.consume((MavenProject)object);
+          callback.consume((MavenProject)object);
 
-            popupRef.get().closeOk(null);
-          }
+          popupRef.get().closeOk(null);
         };
 
         projectTree.addKeyListener(new KeyAdapter() {
@@ -165,7 +141,7 @@ public class MavenSelectProjectPopup {
         });
 
         JBPopup popup = new PopupChooserBuilder(projectTree)
-          .setTitle("Select maven project")
+          .setTitle(RunnerBundle.message("maven.select.project"))
           .setResizable(true)
           .setItemChoosenCallback(clickCallBack).setAutoselectOnMouseMove(true)
           .setCloseOnEnter(false)
@@ -177,10 +153,10 @@ public class MavenSelectProjectPopup {
       }
 
       private DefaultMutableTreeNode buildTree(List<MavenProject> projectList) {
-        MavenProject[] projects = projectList.toArray(new MavenProject[projectList.size()]);
+        MavenProject[] projects = projectList.toArray(new MavenProject[0]);
         Arrays.sort(projects, new MavenProjectNamer.MavenProjectComparator());
 
-        Map<MavenProject, DefaultMutableTreeNode> projectsToNode = new HashMap<MavenProject, DefaultMutableTreeNode>();
+        Map<MavenProject, DefaultMutableTreeNode> projectsToNode = new HashMap<>();
         for (MavenProject mavenProject : projects) {
           projectsToNode.put(mavenProject, new DefaultMutableTreeNode(mavenProject));
         }

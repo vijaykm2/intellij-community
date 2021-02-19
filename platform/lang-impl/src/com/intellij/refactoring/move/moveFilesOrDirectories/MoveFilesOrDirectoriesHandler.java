@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,31 +13,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.intellij.refactoring.move.moveFilesOrDirectories;
 
-import com.intellij.ide.scratch.ScratchFileService;
+import com.intellij.ide.scratch.ScratchUtil;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.LangDataKeys;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.move.MoveCallback;
 import com.intellij.refactoring.move.MoveHandlerDelegate;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.HashSet;
 
 public class MoveFilesOrDirectoriesHandler extends MoveHandlerDelegate {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.move.moveFilesOrDirectories.MoveFilesOrDirectoriesHandler");
+  private static final Logger LOG = Logger.getInstance(MoveFilesOrDirectoriesHandler.class);
 
   @Override
-  public boolean canMove(final PsiElement[] elements, final PsiElement targetContainer) {
-    HashSet<String> names = new HashSet<String>();
+  public boolean canMove(final PsiElement[] elements, final PsiElement targetContainer, @Nullable PsiReference reference) {
+    HashSet<String> names = new HashSet<>();
     for (PsiElement element : elements) {
       if (element instanceof PsiFile) {
         PsiFile file = (PsiFile)element;
@@ -52,23 +55,21 @@ public class MoveFilesOrDirectoriesHandler extends MoveHandlerDelegate {
       }
     }
 
-    return super.canMove(elements, targetContainer);
+    return super.canMove(elements, targetContainer, reference);
   }
 
   @Override
-  public boolean isValidTarget(final PsiElement psiElement, PsiElement[] sources) {
-    return isValidTarget(psiElement);
+  public boolean isValidTarget(final PsiElement targetElement, PsiElement[] sources) {
+    return isValidTarget(targetElement);
   }
 
   public static boolean isValidTarget(PsiElement psiElement) {
+    if (psiElement == null) return true;
     if (!(psiElement instanceof PsiDirectory || psiElement instanceof PsiDirectoryContainer)) return false;
-    return psiElement.getManager().isInProject(psiElement) || isInScratches(psiElement);
-  }
-
-  protected static boolean isInScratches(PsiElement psiElement) {
-    VirtualFile virtualFile = psiElement instanceof PsiFileSystemItem ? ((PsiFileSystemItem)psiElement).getVirtualFile() : null;
-    if (virtualFile != null && ScratchFileService.getInstance().getRootType(virtualFile) != null) return true;
-    return false;
+    if (psiElement.getManager().isInProject(psiElement)) return true;
+    VirtualFile virtualFile = PsiUtilCore.getVirtualFile(psiElement);
+    return ScratchUtil.isScratch(virtualFile) ||
+           virtualFile != null && ProjectRootManager.getInstance(psiElement.getProject()).getFileIndex().isExcluded(virtualFile);
   }
 
   public void doMove(final PsiElement[] elements, final PsiElement targetContainer) {
@@ -77,9 +78,8 @@ public class MoveFilesOrDirectoriesHandler extends MoveHandlerDelegate {
   }
 
 
-  @Nullable
   @Override
-  public PsiElement[] adjustForMove(Project project, PsiElement[] sourceElements, PsiElement targetElement) {
+  public PsiElement @Nullable [] adjustForMove(Project project, PsiElement[] sourceElements, PsiElement targetElement) {
     return PsiTreeUtil.filterAncestors(sourceElements);
   }
 
@@ -111,5 +111,26 @@ public class MoveFilesOrDirectoriesHandler extends MoveHandlerDelegate {
       return true;
     }
     return false;
+  }
+
+  @Nullable
+  @Override
+  public String getActionName(PsiElement @NotNull [] elements) {
+    int fileCount = 0, directoryCount = 0;
+    for (PsiElement element : elements) {
+      if (element instanceof PsiFile) {
+        fileCount++;
+      }
+      else if (element instanceof PsiDirectory) {
+        directoryCount++;
+      }
+    }
+    if (directoryCount == 0) {
+      return fileCount == 1 ? RefactoringBundle.message("move.file") : RefactoringBundle.message("move.files");
+    }
+    if (fileCount == 0) {
+      return directoryCount == 1 ? RefactoringBundle.message("move.directory") : RefactoringBundle.message("move.directories.with.dialog");
+    }
+    return RefactoringBundle.message("move.files.and.directories");
   }
 }

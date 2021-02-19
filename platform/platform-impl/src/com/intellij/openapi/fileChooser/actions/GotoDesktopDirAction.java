@@ -17,6 +17,7 @@ package com.intellij.openapi.fileChooser.actions;
 
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.util.ExecUtil;
+import com.intellij.ide.lightEdit.LightEditCompatible;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.fileChooser.FileSystemTree;
 import com.intellij.openapi.util.NullableLazyValue;
@@ -28,8 +29,8 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 
-public class GotoDesktopDirAction extends FileChooserAction {
-  private final NullableLazyValue<VirtualFile> myDesktopDirectory = new NullableLazyValue<VirtualFile>() {
+public class GotoDesktopDirAction extends FileChooserAction implements LightEditCompatible {
+  private final NullableLazyValue<VirtualFile> myDesktopDirectory = new NullableLazyValue<>() {
     @Nullable
     @Override
     protected VirtualFile compute() {
@@ -41,12 +42,7 @@ public class GotoDesktopDirAction extends FileChooserAction {
   protected void actionPerformed(final FileSystemTree tree, AnActionEvent e) {
     final VirtualFile dir = myDesktopDirectory.getValue();
     if (dir != null) {
-      tree.select(dir, new Runnable() {
-        @Override
-        public void run() {
-          tree.expand(dir, null);
-        }
-      });
+      tree.select(dir, () -> tree.expand(dir, null));
     }
   }
 

@@ -1,5 +1,6 @@
 package com.intellij.vcs.log;
 
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import java.awt.*;
@@ -22,6 +23,7 @@ public interface RefGroup {
    * Returns the name of the reference group. This reference will be displayed on the branches panel.
    */
   @NotNull
+  @Nls
   String getName();
 
   /**
@@ -31,9 +33,8 @@ public interface RefGroup {
   List<VcsRef> getRefs();
 
   /**
-   * Returns the background color of this ref group, which will be used to paint it on the Branches panel.
+   * Returns the colors of this ref group, which will be used to paint it in the table.
    */
   @NotNull
-  Color getBgColor();
-
+  List<Color> getColors();
 }

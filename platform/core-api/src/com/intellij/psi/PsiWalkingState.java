@@ -17,25 +17,28 @@
 package com.intellij.psi;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.WalkingState;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author cdr
- */
 public abstract class PsiWalkingState extends WalkingState<PsiElement> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.PsiWalkingState");
+  private static final Logger LOG = Logger.getInstance(PsiWalkingState.class);
   private final PsiElementVisitor myVisitor;
 
   private static class PsiTreeGuide implements TreeGuide<PsiElement> {
     @Override
     public PsiElement getNextSibling(@NotNull PsiElement element) {
-      return element.getNextSibling();
+      return checkSanity(element, element.getNextSibling());
+    }
+
+    private static PsiElement checkSanity(PsiElement element, PsiElement sibling) {
+      if (sibling == PsiUtilCore.NULL_PSI_ELEMENT) throw new PsiInvalidElementAccessException(element, "Sibling of "+element+" is NULL_PSI_ELEMENT");
+      return sibling;
     }
 
     @Override
     public PsiElement getPrevSibling(@NotNull PsiElement element) {
-      return element.getPrevSibling();
+      return checkSanity(element, element.getPrevSibling());
     }
 
     @Override

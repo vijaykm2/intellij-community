@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ import org.jetbrains.annotations.NotNull;
 public class ProperTextRange extends TextRange {
   public ProperTextRange(int startOffset, int endOffset) {
     super(startOffset, endOffset);
-    assertProperRange(this);
   }
 
   public ProperTextRange(@NotNull TextRange range) {
@@ -53,11 +52,12 @@ public class ProperTextRange extends TextRange {
   }
 
   @Override
-  public ProperTextRange intersection(@NotNull TextRange textRange) {
-    assertProperRange(textRange);
-    TextRange range = super.intersection(textRange);
-    if (range == null) return null;
-    return new ProperTextRange(range);
+  public ProperTextRange intersection(@NotNull TextRange range) {
+    assertProperRange(range);
+
+    int newStart = Math.max(getStartOffset(), range.getStartOffset());
+    int newEnd = Math.min(getEndOffset(), range.getEndOffset());
+    return isProperRange(newStart, newEnd) ? new ProperTextRange(newStart, newEnd) : null;
   }
 
   @NotNull

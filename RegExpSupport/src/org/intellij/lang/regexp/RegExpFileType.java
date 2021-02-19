@@ -16,9 +16,8 @@
 package org.intellij.lang.regexp;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.lang.Language;
 import com.intellij.openapi.fileTypes.LanguageFileType;
-import com.intellij.ui.LayeredIcon;
-import icons.RegExpSupportIcons;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -28,39 +27,45 @@ import javax.swing.*;
 public class RegExpFileType extends LanguageFileType {
     public static final RegExpFileType INSTANCE = new RegExpFileType();
 
-    private final Icon myIcon;
-
     private RegExpFileType() {
         super(RegExpLanguage.INSTANCE);
-
-        myIcon = new LayeredIcon(2);
-        ((LayeredIcon)myIcon).setIcon(AllIcons.FileTypes.Text, 0);
-        ((LayeredIcon)myIcon).setIcon(RegExpSupportIcons.Regexp_filetype_icon, 1);
-
-//        myIcon = LayeredIcon.create(
-//                IconLoader.getIcon("/fileTypes/text.png"),
-//                IconLoader.getIcon("regexp-filetype-icon.png"));
     }
 
+    private RegExpFileType(@NotNull Language language) {
+        super(language);
+        if (!(language.getBaseLanguage() instanceof RegExpLanguage)) {
+            throw new IllegalArgumentException(String.valueOf(language.getBaseLanguage()));
+        }
+    }
+
+    @Override
     @NotNull
     @NonNls
     public String getName() {
         return "RegExp";
     }
 
+    @Override
     @NotNull
     public String getDescription() {
-        return "Regular Expression";
+        return RegExpBundle.message("file.type.description.regular.expression");
     }
 
+    @Override
     @NotNull
     @NonNls
     public String getDefaultExtension() {
         return "regexp";
     }
 
+    @Override
     @Nullable
     public Icon getIcon() {
-        return myIcon;
+        return getLanguage() == RegExpLanguage.INSTANCE ? AllIcons.FileTypes.Regexp : null;
+    }
+
+    @NotNull
+    public static LanguageFileType forLanguage(@NotNull Language language) {
+        return new RegExpFileType(language);
     }
 }

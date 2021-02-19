@@ -16,8 +16,8 @@
 package org.jetbrains.jps.model.module.impl;
 
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.jps.model.ex.JpsElementChildRoleBase;
 import org.jetbrains.jps.model.ex.JpsCompositeElementBase;
+import org.jetbrains.jps.model.ex.JpsElementChildRoleBase;
 import org.jetbrains.jps.model.ex.JpsElementCollectionRole;
 import org.jetbrains.jps.model.library.JpsLibrary;
 import org.jetbrains.jps.model.library.JpsLibraryReference;
@@ -26,12 +26,9 @@ import org.jetbrains.jps.model.module.*;
 
 import java.util.List;
 
-/**
- * @author nik
- */
 public class JpsDependenciesListImpl extends JpsCompositeElementBase<JpsDependenciesListImpl> implements JpsDependenciesList {
   public static final JpsElementCollectionRole<JpsDependencyElement> DEPENDENCY_COLLECTION_ROLE =
-    JpsElementCollectionRole.create(JpsElementChildRoleBase.<JpsDependencyElement>create("dependency"));
+    JpsElementCollectionRole.create(JpsElementChildRoleBase.create("dependency"));
 
   public JpsDependenciesListImpl() {
     super();

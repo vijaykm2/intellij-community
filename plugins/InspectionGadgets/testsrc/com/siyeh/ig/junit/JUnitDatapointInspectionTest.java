@@ -14,18 +14,14 @@
  * limitations under the License.
  */
 
-/*
- * User: ddt
- * Date: 22-Mai-2013
- */
 package com.siyeh.ig.junit;
 
 import com.intellij.openapi.application.PluginPathManager;
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 import org.jetbrains.annotations.NotNull;
 
-public class JUnitDatapointInspectionTest extends LightCodeInsightFixtureTestCase {
-  public void testWrongdatapoint() throws Exception {
+public class JUnitDatapointInspectionTest extends LightJavaCodeInsightFixtureTestCase {
+  public void testWrongdatapoint() {
     myFixture.addClass("package org.junit.experimental.theories;\n" +
                        "public @interface DataPoint {}");
     myFixture.testHighlighting(true, false, false, getTestName(true) + ".java");

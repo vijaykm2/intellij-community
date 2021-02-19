@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,18 +24,15 @@ import com.intellij.psi.impl.source.SourceTreeToPsiMap;
 import com.intellij.psi.impl.source.tree.JavaElementType;
 import com.intellij.psi.impl.source.tree.TreeElement;
 import com.intellij.util.IncorrectOperationException;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-@SuppressWarnings("ForLoopReplaceableByForEach")
 public class ClsModifierListImpl extends ClsRepositoryPsiElement<PsiModifierListStub> implements PsiModifierList {
-  public ClsModifierListImpl(final PsiModifierListStub stub) {
+  public ClsModifierListImpl(PsiModifierListStub stub) {
     super(stub);
   }
 
   @Override
-  @NotNull
-  public PsiElement[] getChildren() {
+  public PsiElement @NotNull [] getChildren() {
     return getAnnotations();
   }
 
@@ -51,23 +48,21 @@ public class ClsModifierListImpl extends ClsRepositoryPsiElement<PsiModifierList
 
   @Override
   public void setModifierProperty(@NotNull String name, boolean value) throws IncorrectOperationException {
-    throw new IncorrectOperationException(CAN_NOT_MODIFY_MESSAGE);
+    throw cannotModifyException(this);
   }
 
   @Override
   public void checkSetModifierProperty(@NotNull String name, boolean value) throws IncorrectOperationException {
-    throw new IncorrectOperationException(CAN_NOT_MODIFY_MESSAGE);
+    throw cannotModifyException(this);
   }
 
   @Override
-  @NotNull
-  public PsiAnnotation[] getAnnotations() {
+  public PsiAnnotation @NotNull [] getAnnotations() {
     return getStub().getChildrenByType(JavaStubElementTypes.ANNOTATION, PsiAnnotation.ARRAY_FACTORY);
   }
 
   @Override
-  @NotNull
-  public PsiAnnotation[] getApplicableAnnotations() {
+  public PsiAnnotation @NotNull [] getApplicableAnnotations() {
     return getAnnotations();
   }
 
@@ -78,29 +73,30 @@ public class ClsModifierListImpl extends ClsRepositoryPsiElement<PsiModifierList
 
   @Override
   @NotNull
-  public PsiAnnotation addAnnotation(@NotNull @NonNls String qualifiedName) {
-    throw new IncorrectOperationException(CAN_NOT_MODIFY_MESSAGE);
+  public PsiAnnotation addAnnotation(@NotNull String qualifiedName) {
+    throw cannotModifyException(this);
   }
 
   @Override
   public void appendMirrorText(int indentLevel, @NotNull StringBuilder buffer) {
-    final PsiElement parent = getParent();
-    final PsiAnnotation[] annotations = getAnnotations();
-    final boolean separateAnnotations = parent instanceof PsiClass || parent instanceof PsiMethod || parent instanceof PsiField;
+    PsiElement parent = getParent();
+    PsiAnnotation[] annotations = getAnnotations();
+    boolean separateAnnotations =
+      parent instanceof PsiClass || parent instanceof PsiMethod || parent instanceof PsiField || parent instanceof PsiJavaModule;
 
-    for (int i = 0; i < annotations.length; i++) {
-      appendText(annotations[i], indentLevel, buffer, separateAnnotations ? NEXT_LINE : " ");
+    for (PsiAnnotation annotation : annotations) {
+      appendText(annotation, indentLevel, buffer, separateAnnotations ? NEXT_LINE : " ");
     }
 
-    final boolean isClass = parent instanceof PsiClass;
-    final boolean isInterface = isClass && ((PsiClass)parent).isInterface();
-    final boolean isEnum = isClass && ((PsiClass)parent).isEnum();
-    final boolean isInterfaceClass = isClass && parent.getParent() instanceof PsiClass && ((PsiClass)parent.getParent()).isInterface();
-    final boolean isMethod = parent instanceof PsiMethod;
-    final boolean isInterfaceMethod = isMethod && parent.getParent() instanceof PsiClass && ((PsiClass)parent.getParent()).isInterface();
-    final boolean isField = parent instanceof PsiField;
-    final boolean isInterfaceField = isField && parent.getParent() instanceof PsiClass && ((PsiClass)parent.getParent()).isInterface();
-    final boolean isEnumConstant = parent instanceof PsiEnumConstant;
+    boolean isClass = parent instanceof PsiClass;
+    boolean isInterface = isClass && ((PsiClass)parent).isInterface();
+    boolean isEnum = isClass && ((PsiClass)parent).isEnum();
+    boolean isInterfaceClass = isClass && parent.getParent() instanceof PsiClass && ((PsiClass)parent.getParent()).isInterface();
+    boolean isMethod = parent instanceof PsiMethod;
+    boolean isInterfaceMethod = isMethod && parent.getParent() instanceof PsiClass && ((PsiClass)parent.getParent()).isInterface();
+    boolean isField = parent instanceof PsiField;
+    boolean isInterfaceField = isField && parent.getParent() instanceof PsiClass && ((PsiClass)parent.getParent()).isInterface();
+    boolean isEnumConstant = parent instanceof PsiEnumConstant;
 
     if (hasModifierProperty(PsiModifier.PUBLIC) && !isInterfaceMethod && !isInterfaceField && !isInterfaceClass && !isEnumConstant) {
       buffer.append(PsiModifier.PUBLIC).append(' ');
@@ -138,12 +134,24 @@ public class ClsModifierListImpl extends ClsRepositoryPsiElement<PsiModifierList
     if (hasModifierProperty(PsiModifier.DEFAULT)) {
       buffer.append(PsiModifier.DEFAULT).append(' ');
     }
+    if (hasModifierProperty(PsiModifier.OPEN)) {
+      buffer.append(PsiModifier.OPEN).append(' ');
+    }
+    if (hasModifierProperty(PsiModifier.TRANSITIVE)) {
+      buffer.append(PsiModifier.TRANSITIVE).append(' ');
+    }
   }
 
   @Override
   public void setMirror(@NotNull TreeElement element) throws InvalidMirrorException {
     setMirrorCheckingType(element, JavaElementType.MODIFIER_LIST);
-    setMirrors(getAnnotations(), SourceTreeToPsiMap.<PsiModifierList>treeToPsiNotNull(element).getAnnotations());
+    PsiAnnotation[] annotations = getAnnotations();
+    PsiAnnotation[] mirrorAnnotations = SourceTreeToPsiMap.<PsiModifierList>treeToPsiNotNull(element).getAnnotations();
+    if (annotations.length == mirrorAnnotations.length) {
+      // Annotations could be inconsistent, as in stubs all type annotations are attached to the types
+      // not to modifier list
+      setMirrors(annotations, mirrorAnnotations);
+    }
   }
 
   @Override

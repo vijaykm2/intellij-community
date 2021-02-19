@@ -17,15 +17,11 @@ package com.intellij.codeInsight.daemon.impl.actions;
 
 import com.intellij.codeInsight.daemon.HighlightDisplayKey;
 import com.intellij.codeInspection.JavaSuppressionUtil;
-import com.intellij.openapi.project.Project;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.psi.PsiElement;
-import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * User: anna
- */
 public class SuppressLocalWithCommentFix extends SuppressByJavaCommentFix {
   public SuppressLocalWithCommentFix(@NotNull HighlightDisplayKey key) {
     super(key);
@@ -43,14 +39,13 @@ public class SuppressLocalWithCommentFix extends SuppressByJavaCommentFix {
   }
 
   @Override
-  protected void createSuppression(@NotNull Project project, @NotNull PsiElement element, @NotNull PsiElement container)
-    throws IncorrectOperationException {
-    suppressWithComment(project, element, container);
+  protected PsiElement getElementToAnnotate(PsiElement element, PsiElement container) {
+    return null;
   }
 
   @NotNull
   @Override
   public String getText() {
-    return "Suppress for statement with comment";
+    return JavaAnalysisBundle.message("suppress.for.statement.with.comment");
   }
 }

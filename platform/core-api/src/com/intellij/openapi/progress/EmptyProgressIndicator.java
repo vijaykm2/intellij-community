@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,26 +17,55 @@
 package com.intellij.openapi.progress;
 
 import com.intellij.openapi.application.ModalityState;
+import com.intellij.util.DeprecatedMethodException;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 public class EmptyProgressIndicator implements StandardProgressIndicator {
-  private volatile boolean myIsRunning = false;
-  private volatile boolean myIsCanceled = false;
+  @NotNull
+  private final ModalityState myModalityState;
+
+  @NotNull
+  private volatile RunState myRunState = RunState.VIRGIN;
+  private enum RunState {
+    VIRGIN, STARTED, STOPPED
+  }
+  private volatile boolean myIsCanceled;
+  private volatile int myNonCancelableSectionCount;
+
+  public EmptyProgressIndicator() {
+    this(ModalityState.defaultModalityState());
+  }
+
+  public EmptyProgressIndicator(@NotNull ModalityState modalityState) {
+    myModalityState = modalityState;
+  }
 
   @Override
   public void start() {
-    myIsRunning = true;
+    if (myRunState == RunState.STARTED) {
+      throw new IllegalStateException("Indicator already started");
+    }
+    myRunState = RunState.STARTED;
     myIsCanceled = false;
   }
 
   @Override
   public void stop() {
-    myIsRunning = false;
+    switch (myRunState) {
+      case VIRGIN:
+        throw new IllegalStateException("Indicator can't be stopped because it wasn't started");
+      case STARTED:
+        myRunState = RunState.STOPPED;
+        break;
+      case STOPPED:
+        throw new IllegalStateException("Indicator already stopped");
+    }
   }
 
   @Override
   public boolean isRunning() {
-    return myIsRunning;
+    return myRunState == RunState.STARTED;
   }
 
   @Override
@@ -52,7 +81,7 @@ public class EmptyProgressIndicator implements StandardProgressIndicator {
 
   @Override
   public final void checkCanceled() {
-    if (myIsCanceled) {
+    if (myIsCanceled && myNonCancelableSectionCount == 0) {
       throw new ProcessCanceledException();
     }
   }
@@ -94,10 +123,13 @@ public class EmptyProgressIndicator implements StandardProgressIndicator {
 
   @Override
   public void startNonCancelableSection() {
+    DeprecatedMethodException.report("Use ProgressManager#executeNonCancelableSection() instead");
+    myNonCancelableSectionCount++;
   }
 
   @Override
   public void finishNonCancelableSection() {
+    myNonCancelableSectionCount--;
   }
 
   @Override
@@ -108,11 +140,14 @@ public class EmptyProgressIndicator implements StandardProgressIndicator {
   @Override
   @NotNull
   public ModalityState getModalityState() {
-    return ModalityState.NON_MODAL;
+    return myModalityState;
   }
 
   @Override
   public void setModalityProgress(ProgressIndicator modalityProgress) {
+    if (isRunning()) {
+      throw new IllegalStateException("Can't change modality progress for already running indicator");
+    }
   }
 
   @Override
@@ -132,5 +167,13 @@ public class EmptyProgressIndicator implements StandardProgressIndicator {
   @Override
   public boolean isShowing() {
     return false;
+  }
+
+  @NotNull
+  public static ProgressIndicator notNullize(@Nullable ProgressIndicator indicator) {
+    if (indicator != null) {
+      return indicator;
+    }
+    return new EmptyProgressIndicator();
   }
 }

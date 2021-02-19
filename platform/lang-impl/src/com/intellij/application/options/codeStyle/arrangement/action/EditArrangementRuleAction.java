@@ -22,27 +22,28 @@ import com.intellij.openapi.application.ApplicationBundle;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.util.IconUtil;
 import gnu.trove.TIntArrayList;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Denis Zhdanov
- * @since 10/29/12 11:01 AM
  */
 public class EditArrangementRuleAction extends AbstractArrangementRuleAction implements DumbAware, Toggleable {
 
   public EditArrangementRuleAction() {
-    getTemplatePresentation().setText(ApplicationBundle.message("arrangement.action.rule.edit.text"));
-    getTemplatePresentation().setDescription(ApplicationBundle.message("arrangement.action.rule.edit.description"));
+    getTemplatePresentation().setText(ApplicationBundle.messagePointer("arrangement.action.rule.edit.text"));
+    getTemplatePresentation().setDescription(ApplicationBundle.messagePointer("arrangement.action.rule.edit.description"));
     getTemplatePresentation().setIcon(IconUtil.getEditIcon());
+    setEnabledInModalContext(true);
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     ArrangementMatchingRulesControl control = getRulesControl(e);
     e.getPresentation().setEnabled(control != null && control.getSelectedModelRows().size() == 1);
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     ArrangementMatchingRulesControl control = getRulesControl(e);
     if (control == null) {
       return;

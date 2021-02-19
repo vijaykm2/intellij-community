@@ -15,10 +15,12 @@
  */
 package org.jetbrains.idea.maven.execution;
 
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.ui.AddEditRemovePanel;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.maven.project.MavenConfigurableBundle;
 
 import java.awt.*;
 import java.util.ArrayList;
@@ -30,22 +32,25 @@ import java.util.Map;
 * @author Sergey Evdokimov
 */
 public class MavenPropertiesPanel extends AddEditRemovePanel<Pair<String, String>> {
-  private Map<String, String> myAvailableProperties;
+  private final Map<String, String> myAvailableProperties;
 
   public MavenPropertiesPanel(Map<String, String> availableProperties) {
-    super(new MyPropertiesTableModel(), new ArrayList<Pair<String, String>>(), null);
+    super(new MyPropertiesTableModel(), new ArrayList<>(), null);
     setPreferredSize(new Dimension(100, 100));
     myAvailableProperties = availableProperties;
   }
 
+  @Override
   protected Pair<String, String> addItem() {
     return doAddOrEdit(null);
   }
 
+  @Override
   protected boolean removeItem(Pair<String, String> o) {
     return true;
   }
 
+  @Override
   protected Pair<String, String> editItem(@NotNull Pair<String, String> o) {
     return doAddOrEdit(o);
   }
@@ -60,7 +65,7 @@ public class MavenPropertiesPanel extends AddEditRemovePanel<Pair<String, String
   }
 
   public Map<String, String> getDataAsMap() {
-    Map<String, String> result = new LinkedHashMap<String, String>();
+    Map<String, String> result = new LinkedHashMap<>();
     for (Pair<String, String> p : getData()) {
       result.put(p.getFirst(), p.getSecond());
     }
@@ -68,7 +73,7 @@ public class MavenPropertiesPanel extends AddEditRemovePanel<Pair<String, String
   }
 
   public void setDataFromMap(Map<String, String> map) {
-    List<Pair<String, String>> result = new ArrayList<Pair<String, String>>();
+    List<Pair<String, String>> result = new ArrayList<>();
     for (Map.Entry<String, String> e : map.entrySet()) {
       result.add(Pair.create(e.getKey(), e.getValue()));
     }
@@ -76,14 +81,18 @@ public class MavenPropertiesPanel extends AddEditRemovePanel<Pair<String, String
   }
 
   private static class MyPropertiesTableModel extends AddEditRemovePanel.TableModel<Pair<String, String>> {
+    @Override
     public int getColumnCount() {
       return 2;
     }
 
+    @Override
+    @NlsContexts.ColumnName
     public String getColumnName(int c) {
-      return c == 0 ? "Name" : "Value";
+      return c == 0 ? MavenConfigurableBundle.message("column.name.name") : MavenConfigurableBundle.message("column.name.value");
     }
 
+    @Override
     public Object getField(Pair<String, String> o, int c) {
       return c == 0 ? o.getFirst() : o.getSecond();
     }

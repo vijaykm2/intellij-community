@@ -1,26 +1,11 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/** $Id$ */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.images.ui;
 
+import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.JBColor;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.StartupUiUtil;
 import icons.ImagesIcons;
 import org.intellij.images.ImagesBundle;
 import org.intellij.images.editor.ImageDocument;
@@ -39,8 +24,6 @@ import java.awt.image.BufferedImage;
 public class ThumbnailComponentUI extends ComponentUI {
     @NonNls
     private static final String DOTS = "...";
-    @NonNls
-    private static final String THUMBNAIL_COMPONENT_ERROR_STRING = "ThumbnailComponent.errorString";
 
     private static final Color LINE_COLOR = new Color(0x8E, 0xA8, 0xCE);
     private static final Color PNG_COLOR = new Color(0x80, 0x00, 0x80);
@@ -50,15 +33,12 @@ public class ThumbnailComponentUI extends ComponentUI {
 
     private static final ThumbnailComponentUI ui = new ThumbnailComponentUI();
 
-    static {
-        UIManager.getDefaults().put(THUMBNAIL_COMPONENT_ERROR_STRING,
-                ImagesBundle.message("thumbnails.component.error.text"));
-    }
 
-
+    @Override
     public void paint(Graphics g, JComponent c) {
         ThumbnailComponent tc = (ThumbnailComponent) c;
         if (tc != null) {
+            UISettings.setupAntialiasing(g);
             paintBackground(g, tc);
 
             if (tc.isDirectory()) {
@@ -68,7 +48,7 @@ public class ThumbnailComponentUI extends ComponentUI {
             }
 
             // File name
-            paintFileName(g, tc);
+            if (tc.isDirectory() || tc.getImageComponent().isFileNameVisible()) paintFileName(g, tc);
         }
     }
 
@@ -90,10 +70,10 @@ public class ThumbnailComponentUI extends ComponentUI {
     }
 
     private void paintImageThumbnail(Graphics g, ThumbnailComponent tc) {
-        // Paint blank
-        ImagesIcons.ThumbnailBlank.paintIcon(tc, g, 5, 5);
-
         ImageComponent imageComponent = tc.getImageComponent();
+        // Paint blank
+        if (imageComponent.isFileSizeVisible()) ImagesIcons.ThumbnailBlank.paintIcon(tc, g, 5, 5);
+
         ImageDocument document = imageComponent.getDocument();
         BufferedImage image = document.getValue();
         if (image != null) {
@@ -102,7 +82,7 @@ public class ThumbnailComponentUI extends ComponentUI {
             paintError(g, tc);
         }
 
-        paintFileSize(g, tc);
+        if (imageComponent.isFileSizeVisible()) paintFileSize(g, tc);
     }
 
     private void paintBackground(Graphics g, ThumbnailComponent tc) {
@@ -113,21 +93,22 @@ public class ThumbnailComponentUI extends ComponentUI {
 
     private void paintImage(Graphics g, ThumbnailComponent tc) {
         ImageComponent imageComponent = tc.getImageComponent();
-        BufferedImage image = imageComponent.getDocument().getValue();
 
         int blankHeight = ImagesIcons.ThumbnailBlank.getIconHeight();
 
-        // Paint image info (and reduce height of text from available height)
-        blankHeight -= paintImageCaps(g, image);
-        // Paint image format (and reduce height of text from available height)
-        blankHeight -= paintFormatText(tc, g);
+        if (imageComponent.isFileSizeVisible()) {
+            // Paint image info (and reduce height of text from available height)
+            blankHeight -= paintImageCaps(g, imageComponent);
+            // Paint image format (and reduce height of text from available height)
+            blankHeight -= paintFormatText(tc, g);
+        }
 
         // Paint image
         paintThumbnail(g, imageComponent, blankHeight);
     }
 
-    private int paintImageCaps(Graphics g, BufferedImage image) {
-        String description = ImagesBundle.message("icon.dimensions", image.getWidth(), image.getHeight(), image.getColorModel().getPixelSize());
+    private int paintImageCaps(Graphics g, ImageComponent imageComponent) {
+        String description = imageComponent.getDescription();
 
         Font font = getSmallFont();
         FontMetrics fontMetrics = g.getFontMetrics(font);
@@ -142,7 +123,7 @@ public class ThumbnailComponentUI extends ComponentUI {
         Font font = getSmallFont().deriveFont(Font.BOLD);
         FontMetrics fontMetrics = g.getFontMetrics(font);
 
-        String format = tc.getFormat().toUpperCase();
+        String format = StringUtil.toUpperCase(tc.getFormat());
         int stringWidth = fontMetrics.stringWidth(format);
         int x = ImagesIcons.ThumbnailBlank.getIconWidth() - stringWidth + 2;
         int y = ImagesIcons.ThumbnailBlank.getIconHeight() - fontMetrics.getHeight() + 4;
@@ -207,7 +188,7 @@ public class ThumbnailComponentUI extends ComponentUI {
     }
 
     private void paintFileName(Graphics g, ThumbnailComponent tc) {
-        Font font = UIUtil.getLabelFont();
+        Font font = StartupUiUtil.getLabelFont();
         FontMetrics fontMetrics = g.getFontMetrics(font);
 
         g.setFont(font);
@@ -263,16 +244,17 @@ public class ThumbnailComponentUI extends ComponentUI {
     }
 
     private String getSubmnailComponentErrorString() {
-        return UIManager.getString(THUMBNAIL_COMPONENT_ERROR_STRING);
+        return ImagesBundle.message("thumbnails.component.error.text");
     }
 
     private static Font getSmallFont() {
-        Font labelFont = UIUtil.getLabelFont();
+        Font labelFont = StartupUiUtil.getLabelFont();
         return labelFont.deriveFont(labelFont.getSize2D() - 2.0f);
     }
 
+    @Override
     public Dimension getPreferredSize(JComponent c) {
-        Font labelFont = UIUtil.getLabelFont();
+        Font labelFont = StartupUiUtil.getLabelFont();
         FontMetrics fontMetrics = c.getFontMetrics(labelFont);
         return new Dimension(
                 ImagesIcons.ThumbnailBlank.getIconWidth() + 10,

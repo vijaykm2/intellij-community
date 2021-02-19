@@ -21,19 +21,17 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.impl.libraries.LibraryEx;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.ui.configuration.LibraryTableModifiableModelProvider;
-import com.intellij.openapi.roots.ui.configuration.ProjectStructureConfigurable;
 import com.intellij.openapi.roots.ui.configuration.classpath.ChangeLibraryLevelActionBase;
-import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.*;
+import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.LibraryProjectStructureElement;
+import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.ProjectStructureElement;
+import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.ProjectStructureElementUsage;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.util.Collection;
 
-/**
- * @author nik
- */
 public class ChangeLibraryLevelAction extends ChangeLibraryLevelActionBase {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.roots.ui.configuration.projectRoot.ChangeLibraryLevelAction");
+  private static final Logger LOG = Logger.getInstance(ChangeLibraryLevelAction.class);
   private final JComponent myParentComponent;
   private final BaseLibrariesConfigurable mySourceConfigurable;
   private final BaseLibrariesConfigurable myTargetConfigurable;
@@ -49,13 +47,14 @@ public class ChangeLibraryLevelAction extends ChangeLibraryLevelActionBase {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final ProjectStructureElement selectedElement = mySourceConfigurable.getSelectedElement();
     if (!(selectedElement instanceof LibraryProjectStructureElement)) return;
     final StructureConfigurableContext context = mySourceConfigurable.myContext;
     final LibraryProjectStructureElement libraryElement = (LibraryProjectStructureElement)selectedElement;
     final LibraryEx oldLibrary = (LibraryEx)context.getLibrary(libraryElement.getLibrary().getName(), mySourceConfigurable.getLevel());
     LOG.assertTrue(oldLibrary != null);
+
     final Library newLibrary = doCopy(oldLibrary);
     if (newLibrary == null) return;
 
@@ -67,7 +66,7 @@ public class ChangeLibraryLevelAction extends ChangeLibraryLevelActionBase {
     if (!myCopy) {
       mySourceConfigurable.removeLibrary(libraryElement);
     }
-    ProjectStructureConfigurable.getInstance(myProject).selectProjectOrGlobalLibrary(newLibrary, true);
+    myTargetConfigurable.getProjectStructureConfigurable().selectProjectOrGlobalLibrary(newLibrary, true);
   }
 
   @Override

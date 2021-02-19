@@ -17,11 +17,7 @@
 package com.intellij.codeInspection.htmlInspections;
 
 import com.intellij.codeInsight.AutoPopupController;
-import com.intellij.codeInsight.FileModificationService;
-import com.intellij.codeInsight.daemon.XmlErrorMessages;
 import com.intellij.codeInspection.LocalQuickFixAndIntentionActionOnPsiElement;
-import com.intellij.openapi.application.Result;
-import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
@@ -30,6 +26,7 @@ import com.intellij.psi.XmlElementFactory;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlAttributeValue;
+import com.intellij.xml.psi.XmlPsiBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -41,7 +38,7 @@ public class AddAttributeValueIntentionFix extends LocalQuickFixAndIntentionActi
   @NotNull
   @Override
   public String getText() {
-    return XmlErrorMessages.message("add.attribute.value.quickfix.text");
+    return XmlPsiBundle.message("xml.quickfix.add.attribute.value.text");
   }
 
   @Override
@@ -53,7 +50,7 @@ public class AddAttributeValueIntentionFix extends LocalQuickFixAndIntentionActi
   @Override
   public void invoke(@NotNull Project project,
                      @NotNull PsiFile file,
-                     @Nullable("is null when called from inspection") final Editor editor,
+                     @Nullable final Editor editor,
                      @NotNull PsiElement startElement,
                      @NotNull PsiElement endElement) {
     final XmlAttribute attribute = PsiTreeUtil.getNonStrictParentOfType(startElement, XmlAttribute.class);
@@ -61,24 +58,15 @@ public class AddAttributeValueIntentionFix extends LocalQuickFixAndIntentionActi
       return;
     }
 
-    if (!FileModificationService.getInstance().prepareFileForWrite(attribute.getContainingFile())) {
-      return;
-    }
+    final XmlAttribute attributeWithValue = XmlElementFactory.getInstance(project).createAttribute(attribute.getName(), "", startElement);
+    final PsiElement newAttribute = attribute.replace(attributeWithValue);
 
-    new WriteCommandAction(project) {
-      @Override
-      protected void run(@NotNull final Result result) {
-        final XmlAttribute attributeWithValue = XmlElementFactory.getInstance(getProject()).createXmlAttribute(attribute.getName(), "");
-        final PsiElement newAttribute = attribute.replace(attributeWithValue);
-        
-        if (editor != null && newAttribute != null && newAttribute instanceof XmlAttribute && newAttribute.isValid()) {
-          final XmlAttributeValue valueElement = ((XmlAttribute)newAttribute).getValueElement();
-          if (valueElement != null) {
-            editor.getCaretModel().moveToOffset(valueElement.getTextOffset());
-            AutoPopupController.getInstance(newAttribute.getProject()).scheduleAutoPopup(editor);
-          }
-        }
+    if (editor != null && newAttribute instanceof XmlAttribute && newAttribute.isValid()) {
+      final XmlAttributeValue valueElement = ((XmlAttribute)newAttribute).getValueElement();
+      if (valueElement != null) {
+        editor.getCaretModel().moveToOffset(valueElement.getTextOffset());
+        AutoPopupController.getInstance(newAttribute.getProject()).scheduleAutoPopup(editor);
       }
-    }.execute();
+    }
   }
 }

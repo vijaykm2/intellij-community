@@ -15,7 +15,9 @@
  */
 package com.intellij.util.ui.table;
 
+import com.intellij.lang.Language;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.EditorTextFieldCellRenderer;
@@ -25,8 +27,18 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 
 public abstract class EditorTextFieldJBTableRowRenderer extends EditorTextFieldCellRenderer implements JBTableRowRenderer {
+  /** @deprecated Use {@link EditorTextFieldJBTableRowRenderer#EditorTextFieldJBTableRowRenderer(Project, Language, Disposable)}*/
+  @Deprecated
   protected EditorTextFieldJBTableRowRenderer(@Nullable Project project, @Nullable FileType fileType, @NotNull Disposable parent) {
     super(project, fileType, parent);
+  }
+
+  protected EditorTextFieldJBTableRowRenderer(@Nullable Project project, @Nullable Language language, @NotNull Disposable parent) {
+    super(project, language, parent);
+  }
+
+  protected EditorTextFieldJBTableRowRenderer(@Nullable Project project, @NotNull Disposable parent) {
+    super(project, (Language)null, parent);
   }
 
   @Override
@@ -39,5 +51,16 @@ public abstract class EditorTextFieldJBTableRowRenderer extends EditorTextFieldC
     return getText(table, row);
   }
 
+  @Nullable
+  @Override
+  protected final TextAttributes getTextAttributes(JTable table, Object value, int row, int column) {
+    return getTextAttributes(table, row);
+  }
+
   protected abstract String getText(JTable table, int row);
+
+  @Nullable
+  protected TextAttributes getTextAttributes(JTable table, int row) {
+    return null;
+  }
 }

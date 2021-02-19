@@ -25,11 +25,9 @@ import com.intellij.history.integration.ui.models.*;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class SelectionHistoryDialogModel extends FileHistoryDialogModel {
@@ -63,15 +61,10 @@ public class SelectionHistoryDialogModel extends FileHistoryDialogModel {
 
   private SelectionCalculator getCalculator() {
     if (myCalculatorCache == null) {
-      List<Revision> revisionList = new ArrayList<Revision>();
+      List<Revision> revisionList = new ArrayList<>();
       revisionList.add(getCurrentRevision());
       
-      revisionList.addAll(ContainerUtil.map(getRevisions(), new Function<RevisionItem, Revision>() {
-        @Override
-        public Revision fun(RevisionItem revisionItem) {
-          return revisionItem.revision;
-        }
-      }));
+      revisionList.addAll(ContainerUtil.map(getRevisions(), revisionItem -> revisionItem.revision));
       myCalculatorCache = new SelectionCalculator(myGateway, revisionList, myFrom, myTo);
     }
     return myCalculatorCache;

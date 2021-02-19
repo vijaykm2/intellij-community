@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.util;
 
 import com.intellij.util.SmartList;
@@ -34,7 +20,6 @@ class ExecutionCallback {
 
   ExecutionCallback(int executedCount) {
     myCountToExecution = executedCount;
-    assert executedCount >= 1 : executedCount;
   }
 
   /**
@@ -61,7 +46,7 @@ class ExecutionCallback {
     return true;
   }
 
-  private static class CompositeRunnable extends ArrayList<Runnable> implements Runnable {
+  private static final class CompositeRunnable extends ArrayList<Runnable> implements Runnable {
     private CompositeRunnable(@NotNull Collection<? extends Runnable> c) {
       super(c);
     }
@@ -74,7 +59,7 @@ class ExecutionCallback {
     }
   }
 
-  final void doWhenExecuted(@NotNull final Runnable runnable) {
+  void doWhenExecuted(@NotNull final Runnable runnable) {
     Runnable toRun;
     synchronized (this) {
       if (isExecuted()) {
@@ -90,7 +75,7 @@ class ExecutionCallback {
       }
       else {
         if (myRunnables == null) {
-          myRunnables = new SmartList<Runnable>();
+          myRunnables = new SmartList<>();
         }
 
         myRunnables.add(runnable);

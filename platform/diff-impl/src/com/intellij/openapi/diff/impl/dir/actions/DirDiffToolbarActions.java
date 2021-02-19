@@ -17,7 +17,9 @@ package com.intellij.openapi.diff.impl.dir.actions;
 
 import com.intellij.ide.diff.DirDiffModelHolder;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.diff.impl.dir.DirDiffTableModel;
+import com.intellij.openapi.project.DumbAware;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,12 +31,12 @@ import java.util.List;
 /**
  * @author Konstantin Bulenkov
  */
-public class DirDiffToolbarActions extends ActionGroup {
+public class DirDiffToolbarActions extends ActionGroup implements DumbAware {
   private final AnAction[] myActions;  
 
   public DirDiffToolbarActions(DirDiffTableModel model, JComponent panel) {
-    super("Directory Diff Actions", false);
-    final List<AnAction> actions = new ArrayList<AnAction>(Arrays.asList(
+    super(DiffBundle.message("directory.diff.actions"), false);
+    final List<AnAction> actions = new ArrayList<>(Arrays.asList(
       new RefreshDirDiffAction(model),
       Separator.getInstance(),
       new EnableLeft(model),
@@ -42,35 +44,46 @@ public class DirDiffToolbarActions extends ActionGroup {
       new EnableEqual(model),
       new EnableRight(model),
       Separator.getInstance(),
+      ActionManager.getInstance().getAction("DirDiffMenu.CompareNewFilesWithEachOtherAction"),
+      Separator.getInstance(),
       new ChangeCompareModeGroup(model),
       Separator.getInstance()));
 
-    if (model.isOperationsEnabled()) {
+    if (model.getSettings().enableSyncActions && model.isOperationsEnabled()) {
       actions.add(new SynchronizeDiff(model, true));
       actions.add(new SynchronizeDiff(model, false));
     }
 
-    for (AnAction action : model.getSettings().getExtraActions()) {
-      actions.add(action);
-    }
+    actions.addAll(model.getSettings().getExtraActions());
+
+    actions.add(Separator.getInstance());
+    actions.add(ActionManager.getInstance().getAction(IdeActions.DIFF_VIEWER_TOOLBAR));
 
     for (AnAction action : actions) {
-      if (action instanceof ShortcutProvider) {
-        final ShortcutSet shortcut = ((ShortcutProvider)action).getShortcut();
-        if (shortcut != null) {
-          action.registerCustomShortcutSet(shortcut, panel);
-        }
-      }
-      if (action instanceof DirDiffModelHolder) {
-        ((DirDiffModelHolder)action).setModel(model);
-      }
+      setUp(model, panel, action);
     }
-    myActions = actions.toArray(new AnAction[actions.size()]);
+    myActions = actions.toArray(AnAction.EMPTY_ARRAY);
   }
 
-  @NotNull
+  private static void setUp(DirDiffTableModel model, JComponent panel, AnAction action) {
+    if (action instanceof ShortcutProvider) {
+      final ShortcutSet shortcut = ((ShortcutProvider)action).getShortcut();
+      if (shortcut != null) {
+        action.registerCustomShortcutSet(shortcut, panel);
+      }
+    }
+    if (action instanceof DirDiffModelHolder) {
+      ((DirDiffModelHolder)action).setModel(model);
+    }
+    if (action instanceof ActionGroup) {
+      for (AnAction child : ((ActionGroup)action).getChildren(null)) {
+        setUp(model, panel, child);
+      }
+    }
+  }
+
   @Override
-  public AnAction[] getChildren(@Nullable AnActionEvent e) {
+  public AnAction @NotNull [] getChildren(@Nullable AnActionEvent e) {
     return myActions;
   }
 }

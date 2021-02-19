@@ -30,7 +30,7 @@ import org.jetbrains.annotations.NotNull;
  *  @author dsl
  */
 public class PsiReferenceParameterListImpl extends CompositePsiElement implements PsiReferenceParameterList {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiReferenceParameterListImpl");
+  private static final Logger LOG = Logger.getInstance(PsiReferenceParameterListImpl.class);
   private static final TokenSet TYPE_SET = TokenSet.create(JavaElementType.TYPE);
 
   public PsiReferenceParameterListImpl() {
@@ -38,19 +38,17 @@ public class PsiReferenceParameterListImpl extends CompositePsiElement implement
   }
 
   @Override
-  @NotNull
-  public PsiTypeElement[] getTypeParameterElements() {
+  public PsiTypeElement @NotNull [] getTypeParameterElements() {
     return getChildrenAsPsiElements(JavaElementType.TYPE, PsiTypeElement.ARRAY_FACTORY);
   }
 
   @Override
-  @NotNull
-  public PsiType[] getTypeArguments() {
+  public PsiType @NotNull [] getTypeArguments() {
     return PsiImplUtil.typesByReferenceParameterList(this);
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     IElementType i = child.getElementType();
     if (i == JavaElementType.TYPE) {
       return ChildRole.TYPE_IN_REFERENCE_PARAMETER_LIST;

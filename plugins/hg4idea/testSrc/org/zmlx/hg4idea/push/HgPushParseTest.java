@@ -15,6 +15,7 @@
  */
 package org.zmlx.hg4idea.push;
 
+import com.intellij.execution.process.ProcessOutput;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.junit.Test;
@@ -22,7 +23,6 @@ import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.zmlx.hg4idea.execution.HgCommandResult;
 
-import java.io.StringWriter;
 import java.util.Collection;
 
 import static org.junit.Assert.assertEquals;
@@ -33,7 +33,7 @@ public class HgPushParseTest {
   @NotNull private final String myOutput;
   private final int myExpected;
 
-  @SuppressWarnings({"JUnitTestCaseWithNonTrivialConstructors", "UnusedParameters"})
+  @SuppressWarnings({"UnusedParameters"})
   public HgPushParseTest(@NotNull String name, @NotNull String output, int expected) {
     myOutput = output;
     myExpected = expected;
@@ -67,9 +67,9 @@ public class HgPushParseTest {
 
   @Test
   public void testValid() {
-    StringWriter outWriter = new StringWriter();
-    outWriter.write(myOutput);
+    ProcessOutput processOutput = new ProcessOutput(0);
+    processOutput.appendStdout(myOutput);
     assertEquals(" Wrong commits number for " + myOutput, myExpected,
-                 HgPusher.getNumberOfPushedCommits(new HgCommandResult(outWriter, new StringWriter(), 0)));
+                 HgPusher.getNumberOfPushedCommits(new HgCommandResult(processOutput)));
   }
 }

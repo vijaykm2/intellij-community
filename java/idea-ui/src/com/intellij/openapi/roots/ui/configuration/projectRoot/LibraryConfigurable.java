@@ -16,8 +16,8 @@
 
 package com.intellij.openapi.roots.ui.configuration.projectRoot;
 
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTable;
 import com.intellij.openapi.roots.ui.configuration.libraries.LibraryPresentationManager;
@@ -25,18 +25,12 @@ import com.intellij.openapi.roots.ui.configuration.libraryEditor.LibraryEditor;
 import com.intellij.openapi.roots.ui.configuration.libraryEditor.LibraryRootsComponent;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.LibraryProjectStructureElement;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.ProjectStructureElement;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Disposer;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.projectModel.ProjectModelBundle;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
-/**
- * User: anna
- * Date: 02-Jun-2006
- */
 public class LibraryConfigurable extends ProjectStructureElementConfigurable<Library> {
   private LibraryRootsComponent myLibraryEditorComponent;
   private final Library myLibrary;
@@ -61,18 +55,10 @@ public class LibraryConfigurable extends ProjectStructureElementConfigurable<Lib
 
   @Override
   public JComponent createOptionsPanel() {
-    myLibraryEditorComponent = new LibraryRootsComponent(myProject, new Computable<LibraryEditor>() {
-      @Override
-      public LibraryEditor compute() {
-        return getLibraryEditor();
-      }
-    });
-    myLibraryEditorComponent.addListener(new Runnable() {
-      @Override
-      public void run() {
-        myContext.getDaemonAnalyzer().queueUpdate(myProjectStructureElement);
-        updateName();
-      }
+    myLibraryEditorComponent = new LibraryRootsComponent(myProject, this::getLibraryEditor);
+    myLibraryEditorComponent.addListener(() -> {
+      myContext.getDaemonAnalyzer().queueUpdate(myProjectStructureElement);
+      updateName();
     });
     return myLibraryEditorComponent.getComponent();
   }
@@ -110,6 +96,9 @@ public class LibraryConfigurable extends ProjectStructureElementConfigurable<Lib
   public void setDisplayName(final String name) {
     if (!myUpdatingName) {
       getLibraryEditor().setName(name);
+      if (myLibraryEditorComponent != null) {
+        myLibraryEditorComponent.onLibraryRenamed();
+      }
       myContext.getDaemonAnalyzer().queueUpdateForAllElementsWithErrors();
     }
   }
@@ -139,9 +128,9 @@ public class LibraryConfigurable extends ProjectStructureElementConfigurable<Lib
   public String getBannerSlogan() {
     final LibraryTable libraryTable = myLibrary.getTable();
     String libraryType = libraryTable == null
-                         ? ProjectBundle.message("module.library.display.name", 1)
+                         ? ProjectModelBundle.message("module.library.display.name", 1)
                          : libraryTable.getPresentation().getDisplayName(false);
-    return ProjectBundle.message("project.roots.library.banner.text", getDisplayName(), libraryType);
+    return JavaUiBundle.message("project.roots.library.banner.text", getDisplayName(), libraryType);
   }
 
   @Override
@@ -179,13 +168,6 @@ public class LibraryConfigurable extends ProjectStructureElementConfigurable<Lib
   @Override
   public Icon getIcon(boolean open) {
     return LibraryPresentationManager.getInstance().getNamedLibraryIcon(myLibrary, myContext);
-  }
-
-  @Override
-  @Nullable
-  @NonNls
-  public String getHelpTopic() {
-    return "preferences.jdkGlobalLibs";  //todo
   }
 
   public void updateComponent() {

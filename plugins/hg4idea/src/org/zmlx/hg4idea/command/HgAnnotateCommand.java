@@ -14,9 +14,9 @@ package org.zmlx.hg4idea.command;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.vcs.history.VcsFileRevision;
-import com.intellij.util.text.DateFormatUtil;
+import com.intellij.openapi.vcs.annotate.FileAnnotation;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.zmlx.hg4idea.HgFile;
 import org.zmlx.hg4idea.HgRevisionNumber;
 import org.zmlx.hg4idea.HgVcs;
@@ -53,8 +53,8 @@ public class HgAnnotateCommand {
     myProject = project;
   }
 
-  public List<HgAnnotationLine> execute(@NotNull HgFile hgFile, VcsFileRevision revision) {
-    final List<String> arguments = new ArrayList<String>();
+  public List<HgAnnotationLine> execute(@NotNull HgFile hgFile, @Nullable HgRevisionNumber revision) {
+    final List<String> arguments = new ArrayList<>();
     arguments.add("-cvnudl");
     HgVcs vcs = HgVcs.getInstance(myProject);
     if (vcs != null &&
@@ -64,8 +64,7 @@ public class HgAnnotateCommand {
     }
     if (revision != null) {
       arguments.add("-r");
-      HgRevisionNumber revisionNumber = (HgRevisionNumber)revision.getRevisionNumber();
-      arguments.add(revisionNumber.getChangeset());
+      arguments.add(revision.getChangeset());
     }
     arguments.add(hgFile.getRelativePath());
     final HgCommandResult result = new HgCommandExecutor(myProject).executeInCurrentThread(hgFile.getRepo(), "annotate", arguments);
@@ -79,7 +78,7 @@ public class HgAnnotateCommand {
   }
 
   private static List<HgAnnotationLine> parse(List<String> outputLines) {
-    List<HgAnnotationLine> annotations = new ArrayList<HgAnnotationLine>(outputLines.size());
+    List<HgAnnotationLine> annotations = new ArrayList<>(outputLines.size());
     for (String line : outputLines) {
       Matcher matcher = LINE_PATTERN.matcher(line);
       if (matcher.matches()) {
@@ -89,7 +88,7 @@ public class HgAnnotateCommand {
         SimpleDateFormat dateFormat = new SimpleDateFormat("EEE MMM dd HH:mm:ss yyyy", Locale.US);
         String date = "";
         try {
-          date = DateFormatUtil.formatPrettyDate(dateFormat.parse(dateGroup));
+          date = FileAnnotation.formatDate(dateFormat.parse(dateGroup));
         }
         catch (ParseException e) {
           LOG.error("Couldn't parse annotation date ", e);

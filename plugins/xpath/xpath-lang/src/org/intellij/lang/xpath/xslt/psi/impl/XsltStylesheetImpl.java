@@ -32,29 +32,29 @@ public class XsltStylesheetImpl extends XsltElementImpl implements XsltStyleshee
     super(target);
   }
 
-  @NotNull
-  public XsltParameter[] getParameters() {
+  @Override
+  public XsltParameter @NotNull [] getParameters() {
     return convertArray(ResolveUtil.collect(new ParamMatcher(getTag(), null)), XsltParameter.class);
   }
 
-  @NotNull
-  public XsltVariable[] getVariables() {
+  @Override
+  public XsltVariable @NotNull [] getVariables() {
     return convertArray(ResolveUtil.collect(new ParamMatcher(getTag(), null) {
+      @Override
       protected boolean isApplicable(XmlTag tag) {
         return XsltSupport.isVariable(tag);
       }
     }), XsltVariable.class);
   }
 
-  @NotNull
-  public XsltTemplate[] getTemplates() {
+  @Override
+  public XsltTemplate @NotNull [] getTemplates() {
     final XmlDocument document = PsiTreeUtil.getParentOfType(getTag(), XmlDocument.class);
     return convertArray(ResolveUtil.collect(new TemplateMatcher(document)), XsltTemplate.class);
   }
 
-  @NotNull
   @Override
-  public XsltFunction[] getFunctions() {
+  public XsltFunction @NotNull [] getFunctions() {
     final XmlDocument document = PsiTreeUtil.getParentOfType(getTag(), XmlDocument.class);
     return convertArray(ResolveUtil.collect(new FunctionMatcher(document)), XsltFunction.class);
   }
@@ -64,19 +64,22 @@ public class XsltStylesheetImpl extends XsltElementImpl implements XsltStyleshee
     return "XsltStylesheet";
   }
 
-  private class FunctionMatcher extends IncludeAwareMatcher {
-    public FunctionMatcher(XmlDocument document) {
+  private static class FunctionMatcher extends IncludeAwareMatcher {
+    FunctionMatcher(XmlDocument document) {
       super(document);
     }
 
+    @Override
     protected boolean matches(XmlTag element) {
       return XsltSupport.isFunction(element);
     }
 
+    @Override
     protected ResolveUtil.Matcher changeDocument(XmlDocument document) {
       return new FunctionMatcher(document);
     }
 
+    @Override
     public ResolveUtil.Matcher variantMatcher() {
       return new FunctionMatcher(myDocument);
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import com.intellij.openapi.util.io.FileUtil;
 import org.jdom.Element;
 import org.jdom.JDOMException;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.jps.util.JpsPathUtil;
 import org.jetbrains.jps.devkit.model.JpsIdeaSdkProperties;
 import org.jetbrains.jps.devkit.model.JpsIdeaSdkType;
 import org.jetbrains.jps.devkit.model.JpsPluginModuleProperties;
@@ -34,32 +33,28 @@ import org.jetbrains.jps.model.artifact.DirectoryArtifactType;
 import org.jetbrains.jps.model.artifact.JpsArtifact;
 import org.jetbrains.jps.model.artifact.JpsArtifactService;
 import org.jetbrains.jps.model.artifact.elements.JpsCompositePackagingElement;
+import org.jetbrains.jps.model.artifact.elements.JpsPackagingElement;
 import org.jetbrains.jps.model.artifact.elements.JpsPackagingElementFactory;
-import org.jetbrains.jps.model.java.JpsJavaClasspathKind;
-import org.jetbrains.jps.model.java.JpsJavaDependenciesEnumerator;
-import org.jetbrains.jps.model.java.JpsJavaExtensionService;
-import org.jetbrains.jps.model.java.JpsJavaModuleType;
+import org.jetbrains.jps.model.java.*;
 import org.jetbrains.jps.model.library.JpsLibrary;
 import org.jetbrains.jps.model.library.JpsOrderRootType;
 import org.jetbrains.jps.model.library.sdk.JpsSdk;
 import org.jetbrains.jps.model.module.JpsModule;
 import org.jetbrains.jps.model.module.JpsTypedModule;
+import org.jetbrains.jps.util.JpsPathUtil;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author nik
- */
 public class JpsPluginSyntheticArtifactProvider extends JpsSyntheticArtifactProvider {
-  private static final Logger LOG = Logger.getInstance("#org.jetbrains.jps.devkit.builder.JpsPluginSyntheticArtifactProvider");
+  private static final Logger LOG = Logger.getInstance(JpsPluginSyntheticArtifactProvider.class);
 
   @NotNull
   @Override
   public List<JpsArtifact> createArtifacts(@NotNull JpsModel model) {
-    List<JpsArtifact> artifacts = new ArrayList<JpsArtifact>();
+    List<JpsArtifact> artifacts = new ArrayList<>();
     for (JpsTypedModule<JpsSimpleElement<JpsPluginModuleProperties>> module : model.getProject().getModules(JpsPluginModuleType.INSTANCE)) {
       artifacts.add(createArtifact(module, module.getProperties().getData()));
     }
@@ -77,7 +72,7 @@ public class JpsPluginSyntheticArtifactProvider extends JpsSyntheticArtifactProv
       File pluginXmlFile = JpsPathUtil.urlToFile(pluginXmlUrl);
       if (pluginXmlFile.exists()) {
         try {
-          Element rootElement = JDOMUtil.loadDocument(pluginXmlFile).getRootElement();
+          Element rootElement = JDOMUtil.load(pluginXmlFile);
           for (Element dependsElement : JDOMUtil.getChildren(rootElement, "depends")) {
             String relativePath = dependsElement.getAttributeValue("config-file");
             if (relativePath != null) {
@@ -87,10 +82,7 @@ public class JpsPluginSyntheticArtifactProvider extends JpsSyntheticArtifactProv
             }
           }
         }
-        catch (JDOMException e) {
-          LOG.info(e);
-        }
-        catch (IOException e) {
+        catch (JDOMException | IOException e) {
           LOG.info(e);
         }
       }
@@ -115,6 +107,16 @@ public class JpsPluginSyntheticArtifactProvider extends JpsSyntheticArtifactProv
         parent = factory.getOrCreateDirectory(root, "lib");
       }
       parent.addChild(factory.createLibraryElement(library.createReference()));
+      for (File nativeRoot : library.getFiles(JpsNativeLibraryRootType.INSTANCE)) {
+        JpsPackagingElement copy;
+        if (nativeRoot.isDirectory()) {
+          copy = factory.createDirectoryCopy(nativeRoot.getAbsolutePath());
+        }
+        else {
+          copy = factory.createFileCopy(nativeRoot.getAbsolutePath(), null);
+        }
+        factory.getOrCreateDirectory(root, "lib").addChild(copy);
+      }
     }
 
     String name = module.getName() + ":plugin";

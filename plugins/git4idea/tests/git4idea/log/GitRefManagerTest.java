@@ -1,8 +1,7 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.log;
 
 import com.intellij.openapi.components.ServiceManager;
-import com.intellij.openapi.util.Condition;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.Hash;
 import com.intellij.vcs.log.VcsLogObjectsFactory;
@@ -15,20 +14,18 @@ import git4idea.test.GitSingleRepoTest;
 import git4idea.test.GitTestUtil;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
-import static git4idea.test.GitExecutor.cd;
-import static git4idea.test.GitExecutor.git;
+import static com.intellij.openapi.vcs.Executor.cd;
 
 public abstract class GitRefManagerTest extends GitSingleRepoTest {
-
   @NotNull
-  protected Collection<VcsRef> given(@NotNull String... refs) throws IOException {
-    Collection<VcsRef> result = ContainerUtil.newArrayList();
-    cd(myProjectRoot);
+  protected Collection<VcsRef> given(String @NotNull ... refs) {
+    Collection<VcsRef> result = new ArrayList<>();
+    cd(getProjectRoot());
     Hash hash = HashImpl.build(git("rev-parse HEAD"));
     for (String refName : refs) {
       if (isHead(refName)) {
@@ -48,25 +45,17 @@ public abstract class GitRefManagerTest extends GitSingleRepoTest {
       }
     }
     setUpTracking(result);
-    myRepo.update();
+    repo.update();
     return result;
   }
 
   @NotNull
-  protected List<VcsRef> expect(@NotNull String... refNames) {
-    final Set<VcsRef> refs = GitTestUtil.readAllRefs(myProjectRoot, ServiceManager.getService(myProject, VcsLogObjectsFactory.class));
-    return ContainerUtil.map2List(refNames, new Function<String, VcsRef>() {
-      @Override
-      public VcsRef fun(@NotNull final String refName) {
-        VcsRef item = ContainerUtil.find(refs, new Condition<VcsRef>() {
-          @Override
-          public boolean value(VcsRef ref) {
-            return ref.getName().equals(GitBranchUtil.stripRefsPrefix(refName));
-          }
-        });
-        assertNotNull("Ref " + refName + " not found", item);
-        return item;
-      }
+  protected List<VcsRef> expect(String @NotNull ... refNames) {
+    final Set<VcsRef> refs = GitTestUtil.readAllRefs(this, getProjectRoot(), ServiceManager.getService(myProject, VcsLogObjectsFactory.class));
+    return ContainerUtil.map2List(refNames, refName -> {
+      VcsRef item = ContainerUtil.find(refs, ref -> ref.getName().equals(GitBranchUtil.stripRefsPrefix(refName)));
+      assertNotNull("Ref " + refName + " not found among " + refs, item);
+      return item;
     });
   }
 
@@ -83,20 +72,15 @@ public abstract class GitRefManagerTest extends GitSingleRepoTest {
   }
 
   private VcsRef ref(Hash hash, String name, VcsRefType type) {
-    return new VcsRefImpl(hash, name, type, myProjectRoot);
+    return new VcsRefImpl(hash, name, type, getProjectRoot());
   }
 
-  private void setUpTracking(@NotNull Collection<VcsRef> refs) {
-    cd(myProjectRoot);
+  private void setUpTracking(@NotNull Collection<? extends VcsRef> refs) {
+    cd(getProjectRoot());
     for (final VcsRef ref : refs) {
       if (ref.getType() == GitRefManager.LOCAL_BRANCH) {
         final String localBranch = ref.getName();
-        if (ContainerUtil.exists(refs, new Condition<VcsRef>() {
-          @Override
-          public boolean value(VcsRef remoteRef) {
-            return remoteRef.getType() == GitRefManager.REMOTE_BRANCH && remoteRef.getName().replace("origin/", "").equals(localBranch);
-          }
-        })) {
+        if (ContainerUtil.exists(refs, remoteRef -> remoteRef.getType() == GitRefManager.REMOTE_BRANCH && remoteRef.getName().replace("origin/", "").equals(localBranch))) {
           git("config branch." + localBranch + ".remote origin");
           git("config branch." + localBranch + ".merge refs/heads/" + localBranch);
         }

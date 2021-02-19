@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2007 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2016 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,22 +18,14 @@ package com.siyeh.ig.finalization;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
-import com.siyeh.HardcodedMethodConstants;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
+import com.siyeh.ig.psiutils.MethodUtils;
 import org.jetbrains.annotations.NotNull;
 
 public class FinalizeNotProtectedInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "finalize.not.declared.protected.display.name");
-  }
 
   @Override
   @NotNull
@@ -53,21 +45,15 @@ public class FinalizeNotProtectedInspection extends BaseInspection {
   }
 
   private static class ProtectedFinalizeFix extends InspectionGadgetsFix {
-     @Override
+
+    @Override
     @NotNull
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("change.modifier.quickfix", PsiModifier.PROTECTED);
     }
 
     @Override
-    @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message("make.protected.quickfix");
-    }
-
-    @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement methodName = descriptor.getPsiElement();
       final PsiMethod method = (PsiMethod)methodName.getParent();
       assert method != null;
@@ -78,21 +64,18 @@ public class FinalizeNotProtectedInspection extends BaseInspection {
     }
   }
 
-  private static class FinalizeDeclaredProtectedVisitor
-    extends BaseInspectionVisitor {
+  private static class FinalizeDeclaredProtectedVisitor extends BaseInspectionVisitor {
 
     @Override
     public void visitMethod(@NotNull PsiMethod method) {
-      //note: no call to super;
-      final String methodName = method.getName();
-      if (!HardcodedMethodConstants.FINALIZE.equals(methodName)) {
-        return;
-      }
-      final PsiParameterList parameterList = method.getParameterList();
-      if (parameterList.getParametersCount() != 0) {
+      if (!MethodUtils.isFinalize(method)) {
         return;
       }
       if (method.hasModifierProperty(PsiModifier.PROTECTED)) {
+        return;
+      }
+      final PsiClass aClass = method.getContainingClass();
+      if (aClass == null || aClass.isInterface()) {
         return;
       }
       registerMethodError(method);

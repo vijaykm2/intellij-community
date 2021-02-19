@@ -1,38 +1,25 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine.evaluation.expression;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
+import com.intellij.debugger.engine.evaluation.EvaluateRuntimeException;
 import com.intellij.debugger.jdi.VirtualMachineProxyImpl;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.util.containers.HashMap;
 import com.sun.jdi.Value;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
  * @author lex
  */
 public class CodeFragmentEvaluator extends BlockStatementEvaluator{
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.engine.evaluation.expression.CodeFragmentEvaluator");
+  private static final Logger LOG = Logger.getInstance(CodeFragmentEvaluator.class);
 
   private final CodeFragmentEvaluator myParentFragmentEvaluator;
-  private final Map<String, Object> mySyntheticLocals = new HashMap<String, Object>();
+  private final Map<String, Object> mySyntheticLocals = new HashMap<>();
 
   public CodeFragmentEvaluator(CodeFragmentEvaluator parentFragmentEvaluator) {
     super(null);
@@ -48,7 +35,7 @@ public class CodeFragmentEvaluator extends BlockStatementEvaluator{
       if(myParentFragmentEvaluator != null){
         return myParentFragmentEvaluator.getValue(localName, vm);
       } else {
-        throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.variable.not.declared", localName));
+        throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.variable.not.declared", localName));
       }
     }
     Object value = mySyntheticLocals.get(localName);
@@ -91,7 +78,7 @@ public class CodeFragmentEvaluator extends BlockStatementEvaluator{
     }
   }
 
-  private boolean hasValue(String localName) {
+  boolean hasValue(String localName) {
     if(!mySyntheticLocals.containsKey(localName)) {
       if(myParentFragmentEvaluator != null){
         return myParentFragmentEvaluator.hasValue(localName);
@@ -103,10 +90,11 @@ public class CodeFragmentEvaluator extends BlockStatementEvaluator{
     }
   }
 
-  public void setInitialValue(String localName, Object value) throws EvaluateException {
+  public void setInitialValue(String localName, Object value) {
     LOG.assertTrue(!(value instanceof Value), "use setValue for jdi values");
     if(hasValue(localName)) {
-      throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.variable.already.declared", localName));
+      throw new EvaluateRuntimeException(
+        EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.variable.already.declared", localName)));
     }
     mySyntheticLocals.put(localName, value);
   }
@@ -116,9 +104,11 @@ public class CodeFragmentEvaluator extends BlockStatementEvaluator{
       if(myParentFragmentEvaluator != null){
         myParentFragmentEvaluator.setValue(localName, value);
       } else {
-        throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.variable.not.declared", localName));
+        throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.variable.not.declared", localName));
       }
     }
-    mySyntheticLocals.put(localName, value);
+    else {
+      mySyntheticLocals.put(localName, value);
+    }
   }
 }

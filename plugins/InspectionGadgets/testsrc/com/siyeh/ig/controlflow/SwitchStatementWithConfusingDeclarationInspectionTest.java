@@ -1,11 +1,19 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.controlflow;
 
-import com.siyeh.ig.IGInspectionTestCase;
+import com.intellij.codeInspection.InspectionProfileEntry;
+import com.siyeh.ig.LightJavaInspectionTestCase;
+import org.jetbrains.annotations.Nullable;
 
-public class SwitchStatementWithConfusingDeclarationInspectionTest extends IGInspectionTestCase {
-
-  public void test() throws Exception {
-    doTest("com/siyeh/igtest/controlflow/switch_statement_with_confusing_declaration",
-           new SwitchStatementWithConfusingDeclarationInspection());
+public class SwitchStatementWithConfusingDeclarationInspectionTest extends LightJavaInspectionTestCase {
+  public void testSwitchStatementWithConfusingDeclaration() {
+    doTest();
   }
+
+  @Nullable
+  @Override
+  protected InspectionProfileEntry getInspection() {
+    return new SwitchStatementWithConfusingDeclarationInspection();
+  }
+
 }

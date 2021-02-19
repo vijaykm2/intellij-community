@@ -1,47 +1,32 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.application.options;
 
 import com.intellij.application.options.codeStyle.OptionTreeWithPreviewPanel;
+import com.intellij.ide.highlighter.JavaFileType;
+import com.intellij.java.JavaBundle;
+import com.intellij.lang.Language;
 import com.intellij.lang.java.JavaLanguage;
-import com.intellij.openapi.application.ApplicationBundle;
 import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.ui.OnePixelDivider;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsContexts.TabTitle;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider;
 import com.intellij.ui.border.CustomLineBorder;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
-/**
- * @author max
- */
 public class JavaDocFormattingPanel extends OptionTreeWithPreviewPanel {
   private JCheckBox myEnableCheckBox;
 
   private final JPanel myJavaDocPanel = new JPanel(new BorderLayout());
-  private static final String OTHER_GROUP = ApplicationBundle.message("group.javadoc.other");
-  private static final String INVALID_TAGS_GROUP = ApplicationBundle.message("group.javadoc.invalid.tags");
-  private static final String BLANK_LINES_GROUP = ApplicationBundle.message("group.javadoc.blank.lines");
-  private static final String ALIGNMENT_GROUP = ApplicationBundle.message("group.javadoc.alignment");
 
   public JavaDocFormattingPanel(CodeStyleSettings settings) {
     super(settings);
@@ -52,8 +37,9 @@ public class JavaDocFormattingPanel extends OptionTreeWithPreviewPanel {
   protected void init() {
     super.init();
 
-    myEnableCheckBox = new JCheckBox(ApplicationBundle.message("checkbox.enable.javadoc.formatting"));
+    myEnableCheckBox = new JCheckBox(JavaBundle.message("checkbox.enable.javadoc.formatting"));
     myEnableCheckBox.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         update();
       }
@@ -69,6 +55,7 @@ public class JavaDocFormattingPanel extends OptionTreeWithPreviewPanel {
     return LanguageCodeStyleSettingsProvider.SettingsType.LANGUAGE_SPECIFIC;
   }
 
+  @Override
   public JComponent getPanel() {
     return myJavaDocPanel;
   }
@@ -78,33 +65,21 @@ public class JavaDocFormattingPanel extends OptionTreeWithPreviewPanel {
     myEnableCheckBox.setEnabled(true);
   }
 
+  @Override
   protected void initTables() {
-    initBooleanField("JD_ALIGN_PARAM_COMMENTS", ApplicationBundle.message("checkbox.align.parameter.descriptions"), ALIGNMENT_GROUP);
-    initBooleanField("JD_ALIGN_EXCEPTION_COMMENTS", ApplicationBundle.message("checkbox.align.thrown.exception.descriptions"), ALIGNMENT_GROUP);
-
-    initBooleanField("JD_ADD_BLANK_AFTER_DESCRIPTION", ApplicationBundle.message("checkbox.after.description"), BLANK_LINES_GROUP);
-    initBooleanField("JD_ADD_BLANK_AFTER_PARM_COMMENTS", ApplicationBundle.message("checkbox.after.parameter.descriptions"), BLANK_LINES_GROUP);
-    initBooleanField("JD_ADD_BLANK_AFTER_RETURN", ApplicationBundle.message("checkbox.after.return.tag"), BLANK_LINES_GROUP);
-
-    initBooleanField("JD_KEEP_INVALID_TAGS", ApplicationBundle.message("checkbox.keep.invalid.tags"), INVALID_TAGS_GROUP);
-    initBooleanField("JD_KEEP_EMPTY_PARAMETER", ApplicationBundle.message("checkbox.keep.empty.param.tags"), INVALID_TAGS_GROUP);
-    initBooleanField("JD_KEEP_EMPTY_RETURN", ApplicationBundle.message("checkbox.keep.empty.return.tags"), INVALID_TAGS_GROUP);
-    initBooleanField("JD_KEEP_EMPTY_EXCEPTION", ApplicationBundle.message("checkbox.keep.empty.throws.tags"), INVALID_TAGS_GROUP);
-
-    initBooleanField("JD_LEADING_ASTERISKS_ARE_ENABLED", ApplicationBundle.message("checkbox.enable.leading.asterisks"), OTHER_GROUP);
-    initBooleanField("JD_USE_THROWS_NOT_EXCEPTION", ApplicationBundle.message("checkbox.use.throws.rather.than.exception"), OTHER_GROUP);
-    initBooleanField("WRAP_COMMENTS", ApplicationBundle.message("checkbox.wrap.at.right.margin"), OTHER_GROUP);
-    initBooleanField("JD_P_AT_EMPTY_LINES", ApplicationBundle.message("checkbox.generate.p.on.empty.lines"), OTHER_GROUP);
-    initBooleanField("JD_KEEP_EMPTY_LINES", ApplicationBundle.message("checkbox.keep.empty.lines"), OTHER_GROUP);
-    initBooleanField("JD_DO_NOT_WRAP_ONE_LINE_COMMENTS", ApplicationBundle.message("checkbox.do.not.wrap.one.line.comments"), OTHER_GROUP);
-    initBooleanField("JD_PRESERVE_LINE_FEEDS", ApplicationBundle.message("checkbox.preserve.line.feeds"), OTHER_GROUP);
-    initBooleanField("JD_PARAM_DESCRIPTION_ON_NEW_LINE", ApplicationBundle.message("checkbox.param.description.on.new.line"), OTHER_GROUP);
+    initCustomOptions(getAlignmentGroup());
+    initCustomOptions(getBlankLinesGroup());
+    initCustomOptions(getInvalidTagsGroup());
+    initBooleanField("WRAP_COMMENTS", JavaBundle.message("checkbox.wrap.at.right.margin"), getOtherGroup());
+    initCustomOptions(getOtherGroup());
   }
 
+  @Override
   protected int getRightMargin() {
     return 47;
   }
 
+  @Override
   protected String getPreviewText() {                    //| Margin is here
     return "package sample;\n" +
            "public class Sample {\n" +
@@ -148,27 +123,32 @@ public class JavaDocFormattingPanel extends OptionTreeWithPreviewPanel {
     }
   }
 
+  @Override
   public void apply(CodeStyleSettings settings) {
     super.apply(settings);
-    settings.ENABLE_JAVADOC_FORMATTING = myEnableCheckBox.isSelected();
+    settings.getCustomSettings(JavaCodeStyleSettings.class).ENABLE_JAVADOC_FORMATTING = myEnableCheckBox.isSelected();
   }
 
+  @Override
   protected void resetImpl(final CodeStyleSettings settings) {
     super.resetImpl(settings);
-    myEnableCheckBox.setSelected(settings.ENABLE_JAVADOC_FORMATTING);
+    myEnableCheckBox.setSelected(settings.getCustomSettings(JavaCodeStyleSettings.class).ENABLE_JAVADOC_FORMATTING);
     update();
   }
 
+  @Override
   public boolean isModified(CodeStyleSettings settings) {
-    return super.isModified(settings) || myEnableCheckBox.isSelected() != settings.ENABLE_JAVADOC_FORMATTING;
+    return super.isModified(settings) ||
+           myEnableCheckBox.isSelected() != settings.getCustomSettings(JavaCodeStyleSettings.class).ENABLE_JAVADOC_FORMATTING;
   }
 
+  @Override
   @NotNull
   protected final FileType getFileType() {
-    return StdFileTypes.JAVA;
+    return JavaFileType.INSTANCE;
   }
 
-    @Override
+  @Override
   protected void customizeSettings() {
     LanguageCodeStyleSettingsProvider provider = LanguageCodeStyleSettingsProvider.forLanguage(JavaLanguage.INSTANCE);
     if (provider != null) {
@@ -177,7 +157,33 @@ public class JavaDocFormattingPanel extends OptionTreeWithPreviewPanel {
   }
 
   @Override
-  protected String getTabTitle() {
-    return ApplicationBundle.message("title.javadoc");
+  protected @TabTitle @NotNull String getTabTitle() {
+    return JavaBundle.message("title.javadoc");
+  }
+
+  @Nullable
+  @Override
+  public Language getDefaultLanguage() {
+    return JavaLanguage.INSTANCE;
+  }
+
+  @NlsContexts.Label
+  public static String getOtherGroup() {
+    return JavaBundle.message("group.javadoc.other");
+  }
+
+  @NlsContexts.Label
+  public static String getInvalidTagsGroup() {
+    return JavaBundle.message("group.javadoc.invalid.tags");
+  }
+
+  @NlsContexts.Label
+  public static String getBlankLinesGroup() {
+    return JavaBundle.message("group.javadoc.blank.lines");
+  }
+
+  @NlsContexts.Label
+  public static String getAlignmentGroup() {
+    return JavaBundle.message("group.javadoc.alignment");
   }
 }

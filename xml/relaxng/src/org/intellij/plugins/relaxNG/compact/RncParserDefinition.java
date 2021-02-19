@@ -36,14 +36,8 @@ import org.intellij.plugins.relaxNG.compact.psi.impl.RncElementImpl;
 import org.intellij.plugins.relaxNG.compact.psi.impl.RncFileImpl;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 10.08.2007
- */
 public class RncParserDefinition implements ParserDefinition {
-  public static final IFileElementType FILE_ELEMENT_TYPE = new IFileElementType(RngCompactLanguage.INSTANCE);
-  private static final TokenSet myCommentTypes = TokenSet.orSet(RncTokenTypes.COMMENTS, RncTokenTypes.DOC_TOKENS);
+  private static final IFileElementType FILE_ELEMENT_TYPE = new IFileElementType(RngCompactLanguage.INSTANCE);
 
   @Override
   @NotNull
@@ -52,12 +46,12 @@ public class RncParserDefinition implements ParserDefinition {
   }
 
   @Override
-  public PsiParser createParser(Project project) {
+  public @NotNull PsiParser createParser(Project project) {
     return new RncParser();
   }
 
   @Override
-  public IFileElementType getFileNodeType() {
+  public @NotNull IFileElementType getFileNodeType() {
     return FILE_ELEMENT_TYPE;
   }
 
@@ -70,7 +64,7 @@ public class RncParserDefinition implements ParserDefinition {
   @Override
   @NotNull
   public TokenSet getCommentTokens() {
-    return myCommentTypes;
+    return TokenSet.orSet(RncTokenTypes.COMMENTS, RncTokenTypes.DOC_TOKENS);
   }
 
   @Override
@@ -93,17 +87,17 @@ public class RncParserDefinition implements ParserDefinition {
   }
 
   @Override
-  public PsiFile createFile(FileViewProvider viewProvider) {
+  public @NotNull PsiFile createFile(@NotNull FileViewProvider viewProvider) {
     return new RncFileImpl(viewProvider);
   }
 
   @Override
-  public SpaceRequirements spaceExistanceTypeBetweenTokens(ASTNode left, ASTNode right) {
+  public @NotNull SpaceRequirements spaceExistenceTypeBetweenTokens(ASTNode left, ASTNode right) {
     return SpaceRequirements.MAY;
   }
 
   private static class MyRncElement extends RncElementImpl {
-    public MyRncElement(ASTNode node) {
+    MyRncElement(ASTNode node) {
       super(node);
     }
 

@@ -16,15 +16,11 @@
 package com.intellij.codeInsight.daemon.impl.analysis.encoding;
 
 import com.intellij.codeInsight.daemon.EmptyResolveMessageProvider;
-import com.intellij.codeInsight.daemon.XmlErrorMessages;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.xml.XmlAttributeValue;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author cdr
-*/
-public class XmlEncodingReference extends EncodingReference implements EmptyResolveMessageProvider, Comparable<XmlEncodingReference> {
+public class XmlEncodingReference extends EncodingReference implements EmptyResolveMessageProvider {
   private final int myPriority;
 
   public XmlEncodingReference(XmlAttributeValue value, final String charsetName, final TextRange rangeInElement, int priority) {
@@ -32,14 +28,6 @@ public class XmlEncodingReference extends EncodingReference implements EmptyReso
     myPriority = priority;
   }
 
-  @Override
-  @NotNull
-  public String getUnresolvedMessagePattern() {
-    //noinspection UnresolvedPropertyKey
-    return XmlErrorMessages.message("unknown.encoding.0");
-  }
-
-  @Override
   public int compareTo(@NotNull XmlEncodingReference ref) {
     return myPriority - ref.myPriority;
   }

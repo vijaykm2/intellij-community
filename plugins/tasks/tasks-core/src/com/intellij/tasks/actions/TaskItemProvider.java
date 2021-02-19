@@ -1,7 +1,9 @@
 package com.intellij.tasks.actions;
 
+import com.intellij.concurrency.JobScheduler;
 import com.intellij.ide.util.gotoByName.ChooseByNameBase;
 import com.intellij.ide.util.gotoByName.ChooseByNameItemProvider;
+import com.intellij.ide.util.gotoByName.ChooseByNameViewModel;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
@@ -11,7 +13,7 @@ import com.intellij.psi.PsiManager;
 import com.intellij.tasks.Task;
 import com.intellij.tasks.TaskManager;
 import com.intellij.tasks.doc.TaskPsiElement;
-import com.intellij.util.Alarm;
+import com.intellij.util.ExceptionUtil;
 import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -34,21 +36,34 @@ class TaskItemProvider implements ChooseByNameItemProvider, Disposable {
   private boolean myOldEverywhere = false;
   private String myOldPattern = "";
 
-  private final Alarm myAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, this);
-  private final AtomicReference<Future<List<Task>>> myFutureReference = new AtomicReference<Future<List<Task>>>();
+  private final AtomicReference<Future<List<Task>>> myFutureReference = new AtomicReference<>();
 
-  public TaskItemProvider(Project project) {
+  TaskItemProvider(Project project) {
     myProject = project;
+  }
+
+  @Override
+  public @NotNull List<String> filterNames(@NotNull ChooseByNameBase base, String @NotNull [] names, @NotNull String pattern) {
+    return filterNames((ChooseByNameViewModel) base, names, pattern);
   }
 
   @NotNull
   @Override
-  public List<String> filterNames(@NotNull ChooseByNameBase base, @NotNull String[] names, @NotNull String pattern) {
+  public List<String> filterNames(@NotNull ChooseByNameViewModel base, String @NotNull [] names, @NotNull String pattern) {
     return ContainerUtil.emptyList();
   }
 
   @Override
   public boolean filterElements(@NotNull ChooseByNameBase base,
+                                @NotNull String pattern,
+                                boolean everywhere,
+                                @NotNull ProgressIndicator cancelled,
+                                @NotNull Processor<Object> consumer) {
+    return filterElements((ChooseByNameViewModel)base, pattern, everywhere, cancelled, consumer);
+  }
+
+  @Override
+  public boolean filterElements(@NotNull ChooseByNameViewModel base,
                                 @NotNull final String pattern,
                                 final boolean everywhere,
                                 @NotNull final ProgressIndicator cancelled,
@@ -68,12 +83,11 @@ class TaskItemProvider implements ChooseByNameItemProvider, Disposable {
       return true;
     }
 
-    FutureTask<List<Task>> future = new FutureTask<List<Task>>(new Callable<List<Task>>() {
-      @Override
-      public List<Task> call() throws Exception {
-          return fetchFromServer(pattern, everywhere, cancelled);
-      }
-    });
+    if (myDisposed) {
+      return false;
+    }
+    int delay = myFutureReference.get() == null && pattern.length() > 5 ? 0 : DELAY_PERIOD;
+    Future<List<Task>> future = JobScheduler.getScheduler().schedule(() -> fetchFromServer(pattern, everywhere, cancelled), delay, TimeUnit.MILLISECONDS);
 
     // Newer request always wins
     Future<List<Task>> oldFuture = myFutureReference.getAndSet(future);
@@ -81,11 +95,6 @@ class TaskItemProvider implements ChooseByNameItemProvider, Disposable {
       LOG.debug("Cancelling existing task");
       oldFuture.cancel(true);
     }
-
-    if (myAlarm.isDisposed()) {
-      return false;
-    }
-    myAlarm.addRequest(future, oldFuture == null && pattern.length() > 5 ? 0 : DELAY_PERIOD);
 
     try {
       List<Task> tasks;
@@ -96,11 +105,7 @@ class TaskItemProvider implements ChooseByNameItemProvider, Disposable {
         }
         catch (TimeoutException ignore) {
         }
-        if (base.hasPostponedAction()) {
-            future.cancel(true);
-            return true;
-          }
-        }
+      }
       myFutureReference.compareAndSet(future, null);
 
       // Exclude *all* cached and local issues, not only those returned by TaskSearchSupport.getLocalAndCachedTasks().
@@ -123,15 +128,7 @@ class TaskItemProvider implements ChooseByNameItemProvider, Disposable {
       if (cause instanceof ProcessCanceledException) {
         LOG.debug("Task cancelled via progress indicator");
       }
-      else if (cause instanceof RuntimeException) {
-        throw (RuntimeException)cause;
-      }
-      else if (cause instanceof Error) {
-        throw (Error)cause;
-      }
-      else {
-        throw new RuntimeException("Unknown checked exception", cause);
-      }
+      ExceptionUtil.rethrow(cause);
     }
     return false;
   }
@@ -159,17 +156,13 @@ class TaskItemProvider implements ChooseByNameItemProvider, Disposable {
       limit = GotoTaskAction.PAGE_SIZE;
       myCurrentOffset += GotoTaskAction.PAGE_SIZE;
     }
-    List<Task> tasks = TaskSearchSupport.getRepositoriesTasks(TaskManager.getManager(myProject),
-                                                              pattern, offset, limit, true, everywhere, cancelled);
+    List<Task> tasks = TaskSearchSupport.getRepositoriesTasks(myProject, pattern, offset, limit, true, everywhere, cancelled);
     myOldEverywhere = everywhere;
     myOldPattern = pattern;
     return tasks;
   }
 
   private boolean processTasks(List<Task> tasks, Processor<Object> consumer, ProgressIndicator cancelled) {
-    if (!tasks.isEmpty() && !consumer.process(ChooseByNameBase.NON_PREFIX_SEPARATOR)) {
-      return false;
-    }
     PsiManager psiManager = PsiManager.getInstance(myProject);
     for (Task task : tasks) {
       cancelled.checkCanceled();
@@ -178,12 +171,14 @@ class TaskItemProvider implements ChooseByNameItemProvider, Disposable {
     return true;
   }
 
+
+  private boolean myDisposed;
   @Override
   public void dispose() {
-    // Alarm should be disposed already
     Future<List<Task>> future = myFutureReference.get();
     if (future != null) {
       future.cancel(true);
     }
+    myDisposed = true;
   }
 }

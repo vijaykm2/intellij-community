@@ -15,10 +15,9 @@
  */
 package com.intellij.ide.actions;
 
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.actionSystem.impl.PresentationFactory;
-import com.intellij.openapi.actionSystem.impl.Utils;
-import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.util.containers.JBIterable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,53 +28,31 @@ import java.util.List;
 /**
  * @author peter
  */
-public abstract class WeighingActionGroup extends ActionGroup {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.actions.WeighingActionGroup");
-  private final PresentationFactory myPresentationFactory = new PresentationFactory();
+abstract class WeighingActionGroup extends ActionGroup {
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     getDelegate().update(e);
   }
 
   protected abstract ActionGroup getDelegate();
 
-  private static void getAllChildren(@Nullable AnActionEvent e, ActionGroup group, List<AnAction> result) {
-    for (final AnAction action : group.getChildren(e)) {
-      if (action == null) {
-        LOG.error("Null child for " + group + " of class " + group.getClass());
-        continue;
-      }
-      if (action instanceof ActionGroup && !((ActionGroup)action).isPopup()) {
-        getAllChildren(e, (ActionGroup)action, result);
-      }
-      else {
-        result.add(action);
-      }
-    }
+  @Override
+  public AnAction @NotNull [] getChildren(@Nullable AnActionEvent e) {
+    return getDelegate().getChildren(e);
   }
 
-  @Override
   @NotNull
-  public AnAction[] getChildren(@Nullable AnActionEvent e) {
-    final AnAction[] children = getDelegate().getChildren(e);
-    if (e == null) {
-      return children;
-    }
-
-    final ArrayList<AnAction> all = new ArrayList<AnAction>();
-    getAllChildren(e, getDelegate(), all);
-
+  @Override
+  public List<AnAction> afterExpandGroup(@NotNull List<AnAction> visibleActions, @NotNull UpdateSession updater) {
     LinkedHashSet<AnAction> heaviest = null;
     double maxWeight = Presentation.DEFAULT_WEIGHT;
-    for (final AnAction action : all) {
-      final Presentation presentation = myPresentationFactory.getPresentation(action);
-      presentation.setWeight(Presentation.DEFAULT_WEIGHT);
-      Utils.updateGroupChild(e.getDataContext(), e.getPlace(), action, presentation);
+    for (AnAction action : visibleActions) {
+      Presentation presentation = updater.presentation(action);
       if (presentation.isEnabled() && presentation.isVisible()) {
         if (presentation.getWeight() > maxWeight) {
           maxWeight = presentation.getWeight();
-          heaviest = new LinkedHashSet<AnAction>();
+          heaviest = new LinkedHashSet<>();
         }
         if (presentation.getWeight() == maxWeight && heaviest != null) {
           heaviest.add(action);
@@ -84,12 +61,12 @@ public abstract class WeighingActionGroup extends ActionGroup {
     }
 
     if (heaviest == null) {
-      return children;
+      return visibleActions;
     }
 
-    final DefaultActionGroup chosen = new DefaultActionGroup();
+    ArrayList<AnAction> chosen = new ArrayList<>();
     boolean prevSeparator = true;
-    for (final AnAction action : all) {
+    for (AnAction action : visibleActions) {
       final boolean separator = action instanceof Separator;
       if (separator && !prevSeparator) {
         chosen.add(action);
@@ -104,11 +81,10 @@ public abstract class WeighingActionGroup extends ActionGroup {
         chosen.add(action);
       }
     }
-
-    final ActionGroup other = new ExcludingActionGroup(getDelegate(), heaviest);
+    ActionGroup other = new ExcludingActionGroup(getDelegate(), heaviest);
     other.setPopup(true);
-    other.getTemplatePresentation().setText("Other...");
-    return new AnAction[]{chosen, new Separator(), other};
+    updater.presentation(other).setText(IdeBundle.messagePointer("action.presentation.WeighingActionGroup.text"));
+    return JBIterable.from(chosen).append(new Separator()).append(other).toList();
   }
 
   protected boolean shouldBeChosenAnyway(AnAction action) {

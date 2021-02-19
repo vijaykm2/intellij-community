@@ -15,6 +15,7 @@
  */
 package com.intellij.facet.impl.ui.libraries;
 
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.openapi.roots.ui.configuration.libraryEditor.LibraryEditor;
 import com.intellij.openapi.roots.ui.configuration.libraryEditor.LibraryNameAndLevelPanel;
 import com.intellij.openapi.roots.ui.configuration.libraryEditor.LibraryRootsComponent;
@@ -36,10 +37,10 @@ public class EditLibraryDialog extends DialogWrapper {
   private JPanel myPanel;
   private JPanel myNameAndLevelPanelWrapper;
   private final LibraryNameAndLevelPanel myNameAndLevelPanel;
-  private LibraryCompositionSettings mySettings;
-  private LibraryEditor myLibraryEditor;
-  private LibraryRootsComponent myLibraryRootsComponent;
-  private FormBuilder myBuilder;
+  private final LibraryCompositionSettings mySettings;
+  private final LibraryEditor myLibraryEditor;
+  private final LibraryRootsComponent myLibraryRootsComponent;
+  private final FormBuilder myBuilder;
 
   public EditLibraryDialog(Component parent, LibraryCompositionSettings settings, final LibraryEditor libraryEditor) {
     super(parent, true);
@@ -51,7 +52,7 @@ public class EditLibraryDialog extends DialogWrapper {
     Disposer.register(getDisposable(), myLibraryRootsComponent);
 
     final boolean newLibrary = libraryEditor instanceof NewLibraryEditor;
-    setTitle((newLibrary ? "Create" : "Edit") + " Library");
+    setTitle(JavaUiBundle.message(newLibrary ? "dialog.title.create.library" : "dialog.title.edit.library"));
 
     myBuilder = LibraryNameAndLevelPanel.createFormBuilder();
     myNameAndLevelPanel = new LibraryNameAndLevelPanel(myBuilder, libraryEditor.getName(), newLibrary ? settings.getNewLibraryLevel() : null);

@@ -1,37 +1,31 @@
-#@PydevCodeAnalysisIgnore
 '''
+Entry-point module to start the code-completion server for PyDev.
+
 @author Fabio Zadrozny
 '''
-IS_PYTHON3K = 0
-try:
+import sys
+IS_PYTHON_3_ONWARDS = sys.version_info[0] >= 3
+
+if not IS_PYTHON_3_ONWARDS:
     import __builtin__
-except ImportError:
+else:
     import builtins as __builtin__  # Python 3.0
-    IS_PYTHON3K = 1
 
-try:
-    True
-    False
-except NameError:
-    # If it's not defined, let's define it now.
-    setattr(__builtin__, 'True', 1)  # Python 3.0 does not accept __builtin__.True = 1 in its syntax
-    setattr(__builtin__, 'False', 0)
-
-from pydevd_constants import IS_JYTHON
+from _pydevd_bundle.pydevd_constants import IS_JYTHON
 
 if IS_JYTHON:
-    import java.lang
+    import java.lang  # @UnresolvedImport
     SERVER_NAME = 'jycompletionserver'
-    import _pydev_jy_imports_tipper  # as _pydev_imports_tipper #changed to be backward compatible with 1.5
+    from _pydev_bundle import _pydev_jy_imports_tipper
     _pydev_imports_tipper = _pydev_jy_imports_tipper
 
 else:
     # it is python
     SERVER_NAME = 'pycompletionserver'
-    import _pydev_imports_tipper
+    from _pydev_bundle import _pydev_imports_tipper
 
 
-from _pydev_imps import _pydev_socket as socket
+from _pydev_imps._pydev_saved_modules import socket
 
 import sys
 if sys.platform == "darwin":
@@ -56,7 +50,7 @@ for name, mod in sys.modules.items():
 
 import traceback
 
-from _pydev_imps import _pydev_time as time
+from _pydev_imps._pydev_saved_modules import time
 
 try:
     import StringIO
@@ -82,7 +76,7 @@ def dbg(s, prior):
 #        print_ >> f, s
 #        f.close()
 
-import pydev_localhost
+from _pydev_bundle import pydev_localhost
 HOST = pydev_localhost.get_localhost() # Symbolic name meaning the local host
 
 MSG_KILL_SERVER = '@@KILL_SERVER_END@@'
@@ -104,7 +98,7 @@ BUFFER_SIZE = 1024
 
 currDirModule = None
 
-def CompleteFromDir(directory):
+def complete_from_dir(directory):
     '''
     This is necessary so that we get the imports from the same directory where the file
     we are completing is located.
@@ -118,7 +112,7 @@ def CompleteFromDir(directory):
     sys.path.insert(0, directory)
 
 
-def ChangePythonPath(pythonpath):
+def change_python_path(pythonpath):
     '''Changes the pythonpath (clears all the previous pythonpath)
 
     @param pythonpath: string with paths separated by |
@@ -138,7 +132,7 @@ class Processor:
         # nothing to do
         return
 
-    def removeInvalidChars(self, msg):
+    def remove_invalid_chars(self, msg):
         try:
             msg = str(msg)
         except UnicodeDecodeError:
@@ -152,7 +146,7 @@ class Processor:
                 raise
         return ' '
 
-    def formatCompletionMessage(self, defFile, completionsList):
+    def format_completion_message(self, defFile, completionsList):
         '''
         Format the completions suggestions in the following format:
         @@COMPLETIONS(modFile(token,description),(token,description),(token,description))END@@
@@ -163,17 +157,17 @@ class Processor:
             compMsg.append(',')
 
             compMsg.append('(')
-            compMsg.append(str(self.removeInvalidChars(tup[0])))  # token
+            compMsg.append(str(self.remove_invalid_chars(tup[0])))  # token
             compMsg.append(',')
-            compMsg.append(self.removeInvalidChars(tup[1]))  # description
+            compMsg.append(self.remove_invalid_chars(tup[1]))  # description
 
             if(len(tup) > 2):
                 compMsg.append(',')
-                compMsg.append(self.removeInvalidChars(tup[2]))  # args - only if function.
+                compMsg.append(self.remove_invalid_chars(tup[2]))  # args - only if function.
 
             if(len(tup) > 3):
                 compMsg.append(',')
-                compMsg.append(self.removeInvalidChars(tup[3]))  # TYPE
+                compMsg.append(self.remove_invalid_chars(tup[3]))  # TYPE
 
             compMsg.append(')')
 
@@ -192,23 +186,23 @@ class CompletionServer:
         self.processor = Processor()
 
 
-    def connectToServer(self):
-        from _pydev_imps import _pydev_socket as socket
+    def connect_to_server(self):
+        from _pydev_imps._pydev_saved_modules import socket
 
         self.socket = s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             s.connect((HOST, self.port))
         except:
-            sys.stderr.write('Error on connectToServer with parameters: host: %s port: %s\n' % (HOST, self.port))
+            sys.stderr.write('Error on connect_to_server with parameters: host: %s port: %s\n' % (HOST, self.port))
             raise
 
-    def getCompletionsMessage(self, defFile, completionsList):
+    def get_completions_message(self, defFile, completionsList):
         '''
         get message with completions.
         '''
-        return self.processor.formatCompletionMessage(defFile, completionsList)
+        return self.processor.format_completion_message(defFile, completionsList)
 
-    def getTokenAndData(self, data):
+    def get_token_and_data(self, data):
         '''
         When we receive this, we have 'token):data'
         '''
@@ -237,7 +231,7 @@ class CompletionServer:
             #Older versions (jython 2.1)
             self.emulated_sendall(msg)
         else:
-            if IS_PYTHON3K:
+            if IS_PYTHON_3_ONWARDS:
                 self.socket.sendall(bytearray(msg, 'utf-8'))
             else:
                 self.socket.sendall(msg)
@@ -246,12 +240,12 @@ class CompletionServer:
     def run(self):
         # Echo server program
         try:
-            import _pydev_log
+            from _pydev_bundle import _pydev_log
             log = _pydev_log.Log()
 
             dbg(SERVER_NAME + ' connecting to java server on %s (%s)' % (HOST, self.port) , INFO1)
             # after being connected, create a socket as a client.
-            self.connectToServer()
+            self.connect_to_server()
 
             dbg(SERVER_NAME + ' Connected to java server', INFO1)
 
@@ -263,7 +257,7 @@ class CompletionServer:
                     received = self.socket.recv(BUFFER_SIZE)
                     if len(received) == 0:
                         raise Exit()  # ok, connection ended
-                    if IS_PYTHON3K:
+                    if IS_PYTHON_3_ONWARDS:
                         data = data + received.decode('utf-8')
                     else:
                         data = data + received
@@ -282,7 +276,7 @@ class CompletionServer:
                             comps = []
                             for p in _sys_path:
                                 comps.append((p, ' '))
-                            self.send(self.getCompletionsMessage(None, comps))
+                            self.send(self.get_completions_message(None, comps))
 
                         else:
                             data = data[:data.rfind(MSG_END)]
@@ -290,13 +284,13 @@ class CompletionServer:
                             if data.startswith(MSG_IMPORTS):
                                 data = data[len(MSG_IMPORTS):]
                                 data = unquote_plus(data)
-                                defFile, comps = _pydev_imports_tipper.GenerateTip(data, log)
-                                self.send(self.getCompletionsMessage(defFile, comps))
+                                defFile, comps = _pydev_imports_tipper.generate_tip(data, log)
+                                self.send(self.get_completions_message(defFile, comps))
 
                             elif data.startswith(MSG_CHANGE_PYTHONPATH):
                                 data = data[len(MSG_CHANGE_PYTHONPATH):]
                                 data = unquote_plus(data)
-                                ChangePythonPath(data)
+                                change_python_path(data)
                                 self.send(MSG_OK)
 
                             elif data.startswith(MSG_JEDI):
@@ -306,7 +300,7 @@ class CompletionServer:
                                 try:
                                     import jedi  # @UnresolvedImport
                                 except:
-                                    self.send(self.getCompletionsMessage(None, [('Error on import jedi', 'Error importing jedi', '')]))
+                                    self.send(self.get_completions_message(None, [('Error on import jedi', 'Error importing jedi', '')]))
                                 else:
                                     script = jedi.Script(
                                         # Line +1 because it expects lines 1-based (and col 0-based)
@@ -339,25 +333,31 @@ class CompletionServer:
 
                                         # gen list(tuple(name, doc, args, type))
                                         lst.append((completion.name, '', '', t))
-                                    self.send(self.getCompletionsMessage('empty', lst))
+                                    self.send(self.get_completions_message('empty', lst))
 
                             elif data.startswith(MSG_SEARCH):
                                 data = data[len(MSG_SEARCH):]
                                 data = unquote_plus(data)
-                                (f, line, col), foundAs = _pydev_imports_tipper.Search(data)
-                                self.send(self.getCompletionsMessage(f, [(line, col, foundAs)]))
+                                (f, line, col), foundAs = _pydev_imports_tipper.search_definition(data)
+                                self.send(self.get_completions_message(f, [(line, col, foundAs)]))
 
                             elif data.startswith(MSG_CHANGE_DIR):
                                 data = data[len(MSG_CHANGE_DIR):]
                                 data = unquote_plus(data)
-                                CompleteFromDir(data)
+                                complete_from_dir(data)
                                 self.send(MSG_OK)
 
                             else:
                                 self.send(MSG_INVALID_REQUEST)
                     except Exit:
-                        self.send(self.getCompletionsMessage(None, [('Exit:', 'SystemExit', '')]))
-                        raise
+                        e = sys.exc_info()[1]
+                        msg = self.get_completions_message(None, [('Exit:', 'SystemExit', '')])
+                        try:
+                            self.send(msg)
+                        except socket.error:
+                            pass # Ok, may be closed already
+
+                        raise e # raise original error.
 
                     except:
                         dbg(SERVER_NAME + ' exception occurred', ERROR)
@@ -366,11 +366,15 @@ class CompletionServer:
 
                         err = s.getvalue()
                         dbg(SERVER_NAME + ' received error: ' + str(err), ERROR)
-                        self.send(self.getCompletionsMessage(None, [('ERROR:', '%s\nLog:%s' % (err, log.GetContents()), '')]))
+                        msg = self.get_completions_message(None, [('ERROR:', '%s\nLog:%s' % (err, log.get_contents()), '')])
+                        try:
+                            self.send(msg)
+                        except socket.error:
+                            pass # Ok, may be closed already
 
 
                 finally:
-                    log.Clear()
+                    log.clear_log()
 
             self.socket.close()
             self.ended = True

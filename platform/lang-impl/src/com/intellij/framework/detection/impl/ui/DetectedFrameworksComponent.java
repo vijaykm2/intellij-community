@@ -18,11 +18,12 @@ package com.intellij.framework.detection.impl.ui;
 import com.intellij.framework.detection.DetectedFrameworkDescription;
 import com.intellij.framework.detection.DetectionExcludesConfiguration;
 import com.intellij.framework.detection.FrameworkDetectionContext;
+import com.intellij.openapi.project.ProjectBundle;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.CheckedTreeNode;
 import com.intellij.ui.EnumComboBoxModel;
-import com.intellij.ui.ListCellRendererWrapper;
 import com.intellij.ui.ScrollPaneFactory;
-import com.intellij.util.Consumer;
+import com.intellij.ui.SimpleListCellRenderer;
 import com.intellij.util.ui.UIUtil;
 
 import javax.swing.*;
@@ -33,15 +34,13 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.Supplier;
 
-/**
- * @author nik
- */
 public class DetectedFrameworksComponent {
   private JPanel myMainPanel;
   private final DetectedFrameworksTree myTree;
   private JPanel myTreePanel;
-  private JComboBox myGroupByComboBox;
+  private JComboBox<GroupByOption> myGroupByComboBox;
   private JLabel myDescriptionLabel;
   private JPanel myOptionsPanel;
 
@@ -54,8 +53,8 @@ public class DetectedFrameworksComponent {
       }
     };
     myTreePanel.add(ScrollPaneFactory.createScrollPane(myTree), BorderLayout.CENTER);
-    myGroupByComboBox.setModel(new EnumComboBoxModel<GroupByOption>(GroupByOption.class));
-    myGroupByComboBox.setRenderer(new GroupByListCellRenderer());
+    myGroupByComboBox.setModel(new EnumComboBoxModel<>(GroupByOption.class));
+    myGroupByComboBox.setRenderer(SimpleListCellRenderer.create("", GroupByOption::getPresentableName));
     myGroupByComboBox.addActionListener(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
@@ -98,30 +97,20 @@ public class DetectedFrameworksComponent {
   }
 
   public void processUncheckedNodes(final DetectionExcludesConfiguration excludesConfiguration) {
-    getTree().processUncheckedNodes(new Consumer<DetectedFrameworkTreeNodeBase>() {
-      @Override
-      public void consume(DetectedFrameworkTreeNodeBase node) {
-        node.disableDetection(excludesConfiguration);
-      }
-    });
+    getTree().processUncheckedNodes(node -> node.disableDetection(excludesConfiguration));
   }
 
-  public enum GroupByOption { TYPE, DIRECTORY }
+  public enum GroupByOption {
+    TYPE(ProjectBundle.messagePointer("list.item.group.by.type")),
+    DIRECTORY(ProjectBundle.messagePointer("list.item.group.by.directory"));
+    private final Supplier<@NlsContexts.ListItem String> myPresentableName;
 
-  private static class GroupByListCellRenderer extends ListCellRendererWrapper<GroupByOption> {
-    public GroupByListCellRenderer() {
-      super();
+    GroupByOption(Supplier<String> presentableName) {
+      myPresentableName = presentableName;
     }
 
-    @Override
-    public void customize(JList list,
-                          GroupByOption value,
-                          int index,
-                          boolean selected,
-                          boolean hasFocus) {
-      if (value != null) {
-        setText(value.name().toLowerCase());
-      }
+    @NlsContexts.ListItem String getPresentableName() {
+      return myPresentableName.get();
     }
   }
 }

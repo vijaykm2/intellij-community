@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,111 +15,149 @@
  */
 package com.intellij.openapi.compiler;
 
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.progress.DumbProgressIndicator;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.roots.CompilerModuleExtension;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.Navigatable;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Collection;
+
 public class DummyCompileContext implements CompileContext {
-  protected DummyCompileContext() {
+  private final Project myProject;
+
+  /**
+   * @deprecated use {@link #create(Project)} instead
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public DummyCompileContext() {
+    this(ProjectManager.getInstance().getDefaultProject());
   }
 
-  private static final DummyCompileContext OUR_INSTANCE = new DummyCompileContext();
+  protected DummyCompileContext(Project project) {
+    myProject = project;
+  }
 
+  /**
+   * @deprecated use {@link #create(Project)} instead
+   * @return
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  @NotNull
   public static DummyCompileContext getInstance() {
-    return OUR_INSTANCE;
+    return new DummyCompileContext(ProjectManager.getInstance().getDefaultProject());
   }
 
+  @NotNull
+  public static DummyCompileContext create(@NotNull Project project) {
+    return new DummyCompileContext(project);
+  }
+
+  @NotNull
+  @Override
   public Project getProject() {
-    return null;
+    return myProject;
   }
 
-  public void addMessage(CompilerMessageCategory category, String message, String url, int lineNum, int columnNum) {
+  @Override
+  public void addMessage(@NotNull CompilerMessageCategory category,
+                         @Nls(capitalization = Nls.Capitalization.Sentence) String message,
+                         @Nullable String url, int lineNum, int columnNum, @Nullable Navigatable navigatable,
+                         Collection<String> moduleNames) {
   }
 
-
-  public void addMessage(CompilerMessageCategory category,
-                         String message,
-                         @Nullable String url,
-                         int lineNum,
-                         int columnNum,
-                         Navigatable navigatable) {
-  }
-
-  public CompilerMessage[] getMessages(CompilerMessageCategory category) {
+  @Override
+  public CompilerMessage @NotNull [] getMessages(@NotNull CompilerMessageCategory category) {
     return CompilerMessage.EMPTY_ARRAY;
   }
 
+  @Override
   public int getMessageCount(CompilerMessageCategory category) {
     return 0;
   }
 
+  @Override
+  @NotNull
   public ProgressIndicator getProgressIndicator() {
-    return null;
+    return DumbProgressIndicator.INSTANCE;
   }
 
+  @Override
   public CompileScope getCompileScope() {
     return null;
   }
 
+  @Override
   public CompileScope getProjectCompileScope() {
     return null;
   }
 
+  @Override
   public void requestRebuildNextTime(String message) {
   }
 
+  @Override
   public boolean isRebuildRequested() {
     return false;
   }
 
+  @Override
   @Nullable
   public String getRebuildReason() {
     return null;
   }
 
-  public Module getModuleByFile(VirtualFile file) {
+  @Override
+  public Module getModuleByFile(@NotNull VirtualFile file) {
     return null;
   }
 
+  @Override
   public boolean isAnnotationProcessorsEnabled() {
     return false;
   }
 
-  public VirtualFile[] getSourceRoots(Module module) {
-    return VirtualFile.EMPTY_ARRAY;
+  @Override
+  public VirtualFile getModuleOutputDirectory(@NotNull final Module module) {
+    return ReadAction.compute(() -> CompilerModuleExtension.getInstance(module).getCompilerOutputPath());
   }
 
-  public VirtualFile getModuleOutputDirectory(final Module module) {
-    return ApplicationManager.getApplication().runReadAction(new Computable<VirtualFile>() {
-      public VirtualFile compute() {
-        return CompilerModuleExtension.getInstance(module).getCompilerOutputPath();
-      }
-    });
-  }
-
+  @Override
   public VirtualFile getModuleOutputDirectoryForTests(Module module) {
     return null;
   }
 
+  @Override
   public <T> T getUserData(@NotNull Key<T> key) {
     return null;
   }
 
+  @Override
   public <T> void putUserData(@NotNull Key<T> key, T value) {
   }
 
+  @Override
   public boolean isMake() {
     return false; // stub implementation
   }
 
+  @Override
+  public boolean isAutomake() {
+    return false;
+  }
+
+  @Override
   public boolean isRebuild() {
     return false;
   }

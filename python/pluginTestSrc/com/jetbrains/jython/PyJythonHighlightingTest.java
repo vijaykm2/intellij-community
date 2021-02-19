@@ -15,15 +15,15 @@
  */
 package com.jetbrains.jython;
 
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
-import com.jetbrains.python.PythonTestUtil;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
+import com.jetbrains.python.PythonHelpersLocator;
 import com.jetbrains.python.inspections.PyCallingNonCallableInspection;
 import com.jetbrains.python.inspections.unresolvedReference.PyUnresolvedReferencesInspection;
 
 /**
  * @author yole
  */
-public class PyJythonHighlightingTest extends LightCodeInsightFixtureTestCase {
+public class PyJythonHighlightingTest extends LightJavaCodeInsightFixtureTestCase {
   public void testCallableJavaClass() {
     doCallableTest();
   }
@@ -41,6 +41,6 @@ public class PyJythonHighlightingTest extends LightCodeInsightFixtureTestCase {
 
   @Override
   protected String getTestDataPath() {
-    return PythonTestUtil.getTestDataPath() + "/highlighting/jython/";
+    return PythonHelpersLocator.getPythonCommunityPath() + "/testData/highlighting/jython/";
   }
 }

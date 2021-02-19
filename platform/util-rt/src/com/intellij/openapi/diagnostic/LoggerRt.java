@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.diagnostic;
 
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -25,12 +10,10 @@ import java.util.logging.Logger;
 
 /**
  * A wrapper which uses either IDE logging subsystem (if available) or java.util.logging.
- *
- * @since 12.0
  */
 public abstract class LoggerRt {
   private interface Factory {
-    LoggerRt getInstance(@NotNull @NonNls final String category);
+    LoggerRt getInstance(String category);
   }
 
   private static Factory ourFactory;
@@ -48,62 +31,67 @@ public abstract class LoggerRt {
   }
 
   @NotNull
-  public static LoggerRt getInstance(@NotNull @NonNls final String category) {
+  public static LoggerRt getInstance(@NotNull String category) {
     return getFactory().getInstance(category);
   }
 
-  public void info(@Nullable @NonNls final String message) {
+  @NotNull
+  public static LoggerRt getInstance(@NotNull Class<?> clazz) {
+    return getInstance('#' + clazz.getName());
+  }
+
+  public void info(@Nullable String message) {
     info(message, null);
   }
 
-  public void info(@NotNull final Throwable t) {
+  public void info(@NotNull Throwable t) {
     info(t.getMessage(), t);
   }
 
-  public void warn(@Nullable @NonNls final String message) {
+  public void warn(@Nullable String message) {
     warn(message, null);
   }
 
-  public void warn(@NotNull final Throwable t) {
+  public void warn(@NotNull Throwable t) {
     warn(t.getMessage(), t);
   }
 
-  public void error(@Nullable @NonNls final String message) {
+  public void error(@Nullable String message) {
     error(message, null);
   }
 
-  public void error(@NotNull final Throwable t) {
+  public void error(@NotNull Throwable t) {
     error(t.getMessage(), t);
   }
 
-  public abstract void info(@Nullable @NonNls final String message, @Nullable final Throwable t);
-  public abstract void warn(@Nullable @NonNls final String message, @Nullable final Throwable t);
-  public abstract void error(@Nullable @NonNls final String message, @Nullable final Throwable t);
+  public abstract void info(@Nullable String message, @Nullable Throwable t);
+  public abstract void warn(@Nullable String message, @Nullable Throwable t);
+  public abstract void error(@Nullable String message, @Nullable Throwable t);
 
   private static class JavaFactory implements Factory {
     @Override
-    public LoggerRt getInstance(@NotNull @NonNls final String category) {
+    public LoggerRt getInstance(String category) {
       final Logger logger = Logger.getLogger(category);
       return new LoggerRt() {
         @Override
-        public void info(@Nullable @NonNls final String message, @Nullable final Throwable t) {
+        public void info(@Nullable String message, @Nullable Throwable t) {
           logger.log(Level.INFO, message, t);
         }
 
         @Override
-        public void warn(@Nullable @NonNls final String message, @Nullable final Throwable t) {
+        public void warn(@Nullable String message, @Nullable Throwable t) {
           logger.log(Level.WARNING, message, t);
         }
 
         @Override
-        public void error(@Nullable @NonNls final String message, @Nullable final Throwable t) {
+        public void error(@Nullable String message, @Nullable Throwable t) {
           logger.log(Level.SEVERE, message, t);
         }
       };
     }
   }
 
-  private static class IdeaFactory implements Factory {
+  private static final class IdeaFactory implements Factory {
     private final Method myGetInstance;
     private final Method myInfo;
     private final Method myWarn;
@@ -122,12 +110,12 @@ public abstract class LoggerRt {
     }
 
     @Override
-    public LoggerRt getInstance(@NotNull @NonNls final String category) {
+    public LoggerRt getInstance(String category) {
       try {
         final Object logger = myGetInstance.invoke(null, category);
         return new LoggerRt() {
           @Override
-          public void info(@Nullable @NonNls final String message, @Nullable final Throwable t) {
+          public void info(@Nullable String message, @Nullable Throwable t) {
             try {
               myInfo.invoke(logger, message, t);
             }
@@ -135,7 +123,7 @@ public abstract class LoggerRt {
           }
 
           @Override
-          public void warn(@Nullable @NonNls final String message, @Nullable final Throwable t) {
+          public void warn(@Nullable String message, @Nullable Throwable t) {
             try {
               myWarn.invoke(logger, message, t);
             }
@@ -143,7 +131,7 @@ public abstract class LoggerRt {
           }
 
           @Override
-          public void error(@Nullable @NonNls final String message, @Nullable final Throwable t) {
+          public void error(@Nullable String message, @Nullable Throwable t) {
             try {
               myError.invoke(logger, message, t);
             }

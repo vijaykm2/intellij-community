@@ -1,33 +1,17 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.youtrack;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.io.StreamUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.tasks.*;
 import com.intellij.tasks.impl.BaseRepository;
 import com.intellij.tasks.impl.BaseRepositoryImpl;
 import com.intellij.tasks.impl.LocalTaskImpl;
 import com.intellij.tasks.impl.TaskUtil;
-import com.intellij.util.Function;
 import com.intellij.util.NullableFunction;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.io.HttpRequests;
 import com.intellij.util.text.VersionComparatorUtil;
 import com.intellij.util.xmlb.annotations.Tag;
 import org.apache.axis.utils.XMLChar;
@@ -46,9 +30,13 @@ import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
 import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -81,6 +69,7 @@ public class YouTrackRepository extends BaseRepositoryImpl {
     myDefaultSearch = other.getDefaultSearch();
   }
 
+  @Override
   public Task[] getIssues(@Nullable String request, int max, long since) throws Exception {
 
     String query = getDefaultSearch();
@@ -89,11 +78,9 @@ public class YouTrackRepository extends BaseRepositoryImpl {
     }
     String requestUrl = "/rest/project/issues/?filter=" + encodeUrl(query) + "&max=" + max + "&updatedAfter" + since;
     HttpMethod method = doREST(requestUrl, false);
-    try {
-      InputStream stream = method.getResponseBodyAsStream();
-
+    try (Reader reader = new InputStreamReader(method.getResponseBodyAsStream(), StandardCharsets.UTF_8)) {
       // todo workaround for http://youtrack.jetbrains.net/issue/JT-7984
-      String s = StreamUtil.readText(stream, CharsetToolkit.UTF8_CHARSET);
+      String s = StreamUtil.readText(reader);
       for (int i = 0; i < s.length(); i++) {
         if (!XMLChar.isValid(s.charAt(i))) {
           s = s.replace(s.charAt(i), ' ');
@@ -117,12 +104,8 @@ public class YouTrackRepository extends BaseRepositoryImpl {
 
       List<Element> children = element.getChildren("issue");
 
-      final List<Task> tasks = ContainerUtil.mapNotNull(children, new NullableFunction<Element, Task>() {
-        public Task fun(Element o) {
-          return createIssue(o);
-        }
-      });
-      return tasks.toArray(new Task[tasks.size()]);
+      final List<Task> tasks = ContainerUtil.mapNotNull(children, (NullableFunction<Element, Task>)o -> createIssue(o));
+      return tasks.toArray(Task.EMPTY_ARRAY);
     }
     finally {
       method.releaseConnection();
@@ -133,7 +116,7 @@ public class YouTrackRepository extends BaseRepositoryImpl {
   @Override
   public CancellableConnection createCancellableConnection() {
     PostMethod method = new PostMethod(getUrl() + "/rest/user/login");
-    return new HttpTestConnection<PostMethod>(method) {
+    return new HttpTestConnection<>(method) {
       @Override
       protected void doTest(PostMethod method) throws Exception {
         login(method);
@@ -152,7 +135,7 @@ public class YouTrackRepository extends BaseRepositoryImpl {
     String response;
     try {
       if (method.getStatusCode() != 200) {
-        throw new Exception("Cannot login: HTTP status code " + method.getStatusCode());
+        throw new HttpRequests.HttpStatusException("Cannot login", method.getStatusCode(), method.getPath());
       }
       response = method.getResponseBodyAsString(1000);
     }
@@ -173,6 +156,7 @@ public class YouTrackRepository extends BaseRepositoryImpl {
     return client;
   }
 
+  @Override
   @Nullable
   public Task findTask(@NotNull String id) throws Exception {
     final Element element = fetchRequestAsElement(id);
@@ -218,16 +202,13 @@ public class YouTrackRepository extends BaseRepositoryImpl {
   @NotNull
   @Override
   public Set<CustomTaskState> getAvailableTaskStates(@NotNull Task task) throws Exception {
-    final HttpMethod method = doREST("/rest/issue/" + task.getId() + "/execute/intellisense?command=" + encodeUrl("state "), false);
+    final HttpMethod method = doREST("/rest/issue/" + task.getId() + "/execute/intellisense?command=" + encodeUrl("state: "), false);
     try {
       final InputStream stream = method.getResponseBodyAsStream();
       final Element element = new SAXBuilder(false).build(stream).getRootElement();
-      return ContainerUtil.map2Set(element.getChild("suggest").getChildren("item"), new Function<Element, CustomTaskState>() {
-        @Override
-        public CustomTaskState fun(Element element) {
-          final String stateName = element.getChildText("option");
-          return new CustomTaskState(stateName, stateName);
-        }
+      return ContainerUtil.map2Set(element.getChild("suggest").getChildren("item"), element1 -> {
+        final String stateName = element1.getChildText("option");
+        return new CustomTaskState(stateName, stateName);
       });
     }
     finally {
@@ -239,15 +220,17 @@ public class YouTrackRepository extends BaseRepositoryImpl {
   private Task createIssue(Element element) {
     final String id = element.getAttributeValue("id");
     if (id == null) return null;
+    //noinspection HardCodedStringLiteral
     final String summary = element.getAttributeValue("summary");
     if (summary == null) return null;
+    //noinspection HardCodedStringLiteral
     final String description = element.getAttributeValue("description");
 
     String type = element.getAttributeValue("type");
     TaskType taskType = TaskType.OTHER;
     if (type != null) {
       try {
-        taskType = TaskType.valueOf(type.toUpperCase());
+        taskType = TaskType.valueOf(StringUtil.toUpperCase(type));
       }
       catch (IllegalArgumentException e) {
         // do nothing
@@ -282,13 +265,13 @@ public class YouTrackRepository extends BaseRepositoryImpl {
         return summary;
       }
 
+      @Override
       public String getDescription() {
         return description;
       }
 
-      @NotNull
       @Override
-      public Comment[] getComments() {
+      public Comment @NotNull [] getComments() {
         return Comment.EMPTY_ARRAY;
       }
 
@@ -339,20 +322,20 @@ public class YouTrackRepository extends BaseRepositoryImpl {
     }
   }
 
-  @SuppressWarnings({"EqualsWhichDoesntCheckParameterClass"})
   @Override
   public boolean equals(Object o) {
     if (!super.equals(o)) return false;
     YouTrackRepository repository = (YouTrackRepository)o;
-    return Comparing.equal(repository.getDefaultSearch(), getDefaultSearch());
+    return Objects.equals(repository.getDefaultSearch(), getDefaultSearch());
   }
 
-  private static final Logger LOG = Logger.getInstance("#com.intellij.tasks.youtrack.YouTrackRepository");
+  private static final Logger LOG = Logger.getInstance(YouTrackRepository.class);
 
   @Override
   public void updateTimeSpent(@NotNull LocalTask task, @NotNull String timeSpent, @NotNull String comment) throws Exception {
     checkVersion();
-    final HttpMethod method = doREST("/rest/issue/execute/" + task.getId() + "?command=work+Today+" + timeSpent.replaceAll(" ", "+") + "+" + comment, true);
+    String command = encodeUrl(String.format("work Today %s %s", timeSpent, comment));
+    final HttpMethod method = doREST("/rest/issue/execute/" + task.getId() + "?command=" + command, true);
     try {
       if (method.getStatusCode() != 200) {
         InputStream stream = method.getResponseBodyAsStream();
@@ -372,7 +355,7 @@ public class YouTrackRepository extends BaseRepositoryImpl {
       Element element = new SAXBuilder(false).build(stream).getRootElement();
       final boolean timeTrackingAvailable = element.getName().equals("version") && VersionComparatorUtil.compare(element.getChildText("version"), "4.1") >= 0;
       if (!timeTrackingAvailable) {
-        throw new Exception("This version of Youtrack the time tracking is not supported");
+        throw new Exception("Time tracking is not supported in this version of Youtrack");
       }
     }
     finally {
@@ -383,5 +366,17 @@ public class YouTrackRepository extends BaseRepositoryImpl {
   @Override
   protected int getFeatures() {
     return super.getFeatures() | TIME_MANAGEMENT | STATE_UPDATING;
+  }
+
+  @TestOnly
+  @Override
+  public HttpClient getHttpClient() {
+    return super.getHttpClient();
+  }
+
+  @NotNull
+  @Override
+  protected String getDefaultScheme() {
+    return "https";
   }
 }

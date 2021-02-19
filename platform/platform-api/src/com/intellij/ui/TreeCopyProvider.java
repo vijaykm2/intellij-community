@@ -28,13 +28,14 @@ import java.awt.datatransfer.Clipboard;
  * @author yole
  */
 public class TreeCopyProvider implements CopyProvider {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ui.TreeCopyProvider");
+  private static final Logger LOG = Logger.getInstance(TreeCopyProvider.class);
   private final JTree myTree;
 
   public TreeCopyProvider(final JTree tree) {
     myTree = tree;
   }
 
+  @Override
   public void performCopy(@NotNull DataContext dataContext) {
     try {
       final Clipboard clipboard = myTree.getToolkit().getSystemClipboard();
@@ -46,10 +47,12 @@ public class TreeCopyProvider implements CopyProvider {
     }
   }
 
+  @Override
   public boolean isCopyEnabled(@NotNull DataContext dataContext) {
     return myTree.getSelectionPath() != null;
   }
 
+  @Override
   public boolean isCopyVisible(@NotNull DataContext dataContext) {
     return true;
   }

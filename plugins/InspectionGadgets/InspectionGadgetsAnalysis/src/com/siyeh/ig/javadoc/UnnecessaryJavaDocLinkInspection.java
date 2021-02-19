@@ -1,5 +1,5 @@
 /*
- * Copyright 2009-2011 Bas Leijdekkers
+ * Copyright 2009-2018 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,12 +26,10 @@ import com.intellij.psi.util.MethodSignature;
 import com.intellij.psi.util.MethodSignatureUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.TypeConversionUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -45,14 +43,6 @@ public class UnnecessaryJavaDocLinkInspection extends BaseInspection {
 
   @SuppressWarnings({"PublicField"})
   public boolean ignoreInlineLinkToSuper = false;
-
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "unnecessary.javadoc.link.display.name");
-  }
 
   @NotNull
   @Override
@@ -88,7 +78,7 @@ public class UnnecessaryJavaDocLinkInspection extends BaseInspection {
 
     private final String tagName;
 
-    public UnnecessaryJavaDocLinkFix(String tagName) {
+    UnnecessaryJavaDocLinkFix(String tagName) {
       this.tagName = tagName;
     }
 
@@ -102,12 +92,11 @@ public class UnnecessaryJavaDocLinkInspection extends BaseInspection {
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Remove redundant tag";
+      return InspectionGadgetsBundle.message("unnecessary.java.doc.link.fix.family.name");
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
       final PsiElement parent = element.getParent();
       if (!(parent instanceof PsiDocTag)) {

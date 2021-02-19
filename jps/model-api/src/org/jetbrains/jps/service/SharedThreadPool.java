@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,16 +15,22 @@
  */
 package org.jetbrains.jps.service;
 
-import java.util.concurrent.Executor;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NotNull;
+
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
-/**
- * @author nik
- */
-public abstract class SharedThreadPool implements Executor {
+public abstract class SharedThreadPool implements ExecutorService {
   public static SharedThreadPool getInstance() {
     return JpsServiceManager.getInstance().getService(SharedThreadPool.class);
   }
 
-  public abstract Future<?> executeOnPooledThread(Runnable action);
+  /**
+   * @deprecated Use {@link #submit(Runnable)} instead
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  @NotNull
+  public abstract Future<?> executeOnPooledThread(@NotNull Runnable action);
 }

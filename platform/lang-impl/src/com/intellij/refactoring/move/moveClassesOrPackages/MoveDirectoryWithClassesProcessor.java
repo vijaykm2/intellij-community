@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,20 +14,19 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 28-Dec-2009
- */
 package com.intellij.refactoring.move.moveClassesOrPackages;
 
-import com.intellij.CommonBundle;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiManager;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.refactoring.BaseRefactoringProcessor;
@@ -45,23 +44,25 @@ import com.intellij.refactoring.util.RefactoringUIUtil;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewDescriptor;
 import com.intellij.usageView.UsageViewUtil;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.SmartList;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class MoveDirectoryWithClassesProcessor extends BaseRefactoringProcessor {
   private final PsiDirectory[] myDirectories;
   private final PsiDirectory myTargetDirectory;
   private final boolean mySearchInComments;
   private final boolean mySearchInNonJavaFiles;
-  private final Map<PsiFile, TargetDirectoryWrapper> myFilesToMove;
+  private final Map<VirtualFile, TargetDirectoryWrapper> myFilesToMove;
   private final Map<PsiDirectory, TargetDirectoryWrapper> myNestedDirsToMove;
   private NonCodeUsageInfo[] myNonCodeUsages;
   private final MoveCallback myMoveCallback;
+  private final PsiManager myManager;
 
   public MoveDirectoryWithClassesProcessor(Project project,
                                            PsiDirectory[] directories,
@@ -72,22 +73,23 @@ public class MoveDirectoryWithClassesProcessor extends BaseRefactoringProcessor 
                                            MoveCallback moveCallback) {
     super(project);
     if (targetDirectory != null) {
-      final List<PsiDirectory> dirs = new ArrayList<PsiDirectory>(Arrays.asList(directories));
+      final List<PsiDirectory> dirs = new ArrayList<>(Arrays.asList(directories));
       for (Iterator<PsiDirectory> iterator = dirs.iterator(); iterator.hasNext(); ) {
         final PsiDirectory directory = iterator.next();
         if (targetDirectory.equals(directory.getParentDirectory()) || targetDirectory.equals(directory)) {
           iterator.remove();
         }
       }
-      directories = dirs.toArray(new PsiDirectory[dirs.size()]);
+      directories = dirs.toArray(PsiDirectory.EMPTY_ARRAY);
     }
+    myManager = PsiManager.getInstance(project);
     myDirectories = directories;
     myTargetDirectory = targetDirectory;
     mySearchInComments = searchInComments;
     mySearchInNonJavaFiles = searchInNonJavaFiles;
     myMoveCallback = moveCallback;
-    myFilesToMove = new HashMap<PsiFile, TargetDirectoryWrapper>();
-    myNestedDirsToMove = new HashMap<PsiDirectory, TargetDirectoryWrapper>();
+    myFilesToMove = new HashMap<>();
+    myNestedDirsToMove = new LinkedHashMap<>();
     for (PsiDirectory dir : directories) {
       collectFiles2Move(myFilesToMove, myNestedDirsToMove, dir, includeSelf ? dir.getParentDirectory() : dir, getTargetDirectory(dir));
     }
@@ -95,49 +97,56 @@ public class MoveDirectoryWithClassesProcessor extends BaseRefactoringProcessor 
 
   @NotNull
   @Override
-  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo[] usages) {
-    PsiElement[] elements = new PsiElement[myFilesToMove.size()];
-    final PsiFile[] classes = PsiUtilCore.toPsiFileArray(myFilesToMove.keySet());
-    System.arraycopy(classes, 0, elements, 0, classes.length);
-    return new MoveMultipleElementsViewDescriptor(elements, getTargetName());
+  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo @NotNull [] usages) {
+    return new MoveMultipleElementsViewDescriptor(PsiUtilCore.toPsiFileArray(getPsiFiles()), getTargetName());
+  }
+
+  private Set<PsiFile> getPsiFiles() {
+    return myFilesToMove.keySet().stream().map(myManager::findFile).filter(Objects::nonNull).collect(Collectors.toSet());
   }
 
   protected String getTargetName() {
     return RefactoringUIUtil.getDescription(getTargetDirectory(null).getTargetDirectory(), false);
   }
 
-  @NotNull
   @Override
-  public UsageInfo[] findUsages() {
-    final List<UsageInfo> usages = new ArrayList<UsageInfo>();
+  public UsageInfo @NotNull [] findUsages() {
+    final List<UsageInfo> usages = new ArrayList<>();
     for (MoveDirectoryWithClassesHelper helper : MoveDirectoryWithClassesHelper.findAll()) {
-      helper.findUsages(myFilesToMove.keySet(), myDirectories, usages, mySearchInComments, mySearchInNonJavaFiles, myProject);
+      helper.findUsages(getPsiFiles(), myDirectories, usages, mySearchInComments, mySearchInNonJavaFiles, myProject);
     }
-    return UsageViewUtil.removeDuplicatedUsages(usages.toArray(new UsageInfo[usages.size()]));
+    return UsageViewUtil.removeDuplicatedUsages(usages.toArray(UsageInfo.EMPTY_ARRAY));
+  }
+
+  private void collectConflicts(@NotNull MultiMap<PsiElement, String> conflicts,
+                                @NotNull Ref<UsageInfo[]> refUsages) {
+    for (VirtualFile vFile : myFilesToMove.keySet()) {
+      PsiFile file = myManager.findFile(vFile);
+      if (file == null) continue;
+      try {
+        myFilesToMove.get(vFile).checkMove(file);
+      }
+      catch (IncorrectOperationException e) {
+        conflicts.putValue(file, e.getMessage());
+      }
+    }
+    for (MoveDirectoryWithClassesHelper helper : MoveDirectoryWithClassesHelper.findAll()) {
+      helper.preprocessUsages(myProject, getPsiFiles(), refUsages.get(), myTargetDirectory, conflicts);
+    }
   }
 
   @Override
-  protected boolean preprocessUsages(Ref<UsageInfo[]> refUsages) {
-    final MultiMap<PsiElement, String> conflicts = new MultiMap<PsiElement, String>();
-    for (PsiFile psiFile : myFilesToMove.keySet()) {
-      try {
-        myFilesToMove.get(psiFile).checkMove(psiFile);
-      }
-      catch (IncorrectOperationException e) {
-        conflicts.putValue(psiFile, e.getMessage());
-      }
-    }
-    for (MoveDirectoryWithClassesHelper helper : MoveDirectoryWithClassesHelper.findAll()) {
-      helper.preprocessUsages(myProject, myFilesToMove.keySet(), refUsages.get(), myTargetDirectory, conflicts);
+  protected boolean preprocessUsages(@NotNull final Ref<UsageInfo[]> refUsages) {
+    final MultiMap<PsiElement, String> conflicts = new MultiMap<>();
+    if (!ProgressManager.getInstance()
+      .runProcessWithProgressSynchronously(() -> ReadAction.run(() -> collectConflicts(conflicts, refUsages)), RefactoringBundle.message("detecting.possible.conflicts"), true, myProject)) {
+      return false;
     }
     return showConflicts(conflicts, refUsages.get());
   }
 
   @Override
-  protected void refreshElements(PsiElement[] elements) {}
-
-  @Override
-  public void performRefactoring(UsageInfo[] usages) {
+  public void performRefactoring(UsageInfo @NotNull [] usages) {
     //try to create all directories beforehand
     try {
       //top level directories should be created even if they are empty
@@ -149,26 +158,25 @@ public class MoveDirectoryWithClassesProcessor extends BaseRefactoringProcessor 
         myNestedDirsToMove.get(directory).findOrCreateTargetDirectory();
       }
 
-      for (PsiFile psiFile : myFilesToMove.keySet()) {
-        myFilesToMove.get(psiFile).findOrCreateTargetDirectory();
+      for (VirtualFile virtualFile : myFilesToMove.keySet()) {
+        myFilesToMove.get(virtualFile).findOrCreateTargetDirectory();
       }
-    }
-    catch (IncorrectOperationException e) {
-      Messages.showErrorDialog(myProject, e.getMessage(), CommonBundle.getErrorTitle());
-      return;
-    }
-    try {
-      final List<PsiFile> movedFiles = new ArrayList<PsiFile>();
-      final Map<PsiElement, PsiElement> oldToNewElementsMapping = new HashMap<PsiElement, PsiElement>();
-      for (PsiFile psiFile : myFilesToMove.keySet()) {
+
+      DumbService.getInstance(myProject).completeJustSubmittedTasks();
+
+      final List<PsiFile> movedFiles = new ArrayList<>();
+      final Map<PsiElement, PsiElement> oldToNewElementsMapping = new HashMap<>();
+      for (VirtualFile virtualFile : myFilesToMove.keySet()) {
+        PsiFile file = myManager.findFile(virtualFile);
+        if (file == null) continue;
         for (MoveDirectoryWithClassesHelper helper : MoveDirectoryWithClassesHelper.findAll()) {
-          helper.beforeMove(psiFile);
+          helper.beforeMove(file);
         }
-        final RefactoringElementListener listener = getTransaction().getElementListener(psiFile);
-        final PsiDirectory moveDestination = myFilesToMove.get(psiFile).getTargetDirectory();
-  
+        final RefactoringElementListener listener = getTransaction().getElementListener(file);
+        final PsiDirectory moveDestination = myFilesToMove.get(virtualFile).getTargetDirectory();
+
         for (MoveDirectoryWithClassesHelper helper : MoveDirectoryWithClassesHelper.findAll()) {
-          boolean processed = helper.move(psiFile, moveDestination, oldToNewElementsMapping, movedFiles, listener);
+          boolean processed = helper.move(file, moveDestination, oldToNewElementsMapping, movedFiles, listener);
           if (processed) {
             break;
           }
@@ -187,26 +195,44 @@ public class MoveDirectoryWithClassesProcessor extends BaseRefactoringProcessor 
       }
 
       myNonCodeUsages = CommonMoveUtil.retargetUsages(usages, oldToNewElementsMapping);
+      List<UsageInfo> postProcessUsages = new SmartList<>(usages);
+      myNestedDirsToMove.entrySet().stream().filter(entry -> entry.getValue().getTargetDirectory() != null)
+        .map(entry -> new MoveDirectoryUsageInfo(entry.getKey(), entry.getValue().getTargetDirectory()))
+        .forEach(postProcessUsages::add);
       for (MoveDirectoryWithClassesHelper helper : MoveDirectoryWithClassesHelper.findAll()) {
-        helper.postProcessUsages(usages, new Function<PsiDirectory, PsiDirectory>() {
-          @Override
-          public PsiDirectory fun(PsiDirectory dir) {
-            return getResultDirectory(dir).getTargetDirectory();
-          }
-        });
+        helper.postProcessUsages(postProcessUsages.toArray(UsageInfo.EMPTY_ARRAY), dir -> getResultDirectory(dir).findOrCreateTargetDirectory());
       }
       for (PsiDirectory directory : myDirectories) {
-        final TargetDirectoryWrapper wrapper = myNestedDirsToMove.get(directory);
-        final PsiDirectory targetDirectory = wrapper.getTargetDirectory();
-        if (targetDirectory == null || !PsiTreeUtil.isAncestor(directory, targetDirectory, false)) {
+        if (!isUsedInTarget(directory)) {
           directory.delete();
         }
       }
+
+      for (PsiDirectory directory : myNestedDirsToMove.keySet()) {
+        if (directory.isValid() && directory.getChildren().length == 0) {
+          directory.delete();
+        }
+      }
+
     }
     catch (IncorrectOperationException e) {
       myNonCodeUsages = new NonCodeUsageInfo[0];
       RefactoringUIUtil.processIncorrectOperation(myProject, e);
     }
+  }
+
+  private boolean isUsedInTarget(PsiDirectory directory) {
+    PsiDirectory targetDirectory = myNestedDirsToMove.get(directory).getTargetDirectory();
+    //don't delete super directory if move was performed inside subpackage
+    if (targetDirectory != null && PsiTreeUtil.isAncestor(directory, targetDirectory, false)) {
+      return true;
+    }
+    //don't delete subdirectory: something could be moved in there
+    if (PsiTreeUtil.isAncestor(targetDirectory, directory, false)) {
+      return true;
+    }
+
+    return false;
   }
 
   @Nullable
@@ -225,7 +251,7 @@ public class MoveDirectoryWithClassesProcessor extends BaseRefactoringProcessor 
 
   @Nullable
   @Override
-  protected RefactoringEventData getAfterData(UsageInfo[] usages) {
+  protected RefactoringEventData getAfterData(UsageInfo @NotNull [] usages) {
     RefactoringEventData data = new RefactoringEventData();
     data.addElement(myTargetDirectory);
     return data;
@@ -246,7 +272,7 @@ public class MoveDirectoryWithClassesProcessor extends BaseRefactoringProcessor 
     }
   }
 
-  private static void collectFiles2Move(Map<PsiFile, TargetDirectoryWrapper> files2Move,
+  private static void collectFiles2Move(Map<VirtualFile, TargetDirectoryWrapper> files2Move,
                                         Map<PsiDirectory, TargetDirectoryWrapper> nestedDirsToMove,
                                         PsiDirectory directory,
                                         PsiDirectory rootDirectory,
@@ -260,7 +286,7 @@ public class MoveDirectoryWithClassesProcessor extends BaseRefactoringProcessor 
     nestedDirsToMove.put(directory, newTargetDirectory);
     for (PsiElement child : children) {
       if (child instanceof PsiFile) {
-        files2Move.put((PsiFile)child, newTargetDirectory);
+        files2Move.put(PsiUtilCore.getVirtualFile(child), newTargetDirectory);
       }
       else if (child instanceof PsiDirectory){
         collectFiles2Move(files2Move, nestedDirsToMove, (PsiDirectory)child, directory, newTargetDirectory);
@@ -268,11 +294,13 @@ public class MoveDirectoryWithClassesProcessor extends BaseRefactoringProcessor 
     }
   }
 
+  @NotNull
   @Override
   protected String getCommandName() {
     return RefactoringBundle.message("moving.directories.command");
   }
 
+  @NotNull
   public TargetDirectoryWrapper getTargetDirectory(PsiDirectory dir) {
     return new TargetDirectoryWrapper(myTargetDirectory);
   }

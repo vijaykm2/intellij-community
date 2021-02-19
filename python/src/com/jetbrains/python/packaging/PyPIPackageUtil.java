@@ -1,332 +1,453 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.packaging;
 
-import com.google.common.collect.Lists;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+import com.google.common.util.concurrent.UncheckedExecutionException;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.annotations.SerializedName;
+import com.intellij.openapi.application.ApplicationInfo;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.CatchingConsumer;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.HttpRequests;
-import com.intellij.util.net.HttpConfigurable;
 import com.intellij.webcore.packaging.RepoPackage;
-import org.apache.xmlrpc.*;
-import org.jetbrains.annotations.NonNls;
+import one.util.streamex.EntryStream;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import javax.swing.text.MutableAttributeSet;
 import javax.swing.text.html.HTML;
 import javax.swing.text.html.HTMLEditorKit;
 import javax.swing.text.html.parser.ParserDelegator;
-import java.io.*;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLDecoder;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
-import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.io.IOException;
+import java.io.Reader;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 
-/**
- * User: catherine
- */
-@SuppressWarnings("UseOfObsoleteCollectionType")
 public class PyPIPackageUtil {
-  public static final Logger LOG = Logger.getInstance(PyPIPackageUtil.class.getName());
-  @NonNls public static final String PYPI_URL = "https://pypi.python.org/pypi";
-  @NonNls public static final String PYPI_LIST_URL = "https://pypi.python.org/pypi?%3Aaction=index";
+  private static final Logger LOG = Logger.getInstance(PyPIPackageUtil.class);
+  private static final Gson GSON = new GsonBuilder().create();
+
+  private static final String PYPI_HOST = "https://pypi.python.org";
+  public static final String PYPI_URL = PYPI_HOST + "/pypi";
+  public static final String PYPI_LIST_URL = PYPI_HOST + "/simple";
 
   public static final PyPIPackageUtil INSTANCE = new PyPIPackageUtil();
 
-  private XmlRpcClient myXmlRpcClient;
-  private Map<String, Hashtable> packageToDetails = new HashMap<String, Hashtable>();
-  private Map<String, List<String>> packageToReleases = new HashMap<String, List<String>>();
-  private Pattern PYPI_PATTERN = Pattern.compile("/pypi/([^/]*)/(.*)");
-  private Set<RepoPackage> myAdditionalPackageNames;
-  @Nullable private volatile Set<String> myPackageNames = null;
-
-  public static Set<String> getPackageNames(final String url) throws IOException {
-    final TreeSet<String> names = new TreeSet<String>();
-    final HTMLEditorKit.ParserCallback callback =
-        new HTMLEditorKit.ParserCallback() {
-          HTML.Tag myTag;
-          @Override
-          public void handleStartTag(HTML.Tag tag,
-                                     MutableAttributeSet set,
-                                     int i) {
-            myTag = tag;
-          }
-
-          public void handleText(char[] data, int pos) {
-            if (myTag != null && "a".equals(myTag.toString())) {
-              names.add(String.valueOf(data));
+  /**
+   * Contains cached versions of packages from additional repositories.
+   *
+   * @see #getPackageVersionsFromAdditionalRepositories(String)
+   */
+  private final LoadingCache<String, List<String>> myAdditionalPackagesReleases = CacheBuilder.newBuilder().build(
+    new CacheLoader<>() {
+      @Override
+      public List<String> load(@NotNull String key) throws Exception {
+        LOG.debug("Searching for versions of package '" + key + "' in additional repositories");
+        final List<String> repositories = PyPackageService.getInstance().additionalRepositories;
+        for (String repository : repositories) {
+          try {
+            final String packageUrl = StringUtil.trimEnd(repository, "/") + "/" + key;
+            final List<String> versions = parsePackageVersionsFromArchives(packageUrl, key);
+            if (!versions.isEmpty()) {
+              LOG.debug("Found versions " + versions + "of " + key + " at " + repository);
+              return Collections.unmodifiableList(versions);
             }
           }
-        };
-
-    try {
-      final URL repositoryUrl = new URL(url);
-      final InputStream is = repositoryUrl.openStream();
-      final Reader reader = new InputStreamReader(is);
-      try{
-        new ParserDelegator().parse(reader, callback, true);
-      }
-      catch (IOException e) {
-        LOG.warn(e);
-      }
-      finally {
-        reader.close();
-      }
-    }
-    catch (MalformedURLException e) {
-      LOG.warn(e);
-    }
-
-    return names;
-  }
-
-  public Set<RepoPackage> getAdditionalPackageNames() {
-    if (myAdditionalPackageNames == null) {
-      myAdditionalPackageNames = new TreeSet<RepoPackage>();
-      for (String url : PyPackageService.getInstance().additionalRepositories) {
-        try {
-          for (String pyPackage : getPackageNames(url)) {
-            if (!pyPackage.contains(" "))
-              myAdditionalPackageNames.add(new RepoPackage(pyPackage, url));
+          catch (HttpRequests.HttpStatusException e) {
+            if (e.getStatusCode() != 404) {
+              LOG.debug("Cannot access " + e.getUrl() + ": " + e.getMessage());
+            }
           }
         }
-        catch (IOException e) {
-          LOG.warn(e);
-        }
+        return Collections.emptyList();
       }
-    }
-    return myAdditionalPackageNames;
-  }
+    });
 
-  public void addPackageDetails(@NonNls String packageName, Hashtable details) {
-    packageToDetails.put(packageName, details);
-  }
-
-  @Nullable
-  public Hashtable getPackageDetails(@NonNls String packageName) {
-    if (packageToDetails.containsKey(packageName)) return packageToDetails.get(packageName);
-    return null;
-  }
-
-  public void fillPackageDetails(@NonNls String packageName, final AsyncCallback callback) {
-    final Hashtable details = getPackageDetails(packageName);
-    if (details == null) {
-      final Vector<String> params = new Vector<String>();
-      params.add(packageName);
-      try {
-        params.add(getPyPIPackages().get(packageName));
-        myXmlRpcClient.executeAsync("release_data", params, callback);
+  /**
+   * Contains cached packages taken from additional repositories.
+   */
+  protected final LoadingCache<String, List<RepoPackage>> myAdditionalPackages = CacheBuilder.newBuilder().build(
+    new CacheLoader<>() {
+      @Override
+      public List<RepoPackage> load(@NotNull String key) throws Exception {
+        return getPackagesFromAdditionalRepository(key);
       }
-      catch (Exception ignored) {
-        LOG.info(ignored);
+    });
+
+  /**
+   * Contains cached package information retrieved through PyPI's JSON API.
+   *
+   * @see #refreshAndGetPackageDetailsFromPyPI(String, boolean)
+   */
+  private final LoadingCache<String, PackageDetails> myPackageToDetails = CacheBuilder.newBuilder().build(
+    new CacheLoader<>() {
+      @Override
+      public PackageDetails load(@NotNull String key) throws Exception {
+        LOG.debug("Fetching details for the package '" + key + "' on PyPI");
+        return HttpRequests.request(PYPI_URL + "/" + key + "/json")
+          .userAgent(getUserAgent())
+          .connect(request -> GSON.fromJson(request.getReader(), PackageDetails.class));
       }
-    }
-    else
-      callback.handleResult(details, null, "");
+    });
+
+  /**
+   * Prevents simultaneous updates of {@link PyPackageService#PYPI_REMOVED}
+   * because the corresponding response contains tons of data and multiple
+   * queries at the same time can cause memory issues.
+   */
+  private final Object myPyPIPackageCacheUpdateLock = new Object();
+
+  /**
+   * Value for "User Agent" HTTP header in form: PyCharm/2016.2 EAP
+   */
+  @NotNull
+  private static String getUserAgent() {
+    return ApplicationNamesInfo.getInstance().getProductName() + "/" + ApplicationInfo.getInstance().getFullVersion();
   }
 
-  public void addPackageReleases(@NotNull final String packageName, @NotNull final List<String> releases) {
-    packageToReleases.put(packageName, releases);
+  public static boolean isPyPIRepository(@Nullable String repository) {
+    return repository != null && repository.startsWith(PYPI_HOST);
   }
 
-  public void usePackageReleases(@NonNls String packageName, final AsyncCallback callback) {
-    final List<String> releases = getPackageReleases(packageName);
-    if (releases == null) {
-      final Vector<String> params = new Vector<String>();
-      params.add(packageName);
-      myXmlRpcClient.executeAsync("package_releases", params, callback);
+  @NotNull
+  public List<RepoPackage> getAdditionalPackages(@NotNull List<String> repositories) {
+    return StreamEx.of(myAdditionalPackages.getAllPresent(repositories).values()).flatMap(StreamEx::of).toList();
+  }
+
+  public void loadAdditionalPackages(@NotNull List<String> repositories, boolean alwaysRefresh) throws IOException {
+    if (alwaysRefresh) {
+      for (String url : repositories) {
+        myAdditionalPackages.refresh(url);
+      }
     }
     else {
-      callback.handleResult(releases, null, "");
+      for (String url : repositories) {
+        getCachedValueOrRethrowIO(myAdditionalPackages, url);
+      }
+    }
+  }
+
+  @NotNull
+  private static List<RepoPackage> getPackagesFromAdditionalRepository(@NotNull String url) throws IOException {
+    return parsePyPIListFromWeb(url)
+      .stream()
+      .map(s -> new RepoPackage(s, url, null))
+      .collect(Collectors.toList());
+  }
+
+  public void fillPackageDetails(@NotNull String packageName, @NotNull CatchingConsumer<PackageDetails.Info, Exception> callback) {
+    ApplicationManager.getApplication().executeOnPooledThread(() -> {
+      try {
+        final PackageDetails packageDetails = refreshAndGetPackageDetailsFromPyPI(packageName, false);
+        callback.consume(packageDetails.getInfo());
+      }
+      catch (IOException e) {
+        callback.consume(e);
+      }
+    });
+  }
+
+  @NotNull
+  private PackageDetails refreshAndGetPackageDetailsFromPyPI(@NotNull String packageName, boolean alwaysRefresh) throws IOException {
+    if (alwaysRefresh) {
+      myPackageToDetails.invalidate(packageName);
+    }
+    return getCachedValueOrRethrowIO(myPackageToDetails, packageName);
+  }
+
+  public void usePackageReleases(@NotNull String packageName, @NotNull CatchingConsumer<List<String>, Exception> callback) {
+    ApplicationManager.getApplication().executeOnPooledThread(() -> {
+      try {
+        final List<String> releasesFromSimpleIndex = getPackageVersionsFromAdditionalRepositories(packageName);
+        if (releasesFromSimpleIndex.isEmpty()) {
+          final List<String> releasesFromPyPI = getPackageVersionsFromPyPI(packageName, true);
+          callback.consume(releasesFromPyPI);
+        }
+        else {
+          callback.consume(releasesFromSimpleIndex);
+        }
+      }
+      catch (Exception e) {
+        callback.consume(e);
+      }
+    });
+  }
+
+  /**
+   * Fetches available package versions using JSON API of PyPI.
+   */
+  @NotNull
+  private List<String> getPackageVersionsFromPyPI(@NotNull String packageName,
+                                                  boolean force) throws IOException {
+    final PackageDetails details = refreshAndGetPackageDetailsFromPyPI(packageName, force);
+    final List<String> result = details.getReleases();
+    result.sort(PyPackageVersionComparator.getSTR_COMPARATOR().reversed());
+    return Collections.unmodifiableList(result);
+  }
+
+  @Nullable
+  private String getLatestPackageVersionFromPyPI(@NotNull Project project, @NotNull String packageName) throws IOException {
+    LOG.debug("Requesting the latest PyPI version for the package " + packageName);
+    final List<String> versions = getPackageVersionsFromPyPI(packageName, true);
+    if (project.isDisposed()) return null;
+    return PyPackagingSettings.getInstance(project).selectLatestVersion(versions);
+  }
+
+  /**
+   * Fetches available package versions by scrapping the page containing package archives.
+   * It's primarily used for additional repositories since, e.g. devpi doesn't provide another way to get this information.
+   */
+  @NotNull
+  private List<String> getPackageVersionsFromAdditionalRepositories(@NotNull String packageName) throws IOException {
+    return getCachedValueOrRethrowIO(myAdditionalPackagesReleases, packageName);
+  }
+
+  @NotNull
+  private static <T> T getCachedValueOrRethrowIO(@NotNull LoadingCache<String, ? extends T> cache, @NotNull String key) throws IOException {
+    try {
+      return cache.get(key);
+    }
+    catch (ExecutionException|UncheckedExecutionException e) {
+      final Throwable cause = e.getCause();
+      throw (cause instanceof IOException ? (IOException)cause : new IOException("Unexpected non-IO error", cause));
     }
   }
 
   @Nullable
-  public List<String> getPackageReleases(@NonNls String packageName) {
-    if (packageToReleases.containsKey(packageName)) return packageToReleases.get(packageName);
+  private String getLatestPackageVersionFromAdditionalRepositories(@NotNull Project project, @NotNull String packageName) throws IOException {
+    final List<String> versions = getPackageVersionsFromAdditionalRepositories(packageName);
+    return PyPackagingSettings.getInstance(project).selectLatestVersion(versions);
+  }
+
+  @Nullable
+  public String fetchLatestPackageVersion(@NotNull Project project, @NotNull String packageName) throws IOException {
+    String version = null;
+    // Package is on PyPI, not, say, some system package on Ubuntu
+    if (PyPIPackageCache.getInstance().containsPackage(packageName)) {
+      version = getLatestPackageVersionFromPyPI(project, packageName);
+    }
+    if (!PyPackageService.getInstance().additionalRepositories.isEmpty()) {
+      final String extraVersion = getLatestPackageVersionFromAdditionalRepositories(project, packageName);
+      if (extraVersion != null) {
+        version = extraVersion;
+      }
+    }
+    return version;
+  }
+
+  @NotNull
+  private static List<String> parsePackageVersionsFromArchives(@NotNull String archivesUrl,
+                                                               @NotNull String packageName) throws IOException {
+    return HttpRequests.request(archivesUrl).userAgent(getUserAgent()).connect(request -> {
+      final List<String> versions = new ArrayList<>();
+      final Reader reader = request.getReader();
+      new ParserDelegator().parse(reader, new HTMLEditorKit.ParserCallback() {
+        HTML.Tag myTag;
+
+        @Override
+        public void handleStartTag(HTML.Tag tag, MutableAttributeSet set, int i) {
+          myTag = tag;
+        }
+
+        @Override
+        public void handleText(char @NotNull [] data, int pos) {
+          if (myTag != null && "a".equals(myTag.toString())) {
+            final String artifactName = String.valueOf(data);
+            final String version = extractVersionFromArtifactName(artifactName, packageName);
+            if (version != null) {
+              versions.add(version);
+            }
+            else {
+              LOG.debug("Could not extract version from " + artifactName + " at " + archivesUrl);
+            }
+          }
+        }
+      }, true);
+      versions.sort(PyPackageVersionComparator.getSTR_COMPARATOR().reversed());
+      return versions;
+    });
+  }
+
+  @Nullable
+  private static String extractVersionFromArtifactName(@NotNull String artifactName, @NotNull String packageName) {
+    final String withoutExtension;
+    // Contains more than one dot and thus should be handled separately
+    if (artifactName.endsWith(".tar.gz")) {
+      withoutExtension = StringUtil.trimEnd(artifactName, ".tar.gz");
+    }
+    else {
+      withoutExtension = FileUtilRt.getNameWithoutExtension(artifactName);
+    }
+    final String packageNameWithUnderscores = packageName.replace('-', '_');
+    final String suffix;
+    if (withoutExtension.startsWith(packageName)) {
+      suffix = StringUtil.trimStart(withoutExtension, packageName);
+    }
+    else if (withoutExtension.startsWith(packageNameWithUnderscores)) {
+      suffix = StringUtil.trimStart(withoutExtension, packageNameWithUnderscores);
+    }
+    else {
+      return null;
+    }
+    // StringUtil.split excludes empty parts by default effectively stripping a leading dash
+    final String version = ContainerUtil.getFirstItem(StringUtil.split(suffix, "-"));
+    if (StringUtil.isNotEmpty(version)) {
+      return version;
+    }
     return null;
   }
 
-  private PyPIPackageUtil() {
-    try {
-      DefaultXmlRpcTransportFactory factory = new PyPIXmlRpcTransportFactory(new URL(PYPI_URL));
-      factory.setProperty("timeout", 1000);
-      myXmlRpcClient = new XmlRpcClient(new URL(PYPI_URL), factory);
-    }
-    catch (MalformedURLException e) {
-      LOG.warn(e);
-    }
+  public void updatePyPICache() throws IOException {
+    final PyPackageService service = PyPackageService.getInstance();
+    if (service.PYPI_REMOVED) return;
+    PyPIPackageCache.reload(parsePyPIListFromWeb(PYPI_LIST_URL));
   }
 
-  public void updatePyPICache(final PyPackageService service) throws IOException {
-    parsePyPIList(getPyPIListFromWeb(), service);
-  }
+  @NotNull
+  private static List<String> parsePyPIListFromWeb(@NotNull String url) throws IOException {
+    LOG.debug("Fetching index of all packages available on " + url);
+    return HttpRequests.request(url).userAgent(getUserAgent()).connect(request -> {
+      final List<String> packages = new ArrayList<>();
+      final Reader reader = request.getReader();
+      new ParserDelegator().parse(reader, new HTMLEditorKit.ParserCallback() {
+        HTML.Tag myTag;
 
-  public void parsePyPIList(final List<String> packages, final PyPackageService service) {
-    myPackageNames = null;
-    for (String pyPackage : packages) {
-      try {
-        final Matcher matcher = PYPI_PATTERN.matcher(URLDecoder.decode(pyPackage, "UTF-8"));
-        if (matcher.find()) {
-          final String packageName = matcher.group(1);
-          final String packageVersion = matcher.group(2);
-          if (!packageName.contains(" "))
-            service.PY_PACKAGES.put(packageName, packageVersion);
+        @Override
+        public void handleStartTag(@NotNull HTML.Tag tag, @NotNull MutableAttributeSet set, int i) {
+          myTag = tag;
         }
-      }
-      catch (UnsupportedEncodingException e) {
-        LOG.warn(e.getMessage());
+
+        @Override
+        public void handleText(char @NotNull [] data, int pos) {
+          if (myTag != null && "a".equals(myTag.toString())) {
+            packages.add(String.valueOf(data));
+          }
+        }
+
+        @Override
+        public void handleEndTag(@NotNull HTML.Tag t, int pos) {
+          myTag = null;
+        }
+      }, true);
+      return packages;
+    });
+  }
+
+  public void loadPackages() throws IOException {
+    // This lock is solely to prevent multiple threads from updating
+    // the mammoth cache of PyPI packages simultaneously.
+    synchronized (myPyPIPackageCacheUpdateLock) {
+      final PyPIPackageCache cache = PyPIPackageCache.getInstance();
+      if (cache.getPackageNames().isEmpty()) {
+        updatePyPICache();
       }
     }
   }
 
-  @Nullable
-  public List<String> getPyPIListFromWeb() {
-    return HttpRequests.request(PYPI_LIST_URL).connect(new HttpRequests.RequestProcessor<List<String>>() {
-      @Override
-      public List<String> process(@NotNull HttpRequests.Request request) throws IOException {
-        final List<String> packages = new ArrayList<String>();
-        Reader reader = request.getReader();
-        new ParserDelegator().parse(reader, new HTMLEditorKit.ParserCallback() {
-          boolean inTable = false;
-
-          @Override
-          public void handleStartTag(HTML.Tag tag, MutableAttributeSet set, int i) {
-            if ("table".equals(tag.toString())) {
-              inTable = !inTable;
-            }
-
-            if (inTable && "a".equals(tag.toString())) {
-              packages.add(String.valueOf(set.getAttribute(HTML.Attribute.HREF)));
-            }
-          }
-
-          @Override
-          public void handleEndTag(HTML.Tag tag, int i) {
-            if ("table".equals(tag.toString())) {
-              inTable = !inTable;
-            }
-          }
-        }, true);
-        return packages;
-      }
-    }, Collections.<String>emptyList(), LOG);
-  }
-
-  public Collection<String> getPackageNames() {
-    Map<String, String> pyPIPackages = getPyPIPackages();
-    ArrayList<String> list = Lists.newArrayList(pyPIPackages.keySet());
-    Collections.sort(list);
-    return list;
-  }
-
-  public Map<String, String> loadAndGetPackages() throws IOException {
-    Map<String, String> pyPIPackages = getPyPIPackages();
-    if (pyPIPackages.isEmpty()) {
-      updatePyPICache(PyPackageService.getInstance());
-      pyPIPackages = getPyPIPackages();
-    }
-    return pyPIPackages;
-  }
-
-  public static Map<String, String> getPyPIPackages() {
-    return PyPackageService.getInstance().PY_PACKAGES;
-  }
-
+  /**
+   * @see PyPIPackageCache#containsPackage(String)
+   */
   public boolean isInPyPI(@NotNull String packageName) {
-    if (myPackageNames == null) {
-      final Set<String> names = new HashSet<String>();
-      for (String name : getPyPIPackages().keySet()) {
-        names.add(name.toLowerCase(Locale.ENGLISH));
-      }
-      myPackageNames = names;
-    }
-    return myPackageNames != null && myPackageNames.contains(packageName.toLowerCase(Locale.ENGLISH));
+    return PyPIPackageCache.getInstance().containsPackage(packageName);
   }
 
-  private static class PyPIXmlRpcTransport extends DefaultXmlRpcTransport {
-    public PyPIXmlRpcTransport(URL url) {
-      super(url);
-    }
+  @SuppressWarnings("FieldMayBeFinal")
+  public static final class PackageDetails {
+    public static final class Info {
+      // We have to explicitly name each of the fields instead of just using
+      // GsonBuilder#setFieldNamingStrategy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES),
+      // since otherwise GSON wouldn't be able to deserialize server responses
+      // in the professional edition of PyCharm where the names of private fields
+      // are obfuscated.
+      @SerializedName("version")
+      private String version = "";
+      @SerializedName("author")
+      private String author = "";
+      @SerializedName("author_email")
+      private String authorEmail = "";
+      @SerializedName("home_page")
+      private String homePage = "";
+      @SerializedName("summary")
+      private String summary = "";
+      @SerializedName("description")
+      private String description = "";
+      @SerializedName("description_content_type")
+      private String descriptionContentType = "";
+      @SerializedName("project_urls")
+      private Map<String, String>  projectUrls = Collections.emptyMap();
 
-    @Override
-    public InputStream sendXmlRpc(byte[] request) throws IOException {
-      // Create a trust manager that does not validate certificate for this connection
-      TrustManager[] trustAllCerts = new TrustManager[]{new PyPITrustManager()};
-
-      try {
-        SSLContext sslContext = SSLContext.getInstance("TLS");
-        sslContext.init(null, trustAllCerts, new SecureRandom());
-
-        final HttpConfigurable settings = HttpConfigurable.getInstance();
-        con = settings.openConnection(PYPI_LIST_URL);
-        if (con instanceof HttpsURLConnection) {
-          ((HttpsURLConnection)con).setSSLSocketFactory(sslContext.getSocketFactory());
-        }
-        con.setDoInput(true);
-        con.setDoOutput(true);
-        con.setUseCaches(false);
-        con.setAllowUserInteraction(false);
-        con.setRequestProperty("Content-Length",
-                               Integer.toString(request.length));
-        con.setRequestProperty("Content-Type", "text/xml");
-        if (auth != null)
-        {
-          con.setRequestProperty("Authorization", "Basic " + auth);
-        }
-        OutputStream out = con.getOutputStream();
-        out.write(request);
-        out.flush();
-        out.close();
-        return con.getInputStream();
+      @NotNull
+      public String getVersion() {
+        return StringUtil.notNullize(version);
       }
-      catch (NoSuchAlgorithmException e) {
-        LOG.warn(e.getMessage());
+
+      @NotNull
+      public String getAuthor() {
+        return StringUtil.notNullize(author);
       }
-      catch (KeyManagementException e) {
-        LOG.warn(e.getMessage());
+
+      @NotNull
+      public String getAuthorEmail() {
+        return StringUtil.notNullize(authorEmail);
       }
-      return super.sendXmlRpc(request);
-    }
-  }
 
-  private static class PyPIXmlRpcTransportFactory extends DefaultXmlRpcTransportFactory {
-    public PyPIXmlRpcTransportFactory(URL url) {
-      super(url);
+      @NotNull
+      public String getHomePage() {
+        return StringUtil.notNullize(homePage);
+      }
+
+      @NotNull
+      public String getSummary() {
+        return StringUtil.notNullize(summary);
+      }
+
+      @NotNull
+      public String getDescription() {
+        return StringUtil.notNullize(description);
+      }
+
+      @NotNull
+      public String getDescriptionContentType() {
+        return StringUtil.notNullize(descriptionContentType);
+      }
+
+      @NotNull
+      public Map<String, String> getProjectUrls() {
+        return ContainerUtil.notNullize(projectUrls);
+      }
     }
 
-    @Override
-    public XmlRpcTransport createTransport() throws XmlRpcClientException {
-      return new PyPIXmlRpcTransport(url);
-    }
-  }
+    @SerializedName("info")
+    private Info info = new Info();
+    @SerializedName("releases")
+    private Map<String, Object> releases = Collections.emptyMap();
 
-  private static class PyPITrustManager implements X509TrustManager {
-    public X509Certificate[] getAcceptedIssuers(){return null;}
-    public void checkClientTrusted(X509Certificate[] certs, String authType){}
-    public void checkServerTrusted(X509Certificate[] certs, String authType){}
+    @NotNull
+    public Info getInfo() {
+      return info;
+    }
+
+    @NotNull
+    public List<String> getReleases() {
+      return EntryStream.of(releases).filterValues(PackageDetails::isNotBrokenRelease).keys().toList();
+    }
+
+    private static boolean isNotBrokenRelease(Object o) {
+      return !(o instanceof List) || !((List)o).isEmpty();
+    }
   }
 }

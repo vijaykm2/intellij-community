@@ -1,10 +1,18 @@
 package com.siyeh.ig.style;
 
-import com.siyeh.ig.IGInspectionTestCase;
+import com.intellij.codeInspection.InspectionProfileEntry;
+import com.siyeh.ig.LightJavaInspectionTestCase;
+import org.jetbrains.annotations.Nullable;
 
-public class RedundantFieldInitializationInspectionTest extends IGInspectionTestCase {
+public class RedundantFieldInitializationInspectionTest extends LightJavaInspectionTestCase {
 
-  public void test() throws Exception {
-    doTest("com/siyeh/igtest/style/redundant_field_initialization", new RedundantFieldInitializationInspection());
+  public void testRedundantFieldInitialization() {
+    doTest();
+  }
+
+  @Nullable
+  @Override
+  protected InspectionProfileEntry getInspection() {
+    return new RedundantFieldInitializationInspection();
   }
 }

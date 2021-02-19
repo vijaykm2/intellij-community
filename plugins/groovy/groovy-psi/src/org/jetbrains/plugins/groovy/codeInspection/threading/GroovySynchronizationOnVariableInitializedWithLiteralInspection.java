@@ -16,9 +16,9 @@
 package org.jetbrains.plugins.groovy.codeInspection.threading;
 
 import com.intellij.psi.*;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrSynchronizedStatement;
@@ -28,29 +28,11 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrRefere
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.literals.GrLiteral;
 
 public class GroovySynchronizationOnVariableInitializedWithLiteralInspection extends BaseInspection {
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return THREADING_ISSUES;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Synchronization on variable initialized with literal";
-  }
 
   @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "Synchronization on variable '#ref', which was initialized with a literal #loc";
+    return GroovyBundle.message("inspection.message.synchronization.on.variable.ref.which.was.initialized.with.literal");
 
   }
 
@@ -62,10 +44,10 @@ public class GroovySynchronizationOnVariableInitializedWithLiteralInspection ext
 
   private static class Visitor extends BaseInspectionVisitor {
     @Override
-    public void visitSynchronizedStatement(GrSynchronizedStatement synchronizedStatement) {
+    public void visitSynchronizedStatement(@NotNull GrSynchronizedStatement synchronizedStatement) {
       super.visitSynchronizedStatement(synchronizedStatement);
       final GrExpression lock = synchronizedStatement.getMonitor();
-      if (lock == null || !(lock instanceof GrReferenceExpression)) {
+      if (!(lock instanceof GrReferenceExpression)) {
         return;
       }
       final PsiElement referent = ((PsiReference) lock).resolve();

@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 27-Aug-2009
- */
 package com.intellij.codeInsight.quickfix;
 
 import com.intellij.codeInsight.intention.IntentionAction;
@@ -29,6 +25,5 @@ import org.jetbrains.annotations.NotNull;
 public interface ChangeVariableTypeQuickFixProvider {
   ExtensionPointName<ChangeVariableTypeQuickFixProvider> EP_NAME = ExtensionPointName.create("com.intellij.codeInsight.changeVariableTypeQuickFixProvider");
 
-  @NotNull
-  IntentionAction[] getFixes(@NotNull PsiVariable variable, @NotNull PsiType toReturn);
+  IntentionAction @NotNull [] getFixes(@NotNull PsiVariable variable, @NotNull PsiType toReturn);
 }

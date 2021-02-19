@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,25 +17,21 @@
 package com.intellij.tasks.actions;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.vcs.changes.Change;
-import com.intellij.openapi.vcs.changes.ChangeListManager;
-import com.intellij.openapi.vcs.changes.LocalChangeList;
 import com.intellij.tasks.*;
 import com.intellij.tasks.impl.TaskManagerImpl;
-
-import java.util.ArrayList;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Dmitry Avdeev
  */
 public class CloseTaskAction extends BaseTaskAction {
 
-  public void actionPerformed(AnActionEvent e) {
-    Project project = CommonDataKeys.PROJECT.getData(e.getDataContext());
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    Project project = e.getProject();
     assert project != null;
     TaskManagerImpl taskManager = (TaskManagerImpl)TaskManager.getManager(project);
     LocalTask task = taskManager.getActiveTask();
@@ -50,26 +46,14 @@ public class CloseTaskAction extends BaseTaskAction {
           repository.setPreferredCloseTaskState(taskState);
         }
         catch (Exception e1) {
-          Messages.showErrorDialog(project, e1.getMessage(), "Cannot Set State For Issue");
+          Messages.showErrorDialog(project, e1.getMessage(), TaskBundle.message("dialog.title.cannot.set.state.for.issue"));
         }
-      }
-      if (dialog.isCommitChanges()) {
-        ChangeListManager changeListManager = ChangeListManager.getInstance(project);
-        for (ChangeListInfo info : task.getChangeLists()) {
-          LocalChangeList list = changeListManager.getChangeList(info.id);
-          if (list != null) {
-            changeListManager.commitChanges(list, new ArrayList<Change>(list.getChanges()));
-          }
-        }
-      }
-      if (dialog.isMergeBranch()) {
-        taskManager.mergeBranch(task);
       }
     }
   }
 
   @Override
-  public void update(AnActionEvent event) {
+  public void update(@NotNull AnActionEvent event) {
     Presentation presentation = event.getPresentation();
     Project project = getProject(event);
     boolean enabled = project != null && !TaskManager.getManager(project).getActiveTask().isDefault();

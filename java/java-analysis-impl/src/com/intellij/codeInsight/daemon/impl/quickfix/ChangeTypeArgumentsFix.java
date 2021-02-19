@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.intention.HighPriorityAction;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -28,18 +15,13 @@ import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.impl.source.resolve.DefaultParameterTypeInferencePolicy;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.TypeConversionUtil;
-import com.intellij.util.Function;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import static com.intellij.util.ObjectUtils.assertNotNull;
+import java.util.Objects;
 
-/**
- * @author cdr
- * @since Nov 13, 2002
- */
 public class ChangeTypeArgumentsFix implements IntentionAction, HighPriorityAction {
-  private static final Logger LOG = Logger.getInstance("#" + ChangeTypeArgumentsFix.class.getName());
+  private static final Logger LOG = Logger.getInstance(ChangeTypeArgumentsFix.class);
 
   private final PsiMethod myTargetMethod;
   private final PsiClass myPsiClass;
@@ -48,7 +30,7 @@ public class ChangeTypeArgumentsFix implements IntentionAction, HighPriorityActi
 
   ChangeTypeArgumentsFix(@NotNull PsiMethod targetMethod,
                          PsiClass psiClass,
-                         @NotNull PsiExpression[] expressions,
+                         PsiExpression @NotNull [] expressions,
                          @NotNull PsiElement context) {
     myTargetMethod = targetMethod;
     myPsiClass = psiClass;
@@ -60,24 +42,22 @@ public class ChangeTypeArgumentsFix implements IntentionAction, HighPriorityActi
   @NotNull
   public String getText() {
     final PsiSubstitutor substitutor = inferTypeArguments();
-    return "Change type arguments to <" + StringUtil.join(myPsiClass.getTypeParameters(), new Function<PsiTypeParameter, String>() {
-      @Override
-      public String fun(PsiTypeParameter typeParameter) {
-        final PsiType substituted = substitutor.substitute(typeParameter);
-        return substituted != null ? substituted.getPresentableText() : CommonClassNames.JAVA_LANG_OBJECT;
-      }
-    }, ", ") + ">";
+    return JavaAnalysisBundle.message("change.type.arguments.to.0", StringUtil.join(myPsiClass.getTypeParameters(), typeParameter -> {
+      final PsiType substituted = substitutor.substitute(typeParameter);
+      return substituted != null ? substituted.getPresentableText() : CommonClassNames.JAVA_LANG_OBJECT;
+    }, ", "));
   }
 
 
   @Override
   @NotNull
   public String getFamilyName() {
-    return "Change type arguments";
+    return JavaAnalysisBundle.message("change.type.arguments");
   }
 
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
+    if (!myPsiClass.isValid() || !myTargetMethod.isValid()) return false;
     final PsiTypeParameter[] typeParameters = myPsiClass.getTypeParameters();
     if (typeParameters.length > 0) {
       if (myNewExpression != null && myNewExpression.isValid() && myNewExpression.getArgumentList() != null) {
@@ -108,8 +88,6 @@ public class ChangeTypeArgumentsFix implements IntentionAction, HighPriorityActi
 
   @Override
   public void invoke(@NotNull final Project project, Editor editor, final PsiFile file) {
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
-
     final PsiTypeParameter[] typeParameters = myPsiClass.getTypeParameters();
     final PsiSubstitutor psiSubstitutor = inferTypeArguments();
     final PsiJavaCodeReferenceElement reference = myNewExpression.getClassOrAnonymousClassReference();
@@ -119,7 +97,7 @@ public class ChangeTypeArgumentsFix implements IntentionAction, HighPriorityActi
     PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
     PsiTypeElement[] elements = parameterList.getTypeParameterElements();
     for (int i = elements.length - 1; i >= 0; i--) {
-      PsiType typeArg = assertNotNull(psiSubstitutor.substitute(typeParameters[i]));
+      PsiType typeArg = Objects.requireNonNull(psiSubstitutor.substitute(typeParameters[i]));
       PsiElement replaced = elements[i].replace(factory.createTypeElement(typeArg));
       JavaCodeStyleManager.getInstance(file.getProject()).shortenClassReferences(replaced);
     }
@@ -139,7 +117,7 @@ public class ChangeTypeArgumentsFix implements IntentionAction, HighPriorityActi
   }
 
 
-  public static void registerIntentions(@NotNull JavaResolveResult[] candidates,
+  public static void registerIntentions(JavaResolveResult @NotNull [] candidates,
                                         @NotNull PsiExpressionList list,
                                         @Nullable HighlightInfo highlightInfo,
                                         PsiClass psiClass) {
@@ -150,14 +128,14 @@ public class ChangeTypeArgumentsFix implements IntentionAction, HighPriorityActi
     }
   }
 
-  private static void registerIntention(@NotNull PsiExpression[] expressions,
+  private static void registerIntention(PsiExpression @NotNull [] expressions,
                                         @Nullable HighlightInfo highlightInfo,
                                         PsiClass psiClass,
                                         @NotNull JavaResolveResult candidate,
                                         @NotNull PsiElement context) {
     if (!candidate.isStaticsScopeCorrect()) return;
     PsiMethod method = (PsiMethod)candidate.getElement();
-    if (method != null && context.getManager().isInProject(method)) {
+    if (method != null && BaseIntentionAction.canModify(method)) {
       final ChangeTypeArgumentsFix fix = new ChangeTypeArgumentsFix(method, psiClass, expressions, context);
       QuickFixAction.registerQuickFixAction(highlightInfo, null, fix);
     }

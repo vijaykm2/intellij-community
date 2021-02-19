@@ -1,59 +1,71 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import java.util.List;
 
-/**
- * @author traff
- */
-public class MutableCollectionComboBoxModel<T> extends AbstractCollectionComboBoxModel<T> {
-  private List<T> myItems;
+public class MutableCollectionComboBoxModel<T> extends CollectionComboBoxModel<T> implements MutableComboBoxModel<T> {
 
   public MutableCollectionComboBoxModel(@NotNull List<T> items) {
-    this(items, ContainerUtil.getFirstItem(items));
+    super(items);
+  }
+
+  public MutableCollectionComboBoxModel() {
+    super();
   }
 
   public MutableCollectionComboBoxModel(@NotNull List<T> items, @Nullable T selection) {
-    super(selection);
-
-    myItems = items;
+    super(items, selection);
   }
 
-  @NotNull
-  @Override
-  final protected List<T> getItems() {
-    return myItems;
-  }
-
-  public void update(@NotNull List<T> items) {
-    myItems = items;
-    super.update();
+  public void update(@NotNull List<? extends T> items) {
+    replaceAll(items);
   }
 
   public void addItem(T item) {
-    myItems.add(item);
+    add(item);
+  }
 
-    fireIntervalAdded(this, myItems.size() - 1, myItems.size() - 1);
-    if (myItems.size() == 1 && getSelectedItem() == null && item != null) {
-      setSelectedItem(item);
+  @Override
+  protected final void fireIntervalAdded(Object source, int index0, int index1) {
+    super.fireIntervalAdded(source, index0, index1);
+
+    if (getSize() == 1 && getSelectedItem() == null) {
+      setSelectedItem(getElementAt(0));
     }
+  }
+
+  @Override
+  protected final void fireIntervalRemoved(Object source, int index0, int index1) {
+    super.fireIntervalRemoved(source, index0, index1);
+
+    if (getSelected() != null && !contains(getSelected())) {
+      setSelectedItem(isEmpty() ? null : getElementAt(index0 == 0 ? 0 : index0 - 1));
+    }
+  }
+
+  @Override
+  public void addElement(T item) {
+    add(item);
+  }
+
+  @SuppressWarnings("unchecked")
+  @Override
+  public void removeElement(Object obj) {
+    T item = ((T) obj);
+    remove(item);
+  }
+
+  @Override
+  public void insertElementAt(T item, int index) {
+    add(index, item);
+  }
+
+  @Override
+  public void removeElementAt(int index) {
+    remove(index);
   }
 }

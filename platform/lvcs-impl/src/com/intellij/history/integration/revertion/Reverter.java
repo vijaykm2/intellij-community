@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,9 +22,9 @@ import com.intellij.history.core.changes.StructuralChange;
 import com.intellij.history.core.revisions.Revision;
 import com.intellij.history.integration.IdeaGateway;
 import com.intellij.history.integration.LocalHistoryBundle;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.diff.FilesTooBigForDiffException;
 import com.intellij.util.text.DateFormatUtil;
@@ -35,7 +35,7 @@ import java.util.*;
 public abstract class Reverter {
   private final Project myProject;
   protected LocalHistoryFacade myVcs;
-  protected IdeaGateway myGateway;
+  protected final IdeaGateway myGateway;
 
   protected Reverter(Project p, LocalHistoryFacade vcs, IdeaGateway gw) {
     myProject = p;
@@ -59,7 +59,7 @@ public abstract class Reverter {
   }
 
   protected List<VirtualFile> getFilesToClearROStatus() throws IOException {
-    final Set<VirtualFile> files = new HashSet<VirtualFile>();
+    final Set<VirtualFile> files = new HashSet<>();
 
     myVcs.accept(selective(new ChangeVisitor() {
       @Override
@@ -68,23 +68,20 @@ public abstract class Reverter {
       }
     }));
 
-    return new ArrayList<VirtualFile>(files);
+    return new ArrayList<>(files);
   }
 
   protected ChangeVisitor selective(ChangeVisitor v) {
     return v;
   }
 
-  public void revert() throws IOException {
+  public void revert() throws Exception {
     try {
-      new WriteCommandAction(myProject, getCommandName()) {
-        @Override
-        protected void run(Result objectResult) throws Throwable {
-          myGateway.saveAllUnsavedDocuments();
-          doRevert();
-          myGateway.saveAllUnsavedDocuments();
-        }
-      }.execute();
+      WriteCommandAction.writeCommandAction(myProject).withName(getCommandName()).run(() -> {
+        myGateway.saveAllUnsavedDocuments();
+        doRevert();
+        myGateway.saveAllUnsavedDocuments();
+      });
     }
     catch (RuntimeException e) {
       Throwable cause = e.getCause();
@@ -95,6 +92,7 @@ public abstract class Reverter {
     }
   }
 
+  @NlsContexts.Command
   public String getCommandName() {
     Revision to = getTargetRevision();
     String name = to.getChangeSetName();

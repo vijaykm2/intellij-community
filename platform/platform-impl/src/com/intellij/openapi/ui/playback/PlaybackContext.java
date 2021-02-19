@@ -16,26 +16,27 @@
 package com.intellij.openapi.ui.playback;
 
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
 import java.awt.*;
 import java.io.File;
 import java.util.Set;
 
 public abstract class PlaybackContext  {
   
-  private PlaybackRunner.StatusCallback myCallback;
-  private int myCurrentLine;
-  private Robot myRobot;
-  private boolean myUseDirectActionCall;
-  private PlaybackCommand myCurrentCmd;
+  private final PlaybackRunner.StatusCallback myCallback;
+  private final int myCurrentLine;
+  private final Robot myRobot;
+  private final boolean myUseDirectActionCall;
+  private final PlaybackCommand myCurrentCmd;
   private File myBaseDir;
-  private Set<Class> myCallClasses;
-  private PlaybackRunner myRunner;
-  private boolean myUseTypingTargets;
+  private final Set<Class<?>> myCallClasses;
+  protected final PlaybackRunner myRunner;
+  private final boolean myUseTypingTargets;
 
-  public PlaybackContext(PlaybackRunner runner, PlaybackRunner.StatusCallback callback, int currentLine, Robot robot, boolean useDriectActionCall, boolean useTypingTargets, PlaybackCommand currentCmd, File baseDir, Set<Class> callClasses) {
+  public PlaybackContext(PlaybackRunner runner, PlaybackRunner.StatusCallback callback, int currentLine, Robot robot, boolean useDriectActionCall, boolean useTypingTargets, PlaybackCommand currentCmd, File baseDir, Set<Class<?>> callClasses) {
     myRunner = runner;
     myCallback = callback;
     myCurrentLine = currentLine;
@@ -56,6 +57,9 @@ public abstract class PlaybackContext  {
   }
 
   public Robot getRobot() {
+    if (myRobot == null) {
+      throw new RuntimeException("Robot is not available in the headless mode");
+    }
     return myRobot;
   }
 
@@ -83,38 +87,8 @@ public abstract class PlaybackContext  {
     myBaseDir = dir;
   }
 
-  public Set<Class> getCallClasses() {
+  public Set<Class<?>> getCallClasses() {
     return myCallClasses;
-  }
-
-  public void flushAwtAndRunInEdt(final Runnable runnable) {
-    if (EventQueue.isDispatchThread()) {
-      ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
-        @Override
-        public void run() {
-          getRobot().waitForIdle();
-          SwingUtilities.invokeLater(runnable);
-        }
-      });
-    } else {
-      getRobot().waitForIdle();
-      SwingUtilities.invokeLater(runnable);
-    }
-  }
-
-  public void delayAndRunInEdt(final Runnable runnable, final long delay) {
-    runPooledThread(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          Thread.currentThread().sleep(delay);
-        }
-        catch (InterruptedException e) {
-
-        }
-        SwingUtilities.invokeLater(runnable);
-      }
-    });
   }
   
   public void runPooledThread(Runnable runnable) {
@@ -148,4 +122,9 @@ public abstract class PlaybackContext  {
   public abstract boolean isDisposed();
 
   public abstract void storeRegistryValue(String key);
+
+  public abstract void setProject(@Nullable Project project);
+
+  @NotNull
+  public abstract Project getProject();
 }

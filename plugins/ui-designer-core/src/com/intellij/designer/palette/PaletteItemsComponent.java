@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.designer.palette;
 
+import com.intellij.designer.DesignerBundle;
 import com.intellij.designer.componentTree.TreeTransfer;
 import com.intellij.designer.designSurface.DesignerEditorPanel;
 import com.intellij.ide.dnd.DnDAction;
@@ -22,12 +9,14 @@ import com.intellij.ide.dnd.DnDDragStartBean;
 import com.intellij.ide.dnd.DnDManager;
 import com.intellij.ide.dnd.DnDSource;
 import com.intellij.openapi.util.IconLoader;
-import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.ColoredListCellRenderer;
+import com.intellij.ui.ListActions;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.components.JBList;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -68,7 +57,7 @@ public class PaletteItemsComponent extends JBList {
 
     ColoredListCellRenderer renderer = new ColoredListCellRenderer() {
       @Override
-      protected void customizeCellRenderer(JList list, Object value, int index, boolean selected, boolean hasFocus) {
+      protected void customizeCellRenderer(@NotNull JList list, Object value, int index, boolean selected, boolean hasFocus) {
         clear();
         PaletteItem item = (PaletteItem)value;
 
@@ -79,7 +68,7 @@ public class PaletteItemsComponent extends JBList {
           setIcon(item.getIcon());
         }
         else {
-          setIcon(IconLoader.getDisabledIcon(item.getIcon()));
+          setIcon(item.getIcon() == null ? null : IconLoader.getDisabledIcon(item.getIcon()));
         }
 
         String title = item.getTitle();
@@ -97,7 +86,7 @@ public class PaletteItemsComponent extends JBList {
           String deprecatedMessage = "";
           if (deprecated) {
             deprecatedMessage =
-              String.format("<b>This item is deprecated in version \"%1$s\".<br>", myDesigner.getVersionLabel(deprecatedIn));
+              DesignerBundle.message("palette.item.deprecated.message", String.format("%1$s", myDesigner.getVersionLabel(deprecatedIn)));
             String hint = item.getDeprecatedHint();
             if (!StringUtil.isEmpty(hint)) {
               deprecatedMessage += hint;
@@ -105,14 +94,8 @@ public class PaletteItemsComponent extends JBList {
             deprecatedMessage += "</b><br><br>";
           }
 
-          tooltip = "<html><body><center><b>" +
-                    StringUtil.escapeXml(title) +
-                    "</b>" +
-                    version +
-                    "</center><p style='width: 300px'>" +
-                    deprecatedMessage +
-                    tooltip +
-                    "</p></body></html>";
+          tooltip = DesignerBundle
+            .message("palette.item.deprecated.tooltip", StringUtil.escapeXmlEntities(title), version, deprecatedMessage, tooltip);
         }
         setToolTipText(tooltip);
       }
@@ -162,20 +145,6 @@ public class PaletteItemsComponent extends JBList {
       public DnDDragStartBean startDragging(DnDAction action, Point dragOrigin) {
         return null;
       }
-
-      @Nullable
-      @Override
-      public Pair<Image, Point> createDraggedImage(DnDAction action, Point dragOrigin) {
-        return null;
-      }
-
-      @Override
-      public void dragDropEnd() {
-      }
-
-      @Override
-      public void dropActionChanged(int gestureModifiers) {
-      }
     }, this);
 
     initActions();
@@ -220,6 +189,7 @@ public class PaletteItemsComponent extends JBList {
     invalidate();
   }
 
+  @Override
   public int getWidth() {
     return (myTempWidth == null) ? super.getWidth() : myTempWidth.intValue();
   }
@@ -241,7 +211,7 @@ public class PaletteItemsComponent extends JBList {
     else if (getModel().getSize() == 0) {
       indexToSelect = -1;
     }
-    requestFocus();
+    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(this, true));
     setSelectedIndex(indexToSelect);
     if (indexToSelect >= 0) {
       ensureIndexIsVisible(indexToSelect);
@@ -271,21 +241,22 @@ public class PaletteItemsComponent extends JBList {
 
   private void initActions() {
     ActionMap map = getActionMap();
-    map.put("selectPreviousRow", new MoveFocusAction(map.get("selectPreviousRow"), false));
-    map.put("selectNextRow", new MoveFocusAction(map.get("selectNextRow"), true));
-    map.put("selectPreviousColumn", new MoveFocusAction(new ChangeColumnAction(map.get("selectPreviousColumn"), false), false));
-    map.put("selectNextColumn", new MoveFocusAction(new ChangeColumnAction(map.get("selectNextColumn"), true), true));
+    map.put(ListActions.Up.ID, new MoveFocusAction(map.get(ListActions.Up.ID), false));
+    map.put(ListActions.Down.ID, new MoveFocusAction(map.get(ListActions.Down.ID), true));
+    map.put(ListActions.Left.ID, new MoveFocusAction(new ChangeColumnAction(map.get(ListActions.Left.ID), false), false));
+    map.put(ListActions.Right.ID, new MoveFocusAction(new ChangeColumnAction(map.get(ListActions.Right.ID), true), true));
   }
 
   private class MoveFocusAction extends AbstractAction {
     private final Action myDefaultAction;
     private final boolean myFocusNext;
 
-    public MoveFocusAction(Action defaultAction, boolean focusNext) {
+    MoveFocusAction(Action defaultAction, boolean focusNext) {
       myDefaultAction = defaultAction;
       myFocusNext = focusNext;
     }
 
+    @Override
     public void actionPerformed(ActionEvent e) {
       int selIndexBefore = getSelectedIndex();
       myDefaultAction.actionPerformed(e);
@@ -308,7 +279,7 @@ public class PaletteItemsComponent extends JBList {
                        : policy.getComponentBefore(container, PaletteItemsComponent.this);
       if (next instanceof PaletteGroupComponent) {
         clearSelection();
-        next.requestFocus();
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(next, true));
         ((PaletteGroupComponent)next).scrollRectToVisible(next.getBounds());
       }
     }
@@ -318,11 +289,12 @@ public class PaletteItemsComponent extends JBList {
     private final Action myDefaultAction;
     private final boolean mySelectNext;
 
-    public ChangeColumnAction(Action defaultAction, boolean selectNext) {
+    ChangeColumnAction(Action defaultAction, boolean selectNext) {
       myDefaultAction = defaultAction;
       mySelectNext = selectNext;
     }
 
+    @Override
     public void actionPerformed(ActionEvent e) {
       int selIndexBefore = getSelectedIndex();
       myDefaultAction.actionPerformed(e);

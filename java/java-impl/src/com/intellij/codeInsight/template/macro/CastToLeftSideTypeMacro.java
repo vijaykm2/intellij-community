@@ -19,7 +19,6 @@
  */
 package com.intellij.codeInsight.template.macro;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.template.*;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -33,18 +32,13 @@ public class CastToLeftSideTypeMacro extends Macro {
   }
 
   @Override
-  public String getPresentableName() {
-    return CodeInsightBundle.message("macro.cast.to.left.side.type");
-  }
-
-  @Override
   @NotNull
   public String getDefaultValue() {
     return "(A)";
   }
 
   @Override
-  public Result calculateResult(@NotNull Expression[] params, ExpressionContext context) {
+  public Result calculateResult(Expression @NotNull [] params, ExpressionContext context) {
     int offset = context.getStartOffset();
     Project project = context.getProject();
     PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(context.getEditor().getDocument());

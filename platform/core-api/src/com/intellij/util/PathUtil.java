@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util;
 
 import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
@@ -23,20 +10,15 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileProvider;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
+import com.intellij.openapi.vfs.VirtualFileSystem;
 import com.intellij.util.io.URLUtil;
-import org.jetbrains.annotations.Contract;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
-import java.io.File;
-
-public class PathUtil {
-  private PathUtil() {
-  }
+public final class PathUtil {
+  private PathUtil() { }
 
   @Nullable
-  public static String getLocalPath(@Nullable VirtualFile file) {
+  public static @NlsSafe String getLocalPath(@Nullable VirtualFile file) {
     if (file == null || !file.isValid()) {
       return null;
     }
@@ -47,69 +29,61 @@ public class PathUtil {
   }
 
   @NotNull
-  public static String getLocalPath(@NotNull String path) {
+  public static @NlsSafe String getLocalPath(@NotNull String path) {
     return FileUtil.toSystemDependentName(StringUtil.trimEnd(path, URLUtil.JAR_SEPARATOR));
   }
 
   @NotNull
-  public static VirtualFile getLocalFile(@NotNull VirtualFile file) {
-    if (!file.isValid()) {
-      return file;
-    }
-    if (file.getFileSystem() instanceof LocalFileProvider) {
-      final VirtualFile localFile = ((LocalFileProvider)file.getFileSystem()).getLocalVirtualFileFor(file);
-      if (localFile != null) {
-        return localFile;
-      }
-    }
-    return file;
-  }
-
-  @NotNull
-  public static String getJarPathForClass(@NotNull Class aClass) {
+  public static String getJarPathForClass(@NotNull Class<?> aClass) {
     final String pathForClass = PathManager.getJarPathForClass(aClass);
     assert pathForClass != null : aClass;
     return pathForClass;
   }
 
   @NotNull
-  public static String toPresentableUrl(@NotNull String url) {
+  public static @NlsSafe String toPresentableUrl(@NotNull String url) {
     return getLocalPath(VirtualFileManager.extractPath(url));
   }
 
+  /**
+   * @deprecated Use {@link FileUtil#toCanonicalPath(String)}
+   */
+  @Deprecated
   public static String getCanonicalPath(@NonNls String path) {
     return FileUtil.toCanonicalPath(path);
   }
 
   @NotNull
-  public static String getFileName(@NotNull String path) {
+  public static @NlsSafe String getFileName(@NotNull String path) {
     return PathUtilRt.getFileName(path);
   }
 
   @Nullable
-  public static String getFileExtension(@NotNull String name) {
-    int index = name.lastIndexOf('.');
-    if (index < 0) return null;
-    return name.substring(index + 1);
+  public static @NlsSafe String getFileExtension(@NotNull String name) {
+    return PathUtilRt.getFileExtension(name);
   }
 
   @NotNull
-  public static String getParentPath(@NotNull String path) {
+  public static @NlsSafe String getParentPath(@NotNull String path) {
     return PathUtilRt.getParentPath(path);
   }
 
   @NotNull
-  public static String suggestFileName(@NotNull String text) {
+  public static @NlsSafe String suggestFileName(@NotNull String text) {
     return PathUtilRt.suggestFileName(text);
   }
 
   @NotNull
-  public static String suggestFileName(@NotNull String text, final boolean allowDots, final boolean allowSpaces) {
+  public static @NlsSafe String suggestFileName(@NotNull String text, final boolean allowDots, final boolean allowSpaces) {
     return PathUtilRt.suggestFileName(text, allowDots, allowSpaces);
   }
 
   public static boolean isValidFileName(@NotNull String fileName) {
-    return PathUtilRt.isValidFileName(fileName);
+    return PathUtilRt.isValidFileName(fileName, true);
+  }
+
+  public static boolean isValidFileName(@NotNull String fileName, boolean strict) {
+    return PathUtilRt.isValidFileName(fileName, strict);
   }
 
   @Contract("null -> null; !null -> !null")
@@ -117,20 +91,14 @@ public class PathUtil {
     return path == null ? null : FileUtilRt.toSystemIndependentName(path);
   }
 
-
   @Contract("null -> null; !null -> !null")
-  public static String toSystemDependentName(@Nullable String path) {
+  public static @NlsSafe String toSystemDependentName(@Nullable String path) {
     return path == null ? null : FileUtilRt.toSystemDependentName(path);
   }
 
   @NotNull
   public static String driveLetterToLowerCase(@NotNull String path) {
-    if (!SystemInfo.isWindows) {
-      return path;
-    }
-    File file = new File(path);
-    if (file.isAbsolute() && path.length() >= 2 &&
-        Character.isUpperCase(path.charAt(0)) && path.charAt(1) == ':') {
+    if (SystemInfo.isWindows && FileUtil.isWindowsAbsolutePath(path) && Character.isUpperCase(path.charAt(0))) {
       return Character.toLowerCase(path.charAt(0)) + path.substring(1);
     }
     return path;
@@ -138,6 +106,26 @@ public class PathUtil {
 
   @NotNull
   public static String makeFileName(@NotNull String name, @Nullable String extension) {
-    return name + (StringUtil.isEmpty(extension) ? "" : "." + extension);
+    return StringUtil.isEmpty(extension) ? name : name + '.' + extension;
   }
+
+  //<editor-fold desc="Deprecated stuff.">
+  /** @deprecated use {@link com.intellij.openapi.vfs.VfsUtil#getLocalFile(VirtualFile)} instead */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  @NotNull
+  public static VirtualFile getLocalFile(@NotNull VirtualFile file) {
+    if (file.isValid()) {
+      VirtualFileSystem fileSystem = file.getFileSystem();
+      if (fileSystem instanceof LocalFileProvider) {
+        VirtualFile localFile = ((LocalFileProvider)fileSystem).getLocalVirtualFileFor(file);
+        if (localFile != null) {
+          return localFile;
+        }
+      }
+    }
+
+    return file;
+  }
+  //</editor-fold>
 }

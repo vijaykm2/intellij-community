@@ -15,25 +15,17 @@
  */
 package com.siyeh.ig.javabeans;
 
-import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiModifier;
-import com.intellij.psi.util.PropertyUtil;
+import com.intellij.psi.util.PropertyUtilBase;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import org.jetbrains.annotations.NotNull;
 
 public class FieldHasSetterButNoGetterInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "field.has.setter.but.no.getter.display.name");
-  }
 
   @Override
   @NotNull
@@ -52,14 +44,14 @@ public class FieldHasSetterButNoGetterInspection extends BaseInspection {
 
     @Override
     public void visitField(@NotNull PsiField field) {
-      final String propertyName = PropertyUtil.suggestPropertyName(field);
+      final String propertyName = PropertyUtilBase.suggestPropertyName(field);
       final boolean isStatic = field.hasModifierProperty(PsiModifier.STATIC);
       final PsiClass containingClass = field.getContainingClass();
-      final PsiMethod setter = PropertyUtil.findPropertySetter(containingClass, propertyName, isStatic, false);
+      final PsiMethod setter = PropertyUtilBase.findPropertySetter(containingClass, propertyName, isStatic, false);
       if (setter == null) {
         return;
       }
-      final PsiMethod getter = PropertyUtil.findPropertyGetter(containingClass, propertyName, isStatic, false);
+      final PsiMethod getter = PropertyUtilBase.findPropertyGetter(containingClass, propertyName, isStatic, false);
       if (getter != null) {
         return;
       }

@@ -1,28 +1,24 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options.newEditor;
 
 import com.intellij.CommonBundle;
+import com.intellij.ide.HelpTooltip;
+import com.intellij.ide.SaveAndSyncHandler;
+import com.intellij.idea.ActionsBundle;
+import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.DataProvider;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.help.HelpManager;
+import com.intellij.openapi.actionSystem.ShortcutSet;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurableGroup;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.util.registry.Registry;
+import com.intellij.ui.IdeUICustomization;
+import com.intellij.ui.SearchTextField.FindAction;
+import com.intellij.ui.components.panels.NonOpaquePanel;
+import com.intellij.util.ui.JBDimension;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -32,20 +28,23 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
+import java.util.List;
 
-/**
- * @author Sergey.Malenkov
- */
+import static com.intellij.openapi.actionSystem.IdeActions.ACTION_FIND;
+
 public class SettingsDialog extends DialogWrapper implements DataProvider {
+  @NonNls public static final String DIMENSION_KEY = "SettingsEditor";
+
   private final String myDimensionServiceKey;
   private final AbstractEditor myEditor;
-  private boolean myApplyButtonNeeded;
+  private final boolean myApplyButtonNeeded;
   private boolean myResetButtonNeeded;
+  private final JLabel myHintLabel = new JLabel();
 
   public SettingsDialog(Project project, String key, @NotNull Configurable configurable, boolean showApplyButton, boolean showResetButton) {
     super(project, true);
     myDimensionServiceKey = key;
-    myEditor = new ConfigurableEditor(myDisposable, configurable);
+    myEditor = new SingleSettingEditor(myDisposable, configurable);
     myApplyButtonNeeded = showApplyButton;
     myResetButtonNeeded = showResetButton;
     init(configurable, project);
@@ -54,29 +53,68 @@ public class SettingsDialog extends DialogWrapper implements DataProvider {
   public SettingsDialog(@NotNull Component parent, String key, @NotNull Configurable configurable, boolean showApplyButton, boolean showResetButton) {
     super(parent, true);
     myDimensionServiceKey = key;
-    myEditor = new ConfigurableEditor(myDisposable, configurable);
+    myEditor = new SingleSettingEditor(myDisposable, configurable);
     myApplyButtonNeeded = showApplyButton;
     myResetButtonNeeded = showResetButton;
     init(configurable, null);
   }
 
-  public SettingsDialog(@NotNull Project project, @NotNull ConfigurableGroup[] groups, Configurable configurable, String filter) {
+  public SettingsDialog(@NotNull Project project, @NotNull List<? extends ConfigurableGroup> groups, @Nullable Configurable configurable, @Nullable String filter) {
     super(project, true);
-    myDimensionServiceKey = "SettingsEditor";
-    myEditor = new SettingsEditor(myDisposable, project, groups, configurable, filter);
+
+    myDimensionServiceKey = DIMENSION_KEY;
+    myEditor = new SettingsEditor(myDisposable, project, groups, configurable, filter, this::treeViewFactory);
     myApplyButtonNeeded = true;
     init(null, project);
   }
 
-  private void init(Configurable configurable, @Nullable Project project) {
-    String name = configurable == null ? null : configurable.getDisplayName();
-    String title = CommonBundle.settingsTitle();
-    if (project != null && project.isDefault()) title = "Default " + title;
-    setTitle(name == null ? title : name.replaceAll("\n", " "));
-    init();
+  public SettingsDialog(@NotNull Project project, @Nullable Component parentComponent, @NotNull List<? extends ConfigurableGroup> groups, @Nullable Configurable configurable, @Nullable String filter) {
+    super(project, parentComponent, true, IdeModalityType.IDE);
+
+    myDimensionServiceKey = DIMENSION_KEY;
+    myEditor = new SettingsEditor(myDisposable, project, groups, configurable, filter, this::treeViewFactory);
+    myApplyButtonNeeded = true;
+    init(null, project);
   }
 
-  public Object getData(@NonNls String dataId) {
+  @NotNull
+  protected SettingsTreeView treeViewFactory(@NotNull SettingsFilter filter, @NotNull List<? extends ConfigurableGroup> groups) {
+    return new SettingsTreeView(filter, groups);
+  }
+
+  private void init(@Nullable Configurable configurable, @Nullable Project project) {
+    String name = configurable == null ? null : configurable.getDisplayName();
+    String hint = project != null && project.isDefault() ? IdeUICustomization.getInstance().projectMessage("template.settings.hint") : null;
+    myHintLabel.setText(hint);
+    setTitle(name == null ? CommonBundle.settingsTitle() : name.replace('\n', ' '));
+
+    ShortcutSet set = getFindActionShortcutSet();
+    if (set != null) {
+      new FindAction().registerCustomShortcutSet(set, getRootPane(), myDisposable);
+    }
+
+    init();
+    if (configurable == null) {
+      JRootPane rootPane = getPeer().getRootPane();
+      if (rootPane != null) {
+        rootPane.setMinimumSize(new JBDimension(900, 700));
+      }
+    }
+  }
+
+  @Override
+  protected void setHelpTooltip(@NotNull JButton helpButton) {
+    //noinspection SpellCheckingInspection
+    if (Registry.is("ide.helptooltip.enabled")) {
+      new HelpTooltip().setDescription(ActionsBundle.actionDescription("HelpTopics")).installOn(helpButton);
+    }
+    else {
+      super.setHelpTooltip(helpButton);
+    }
+  }
+
+  @Override
+  public Object getData(@NotNull String dataId) {
     if (myEditor instanceof DataProvider) {
       DataProvider provider = (DataProvider)myEditor;
       return provider.getData(dataId);
@@ -94,25 +132,37 @@ public class SettingsDialog extends DialogWrapper implements DataProvider {
     return myEditor.getPreferredFocusedComponent();
   }
 
-  @Override
-  public boolean isTypeAheadEnabled() {
-    return true;
-  }
-
   @NotNull
   @Override
   protected DialogStyle getStyle() {
     return DialogStyle.COMPACT;
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return myEditor;
   }
 
-  @NotNull
+  @Nullable
   @Override
-  protected Action[] createActions() {
-    ArrayList<Action> actions = new ArrayList<Action>();
+  protected JPanel createSouthAdditionalPanel() {
+    JPanel panel = new NonOpaquePanel(new BorderLayout());
+    panel.setBorder(JBUI.Borders.emptyLeft(10));
+    panel.add(myHintLabel);
+    myHintLabel.setEnabled(false);
+    return panel;
+  }
+
+  @SuppressWarnings("unused") // used in Rider
+  protected void tryAddOptionsListener(OptionsEditorColleague colleague) {
+    if (myEditor instanceof SettingsEditor) {
+      ((SettingsEditor) myEditor).addOptionsListener(colleague);
+    }
+  }
+
+  @Override
+  protected Action @NotNull [] createActions() {
+    ArrayList<Action> actions = new ArrayList<>();
     actions.add(getOKAction());
     actions.add(getCancelAction());
     Action apply = myEditor.getApplyAction();
@@ -123,25 +173,28 @@ public class SettingsDialog extends DialogWrapper implements DataProvider {
     if (reset != null && myResetButtonNeeded) {
       actions.add(reset);
     }
-    String topic = myEditor.getHelpTopic();
-    if (topic != null) {
+    if (getHelpId() != null) {
       actions.add(getHelpAction());
     }
-    return actions.toArray(new Action[actions.size()]);
+    return actions.toArray(new Action[0]);
   }
 
+  @Nullable
   @Override
-  protected void doHelpAction() {
-    String topic = myEditor.getHelpTopic();
-    if (topic != null) {
-      HelpManager.getInstance().invokeHelp(topic);
-    }
+  protected String getHelpId() {
+    return myEditor.getHelpTopic();
   }
 
   @Override
   public void doOKAction() {
+    applyAndClose(true);
+  }
+
+  public void applyAndClose(boolean scheduleSave) {
     if (myEditor.apply()) {
-      ApplicationManager.getApplication().saveAll();
+      if (scheduleSave) {
+        SaveAndSyncHandler.getInstance().scheduleSave(new SaveAndSyncHandler.SaveTask(null, /* forceSavingAllSettings = */ true));
+      }
       super.doOKAction();
     }
   }
@@ -149,10 +202,16 @@ public class SettingsDialog extends DialogWrapper implements DataProvider {
   @Override
   public void doCancelAction(AWTEvent source) {
     if (source instanceof KeyEvent || source instanceof ActionEvent) {
-      if (!myEditor.cancel()) {
+      if (!myEditor.cancel(source)) {
         return;
       }
     }
     super.doCancelAction(source);
+  }
+
+  @Nullable
+  static ShortcutSet getFindActionShortcutSet() {
+    AnAction action = ActionManager.getInstance().getAction(ACTION_FIND);
+    return action == null ? null : action.getShortcutSet();
   }
 }

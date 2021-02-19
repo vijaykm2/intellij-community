@@ -15,6 +15,7 @@
  */
 package com.intellij.openapi.actionSystem;
 
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.registry.Registry;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -34,25 +35,25 @@ public class RegistryToggleAction extends ToggleAction {
   }
 
   public RegistryToggleAction(@NotNull @PropertyKey(resourceBundle = Registry.REGISTRY_BUNDLE) String key,
-                              @Nullable String name) {
+                              @Nullable @NlsActions.ActionText String name) {
     this(key, name, null, null);
   }
 
   public RegistryToggleAction(@NotNull @PropertyKey(resourceBundle = Registry.REGISTRY_BUNDLE) String key,
-                              @Nullable String name,
-                              @Nullable String description,
+                              @Nullable @NlsActions.ActionText String name,
+                              @Nullable @NlsActions.ActionDescription String description,
                               @Nullable Icon icon) {
     super(name, description, icon);
     myKey = key;
   }
 
   @Override
-  public boolean isSelected(AnActionEvent e) {
+  public boolean isSelected(@NotNull AnActionEvent e) {
     return Registry.is(myKey);
   }
 
   @Override
-  public void setSelected(AnActionEvent e, boolean state) {
+  public void setSelected(@NotNull AnActionEvent e, boolean state) {
     Registry.get(myKey).setValue(state);
     doWhenDone(e);
   }

@@ -18,30 +18,33 @@ package com.intellij.openapi.roots.ui.configuration.projectRoot;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.ui.NamedConfigurable;
 import com.intellij.openapi.ui.PanelWithText;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.openapi.util.NlsContexts;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
-/**
- * @author nik
- */
 public class TextConfigurable<T> extends NamedConfigurable<T> {
+  @NotNull
   private final T myObject;
-  private final String myBannerSlogan;
-  private final String myDisplayName;
-  private final Icon myClosedIcon;
-  private final String myDescriptionText;
+  @NotNull
+  private final @Nls String myBannerSlogan;
+  @NotNull
+  private final @NlsContexts.ConfigurableName String myDisplayName;
+  private final Icon myIcon;
+  @NotNull
+  private final @Nls String myDescriptionText;
 
-  public TextConfigurable(final T object,
-                          final String displayName,
-                          final String bannerSlogan,
-                          final String descriptionText,
-                          final Icon closedIcon) {
+  public TextConfigurable(@NotNull T object,
+                          @NotNull @NlsContexts.ConfigurableName String displayName,
+                          @NotNull @Nls String bannerSlogan,
+                          @NotNull @NlsContexts.DetailedDescription String descriptionText,
+                          @Nullable Icon icon) {
     myDisplayName = displayName;
     myBannerSlogan = bannerSlogan;
     myDescriptionText = descriptionText;
-    myClosedIcon = closedIcon;
+    myIcon = icon;
     myObject = object;
   }
 
@@ -61,32 +64,17 @@ public class TextConfigurable<T> extends NamedConfigurable<T> {
   }
 
   @Override
-  public void reset() {
-    //do nothing
-  }
-
-  @Override
-  public void disposeUIResources() {
-    //do nothing
-  }
-
-  @Override
-  @Nullable
-  @NonNls
-  public String getHelpTopic() {
-    return null;
-  }
-
-  @Override
   public T getEditableObject() {
     return myObject;
   }
 
+  @NotNull
   @Override
   public String getBannerSlogan() {
     return myBannerSlogan;
   }
 
+  @NotNull
   @Override
   public String getDisplayName() {
     return myDisplayName;
@@ -94,7 +82,7 @@ public class TextConfigurable<T> extends NamedConfigurable<T> {
 
   @Override
   public Icon getIcon(final boolean open) {
-    return myClosedIcon;
+    return myIcon;
   }
 
   @Override

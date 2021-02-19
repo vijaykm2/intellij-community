@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2007 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,13 +36,6 @@ public class CheckForOutOfMemoryOnLargeArrayAllocationInspection
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "large.array.allocation.no.outofmemoryerror.display.name");
-  }
-
-  @Override
-  @NotNull
   public String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message(
       "large.array.allocation.no.outofmemoryerror.problem.descriptor");
@@ -53,7 +46,7 @@ public class CheckForOutOfMemoryOnLargeArrayAllocationInspection
     return new SingleIntegerFieldOptionsPanel(
       InspectionGadgetsBundle.message(
         "large.array.allocation.no.outofmemoryerror.maximum.number.of.elements.option"),
-      this, "m_limit");
+      this, "m_limit", 5);
   }
 
   @Override

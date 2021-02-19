@@ -1,25 +1,11 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring;
 
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.application.ApplicationManager;
 
 public abstract class JavaRefactoringActionHandlerFactory {
   public static JavaRefactoringActionHandlerFactory getInstance() {
-    return ServiceManager.getService(JavaRefactoringActionHandlerFactory.class);
+    return ApplicationManager.getApplication().getService(JavaRefactoringActionHandlerFactory.class);
   }
 
   /**
@@ -27,7 +13,6 @@ public abstract class JavaRefactoringActionHandlerFactory {
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
    * is not implemented.
-   * @return
    */
   public abstract RefactoringActionHandler createAnonymousToInnerHandler();
 
@@ -36,7 +21,7 @@ public abstract class JavaRefactoringActionHandlerFactory {
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
    * accepts either a {@link com.intellij.psi.PsiClass}, {@link com.intellij.psi.PsiField} or {@link com.intellij.psi.PsiMethod}.
-   * In latter two cases, <code>elements[0]</code> is a member that will be preselected.
+   * In latter two cases, {@code elements[0]} is a member that will be preselected.
    */
   public abstract RefactoringActionHandler createPullUpHandler();
 
@@ -45,7 +30,7 @@ public abstract class JavaRefactoringActionHandlerFactory {
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
    * accepts either a {@link com.intellij.psi.PsiClass}, {@link com.intellij.psi.PsiField} or {@link com.intellij.psi.PsiMethod}.
-   * In latter two cases, <code>elements[0]</code> is a member that will be preselected.
+   * In latter two cases, {@code elements[0]} is a member that will be preselected.
    */
   public abstract RefactoringActionHandler createPushDownHandler();
 
@@ -53,8 +38,7 @@ public abstract class JavaRefactoringActionHandlerFactory {
    * Creates handler for Use Interface Where Possible refactoring.<p>
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
-   * accepts 1 <code>PsiClass</code>.
-   * @return
+   * accepts 1 {@code PsiClass}.
    */
   public abstract RefactoringActionHandler createTurnRefsToSuperHandler();
 
@@ -70,8 +54,8 @@ public abstract class JavaRefactoringActionHandlerFactory {
    * Creates handler for Introduce Parameter refactoring.<p>
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
-   * accepts either 1 <code>PsiExpression</code>, that will be an initialzier for introduced parameter,
-   * or 1 <code>PsiLocalVariable</code>, that will be replaced with introduced parameter.
+   * accepts either 1 {@code PsiExpression}, that will be an initializer for introduced parameter,
+   * or 1 {@code PsiLocalVariable}, that will be replaced with introduced parameter.
    */
   public abstract RefactoringActionHandler createIntroduceParameterHandler();
 
@@ -79,7 +63,7 @@ public abstract class JavaRefactoringActionHandlerFactory {
    * Creates handler for Make Method Static refactoring.<p>
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
-   * accepts 1 <code>PsiMethod</code>.
+   * accepts 1 {@code PsiMethod}.
    */
   public abstract RefactoringActionHandler createMakeMethodStaticHandler();
 
@@ -87,7 +71,7 @@ public abstract class JavaRefactoringActionHandlerFactory {
    * Creates handler for Convert To Instance Method refactoring.<p>
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
-   * accepts 1 <code>PsiMethod</code>.
+   * accepts 1 {@code PsiMethod}.
    */
   public abstract RefactoringActionHandler createConvertToInstanceMethodHandler();
 
@@ -95,7 +79,7 @@ public abstract class JavaRefactoringActionHandlerFactory {
    * Creates handler for Replace Constructor With Factory Method refactoring.<p>
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
-   * accepts either a <code>PsiMethod</code> that is a constructor, or a <code>PsiClass</code>
+   * accepts either a {@code PsiMethod} that is a constructor, or a {@code PsiClass}
    * with implicit default constructor.
    */
   public abstract RefactoringActionHandler createReplaceConstructorWithFactoryHandler();
@@ -105,7 +89,7 @@ public abstract class JavaRefactoringActionHandlerFactory {
    * Creates handler for Replace Constructor With Factory Method refactoring.<p>
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
-   * accepts either a <code>PsiClass</code> or any number of <code>PsiField</code>s.
+   * accepts either a {@code PsiClass} or any number of {@code PsiField}s.
    */
   public abstract RefactoringActionHandler createEncapsulateFieldsHandler();
 
@@ -113,7 +97,7 @@ public abstract class JavaRefactoringActionHandlerFactory {
    * Creates handler for Replace Method Code Duplicates refactoring.<p>
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
-   * accepts one <code>PsiMethod</code>.
+   * accepts one {@code PsiMethod}.
    */
   public abstract RefactoringActionHandler createMethodDuplicatesHandler();
 
@@ -121,7 +105,7 @@ public abstract class JavaRefactoringActionHandlerFactory {
    * Creates handler for Change Method/Class Signature refactoring.<p>
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
-   * accepts either 1 <code>PsiMethod</code> or 1 <code>PsiClass</code>
+   * accepts either 1 {@code PsiMethod} or 1 {@code PsiClass}
    */
   public abstract RefactoringActionHandler createChangeSignatureHandler();
 
@@ -129,7 +113,7 @@ public abstract class JavaRefactoringActionHandlerFactory {
    * Creates handler for Extract Superclass refactoring.<p>
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
-   * accepts 1 <code>PsiClass</code>.
+   * accepts 1 {@code PsiClass}.
    */
   public abstract RefactoringActionHandler createExtractSuperclassHandler();
 
@@ -137,7 +121,7 @@ public abstract class JavaRefactoringActionHandlerFactory {
    * Creates handler for Generify (aka Type Cook) refactoring.<p>
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
-   * accepts any number of arbitrary <code>PsiElement</code>s. All code inside these elements will be generified.
+   * accepts any number of arbitrary {@code PsiElement}s. All code inside these elements will be generified.
    */
   public abstract RefactoringActionHandler createTypeCookHandler();
 
@@ -145,7 +129,7 @@ public abstract class JavaRefactoringActionHandlerFactory {
    * Creates handler for Inline refactoring.<p>
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
-   * accepts 1 inlinable <code>PsiElement</code> (method, local variable or constant).
+   * accepts 1 inlinable {@code PsiElement} (method, local variable or constant).
    */
   public abstract RefactoringActionHandler createInlineHandler();
 
@@ -163,7 +147,7 @@ public abstract class JavaRefactoringActionHandlerFactory {
    * Creates handler for Extract Interface refactoring.<p>
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
-   * accepts 1 <code>PsiClass</code>.
+   * accepts 1 {@code PsiClass}.
    */
   public abstract RefactoringActionHandler createExtractInterfaceHandler();
 
@@ -171,8 +155,8 @@ public abstract class JavaRefactoringActionHandlerFactory {
    * Creates handler for Introduce Field refactoring.<p>
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
-   * accepts either 1 <code>PsiExpression</code>, that will be an initialzier for introduced field,
-   * or 1 <code>PsiLocalVariable</code>, that will be replaced with introduced field.
+   * accepts either 1 {@code PsiExpression}, that will be an initializer for introduced field,
+   * or 1 {@code PsiLocalVariable}, that will be replaced with introduced field.
    */
   public abstract RefactoringActionHandler createIntroduceFieldHandler();
 
@@ -180,7 +164,7 @@ public abstract class JavaRefactoringActionHandlerFactory {
    * Creates handler for Introduce Variable refactoring.<p>
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
-   * accepts 1 <code>PsiExpression</code>, that will be an initialzier for introduced variable.
+   * accepts 1 {@code PsiExpression}, that will be an initializer for introduced variable.
    */
   public abstract RefactoringActionHandler createIntroduceVariableHandler();
 
@@ -188,8 +172,8 @@ public abstract class JavaRefactoringActionHandlerFactory {
    * Creates handler for Introduce Constant refactoring.<p>
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
-   * accepts either 1 <code>PsiExpression</code>, that will be an initialzier for introduced constant,
-   * or 1 <code>PsiLocalVariable</code>, that will be replaced with introduced constant.
+   * accepts either 1 {@code PsiExpression}, that will be an initializer for introduced constant,
+   * or 1 {@code PsiLocalVariable}, that will be replaced with introduced constant.
    */
   public abstract RefactoringActionHandler createIntroduceConstantHandler();
 
@@ -197,7 +181,7 @@ public abstract class JavaRefactoringActionHandlerFactory {
    * Creates handler for Invert Boolean refactoring.<p>
    *
    * {@link RefactoringActionHandler#invoke(com.intellij.openapi.project.Project, com.intellij.psi.PsiElement[], com.intellij.openapi.actionSystem.DataContext)}
-   * accepts 1 <code>PsiMethod</code>, that will be inverted
+   * accepts 1 {@code PsiMethod}, that will be inverted
    */
   public abstract RefactoringActionHandler createInvertBooleanHandler();
 }

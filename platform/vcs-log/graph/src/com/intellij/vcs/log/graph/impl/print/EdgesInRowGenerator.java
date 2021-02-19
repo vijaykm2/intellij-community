@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.graph.impl.print;
 
 import com.intellij.util.containers.SLRUMap;
@@ -33,8 +19,8 @@ public class EdgesInRowGenerator {
 
   @NotNull private final LinearGraph myGraph;
 
-  @NotNull private final SLRUMap<Integer, GraphEdges> cacheNU = new SLRUMap<Integer, GraphEdges>(CACHE_SIZE, CACHE_SIZE * 2);
-  private final SLRUMap<Integer, GraphEdges> cacheND = new SLRUMap<Integer, GraphEdges>(CACHE_SIZE, CACHE_SIZE * 2);
+  @NotNull private final SLRUMap<Integer, GraphEdges> cacheNU = new SLRUMap<>(CACHE_SIZE, CACHE_SIZE * 2);
+  @NotNull private final SLRUMap<Integer, GraphEdges> cacheND = new SLRUMap<>(CACHE_SIZE, CACHE_SIZE * 2);
 
   public EdgesInRowGenerator(@NotNull LinearGraph graph) {
     this(graph, 1000);
@@ -149,13 +135,13 @@ public class EdgesInRowGenerator {
     return myGraph.getAdjacentEdges(nodeIndex, EdgeFilter.NORMAL_DOWN);
   }
 
-  private static class GraphEdges {
+  private static final class GraphEdges {
     // this must be mutably set
     @NotNull private final Set<GraphEdge> myEdges;
     private final int myRow;
 
     private GraphEdges(int row) {
-      this(new HashSet<GraphEdge>(), row);
+      this(new HashSet<>(), row);
     }
 
     private GraphEdges(@NotNull Set<GraphEdge> edges, int row) {
@@ -165,7 +151,7 @@ public class EdgesInRowGenerator {
 
     @NotNull
     GraphEdges copyInstance() {
-      return new GraphEdges(new HashSet<GraphEdge>(myEdges), myRow);
+      return new GraphEdges(new HashSet<>(myEdges), myRow);
     }
   }
 }

@@ -1,41 +1,32 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.actions;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeBundle;
-import com.intellij.internal.statistic.UsageTrigger;
+import com.intellij.ide.ui.newItemPopup.NewItemPopupUtil;
+import com.intellij.ide.ui.newItemPopup.NewItemSimplePopupPanel;
+import com.intellij.idea.ActionsBundle;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.fileTypes.FileType;
+import com.intellij.openapi.application.Experiments;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.fileTypes.ex.FileTypeChooser;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.InputValidatorEx;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.ui.popup.JBPopup;
+import com.intellij.openapi.util.NlsActions;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.newvfs.impl.FakeVirtualFile;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiManager;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -44,15 +35,23 @@ import javax.swing.*;
 import java.io.File;
 import java.util.List;
 import java.util.StringTokenizer;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public class CreateFileAction extends CreateElementActionBase implements DumbAware {
 
   public CreateFileAction() {
-    super(IdeBundle.message("action.create.new.file"), IdeBundle.message("action.create.new.file.description"), AllIcons.FileTypes.Text);
+    super(ActionsBundle.messagePointer("action.NewFile.text"), IdeBundle.messagePointer("action.create.new.file.description"), AllIcons.FileTypes.Text);
   }
 
-  public CreateFileAction(final String text, final String description, final Icon icon) {
+  public CreateFileAction(@NlsActions.ActionText String text,
+                          @NlsActions.ActionDescription String description,
+                          final Icon icon) {
     super(text, description, icon);
+  }
+
+  public CreateFileAction(Supplier<String> dynamicText, Supplier<String> dynamicDescription, final Icon icon) {
+    super(dynamicText, dynamicDescription, icon);
   }
 
   @Override
@@ -61,29 +60,69 @@ public class CreateFileAction extends CreateElementActionBase implements DumbAwa
   }
 
   @Override
-  @NotNull
-  protected PsiElement[] invokeDialog(final Project project, PsiDirectory directory) {
+  protected PsiElement @NotNull [] invokeDialog(final Project project, PsiDirectory directory) {
+    return PsiElement.EMPTY_ARRAY;
+  }
+
+  @Override
+  protected void invokeDialog(@NotNull Project project, @NotNull PsiDirectory directory, @NotNull Consumer<PsiElement[]> elementsConsumer) {
     MyInputValidator validator = new MyValidator(project, directory);
     if (ApplicationManager.getApplication().isUnitTestMode()) {
       try {
-        return validator.create("test");
+        elementsConsumer.accept(validator.create("test"));
       }
       catch (Exception e) {
         throw new RuntimeException(e);
       }
     }
     else {
-      Messages.showInputDialog(project, IdeBundle.message("prompt.enter.new.file.name"),
-                               IdeBundle.message("title.new.file"), Messages.getQuestionIcon(), null, validator);
-      return validator.getCreatedElements();
+      if (Experiments.getInstance().isFeatureEnabled("show.create.new.element.in.popup")) {
+        createLightWeightPopup(validator, elementsConsumer, directory).showCenteredInCurrentWindow(project);
+      }
+      else {
+        Messages.showInputDialog(project, IdeBundle.message("prompt.enter.new.file.name"),
+                                 IdeBundle.message("title.new.file"), null, null, validator);
+        elementsConsumer.accept(validator.getCreatedElements());
+      }
     }
   }
 
+  private JBPopup createLightWeightPopup(MyInputValidator validator,
+                                         Consumer<PsiElement[]> consumer,
+                                         @NotNull PsiDirectory directory) {
+    Project project = directory.getProject();
+    NewItemSimplePopupPanel contentPanel = new NewItemSimplePopupPanel();
+    JTextField nameField = contentPanel.getTextField();
+    JBPopup popup = NewItemPopupUtil.createNewItemPopup(IdeBundle.message("title.new.file"), contentPanel, nameField);
+    contentPanel.setApplyAction(event -> {
+      String name = nameField.getText();
+      if (validator.checkInput(name) && validator.canClose(name)) {
+        popup.closeOk(event);
+        consumer.accept(validator.getCreatedElements());
+        if (StringUtil.isNotEmpty(name)) {
+          FileTypeChooser.getKnownFileTypeOrAssociate(directory.getVirtualFile(), getFileName(name), project);
+        }
+      }
+      else {
+        String errorMessage = validator instanceof InputValidatorEx
+                              ? ((InputValidatorEx)validator).getErrorText(name)
+                              : LangBundle.message("incorrect.name");
+        contentPanel.setError(errorMessage);
+      }
+    });
+
+    return popup;
+  }
+
   @Override
-  @NotNull
-  protected PsiElement[] create(String newName, PsiDirectory directory) throws Exception {
+  protected PsiElement @NotNull [] create(@NotNull String newName, PsiDirectory directory) throws Exception {
     MkDirs mkdirs = new MkDirs(newName, directory);
-    return new PsiElement[]{mkdirs.directory.createFile(getFileName(mkdirs.newName))};
+    return new PsiElement[]{WriteAction.compute(() -> mkdirs.directory.createFile(getFileName(mkdirs.newName)))};
+  }
+
+  public static PsiDirectory findOrCreateSubdirectory(@NotNull PsiDirectory parent, @NotNull String subdirName) {
+    final PsiDirectory sub = parent.findSubdirectory(subdirName);
+    return sub == null ? WriteAction.compute(() -> parent.createSubdirectory(subdirName)) : sub;
   }
 
   public static class MkDirs {
@@ -112,8 +151,7 @@ public class CreateFileAction extends CreateElementActionBase implements DumbAwa
             directory = parentDirectory;
           }
           else if (!".".equals(dir)){
-            final PsiDirectory sub = directory.findSubdirectory(dir);
-            directory = sub == null ? directory.createSubdirectory(dir) : sub;
+            directory = findOrCreateSubdirectory(directory, dir);
           }
           firstToken = false;
         }
@@ -134,13 +172,8 @@ public class CreateFileAction extends CreateElementActionBase implements DumbAwa
     return IdeBundle.message("title.cannot.create.file");
   }
 
-  @Override
-  protected String getCommandName() {
-    return IdeBundle.message("command.create.file");
-  }
-
   protected String getFileName(String newName) {
-    if (getDefaultExtension() == null || FileUtilRt.getExtension(newName).length() > 0) {
+    if (getDefaultExtension() == null || !FileUtilRt.getExtension(newName).isEmpty()) {
       return newName;
     }
     return newName + "." + getDefaultExtension();
@@ -152,7 +185,7 @@ public class CreateFileAction extends CreateElementActionBase implements DumbAwa
   }
 
   protected class MyValidator extends MyInputValidator implements InputValidatorEx {
-    private String myErrorText;
+    private @NlsContexts.DetailedDescription String myErrorText;
 
     public MyValidator(Project project, PsiDirectory directory){
       super(project, directory);
@@ -166,34 +199,35 @@ public class CreateFileAction extends CreateElementActionBase implements DumbAwa
       while (tokenizer.hasMoreTokens()) {
         final String token = tokenizer.nextToken();
         if ((token.equals(".") || token.equals("..")) && !tokenizer.hasMoreTokens()) {
-          myErrorText = "Can't create file with name '" + token + "'";
+          myErrorText = IdeBundle.message("error.invalid.file.name", token);
           return false;
         }
         if (vFile != null) {
           if (firstToken && "~".equals(token)) {
             final VirtualFile userHomeDir = VfsUtil.getUserHomeDir();
             if (userHomeDir == null) {
-              myErrorText = "User home directory not found";
+              myErrorText = IdeBundle.message("error.user.home.directory.not.found");
               return false;
             }
             vFile = userHomeDir;
           }
           else if ("..".equals(token)) {
-            vFile = vFile.getParent();
-            if (vFile == null) {
-              myErrorText = "Not a valid directory";
+            final VirtualFile parent = vFile.getParent();
+            if (parent == null) {
+              myErrorText = IdeBundle.message("error.invalid.directory", vFile.getPresentableUrl() + File.separatorChar + "..");
               return false;
             }
+            vFile = parent;
           }
-          else if (!".".equals(token)){
+          else if (!".".equals(token)) {
             final VirtualFile child = vFile.findChild(token);
             if (child != null) {
               if (!child.isDirectory()) {
-                myErrorText = "A file with name '" + token + "' already exists";
+                myErrorText = IdeBundle.message("error.file.with.name.already.exists", token);
                 return false;
               }
               else if (!tokenizer.hasMoreTokens()) {
-                myErrorText = "A directory with name '" + token + "' already exists";
+                myErrorText = IdeBundle.message("error.directory.with.name.already.exists", token);
                 return false;
               }
             }
@@ -201,7 +235,7 @@ public class CreateFileAction extends CreateElementActionBase implements DumbAwa
           }
         }
         if (FileTypeManager.getInstance().isFileIgnored(getFileName(token))) {
-          myErrorText = "'" + token + "' is an ignored name (Settings | Editor | File Types | Ignore files and folders)";
+          myErrorText = IdeBundle.message("warning.create.directory.with.ignored.name", token);
           return true;
         }
         firstToken = false;
@@ -216,22 +250,12 @@ public class CreateFileAction extends CreateElementActionBase implements DumbAwa
     }
 
     @Override
-    public PsiElement[] create(String newName) throws Exception {
-      UsageTrigger.trigger("CreateFile." + CreateFileAction.this.getClass().getSimpleName());
-      return super.create(newName);
-    }
-
-    @Override
-    public boolean canClose(String inputString) {
-      if (inputString.length() == 0) {
+    public boolean canClose(final String inputString) {
+      if (inputString.isEmpty()) {
         return super.canClose(inputString);
       }
 
-      final PsiDirectory psiDirectory = getDirectory();
-
-      final FileType type = FileTypeChooser.getKnownFileTypeOrAssociate(new FakeVirtualFile(psiDirectory.getVirtualFile(), getFileName(inputString)),
-                                                                        psiDirectory.getProject());
-      return type != null && super.canClose(getFileName(inputString));
+      return super.canClose(getFileName(inputString));
     }
   }
 }

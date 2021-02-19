@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.actions;
 
 import com.intellij.openapi.project.Project;
@@ -39,12 +25,12 @@ public final class CreateDialogAction extends AbstractCreateFormAction {
   private boolean myRecentGenerateMain;
 
   public CreateDialogAction() {
-    super(UIDesignerBundle.message("action.create.dialog"),
-          UIDesignerBundle.message("action.description.create.dialog"), PlatformIcons.UI_FORM_ICON);
+    super(UIDesignerBundle.messagePointer("action.create.dialog"),
+          UIDesignerBundle.messagePointer("action.description.create.dialog"), PlatformIcons.UI_FORM_ICON);
   }
 
-  @NotNull
-  protected PsiElement[] invokeDialog(final Project project, final PsiDirectory directory) {
+  @Override
+  protected PsiElement @NotNull [] invokeDialog(final Project project, final PsiDirectory directory) {
     final MyInputValidator validator = new JavaNameValidator(project, directory);
 
     final MyContentPane contentPane = new MyContentPane();
@@ -54,10 +40,12 @@ public final class CreateDialogAction extends AbstractCreateFormAction {
         init();
         setTitle(UIDesignerBundle.message("title.new.dialog"));
       }
+      @Override
       protected JComponent createCenterPanel() {
         return contentPane.getPanel();
       }
 
+      @Override
       protected void doOKAction() {
         myRecentGenerateOK = contentPane.myChkGenerateOK.isSelected();
         myRecentGenerateCancel = contentPane.myChkGenerateCancel.isSelected();
@@ -72,6 +60,7 @@ public final class CreateDialogAction extends AbstractCreateFormAction {
         }
       }
 
+      @Override
       public JComponent getPreferredFocusedComponent() {
         return contentPane.myTfClassName;
       }
@@ -82,10 +71,7 @@ public final class CreateDialogAction extends AbstractCreateFormAction {
     return validator.getCreatedElements();
   }
 
-  protected String getCommandName() {
-    return UIDesignerBundle.message("command.create.dialog");
-  }
-
+  @Override
   protected String getErrorTitle() {
     return UIDesignerBundle.message("error.cannot.create.dialog");
   }
@@ -96,7 +82,7 @@ public final class CreateDialogAction extends AbstractCreateFormAction {
     final boolean generateCancel,
     final boolean generateMain
   ) {
-    @NonNls final StringBuffer result = new StringBuffer(1024);
+    @NonNls final StringBuilder result = new StringBuilder(1024);
 
     result.append("public class ").append(className).append(" extends javax.swing.JDialog {\n");
     result.append("private javax.swing.JPanel contentPane;\n");
@@ -124,7 +110,7 @@ public final class CreateDialogAction extends AbstractCreateFormAction {
       result.append("public void actionPerformed(java.awt.event.ActionEvent e){");
       result.append("onCancel();");
       result.append("}});\n");
-      result.append("\n");
+      result.append("\n ");
       result.append(UIDesignerBundle.message("comment.call.onCancel.cross")).append("\n");
       result.append("setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);\n");
       result.append("addWindowListener(new java.awt.event.WindowAdapter() {\n");
@@ -132,7 +118,7 @@ public final class CreateDialogAction extends AbstractCreateFormAction {
       result.append("   onCancel();\n");
       result.append("  }\n");
       result.append("});\n");
-      result.append("\n");
+      result.append("\n ");
       result.append(UIDesignerBundle.message("comment.call.onCancel.escape")).append("\n");
       result.append("contentPane.registerKeyboardAction(");
       result.append("  new java.awt.event.ActionListener() {");
@@ -149,7 +135,7 @@ public final class CreateDialogAction extends AbstractCreateFormAction {
 
     if (generateOK) {
       result.append("\n");
-      result.append("private void onOK(){\n");
+      result.append("private void onOK(){\n ");
       result.append(UIDesignerBundle.message("comment.onok")).append("\n");
       result.append("dispose();\n");
       result.append("}\n");
@@ -157,7 +143,7 @@ public final class CreateDialogAction extends AbstractCreateFormAction {
 
     if (generateCancel) {
       result.append("\n");
-      result.append("private void onCancel(){\n");
+      result.append("private void onCancel(){\n ");
       result.append(UIDesignerBundle.message("comment.oncancel")).append("\n");
       result.append("dispose();\n");
       result.append("}\n");
@@ -179,8 +165,8 @@ public final class CreateDialogAction extends AbstractCreateFormAction {
   }
 
 
-  @NotNull
-  protected PsiElement[] create(final String newName, final PsiDirectory directory) throws IncorrectOperationException {
+  @Override
+  protected PsiElement @NotNull [] create(@NotNull final String newName, final PsiDirectory directory) throws IncorrectOperationException {
     PsiFile sourceFile = PsiFileFactory.getInstance(directory.getProject())
       .createFileFromText(newName + ".java", createClassBody(newName, myRecentGenerateOK, myRecentGenerateCancel, myRecentGenerateMain));
     sourceFile = (PsiFile)directory.add(sourceFile);
@@ -208,7 +194,7 @@ public final class CreateDialogAction extends AbstractCreateFormAction {
     private JCheckBox myChkGenerateMain;
     private JTextField myTfClassName;
 
-    public MyContentPane() {
+    MyContentPane() {
     }
 
     public JPanel getPanel() {

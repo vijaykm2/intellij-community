@@ -1,58 +1,69 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml;
 
 import com.intellij.codeInsight.daemon.impl.HighlightInfoType;
+import com.intellij.ide.highlighter.XHtmlFileType;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.fileTypes.FileType;
+import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.html.HtmlTag;
+import com.intellij.psi.impl.source.html.dtd.HtmlNSDescriptorImpl;
 import com.intellij.psi.impl.source.xml.SchemaPrefix;
 import com.intellij.psi.impl.source.xml.TagNameReference;
+import com.intellij.psi.impl.source.xml.XmlDocumentImpl;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.SearchScope;
+import com.intellij.psi.util.CachedValueProvider;
+import com.intellij.psi.util.CachedValuesManager;
+import com.intellij.psi.util.PsiModificationTracker;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlDocument;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.xml.impl.schema.AnyXmlElementDescriptor;
+import com.intellij.xml.util.HtmlUtil;
 import com.intellij.xml.util.XmlUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
  * @author Dmitry Avdeev
  */
 public abstract class XmlExtension {
-  public static final ExtensionPointName<XmlExtension> EP_NAME = new ExtensionPointName<XmlExtension>("com.intellij.xml.xmlExtension");
+  public static final ExtensionPointName<XmlExtension> EP_NAME = new ExtensionPointName<>("com.intellij.xml.xmlExtension");
 
-  public static final XmlExtension DEFAULT_EXTENSION = new DefaultXmlExtension();
+  public static XmlExtension getExtension(@NotNull final PsiFile file) {
+    return CachedValuesManager.getCachedValue(file, () -> CachedValueProvider.Result.create(calcExtension(file), PsiModificationTracker.MODIFICATION_COUNT));
+  }
 
-  public static XmlExtension getExtension(PsiFile file) {
-    for (XmlExtension extension : Extensions.getExtensions(EP_NAME)) {
+  public interface AttributeValuePresentation {
+    @NotNull
+    String getPrefix();
+
+    @NotNull
+    String getPostfix();
+
+    default boolean showAutoPopup() {
+      return true;
+    }
+  }
+
+  private static XmlExtension calcExtension(PsiFile file) {
+    for (XmlExtension extension : EP_NAME.getExtensionList()) {
       if (extension.isAvailable(file)) {
         return extension;
       }
     }
-    return DEFAULT_EXTENSION;
+    return DefaultXmlExtension.DEFAULT_EXTENSION;
   }
 
-  @SuppressWarnings("ConstantConditions")
   public static XmlExtension getExtensionByElement(PsiElement element) {
     final PsiFile psiFile = element.getContainingFile();
     if (psiFile != null) {
@@ -87,8 +98,7 @@ public abstract class XmlExtension {
     return new TagNameReference(nameElement, startTagFlag);
   }
 
-  @Nullable
-  public String[][] getNamespacesFromDocument(final XmlDocument parent, boolean declarationsExist) {
+  public String[] @Nullable [] getNamespacesFromDocument(final XmlDocument parent, boolean declarationsExist) {
     return declarationsExist ? null : XmlUtil.getDefaultNamespaces(parent);
   }
 
@@ -122,7 +132,16 @@ public abstract class XmlExtension {
 
   @Nullable
   public XmlNSDescriptor getNSDescriptor(final XmlTag element, final String namespace, final boolean strict) {
-    return element.getNSDescriptor(namespace, strict);  
+    return element.getNSDescriptor(namespace, strict);
+  }
+
+  public @NotNull XmlNSDescriptor wrapNSDescriptor(@NotNull XmlTag element, @NotNull String namespacePrefix, @NotNull XmlNSDescriptor descriptor) {
+    if (element instanceof HtmlTag && !(descriptor instanceof HtmlNSDescriptorImpl)) {
+      XmlFile obj = descriptor.getDescriptorFile();
+      XmlNSDescriptor result = obj == null ? null : XmlDocumentImpl.getCachedHtmlNsDescriptor(obj, namespacePrefix);
+      return result == null ? new HtmlNSDescriptorImpl(descriptor) : result;
+    }
+    return descriptor;
   }
 
   @Nullable
@@ -151,15 +170,93 @@ public abstract class XmlExtension {
     return false;
   }
 
+  public boolean shouldBeInserted(final XmlAttributeDescriptor descriptor) {
+    return descriptor.isRequired();
+  }
+
+  public boolean shouldCompleteTag(XmlTag context) {
+    return true;
+  }
+
+  @NotNull
+  public AttributeValuePresentation getAttributeValuePresentation(@Nullable XmlTag tag,
+                                                                  @NotNull String attributeName,
+                                                                  @NotNull String defaultAttributeQuote) {
+    return new AttributeValuePresentation() {
+      @NotNull
+      @Override
+      public String getPrefix() {
+        return defaultAttributeQuote;
+      }
+
+      @NotNull
+      @Override
+      public String getPostfix() {
+        return defaultAttributeQuote;
+      }
+    };
+  }
+
   public boolean isCustomTagAllowed(final XmlTag tag) {
     return false;
   }
 
-  public boolean needWhitespaceBeforeAttribute() {
+  public boolean useXmlTagInsertHandler() {
     return true;
   }
 
-  public boolean useXmlTagInsertHandler() {
-    return true;
+  public boolean isCollapsibleTag(XmlTag tag) {
+    return false;
+  }
+
+  public boolean isSelfClosingTagAllowed(@NotNull XmlTag tag) {
+    return false;
+  }
+
+  public boolean isSingleTagException(@NotNull XmlTag tag) { return false; }
+
+  public boolean isValidTagNameChar(final char c) {
+    return false;
+  }
+
+  /**
+   * @return list of files containing char entity definitions to be used for completion and resolution within a specified XML file
+   */
+  public @NotNull List<@NotNull XmlFile> getCharEntitiesDTDs(@NotNull XmlFile file) {
+    XmlDocument document = file.getDocument();
+    if (HtmlUtil.isHtml5Document(document)) {
+      return ContainerUtil.packNullables(XmlUtil.findXmlFile(file, Html5SchemaProvider.getCharsDtdLocation()));
+    }
+    else if (document != null) {
+      final XmlTag rootTag = document.getRootTag();
+      if (rootTag != null) {
+        final XmlElementDescriptor descriptor = rootTag.getDescriptor();
+
+        if (descriptor != null && !(descriptor instanceof AnyXmlElementDescriptor)) {
+          PsiElement element = descriptor.getDeclaration();
+          final PsiFile containingFile = element != null ? element.getContainingFile() : null;
+          if (containingFile instanceof XmlFile) {
+            return Collections.singletonList((XmlFile)containingFile);
+          }
+        }
+      }
+      final FileType ft = file.getFileType();
+      final String namespace = ft == XHtmlFileType.INSTANCE || ft == StdFileTypes.JSPX ? XmlUtil.XHTML_URI : XmlUtil.HTML_URI;
+      final XmlNSDescriptor nsDescriptor = document.getDefaultNSDescriptor(namespace, true);
+      if (nsDescriptor != null) {
+        return ContainerUtil.packNullables(nsDescriptor.getDescriptorFile());
+      }
+    }
+    return Collections.emptyList();
+  }
+
+  public static boolean shouldIgnoreSelfClosingTag(@NotNull XmlTag tag) {
+    final XmlExtension extension = getExtensionByElement(tag);
+    return extension != null && extension.isSelfClosingTagAllowed(tag);
+  }
+
+  public static boolean isCollapsible(XmlTag tag) {
+    final XmlExtension extension = getExtensionByElement(tag);
+    return extension == null || extension.isCollapsibleTag(tag);
   }
 }

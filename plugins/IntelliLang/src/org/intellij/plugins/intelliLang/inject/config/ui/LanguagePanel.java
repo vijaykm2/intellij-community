@@ -24,12 +24,15 @@ import com.intellij.openapi.fileTypes.SyntaxHighlighter;
 import com.intellij.openapi.fileTypes.SyntaxHighlighterFactory;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.ui.AncestorListenerAdapter;
-import com.intellij.ui.ColoredListCellRendererWrapper;
+import com.intellij.ui.ColoredListCellRenderer;
 import com.intellij.ui.EditorTextField;
 import com.intellij.ui.SimpleTextAttributes;
+import com.intellij.util.containers.ContainerUtil;
 import org.intellij.plugins.intelliLang.inject.InjectedLanguage;
 import org.intellij.plugins.intelliLang.inject.config.BaseInjection;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -37,12 +40,11 @@ import javax.swing.event.AncestorEvent;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Set;
 
 public class LanguagePanel extends AbstractInjectionPanel<BaseInjection> {
   private JPanel myRoot;
-  private ComboBox myLanguage;
+  private ComboBox<@Nls String> myLanguage;
   private EditorTextField myPrefix;
   private EditorTextField mySuffix;
 
@@ -51,16 +53,16 @@ public class LanguagePanel extends AbstractInjectionPanel<BaseInjection> {
     $$$setupUI$$$();
 
     final String[] languageIDs = InjectedLanguage.getAvailableLanguageIDs();
-    Arrays.sort(languageIDs);
+    Arrays.sort(languageIDs, String::compareToIgnoreCase);
 
-    myLanguage.setModel(new DefaultComboBoxModel(languageIDs));
-    myLanguage.setRenderer(new ColoredListCellRendererWrapper<String>() {
-      final Set<String> IDs = new HashSet<String>(Arrays.asList(languageIDs));
+    myLanguage.setModel(new DefaultComboBoxModel<>(languageIDs));
+    myLanguage.setRenderer(new ColoredListCellRenderer<>() {
+      final Set<String> IDs = ContainerUtil.set(languageIDs);
 
       @Override
-      protected void doCustomize(JList list, String s, int index, boolean selected, boolean hasFocus) {
+      protected void customizeCellRenderer(@NotNull JList list, @Nls String s, int index, boolean selected, boolean hasFocus) {
         final SimpleTextAttributes attributes =
-            IDs.contains(s) ? SimpleTextAttributes.REGULAR_ATTRIBUTES : SimpleTextAttributes.ERROR_ATTRIBUTES;
+          IDs.contains(s) ? SimpleTextAttributes.REGULAR_ATTRIBUTES : SimpleTextAttributes.ERROR_ATTRIBUTES;
         append(s, attributes);
 
         final Language language = InjectedLanguage.findLanguageById(s);
@@ -91,7 +93,7 @@ public class LanguagePanel extends AbstractInjectionPanel<BaseInjection> {
     });
   }
 
-  private void updateHighlighters() {
+  void updateHighlighters() {
     final EditorImpl editor = ((EditorImpl)myPrefix.getEditor());
     if (editor == null) return;
 
@@ -116,8 +118,8 @@ public class LanguagePanel extends AbstractInjectionPanel<BaseInjection> {
     return (String)myLanguage.getSelectedItem();
   }
 
-  public void setLanguage(String id) {
-    final DefaultComboBoxModel model = (DefaultComboBoxModel)myLanguage.getModel();
+  public void setLanguage(@NlsSafe String id) {
+    final DefaultComboBoxModel<String> model = (DefaultComboBoxModel)myLanguage.getModel();
     if (model.getIndexOf(id) == -1 && id.length() > 0) {
       model.insertElementAt(id, 0);
     }

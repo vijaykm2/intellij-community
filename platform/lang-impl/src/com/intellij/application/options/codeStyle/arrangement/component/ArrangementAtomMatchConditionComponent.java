@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.application.options.codeStyle.arrangement.component;
 
 import com.intellij.application.options.codeStyle.arrangement.ArrangementConstants;
@@ -30,15 +16,17 @@ import com.intellij.ui.RoundedLineBorder;
 import com.intellij.ui.SimpleColoredComponent;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.Consumer;
-import com.intellij.util.containers.ContainerUtilRt;
 import com.intellij.util.ui.GridBag;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseEvent;
+import java.util.HashSet;
 import java.util.Set;
 
 /**
@@ -47,7 +35,6 @@ import java.util.Set;
  * Not thread-safe.
  *
  * @author Denis Zhdanov
- * @since 8/8/12 10:06 AM
  */
 public class ArrangementAtomMatchConditionComponent implements ArrangementUiComponent {
 
@@ -79,24 +66,24 @@ public class ArrangementAtomMatchConditionComponent implements ArrangementUiComp
     }
   };
 
-  @NotNull private final Set<ArrangementSettingsToken> myAvailableTokens = ContainerUtilRt.newHashSet();
+  @NotNull private final Set<ArrangementSettingsToken> myAvailableTokens = new HashSet<>();
 
-  @NotNull private final BorderStrategy                myBorderStrategy;
-  @NotNull private final String                        myText;
-  @NotNull private final ArrangementColorsProvider     myColorsProvider;
-  @NotNull private final RoundedLineBorder             myBorder;
+  @NotNull private final BorderStrategy myBorderStrategy;
+  @NotNull private final @Nls String myText;
+  @NotNull private final ArrangementColorsProvider myColorsProvider;
+  @NotNull private final RoundedLineBorder myBorder;
   @NotNull private final ArrangementAtomMatchCondition myCondition;
-  @NotNull private final ArrangementAnimationPanel     myAnimationPanel;
+  @NotNull private final ArrangementAnimationPanel myAnimationPanel;
 
-  @Nullable private final ActionButton                                     myCloseButton;
-  @Nullable private final Rectangle                                        myCloseButtonBounds;
-  @Nullable private final Consumer<ArrangementAtomMatchConditionComponent> myCloseCallback;
+  @Nullable private final ActionButton myCloseButton;
+  @Nullable private final Rectangle myCloseButtonBounds;
+  @Nullable private final Consumer<? super ArrangementAtomMatchConditionComponent> myCloseCallback;
 
   @NotNull private Color myBackgroundColor;
 
   @Nullable private final Dimension myTextControlSize;
-  @Nullable private       Rectangle myScreenBounds;
-  @Nullable private       Listener  myListener;
+  @Nullable private Rectangle myScreenBounds;
+  @Nullable private Listener myListener;
 
   private boolean myInverted = false;
   private boolean myEnabled = true;
@@ -105,12 +92,12 @@ public class ArrangementAtomMatchConditionComponent implements ArrangementUiComp
 
   // cached value for inverted atom condition, e.g. condition: 'static', opposite: 'not static'
   @Nullable private ArrangementAtomMatchCondition myOppositeCondition;
-  @Nullable private String myInvertedText;
+  @Nullable @Nls private String myInvertedText;
 
   public ArrangementAtomMatchConditionComponent(@NotNull ArrangementStandardSettingsManager manager,
                                                 @NotNull ArrangementColorsProvider colorsProvider,
                                                 @NotNull ArrangementAtomMatchCondition condition,
-                                                @Nullable Consumer<ArrangementAtomMatchConditionComponent> closeCallback)
+                                                @Nullable Consumer<? super ArrangementAtomMatchConditionComponent> closeCallback)
   {
     myColorsProvider = colorsProvider;
     myCondition = condition;
@@ -127,10 +114,10 @@ public class ArrangementAtomMatchConditionComponent implements ArrangementUiComp
       myText = type.getRepresentationValue();
     }
     else if (StdArrangementTokenType.REG_EXP.is(type)) {
-      myText = String.format("%s %s", type.getRepresentationValue().toLowerCase(), condition.getValue());
+      myText = StringUtil.toLowerCase(type.getRepresentationValue()) + " " + condition.getValue();
     }
     else {
-      myText = condition.getValue().toString();
+      myText = condition.getPresentableValue();
     }
     myTextControl.setTextAlign(SwingConstants.CENTER);
     myTextControl.append(myText, SimpleTextAttributes.fromTextAttributes(colorsProvider.getTextAttributes(type, false)));
@@ -145,7 +132,6 @@ public class ArrangementAtomMatchConditionComponent implements ArrangementUiComp
 
     final ArrangementRemoveConditionAction action = new ArrangementRemoveConditionAction();
     Icon buttonIcon = action.getTemplatePresentation().getIcon();
-    Dimension buttonSize = new Dimension(buttonIcon.getIconWidth(), buttonIcon.getIconHeight());
     if (closeCallback == null) {
       myCloseButton = null;
       myCloseButtonBounds = null;
@@ -155,10 +141,10 @@ public class ArrangementAtomMatchConditionComponent implements ArrangementUiComp
         action,
         action.getTemplatePresentation().clone(),
         ArrangementConstants.MATCHING_RULES_CONTROL_PLACE,
-        buttonSize)
+        JBUI.emptySize())
       {
         @Override
-        protected Icon getIcon() {
+        public Icon getIcon() {
           return myCloseButtonHovered ? action.getTemplatePresentation().getHoveredIcon() : action.getTemplatePresentation().getIcon();
         }
       };
@@ -175,7 +161,7 @@ public class ArrangementAtomMatchConditionComponent implements ArrangementUiComp
     GridBagConstraints constraints = new GridBag().anchor(GridBagConstraints.WEST).weightx(1)
       .insets(0, 0, 0, myCloseButton == null ? ArrangementConstants.BORDER_ARC_SIZE : 0);
     insetsPanel.add(myTextControl, constraints);
-    insetsPanel.setBorder(IdeBorderFactory.createEmptyBorder(0, ArrangementConstants.HORIZONTAL_PADDING, 0, 0));
+    insetsPanel.setBorder(JBUI.Borders.emptyLeft(ArrangementConstants.HORIZONTAL_PADDING));
     insetsPanel.setOpaque(false);
 
     JPanel roundBorderPanel = new JPanel(new GridBagLayout()) {
@@ -183,8 +169,8 @@ public class ArrangementAtomMatchConditionComponent implements ArrangementUiComp
       public void paint(Graphics g) {
         Rectangle buttonBounds = getCloseButtonScreenBounds();
         if (buttonBounds != null) {
-          Point mouseScreenLocation = MouseInfo.getPointerInfo().getLocation();
-          myCloseButtonHovered = buttonBounds.contains(mouseScreenLocation);
+          final PointerInfo info = MouseInfo.getPointerInfo();
+          myCloseButtonHovered = info != null && buttonBounds.contains(info.getLocation());
         }
 
         Rectangle bounds = getBounds();
@@ -291,7 +277,7 @@ public class ArrangementAtomMatchConditionComponent implements ArrangementUiComp
     return attributes;
   }
 
-  private String getComponentText() {
+  private @Nls String getComponentText() {
     if (myInverted) {
       if (StringUtil.isEmpty(myInvertedText)) {
         final ArrangementSettingsToken token = myCondition.getType();
@@ -419,7 +405,6 @@ public class ArrangementAtomMatchConditionComponent implements ArrangementUiComp
     return -1;
   }
 
-  @SuppressWarnings("NullableProblems")
   @Override
   public void setListener(@NotNull Listener listener) {
     myListener = listener;

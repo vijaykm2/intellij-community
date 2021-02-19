@@ -19,19 +19,12 @@ package com.intellij.dupLocator;
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NotNull;
 
-/**
-* Created by IntelliJ IDEA.
-* User: Eugene.Kudelevsky
-* Date: 15.05.2009
-* Time: 15:09:22
-* To change this template use File | Settings | File Templates.
-*/
 public interface DuplocateVisitor {
   void visitNode(@NotNull PsiElement node);
 
   /**
    * Is not invoked when index is used
-   * @see com.intellij.dupLocator.DuplicatesProfile#supportIndex()
+   * @see DuplicatesProfile#supportIndex()
    */
   void hashingFinished();
 }

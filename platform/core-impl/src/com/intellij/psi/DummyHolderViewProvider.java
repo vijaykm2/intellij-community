@@ -1,29 +1,12 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
+import com.intellij.lang.FileASTNode;
 import com.intellij.lang.Language;
-import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.util.UserDataHolderBase;
+import com.intellij.openapi.fileTypes.UnknownFileType;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.impl.PsiManagerEx;
 import com.intellij.psi.impl.SharedPsiElementImplUtil;
 import com.intellij.psi.impl.source.DummyHolder;
-import com.intellij.psi.impl.source.PsiFileImpl;
 import com.intellij.psi.impl.source.tree.LeafElement;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.util.LocalTimeCounter;
@@ -34,39 +17,19 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-public class DummyHolderViewProvider extends UserDataHolderBase implements FileViewProvider{
+public class DummyHolderViewProvider extends AbstractFileViewProvider {
   private DummyHolder myHolder;
-  private final PsiManager myManager;
   private final long myModificationStamp;
-  private final LightVirtualFile myLightVirtualFile = new LightVirtualFile("DummyHolder");
 
   public DummyHolderViewProvider(@NotNull PsiManager manager) {
-    myManager = manager;
+    super(manager, new LightVirtualFile("DummyHolder", UnknownFileType.INSTANCE, ""), false);
     myModificationStamp = LocalTimeCounter.currentTime();
-  }
-
-  @Override
-  @NotNull
-  public PsiManager getManager() {
-    return myManager;
-  }
-
-  @Override
-  @Nullable
-  public Document getDocument() {
-    return FileDocumentManager.getInstance().getDocument(getVirtualFile());
   }
 
   @Override
   @NotNull
   public CharSequence getContents() {
     return myHolder != null ? myHolder.getNode().getText() : "";
-  }
-
-  @Override
-  @NotNull
-  public VirtualFile getVirtualFile() {
-    return myLightVirtualFile;
   }
 
   @Override
@@ -81,32 +44,33 @@ public class DummyHolderViewProvider extends UserDataHolderBase implements FileV
     return Collections.singleton(getBaseLanguage());
   }
 
+  @Nullable
   @Override
-  public PsiFile getPsi(@NotNull Language target) {
-    ((PsiManagerEx)myManager).getFileManager().setViewProvider(getVirtualFile(), this);
+  protected PsiFile getPsiInner(Language target) {
+    return getCachedPsi(target);
+  }
+
+  @Override
+  public PsiFile getCachedPsi(@NotNull Language target) {
+    getManager().getFileManager().setViewProvider(getVirtualFile(), this);
     return target == getBaseLanguage() ? myHolder : null;
+  }
+
+  @NotNull
+  @Override
+  public List<PsiFile> getCachedPsiFiles() {
+    return Collections.singletonList(myHolder);
+  }
+
+  @Override
+  public @NotNull List<FileASTNode> getKnownTreeRoots() {
+    return Collections.singletonList(myHolder.getTreeElement());
   }
 
   @Override
   @NotNull
   public List<PsiFile> getAllFiles() {
-    return Collections.singletonList(getPsi(getBaseLanguage()));
-  }
-
-  @Override
-  public void beforeContentsSynchronized() {}
-
-  @Override
-  public void contentsSynchronized() {}
-
-  @Override
-  public boolean isEventSystemEnabled() {
-    return false;
-  }
-
-  @Override
-  public boolean isPhysical() {
-    return false;
+    return getCachedPsiFiles();
   }
 
   @Override
@@ -114,23 +78,9 @@ public class DummyHolderViewProvider extends UserDataHolderBase implements FileV
     return myModificationStamp;
   }
 
-  @Override
-  public boolean supportsIncrementalReparse(@NotNull final Language rootLanguage) {
-    return true;
-  }
-
-  @Override
-  public void rootChanged(@NotNull PsiFile psiFile) {
-  }
-
   public void setDummyHolder(@NotNull DummyHolder dummyHolder) {
     myHolder = dummyHolder;
-    myLightVirtualFile.setFileType(dummyHolder.getFileType());
-  }
-
-  @Override
-  public FileViewProvider clone(){
-    throw new RuntimeException("Clone is not supported for DummyHolderProviders. Use DummyHolder clone directly.");
+    ((LightVirtualFile)getVirtualFile()).setFileType(dummyHolder.getFileType());
   }
 
   @Override
@@ -139,21 +89,9 @@ public class DummyHolderViewProvider extends UserDataHolderBase implements FileV
   }
 
   @Override
-  @Nullable
-  public PsiElement findElementAt(final int offset, @NotNull final Language language) {
-    return language == getBaseLanguage() ? findElementAt(offset) : null;
-  }
-
-
-  @Override
   public PsiElement findElementAt(int offset, @NotNull Class<? extends Language> lang) {
     if (!lang.isAssignableFrom(getBaseLanguage().getClass())) return null;
     return findElementAt(offset);
-  }
-
-  @Override
-  public PsiReference findReferenceAt(final int offsetInElement, @NotNull final Language language) {
-    return language == getBaseLanguage() ? findReferenceAt(offsetInElement) : null;
   }
 
   @NotNull
@@ -162,15 +100,9 @@ public class DummyHolderViewProvider extends UserDataHolderBase implements FileV
     throw new RuntimeException("Clone is not supported for DummyHolderProviders. Use DummyHolder clone directly.");
   }
 
-  @NotNull
-  @Override
-  public PsiFile getStubBindingRoot() {
-    return getPsi(getBaseLanguage());
-  }
-
   @Override
   public PsiElement findElementAt(final int offset) {
-    final LeafElement element = ((PsiFileImpl)getPsi(getBaseLanguage())).calcTreeElement().findLeafElementAt(offset);
+    final LeafElement element = myHolder.calcTreeElement().findLeafElementAt(offset);
     return element != null ? element.getPsi() : null;
   }
 }

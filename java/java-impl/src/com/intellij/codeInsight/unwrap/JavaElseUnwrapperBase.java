@@ -20,16 +20,18 @@ import com.intellij.psi.PsiIfStatement;
 import com.intellij.psi.PsiStatement;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Set;
 
 public abstract class JavaElseUnwrapperBase extends JavaUnwrapper {
-  public JavaElseUnwrapperBase(String description) {
+  public JavaElseUnwrapperBase(@Nls String description) {
     super(description);
   }
 
   @Override
-  public boolean isApplicableTo(PsiElement e) {
+  public boolean isApplicableTo(@NotNull PsiElement e) {
     return (PsiUtil.isElseBlock(e) || isElseKeyword(e)) && isValidConstruct(e);
   }
 
@@ -43,7 +45,7 @@ public abstract class JavaElseUnwrapperBase extends JavaUnwrapper {
   }
 
   @Override
-  public void collectElementsToIgnore(PsiElement element, Set<PsiElement> result) {
+  public void collectElementsToIgnore(@NotNull PsiElement element, @NotNull Set<PsiElement> result) {
     PsiElement parent = element.getParent();
 
     while (parent instanceof PsiIfStatement) {

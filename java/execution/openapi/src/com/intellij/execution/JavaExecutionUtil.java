@@ -1,72 +1,45 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution;
 
-import com.intellij.execution.configurations.*;
-import com.intellij.execution.executors.DefaultRunExecutor;
-import com.intellij.execution.filters.Filter;
-import com.intellij.execution.filters.TextConsoleBuilder;
-import com.intellij.execution.filters.TextConsoleBuilderFactory;
-import com.intellij.execution.runners.ExecutionEnvironment;
-import com.intellij.execution.runners.ExecutionEnvironmentBuilder;
 import com.intellij.execution.util.ExecutionErrorDialog;
-import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.ClassUtil;
-import com.intellij.psi.util.PsiClassUtil;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.util.indexing.FileBasedIndex;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
+import java.io.File;
+import java.io.FileFilter;
+import java.io.IOException;
 import java.util.HashSet;
 import java.util.Set;
 
 /**
  * @author spleaner
  */
-public class JavaExecutionUtil {
+public final class JavaExecutionUtil {
+  private static final Logger LOG = Logger.getInstance(JavaExecutionUtil.class);
+
   private JavaExecutionUtil() {
   }
 
-  public static boolean executeRun(@NotNull final Project project, String contentName, Icon icon,
-                      final DataContext dataContext) throws ExecutionException {
-    return executeRun(project, contentName, icon, dataContext, null);
-  }
-
-  public static boolean executeRun(@NotNull final Project project, String contentName, Icon icon, DataContext dataContext, Filter[] filters) throws ExecutionException {
-    final JavaParameters cmdLine = JavaParameters.JAVA_PARAMETERS.getData(dataContext);
-    final DefaultRunProfile profile = new DefaultRunProfile(project, cmdLine, contentName, icon, filters);
-    ExecutionEnvironmentBuilder builder = ExecutionEnvironmentBuilder.createOrNull(project, DefaultRunExecutor.getRunExecutorInstance(), profile);
-    if (builder != null) {
-      builder.buildAndExecute();
-      return true;
-    }
-    return false;
-  }
-
-  public static Module findModule(final Module contextModule, final Set<String> patterns, final Project project, Condition<PsiClass> isTestMethod) {
-    final Set<Module> modules = new HashSet<Module>();
+  public static Module findModule(final Module contextModule, final Set<String> patterns, final Project project, Condition<? super PsiClass> isTestMethod) {
+    final Set<Module> modules = new HashSet<>();
     for (String className : patterns) {
       final PsiClass psiClass = findMainClass(project,
                                               className.contains(",") ? className.substring(0, className.indexOf(',')) : className,
@@ -83,55 +56,14 @@ public class JavaExecutionUtil {
       }
     }
     if (contextModule != null && modules.size() > 1) {
-      final HashSet<Module> moduleDependencies = new HashSet<Module>();
+      final HashSet<Module> moduleDependencies = new HashSet<>();
       ModuleUtilCore.getDependencies(contextModule, moduleDependencies);
       if (moduleDependencies.containsAll(modules)) {
         return contextModule;
       }
+      return null;
     }
-    return null;
-  }
-
-  private static final class DefaultRunProfile implements RunProfile {
-    private final JavaParameters myParameters;
-    private final String myContentName;
-    private final Filter[] myFilters;
-    private final Project myProject;
-    private final Icon myIcon;
-
-    public DefaultRunProfile(final Project project, final JavaParameters parameters, final String contentName, final Icon icon, Filter[] filters) {
-      myProject = project;
-      myParameters = parameters;
-      myContentName = contentName;
-      myFilters = filters;
-      myIcon = icon;
-    }
-
-    @Override
-    public Icon getIcon() {
-      return myIcon;
-    }
-
-    @Override
-    public RunProfileState getState(@NotNull final Executor executor, @NotNull final ExecutionEnvironment env) {
-      final JavaCommandLineState state = new JavaCommandLineState(env) {
-        @Override
-        protected JavaParameters createJavaParameters() {
-          return myParameters;
-        }
-      };
-      final TextConsoleBuilder builder = TextConsoleBuilderFactory.getInstance().createBuilder(myProject);
-      if (myFilters != null) {
-        builder.filters(myFilters);
-      }
-      state.setConsoleBuilder(builder);
-      return state;
-    }
-
-    @Override
-    public String getName() {
-      return myContentName;
-    }
+    return contextModule;
   }
 
   @Nullable
@@ -140,26 +72,17 @@ public class JavaExecutionUtil {
   }
 
   @Nullable
-  public static String getPresentableClassName(@Nullable String rtClassName) {
-    return getPresentableClassName(rtClassName, null);
-  }
-
-  /**
-   * {@link JavaExecutionUtil#getPresentableClassName(java.lang.String)}
-   */
-  @Deprecated
-  @Nullable
-  public static String getPresentableClassName(@Nullable String rtClassName, JavaRunConfigurationModule configurationModule) {
+  public static @NlsSafe String getPresentableClassName(@Nullable String rtClassName) {
     if (StringUtil.isEmpty(rtClassName)) {
       return null;
     }
 
     int lastDot = rtClassName.lastIndexOf('.');
-    return lastDot == -1 || lastDot == rtClassName.length() - 1 ? rtClassName : rtClassName.substring(lastDot + 1, rtClassName.length());
+    return lastDot == -1 || lastDot == rtClassName.length() - 1 ? rtClassName : rtClassName.substring(lastDot + 1);
   }
 
   public static Module findModule(@NotNull final PsiClass psiClass) {
-    return ModuleUtilCore.findModuleForPsiElement(psiClass);
+    return ModuleUtilCore.findModuleForPsiElement(psiClass.getContainingFile());
   }
 
   @Nullable
@@ -169,7 +92,12 @@ public class JavaExecutionUtil {
 
   @Nullable
   public static PsiClass findMainClass(final Project project, final String mainClassName, final GlobalSearchScope scope) {
-    if (project.isDefault() || DumbService.isDumb(project)) return null;
+    if (project.isDefault() ||
+        (DumbService.isDumb(project) &&
+         FileBasedIndex.getInstance().getCurrentDumbModeAccessType() == null &&
+         !DumbService.getInstance(project).isAlternativeResolveEnabled())) {
+      return null;
+    }
     final PsiManager psiManager = PsiManager.getInstance(project);
     final String shortName = StringUtil.getShortName(mainClassName);
     final String packageName = StringUtil.getPackageName(mainClassName);
@@ -185,6 +113,7 @@ public class JavaExecutionUtil {
 
   public static Location stepIntoSingleClass(@NotNull final Location location) {
     PsiElement element = location.getPsiElement();
+    TextRange elementTextRange = element.getTextRange();
     if (!(element instanceof PsiClassOwner)) {
       if (PsiTreeUtil.getParentOfType(element, PsiClass.class) != null) return location;
       element = PsiTreeUtil.getParentOfType(element, PsiClassOwner.class);
@@ -193,6 +122,9 @@ public class JavaExecutionUtil {
     final PsiClassOwner psiFile = (PsiClassOwner)element;
     final PsiClass[] classes = psiFile.getClasses();
     if (classes.length != 1) return location;
+    TextRange textRange = classes[0].getTextRange();
+    if (textRange == null) return location;
+    if (elementTextRange != null && textRange.contains(elementTextRange)) return location;
     return PsiLocation.fromPsiElement(classes[0]);
   }
 
@@ -200,11 +132,85 @@ public class JavaExecutionUtil {
     return fqName == null ? "" : StringUtil.getShortName(fqName);
   }
 
-  public static void showExecutionErrorMessage(final ExecutionException e, final String title, final Project project) {
+  @SuppressWarnings("MissingDeprecatedAnnotation")
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public static void showExecutionErrorMessage(ExecutionException e, @NlsContexts.DialogTitle String title, Project project) {
     ExecutionErrorDialog.show(e, title, project);
   }
 
-  public static boolean isRunnableClass(final PsiClass aClass) {
-    return PsiClassUtil.isRunnableClass(aClass, true);
+  @Nullable
+  public static String handleSpacesInAgentPath(@NotNull String agentPath,
+                                               @NotNull String copyDirName,
+                                               @Nullable String agentPathPropertyKey) {
+    return handleSpacesInAgentPath(agentPath, copyDirName, agentPathPropertyKey, null);
+  }
+
+  @Nullable
+  public static String handleSpacesInAgentPath(@NotNull String agentPath,
+                                               @NotNull String copyDirName,
+                                               @Nullable String agentPathPropertyKey,
+                                               @Nullable FileFilter fileFilter) {
+    String agentName = new File(agentPath).getName();
+    String containingDir = handleSpacesInContainingDir(agentPath, agentName, copyDirName, agentPathPropertyKey, fileFilter);
+    return containingDir == null ? null : FileUtil.join(containingDir, agentName);
+  }
+
+  @Nullable
+  private static String handleSpacesInContainingDir(@NotNull String agentPath,
+                                                    @NotNull String agentName,
+                                                    @NotNull String copyDirName,
+                                                    @Nullable String agentPathPropertyKey,
+                                                    @Nullable FileFilter fileFilter) {
+    String agentContainingDir;
+    String userDefined = agentPathPropertyKey == null ? null : System.getProperty(agentPathPropertyKey);
+    if (userDefined != null && new File(userDefined).exists()) {
+      agentContainingDir = userDefined;
+    } else {
+      agentContainingDir = new File(agentPath).getParent();
+    }
+    if (agentContainingDir.contains(" ")) {
+      String res = tryCopy(agentContainingDir, agentName, new File(PathManager.getSystemPath(), copyDirName), fileFilter);
+      if (res == null) {
+        try {
+          res = tryCopy(agentContainingDir, agentName, FileUtil.createTempDirectory(copyDirName, "jars"), fileFilter);
+          if (res == null) {
+            String message = "agent not used since the agent path contains spaces: " + agentContainingDir;
+            if (agentPathPropertyKey != null) {
+              message += "\nOne can move the agent libraries to a directory with no spaces in path and specify its path in idea.properties as " +
+              agentPathPropertyKey + "=<path>";
+            }
+            LOG.info(message);
+          }
+        }
+        catch (IOException e) {
+          LOG.info(e);
+        }
+      }
+      return res;
+    }
+    return agentContainingDir;
+  }
+
+  @Nullable
+  private static String tryCopy(@NotNull String agentDir,
+                                @NotNull String agentName,
+                                @NotNull File targetDir,
+                                @Nullable FileFilter fileFilter) {
+    if (targetDir.getAbsolutePath().contains(" ")) return null;
+    try {
+      if (fileFilter == null) {
+        FileUtil.copy(new File(agentDir, agentName), new File(targetDir, agentName));
+      }
+      else {
+        FileUtil.copyDir(new File(agentDir), targetDir, fileFilter);
+      }
+      LOG.info("Agent jars were copied to " + targetDir.getPath());
+      return targetDir.getPath();
+    }
+    catch (IOException e) {
+      LOG.info(e);
+      return null;
+    }
   }
 }

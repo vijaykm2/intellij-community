@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.errorTreeView;
 
 import com.intellij.ui.CustomizeColoredTreeCellRenderer;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.LoadingNode;
+import com.intellij.ui.render.RenderingUtil;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.tree.WideSelectionTreeUI;
@@ -35,9 +22,8 @@ import java.util.EventObject;
 
 /**
  * @author Vladislav.Soroka
- * @since 3/25/14
  */
-public class NewErrorTreeEditor extends AbstractCellEditor implements TreeCellEditor, MouseMotionListener {
+public final class NewErrorTreeEditor extends AbstractCellEditor implements TreeCellEditor, MouseMotionListener {
 
   public static void install(Tree tree) {
     NewErrorTreeEditor treeEditor = new NewErrorTreeEditor(tree);
@@ -134,12 +120,13 @@ public class NewErrorTreeEditor extends AbstractCellEditor implements TreeCellEd
       return myRight;
     }
 
-    public MyWrapperEditor(final TreeCellRenderer left, final TreeCellEditor right) {
+    MyWrapperEditor(final TreeCellRenderer left, final TreeCellEditor right) {
       myLeft = left;
       myRight = right;
       myPanel = new JPanel(new BorderLayout());
     }
 
+    @Override
     public Component getTreeCellEditorComponent(JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row) {
       myPanel.removeAll();
       myPanel.add(myLeft.getTreeCellRendererComponent(tree, value, false, expanded, leaf, row, true), BorderLayout.WEST);
@@ -148,7 +135,7 @@ public class NewErrorTreeEditor extends AbstractCellEditor implements TreeCellEd
       if (UIUtil.isFullRowSelectionLAF()) {
         myPanel.setBackground(selected ? UIUtil.getTreeSelectionBackground() : null);
       }
-      else if (tree.getUI() instanceof WideSelectionTreeUI && ((WideSelectionTreeUI)tree.getUI()).isWideSelection()) {
+      else if (WideSelectionTreeUI.isWideSelection(tree)) {
         if (selected) {
           myPanel.setBackground(UIUtil.getTreeSelectionBackground());
         }
@@ -164,12 +151,10 @@ public class NewErrorTreeEditor extends AbstractCellEditor implements TreeCellEd
         myPanel.setForeground(JBColor.GRAY);
       }
       else {
-        myPanel.setForeground(tree.getForeground());
+        myPanel.setForeground(RenderingUtil.getForeground(tree));
       }
 
-      if (UIUtil.isUnderGTKLookAndFeel() ||
-          UIUtil.isUnderNimbusLookAndFeel() && selected ||
-          tree.getUI() instanceof WideSelectionTreeUI && ((WideSelectionTreeUI)tree.getUI()).isWideSelection()) {
+      if (WideSelectionTreeUI.isWideSelection(tree)) {
         myPanel.setOpaque(false);
       }
       return myPanel;
@@ -185,6 +170,7 @@ public class NewErrorTreeEditor extends AbstractCellEditor implements TreeCellEd
   private static class CellEditorDelegate extends AbstractCellEditor implements TreeCellEditor {
     private TreeCellEditor myCurrentCallback;
 
+    @Override
     public Component getTreeCellEditorComponent(JTree tree,
                                                 Object value,
                                                 boolean selected,

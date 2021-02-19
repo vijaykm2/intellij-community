@@ -23,9 +23,6 @@ import org.jetbrains.jps.model.JpsElementReference;
 import org.jetbrains.jps.model.JpsNamedElement;
 import org.jetbrains.jps.model.ex.JpsElementCollectionRole;
 
-/**
- * @author nik
- */
 public abstract class JpsNamedElementReferenceImpl<T extends JpsNamedElement, Self extends JpsNamedElementReferenceImpl<T, Self>> extends JpsNamedElementReferenceBase<T, T, Self> {
   protected final JpsElementCollectionRole<? extends T> myCollectionRole;
 
@@ -45,6 +42,7 @@ public abstract class JpsNamedElementReferenceImpl<T extends JpsNamedElement, Se
     return element;
   }
 
+  @Override
   @Nullable
   protected JpsElementCollection<? extends T> getCollection(@NotNull JpsCompositeElement parent) {
     return parent.getContainer().getChild(myCollectionRole);

@@ -35,7 +35,6 @@ import org.jetbrains.annotations.Nullable;
  * Thread-safe.
  *
  * @author Denis Zhdanov
- * @since Apr 21, 2010 4:49:49 PM
  */
 public class JavaChildBlockWrapFactory {
 
@@ -54,7 +53,9 @@ public class JavaChildBlockWrapFactory {
     ASTNode node = block.getNode();
     Wrap wrap = block.getWrap();
     final IElementType nodeType = node.getElementType();
-    if (nodeType == JavaElementType.EXTENDS_LIST || nodeType == JavaElementType.IMPLEMENTS_LIST) {
+    if (nodeType == JavaElementType.EXTENDS_LIST ||
+        nodeType == JavaElementType.IMPLEMENTS_LIST ||
+        nodeType == JavaElementType.PERMITS_LIST) {
       return Wrap.createWrap(settings.EXTENDS_LIST_WRAP, false);
     }
     else if (node instanceof PsiPolyadicExpression) {

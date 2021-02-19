@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,20 +18,21 @@ package com.intellij.execution.testframework.sm.runner.states;
 import com.intellij.execution.process.ProcessOutputTypes;
 import com.intellij.execution.testframework.CompositePrintable;
 import com.intellij.execution.testframework.Printer;
-import com.intellij.execution.testframework.sm.runner.ui.TestsPresentationUtil;
 import com.intellij.execution.testframework.stacktrace.DiffHyperlink;
 import com.intellij.execution.ui.ConsoleViewContentType;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.io.FileUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.io.File;
 
 /**
  * @author Roman.Chernyatchik
  */
 public class TestComparisionFailedState extends TestFailedState {
-  private final String myErrorMsgPresentation;
-  private final String myStacktracePresentation;
-  private DiffHyperlink myHyperlink;
+  private final DiffHyperlink myHyperlink;
+  private boolean myToDeleteExpectedFile;
+  private boolean myToDeleteActualFile;
 
 
   public TestComparisionFailedState(@Nullable final String localizedMessage,
@@ -46,11 +47,18 @@ public class TestComparisionFailedState extends TestFailedState {
                                     @NotNull final String actualText,
                                     @NotNull final String expectedText,
                                     @Nullable final String filePath) {
-    super(localizedMessage, stackTrace);
-    myHyperlink = new DiffHyperlink(expectedText, actualText, filePath);
+    this(localizedMessage, stackTrace, actualText, expectedText, true, filePath, null);
+  }
 
-    myErrorMsgPresentation = StringUtil.isEmptyOrSpaces(localizedMessage) ? "" : localizedMessage;
-    myStacktracePresentation = StringUtil.isEmptyOrSpaces(stackTrace) ? "" : stackTrace;
+  public TestComparisionFailedState(@Nullable final String localizedMessage,
+                                    @Nullable final String stackTrace,
+                                    @NotNull final String actualText,
+                                    @NotNull final String expectedText,
+                                    boolean printExpectedAndActualValues,
+                                    @Nullable final String expectedFilePath,
+                                    @Nullable final String actualFilePath) {
+    super(localizedMessage, stackTrace);
+    myHyperlink = new DiffHyperlink(expectedText, actualText, expectedFilePath, actualFilePath, printExpectedAndActualValues);
   }
 
   @Override
@@ -59,19 +67,37 @@ public class TestComparisionFailedState extends TestFailedState {
     printer.mark();
 
     // Error msg
-    TestsPresentationUtil.printWithAnsiColoring(printer, myErrorMsgPresentation, ProcessOutputTypes.STDERR);
+    printer.printWithAnsiColoring(getErrorMsgPresentation(), ProcessOutputTypes.STDERR);
 
     // Diff link
     myHyperlink.printOn(printer);
 
     // Stacktrace
     printer.print(CompositePrintable.NEW_LINE, ConsoleViewContentType.ERROR_OUTPUT);
-    TestsPresentationUtil.printWithAnsiColoring(printer, myStacktracePresentation, ProcessOutputTypes.STDERR);
+    printer.printWithAnsiColoring(getStacktracePresentation(), ProcessOutputTypes.STDERR);
     printer.print(CompositePrintable.NEW_LINE, ConsoleViewContentType.ERROR_OUTPUT);
   }
 
   @Nullable
   public DiffHyperlink getHyperlink() {
     return myHyperlink;
+  }
+
+  public void setToDeleteExpectedFile(boolean expectedTemp) {
+    myToDeleteExpectedFile = expectedTemp;
+  }
+
+  public void setToDeleteActualFile(boolean actualTemp) {
+    myToDeleteActualFile = actualTemp;
+  }
+
+  @Override
+  public void dispose() {
+    if (myToDeleteActualFile) {
+      FileUtil.delete(new File(myHyperlink.getActualFilePath()));
+    }
+    if (myToDeleteExpectedFile) {
+      FileUtil.delete(new File(myHyperlink.getFilePath()));
+    }
   }
 }

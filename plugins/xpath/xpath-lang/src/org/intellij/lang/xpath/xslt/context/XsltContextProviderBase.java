@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.lang.xpath.xslt.context;
 
 import com.intellij.lang.xml.XMLLanguage;
@@ -24,7 +10,6 @@ import com.intellij.psi.*;
 import com.intellij.psi.util.*;
 import com.intellij.psi.xml.*;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xml.XmlAttributeDescriptor;
@@ -33,7 +18,6 @@ import com.intellij.xml.XmlNSDescriptor;
 import com.intellij.xml.impl.schema.XmlElementDescriptorImpl;
 import com.intellij.xml.impl.schema.XmlNSDescriptorImpl;
 import com.intellij.xml.util.XmlUtil;
-import gnu.trove.THashSet;
 import org.intellij.lang.xpath.XPathFile;
 import org.intellij.lang.xpath.context.ContextProvider;
 import org.intellij.lang.xpath.context.NamespaceContext;
@@ -55,28 +39,26 @@ import org.jetbrains.annotations.Nullable;
 import javax.xml.namespace.QName;
 import java.util.*;
 
-/*
-* Created by IntelliJ IDEA.
-* User: sweinreuter
-* Date: 08.01.11
-*/
 public abstract class XsltContextProviderBase extends ContextProvider {
-  protected static final Set<String> IGNORED_URIS = new THashSet<String>();
+  protected static final Set<String> IGNORED_URIS = new HashSet<>();
 
   static {
     IGNORED_URIS.add(XsltSupport.XSLT_NS);
     IGNORED_URIS.addAll(XmlUtil.ourSchemaUrisList);
   }
 
-  private static final SimpleFieldCache<CachedValue<ElementNames>, XsltContextProviderBase> myNamesCache = new SimpleFieldCache<CachedValue<ElementNames>, XsltContextProviderBase>() {
+  private static final SimpleFieldCache<CachedValue<ElementNames>, XsltContextProviderBase> myNamesCache = new SimpleFieldCache<>() {
+    @Override
     protected CachedValue<ElementNames> compute(final XsltContextProviderBase xsltContextProvider) {
       return xsltContextProvider.createCachedValue(xsltContextProvider.getFile());
     }
 
+    @Override
     protected CachedValue<ElementNames> getValue(final XsltContextProviderBase xsltContextProvider) {
       return xsltContextProvider.myNames;
     }
 
+    @Override
     protected void putValue(final CachedValue<ElementNames> elementNamesCachedValue, final XsltContextProviderBase xsltContextProvider) {
       xsltContextProvider.myNames = elementNamesCachedValue;
     }
@@ -140,8 +122,7 @@ public abstract class XsltContextProviderBase extends ContextProvider {
         //noinspection unchecked
         names.dependencies.add(rootDescriptor.getDescriptorFile());
 
-        //noinspection unchecked
-        final Set<XmlElementDescriptor> history = new THashSet<XmlElementDescriptor>(150);
+        final Set<XmlElementDescriptor> history = new HashSet<>(150);
 
         final XmlElementDescriptor[] e = rootDescriptor.getRootElementsDescriptors(document);
         try {
@@ -150,12 +131,7 @@ public abstract class XsltContextProviderBase extends ContextProvider {
           }
         } catch (StopProcessingException e1) {
           Logger.getInstance(XsltContextProviderBase.class).error("Maximum recursion depth reached. Missing equals()/hashCode() implementation?", StringUtil
-            .join(history, new Function<XmlElementDescriptor, String>() {
-              @Override
-              public String fun(XmlElementDescriptor descriptor) {
-                return descriptor.getClass().getName() + "[" + descriptor.getQualifiedName() + "]";
-              }
-            }, ", "));
+            .join(history, descriptor -> descriptor.getClass().getName() + "[" + descriptor.getQualifiedName() + "]", ", "));
         }
       }
       names.validateNames = names.elementNames.size() > noSchemaNamespaces;
@@ -179,7 +155,7 @@ public abstract class XsltContextProviderBase extends ContextProvider {
     }
   }
 
-  private static void processElementDescriptors(XmlElementDescriptor descriptor, XmlTag tag, ElementNames names, Set<XmlElementDescriptor> history, int depth)
+  private static void processElementDescriptors(XmlElementDescriptor descriptor, XmlTag tag, ElementNames names, Set<? super XmlElementDescriptor> history, int depth)
     throws StopProcessingException {
     if (!history.add(descriptor) || ++depth == 200) {
       if (depth == 200) {
@@ -204,6 +180,7 @@ public abstract class XsltContextProviderBase extends ContextProvider {
     }
   }
 
+  @Override
   public PsiFile[] getRelatedFiles(final XPathFile file) {
 
     final XmlAttribute attribute = PsiTreeUtil.getContextOfType(file, XmlAttribute.class, false);
@@ -212,7 +189,7 @@ public abstract class XsltContextProviderBase extends ContextProvider {
     final PsiFile psiFile = attribute.getContainingFile();
     assert psiFile != null;
 
-    final List<PsiFile> files = new ArrayList<PsiFile>();
+    final List<PsiFile> files = new ArrayList<>();
 
     psiFile.accept(new XmlRecursiveElementVisitor() {
       @Override
@@ -227,11 +204,13 @@ public abstract class XsltContextProviderBase extends ContextProvider {
     return PsiUtilCore.toPsiFileArray(files);
   }
 
+  @Override
   @Nullable
   public XmlElement getContextElement() {
     return myContextElement.getElement();
   }
 
+  @Override
   @NotNull
   public XPathType getExpectedType(XPathExpression expr) {
     final XmlTag tag = PsiTreeUtil.getContextOfType(expr, XmlTag.class, true);
@@ -287,16 +266,19 @@ public abstract class XsltContextProviderBase extends ContextProvider {
     return XPathType.UNKNOWN;
   }
 
+  @Override
   @NotNull
   public NamespaceContext getNamespaceContext() {
     return XsltNamespaceContext.NAMESPACE_CONTEXT;
   }
 
+  @Override
   @NotNull
   public VariableContext getVariableContext() {
     return XsltVariableContext.INSTANCE;
   }
 
+  @Override
   @Nullable
   public Set<QName> getAttributes(boolean forValidation) {
     final ElementNames names = getNames(getFile());
@@ -306,6 +288,7 @@ public abstract class XsltContextProviderBase extends ContextProvider {
     return null;
   }
 
+  @Override
   @Nullable
   public Set<QName> getElements(boolean forValidation) {
     final ElementNames names = getNames(getFile());
@@ -323,14 +306,16 @@ public abstract class XsltContextProviderBase extends ContextProvider {
   }
 
   private CachedValue<ElementNames> createCachedValue(final PsiFile file) {
-    return CachedValuesManager.getManager(file.getProject()).createCachedValue(new CachedValueProvider<ElementNames>() {
+    return CachedValuesManager.getManager(file.getProject()).createCachedValue(new CachedValueProvider<>() {
+      @Override
       public Result<ElementNames> compute() {
         final ElementNames names = new ElementNames();
         final PsiFile[] associations = myFileAssociationsManager.getAssociationsFor(file, FileAssociationsManager.Holder.XML_FILES);
 
         if (associations.length == 0) {
           fillFromSchema(file, names);
-        } else {
+        }
+        else {
           names.validateNames = true;
           //noinspection unchecked
           ContainerUtil.addAll(names.dependencies, associations);
@@ -357,8 +342,7 @@ public abstract class XsltContextProviderBase extends ContextProvider {
           });
         }
 
-        //noinspection unchecked
-        return new Result<ElementNames>(names, ArrayUtil.toObjectArray(names.dependencies));
+        return new Result<>(names, ArrayUtil.toObjectArray(names.dependencies));
       }
     }, false);
   }
@@ -372,6 +356,7 @@ public abstract class XsltContextProviderBase extends ContextProvider {
     return element.getContainingFile().getOriginalFile();
   }
 
+  @Override
   @NotNull
   public XPathQuickFixFactory getQuickFixFactory() {
     return XsltQuickFixFactory.INSTANCE;
@@ -380,8 +365,8 @@ public abstract class XsltContextProviderBase extends ContextProvider {
   static class ElementNames {
     boolean validateNames;
 
-    final Set<QName> elementNames = new HashSet<QName>();
-    final Set<QName> attributeNames = new HashSet<QName>();
+    final Set<QName> elementNames = new HashSet<>();
+    final Set<QName> attributeNames = new HashSet<>();
 
     @SuppressWarnings({"RawUseOfParameterizedType"})
     final Set dependencies = new HashSet();

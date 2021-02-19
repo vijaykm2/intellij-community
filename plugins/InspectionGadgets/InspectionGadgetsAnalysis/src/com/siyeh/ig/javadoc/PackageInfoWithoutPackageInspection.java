@@ -1,28 +1,15 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.javadoc;
 
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
+import com.intellij.psi.impl.file.PsiDirectoryFactory;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -31,12 +18,6 @@ import org.jetbrains.annotations.Nullable;
  * @author Bas Leijdekkers
  */
 public class PackageInfoWithoutPackageInspection extends BaseInspection {
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("package.info.java.without.package.display.name");
-  }
 
   @NotNull
   @Override
@@ -54,7 +35,7 @@ public class PackageInfoWithoutPackageInspection extends BaseInspection {
 
     private final String myPackageName;
 
-    public PackageInfoWithoutPackageFix(String packageName) {
+    PackageInfoWithoutPackageFix(String packageName) {
       myPackageName = packageName;
     }
 
@@ -77,15 +58,18 @@ public class PackageInfoWithoutPackageInspection extends BaseInspection {
         return;
       }
       final PsiJavaFile file = (PsiJavaFile)element;
-      final PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
-      final PsiPackageStatement packageStatement = factory.createPackageStatement(myPackageName);
-      file.add(packageStatement);
+      file.setPackageName(myPackageName);
     }
   }
 
   @Override
   public BaseInspectionVisitor buildVisitor() {
     return new PackageInfoWithoutPackageVisitor();
+  }
+
+  @Override
+  public boolean shouldInspect(PsiFile file) {
+    return PsiPackage.PACKAGE_INFO_FILE.equals(file.getName());
   }
 
   private static class PackageInfoWithoutPackageVisitor extends BaseInspectionVisitor {
@@ -100,17 +84,32 @@ public class PackageInfoWithoutPackageInspection extends BaseInspection {
       if (packageStatement != null) {
         return;
       }
-      final JavaDirectoryService directoryService = JavaDirectoryService.getInstance();
       final PsiDirectory directory = file.getContainingDirectory();
-      final PsiPackage aPackage = directoryService.getPackage(directory);
+      final PsiPackage aPackage = JavaDirectoryService.getInstance().getPackage(directory);
       if (aPackage == null) {
         return;
       }
       final String packageName = aPackage.getQualifiedName();
-      if (packageName.isEmpty()) {
+      if (packageName.isEmpty() || !PsiDirectoryFactory.getInstance(file.getProject()).isValidPackageName(packageName) || !isValid(file)) {
         return;
       }
       registerError(file, packageName);
+    }
+
+    private static boolean isValid(PsiJavaFile file) {
+      if (PsiUtil.isModuleFile(file)) {
+        return false;
+      }
+      final PsiImportList importList = file.getImportList();
+      if (importList == null) { // module-info.java always has import list even if empty
+        return false;
+      }
+      final PsiElement sibling = importList.getPrevSibling();
+      if (!(sibling instanceof PsiComment)) {
+        return true;
+      }
+      final String text = sibling.getText();
+      return !text.startsWith("/*") || text.endsWith("*/");
     }
   }
 }

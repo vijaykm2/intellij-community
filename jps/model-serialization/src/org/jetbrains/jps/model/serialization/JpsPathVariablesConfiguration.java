@@ -21,28 +21,13 @@ import org.jetbrains.jps.model.JpsElement;
 
 import java.util.Map;
 
-/**
- * @author nik
- */
 public interface JpsPathVariablesConfiguration extends JpsElement {
   void addPathVariable(@NotNull String name, @NotNull String value);
 
   void removePathVariable(@NotNull String name);
 
-  /**
-   * @deprecated use {@link #getUserVariableValue(String)} instead
-   */
-  @Nullable
-  String getPathVariable(@NotNull String name);
-
   @Nullable
   String getUserVariableValue(@NotNull String name);
-
-  /**
-   * @deprecated use {@link #getAllUserVariables()} instead
-   */
-  @NotNull
-  Map<String, String> getAllVariables();
 
   @NotNull
   Map<String, String> getAllUserVariables();

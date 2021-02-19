@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.history.integration;
-
 
 import com.intellij.history.LocalHistory;
 import com.intellij.history.core.revisions.Difference;
@@ -23,9 +8,13 @@ import com.intellij.history.core.revisions.Revision;
 import com.intellij.history.core.tree.Entry;
 import com.intellij.openapi.util.Clock;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.testFramework.TemporaryDirectory;
+import com.intellij.testFramework.VfsTestUtil;
 
 import java.io.IOException;
 import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class RevisionsAndDiffsTest extends IntegrationTestCase {
   public void testRevisions() throws Exception {
@@ -34,7 +23,7 @@ public class RevisionsAndDiffsTest extends IntegrationTestCase {
     setContent(f, "new");
 
     List<Revision> rr = getRevisionsFor(f);
-    assertEquals(3, rr.size());
+    assertThat(rr).hasSize(3);
     assertContent("new", rr.get(0).findEntry());
     assertContent("old", rr.get(1).findEntry());
   }
@@ -47,7 +36,7 @@ public class RevisionsAndDiffsTest extends IntegrationTestCase {
     setContent(f, "foo");
 
     List<Revision> rr = getRevisionsFor(f);
-    assertEquals(3, rr.size());
+    assertThat(rr).hasSize(3);
 
     assertNull(rr.get(1).getChangeSetName());
     assertEquals("name", rr.get(2).getChangeSetName());
@@ -72,7 +61,7 @@ public class RevisionsAndDiffsTest extends IntegrationTestCase {
     assertContent("content", e);
   }
 
-  public void testCurrentRevisionForDirectoryAfterPurge() throws Exception {
+  public void testCurrentRevisionForDirectoryAfterPurge() throws IOException {
     Clock.setTime(10);
     VirtualFile f = createDirectory("dir");
     getVcs().getChangeListInTests().purgeObsolete(0);
@@ -135,14 +124,14 @@ public class RevisionsAndDiffsTest extends IntegrationTestCase {
     assertEquals(10L, rr.get(3).getTimestamp());
   }
 
-  public void testTimestampForCurrentRevisionAfterPurgeFromCurrentTimestamp() throws IOException {
+  public void testTimestampForCurrentRevisionAfterPurgeFromCurrentTimestamp() {
     VirtualFile f = createFile("file.txt");
     getVcs().getChangeListInTests().purgeObsolete(0);
 
     assertEquals(f.getTimeStamp(), getRevisionsFor(f).get(0).getTimestamp());
   }
 
-  public void testTimestampForLastRevisionAfterPurge() throws IOException {
+  public void testTimestampForLastRevisionAfterPurge() {
     Clock.setTime(10);
     VirtualFile f = createFile("file1.txt");
 
@@ -162,39 +151,38 @@ public class RevisionsAndDiffsTest extends IntegrationTestCase {
   public void testRevisionsForFileCreatedWithSameNameAsDeletedOne() throws IOException {
     VirtualFile f = createFile("file.txt", "old");
     loadContent(f);
-    f.delete(this);
+    VfsTestUtil.deleteFile(f);
     f = createFile("file.txt", "new");
     loadContent(f);
 
     List<Revision> rr = getRevisionsFor(f);
-    assertEquals(4, rr.size());
+    assertThat(rr).hasSize(4);
 
     Entry e = rr.get(0).findEntry();
-    assertEquals("file.txt", e.getName());
+    assertThat(e.getName()).isEqualTo("file.txt");
     assertContent("new", e);
 
-    assertNull(rr.get(1).findEntry());
+    assertThat(rr.get(1).findEntry()).isNull();
 
     e = rr.get(2).findEntry();
-    assertEquals("file.txt", e.getName());
+    assertThat(e.getName()).isEqualTo("file.txt");
     assertContent("old", e);
 
-    assertNull(rr.get(3).findEntry());
+    assertThat(rr.get(3).findEntry()).isNull();
   }
 
-  public void testRevisionForDirectoryWithTheSameNameAsDeletedOne() throws IOException {
+  public void testRevisionForDirectoryWithTheSameNameAsDeletedOne() {
     VirtualFile dir = createDirectory("dir");
-    dir.delete(this);
+    delete(dir);
     dir = createDirectory("dir");
 
-    List<Revision> rr = getRevisionsFor(dir);
-    assertEquals(4, rr.size());
+    assertThat(getRevisionsFor(dir)).hasSize(4);
   }
 
   public void testRevisionForRestoredDirectoryWithRestoreChildren() throws IOException {
     VirtualFile dir = createDirectory("dir");
     createFile("dir/f.txt");
-    dir.delete(this);
+    delete(dir);
 
     getVcs().beginChangeSet();
     dir = createDirectory("dir");
@@ -208,18 +196,18 @@ public class RevisionsAndDiffsTest extends IntegrationTestCase {
     assertEquals(1, rr.get(2).findEntry().getChildren().size());
     assertEquals(0, rr.get(3).findEntry().getChildren().size());
 
-    assertEquals(4, getRevisionsFor(f).size());
+    assertThat(getRevisionsFor(f)).hasSize(4);
   }
 
   public void testRevisionsForFileThatWasCreatedAndDeletedInOneChangeSet() throws IOException {
     getVcs().beginChangeSet();
     VirtualFile f = createFile("f.txt");
     getVcs().endChangeSet("1");
-    f.delete(this);
+    delete(f);
 
     getVcs().beginChangeSet();
     f = createFile("f.txt");
-    f.delete(this);
+    delete(f);
     getVcs().endChangeSet("2");
 
     getVcs().beginChangeSet();
@@ -227,7 +215,7 @@ public class RevisionsAndDiffsTest extends IntegrationTestCase {
     getVcs().endChangeSet("3");
 
     getVcs().beginChangeSet();
-    f.delete(this);
+    delete(f);
     f = createFile("f.txt");
     getVcs().endChangeSet("4");
 
@@ -243,7 +231,7 @@ public class RevisionsAndDiffsTest extends IntegrationTestCase {
   public void testRevisionsForFileCreatedInPlaceOfRenamedOne() throws IOException {
     VirtualFile f = createFile("file1.txt", "content1");
     loadContent(f);
-    f.rename("file1", "file2.txt");
+    rename(f, "file2.txt");
     VirtualFile ff = createFile("file1.txt", "content2");
     loadContent(ff);
 
@@ -266,20 +254,20 @@ public class RevisionsAndDiffsTest extends IntegrationTestCase {
     assertContent("content1", e);
   }
 
-  public void testRevisionsIfSomeFilesWereDeletedDuringChangeSet() throws IOException {
+  public void testRevisionsIfSomeFilesWereDeletedDuringChangeSet() {
     VirtualFile dir = createDirectory("dir");
     VirtualFile f = createFile("dir/f.txt");
     getVcs().beginChangeSet();
-    f.delete(this);
+    delete(f);
 
     List<Revision> rr = getRevisionsFor(dir);
     assertEquals(4, rr.size());
   }
 
-  public void testGettingEntryFromRevisionInRenamedDir() throws IOException {
+  public void testGettingEntryFromRevisionInRenamedDir() {
     VirtualFile dir = createDirectory("dir");
-    VirtualFile f = createFile("dir/file.txt");
-    dir.rename("dir", "newDir");
+    VirtualFile f = TemporaryDirectory.createVirtualFile(dir, "file.txt", null);
+    rename(dir, "newDir");
     setContent(f, "xxx");
 
     List<Revision> rr = getRevisionsFor(f);
@@ -308,7 +296,7 @@ public class RevisionsAndDiffsTest extends IntegrationTestCase {
     assertContent("two", d.getRight());
   }
 
-  public void testDifferenceForDirectory() throws IOException {
+  public void testDifferenceForDirectory() {
     VirtualFile dir = createDirectory("dir");
     VirtualFile f = createFile("dir/file.txt");
 
@@ -326,17 +314,17 @@ public class RevisionsAndDiffsTest extends IntegrationTestCase {
     assertEquals("file.txt", d.getRight().getName());
   }
 
-  public void testNoDifferenceForDirectoryWithEqualContents() throws IOException {
+  public void testNoDifferenceForDirectoryWithEqualContents() {
     VirtualFile dir = createDirectory("dir");
     VirtualFile f = createFile("dir/file.txt");
-    f.delete(this);
+    delete(f);
 
     List<Revision> rr = getRevisionsFor(dir);
 
     assertTrue(rr.get(0).getDifferencesWith(rr.get(2)).isEmpty());
   }
 
-  public void testDoesNotIncludeNotModifiedDifferences() throws IOException {
+  public void testDoesNotIncludeNotModifiedDifferences() {
     getVcs().beginChangeSet();
     VirtualFile dir = createDirectory("dir1");
     createFile("dir1/dir2/file.txt");
@@ -357,19 +345,19 @@ public class RevisionsAndDiffsTest extends IntegrationTestCase {
     assertEquals(myRoot.getPath() + "/dir1/dir3/file.txt", d.getRight().getPath());
   }
 
-  public void testFilteredRevisionsDoNotContainLabels() throws Exception {
+  public void testFilteredRevisionsDoNotContainLabels() {
     createFile("foo.txt");
     LocalHistory.getInstance().putSystemLabel(myProject, "1", -1);
     createFile("bar.txt");
     LocalHistory.getInstance().putSystemLabel(myProject, "2", -1);
 
-    assertEquals(5, getRevisionsFor(myRoot).size());
+    assertEquals(6, getRevisionsFor(myRoot).size());
     assertEquals(3, getRevisionsFor(myRoot, "*.txt").size());
   }
 
   public void testFilteredRevisionsIfNothingFound() throws Exception {
     createFile("foo.txt");
-    assertEquals(2, getRevisionsFor(myRoot).size());
+    assertEquals(3, getRevisionsFor(myRoot).size());
     assertEquals(1, getRevisionsFor(myRoot, "xxx").size());
   }
 
@@ -379,11 +367,11 @@ public class RevisionsAndDiffsTest extends IntegrationTestCase {
     LocalHistory.getInstance().putSystemLabel(myProject, "2", -1);
     assertEquals(3, getRevisionsFor(f).size());
   }
-  
+
   public void testDoNotIncludeLabelsWhenFileDidNotExist() throws Exception {
     VirtualFile f = createFile("foo.txt");
     LocalHistory.getInstance().putSystemLabel(myProject, "1", -1);
-    f.delete(this);
+    delete(f);
     LocalHistory.getInstance().putSystemLabel(myProject, "2", -1);
     f = createFile("foo.txt");
     LocalHistory.getInstance().putSystemLabel(myProject, "3", -1);

@@ -1,12 +1,13 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.editorconfig.configmanagement;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.fileEditor.FileDocumentManagerAdapter;
-import com.intellij.openapi.fileEditor.FileEditorManager;
-import com.intellij.openapi.fileEditor.FileEditorManagerEvent;
+import com.intellij.openapi.fileEditor.FileDocumentManagerListener;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectLocator;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFrame;
@@ -14,7 +15,6 @@ import com.intellij.openapi.wm.StatusBar;
 import com.intellij.openapi.wm.StatusBarWidget;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.openapi.wm.impl.status.LineSeparatorPanel;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.util.LineSeparator;
 import org.editorconfig.Utils;
 import org.editorconfig.core.EditorConfig;
@@ -22,73 +22,66 @@ import org.editorconfig.plugincomponents.SettingsProviderComponent;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
-import java.util.Locale;
 
-/**
- * @author Dennis.Ushakov
- */
-public class LineEndingsManager extends FileDocumentManagerAdapter {
+public final class LineEndingsManager implements FileDocumentManagerListener {
   // Handles the following EditorConfig settings:
-  private static final String lineEndingsKey = "end_of_line";
+  public static final String lineEndingsKey = "end_of_line";
 
-  private final Project myProject;
   private boolean statusBarUpdated = false;
-
-  public LineEndingsManager(Project project) {
-    this.myProject = project;
-  }
 
   @Override
   public void beforeAllDocumentsSaving() {
     statusBarUpdated = false;
   }
 
-  private void updateStatusBar() {
-    ApplicationManager.getApplication().invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        IdeFrame frame = WindowManager.getInstance().getIdeFrame(myProject);
-        StatusBar statusBar = frame != null ? frame.getStatusBar() : null;
-        StatusBarWidget widget = statusBar != null ? statusBar.getWidget("LineSeparator") : null;
-
-        if (widget instanceof LineSeparatorPanel) {
-          FileEditorManagerEvent event = new FileEditorManagerEvent(FileEditorManager.getInstance(myProject),
-                                                                    null, null, null, null);
-          ((LineSeparatorPanel)widget).selectionChanged(event);
-        }
+  private static void updateStatusBar(Project project) {
+    ApplicationManager.getApplication().invokeLater(() -> {
+      IdeFrame frame = WindowManager.getInstance().getIdeFrame(project);
+      StatusBar statusBar = frame != null ? frame.getStatusBar() : null;
+      StatusBarWidget widget = statusBar == null ? null : statusBar.getWidget(StatusBar.StandardWidgets.LINE_SEPARATOR_PANEL);
+      if (widget instanceof LineSeparatorPanel) {
+        ((LineSeparatorPanel)widget).selectionChanged((VirtualFile)null);
       }
     });
   }
 
   @Override
   public void beforeDocumentSaving(@NotNull Document document) {
+    if (ApplicationManager.getApplication().isUnitTestMode()) return;
+
     VirtualFile file = FileDocumentManager.getInstance().getFile(document);
-    applySettings(file);
+    if (file == null) return;
+    Project project = ProjectLocator.getInstance().guessProjectForFile(file);
+    if (project != null) {
+      applySettings(project, file);
+    }
   }
 
-  private void applySettings(VirtualFile file) {
-    if (file == null) return;
-    if (!Utils.isEnabled(CodeStyleSettingsManager.getInstance(myProject).getCurrentSettings())) return;
+  private void applySettings(Project project, VirtualFile file) {
+    if (!Utils.isEnabled(CodeStyle.getSettings(project))) {
+      return;
+    }
 
-    final String filePath = Utils.getFilePath(myProject, file);
-    final List<EditorConfig.OutPair> outPairs = SettingsProviderComponent.getInstance().getOutPairs(myProject, filePath);
+    final List<EditorConfig.OutPair> outPairs = SettingsProviderComponent.getInstance().getOutPairs(project, file);
     final String lineEndings = Utils.configValueForKey(outPairs, lineEndingsKey);
-    if (!lineEndings.isEmpty()) {
-      try {
-        LineSeparator separator = LineSeparator.valueOf(lineEndings.toUpperCase(Locale.US));
-        String oldSeparator = file.getDetectedLineSeparator();
-        String newSeparator = separator.getSeparatorString();
-        if (!StringUtil.equals(oldSeparator, newSeparator)) {
-          file.setDetectedLineSeparator(newSeparator);
-          if (!statusBarUpdated) {
-            statusBarUpdated = true;
-            updateStatusBar();
-          }
+    if (lineEndings.isEmpty()) {
+      return;
+    }
+
+    try {
+      LineSeparator separator = LineSeparator.valueOf(StringUtil.toUpperCase(lineEndings));
+      String oldSeparator = file.getDetectedLineSeparator();
+      String newSeparator = separator.getSeparatorString();
+      if (!StringUtil.equals(oldSeparator, newSeparator)) {
+        file.setDetectedLineSeparator(newSeparator);
+        if (!statusBarUpdated) {
+          statusBarUpdated = true;
+          updateStatusBar(project);
         }
       }
-      catch (IllegalArgumentException e) {
-        Utils.invalidConfigMessage(myProject, lineEndings, lineEndingsKey, filePath);
-      }
+    }
+    catch (IllegalArgumentException e) {
+      Utils.invalidConfigMessage(project, lineEndings, lineEndingsKey, file.getCanonicalPath());
     }
   }
 }

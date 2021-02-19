@@ -1,41 +1,35 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.json;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.json.formatter.JsonCodeStyleSettings;
-import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
-import com.intellij.testFramework.PlatformTestCase;
+import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.TestDataPath;
-import com.intellij.testFramework.TestLoggerFactory;
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.BasePlatformTestCase;
+import com.intellij.testFramework.fixtures.IdeaTestExecutionPolicy;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Mikhail Golubev
  */
 @TestDataPath("$CONTENT_ROOT/testData")
-public abstract class JsonTestCase extends LightCodeInsightFixtureTestCase {
-  static {
-    Logger.setFactory(TestLoggerFactory.class);
-  }
+public abstract class JsonTestCase extends BasePlatformTestCase {
 
-  protected static final Logger LOG = Logger.getInstance(JsonTestCase.class);
-
-  @Override
-  public void setUp() throws Exception {
-    PlatformTestCase.autodetectPlatformPrefix();
-    //IdeaTestCase.initPlatformPrefix();
-    super.setUp();
+  @NotNull
+  protected CodeStyleSettings getCodeStyleSettings() {
+    return CodeStyle.getSettings(getProject());
   }
 
   @NotNull
   protected CommonCodeStyleSettings getCommonCodeStyleSettings() {
-    return CodeStyleSettingsManager.getSettings(getProject()).getCommonSettings(JsonLanguage.INSTANCE);
+    return getCodeStyleSettings().getCommonSettings(JsonLanguage.INSTANCE);
   }
 
   @NotNull
   protected JsonCodeStyleSettings getCustomCodeStyleSettings() {
-    return CodeStyleSettingsManager.getSettings(getProject()).getCustomSettings(JsonCodeStyleSettings.class);
+    return getCodeStyleSettings().getCustomSettings(JsonCodeStyleSettings.class);
   }
 
   @NotNull
@@ -45,8 +39,14 @@ public abstract class JsonTestCase extends LightCodeInsightFixtureTestCase {
     return options;
   }
 
+  @Override
   @NotNull
   public String getBasePath() {
+    String communityPath = PlatformTestUtil.getCommunityPath();
+    String homePath = IdeaTestExecutionPolicy.getHomePathWithPolicy();
+    if (communityPath.startsWith(homePath)) {
+      return communityPath.substring(homePath.length()) + "/json/tests/testData";
+    }
     return "/json/tests/testData";
   }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeHighlighting;
 
 import com.intellij.icons.AllIcons;
@@ -22,53 +8,76 @@ import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.ui.IconManager;
 import com.intellij.ui.JBColor;
-import com.intellij.util.IconUtil;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.ObjectUtils;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.ui.ColorIcon;
-import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.EmptyIcon;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.HashMap;
 import java.util.Map;
 
 public class HighlightDisplayLevel {
-  private static final Map<HighlightSeverity, HighlightDisplayLevel> ourMap = new HashMap<HighlightSeverity, HighlightDisplayLevel>();
+  private static final Map<HighlightSeverity, HighlightDisplayLevel> ourMap = new HashMap<>();
 
-  public static final HighlightDisplayLevel GENERIC_SERVER_ERROR_OR_WARNING = new HighlightDisplayLevel(HighlightSeverity.GENERIC_SERVER_ERROR_OR_WARNING,
-                                                                                                        createIconByKey(CodeInsightColors.GENERIC_SERVER_ERROR_OR_WARNING));
-  public static final HighlightDisplayLevel ERROR = new HighlightDisplayLevel(HighlightSeverity.ERROR, createErrorIcon());
+  public static final HighlightDisplayLevel GENERIC_SERVER_ERROR_OR_WARNING =
+    new HighlightDisplayLevel(HighlightSeverity.GENERIC_SERVER_ERROR_OR_WARNING,
+                              createIconPair(CodeInsightColors.GENERIC_SERVER_ERROR_OR_WARNING,
+                                             AllIcons.General.InspectionsWarning, AllIcons.General.InspectionsWarningEmpty));
 
-  @NotNull
-  private static Icon createErrorIcon() {
-    return new SingleColorIcon(CodeInsightColors.ERRORS_ATTRIBUTES) {
-      @Override
-      public void paintIcon(Component c, Graphics g, int x, int y) {
-        IconUtil.colorize(AllIcons.General.InspectionsError, getColor()).paintIcon(c, g, x, y);
-      }
-    };
-  }
+  public static final HighlightDisplayLevel ERROR =
+    new HighlightDisplayLevel(HighlightSeverity.ERROR,
+                              createIconPair(CodeInsightColors.ERRORS_ATTRIBUTES,
+                                             AllIcons.General.InspectionsError, AllIcons.General.InspectionsErrorEmpty));
 
-  public static final HighlightDisplayLevel WARNING = new HighlightDisplayLevel(HighlightSeverity.WARNING, createIconByKey(CodeInsightColors.WARNINGS_ATTRIBUTES));
-  private static final Icon DO_NOT_SHOW_KEY = createIconByKey(TextAttributesKey.createTextAttributesKey("DO_NOT_SHOW"));
-  public static final HighlightDisplayLevel DO_NOT_SHOW = new HighlightDisplayLevel(HighlightSeverity.INFORMATION, DO_NOT_SHOW_KEY);
+  public static final HighlightDisplayLevel WARNING =
+    new HighlightDisplayLevel(HighlightSeverity.WARNING,
+                              createIconPair(CodeInsightColors.WARNINGS_ATTRIBUTES,
+                                             AllIcons.General.InspectionsWarning, AllIcons.General.InspectionsWarningEmpty));
+
+  private static final TextAttributesKey DO_NOT_SHOW_KEY = TextAttributesKey.createTextAttributesKey("DO_NOT_SHOW");
+  public static final HighlightDisplayLevel DO_NOT_SHOW = new HighlightDisplayLevel(HighlightSeverity.INFORMATION, EmptyIcon.ICON_0);
   /**
-   * use #WEAK_WARNING instead
+   * @deprecated use {@link #WEAK_WARNING} instead
    */
   @Deprecated
-  public static final HighlightDisplayLevel INFO = new HighlightDisplayLevel(HighlightSeverity.INFO, DO_NOT_SHOW.getIcon());
-  public static final HighlightDisplayLevel WEAK_WARNING = new HighlightDisplayLevel(HighlightSeverity.WEAK_WARNING, createIconByKey(CodeInsightColors.WEAK_WARNING_ATTRIBUTES));
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public static final HighlightDisplayLevel INFO = new HighlightDisplayLevel(HighlightSeverity.INFO, createIconByKey(DO_NOT_SHOW_KEY));
 
-  public static final HighlightDisplayLevel NON_SWITCHABLE_ERROR = new HighlightDisplayLevel(HighlightSeverity.ERROR);
+  public static final HighlightDisplayLevel WEAK_WARNING =
+    new HighlightDisplayLevel(HighlightSeverity.WEAK_WARNING,
+                              createIconPair(CodeInsightColors.WEAK_WARNING_ATTRIBUTES,
+                                             AllIcons.General.InspectionsWarning, AllIcons.General.InspectionsWarningEmpty));
 
-  private Icon myIcon;
+  public static final HighlightDisplayLevel NON_SWITCHABLE_ERROR = new HighlightDisplayLevel(HighlightSeverity.ERROR) {
+    @Override
+    public boolean isNonSwitchable() {
+      return true;
+    }
+  };
+  public static final HighlightDisplayLevel NON_SWITCHABLE_WARNING = new HighlightDisplayLevel(HighlightSeverity.WARNING) {
+    @Override
+    public boolean isNonSwitchable() {
+      return true;
+    }
+  };
+
+  private Pair<Icon, Icon> myIconPair = new Pair<>(null, null);
   private final HighlightSeverity mySeverity;
 
   @Nullable
   public static HighlightDisplayLevel find(String name) {
+    if ("NON_SWITCHABLE_ERROR".equals(name)) return NON_SWITCHABLE_ERROR;
+    if ("NON_SWITCHABLE_WARNING".equals(name)) return NON_SWITCHABLE_WARNING;
     for (Map.Entry<HighlightSeverity, HighlightDisplayLevel> entry : ourMap.entrySet()) {
       HighlightSeverity severity = entry.getKey();
       HighlightDisplayLevel displayLevel = entry.getValue();
@@ -84,8 +93,12 @@ public class HighlightDisplayLevel {
   }
 
   public HighlightDisplayLevel(@NotNull HighlightSeverity severity, @NotNull Icon icon) {
+    this(severity, new Pair<>(icon, icon));
+  }
+
+  public HighlightDisplayLevel(@NotNull HighlightSeverity severity, Pair<@NotNull Icon, @NotNull Icon> iconPair) {
     this(severity);
-    myIcon = icon;
+    myIconPair = iconPair;
     ourMap.put(mySeverity, this);
   }
 
@@ -94,17 +107,21 @@ public class HighlightDisplayLevel {
   }
 
 
-  public String toString() {
+  public @NonNls String toString() {
     return mySeverity.toString();
   }
 
   @NotNull
-  public String getName() {
+  public @NonNls String getName() {
     return mySeverity.getName();
   }
 
   public Icon getIcon() {
-    return myIcon;
+    return myIconPair.first;
+  }
+
+  public Icon getOutlineIcon() {
+    return myIconPair.second;
   }
 
   @NotNull
@@ -112,23 +129,33 @@ public class HighlightDisplayLevel {
     return mySeverity;
   }
 
+  public boolean isNonSwitchable() {
+    return false;
+  }
+
   public static void registerSeverity(@NotNull HighlightSeverity severity, @NotNull TextAttributesKey key, @Nullable Icon icon) {
-    Icon severityIcon = icon != null ? icon : createIconByKey(key);
-    final HighlightDisplayLevel level = ourMap.get(severity);
+    Pair<Icon, Icon> iconPair = icon != null ? new Pair<> (icon, icon) : createIconByKey(key);
+    HighlightDisplayLevel level = ourMap.get(severity);
     if (level == null) {
-      new HighlightDisplayLevel(severity, severityIcon);
+      new HighlightDisplayLevel(severity, iconPair);
     }
     else {
-      level.myIcon = severityIcon;
+      level.myIconPair = iconPair;
     }
   }
 
   public static int getEmptyIconDim() {
-    return JBUI.scale(14);
+    return JBUIScale.scale(14);
   }
 
-  public static Icon createIconByKey(@NotNull TextAttributesKey key) {
-    return new SingleColorIcon(key);
+  private static Pair<Icon, Icon> createIconByKey(@NotNull TextAttributesKey key) {
+    return StringUtil.containsIgnoreCase(key.getExternalName(), "error") ?
+           createIconPair(key, AllIcons.General.InspectionsError, AllIcons.General.InspectionsErrorEmpty) :
+           createIconPair(key, AllIcons.General.InspectionsWarning, AllIcons.General.InspectionsWarningEmpty);
+  }
+
+  private static Pair<Icon, Icon> createIconPair(@NotNull TextAttributesKey key, @NotNull Icon first, @NotNull Icon second) {
+    return new Pair<>(new ColorizedIcon(key, first), new ColorizedIcon(key, second));
   }
 
   @NotNull
@@ -137,7 +164,7 @@ public class HighlightDisplayLevel {
   }
 
   private static class MyColorIcon extends ColorIcon implements ColoredIcon {
-    public MyColorIcon(int size, @NotNull Color color) {
+    MyColorIcon(int size, @NotNull Color color) {
       super(size, color);
     }
 
@@ -151,26 +178,38 @@ public class HighlightDisplayLevel {
     Color getColor();
   }
 
-  public static class SingleColorIcon implements Icon, ColoredIcon {
+  private static class SingleColorIcon implements Icon, ColoredIcon {
     private final TextAttributesKey myKey;
 
-    public SingleColorIcon(@NotNull TextAttributesKey key) {
+    private SingleColorIcon(@NotNull TextAttributesKey key) {
       myKey = key;
     }
 
+    @Override
     @NotNull
     public Color getColor() {
       return ObjectUtils.notNull(getColorInner(), JBColor.GRAY);
     }
 
     @Nullable
-    public Color getColorInner() {
+    private Color getColorInner() {
       final EditorColorsManager manager = EditorColorsManager.getInstance();
       if (manager != null) {
         TextAttributes attributes = manager.getGlobalScheme().getAttributes(myKey);
-        Color stripe = attributes.getErrorStripeColor();
+        Color stripe = attributes == null ? null : attributes.getErrorStripeColor();
         if (stripe != null) return stripe;
-        return attributes.getEffectColor();
+        if (attributes != null) {
+          Color effectColor = attributes.getEffectColor();
+          if (effectColor != null) {
+            return effectColor;
+          }
+          Color foregroundColor = attributes.getForegroundColor();
+          if (foregroundColor != null) {
+            return foregroundColor;
+          }
+          return attributes.getBackgroundColor();
+        }
+        return null;
       }
       TextAttributes defaultAttributes = myKey.getDefaultAttributes();
       if (defaultAttributes == null) defaultAttributes = TextAttributes.ERASE_MARKER;
@@ -180,7 +219,9 @@ public class HighlightDisplayLevel {
     @Override
     public void paintIcon(Component c, Graphics g, int x, int y) {
       g.setColor(getColor());
-      g.fillRect(x + 2, y + 2, 10, 10);
+      int shift = JBUIScale.scale(2);
+      int size = JBUIScale.scale(10);
+      g.fillRect(x + shift, y + shift, size, size);
     }
 
     @Override
@@ -191,6 +232,30 @@ public class HighlightDisplayLevel {
     @Override
     public int getIconHeight() {
       return getEmptyIconDim();
+    }
+  }
+
+  private static final class ColorizedIcon extends SingleColorIcon {
+    private final Icon baseIcon;
+
+    private ColorizedIcon(@NotNull TextAttributesKey key, @NotNull Icon baseIcon) {
+      super(key);
+      this.baseIcon = baseIcon;
+    }
+
+    @Override
+    public void paintIcon(Component c, Graphics g, int x, int y) {
+      IconManager.getInstance().colorize((Graphics2D)g, baseIcon, getColor()).paintIcon(c, g, x, y);
+    }
+
+    @Override
+    public int getIconWidth() {
+      return baseIcon.getIconWidth();
+    }
+
+    @Override
+    public int getIconHeight() {
+      return baseIcon.getIconHeight();
     }
   }
 }

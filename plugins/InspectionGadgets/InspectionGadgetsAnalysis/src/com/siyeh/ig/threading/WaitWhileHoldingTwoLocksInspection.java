@@ -27,13 +27,6 @@ public class WaitWhileHoldingTwoLocksInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "wait.while.holding.two.locks.display.name");
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message(
       "wait.while.holding.two.locks.problem.descriptor");
@@ -58,8 +51,8 @@ public class WaitWhileHoldingTwoLocksInspection extends BaseInspection {
     }
 
     private void checkErrorsIn(PsiElement context) {
-      context.accept(new JavaRecursiveElementVisitor() {
-        private int m_numLocksHeld = 0;
+      context.accept(new JavaRecursiveElementWalkingVisitor() {
+        private int m_numLocksHeld;
 
         @Override
         public void visitClass(PsiClass aClass) {
@@ -67,8 +60,7 @@ public class WaitWhileHoldingTwoLocksInspection extends BaseInspection {
         }
 
         @Override
-        public void visitMethodCallExpression(
-          @NotNull PsiMethodCallExpression expression) {
+        public void visitMethodCallExpression(@NotNull PsiMethodCallExpression expression) {
           super.visitMethodCallExpression(expression);
           if (m_numLocksHeld < 2) {
             return;
@@ -112,9 +104,6 @@ public class WaitWhileHoldingTwoLocksInspection extends BaseInspection {
             m_numLocksHeld++;
           }
           super.visitMethod(method);
-          if (method.hasModifierProperty(PsiModifier.SYNCHRONIZED)) {
-            m_numLocksHeld--;
-          }
         }
 
         @Override
@@ -122,7 +111,14 @@ public class WaitWhileHoldingTwoLocksInspection extends BaseInspection {
           @NotNull PsiSynchronizedStatement synchronizedStatement) {
           m_numLocksHeld++;
           super.visitSynchronizedStatement(synchronizedStatement);
-          m_numLocksHeld--;
+        }
+
+        @Override
+        protected void elementFinished(@NotNull PsiElement element) {
+          super.elementFinished(element);
+          if (element instanceof PsiMethod && ((PsiMethod)element).hasModifierProperty(PsiModifier.SYNCHRONIZED) || element instanceof PsiSynchronizedStatement) {
+            m_numLocksHeld--;
+          }
         }
       });
     }

@@ -31,10 +31,10 @@ import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: May 25, 2010
  */
 public class AntMultiPathStringConverter extends Converter<List<File>> implements CustomReferenceConverter<List<File>> {
 
+  @Override
   public List<File> fromString(@Nullable @NonNls String s, ConvertContext context) {
     final GenericAttributeValue attribValue = context.getInvocationElement().getParentOfType(GenericAttributeValue.class, false);
     if (attribValue == null) {
@@ -44,20 +44,22 @@ public class AntMultiPathStringConverter extends Converter<List<File>> implement
     if (path == null) {
       return null;
     }
-    final List<File> result = new ArrayList<File>();
+    final List<File> result = new ArrayList<>();
     Computable<String> basedirComputable = null;
     final PathTokenizer pathTokenizer = new PathTokenizer(path);
     while (pathTokenizer.hasMoreTokens()) {
       File file = new File(pathTokenizer.nextToken());
       if (!file.isAbsolute()) {
         if (basedirComputable == null) {
-          basedirComputable = new Computable<String>() {
+          basedirComputable = new Computable<>() {
             final String myBaseDir;
+
             {
               final AntDomProject antProject = getEffectiveAntProject(attribValue);
-              myBaseDir = antProject != null? antProject.getProjectBasedirPath() : null;
+              myBaseDir = antProject != null ? antProject.getProjectBasedirPath() : null;
             }
 
+            @Override
             public String compute() {
               return myBaseDir;
             }
@@ -82,6 +84,7 @@ public class AntMultiPathStringConverter extends Converter<List<File>> implement
     return project;
   }
 
+  @Override
   public String toString(@Nullable List<File> files, ConvertContext context) {
     final GenericAttributeValue attribValue = context.getInvocationElement().getParentOfType(GenericAttributeValue.class, false);
     if (attribValue == null) {
@@ -90,8 +93,8 @@ public class AntMultiPathStringConverter extends Converter<List<File>> implement
     return attribValue.getRawText();
   }
 
-  @NotNull
-  public PsiReference[] createReferences(GenericDomValue<List<File>> genericDomValue, PsiElement element, ConvertContext context) {
+  @Override
+  public PsiReference @NotNull [] createReferences(GenericDomValue<List<File>> genericDomValue, PsiElement element, ConvertContext context) {
     final GenericAttributeValue attributeValue = (GenericAttributeValue)genericDomValue;
 
     final String cpString = genericDomValue.getRawText();
@@ -99,7 +102,7 @@ public class AntMultiPathStringConverter extends Converter<List<File>> implement
       return PsiReference.EMPTY_ARRAY;
     }
 
-    final List<PsiReference> result = new ArrayList<PsiReference>();
+    final List<PsiReference> result = new ArrayList<>();
     final PathTokenizer pathTokenizer = new PathTokenizer(cpString);
     int searchFromIndex = 0;
     while (pathTokenizer.hasMoreTokens()) {
@@ -112,6 +115,6 @@ public class AntMultiPathStringConverter extends Converter<List<File>> implement
       }
     }
 
-    return result.toArray(new PsiReference[result.size()]);
+    return result.toArray(PsiReference.EMPTY_ARRAY);
   }
 }

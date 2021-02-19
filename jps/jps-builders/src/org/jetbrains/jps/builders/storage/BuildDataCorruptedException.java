@@ -20,12 +20,14 @@ import java.io.IOException;
 /**
  * This exception indicates that some internal build storage cannot be loaded or saved properly. Rebuild will be requested to recover from
  * the corruption.
- *
- * @author nik
  */
 public class BuildDataCorruptedException extends RuntimeException {
   public BuildDataCorruptedException(IOException cause) {
     super(cause);
+  }
+
+  public BuildDataCorruptedException(String message) {
+    super(message);
   }
 
   @Override

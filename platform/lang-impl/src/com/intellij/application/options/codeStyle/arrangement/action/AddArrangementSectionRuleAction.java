@@ -21,7 +21,6 @@ import com.intellij.application.options.codeStyle.arrangement.match.ArrangementS
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationBundle;
-import com.intellij.openapi.util.SystemInfoRt;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -30,15 +29,16 @@ import org.jetbrains.annotations.NotNull;
 public class AddArrangementSectionRuleAction extends AddArrangementRuleAction {
 
   public AddArrangementSectionRuleAction() {
-    getTemplatePresentation().setText(ApplicationBundle.message("arrangement.action.section.rule.add.text"));
-    getTemplatePresentation().setDescription(ApplicationBundle.message("arrangement.action.section.rule.add.description"));
-    getTemplatePresentation().setIcon(SystemInfoRt.isMac ? AllIcons.CodeStyle.Mac.AddNewSectionRule : AllIcons.CodeStyle.AddNewSectionRule);
+    getTemplatePresentation().setText(ApplicationBundle.messagePointer("arrangement.action.section.rule.add.text"));
+    getTemplatePresentation().setDescription(ApplicationBundle.messagePointer("arrangement.action.section.rule.add.description"));
+    getTemplatePresentation().setIcon(AllIcons.CodeStyle.AddNewSectionRule);
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final ArrangementMatchingRulesControl control = getRulesControl(e);
-    if (control == null || !(control instanceof ArrangementSectionRulesControl)) {
+    if (!(control instanceof ArrangementSectionRulesControl)) {
+      e.getPresentation().setEnabledAndVisible(false);
       return;
     }
     e.getPresentation().setEnabledAndVisible(((ArrangementSectionRulesControl)control).getSectionRuleManager() != null);

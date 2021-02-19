@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,13 +18,12 @@ package com.siyeh.ig.cloneable;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
-import com.intellij.psi.*;
-import com.intellij.psi.search.searches.SuperMethodsSearch;
-import com.intellij.psi.util.MethodSignatureBackedByPsiMethod;
+import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiMethod;
+import com.intellij.psi.PsiModifier;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -39,18 +38,12 @@ import javax.swing.*;
 
 public class CloneDeclaresCloneNotSupportedInspection extends BaseInspection {
 
-  private boolean onlyWarnOnProtectedClone = true;
+  @SuppressWarnings("PublicField") public boolean onlyWarnOnProtectedClone = true;
 
   @Override
   @NotNull
   public String getID() {
     return "CloneDoesntDeclareCloneNotSupportedException";
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("clone.doesnt.declare.clonenotsupportedexception.display.name");
   }
 
   @Override
@@ -72,22 +65,8 @@ public class CloneDeclaresCloneNotSupportedInspection extends BaseInspection {
   }
 
   @Override
-  public void readSettings(@NotNull Element node) throws InvalidDataException {
-    super.readSettings(node);
-    for (Element option : node.getChildren("option")) {
-      if ("onlyWarnOnProtectedClone".equals(option.getAttributeValue("name"))) {
-        onlyWarnOnProtectedClone = Boolean.parseBoolean(option.getAttributeValue("value"));
-      }
-    }
-  }
-
-  @Override
   public void writeSettings(@NotNull Element node) throws WriteExternalException {
-    super.writeSettings(node);
-    if (!onlyWarnOnProtectedClone) {
-      node.addContent(new Element("option").setAttribute("name", "onlyWarnOnProtectedClone")
-                        .setAttribute("value", String.valueOf(onlyWarnOnProtectedClone)));
-    }
+    writeBooleanOption(node, "onlyWarnOnProtectedClone", true);
   }
 
   @Override
@@ -99,17 +78,12 @@ public class CloneDeclaresCloneNotSupportedInspection extends BaseInspection {
 
     @Override
     @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message("clone.doesnt.declare.clonenotsupportedexception.declare.quickfix");
-    }
-    @Override
-    @NotNull
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("clone.doesnt.declare.clonenotsupportedexception.declare.quickfix");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement methodNameIdentifier = descriptor.getPsiElement();
       final PsiMethod method = (PsiMethod)methodNameIdentifier.getParent();
       PsiUtil.addException(method, "java.lang.CloneNotSupportedException");
@@ -125,6 +99,7 @@ public class CloneDeclaresCloneNotSupportedInspection extends BaseInspection {
 
     @Override
     public void visitMethod(@NotNull PsiMethod method) {
+      super.visitMethod(method);
       if (!CloneUtils.isClone(method)) {
         return;
       }
@@ -144,12 +119,8 @@ public class CloneDeclaresCloneNotSupportedInspection extends BaseInspection {
       if (MethodUtils.hasInThrows(method, "java.lang.CloneNotSupportedException")) {
         return;
       }
-      final MethodSignatureBackedByPsiMethod signature = SuperMethodsSearch.search(method, null, true, false).findFirst();
-      if (signature == null) {
-        return;
-      }
-      final PsiMethod superMethod = signature.getMethod();
-      if (!MethodUtils.hasInThrows(superMethod, "java.lang.CloneNotSupportedException")) {
+      final PsiMethod superMethod = MethodUtils.getSuper(method);
+      if (superMethod != null && !MethodUtils.hasInThrows(superMethod, "java.lang.CloneNotSupportedException")) {
         return;
       }
       registerMethodError(method);

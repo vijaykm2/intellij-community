@@ -1,64 +1,62 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.zmlx.hg4idea.repo;
 
+import com.intellij.dvcs.ignore.VcsIgnoredHolderUpdateListener;
 import com.intellij.dvcs.repo.RepositoryImpl;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.AbstractVcs;
+import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.changes.ChangesViewI;
+import com.intellij.openapi.vcs.changes.ChangesViewManager;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.Hash;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.zmlx.hg4idea.HgNameWithHashInfo;
 import org.zmlx.hg4idea.HgVcs;
 import org.zmlx.hg4idea.command.HgBranchesCommand;
 import org.zmlx.hg4idea.execution.HgCommandResult;
+import org.zmlx.hg4idea.provider.HgLocalIgnoredHolder;
 import org.zmlx.hg4idea.util.HgUtil;
 
 import java.util.*;
 
-public class HgRepositoryImpl extends RepositoryImpl implements HgRepository {
+public final class HgRepositoryImpl extends RepositoryImpl implements HgRepository {
 
   private static final Logger LOG = Logger.getInstance(HgRepositoryImpl.class);
 
+  @NotNull private final HgVcs myVcs;
   @NotNull private final HgRepositoryReader myReader;
   @NotNull private final VirtualFile myHgDir;
   @NotNull private volatile HgRepoInfo myInfo;
   @NotNull private Set<String> myOpenedBranches = Collections.emptySet();
 
   @NotNull private volatile HgConfig myConfig;
-  private boolean myIsFresh = true;
+  private final HgLocalIgnoredHolder myLocalIgnoredHolder;
 
 
   @SuppressWarnings("ConstantConditions")
   private HgRepositoryImpl(@NotNull VirtualFile rootDir, @NotNull HgVcs vcs,
                            @NotNull Disposable parentDisposable) {
     super(vcs.getProject(), rootDir, parentDisposable);
+    myVcs = vcs;
     myHgDir = rootDir.findChild(HgUtil.DOT_HG);
     assert myHgDir != null : ".hg directory wasn't found under " + rootDir.getPresentableUrl();
     myReader = new HgRepositoryReader(vcs, VfsUtilCore.virtualToIoFile(myHgDir));
     myConfig = HgConfig.getInstance(getProject(), rootDir);
+    myLocalIgnoredHolder = new HgLocalIgnoredHolder(this, HgUtil.getRepositoryManager(getProject()));
+    myLocalIgnoredHolder.setupListeners();
+    Disposer.register(this, myLocalIgnoredHolder);
+    myLocalIgnoredHolder.addUpdateStateListener(new MyIgnoredHolderAsyncListener(getProject()));
     update();
   }
 
@@ -77,6 +75,7 @@ public class HgRepositoryImpl extends RepositoryImpl implements HgRepository {
   private void setupUpdater() {
     HgRepositoryUpdater updater = new HgRepositoryUpdater(this);
     Disposer.register(this, updater);
+    myLocalIgnoredHolder.startRescan();
   }
 
   @NotNull
@@ -91,11 +90,11 @@ public class HgRepositoryImpl extends RepositoryImpl implements HgRepository {
     return myInfo.getState();
   }
 
-  @Nullable
-  @Override
   /**
    * Return active bookmark name if exist or heavy branch name otherwise
    */
+  @Nullable
+  @Override
   public String getCurrentBranchName() {
     String branchOrBookMarkName = getCurrentBookmark();
     if (StringUtil.isEmptyOrSpaces(branchOrBookMarkName)) {
@@ -104,10 +103,10 @@ public class HgRepositoryImpl extends RepositoryImpl implements HgRepository {
     return branchOrBookMarkName;
   }
 
-  @Nullable
+  @NotNull
   @Override
   public AbstractVcs getVcs() {
-    return HgVcs.getInstance(getProject());
+    return myVcs;
   }
 
   @Override
@@ -122,6 +121,7 @@ public class HgRepositoryImpl extends RepositoryImpl implements HgRepository {
     return myInfo.getCurrentRevision();
   }
 
+  @Override
   @Nullable
   public String getTipRevision() {
     return myInfo.getTipRevision();
@@ -129,7 +129,7 @@ public class HgRepositoryImpl extends RepositoryImpl implements HgRepository {
 
   @Override
   @NotNull
-  public Map<String, Set<Hash>> getBranches() {
+  public Map<String, LinkedHashSet<Hash>> getBranches() {
     return myInfo.getBranches();
   }
 
@@ -174,6 +174,7 @@ public class HgRepositoryImpl extends RepositoryImpl implements HgRepository {
     return myInfo.hasSubrepos();
   }
 
+  @Override
   @NotNull
   public Collection<HgNameWithHashInfo> getSubrepos() {
     return myInfo.getSubrepos();
@@ -195,17 +196,7 @@ public class HgRepositoryImpl extends RepositoryImpl implements HgRepository {
   @Override
   public List<String> getUnappliedPatchNames() {
     final List<String> appliedPatches = HgUtil.getNamesWithoutHashes(getMQAppliedPatches());
-    return ContainerUtil.filter(getAllPatchNames(), new Condition<String>() {
-      @Override
-      public boolean value(String s) {
-        return !appliedPatches.contains(s);
-      }
-    });
-  }
-
-  @Override
-  public boolean isFresh() {
-    return myIsFresh;
+    return ContainerUtil.filter(getAllPatchNames(), s -> !appliedPatches.contains(s));
   }
 
   @Override
@@ -213,7 +204,7 @@ public class HgRepositoryImpl extends RepositoryImpl implements HgRepository {
     HgRepoInfo currentInfo = readRepoInfo();
     // update only if something changed!!!   if update every time - new log will be refreshed every time, too.
     // Then blinking and do not work properly;
-    Project project = getProject();
+    final Project project = getProject();
     if (!project.isDisposed() && !currentInfo.equals(myInfo)) {
       myInfo = currentInfo;
       HgCommandResult branchCommandResult = new HgBranchesCommand(project, getRoot()).collectBranches();
@@ -224,12 +215,13 @@ public class HgRepositoryImpl extends RepositoryImpl implements HgRepository {
       else {
         myOpenedBranches = HgBranchesCommand.collectNames(branchCommandResult);
       }
-      if (!project.isDisposed()) {
-        project.getMessageBus().syncPublisher(HgVcs.STATUS_TOPIC).update(project, getRoot());
-      }
+
+      BackgroundTaskUtil.executeOnPooledThread(this, ()
+        -> BackgroundTaskUtil.syncPublisher(project, HgVcs.STATUS_TOPIC).update(project, getRoot()));
     }
   }
 
+  @NonNls
   @NotNull
   @Override
   public String toLogString() {
@@ -238,7 +230,6 @@ public class HgRepositoryImpl extends RepositoryImpl implements HgRepository {
 
   @NotNull
   private HgRepoInfo readRepoInfo() {
-    myIsFresh = myIsFresh && myReader.isFresh();
     //in GitRepositoryImpl there are temporary state object for reader fields storing! Todo Check;
     return
       new HgRepoInfo(myReader.readCurrentBranch(), myReader.readCurrentRevision(), myReader.readCurrentTipRevision(), myReader.readState(),
@@ -247,7 +238,36 @@ public class HgRepositoryImpl extends RepositoryImpl implements HgRepository {
                      myReader.readSubrepos(), myReader.readMQAppliedPatches(), myReader.readMqPatchNames());
   }
 
+  @Override
   public void updateConfig() {
     myConfig = HgConfig.getInstance(getProject(), getRoot());
+  }
+
+  @NotNull
+  @Override
+  public HgLocalIgnoredHolder getIgnoredFilesHolder() {
+    return myLocalIgnoredHolder;
+  }
+
+  private static class MyIgnoredHolderAsyncListener implements VcsIgnoredHolderUpdateListener {
+    @NotNull private final ChangesViewI myChangesViewI;
+    @NotNull private final Project myProject;
+
+    MyIgnoredHolderAsyncListener(@NotNull Project project) {
+      myChangesViewI = ChangesViewManager.getInstance(project);
+      myProject = project;
+    }
+
+    @Override
+    public void updateStarted() {
+      myChangesViewI.scheduleRefresh();//TODO optimize: remove additional refresh
+    }
+
+    @Override
+    public void updateFinished(@NotNull Collection<FilePath> ignoredPaths, boolean isFullRescan) {
+      if(myProject.isDisposed()) return;
+
+      myChangesViewI.scheduleRefresh();
+    }
   }
 }

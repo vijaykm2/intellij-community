@@ -15,6 +15,7 @@
  */
 package com.intellij.openapi.roots.ui.configuration.artifacts.sourceItems.actions;
 
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.deployment.DeploymentUtil;
@@ -22,25 +23,23 @@ import com.intellij.openapi.roots.ui.configuration.artifacts.ArtifactEditorEx;
 import com.intellij.openapi.roots.ui.configuration.artifacts.sourceItems.SourceItemsTree;
 import com.intellij.packaging.elements.PackagingElementOutputKind;
 import com.intellij.packaging.ui.PackagingSourceItem;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-/**
- * @author nik
- */
 public class PackAndPutIntoDefaultLocationAction extends PutIntoDefaultLocationActionBase {
   public PackAndPutIntoDefaultLocationAction(SourceItemsTree sourceItemsTree, ArtifactEditorEx artifactEditor) {
     super(sourceItemsTree, artifactEditor);
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final String jarName = suggestJarName();
     final String pathForJars = myArtifactEditor.getArtifact().getArtifactType().getDefaultPathFor(PackagingElementOutputKind.JAR_FILES);
     final Presentation presentation = e.getPresentation();
     if (jarName != null && pathForJars != null) {
-      presentation.setText("Pack Into " + DeploymentUtil.appendToPath(pathForJars, jarName + ".jar"));
+      presentation.setText(JavaUiBundle.message("action.text.pack.element.into.0", DeploymentUtil.appendToPath(pathForJars, jarName + ".jar")));
       presentation.setVisible(true);
     }
     else {
@@ -60,7 +59,7 @@ public class PackAndPutIntoDefaultLocationAction extends PutIntoDefaultLocationA
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final String pathForJars = myArtifactEditor.getArtifact().getArtifactType().getDefaultPathFor(PackagingElementOutputKind.JAR_FILES);
     final String jarName = suggestJarName();
     if (pathForJars != null) {

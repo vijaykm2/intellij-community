@@ -21,14 +21,11 @@ import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NonNls;
 
-/**
- * @author cdr
- */
 public class ModuleUrl extends AbstractUrl {
   @NonNls private static final String ELEMENT_TYPE = "module";
 
   public ModuleUrl(String url, String moduleName) {
-    super(url, moduleName,ELEMENT_TYPE);
+    super(url, moduleName, ELEMENT_TYPE);
   }
 
   @Override

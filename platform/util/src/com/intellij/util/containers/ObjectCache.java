@@ -17,6 +17,7 @@
 package com.intellij.util.containers;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EventListener;
 import java.util.Iterator;
 
@@ -27,9 +28,9 @@ public class ObjectCache<K,V> extends ObjectCacheBase implements Iterable<V> {
 
   private int myTop;
   private int myBack;
-  private CacheEntry<K, V>[] myCache;
-  private int[] myHashTable;
-  private int myHashTableSize;
+  private final CacheEntry<K, V>[] myCache;
+  private final int[] myHashTable;
+  private final int myHashTableSize;
   private int myCount;
   private int myFirstFree;
   private DeletedPairsListener[] myListeners;
@@ -53,9 +54,10 @@ public class ObjectCache<K,V> extends ObjectCacheBase implements Iterable<V> {
       cacheSize = MIN_SIZE;
     }
     myTop = myBack = 0;
+    //noinspection unchecked
     myCache = new CacheEntry[cacheSize + 1];
     for (int i = 0; i < myCache.length; ++i) {
-      myCache[i] = new CacheEntry<K,V>();
+      myCache[i] = new CacheEntry<>();
     }
     myHashTableSize = getAdjustedTableSize(cacheSize);
     myHashTable = new int[myHashTableSize];
@@ -102,7 +104,7 @@ public class ObjectCache<K,V> extends ObjectCacheBase implements Iterable<V> {
   }
 
   public void removeAll() {
-    final ArrayList<K> keys = new ArrayList<K>(count());
+    final ArrayList<K> keys = new ArrayList<>(count());
     int current = myTop;
     while (current > 0) {
       if (myCache[current].value != null) {
@@ -262,14 +264,14 @@ public class ObjectCache<K,V> extends ObjectCacheBase implements Iterable<V> {
 
   @Override
   public Iterator<V> iterator() {
-    return new ObjectCacheIterator<K, V>(this);
+    return new ObjectCacheIterator<>(this);
   }
 
-  protected class ObjectCacheIterator<K,V> implements Iterator<V> {
-    private final ObjectCache<K, V> myCache;
+  protected static class ObjectCacheIterator<K,V> implements Iterator<V> {
+    private final ObjectCache<? super K, ? extends V> myCache;
     private int myCurrentEntry;
 
-    public ObjectCacheIterator(ObjectCache<K, V> cache) {
+    public ObjectCacheIterator(ObjectCache<? super K, ? extends V> cache) {
       myCache = cache;
       myCurrentEntry = 0;
       cache.myCache[0].next = cache.myTop;
@@ -287,6 +289,7 @@ public class ObjectCache<K,V> extends ObjectCacheBase implements Iterable<V> {
 
     @Override
     public void remove() {
+      //noinspection unchecked
       myCache.remove((K)myCache.myCache[myCurrentEntry].key);
     }
   }
@@ -304,9 +307,7 @@ public class ObjectCache<K,V> extends ObjectCacheBase implements Iterable<V> {
       myListeners = new DeletedPairsListener[1];
     }
     else {
-      DeletedPairsListener[] newListeners = new DeletedPairsListener[myListeners.length + 1];
-      System.arraycopy(myListeners, 0, newListeners, 0, myListeners.length);
-      myListeners = newListeners;
+      myListeners = Arrays.copyOf(myListeners, myListeners.length + 1);
     }
     myListeners[myListeners.length - 1] = listener;
   }

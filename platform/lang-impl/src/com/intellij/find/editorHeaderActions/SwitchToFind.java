@@ -1,45 +1,57 @@
 package com.intellij.find.editorHeaderActions;
 
-import com.intellij.find.EditorSearchComponent;
+import com.intellij.find.EditorSearchSession;
 import com.intellij.find.FindModel;
-import com.intellij.find.FindUtil;
+import com.intellij.ide.lightEdit.LightEditCompatible;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.IdeActions;
+import com.intellij.openapi.editor.actionSystem.EditorAction;
 import com.intellij.openapi.keymap.KeymapUtil;
-import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.project.DumbAwareAction;
+import org.jetbrains.annotations.NotNull;
 
-/**
-* Created by IntelliJ IDEA.
-* User: zajac
-* Date: 05.03.11
-* Time: 10:57
-* To change this template use File | Settings | File Templates.
-*/
-public class SwitchToFind extends EditorHeaderAction implements DumbAware {
-  public SwitchToFind(EditorSearchComponent editorSearchComponent) {
-    super(editorSearchComponent);
+import javax.swing.*;
+
+public class SwitchToFind extends DumbAwareAction implements LightEditCompatible {
+  public SwitchToFind(@NotNull JComponent shortcutHolder) {
     AnAction findAction = ActionManager.getInstance().getAction(IdeActions.ACTION_FIND);
     if (findAction != null) {
-      registerCustomShortcutSet(findAction.getShortcutSet(), editorSearchComponent);
+      registerCustomShortcutSet(findAction.getShortcutSet(), shortcutHolder);
     }
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
+    EditorSearchSession search = e.getData(EditorSearchSession.SESSION_KEY);
+    if (search == null) {
+      e.getPresentation().setEnabledAndVisible(false);
+      return;
+    }
     if (KeymapUtil.isEmacsKeymap()) {
       // Emacs users are accustomed to the editor that executes 'find next' on subsequent pressing of shortcut that
       // activates 'incremental search'. Hence, we do the similar hack here for them.
-      AnAction action = ActionManager.getInstance().getAction(IdeActions.ACTION_FIND_NEXT);
-      action.update(e);
-      action.actionPerformed(e);
+      final EditorAction action = (EditorAction)ActionManager.getInstance().getAction(IdeActions.ACTION_FIND_NEXT);
+      action.update(search.getEditor(), e.getPresentation(), e.getDataContext());
+    }
+  }
+
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    EditorSearchSession search = e.getRequiredData(EditorSearchSession.SESSION_KEY);
+    if (KeymapUtil.isEmacsKeymap()) {
+      // Emacs users are accustomed to the editor that executes 'find next' on subsequent pressing of shortcut that
+      // activates 'incremental search'. Hence, we do the similar hack here for them.
+      final EditorAction action = (EditorAction)ActionManager.getInstance().getAction(IdeActions.ACTION_FIND_NEXT);
+      action.actionPerformed(search.getEditor(), e.getDataContext());
       return;
     }
 
-    EditorSearchComponent component = getEditorSearchComponent();
-    final FindModel findModel = component.getFindModel();
-    FindUtil.configureFindModel(false, null, findModel, false);
-    component.selectAllText();
+    final FindModel findModel = search.getFindModel();
+    if (findModel.isReplaceState()) {
+      findModel.setReplaceState(false);
+    }
+    search.getComponent().getSearchTextComponent().selectAll();
   }
 }

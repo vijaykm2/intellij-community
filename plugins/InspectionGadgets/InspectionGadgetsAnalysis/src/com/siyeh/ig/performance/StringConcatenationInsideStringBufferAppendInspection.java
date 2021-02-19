@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2012 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-20185 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,21 +22,16 @@ import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
+import com.siyeh.ig.psiutils.CommentTracker;
+import com.siyeh.ig.psiutils.ExpressionUtils;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 public class StringConcatenationInsideStringBufferAppendInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("string.concatenation.inside.string.buffer.append.display.name");
-  }
 
   @Override
   public boolean isEnabledByDefault() {
@@ -62,21 +57,16 @@ public class StringConcatenationInsideStringBufferAppendInspection extends BaseI
   }
 
   private static class ReplaceWithChainedAppendFix extends InspectionGadgetsFix {
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "string.concatenation.inside.string.buffer.append.replace.quickfix");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement methodNameElement = descriptor.getPsiElement();
       final PsiReferenceExpression methodExpression = (PsiReferenceExpression)methodNameElement.getParent();
       if (methodExpression == null) {
@@ -92,12 +82,13 @@ public class StringConcatenationInsideStringBufferAppendInspection extends BaseI
       }
       final PsiExpressionList argumentList = methodCallExpression.getArgumentList();
       final PsiExpression[] arguments = argumentList.getExpressions();
-      final PsiExpression argument = arguments[0];
+      CommentTracker ct = new CommentTracker();
+      final PsiExpression argument = ct.markUnchanged(arguments[0]);
       final PsiExpression appendExpression = ChangeToAppendUtil.buildAppendExpression(qualifier, argument);
       if (appendExpression == null) {
         return;
       }
-      methodCallExpression.replace(appendExpression);
+      ct.replaceAndRestoreComments(methodCallExpression, appendExpression);
     }
   }
 
@@ -117,7 +108,8 @@ public class StringConcatenationInsideStringBufferAppendInspection extends BaseI
         return;
       }
       final PsiExpression argument = arguments[0];
-      if (!isConcatenation(argument)) {
+      if (!ExpressionUtils.isStringConcatenation(PsiUtil.skipParenthesizedExprDown(argument)) ||
+          PsiUtil.isConstantExpression(argument)) {
         return;
       }
       final PsiMethod method = expression.resolveMethod();
@@ -144,24 +136,6 @@ public class StringConcatenationInsideStringBufferAppendInspection extends BaseI
         return;
       }
       registerMethodCallError(expression, containingClass);
-    }
-
-    private static boolean isConcatenation(PsiExpression expression) {
-      if (expression instanceof PsiParenthesizedExpression) {
-        final PsiParenthesizedExpression parenthesizedExpression = (PsiParenthesizedExpression)expression;
-        return isConcatenation(parenthesizedExpression.getExpression());
-      }
-      if (!(expression instanceof PsiPolyadicExpression)) {
-        return false;
-      }
-      if (PsiUtil.isConstantExpression(expression)) {
-        return false;
-      }
-      final PsiType type = expression.getType();
-      if (type == null) {
-        return false;
-      }
-      return type.equalsToText(CommonClassNames.JAVA_LANG_STRING);
     }
   }
 }

@@ -15,6 +15,7 @@
  */
 package com.intellij.xdebugger.impl.ui.tree;
 
+import com.intellij.openapi.util.NlsSafe;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -22,7 +23,6 @@ import java.awt.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Jan 27, 2007
  */
 public class ValueMarkup {
   private final String myText;
@@ -37,7 +37,7 @@ public class ValueMarkup {
   }
 
   @NotNull
-  public String getText() {
+  public @NlsSafe String getText() {
     return myText;
   }
 

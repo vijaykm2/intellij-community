@@ -15,29 +15,22 @@
  */
 package com.intellij.codeInsight.generation;
 
-import com.intellij.codeInsight.CodeInsightBundle;
-import com.intellij.openapi.options.ShowSettingsUtil;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.ComboBox;
-import com.intellij.openapi.ui.ComponentWithBrowseButton;
 import com.intellij.psi.PsiClass;
-import com.intellij.ui.ListCellRendererWrapper;
 import com.intellij.util.IncorrectOperationException;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.java.generate.template.TemplateResource;
-import org.jetbrains.java.generate.template.TemplatesManager;
-import org.jetbrains.java.generate.view.TemplatesPanel;
 
 import javax.swing.*;
-import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.util.Collection;
 
 public class GenerateGetterHandler extends GenerateGetterSetterHandlerBase {
   public GenerateGetterHandler() {
-    super(CodeInsightBundle.message("generate.getter.fields.chooser.title"));
+    super(JavaBundle.message("generate.getter.fields.chooser.title"));
+  }
+
+  @Override
+  protected String getHelpId() {
+    return "Generate_Getter_Dialog";
   }
 
   @Override
@@ -51,7 +44,7 @@ public class GenerateGetterHandler extends GenerateGetterSetterHandlerBase {
   @Nullable
   @Override
   protected JComponent getHeaderPanel(final Project project) {
-    return getHeaderPanel(project, GetterTemplatesManager.getInstance(), CodeInsightBundle.message("generate.equals.hashcode.template"));
+    return getHeaderPanel(project, GetterTemplatesManager.getInstance(), JavaBundle.message("generate.equals.hashcode.template"));
   }
 
   @Override
@@ -74,11 +67,11 @@ public class GenerateGetterHandler extends GenerateGetterSetterHandlerBase {
 
   @Override
   protected String getNothingFoundMessage() {
-    return "No fields have been found to generate getters for";
+    return JavaBundle.message("generate.getter.error.no.fields");
   }
 
   @Override
   protected String getNothingAcceptedMessage() {
-    return "No fields without getter were found";
+    return JavaBundle.message("generate.getter.error.no.fields.without.getters");
   }
 }

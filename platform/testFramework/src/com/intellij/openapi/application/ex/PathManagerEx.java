@@ -1,61 +1,42 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * Created by IntelliJ IDEA.
- * User: mike
- * Date: Aug 19, 2002
- * Time: 8:21:52 PM
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.application.ex;
 
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.module.impl.ModuleManagerImpl;
+import com.intellij.openapi.module.impl.ModulePath;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.JDOMUtil;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.testFramework.TestRunnerUtil;
-import com.intellij.util.PathUtil;
-import com.intellij.util.containers.ContainerUtil;
-import gnu.trove.THashSet;
+import com.intellij.testFramework.Parameterized;
+import com.intellij.testFramework.TestFrameworkUtil;
 import junit.framework.TestCase;
 import org.jdom.Element;
 import org.jdom.JDOMException;
-import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.serialization.JDomSerializationUtil;
+import org.jetbrains.jps.model.serialization.JpsProjectLoader;
 
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Modifier;
-import java.util.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import static com.intellij.openapi.util.io.FileUtil.toSystemDependentName;
-import static java.util.Arrays.asList;
-
-public class PathManagerEx {
-
+public final class PathManagerEx {
   /**
    * All IDEA project files may be logically divided by the following criteria:
    * <ul>
-   *   <li>files that are contained at <code>'community'</code> directory;</li>
+   *   <li>files that are contained at {@code 'community'} directory;</li>
    *   <li>all other files;</li>
    * </ul>
    * <p/>
@@ -68,13 +49,11 @@ public class PathManagerEx {
   /**
    * Caches test data lookup strategy by class.
    */
-  private static final ConcurrentMap<Class, TestDataLookupStrategy> CLASS_STRATEGY_CACHE =
-    ContainerUtil.newConcurrentMap();
-  private static final ConcurrentMap<String, Class> CLASS_CACHE = ContainerUtil.newConcurrentMap();
+  private static final ConcurrentMap<Class<?>, TestDataLookupStrategy> CLASS_STRATEGY_CACHE = new ConcurrentHashMap<>();
+  private static final ConcurrentMap<String, Class<?>> CLASS_CACHE = new ConcurrentHashMap<>();
   private static Set<String> ourCommunityModules;
 
-  private PathManagerEx() {
-  }
+  private PathManagerEx() { }
 
   /**
    * Enumerates possible strategies of test data lookup.
@@ -83,35 +62,35 @@ public class PathManagerEx {
    */
   public enum TestDataLookupStrategy {
     /**
-     * Stands for algorithm that retrieves <code>'test data'</code> stored at the <code>'ultimate'</code> project level assuming
-     * that it's used from the test running in context of <code>'ultimate'</code> project as well.
+     * Stands for algorithm that retrieves {@code 'test data'} stored at the {@code 'ultimate'} project level assuming
+     * that it's used from the test running in context of {@code 'ultimate'} project as well.
      * <p/>
-     * Is assumed to be default strategy for all <code>'ultimate'</code> tests.
+     * Is assumed to be default strategy for all {@code 'ultimate'} tests.
      */
     ULTIMATE,
 
     /**
-     * Stands for algorithm that retrieves <code>'test data'</code> stored at the <code>'community'</code> project level assuming
-     * that it's used from the test running in context of <code>'community'</code> project as well.
+     * Stands for algorithm that retrieves {@code 'test data'} stored at the {@code 'community'} project level assuming
+     * that it's used from the test running in context of {@code 'community'} project as well.
      * <p/>
-     * Is assumed to be default strategy for all <code>'community'</code> tests.
+     * Is assumed to be default strategy for all {@code 'community'} tests.
      */
     COMMUNITY,
 
     /**
-     * Stands for algorithm that retrieves <code>'test data'</code> stored at the <code>'community'</code> project level assuming
-     * that it's used from the test running in context of <code>'ultimate'</code> project.
+     * Stands for algorithm that retrieves {@code 'test data'} stored at the {@code 'community'} project level assuming
+     * that it's used from the test running in context of {@code 'ultimate'} project.
      */
     COMMUNITY_FROM_ULTIMATE
   }
 
   /**
-   * It's assumed that test data location for both <code>community</code> and <code>ultimate</code> tests follows the same template:
+   * It's assumed that test data location for both {@code community} and {@code ultimate} tests follows the same template:
    * <code>'<IDEA_HOME>/<RELATIVE_PATH>'</code>.
    * <p/>
-   * <code>'IDEA_HOME'</code> here stands for path to IDEA installation; <code>'RELATIVE_PATH'</code> defines a path to
-   * test data relative to IDEA installation path. That relative path may be different for <code>community</code>
-   * and <code>ultimate</code> tests.
+   * {@code 'IDEA_HOME'} here stands for path to IDEA installation; {@code 'RELATIVE_PATH'} defines a path to
+   * test data relative to IDEA installation path. That relative path may be different for {@code community}
+   * and {@code ultimate} tests.
    * <p/>
    * This collection contains mappings from test group type to relative paths to use, i.e. it's possible to define more than one
    * relative path for the single test group. It's assumed that path definition algorithm iterates them and checks if
@@ -119,20 +98,10 @@ public class PathManagerEx {
    * <p/>
    * Hence, the order of relative paths for the single test group matters.
    */
-  private static final Map<TestDataLookupStrategy, List<String>> TEST_DATA_RELATIVE_PATHS
-    = new EnumMap<TestDataLookupStrategy, List<String>>(TestDataLookupStrategy.class);
-
-  static {
-    TEST_DATA_RELATIVE_PATHS.put(TestDataLookupStrategy.ULTIMATE, Collections.singletonList(toSystemDependentName("testData")));
-    TEST_DATA_RELATIVE_PATHS.put(
-      TestDataLookupStrategy.COMMUNITY,
-      Collections.singletonList(toSystemDependentName("java/java-tests/testData"))
-    );
-    TEST_DATA_RELATIVE_PATHS.put(
-      TestDataLookupStrategy.COMMUNITY_FROM_ULTIMATE,
-      Collections.singletonList(toSystemDependentName("community/java/java-tests/testData"))
-    );
-  }
+  private static final List<Pair<TestDataLookupStrategy, String>> TEST_DATA_RELATIVE_PATHS = Arrays.asList(
+    new Pair<>(TestDataLookupStrategy.COMMUNITY_FROM_ULTIMATE, FileUtil.toSystemDependentName("community/java/java-tests/testData")),
+    new Pair<>(TestDataLookupStrategy.COMMUNITY, FileUtil.toSystemDependentName("java/java-tests/testData")),
+    new Pair<>(TestDataLookupStrategy.ULTIMATE, "testData"));
 
   /**
    * Shorthand for calling {@link #getTestDataPath(TestDataLookupStrategy)} with
@@ -141,14 +110,13 @@ public class PathManagerEx {
    * @return    test data path with {@link #guessTestDataLookupStrategy() guessed} lookup strategy
    * @throws IllegalStateException    as defined by {@link #getTestDataPath(TestDataLookupStrategy)}
    */
-  @NonNls
   public static String getTestDataPath() throws IllegalStateException {
     TestDataLookupStrategy strategy = guessTestDataLookupStrategy();
     return getTestDataPath(strategy);
   }
 
-  public static String getTestDataPath(String path) throws IllegalStateException {
-    return getTestDataPath() + path.replace('/', File.separatorChar);
+  public static String getTestDataPath(String relativePath) throws IllegalStateException {
+    return getTestDataPath() + FileUtil.toSystemDependentName(relativePath);
   }
 
   /**
@@ -158,8 +126,8 @@ public class PathManagerEx {
    * <b>Note:</b> this method receives explicit class argument in order to solve the following limitation - we analyze calling
    * stack trace in order to guess test data lookup strategy ({@link #guessTestDataLookupStrategyOnClassLocation()}). However,
    * there is a possible case that super-class method is called on sub-class object. Stack trace shows super-class then.
-   * There is a possible situation that actual test is <code>'ultimate'</code> but its abstract super-class is
-   * <code>'community'</code>, hence, test data lookup is performed incorrectly. So, this method should be called from abstract
+   * There is a possible situation that actual test is {@code 'ultimate'} but its abstract super-class is
+   * {@code 'community'}, hence, test data lookup is performed incorrectly. So, this method should be called from abstract
    * base test class if its concrete sub-classes doesn't explicitly occur at stack trace.
    *
    *
@@ -175,17 +143,16 @@ public class PathManagerEx {
   /**
    * @return path to 'community' project home irrespective of current project
    */
-  private static String getCommunityHomePath() {
-    String path = PathManager.getHomePath();
-    return isLocatedInCommunity() ? path : path + File.separator + "community";
+  public static @NotNull String getCommunityHomePath() {
+    return PathManager.getCommunityHomePath();
   }
 
   /**
    * @return path to 'community' project home if {@code testClass} is located in the community project and path to 'ultimate' project otherwise
    */
-  public static String getHomePath(Class<? extends TestCase> testClass) {
+  public static String getHomePath(Class<?> testClass) {
     TestDataLookupStrategy strategy = isLocatedInCommunity() ? TestDataLookupStrategy.COMMUNITY : determineLookupStrategy(testClass);
-    return strategy == TestDataLookupStrategy.COMMUNITY_FROM_ULTIMATE ? getCommunityHomePath() : PathManager.getHomePath();
+    return strategy == TestDataLookupStrategy.COMMUNITY_FROM_ULTIMATE ? PathManager.getCommunityHomePath() : PathManager.getHomePath();
   }
 
   /**
@@ -193,22 +160,21 @@ public class PathManagerEx {
    * @param relativePath path to file relative to 'community' directory
    * @return file under the home directory of 'community' project
    */
-  public static File findFileUnderCommunityHome(String relativePath) {
-    File file = new File(getCommunityHomePath(), toSystemDependentName(relativePath));
-    if (!file.exists()) {
-      throw new IllegalArgumentException("Cannot find file '" + relativePath + "' under '" + getCommunityHomePath() + "' directory");
-    }
-    return file;
+  public static @NotNull File findFileUnderCommunityHome(@NotNull String relativePath) {
+    return findFileByRelativePath(PathManager.getCommunityHomePath(), relativePath).toFile();
   }
 
   /**
-   * Find file by its path relative to project home directory (the 'commmunity' project if {@code testClass} is located in the community project
-   * and the 'ultimate' project otherwise)
+   * Find file by its path relative to project home directory (the 'community' project if {@code testClass} is located
+   * in the community project, and the 'ultimate' project otherwise)
    */
-  public static File findFileUnderProjectHome(String relativePath, Class<? extends TestCase> testClass) {
-    String homePath = getHomePath(testClass);
-    File file = new File(homePath, toSystemDependentName(relativePath));
-    if (!file.exists()) {
+  public static @NotNull File findFileUnderProjectHome(@NotNull String relativePath, Class<? extends TestCase> testClass) {
+    return findFileByRelativePath(getHomePath(testClass), relativePath).toFile();
+  }
+
+  private static @NotNull Path findFileByRelativePath(@NotNull String homePath, @NotNull String relativePath) {
+    Path file = Paths.get(homePath, relativePath);
+    if (!Files.exists(file)) {
       throw new IllegalArgumentException("Cannot find file '" + relativePath + "' under '" + homePath + "' directory");
     }
     return file;
@@ -227,31 +193,19 @@ public class PathManagerEx {
    * @return            test data path for the given strategy
    * @throws IllegalStateException    if it's not possible to find valid test data path for the given strategy
    */
-  @NonNls
   public static String getTestDataPath(TestDataLookupStrategy strategy) throws IllegalStateException {
     String homePath = PathManager.getHomePath();
-
-    List<String> relativePaths = TEST_DATA_RELATIVE_PATHS.get(strategy);
-    if (relativePaths.isEmpty()) {
-      throw new IllegalStateException(
-        String.format("Can't determine test data path. Reason: no predefined relative paths are configured for test data "
-                      + "lookup strategy %s. Configured mappings: %s", strategy, TEST_DATA_RELATIVE_PATHS)
-      );
-    }
-
-    File candidate = null;
-    for (String relativePath : relativePaths) {
-      candidate = new File(homePath, relativePath);
-      if (candidate.isDirectory()) {
-        return candidate.getPath();
+    for (Pair<TestDataLookupStrategy, String> pair : TEST_DATA_RELATIVE_PATHS) {
+      if (pair.first == strategy) {
+        File candidate = new File(homePath, pair.second);
+        if (candidate.isDirectory()) {
+          return candidate.getPath();
+        }
       }
     }
-
-    if (candidate == null) {
-      throw new IllegalStateException("Can't determine test data path. Looks like programming error - reached 'if' block that was "
-                                      + "never expected to be executed");
-    }
-    return candidate.getPath();
+    throw new IllegalStateException(
+      "Can't determine test data path for strategy '" + strategy + "' relative to home '" + homePath + "'." +
+      " Configured mappings: " + TEST_DATA_RELATIVE_PATHS);
   }
 
   /**
@@ -267,10 +221,10 @@ public class PathManagerEx {
     return result;
   }
 
-  @SuppressWarnings({"ThrowableInstanceNeverThrown"})
-  @Nullable
-  private static TestDataLookupStrategy guessTestDataLookupStrategyOnClassLocation() {
-    if (isLocatedInCommunity()) return TestDataLookupStrategy.COMMUNITY;
+  private static @Nullable TestDataLookupStrategy guessTestDataLookupStrategyOnClassLocation() {
+    if (isLocatedInCommunity()) {
+      return TestDataLookupStrategy.COMMUNITY;
+    }
 
     // The general idea here is to find test class at the bottom of hierarchy and try to resolve test data lookup strategy
     // against it. Rationale is that there is a possible case that, say, 'ultimate' test class extends basic test class
@@ -290,7 +244,9 @@ public class PathManagerEx {
         continue;
       }
 
-      if (determineLookupStrategy(clazz) == TestDataLookupStrategy.ULTIMATE) return TestDataLookupStrategy.ULTIMATE;
+      if (determineLookupStrategy(clazz) == TestDataLookupStrategy.ULTIMATE) {
+        return TestDataLookupStrategy.ULTIMATE;
+      }
       if ((clazz.getModifiers() & Modifier.ABSTRACT) == 0) {
         testClass = clazz;
       }
@@ -303,8 +259,7 @@ public class PathManagerEx {
     return classToUse == null ? null : determineLookupStrategy(classToUse);
   }
 
-  @Nullable
-  private static Class<?> loadClass(String className) {
+  private static @Nullable Class<?> loadClass(String className) {
     ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
 
     Class<?> clazz = CLASS_CACHE.get(className);
@@ -315,7 +270,7 @@ public class PathManagerEx {
     ClassLoader definingClassLoader = PathManagerEx.class.getClassLoader();
     ClassLoader systemClassLoader = ClassLoader.getSystemClassLoader();
 
-    for (ClassLoader classLoader : asList(contextClassLoader, definingClassLoader, systemClassLoader)) {
+    for (ClassLoader classLoader : Arrays.asList(contextClassLoader, definingClassLoader, systemClassLoader)) {
       clazz = loadClass(className, classLoader);
       if (clazz != null) {
         CLASS_CACHE.put(className, clazz);
@@ -327,47 +282,38 @@ public class PathManagerEx {
     return null;
   }
 
-  @Nullable
-  private static Class<?> loadClass(String className, ClassLoader classLoader) {
+  private static @Nullable Class<?> loadClass(String className, ClassLoader classLoader) {
     try {
       return Class.forName(className, true, classLoader);
     }
-    catch (NoClassDefFoundError e) {
-      return null;
-    }
-    catch (ClassNotFoundException e) {
+    catch (NoClassDefFoundError | ClassNotFoundException e) {
       return null;
     }
   }
 
+  @SuppressWarnings("TestOnlyProblems")
   private static boolean isJUnitClass(Class<?> clazz) {
-    return TestCase.class.isAssignableFrom(clazz) || TestRunnerUtil.isJUnit4TestClass(clazz) || com.intellij.testFramework.Parameterized.class.isAssignableFrom(clazz);
+    return TestCase.class.isAssignableFrom(clazz) || TestFrameworkUtil.isJUnit4TestClass(clazz, true) || Parameterized.class.isAssignableFrom(clazz);
   }
 
-  @Nullable
   private static TestDataLookupStrategy determineLookupStrategy(Class<?> clazz) {
     // Check if resulting strategy is already cached for the target class.
     TestDataLookupStrategy result = CLASS_STRATEGY_CACHE.get(clazz);
-    if (result != null) {
-      return result;
-    }
+    if (result != null) return result;
 
-    FileSystemLocation classFileLocation = computeClassLocation(clazz);
-
+    FileSystemLocation location = computeClassLocation(clazz);
     // We know that project location is ULTIMATE if control flow reaches this place.
-    result = classFileLocation == FileSystemLocation.COMMUNITY ? TestDataLookupStrategy.COMMUNITY_FROM_ULTIMATE
-                                                               : TestDataLookupStrategy.ULTIMATE;
+    result = location == FileSystemLocation.COMMUNITY ? TestDataLookupStrategy.COMMUNITY_FROM_ULTIMATE : TestDataLookupStrategy.ULTIMATE;
     CLASS_STRATEGY_CACHE.put(clazz, result);
     return result;
   }
 
   public static void replaceLookupStrategy(Class<?> substitutor, Class<?>... initial) {
+    TestDataLookupStrategy strategy = determineLookupStrategy(substitutor);
     CLASS_STRATEGY_CACHE.clear();
-    for (Class<?> aClass : initial) {
-      CLASS_STRATEGY_CACHE.put(aClass, determineLookupStrategy(substitutor));
-    }
+    for (Class<?> aClass : initial) CLASS_STRATEGY_CACHE.put(aClass, strategy);
   }
-  
+
   private static FileSystemLocation computeClassLocation(Class<?> clazz) {
     String classRootPath = PathManager.getJarPathForClass(clazz);
     if (classRootPath == null) {
@@ -392,31 +338,26 @@ public class PathManagerEx {
     return getCommunityModules().contains(moduleName) ? FileSystemLocation.COMMUNITY : FileSystemLocation.ULTIMATE;
   }
 
-  private synchronized static Set<String> getCommunityModules() {
+  private static synchronized Set<String> getCommunityModules() {
     if (ourCommunityModules != null) {
       return ourCommunityModules;
     }
 
-    ourCommunityModules = new THashSet<String>();
+    ourCommunityModules = new HashSet<>();
     File modulesXml = findFileUnderCommunityHome(Project.DIRECTORY_STORE_FOLDER + "/modules.xml");
     if (!modulesXml.exists()) {
       throw new IllegalStateException("Cannot obtain test data path: " + modulesXml.getAbsolutePath() + " not found");
     }
 
     try {
-      Element componentRoot = JDomSerializationUtil
-        .findComponent(JDOMUtil.loadDocument(modulesXml).getRootElement(), ModuleManagerImpl.COMPONENT_NAME);
-      ModuleManagerImpl.ModulePath[] files = ModuleManagerImpl.getPathsToModuleFiles(componentRoot);
-      for (ModuleManagerImpl.ModulePath file : files) {
-        String name = FileUtil.getNameWithoutExtension(PathUtil.getFileName(file.getPath()));
-        ourCommunityModules.add(name);
+      Element element = JDomSerializationUtil.findComponent(JDOMUtil.load(modulesXml), JpsProjectLoader.MODULE_MANAGER_COMPONENT);
+      assert element != null;
+      for (ModulePath file : ModuleManagerImpl.getPathsToModuleFiles(element)) {
+        ourCommunityModules.add(file.getModuleName());
       }
       return ourCommunityModules;
     }
-    catch (JDOMException e) {
-      throw new RuntimeException("Cannot read modules from " + modulesXml.getAbsolutePath(), e);
-    }
-    catch (IOException e) {
+    catch (JDOMException | IOException e) {
       throw new RuntimeException("Cannot read modules from " + modulesXml.getAbsolutePath(), e);
     }
   }
@@ -434,17 +375,15 @@ public class PathManagerEx {
    * Tries to check test data lookup strategy by target test data directories availability.
    * <p/>
    * Such an approach has a drawback that it doesn't work correctly at number of scenarios, e.g. when
-   * <code>'community'</code> test is executed under <code>'ultimate'</code> project.
+   * {@code 'community'} test is executed under {@code 'ultimate'} project.
    *
    * @return    test data lookup strategy based on target test data directories availability
    */
   private static TestDataLookupStrategy guessTestDataLookupStrategyOnDirectoryAvailability() {
     String homePath = PathManager.getHomePath();
-    for (Map.Entry<TestDataLookupStrategy, List<String>> entry : TEST_DATA_RELATIVE_PATHS.entrySet()) {
-      for (String relativePath : entry.getValue()) {
-        if (new File(homePath, relativePath).isDirectory()) {
-          return entry.getKey();
-        }
+    for (Pair<TestDataLookupStrategy, String> pair : TEST_DATA_RELATIVE_PATHS) {
+      if (new File(homePath, pair.second).isDirectory()) {
+        return pair.first;
       }
     }
     return TestDataLookupStrategy.ULTIMATE;

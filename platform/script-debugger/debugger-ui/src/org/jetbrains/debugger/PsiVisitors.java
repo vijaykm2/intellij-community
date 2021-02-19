@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package org.jetbrains.debugger;
 
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
@@ -28,12 +27,15 @@ import com.intellij.xdebugger.XSourcePosition;
 import org.jetbrains.annotations.NotNull;
 
 public final class PsiVisitors {
+  public static <RESULT> RESULT visit(@NotNull XSourcePosition position, @NotNull Project project, @NotNull Visitor<RESULT> visitor) {
+    return visit(position, project, visitor, null);
+  }
+
   /**
    * Read action will be taken automatically
    */
-  public static <RESULT> RESULT visit(@NotNull XSourcePosition position, @NotNull Project project, @NotNull Visitor<RESULT> visitor, RESULT defaultResult) {
-    AccessToken token = ReadAction.start();
-    try {
+  public static <RESULT> RESULT visit(@NotNull XSourcePosition position, @NotNull Project project, @NotNull Visitor<? extends RESULT> visitor, RESULT defaultResult) {
+    return ReadAction.compute(()->{
       Document document = FileDocumentManager.getInstance().getDocument(position.getFile());
       PsiFile file = document == null || document.getTextLength() == 0 ? null : PsiDocumentManager.getInstance(project).getPsiFile(document);
       if (file == null) {
@@ -50,35 +52,32 @@ public final class PsiVisitors {
       }
 
       PsiElement element = file.findElementAt(positionOffset);
-      return element == null ? defaultResult : visitor.visit(element, positionOffset, document);
-    }
-    finally {
-      token.finish();
-    }
+      return element == null ? defaultResult : visitor.visit(position, element, positionOffset, document);
+    });
   }
 
-  public static abstract class Visitor<RESULT> {
-    public abstract RESULT visit(@NotNull PsiElement element, int positionOffset, @NotNull Document document);
+  public interface Visitor<RESULT> {
+    RESULT visit(@NotNull XSourcePosition position, @NotNull PsiElement element, int positionOffset, @NotNull Document document);
   }
 
   public static abstract class FilteringPsiRecursiveElementWalkingVisitor extends PsiRecursiveElementWalkingVisitor {
     @Override
-    public void visitElement(PsiElement element) {
+    public void visitElement(@NotNull PsiElement element) {
       if (!(element instanceof ForeignLeafPsiElement) && element.isPhysical()) {
         super.visitElement(element);
       }
     }
 
     @Override
-    public void visitWhiteSpace(PsiWhiteSpace space) {
+    public void visitWhiteSpace(@NotNull PsiWhiteSpace space) {
     }
 
     @Override
-    public void visitComment(PsiComment comment) {
+    public void visitComment(@NotNull PsiComment comment) {
     }
 
     @Override
-    public void visitOuterLanguageElement(OuterLanguageElement element) {
+    public void visitOuterLanguageElement(@NotNull OuterLanguageElement element) {
     }
   }
 }

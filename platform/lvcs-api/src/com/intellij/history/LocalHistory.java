@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.history;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -25,22 +11,26 @@ import org.jetbrains.annotations.Nullable;
 public abstract class LocalHistory {
   public static final Object VFS_EVENT_REQUESTOR = new Object();
 
-  public static LocalHistory getInstance() {
-    return ApplicationManager.getApplication().getComponent(LocalHistory.class);
+  private static final class LocalHistoryHolder {
+    static final LocalHistory ourInstance = ApplicationManager.getApplication().getService(LocalHistory.class);
   }
 
-  public abstract LocalHistoryAction startAction(@Nullable String name);
+  @NotNull
+  public static LocalHistory getInstance() {
+    return LocalHistoryHolder.ourInstance;
+  }
 
-  public abstract Label putSystemLabel(Project p, @NotNull String name, int color);
+  public abstract LocalHistoryAction startAction(@Nullable @NlsContexts.Label String name);
 
-  public Label putSystemLabel(Project p, @NotNull String name) {
+  public abstract Label putSystemLabel(@NotNull Project p, @NotNull @NlsContexts.Label String name, int color);
+
+  public Label putSystemLabel(@NotNull Project p, @NotNull @NlsContexts.Label String name) {
     return putSystemLabel(p, name, -1);
   }
 
-  public abstract Label putUserLabel(Project p, @NotNull String name);
+  public abstract Label putUserLabel(@NotNull Project p, @NotNull @NlsContexts.Label String name);
 
-  @Nullable
-  public abstract byte[] getByteContent(VirtualFile f, FileRevisionTimestampComparator c);
+  public abstract byte @Nullable [] getByteContent(@NotNull VirtualFile f, @NotNull FileRevisionTimestampComparator c);
 
-  public abstract boolean isUnderControl(VirtualFile f);
+  public abstract boolean isUnderControl(@NotNull VirtualFile f);
 }

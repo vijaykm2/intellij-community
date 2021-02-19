@@ -1,22 +1,20 @@
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jsonProtocol;
 
 import com.google.gson.stream.JsonToken;
 import com.intellij.util.ArrayUtilRt;
-import gnu.trove.TDoubleArrayList;
-import gnu.trove.THashMap;
-import gnu.trove.TIntArrayList;
-import gnu.trove.TLongArrayList;
+import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.io.JsonReaderEx;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public final class JsonReaders {
-  public static final ObjectFactory<String> STRING_OBJECT_FACTORY = new ObjectFactory<String>() {
+  public static final ObjectFactory<String> STRING_OBJECT_FACTORY = new ObjectFactory<>() {
     @Override
     public String read(JsonReaderEx reader) {
       return reader.nextString();
@@ -26,14 +24,22 @@ public final class JsonReaders {
   private JsonReaders() {
   }
 
-  public static <T> ObjectFactory<Map<String, T>> mapFactory(@NotNull ObjectFactory<T> valueFactory) {
-    return new MapFactory<T>(valueFactory);
+  public static <T> ObjectFactory<Map<String, T>> mapFactory(@NotNull ObjectFactory<? extends T> valueFactory) {
+    return new MapFactory<>(valueFactory);
   }
 
-  private static void checkIsNull(JsonReaderEx reader, String fieldName) {
+  private static void checkIsNull(JsonReaderEx reader) {
     if (reader.peek() == JsonToken.NULL) {
-      throw new RuntimeException("Field is not nullable" + (fieldName == null ? "" : (": " + fieldName)));
+      throw new RuntimeException("Field is not nullable" + "");
     }
+  }
+
+  public static boolean readsNull(JsonReaderEx reader) {
+    if (reader.peek() == JsonToken.NULL) {
+      reader.skipValue();
+      return true;
+    }
+    else return false;
   }
 
   public static String readRawString(JsonReaderEx reader) {
@@ -91,7 +97,7 @@ public final class JsonReaders {
     }
   }
 
-  public static <T> List<T> readObjectArray(@NotNull JsonReaderEx reader, @NotNull ObjectFactory<T> factory) {
+  public static <T> List<T> readObjectArray(@NotNull JsonReaderEx reader, @NotNull ObjectFactory<? extends T> factory) {
     if (reader.peek() == JsonToken.NULL) {
       reader.skipValue();
       return null;
@@ -103,7 +109,7 @@ public final class JsonReaders {
       return Collections.emptyList();
     }
 
-    List<T> result = new ArrayList<T>();
+    List<T> result = new ArrayList<>();
     do {
       result.add(factory.read(reader));
     }
@@ -112,7 +118,7 @@ public final class JsonReaders {
     return result;
   }
 
-  public static <T> Map<String, T> readMap(@NotNull JsonReaderEx reader, @Nullable ObjectFactory<T> factory) {
+  public static <T> Map<String, T> readMap(@NotNull JsonReaderEx reader, @Nullable ObjectFactory<? extends T> factory) {
     if (reader.peek() == JsonToken.NULL) {
       reader.skipValue();
       return null;
@@ -124,7 +130,7 @@ public final class JsonReaders {
       return Collections.emptyMap();
     }
 
-    Map<String, T> map = new THashMap<String, T>();
+    Map<String, T> map = new HashMap<>();
     while (reader.hasNext()) {
       if (factory == null) {
         //noinspection unchecked
@@ -165,7 +171,7 @@ public final class JsonReaders {
   }
 
   public static Map<String, Object> nextObject(JsonReaderEx reader) {
-    Map<String, Object> map = new THashMap<String, Object>();
+    Map<String, Object> map = new HashMap<>();
     while (reader.hasNext()) {
       map.put(reader.nextName(), read(reader));
     }
@@ -180,7 +186,7 @@ public final class JsonReaders {
       return Collections.emptyList();
     }
 
-    List<T> list = new ArrayList<T>();
+    List<T> list = new ArrayList<>();
     do {
       //noinspection unchecked
       list.add((T)read(reader));
@@ -197,9 +203,8 @@ public final class JsonReaders {
       return Collections.emptyList();
     }
 
-    List<String> list = new ArrayList<String>();
+    List<String> list = new ArrayList<>();
     do {
-      //noinspection unchecked
       list.add(reader.nextString(true));
     }
     while (reader.hasNext());
@@ -208,65 +213,65 @@ public final class JsonReaders {
   }
 
   public static long[] readLongArray(JsonReaderEx reader) {
-    checkIsNull(reader, null);
+    checkIsNull(reader);
     reader.beginArray();
     if (!reader.hasNext()) {
       reader.endArray();
       return ArrayUtilRt.EMPTY_LONG_ARRAY;
     }
 
-    TLongArrayList result = new TLongArrayList();
+    LongArrayList result = new LongArrayList();
     do {
       result.add(reader.nextLong());
     }
     while (reader.hasNext());
     reader.endArray();
-    return result.toNativeArray();
+    return result.toLongArray();
   }
 
   public static double[] readDoubleArray(JsonReaderEx reader) {
-    checkIsNull(reader, null);
+    checkIsNull(reader);
     reader.beginArray();
     if (!reader.hasNext()) {
       reader.endArray();
       return new double[]{0};
     }
 
-    TDoubleArrayList result = new TDoubleArrayList();
+    DoubleArrayList result = new DoubleArrayList();
     do {
       result.add(reader.nextDouble());
     }
     while (reader.hasNext());
     reader.endArray();
-    return result.toNativeArray();
+    return result.toDoubleArray();
   }
 
   public static int[] readIntArray(JsonReaderEx reader) {
-    checkIsNull(reader, null);
+    checkIsNull(reader);
     reader.beginArray();
     if (!reader.hasNext()) {
       reader.endArray();
       return ArrayUtilRt.EMPTY_INT_ARRAY;
     }
 
-    TIntArrayList result = new TIntArrayList();
+    IntList result = new IntArrayList();
     do {
       result.add(reader.nextInt());
     }
     while (reader.hasNext());
     reader.endArray();
-    return result.toNativeArray();
+    return result.toIntArray();
   }
 
   public static List<StringIntPair> readIntStringPairs(JsonReaderEx reader) {
-    checkIsNull(reader, null);
+    checkIsNull(reader);
     reader.beginArray();
     if (!reader.hasNext()) {
       reader.endArray();
       return Collections.emptyList();
     }
 
-    List<StringIntPair> result = new ArrayList<StringIntPair>();
+    List<StringIntPair> result = new ArrayList<>();
     do {
       reader.beginArray();
       result.add(new StringIntPair(reader.nextInt(), reader.nextString()));

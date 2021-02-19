@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine;
 
 import com.intellij.debugger.engine.events.DebuggerCommandImpl;
@@ -21,25 +7,30 @@ import com.intellij.debugger.engine.managerThread.DebuggerCommand;
 import com.intellij.debugger.engine.managerThread.DebuggerManagerThread;
 import com.intellij.debugger.engine.managerThread.SuspendContextCommand;
 import com.intellij.debugger.impl.InvokeAndWaitThread;
+import com.intellij.debugger.impl.PrioritizedTask;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.util.ProgressIndicatorListenerAdapter;
-import com.intellij.openapi.progress.util.ProgressWindowWithNotification;
+import com.intellij.openapi.progress.util.ProgressWindow;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.util.Alarm;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import com.sun.jdi.VMDisconnectedException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author lex
  */
 public class DebuggerManagerThreadImpl extends InvokeAndWaitThread<DebuggerCommandImpl> implements DebuggerManagerThread, Disposable {
   private static final Logger LOG = Logger.getInstance(DebuggerManagerThreadImpl.class);
-  public static final int COMMAND_TIMEOUT = 3000;
+  private static final ThreadLocal<DebuggerCommandImpl> myCurrentCommand = new ThreadLocal<>();
+
+  static final int COMMAND_TIMEOUT = 3000;
 
   private volatile boolean myDisposed;
 
@@ -81,6 +72,15 @@ public class DebuggerManagerThreadImpl extends InvokeAndWaitThread<DebuggerComma
     }
   }
 
+  public void invoke(PrioritizedTask.Priority priority, Runnable runnable) {
+    invoke(new DebuggerCommandImpl(priority) {
+      @Override
+      protected void action() {
+        runnable.run();
+      }
+    });
+  }
+
   @Override
   public boolean pushBack(DebuggerCommandImpl managerCommand) {
     final boolean pushed = super.pushBack(managerCommand);
@@ -88,6 +88,15 @@ public class DebuggerManagerThreadImpl extends InvokeAndWaitThread<DebuggerComma
       managerCommand.notifyCancelled();
     }
     return pushed;
+  }
+
+  public void schedule(PrioritizedTask.Priority priority, Runnable runnable) {
+    schedule(new DebuggerCommandImpl(priority) {
+      @Override
+      protected void action() {
+        runnable.run();
+      }
+    });
   }
 
   @Override
@@ -104,47 +113,39 @@ public class DebuggerManagerThreadImpl extends InvokeAndWaitThread<DebuggerComma
    * if worker thread is still processing the same command
    * calls terminateCommand
    */
-  public void terminateAndInvoke(DebuggerCommandImpl command, int terminateTimeout) {
+  public void terminateAndInvoke(DebuggerCommandImpl command, int terminateTimeoutMillis) {
     final DebuggerCommandImpl currentCommand = myEvents.getCurrentEvent();
 
     invoke(command);
 
     if (currentCommand != null) {
-      final Alarm alarm = new Alarm(Alarm.ThreadToUse.SHARED_THREAD);
-      alarm.addRequest(new Runnable() {
-        @Override
-        public void run() {
-          try {
-            if (currentCommand == myEvents.getCurrentEvent()) {
-              // if current command is still in progress, cancel it
-              getCurrentRequest().requestStop();
-              try {
-                getCurrentRequest().join();
-              }
-              catch (InterruptedException ignored) {
-              }
-              catch (Exception e) {
-                throw new RuntimeException(e);
-              }
-              finally {
-                if (!myDisposed) {
-                  startNewWorkerThread();
-                }
+      AppExecutorUtil.getAppScheduledExecutorService().schedule(
+        () -> {
+          if (currentCommand == myEvents.getCurrentEvent()) {
+            // if current command is still in progress, cancel it
+            getCurrentRequest().requestStop();
+            try {
+              getCurrentRequest().join();
+            }
+            catch (InterruptedException ignored) {
+            }
+            catch (Exception e) {
+              throw new RuntimeException(e);
+            }
+            finally {
+              if (!myDisposed) {
+                startNewWorkerThread();
               }
             }
           }
-          finally {
-            Disposer.dispose(alarm);
-          }
-        }
-      }, terminateTimeout);
+        }, terminateTimeoutMillis, TimeUnit.MILLISECONDS);
     }
   }
-
 
   @Override
   public void processEvent(@NotNull DebuggerCommandImpl managerCommand) {
     assertIsManagerThread();
+    myCurrentCommand.set(managerCommand);
     try {
       if (myEvents.isClosed()) {
         managerCommand.notifyCancelled();
@@ -165,31 +166,29 @@ public class DebuggerManagerThreadImpl extends InvokeAndWaitThread<DebuggerComma
     catch (Exception e) {
       LOG.error(e);
     }
+    finally {
+      myCurrentCommand.set(null);
+    }
   }
 
-  public void startProgress(final DebuggerCommandImpl command, final ProgressWindowWithNotification progressWindow) {
-    progressWindow.addListener(new ProgressIndicatorListenerAdapter() {
+  public static DebuggerCommandImpl getCurrentCommand() {
+    return myCurrentCommand.get();
+  }
+
+  public void startProgress(DebuggerCommandImpl command, ProgressWindow progressWindow) {
+    new ProgressIndicatorListenerAdapter() {
       @Override
       public void cancelled() {
         command.release();
       }
-    });
+    }.installToProgress(progressWindow);
 
-    ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
-      @Override
-      public void run() {
-        ProgressManager.getInstance().runProcess(new Runnable() {
-          @Override
-          public void run() {
-            invokeAndWait(command);
-          }
-        }, progressWindow);
-      }
-    });
+    ApplicationManager.getApplication().executeOnPooledThread(
+      () -> ProgressManager.getInstance().runProcess(() -> invokeAndWait(command), progressWindow));
   }
 
 
-  public void startLongProcessAndFork(Runnable process) {
+  void startLongProcessAndFork(Runnable process) {
     assertIsManagerThread();
     startNewWorkerThread();
 
@@ -205,15 +204,13 @@ public class DebuggerManagerThreadImpl extends InvokeAndWaitThread<DebuggerComma
 
       super.invokeAndWait(new DebuggerCommandImpl() {
         @Override
-        protected void action() throws Exception {
+        protected void action() {
           switchToRequest(request);
         }
 
         @Override
         protected void commandCancelled() {
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("Event queue was closed, killing request");
-          }
+          LOG.debug("Event queue was closed, killing request");
           request.requestStop();
         }
       });
@@ -226,7 +223,7 @@ public class DebuggerManagerThreadImpl extends InvokeAndWaitThread<DebuggerComma
       SuspendContextCommand suspendContextCommand = (SuspendContextCommand)command;
       schedule(new SuspendContextCommandImpl((SuspendContextImpl)suspendContextCommand.getSuspendContext()) {
           @Override
-          public void contextAction() throws Exception {
+          public void contextAction(@NotNull SuspendContextImpl suspendContext) {
             command.action();
           }
 
@@ -239,7 +236,7 @@ public class DebuggerManagerThreadImpl extends InvokeAndWaitThread<DebuggerComma
     else {
       schedule(new DebuggerCommandImpl() {
         @Override
-        protected void action() throws Exception {
+        protected void action() {
           command.action();
         }
 
@@ -250,5 +247,16 @@ public class DebuggerManagerThreadImpl extends InvokeAndWaitThread<DebuggerComma
       });
     }
 
+  }
+
+  public boolean isIdle() {
+    return myEvents.isEmpty();
+  }
+
+  void restartIfNeeded() {
+    if (myEvents.isClosed()) {
+      myEvents.reopen();
+      startNewWorkerThread();
+    }
   }
 }

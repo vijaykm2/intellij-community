@@ -1,27 +1,17 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.util;
 
-import com.intellij.util.containers.ConcurrentIntObjectMap;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.reference.SoftReference;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Map;
+import java.lang.ref.Reference;
+import java.lang.ref.WeakReference;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -29,20 +19,23 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * @author max
  * @author Konstantin Bulenkov
+ * @see KeyWithDefaultValue
  */
-@SuppressWarnings({"EqualsWhichDoesntCheckParameterClass"})
+@NonNls
 public class Key<T> {
   private static final AtomicInteger ourKeysCounter = new AtomicInteger();
+  private static final Int2ObjectMap<Reference<Key<?>>> allKeys = new Int2ObjectOpenHashMap<>();
   private final int myIndex = ourKeysCounter.getAndIncrement();
   private final String myName; // for debug purposes only
-  private static final ConcurrentIntObjectMap<Key> allKeys = ContainerUtil.createConcurrentIntObjectWeakValueMap();
 
-  public Key(@NotNull @NonNls String name) {
+  public Key(@NonNls @NotNull String name) {
     myName = name;
-    allKeys.put(myIndex, this);
+    synchronized (allKeys) {
+      allKeys.put(myIndex, new WeakReference<>(this));
+    }
   }
 
-  // made final because many classes depend on one-to-one key index <-> key instance relationship. See e.g. UserDataHolderBase
+  // Final because some clients depend on one-to-one key index/key instance relationship (e.g. UserDataHolderBase).
   @Override
   public final int hashCode() {
     return myIndex;
@@ -58,31 +51,29 @@ public class Key<T> {
     return myName;
   }
 
-  public static <T> Key<T> create(@NotNull @NonNls String name) {
-    return new Key<T>(name);
+  @NotNull
+  public static <T> Key<T> create(@NonNls @NotNull String name) {
+    return new Key<>(name);
   }
 
+  @Contract("null -> null")
   public T get(@Nullable UserDataHolder holder) {
     return holder == null ? null : holder.getUserData(this);
   }
 
-  public T get(@Nullable Map<Key, ?> holder) {
-    //noinspection unchecked
-    return holder == null ? null : (T)holder.get(this);
-  }
-
+  @Contract("_, !null -> !null")
   public T get(@Nullable UserDataHolder holder, T defaultValue) {
-    final T t = get(holder);
+    T t = get(holder);
     return t == null ? defaultValue : t;
   }
 
+  @NotNull
+  public T getRequired(@NotNull UserDataHolder holder) {
+    return Objects.requireNonNull(holder.getUserData(this));
+  }
+
   /**
-   * Returns <code>true</code> if and only if the <code>holder</code> has
-   * not null value by the key.
-   *
-   * @param holder user data holder object
-   * @return <code>true</code> if holder.getUserData(this) != null
-   * <code>false</code> otherwise.
+   * Returns {@code true} if and only if the {@code holder} has not null value for the key.
    */
   public boolean isIn(@Nullable UserDataHolder holder) {
     return get(holder) != null;
@@ -94,29 +85,28 @@ public class Key<T> {
     }
   }
 
-  public void set(@Nullable Map<Key, Object> holder, T value) {
-    if (holder != null) {
-      holder.put(this, value);
-    }
-  }
-
   @Nullable("can become null if the key has been gc-ed")
   public static <T> Key<T> getKeyByIndex(int index) {
-    //noinspection unchecked
-    return (Key<T>)allKeys.get(index);
+    synchronized (allKeys) {
+      //noinspection unchecked
+      return (Key<T>)SoftReference.dereference(allKeys.get(index));
+    }
   }
 
   /**
-   * @deprecated access to Key via its name is a kind of hack, use Key instance directly instead
+   * @deprecated access to a key via its name is a dirty hack; use Key instance directly instead
    */
+  @Deprecated
   @Nullable
-  public static Key<?> findKeyByName(String name) {
-    for (ConcurrentIntObjectMap.IntEntry<Key> key : allKeys.entries()) {
-      if (name.equals(key.getValue().myName)) {
-        //noinspection unchecked
-        return key.getValue();
+  public static Key<?> findKeyByName(@NotNull String name) {
+    synchronized (allKeys) {
+      for (Reference<Key<?>> reference : allKeys.values()) {
+        Key<?> key = SoftReference.dereference(reference);
+        if (key != null && name.equals(key.myName)) {
+          return key;
+        }
       }
+      return null;
     }
-    return null;
   }
 }

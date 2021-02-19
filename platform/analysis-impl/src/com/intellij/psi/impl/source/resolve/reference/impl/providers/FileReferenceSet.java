@@ -1,22 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.psi.impl.source.resolve.reference.impl.providers;
 
+import com.intellij.analysis.AnalysisBundle;
 import com.intellij.lang.injection.InjectedLanguageManager;
+import com.intellij.model.ModelBranch;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.module.Module;
@@ -24,51 +12,40 @@ import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Conditions;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.util.Function;
-import com.intellij.util.NullableFunction;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.stream.Collectors;
+
+import static com.intellij.psi.impl.source.resolve.reference.impl.providers.FileTargetContext.toTargetContexts;
+import static java.util.Collections.*;
 
 /**
  * @author Maxim.Mossienko
  */
 public class FileReferenceSet {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.resolve.reference.impl.providers.FileReferenceSet");
+  private static final Logger LOG = Logger.getInstance(FileReferenceSet.class);
 
   private static final FileType[] EMPTY_FILE_TYPES = {};
 
   public static final CustomizableReferenceProvider.CustomizationKey<Function<PsiFile, Collection<PsiFileSystemItem>>>
     DEFAULT_PATH_EVALUATOR_OPTION =
-    new CustomizableReferenceProvider.CustomizationKey<Function<PsiFile, Collection<PsiFileSystemItem>>>(
-      PsiBundle.message("default.path.evaluator.option"));
-  public static final Function<PsiFile, Collection<PsiFileSystemItem>> ABSOLUTE_TOP_LEVEL =
-    new Function<PsiFile, Collection<PsiFileSystemItem>>() {
-      @Override
-      @Nullable
-      public Collection<PsiFileSystemItem> fun(final PsiFile file) {
-        return getAbsoluteTopLevelDirLocations(file);
-      }
-    };
+    new CustomizableReferenceProvider.CustomizationKey<>(
+      AnalysisBundle.message("default.path.evaluator.option"));
+  public static final Function<PsiFile, Collection<PsiFileSystemItem>> ABSOLUTE_TOP_LEVEL = new AbsoluteTopLevelEvaluator();
 
-  public static final Condition<PsiFileSystemItem> FILE_FILTER = new Condition<PsiFileSystemItem>() {
-    @Override
-    public boolean value(final PsiFileSystemItem item) {
-      return item instanceof PsiFile;
-    }
-  };
+  public static final Condition<PsiFileSystemItem> FILE_FILTER = item -> item instanceof PsiFile;
 
-  public static final Condition<PsiFileSystemItem> DIRECTORY_FILTER = new Condition<PsiFileSystemItem>() {
-    @Override
-    public boolean value(final PsiFileSystemItem item) {
-      return item instanceof PsiDirectory;
-    }
-  };
+  public static final Condition<PsiFileSystemItem> DIRECTORY_FILTER = item -> item instanceof PsiDirectory;
 
   protected FileReference[] myReferences;
   private PsiElement myElement;
@@ -76,29 +53,31 @@ public class FileReferenceSet {
   private final boolean myCaseSensitive;
   private final String myPathStringNonTrimmed;
   private final String myPathString;
-  private Collection<PsiFileSystemItem> myDefaultContexts;
+
+  private volatile Collection<PsiFileSystemItem> myDefaultContexts;
+
   private final boolean myEndingSlashNotAllowed;
   private boolean myEmptyPathAllowed;
   @Nullable private Map<CustomizableReferenceProvider.CustomizationKey, Object> myOptions;
-  @Nullable private FileType[] mySuitableFileTypes;
+  private FileType @Nullable [] mySuitableFileTypes;
 
-  public FileReferenceSet(String str,
+  public FileReferenceSet(@NotNull String str,
                           @NotNull PsiElement element,
                           int startInElement,
                           PsiReferenceProvider provider,
                           boolean caseSensitive,
                           boolean endingSlashNotAllowed,
-                          @Nullable FileType[] suitableFileTypes) {
+                          FileType @Nullable [] suitableFileTypes) {
     this(str, element, startInElement, provider, caseSensitive, endingSlashNotAllowed, suitableFileTypes, true);
   }
 
-  public FileReferenceSet(String str,
+  public FileReferenceSet(@NotNull String str,
                           @NotNull PsiElement element,
                           int startInElement,
                           PsiReferenceProvider provider,
                           boolean caseSensitive,
                           boolean endingSlashNotAllowed,
-                          @Nullable FileType[] suitableFileTypes,
+                          FileType @Nullable [] suitableFileTypes,
                           boolean init) {
     myElement = element;
     myStartInElement = startInElement;
@@ -123,12 +102,23 @@ public class FileReferenceSet {
     return "/";
   }
 
+  protected int findSeparatorLength(@NotNull CharSequence sequence, int atOffset) {
+    return StringUtil.startsWith(sequence, atOffset, getSeparatorString()) ?
+           getSeparatorString().length() : 0;
+  }
+
+  protected int findSeparatorOffset(@NotNull CharSequence sequence, int startingFrom) {
+    return StringUtil.indexOf(sequence, getSeparatorString(), startingFrom);
+  }
+
   /**
-   * This should be removed. Please use {@link FileReference#getContexts()} instead.
+   * This should be removed.
+   * @deprecated use {@link FileReference#getContexts()} instead.
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   protected Collection<PsiFileSystemItem> getExtraContexts() {
-    return Collections.emptyList();
+    return emptyList();
   }
 
   public static FileReferenceSet createSet(@NotNull PsiElement element,
@@ -136,9 +126,7 @@ public class FileReferenceSet {
                                            boolean endingSlashNotAllowed,
                                            final boolean urlEncoded) {
 
-    final ElementManipulator<PsiElement> manipulator = ElementManipulators.getManipulator(element);
-    assert manipulator != null;
-    final TextRange range = manipulator.getRangeInElement(element);
+    final TextRange range = ElementManipulators.getValueTextRange(element);
     int offset = range.getStartOffset();
     String text = range.substring(element.getText());
     for (final FileReferenceHelper helper : FileReferenceHelperRegistrar.getHelpers()) {
@@ -189,12 +177,12 @@ public class FileReferenceSet {
     reparse();
   }
 
-
+  @NotNull
   public PsiElement getElement() {
     return myElement;
   }
 
-  void setElement(final PsiElement element) {
+  void setElement(@NotNull PsiElement element) {
     myElement = element;
   }
 
@@ -210,62 +198,94 @@ public class FileReferenceSet {
     return myStartInElement;
   }
 
+  @Nullable
   public FileReference createFileReference(final TextRange range, final int index, final String text) {
     return new FileReference(this, range, index, text);
   }
 
   protected void reparse() {
-    String str = myPathStringNonTrimmed;
-
-    final List<FileReference> referencesList = reparse(str, myStartInElement);
-
-    myReferences = referencesList.toArray(new FileReference[referencesList.size()]);
+    List<FileReference> referencesList = reparse(myPathStringNonTrimmed, myStartInElement);
+    myReferences = referencesList.toArray(FileReference.EMPTY);
   }
 
   protected List<FileReference> reparse(String str, int startInElement) {
-    final List<FileReference> referencesList = new ArrayList<FileReference>();
+    int wsHead = 0;
+    int wsTail = 0;
 
-    String separatorString = getSeparatorString(); // separator's length can be more then 1 char
-    int sepLen = separatorString.length();
-    int currentSlash = -sepLen;
+    LiteralTextEscaper<? extends PsiLanguageInjectionHost> escaper;
+    TextRange valueRange;
+    CharSequence decoded;
+    // todo replace @param str with honest @param rangeInElement; and drop the following startsWith(..)
+    if (myElement instanceof PsiLanguageInjectionHost && !StringUtil.startsWith(myElement.getText(), startInElement, str)) {
+      escaper = ((PsiLanguageInjectionHost)myElement).createLiteralTextEscaper();
+      valueRange = ElementManipulators.getValueTextRange(myElement);
+      StringBuilder sb = new StringBuilder();
+      escaper.decode(valueRange, sb);
+      decoded = sb;
+      wsHead += Math.max(0, startInElement - valueRange.getStartOffset());
+    }
+    else {
+      escaper = null;
+      decoded = str;
+      valueRange = TextRange.from(startInElement, decoded.length());
+    }
+    List<FileReference> referencesList = new ArrayList<>();
 
-    // skip white space
-    while (currentSlash + sepLen < str.length() && Character.isWhitespace(str.charAt(currentSlash + sepLen))) {
-      currentSlash++;
+    for (int i = wsHead; i < decoded.length() && Character.isWhitespace(decoded.charAt(i)); i++) {
+      wsHead++;     // skip head white spaces
+    }
+    for (int i = decoded.length() - 1; i >= 0 && Character.isWhitespace(decoded.charAt(i)); i--) {
+      wsTail++;     // skip tail white spaces
     }
 
-    if (currentSlash + sepLen + sepLen < str.length() &&
-        str.substring(currentSlash + sepLen, currentSlash + sepLen + sepLen).equals(separatorString)) {
-      currentSlash+=sepLen;
-    }
     int index = 0;
+    int curSep = findSeparatorOffset(decoded, wsHead);
+    int sepLen = curSep >= wsHead ? findSeparatorLength(decoded, curSep) : 0;
 
-    if (str.equals(separatorString)) {
-      final FileReference fileReference =
-        createFileReference(new TextRange(startInElement, startInElement + sepLen), index++, separatorString);
-      referencesList.add(fileReference);
-    }
-
-    while (true) {
-      int nextSlash = str.indexOf(separatorString, currentSlash + sepLen);
-      String subReferenceText = nextSlash > 0 ? str.substring(currentSlash + sepLen, nextSlash) : str.substring(currentSlash + sepLen);
-      TextRange range = new TextRange(startInElement + currentSlash + sepLen, startInElement + (nextSlash > 0 ? nextSlash : str.length()));
-      FileReference ref = createFileReference(range, index++, subReferenceText);
-      referencesList.add(ref);
-      if ((currentSlash = nextSlash) < 0) {
-        break;
+    if (curSep >= 0 && decoded.length() == wsHead + sepLen + wsTail) {
+      // add extra reference for the only & leading "/"
+      TextRange r = TextRange.create(startInElement, offset(curSep + Math.max(0, sepLen - 1), escaper, valueRange) + 1);
+      FileReference reference = createFileReference(r, index++, decoded.subSequence(curSep, curSep + sepLen).toString());
+      if (reference != null) {
+        referencesList.add(reference);
       }
+    }
+    curSep = curSep == wsHead ? curSep + sepLen : wsHead; // reset offsets & start again for simplicity
+    sepLen = 0;
+    while (curSep >= 0) {
+      int nextSep = findSeparatorOffset(decoded, curSep + sepLen);
+      int start = curSep + sepLen;
+      int endTrimmed = nextSep > 0 ? nextSep : Math.max(start, decoded.length() - wsTail);
+      // todo move ${placeholder} support (the str usage below) to a reference implementation
+      // todo reference-set should be bound to exact range & text in a file, consider: ${slash}path${slash}file&amp;.txt
+      String refText = index == 0 && nextSep < 0 && !StringUtil.contains(decoded, str) ? str :
+                                decoded.subSequence(start, endTrimmed).toString();
+      int refStart = offset(start, escaper, valueRange);
+      int refEnd = offset(endTrimmed, escaper, valueRange);
+      if (!(refStart <= refEnd && refStart >= 0)) {
+        LOG.error("Invalid range: (" + (refText + ", " + refEnd) + "), escaper=" + escaper + "\n" +
+                  "text=" + refText + ", start=" + startInElement);
+      }
+      FileReference reference = createFileReference(new TextRange(refStart, refEnd), index++, refText);
+      if (reference != null) {
+        referencesList.add(reference);
+      }
+      curSep = nextSep;
+      sepLen = curSep > 0 ? findSeparatorLength(decoded, curSep) : 0;
     }
 
     return referencesList;
+  }
+
+  private static int offset(int offset, LiteralTextEscaper<? extends PsiLanguageInjectionHost> escaper, TextRange valueRange) {
+    return escaper == null ? offset + valueRange.getStartOffset() : escaper.getOffsetInHost(offset, valueRange);
   }
 
   public FileReference getReference(int index) {
     return myReferences[index];
   }
 
-  @NotNull
-  public FileReference[] getAllReferences() {
+  public FileReference @NotNull [] getAllReferences() {
     return myReferences;
   }
 
@@ -279,28 +299,28 @@ public class FileReferenceSet {
 
   @NotNull
   public Collection<PsiFileSystemItem> getDefaultContexts() {
-    if (myDefaultContexts == null) {
-      myDefaultContexts = computeDefaultContexts();
+    Collection<PsiFileSystemItem> result = myDefaultContexts;
+    if (result == null) {
+      result = computeDefaultContexts();
+      ModelBranch branch = ModelBranch.getPsiBranch(getElement());
+      if (branch != null) {
+        result = result.stream()
+          .map(item -> ModelBranch.getPsiBranch(item) == branch ? item : branch.obtainPsiCopy(item))
+          .collect(Collectors.toCollection(LinkedHashSet::new));
+      }
+      myDefaultContexts = result;
     }
-    return myDefaultContexts;
+    return result;
   }
 
   @NotNull
   public Collection<PsiFileSystemItem> computeDefaultContexts() {
     final PsiFile file = getContainingFile();
-    if (file == null) return Collections.emptyList();
+    if (file == null) return emptyList();
 
-    if (myOptions != null) {
-      final Function<PsiFile, Collection<PsiFileSystemItem>> value = DEFAULT_PATH_EVALUATOR_OPTION.getValue(myOptions);
-      if (value != null) {
-        final Collection<PsiFileSystemItem> roots = value.fun(file);
-        if (roots != null) {
-          for (PsiFileSystemItem root : roots) {
-            LOG.assertTrue(root != null, "Default path evaluator " + value + " produced a null root for " + file);
-          }
-          return roots;
-        }
-      }
+    Collection<PsiFileSystemItem> contexts = getCustomizationContexts(file);
+    if (contexts != null) {
+      return contexts;
     }
 
     if (isAbsolutePathReference()) {
@@ -324,49 +344,190 @@ public class FileReferenceSet {
     final PsiElement context = file.getContext();
     if (context != null) file = context.getContainingFile();
 
-    if (useIncludingFileAsContext()) {
-      final FileContextProvider contextProvider = FileContextProvider.getProvider(file);
-      if (contextProvider != null) {
-        final Collection<PsiFileSystemItem> folders = contextProvider.getContextFolders(file);
-        if (!folders.isEmpty()) {
-          return folders;
-        }
-        final PsiFile contextFile = contextProvider.getContextFile(file);
-        if (contextFile != null) {
-          return Collections.<PsiFileSystemItem>singleton(contextFile.getParent());
-        }
-      }
-    }
+    Collection<PsiFileSystemItem> folders = getIncludingFileContexts(file);
+    if (folders != null) return folders;
 
-    VirtualFile virtualFile = file.getOriginalFile().getVirtualFile();
+    return getContextByFileSystemItem(file.getOriginalFile());
+  }
 
+  @NotNull
+  protected Collection<PsiFileSystemItem> getContextByFileSystemItem(@NotNull PsiFileSystemItem file) {
+    VirtualFile virtualFile = file.getVirtualFile();
     if (virtualFile != null) {
       final FileReferenceHelper[] helpers = FileReferenceHelperRegistrar.getHelpers();
-      final ArrayList<PsiFileSystemItem> list = new ArrayList<PsiFileSystemItem>();
+      final ArrayList<PsiFileSystemItem> list = new ArrayList<>();
       final Project project = file.getProject();
+      boolean hasRealContexts = false;
       for (FileReferenceHelper helper : helpers) {
         if (helper.isMine(project, virtualFile)) {
           if (!list.isEmpty() && helper.isFallback()) {
             continue;
           }
-          list.addAll(helper.getContexts(project, virtualFile));
+          Collection<PsiFileSystemItem> contexts = helper.getContexts(project, virtualFile);
+          for (PsiFileSystemItem context : contexts) {
+            list.add(context);
+            hasRealContexts |= !(context instanceof FileReferenceResolver);
+          }
         }
       }
       if (!list.isEmpty()) {
+        if (!hasRealContexts) {
+          list.addAll(getParentDirectoryContext());
+        }
         return list;
       }
-      final VirtualFile parent = virtualFile.getParent();
-      if (parent != null) {
-        final PsiDirectory directory = file.getManager().findDirectory(parent);
-        if (directory != null) {
-          return Collections.<PsiFileSystemItem>singleton(directory);
+      return getParentDirectoryContext();
+    }
+    return emptyList();
+  }
+
+  @Nullable
+  private Collection<PsiFileSystemItem> getIncludingFileContexts(@NotNull PsiFile file) {
+    if (useIncludingFileAsContext()) {
+      FileContextProvider contextProvider = FileContextProvider.getProvider(file);
+      if (contextProvider != null) {
+        Collection<PsiFileSystemItem> folders = contextProvider.getContextFolders(file);
+        if (!folders.isEmpty()) {
+          return folders;
+        }
+        PsiFile contextFile = contextProvider.getContextFile(file);
+        if (contextFile != null && contextFile.getParent() != null) {
+          return singletonList(contextFile.getParent());
         }
       }
     }
-    return Collections.emptyList();
+    return null;
   }
 
-  public String getPathString() {
+  @NotNull
+  protected Collection<PsiFileSystemItem> getParentDirectoryContext() {
+    PsiFile file = getContainingFile();
+    VirtualFile virtualFile = file == null ? null : file.getOriginalFile().getVirtualFile();
+    final VirtualFile parent = virtualFile == null ? null : virtualFile.getParent();
+    final PsiDirectory directory = parent == null ? null :file.getManager().findDirectory(parent);
+    return directory != null ? singleton(directory) : emptyList();
+  }
+
+  /**
+   * Finds file target contexts, locations where users can create a file. Includes only local file directory items.
+   */
+  public Collection<FileTargetContext> getTargetContexts() {
+    PsiFile file = getContainingFile();
+    if (file == null) return emptyList();
+
+    Collection<FileTargetContext> customizationContexts = getTargetCustomizationContexts(file);
+
+    Collection<FileTargetContext> targetContexts;
+    if (customizationContexts != null) {
+      targetContexts = customizationContexts;
+    } else {
+      targetContexts = getTargetContextByFile(file);
+    }
+
+    // CreateFilePathFix and CreateDirectoryPathFix support only local files
+    return filterLocalFsContexts(targetContexts);
+  }
+
+  private static Collection<FileTargetContext> filterLocalFsContexts(Collection<? extends FileTargetContext> contexts) {
+    return ContainerUtil.filter(contexts, c -> {
+      VirtualFile file = c.getFileSystemItem().getVirtualFile();
+      return file != null && c.getFileSystemItem().isDirectory() && file.isInLocalFileSystem();
+    });
+  }
+
+  @Nullable
+  private Collection<PsiFileSystemItem> getCustomizationContexts(PsiFile file) {
+    if (myOptions != null) {
+      Function<PsiFile, Collection<PsiFileSystemItem>> value = DEFAULT_PATH_EVALUATOR_OPTION.getValue(myOptions);
+      if (value != null) {
+        final Collection<PsiFileSystemItem> roots = value.fun(file);
+        if (roots != null) {
+          for (PsiFileSystemItem root : roots) {
+            if (root == null) {
+              LOG.error("Default path evaluator " + value + " produced a null root for " + file);
+            }
+          }
+          return roots;
+        }
+      }
+    }
+    return null;
+  }
+
+  @Nullable
+  private Collection<FileTargetContext> getTargetCustomizationContexts(@NotNull PsiFile file) {
+    if (myOptions != null) {
+      Function<PsiFile, Collection<PsiFileSystemItem>> value = DEFAULT_PATH_EVALUATOR_OPTION.getValue(myOptions);
+      if (value != null) {
+        Collection<FileTargetContext> roots;
+        if (value instanceof TargetContextEvaluator) {
+          roots = ((TargetContextEvaluator)value).getTargetContexts(file);
+        }
+        else {
+          Collection<PsiFileSystemItem> items = value.fun(file);
+          roots = items != null ? toTargetContexts(items) : emptyList();
+        }
+
+        return roots;
+      }
+    }
+    return null;
+  }
+
+  @NotNull
+  private Collection<FileTargetContext> getTargetContextByFile(@NotNull PsiFile file) {
+    boolean absolutePathReference = isAbsolutePathReference();
+
+    if (!absolutePathReference) {
+      PsiElement context = file.getContext();
+      if (context != null) file = context.getContainingFile();
+
+      Collection<PsiFileSystemItem> folders = getIncludingFileContexts(file);
+      if (folders != null) return toTargetContexts(folders);
+    }
+
+    PsiDirectory parent = file.getParent();
+    Module module = ModuleUtilCore.findModuleForPsiElement(parent == null ? file : parent);
+    if (absolutePathReference && module == null) return emptyList();
+
+    PsiFileSystemItem originalFile = file.getOriginalFile();
+    VirtualFile virtualFile = originalFile.getVirtualFile();
+    if (virtualFile == null) return emptyList();
+
+    // reference helpers may provide non-unique results, use LinkedHashSet to collapse them preserving the order
+    Set<FileTargetContext> list = new LinkedHashSet<>();
+
+    Project project = originalFile.getProject();
+    boolean hasRealContexts = false;
+
+    FileReferenceHelper[] helpers = FileReferenceHelperRegistrar.getHelpers();
+    for (FileReferenceHelper helper : helpers) {
+      if (helper.isMine(project, virtualFile)) {
+        if (!list.isEmpty() && helper.isFallback()) {
+          continue;
+        }
+
+        Collection<FileTargetContext> contexts = helper.getTargetContexts(project, virtualFile, absolutePathReference);
+
+        for (FileTargetContext context : contexts) {
+          list.add(context);
+          hasRealContexts |= !(context.getFileSystemItem() instanceof FileReferenceResolver);
+        }
+      }
+    }
+
+    if (!list.isEmpty()) {
+      if (!hasRealContexts) {
+        for (PsiFileSystemItem item : getParentDirectoryContext()) {
+          list.add(new FileTargetContext(item));
+        }
+      }
+      return list;
+    }
+    return toTargetContexts(getParentDirectoryContext());
+  }
+
+  public @NlsSafe String getPathString() {
     return myPathString;
   }
 
@@ -392,27 +553,52 @@ public class FileReferenceSet {
   @NotNull
   public static Collection<PsiFileSystemItem> getAbsoluteTopLevelDirLocations(@NotNull final PsiFile file) {
     final VirtualFile virtualFile = file.getVirtualFile();
-    if (virtualFile == null) return Collections.emptyList();
+    if (virtualFile == null) return emptyList();
 
     final PsiDirectory parent = file.getParent();
     final Module module = ModuleUtilCore.findModuleForPsiElement(parent == null ? file : parent);
-    if (module == null) return Collections.emptyList();
+    if (module == null) return emptyList();
 
-    final List<PsiFileSystemItem> list = new ArrayList<PsiFileSystemItem>();
+    Set<PsiFileSystemItem> result = new LinkedHashSet<>();
     final Project project = file.getProject();
     for (FileReferenceHelper helper : FileReferenceHelperRegistrar.getHelpers()) {
       if (helper.isMine(project, virtualFile)) {
-        if (helper.isFallback() && !list.isEmpty()) {
+        if (helper.isFallback() && !result.isEmpty()) {
           continue;
         }
-        final Collection<PsiFileSystemItem> roots = helper.getRoots(module);
+        Collection<PsiFileSystemItem> roots = helper.getRoots(module, virtualFile);
         for (PsiFileSystemItem root : roots) {
-          LOG.assertTrue(root != null, "Helper " + helper + " produced a null root for " + file);
+          if (root == null) {
+            LOG.error("Helper " + helper + " produced a null root for " + file);
+          }
         }
-        list.addAll(roots);
+        result.addAll(roots);
       }
     }
-    return list;
+    return new ArrayList<>(result);
+  }
+
+  @NotNull
+  private static Collection<FileTargetContext> getTargetAbsoluteTopLevelContexts(@NotNull PsiFile file) {
+    VirtualFile virtualFile = file.getVirtualFile();
+    if (virtualFile == null) return emptyList();
+
+    PsiDirectory parent = file.getParent();
+    Module module = ModuleUtilCore.findModuleForPsiElement(parent == null ? file : parent);
+    if (module == null) return emptyList();
+
+    Set<FileTargetContext> result = new LinkedHashSet<>();
+    Project project = file.getProject();
+    for (FileReferenceHelper helper : FileReferenceHelperRegistrar.getHelpers()) {
+      if (helper.isMine(project, virtualFile)) {
+        if (helper.isFallback() && !result.isEmpty()) {
+          continue;
+        }
+        Collection<FileTargetContext> roots = helper.getTargetContexts(project, virtualFile, true);
+        result.addAll(roots);
+      }
+    }
+    return new ArrayList<>(result);
   }
 
   @NotNull
@@ -421,14 +607,9 @@ public class FileReferenceSet {
   }
 
   @NotNull
-  protected Collection<PsiFileSystemItem> toFileSystemItems(@NotNull Collection<VirtualFile> files) {
+  protected Collection<PsiFileSystemItem> toFileSystemItems(@NotNull Collection<? extends VirtualFile> files) {
     final PsiManager manager = getElement().getManager();
-    return ContainerUtil.mapNotNull(files, new NullableFunction<VirtualFile, PsiFileSystemItem>() {
-      @Override
-      public PsiFileSystemItem fun(VirtualFile file) {
-        return file != null ? manager.findDirectory(file) : null;
-      }
-    });
+    return ContainerUtil.mapNotNull(files, file -> file != null && file.isValid() ? manager.findDirectory(file) : null);
   }
 
   protected Condition<PsiFileSystemItem> getReferenceCompletionFilter() {
@@ -437,7 +618,7 @@ public class FileReferenceSet {
 
   public <Option> void addCustomization(CustomizableReferenceProvider.CustomizationKey<Option> key, Option value) {
     if (myOptions == null) {
-      myOptions = new HashMap<CustomizableReferenceProvider.CustomizationKey, Object>(5);
+      myOptions = new HashMap<>(5);
     }
     myOptions.put(key, value);
   }
@@ -450,8 +631,7 @@ public class FileReferenceSet {
     return true;
   }
 
-  @NotNull
-  public FileType[] getSuitableFileTypes() {
+  public FileType @NotNull [] getSuitableFileTypes() {
     return mySuitableFileTypes == null ? EMPTY_FILE_TYPES : mySuitableFileTypes;
   }
 
@@ -461,5 +641,33 @@ public class FileReferenceSet {
 
   public void setEmptyPathAllowed(boolean emptyPathAllowed) {
     myEmptyPathAllowed = emptyPathAllowed;
+  }
+
+  public boolean supportsExtendedCompletion() {
+    return true;
+  }
+
+  /**
+   * Enables custom handling of target locations for {@link #DEFAULT_PATH_EVALUATOR_OPTION} in customizations.
+   */
+  public interface TargetContextEvaluator {
+    /**
+     * Returns target file locations for "Create File" quick fixes.
+     */
+    @NotNull
+    Collection<FileTargetContext> getTargetContexts(@NotNull PsiFile file);
+  }
+
+  private static class AbsoluteTopLevelEvaluator implements Function<PsiFile, Collection<PsiFileSystemItem>>, TargetContextEvaluator {
+    @Override
+    @NotNull
+    public Collection<FileTargetContext> getTargetContexts(@NotNull PsiFile file) {
+      return getTargetAbsoluteTopLevelContexts(file);
+    }
+
+    @Override
+    public Collection<PsiFileSystemItem> fun(PsiFile file) {
+      return getAbsoluteTopLevelDirLocations(file);
+    }
   }
 }

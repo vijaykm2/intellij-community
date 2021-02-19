@@ -14,16 +14,10 @@
  * limitations under the License.
  */
 
-/*
-* Created by IntelliJ IDEA.
-* User: dsl
-* Date: Apr 15, 2002
-* Time: 1:25:37 PM
-* To change template for new class use
-* Code Style | Class Templates options (Tools | IDE Options).
-*/
 package com.intellij.refactoring.makeStatic;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
+import com.intellij.lang.ContextAwareActionHandler;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
@@ -32,6 +26,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.VariableKind;
@@ -39,14 +34,14 @@ import com.intellij.psi.search.searches.MethodReferencesSearch;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.RefactoringActionHandler;
 import com.intellij.refactoring.RefactoringBundle;
+import com.intellij.refactoring.actions.BaseRefactoringAction;
+import com.intellij.refactoring.actions.RefactoringActionContextUtil;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
-import com.intellij.util.Processor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class MakeStaticHandler implements RefactoringActionHandler {
-  public static final String REFACTORING_NAME = RefactoringBundle.message("make.method.static.title");
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.makeMethodStatic.MakeMethodStaticHandler");
+public class MakeStaticHandler implements RefactoringActionHandler, ContextAwareActionHandler {
+  private static final Logger LOG = Logger.getInstance(MakeStaticHandler.class);
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file, DataContext dataContext) {
@@ -61,7 +56,7 @@ public class MakeStaticHandler implements RefactoringActionHandler {
 
     if(!(element instanceof PsiTypeParameterListOwner)) {
       String message = RefactoringBundle.getCannotRefactorMessage(RefactoringBundle.message("error.wrong.caret.position.method.or.class.name"));
-      CommonRefactoringUtil.showErrorHint(project, editor, message, REFACTORING_NAME, HelpID.MAKE_METHOD_STATIC);
+      CommonRefactoringUtil.showErrorHint(project, editor, message, getRefactoringName(), HelpID.MAKE_METHOD_STATIC);
       return;
     }
     if(LOG.isDebugEnabled()) {
@@ -71,7 +66,7 @@ public class MakeStaticHandler implements RefactoringActionHandler {
   }
 
   @Override
-  public void invoke(@NotNull final Project project, @NotNull PsiElement[] elements, DataContext dataContext) {
+  public void invoke(@NotNull final Project project, PsiElement @NotNull [] elements, DataContext dataContext) {
     if(elements.length != 1 || !(elements[0] instanceof PsiTypeParameterListOwner)) return;
 
     final PsiTypeParameterListOwner member = (PsiTypeParameterListOwner)elements[0];
@@ -80,11 +75,17 @@ public class MakeStaticHandler implements RefactoringActionHandler {
     String error = validateTarget(member);
     if (error != null) {
       Editor editor = CommonDataKeys.EDITOR.getData(dataContext);
-      CommonRefactoringUtil.showErrorHint(project, editor, error, REFACTORING_NAME, HelpID.MAKE_METHOD_STATIC);
+      CommonRefactoringUtil.showErrorHint(project, editor, error, getRefactoringName(), HelpID.MAKE_METHOD_STATIC);
       return;
     }
 
     invoke(member);
+  }
+
+  @Override
+  public boolean isAvailableForQuickList(@NotNull Editor editor, @NotNull PsiFile file, @NotNull DataContext dataContext) {
+    PsiElement element = BaseRefactoringAction.getElementAtCaret(editor, file);
+    return RefactoringActionContextUtil.getJavaMethodHeader(element) != null;
   }
 
   public static void invoke(final PsiTypeParameterListOwner member) {
@@ -101,22 +102,15 @@ public class MakeStaticHandler implements RefactoringActionHandler {
 
       final boolean[] hasMethodReferenceOnInstance = new boolean[] {false};
       if (member instanceof PsiMethod) {
-        if (!ProgressManager.getInstance().runProcessWithProgressSynchronously(new Runnable() {
-          @Override
-          public void run() {
-            hasMethodReferenceOnInstance[0] = !MethodReferencesSearch.search((PsiMethod)member).forEach(new Processor<PsiReference>() {
-              @Override
-              public boolean process(PsiReference reference) {
-                final PsiElement element = reference.getElement();
-                return !(element instanceof PsiMethodReferenceExpression);
-              }
-            });
-          }
-        }, "Search for method references", true, project)) return;
+        if (!ProgressManager.getInstance().runProcessWithProgressSynchronously(
+          (Runnable)() -> hasMethodReferenceOnInstance[0] = !MethodReferencesSearch.search((PsiMethod)member).forEach(reference -> {
+            final PsiElement element = reference.getElement();
+            return !(element instanceof PsiMethodReferenceExpression);
+          }), JavaRefactoringBundle.message("make.static.method.references.progress"), true, project)) return;
       }
 
       if (classRefsInMember.length > 0 || hasMethodReferenceOnInstance[0]) {
-        final PsiType type = JavaPsiFacade.getInstance(project).getElementFactory().createType(member.getContainingClass());
+        final PsiType type = JavaPsiFacade.getElementFactory(project).createType(member.getContainingClass());
         //TODO: callback
         String[] nameSuggestions =
                 JavaCodeStyleManager.getInstance(project).suggestVariableName(VariableKind.PARAMETER, null, null, type).names;
@@ -136,7 +130,7 @@ public class MakeStaticHandler implements RefactoringActionHandler {
   }
 
   @Nullable
-  public static String validateTarget(final PsiTypeParameterListOwner member) {
+  public static @NlsContexts.DialogMessage String validateTarget(final PsiTypeParameterListOwner member) {
     final PsiClass containingClass = member.getContainingClass();
 
     // Checking various preconditions
@@ -161,5 +155,9 @@ public class MakeStaticHandler implements RefactoringActionHandler {
       return RefactoringBundle.getCannotRefactorMessage(RefactoringBundle.message("inner.classes.cannot.have.static.members"));
     }
     return null;
+  }
+
+  public static @NlsContexts.DialogTitle String getRefactoringName() {
+    return JavaRefactoringBundle.message("make.method.static.title");
   }
 }

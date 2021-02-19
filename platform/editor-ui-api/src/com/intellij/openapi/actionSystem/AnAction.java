@@ -1,41 +1,39 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.actionSystem;
 
+import com.intellij.diagnostic.LoadingState;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.PossiblyDumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Key;
+import com.intellij.ui.ComponentUtil;
+import com.intellij.util.SmartFMap;
 import com.intellij.util.SmartList;
 import org.intellij.lang.annotations.JdkConstants;
-import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Supplier;
+
+import static com.intellij.openapi.util.NlsActions.ActionDescription;
+import static com.intellij.openapi.util.NlsActions.ActionText;
 
 /**
  * Represents an entity that has a state, a presentation and can be performed.
  *
  * For an action to be useful, you need to implement {@link AnAction#actionPerformed}
- * and optionally to override {@link com.intellij.openapi.actionSystem.AnAction#update}. By overriding the
- * {@link com.intellij.openapi.actionSystem.AnAction#update} method you can dynamically change action's presentation
- * depending on the place (for more information on places see {@link ActionPlaces}.
+ * and optionally to override {@link AnAction#update}. By overriding the
+ * {@link AnAction#update} method you can dynamically change action's presentation
+ * depending on the place (for more information on places see {@link com.intellij.openapi.actionSystem.ActionPlaces}.
  *
  * The same action can have various presentations.
  *
@@ -60,47 +58,63 @@ import java.util.List;
  *
  * @see AnActionEvent
  * @see Presentation
- * @see ActionPlaces
+ * @see com.intellij.openapi.actionSystem.ActionPlaces
+ * @see com.intellij.openapi.project.DumbAwareAction
  */
 public abstract class AnAction implements PossiblyDumbAware {
+  private static final Logger LOG = Logger.getInstance(AnAction.class);
+
+  public static final Key<List<AnAction>> ACTIONS_KEY = Key.create("AnAction.shortcutSet");
   public static final AnAction[] EMPTY_ARRAY = new AnAction[0];
-  @NonNls public static final String ourClientProperty = "AnAction.shortcutSet";
 
   private Presentation myTemplatePresentation;
-  private ShortcutSet myShortcutSet;
+  @NotNull
+  private ShortcutSet myShortcutSet = CustomShortcutSet.EMPTY;
   private boolean myEnabledInModalContext;
 
-
-  private static final ShortcutSet ourEmptyShortcutSet = new CustomShortcutSet();
   private boolean myIsDefaultIcon = true;
   private boolean myWorksInInjected;
-
+  private SmartFMap<String, Supplier<String>> myActionTextOverrides = SmartFMap.emptyMap();
+  private List<Supplier<@Nls String>> mySynonyms = Collections.emptyList();
 
   /**
-   * Creates a new action with its text, description and icon set to <code>null</code>.
+   * Creates a new action with its text, description and icon set to {@code null}.
    */
   public AnAction(){
-    this(null, null, null);
+    // avoid eagerly creating template presentation
   }
 
   /**
-   * Creates a new action with <code>icon</code> provided. Its text, description set to <code>null</code>.
+   * Creates a new action with {@code icon} provided. Its text, description set to {@code null}.
    *
    * @param icon Default icon to appear in toolbars and menus (Note some platform don't have icons in menu).
    */
   public AnAction(Icon icon){
-    this(null, null, icon);
+    this(Presentation.NULL_STRING, Presentation.NULL_STRING, icon);
   }
 
   /**
    * Creates a new action with the specified text. Description and icon are
-   * set to <code>null</code>.
+   * set to {@code null}.
    *
    * @param text Serves as a tooltip when the presentation is a button and the name of the
    *  menu item when the presentation is a menu item.
    */
-  public AnAction(@Nullable String text){
+  public AnAction(@Nullable @ActionText String text) {
     this(text, null, null);
+  }
+
+  /**
+   * Creates a new action with the specified text. Description and icon are
+   * set to {@code null}.
+   *
+   * @param dynamicText Serves as a tooltip when the presentation is a button and the name of the
+   * menu item when the presentation is a menu item.
+   *
+   *  Use it if you need to localize action text.
+   */
+  public AnAction(@NotNull Supplier<@ActionText String> dynamicText) {
+    this(dynamicText, Presentation.NULL_STRING, null);
   }
 
   /**
@@ -114,12 +128,41 @@ public abstract class AnAction implements PossiblyDumbAware {
    *
    * @param icon Action's icon
    */
-  public AnAction(@Nullable String text, @Nullable String description, @Nullable Icon icon){
-    myShortcutSet = ourEmptyShortcutSet;
-    myEnabledInModalContext = false;
+  public AnAction(@Nullable @ActionText String text,
+                  @Nullable @ActionDescription String description,
+                  @Nullable Icon icon) {
+    this(() -> text, () -> description, icon);
+  }
+
+  /**
+   * Constructs a new action with the specified dynamicText, dynamicDescription and icon.
+   *
+   * @param dynamicText Serves as a tooltip when the presentation is a button and the name of the
+   *  menu item when the presentation is a menu item. Use it if you need to localize action text.
+   *
+   * @param icon Action's icon
+   */
+  public AnAction(@NotNull Supplier<@ActionText String> dynamicText, @Nullable Icon icon) {
+    this(dynamicText, Presentation.NULL_STRING, icon);
+  }
+
+  /**
+   * Constructs a new action with the specified dynamicText, dynamicDescription and icon.
+   *
+   * @param dynamicText Serves as a tooltip when the presentation is a button and the name of the
+   *  menu item when the presentation is a menu item. Use it if you need to localize action text.
+   *
+   * @param dynamicDescription Describes current action, this dynamicDescription will appear on
+   *  the status bar when presentation has focus. Use it if you need to localize description.
+   *
+   * @param icon Action's icon
+   */
+  public AnAction(@NotNull Supplier<@ActionText String> dynamicText,
+                  @NotNull Supplier<@ActionDescription String> dynamicDescription,
+                  @Nullable Icon icon) {
     Presentation presentation = getTemplatePresentation();
-    presentation.setText(text);
-    presentation.setDescription(description);
+    presentation.setText(dynamicText);
+    presentation.setDescription(dynamicDescription);
     presentation.setIcon(icon);
   }
 
@@ -128,6 +171,7 @@ public abstract class AnAction implements PossiblyDumbAware {
    *
    * @return shortcut set associated with this action
    */
+  @NotNull
   public final ShortcutSet getShortcutSet(){
     return myShortcutSet;
   }
@@ -140,61 +184,55 @@ public abstract class AnAction implements PossiblyDumbAware {
    * @param shortcutSet the shortcuts for the action.
    * @param component   the component for which the shortcuts will be active.
    */
-  public final void registerCustomShortcutSet(@NotNull ShortcutSet shortcutSet, @Nullable JComponent component){
-    myShortcutSet = shortcutSet;
-    if (component != null){
-      @SuppressWarnings("unchecked")
-      List<AnAction> actionList = (List<AnAction>)component.getClientProperty(ourClientProperty);
-      if (actionList == null){
-        actionList = new SmartList<AnAction>();
-        component.putClientProperty(ourClientProperty, actionList);
-      }
-      if (!actionList.contains(this)){
-        actionList.add(this);
-      }
-    }
+  public final void registerCustomShortcutSet(@NotNull ShortcutSet shortcutSet, @Nullable JComponent component) {
+    registerCustomShortcutSet(shortcutSet, component, null);
   }
 
   public final void registerCustomShortcutSet(int keyCode, @JdkConstants.InputEventMask int modifiers, @Nullable JComponent component) {
     registerCustomShortcutSet(new CustomShortcutSet(KeyStroke.getKeyStroke(keyCode, modifiers)), component);
   }
 
-  public final void registerCustomShortcutSet(@NotNull ShortcutSet shortcutSet, @NotNull final JComponent component, @NotNull Disposable parentDisposable) {
-    registerCustomShortcutSet(shortcutSet, component);
-    Disposer.register(parentDisposable, new Disposable() {
-      @Override
-      public void dispose() {
-        unregisterCustomShortcutSet(component);
-      }
-    });
+  public final void registerCustomShortcutSet(@NotNull ShortcutSet shortcutSet, @Nullable JComponent component, @Nullable Disposable parentDisposable) {
+    setShortcutSet(shortcutSet);
+    registerCustomShortcutSet(component, parentDisposable);
   }
 
-  public final void unregisterCustomShortcutSet(JComponent component){
-    if (component != null){
-      @SuppressWarnings("unchecked")
-      List<AnAction> actionList = (List<AnAction>)component.getClientProperty(ourClientProperty);
-      if (actionList != null){
-        actionList.remove(this);
-      }
+  public final void registerCustomShortcutSet(@Nullable JComponent component, @Nullable Disposable parentDisposable) {
+    if (component == null) return;
+    List<AnAction> actionList = ComponentUtil.getClientProperty(component, ACTIONS_KEY);
+    if (actionList == null) {
+      List<AnAction> value = actionList = new SmartList<>();
+      ComponentUtil.putClientProperty(component, ACTIONS_KEY, value);
+    }
+    if (!actionList.contains(this)) {
+      actionList.add(this);
+    }
+
+    if (parentDisposable != null) {
+      Disposer.register(parentDisposable, () -> unregisterCustomShortcutSet(component));
+    }
+  }
+
+  public final void unregisterCustomShortcutSet(@NotNull JComponent component) {
+    List<AnAction> actionList = ComponentUtil.getClientProperty(component, ACTIONS_KEY);
+    if (actionList != null) {
+      actionList.remove(this);
     }
   }
 
   /**
-   * Copies template presentation and shortcuts set from <code>sourceAction</code>.
-   *
-   * @param sourceAction cannot be <code>null</code>
+   * Copies template presentation and shortcuts set from {@code sourceAction}.
+   * Consider using {@link com.intellij.openapi.actionSystem.ex.ActionUtil#copyFrom(AnAction, String)} instead.
    */
-  public final void copyFrom(@NotNull AnAction sourceAction){
+  public final void copyFrom(@NotNull AnAction sourceAction) {
     Presentation sourcePresentation = sourceAction.getTemplatePresentation();
     Presentation presentation = getTemplatePresentation();
-    presentation.setIcon(sourcePresentation.getIcon());
-    presentation.setText(sourcePresentation.getTextWithMnemonic());
-    presentation.setDescription(sourcePresentation.getDescription());
+    presentation.copyFrom(sourcePresentation);
     copyShortcutFrom(sourceAction);
   }
 
   public final void copyShortcutFrom(@NotNull AnAction sourceAction) {
-    myShortcutSet = sourceAction.myShortcutSet;
+    setShortcutSet(sourceAction.getShortcutSet());
   }
 
 
@@ -214,21 +252,35 @@ public abstract class AnAction implements PossiblyDumbAware {
   }
 
   /**
+   * Override with true returned if your action displays text in a smaller font (same as toolbar combobox font) when placed in the toolbar
+   */
+  public boolean useSmallerFontForTextInToolbar() {
+    return false;
+  }
+
+  /**
    * Updates the state of the action. Default implementation does nothing.
    * Override this method to provide the ability to dynamically change action's
    * state and(or) presentation depending on the context (For example
    * when your action state depends on the selection you can check for
-   * selection and change the state accordingly).
-   * This method can be called frequently, for instance, if an action is added to a toolbar,
-   * it will be updated twice a second. This means that this method is supposed to work really fast,
+   * selection and change the state accordingly).<p></p>
+   *
+   * This method can be called frequently, and on UI thread.
+   * This means that this method is supposed to work really fast,
    * no real work should be done at this phase. For example, checking selection in a tree or a list,
-   * is considered valid, but working with a file system is not. If you cannot understand the state of
-   * the action fast you should do it in the {@link #actionPerformed(AnActionEvent)} method and notify
-   * the user that action cannot be executed if it's the case.
+   * is considered valid, but working with a file system or PSI (especially resolve) is not.
+   * If you cannot determine the state of the action fast enough,
+   * you should do it in the {@link #actionPerformed(AnActionEvent)} method and notify
+   * the user that action cannot be executed if it's the case.<p></p>
+   *
+   * If the action is added to a toolbar, its "update" can be called twice a second, but only if there was
+   * any user activity or a focus transfer. If your action's availability is changed
+   * in absence of any of these events, please call {@code ActivityTracker.getInstance().inc()} to notify
+   * action subsystem to update all toolbar actions when your subsystem's determines that its actions' visibility might be affected.
    *
    * @param e Carries information on the invocation place and data available
    */
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
   }
 
   /**
@@ -253,13 +305,18 @@ public abstract class AnAction implements PossiblyDumbAware {
    *
    * @return template presentation
    */
-  @NotNull
-  public final Presentation getTemplatePresentation() {
+  public final @NotNull Presentation getTemplatePresentation() {
     Presentation presentation = myTemplatePresentation;
-    if (presentation == null){
-      myTemplatePresentation = presentation = new Presentation();
+    if (presentation == null) {
+      presentation = createTemplatePresentation();
+      myTemplatePresentation = presentation;
     }
     return presentation;
+  }
+
+  @NotNull
+  Presentation createTemplatePresentation() {
+    return new Presentation();
   }
 
   /**
@@ -267,9 +324,19 @@ public abstract class AnAction implements PossiblyDumbAware {
    *
    * @param e Carries information on the invocation place
    */
-  public abstract void actionPerformed(AnActionEvent e);
+  public abstract void actionPerformed(@NotNull AnActionEvent e);
 
-  protected void setShortcutSet(ShortcutSet shortcutSet) {
+  protected void setShortcutSet(@NotNull ShortcutSet shortcutSet) {
+    if (myShortcutSet != shortcutSet &&
+        myShortcutSet != CustomShortcutSet.EMPTY &&
+        LoadingState.PROJECT_OPENED.isOccurred()) {
+      ActionManager actionManager = ApplicationManager.getApplication().getServiceIfCreated(ActionManager.class);
+      if (actionManager != null && actionManager.getId(this) != null) {
+        LOG.warn("ShortcutSet of global AnActions should not be changed outside of KeymapManager.\n" +
+                 "This is likely not what you wanted to do. Consider setting shortcut in keymap defaults, inheriting from other action " +
+                 "using `use-shortcut-of` or wrapping with EmptyAction.wrap().", new Throwable());
+      }
+    }
     myShortcutSet = shortcutSet;
   }
 
@@ -301,15 +368,77 @@ public abstract class AnAction implements PossiblyDumbAware {
     return myWorksInInjected;
   }
 
+  /** @deprecated not used anymore */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public boolean isTransparentUpdate() {
     return this instanceof TransparentUpdate;
   }
 
-  @Override
-  public boolean isDumbAware() {
-    return this instanceof DumbAware;
+  /**
+   * @deprecated unused
+   */
+  @Deprecated
+  public boolean startInTransaction() {
+    return false;
   }
 
+  public void addTextOverride(@NotNull String place, @NotNull String text) {
+    addTextOverride(place, () -> text);
+  }
+
+  public void addTextOverride(@NotNull String place, @NotNull Supplier<String> text) {
+    myActionTextOverrides = myActionTextOverrides.plus(place, text);
+  }
+
+  @ApiStatus.Internal
+  public void copyActionTextOverride(@NotNull String fromPlace, @NotNull String toPlace, String id) {
+    Supplier<String> value = myActionTextOverrides.get(fromPlace);
+    if (value == null) {
+      LOG.error("Missing override-text for action " + id + " and place specified in use-text-of-place: " + fromPlace);
+      return;
+    }
+    myActionTextOverrides = myActionTextOverrides.plus(toPlace, value);
+  }
+
+
+
+  @ApiStatus.Internal
+  public void applyTextOverride(@NotNull AnActionEvent event) {
+    applyTextOverride(event.getPlace(), event.getPresentation());
+  }
+
+  @ApiStatus.Internal
+  public void applyTextOverride(@NotNull String place, @NotNull Presentation presentation) {
+    Supplier<String> override = myActionTextOverrides.get(place);
+    if (override != null) {
+      presentation.setText(override);
+    }
+  }
+
+  @ApiStatus.Internal
+  protected void copyActionTextOverrides(AnAction targetAction) {
+    for (String place : myActionTextOverrides.keySet()) {
+      targetAction.addTextOverride(place, Objects.requireNonNull(myActionTextOverrides.get(place)));
+    }
+  }
+
+  public void addSynonym(@NotNull Supplier<@Nls String> text) {
+    if (mySynonyms == Collections.<Supplier<String>>emptyList()) {
+      mySynonyms = new SmartList<>(text);
+    }
+    else {
+      mySynonyms.add(text);
+    }
+  }
+
+  public @NotNull List<Supplier<@Nls String>> getSynonyms() {
+    return mySynonyms;
+  }
+
+  /** @deprecated not used anymore */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public interface TransparentUpdate {
   }
 
@@ -319,7 +448,21 @@ public abstract class AnAction implements PossiblyDumbAware {
   }
 
   @Override
+  @Nls
   public String toString() {
     return getTemplatePresentation().toString();
+  }
+
+  /**
+   * Returns default action text.
+   * This method must be overridden in case template presentation contains user data like Project name,
+   * Run Configuration name, etc
+   *
+   * @return action presentable text without private user data
+   */
+  @Nullable
+  @ActionText
+  public String getTemplateText() {
+    return getTemplatePresentation().getText();
   }
 }

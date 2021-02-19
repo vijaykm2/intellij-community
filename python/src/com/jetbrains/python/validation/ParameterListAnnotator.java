@@ -15,11 +15,12 @@
  */
 package com.jetbrains.python.validation;
 
-import com.intellij.util.containers.HashSet;
-import com.jetbrains.python.PyBundle;
+import com.jetbrains.python.PyPsiBundle;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.ParamHelper;
+import org.jetbrains.annotations.NotNull;
 
+import java.util.HashSet;
 import java.util.Set;
 
 /**
@@ -27,55 +28,60 @@ import java.util.Set;
  */
 public class ParameterListAnnotator extends PyAnnotator {
   @Override
-  public void visitPyParameterList(final PyParameterList paramlist) {
-    final LanguageLevel languageLevel = ((PyFile)paramlist.getContainingFile()).getLanguageLevel();
+  public void visitPyParameterList(final @NotNull PyParameterList paramlist) {
+    final LanguageLevel languageLevel = LanguageLevel.forElement(paramlist);
     ParamHelper.walkDownParamArray(
       paramlist.getParameters(),
       new ParamHelper.ParamVisitor() {
-        Set<String> parameterNames = new HashSet<String>();
+        final Set<String> parameterNames = new HashSet<>();
         boolean hadPositionalContainer = false;
         boolean hadKeywordContainer = false;
         boolean hadDefaultValue = false;
+        boolean hadSlash = false;
         boolean hadSingleStar = false;
         boolean hadParamsAfterSingleStar = false;
         int inTuple = 0;
         @Override
         public void visitNamedParameter(PyNamedParameter parameter, boolean first, boolean last) {
           if (parameterNames.contains(parameter.getName())) {
-            markError(parameter, PyBundle.message("ANN.duplicate.param.name"));
+            markError(parameter, PyPsiBundle.message("ANN.duplicate.param.name"));
           }
           parameterNames.add(parameter.getName());
           if (parameter.isPositionalContainer()) {
             if (hadKeywordContainer) {
-              markError(parameter, PyBundle.message("ANN.starred.param.after.kwparam"));
+              markError(parameter, PyPsiBundle.message("ANN.starred.param.after.kwparam"));
             }
             if (hadSingleStar) {
-              markError(parameter, "Multiple * arguments are not allowed");
+              markError(parameter, PyPsiBundle.message("ANN.multiple.args"));
             }
+
+            if (hadPositionalContainer) markError(parameter, PyPsiBundle.message("ANN.multiple.args"));
             hadPositionalContainer = true;
           }
           else if (parameter.isKeywordContainer()) {
+            if (hadKeywordContainer) markError(parameter, PyPsiBundle.message("ANN.multiple.kwargs"));
             hadKeywordContainer = true;
+
             if (hadSingleStar && !hadParamsAfterSingleStar) {
-              markError(parameter, PyBundle.message("ANN.named.arguments.after.star"));
+              markError(parameter, PyPsiBundle.message("ANN.named.parameters.after.star"));
             }
           }
           else {
             if (hadSingleStar) {
               hadParamsAfterSingleStar = true;
             }
-            if (hadPositionalContainer && !languageLevel.isPy3K()) {
-              markError(parameter, PyBundle.message("ANN.regular.param.after.vararg"));
+            if (hadPositionalContainer && languageLevel.isPython2()) {
+              markError(parameter, PyPsiBundle.message("ANN.regular.param.after.vararg"));
             }
             else if (hadKeywordContainer) {
-              markError(parameter, PyBundle.message("ANN.regular.param.after.keyword"));
+              markError(parameter, PyPsiBundle.message("ANN.regular.param.after.keyword"));
             }
             if (parameter.hasDefaultValue()) {
               hadDefaultValue = true;
             }
             else {
-              if (hadDefaultValue && !hadSingleStar && (!languageLevel.isPy3K() || !hadPositionalContainer) && inTuple == 0) {
-                markError(parameter, PyBundle.message("ANN.non.default.param.after.default"));
+              if (hadDefaultValue && !hadSingleStar && (languageLevel.isPython2() || !hadPositionalContainer) && inTuple == 0) {
+                markError(parameter, PyPsiBundle.message("ANN.non.default.param.after.default"));
               }
             }
           }
@@ -85,10 +91,10 @@ public class ParameterListAnnotator extends PyAnnotator {
         public void enterTupleParameter(PyTupleParameter param, boolean first, boolean last) {
           inTuple++;
           if (languageLevel.isPy3K()) {
-            markError(param, PyBundle.message("ANN.tuple.py3"));
+            markError(param, PyPsiBundle.message("ANN.tuple.py3"));
           }
           else if (!param.hasDefaultValue() && hadDefaultValue) {
-            markError(param, PyBundle.message("ANN.non.default.param.after.default"));
+            markError(param, PyPsiBundle.message("ANN.non.default.param.after.default"));
           }
         }
 
@@ -98,13 +104,30 @@ public class ParameterListAnnotator extends PyAnnotator {
         }
 
         @Override
+        public void visitSlashParameter(@NotNull PySlashParameter param, boolean first, boolean last) {
+          if (hadSlash) {
+            markError(param, PyPsiBundle.message("ANN.multiple.slash"));
+          }
+          hadSlash = true;
+          if (hadPositionalContainer) {
+            markError(param, PyPsiBundle.message("ANN.slash.param.after.vararg"));
+          }
+          else if (hadKeywordContainer) {
+            markError(param, PyPsiBundle.message("ANN.slash.param.after.keyword"));
+          }
+          if (first) {
+            markError(param, PyPsiBundle.message("ANN.named.parameters.before.slash"));
+          }
+        }
+
+        @Override
         public void visitSingleStarParameter(PySingleStarParameter param, boolean first, boolean last) {
           if (hadPositionalContainer || hadSingleStar) {
-            markError(param, "Multiple * arguments are not allowed");
+            markError(param, PyPsiBundle.message("ANN.multiple.args"));
           }
           hadSingleStar = true;
           if (last) {
-            markError(param, PyBundle.message("ANN.named.arguments.after.star"));
+            markError(param, PyPsiBundle.message("ANN.named.parameters.after.star"));
           }
         }
       }

@@ -20,19 +20,14 @@ import com.intellij.dupLocator.treeHash.FragmentsCollector;
 import com.intellij.dupLocator.util.PsiFragment;
 import com.intellij.lang.Language;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.psi.PsiElement;
 import com.intellij.util.indexing.FileContent;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Created by IntelliJ IDEA.
- * User: Eugene.Kudelevsky
- * Date: 15.05.2009
- * Time: 14:53:00
- * To change this template use File | Settings | File Templates.
- */
+import java.util.List;
+
 public abstract class DuplicatesProfile {
   public static final ExtensionPointName<DuplicatesProfile> EP_NAME = ExtensionPointName.create("com.intellij.duplicates.profile");
 
@@ -49,12 +44,15 @@ public abstract class DuplicatesProfile {
   @NotNull
   public abstract DuplocatorState getDuplocatorState(@NotNull Language language);
 
-  @Nullable
-  public String getComment(@NotNull DupInfo info, int index) {
+  public @Nullable @Nls String getComment(@NotNull DupInfo info, int index) {
     return null;
   }
 
-  public abstract boolean isMyDuplicate(@NotNull DupInfo info, int index);
+  public boolean isMyDuplicate(@NotNull DupInfo info, int index) {
+    PsiFragment[] fragments = info.getFragmentOccurences(index);
+    Language language = fragments.length > 0 ? fragments[0].getLanguage() : null;
+    return language != null && isMyLanguage(language);
+  }
 
   public boolean supportIndex() {
     return true;
@@ -82,22 +80,32 @@ public abstract class DuplicatesProfile {
 
   @Nullable
   public static DuplicatesProfile findProfileForLanguage(@NotNull Language language) {
-    return findProfileForLanguage(EP_NAME.getExtensions(), language);
+    return findProfileForLanguage(EP_NAME.getExtensionList(), language);
   }
 
   @NotNull
-  public static DuplicatesProfile[] getAllProfiles() {
-    return Extensions.getExtensions(EP_NAME);
+  public static List<DuplicatesProfile> getAllProfiles() {
+    return EP_NAME.getExtensionList();
   }
 
   @Nullable
-  public static DuplicatesProfile findProfileForLanguage(DuplicatesProfile[] profiles, @NotNull Language language) {
+  public static DuplicatesProfile findProfileForLanguage(List<? extends DuplicatesProfile> profiles, @NotNull Language language) {
     for (DuplicatesProfile profile : profiles) {
       if (profile.isMyLanguage(language)) {
         return profile;
       }
     }
 
+    return null;
+  }
+
+  @Nullable
+  public static DuplicatesProfile findProfileForDuplicate(@NotNull DupInfo dupInfo, int index) {
+    for (DuplicatesProfile profile : EP_NAME.getExtensionList()) {
+      if (profile.isMyDuplicate(dupInfo, index)) {
+        return profile;
+      }
+    }
     return null;
   }
 

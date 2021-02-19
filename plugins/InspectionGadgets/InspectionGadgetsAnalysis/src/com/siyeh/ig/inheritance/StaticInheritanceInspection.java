@@ -32,21 +32,13 @@ public class StaticInheritanceInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "static.inheritance.display.name");
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message(
       "static.inheritance.problem.descriptor");
   }
 
-  @NotNull
   @Override
-  protected InspectionGadgetsFix[] buildFixes(Object... infos) {
+  protected InspectionGadgetsFix @NotNull [] buildFixes(Object... infos) {
     return new InspectionGadgetsFix[]{new StaticInheritanceFix(false), new StaticInheritanceFix(true)};
   }
 
@@ -74,13 +66,13 @@ public class StaticInheritanceInspection extends BaseInspection {
           return;
         }
         final PsiClass targetClass = (PsiClass)target;
-        if (targetClass.isInterface() && interfaceContainsOnlyConstants(targetClass, new HashSet<PsiClass>())) {
+        if (targetClass.isInterface() && interfaceContainsOnlyConstants(targetClass, new HashSet<>())) {
           registerError(reference);
         }
       }
     }
 
-    private static boolean interfaceContainsOnlyConstants(PsiClass anInterface, Set<PsiClass> visitedInterfaces) {
+    private static boolean interfaceContainsOnlyConstants(PsiClass anInterface, Set<? super PsiClass> visitedInterfaces) {
       if (!visitedInterfaces.add(anInterface)) {
         return true;
       }

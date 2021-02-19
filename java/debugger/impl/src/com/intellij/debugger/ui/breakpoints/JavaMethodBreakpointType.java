@@ -1,29 +1,17 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.breakpoints;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.HelpID;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.StringBuilderSpinAllocator;
+import com.intellij.psi.PsiMethod;
 import com.intellij.xdebugger.breakpoints.XBreakpoint;
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointCustomPropertiesPanel;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.java.debugger.breakpoints.properties.JavaMethodBreakpointProperties;
@@ -32,11 +20,10 @@ import javax.swing.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Apr 26, 2005
  */
-public class JavaMethodBreakpointType extends JavaLineBreakpointTypeBase<JavaMethodBreakpointProperties> implements JavaBreakpointType {
+public class JavaMethodBreakpointType extends JavaLineBreakpointTypeBase<JavaMethodBreakpointProperties> {
   public JavaMethodBreakpointType() {
-    super("java-method", DebuggerBundle.message("method.breakpoints.tab.title"));
+    super("java-method", JavaDebuggerBundle.message("method.breakpoints.tab.title"));
   }
 
   @NotNull
@@ -53,6 +40,12 @@ public class JavaMethodBreakpointType extends JavaLineBreakpointTypeBase<JavaMet
 
   @NotNull
   @Override
+  public Icon getSuspendNoneIcon() {
+    return AllIcons.Debugger.Db_no_suspend_method_breakpoint;
+  }
+
+  @NotNull
+  @Override
   public Icon getMutedEnabledIcon() {
     return AllIcons.Debugger.Db_muted_method_breakpoint;
   }
@@ -63,6 +56,12 @@ public class JavaMethodBreakpointType extends JavaLineBreakpointTypeBase<JavaMet
     return AllIcons.Debugger.Db_muted_disabled_method_breakpoint;
   }
 
+  @NotNull
+  @Override
+  public Icon getInactiveDependentIcon() {
+    return AllIcons.Debugger.Db_dep_method_breakpoint;
+  }
+
   //@Override
   protected String getHelpID() {
     return HelpID.METHOD_BREAKPOINTS;
@@ -70,7 +69,7 @@ public class JavaMethodBreakpointType extends JavaLineBreakpointTypeBase<JavaMet
 
   //@Override
   public String getDisplayName() {
-    return DebuggerBundle.message("method.breakpoints.tab.title");
+    return JavaDebuggerBundle.message("method.breakpoints.tab.title");
   }
 
   @Override
@@ -78,35 +77,32 @@ public class JavaMethodBreakpointType extends JavaLineBreakpointTypeBase<JavaMet
     return getText(breakpoint);
   }
 
+  @Nls
   static String getText(XBreakpoint<JavaMethodBreakpointProperties> breakpoint) {
-    final StringBuilder buffer = StringBuilderSpinAllocator.alloc();
-    try {
-      //if(isValid()) {
-      final String className = breakpoint.getProperties().myClassPattern;
-      final boolean classNameExists = className != null && className.length() > 0;
+    final StringBuilder buffer = new StringBuilder();
+    //if(isValid()) {
+    final String className = breakpoint.getProperties().myClassPattern;
+    final boolean classNameExists = className != null && className.length() > 0;
+    if (classNameExists) {
+      buffer.append(className);
+    }
+    if(breakpoint.getProperties().myMethodName != null) {
       if (classNameExists) {
-        buffer.append(className);
+        buffer.append(".");
       }
-      if(breakpoint.getProperties().myMethodName != null) {
-        if (classNameExists) {
-          buffer.append(".");
-        }
-        buffer.append(breakpoint.getProperties().myMethodName);
-      }
-      //}
-      //else {
-      //  buffer.append(DebuggerBundle.message("status.breakpoint.invalid"));
-      //}
-      return buffer.toString();
+      buffer.append(breakpoint.getProperties().myMethodName);
     }
-    finally {
-      StringBuilderSpinAllocator.dispose(buffer);
-    }
+    //}
+    //else {
+    //  buffer.append(JavaDebuggerBundle.message("status.breakpoint.invalid"));
+    //}
+    //noinspection HardCodedStringLiteral
+    return buffer.toString();
   }
 
   @Nullable
   @Override
-  public XBreakpointCustomPropertiesPanel createCustomPropertiesPanel() {
+  public XBreakpointCustomPropertiesPanel createCustomPropertiesPanel(@NotNull Project project) {
     return new MethodBreakpointPropertiesPanel();
   }
 
@@ -119,17 +115,26 @@ public class JavaMethodBreakpointType extends JavaLineBreakpointTypeBase<JavaMet
   @Nullable
   @Override
   public JavaMethodBreakpointProperties createBreakpointProperties(@NotNull VirtualFile file, int line) {
-    return new JavaMethodBreakpointProperties();
+    JavaMethodBreakpointProperties properties = new JavaMethodBreakpointProperties();
+    if (Registry.is("debugger.emulate.method.breakpoints")) {
+      properties.EMULATED = true; // create all new emulated
+    }
+    return properties;
   }
 
   @NotNull
   @Override
-  public Breakpoint createJavaBreakpoint(Project project, XBreakpoint breakpoint) {
+  public Breakpoint<JavaMethodBreakpointProperties> createJavaBreakpoint(Project project, XBreakpoint breakpoint) {
     return new MethodBreakpoint(project, breakpoint);
   }
 
   @Override
   public boolean canBeHitInOtherPlaces() {
     return true;
+  }
+
+  @Override
+  public boolean canPutAt(@NotNull VirtualFile file, int line, @NotNull Project project) {
+    return canPutAtElement(file, line, project, (element, document) -> element instanceof PsiMethod);
   }
 }

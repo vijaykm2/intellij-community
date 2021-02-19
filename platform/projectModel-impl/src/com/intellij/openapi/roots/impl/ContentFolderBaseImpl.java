@@ -24,6 +24,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointer;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerManager;
 import org.jdom.Element;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -32,10 +33,11 @@ import org.jetbrains.jps.model.serialization.module.JpsModuleRootModelSerializer
 /**
  *  @author dsl
  */
-public abstract class ContentFolderBaseImpl extends RootModelComponentBase implements ContentFolder, Comparable<ContentFolderBaseImpl> {
+@ApiStatus.Internal
+abstract class ContentFolderBaseImpl extends RootModelComponentBase implements ContentFolder, Comparable<ContentFolderBaseImpl> {
   @NonNls public static final String URL_ATTRIBUTE = JpsModuleRootModelSerializer.URL_ATTRIBUTE;
 
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.roots.impl.SimpleContentFolderBaseImpl");
+  private static final Logger LOG = Logger.getInstance(ContentFolderBaseImpl.class);
 
   private final VirtualFilePointer myFilePointer;
   protected final ContentEntryImpl myContentEntry;
@@ -43,13 +45,13 @@ public abstract class ContentFolderBaseImpl extends RootModelComponentBase imple
   ContentFolderBaseImpl(@NotNull VirtualFile file, @NotNull ContentEntryImpl contentEntry) {
     super(contentEntry.getRootModel());
     myContentEntry = contentEntry;
-    myFilePointer = VirtualFilePointerManager.getInstance().create(file, this, null);
+    myFilePointer = VirtualFilePointerManager.getInstance().create(file, this, getRootModel().getRootsChangedListener());
   }
 
   ContentFolderBaseImpl(@NotNull String url, @NotNull ContentEntryImpl contentEntry) {
     super(contentEntry.getRootModel());
     myContentEntry = contentEntry;
-    myFilePointer = VirtualFilePointerManager.getInstance().create(url, this, null);
+    myFilePointer = VirtualFilePointerManager.getInstance().create(url, this, getRootModel().getRootsChangedListener());
   }
 
   protected ContentFolderBaseImpl(@NotNull ContentFolderBaseImpl that, @NotNull ContentEntryImpl contentEntry) {
@@ -63,10 +65,11 @@ public abstract class ContentFolderBaseImpl extends RootModelComponentBase imple
   protected ContentFolderBaseImpl(@NotNull VirtualFilePointer filePointer, @NotNull ContentEntryImpl contentEntry) {
     super(contentEntry.getRootModel());
     myContentEntry = contentEntry;
-    myFilePointer = VirtualFilePointerManager.getInstance().duplicate(filePointer,this, null);
+    myFilePointer = VirtualFilePointerManager.getInstance().duplicate(filePointer,this, getRootModel().getRootsChangedListener());
   }
 
-  private static String getUrlFrom(Element element) throws InvalidDataException {
+  @NotNull
+  private static String getUrlFrom(@NotNull Element element) throws InvalidDataException {
     String url = element.getAttributeValue(URL_ATTRIBUTE);
     if (url == null) throw new InvalidDataException();
     return url;
@@ -74,9 +77,6 @@ public abstract class ContentFolderBaseImpl extends RootModelComponentBase imple
 
   @Override
   public VirtualFile getFile() {
-    if (!myFilePointer.isValid()) {
-      return null;
-    }
     return myFilePointer.getFile();
   }
 
@@ -86,7 +86,7 @@ public abstract class ContentFolderBaseImpl extends RootModelComponentBase imple
     return myContentEntry;
   }
 
-  protected void writeFolder(Element element, String elementName) {
+  protected void writeFolder(@NotNull Element element, @NotNull String elementName) {
     LOG.assertTrue(element.getName().equals(elementName));
     element.setAttribute(URL_ATTRIBUTE, myFilePointer.getUrl());
   }

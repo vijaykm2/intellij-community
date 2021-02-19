@@ -1,92 +1,55 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.update;
 
 import com.intellij.openapi.options.Configurable;
-import com.intellij.openapi.options.ConfigurationException;
 import git4idea.config.GitVcsSettings;
 import git4idea.i18n.GitBundle;
 import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
-/**
- * Configurable for the update session
- */
 public class GitUpdateConfigurable implements Configurable {
-  /** The vcs settings for the configurable */
   private final GitVcsSettings mySettings;
-  /** The options panel */
   private GitUpdateOptionsPanel myPanel;
 
-  /**
-   * The constructor
-   * @param settings the settings object
-   */
-  public GitUpdateConfigurable(GitVcsSettings settings) {
+  public GitUpdateConfigurable(@NotNull GitVcsSettings settings) {
     mySettings = settings;
   }
 
-  /**
-   * {@inheritDoc}
-   */
+  @Override
   @Nls
   public String getDisplayName() {
-    return GitBundle.getString("update.options.display.name");
+    return GitBundle.message("update.options.display.name");
   }
 
-  /**
-   * {@inheritDoc}
-   */
+  @Override
   public String getHelpTopic() {
     return "reference.VersionControl.Git.UpdateProject";
   }
 
-  /**
-   * {@inheritDoc}
-   */
+  @Override
   public JComponent createComponent() {
-    myPanel = new GitUpdateOptionsPanel();
-    return myPanel.getPanel();  //To change body of implemented methods use File | Settings | File Templates.
+    myPanel = new GitUpdateOptionsPanel(mySettings);
+    return myPanel.getPanel();
   }
 
-  /**
-   * {@inheritDoc}
-   */
+  @Override
   public boolean isModified() {
-    return myPanel.isModified(mySettings);
+    return myPanel.isModified();
   }
 
-  /**
-   * {@inheritDoc}
-   */
-  public void apply() throws ConfigurationException {
-    myPanel.applyTo(mySettings);
+  @Override
+  public void apply() {
+    myPanel.applyTo();
   }
 
-  /**
-   * {@inheritDoc}
-   */
+  @Override
   public void reset() {
-    myPanel.updateFrom(mySettings);
+    myPanel.updateFrom();
   }
 
-  /**
-   * {@inheritDoc}
-   */
+  @Override
   public void disposeUIResources() {
     myPanel = null;
   }

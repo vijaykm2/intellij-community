@@ -16,11 +16,11 @@
 package com.intellij.openapi.roots;
 
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NotNull;
 
-/**
- * @author nik
- */
+@ApiStatus.NonExtendable
 public interface LibraryOrSdkOrderEntry extends OrderEntry {
-  VirtualFile[] getRootFiles(OrderRootType type);
-  String[] getRootUrls(OrderRootType type);
+  VirtualFile @NotNull [] getRootFiles(@NotNull OrderRootType type);
+  String @NotNull [] getRootUrls(@NotNull OrderRootType type);
 }

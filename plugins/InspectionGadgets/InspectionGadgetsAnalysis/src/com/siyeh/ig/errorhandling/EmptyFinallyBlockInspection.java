@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2010 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,25 +15,22 @@
  */
 package com.siyeh.ig.errorhandling;
 
+import com.intellij.codeInsight.BlockUtils;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.util.FileTypeUtils;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
-import com.intellij.psi.util.FileTypeUtils;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Objects;
+
 public class EmptyFinallyBlockInspection extends BaseInspection {
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("empty.finally.block.display.name");
-  }
 
   @Override
   public boolean isEnabledByDefault() {
@@ -58,47 +55,33 @@ public class EmptyFinallyBlockInspection extends BaseInspection {
   }
 
   private static class RemoveTryFinallyBlockFix extends InspectionGadgetsFix {
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message("remove.try.finally.block.quickfix");
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
-      final PsiTryStatement tryStatement = PsiTreeUtil.getParentOfType(element, PsiTryStatement.class);
-      if (tryStatement == null) {
+      PsiTryStatement tryStatement = PsiTreeUtil.getParentOfType(element, PsiTryStatement.class);
+      if (tryStatement == null || tryStatement.getResourceList() != null || tryStatement.getParent() == null) {
         return;
       }
-      final PsiCodeBlock tryBlock = tryStatement.getTryBlock();
+      PsiCodeBlock tryBlock = tryStatement.getTryBlock();
       if (tryBlock == null) {
         return;
       }
-      final PsiElement parent = tryStatement.getParent();
-      if (parent == null) {
-        return;
-      }
-
-      final PsiResourceList resources = tryStatement.getResourceList();
-      if (resources != null) {
-        final PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
-        for (PsiResourceVariable resource : resources.getResourceVariables()) {
-          final PsiStatement statement = factory.createStatementFromText(resource.getText() + ";", parent);
-          parent.addBefore(statement, tryStatement);
-        }
+      if (!(tryStatement.getParent() instanceof PsiCodeBlock)) {
+        tryStatement = BlockUtils.expandSingleStatementToBlockStatement(tryStatement);
+        tryBlock = Objects.requireNonNull(tryStatement.getTryBlock());
       }
 
       final PsiElement first = tryBlock.getFirstBodyElement();
       final PsiElement last = tryBlock.getLastBodyElement();
       if (first != null && last != null) {
-        parent.addRangeAfter(first, last, tryStatement);
+        tryStatement.getParent().addRangeAfter(first, last, tryStatement);
       }
 
       tryStatement.delete();
@@ -106,20 +89,15 @@ public class EmptyFinallyBlockInspection extends BaseInspection {
   }
 
   private static class RemoveFinallyBlockFix extends InspectionGadgetsFix {
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message("remove.finally.block.quickfix");
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
       final PsiTryStatement tryStatement = PsiTreeUtil.getParentOfType(element, PsiTryStatement.class);
       if (tryStatement == null) {
@@ -149,6 +127,11 @@ public class EmptyFinallyBlockInspection extends BaseInspection {
   }
 
   @Override
+  public boolean shouldInspect(PsiFile file) {
+    return !FileTypeUtils.isInServerPageFile(file);
+  }
+
+  @Override
   public BaseInspectionVisitor buildVisitor() {
     return new EmptyFinallyBlockVisitor();
   }
@@ -157,14 +140,11 @@ public class EmptyFinallyBlockInspection extends BaseInspection {
     @Override
     public void visitTryStatement(@NotNull PsiTryStatement statement) {
       super.visitTryStatement(statement);
-      if (FileTypeUtils.isInServerPageFile(statement.getContainingFile())) {
-        return;
-      }
       final PsiCodeBlock finallyBlock = statement.getFinallyBlock();
       if (finallyBlock == null) {
         return;
       }
-      if (finallyBlock.getStatements().length != 0) {
+      if (!finallyBlock.isEmpty()) {
         return;
       }
       final PsiElement[] children = statement.getChildren();

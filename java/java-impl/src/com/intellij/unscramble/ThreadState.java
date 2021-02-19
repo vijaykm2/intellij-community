@@ -1,27 +1,15 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.unscramble;
 
+import com.intellij.diagnostic.ThreadDumper;
+import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 
 /**
  * @author yole
@@ -34,33 +22,45 @@ public class ThreadState {
   private String myJavaThreadState;
   private String myThreadStateDetail;
   private String myExtraState;
-  private boolean isDaemon = false;
-  private final Set<ThreadState> myThreadsWaitingForMyLock = new HashSet<ThreadState>();
-  private final Set<ThreadState> myDeadlockedThreads = new HashSet<ThreadState>();
+  private boolean isDaemon;
+  private final Set<ThreadState> myThreadsWaitingForMyLock = new HashSet<>();
+  private final Set<ThreadState> myDeadlockedThreads = new HashSet<>();
 
   @Nullable
   private ThreadOperation myOperation;
+  private boolean myKnownJDKThread;
+  private int myStackDepth;
 
   public ThreadState(final String name, final String state) {
     myName = name;
     myState = state.trim();
   }
 
-  public String getName() {
+  public @NlsSafe String getName() {
     return myName;
   }
 
-  public String getState() {
+  public @NlsSafe String getState() {
     return myState;
   }
 
-  public String getStackTrace() {
+  public @NlsSafe String getStackTrace() {
     return myStackTrace;
   }
 
-  public void setStackTrace(final String stackTrace, boolean isEmpty) {
+  public void setStackTrace(@NotNull String stackTrace, boolean isEmpty) {
     myStackTrace = stackTrace;
     myEmptyStackTrace = isEmpty;
+    myKnownJDKThread = ThreadDumpParser.isKnownJdkThread(stackTrace);
+    myStackDepth = StringUtil.countNewLines(myStackTrace);
+  }
+
+  int getStackDepth() {
+    return myStackDepth;
+  }
+
+  public boolean isKnownJDKThread() {
+    return myKnownJDKThread;
   }
 
   public Collection<ThreadState> getAwaitingThreads() {
@@ -83,7 +83,7 @@ public class ThreadState {
     return myJavaThreadState;
   }
 
-  public String getThreadStateDetail() {
+  public @NlsSafe String getThreadStateDetail() {
     if (myOperation != null) {
       return myOperation.toString();
     }
@@ -94,7 +94,7 @@ public class ThreadState {
     return myEmptyStackTrace;
   }
 
-  public String getExtraState() {
+  public @NlsSafe String getExtraState() {
     return myExtraState;
   }
 
@@ -116,7 +116,7 @@ public class ThreadState {
     return myThreadsWaitingForMyLock.contains(thread);
   }
 
-  public void addWaitingThread(ThreadState thread) {
+  public void addWaitingThread(@NotNull ThreadState thread) {
     myThreadsWaitingForMyLock.add(thread);
   }
 
@@ -138,7 +138,7 @@ public class ThreadState {
   }
 
   public boolean isWaiting() {
-    return "on object monitor".equals(myThreadStateDetail) || 
+    return "on object monitor".equals(myThreadStateDetail) ||
            myState.startsWith("waiting") ||
            ("parking".equals(myThreadStateDetail) && !isSleeping());
   }
@@ -149,7 +149,7 @@ public class ThreadState {
   }
 
   public static boolean isEDT(String name) {
-    return name.startsWith("AWT-EventQueue");
+    return ThreadDumper.isEDT(name);
   }
 
   public boolean isDaemon() {
@@ -158,5 +158,119 @@ public class ThreadState {
 
   public void setDaemon(boolean daemon) {
     isDaemon = daemon;
+  }
+
+  public static class CompoundThreadState extends ThreadState {
+    private final ThreadState myOriginalState;
+    private int myCounter = 1;
+
+    public CompoundThreadState(ThreadState state) {
+      super(state.myName, state.myState);
+      myOriginalState = state;
+    }
+
+    public boolean add(ThreadState state) {
+      if (myOriginalState.isEDT()) return false;
+      if (!Objects.equals(state.myState, myOriginalState.myState)) return false;
+      if (state.myEmptyStackTrace != myOriginalState.myEmptyStackTrace) return false;
+      if (state.isDaemon != myOriginalState.isDaemon) return false;
+      if (!Objects.equals(state.myJavaThreadState, myOriginalState.myJavaThreadState)) return false;
+      if (!Objects.equals(state.myThreadStateDetail, myOriginalState.myThreadStateDetail)) return false;
+      if (!Objects.equals(state.myExtraState, myOriginalState.myExtraState)) return false;
+      if (!Comparing.haveEqualElements(state.myThreadsWaitingForMyLock, myOriginalState.myThreadsWaitingForMyLock)) return false;
+      if (!Comparing.haveEqualElements(state.myDeadlockedThreads, myOriginalState.myDeadlockedThreads)) return false;
+      if (!Objects.equals(getMergeableStackTrace(state.myStackTrace, true), getMergeableStackTrace(myOriginalState.myStackTrace, true))) return false;
+      myCounter++;
+      return true;
+    }
+
+    private static String getMergeableStackTrace(String stackTrace, boolean skipFirstLine) {
+      if (stackTrace == null) return null;
+      StringBuilder builder = new StringBuilder();
+      String[] lines = stackTrace.split("\n");
+      for (int i = 0; i < lines.length; i++) {
+        String line = lines[i];
+        if (i == 0 && skipFirstLine) continue;//first line has unique details
+        line = line.replaceAll("<0x.+>\\s", "<merged>");
+        builder.append(line).append("\n");
+      }
+      return builder.toString();
+    }
+
+    @Override
+    public String getName() {
+      return (myCounter == 1) ? myOriginalState.getName() : myCounter + " similar threads";
+    }
+
+    @Override
+    public String getState() {
+      return myOriginalState.getState();
+    }
+
+    @Override
+    public String getStackTrace() {
+      return myCounter == 1 ? myOriginalState.getStackTrace() : getMergeableStackTrace(myOriginalState.getStackTrace(), false);
+    }
+
+    @Override
+    public Collection<ThreadState> getAwaitingThreads() {
+      return myOriginalState.getAwaitingThreads();
+    }
+
+    @Override
+    public String getJavaThreadState() {
+      return myOriginalState.getJavaThreadState();
+    }
+
+    @Override
+    public String getThreadStateDetail() {
+      return myOriginalState.getThreadStateDetail();
+    }
+
+    @Override
+    public boolean isEmptyStackTrace() {
+      return myOriginalState.isEmptyStackTrace();
+    }
+
+    @Override
+    public String getExtraState() {
+      return myOriginalState.getExtraState();
+    }
+
+    @Override
+    public boolean isAwaitedBy(ThreadState thread) {
+      return myOriginalState.isAwaitedBy(thread);
+    }
+
+    @Override
+    public boolean isDeadlocked() {
+      return myOriginalState.isDeadlocked();
+    }
+
+    @Nullable
+    @Override
+    public ThreadOperation getOperation() {
+      return myOriginalState.getOperation();
+    }
+
+    @Override
+    public boolean isWaiting() {
+      return myOriginalState.isWaiting();
+    }
+
+    @Override
+    public boolean isEDT() {
+      return myOriginalState.isEDT();
+    }
+
+    @Override
+    public boolean isDaemon() {
+      return myOriginalState.isDaemon();
+    }
+
+    @Override
+    public boolean isSleeping() {
+      return myOriginalState.isSleeping();
+    }
   }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 #include "fsnotifier.h"
 
@@ -36,8 +22,6 @@
 #define LOG_ENV_ERROR "error"
 #define LOG_ENV_OFF "off"
 
-#define VERSION "20130715.1353"
-#define VERSION_MSG "fsnotifier " VERSION "\n"
 
 #define USAGE_MSG \
     "fsnotifier - IntelliJ IDEA companion program for watching and reporting file and directory structure modifications.\n\n" \
@@ -48,14 +32,6 @@
 
 #define HELP_MSG \
     "Try 'fsnotifier --help' for more information.\n"
-
-#define INSTANCE_LIMIT_TEXT \
-    "The <b>inotify</b>(7) instances limit reached. " \
-    "<a href=\"https://confluence.jetbrains.com/display/IDEADEV/Inotify+Instances+Limit\">More details.</a>\n"
-
-#define WATCH_LIMIT_TEXT \
-    "The current <b>inotify</b>(7) watch limit is too low. " \
-    "<a href=\"https://confluence.jetbrains.com/display/IDEADEV/Inotify+Watches+Limit\">More details.</a>\n"
 
 #define MISSING_ROOT_TIMEOUT 1
 
@@ -93,7 +69,7 @@ int main(int argc, char** argv) {
       return 0;
     }
     else if (strcmp(argv[1], "--version") == 0) {
-      printf(VERSION_MSG);
+      printf("fsnotifier " VERSION "\n");
       return 0;
     }
     else if (strcmp(argv[1], "--selftest") == 0) {
@@ -168,16 +144,8 @@ static void init_log() {
 }
 
 
-void message(MSG id) {
-  if (id == MSG_INSTANCE_LIMIT) {
-    output("MESSAGE\n" INSTANCE_LIMIT_TEXT);
-  }
-  else if (id == MSG_WATCH_LIMIT) {
-    output("MESSAGE\n" WATCH_LIMIT_TEXT);
-  }
-  else {
-    userlog(LOG_ERR, "unknown message: %d", id);
-  }
+void message(const char *text) {
+  output("MESSAGE\n%s\n", text);
 }
 
 
@@ -407,12 +375,15 @@ static bool register_roots(array* new_roots, array* unwatchable, array* mounts) 
 static bool is_watchable(const char* fs) {
   // don't watch special and network filesystems
   return !(strncmp(fs, "dev", 3) == 0 || strcmp(fs, "proc") == 0 || strcmp(fs, "sysfs") == 0 || strcmp(fs, MNTTYPE_SWAP) == 0 ||
-           (strncmp(fs, "fuse", 4) == 0 && strcmp(fs, "fuseblk") != 0) ||
+           (strncmp(fs, "fuse", 4) == 0 && strcmp(fs + 4, "blk") != 0 && strcmp(fs + 4, ".osxfs") != 0) ||
            strcmp(fs, "cifs") == 0 || strcmp(fs, MNTTYPE_NFS) == 0);
 }
 
 static array* unwatchable_mounts() {
   FILE* mtab = setmntent(_PATH_MOUNTED, "r");
+  if (mtab == NULL && errno == ENOENT) {
+    mtab = setmntent("/proc/mounts", "r");
+  }
   if (mtab == NULL) {
     userlog(LOG_ERR, "cannot open " _PATH_MOUNTED);
     return NULL;

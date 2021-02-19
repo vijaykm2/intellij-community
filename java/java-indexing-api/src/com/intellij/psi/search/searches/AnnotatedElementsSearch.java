@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.search.searches;
 
 import com.intellij.openapi.extensions.ExtensionPointName;
@@ -23,19 +9,27 @@ import com.intellij.util.Query;
 import com.intellij.util.QueryExecutor;
 import org.jetbrains.annotations.NotNull;
 
-public class AnnotatedElementsSearch extends ExtensibleQueryFactory<PsiModifierListOwner, AnnotatedElementsSearch.Parameters> {
-  public static final ExtensionPointName<QueryExecutor> EP_NAME = ExtensionPointName.create("com.intellij.annotatedElementsSearch");
+public final class AnnotatedElementsSearch extends ExtensibleQueryFactory<PsiModifierListOwner, AnnotatedElementsSearch.Parameters> {
+  public static final ExtensionPointName<QueryExecutor<PsiModifierListOwner, AnnotatedElementsSearch.Parameters>> EP_NAME = ExtensionPointName.create("com.intellij.annotatedElementsSearch");
   public static final AnnotatedElementsSearch INSTANCE = new AnnotatedElementsSearch();
 
   public static class Parameters {
     private final PsiClass myAnnotationClass;
     private final SearchScope myScope;
     private final Class<? extends PsiModifierListOwner>[] myTypes;
+    private final boolean myApproximate;
 
-    public Parameters(final PsiClass annotationClass, final SearchScope scope, Class<? extends PsiModifierListOwner>... types) {
+    @SafeVarargs
+    public Parameters(final PsiClass annotationClass, final SearchScope scope, Class<? extends PsiModifierListOwner> @NotNull ... types) {
+      this(annotationClass, scope, false, types);
+    }
+
+    @SafeVarargs
+    public Parameters(final PsiClass annotationClass, final SearchScope scope, boolean approximate, Class<? extends PsiModifierListOwner> @NotNull ... types) {
       myAnnotationClass = annotationClass;
       myScope = scope;
       myTypes = types;
+      myApproximate = approximate;
     }
 
     public PsiClass getAnnotationClass() {
@@ -46,17 +40,32 @@ public class AnnotatedElementsSearch extends ExtensibleQueryFactory<PsiModifierL
       return myScope;
     }
 
-    public Class<? extends PsiModifierListOwner>[] getTypes() {
+    public Class<? extends PsiModifierListOwner> @NotNull [] getTypes() {
       return myTypes;
+    }
+
+    /**
+     * @return whether searchers may return a superset of the annotations being requested (e.g. all with the same short name) and
+     * avoid expensive resolve operations
+     */
+    public boolean isApproximate() {
+      return myApproximate;
     }
   }
 
-  private static Query<PsiModifierListOwner> createDelegateQuery(PsiClass annotationClass, SearchScope scope, Class<? extends PsiModifierListOwner>... types) {
-    return INSTANCE.createQuery(new Parameters(annotationClass, scope, types));
+  private AnnotatedElementsSearch() {
+    super(EP_NAME);
   }
 
-  public static <T extends PsiModifierListOwner> Query<T> searchElements(@NotNull PsiClass annotationClass, @NotNull SearchScope scope, Class<? extends T>... types) {
-    return new InstanceofQuery<T>(createDelegateQuery(annotationClass, scope, types), types);
+  @SafeVarargs
+  public static <T extends PsiModifierListOwner> Query<T> searchElements(@NotNull PsiClass annotationClass, @NotNull SearchScope scope, Class<? extends T> @NotNull ... types) {
+    //noinspection unchecked
+    return (Query<T>)searchElements(new Parameters(annotationClass, scope, types));
+  }
+
+  @NotNull
+  public static Query<? extends PsiModifierListOwner> searchElements(Parameters parameters) {
+    return new InstanceofQuery<>(INSTANCE.createQuery(parameters), parameters.getTypes());
   }
 
   public static Query<PsiClass> searchPsiClasses(@NotNull PsiClass annotationClass, @NotNull SearchScope scope) {

@@ -1,21 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs;
 
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.Application;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.util.KeyedLazyInstanceEP;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -23,9 +11,12 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 
 /**
- * Represents a virtual file system.
+ * Represents a Virtual File System (VFS).
+ * <p>
+ * See <a href="http://www.jetbrains.org/intellij/sdk/docs/basics/virtual_file_system.html">Virtual File System</a> (SDK docs).
  *
  * @see VirtualFile
  * @see VirtualFileManager
@@ -42,8 +33,7 @@ public abstract class VirtualFileSystem {
    * @see VirtualFileManager#getFileSystem
    */
   @NonNls
-  @NotNull
-  public abstract String getProtocol();
+  public abstract @NotNull String getProtocol();
 
   /**
    * Searches for the file specified by given path. Path is a string which uniquely identifies file within given
@@ -53,8 +43,7 @@ public abstract class VirtualFileSystem {
    * @param path the path to find file by
    * @return a virtual file if found, {@code null} otherwise
    */
-  @Nullable
-  public abstract VirtualFile findFileByPath(@NotNull @NonNls String path);
+  public abstract @Nullable VirtualFile findFileByPath(@NotNull @NonNls String path);
 
   /**
    * Fetches presentable URL of file with the given path in this file system.
@@ -63,18 +52,17 @@ public abstract class VirtualFileSystem {
    * @return presentable URL
    * @see VirtualFile#getPresentableUrl
    */
-  @NotNull
-  public String extractPresentableUrl(@NotNull String path) {
+  public @NotNull String extractPresentableUrl(@NotNull String path) {
     return path.replace('/', File.separatorChar);
   }
 
   /**
    * Refreshes the cached information for all files in this file system from the physical file system.<p>
    * <p/>
-   * If <code>asynchronous</code> is <code>false</code> this method should be only called within write-action.
+   * If {@code asynchronous} is {@code false} this method should be only called within write-action.
    * See {@link Application#runWriteAction}.
    *
-   * @param asynchronous if <code>true</code> then the operation will be performed in a separate thread,
+   * @param asynchronous if {@code true} then the operation will be performed in a separate thread,
    *                     otherwise will be performed immediately
    * @see VirtualFile#refresh
    * @see VirtualFileManager#syncRefresh
@@ -89,23 +77,31 @@ public abstract class VirtualFileSystem {
    * This method is useful when the file was created externally and you need to find <code>{@link VirtualFile}</code>
    * corresponding to it.<p>
    * <p/>
-   * This method should be only called within write-action.
-   * See {@link Application#runWriteAction}.
+   * If this method is invoked not from Swing event dispatch thread, then it must not happen inside a read action. The reason is that
+   * then the method call won't return until proper VFS events are fired, which happens on Swing thread and in write action. So invoking
+   * this method in a read action would result in a deadlock.
    *
    * @param path the path
-   * @return <code>{@link VirtualFile}</code> if the file was found, <code>null</code> otherwise
+   * @return <code>{@link VirtualFile}</code> if the file was found, {@code null} otherwise
    */
-  @Nullable
-  public abstract VirtualFile refreshAndFindFileByPath(@NotNull String path);
+  public abstract @Nullable VirtualFile refreshAndFindFileByPath(@NotNull String path);
 
   /**
-   * Adds listener to the file system. Normally one should use {@link VirtualFileManager#addVirtualFileListener}.
+   * Adds listener to the file system. Normally one should use {@link VirtualFileManager#VFS_CHANGES} message bus topic.
    *
    * @param listener the listener
    * @see VirtualFileListener
-   * @see VirtualFileManager#addVirtualFileListener
+   * @see VirtualFileManager#VFS_CHANGES
    */
   public abstract void addVirtualFileListener(@NotNull VirtualFileListener listener);
+
+  /**
+   * Same as {@link #addVirtualFileListener(VirtualFileListener)}, but automatically removes listener when {@code disposable} is disposed.
+   */
+  public final void addVirtualFileListener(@NotNull VirtualFileListener listener, @NotNull Disposable disposable) {
+    addVirtualFileListener(listener);
+    Disposer.register(disposable, () -> removeVirtualFileListener(listener));
+  }
 
   /**
    * Removes listener form the file system.
@@ -140,24 +136,21 @@ public abstract class VirtualFileSystem {
    *
    * @see VirtualFile#createChildData(Object,String)
    */
-  @NotNull
-  protected abstract VirtualFile createChildFile(Object requestor, @NotNull VirtualFile vDir, @NotNull String fileName) throws IOException;
+  protected abstract @NotNull VirtualFile createChildFile(Object requestor, @NotNull VirtualFile vDir, @NotNull String fileName) throws IOException;
 
   /**
    * Implementation of adding directories in this file system
    *
    * @see VirtualFile#createChildDirectory(Object,String)
    */
-  @NotNull
-  protected abstract VirtualFile createChildDirectory(Object requestor, @NotNull VirtualFile vDir, @NotNull String dirName) throws IOException;
+  protected abstract @NotNull VirtualFile createChildDirectory(Object requestor, @NotNull VirtualFile vDir, @NotNull String dirName) throws IOException;
 
   /**
    * Implementation of copying files in this file system
    *
    * @see VirtualFile#copy(Object,VirtualFile,String)
    */
-  @NotNull
-  protected abstract VirtualFile copyFile(Object requestor,
+  protected abstract @NotNull VirtualFile copyFile(Object requestor,
                                           @NotNull VirtualFile virtualFile,
                                           @NotNull VirtualFile newParent,
                                           @NotNull String copyName) throws IOException;
@@ -166,5 +159,19 @@ public abstract class VirtualFileSystem {
 
   public boolean isCaseSensitive() {
     return true;
+  }
+
+  public boolean isValidName(@NotNull String name) {
+    return !name.isEmpty() && name.indexOf('\\') < 0 && name.indexOf('/') < 0;
+  }
+
+  /**
+   * @return a related {@link Path} for a given virtual file where possible or
+   * {@code null} otherwise.
+   * <br />
+   * The returned {@link Path} may not have a default filesystem behind.
+   */
+  public @Nullable Path getNioPath(@NotNull VirtualFile file) {
+    return null;
   }
 }

@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.remoteServer.impl.runtime.deployment;
 
 import com.intellij.execution.runners.ExecutionEnvironment;
@@ -9,9 +10,6 @@ import com.intellij.remoteServer.runtime.deployment.debug.DebugConnector;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author nik
- */
 public class DeploymentTaskImpl<D extends DeploymentConfiguration> implements DeploymentTask<D> {
   private final DeploymentSource mySource;
   private final D myConfiguration;
@@ -28,16 +26,19 @@ public class DeploymentTaskImpl<D extends DeploymentConfiguration> implements De
     myExecutionEnvironment = environment;
   }
 
+  @Override
   @NotNull
   public DeploymentSource getSource() {
     return mySource;
   }
 
+  @Override
   @NotNull
   public D getConfiguration() {
     return myConfiguration;
   }
 
+  @Override
   @NotNull
   public Project getProject() {
     return myProject;
@@ -53,6 +54,7 @@ public class DeploymentTaskImpl<D extends DeploymentConfiguration> implements De
     return myDebugConnector;
   }
 
+  @Override
   @NotNull
   public ExecutionEnvironment getExecutionEnvironment() {
     return myExecutionEnvironment;

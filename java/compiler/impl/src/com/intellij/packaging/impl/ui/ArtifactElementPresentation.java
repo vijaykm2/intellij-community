@@ -17,6 +17,8 @@ package com.intellij.packaging.impl.ui;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.projectView.PresentationData;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.packaging.artifacts.Artifact;
 import com.intellij.packaging.artifacts.ArtifactPointer;
 import com.intellij.packaging.ui.ArtifactEditorContext;
@@ -28,9 +30,6 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
-/**
- * @author nik
- */
 public class ArtifactElementPresentation extends TreeNodePresentation {
   private final ArtifactPointer myArtifactPointer;
   private final ArtifactEditorContext myContext;
@@ -40,8 +39,10 @@ public class ArtifactElementPresentation extends TreeNodePresentation {
     myContext = context;
   }
 
-  public String getPresentableName() {
-    return myArtifactPointer != null ? myArtifactPointer.getArtifactName(myContext.getArtifactModel()) : "<unknown>";
+  @Override
+  public @NlsContexts.Label String getPresentableName() {
+    return myArtifactPointer != null ? myArtifactPointer.getArtifactName(myContext.getArtifactModel()) :
+           JavaCompilerBundle.message("label.unknown.value");
   }
 
   @Override
@@ -57,6 +58,7 @@ public class ArtifactElementPresentation extends TreeNodePresentation {
     }
   }
 
+  @Override
   public void render(@NotNull PresentationData presentationData, SimpleTextAttributes mainAttributes, SimpleTextAttributes commentAttributes) {
     final Artifact artifact = findArtifact();
     Icon icon = artifact != null ? artifact.getArtifactType().getIcon() : AllIcons.Nodes.Artifact;

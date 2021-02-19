@@ -25,20 +25,24 @@ import org.jetbrains.annotations.NotNull;
 /**
  * @author dsl
  */
-public class ConvertToInstanceMethodAction extends BaseRefactoringAction {
+public class ConvertToInstanceMethodAction extends BaseJavaRefactoringAction {
+  @Override
   protected boolean isAvailableInEditorOnly() {
     return false;
   }
 
-  protected boolean isEnabledOnElements(@NotNull PsiElement[] elements) {
+  @Override
+  protected boolean isEnabledOnElements(PsiElement @NotNull [] elements) {
     return elements.length == 1 && elements[0] instanceof PsiMethod;
   }
 
+  @Override
   protected boolean isAvailableOnElementInEditorAndFile(@NotNull PsiElement element, @NotNull final Editor editor, @NotNull PsiFile file, @NotNull DataContext context) {
     if (element instanceof PsiIdentifier) element = element.getParent();
     return element instanceof PsiMethod && ((PsiMethod) element).hasModifierProperty(PsiModifier.STATIC);
   }
 
+  @Override
   protected RefactoringActionHandler getHandler(@NotNull DataContext dataContext) {
     return new ConvertToInstanceMethodHandler();
   }

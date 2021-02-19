@@ -25,13 +25,13 @@ import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiFile;
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 import com.intellij.util.PathUtil;
 
 import java.io.File;
 import java.io.IOException;
 
-public class CustomTypesTest extends LightCodeInsightFixtureTestCase {
+public class CustomTypesTest extends LightJavaCodeInsightFixtureTestCase {
 
   private static final String myCustomTaskClass = "com.intellij.lang.ant.typedefs.AntCustomTask";
 
@@ -51,7 +51,7 @@ public class CustomTypesTest extends LightCodeInsightFixtureTestCase {
     String text = loadFile(name + ".ant");
     PsiFile file = myFixture.addFileToProject(name + ".ant", text);
     final AntDomProject antProject = AntSupport.getAntDomProject(file);
-    final Ref<Boolean> found = new Ref<Boolean>(false); 
+    final Ref<Boolean> found = new Ref<>(false);
     antProject.accept(new AntDomRecursiveVisitor() {
 
       @Override

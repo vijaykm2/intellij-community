@@ -26,7 +26,6 @@ abstract class AbstractTestWithTextFile {
 
   protected final String myDirectory;
 
-  @SuppressWarnings("JUnitTestCaseWithNonTrivialConstructors")
   protected AbstractTestWithTextFile(String directory) {
     this.myDirectory = PathManagerEx.findFileUnderCommunityHome(BASE_DIRECTORY + directory).getPath();
   }
@@ -34,5 +33,4 @@ abstract class AbstractTestWithTextFile {
   protected String loadText(String filename) throws IOException {
     return FileUtil.loadFile(new File(myDirectory, filename), true);
   }
-
 }

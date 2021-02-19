@@ -16,23 +16,18 @@
 package com.intellij.codeInspection.java18StreamApi;
 
 import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.actionSystem.LangDataKeys;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
-import com.intellij.psi.*;
-import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.ui.*;
 import com.intellij.ui.components.JBList;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.ui.UIUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import javax.swing.event.ListDataListener;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -43,32 +38,32 @@ public class StaticPseudoFunctionalStyleMethodOptions {
   private static final String FQN_ATTR = "classFqn";
   private static final String METHOD_ATTR = "method";
   private static final String STREAM_API_METHOD_ATTR = "streamApiMethod";
+  private static final String LAMBDA_ROLE_ATTR = "lambdaRole";
+  private static final String ACCEPTS_DEFAULT_ATTR = "acceptsDefault";
   private static final String DELETE_ATTR = "toDelete";
   private final List<PipelineElement> myElements;
 
   public StaticPseudoFunctionalStyleMethodOptions() {
-    myElements = new ArrayList<PipelineElement>();
+    myElements = new ArrayList<>();
     restoreDefault(myElements);
   }
 
-  private static void restoreDefault(final List<PipelineElement> elements) {
+  private static void restoreDefault(final List<? super PipelineElement> elements) {
     elements.clear();
-    final String guavaIterables = "com.google.common.collect.Iterables";
-    elements.add(new PipelineElement(guavaIterables, "transform", StreamApiConstants.MAP));
-    elements.add(new PipelineElement(guavaIterables, "filter", StreamApiConstants.FILTER));
-    elements.add(new PipelineElement(guavaIterables, "find", StreamApiConstants.FAKE_FIND_MATCHED));
-    elements.add(new PipelineElement(guavaIterables, "all", StreamApiConstants.ALL_MATCH));
-    elements.add(new PipelineElement(guavaIterables, "any", StreamApiConstants.ANY_MATCH));
+    String guavaIterables = "com.google.common.collect.Iterables";
+    elements.add(new PipelineElement(guavaIterables, "transform", PseudoLambdaReplaceTemplate.MAP));
+    elements.add(new PipelineElement(guavaIterables, "filter", PseudoLambdaReplaceTemplate.FILTER));
+    elements.add(new PipelineElement(guavaIterables, "find", PseudoLambdaReplaceTemplate.FIND));
+    elements.add(new PipelineElement(guavaIterables, "all", PseudoLambdaReplaceTemplate.ALL_MATCH));
+    elements.add(new PipelineElement(guavaIterables, "any", PseudoLambdaReplaceTemplate.ANY_MATCH));
+
+    String guavaLists = "com.google.common.collect.Lists";
+    elements.add(new PipelineElement(guavaLists, "transform", PseudoLambdaReplaceTemplate.MAP));
   }
 
   @NotNull
   public Collection<PipelineElement> findElementsByMethodName(final @NotNull String methodName) {
-    return ContainerUtil.filter(myElements, new Condition<PipelineElement>() {
-      @Override
-      public boolean value(PipelineElement element) {
-        return methodName.equals(element.getMethodName());
-      }
-    });
+    return ContainerUtil.filter(myElements, element -> methodName.equals(element.getMethodName()));
   }
 
   public void readExternal(final @NotNull Element xmlElement) {
@@ -77,8 +72,11 @@ public class StaticPseudoFunctionalStyleMethodOptions {
       final String fqn = element.getAttributeValue(FQN_ATTR);
       final String method = element.getAttributeValue(METHOD_ATTR);
       final String streamApiMethod = element.getAttributeValue(STREAM_API_METHOD_ATTR);
+      final PseudoLambdaReplaceTemplate.LambdaRole lambdaRole =
+        PseudoLambdaReplaceTemplate.LambdaRole.valueOf(element.getAttributeValue(LAMBDA_ROLE_ATTR));
+      final boolean acceptsDefault = Boolean.valueOf(element.getAttributeValue(ACCEPTS_DEFAULT_ATTR));
       final boolean toDelete = element.getAttribute(DELETE_ATTR) != null;
-      final PipelineElement pipelineElement = new PipelineElement(fqn, method, streamApiMethod);
+      final PipelineElement pipelineElement = new PipelineElement(fqn, method, new PseudoLambdaReplaceTemplate(streamApiMethod, lambdaRole, acceptsDefault));
       if (toDelete) {
         myElements.remove(pipelineElement);
       }
@@ -89,7 +87,7 @@ public class StaticPseudoFunctionalStyleMethodOptions {
   }
 
   public void writeExternal(final @NotNull Element xmlElement) {
-    final List<PipelineElement> toRemoveElements = new ArrayList<PipelineElement>();
+    final List<PipelineElement> toRemoveElements = new ArrayList<>();
     restoreDefault(toRemoveElements);
     toRemoveElements.removeAll(myElements);
 
@@ -97,7 +95,7 @@ public class StaticPseudoFunctionalStyleMethodOptions {
       xmlElement.addContent(createXmlElement(element)
                               .setAttribute(DELETE_ATTR, ""));
     }
-    final List<PipelineElement> defaultElements = new ArrayList<PipelineElement>();
+    final List<PipelineElement> defaultElements = new ArrayList<>();
     restoreDefault(defaultElements);
     for (PipelineElement element : myElements) {
       if (!defaultElements.contains(element)) {
@@ -107,19 +105,20 @@ public class StaticPseudoFunctionalStyleMethodOptions {
   }
 
   public Element createXmlElement(PipelineElement element) {
+    final PseudoLambdaReplaceTemplate template = element.getTemplate();
     return new Element(PIPELINE_ELEMENT_NAME)
       .setAttribute(FQN_ATTR, element.getHandlerClass())
       .setAttribute(METHOD_ATTR, element.getMethodName())
-      .setAttribute(STREAM_API_METHOD_ATTR, element.getStreamApiMethodName());
+      .setAttribute(STREAM_API_METHOD_ATTR, template.getStreamApiMethodName())
+      .setAttribute(LAMBDA_ROLE_ATTR, template.getLambdaRole().toString())
+      .setAttribute(ACCEPTS_DEFAULT_ATTR, String.valueOf(template.isAcceptDefaultValue()));
   }
 
   public JComponent createPanel() {
-    final JBList list = new JBList();
-    list.setModel(new SettingsListModel());
-
-    list.setCellRenderer(new ColoredListCellRenderer<PipelineElement>() {
+    final JBList<PipelineElement> list = new JBList<>(myElements);
+    list.setCellRenderer(new ColoredListCellRenderer<>() {
       @Override
-      protected void customizeCellRenderer(JList list, PipelineElement element, int index, boolean selected, boolean hasFocus) {
+      protected void customizeCellRenderer(@NotNull JList list, PipelineElement element, int index, boolean selected, boolean hasFocus) {
         final String classFQName = element.getHandlerClass();
         final String[] split = classFQName.split("\\.");
         final int classShortNameIndex = classFQName.length() - split[split.length - 1].length();
@@ -137,6 +136,9 @@ public class StaticPseudoFunctionalStyleMethodOptions {
         if (currentProject == null) {
           return;
         }
+        if (DumbService.isDumb(currentProject)) {
+          return;
+        }
         final AddMethodsDialog dlg = new AddMethodsDialog(currentProject, list, false);
         if (dlg.showAndGet()) {
           final PipelineElement newElement = dlg.getSelectedElement();
@@ -144,43 +146,46 @@ public class StaticPseudoFunctionalStyleMethodOptions {
             return;
           }
           myElements.add(newElement);
-          UIUtil.invokeLaterIfNeeded(new Runnable() {
-            @Override
-            public void run() {
-              list.updateUI();
-            }
-          });
+          ((DefaultListModel<PipelineElement>)list.getModel()).addElement(newElement);
         }
       }
     }).setRemoveAction(new AnActionButtonRunnable() {
       @Override
       public void run(AnActionButton button) {
-        myElements.remove(list.getSelectedIndex());
+        final int[] indices = list.getSelectedIndices();
+        final List<PipelineElement> toRemove = new ArrayList<>(indices.length);
+        for (int idx : indices) {
+          toRemove.add(myElements.get(idx));
+        }
+        myElements.removeAll(toRemove);
+        ListUtil.removeSelectedItems(list);
       }
     }).createPanel();
   }
 
-    public static class PipelineElement {
+  public static class PipelineElement {
     private final String myHandlerClass;
     private final String myMethodName;
-    private final String myStreamApiMethod;
+    private final PseudoLambdaReplaceTemplate myTemplate;
 
-    public PipelineElement(@NotNull String handlerClass, @NotNull String methodName, @NotNull String streamApiMethod) {
+    public PipelineElement(@NotNull String handlerClass,
+                           @NotNull String methodName,
+                           @NotNull PseudoLambdaReplaceTemplate template) {
       myHandlerClass = handlerClass;
       myMethodName = methodName;
-      myStreamApiMethod = streamApiMethod;
+      myTemplate = template;
     }
 
-    public String getHandlerClass() {
+    public @NlsSafe String getHandlerClass() {
       return myHandlerClass;
     }
 
-    public String getMethodName() {
+    public @NlsSafe String getMethodName() {
       return myMethodName;
     }
 
-    public String getStreamApiMethodName() {
-      return myStreamApiMethod;
+    public PseudoLambdaReplaceTemplate getTemplate() {
+      return myTemplate;
     }
 
     @Override
@@ -192,7 +197,7 @@ public class StaticPseudoFunctionalStyleMethodOptions {
 
       if (!myHandlerClass.equals(element.myHandlerClass)) return false;
       if (!myMethodName.equals(element.myMethodName)) return false;
-      if (!myStreamApiMethod.equals(element.myStreamApiMethod)) return false;
+      if (!myTemplate.equals(element.myTemplate)) return false;
 
       return true;
     }
@@ -201,30 +206,8 @@ public class StaticPseudoFunctionalStyleMethodOptions {
     public int hashCode() {
       int result = myHandlerClass.hashCode();
       result = 31 * result + myMethodName.hashCode();
-      result = 31 * result + myStreamApiMethod.hashCode();
+      result = 31 * result + myTemplate.hashCode();
       return result;
-    }
-  }
-
-  private class SettingsListModel implements ListModel {
-    @Override
-    public int getSize() {
-      return myElements.size();
-    }
-
-    @Override
-    public PipelineElement getElementAt(int index) {
-      return myElements.get(index);
-    }
-
-    @Override
-    public void addListDataListener(ListDataListener l) {
-
-    }
-
-    @Override
-    public void removeListDataListener(ListDataListener l) {
-
     }
   }
 }

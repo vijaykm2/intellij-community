@@ -24,9 +24,8 @@ public class XPath2SequenceImpl extends XPath2ElementImpl implements XPath2Seque
     super(node);
   }
 
-  @NotNull
   @Override
-  public XPathExpression[] getSequence() {
+  public XPathExpression @NotNull [] getSequence() {
     return findChildrenByClass(XPathExpression.class);
   }
 
@@ -55,6 +54,7 @@ public class XPath2SequenceImpl extends XPath2ElementImpl implements XPath2Seque
     return XPathType.UNKNOWN;
   }
 
+  @Override
   public void accept(XPath2ElementVisitor visitor) {
     visitor.visitXPath2Sequence(this);
   }

@@ -1,13 +1,15 @@
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.preview;
 
 import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.codeInsight.hint.HintManagerImpl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.ui.LightweightHint;
+import com.intellij.util.SlowOperations;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,7 +31,7 @@ public class ElementPreviewHintProvider implements ElementPreviewProvider {
 
   @Override
   public boolean isSupportedFile(@NotNull PsiFile psiFile) {
-    for (PreviewHintProvider hintProvider : Extensions.getExtensions(PreviewHintProvider.EP_NAME)) {
+    for (PreviewHintProvider hintProvider : PreviewHintProvider.EP_NAME.getExtensionList()) {
       if (hintProvider.isSupportedFile(psiFile)) {
         return true;
       }
@@ -65,10 +67,13 @@ public class ElementPreviewHintProvider implements ElementPreviewProvider {
 
   @Nullable
   private static LightweightHint getHint(@NotNull PsiElement element) {
-    for (PreviewHintProvider hintProvider : Extensions.getExtensions(PreviewHintProvider.EP_NAME)) {
+    for (PreviewHintProvider hintProvider : PreviewHintProvider.EP_NAME.getExtensionList()) {
       JComponent preview;
       try {
-        preview = hintProvider.getPreviewComponent(element);
+        preview = SlowOperations.allowSlowOperations(() -> hintProvider.getPreviewComponent(element));
+      }
+      catch (ProcessCanceledException e) {
+        throw e;
       }
       catch (Exception e) {
         LOG.error(e);

@@ -1,24 +1,10 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.xdebugger;
 
 import com.intellij.lang.Language;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -28,6 +14,7 @@ import com.intellij.util.Processor;
 import com.intellij.xdebugger.breakpoints.*;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointGroupingRule;
 import com.intellij.xdebugger.evaluation.EvaluationMode;
+import com.intellij.xdebugger.frame.XSuspendContext;
 import com.intellij.xdebugger.frame.XValueContainer;
 import com.intellij.xdebugger.settings.XDebuggerSettings;
 import org.jetbrains.annotations.NotNull;
@@ -36,12 +23,9 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Comparator;
 import java.util.List;
 
-/**
- * @author nik
- */
 public abstract class XDebuggerUtil {
   public static XDebuggerUtil getInstance() {
-    return ServiceManager.getService(XDebuggerUtil.class);
+    return ApplicationManager.getApplication().getService(XDebuggerUtil.class);
   }
 
   public abstract XLineBreakpointType<?>[] getLineBreakpointTypes();
@@ -70,7 +54,7 @@ public abstract class XDebuggerUtil {
 
   public abstract void removeBreakpoint(Project project, XBreakpoint<?> breakpoint);
 
-  public abstract <B extends XBreakpoint<?>> XBreakpointType<B, ?> findBreakpointType(@NotNull Class<? extends XBreakpointType<B, ?>> typeClass);
+  public abstract <T extends XBreakpointType> T findBreakpointType(@NotNull Class<T> typeClass);
 
   /**
    * Create {@link XSourcePosition} instance by line number
@@ -82,6 +66,17 @@ public abstract class XDebuggerUtil {
   public abstract XSourcePosition createPosition(@Nullable VirtualFile file, int line);
 
   /**
+   * Create {@link XSourcePosition} instance by line and column number
+   *
+   * @param file   file
+   * @param line   0-based line number
+   * @param column 0-based column number
+   * @return source position
+   */
+  @Nullable
+  public abstract XSourcePosition createPosition(@Nullable VirtualFile file, int line, int column);
+
+  /**
    * Create {@link XSourcePosition} instance by line number
    * @param file file
    * @param offset offset from the beginning of file
@@ -89,6 +84,9 @@ public abstract class XDebuggerUtil {
    */
   @Nullable
   public abstract XSourcePosition createPositionByOffset(@Nullable VirtualFile file, int offset);
+
+  @Nullable
+  public abstract XSourcePosition createPositionByElement(@Nullable PsiElement element);
 
   public abstract <B extends XLineBreakpoint<?>> XBreakpointGroupingRule<B, ?> getGroupingByFileRule();
 
@@ -104,13 +102,13 @@ public abstract class XDebuggerUtil {
   public abstract XValueContainer getValueContainer(DataContext dataContext);
 
   /**
-   * Process all {@link com.intellij.psi.PsiElement}s on the specified line
+   * Process all {@link PsiElement}s on the specified line
    * @param project project
    * @param document document
    * @param line 0-based line number
    * @param processor processor
    */
-  public abstract void iterateLine(@NotNull Project project, @NotNull Document document, int line, @NotNull Processor<PsiElement> processor);
+  public abstract void iterateLine(@NotNull Project project, @NotNull Document document, int line, @NotNull Processor<? super PsiElement> processor);
 
   /**
    * Disable value lookup in specified editor
@@ -121,5 +119,7 @@ public abstract class XDebuggerUtil {
   public abstract PsiElement findContextElement(@NotNull VirtualFile virtualFile, int offset, @NotNull Project project, boolean checkXml);
 
   @NotNull
-  public abstract XExpression createExpression(@NotNull String text, Language language, String custom, EvaluationMode mode);
+  public abstract XExpression createExpression(@NotNull String text, Language language, String custom, @NotNull EvaluationMode mode);
+
+  public abstract void logStack(@NotNull XSuspendContext suspendContext, @NotNull XDebugSession session);
 }

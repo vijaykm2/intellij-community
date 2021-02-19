@@ -21,8 +21,12 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.Navigatable;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.Collection;
+import java.util.Collections;
 
 /**
  * An interface allowing access and modification of the data associated with the current compile session.
@@ -38,7 +42,9 @@ public interface CompileContext extends UserDataHolder {
    * @param lineNum   a line number, -1 if not available.
    * @param columnNum a column number, -1 if not available.
    */
-  void addMessage(CompilerMessageCategory category, String message, @Nullable String url, int lineNum, int columnNum);
+  default void addMessage(@NotNull CompilerMessageCategory category, @Nls(capitalization = Nls.Capitalization.Sentence) String message, @Nullable String url, int lineNum, int columnNum) {
+    addMessage(category, message, url, lineNum, columnNum, null);
+  }
 
   /**
    * Allows to add a message to be shown in Compiler message view, with a specified Navigatable
@@ -50,10 +56,28 @@ public interface CompileContext extends UserDataHolder {
    * @param lineNum     a line number, -1 if not available.
    * @param columnNum   a column number, -1 if not available.
    * @param navigatable the navigatable pointing to the error location.
-   * @since 6.0
    */
-  void addMessage(CompilerMessageCategory category, String message, @Nullable String url, int lineNum, int columnNum,
-                  Navigatable navigatable);
+  default void addMessage(@NotNull CompilerMessageCategory category,
+                          @Nls(capitalization = Nls.Capitalization.Sentence) String message,
+                          @Nullable String url, int lineNum, int columnNum, @Nullable Navigatable navigatable) {
+    addMessage(category, message, url, lineNum, columnNum, navigatable, Collections.emptyList());
+  }
+
+  /**
+   * Allows to add a message to be shown in Compiler message view, with a specified Navigatable
+   * that is used to navigate to the error location.
+   *  @param category    the category of a message (information, error, warning).
+   * @param message     the text of the message.
+   * @param url         a url to the file to which the message applies, null if not available.
+   * @param lineNum     a line number, -1 if not available.
+   * @param columnNum   a column number, -1 if not available.
+   * @param navigatable optional the navigatable pointing to the error location or null. If not specified, navigation will attempt to set cursor (line:column) position, if available.
+   * @param moduleNames module name describing the context for the message (e.g. the module where the error occurred).
+   *                    If a module cycle is compiled, the argument will contain names of modules that form the dependency cycle.
+   */
+  void addMessage(@NotNull CompilerMessageCategory category,
+                  @Nls(capitalization = Nls.Capitalization.Sentence) String message,
+                  @Nullable String url, int lineNum, int columnNum, @Nullable Navigatable navigatable, Collection<String> moduleNames);
 
   /**
    * Returns all messages of the specified category added during the current compile session.
@@ -61,7 +85,7 @@ public interface CompileContext extends UserDataHolder {
    * @param category the category for which messages are requested.
    * @return all compiler messages of the specified category
    */
-  CompilerMessage[] getMessages(CompilerMessageCategory category);
+  CompilerMessage @NotNull [] getMessages(@NotNull CompilerMessageCategory category);
 
   /**
    * Returns the count of messages of the specified category added during the current compile session.
@@ -69,7 +93,7 @@ public interface CompileContext extends UserDataHolder {
    * @param category the category for which messages are requested.
    * @return the number of messages of the specified category
    */
-  int getMessageCount(CompilerMessageCategory category);
+  int getMessageCount(@Nullable CompilerMessageCategory category);
 
   /**
    * Returns the progress indicator of the compilation process.
@@ -112,14 +136,7 @@ public interface CompileContext extends UserDataHolder {
    * @param file the file to check.
    * @return the module to which the file belongs
    */
-  Module getModuleByFile(VirtualFile file);
-
-  /**
-   * Returns the source roots for the specified module.
-   *
-   * @return module's source roots as well as source roots for generated sources that are attributed to the module
-   */
-  VirtualFile[] getSourceRoots(Module module);
+  Module getModuleByFile(@NotNull VirtualFile file);
 
   /**
    * Returns the output directory for the specified module.
@@ -128,7 +145,7 @@ public interface CompileContext extends UserDataHolder {
    * @return the output directory for the module specified, null if corresponding VirtualFile is not valid or directory not specified
    */
   @Nullable
-  VirtualFile getModuleOutputDirectory(Module module);
+  VirtualFile getModuleOutputDirectory(@NotNull Module module);
 
   /**
    * Returns the test output directory for the specified module.
@@ -147,8 +164,11 @@ public interface CompileContext extends UserDataHolder {
    */
   boolean isMake();
 
+  boolean isAutomake();
+
   boolean isRebuild();
 
+  @NotNull
   Project getProject();
 
   boolean isAnnotationProcessorsEnabled();

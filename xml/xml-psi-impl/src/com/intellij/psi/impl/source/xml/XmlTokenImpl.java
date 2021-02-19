@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.xml;
 
 import com.intellij.ide.util.PsiNavigationSupport;
@@ -27,10 +13,7 @@ import com.intellij.psi.xml.XmlToken;
 import com.intellij.psi.xml.XmlTokenType;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author ik
- */
-public class XmlTokenImpl extends LeafPsiElement implements XmlToken, Navigatable {
+public class XmlTokenImpl extends LeafPsiElement implements XmlToken, Navigatable, HintedReferenceHost {
   public XmlTokenImpl(@NotNull IElementType type, CharSequence text) {
     super(type, text);
   }
@@ -50,6 +33,7 @@ public class XmlTokenImpl extends LeafPsiElement implements XmlToken, Navigatabl
     }
   }
 
+  @Override
   public String toString() {
     if(getTokenType() instanceof IDTDElementType){
       return "DTDToken:" + getTokenType().toString();
@@ -59,22 +43,27 @@ public class XmlTokenImpl extends LeafPsiElement implements XmlToken, Navigatabl
 
 // Implementation specific
 
+  @NotNull
   @Override
   public IElementType getTokenType() {
     return getElementType();
   }
 
   @Override
-  @NotNull
-  public PsiReference[] getReferences() {
+  public PsiReference @NotNull [] getReferences() {
+    return getReferences(PsiReferenceService.Hints.NO_HINTS);
+  }
+
+  @Override
+  public PsiReference @NotNull [] getReferences(PsiReferenceService.@NotNull Hints hints) {
     final IElementType elementType = getElementType();
 
     if (elementType == XmlTokenType.XML_DATA_CHARACTERS ||
         elementType == XmlTokenType.XML_CHAR_ENTITY_REF) {
-      return ReferenceProvidersRegistry.getReferencesFromProviders(this);
+      return ReferenceProvidersRegistry.getReferencesFromProviders(this, hints);
     } else if (elementType == XmlTokenType.XML_NAME && getParent() instanceof PsiErrorElement) {
       final PsiElement element = getPrevSibling();
-      
+
       if (element instanceof XmlToken && ((XmlToken)element).getTokenType() == XmlTokenType.XML_END_TAG_START) {
         return new PsiReference[] {TagNameReference.createTagNameReference(this, getNode(), false)};
       }
@@ -84,20 +73,22 @@ public class XmlTokenImpl extends LeafPsiElement implements XmlToken, Navigatabl
   }
 
   @Override
-  public void navigate(boolean requestFocus) {
-    Navigatable descriptor = PsiNavigationSupport.getInstance().getDescriptor(this);
-    if (descriptor != null) {
-      descriptor.navigate(requestFocus);
+  public boolean shouldAskParentForReferences(PsiReferenceService.@NotNull Hints hints) {
+    return true;
+  }
+
+  @Override
+  public PsiElement getNavigationElement() {
+    if (getTokenType() == XmlTokenType.XML_COMMENT_CHARACTERS) {
+      PsiElement parent = this.getParent();
+      return parent != null ? parent : this;
     }
+    return super.getNavigationElement();
   }
 
   @Override
   public boolean canNavigate() {
-    return getTokenType() == XmlTokenType.XML_NAME && PsiNavigationSupport.getInstance().canNavigate(this);
-  }
-
-  @Override
-  public boolean canNavigateToSource() {
-    return canNavigate();
+    return getTokenType() == XmlTokenType.XML_NAME && PsiNavigationSupport.getInstance().canNavigate(this) ||
+           getTokenType() == XmlTokenType.XML_COMMENT_CHARACTERS; // Custom regions
   }
 }

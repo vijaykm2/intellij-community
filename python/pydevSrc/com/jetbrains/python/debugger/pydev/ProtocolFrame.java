@@ -1,9 +1,11 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger.pydev;
 
+import com.intellij.util.io.URLUtil;
 import com.jetbrains.python.debugger.PyDebuggerException;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
 
 
 public class ProtocolFrame {
@@ -12,7 +14,7 @@ public class ProtocolFrame {
   private final int mySequence;
   private @NotNull final String myPayload;
 
-  public ProtocolFrame(final int command, final int sequence, @NotNull final String payload) throws PyDebuggerException {
+  public ProtocolFrame(final int command, final int sequence, @NotNull final String payload) {
     myCommand = command;
     mySequence = sequence;
     myPayload = payload;
@@ -20,13 +22,13 @@ public class ProtocolFrame {
 
   public ProtocolFrame(final String frame) throws PyDebuggerException {
     final String[] parts = frame.split("\t", 3);
-    if (parts == null || parts.length < 2) {
+    if (parts.length < 2) {
       throw new PyDebuggerException("Bad frame: " + frame);
     }
 
     myCommand = Integer.parseInt(parts[0]);
     mySequence = Integer.parseInt(parts[1]);
-    myPayload = (parts.length == 3 && !"".equals(parts[2]) ? ProtocolParser.decode(parts[2]) : "").trim();
+    myPayload = (parts.length == 3 && !parts[2].isEmpty() ? URLUtil.decode(parts[2]) : "").trim();
   }
 
   public int getCommand() {
@@ -42,29 +44,25 @@ public class ProtocolFrame {
     return myPayload;
   }
 
-  @NotNull
-  public byte[] pack() throws UnsupportedEncodingException {
-    final StringBuilder sb = new StringBuilder();
-    sb.append(Integer.toString(myCommand));
-    sb.append('\t');
-    sb.append(Integer.toString(mySequence));
-    sb.append('\t');
-    sb.append(myPayload);
-    sb.append('\n');
-    return sb.toString().getBytes("UTF-8");
+  public byte @NotNull [] pack() {
+    String s = String.valueOf(myCommand) +
+                '\t' +
+                mySequence +
+                '\t' +
+                myPayload +
+                '\n';
+    return s.getBytes(StandardCharsets.UTF_8);
   }
 
   @Override
   public String toString() {
-    final StringBuilder sb = new StringBuilder();
-    sb.append('[');
-    sb.append(Integer.toString(myCommand));
-    sb.append(':');
-    sb.append(Integer.toString(mySequence));
-    sb.append(':');
-    sb.append(myPayload);
-    sb.append(']');
-    return sb.toString();
+    return "[" +
+           myCommand +
+           ':' +
+           mySequence +
+           ':' +
+           myPayload +
+           ']';
   }
 
 }

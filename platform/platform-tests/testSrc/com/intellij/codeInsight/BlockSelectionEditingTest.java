@@ -1,20 +1,33 @@
+/*
+ * Copyright 2000-2015 JetBrains s.r.o.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.intellij.codeInsight;
 
 import com.intellij.openapi.editor.FoldRegion;
 import com.intellij.openapi.editor.LogicalPosition;
 import com.intellij.openapi.editor.SelectionModel;
 import com.intellij.openapi.editor.impl.AbstractEditorTest;
-import com.intellij.testFramework.PlatformTestCase;
 import com.intellij.testFramework.TestFileType;
 
-import java.io.IOException;
+import java.util.Arrays;
+
+import static org.junit.Assert.assertArrayEquals;
 
 public class BlockSelectionEditingTest extends AbstractEditorTest {
-  public BlockSelectionEditingTest() {
-    PlatformTestCase.initPlatformLangPrefix();
-  }
 
-  public void testBlockRemovalAndCollapsedFoldRegionsBefore() throws IOException {
+  public void testBlockRemovalAndCollapsedFoldRegionsBefore() {
     // Inspired by IDEA-69371
     String initialText =
       "fold line #1\n" +
@@ -29,7 +42,7 @@ public class BlockSelectionEditingTest extends AbstractEditorTest {
     int column = "initialText".length();
     final LogicalPosition blockStart = new LogicalPosition(3, column);
     final LogicalPosition blockEnd = new LogicalPosition(4, column);
-    final SelectionModel selectionModel = myEditor.getSelectionModel();
+    final SelectionModel selectionModel = getEditor().getSelectionModel();
     selectionModel.setBlockSelection(blockStart, blockEnd);
     delete();
     delete();
@@ -40,7 +53,7 @@ public class BlockSelectionEditingTest extends AbstractEditorTest {
       "initialText    line 1\n" +
       "initialText  line 2\n" +
       "initialText  line 3";
-    assertEquals(expectedText, myEditor.getDocument().getText());
+    assertEquals(expectedText, getEditor().getDocument().getText());
     assertSelectionRanges(new int[][]{{59, 59}, {79, 79}});
     final FoldRegion foldRegion = getFoldRegion(0);
     assertNotNull(foldRegion);
@@ -48,7 +61,7 @@ public class BlockSelectionEditingTest extends AbstractEditorTest {
     assertEquals(foldEndOffset, foldRegion.getEndOffset());
   }
 
-  public void testBlockSelectionAndCollapsedFolding() throws IOException {
+  public void testBlockSelectionAndCollapsedFolding() {
     String text =
       "class Test {\n" +
       "    private class Inner1 {\n" +
@@ -76,5 +89,14 @@ public class BlockSelectionEditingTest extends AbstractEditorTest {
 
     assertTrue(getFoldRegion(foldStart1).isExpanded());
     assertFalse(getFoldRegion(foldStart2).isExpanded());
+  }
+
+  public void testBlockSelectionOnEmptyFile() {
+    initText("");
+
+    getEditor().getSelectionModel().setBlockSelection(new LogicalPosition(0, 0), new LogicalPosition(0, 0));
+
+    assertArrayEquals(getEditor().getSelectionModel().getBlockSelectionStarts(), new int[]{0});
+    assertArrayEquals(getEditor().getSelectionModel().getBlockSelectionEnds(), new int[]{0});
   }
 }

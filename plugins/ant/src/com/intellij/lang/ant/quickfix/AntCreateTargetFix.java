@@ -15,13 +15,13 @@
  */
 package com.intellij.lang.ant.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.ide.util.PsiNavigationSupport;
 import com.intellij.lang.ant.AntBundle;
 import com.intellij.lang.ant.dom.AntDomTarget;
-import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
@@ -29,27 +29,31 @@ import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.xml.DomElement;
 import com.intellij.util.xml.DomUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 public class AntCreateTargetFix implements LocalQuickFix {
-  private static final String TAG_NAME = "target";
-  private static final String NAME_ATTR = "name";
-  private final String myCanonicalText;
+  private static final @NonNls String TAG_NAME = "target";
+  private static final @NonNls String NAME_ATTR = "name";
+  private final @NlsSafe String myCanonicalText;
 
-  public AntCreateTargetFix(String canonicalText) {
+  public AntCreateTargetFix(@NlsSafe String canonicalText) {
     myCanonicalText = canonicalText;
   }
 
+  @Override
   @NotNull
   public String getName() {
     return AntBundle.message("ant.create.target.intention.description", myCanonicalText);
   }
 
+  @Override
   @NotNull
   public String getFamilyName() {
     return AntBundle.message("ant.intention.create.target.family.name");
   }
 
+  @Override
   public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
     final PsiElement psiElement = descriptor.getPsiElement();
     final PsiFile containingFile = psiElement.getContainingFile();
@@ -58,7 +62,7 @@ public class AntCreateTargetFix implements LocalQuickFix {
     if (containingFile instanceof XmlFile) {
       final XmlFile xmlFile = (XmlFile)containingFile;
       final XmlTag rootTag = xmlFile.getRootTag();
-      if (rootTag != null && FileModificationService.getInstance().prepareFileForWrite(xmlFile)) {
+      if (rootTag != null) {
         final XmlTag propTag = rootTag.createChildTag(TAG_NAME, rootTag.getNamespace(), "", false);
         propTag.setAttribute(NAME_ATTR, myCanonicalText);
         final DomElement contextElement = DomUtil.getDomElement(descriptor.getPsiElement());
@@ -78,7 +82,9 @@ public class AntCreateTargetFix implements LocalQuickFix {
           }
         }
         if (generated instanceof XmlTag) {
-          result = new OpenFileDescriptor(project, containingFile.getVirtualFile(), ((XmlTag)generated).getValue().getTextRange().getEndOffset());
+          result = PsiNavigationSupport.getInstance().createNavigatable(project, containingFile.getVirtualFile(),
+                                                                        ((XmlTag)generated).getValue().getTextRange()
+                                                                                           .getEndOffset());
         }
         if (result == null && generated instanceof Navigatable) {
           result = (Navigatable)generated;

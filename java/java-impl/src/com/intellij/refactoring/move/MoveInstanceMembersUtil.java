@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.move;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -22,9 +8,9 @@ import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.HashSet;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -32,15 +18,15 @@ import java.util.Set;
 /**
  * @author ven
  */
-public class MoveInstanceMembersUtil {
-  private static final Logger LOG = Logger.getInstance("#" + MoveInstanceMembersUtil.class.getName());
+public final class MoveInstanceMembersUtil {
+  private static final Logger LOG = Logger.getInstance(MoveInstanceMembersUtil.class);
 
   /**
    * @param member  nonstatic class member to search for class references in
    * @return Set<PsiMember> in result map may be null in case no member is needed, but class itself is.
    */
   public static Map<PsiClass, Set<PsiMember>> getThisClassesToMembers(final PsiMember member) {
-    Map<PsiClass, Set<PsiMember>> map = new LinkedHashMap<PsiClass, Set<PsiMember>>();
+    Map<PsiClass, Set<PsiMember>> map = new LinkedHashMap<>();
     getThisClassesToMembers (member, map, member);
     return map;
   }
@@ -88,7 +74,7 @@ public class MoveInstanceMembersUtil {
   private static void addReferencedMember(final Map<PsiClass, Set<PsiMember>> map, final PsiClass classReferenced, final PsiMember member) {
     Set<PsiMember> members = map.get(classReferenced);
     if (members == null) {
-      members = new HashSet<PsiMember>();
+      members = new HashSet<>();
       map.put(classReferenced, members);
     }
     members.add(member);
@@ -114,7 +100,7 @@ public class MoveInstanceMembersUtil {
           final PsiClass resolved = (PsiClass)classReference.resolve();
           if (resolved != null && !resolved.hasModifierProperty(PsiModifier.STATIC)) {
             PsiClass referencedClass = getReferencedClass(resolved, qualifier, expression);
-            return new Pair<PsiMember, PsiClass>(resolved, referencedClass);
+            return new Pair<>(resolved, referencedClass);
           }
         }
       }

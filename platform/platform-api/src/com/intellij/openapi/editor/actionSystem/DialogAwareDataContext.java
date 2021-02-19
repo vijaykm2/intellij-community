@@ -20,6 +20,7 @@ import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.editor.Editor;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -32,7 +33,7 @@ import static com.intellij.openapi.actionSystem.PlatformDataKeys.PROJECT_FILE_DI
 */
 final class DialogAwareDataContext implements DataContext {
   private static final DataKey[] keys = {PROJECT, PROJECT_FILE_DIRECTORY, EDITOR, VIRTUAL_FILE, PSI_FILE};
-  private final Map<String, Object> values = new HashMap<String, Object>();
+  private final Map<String, Object> values = new HashMap<>();
 
   DialogAwareDataContext(DataContext context) {
     for (DataKey key : keys) {
@@ -41,8 +42,8 @@ final class DialogAwareDataContext implements DataContext {
   }
 
   @Override
-  public Object getData(@NonNls String dataId) {
-    if (values.keySet().contains(dataId)) {
+  public Object getData(@NotNull @NonNls String dataId) {
+    if (values.containsKey(dataId)) {
       return values.get(dataId);
     }
     final Editor editor = (Editor)values.get(EDITOR.getName());

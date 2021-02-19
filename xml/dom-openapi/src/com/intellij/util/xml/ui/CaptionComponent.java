@@ -19,13 +19,11 @@ package com.intellij.util.xml.ui;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.JBColor;
 import com.intellij.util.xml.DomElement;
+import org.jetbrains.annotations.Nls;
 
 import javax.swing.*;
 import java.awt.*;
 
-/**
- * User: Sergey.Vasiliev
- */
 public class CaptionComponent extends JPanel implements Committable, Highlightable {
   private JPanel myRootPanel;
   private JLabel myCaptionLabel;
@@ -40,11 +38,11 @@ public class CaptionComponent extends JPanel implements Committable, Highlightab
     this(null);
   }
 
-  public CaptionComponent(String text) {
+  public CaptionComponent(@Nls String text) {
     this(text, null);
   }
 
-  public CaptionComponent(String text, Icon icon) {
+  public CaptionComponent(@Nls String text, Icon icon) {
     super(new BorderLayout());
     updateBorder();
     myRootPanel.setBackground(new JBColor(new Color(243, 244, 229), new Color(42, 55, 62)));
@@ -68,12 +66,13 @@ public class CaptionComponent extends JPanel implements Committable, Highlightab
     CommittableUtil.updateHighlighting(myCommittableErrorPanel);
   }
 
-  public void setText(final String text) {
+  public void setText(final @Nls String text) {
     if (text == null) return;
 
     myCaptionLabel.setText(text);
   }
 
+  @Nls
   public String getText() {
     return myCaptionLabel.getText();
   }
@@ -95,7 +94,7 @@ public class CaptionComponent extends JPanel implements Committable, Highlightab
     return myDescriptionLabel.getText();
   }
 
-  public void setDescriptionText(final String text) {
+  public void setDescriptionText(final @Nls String text) {
     myDescriptionLabel.setVisible(text != null && text.trim().length() > 0);
 
     myDescriptionLabel.setText(text);

@@ -1,32 +1,66 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.psi.search.scope.packageSet;
 
-import com.intellij.analysis.AnalysisScopeBundle;
+import com.intellij.codeInsight.CodeInsightBundle;
+import com.intellij.icons.AllIcons;
 import com.intellij.lexer.Lexer;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.components.ServiceKt;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.extensions.ExtensionPointListener;
+import com.intellij.openapi.extensions.PluginDescriptor;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectManager;
 import com.intellij.psi.TokenType;
 import com.intellij.psi.search.scope.packageSet.lexer.ScopeTokenTypes;
 import com.intellij.psi.search.scope.packageSet.lexer.ScopesLexer;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class PackageSetFactoryImpl extends PackageSetFactory {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.search.scope.packageSet.PackageSetFactoryImpl");
+  private static final Logger LOG = Logger.getInstance(PackageSetFactoryImpl.class);
+
+  public PackageSetFactoryImpl() {
+    PackageSetParserExtension.EP_NAME.addExtensionPointListener(new ExtensionPointListener<>() {
+      @Override
+      public void extensionAdded(@NotNull PackageSetParserExtension extension, @NotNull PluginDescriptor pluginDescriptor) {
+        for (Project project : ProjectManager.getInstance().getOpenProjects()) {
+          for (NamedScopesHolder holder : NamedScopesHolder.getAllNamedScopeHolders(project)) {
+            ServiceKt.getStateStore(project).reloadState(holder.getClass());
+            holder.fireScopeListeners();
+          }
+        }
+      }
+
+      @Override
+      public void extensionRemoved(@NotNull PackageSetParserExtension extension, @NotNull PluginDescriptor pluginDescriptor) {
+        ClassLoader pluginClassLoader = pluginDescriptor.getPluginClassLoader();
+        for (Project project : ProjectManager.getInstance().getOpenProjects()) {
+          for (NamedScopesHolder holder : NamedScopesHolder.getAllNamedScopeHolders(project)) {
+            boolean changed = false;
+            NamedScope[] scopes = holder.getScopes();
+            for (int i = 0; i < scopes.length; i++) {
+              NamedScope scope = scopes[i];
+              PackageSet value = scope.getValue();
+              if (value != null && value.getClass().getClassLoader() == pluginClassLoader) {
+                String presentableName = scope.getPresentableName();
+                scopes[i] = new NamedScope(scope.getScopeId(), () -> presentableName, AllIcons.Ide.LocalScope,
+                                           new InvalidPackageSet(value.getText()));
+                changed = true;
+              }
+            }
+            if (changed) {
+              holder.setScopes(scopes);
+            }
+          }
+        }
+      }
+    }, ApplicationManager.getApplication());
+  }
 
   @Override
   public PackageSet compile(String text) throws ParsingException {
@@ -38,34 +72,36 @@ public class PackageSetFactoryImpl extends PackageSetFactory {
   private static class Parser {
     private final Lexer myLexer;
 
-    public Parser(Lexer lexer) {
+    Parser(Lexer lexer) {
       myLexer = lexer;
     }
 
     public PackageSet parse() throws ParsingException {
       PackageSet set = parseUnion();
-      if (myLexer.getTokenType() != null) error(AnalysisScopeBundle.message("error.packageset.token.expectations", getTokenText()));
+      if (myLexer.getTokenType() != null) error(CodeInsightBundle.message("error.package.set.token.expectations", getTokenText()));
       return set;
     }
 
     private PackageSet parseUnion() throws ParsingException {
-      PackageSet result = parseIntersection();
-      while (true) {
-        if (myLexer.getTokenType() != ScopeTokenTypes.OROR) break;
+      List<PackageSet> sets = new ArrayList<>();
+      PackageSet set = parseIntersection();
+      sets.add(set);
+      while (myLexer.getTokenType() == ScopeTokenTypes.OROR) {
         myLexer.advance();
-        result = new UnionPackageSet(result, parseIntersection());
+        sets.add(parseIntersection());
       }
-      return result;
+      return UnionPackageSet.create(sets.toArray(new PackageSet[0]));
     }
 
     private PackageSet parseIntersection() throws ParsingException {
-      PackageSet result = parseTerm();
-      while (true) {
-        if (myLexer.getTokenType() != ScopeTokenTypes.ANDAND) break;
+      PackageSet set = parseTerm();
+      List<PackageSet> sets = new ArrayList<>();
+      sets.add(set);
+      while (myLexer.getTokenType() == ScopeTokenTypes.ANDAND) {
         myLexer.advance();
-        result = new IntersectionPackageSet(result, parseTerm());
+        sets.add(parseTerm());
       }
-      return result;
+      return IntersectionPackageSet.create(sets.toArray(new PackageSet[0]));
     }
 
     private PackageSet parseTerm() throws ParsingException {
@@ -85,7 +121,7 @@ public class PackageSetFactoryImpl extends PackageSetFactory {
 
     private PackageSet parsePattern() throws ParsingException {
       String scope = null;
-      for (PackageSetParserExtension extension : Extensions.getExtensions(PackageSetParserExtension.EP_NAME)) {
+      for (PackageSetParserExtension extension : PackageSetParserExtension.EP_NAME.getExtensionList()) {
         scope = extension.parseScope(myLexer);
         if (scope != null) break;
       }
@@ -95,7 +131,7 @@ public class PackageSetFactoryImpl extends PackageSetFactory {
       if (myLexer.getTokenType() == ScopeTokenTypes.COLON) {
         myLexer.advance();
       }
-      for (PackageSetParserExtension extension : Extensions.getExtensions(PackageSetParserExtension.EP_NAME)) {
+      for (PackageSetParserExtension extension : PackageSetParserExtension.EP_NAME.getExtensionList()) {
         final PackageSet packageSet = extension.parsePackageSet(myLexer, scope, modulePattern);
         if (packageSet != null) return packageSet;
       }
@@ -113,7 +149,7 @@ public class PackageSetFactoryImpl extends PackageSetFactory {
     private String parseModulePattern() throws ParsingException {
       if (myLexer.getTokenType() != ScopeTokenTypes.LBRACKET) return null;
       myLexer.advance();
-      StringBuffer pattern = new StringBuffer();
+      StringBuilder pattern = new StringBuilder();
       while (true) {
         if (myLexer.getTokenType() == ScopeTokenTypes.RBRACKET ||
             myLexer.getTokenType() == null) {
@@ -142,7 +178,7 @@ public class PackageSetFactoryImpl extends PackageSetFactory {
         myLexer.advance();
       }
       if (pattern.length() == 0) {
-        error(AnalysisScopeBundle.message("error.packageset.pattern.expectations"));
+        error(CodeInsightBundle.message("error.package.set.pattern.expectations"));
       }
       return pattern.toString();
     }
@@ -152,15 +188,15 @@ public class PackageSetFactoryImpl extends PackageSetFactory {
       myLexer.advance();
 
       PackageSet result = parseUnion();
-      if (myLexer.getTokenType() != ScopeTokenTypes.RPARENTH) error(AnalysisScopeBundle.message("error.packageset.rparen.expected"));
+      if (myLexer.getTokenType() != ScopeTokenTypes.RPARENTH) error(CodeInsightBundle.message("error.package.set.rparen.expected"));
       myLexer.advance();
 
       return result;
     }
 
-    private void error(String message) throws ParsingException {
+    private void error(@NotNull String message) throws ParsingException {
       throw new ParsingException(
-        AnalysisScopeBundle.message("error.packageset.position.parsing.error", message, (myLexer.getTokenStart() + 1)));
+        CodeInsightBundle.message("error.package.set.position.parsing.error", message, (myLexer.getTokenStart() + 1)));
     }
   }
 }

@@ -25,9 +25,6 @@ import org.jetbrains.jps.service.JpsServiceManager;
 import java.util.Collection;
 import java.util.List;
 
-/**
- * @author nik
- */
 public abstract class JpsJavaDependenciesEnumerationHandler {
   public static List<JpsJavaDependenciesEnumerationHandler> createHandlers(Collection<JpsModule> rootModules) {
     List<JpsJavaDependenciesEnumerationHandler> handlers = null;
@@ -35,7 +32,7 @@ public abstract class JpsJavaDependenciesEnumerationHandler {
       JpsJavaDependenciesEnumerationHandler handler = factory.createHandler(rootModules);
       if (handler != null) {
         if (handlers == null) {
-          handlers = new SmartList<JpsJavaDependenciesEnumerationHandler>();
+          handlers = new SmartList<>();
         }
         handlers.add(handler);
       }
@@ -43,7 +40,7 @@ public abstract class JpsJavaDependenciesEnumerationHandler {
     return handlers;
   }
 
-  public static boolean shouldProcessDependenciesRecursively(final List<JpsJavaDependenciesEnumerationHandler> handlers) {
+  public static boolean shouldProcessDependenciesRecursively(final List<? extends JpsJavaDependenciesEnumerationHandler> handlers) {
     if (handlers != null) {
       for (JpsJavaDependenciesEnumerationHandler handler : handlers) {
         if (!handler.shouldProcessDependenciesRecursively()) {

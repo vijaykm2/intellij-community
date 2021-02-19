@@ -1,35 +1,27 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.copy;
 
 import com.intellij.codeInsight.actions.OptimizeImportsProcessor;
+import com.intellij.execution.ExecutionBundle;
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.ide.util.EditorHelper;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.JavaProjectRootsUtil;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.impl.file.PsiDirectoryImpl;
+import com.intellij.psi.impl.file.UpdateAddedFileProcessor;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiUtilCore;
@@ -42,11 +34,12 @@ import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import java.io.IOException;
 import java.util.*;
 
 public class CopyClassesHandler extends CopyHandlerDelegateBase {
-  private static final Logger LOG = Logger.getInstance("#" + CopyClassesHandler.class.getName());
+  private static final Logger LOG = Logger.getInstance(CopyClassesHandler.class);
 
   @Override
   public boolean forbidToClone(PsiElement[] elements, boolean fromUpdate) {
@@ -62,9 +55,20 @@ public class CopyClassesHandler extends CopyHandlerDelegateBase {
   public boolean canCopy(PsiElement[] elements, boolean fromUpdate) {
     return canCopyClass(fromUpdate, elements);
   }
+
+  @Nullable
+  @Override
+  public String getActionName(PsiElement[] elements) {
+    if (elements.length == 1 && !(elements[0] instanceof PsiPackage) && !(elements[0] instanceof PsiDirectory)) {
+      return JavaRefactoringBundle.message("copy.handler.copy.class.with.dialog");
+    }
+    return JavaRefactoringBundle.message("copy.handler.copy.classes.with.dialog");
+  }
+
   public static boolean canCopyClass(PsiElement... elements) {
     return canCopyClass(false, elements);
   }
+
   public static boolean canCopyClass(boolean fromUpdate, PsiElement... elements) {
     if (fromUpdate && elements.length > 0 && elements[0] instanceof PsiDirectory) return true;
     return convertToTopLevelClasses(elements, fromUpdate, null, null) != null;
@@ -75,20 +79,21 @@ public class CopyClassesHandler extends CopyHandlerDelegateBase {
                                                                    final boolean fromUpdate,
                                                                    String relativePath,
                                                                    Map<PsiFile, String> relativeMap) {
-    final Map<PsiFile, PsiClass[]> result = new HashMap<PsiFile, PsiClass[]>();
+    final Map<PsiFile, PsiClass[]> result = new HashMap<>();
     for (PsiElement element : elements) {
       final PsiElement navigationElement = element.getNavigationElement();
       LOG.assertTrue(navigationElement != null, element);
       final PsiFile containingFile = navigationElement.getContainingFile();
       if (!(containingFile instanceof PsiClassOwner &&
             JavaProjectRootsUtil.isOutsideJavaSourceRoot(containingFile))) {
+        if (containingFile != null && PsiPackage.PACKAGE_INFO_CLS_FILE.equals(containingFile.getName())) continue;
         PsiClass[] topLevelClasses = getTopLevelClasses(element);
         if (topLevelClasses == null) {
           if (element instanceof PsiDirectory) {
             if (!fromUpdate) {
               final String name = ((PsiDirectory)element).getName();
               final String path = relativePath != null ? (relativePath.length() > 0 ? (relativePath + "/") : "") + name : null;
-              final Map<PsiFile, PsiClass[]> map = convertToTopLevelClasses(element.getChildren(), fromUpdate, path, relativeMap);
+              final Map<PsiFile, PsiClass[]> map = convertToTopLevelClasses(element.getChildren(), false, path, relativeMap);
               if (map == null) return null;
               for (Map.Entry<PsiFile, PsiClass[]> entry : map.entrySet()) {
                 fillResultsMap(result, entry.getKey(), entry.getValue());
@@ -125,9 +130,11 @@ public class CopyClassesHandler extends CopyHandlerDelegateBase {
     for (String relativePath : relativeMap.values()) {
       if (vector == null) {
         vector = relativePath;
-      } else if (vector.startsWith(relativePath + "/")) {
+      }
+      else if (vector.startsWith(relativePath + "/")) {
         vector = relativePath;
-      } else if (!relativePath.startsWith(vector + "/") && !relativePath.equals(vector)) {
+      }
+      else if (!relativePath.startsWith(vector + "/") && !relativePath.equals(vector)) {
         return null;
       }
     }
@@ -147,39 +154,46 @@ public class CopyClassesHandler extends CopyHandlerDelegateBase {
         topLevelClasses = ArrayUtil.mergeArrays(classes, topLevelClasses, PsiClass.ARRAY_FACTORY);
       }
       result.put(containingFile, topLevelClasses);
-    } else {
+    }
+    else {
       result.put(containingFile, classes);
     }
   }
 
+  @Override
   public void doCopy(PsiElement[] elements, PsiDirectory defaultTargetDirectory) {
     FeatureUsageTracker.getInstance().triggerFeatureUsed("refactoring.copyClass");
-    final HashMap<PsiFile, String> relativePathsMap = new HashMap<PsiFile, String>();
+    final HashMap<PsiFile, String> relativePathsMap = new HashMap<>();
     final Map<PsiFile, PsiClass[]> classes = convertToTopLevelClasses(elements, false, "", relativePathsMap);
     assert classes != null;
     if (defaultTargetDirectory == null) {
       final PsiFile psiFile = classes.keySet().iterator().next();
       defaultTargetDirectory = psiFile.getContainingDirectory();
       LOG.assertTrue(defaultTargetDirectory != null, psiFile);
-    } else {
-      Project project = defaultTargetDirectory.getProject();
-      VirtualFile sourceRootForFile = ProjectRootManager.getInstance(project).getFileIndex()
-        .getSourceRootForFile(defaultTargetDirectory.getVirtualFile());
-      if (sourceRootForFile == null) {
-        final List<PsiElement> files = new ArrayList<PsiElement>();
-        for (int i = 0, elementsLength = elements.length; i < elementsLength; i++) {
-          PsiFile containingFile = elements[i].getContainingFile();
-          if (containingFile != null) {
-            files.add(containingFile);
-          } else if (elements[i] instanceof PsiDirectory) {
-            files.add(elements[i]);
-          }
-        }
-        CopyFilesOrDirectoriesHandler.copyAsFiles(files.toArray(new PsiElement[files.size()]), defaultTargetDirectory, project);
-        return;
-      }
     }
     Project project = defaultTargetDirectory.getProject();
+    if (DumbService.isDumb(elements[0].getProject())) {
+      DumbService.getInstance(project).showDumbModeNotification(JavaRefactoringBundle.message(
+        "copy.handler.is.not.available.during.indexing"));
+      return;
+    }
+
+    VirtualFile sourceRootForFile =
+      ProjectRootManager.getInstance(project).getFileIndex().getSourceRootForFile(defaultTargetDirectory.getVirtualFile());
+    if (sourceRootForFile == null) {
+      final List<PsiElement> files = new ArrayList<>();
+      for (PsiElement element : elements) {
+        PsiFile containingFile = element.getContainingFile();
+        if (containingFile != null) {
+          files.add(containingFile);
+        }
+        else if (element instanceof PsiDirectory) {
+          files.add(element);
+        }
+      }
+      CopyFilesOrDirectoriesHandler.copyAsFiles(files.toArray(PsiElement.EMPTY_ARRAY), defaultTargetDirectory, project);
+      return;
+    }
     Object targetDirectory = null;
     String className = null;
     boolean openInEditor = true;
@@ -196,49 +210,53 @@ public class CopyClassesHandler extends CopyHandlerDelegateBase {
           return qualifiedName;
         }
       };
-      dialog.setTitle(RefactoringBundle.message("copy.handler.copy.class"));
+      dialog.setTitle(JavaRefactoringBundle.message("copy.handler.copy.class"));
       if (dialog.showAndGet()) {
-        openInEditor = dialog.openInEditor();
+        openInEditor = dialog.isOpenInEditor();
         targetDirectory = dialog.getTargetDirectory();
         className = dialog.getClassName();
         if (className == null || className.length() == 0) return;
       }
-    } else {
+    }
+    else {
       if (ApplicationManager.getApplication().isUnitTestMode()) {
         targetDirectory = defaultTargetDirectory;
-      } else {
+      }
+      else {
         defaultTargetDirectory = CopyFilesOrDirectoriesHandler.resolveDirectory(defaultTargetDirectory);
         if (defaultTargetDirectory == null) return;
-        PsiElement[] files = PsiUtilCore.toPsiFileArray(classes.keySet());
-        if (classes.keySet().size() == 1) {
-          //do not choose a new name for a file when multiple classes exist in one file
-          final PsiClass[] psiClasses = classes.values().iterator().next();
-          if (psiClasses != null) {
-            files = psiClasses;
+        PsiFile[] files = PsiUtilCore.toPsiFileArray(classes.keySet());
+        final CopyFilesOrDirectoriesDialog dialog = new CopyFilesOrDirectoriesDialog(files, defaultTargetDirectory, project, false) {
+          @Override
+          public JComponent getPreferredFocusedComponent() {
+            return files.length == 1 ? getTargetDirectoryComponent() : super.getPreferredFocusedComponent();
           }
-        }
-        final CopyFilesOrDirectoriesDialog dialog = new CopyFilesOrDirectoriesDialog(files, defaultTargetDirectory, project, false);
+        };
         if (dialog.showAndGet()) {
           targetDirectory = dialog.getTargetDirectory();
-          className = dialog.getNewName();
-          openInEditor = dialog.openInEditor();
+          String newName = dialog.getNewName();
+          if (files.length == 1) { //strip file extension when multiple classes exist in one file
+            className = StringUtil.trimEnd(newName, "." + getFileExtension(files[0]));
+          }
+          openInEditor = dialog.isOpenInEditor();
         }
       }
     }
     if (targetDirectory != null) {
-      copyClassesImpl(className, project, classes, relativePathsMap, targetDirectory, defaultTargetDirectory, RefactoringBundle.message(
+      copyClassesImpl(className, project, classes, relativePathsMap, targetDirectory, defaultTargetDirectory, JavaRefactoringBundle.message(
         "copy.handler.copy.class"), false, openInEditor);
     }
   }
 
   private static boolean copyOneClass(Map<PsiFile, PsiClass[]> classes) {
-    if (classes.size() == 1){
+    if (classes.size() == 1) {
       final PsiClass[] psiClasses = classes.values().iterator().next();
       return psiClasses != null && psiClasses.length == 1;
     }
     return false;
   }
 
+  @Override
   public void doClone(PsiElement element) {
     FeatureUsageTracker.getInstance().triggerFeatureUsed("refactoring.copyClass");
     PsiClass[] classes = getTopLevelClasses(element);
@@ -249,12 +267,12 @@ public class CopyClassesHandler extends CopyHandlerDelegateBase {
     Project project = element.getProject();
 
     CopyClassDialog dialog = new CopyClassDialog(classes[0], null, project, true);
-    dialog.setTitle(RefactoringBundle.message("copy.handler.clone.class"));
+    dialog.setTitle(JavaRefactoringBundle.message("copy.handler.clone.class"));
     if (dialog.showAndGet()) {
       String className = dialog.getClassName();
       PsiDirectory targetDirectory = element.getContainingFile().getContainingDirectory();
       copyClassesImpl(className, project, Collections.singletonMap(classes[0].getContainingFile(), classes), null, targetDirectory,
-                      targetDirectory, RefactoringBundle.message("copy.handler.clone.class"), true, true);
+                      targetDirectory, JavaRefactoringBundle.message("copy.handler.clone.class"), true, true);
     }
   }
 
@@ -264,70 +282,48 @@ public class CopyClassesHandler extends CopyHandlerDelegateBase {
                                       final HashMap<PsiFile, String> map,
                                       final Object targetDirectory,
                                       final PsiDirectory defaultTargetDirectory,
-                                      final String commandName,
-                                      final boolean selectInActivePanel, 
+                                      final @NlsContexts.Command String commandName,
+                                      final boolean selectInActivePanel,
                                       final boolean openInEditor) {
-    final boolean[] result = new boolean[] {false};
-    Runnable command = new Runnable() {
-      public void run() {
-        final Runnable action = new Runnable() {
-          public void run() {
-            try {
-              PsiDirectory target;
-              if (targetDirectory instanceof PsiDirectory) {
-                target = (PsiDirectory)targetDirectory;
-              } else {
-                target = ((MoveDestination)targetDirectory).getTargetDirectory(defaultTargetDirectory);
-              }
-              PsiElement newElement = doCopyClasses(classes, map, copyClassName, target, project);
-              if (newElement != null) {
-                if (openInEditor) {
-                  CopyHandler.updateSelectionInActiveProjectView(newElement, project, selectInActivePanel);
-                  EditorHelper.openInEditor(newElement);
-                }
-
-                result[0] = true;
-              }
-            }
-            catch (final IncorrectOperationException ex) {
-              ApplicationManager.getApplication().invokeLater(new Runnable() {
-                public void run() {
-                  Messages.showMessageDialog(project, ex.getMessage(), RefactoringBundle.message("error.title"), Messages.getErrorIcon());
-                }
-              });
-            }
+    Runnable command = () -> {
+      PsiDirectory target;
+      if (targetDirectory instanceof PsiDirectory) {
+        target = (PsiDirectory)targetDirectory;
+      }
+      else {
+        target = WriteAction.compute(() -> ((MoveDestination)targetDirectory).getTargetDirectory(defaultTargetDirectory));
+      }
+      try {
+        Collection<PsiFile> files = doCopyClasses(classes, map, copyClassName, target, project);
+        if (openInEditor) {
+          for (PsiFile file : files) {
+            CopyHandler.updateSelectionInActiveProjectView(file, project, selectInActivePanel);
           }
-        };
-        ApplicationManager.getApplication().runWriteAction(action);
+          EditorHelper.openFilesInEditor(files.toArray(PsiFile.EMPTY_ARRAY));
+        }
+      }
+      catch (IncorrectOperationException ex) {
+        Messages.showMessageDialog(project, ex.getMessage(), RefactoringBundle.message("error.title"), Messages.getErrorIcon());
       }
     };
     CommandProcessor processor = CommandProcessor.getInstance();
     processor.executeCommand(project, command, commandName, null);
-
-    if (result[0]) {
-      ToolWindowManager.getInstance(project).invokeLater(new Runnable() {
-        public void run() {
-          ToolWindowManager.getInstance(project).activateEditorComponent();
-        }
-      });
-    }
   }
 
-   @Nullable
-  public static PsiElement doCopyClasses(final Map<PsiFile, PsiClass[]> fileToClasses,
-                                         final String copyClassName,
-                                         final PsiDirectory targetDirectory,
-                                         final Project project) throws IncorrectOperationException {
-     return doCopyClasses(fileToClasses, null, copyClassName, targetDirectory, project);
-   }
+  @NotNull
+  public static Collection<PsiFile> doCopyClasses(final Map<PsiFile, PsiClass[]> fileToClasses,
+                                                  final String copyClassName,
+                                                  final PsiDirectory targetDirectory,
+                                                  final Project project) throws IncorrectOperationException {
+    return doCopyClasses(fileToClasses, null, copyClassName, targetDirectory, project);
+  }
 
-  @Nullable
-  public static PsiElement doCopyClasses(final Map<PsiFile, PsiClass[]> fileToClasses,
-                                         @Nullable HashMap<PsiFile, String> map, final String copyClassName,
-                                         final PsiDirectory targetDirectory,
-                                         final Project project) throws IncorrectOperationException {
-    PsiElement newElement = null;
-    final Map<PsiClass, PsiElement> oldToNewMap = new HashMap<PsiClass, PsiElement>();
+  @NotNull
+  public static Collection<PsiFile> doCopyClasses(final Map<PsiFile, PsiClass[]> fileToClasses,
+                                                  @Nullable HashMap<PsiFile, String> map, final String copyClassName,
+                                                  final PsiDirectory targetDirectory,
+                                                  final Project project) throws IncorrectOperationException {
+    final Map<PsiClass, PsiElement> oldToNewMap = new HashMap<>();
     for (final PsiClass[] psiClasses : fileToClasses.values()) {
       if (psiClasses != null) {
         for (PsiClass aClass : psiClasses) {
@@ -338,44 +334,60 @@ public class CopyClassesHandler extends CopyHandlerDelegateBase {
         }
       }
     }
-    final List<PsiFile> createdFiles = new ArrayList<PsiFile>(fileToClasses.size());
+    final List<PsiFile> createdFiles = new ArrayList<>(fileToClasses.size());
     int[] choice = fileToClasses.size() > 1 ? new int[]{-1} : null;
-    List<PsiFile> files = new ArrayList<PsiFile>();
-    for (final Map.Entry<PsiFile, PsiClass[]> entry : fileToClasses.entrySet()) {
-      final PsiFile psiFile = entry.getKey();
-      final PsiClass[] sources = entry.getValue();
-      if (psiFile instanceof PsiClassOwner && sources != null) {
-        final PsiFile createdFile = copy(psiFile, targetDirectory, copyClassName, map == null ? null : map.get(psiFile), choice);
-        if (createdFile == null) return null;
-        for (final PsiClass destination : ((PsiClassOwner)createdFile).getClasses()) {
-          if (isSynthetic(destination)) {
+    List<PsiFile> files = new ArrayList<>();
+    ((PsiDirectoryImpl)targetDirectory).executeWithUpdatingAddedFilesDisabled(() -> {
+      for (final Map.Entry<PsiFile, PsiClass[]> entry : fileToClasses.entrySet()) {
+        final PsiFile psiFile = entry.getKey();
+        final PsiClass[] sources = entry.getValue();
+        if (psiFile instanceof PsiClassOwner && sources != null) {
+          final PsiFile createdFile = copy(psiFile, targetDirectory, copyClassName, map == null ? null : map.get(psiFile), choice);
+          if (createdFile == null) {
+            //do not touch unmodified classes
+            for (PsiClass aClass : ((PsiClassOwner)psiFile).getClasses()) {
+              oldToNewMap.remove(aClass);
+            }
             continue;
           }
-          PsiClass source = findByName(sources, destination.getName());
-          if (source != null) {
-            final PsiClass copy = copy(source, copyClassName);
-            newElement = destination.replace(copy);
-            oldToNewMap.put(source, newElement);
-          }
-          else {
-            destination.delete();
-          }
-        }
-        createdFiles.add(createdFile);
-      } else {
-        files.add(psiFile);
-      }
-    }
 
-    
+          Map<PsiClass, PsiClass> sourceToDestination = new LinkedHashMap<>();
+          for (final PsiClass destination : ((PsiClassOwner)createdFile).getClasses()) {
+            if (!isSynthetic(destination)) {
+              PsiClass source = findByName(sources, destination.getName());
+              if (source == null) {
+                WriteAction.run(() -> destination.delete());
+              }
+              else {
+                sourceToDestination.put(source, destination);
+              }
+            }
+          }
+
+          for (final Map.Entry<PsiClass, PsiClass> classEntry : sourceToDestination.entrySet()) {
+            final PsiClass copy = copy(classEntry.getKey(), sourceToDestination.size() > 1 ? null : copyClassName);
+            PsiElement newElement = WriteAction.compute(() -> classEntry.getValue().replace(copy));
+            oldToNewMap.put(classEntry.getKey(), newElement);
+          }
+          createdFiles.add(createdFile);
+        }
+        else {
+          files.add(psiFile);
+        }
+      }
+    });
+
+    DumbService.getInstance(project).completeJustSubmittedTasks();
+    WriteAction.run(() -> UpdateAddedFileProcessor.updateAddedFiles(createdFiles));
+
     for (PsiFile file : files) {
       try {
         PsiDirectory finalTarget = targetDirectory;
         final String relativePath = map != null ? map.get(file) : null;
         if (relativePath != null && !relativePath.isEmpty()) {
-          finalTarget = buildRelativeDir(targetDirectory, relativePath).findOrCreateTargetDirectory();
+          finalTarget = WriteAction.compute(() -> buildRelativeDir(targetDirectory, relativePath).findOrCreateTargetDirectory());
         }
-        final PsiFile fileCopy = CopyFilesOrDirectoriesHandler.copyToDirectory(file, getNewFileName(file, copyClassName), finalTarget, choice);
+        final PsiFile fileCopy = CopyFilesOrDirectoriesHandler.copyToDirectory(file, getNewFileName(file, copyClassName), finalTarget, choice, null);
         if (fileCopy != null) {
           createdFiles.add(fileCopy);
         }
@@ -385,26 +397,33 @@ public class CopyClassesHandler extends CopyHandlerDelegateBase {
       }
     }
 
-    final Set<PsiElement> rebindExpressions = new HashSet<PsiElement>();
-    for (PsiElement element : oldToNewMap.values()) {
-      if (element == null) {
-        LOG.error(oldToNewMap.keySet());
-        continue;
+    WriteAction.run(() -> {
+      final Set<PsiElement> rebindExpressions = new HashSet<>();
+      for (PsiElement element : oldToNewMap.values()) {
+        if (element == null) {
+          LOG.error(oldToNewMap.keySet());
+          continue;
+        }
+        decodeRefs(element, oldToNewMap, rebindExpressions);
       }
-      decodeRefs(element, oldToNewMap, rebindExpressions);
-    }
 
-    final JavaCodeStyleManager codeStyleManager = JavaCodeStyleManager.getInstance(project);
-    for (PsiFile psiFile : createdFiles) {
-      if (psiFile instanceof PsiJavaFile) {
-        codeStyleManager.removeRedundantImports((PsiJavaFile)psiFile);
+      final JavaCodeStyleManager codeStyleManager = JavaCodeStyleManager.getInstance(project);
+      for (PsiFile psiFile : createdFiles) {
+        if (psiFile instanceof PsiJavaFile) {
+          codeStyleManager.removeRedundantImports((PsiJavaFile)psiFile);
+        }
       }
-    }
-    for (PsiElement expression : rebindExpressions) {
-      codeStyleManager.shortenClassReferences(expression);
-    }
-    new OptimizeImportsProcessor(project, createdFiles.toArray(new PsiFile[createdFiles.size()]), null).run();
-    return newElement != null ? newElement : createdFiles.size() > 0 ? createdFiles.get(0) : null;
+      for (PsiElement expression : rebindExpressions) {
+        //filter out invalid elements which are produced by nested elements:
+        //new expressions/type elements, like: List<List<String>>; new Foo(new Foo()), etc
+        if (expression.isValid()) {
+          codeStyleManager.shortenClassReferences(expression);
+        }
+      }
+    });
+
+    new OptimizeImportsProcessor(project, createdFiles.toArray(PsiFile.EMPTY_ARRAY), null).run();
+    return createdFiles;
   }
 
   protected static boolean isSynthetic(PsiClass aClass) {
@@ -414,24 +433,30 @@ public class CopyClassesHandler extends CopyHandlerDelegateBase {
   private static PsiFile copy(@NotNull PsiFile file, PsiDirectory directory, String name, String relativePath, int[] choice) {
     final String fileName = getNewFileName(file, name);
     if (relativePath != null && !relativePath.isEmpty()) {
-      return buildRelativeDir(directory, relativePath).findOrCreateTargetDirectory().copyFileFrom(fileName, file);
+      return WriteAction.compute(() -> buildRelativeDir(directory, relativePath).findOrCreateTargetDirectory().copyFileFrom(fileName, file));
     }
-    if (CopyFilesOrDirectoriesHandler.checkFileExist(directory, choice, file, fileName, "Copy")) return null;
-    return directory.copyFileFrom(fileName, file);
+    if (CopyFilesOrDirectoriesHandler.checkFileExist(directory, choice, file, fileName,
+                                                     ExecutionBundle.message("copy.classes.command.name"))) return null;
+    return WriteAction.compute(() -> directory.copyFileFrom(fileName, file));
   }
 
   private static String getNewFileName(PsiFile file, String name) {
     if (name != null) {
-      if (file instanceof PsiClassOwner) {
-        for (final PsiClass psiClass : ((PsiClassOwner)file).getClasses()) {
-          if (!isSynthetic(psiClass)) {
-            return name + "." + file.getViewProvider().getVirtualFile().getExtension();
-          }
-        }
-      }
-      return name;
+      String fileExtension = getFileExtension(file);
+      return fileExtension.isEmpty() ? name : StringUtil.getQualifiedName(name, fileExtension);
     }
     return file.getName();
+  }
+
+  private static String getFileExtension(PsiFile file) {
+    if (file instanceof PsiClassOwner) {
+      for (final PsiClass psiClass : ((PsiClassOwner)file).getClasses()) {
+        if (!isSynthetic(psiClass)) {
+          return file.getViewProvider().getVirtualFile().getExtension();
+        }
+      }
+    }
+    return "";
   }
 
   @NotNull
@@ -441,7 +466,8 @@ public class CopyClassesHandler extends CopyHandlerDelegateBase {
     for (String pathElement : relativePath.split("/")) {
       if (current == null) {
         current = new MoveDirectoryWithClassesProcessor.TargetDirectoryWrapper(directory, pathElement);
-      } else {
+      }
+      else {
         current = new MoveDirectoryWithClassesProcessor.TargetDirectoryWrapper(current, pathElement);
       }
     }
@@ -472,76 +498,67 @@ public class CopyClassesHandler extends CopyHandlerDelegateBase {
 
   private static void rebindExternalReferences(PsiElement element,
                                                Map<PsiClass, PsiElement> oldToNewMap,
-                                               Set<PsiElement> rebindExpressions) {
-     final LocalSearchScope searchScope = new LocalSearchScope(element);
-     for (PsiClass aClass : oldToNewMap.keySet()) {
-       final PsiElement newClass = oldToNewMap.get(aClass);
-       for (PsiReference reference : ReferencesSearch.search(aClass, searchScope)) {
-         rebindExpressions.add(reference.bindToElement(newClass));
-       }
-     }
-   }
-
-
-  private static void decodeRefs(@NotNull PsiElement element, final Map<PsiClass, PsiElement> oldToNewMap, final Set<PsiElement> rebindExpressions) {
-    element.accept(new JavaRecursiveElementVisitor(){
-      @Override
-      public void visitReferenceExpression(PsiReferenceExpression expression) {
-        decodeRef(expression, oldToNewMap, rebindExpressions);
-        super.visitReferenceExpression(expression);
+                                               Set<? super PsiElement> rebindExpressions) {
+    final LocalSearchScope searchScope = new LocalSearchScope(element);
+    for (PsiClass aClass : oldToNewMap.keySet()) {
+      final PsiElement newClass = oldToNewMap.get(aClass);
+      for (PsiReference reference : ReferencesSearch.search(aClass, searchScope)) {
+        rebindExpressions.add(reference.bindToElement(newClass));
       }
+    }
+  }
 
-      @Override
-      public void visitNewExpression(PsiNewExpression expression) {
-        final PsiJavaCodeReferenceElement referenceElement = expression.getClassReference();
-        if (referenceElement != null) {
-          decodeRef(referenceElement, oldToNewMap, rebindExpressions);
-        }
-        super.visitNewExpression(expression);
-      }
 
+  private static void decodeRefs(@NotNull PsiElement element,
+                                 final Map<PsiClass, PsiElement> oldToNewMap,
+                                 final Set<? super PsiElement> rebindExpressions) {
+    final Map<PsiJavaCodeReferenceElement, PsiElement> rebindMap = new LinkedHashMap<>();
+    element.accept(new JavaRecursiveElementVisitor() {
       @Override
-      public void visitTypeElement(PsiTypeElement type) {
-        final PsiJavaCodeReferenceElement referenceElement = type.getInnermostComponentReferenceElement();
-        if (referenceElement != null) {
-          decodeRef(referenceElement, oldToNewMap, rebindExpressions);
-        }
-        super.visitTypeElement(type);
+      public void visitReferenceElement(PsiJavaCodeReferenceElement reference) {
+        super.visitReferenceElement(reference);
+        decodeRef(reference, oldToNewMap, rebindMap);
       }
     });
+    for (Map.Entry<PsiJavaCodeReferenceElement, PsiElement> entry : rebindMap.entrySet()) {
+      rebindExpressions.add(entry.getKey().bindToElement(entry.getValue()));
+    }
     rebindExternalReferences(element, oldToNewMap, rebindExpressions);
   }
 
   private static void decodeRef(final PsiJavaCodeReferenceElement expression,
                                 final Map<PsiClass, PsiElement> oldToNewMap,
-                                Set<PsiElement> rebindExpressions) {
+                                Map<PsiJavaCodeReferenceElement, PsiElement> rebindExpressions) {
     final PsiElement resolved = expression.resolve();
     if (resolved instanceof PsiClass) {
       final PsiClass psiClass = (PsiClass)resolved;
       if (oldToNewMap.containsKey(psiClass)) {
-        rebindExpressions.add(expression.bindToElement(oldToNewMap.get(psiClass)));
+        rebindExpressions.put(expression, oldToNewMap.get(psiClass));
       }
     }
   }
 
-  @Nullable
-  private static PsiClass[] getTopLevelClasses(PsiElement element) {
+  private static PsiClass @Nullable [] getTopLevelClasses(PsiElement element) {
     while (true) {
       if (element == null || element instanceof PsiFile) break;
-      if (element instanceof PsiClass && element.getParent() != null && ((PsiClass)element).getContainingClass() == null && !(element instanceof PsiAnonymousClass)) break;
+      if (element instanceof PsiClass &&
+          element.getParent() != null &&
+          ((PsiClass)element).getContainingClass() == null &&
+          !(element instanceof PsiAnonymousClass)) {
+        break;
+      }
       element = element.getParent();
     }
-    if (element instanceof PsiCompiledElement) return null;
     if (element instanceof PsiClassOwner) {
       PsiClass[] classes = ((PsiClassOwner)element).getClasses();
-      ArrayList<PsiClass> buffer = new ArrayList<PsiClass>();
+      ArrayList<PsiClass> buffer = new ArrayList<>();
       for (final PsiClass aClass : classes) {
         if (isSynthetic(aClass)) {
           return null;
         }
         buffer.add(aClass);
       }
-      return buffer.toArray(new PsiClass[buffer.size()]);
+      return buffer.toArray(PsiClass.EMPTY_ARRAY);
     }
     return element instanceof PsiClass ? new PsiClass[]{(PsiClass)element} : null;
   }

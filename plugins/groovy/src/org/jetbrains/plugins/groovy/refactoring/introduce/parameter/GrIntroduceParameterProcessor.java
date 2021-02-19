@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.introduce.parameter;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.lang.findUsages.DescriptiveNameUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
@@ -24,11 +11,10 @@ import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.searches.MethodReferencesSearch;
 import com.intellij.psi.search.searches.OverridingMethodsSearch;
+import com.intellij.psi.util.PsiEditorUtil;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.psi.util.PsiUtilBase;
 import com.intellij.refactoring.BaseRefactoringProcessor;
 import com.intellij.refactoring.IntroduceParameterRefactoring;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.introduceParameter.*;
 import com.intellij.refactoring.ui.UsageViewDescriptorAdapter;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
@@ -38,7 +24,7 @@ import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewDescriptor;
 import com.intellij.usageView.UsageViewUtil;
 import com.intellij.util.containers.MultiMap;
-import gnu.trove.TIntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable;
@@ -56,8 +42,8 @@ import java.util.Collection;
 /**
  * @author Maxim.Medvedev
  */
-public class GrIntroduceParameterProcessor extends BaseRefactoringProcessor implements IntroduceParameterData {
-  private static final Logger LOG = Logger.getInstance("#org.jetbrains.plugins.groovy.refactoring.introduce.parameter.GrIntroduceParameterProcessor");
+public final class GrIntroduceParameterProcessor extends BaseRefactoringProcessor implements IntroduceParameterData {
+  private static final Logger LOG = Logger.getInstance(GrIntroduceParameterProcessor.class);
 
   private final GrIntroduceParameterSettings mySettings;
   private final IntroduceParameterData.ExpressionWrapper myParameterInitializer;
@@ -87,25 +73,24 @@ public class GrIntroduceParameterProcessor extends BaseRefactoringProcessor impl
 
   @NotNull
   @Override
-  protected UsageViewDescriptor createUsageViewDescriptor(final UsageInfo[] usages) {
+  protected UsageViewDescriptor createUsageViewDescriptor(final UsageInfo @NotNull [] usages) {
     return new UsageViewDescriptorAdapter() {
-      @NotNull
       @Override
-      public PsiElement[] getElements() {
+      public PsiElement @NotNull [] getElements() {
         return new PsiElement[]{mySettings.getToSearchFor()};
       }
 
       @Override
       public String getProcessedElementsHeader() {
-        return RefactoringBundle.message("introduce.parameter.elements.header");
+        return JavaRefactoringBundle.message("introduce.parameter.elements.header");
       }
     };
   }
 
   @Override
-  protected boolean preprocessUsages(Ref<UsageInfo[]> refUsages) {
+  protected boolean preprocessUsages(@NotNull Ref<UsageInfo[]> refUsages) {
     UsageInfo[] usagesIn = refUsages.get();
-    MultiMap<PsiElement, String> conflicts = new MultiMap<PsiElement, String>();
+    MultiMap<PsiElement, String> conflicts = new MultiMap<>();
 
     if (!mySettings.generateDelegate()) {
       GroovyIntroduceParameterUtil.detectAccessibilityConflicts(mySettings.getExpression(), usagesIn, conflicts,
@@ -123,7 +108,7 @@ public class GrIntroduceParameterProcessor extends BaseRefactoringProcessor impl
           if (!(usageInfo.getElement() instanceof PsiMethod) && !(usageInfo instanceof InternalUsageInfo)) {
             if (!PsiTreeUtil.isAncestor(toReplaceIn.getContainingClass(), usageInfo.getElement(), false)) {
               conflicts.putValue(mySettings.getExpression(),
-                                 RefactoringBundle.message("parameter.initializer.contains.0.but.not.all.calls.to.method.are.in.its.class",
+                                 JavaRefactoringBundle.message("parameter.initializer.contains.0.but.not.all.calls.to.method.are.in.its.class",
                                                            CommonRefactoringUtil.htmlEmphasize(PsiKeyword.SUPER)));
               break;
             }
@@ -139,10 +124,9 @@ public class GrIntroduceParameterProcessor extends BaseRefactoringProcessor impl
     return showConflicts(conflicts, usagesIn);
   }
 
-  @NotNull
   @Override
-  protected UsageInfo[] findUsages() {
-    ArrayList<UsageInfo> result = new ArrayList<UsageInfo>();
+  protected UsageInfo @NotNull [] findUsages() {
+    ArrayList<UsageInfo> result = new ArrayList<>();
 
     final PsiMethod toSearchFor = ((PsiMethod)mySettings.getToSearchFor());
 
@@ -196,18 +180,18 @@ public class GrIntroduceParameterProcessor extends BaseRefactoringProcessor impl
       }
     }
 
-    Collection<PsiMethod> overridingMethods = OverridingMethodsSearch.search(toSearchFor, true).findAll();
+    Collection<PsiMethod> overridingMethods = OverridingMethodsSearch.search(toSearchFor).findAll();
 
     for (PsiMethod overridingMethod : overridingMethods) {
       result.add(new UsageInfo(overridingMethod));
     }
 
-    final UsageInfo[] usageInfos = result.toArray(new UsageInfo[result.size()]);
+    final UsageInfo[] usageInfos = result.toArray(UsageInfo.EMPTY_ARRAY);
     return UsageViewUtil.removeDuplicatedUsages(usageInfos);
   }
 
   @Override
-  protected void performRefactoring(UsageInfo[] usages) {
+  protected void performRefactoring(UsageInfo @NotNull [] usages) {
     GroovyPsiElementFactory factory = GroovyPsiElementFactory.getInstance(myProject);
 
     //PsiType initializerType = mySettings.getSelectedType();
@@ -250,7 +234,7 @@ public class GrIntroduceParameterProcessor extends BaseRefactoringProcessor impl
     if (stringPartInfo != null) {
       final GrExpression
         expr = mySettings.getStringPartInfo().replaceLiteralWithConcatenation(mySettings.getName());
-      final Editor editor = PsiUtilBase.findEditor(expr);
+      final Editor editor = PsiEditorUtil.findEditor(expr);
       if (editor != null) {
         editor.getSelectionModel().removeSelection();
         editor.getCaretModel().moveToOffset(expr.getTextRange().getEndOffset());
@@ -303,9 +287,10 @@ public class GrIntroduceParameterProcessor extends BaseRefactoringProcessor impl
     }
   }
 
+  @NotNull
   @Override
   protected String getCommandName() {
-    return RefactoringBundle.message("introduce.parameter.command", DescriptiveNameUtil.getDescriptiveName(mySettings.getToReplaceIn()));
+    return JavaRefactoringBundle.message("introduce.parameter.command", DescriptiveNameUtil.getDescriptiveName(mySettings.getToReplaceIn()));
   }
 
   @NotNull
@@ -363,7 +348,7 @@ public class GrIntroduceParameterProcessor extends BaseRefactoringProcessor impl
 
   @NotNull
   @Override
-  public TIntArrayList getParametersToRemove() {
+  public IntList getParameterListToRemove() {
     return mySettings.parametersToRemove();
   }
 }

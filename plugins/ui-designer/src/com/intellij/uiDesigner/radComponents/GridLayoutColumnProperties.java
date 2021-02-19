@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.uiDesigner.radComponents;
 
+import com.intellij.uiDesigner.UIDesignerBundle;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
 import com.intellij.uiDesigner.propertyInspector.Property;
@@ -44,6 +31,7 @@ public class GridLayoutColumnProperties implements CustomPropertiesPanel {
 
   public GridLayoutColumnProperties() {
     myWantGrowCheckBox.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         for(RadComponent c: myContainer.getComponents()) {
           if (c.getConstraints().getCell(myRow) == mySelectedIndex) {
@@ -69,6 +57,7 @@ public class GridLayoutColumnProperties implements CustomPropertiesPanel {
     });
   }
 
+  @Override
   public JComponent getComponent() {
     return myRootPanel;
   }
@@ -77,12 +66,12 @@ public class GridLayoutColumnProperties implements CustomPropertiesPanel {
     myContainer = container;
     myRow = isRow;
     if (selectedIndices.length != 1) {
-      myTitleLabel.setText(selectedIndices.length + (isRow ? " rows selected" : " columns selected"));
+      myTitleLabel.setText(UIDesignerBundle.message("grid.layout.column.selected.property", selectedIndices.length, isRow ? 0 : 1));
       myWantGrowCheckBox.setEnabled(false);
     }
     else {
       mySelectedIndex = selectedIndices [0];
-      myTitleLabel.setText((isRow ? "Row " : "Column ") + selectedIndices [0]);
+      myTitleLabel.setText(UIDesignerBundle.message("grid.layout.column.property", isRow ? 0 : 1, selectedIndices [0]));
       myWantGrowCheckBox.setEnabled(true);
 
       GridLayoutManager layout = (GridLayoutManager) container.getLayout();
@@ -91,10 +80,12 @@ public class GridLayoutColumnProperties implements CustomPropertiesPanel {
     }
   }
 
+  @Override
   public void addChangeListener(ChangeListener listener) {
     myListeners.add(listener);
   }
 
+  @Override
   public void removeChangeListener(ChangeListener listener) {
     myListeners.remove(listener);
   }

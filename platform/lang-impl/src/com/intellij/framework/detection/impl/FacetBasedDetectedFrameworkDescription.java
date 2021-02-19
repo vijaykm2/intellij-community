@@ -21,9 +21,9 @@ import com.intellij.framework.detection.FacetBasedFrameworkDetector;
 import com.intellij.framework.detection.FrameworkDetector;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.roots.ModifiableModelsProvider;
 import com.intellij.openapi.roots.ModifiableRootModel;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.text.UniqueNameGenerator;
 import org.jetbrains.annotations.NotNull;
@@ -32,11 +32,8 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Collection;
 import java.util.Set;
 
-/**
- * @author nik
- */
 public abstract class FacetBasedDetectedFrameworkDescription<F extends Facet, C extends FacetConfiguration> extends DetectedFrameworkDescription {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.framework.detection.impl.FacetBasedDetectedFrameworkDescription");
+  private static final Logger LOG = Logger.getInstance(FacetBasedDetectedFrameworkDescription.class);
   private final FacetBasedFrameworkDetector<F, C> myDetector;
   private final C myConfiguration;
   private final Set<VirtualFile> myRelatedFiles;
@@ -64,7 +61,7 @@ public abstract class FacetBasedDetectedFrameworkDescription<F extends Facet, C 
   @NotNull
   @Override
   public String getSetupText() {
-    return "'" + myFacetType.getPresentableName() + "' facet will be added to '" + getModuleName() + "' module";
+    return ProjectBundle.message("label.facet.will.be.added.to.module", myFacetType.getPresentableName(), getModuleName());
   }
 
   @NotNull
@@ -105,12 +102,8 @@ public abstract class FacetBasedDetectedFrameworkDescription<F extends Facet, C 
 
   protected void doSetup(ModifiableModelsProvider modifiableModelsProvider, final Module module) {
     final ModifiableFacetModel model = modifiableModelsProvider.getFacetModifiableModel(module);
-    final String name = UniqueNameGenerator.generateUniqueName(myFacetType.getDefaultFacetName(), new Condition<String>() {
-      @Override
-      public boolean value(String s) {
-        return FacetManager.getInstance(module).findFacet(myFacetType.getId(), s) == null;
-      }
-    });
+    final String name = UniqueNameGenerator.generateUniqueName(myFacetType.getDefaultFacetName(),
+                                                               s -> FacetManager.getInstance(module).findFacet(myFacetType.getId(), s) == null);
     final F facet = FacetManager.getInstance(module).createFacet(myFacetType, name, myConfiguration,
                                                                  findUnderlyingFacet(module));
     model.addFacet(facet);

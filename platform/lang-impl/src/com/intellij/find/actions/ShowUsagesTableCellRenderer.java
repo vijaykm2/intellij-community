@@ -1,29 +1,20 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.find.actions;
 
+import com.intellij.find.FindBundle;
+import com.intellij.icons.AllIcons;
+import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiManager;
+import com.intellij.openapi.vfs.newvfs.VfsPresentationUtil;
 import com.intellij.psi.search.SearchScope;
-import com.intellij.ui.FileColorManager;
+import com.intellij.ui.ColorUtil;
+import com.intellij.ui.DirtyUI;
 import com.intellij.ui.SimpleColoredComponent;
 import com.intellij.ui.SimpleTextAttributes;
+import com.intellij.ui.scale.JBUIScale;
+import com.intellij.ui.speedSearch.SpeedSearchUtil;
 import com.intellij.usages.TextChunk;
 import com.intellij.usages.Usage;
 import com.intellij.usages.UsageGroup;
@@ -35,7 +26,9 @@ import com.intellij.usages.impl.UsageViewManagerImpl;
 import com.intellij.usages.rules.UsageInFile;
 import com.intellij.util.ui.EmptyIcon;
 import com.intellij.util.ui.UIUtil;
+import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.table.TableCellRenderer;
@@ -43,9 +36,6 @@ import javax.swing.table.TableColumnModel;
 import java.awt.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
-* @author cdr
-*/
 class ShowUsagesTableCellRenderer implements TableCellRenderer {
   private final UsageViewImpl myUsageView;
   @NotNull private final AtomicInteger myOutOfScopeUsages;
@@ -57,83 +47,161 @@ class ShowUsagesTableCellRenderer implements TableCellRenderer {
     mySearchScope = searchScope;
   }
 
+  private static final int CURRENT_ASTERISK_COL = 0;
+  private static final int FILE_GROUP_COL = 1;
+  private static final int LINE_NUMBER_COL = 2;
+  private static final int USAGE_TEXT_COL = 3;
+  @DirtyUI
   @Override
-  public Component getTableCellRendererComponent(JTable list, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-    UsageNode usageNode = value instanceof UsageNode ? (UsageNode)value : null;
-
+  public Component getTableCellRendererComponent(JTable list, Object value, boolean isSelected, boolean hasFocus, int row,
+                                                 @MagicConstant(intValues = {CURRENT_ASTERISK_COL, FILE_GROUP_COL, LINE_NUMBER_COL, USAGE_TEXT_COL}) int column) {
+    UsageNode usageNode = (UsageNode)value;
     Usage usage = usageNode == null ? null : usageNode.getUsage();
 
-    JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0,0));
     Color fileBgColor = getBackgroundColor(isSelected, usage);
-    final Color bg = UIUtil.getListSelectionBackground();
-    final Color fg = UIUtil.getListSelectionForeground();
-    Color panelBackground = isSelected ? bg : fileBgColor == null ? list.getBackground() : fileBgColor;
-    Color panelForeground = isSelected ? fg : list.getForeground();
-    panel.setBackground(panelBackground);
-    panel.setForeground(panelForeground);
+    Color selectionBg = UIUtil.getListSelectionBackground(true);
+    Color selectionFg = UIUtil.getListSelectionForeground(true);
+    Color rowBackground = isSelected ? selectionBg : fileBgColor == null ? list.getBackground() : fileBgColor;
+    Color rowForeground = isSelected ? selectionFg : list.getForeground();
 
-    SimpleColoredComponent textChunks = new SimpleColoredComponent();
-    textChunks.setIpad(new Insets(0, 0, 0, 0));
-    textChunks.setBorder(null);
-
-    if (usage == null || usageNode instanceof ShowUsagesAction.StringNode) {
-      textChunks.append(value != null ? value.toString() : "", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
-      return textComponentSpanningWholeRow(textChunks, panelBackground, panelForeground, column, list, row);
+    if (usageNode == null || usageNode instanceof ShowUsagesAction.StringNode) {
+      SimpleColoredComponent textChunks = new SimpleColoredComponent();
+      if (usageNode == null) {
+        textChunks.append("", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+      }
+      else {
+        textChunks.append(((ShowUsagesAction.StringNode)value).getString(), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+      }
+      return textComponentSpanningWholeRow(textChunks, rowBackground, rowForeground, column, list);
     }
-    if (usage == ShowUsagesAction.MORE_USAGES_SEPARATOR) {
+    if (usage == ((ShowUsagesTable)list).MORE_USAGES_SEPARATOR) {
+      SimpleColoredComponent textChunks = new SimpleColoredComponent();
       textChunks.append("...<");
-      textChunks.append("more usages", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+      textChunks.append(FindBundle.message("show.usages.more.usages.label"), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
       textChunks.append(">...");
-      return textComponentSpanningWholeRow(textChunks, panelBackground, panelForeground, column, list, row);
+      return textComponentSpanningWholeRow(textChunks, rowBackground, rowForeground, column, list);
     }
-    else if (usage == ShowUsagesAction.USAGES_OUTSIDE_SCOPE_SEPARATOR) {
+    if (usage == ((ShowUsagesTable)list).USAGES_OUTSIDE_SCOPE_SEPARATOR) {
+      SimpleColoredComponent textChunks = new SimpleColoredComponent();
       textChunks.append("...<");
       textChunks.append(UsageViewManagerImpl.outOfScopeMessage(myOutOfScopeUsages.get(), mySearchScope), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
       textChunks.append(">...");
-      return textComponentSpanningWholeRow(textChunks, panelBackground, panelForeground, column, list, row);
+      return textComponentSpanningWholeRow(textChunks, rowBackground, rowForeground, column, list);
+    }
+    if (usage == ((ShowUsagesTable)list).USAGES_FILTERED_OUT_SEPARATOR) {
+      ShowUsagesAction.FilteredOutUsagesNode filtered = (ShowUsagesAction.FilteredOutUsagesNode)usageNode;
+      SimpleColoredComponent textChunks = new SimpleColoredComponent();
+      textChunks.append(filtered.getString(), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+      JComponent component = textComponentSpanningWholeRow(textChunks, rowBackground, rowForeground, column, list);
+      component.setToolTipText(filtered.getTooltip());
+      return component;
     }
 
-    if (column == 0) {
-      GroupNode parent = (GroupNode)usageNode.getParent();
-      appendGroupText(parent, panel, fileBgColor);
-    }
-    else if (usage != ShowUsagesAction.MORE_USAGES_SEPARATOR && usage != ShowUsagesAction.USAGES_OUTSIDE_SCOPE_SEPARATOR) {
-      UsagePresentation presentation = usage.getPresentation();
-      TextChunk[] text = presentation.getText();
+    // want to be able to right-align the "current" word
+    LayoutManager layout = column == USAGE_TEXT_COL
+                           ? new BorderLayout() : new FlowLayout(column == LINE_NUMBER_COL ? FlowLayout.RIGHT : FlowLayout.LEFT, 0, 0) {
+      @Override
+      public void layoutContainer(Container container) {
+        super.layoutContainer(container);
+        for (Component component : container.getComponents()) { // align inner components
+          Rectangle b = component.getBounds();
+          Insets insets = container.getInsets();
+          component.setBounds(b.x, b.y, b.width, container.getSize().height - insets.top - insets.bottom);
+        }
+      }
+    };
+    JPanel panel = new JPanel(layout);
+    panel.setFont(null);
 
-      if (column == 1) {
-        final Icon icon = presentation.getIcon();
-        textChunks.setIcon(icon == null ? EmptyIcon.ICON_16 : icon);
+    // greying the current usage the "find usages" was originated from
+    boolean isOriginUsage = myUsageView.isOriginUsage(usage);
+    if (isOriginUsage) {
+      rowBackground = slightlyDifferentColor(rowBackground);
+      if (fileBgColor != null) {
+        fileBgColor = slightlyDifferentColor(fileBgColor);
+      }
+      selectionBg = slightlyDifferentColor(selectionBg);
+    }
+    panel.setBackground(rowBackground);
+    panel.setForeground(rowForeground);
+
+    SimpleColoredComponent textChunks = new SimpleColoredComponent();
+    UsagePresentation presentation = usage.getPresentation();
+    TextChunk[] text = presentation.getText();
+
+    switch(column) {
+      case CURRENT_ASTERISK_COL:
+        if (isOriginUsage) {
+          panel.add(new JLabel(isSelected ? AllIcons.General.ModifiedSelected : AllIcons.General.Modified));
+        }
+        break;
+      case FILE_GROUP_COL:
+        appendGroupText(list, (GroupNode)usageNode.getParent(), panel, fileBgColor, isSelected);
+        break;
+      case LINE_NUMBER_COL:
         if (text.length != 0) {
-          SimpleTextAttributes attributes = isSelected ?
-            new SimpleTextAttributes(bg, fg, fg, SimpleTextAttributes.STYLE_ITALIC) :
-            deriveAttributesWithColor(text[0].getSimpleAttributesIgnoreBackground(), fileBgColor);
-          textChunks.append(text[0].getText(), attributes);
+          TextChunk chunk = text[0];
+          textChunks.append(chunk.getText(), getAttributes(isSelected, fileBgColor, selectionBg, selectionFg, chunk));
         }
-      }
-      else if (column == 2) {
+        SpeedSearchUtil.applySpeedSearchHighlighting(list, textChunks, false, isSelected);
+
+        panel.add(textChunks);
+        break;
+
+      case USAGE_TEXT_COL:
+        Icon icon = presentation.getIcon();
+        textChunks.setIcon(icon == null ? EmptyIcon.ICON_16 : icon);
+        textChunks.append("").appendTextPadding(JBUIScale.scale(16 + 5));
         for (int i = 1; i < text.length; i++) {
-          TextChunk textChunk = text[i];
-          final SimpleTextAttributes attrs = textChunk.getSimpleAttributesIgnoreBackground();
-          SimpleTextAttributes attributes = isSelected ?
-            new SimpleTextAttributes(bg, fg, fg, attrs.getStyle()) : deriveAttributesWithColor(attrs, fileBgColor);
-          textChunks.append(textChunk.getText(), attributes);
+          TextChunk chunk = text[i];
+          textChunks.append(chunk.getText(), getAttributes(isSelected, fileBgColor, selectionBg, selectionFg, chunk));
         }
-      }
-      else {
-        assert false : column;
-      }
+        SpeedSearchUtil.applySpeedSearchHighlighting(list, textChunks, false, isSelected);
+
+        panel.add(textChunks);
+
+        if (isOriginUsage) {
+          SimpleColoredComponent origin = new SimpleColoredComponent();
+          origin.setIconTextGap(JBUIScale.scale(5)); // for this particular icon it looks better
+
+          // use attributes of "line number" to show "Current" word
+          SimpleTextAttributes attributes =
+            text.length == 0 ? SimpleTextAttributes.REGULAR_ATTRIBUTES.derive(-1, new Color(0x808080), null, null) :
+            getAttributes(isSelected, fileBgColor, selectionBg, selectionFg, text[0]);
+          origin.append("| " + FindBundle.message("show.usages.current.usage.label"), attributes);
+          origin.appendTextPadding(JBUIScale.scale(45));
+          panel.add(origin, BorderLayout.EAST);
+        }
+        break;
+
+      default:
+        throw new IllegalStateException("unknown column: " + column);
     }
-    panel.add(textChunks);
+
     return panel;
   }
 
   @NotNull
-  private static Component textComponentSpanningWholeRow(@NotNull SimpleColoredComponent chunks,
-                                                         Color panelBackground,
-                                                         Color panelForeground,
+  private static Color slightlyDifferentColor(@NotNull Color back) {
+    return EditorColorsManager.getInstance().isDarkEditor() ?
+           ColorUtil.brighter(back, 3) : // dunno, under the dark theme the "brighter,1" doesn't look bright enough so we use 3
+           ColorUtil.hackBrightness(back, 1, 1/1.05f); // Olga insisted on very-pale almost invisible gray. oh well
+  }
+
+  @NotNull
+  private static SimpleTextAttributes getAttributes(boolean isSelected, Color fileBgColor, Color selectionBg, Color selectionFg, @NotNull TextChunk chunk) {
+    SimpleTextAttributes background = chunk.getSimpleAttributesIgnoreBackground();
+    return isSelected
+           ? new SimpleTextAttributes(selectionBg, selectionFg, null, background.getStyle())
+           : deriveBgColor(background, fileBgColor);
+  }
+
+  @NotNull
+  private static JComponent textComponentSpanningWholeRow(@NotNull SimpleColoredComponent chunks,
+                                                         Color rowBackground,
+                                                         Color rowForeground,
                                                          final int column,
-                                                         @NotNull final JTable table, int row) {
+                                                         @NotNull final JTable table) {
     final SimpleColoredComponent component = new SimpleColoredComponent() {
       @Override
       protected void doPaint(Graphics2D g) {
@@ -146,9 +214,8 @@ class ShowUsagesTableCellRenderer implements TableCellRenderer {
         }
         g.translate(-offset, 0);
 
-        //if (column == columnModel.getColumnCount()-1) {
-        //}
-        setSize(getWidth()+offset, getHeight()); // should increase the column width so that selection background will be visible even after offset translation
+        // should increase the column width so that selection background will be visible even after offset translation
+        setSize(getWidth()+offset, getHeight());
 
         super.doPaint(g);
 
@@ -165,23 +232,22 @@ class ShowUsagesTableCellRenderer implements TableCellRenderer {
       }
     };
 
-    component.setIpad(new Insets(0,0,0,0));
-    component.setBorder(null);
-    component.setBackground(panelBackground);
-    component.setForeground(panelForeground);
+    component.setBackground(rowBackground);
+    component.setForeground(rowForeground);
 
     for (SimpleColoredComponent.ColoredIterator iterator = chunks.iterator(); iterator.hasNext(); ) {
       iterator.next();
       String fragment = iterator.getFragment();
       SimpleTextAttributes attributes = iterator.getTextAttributes();
-      attributes = attributes.derive(attributes.getStyle(), panelForeground, panelBackground, attributes.getWaveColor());
+      attributes = attributes.derive(attributes.getStyle(), rowForeground, rowBackground, attributes.getWaveColor());
       component.append(fragment, attributes);
     }
 
     return component;
   }
 
-  private static SimpleTextAttributes deriveAttributesWithColor(SimpleTextAttributes attributes, Color fileBgColor) {
+  @NotNull
+  private static SimpleTextAttributes deriveBgColor(@NotNull SimpleTextAttributes attributes, @Nullable Color fileBgColor) {
     if (fileBgColor != null) {
       attributes = attributes.derive(-1,null, fileBgColor,null);
     }
@@ -191,36 +257,34 @@ class ShowUsagesTableCellRenderer implements TableCellRenderer {
   private Color getBackgroundColor(boolean isSelected, Usage usage) {
     Color fileBgColor = null;
     if (isSelected) {
-      fileBgColor = UIUtil.getListSelectionBackground();
+      fileBgColor = UIUtil.getListSelectionBackground(true);
     }
     else {
       VirtualFile virtualFile = usage instanceof UsageInFile ? ((UsageInFile)usage).getFile() : null;
       if (virtualFile != null) {
         Project project = myUsageView.getProject();
-        PsiFile psiFile = PsiManager.getInstance(project).findFile(virtualFile);
-        if (psiFile != null && psiFile.isValid()) {
-          final Color color = FileColorManager.getInstance(project).getRendererBackground(psiFile);
-          if (color != null) fileBgColor = color;
-        }
+        Color color = VfsPresentationUtil.getFileBackgroundColor(project, virtualFile);
+        if (color != null) fileBgColor = color;
       }
     }
     return fileBgColor;
   }
 
-  private void appendGroupText(final GroupNode node, JPanel panel, Color fileBgColor) {
+  private void appendGroupText(@NotNull JTable table,
+                               final GroupNode node,
+                               @NotNull JPanel panel,
+                               Color fileBgColor,
+                               boolean isSelected) {
     UsageGroup group = node == null ? null : node.getGroup();
     if (group == null) return;
     GroupNode parentGroup = (GroupNode)node.getParent();
-    appendGroupText(parentGroup, panel, fileBgColor);
+    appendGroupText(table, parentGroup, panel, fileBgColor, isSelected);
     if (node.canNavigateToSource()) {
       SimpleColoredComponent renderer = new SimpleColoredComponent();
-
       renderer.setIcon(group.getIcon(false));
-      SimpleTextAttributes attributes = deriveAttributesWithColor(SimpleTextAttributes.REGULAR_ATTRIBUTES, fileBgColor);
+      SimpleTextAttributes attributes = deriveBgColor(SimpleTextAttributes.REGULAR_ATTRIBUTES, fileBgColor);
       renderer.append(group.getText(myUsageView), attributes);
-      renderer.append(" ", attributes);
-      renderer.setIpad(new Insets(0,0,0,0));
-      renderer.setBorder(null);
+      SpeedSearchUtil.applySpeedSearchHighlighting(table, renderer, false, isSelected);
       panel.add(renderer);
     }
   }

@@ -1,25 +1,13 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.xml;
 
+import com.intellij.codeInsight.AutoPopupController;
 import com.intellij.codeInsight.completion.InsertionContext;
 import com.intellij.codeInsight.completion.PrioritizedLookupElement;
 import com.intellij.codeInsight.completion.XmlTagInsertHandler;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupElementBuilder;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.RangeMarker;
@@ -28,14 +16,17 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.impl.source.html.dtd.HtmlElementDescriptorImpl;
 import com.intellij.psi.meta.PsiPresentableMetaData;
-import com.intellij.psi.search.EverythingGlobalScope;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.templateLanguages.OuterLanguageElement;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.psi.xml.XmlToken;
 import com.intellij.psi.xml.XmlTokenType;
-import com.intellij.util.CommonProcessors;
+import com.intellij.util.Processor;
+import com.intellij.util.Processors;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.indexing.FileBasedIndex;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlExtension;
@@ -49,36 +40,45 @@ import org.jetbrains.annotations.NotNull;
 import java.util.*;
 
 public class DefaultXmlTagNameProvider implements XmlTagNameProvider {
+
+  private static final Logger LOG = Logger.getInstance(DefaultXmlTagNameProvider.class);
+
   @Override
   public void addTagNameVariants(List<LookupElement> elements, @NotNull XmlTag tag, String prefix) {
     final List<String> namespaces;
     if (prefix.isEmpty()) {
-      namespaces = new ArrayList<String>(Arrays.asList(tag.knownNamespaces()));
+      namespaces = new ArrayList<>(Arrays.asList(tag.knownNamespaces()));
       namespaces.add(XmlUtil.EMPTY_URI); // empty namespace
     }
     else {
-      namespaces = new ArrayList<String>(Collections.singletonList(tag.getNamespace()));
+      namespaces = new ArrayList<>(Collections.singletonList(tag.getNamespace()));
     }
     PsiFile psiFile = tag.getContainingFile();
     XmlExtension xmlExtension = XmlExtension.getExtension(psiFile);
-    List<String> nsInfo = new ArrayList<String>();
+    List<String> nsInfo = new ArrayList<>();
     List<XmlElementDescriptor> variants = TagNameVariantCollector.getTagDescriptors(tag, namespaces, nsInfo);
 
-    if (variants.isEmpty() && psiFile instanceof XmlFile && ((XmlFile)psiFile).getRootTag() == tag) {
-      getRootTagsVariants(tag, elements);
-      return;
+    if (psiFile instanceof XmlFile && ((XmlFile) psiFile).getRootTag() == tag) {
+      addXmlProcessingInstructions(elements, tag);
+      if (variants.isEmpty()) {
+        getRootTagsVariants(tag, elements);
+        return;
+      }
     }
 
-    final Set<String> visited = new HashSet<String>();
+    final Set<String> visited = new HashSet<>();
     for (int i = 0; i < variants.size(); i++) {
       XmlElementDescriptor descriptor = variants.get(i);
       String qname = descriptor.getName(tag);
+      if (!visited.add(qname)) continue;
       if (!prefix.isEmpty() && qname.startsWith(prefix + ":")) {
         qname = qname.substring(prefix.length() + 1);
       }
-      if (!visited.add(qname)) continue;
 
       PsiElement declaration = descriptor.getDeclaration();
+      if (declaration != null && !declaration.isValid()) {
+        LOG.error(descriptor + " contains invalid declaration: " + declaration);
+      }
       LookupElementBuilder lookupElement = declaration == null ? LookupElementBuilder.create(qname) : LookupElementBuilder.create(declaration, qname);
       final int separator = qname.indexOf(':');
       if (separator > 0) {
@@ -94,28 +94,55 @@ public class DefaultXmlTagNameProvider implements XmlTagNameProvider {
       if (xmlExtension.useXmlTagInsertHandler()) {
         lookupElement = lookupElement.withInsertHandler(XmlTagInsertHandler.INSTANCE);
       }
-
-      elements.add(PrioritizedLookupElement.withPriority(lookupElement, separator > 0 ? 0 : 1));
+      boolean deprecated = descriptor instanceof HtmlElementDescriptorImpl && ((HtmlElementDescriptorImpl)descriptor).isDeprecated();
+      if (deprecated) {
+        lookupElement = lookupElement.withStrikeoutness(true);
+      }
+      lookupElement = lookupElement.withCaseSensitivity(!(descriptor instanceof HtmlElementDescriptorImpl));
+      elements.add(PrioritizedLookupElement.withPriority(lookupElement, deprecated ? -1 : separator > 0 ? 0 : 1));
     }
   }
 
-  private static List<LookupElement> getRootTagsVariants(final XmlTag tag, final List<LookupElement> elements) {
-    final FileBasedIndex fbi = FileBasedIndex.getInstance();
-    CommonProcessors.CollectProcessor<String> processor = new CommonProcessors.CollectProcessor<String>();
-    fbi.processAllKeys(XmlNamespaceIndex.NAME, processor, tag.getProject());
-    Collection<String> results = processor.getResults();
+  private static void addXmlProcessingInstructions(@NotNull List<LookupElement> elements, @NotNull XmlTag tag) {
+    final PsiElement file = tag.getParent();
+    final PsiElement prolog = file.getFirstChild();
+    if (prolog.getTextLength() != 0) {
+      // "If [the XML Prolog] exists, it must come first in the document."
+      return;
+    }
 
-    final GlobalSearchScope scope = new EverythingGlobalScope();
-    for (final String ns : results) {
-      if (ns.startsWith("file://")) continue;
-      fbi.processValues(XmlNamespaceIndex.NAME, ns, null, new FileBasedIndex.ValueProcessor<XsdNamespaceBuilder>() {
+    if (ContainerUtil.exists(tag.getChildren(), OuterLanguageElement.class::isInstance)) {
+      return;
+    }
+
+    final LookupElementBuilder xmlDeclaration = LookupElementBuilder
+      .create("?xml version=\"1.0\" encoding=\"\" ?>")
+      .withPresentableText("<?xml version=\"1.0\" encoding=\"\" ?>")
+      .withInsertHandler((context, item) -> {
+        int offset = context.getEditor().getCaretModel().getOffset();
+        context.getEditor().getCaretModel().moveToOffset(offset - 4);
+        AutoPopupController.getInstance(context.getProject()).scheduleAutoPopup(context.getEditor());
+      });
+    elements.add(xmlDeclaration);
+  }
+
+  private static void getRootTagsVariants(final XmlTag tag, final List<? super LookupElement> elements) {
+    final FileBasedIndex fbi = FileBasedIndex.getInstance();
+    Collection<String> result = new ArrayList<>();
+    Processor<String> processor = Processors.cancelableCollectProcessor(result);
+    fbi.processAllKeys(XmlNamespaceIndex.NAME, processor, tag.getProject());
+
+    final GlobalSearchScope scope = GlobalSearchScope.everythingScope(tag.getProject());
+    for (final String ns : result) {
+      if (ns.isEmpty()) continue;
+      fbi.processValues(XmlNamespaceIndex.NAME, ns, null, new FileBasedIndex.ValueProcessor<>() {
         @Override
-        public boolean process(final VirtualFile file, XsdNamespaceBuilder value) {
+        public boolean process(@NotNull final VirtualFile file, XsdNamespaceBuilder value) {
           List<String> tags = value.getRootTags();
           for (String s : tags) {
             elements.add(LookupElementBuilder.create(s).withTypeText(ns).withInsertHandler(new XmlTagInsertHandler() {
               @Override
-              public void handleInsert(InsertionContext context, LookupElement item) {
+              public void handleInsert(@NotNull InsertionContext context, @NotNull LookupElement item) {
                 final Editor editor = context.getEditor();
                 final Document document = context.getDocument();
                 final int caretOffset = editor.getCaretModel().getOffset();
@@ -123,7 +150,8 @@ public class DefaultXmlTagNameProvider implements XmlTagNameProvider {
                 caretMarker.setGreedyToRight(true);
 
                 XmlFile psiFile = (XmlFile)context.getFile();
-                boolean incomplete = XmlUtil.getTokenOfType(tag, XmlTokenType.XML_TAG_END) == null && XmlUtil.getTokenOfType(tag, XmlTokenType.XML_EMPTY_ELEMENT_END) == null;
+                boolean incomplete = XmlUtil.getTokenOfType(tag, XmlTokenType.XML_TAG_END) == null &&
+                                     XmlUtil.getTokenOfType(tag, XmlTokenType.XML_EMPTY_ELEMENT_END) == null;
                 XmlNamespaceHelper.getHelper(psiFile).insertNamespaceDeclaration(psiFile, editor, Collections.singleton(ns), null, null);
                 editor.getCaretModel().moveToOffset(caretMarker.getEndOffset());
 
@@ -141,6 +169,5 @@ public class DefaultXmlTagNameProvider implements XmlTagNameProvider {
         }
       }, scope);
     }
-    return elements;
   }
 }

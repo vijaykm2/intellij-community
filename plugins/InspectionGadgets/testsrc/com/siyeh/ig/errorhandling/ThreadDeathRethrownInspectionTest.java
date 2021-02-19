@@ -16,10 +16,9 @@
 package com.siyeh.ig.errorhandling;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.IGInspectionTestCase;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 
-public class ThreadDeathRethrownInspectionTest extends LightInspectionTestCase {
+public class ThreadDeathRethrownInspectionTest extends LightJavaInspectionTestCase {
 
   @Override
   protected String[] getEnvironmentClasses() {

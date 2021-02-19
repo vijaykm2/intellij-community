@@ -1,31 +1,15 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.vcs.log.graph.utils.impl;
 
 import com.intellij.vcs.log.graph.utils.IntList;
 import com.intellij.vcs.log.graph.utils.TimestampGetter;
+import it.unimi.dsi.fastutil.ints.Int2LongMap;
+import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.HashMap;
-import java.util.Map;
-
-public class IntTimestampGetter implements TimestampGetter {
-
-  public static final int DEFAULT_BLOCK_SIZE = 30;
+public final class IntTimestampGetter implements TimestampGetter {
+  private static final int DEFAULT_BLOCK_SIZE = 30;
 
   private static final long MAX_DELTA = Integer.MAX_VALUE - 10;
   private static final int BROKEN_DELTA = Integer.MAX_VALUE;
@@ -45,7 +29,7 @@ public class IntTimestampGetter implements TimestampGetter {
       saveTimestamps[i] = delegateGetter.getTimestamp(blockSize * i);
     }
 
-    Map<Integer, Long> brokenDeltas = new HashMap<Integer, Long>();
+    Int2LongOpenHashMap brokenDeltas = new Int2LongOpenHashMap();
     int[] deltas = new int[delegateGetter.size()];
 
     for (int i = 0; i < delegateGetter.size(); i++) {
@@ -55,7 +39,7 @@ public class IntTimestampGetter implements TimestampGetter {
       deltas[i] = intDelta;
       if (intDelta == BROKEN_DELTA) brokenDeltas.put(i, delta);
     }
-
+    brokenDeltas.trim();
     return new IntTimestampGetter(deltas, blockSize, saveTimestamps, brokenDeltas);
   }
 
@@ -70,14 +54,14 @@ public class IntTimestampGetter implements TimestampGetter {
   // myDeltas[i] = getTimestamp(i + 1) - getTimestamp(i)
   private final IntList myDeltas;
 
-  @NotNull private final Map<Integer, Long> myBrokenDeltas;
+  private final @NotNull Int2LongMap myBrokenDeltas;
 
   private final int myBlockSize;
 
   // saved 0, blockSize, 2 * blockSize, etc.
   private final long[] mySaveTimestamps;
 
-  public IntTimestampGetter(final int[] deltas, int blockSize, long[] saveTimestamps, @NotNull Map<Integer, Long> brokenDeltas) {
+  private IntTimestampGetter(final int[] deltas, int blockSize, long[] saveTimestamps, @NotNull Int2LongMap brokenDeltas) {
     myDeltas = SmartDeltaCompressor.newInstance(new FullIntList(deltas));
     myBlockSize = blockSize;
     mySaveTimestamps = saveTimestamps;

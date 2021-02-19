@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,17 +15,17 @@
  */
 package org.jetbrains.plugins.groovy.lang
 
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 import com.intellij.spellchecker.inspections.SpellCheckingInspection
 
 /**
  * @author peter
  */
-class GroovySpellcheckerTest extends LightCodeInsightFixtureTestCase {
+class GroovySpellcheckerTest extends LightJavaCodeInsightFixtureTestCase {
 
-  public void testParameterName() {
+  void testParameterName() {
     myFixture.configureByText 'a.groovy', '''
-def test(int <TYPO descr="Typo: In word 'dddd'">dddd</TYPO>) {
+def test(int <TYPO descr="Typo: In word 'ddddd'">ddddd</TYPO>) {
 }
 '''
     checkTypos()
@@ -36,7 +36,7 @@ def test(int <TYPO descr="Typo: In word 'dddd'">dddd</TYPO>) {
     myFixture.checkHighlighting(false, false, true)
   }
 
-  public void testLiteralMethodNames() {
+  void testLiteralMethodNames() {
     myFixture.configureByText 'a.groovy', '''
 class SpockTest {
   def "adds a 'play' extension"() { }
@@ -46,12 +46,12 @@ class SpockTest {
     checkTypos()
   }
 
-  public void testStringEscapes() {
+  void testStringEscapes() {
     myFixture.configureByText 'a.groovy', '''
-def foo = "\\ntest \\n<TYPO descr="Typo: In word 'dddd'">dddd</TYPO>"
-def foo1 = '\\ntest \\n<TYPO descr="Typo: In word 'dddd'">dddd</TYPO>'
-def bar = """\\ntest \\n<TYPO descr="Typo: In word 'dddd'">dddd</TYPO>"""
-def bar1 = \'''\\ntest \\n<TYPO descr="Typo: In word 'dddd'">dddd</TYPO>\'''
+def foo = "\\ntest \\n<TYPO descr="Typo: In word 'ddddd'">ddddd</TYPO>"
+def foo1 = '\\ntest \\n<TYPO descr="Typo: In word 'ddddd'">ddddd</TYPO>'
+def bar = """\\ntest \\n<TYPO descr="Typo: In word 'ddddd'">ddddd</TYPO>"""
+def bar1 = \'''\\ntest \\n<TYPO descr="Typo: In word 'ddddd'">ddddd</TYPO>\'''
 '''
     checkTypos()
   }

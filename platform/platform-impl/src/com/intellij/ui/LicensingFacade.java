@@ -1,42 +1,99 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
+import com.intellij.openapi.application.PermanentInstallationID;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Supplier;
 
-/**
- * @author yole
- */
-public abstract class LicensingFacade {
-  public static LicensingFacade ourInstance;
+public final class LicensingFacade {
+  public String licensedTo;
+  public Supplier<List<String>> restrictions;
+  public boolean isEvaluation;
+  public Date expirationDate;
+  public Date perpetualFallbackDate;
+  public Map<String, Date> expirationDates;
+  public Map<String, String> confirmationStamps;
+  public String metadata;
+
+  public volatile static LicensingFacade INSTANCE;
 
   @Nullable
   public static LicensingFacade getInstance() {
-    return ourInstance;
+    return INSTANCE;
   }
 
-  public abstract String getLicensedToMessage();
-  public abstract List<String> getLicenseRestrictionsMessages();
-  public abstract boolean isEvaluationLicense();
-  public abstract boolean isSubscriptionLicense();
-
   @Nullable
-  public abstract Boolean isPaidUpgrade(int majorVersion, Date releaseDate);
-  public abstract String getUpgradeUrl();
+  public String getLicensedToMessage() {
+    return licensedTo;
+  }
+
+  @NotNull
+  public List<String> getLicenseRestrictionsMessages() {
+    return restrictions == null ? Collections.emptyList() : Collections.unmodifiableList(restrictions.get());
+  }
+
+  public boolean isEvaluationLicense() {
+    return isEvaluation;
+  }
+
+  public boolean isApplicableForProduct(@NotNull Date releaseDate) {
+    return isPerpetualForProduct(releaseDate) || (expirationDate == null || releaseDate.before(expirationDate));
+  }
+
+  public boolean isPerpetualForProduct(@NotNull Date releaseDate) {
+    return perpetualFallbackDate != null && releaseDate.before(perpetualFallbackDate);
+  }
+
+  /**
+   * @return the first day when the IDE license becomes invalid
+   */
+  @Nullable
+  public Date getLicenseExpirationDate() {
+    return expirationDate;
+  }
+
+  /**
+   * @param productCode the product code to lookup the expiration date for
+   * @return the expiration date for the specified product as it is hard-coded in the license.
+   * Normally the is the last day when the license is still valid.
+   * null value is returned if expiration date is not applicable for the product, or the licence has net been obtained
+   */
+  @Nullable
+  public Date getExpirationDate(String productCode) {
+    return expirationDates == null ? null : expirationDates.get(productCode);
+  }
+
+  /**
+   * @param productCode
+   * @return a "confirmation stamp" string describing the license obtained by the licensing subsystem for the product with the given productCode.
+   *  returns null, if no license is currently obtained for the product.
+   *
+   *  A confirmation stamp is structured according to the following rules:
+   *  <pre>
+   *  confirmationStamp := key:'license-key' | stamp:'license-server-stamp' | eval:'eval-key'
+   *  <br><br>
+   *  licenseKey := 'licenseId'-'licenseJsonBase64'-'signatureBase64'-'certificateBase64'  <br>
+   *    the signed part is licenseJson
+   *  <br><br>
+   *  license-server-stamp := 'timestampLong':'machineId':'signatureType':'signatureBase64':'certificateBase64'[:'intermediate-certificateBase64']
+   *  <br>
+   *    the signed part is 'timestampLong':'machineId' <br>
+   *    machineId should be the same as {@link PermanentInstallationID#get()} returns
+   *   <br><br>
+   *  eval-key := 'expiration-date-long'
+   *
+   * @see <a href="https://plugins.jetbrains.com/docs/marketplace/add-marketplace-license-verification-calls-to-the-plugin-code.html">JetBrains Marketplace online documentation</a> for more information
+   *  </pre>
+   */
+  @Nullable
+  public String getConfirmationStamp(String productCode) {
+    return confirmationStamps == null? null : confirmationStamps.get(productCode);
+  }
+
 }

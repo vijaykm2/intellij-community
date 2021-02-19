@@ -26,20 +26,19 @@ import org.jetbrains.annotations.Nullable;
 public class JavaAnchorProvider extends SmartPointerAnchorProvider {
   @Override
   public PsiElement getAnchor(@NotNull PsiElement element) {
-    if (!element.getLanguage().isKindOf(JavaLanguage.INSTANCE)) {
+    if (!element.getLanguage().isKindOf(JavaLanguage.INSTANCE) || !element.isPhysical()) {
       return null;
     }
 
-    if (element instanceof PsiClass) {
-      if (element instanceof PsiAnonymousClass) {
-        return ((PsiAnonymousClass)element).getBaseClassReference().getReferenceNameElement();
-      } else {
-        return ((PsiClass)element).getNameIdentifier();
-      }
-    } else if (element instanceof PsiMethod) {
-      return ((PsiMethod)element).getNameIdentifier();
-    } else if (element instanceof PsiVariable) {
-      return ((PsiVariable)element).getNameIdentifier();
+    if (element instanceof PsiAnonymousClass) {
+      return ((PsiAnonymousClass)element).getBaseClassReference().getReferenceNameElement();
+    }
+    if (element instanceof PsiClass || element instanceof PsiMethod || 
+        (element instanceof PsiVariable && !(element instanceof PsiLocalVariable))) {
+      return ((PsiNameIdentifierOwner)element).getNameIdentifier();
+    }
+    if (element instanceof PsiImportList) {
+      return element.getContainingFile();
     }
     return null;
   }
@@ -53,9 +52,10 @@ public class JavaAnchorProvider extends SmartPointerAnchorProvider {
         parent = parent.getParent();
       }
 
-      if (!anchor.equals(AnchorElementInfoFactory.getAnchor(parent))) return null;
-
       return parent;
+    }
+    if (anchor instanceof PsiJavaFile) {
+      return ((PsiJavaFile)anchor).getImportList();
     }
     return null;
   }

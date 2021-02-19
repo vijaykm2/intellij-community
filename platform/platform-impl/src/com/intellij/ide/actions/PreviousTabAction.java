@@ -15,6 +15,8 @@
  */
 package com.intellij.ide.actions;
 
-public class PreviousTabAction extends TabNavigationActionBase {
-  public PreviousTabAction () { super (-1); }
+import com.intellij.ide.lightEdit.LightEditCompatible;
+
+public class PreviousTabAction extends TabNavigationActionBase implements LightEditCompatible {
+  public PreviousTabAction () { super (NavigationType.PREV); }
 }

@@ -35,11 +35,8 @@ import com.intellij.util.xml.DomManager;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author nik
- */
 public class AppEngineFacet extends Facet<AppEngineFacetConfiguration> {
-  public static final FacetTypeId<AppEngineFacet> ID = new FacetTypeId<AppEngineFacet>("appEngine");
+  public static final FacetTypeId<AppEngineFacet> ID = new FacetTypeId<>("appEngine");
 
   public AppEngineFacet(@NotNull FacetType facetType,
                         @NotNull Module module,

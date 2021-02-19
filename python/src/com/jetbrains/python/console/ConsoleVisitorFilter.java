@@ -17,6 +17,8 @@ package com.jetbrains.python.console;
 
 import com.intellij.psi.PsiFile;
 import com.jetbrains.python.inspections.*;
+import com.jetbrains.python.inspections.unusedLocal.PyUnusedLocalInspection;
+import com.jetbrains.python.psi.PythonVisitorFilter;
 import com.jetbrains.python.validation.DocStringAnnotator;
 import org.jetbrains.annotations.NotNull;
 
@@ -33,7 +35,9 @@ public class ConsoleVisitorFilter implements PythonVisitorFilter {
       //inspections
       if (visitorClass == PyUnusedLocalInspection.class || visitorClass == PyUnboundLocalVariableInspection.class ||
           visitorClass == PyStatementEffectInspection.class || visitorClass == PySingleQuotedDocstringInspection.class ||
-          visitorClass == PyDocstringInspection.class || visitorClass == PyMandatoryEncodingInspection.class) {
+          visitorClass == PyIncorrectDocstringInspection.class || visitorClass == PyMissingOrEmptyDocstringInspection.class ||
+          visitorClass == PyMandatoryEncodingInspection.class || visitorClass == PyPep8Inspection.class ||
+          visitorClass == PyCompatibilityInspection.class) {
         return false;
       }
 

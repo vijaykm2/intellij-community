@@ -12,10 +12,12 @@
 // limitations under the License.
 package org.zmlx.hg4idea.command;
 
+import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
+import org.zmlx.hg4idea.HgBundle;
 import org.zmlx.hg4idea.HgVcs;
 import org.zmlx.hg4idea.action.HgCommandResultNotifier;
 import org.zmlx.hg4idea.execution.HgCommandResult;
@@ -25,6 +27,8 @@ import org.zmlx.hg4idea.util.HgErrorUtil;
 import java.util.LinkedList;
 import java.util.List;
 
+import static org.zmlx.hg4idea.HgNotificationIdsHolder.PULL_AUTH_REQUIRED;
+import static org.zmlx.hg4idea.HgNotificationIdsHolder.PULL_ERROR;
 import static org.zmlx.hg4idea.command.HgCommandExitCode.*;
 
 public class HgPullCommand {
@@ -58,8 +62,8 @@ public class HgPullCommand {
     this.source = source;
   }
 
-  public HgCommandExitCode execute() {
-    List<String> arguments = new LinkedList<String>();
+  public HgCommandExitCode executeInCurrentThread() {
+    List<String> arguments = new LinkedList<>();
     if (update) {
       arguments.add("--update");
     } else if (rebase) {
@@ -78,18 +82,22 @@ public class HgPullCommand {
     HgCommandResult result = executor.executeInCurrentThread(repo, "pull", arguments);
     if (HgErrorUtil.isAuthorizationError(result)) {
       new HgCommandResultNotifier(project)
-        .notifyError(result, "Authorization required", "http authorization required for <code>" + source + "</code>");
+        .notifyError(PULL_AUTH_REQUIRED,
+                     result,
+                     HgBundle.message("action.hg4idea.pull.auth.required"),
+                     HgBundle.message("action.hg4idea.pull.auth.required.msg", source));
       return ERROR;
     }
     else if (HgErrorUtil.isAbort(result) || result.getExitValue() > 1) { //if result == null - > isAbort returns true
-      new HgCommandResultNotifier(project).notifyError(result, "", "Pull failed");
+      new HgCommandResultNotifier(project)
+        .notifyError(PULL_ERROR, result, "", HgBundle.message("action.hg4idea.pull.failed"));
       return ERROR;
     }
     else if (result.getExitValue() == 1) {
       return UNRESOLVED;
     }
     else {
-      project.getMessageBus().syncPublisher(HgVcs.REMOTE_TOPIC).update(project, null);
+      BackgroundTaskUtil.syncPublisher(project, HgVcs.REMOTE_TOPIC).update(project, null);
       return SUCCESS;
     }
   }

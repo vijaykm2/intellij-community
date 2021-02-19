@@ -17,11 +17,13 @@ package com.intellij.codeInspection.ex;
 
 import org.jetbrains.annotations.NotNull;
 
-/**
- * User: anna
- * Date: 4/17/13
- */
 public interface PairedUnfairLocalInspectionTool extends UnfairLocalInspectionTool {
+  /**
+   * @return {@link com.intellij.codeInspection.LocalInspectionTool#getShortName()} of
+   *         a tool to be run instead of this tool in batch mode.
+   *         The returned value can be a short name of this inspection tool, in this case
+   *         this unfair tool will be run in batch mode.
+   */
   @NotNull
   String getInspectionForBatchShortName();
 }

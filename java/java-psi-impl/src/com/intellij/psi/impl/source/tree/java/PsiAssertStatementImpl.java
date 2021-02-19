@@ -29,7 +29,7 @@ import com.intellij.psi.tree.ChildRoleBase;
 import org.jetbrains.annotations.NotNull;
 
 public class PsiAssertStatementImpl extends CompositePsiElement implements PsiAssertStatement, Constants {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiAssertStatementImpl");
+  private static final Logger LOG = Logger.getInstance(PsiAssertStatementImpl.class);
 
   public PsiAssertStatementImpl() {
     super(ASSERT_STATEMENT);
@@ -62,15 +62,13 @@ public class PsiAssertStatementImpl extends CompositePsiElement implements PsiAs
         return findChildByType(COLON);
 
       case ChildRole.ASSERT_DESCRIPTION:
-        {
-          ASTNode colon = findChildByRole(ChildRole.COLON);
-          if (colon == null) return null;
-          ASTNode child;
-          for(child = colon.getTreeNext(); child != null; child = child.getTreeNext()){
-            if (EXPRESSION_BIT_SET.contains(child.getElementType())) break;
-          }
-          return child;
+        ASTNode colon = findChildByRole(ChildRole.COLON);
+        if (colon == null) return null;
+        ASTNode child;
+        for(child = colon.getTreeNext(); child != null; child = child.getTreeNext()){
+          if (EXPRESSION_BIT_SET.contains(child.getElementType())) break;
         }
+        return child;
 
       case ChildRole.CLOSING_SEMICOLON:
         return findChildByType(SEMICOLON);
@@ -78,7 +76,7 @@ public class PsiAssertStatementImpl extends CompositePsiElement implements PsiAs
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
     if (i == ASSERT_KEYWORD) {
@@ -110,6 +108,7 @@ public class PsiAssertStatementImpl extends CompositePsiElement implements PsiAs
     }
   }
 
+  @Override
   public String toString() {
     return "PsiAssertStatement";
   }

@@ -1,87 +1,155 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileEditor.impl;
 
 import com.intellij.ide.highlighter.HighlighterFactory;
+import com.intellij.lang.Language;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.components.ApplicationComponent;
-import com.intellij.openapi.components.ProjectComponent;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
-import com.intellij.openapi.editor.LogicalPosition;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.highlighter.EditorHighlighter;
 import com.intellij.openapi.fileEditor.*;
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx;
+import com.intellij.openapi.fileEditor.ex.FileEditorWithProvider;
+import com.intellij.openapi.fileEditor.impl.text.TextEditorImpl;
 import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider;
 import com.intellij.openapi.fileEditor.impl.text.TextEditorPsiDataProvider;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.*;
+import com.intellij.openapi.project.ProjectManager;
+import com.intellij.openapi.project.ProjectManagerListener;
+import com.intellij.openapi.util.ActionCallback;
+import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiDocumentManager;
-import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiManager;
+import com.intellij.openapi.vfs.VirtualFileManager;
+import com.intellij.openapi.vfs.newvfs.BulkFileListener;
+import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent;
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.HashMap;
 import org.jdom.Element;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.concurrency.Promise;
+import org.jetbrains.concurrency.Promises;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.Collections;
-import java.util.Iterator;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-@NonNls
-public class TestEditorManagerImpl extends FileEditorManagerEx implements ApplicationComponent, ProjectComponent {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.idea.test.TestEditorManagerImpl");
+final class TestEditorManagerImpl extends FileEditorManagerEx implements Disposable {
+  private static final Logger LOG = Logger.getInstance(TestEditorManagerImpl.class);
+
+  private final TestEditorSplitter myTestEditorSplitter = new TestEditorSplitter();
 
   private final Project myProject;
+  private int counter;
 
-  private final Map<VirtualFile, Editor> myVirtualFile2Editor = new HashMap<VirtualFile,Editor>();
-  private VirtualFile myActiveFile = null;
-  private static final LightVirtualFile LIGHT_VIRTUAL_FILE = new LightVirtualFile("Dummy.java");
+  private final Map<VirtualFile, Editor> myVirtualFile2Editor = new HashMap<>();
+  private VirtualFile myActiveFile;
+  private static final MyLightVirtualFile LIGHT_VIRTUAL_FILE = new MyLightVirtualFile();
+  private static class MyLightVirtualFile extends LightVirtualFile {
+    MyLightVirtualFile() {super("Dummy.java");}
+    void clearUserDataOnDispose() {
+      clearUserData();
+    }
+  }
 
-  public TestEditorManagerImpl(Project project) {
+  TestEditorManagerImpl(@NotNull Project project) {
     myProject = project;
     registerExtraEditorDataProvider(new TextEditorPsiDataProvider(), null);
+
+    ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(ProjectManager.TOPIC, new ProjectManagerListener() {
+      @Override
+      public void projectClosed(@NotNull Project project) {
+        if (project == myProject) {
+          closeAllFiles();
+        }
+      }
+    });
+    project.getMessageBus().connect(this).subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
+      @Override
+      public void before(@NotNull List<? extends VFileEvent> events) {
+        for (VFileEvent event : events) {
+          if (event instanceof VFileDeleteEvent) {
+            for (VirtualFile file : getOpenFiles()) {
+              if (VfsUtilCore.isAncestor(((VFileDeleteEvent)event).getFile(), file, false)) {
+                closeFile(file);
+              }
+            }
+          }
+        }
+      }
+    });
   }
 
   @Override
   @NotNull
-  public Pair<FileEditor[], FileEditorProvider[]> openFileWithProviders(@NotNull VirtualFile file,
-                                                                        boolean focusEditor,
+  public Pair<FileEditor[], FileEditorProvider[]> openFileWithProviders(@NotNull final VirtualFile file,
+                                                                        final boolean focusEditor,
                                                                         boolean searchForSplitter) {
+    return openFileInCommand(new OpenFileDescriptor(myProject, file));
+  }
+
+  @NotNull
+  private Pair<FileEditor[], FileEditorProvider[]> openFileImpl3(@NotNull FileEditorNavigatable openFileDescriptor) {
+    VirtualFile file = openFileDescriptor.getFile();
+    boolean isNewEditor = !myVirtualFile2Editor.containsKey(file);
+
     // for non-text editors. uml, etc
     final FileEditorProvider provider = file.getUserData(FileEditorProvider.KEY);
+    Pair<FileEditor[], FileEditorProvider[]> result;
     if (provider != null && provider.accept(getProject(), file)) {
-      return Pair.create(new FileEditor[]{provider.createEditor(getProject(), file)}, new FileEditorProvider[]{provider});
+      result = Pair.create(new FileEditor[]{provider.createEditor(getProject(), file)}, new FileEditorProvider[]{provider});
+    }
+    else {
+      //text editor
+      Editor editor = doOpenTextEditor(openFileDescriptor);
+      final FileEditor fileEditor = TextEditorProvider.getInstance().getTextEditor(editor);
+      final FileEditorProvider fileEditorProvider = getProvider();
+      result = Pair.create(new FileEditor[]{fileEditor}, new FileEditorProvider[]{fileEditorProvider});
     }
 
-    //text editor
-    Editor editor = openTextEditor(new OpenFileDescriptor(myProject, file), focusEditor);
-    assert editor != null;
-    final FileEditor fileEditor = TextEditorProvider.getInstance().getTextEditor(editor);
-    return Pair.create (new FileEditor[] {fileEditor}, new FileEditorProvider[] {getProvider ()});
+    modifyTabWell(() -> {
+      myTestEditorSplitter.openAndFocusTab(file, result.first[0], result.second[0]);
+      if (isNewEditor) {
+        eventPublisher().fileOpened(this, file);
+      }
+    });
+
+    return result;
+  }
+
+  private void modifyTabWell(@NotNull Runnable tabWellModification) {
+    if (myProject.isDisposed()) return;
+
+    FileEditor lastFocusedEditor = myTestEditorSplitter.getFocusedFileEditor();
+    VirtualFile lastFocusedFile  = myTestEditorSplitter.getFocusedFile();
+    FileEditorProvider oldProvider = myTestEditorSplitter.getProviderFromFocused();
+
+    tabWellModification.run();
+
+    FileEditor currentlyFocusedEditor = myTestEditorSplitter.getFocusedFileEditor();
+    VirtualFile currentlyFocusedFile = myTestEditorSplitter.getFocusedFile();
+    FileEditorProvider newProvider = myTestEditorSplitter.getProviderFromFocused();
+
+    final FileEditorManagerEvent event =
+        new FileEditorManagerEvent(this, lastFocusedFile, lastFocusedEditor, oldProvider, currentlyFocusedFile, currentlyFocusedEditor, newProvider);
+
+    eventPublisher().selectionChanged(event);
+  }
+
+  @NotNull
+  private FileEditorManagerListener eventPublisher() {
+    return getProject().getMessageBus().syncPublisher(FileEditorManagerListener.FILE_EDITOR_MANAGER);
   }
 
   @NotNull
@@ -101,7 +169,7 @@ public class TestEditorManagerImpl extends FileEditorManagerEx implements Applic
   @Override
   public ActionCallback notifyPublisher(@NotNull Runnable runnable) {
     runnable.run();
-    return new ActionCallback.Done();
+    return ActionCallback.DONE;
   }
 
   @Override
@@ -111,22 +179,19 @@ public class TestEditorManagerImpl extends FileEditorManagerEx implements Applic
 
   @Override
   public void createSplitter(int orientation, EditorWindow window) {
-
+    String containerName = createNewTabbedContainerName();
+    myTestEditorSplitter.setActiveTabGroup(containerName);
   }
+
+  private String createNewTabbedContainerName() {
+    counter++;
+    return "SplitTabContainer" + counter;
+  }
+
 
   @Override
   public void changeSplitterOrientation() {
 
-  }
-
-  @Override
-  public void flipTabs() {
-
-  }
-
-  @Override
-  public boolean tabsMode() {
-    return false;
   }
 
   @Override
@@ -145,7 +210,7 @@ public class TestEditorManagerImpl extends FileEditorManagerEx implements Applic
   }
 
   @Override
-  public Pair<FileEditor, FileEditorProvider> getSelectedEditorWithProvider(@NotNull VirtualFile file) {
+  public FileEditorWithProvider getSelectedEditorWithProvider(@NotNull VirtualFile file) {
     return null;
   }
 
@@ -182,14 +247,8 @@ public class TestEditorManagerImpl extends FileEditorManagerEx implements Applic
 
   @Override
   public void closeAllFiles() {
-    final EditorFactory editorFactory = EditorFactory.getInstance();
-    Iterator<Editor> it = myVirtualFile2Editor.values().iterator();
-    while (it.hasNext()) {
-      Editor editor = it.next();
-      it.remove();
-      if (editor != null && !editor.isDisposed()){
-        editorFactory.releaseEditor(editor);
-      }
+    for (VirtualFile file : getOpenFiles()) {
+      closeFile(file);
     }
   }
 
@@ -217,11 +276,6 @@ public class TestEditorManagerImpl extends FileEditorManagerEx implements Applic
       }
 
       @Override
-      public void writeState(@NotNull FileEditorState state, @NotNull Project project, @NotNull Element targetElement) {
-
-      }
-
-      @Override
       @NotNull
       public String getEditorTypeId() {
         return "";
@@ -242,8 +296,8 @@ public class TestEditorManagerImpl extends FileEditorManagerEx implements Applic
 
   @NotNull
   @Override
-  public AsyncResult<EditorWindow> getActiveWindow() {
-    return new AsyncResult.Done<EditorWindow>(null);
+  public Promise<EditorWindow> getActiveWindow() {
+    return Promises.resolvedPromise();
   }
 
   @Override
@@ -270,15 +324,23 @@ public class TestEditorManagerImpl extends FileEditorManagerEx implements Applic
   }
 
   @Override
-  @NotNull
-  public EditorWindow[] getWindows() {
-    return new EditorWindow[0];  //To change body of implemented methods use File | Settings | File Templates.
+  public EditorWindow @NotNull [] getWindows() {
+    return new EditorWindow[0];
   }
 
   @Override
   public FileEditor getSelectedEditor(@NotNull VirtualFile file) {
     final Editor editor = getEditor(file);
-    return editor == null ? null : TextEditorProvider.getInstance().getTextEditor(editor);
+    if (editor != null) {
+      return TextEditorProvider.getInstance().getTextEditor(editor);
+    }
+
+    Pair<FileEditor, FileEditorProvider> editorAndProvider = myTestEditorSplitter.getEditorAndProvider(file);
+    if (editorAndProvider != null) {
+      return editorAndProvider.first;
+    }
+
+    return null;
   }
 
   @Override
@@ -287,49 +349,44 @@ public class TestEditorManagerImpl extends FileEditorManagerEx implements Applic
   }
 
   @Override
-  @NotNull
-  public FileEditor[] getEditors(@NotNull VirtualFile file) {
+  public FileEditor @NotNull [] getEditors(@NotNull VirtualFile file) {
     FileEditor e = getSelectedEditor(file);
-    if (e == null) return new FileEditor[0];
+    if (e == null) return FileEditor.EMPTY_ARRAY;
     return new FileEditor[] {e};
   }
 
-  @NotNull
   @Override
-  public FileEditor[] getAllEditors(@NotNull VirtualFile file) {
+  public FileEditor @NotNull [] getAllEditors(@NotNull VirtualFile file) {
     return getEditors(file);
   }
 
   @Override
-  @NotNull
-  public VirtualFile[] getSiblings(@NotNull VirtualFile file) {
+  public VirtualFile @NotNull [] getSiblings(@NotNull VirtualFile file) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void disposeComponent() {
+  public void dispose() {
     closeAllFiles();
+    LIGHT_VIRTUAL_FILE.clearUserDataOnDispose();
   }
 
   @Override
-  public void initComponent() { }
-
-  @Override
-  public void projectClosed() {
-    closeAllFiles();
-  }
-
-  @Override
-  public void projectOpened() {
-  }
-
-  @Override
-  public void closeFile(@NotNull VirtualFile file) {
+  public void closeFile(@NotNull final VirtualFile file) {
     Editor editor = myVirtualFile2Editor.remove(file);
     if (editor != null){
+      TextEditorProvider editorProvider = TextEditorProvider.getInstance();
+      editorProvider.disposeEditor(editorProvider.getTextEditor(editor));
       EditorFactory.getInstance().releaseEditor(editor);
+      if (!myProject.isDisposed()) {
+        eventPublisher().fileClosed(this, file);
+      }
     }
-    if (Comparing.equal(file, myActiveFile)) myActiveFile = null;
+    if (Comparing.equal(file, myActiveFile)) {
+      myActiveFile = null;
+    }
+
+    modifyTabWell(() -> myTestEditorSplitter.closeFile(file));
   }
 
   @Override
@@ -338,15 +395,13 @@ public class TestEditorManagerImpl extends FileEditorManagerEx implements Applic
   }
 
   @Override
-  @NotNull
-  public VirtualFile[] getSelectedFiles() {
+  public VirtualFile @NotNull [] getSelectedFiles() {
     return myActiveFile == null ? VirtualFile.EMPTY_ARRAY : new VirtualFile[]{myActiveFile};
   }
 
   @Override
-  @NotNull
-  public FileEditor[] getSelectedEditors() {
-    return new FileEditor[0];
+  public FileEditor @NotNull [] getSelectedEditors() {
+    return myActiveFile == null ? FileEditor.EMPTY_ARRAY : getEditors(myActiveFile);
   }
 
   @Override
@@ -356,12 +411,11 @@ public class TestEditorManagerImpl extends FileEditorManagerEx implements Applic
 
   @Override
   public JComponent getComponent() {
-    throw new UnsupportedOperationException();
+    return new JLabel();
   }
 
   @Override
-  @NotNull
-  public VirtualFile[] getOpenFiles() {
+  public VirtualFile @NotNull [] getOpenFiles() {
     return VfsUtilCore.toVirtualFileArray(myVirtualFile2Editor.keySet());
   }
 
@@ -370,8 +424,7 @@ public class TestEditorManagerImpl extends FileEditorManagerEx implements Applic
   }
 
   @Override
-  @NotNull
-  public FileEditor[] getAllEditors() {
+  public FileEditor @NotNull [] getAllEditors() {
     FileEditor[] result = new FileEditor[myVirtualFile2Editor.size()];
     int i = 0;
     for (Map.Entry<VirtualFile, Editor> entry : myVirtualFile2Editor.entrySet()) {
@@ -381,61 +434,66 @@ public class TestEditorManagerImpl extends FileEditorManagerEx implements Applic
     return result;
   }
 
-  @Override
-  public void showEditorAnnotation(@NotNull FileEditor editor, @NotNull JComponent annotationComoponent) {
-  }
-
-
-  @Override
-  public void removeEditorAnnotation(@NotNull FileEditor editor, @NotNull JComponent annotationComoponent) {
-  }
 
   @Override
   public Editor openTextEditor(@NotNull OpenFileDescriptor descriptor, boolean focusEditor) {
-    final VirtualFile file = descriptor.getFile();
+    Pair<FileEditor[], FileEditorProvider[]> pair = openFileInCommand(descriptor);
+
+    for (FileEditor editor : pair.first) {
+      if (editor instanceof TextEditor) {
+        return ((TextEditor)editor).getEditor();
+      }
+    }
+    return null;
+  }
+
+  @NotNull
+  private Pair<FileEditor[], FileEditorProvider[]> openFileInCommand(@NotNull FileEditorNavigatable descriptor) {
+    Ref<Pair<FileEditor[], FileEditorProvider[]>> result = new Ref<>();
+    CommandProcessor.getInstance().executeCommand(myProject, () -> result.set(openFileImpl3(descriptor)), "", null);
+    return result.get();
+  }
+
+  @NotNull
+  private Editor doOpenTextEditor(@NotNull FileEditorNavigatable descriptor) {
+    VirtualFile file = descriptor.getFile();
     Editor editor = myVirtualFile2Editor.get(file);
 
     if (editor == null) {
-      PsiFile psiFile = PsiManager.getInstance(myProject).findFile(file);
-      LOG.assertTrue(psiFile != null, file);
-      Document document = PsiDocumentManager.getInstance(myProject).getDocument(psiFile);
-      LOG.assertTrue(document != null, psiFile);
-      editor = EditorFactory.getInstance().createEditor(document, myProject);
-      final EditorHighlighter highlighter = HighlighterFactory.createHighlighter(myProject, file);
-      ((EditorEx) editor).setHighlighter(highlighter);
-      ((EditorEx) editor).setFile(file);
+      Document document = FileDocumentManager.getInstance().getDocument(file);
+      LOG.assertTrue(document != null, file);
+      EditorFactory editorFactory = EditorFactory.getInstance();
+      editor = editorFactory.createEditor(document, myProject);
+      try {
+        EditorHighlighter highlighter = HighlighterFactory.createHighlighter(myProject, file);
+        Language language = TextEditorImpl.getDocumentLanguage(editor);
+        editor.getSettings().setLanguageSupplier(() -> language);
+        EditorEx editorEx = (EditorEx)editor;
+        editorEx.setHighlighter(highlighter);
+        editorEx.setFile(file);
+      }
+      catch (Throwable e) {
+        editorFactory.releaseEditor(editor);
+        throw e;
+      }
 
       myVirtualFile2Editor.put(file, editor);
     }
 
-    if (descriptor.getOffset() >= 0){
-      editor.getCaretModel().moveToOffset(descriptor.getOffset());
-    }
-    else if (descriptor.getLine() >= 0 && descriptor.getColumn() >= 0){
-      editor.getCaretModel().moveToLogicalPosition(new LogicalPosition(descriptor.getLine(), descriptor.getColumn()));
-    }
     editor.getSelectionModel().removeSelection();
+    if (descriptor instanceof OpenFileDescriptor) {
+      ((OpenFileDescriptor)descriptor).navigateIn(editor);
+    }
     myActiveFile = file;
 
     return editor;
   }
 
   @Override
-  public void addFileEditorManagerListener(@NotNull FileEditorManagerListener listener) {
-  }
-
-  @Override
-  public void addFileEditorManagerListener(@NotNull FileEditorManagerListener listener, @NotNull Disposable parentDisposable) {
-  }
-
-  @Override
-  public void removeFileEditorManagerListener(@NotNull FileEditorManagerListener listener) {
-  }
-
-  @Override
   @NotNull
-  public List<FileEditor> openEditor(@NotNull OpenFileDescriptor descriptor, boolean focusEditor) {
-    return Collections.emptyList();
+  public List<FileEditor> openFileEditor(@NotNull FileEditorNavigatable descriptor, boolean focusEditor) {
+    Pair<FileEditor[], FileEditorProvider[]> pair = openFileInCommand(descriptor);
+    return Arrays.asList(pair.first);
   }
 
   @Override
@@ -452,7 +510,16 @@ public class TestEditorManagerImpl extends FileEditorManagerEx implements Applic
   @Override
   @NotNull
   public Pair<FileEditor[], FileEditorProvider[]> getEditorsWithProviders(@NotNull VirtualFile file) {
-    return Pair.create(new FileEditor[0], new FileEditorProvider[0]);
+    Pair<FileEditor, FileEditorProvider> editorAndProvider = myTestEditorSplitter.getEditorAndProvider(file);
+
+    FileEditor[] fileEditor = FileEditor.EMPTY_ARRAY;
+    FileEditorProvider[] fileEditorProvider= new FileEditorProvider[0];
+    if (editorAndProvider != null) {
+      fileEditor = new FileEditor[] {editorAndProvider.first};
+      fileEditorProvider = new FileEditorProvider[]{editorAndProvider.second};
+    }
+
+    return Pair.create(fileEditor, fileEditorProvider);
   }
 
   @Override
@@ -465,12 +532,6 @@ public class TestEditorManagerImpl extends FileEditorManagerEx implements Applic
     return false;
   }
 
-  @Override
-  @NotNull
-  public String getComponentName() {
-    return "TestEditorManager";
-  }
-
   @NotNull
   @Override
   public EditorsSplitters getSplitters() {
@@ -480,10 +541,16 @@ public class TestEditorManagerImpl extends FileEditorManagerEx implements Applic
   @NotNull
   @Override
   public ActionCallback getReady(@NotNull Object requestor) {
-    return new ActionCallback.Done();
+    return ActionCallback.DONE;
   }
 
   @Override
   public void setSelectedEditor(@NotNull VirtualFile file, @NotNull String fileEditorProviderId) {
+    if (myVirtualFile2Editor.containsKey(file)) {
+      modifyTabWell(() -> {
+        myActiveFile = file;
+        myTestEditorSplitter.setFocusedFile(file);
+      });
+    }
   }
 }

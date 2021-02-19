@@ -15,16 +15,12 @@
  */
 package com.intellij.ide.util.importProject;
 
+import com.intellij.ide.util.projectWizard.importSources.JavaModuleSourceRoot;
+import com.intellij.openapi.projectRoots.JavaSdkVersion;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
-/**
- * @author nik
- */
 public class ProjectDescriptor {
   private List<ModuleDescriptor> myModules = Collections.emptyList();
   private List<LibraryDescriptor> myLibraries = Collections.emptyList();
@@ -50,9 +46,22 @@ public class ProjectDescriptor {
   public boolean isLibraryChosen(LibraryDescriptor lib) {
     Set<LibraryDescriptor> available = myLibrariesSet;
     if (available == null) {
-      available = new HashSet<LibraryDescriptor>(myLibraries);
+      available = new HashSet<>(myLibraries);
       myLibrariesSet = available;
     }
     return available.contains(lib);
+  }
+
+  public JavaSdkVersion getRequiredJdkVersion() {
+    if (isWithModuleInfo()) {
+      return JavaSdkVersion.JDK_1_9;
+    }
+    return null;
+  }
+
+  private boolean isWithModuleInfo() {
+    return myModules.stream()
+      .flatMap(module -> module.getSourceRoots().stream())
+      .anyMatch(sourceRoot -> sourceRoot instanceof JavaModuleSourceRoot && ((JavaModuleSourceRoot)sourceRoot).isWithModuleInfoFile());
   }
 }

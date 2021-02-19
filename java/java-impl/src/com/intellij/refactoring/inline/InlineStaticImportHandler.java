@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
  */
 package com.intellij.refactoring.inline;
 
-import com.intellij.openapi.application.Result;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -25,19 +25,15 @@ import com.intellij.psi.PsiJavaCodeReferenceElement;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.listeners.RefactoringEventData;
 import com.intellij.refactoring.listeners.RefactoringEventListener;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
 import static com.intellij.psi.util.ImportsUtil.collectReferencesThrough;
 import static com.intellij.psi.util.ImportsUtil.replaceAllAndDeleteImport;
 
-/**
- * User: anna
- * Date: 9/1/11
- */
 public class InlineStaticImportHandler extends JavaInlineActionHandler {
 
-  private static final String REFACTORING_NAME = "Expand static import";
   public static final String REFACTORING_ID = "refactoring.inline.import";
 
   @Override
@@ -55,14 +51,16 @@ public class InlineStaticImportHandler extends JavaInlineActionHandler {
     RefactoringEventData data = new RefactoringEventData();
     data.addElement(element);
     project.getMessageBus().syncPublisher(RefactoringEventListener.REFACTORING_EVENT_TOPIC).refactoringStarted(REFACTORING_ID, data);
-    
 
-    new WriteCommandAction(project, REFACTORING_NAME){
-      @Override
-      protected void run(Result result) throws Throwable {
-        replaceAllAndDeleteImport(referenceElements, null, staticStatement);
-      }
-    }.execute();
+
+    WriteCommandAction.writeCommandAction(project).withName(
+      JavaBundle.message("action.expand.static.import.text")).run(() -> replaceAllAndDeleteImport(referenceElements, null, staticStatement));
     project.getMessageBus().syncPublisher(RefactoringEventListener.REFACTORING_EVENT_TOPIC).refactoringDone(REFACTORING_ID, null);
+  }
+
+  @Nullable
+  @Override
+  public String getActionName(PsiElement element) {
+    return JavaBundle.message("action.expand.static.import.text");
   }
 }

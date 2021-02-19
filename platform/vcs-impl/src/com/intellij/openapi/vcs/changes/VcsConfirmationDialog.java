@@ -1,25 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes;
 
-import com.intellij.CommonBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.vcs.VcsShowConfirmationOption;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.util.ui.OptionsDialog;
 import org.jetbrains.annotations.NotNull;
 
@@ -30,18 +16,27 @@ import java.awt.event.ActionEvent;
 /**
  * @author Dmitry Avdeev
  */
-public class VcsConfirmationDialog extends OptionsDialog {
-
+class VcsConfirmationDialog extends OptionsDialog {
+  @NotNull private final @NlsContexts.Button String myOkText;
+  @NotNull private final @NlsContexts.Button String myCancelText;
   private final VcsShowConfirmationOption myOption;
-  private final String myMessage;
-  private final String myDoNotShowMessage;
+  private final @NlsContexts.Label String myMessage;
+  private final @NlsContexts.Checkbox String myDoNotShowMessage;
 
-  protected VcsConfirmationDialog(Project project, VcsShowConfirmationOption option, String message, @NotNull String doNotShowMessage) {
+  VcsConfirmationDialog(@NotNull Project project,
+                        @NotNull @NlsContexts.DialogTitle String title,
+                        @NotNull @NlsContexts.Button String okText,
+                        @NotNull @NlsContexts.Button String cancelText,
+                        @NotNull VcsShowConfirmationOption option,
+                        @NotNull @NlsContexts.Label String message,
+                        @NotNull @NlsContexts.Checkbox String doNotShowMessage) {
     super(project);
+    myOkText = okText;
+    myCancelText = cancelText;
     myOption = option;
     myMessage = message;
     myDoNotShowMessage = doNotShowMessage;
-    setTitle("Confirmation");
+    setTitle(title);
     init();
   }
 
@@ -74,19 +69,20 @@ public class VcsConfirmationDialog extends OptionsDialog {
     return myDoNotShowMessage;
   }
 
-  @NotNull
   @Override
-  protected Action[] createActions() {
-    final AbstractAction okAction = new AbstractAction(CommonBundle.getYesButtonText()) {
+  protected Action @NotNull [] createActions() {
+    final AbstractAction okAction = new AbstractAction(myOkText) {
       {
         putValue(DEFAULT_ACTION, Boolean.TRUE);
       }
 
+      @Override
       public void actionPerformed(ActionEvent e) {
         doOKAction();
       }
     };
-    final AbstractAction cancelAction = new AbstractAction(CommonBundle.getNoButtonText()) {
+    final AbstractAction cancelAction = new AbstractAction(myCancelText) {
+      @Override
       public void actionPerformed(ActionEvent e) {
         doCancelAction();
       }

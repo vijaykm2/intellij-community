@@ -16,6 +16,7 @@
 package com.jetbrains.python;
 
 import com.intellij.codeInsight.lookup.LookupElement;
+import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.fixtures.PyTestCase;
 
 /**
@@ -24,17 +25,11 @@ import com.jetbrains.python.fixtures.PyTestCase;
 public class PythonDoctestCompletionTest extends PyTestCase {
 
   private void doDoctestTest(String expected) {
-    final String testName = "completion/doctest/" + getTestName(true);
+    final String testName = getTestName(true);
     myFixture.configureByFile(testName + ".py");
     final LookupElement[] elements = myFixture.completeBasic();
-    if (elements != null) {
-      for (LookupElement lookup : elements) {
-        System.out.println(lookup.getLookupString());
-        if (lookup.getLookupString().equals(expected))
-          return;
-      }
-    }
-    fail();
+    assertNotNull(elements);
+    assertContainsElements(ContainerUtil.map(elements, LookupElement::getLookupString), expected);
   }
 
   public void testForInDoctest() {
@@ -49,4 +44,18 @@ public class PythonDoctestCompletionTest extends PyTestCase {
     doDoctestTest("foo");
   }
 
+  // PY-31517
+  public void testFunctionDeclaredInDoctest() {
+    doDoctestTest("foo");
+  }
+
+  // PY-31517
+  public void testFunctionDeclaredInDoctestBefore() {
+    doDoctestTest("foo");
+  }
+
+  @Override
+  protected String getTestDataPath() {
+    return super.getTestDataPath() + "/completion/doctest";
+  }
 }

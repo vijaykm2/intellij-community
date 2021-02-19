@@ -15,7 +15,6 @@
  */
 package com.intellij.usages.impl;
 
-import com.intellij.lexer.LayeredLexer;
 import com.intellij.lexer.Lexer;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.editor.ex.util.LayeredHighlighterIterator;
@@ -23,42 +22,35 @@ import com.intellij.openapi.editor.ex.util.LayeredLexerEditorHighlighter;
 import com.intellij.openapi.editor.highlighter.EditorHighlighter;
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory;
 import com.intellij.openapi.editor.highlighter.HighlighterIterator;
-import com.intellij.openapi.fileTypes.PlainSyntaxHighlighter;
-import com.intellij.openapi.fileTypes.PlainTextFileType;
-import com.intellij.openapi.fileTypes.SyntaxHighlighter;
+import com.intellij.openapi.fileTypes.*;
+import com.intellij.openapi.fileTypes.impl.AbstractFileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.impl.search.LexerEditorHighlighterLexer;
 import com.intellij.psi.tree.IElementType;
 import org.jetbrains.annotations.NotNull;
 
-/**
-* Created by Maxim.Mossienko on 7/31/2014.
-*/
 public class SyntaxHighlighterOverEditorHighlighter implements SyntaxHighlighter {
   private final Lexer lexer;
-  private LayeredHighlighterIterator layeredHighlighterIterator = null;
+  private LayeredHighlighterIterator layeredHighlighterIterator;
+  @NotNull
   private final SyntaxHighlighter highlighter;
 
-  public SyntaxHighlighterOverEditorHighlighter(SyntaxHighlighter _highlighter, VirtualFile file, Project project) {
-    if (file.getFileType() == PlainTextFileType.INSTANCE) { // optimization for large files, PlainTextSyntaxHighlighterFactory is slow
+  public SyntaxHighlighterOverEditorHighlighter(@NotNull SyntaxHighlighter _highlighter, @NotNull VirtualFile file, @NotNull Project project) {
+    FileType type = file.getFileType();
+    if (type instanceof PlainTextLikeFileType && !(type instanceof AbstractFileType)) { // optimization for large files, PlainTextSyntaxHighlighterFactory is slow
       highlighter = new PlainSyntaxHighlighter();
       lexer = highlighter.getHighlightingLexer();
-    } else {
+    }
+    else {
       highlighter = _highlighter;
-      LayeredLexer.ourDisableLayersFlag.set(Boolean.TRUE);
       EditorHighlighter editorHighlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(project, file);
-
-      try {
-        if (editorHighlighter instanceof LayeredLexerEditorHighlighter) {
-          lexer = new LexerEditorHighlighterLexer(editorHighlighter, false);
-        }
-        else {
-          lexer = highlighter.getHighlightingLexer();
-        }
+      
+      if (editorHighlighter instanceof LayeredLexerEditorHighlighter) {
+        lexer = new LexerEditorHighlighterLexer(editorHighlighter, false);
       }
-      finally {
-        LayeredLexer.ourDisableLayersFlag.set(null);
+      else {
+        lexer = highlighter.getHighlightingLexer();
       }
     }
   }
@@ -69,9 +61,8 @@ public class SyntaxHighlighterOverEditorHighlighter implements SyntaxHighlighter
     return lexer;
   }
 
-  @NotNull
   @Override
-  public TextAttributesKey[] getTokenHighlights(IElementType tokenType) {
+  public TextAttributesKey @NotNull [] getTokenHighlights(IElementType tokenType) {
     final SyntaxHighlighter activeSyntaxHighlighter =
       layeredHighlighterIterator != null ? layeredHighlighterIterator.getActiveSyntaxHighlighter() : highlighter;
     return activeSyntaxHighlighter.getTokenHighlights(tokenType);

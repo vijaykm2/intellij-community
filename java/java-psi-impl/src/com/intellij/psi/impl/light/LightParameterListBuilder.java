@@ -18,6 +18,7 @@ package com.intellij.psi.impl.light;
 import com.intellij.lang.Language;
 import com.intellij.psi.*;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,7 +27,7 @@ import java.util.List;
  * @author peter
  */
 public class LightParameterListBuilder extends LightElement implements PsiParameterList {
-  private final List<PsiParameter> myParameters = new ArrayList<PsiParameter>();
+  private final List<PsiParameter> myParameters = new ArrayList<>();
   private PsiParameter[] myCachedParameters;
 
   public LightParameterListBuilder(PsiManager manager, Language language) {
@@ -40,26 +41,35 @@ public class LightParameterListBuilder extends LightElement implements PsiParame
 
   @Override
   public String toString() {
-    return "Light parameter lsit";
+    return "Light parameter list";
   }
 
-  @NotNull
   @Override
-  public PsiParameter[] getParameters() {
+  public PsiParameter @NotNull [] getParameters() {
     if (myCachedParameters == null) {
       if (myParameters.isEmpty()) {
         myCachedParameters = PsiParameter.EMPTY_ARRAY;
       }
       else {
-        myCachedParameters = myParameters.toArray(new PsiParameter[myParameters.size()]);
+        myCachedParameters = myParameters.toArray(PsiParameter.EMPTY_ARRAY);
       }
     }
 
     return myCachedParameters;
   }
 
+  @Nullable
   @Override
-  public int getParameterIndex(PsiParameter parameter) {
+  public PsiParameter getParameter(int index) {
+    if (index < 0) {
+      throw new IllegalArgumentException("index is negative: " + index);
+    }
+    if (index < myParameters.size()) return myParameters.get(index);
+    return null;
+  }
+
+  @Override
+  public int getParameterIndex(@NotNull PsiParameter parameter) {
     return myParameters.indexOf(parameter);
   }
 

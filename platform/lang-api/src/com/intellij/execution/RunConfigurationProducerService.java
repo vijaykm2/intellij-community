@@ -16,10 +16,12 @@
 package com.intellij.execution;
 
 import com.intellij.execution.actions.RunConfigurationProducer;
-import com.intellij.openapi.components.*;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -28,15 +30,8 @@ import java.util.Set;
  * Project component that keeps track of {@link RunConfigurationProducer} implementations that should be ignored for a given project. All
  * subclasses of classes specified here will be ignored when looking for configuration producers.
  */
-@State(
-  name = "RunConfigurationProducerService",
-  storages = {
-    @Storage(id = "default", file = StoragePathMacros.PROJECT_FILE),
-    @Storage(id = "dir", file = StoragePathMacros.PROJECT_CONFIG_DIR + "/runConfigurations.xml", scheme = StorageScheme.DIRECTORY_BASED)
-  }
-)
-public class RunConfigurationProducerService implements PersistentStateComponent<RunConfigurationProducerService.State> {
-
+@State(name = "RunConfigurationProducerService", storages = @Storage("runConfigurations.xml"))
+public final class RunConfigurationProducerService implements PersistentStateComponent<RunConfigurationProducerService.State> {
   private State myState = new State();
 
   @NotNull
@@ -46,15 +41,12 @@ public class RunConfigurationProducerService implements PersistentStateComponent
   }
 
   @Override
-  public void loadState(@Nullable State state) {
-    if (state == null) {
-      state = new State();
-    }
+  public void loadState(@NotNull State state) {
     myState = state;
   }
 
-  public static class State {
-    public Set<String> ignoredProducers = new HashSet<String>();
+  public static final class State {
+    public Set<String> ignoredProducers = new HashSet<>();
   }
 
   @NotNull

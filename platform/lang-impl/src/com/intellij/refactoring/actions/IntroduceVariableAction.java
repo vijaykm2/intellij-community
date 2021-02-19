@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.intellij.refactoring.actions;
 
 import com.intellij.lang.refactoring.RefactoringSupportProvider;
@@ -22,19 +21,9 @@ import com.intellij.refactoring.RefactoringActionHandler;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class IntroduceVariableAction extends BasePlatformRefactoringAction {
+public class IntroduceVariableAction extends IntroduceActionBase {
   public IntroduceVariableAction() {
-    setInjectedContext(true);
-  }
-
-  @Override
-  protected boolean isAvailableInEditorOnly() {
-    return true;
-  }
-
-  @Override
-  protected boolean isEnabledOnElements(@NotNull PsiElement[] elements) {
-    return false;
+    setEnabledInModalContext(true);
   }
 
   @Override
@@ -45,5 +34,6 @@ public class IntroduceVariableAction extends BasePlatformRefactoringAction {
   @Nullable
   @Override
   protected RefactoringActionHandler getRefactoringHandler(@NotNull RefactoringSupportProvider provider, PsiElement element) {
-    return provider.getIntroduceVariableHandler(element);}
+    return provider.getIntroduceVariableHandler(element);
+  }
 }

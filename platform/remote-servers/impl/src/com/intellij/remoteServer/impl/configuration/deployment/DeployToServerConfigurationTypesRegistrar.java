@@ -1,60 +1,62 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.remoteServer.impl.configuration.deployment;
 
 import com.intellij.execution.configurations.ConfigurationType;
-import com.intellij.openapi.components.ApplicationComponent;
-import com.intellij.openapi.extensions.ExtensionPoint;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.ide.ApplicationInitializedListener;
+import com.intellij.openapi.extensions.ExtensionPointListener;
+import com.intellij.openapi.extensions.PluginDescriptor;
+import com.intellij.openapi.extensions.impl.ExtensionPointImpl;
 import com.intellij.remoteServer.ServerType;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * @author nik
- */
-public class DeployToServerConfigurationTypesRegistrar implements ApplicationComponent {
+public class DeployToServerConfigurationTypesRegistrar implements ApplicationInitializedListener {
   @Override
-  public void initComponent() {
+  public void componentsInitialized() {
     //todo[nik] improve this: configuration types should be loaded lazily
-    ExtensionPoint<ConfigurationType> point = Extensions.getRootArea().getExtensionPoint(ConfigurationType.CONFIGURATION_TYPE_EP);
-    for (ServerType serverType : ServerType.EP_NAME.getExtensions()) {
-      point.registerExtension(new DeployToServerConfigurationType(serverType));
-    }
+    getConfigurationTypesExtPoint()
+      .registerExtensions(ContainerUtil.map(ServerType.EP_NAME.getExtensionList(), type -> new DeployToServerConfigurationType(type)));
+
+    ServerType.EP_NAME.addExtensionPointListener(
+      new ExtensionPointListener<>() {
+        @Override
+        public void extensionAdded(@NotNull ServerType addedServer, @NotNull PluginDescriptor pluginDescriptor) {
+          getConfigurationTypesExtPoint().registerExtension(new DeployToServerConfigurationType(addedServer));
+        }
+
+        @Override
+        public void extensionRemoved(@NotNull ServerType removedServer, @NotNull PluginDescriptor pluginDescriptor) {
+          DeployToServerConfigurationType deployForServer = findDeployConfigurationType(removedServer);
+          if (deployForServer != null) {
+            getConfigurationTypesExtPoint().unregisterExtension(deployForServer);
+          }
+        }
+      }, null);
   }
 
   @NotNull
   public static DeployToServerConfigurationType getDeployConfigurationType(@NotNull ServerType<?> serverType) {
-    for (ConfigurationType type : ConfigurationType.CONFIGURATION_TYPE_EP.getExtensions()) {
-      if (type instanceof DeployToServerConfigurationType) {
-        DeployToServerConfigurationType configurationType = (DeployToServerConfigurationType)type;
-        if (configurationType.getServerType().equals(serverType)) {
-          return configurationType;
-        }
-      }
+    DeployToServerConfigurationType result = findDeployConfigurationType(serverType);
+    if (result == null) {
+      throw new IllegalArgumentException("Cannot find run configuration type for " + serverType.getClass());
     }
-    throw new IllegalArgumentException("Cannot find run configuration type for " + serverType.getClass());
+    return result;
   }
 
-  @Override
-  public void disposeComponent() {
+  @Nullable
+  private static DeployToServerConfigurationType findDeployConfigurationType(@NotNull ServerType<?> serverType) {
+    String serverTypeId = serverType.getId();
+    return (DeployToServerConfigurationType)ConfigurationType.CONFIGURATION_TYPE_EP
+      .findFirstSafe(next -> isDeployForServerType(next, serverTypeId));
   }
 
-  @NotNull
-  @Override
-  public String getComponentName() {
-    return "DeployToServerConfigurationTypesRegistrar";
+  private static ExtensionPointImpl<ConfigurationType> getConfigurationTypesExtPoint() {
+    return (ExtensionPointImpl<ConfigurationType>)ConfigurationType.CONFIGURATION_TYPE_EP.getPoint();
+  }
+
+  private static boolean isDeployForServerType(@NotNull ConfigurationType configurationType, @NotNull String serverTypeId) {
+    return configurationType instanceof DeployToServerConfigurationType &&
+           ((DeployToServerConfigurationType)configurationType).isForServerType(serverTypeId);
   }
 }

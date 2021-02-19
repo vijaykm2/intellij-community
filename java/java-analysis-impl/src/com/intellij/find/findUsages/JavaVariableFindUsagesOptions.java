@@ -15,7 +15,9 @@
  */
 package com.intellij.find.findUsages;
 
+import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.project.Project;
+import com.intellij.psi.search.SearchScope;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -30,12 +32,35 @@ public class JavaVariableFindUsagesOptions extends JavaFindUsagesOptions {
     isSearchForTextOccurrences = false;
   }
 
-  public boolean equals(final Object o) {
-    if (this == o) return true;
-    if (!super.equals(this)) return false;
-    if (o == null || getClass() != o.getClass()) return false;
+  public JavaVariableFindUsagesOptions(@NotNull SearchScope searchScope) {
+    super(searchScope);
+    isSearchForTextOccurrences = false;
+  }
 
-    final JavaVariableFindUsagesOptions that = (JavaVariableFindUsagesOptions)o;
+  @Override
+  protected void setDefaults(@NotNull PropertiesComponent properties, @NotNull String prefix) {
+    // overrides default values from superclass
+    isSearchForTextOccurrences = properties.getBoolean(prefix + "isSearchForTextOccurrences");
+    isUsages = properties.getBoolean(prefix + "isUsages", true);
+    isReadAccess = properties.getBoolean(prefix + "isReadAccess", true);
+    isWriteAccess = properties.getBoolean(prefix + "isWriteAccess", true);
+  }
+
+  @Override
+  protected void storeDefaults(@NotNull PropertiesComponent properties, @NotNull String prefix) {
+    // overrides default values from superclass
+    properties.setValue(prefix + "isSearchForTextOccurrences", isSearchForTextOccurrences);
+    properties.setValue(prefix + "isUsages", isUsages, true);
+    properties.setValue(prefix + "isReadAccess", isReadAccess, true);
+    properties.setValue(prefix + "isWriteAccess", isWriteAccess, true);
+  }
+
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (!super.equals(o)) return false;
+    if (getClass() != o.getClass()) return false;
+
+    JavaVariableFindUsagesOptions that = (JavaVariableFindUsagesOptions)o;
 
     if (isReadAccess != that.isReadAccess) return false;
     if (isWriteAccess != that.isWriteAccess) return false;

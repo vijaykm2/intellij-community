@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.folding.impl;
 
@@ -20,9 +6,7 @@ import com.intellij.lang.ASTNode;
 import com.intellij.lang.folding.FoldingBuilder;
 import com.intellij.lang.folding.FoldingDescriptor;
 import com.intellij.lang.folding.LanguageFolding;
-import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -30,36 +14,31 @@ import com.intellij.openapi.editor.FoldRegion;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.impl.text.CodeFoldingState;
-import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.*;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiManager;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.text.StringTokenizer;
+import com.intellij.xml.util.XmlStringUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
-class DocumentFoldingInfo implements JDOMExternalizable, CodeFoldingState {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.folding.impl.DocumentFoldingInfo");
+class DocumentFoldingInfo implements CodeFoldingState {
+  private static final Logger LOG = Logger.getInstance(DocumentFoldingInfo.class);
   private static final Key<FoldingInfo> FOLDING_INFO_KEY = Key.create("FOLDING_INFO");
 
   @NotNull private final Project myProject;
   private final VirtualFile myFile;
 
-  private static class SerializedPsiElement {
-    private final String mySerializedElement;
-    private final FoldingInfo myFoldingInfo;
-    public SerializedPsiElement(@NotNull String serialized, @NotNull FoldingInfo foldingInfo) {
-      mySerializedElement = serialized;
-      myFoldingInfo = foldingInfo;
-    }
-  }
-  @NotNull private final List<SmartPsiElementPointer<PsiElement>> myPsiElements = ContainerUtil.createLockFreeCopyOnWriteList();
-  @NotNull private final List<SerializedPsiElement> mySerializedElements = ContainerUtil.createLockFreeCopyOnWriteList();
+  @NotNull private final List<Info> myInfos = ContainerUtil.createLockFreeCopyOnWriteList();
   @NotNull private final List<RangeMarker> myRangeMarkers = ContainerUtil.createLockFreeCopyOnWriteList();
   private static final String DEFAULT_PLACEHOLDER = "...";
   @NonNls private static final String ELEMENT_TAG = "element";
@@ -67,7 +46,7 @@ class DocumentFoldingInfo implements JDOMExternalizable, CodeFoldingState {
   @NonNls private static final String EXPANDED_ATT = "expanded";
   @NonNls private static final String MARKER_TAG = "marker";
   @NonNls private static final String DATE_ATT = "date";
-  @NonNls private static final String PLACEHOLDER_ATT = "placeholder";
+  @NonNls private static final String PLACEHOLDER_ATT = "ph";
 
   DocumentFoldingInfo(@NotNull Project project, @NotNull Document document) {
     myProject = project;
@@ -75,46 +54,35 @@ class DocumentFoldingInfo implements JDOMExternalizable, CodeFoldingState {
   }
 
   void loadFromEditor(@NotNull Editor editor) {
-    assertDispatchThread();
+    ApplicationManager.getApplication().assertIsDispatchThread();
     LOG.assertTrue(!editor.isDisposed());
     clear();
 
-    PsiDocumentManager documentManager = PsiDocumentManager.getInstance(myProject);
-    documentManager.commitDocument(editor.getDocument());
-    PsiFile file = documentManager.getPsiFile(editor.getDocument());
-
-    SmartPointerManager smartPointerManager = SmartPointerManager.getInstance(myProject);
-    EditorFoldingInfo info = EditorFoldingInfo.get(editor);
     FoldRegion[] foldRegions = editor.getFoldingModel().getAllFoldRegions();
     for (FoldRegion region : foldRegions) {
-      if (!region.isValid()) continue;
-      PsiElement element = info.getPsiElement(region);
+      if (!region.isValid() || region.shouldNeverExpand()) continue;
       boolean expanded = region.isExpanded();
-      boolean collapseByDefault = element != null &&
-                                  FoldingPolicy.isCollapseByDefault(element) &&
+      String signature = region.getUserData(UpdateFoldRegionsOperation.SIGNATURE);
+      if (signature == UpdateFoldRegionsOperation.NO_SIGNATURE) continue;
+      Boolean storedCollapseByDefault = region.getUserData(UpdateFoldRegionsOperation.COLLAPSED_BY_DEFAULT);
+      boolean collapseByDefault = storedCollapseByDefault != null && storedCollapseByDefault &&
                                   !FoldingUtil.caretInsideRange(editor, TextRange.create(region));
-      if (collapseByDefault == expanded || element == null) {
-        FoldingInfo fi = new FoldingInfo(region.getPlaceholderText(), expanded);
-        if (element != null) {
-          myPsiElements.add(smartPointerManager.createSmartPsiElementPointer(element, file));
-          element.putUserData(FOLDING_INFO_KEY, fi);
+      if (collapseByDefault == expanded || signature == null) {
+        if (signature != null) {
+          myInfos.add(new Info(signature, expanded));
         }
         else {
           RangeMarker marker = editor.getDocument().createRangeMarker(region.getStartOffset(), region.getEndOffset());
           myRangeMarkers.add(marker);
-          marker.putUserData(FOLDING_INFO_KEY, fi);
+          marker.putUserData(FOLDING_INFO_KEY, new FoldingInfo(region.getPlaceholderText(), expanded));
         }
       }
     }
   }
 
-  private static void assertDispatchThread() {
-    ApplicationManagerEx.getApplicationEx().assertIsDispatchThread();
-  }
-
   @Override
   public void setToEditor(@NotNull final Editor editor) {
-    assertDispatchThread();
+    ApplicationManager.getApplication().assertIsDispatchThread();
     final PsiManager psiManager = PsiManager.getInstance(myProject);
     if (psiManager.isDisposed()) return;
 
@@ -122,22 +90,9 @@ class DocumentFoldingInfo implements JDOMExternalizable, CodeFoldingState {
     final PsiFile psiFile = psiManager.findFile(myFile);
     if (psiFile == null) return;
 
-    if (!mySerializedElements.isEmpty()) {
-      // Restore postponed state
-      assert myPsiElements.isEmpty() : "Sequential deserialization";
-      for (SerializedPsiElement entry : mySerializedElements) {
-        PsiElement restoredElement = FoldingPolicy.restoreBySignature(psiFile, entry.mySerializedElement);
-        if (restoredElement != null && restoredElement.isValid()) {
-          myPsiElements.add(SmartPointerManager.getInstance(myProject).createSmartPsiElementPointer(restoredElement));
-          restoredElement.putUserData(FOLDING_INFO_KEY, entry.myFoldingInfo);
-        }
-      }
-      mySerializedElements.clear();
-    }
-
     Map<PsiElement, FoldingDescriptor> ranges = null;
-    for (SmartPsiElementPointer<PsiElement> ptr: myPsiElements) {
-      PsiElement element = ptr.getElement();
+    for (Info info : myInfos) {
+      PsiElement element = FoldingPolicy.restoreBySignature(psiFile, info.signature);
       if (element == null || !element.isValid()) {
         continue;
       }
@@ -153,13 +108,11 @@ class DocumentFoldingInfo implements JDOMExternalizable, CodeFoldingState {
       TextRange range = descriptor.getRange();
       FoldRegion region = FoldingUtil.findFoldRegion(editor, range.getStartOffset(), range.getEndOffset());
       if (region != null) {
-        FoldingInfo fi = element.getUserData(FOLDING_INFO_KEY);
-        boolean state = fi != null && fi.expanded;
-        region.setExpanded(state);
+        region.setExpanded(info.expanded);
       }
     }
     for (RangeMarker marker : myRangeMarkers) {
-      if (!marker.isValid()) {
+      if (!marker.isValid() || marker.getStartOffset() == marker.getEndOffset()) {
         continue;
       }
       FoldRegion region = FoldingUtil.findFoldRegion(editor, marker.getStartOffset(), marker.getEndOffset());
@@ -184,7 +137,7 @@ class DocumentFoldingInfo implements JDOMExternalizable, CodeFoldingState {
     final ASTNode node = psiFile.getNode();
     if (node == null) return Collections.emptyMap();
     final FoldingDescriptor[] descriptors = LanguageFolding.buildFoldingDescriptors(foldingBuilder, psiFile, editor.getDocument(), true);
-    Map<PsiElement, FoldingDescriptor> ranges = new HashMap<PsiElement, FoldingDescriptor>();
+    Map<PsiElement, FoldingDescriptor> ranges = new HashMap<>();
     for (FoldingDescriptor descriptor : descriptors) {
       final ASTNode ast = descriptor.getElement();
       final PsiElement psi = ast.getPsi();
@@ -196,66 +149,27 @@ class DocumentFoldingInfo implements JDOMExternalizable, CodeFoldingState {
   }
 
   void clear() {
-    myPsiElements.clear();
+    myInfos.clear();
     for (RangeMarker marker : myRangeMarkers) {
       marker.dispose();
     }
     myRangeMarkers.clear();
-    mySerializedElements.clear();
   }
 
-  @Override
-  public void writeExternal(Element element) throws WriteExternalException {
-    PsiDocumentManager.getInstance(myProject).commitAllDocuments();
-
-    if (myPsiElements.isEmpty() && myRangeMarkers.isEmpty() && mySerializedElements.isEmpty()){
-      throw new WriteExternalException();
+  void writeExternal(@NotNull Element element) {
+    if (myInfos.isEmpty() && myRangeMarkers.isEmpty()){
+      return;
     }
 
-    if (mySerializedElements.isEmpty()) {
-      for (SmartPsiElementPointer<PsiElement> ptr : myPsiElements) {
-        PsiElement psiElement = ptr.getElement();
-        if (psiElement == null || !psiElement.isValid()) {
-          continue;
-        }
-        FoldingInfo fi = psiElement.getUserData(FOLDING_INFO_KEY);
-        boolean state = fi != null && fi.expanded;
-        String signature = FoldingPolicy.getSignature(psiElement);
-        if (signature == null) {
-          continue;
-        }
-
-        PsiFile containingFile = psiElement.getContainingFile();
-        PsiElement restoredElement = FoldingPolicy.restoreBySignature(containingFile, signature);
-        if (!psiElement.equals(restoredElement)) {
-          StringBuilder trace = new StringBuilder();
-          PsiElement restoredAgain = FoldingPolicy.restoreBySignature(containingFile, signature, trace);
-          LOG.error("element: " + psiElement + "(" + psiElement.getText() 
-                    + "); restoredElement: " + restoredElement
-                    + "; signature: '" + signature 
-                    + "'; file: " + containingFile 
-                    + "; injected: " + InjectedLanguageManager.getInstance(myProject).isInjectedFragment(containingFile) 
-                    + "; languages: " + containingFile.getViewProvider().getLanguages()                    
-                    + "; restored again: " + restoredAgain +
-                    "; restore produces same results: " + (restoredAgain == restoredElement) 
-                    + "; trace:\n" + trace);
-        }
-
-        Element e = new Element(ELEMENT_TAG);
-        e.setAttribute(SIGNATURE_ATT, signature);
-        e.setAttribute(EXPANDED_ATT, Boolean.toString(state));
-        element.addContent(e);
+    for (Info info : myInfos) {
+      Element e = new Element(ELEMENT_TAG);
+      e.setAttribute(SIGNATURE_ATT, info.signature);
+      if (info.expanded) {
+        e.setAttribute(EXPANDED_ATT, Boolean.toString(true));
       }
+      element.addContent(e);
     }
-    else {
-      // get back postponed state (before folding initialization)
-      for (SerializedPsiElement entry : mySerializedElements) {
-        Element e = new Element(ELEMENT_TAG);
-        e.setAttribute(SIGNATURE_ATT, entry.mySerializedElement);
-        e.setAttribute(EXPANDED_ATT, Boolean.toString(entry.myFoldingInfo.getExpanded()));
-        element.addContent(e);
-      }
-    }
+
     String date = null;
     for (RangeMarker marker : myRangeMarkers) {
       FoldingInfo fi = marker.getUserData(FOLDING_INFO_KEY);
@@ -271,78 +185,60 @@ class DocumentFoldingInfo implements JDOMExternalizable, CodeFoldingState {
 
       e.setAttribute(DATE_ATT, date);
       e.setAttribute(EXPANDED_ATT, Boolean.toString(state));
-      String signature = Integer.valueOf(marker.getStartOffset()) + ":" + Integer.valueOf(marker.getEndOffset());
+      String signature = marker.getStartOffset() + ":" + marker.getEndOffset();
       e.setAttribute(SIGNATURE_ATT, signature);
       String placeHolderText = fi == null ? DEFAULT_PLACEHOLDER : fi.placeHolder;
-      e.setAttribute(PLACEHOLDER_ATT, placeHolderText);
+      e.setAttribute(PLACEHOLDER_ATT, XmlStringUtil.escapeIllegalXmlChars(placeHolderText));
       element.addContent(e);
     }
   }
 
-  @Override
-  public void readExternal(final Element element) {
-    ApplicationManager.getApplication().runReadAction(new Runnable() {
-      @Override
-      public void run() {
-        clear();
+  void readExternal(final Element element) {
+    ApplicationManager.getApplication().runReadAction(() -> {
+      clear();
 
-        if (!myFile.isValid()) return;
+      if (!myFile.isValid()) return;
 
-        final Document document = FileDocumentManager.getInstance().getDocument(myFile);
-        if (document == null) return;
+      final Document document = FileDocumentManager.getInstance().getDocument(myFile);
+      if (document == null) return;
 
-        PsiFile psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document);
-        if (psiFile == null || !psiFile.getViewProvider().isPhysical()) return;
+      String date = null;
+      for (final Element e : element.getChildren()) {
+        String signature = e.getAttributeValue(SIGNATURE_ATT);
+        if (signature == null) {
+          continue;
+        }
 
-        String date = null;
-        boolean canRestoreElement = !DumbService.getInstance(myProject).isDumb() || FoldingUpdate.supportsDumbModeFolding(psiFile);
-        for (final Object o : element.getChildren()) {
-          Element e = (Element)o;
-          Boolean expanded = Boolean.valueOf(e.getAttributeValue(EXPANDED_ATT));
-          if (ELEMENT_TAG.equals(e.getName())) {
-            String signature = e.getAttributeValue(SIGNATURE_ATT);
-            if (signature == null) {
-              continue;
-            }
-            FoldingInfo fi = new FoldingInfo(DEFAULT_PLACEHOLDER, expanded);
-            if (canRestoreElement) {
-              PsiElement restoredElement = FoldingPolicy.restoreBySignature(psiFile, signature);
-              if (restoredElement != null && restoredElement.isValid()) {
-                myPsiElements.add(SmartPointerManager.getInstance(myProject).createSmartPsiElementPointer(restoredElement));
-                restoredElement.putUserData(FOLDING_INFO_KEY, fi);
-              }
-            }
-            else {
-              // Postponed initialization
-              mySerializedElements.add(new SerializedPsiElement(signature, fi));
-            }
+        boolean expanded = Boolean.parseBoolean(e.getAttributeValue(EXPANDED_ATT));
+        if (ELEMENT_TAG.equals(e.getName())) {
+          myInfos.add(new Info(signature, expanded));
+        }
+        else if (MARKER_TAG.equals(e.getName())) {
+          if (date == null) {
+            date = getTimeStamp();
           }
-          else if (MARKER_TAG.equals(e.getName())) {
-            if (date == null) {
-              date = getTimeStamp();
-            }
-            if (date.isEmpty()) continue;
+          if (date.isEmpty()) continue;
 
-            if (!date.equals(e.getAttributeValue(DATE_ATT)) || FileDocumentManager.getInstance().isDocumentUnsaved(document)) continue;
-            StringTokenizer tokenizer = new StringTokenizer(e.getAttributeValue(SIGNATURE_ATT), ":");
-            try {
-              int start = Integer.valueOf(tokenizer.nextToken()).intValue();
-              int end = Integer.valueOf(tokenizer.nextToken()).intValue();
-              if (start < 0 || end >= document.getTextLength() || start > end) continue;
-              RangeMarker marker = document.createRangeMarker(start, end);
-              myRangeMarkers.add(marker);
-              String placeHolderText = e.getAttributeValue(PLACEHOLDER_ATT);
-              if (placeHolderText == null) placeHolderText = DEFAULT_PLACEHOLDER;
-              FoldingInfo fi = new FoldingInfo(placeHolderText, expanded);
-              marker.putUserData(FOLDING_INFO_KEY, fi);
-            }
-            catch (NoSuchElementException exc) {
-              LOG.error(exc);
-            }
+          if (!date.equals(e.getAttributeValue(DATE_ATT)) || FileDocumentManager.getInstance().isDocumentUnsaved(document)) continue;
+          StringTokenizer tokenizer = new StringTokenizer(signature, ":");
+          try {
+            int start = Integer.valueOf(tokenizer.nextToken()).intValue();
+            int end = Integer.valueOf(tokenizer.nextToken()).intValue();
+            if (start < 0 || end >= document.getTextLength() || start > end) continue;
+            RangeMarker marker = document.createRangeMarker(start, end);
+            myRangeMarkers.add(marker);
+            String placeholderAttributeValue = e.getAttributeValue(PLACEHOLDER_ATT);
+            String placeHolderText = placeholderAttributeValue == null ? DEFAULT_PLACEHOLDER
+                                                                       : XmlStringUtil.unescapeIllegalXmlChars(placeholderAttributeValue);
+            FoldingInfo fi = new FoldingInfo(placeHolderText, expanded);
+            marker.putUserData(FOLDING_INFO_KEY, fi);
           }
-          else {
-            throw new IllegalStateException("unknown tag: " + e.getName());
+          catch (NoSuchElementException exc) {
+            LOG.error(exc);
           }
+        }
+        else {
+          throw new IllegalStateException("unknown tag: " + e.getName());
         }
       }
     });
@@ -357,9 +253,8 @@ class DocumentFoldingInfo implements JDOMExternalizable, CodeFoldingState {
   public int hashCode() {
     int result = myProject.hashCode();
     result = 31 * result + (myFile != null ? myFile.hashCode() : 0);
-    result = 31 * result + myPsiElements.hashCode();
+    result = 31 * result + myInfos.hashCode();
     result = 31 * result + myRangeMarkers.hashCode();
-    result = 31 * result + mySerializedElements.hashCode();
     return result;
   }
 
@@ -378,8 +273,7 @@ class DocumentFoldingInfo implements JDOMExternalizable, CodeFoldingState {
       return false;
     }
     if (!myProject.equals(info.myProject)
-        || !myPsiElements.equals(info.myPsiElements)
-        || !mySerializedElements.equals(info.mySerializedElements)) {
+        || !myInfos.equals(info.myInfos)) {
       return false;
     }
 
@@ -399,7 +293,30 @@ class DocumentFoldingInfo implements JDOMExternalizable, CodeFoldingState {
     return true;
   }
 
-  private static class FoldingInfo {
+  private static class Info {
+    private final String signature;
+    private final boolean expanded;
+
+    Info(@NotNull String signature, boolean expanded) {
+      this.signature = signature;
+      this.expanded = expanded;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      Info info = (Info)o;
+      return expanded == info.expanded && Objects.equals(signature, info.signature);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(signature, expanded);
+    }
+  }
+
+  private static final class FoldingInfo {
     private final String placeHolder;
     private final boolean expanded;
 

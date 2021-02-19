@@ -1,42 +1,37 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.dataFlow;
 
-import com.intellij.codeInspection.dataFlow.value.DfaConstValue;
 import com.intellij.codeInspection.dataFlow.value.DfaValue;
 import com.intellij.codeInspection.dataFlow.value.DfaValueFactory;
 import com.intellij.codeInspection.dataFlow.value.DfaVariableValue;
-import com.intellij.util.containers.ContainerUtil;
-import gnu.trove.TIntProcedure;
+import one.util.streamex.StreamEx;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 /**
  * @author peter
  */
-class EqClass extends SortedIntSet {
+final class EqClass extends SortedIntSet implements Iterable<DfaVariableValue> {
   private final DfaValueFactory myFactory;
+
+  /**
+   * A comparator which allows to select a "canonical" variable of several variables (which is minimal of them).
+   * Variables with shorter qualifier chain are preferred to be canonical.
+   */
+  static final Comparator<DfaVariableValue> CANONICAL_VARIABLE_COMPARATOR =
+    Comparator.nullsFirst((v1, v2) -> {
+      int result = EqClass.CANONICAL_VARIABLE_COMPARATOR.compare(v1.getQualifier(), v2.getQualifier());
+      if (result != 0) return result;
+      return Integer.compare(v1.getID(), v2.getID());
+    });
 
   EqClass(DfaValueFactory factory) {
     myFactory = factory;
   }
 
-  EqClass(EqClass toCopy) {
+  EqClass(@NotNull EqClass toCopy) {
     super(toCopy.toNativeArray());
     myFactory = toCopy.myFactory;
   }
@@ -55,56 +50,51 @@ class EqClass extends SortedIntSet {
     return buf.toString();
   }
 
-  List<DfaVariableValue> getVariables(boolean unwrap) {
-    List<DfaVariableValue> vars = ContainerUtil.newArrayList();
-    for (DfaValue value : getMemberValues()) {
-      if (unwrap) {
-        value = DfaMemoryStateImpl.unwrap(value);
-      }
-      if (value instanceof DfaVariableValue) {
-        vars.add((DfaVariableValue)value);
-      }
-    }
+  DfaVariableValue getVariable(int index) {
+    return (DfaVariableValue)myFactory.getValue(get(index));
+  }
+
+  /**
+   * @return copy of variables from this class as a list. Use this method if you expect
+   * class updates during the iteration.
+   */
+  List<DfaVariableValue> asList() {
+    List<DfaVariableValue> vars = new ArrayList<>(size());
+    forEach(id -> {
+      vars.add((DfaVariableValue)myFactory.getValue(id));
+      return true;
+    });
     return vars;
   }
 
-  List<DfaValue> getMemberValues() {
-    final List<DfaValue> result = new ArrayList<DfaValue>(size());
-    forEach(new TIntProcedure() {
+  /**
+   * @return the "canonical" variable for this class (according to {@link #CANONICAL_VARIABLE_COMPARATOR}) or
+   * null if the class does not contain variables.
+   */
+  @Nullable
+  DfaVariableValue getCanonicalVariable() {
+    if (size() == 1) {
+      return getVariable(0);
+    }
+    return StreamEx.of(iterator()).min(CANONICAL_VARIABLE_COMPARATOR).orElse(null);
+  }
+
+  @NotNull
+  @Override
+  public Iterator<DfaVariableValue> iterator() {
+    return new Iterator<>() {
+      int pos;
+
       @Override
-      public boolean execute(int c1) {
-        DfaValue value = myFactory.getValue(c1);
-        result.add(value);
-        return true;
+      public boolean hasNext() {
+        return pos < size();
       }
-    });
-    return result;
-  }
 
-  @Nullable
-  DfaValue findConstant(boolean wrapped) {
-    for (DfaValue value : getMemberValues()) {
-      if (value instanceof DfaConstValue || wrapped && DfaMemoryStateImpl.unwrap(value) instanceof DfaConstValue) {
-        return value;
+      @Override
+      public DfaVariableValue next() {
+        if (pos >= size()) throw new NoSuchElementException();
+        return (DfaVariableValue)myFactory.getValue(get(pos++));
       }
-    }
-    return null;
+    };
   }
-
-  @Nullable
-  private static DfaConstValue asConstantValue(DfaValue value) {
-    value = DfaMemoryStateImpl.unwrap(value);
-    return value instanceof DfaConstValue ? (DfaConstValue)value : null;
-  }
-
-  boolean containsConstantsOnly() {
-    for (int i = 0; i < size(); i++) {
-      if (asConstantValue(myFactory.getValue(get(i))) == null) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
 }

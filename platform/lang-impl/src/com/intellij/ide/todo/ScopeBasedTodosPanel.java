@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,50 +14,36 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 27-Jul-2007
- */
 package com.intellij.ide.todo;
 
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.util.PropertiesComponent;
-import com.intellij.ide.util.scopeChooser.IgnoringComboBox;
 import com.intellij.ide.util.scopeChooser.ScopeChooserCombo;
 import com.intellij.openapi.project.Project;
-import com.intellij.packageDependencies.DependencyValidationManager;
-import com.intellij.psi.search.scope.NonProjectFilesScope;
-import com.intellij.psi.search.scope.packageSet.NamedScope;
-import com.intellij.psi.search.scope.packageSet.NamedScopeManager;
-import com.intellij.psi.search.scope.packageSet.NamedScopesHolder;
-import com.intellij.ui.ListCellRendererWrapper;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.content.Content;
 import com.intellij.util.Alarm;
-import org.jetbrains.annotations.Nullable;
+import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.NonNls;
 
 import javax.swing.*;
-import javax.swing.tree.DefaultTreeModel;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.util.ArrayList;
-import java.util.List;
 
 public class ScopeBasedTodosPanel extends TodoPanel {
-  private static final String SELECTED_SCOPE = "TODO_SCOPE";
+  private static final @NonNls String SELECTED_SCOPE = "TODO_SCOPE";
   private final Alarm myAlarm;
   private ScopeChooserCombo myScopes;
 
   public ScopeBasedTodosPanel(final Project project, TodoPanelSettings settings, Content content){
     super(project,settings,false,content);
-    myAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, project);
+    myAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, this);
     myScopes.getChildComponent().addActionListener(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
         rebuildWithAlarm(ScopeBasedTodosPanel.this.myAlarm);
-        final String selectedItemName = myScopes.getSelectedScopeName();
-        if (selectedItemName != null) {
-          PropertiesComponent.getInstance(myProject).setValue(SELECTED_SCOPE, selectedItemName);
-        }
+        PropertiesComponent.getInstance(myProject).setValue(SELECTED_SCOPE, myScopes.getSelectedScopeName(), null);
       }
     });
     rebuildWithAlarm(myAlarm);
@@ -70,17 +56,20 @@ public class ScopeBasedTodosPanel extends TodoPanel {
     panel.add(component, BorderLayout.CENTER);
     String preselect = PropertiesComponent.getInstance(myProject).getValue(SELECTED_SCOPE);
     myScopes = new ScopeChooserCombo(myProject, false, true, preselect);
+    Disposer.register(this, myScopes);
+    
     myScopes.setCurrentSelection(false);
     myScopes.setUsageView(false);
 
     JPanel chooserPanel = new JPanel(new GridBagLayout());
-    final JLabel scopesLabel = new JLabel("Scope:");
+    final JLabel scopesLabel = new JLabel(IdeBundle.message("label.scope"));
     scopesLabel.setDisplayedMnemonic('S');
     scopesLabel.setLabelFor(myScopes);
     final GridBagConstraints gc =
       new GridBagConstraints(GridBagConstraints.RELATIVE, 0, 1, 1, 0, 0, GridBagConstraints.WEST, GridBagConstraints.NONE,
-                             new Insets(2, 2, 2, 2), 0, 0);
+                             JBUI.insets(2, 8, 2, 4), 0, 0);
     chooserPanel.add(scopesLabel, gc);
+    gc.insets = JBUI.insets(2);
     chooserPanel.add(myScopes, gc);
 
     gc.fill = GridBagConstraints.HORIZONTAL;
@@ -91,8 +80,8 @@ public class ScopeBasedTodosPanel extends TodoPanel {
   }
 
   @Override
-  protected TodoTreeBuilder createTreeBuilder(JTree tree, DefaultTreeModel treeModel, Project project) {
-    ScopeBasedTodosTreeBuilder builder = new ScopeBasedTodosTreeBuilder(tree, treeModel, project, myScopes);
+  protected TodoTreeBuilder createTreeBuilder(JTree tree, Project project) {
+    ScopeBasedTodosTreeBuilder builder = new ScopeBasedTodosTreeBuilder(tree, project, myScopes);
     builder.init();
     return builder;
   }

@@ -9,8 +9,21 @@ from pycharm_run_utils import adjust_sys_path
 
 adjust_sys_path(False)
 
+# Directory where test script exist
+CURRENT_DIR_NAME = ""
+if sys.argv:
+  last_arg = sys.argv[-1]
+
+  if os.path.isfile(last_arg):
+    CURRENT_DIR_NAME = os.path.dirname(last_arg)
+  else:
+    CURRENT_DIR_NAME = last_arg
+    if not str(last_arg).endswith(os.sep):
+      CURRENT_DIR_NAME = last_arg + os.sep
+
 messages = TeamcityServiceMessages(prepend_linebreak=True)
-messages.testMatrixEntered()
+if not "_jb_do_not_call_enter_matrix" in os.environ:
+  messages.testMatrixEntered()
 try:
   import pytest
   PYVERSION = [int(x) for x in pytest.__version__.split(".")]
@@ -30,8 +43,11 @@ if PYVERSION > [1, 4, 0]:
   current_file = None
   current_file_suite = None
 
+  def pytest_collection_finish(session):
+    messages.testCount(len(session.items))
+
   def pytest_runtest_logstart(nodeid, location):
-    path = "file://" + os.path.realpath(location[0])
+    path = "file://" + os.path.realpath(os.path.join(CURRENT_DIR_NAME, location[0]))
     if location[1]:
       path += ":" +str(location[1] + 1)
     global current_suite, current_file, current_file_suite
@@ -45,7 +61,7 @@ if PYVERSION > [1, 4, 0]:
         messages.testSuiteFinished(current_file_suite)
       current_file_suite = file_suite
       if current_file_suite:
-        messages.testSuiteStarted(current_file_suite, location="file://" + os.path.realpath(location[0]))
+        messages.testSuiteStarted(current_file_suite, location=path)
 
     if location[2].find(".") != -1:
       suite = location[2].split(".")[0]
@@ -69,7 +85,7 @@ if PYVERSION > [1, 4, 0]:
         messages.testSuiteFinished(current_suite)
       current_suite = suite
       if current_suite:
-        messages.testSuiteStarted(current_suite, location="file://" + os.path.realpath(location[0]))
+        messages.testSuiteStarted(current_suite, location=path)
     messages.testStarted(name, location=path)
     items[nodeid] = name
 
@@ -78,12 +94,14 @@ if PYVERSION > [1, 4, 0]:
 
     if report.skipped:
       messages.testIgnored(name)
-    elif report.failed:
-      messages.testFailed(name, details=report.longrepr)
+    elif report.failed: # Duration should be in ms, but report has s
+      messages.testFailed(name, details=report.longrepr, duration=int(report.duration * 1000))
     elif report.when == "call":
-      messages.testFinished(name)
+      messages.testFinished(name, duration=int(report.duration * 1000))
 
   def pytest_sessionfinish(session, exitstatus):
+    if not messages.number_of_tests and not current_suite and not current_file_suite:
+      messages.testError("ERROR", "No tests found")
     if current_suite:
       messages.testSuiteFinished(current_suite)
     if current_file_suite:
@@ -105,9 +123,9 @@ if PYVERSION > [1, 4, 0]:
           location, lineno, domain = rep.location
 
         messages.testSuiteStarted(name, location=fspath_to_url(location))
-        messages.testStarted("<noname>", location=fspath_to_url(location))
+        messages.testStarted("ERROR", location=fspath_to_url(location))
         TerminalReporter.summary_errors(self)
-        messages.testError("<noname>")
+        messages.testError("ERROR")
         messages.testSuiteFinished(name)
 
 else:
@@ -148,3 +166,13 @@ else:
     else:
       path = fspath_to_url(item.fspath)
     messages.testStarted(name, location=path)
+
+
+try:
+  @pytest.hookimpl(trylast=True)
+  def pytest_configure(config):
+    reporter = PycharmTestReporter(config, sys.stdout)
+    config.pluginmanager.unregister(name="terminalreporter")
+    config.pluginmanager.register(reporter, 'terminalreporter')
+except AttributeError as e:
+  sys.stderr.write("Unable to set hookimpl. Some errors may be ignored. Make sure you use PyTest 2.8.0+. Error was {0}".format(e))

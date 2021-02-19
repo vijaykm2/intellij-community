@@ -20,24 +20,29 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.command.undo.GlobalUndoableAction;
 import com.intellij.openapi.command.undo.UnexpectedUndoException;
 import com.intellij.openapi.project.Project;
+import com.intellij.tasks.TaskBundle;
 import com.intellij.tasks.actions.BaseTaskAction;
 import com.intellij.tasks.context.WorkingContextManager;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Dmitry Avdeev
  */
 public class ClearContextAction extends BaseTaskAction {
-  public void actionPerformed(final AnActionEvent e) {
+  @Override
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     final Project project = getProject(e);
     GlobalUndoableAction action = new GlobalUndoableAction() {
+      @Override
       public void undo() throws UnexpectedUndoException {
 
       }
 
+      @Override
       public void redo() throws UnexpectedUndoException {
         WorkingContextManager.getInstance(project).clearContext();
       }
     };
-    UndoableCommand.execute(project, action, "Clear context", "Context");
+    UndoableCommand.execute(project, action, TaskBundle.message("task.clear.context.action.name"), "Context");
   }
 }

@@ -15,6 +15,7 @@
  */
 package com.intellij.xdebugger.impl.breakpoints.ui.grouping;
 
+import com.intellij.xdebugger.XDebuggerBundle;
 import com.intellij.xdebugger.breakpoints.XBreakpoint;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointGroupingRule;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointsGroupingPriorities;
@@ -22,17 +23,10 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
 
-/**
- * Created with IntelliJ IDEA.
- * User: zajac
- * Date: 23.05.12
- * Time: 15:57
- * To change this template use File | Settings | File Templates.
- */
 public class XBreakpointGroupingByTypeRule<B> extends XBreakpointGroupingRule<B, XBreakpointTypeGroup> {
 
   public XBreakpointGroupingByTypeRule() {
-    super("XBreakpointGroupingByTypeRule", "Type");
+    super("XBreakpointGroupingByTypeRule", XDebuggerBundle.message("breakpoints.group.by.type.label"));
   }
 
   @Override
@@ -46,7 +40,7 @@ public class XBreakpointGroupingByTypeRule<B> extends XBreakpointGroupingRule<B,
   }
 
   @Override
-  public XBreakpointTypeGroup getGroup(@NotNull B b, @NotNull Collection<XBreakpointTypeGroup> groups) {
+  public XBreakpointTypeGroup getGroup(@NotNull B b, @NotNull Collection<? extends XBreakpointTypeGroup> groups) {
     if (b instanceof XBreakpoint) {
       final XBreakpoint breakpoint = (XBreakpoint)b;
       for (XBreakpointTypeGroup group : groups) {

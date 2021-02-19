@@ -1,28 +1,16 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service.project.manage;
 
 import com.intellij.execution.ProgramRunnerUtil;
 import com.intellij.execution.RunManager;
 import com.intellij.execution.RunnerAndConfigurationSettings;
 import com.intellij.execution.executors.DefaultRunExecutor;
-import com.intellij.openapi.actionSystem.ActionManager;
-import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.Presentation;
+import com.intellij.icons.AllIcons;
+import com.intellij.ide.DataManager;
+import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.extensions.ExtensionPointName;
+import com.intellij.openapi.externalSystem.ExternalSystemManager;
 import com.intellij.openapi.externalSystem.ExternalSystemUiAware;
 import com.intellij.openapi.externalSystem.action.ExternalSystemAction;
 import com.intellij.openapi.externalSystem.action.ExternalSystemActionUtil;
@@ -34,6 +22,7 @@ import com.intellij.openapi.externalSystem.model.project.ModuleData;
 import com.intellij.openapi.externalSystem.model.task.TaskData;
 import com.intellij.openapi.externalSystem.service.execution.AbstractExternalSystemTaskConfigurationType;
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemRunConfiguration;
+import com.intellij.openapi.externalSystem.service.ui.SelectExternalTaskDialog;
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.externalSystem.util.ExternalSystemBundle;
 import com.intellij.openapi.externalSystem.util.ExternalSystemUiUtil;
@@ -41,139 +30,242 @@ import com.intellij.openapi.externalSystem.util.ExternalSystemUtil;
 import com.intellij.openapi.keymap.KeymapExtension;
 import com.intellij.openapi.keymap.KeymapGroup;
 import com.intellij.openapi.keymap.KeymapGroupFactory;
+import com.intellij.openapi.keymap.impl.ui.*;
+import com.intellij.openapi.options.ex.Settings;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
-import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
-import gnu.trove.THashSet;
 import icons.ExternalSystemIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.util.Collection;
-import java.util.Map;
-import java.util.Set;
+import java.awt.event.MouseEvent;
+import java.util.*;
 
 /**
  * @author Vladislav.Soroka
- * @since 10/27/2014
  */
-public class ExternalSystemKeymapExtension implements KeymapExtension {
+public final class ExternalSystemKeymapExtension implements KeymapExtension {
+  @FunctionalInterface
+  public interface ActionsProvider {
+    ExtensionPointName<ActionsProvider> EP_NAME = ExtensionPointName.create("com.intellij.externalSystemKeymapProvider");
 
-  public KeymapGroup createGroup(Condition<AnAction> condition, Project project) {
+    KeymapGroup createGroup(Condition<? super AnAction> condition, final Project project);
+  }
+
+
+  @Override
+  public KeymapGroup createGroup(Condition<? super AnAction> condition, final Project project) {
     KeymapGroup result = KeymapGroupFactory.getInstance().createGroup(
-      ExternalSystemBundle.message("external.system.keymap.group"), ExternalSystemIcons.TaskGroup);
+      ExternalSystemBundle.message("external.system.keymap.group"), AllIcons.Nodes.ConfigFolder);
+
+    AnAction[] externalSystemActions = ActionsTreeUtil.getActions("ExternalSystem.Actions");
+    for (AnAction action : externalSystemActions) {
+      ActionsTreeUtil.addAction(result, action, condition);
+    }
+
     if (project == null) return result;
 
-    MultiMap<Pair<ProjectSystemId, String>, String> projectToActionsMapping = MultiMap.create();
+    MultiMap<ProjectSystemId, String> projectToActionsMapping = MultiMap.create();
+    for (ExternalSystemManager<?, ?, ?, ?, ?> manager : ExternalSystemApiUtil.getAllManagers()) {
+      projectToActionsMapping.putValues(manager.getSystemId(), ContainerUtil.emptyList());
+    }
 
     ActionManager actionManager = ActionManager.getInstance();
     if (actionManager != null) {
-      for (String eachId : actionManager.getActionIds(getActionPrefix(project, null))) {
+      for (String eachId : actionManager.getActionIdList(getActionPrefix(project, null))) {
         AnAction eachAction = actionManager.getAction(eachId);
 
         if (!(eachAction instanceof MyExternalSystemAction)) continue;
         if (condition != null && !condition.value(actionManager.getActionOrStub(eachId))) continue;
 
         MyExternalSystemAction taskAction = (MyExternalSystemAction)eachAction;
-        projectToActionsMapping.putValue(Pair.create(taskAction.getSystemId(), taskAction.getGroup()), eachId);
+        projectToActionsMapping.putValue(taskAction.getSystemId(), eachId);
       }
     }
 
-    Map<ProjectSystemId, KeymapGroup> keymapGroupMap = ContainerUtil.newHashMap();
-    for (Pair<ProjectSystemId, String> pair : projectToActionsMapping.keySet()) {
-      if (!keymapGroupMap.containsKey(pair.first)) {
-        final Icon projectIcon = ExternalSystemUiUtil.getUiAware(pair.first).getProjectIcon();
-        KeymapGroup group = KeymapGroupFactory.getInstance().createGroup(pair.first.getReadableName(), projectIcon);
-        result.addGroup(group);
-        keymapGroupMap.put(pair.first, group);
+    Map<ProjectSystemId, KeymapGroup> keymapGroupMap = new HashMap<>();
+    for (ProjectSystemId systemId : projectToActionsMapping.keySet()) {
+      if (!keymapGroupMap.containsKey(systemId)) {
+        final Icon projectIcon = ExternalSystemUiUtil.getUiAware(systemId).getProjectIcon();
+        KeymapGroup group = KeymapGroupFactory.getInstance().createGroup(systemId.getReadableName(), projectIcon);
+        keymapGroupMap.put(systemId, group);
       }
     }
 
-
-    for (Map.Entry<Pair<ProjectSystemId, String>, Collection<String>> each : projectToActionsMapping.entrySet()) {
-      String groupName = each.getKey().second;
+    for (Map.Entry<ProjectSystemId, Collection<String>> each : projectToActionsMapping.entrySet()) {
       Collection<String> tasks = each.getValue();
-      if (tasks.isEmpty()) continue;
-      KeymapGroup group = KeymapGroupFactory.getInstance().createGroup(groupName, ExternalSystemIcons.TaskGroup);
-
-      final KeymapGroup systemGroup = keymapGroupMap.get(each.getKey().first);
-      if (systemGroup != null) {
-        systemGroup.addGroup(group);
-      }
-      else {
-        result.addGroup(group);
-      }
+      final ProjectSystemId systemId = each.getKey();
+      final KeymapGroup systemGroup = keymapGroupMap.get(systemId);
+      if (systemGroup == null) continue;
       for (String actionId : tasks) {
-        group.addActionId(actionId);
+        systemGroup.addActionId(actionId);
+      }
+      if (systemGroup instanceof Group) {
+        Icon icon = AllIcons.General.Add;
+        ((Group)systemGroup).addHyperlink(new Hyperlink(icon, ExternalSystemBundle.message("link.label.choose.task.to.assign.shortcut")) {
+          @Override
+          public void onClick(MouseEvent e) {
+            SelectExternalTaskDialog dialog = new SelectExternalTaskDialog(systemId, project);
+            if (dialog.showAndGet() && dialog.getResult() != null) {
+              TaskData taskData = dialog.getResult().second;
+              String ownerModuleName = dialog.getResult().first;
+              ExternalSystemTaskAction externalSystemAction =
+                (ExternalSystemTaskAction)getOrRegisterAction(project, ownerModuleName, taskData);
+
+              ApplicationManager.getApplication().getMessageBus().syncPublisher(KeymapListener.CHANGE_TOPIC).processCurrentKeymapChanged();
+
+              Settings allSettings = Settings.KEY.getData(DataManager.getInstance().getDataContext(e.getComponent()));
+              KeymapPanel keymapPanel = allSettings != null ? allSettings.find(KeymapPanel.class) : null;
+              if (keymapPanel != null) {
+                // clear actions filter
+                keymapPanel.showOption("");
+                keymapPanel.selectAction(externalSystemAction.myId);
+              }
+            }
+          }
+        });
+      }
+    }
+
+    for (KeymapGroup keymapGroup : keymapGroupMap.values()) {
+      if (isGroupFiltered(condition, keymapGroup)) {
+        result.addGroup(keymapGroup);
+      }
+    }
+
+    for (ActionsProvider extension : ActionsProvider.EP_NAME.getExtensions()) {
+      KeymapGroup keymapGroup = extension.createGroup(condition, project);
+      if (isGroupFiltered(condition, keymapGroup)) {
+        result.addGroup(keymapGroup);
       }
     }
 
     return result;
   }
 
-  public static void updateActions(Project project, Collection<DataNode<TaskData>> taskData) {
+  public static void updateActions(Project project, @NotNull Collection<? extends DataNode<TaskData>> taskData) {
     clearActions(project, taskData);
     createActions(project, taskData);
   }
 
-  private static void createActions(Project project, Collection<DataNode<TaskData>> taskData) {
+  public static ExternalSystemAction getOrRegisterAction(Project project, String group, TaskData taskData) {
+    ExternalSystemTaskAction action = new ExternalSystemTaskAction(project, group, taskData);
     ActionManager manager = ActionManager.getInstance();
-    if (manager != null) {
-      for (DataNode<TaskData> each : taskData) {
+    AnAction anAction = manager.getAction(action.getId());
+    if (anAction instanceof ExternalSystemTaskAction && action.equals(anAction)) {
+      return (ExternalSystemAction)anAction;
+    }
+    manager.replaceAction(action.getId(), action);
+    return action;
+  }
+
+  private static boolean isGroupFiltered(Condition<? super AnAction> condition, KeymapGroup keymapGroup) {
+    final EmptyAction emptyAction = new EmptyAction();
+    if (condition != null && !condition.value(emptyAction) && keymapGroup instanceof Group) {
+      final Group group = (Group)keymapGroup;
+      return group.getSize() > 1 || condition.value(new EmptyAction(group.getName(), null, null));
+    }
+    return true;
+  }
+
+  private static void createActions(Project project, Collection<? extends DataNode<TaskData>> taskNodes) {
+    ActionManager actionManager = ActionManager.getInstance();
+    final ExternalSystemShortcutsManager shortcutsManager = ExternalProjectsManagerImpl.getInstance(project).getShortcutsManager();
+    if (actionManager != null) {
+      for (DataNode<TaskData> each : taskNodes) {
         final DataNode<ModuleData> moduleData = ExternalSystemApiUtil.findParent(each, ProjectKeys.MODULE);
-        if (moduleData == null) continue;
-        ExternalSystemTaskAction eachAction = new ExternalSystemTaskAction(project, moduleData.getData().getInternalName(), each.getData());
-
-        manager.unregisterAction(eachAction.getId());
-        manager.registerAction(eachAction.getId(), eachAction);
-      }
-    }
-  }
-
-  public static void clearActions(Project project) {
-    ActionManager manager = ActionManager.getInstance();
-    if (manager != null) {
-      for (String each : manager.getActionIds(getActionPrefix(project, null))) {
-        manager.unregisterAction(each);
-      }
-    }
-  }
-
-  public static void clearActions(Project project, Collection<DataNode<TaskData>> taskData) {
-    ActionManager manager = ActionManager.getInstance();
-    if (manager != null) {
-      for (DataNode<TaskData> each : taskData) {
-        for (String eachAction : manager.getActionIds(getActionPrefix(project, each.getData().getLinkedExternalProjectPath()))) {
-          manager.unregisterAction(eachAction);
+        if (moduleData == null || moduleData.isIgnored()) continue;
+        TaskData taskData = each.getData();
+        ExternalSystemTaskAction eachAction = new ExternalSystemTaskAction(project, moduleData.getData().getInternalName(), taskData);
+        if (shortcutsManager.hasShortcuts(taskData.getLinkedExternalProjectPath(), taskData.getName())) {
+          actionManager.replaceAction(eachAction.getId(), eachAction);
+        }
+        else {
+          actionManager.unregisterAction(eachAction.getId());
         }
       }
     }
   }
 
-  public static String getActionPrefix(@NotNull Project project, @Nullable String path) {
-    return ExternalProjectsManager.getInstance(project).getShortcutsManager().getActionId(path, null);
+  static void clearActions(@NotNull ExternalSystemShortcutsManager externalSystemShortcutsManager) {
+    ActionManager manager = ActionManager.getInstance();
+    if (manager != null) {
+      for (String each : manager.getActionIdList(getActionPrefix(externalSystemShortcutsManager, null))) {
+        manager.unregisterAction(each);
+      }
+    }
   }
 
-  public static void updateRunConfigurationActions(Project project, ProjectSystemId systemId) {
+  private static void clearActions(Project project, Collection<? extends DataNode<TaskData>> taskData) {
+    ActionManager actionManager = ActionManager.getInstance();
+    if (actionManager != null) {
+      Set<String> externalProjectPaths = new HashSet<>();
+      for (DataNode<TaskData> node : taskData) {
+        externalProjectPaths.add(node.getData().getLinkedExternalProjectPath());
+      }
+
+      for (String externalProjectPath : externalProjectPaths) {
+        for (String eachAction : actionManager.getActionIdList(getActionPrefix(project, externalProjectPath))) {
+          AnAction action = actionManager.getAction(eachAction);
+          if (!(action instanceof ExternalSystemRunConfigurationAction)) {
+            actionManager.unregisterAction(eachAction);
+          }
+        }
+      }
+    }
+  }
+
+  @NotNull
+  public static String getActionPrefix(@NotNull Project project, @Nullable String path) {
+    ExternalSystemShortcutsManager externalSystemShortcutsManager = ExternalProjectsManagerImpl.getInstance(project).getShortcutsManager();
+    return getActionPrefix(externalSystemShortcutsManager, path);
+  }
+
+  @NotNull
+  private static String getActionPrefix(@NotNull ExternalSystemShortcutsManager externalSystemShortcutsManager, @Nullable String path) {
+    return externalSystemShortcutsManager.getActionId(path, null);
+  }
+
+  static void updateRunConfigurationActions(Project project, ProjectSystemId systemId) {
     final AbstractExternalSystemTaskConfigurationType configurationType = ExternalSystemUtil.findConfigurationType(systemId);
     if (configurationType == null) return;
 
-    Set<RunnerAndConfigurationSettings> settings = new THashSet<RunnerAndConfigurationSettings>(
-      RunManager.getInstance(project).getConfigurationSettingsList(configurationType));
-
-    ActionManager manager = ActionManager.getInstance();
-    if (manager != null) {
-      for (RunnerAndConfigurationSettings configurationSettings : settings) {
-        ExternalSystemRunConfigurationAction runConfigurationAction =
-          new ExternalSystemRunConfigurationAction(project, configurationSettings);
-        String id = runConfigurationAction.getId();
-        manager.unregisterAction(id);
-        manager.registerAction(id, runConfigurationAction);
+    ActionManager actionManager = ActionManager.getInstance();
+    for (String eachAction : actionManager.getActionIdList(getActionPrefix(project, null))) {
+      AnAction action = actionManager.getAction(eachAction);
+      if (action instanceof ExternalSystemRunConfigurationAction) {
+        actionManager.unregisterAction(eachAction);
       }
     }
+
+    Set<RunnerAndConfigurationSettings> settings = new HashSet<>(
+      RunManager.getInstance(project).getConfigurationSettingsList(configurationType));
+
+    final ExternalSystemShortcutsManager shortcutsManager = ExternalProjectsManagerImpl.getInstance(project).getShortcutsManager();
+    for (RunnerAndConfigurationSettings configurationSettings : settings) {
+      ExternalSystemRunConfigurationAction runConfigurationAction =
+        new ExternalSystemRunConfigurationAction(project, configurationSettings);
+      String id = runConfigurationAction.getId();
+      if (shortcutsManager.hasShortcuts(id)) {
+        actionManager.replaceAction(id, runConfigurationAction);
+      }
+      else {
+        actionManager.unregisterAction(id);
+      }
+    }
+  }
+
+  public static ExternalSystemAction getOrRegisterAction(Project project, RunnerAndConfigurationSettings configurationSettings) {
+    ActionManager manager = ActionManager.getInstance();
+    ExternalSystemRunConfigurationAction runConfigurationAction =
+      new ExternalSystemRunConfigurationAction(project, configurationSettings);
+    String id = runConfigurationAction.getId();
+    manager.replaceAction(id, runConfigurationAction);
+    return runConfigurationAction;
   }
 
   private abstract static class MyExternalSystemAction extends ExternalSystemAction {
@@ -189,21 +281,23 @@ public class ExternalSystemKeymapExtension implements KeymapExtension {
     private final String myGroup;
     private final TaskData myTaskData;
 
-    public ExternalSystemTaskAction(Project project, String group, TaskData taskData) {
+    ExternalSystemTaskAction(Project project, @NlsSafe String group, TaskData taskData) {
       myGroup = group;
       myTaskData = taskData;
       myId = getActionPrefix(project, taskData.getLinkedExternalProjectPath()) + taskData.getName();
 
       Presentation template = getTemplatePresentation();
       template.setText(myTaskData.getName() + " (" + group + ")", false);
+      template.setDescription(ExternalSystemBundle.message("0.task.action", myTaskData.getOwner().getReadableName()));
       template.setIcon(ExternalSystemIcons.Task);
     }
 
     @Override
-    protected boolean isEnabled(AnActionEvent e) {
+    protected boolean isEnabled(@NotNull AnActionEvent e) {
       return hasProject(e);
     }
 
+    @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
       final ExternalTaskExecutionInfo taskExecutionInfo = ExternalSystemActionUtil.buildTaskInfo(myTaskData);
       ExternalSystemUtil.runTask(
@@ -214,6 +308,7 @@ public class ExternalSystemKeymapExtension implements KeymapExtension {
       return myTaskData;
     }
 
+    @Override
     public String toString() {
       return myTaskData.toString();
     }
@@ -232,6 +327,27 @@ public class ExternalSystemKeymapExtension implements KeymapExtension {
     public String getId() {
       return myId;
     }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (!(o instanceof ExternalSystemTaskAction)) return false;
+
+      ExternalSystemTaskAction action = (ExternalSystemTaskAction)o;
+
+      if (myId != null ? !myId.equals(action.myId) : action.myId != null) return false;
+      if (myGroup != null ? !myGroup.equals(action.myGroup) : action.myGroup != null) return false;
+      if (!myTaskData.equals(action.myTaskData)) return false;
+      return true;
+    }
+
+    @Override
+    public int hashCode() {
+      int result = myId != null ? myId.hashCode() : 0;
+      result = 31 * result + (myGroup != null ? myGroup.hashCode() : 0);
+      result = 31 * result + myTaskData.hashCode();
+      return result;
+    }
   }
 
   private static class ExternalSystemRunConfigurationAction extends MyExternalSystemAction {
@@ -240,7 +356,7 @@ public class ExternalSystemKeymapExtension implements KeymapExtension {
     private final RunnerAndConfigurationSettings myConfigurationSettings;
     private final ProjectSystemId systemId;
 
-    public ExternalSystemRunConfigurationAction(Project project, RunnerAndConfigurationSettings configurationSettings) {
+    ExternalSystemRunConfigurationAction(Project project, RunnerAndConfigurationSettings configurationSettings) {
       myConfigurationSettings = configurationSettings;
       ExternalSystemRunConfiguration runConfiguration = (ExternalSystemRunConfiguration)configurationSettings.getConfiguration();
       systemId = runConfiguration.getSettings().getExternalSystemId();
@@ -256,14 +372,16 @@ public class ExternalSystemKeymapExtension implements KeymapExtension {
     }
 
     @Override
-    protected boolean isEnabled(AnActionEvent e) {
+    protected boolean isEnabled(@NotNull AnActionEvent e) {
       return hasProject(e);
     }
 
+    @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
-      ProgramRunnerUtil.executeConfiguration(getProject(e), myConfigurationSettings, DefaultRunExecutor.getRunExecutorInstance());
+      ProgramRunnerUtil.executeConfiguration(myConfigurationSettings, DefaultRunExecutor.getRunExecutorInstance());
     }
 
+    @Override
     public String toString() {
       return myConfigurationSettings.toString();
     }
@@ -278,6 +396,7 @@ public class ExternalSystemKeymapExtension implements KeymapExtension {
       return systemId;
     }
 
+    @Override
     public String getId() {
       return myId;
     }

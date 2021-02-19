@@ -15,17 +15,16 @@
  */
 package com.siyeh.ig.classmetrics;
 
+import com.intellij.codeInspection.ui.InspectionOptionsPanel;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiMethod;
 import com.intellij.util.ui.CheckBox;
-import com.intellij.util.ui.GridBag;
-import com.intellij.util.ui.UIUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspectionVisitor;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import java.awt.*;
 
 public class ConstructorCountInspection extends ClassMetricInspection {
 
@@ -40,18 +39,12 @@ public class ConstructorCountInspection extends ClassMetricInspection {
   }
 
   @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("too.many.constructors.display.name");
-  }
-
-  @Override
   protected int getDefaultLimit() {
     return CONSTRUCTOR_COUNT_LIMIT;
   }
 
   @Override
-  protected String getConfigurationLabel() {
+  protected @Nls String getConfigurationLabel() {
     return InspectionGadgetsBundle.message("too.many.constructors.count.limit.option");
   }
 
@@ -62,13 +55,9 @@ public class ConstructorCountInspection extends ClassMetricInspection {
     final CheckBox includeCheckBox =
       new CheckBox(InspectionGadgetsBundle.message("too.many.constructors.ignore.deprecated.option"), this, "ignoreDeprecatedConstructors");
 
-    final GridBag bag = new GridBag();
-    bag.setDefaultInsets(0, 0, 0, UIUtil.DEFAULT_HGAP);
-    bag.setDefaultAnchor(GridBagConstraints.WEST);
-    final JPanel panel = new JPanel(new GridBagLayout());
-    panel.add(label, bag.nextLine().next());
-    panel.add(valueField, bag.next().weightx(1.0));
-    panel.add(includeCheckBox, bag.nextLine().next().coverLine().weighty(1.0).anchor(GridBagConstraints.NORTHWEST));
+    final InspectionOptionsPanel panel = new InspectionOptionsPanel();
+    panel.row(label, valueField);
+    panel.add(includeCheckBox);
     return panel;
   }
 

@@ -18,12 +18,13 @@ package org.intellij.lang.xpath.xslt.quickfix;
 import com.intellij.codeInsight.CodeInsightUtilCore;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
-import com.intellij.openapi.fileEditor.FileEditorManager;
-import com.intellij.openapi.fileEditor.OpenFileDescriptor;
+import com.intellij.ide.util.PsiNavigationSupport;
 import com.intellij.openapi.project.Project;
+import com.intellij.pom.Navigatable;
 import com.intellij.psi.xml.XmlTag;
 import org.intellij.lang.xpath.xslt.XsltSupport;
 import org.intellij.lang.xpath.xslt.util.XsltCodeInsightUtil;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NotNull;
 
 public class CreateTemplateFix implements LocalQuickFix {
@@ -41,13 +42,13 @@ public class CreateTemplateFix implements LocalQuickFix {
   @NotNull
   @Override
   public String getName() {
-    return "Create Template '" + myName + "'";
+    return XPathBundle.message("intention.name.create.template", myName);
   }
 
   @NotNull
   @Override
   public String getFamilyName() {
-    return "Create Template";
+    return XPathBundle.message("intention.family.name.create.template");
   }
 
   @Override
@@ -80,8 +81,12 @@ public class CreateTemplateFix implements LocalQuickFix {
 
     XmlTag newTemplateTag = CodeInsightUtilCore.forcePsiPostprocessAndRestoreElement(templateTag);
 
-    OpenFileDescriptor openFileDescriptor = new OpenFileDescriptor(project, myTag.getContainingFile().getVirtualFile(),
-                                                                   newTemplateTag.getTextRange().getStartOffset());
-    FileEditorManager.getInstance(project).openTextEditor(openFileDescriptor, true);
+    Navigatable openFileDescriptor = PsiNavigationSupport.getInstance().createNavigatable(project,
+                                                                                          myTag.getContainingFile()
+                                                                                               .getVirtualFile(),
+                                                                                          newTemplateTag
+                                                                                            .getTextRange()
+                                                                                            .getStartOffset());
+    openFileDescriptor.navigate(true);
   }
 }

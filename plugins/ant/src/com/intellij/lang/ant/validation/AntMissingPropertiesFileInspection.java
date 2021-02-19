@@ -33,18 +33,14 @@ public class AntMissingPropertiesFileInspection extends AntInspection {
 
   @NonNls private static final String SHORT_NAME = "AntMissingPropertiesFileInspection";
 
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return AntBundle.message("ant.missing.properties.file.inspection");
-  }
-
+  @Override
   @NonNls
   @NotNull
   public String getShortName() {
     return SHORT_NAME;
   }
 
+  @Override
   protected void checkDomElement(DomElement element, DomElementAnnotationHolder holder, DomHighlightingHelper helper) {
     if (element instanceof AntDomProperty) {
       final AntDomProperty property = (AntDomProperty)element;

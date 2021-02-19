@@ -15,23 +15,29 @@
  */
 package com.intellij.diff.tools.util.base;
 
+import com.intellij.diff.comparison.InnerFragmentsPolicy;
+import com.intellij.openapi.diff.DiffBundle;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.PropertyKey;
 
 public enum HighlightPolicy {
-  DO_NOT_HIGHLIGHT("Do not highlight"),
-  BY_LINE("Highlight lines"),
-  BY_WORD("Highlight words"),
-  BY_WORD_SPLIT("Highlight split changes");
+  BY_LINE("option.highlighting.policy.lines"),
+  BY_WORD("option.highlighting.policy.words"),
+  BY_WORD_SPLIT("option.highlighting.policy.split"),
+  BY_CHAR("option.highlighting.policy.symbols"),
+  DO_NOT_HIGHLIGHT("option.highlighting.policy.none");
 
-  @NotNull private final String myText;
+  @NotNull private final String myTextKey;
 
-  HighlightPolicy(@NotNull String text) {
-    myText = text;
+  HighlightPolicy(@NotNull @PropertyKey(resourceBundle = DiffBundle.BUNDLE) String textKey) {
+    myTextKey = textKey;
   }
 
+  @Nls
   @NotNull
   public String getText() {
-    return myText;
+    return DiffBundle.message(myTextKey);
   }
 
   public boolean isShouldCompare() {
@@ -39,10 +45,26 @@ public enum HighlightPolicy {
   }
 
   public boolean isFineFragments() {
-    return this == BY_WORD || this == BY_WORD_SPLIT;
+    return getFragmentsPolicy() != InnerFragmentsPolicy.NONE;
   }
 
   public boolean isShouldSquash() {
-    return this == BY_WORD || this == BY_LINE;
+    return this != BY_WORD_SPLIT;
+  }
+
+  @NotNull
+  public InnerFragmentsPolicy getFragmentsPolicy() {
+    switch (this) {
+      case BY_WORD:
+      case BY_WORD_SPLIT:
+        return InnerFragmentsPolicy.WORDS;
+      case BY_CHAR:
+        return InnerFragmentsPolicy.CHARS;
+      case BY_LINE:
+      case DO_NOT_HIGHLIGHT:
+        return InnerFragmentsPolicy.NONE;
+      default:
+        throw new IllegalArgumentException(this.name());
+    }
   }
 }

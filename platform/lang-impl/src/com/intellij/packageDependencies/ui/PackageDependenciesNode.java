@@ -1,26 +1,11 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.packageDependencies.ui;
 
-import com.intellij.analysis.AnalysisScopeBundle;
-import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.fileEditor.FileEditorManager;
-import com.intellij.openapi.fileEditor.OpenFileDescriptor;
+import com.intellij.codeInsight.CodeInsightBundle;
+import com.intellij.codeInsight.navigation.NavigationUtil;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiElement;
@@ -30,6 +15,7 @@ import com.intellij.ui.Gray;
 import com.intellij.util.IconUtil;
 import com.intellij.util.ui.EmptyIcon;
 import com.intellij.util.ui.tree.TreeUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,11 +23,12 @@ import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.MutableTreeNode;
 import java.awt.*;
-import java.util.*;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 public class PackageDependenciesNode extends DefaultMutableTreeNode implements Navigatable{
-  private static final EmptyIcon EMPTY_ICON = new EmptyIcon(0, IconUtil.getEmptyIcon(false).getIconHeight());
+  private static final EmptyIcon EMPTY_ICON = EmptyIcon.create(0, IconUtil.getEmptyIcon(false).getIconHeight());
 
   private Set<VirtualFile> myRegisteredFiles = null;
   private boolean myHasUnmarked = false;
@@ -64,7 +51,7 @@ public class PackageDependenciesNode extends DefaultMutableTreeNode implements N
     return myEquals;
   }
 
-  public void fillFiles(Set<PsiFile> set, boolean recursively) {
+  public void fillFiles(Set<? super PsiFile> set, boolean recursively) {
     final PsiManager psiManager = PsiManager.getInstance(myProject);
     for (VirtualFile vFile : getRegisteredFiles()) {
       final PsiFile psiFile = psiManager.findFile(vFile);
@@ -117,9 +104,9 @@ public class PackageDependenciesNode extends DefaultMutableTreeNode implements N
     return result;
   }
 
-  public String getPresentableFilesCount(){
+  public @Nls String getPresentableFilesCount(){
     final int filesCount = getContainingFiles();
-    return filesCount > 0 ? " (" + AnalysisScopeBundle.message("package.dependencies.node.items.count", filesCount) + ")" : "";
+    return filesCount > 0 ? " (" + CodeInsightBundle.message("package.dependencies.node.items.count", filesCount) + ")" : "";
   }
 
   @Override
@@ -144,50 +131,26 @@ public class PackageDependenciesNode extends DefaultMutableTreeNode implements N
   @Override
   public void navigate(boolean focus) {
     if (canNavigate()) {
-      openTextEditor(focus);
+      PsiElement psiElement = getPsiElement();
+      if (psiElement != null) {
+        NavigationUtil.openFileWithPsiElement(psiElement, focus, focus);
+      }
     }
-  }
-
-  @Nullable
-  private Editor openTextEditor(boolean focus) {
-    final OpenFileDescriptor descriptor = getDescriptor();
-    if (descriptor != null) {
-      return FileEditorManager.getInstance(getProject()).openTextEditor(descriptor, focus);
-    }
-    return null;
   }
 
   @Override
   public boolean canNavigate() {
-    if (getProject() == null) return false;
     final PsiElement psiElement = getPsiElement();
     if (psiElement == null) return false;
-    final VirtualFile virtualFile = psiElement.getContainingFile().getVirtualFile();
+    PsiFile containingFile = psiElement.getContainingFile();
+    if (containingFile == null) return false;
+    final VirtualFile virtualFile = containingFile.getVirtualFile();
     return virtualFile != null && virtualFile.isValid();
   }
 
   @Override
   public boolean canNavigateToSource() {
     return canNavigate();
-  }
-
-  @Nullable
-  private Project getProject(){
-    final PsiElement psiElement = getPsiElement();
-    if (psiElement == null || psiElement.getContainingFile() == null){
-      return null;
-    }
-    return psiElement.getContainingFile().getProject();
-  }
-
-  @Nullable
-  private OpenFileDescriptor getDescriptor() {
-    if (getProject() == null) return null;
-    final PsiElement psiElement = getPsiElement();
-    if (psiElement == null) return null;
-    final VirtualFile virtualFile = psiElement.getContainingFile().getVirtualFile();
-    if (virtualFile == null || !virtualFile.isValid()) return null;
-    return new OpenFileDescriptor(getProject(), virtualFile, psiElement.getTextOffset());
   }
 
   @Override
@@ -201,13 +164,13 @@ public class PackageDependenciesNode extends DefaultMutableTreeNode implements N
 
   public Set<VirtualFile> getRegisteredFiles() {
     if (myRegisteredFiles == null) {
-      myRegisteredFiles = new HashSet<VirtualFile>();
+      myRegisteredFiles = new HashSet<>();
     }
     return myRegisteredFiles;
   }
 
   @Nullable
-  public String getComment() {
+  public @NlsSafe String getComment() {
     return null;
   }
 
@@ -219,16 +182,20 @@ public class PackageDependenciesNode extends DefaultMutableTreeNode implements N
     return mySorted;
   }
 
+  @NlsSafe
+  @Override
+  public String toString() {
+    @NlsSafe String presentableName = super.toString();
+    return presentableName;
+  }
+
   public void setSorted(boolean sorted) {
     mySorted = sorted;
   }
 
   public void sortChildren() {
     if (isSorted()) return;
-    final List children = TreeUtil.childrenToArray(this);
-    Collections.sort(children, new DependencyNodeComparator());
-    removeAllChildren();
-    TreeUtil.addChildrenTo(this, children);
+    TreeUtil.sortChildren(this, new DependencyNodeComparator());
     setSorted(true);
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,8 @@
 
 package org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef;
 
-import com.intellij.psi.NavigatablePsiElement;
 import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiClassType;
 import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiMethod;
 import com.intellij.util.ArrayFactory;
@@ -25,30 +25,51 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.groovydoc.psi.api.GrDocCommentOwner;
+import org.jetbrains.plugins.groovy.lang.psi.GrNamedElement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrClassInitializer;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrField;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrTopLevelDefinition;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMember;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMembersDeclaration;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
 import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.GrTopStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrTypeParameterList;
 
-/**
- * @autor: Dmitry.Krasilschikov
- * @date: 18.03.2007
- */
-public interface GrTypeDefinition
-  extends GrTopStatement, NavigatablePsiElement, PsiClass, GrTopLevelDefinition, GrDocCommentOwner, GrMember {
+public interface GrTypeDefinition extends PsiClass, GrDocCommentOwner, GrMember, GrNamedElement, GrTopStatement {
 
   GrTypeDefinition[] EMPTY_ARRAY = new GrTypeDefinition[0];
-  ArrayFactory<GrTypeDefinition> ARRAY_FACTORY = new ArrayFactory<GrTypeDefinition>() {
-    @NotNull
-    @Override
-    public GrTypeDefinition[] create(int count) {
-      return new GrTypeDefinition[count];
-    }
-  };
+  ArrayFactory<GrTypeDefinition> ARRAY_FACTORY = count -> count == 0 ? EMPTY_ARRAY : new GrTypeDefinition[count];
+
+  @Override
+  default PsiClassType @NotNull [] getImplementsListTypes() {
+    return getImplementsListTypes(true);
+  }
+
+  @Override
+  default PsiClassType @NotNull [] getExtendsListTypes() {
+    return getExtendsListTypes(true);
+  }
+
+  @Override
+  default PsiClass @NotNull [] getSupers() {
+    return getSupers(true);
+  }
+
+  @Override
+  default PsiClassType @NotNull [] getSuperTypes() {
+    return getSuperTypes(true);
+  }
+
+  PsiClassType @NotNull [] getImplementsListTypes(boolean includeSynthetic);
+
+  PsiClassType @NotNull [] getExtendsListTypes(boolean includeSynthetic);
+
+  PsiClass @NotNull [] getSupers(boolean includeSynthetic);
+
+  PsiClassType @NotNull [] getSuperTypes(boolean includeSynthetic);
+
+  default GrTypeDefinition @NotNull [] getCodeInnerClasses() {
+    return EMPTY_ARRAY;
+  }
 
   boolean isTrait();
 
@@ -56,24 +77,19 @@ public interface GrTypeDefinition
   GrTypeDefinitionBody getBody();
 
   @Override
-  @NotNull
-  GrField[] getFields();
+  GrField @NotNull [] getFields();
 
-  @NotNull
-  GrField[] getCodeFields();
+  GrField @NotNull [] getCodeFields();
 
-  @NotNull
-  GrMethod[] getCodeConstructors();
+  GrMethod @NotNull [] getCodeConstructors();
 
   @Nullable
   PsiField findCodeFieldByName(String name, boolean checkBases);
 
   @Override
-  @NotNull
-  GrClassInitializer[] getInitializers();
+  GrClassInitializer @NotNull [] getInitializers();
 
-  @NotNull
-  GrMembersDeclaration[] getMemberDeclarations();
+  GrMembersDeclaration @NotNull [] getMemberDeclarations();
 
   @Override
   @Nullable
@@ -85,16 +101,11 @@ public interface GrTypeDefinition
   @Nullable
   GrImplementsClause getImplementsClause();
 
-  String[] getSuperClassNames();
+  GrMethod @NotNull [] getCodeMethods();
 
-  @NotNull
-  GrMethod[] getCodeMethods();
+  PsiMethod @NotNull [] findCodeMethodsByName(@NonNls String name, boolean checkBases);
 
-  @NotNull
-  PsiMethod[] findCodeMethodsByName(@NonNls String name, boolean checkBases);
-
-  @NotNull
-  PsiMethod[] findCodeMethodsBySignature(PsiMethod patternMethod, boolean checkBases);
+  PsiMethod @NotNull [] findCodeMethodsBySignature(PsiMethod patternMethod, boolean checkBases);
 
   boolean isAnonymous();
 

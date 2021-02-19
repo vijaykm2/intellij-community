@@ -15,6 +15,8 @@
  */
 package com.intellij.codeInspection;
 
+import com.intellij.application.options.CodeStyle;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorSettings;
@@ -28,7 +30,6 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import org.jetbrains.annotations.NotNull;
 
@@ -41,14 +42,13 @@ public class ProblematicWhitespaceInspection extends LocalInspectionTool {
 
     @NotNull
     @Override
-    public String getName() {
-      return InspectionsBundle.message("problematic.whitespace.show.whitespaces.quickfix");
+    public String getFamilyName() {
+      return LangBundle.message("problematic.whitespace.show.whitespaces.quickfix");
     }
 
-    @NotNull
     @Override
-    public String getFamilyName() {
-      return getName();
+    public boolean startInWriteAction() {
+      return false;
     }
 
     @Override
@@ -75,19 +75,19 @@ public class ProblematicWhitespaceInspection extends LocalInspectionTool {
     private final ProblemsHolder myHolder;
     private final boolean myIsOnTheFly;
 
-    public ProblematicWhitespaceVisitor(ProblemsHolder holder, boolean isOnTheFly) {
+    ProblematicWhitespaceVisitor(ProblemsHolder holder, boolean isOnTheFly) {
       myHolder = holder;
       myIsOnTheFly = isOnTheFly;
     }
 
     @Override
-    public void visitFile(PsiFile file) {
+    public void visitFile(@NotNull PsiFile file) {
       super.visitFile(file);
       final FileType fileType = file.getFileType();
       if (!(fileType instanceof LanguageFileType)) {
         return;
       }
-      final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(file.getProject());
+      final CodeStyleSettings settings = CodeStyle.getSettings(file);
       final CommonCodeStyleSettings.IndentOptions indentOptions = settings.getIndentOptions(fileType);
       final boolean useTabs = indentOptions.USE_TAB_CHARACTER;
       final boolean smartTabs = indentOptions.SMART_TABS;
@@ -126,20 +126,19 @@ public class ProblematicWhitespaceInspection extends LocalInspectionTool {
                 }
               }
               else if (!spaceSeen) {
-                final int currentIndent = Math.max(0, j);
-                if (currentIndent < previousLineIndent) {
+                if (j < previousLineIndent) {
                   if (registerError(file, startOffset, true)) {
                     return;
                   }
                 }
-                previousLineIndent = currentIndent;
+                previousLineIndent = j;
               }
             }
             spaceSeen = true;
           }
           else {
             if (!spaceSeen) {
-              previousLineIndent = Math.max(0, j);
+              previousLineIndent = j;
             }
             break;
           }
@@ -153,8 +152,8 @@ public class ProblematicWhitespaceInspection extends LocalInspectionTool {
         return false;
       }
       final String description = tab
-                                 ? InspectionsBundle.message("problematic.whitespace.spaces.problem.descriptor", file.getName())
-                                 : InspectionsBundle.message("problematic.whitespace.tabs.problem.descriptor", file.getName());
+                                 ? LangBundle.message("problematic.whitespace.spaces.problem.descriptor", file.getName())
+                                 : LangBundle.message("problematic.whitespace.tabs.problem.descriptor", file.getName());
       if (myIsOnTheFly) {
         myHolder.registerProblem(file, description, ProblemHighlightType.GENERIC_ERROR_OR_WARNING, new ShowWhitespaceFix());
       }

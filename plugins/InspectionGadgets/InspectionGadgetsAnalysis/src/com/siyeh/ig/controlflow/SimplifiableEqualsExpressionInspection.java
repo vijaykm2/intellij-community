@@ -15,7 +15,12 @@
  */
 package com.siyeh.ig.controlflow;
 
+import com.intellij.codeInspection.CleanupLocalInspectionTool;
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.dataFlow.CommonDataflow;
+import com.intellij.codeInspection.dataFlow.types.DfTypes;
+import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
@@ -28,16 +33,22 @@ import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
-import org.jetbrains.annotations.Nls;
+import com.siyeh.ig.psiutils.SideEffectChecker;
+import com.siyeh.ig.psiutils.VariableAccessUtils;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-public class SimplifiableEqualsExpressionInspection extends BaseInspection {
-  @Nls
-  @NotNull
+import javax.swing.*;
+
+public class SimplifiableEqualsExpressionInspection extends BaseInspection implements CleanupLocalInspectionTool {
+  public boolean REPORT_NON_CONSTANT = true;
+
+  @Nullable
   @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("simplifiable.equals.expression.display.name");
+  public JComponent createOptionsPanel() {
+    return new SingleCheckboxOptionsPanel(InspectionGadgetsBundle.message("simplifiable.equals.expression.option.non.constant"), this,
+                                          "REPORT_NON_CONSTANT");
   }
 
   @NotNull
@@ -55,7 +66,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection {
 
     private final String myMethodName;
 
-    public SimplifiableEqualsExpressionFix(String methodName) {
+    SimplifiableEqualsExpressionFix(String methodName) {
       myMethodName = methodName;
     }
 
@@ -68,7 +79,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection {
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Simplify";
+      return CommonQuickFixBundle.message("fix.simplify");
     }
 
     @Override
@@ -83,7 +94,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection {
       if (operands.length != 2) {
         return;
       }
-      PsiExpression operand = ParenthesesUtils.stripParentheses(operands[1]);
+      PsiExpression operand = PsiUtil.skipParenthesizedExprDown(operands[1]);
       @NonNls final StringBuilder newExpressionText = new StringBuilder();
       if (operand instanceof PsiPrefixExpression) {
         final PsiPrefixExpression prefixExpression = (PsiPrefixExpression)operand;
@@ -91,7 +102,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection {
           return;
         }
         newExpressionText.append('!');
-        operand = ParenthesesUtils.stripParentheses(prefixExpression.getOperand());
+        operand = PsiUtil.skipParenthesizedExprDown(prefixExpression.getOperand());
       }
       if (!(operand instanceof PsiMethodCallExpression)) {
         return;
@@ -153,7 +164,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection {
     return new SimplifiableEqualsExpressionVisitor();
   }
 
-  private static class SimplifiableEqualsExpressionVisitor extends BaseInspectionVisitor {
+  private class SimplifiableEqualsExpressionVisitor extends BaseInspectionVisitor {
 
     @Override
     public void visitPolyadicExpression(PsiPolyadicExpression expression) {
@@ -169,7 +180,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection {
         if (variable == null) {
           return;
         }
-        final PsiExpression rhs = ParenthesesUtils.stripParentheses(operands[1]);
+        final PsiExpression rhs = PsiUtil.skipParenthesizedExprDown(operands[1]);
         if (!isEqualsConstant(rhs, variable)) {
           return;
         }
@@ -185,7 +196,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection {
         if (variable == null) {
           return;
         }
-        final PsiExpression rhs = ParenthesesUtils.stripParentheses(operands[1]);
+        final PsiExpression rhs = PsiUtil.skipParenthesizedExprDown(operands[1]);
         if (!(rhs instanceof PsiPrefixExpression)) {
           return;
         }
@@ -193,7 +204,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection {
         if (!JavaTokenType.EXCL.equals(prefixExpression.getOperationTokenType())) {
           return;
         }
-        final PsiExpression operand = ParenthesesUtils.stripParentheses(prefixExpression.getOperand());
+        final PsiExpression operand = PsiUtil.skipParenthesizedExprDown(prefixExpression.getOperand());
         if (!isEqualsConstant(operand, variable)) {
           return;
         }
@@ -201,12 +212,12 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection {
       }
     }
 
-    private static String getMethodName(PsiMethodCallExpression methodCallExpression) {
+    private String getMethodName(PsiMethodCallExpression methodCallExpression) {
       final PsiReferenceExpression methodExpression = methodCallExpression.getMethodExpression();
       return methodExpression.getReferenceName();
     }
 
-    private static boolean isEqualsConstant(PsiExpression expression, PsiVariable variable) {
+    private boolean isEqualsConstant(PsiExpression expression, PsiVariable variable) {
       if (!(expression instanceof PsiMethodCallExpression)) {
         return false;
       }
@@ -216,13 +227,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection {
       if (!HardcodedMethodConstants.EQUALS.equals(methodName) && !HardcodedMethodConstants.EQUALS_IGNORE_CASE.equals(methodName)) {
         return false;
       }
-      final PsiExpression qualifier = methodExpression.getQualifierExpression();
-      if (!(qualifier instanceof PsiReferenceExpression)) {
-        return false;
-      }
-      final PsiReferenceExpression referenceExpression = (PsiReferenceExpression)qualifier;
-      final PsiElement target = referenceExpression.resolve();
-      if (!variable.equals(target)) {
+      if (!ExpressionUtils.isReferenceTo(methodExpression.getQualifierExpression(), variable)) {
         return false;
       }
       final PsiExpressionList argumentList = methodCallExpression.getArgumentList();
@@ -231,7 +236,11 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection {
         return false;
       }
       final PsiExpression argument = arguments[0];
-      return PsiUtil.isConstantExpression(argument);
+      if (PsiUtil.isConstantExpression(argument)) return true;
+      return REPORT_NON_CONSTANT &&
+             !VariableAccessUtils.variableIsUsed(variable, argument) &&
+             !SideEffectChecker.mayHaveSideEffects(argument) &&
+             !CommonDataflow.getDfType(argument).isSuperType(DfTypes.NULL);
     }
   }
 }

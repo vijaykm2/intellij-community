@@ -12,18 +12,21 @@
 // limitations under the License.
 package org.zmlx.hg4idea;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.vcsUtil.VcsUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.zmlx.hg4idea.util.HgUtil;
 
 import java.io.File;
+import java.util.Objects;
 
 public class HgFile {
 
@@ -54,6 +57,7 @@ public class HgFile {
     return file;
   }
 
+  @NlsSafe
   @Nullable
   public String getRelativePath() {
     if (relativePath == null) {
@@ -91,12 +95,13 @@ public class HgFile {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(vcsRoot, file);
+    return Objects.hash(vcsRoot, file);
   }
 
+  @NonNls
   @Override
   public String toString() {
-    return Objects.toStringHelper(HgFile.class)
+    return MoreObjects.toStringHelper(HgFile.class)
       .add("repo", vcsRoot)
       .add("file", file)
       .add("relativePath", getRelativePath())

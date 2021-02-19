@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.actions;
 
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
-import com.intellij.ide.util.gotoByName.ChooseByNameBase;
 import com.intellij.lang.Language;
 import com.intellij.openapi.fileTypes.LanguageFileType;
 import com.intellij.openapi.fileTypes.UnknownFileType;
@@ -41,16 +26,14 @@ import java.util.List;
 /**
 * @author Konstantin Bulenkov
 */
-@SuppressWarnings({"GtkPreferredJComboBoxRenderer"})
-public class InspectionListCellRenderer extends DefaultListCellRenderer implements MatcherHolder {
-  private Matcher myMatcher;
+public class InspectionListCellRenderer extends DefaultListCellRenderer {
   private final SimpleTextAttributes mySelected;
   private final SimpleTextAttributes myPlain;
   private final SimpleTextAttributes myHighlighted;
 
   public InspectionListCellRenderer() {
-    mySelected = new SimpleTextAttributes(UIUtil.getListSelectionBackground(),
-                                          UIUtil.getListSelectionForeground(),
+    mySelected = new SimpleTextAttributes(UIUtil.getListSelectionBackground(true),
+                                          UIUtil.getListSelectionForeground(true),
                                           JBColor.RED,
                                           SimpleTextAttributes.STYLE_PLAIN);
     myPlain = new SimpleTextAttributes(UIUtil.getListBackground(),
@@ -71,18 +54,18 @@ public class InspectionListCellRenderer extends DefaultListCellRenderer implemen
     final JPanel panel = new JPanel(layout);
     panel.setOpaque(true);
 
-    final Color bg = sel ? UIUtil.getListSelectionBackground() : UIUtil.getListBackground();
-    final Color fg = sel ? UIUtil.getListSelectionForeground() : UIUtil.getListForeground();
+    final Color bg = sel ? UIUtil.getListSelectionBackground(true) : UIUtil.getListBackground();
+    final Color fg = sel ? UIUtil.getListSelectionForeground(true) : UIUtil.getListForeground();
     panel.setBackground(bg);
     panel.setForeground(fg);
-
-    if (value instanceof InspectionToolWrapper) {
-      final InspectionToolWrapper toolWrapper = (InspectionToolWrapper)value;
+    if (value instanceof InspectionElement) {
+      final InspectionToolWrapper toolWrapper = ((InspectionElement)value).getToolWrapper();
       final String inspectionName = "  " + toolWrapper.getDisplayName();
       final String groupName = StringUtil.join(toolWrapper.getGroupPath(), " | ");
       final String matchingText = inspectionName + "|" + groupName;
-      List<TextRange> fragments = ((MinusculeMatcher)myMatcher).matchingFragments(matchingText);
-      List<TextRange> adjustedFragments = new ArrayList<TextRange>();
+      Matcher matcher = MatcherHolder.getAssociatedMatcher(list);
+      List<TextRange> fragments = matcher == null ? null : ((MinusculeMatcher)matcher).matchingFragments(matchingText);
+      List<TextRange> adjustedFragments = new ArrayList<>();
       if (fragments != null) {
         adjustedFragments.addAll(fragments);
       }
@@ -119,8 +102,7 @@ public class InspectionListCellRenderer extends DefaultListCellRenderer implemen
     }
     else {
       // E.g. "..." item
-      return value == ChooseByNameBase.NON_PREFIX_SEPARATOR ? ChooseByNameBase.renderNonPrefixSeparatorComponent(UIUtil.getListBackground()) :
-             super.getListCellRendererComponent(list, value, index, sel, focus);
+      return super.getListCellRendererComponent(list, value, index, sel, focus);
     }
 
     return panel;
@@ -158,8 +140,4 @@ public class InspectionListCellRenderer extends DefaultListCellRenderer implemen
     return icon;
   }
 
-  @Override
-  public void setPatternMatcher(Matcher matcher) {
-    myMatcher = matcher;
-  }
 }

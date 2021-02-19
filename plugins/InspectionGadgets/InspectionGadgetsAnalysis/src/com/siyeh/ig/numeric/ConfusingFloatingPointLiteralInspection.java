@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2013 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,9 @@
 package com.siyeh.ig.numeric;
 
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiExpression;
 import com.intellij.psi.PsiLiteralExpression;
@@ -26,22 +28,36 @@ import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
+import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
+
 public class ConfusingFloatingPointLiteralInspection extends BaseInspection {
 
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("confusing.floating.point.literal.display.name");
-  }
+  @SuppressWarnings("PublicField")
+  public boolean ignoreScientificNotation = false;
 
   @Override
   @NotNull
   protected String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message("confusing.floating.point.literal.problem.descriptor");
+  }
+
+  @Nullable
+  @Override
+  public JComponent createOptionsPanel() {
+    return new SingleCheckboxOptionsPanel(InspectionGadgetsBundle.message("confusing.floating.point.literal.option"), this,
+                                          "ignoreScientificNotation");
+  }
+
+  @Override
+  public void writeSettings(@NotNull Element node) throws WriteExternalException {
+    if (ignoreScientificNotation) {
+      node.addContent(new Element("option").setAttribute("name", "ignoreScientificNotation").setAttribute("value", "true"));
+    }
   }
 
   @Override
@@ -54,12 +70,6 @@ public class ConfusingFloatingPointLiteralInspection extends BaseInspection {
     @Override
     @NotNull
     public String getFamilyName() {
-      return getName();
-    }
-
-    @Override
-    @NotNull
-    public String getName() {
       return InspectionGadgetsBundle.message("confusing.floating.point.literal.change.quickfix");
     }
 
@@ -73,27 +83,27 @@ public class ConfusingFloatingPointLiteralInspection extends BaseInspection {
 
     private static String getCanonicalForm(@NonNls String text) {
       final boolean isHexadecimal = text.startsWith("0x") || text.startsWith("0X");
-      int breakPoint = text.indexOf((int)'e');
+      int breakPoint = text.indexOf('e');
       if (breakPoint < 0) {
-        breakPoint = text.indexOf((int)'E');
+        breakPoint = text.indexOf('E');
       }
       if (breakPoint < 0) {
-        breakPoint = text.indexOf((int)'f');
+        breakPoint = text.indexOf('f');
       }
       if (breakPoint < 0) {
-        breakPoint = text.indexOf((int)'F');
+        breakPoint = text.indexOf('F');
       }
       if (breakPoint < 0) {
-        breakPoint = text.indexOf((int)'p');
+        breakPoint = text.indexOf('p');
       }
       if (breakPoint < 0) {
-        breakPoint = text.indexOf((int)'P');
+        breakPoint = text.indexOf('P');
       }
       if (breakPoint < 0) {
-        breakPoint = text.indexOf((int)'d');
+        breakPoint = text.indexOf('d');
       }
       if (breakPoint < 0) {
-        breakPoint = text.indexOf((int)'D');
+        breakPoint = text.indexOf('D');
       }
       final String suffix;
       final String prefix;
@@ -105,7 +115,7 @@ public class ConfusingFloatingPointLiteralInspection extends BaseInspection {
         suffix = text.substring(breakPoint);
         prefix = text.substring(0, breakPoint);
       }
-      final int indexPoint = prefix.indexOf((int)'.');
+      final int indexPoint = prefix.indexOf('.');
       if (indexPoint < 0) {
         return prefix + ".0" + suffix;
       }
@@ -126,18 +136,23 @@ public class ConfusingFloatingPointLiteralInspection extends BaseInspection {
     return new ConfusingFloatingPointLiteralVisitor();
   }
 
-  private static class ConfusingFloatingPointLiteralVisitor extends BaseInspectionVisitor {
+  private class ConfusingFloatingPointLiteralVisitor extends BaseInspectionVisitor {
 
     @Override
     public void visitLiteralExpression(@NotNull PsiLiteralExpression literal) {
       super.visitLiteralExpression(literal);
       final PsiType type = literal.getType();
-      if ((PsiType.FLOAT.equals(type) || PsiType.DOUBLE.equals(type)) && isConfusing(literal.getText())) {
-        registerError(literal);
+      final String literalText = literal.getText();
+      if ((!PsiType.FLOAT.equals(type) && !PsiType.DOUBLE.equals(type)) || !isConfusing(literalText)) {
+        return;
       }
+      if (ignoreScientificNotation && StringUtil.containsAnyChar(literalText, "EePp")) {
+        return;
+      }
+      registerError(literal);
     }
 
-    private static boolean isConfusing(@Nullable CharSequence text) {
+    private boolean isConfusing(@Nullable CharSequence text) {
       if (text == null) {
         return false;
       }

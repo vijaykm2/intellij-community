@@ -19,9 +19,11 @@
  */
 package com.intellij.psi;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.util.List;
 
-public class XmlRecursiveElementWalkingVisitor extends XmlElementVisitor {
+public class XmlRecursiveElementWalkingVisitor extends XmlElementVisitor implements PsiRecursiveVisitor {
   private final boolean myVisitAllFileRoots;
   private final PsiWalkingState myWalkingState = new PsiWalkingState(this){};
 
@@ -34,12 +36,12 @@ public class XmlRecursiveElementWalkingVisitor extends XmlElementVisitor {
   }
 
   @Override
-  public void visitElement(final PsiElement element) {
+  public void visitElement(@NotNull final PsiElement element) {
     myWalkingState.elementStarted(element);
   }
 
   @Override
-  public void visitFile(final PsiFile file) {
+  public void visitFile(@NotNull final PsiFile file) {
     if (myVisitAllFileRoots) {
       final FileViewProvider viewProvider = file.getViewProvider();
       final List<PsiFile> allFiles = viewProvider.getAllFiles();
@@ -55,4 +57,9 @@ public class XmlRecursiveElementWalkingVisitor extends XmlElementVisitor {
 
     super.visitFile(file);
   }
+
+  public void stopWalking() {
+    myWalkingState.stopWalking();
+  }
+
 }

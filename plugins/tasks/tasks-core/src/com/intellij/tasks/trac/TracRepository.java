@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.trac;
 
-import com.intellij.openapi.util.Comparing;
 import com.intellij.tasks.Comment;
 import com.intellij.tasks.Task;
 import com.intellij.tasks.TaskRepository;
@@ -24,7 +9,7 @@ import com.intellij.tasks.impl.BaseRepository;
 import com.intellij.tasks.impl.BaseRepositoryImpl;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xmlb.annotations.Tag;
-import icons.TasksIcons;
+import icons.TasksCoreIcons;
 import org.apache.xmlrpc.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -81,13 +66,13 @@ public class TracRepository extends BaseRepositoryImpl {
 
     if (result == null) throw new Exception("Cannot connect to " + getUrl());
 
-    ArrayList<Task> tasks = new ArrayList<Task>(max);
+    ArrayList<Task> tasks = new ArrayList<>(max);
     int min = Math.min(max, result.size());
     for (int i = 0; i < min; i++) {
       Task task = getTask((Integer)result.get(i), client, transport);
       ContainerUtil.addIfNotNull(tasks, task);
     }
-    return tasks.toArray(new Task[tasks.size()]);
+    return tasks.toArray(Task.EMPTY_ARRAY);
   }
 
   private Vector<Object> runQuery(@Nullable String query, Transport transport, XmlRpcClient client, String search)
@@ -96,7 +81,7 @@ public class TracRepository extends BaseRepositoryImpl {
       search = search.replace("{query}", query);
     }
     search = search.replace("{username}", getUsername());
-    XmlRpcRequest request = new XmlRpcRequest("ticket.query", new Vector<Object>(Arrays.asList(search)));
+    XmlRpcRequest request = new XmlRpcRequest("ticket.query", new Vector<Object>(Collections.singletonList(search)));
     return (Vector<Object>)client.execute(request, transport);
   }
 
@@ -120,7 +105,7 @@ public class TracRepository extends BaseRepositoryImpl {
 
   @Nullable
   private Task getTask(int id, XmlRpcClient client, Transport transport) throws IOException, XmlRpcException {
-    XmlRpcRequest request = new XmlRpcRequest("ticket.get", new Vector(Arrays.asList(id)));
+    XmlRpcRequest request = new XmlRpcRequest("ticket.get", new Vector(Collections.singletonList(id)));
     Object response = client.execute(request, transport);
     if (response == null) return null;
     final Vector<Object> vector = (Vector<Object>)response;
@@ -136,6 +121,7 @@ public class TracRepository extends BaseRepositoryImpl {
       @NotNull
       @Override
       public String getSummary() {
+        //noinspection HardCodedStringLiteral
         return map.get("summary");
       }
 
@@ -145,16 +131,15 @@ public class TracRepository extends BaseRepositoryImpl {
         return null;
       }
 
-      @NotNull
       @Override
-      public Comment[] getComments() {
-        return new Comment[0];
+      public Comment @NotNull [] getComments() {
+        return Comment.EMPTY_ARRAY;
       }
 
       @NotNull
       @Override
       public Icon getIcon() {
-        return TasksIcons.Trac;
+        return TasksCoreIcons.Trac;
       }
 
       @NotNull
@@ -206,7 +191,7 @@ public class TracRepository extends BaseRepositoryImpl {
   }
 
   private static Date getDate(Object o) {
-    return o instanceof Date ? (Date)o : new Date((Integer)o * 1000l);
+    return o instanceof Date ? (Date)o : new Date((Integer)o * 1000L);
   }
 
   @Nullable
@@ -253,7 +238,7 @@ public class TracRepository extends BaseRepositoryImpl {
   }
 
   private class Transport extends CommonsXmlRpcTransport {
-    public Transport() throws MalformedURLException {
+    Transport() throws MalformedURLException {
       super(new URL(getUrl()), getHttpClient());
     }
 
@@ -262,10 +247,9 @@ public class TracRepository extends BaseRepositoryImpl {
     }
   }
 
-  @SuppressWarnings({"EqualsWhichDoesntCheckParameterClass"})
   @Override
   public boolean equals(Object o) {
-    return super.equals(o) && Comparing.equal(((TracRepository)o).getDefaultSearch(), getDefaultSearch());
+    return super.equals(o) && Objects.equals(((TracRepository)o).getDefaultSearch(), getDefaultSearch());
   }
 
   @Override

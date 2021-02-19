@@ -15,7 +15,6 @@
  */
 package hg4idea.test.merge;
 
-import com.intellij.openapi.vcs.VcsException;
 import hg4idea.test.HgPlatformTest;
 import org.zmlx.hg4idea.command.HgRevertCommand;
 import org.zmlx.hg4idea.execution.HgCommandResult;
@@ -30,12 +29,8 @@ import static hg4idea.test.HgExecutor.hg;
 import static hg4idea.test.HgExecutor.hgMergeWith;
 
 public class HgRevertUncommittedMergeTest extends HgPlatformTest {
-  @Override
-  protected void setUp() throws Exception {
-    super.setUp();
-  }
 
-  public void testRevertAfterMerge() throws VcsException {
+  public void testRevertAfterMerge() {
     cd(myRepository);
     hg("branch branchA");
     String aFile = "A.txt";

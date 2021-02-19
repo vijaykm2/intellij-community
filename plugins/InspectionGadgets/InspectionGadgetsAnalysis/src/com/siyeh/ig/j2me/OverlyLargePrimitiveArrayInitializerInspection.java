@@ -26,6 +26,7 @@ import com.siyeh.ig.BaseInspectionVisitor;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.util.Arrays;
 
 public class OverlyLargePrimitiveArrayInitializerInspection
   extends BaseInspection {
@@ -34,13 +35,6 @@ public class OverlyLargePrimitiveArrayInitializerInspection
    * @noinspection PublicField
    */
   public int m_limit = 64;
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "large.initializer.primitive.type.array.display.name");
-  }
 
   @Override
   @NotNull
@@ -93,11 +87,7 @@ public class OverlyLargePrimitiveArrayInitializerInspection
           (PsiArrayInitializerExpression)expression;
         final PsiExpression[] initializers =
           arrayExpression.getInitializers();
-        int out = 0;
-        for (final PsiExpression initializer : initializers) {
-          out += calculateNumElements(initializer);
-        }
-        return out;
+        return Arrays.stream(initializers).mapToInt(this::calculateNumElements).sum();
       }
       return 1;
     }

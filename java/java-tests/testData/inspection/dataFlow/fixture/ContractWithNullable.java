@@ -2,6 +2,26 @@ import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+class Test2 {
+  interface Project {}
+  interface Sdk {}
+  interface Version {}
+
+  @NotNull
+  native static Test2 getInstance(Project project);
+
+  @Nullable
+  native Sdk getProjectSdk();
+
+  @Contract("null -> null")
+  native static Version getVersion(@Nullable Sdk sdk);
+
+  static void test(Project project) {
+    Version version = getVersion(getInstance(project).getProjectSdk());
+    System.out.println(version.<warning descr="Method invocation 'hashCode' may produce 'NullPointerException'">hashCode</warning>());
+  }
+}
+
 class Foo {
 
   public void main(@NotNull Object nn) {
@@ -41,3 +61,21 @@ class Foo {
 
 }
 
+class Test {
+  @NotNull
+  String getName() {
+    return "";
+  }
+
+  @Nullable
+  @Contract("!null -> !null")
+  String convert(@Nullable String name) {
+    return name;
+  }
+
+
+  @NotNull
+  String test() {
+    return convert(getName());
+  }
+}

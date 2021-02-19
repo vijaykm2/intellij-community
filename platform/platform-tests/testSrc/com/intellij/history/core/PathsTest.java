@@ -16,8 +16,13 @@
 
 package com.intellij.history.core;
 
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.util.containers.ContainerUtil;
+import org.junit.Assume;
 import org.junit.Test;
+
+import java.util.Arrays;
+import java.util.List;
 
 public class PathsTest extends LocalHistoryTestCase {
   @Test
@@ -71,7 +76,7 @@ public class PathsTest extends LocalHistoryTestCase {
   }
 
   @Test
-  public void testIsParentOf() throws Exception {
+  public void testIsParentOf() {
     assertTrue(Paths.isParent("foo", "foo"));
     assertTrue(Paths.isParent("foo", "foo/bar"));
     assertTrue(Paths.isParent("foo/bar", "foo/bar"));
@@ -86,7 +91,7 @@ public class PathsTest extends LocalHistoryTestCase {
   }
 
   @Test
-  public void testIsParentOrChildOf() throws Exception {
+  public void testIsParentOrChildOf() {
     assertTrue(Paths.isParentOrChild("foo/bar", "foo/bar"));
     assertTrue(Paths.isParentOrChild("foo/bar", "foo/bar/baz"));
     assertTrue(Paths.isParentOrChild("foo/bar/baz", "foo/bar"));
@@ -96,18 +101,29 @@ public class PathsTest extends LocalHistoryTestCase {
   }
 
   @Test
-  public void testSplitting() throws Exception {
-    assertEquals(array("/", "foo", "bar"), ContainerUtil.collect(Paths.split("/foo/bar").iterator()));
-    assertEquals(array("/", "foo", "bar"), ContainerUtil.collect(Paths.split("/foo/bar/").iterator()));
-    assertEquals(array("foo", "bar"), ContainerUtil.collect(Paths.split("foo/bar/").iterator()));
-    assertEquals(array("/", "foo"), ContainerUtil.collect(Paths.split("/foo").iterator()));
-    assertEquals(array("/"), ContainerUtil.collect(Paths.split("/").iterator()));
-    assertEquals(array("c:", "foo", "bar"), ContainerUtil.collect(Paths.split("c:/foo/bar").iterator()));
+  public void testWindowsPathsSplitting() {
+    Assume.assumeTrue(SystemInfo.isWindows);
+    testPathSplit("relative/folder/file.txt", "relative", "folder", "file.txt");
+    testPathSplit("C:/Users/user/folder/file.txt", "C:", "Users", "user", "folder", "file.txt");
+    testPathSplit("//wsl$/Distro/home/user/folder/file.txt", "//wsl$/Distro", "home", "user", "folder", "file.txt");
+    testPathSplit("//wsl$/Distro", "//wsl$/Distro");
+    testPathSplit("//wsl$/Distro/", "//wsl$/Distro");
+    testPathSplit("//wsl$/", "//wsl$/");
+  }
 
-    assertEquals(array("//"), ContainerUtil.collect(Paths.split("//").iterator()));
-    assertEquals(array("//foo"), ContainerUtil.collect(Paths.split("//foo").iterator()));
-    assertEquals(array("//foo"), ContainerUtil.collect(Paths.split("//foo/").iterator()));
-    assertEquals(array("//foo", "bar"), ContainerUtil.collect(Paths.split("//foo/bar").iterator()));
+  @Test
+  public void testUnixPathsSplitting() {
+    Assume.assumeTrue(SystemInfo.isUnix);
+    testPathSplit("relative/folder/file.txt", "relative", "folder", "file.txt");
+    testPathSplit("/home/user/folder/file.txt", "/", "home", "user", "folder", "file.txt");
+    testPathSplit("/home/user/folder", "/", "home", "user", "folder");
+    testPathSplit("/home/user/folder/", "/", "home", "user", "folder");
+    testPathSplit("/", "/");
+  }
+
+  private static void testPathSplit(String path, String... expectedElements) {
+    List<String> actualElements = ContainerUtil.collect(Paths.split(path).iterator());
+    assertEquals(path, Arrays.asList(expectedElements), actualElements);
   }
 
   @Test

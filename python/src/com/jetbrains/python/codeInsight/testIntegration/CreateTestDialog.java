@@ -1,28 +1,15 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.codeInsight.testIntegration;
 
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.BooleanTableCellRenderer;
 import com.intellij.ui.TableUtil;
+import com.jetbrains.python.PyBundle;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -34,22 +21,26 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Vector;
 
-/**
- * User: catherine
- */
-public class CreateTestDialog extends DialogWrapper {
+public final class CreateTestDialog extends DialogWrapper {
+  @NotNull
+  private final PyTestCreationModel myModel;
+  private final boolean myClassRequired;
   private TextFieldWithBrowseButton myTargetDir;
   private JTextField myClassName;
   private JPanel myMainPanel;
   private JTextField myFileName;
   private JTable myMethodsTable;
-  private DefaultTableModel myTableModel;
+  @NotNull
+  private final DefaultTableModel myTableModel;
 
-  protected CreateTestDialog(Project project) {
+  private CreateTestDialog(@NotNull final Project project, @NotNull final PyTestCreationModel model) {
     super(project);
     init();
-    myTargetDir.addBrowseFolderListener("Select target directory", null, project,
+    myClassRequired = StringUtil.isNotEmpty(model.getClassName());
+    myModel = model;
+    myTargetDir.addBrowseFolderListener(PyBundle.message("code.insight.select.target.directory"), null, project,
                                         FileChooserDescriptorFactory.createSingleFolderDescriptor());
     myTargetDir.setEditable(false);
 
@@ -61,47 +52,104 @@ public class CreateTestDialog extends DialogWrapper {
       }
     });
 
-    setTitle("Create test");
+    setTitle(PyBundle.message("code.insight.create.test"));
 
     addUpdater(myFileName);
     addUpdater(myClassName);
 
-  }
+    //Fill UI with model
+    myTargetDir.setText(model.getTargetDir());
+    myFileName.setText(model.getFileName());
+    final String clazz = model.getClassName();
+    myClassName.setText(clazz);
+    final List<String> methods = model.getMethods();
+    final String[] columnNames = new String[]{"", "Test function"};
+    final int columnWithCheckbox = 0;
+    myTableModel = new DefaultTableModel(
+      methods.stream().map(name -> new Object[]{Boolean.FALSE, name}).toArray(size -> new Object[size][columnNames.length]),
+      columnNames
+    ) {
+      @Override
+      public boolean isCellEditable(int row, int column) {
+        return column == columnWithCheckbox;
+      }
 
-  public void methodsSize(int methods) {
-    myTableModel = new DefaultTableModel(methods, 2);
+      @Override
+      public Class<?> getColumnClass(int columnIndex) {
+        return columnIndex == columnWithCheckbox ? Boolean.class : String.class;
+      }
+    };
+
+    // Support "invert all selected with space"
+    final String actionName = "InvertSelected";
+    myMethodsTable.getInputMap().put(KeyStroke.getKeyStroke("SPACE"), actionName);
+    myMethodsTable.getActionMap().put(actionName, new AbstractAction() {
+      @Override
+      public void actionPerformed(ActionEvent e) {
+        for (int selectedRow : myMethodsTable.getSelectedRows()) {
+          int row = myMethodsTable.convertRowIndexToModel(selectedRow);
+          boolean value = !(Boolean)myTableModel.getValueAt(row, columnWithCheckbox);
+          myTableModel.setValueAt(value, row, columnWithCheckbox);
+        }
+      }
+    });
+
+    // If only one method, then select it by default
+    if (methods.size() == 1) {
+      myTableModel.setValueAt(Boolean.TRUE, myTableModel.getRowCount() - 1, columnWithCheckbox);
+    }
     myMethodsTable.setModel(myTableModel);
+    myMethodsTable.getSelectionModel().setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 
-    TableColumn checkColumn = myMethodsTable.getColumnModel().getColumn(0);
-    TableUtil.setupCheckboxColumn(checkColumn);
-    checkColumn.setCellRenderer(new BooleanTableCellRenderer());
-    checkColumn.setCellEditor(new DefaultCellEditor(new JCheckBox()));
+    TableUtil.setupCheckboxColumn(myMethodsTable, columnWithCheckbox);
 
-    myMethodsTable.getColumnModel().getColumn(1).setHeaderValue("Test method");
-    checkColumn.setHeaderValue("");
-    getOKAction().setEnabled(true);
+    getOKAction().setEnabled(isValid());
   }
 
-  protected void addUpdater(JTextField field) {
-      field.getDocument().addDocumentListener(new MyDocumentListener());
+  static boolean userAcceptsTestCreation(@NotNull final Project project, @NotNull final PyTestCreationModel model) {
+    final CreateTestDialog dialog = new CreateTestDialog(project, model);
+    if (!dialog.showAndGet()) {
+      return false;
+    }
+    dialog.copyToModel();
+    return true;
   }
+
+  private void copyToModel() {
+    myModel.setClassName(myClassName.getText());
+    myModel.setFileName(myFileName.getText());
+    myModel.setTargetDir(myTargetDir.getText());
+    @SuppressWarnings({"unchecked", "rawtypes", "UseOfObsoleteCollectionType"})
+    Vector<Vector<Object>> dataVector = (Vector)myTableModel.getDataVector();
+    StreamEx<Vector<Object>> methods = StreamEx.of(dataVector.stream());
+    myModel.setMethods(new ArrayList<>(methods.map(v -> (v.get(0) == Boolean.TRUE) ? v.get(1).toString() : null).nonNull().toList()));
+  }
+
+  private void addUpdater(JTextField field) {
+    field.getDocument().addDocumentListener(new MyDocumentListener());
+  }
+
   private class MyDocumentListener implements DocumentListener {
+    @Override
     public void insertUpdate(DocumentEvent documentEvent) {
       getOKAction().setEnabled(isValid());
     }
 
+    @Override
     public void removeUpdate(DocumentEvent documentEvent) {
       getOKAction().setEnabled(isValid());
     }
 
+    @Override
     public void changedUpdate(DocumentEvent documentEvent) {
       getOKAction().setEnabled(isValid());
     }
   }
 
   private boolean isValid() {
-    return !StringUtil.isEmptyOrSpaces(getTargetDir()) && !StringUtil.isEmptyOrSpaces(getClassName())
-      && !StringUtil.isEmptyOrSpaces(getFileName());
+    return !StringUtil.isEmptyOrSpaces(getTargetDir())
+           && (!myClassRequired || !StringUtil.isEmptyOrSpaces(getClassName()))
+           && !StringUtil.isEmptyOrSpaces(getFileName());
   }
 
   @Override
@@ -109,52 +157,20 @@ public class CreateTestDialog extends DialogWrapper {
     return myMainPanel;
   }
 
-  public String getTargetDir() {
+  private String getTargetDir() {
     return myTargetDir.getText().trim();
   }
 
-  public void setTargetDir(String text) {
-    myTargetDir.setText(text);
-  }
-
-  public void setClassName(String text) {
-    myClassName.setText(text);
-  }
-
-  public void setFileName(String text) {
-    myFileName.setText(text);
-  }
-
-  public String getClassName() {
+  private String getClassName() {
     return myClassName.getText().trim();
   }
 
-  public String getFileName() {
+  private String getFileName() {
     return myFileName.getText().trim();
   }
 
-  public void addMethod(String name, int row) {
-    myTableModel.setValueAt(name, row, 1);
-    myTableModel.setValueAt(Boolean.FALSE, row, 0);
-  }
-
-  public List<String> getMethods() {
-    List<String> res = new ArrayList<String>();
-
-    for (int i = 0; i != myTableModel.getRowCount(); ++i) {
-      Object val = myTableModel.getValueAt(i, 0);
-      if (val != null && (Boolean)val == true)
-        res.add((String)myTableModel.getValueAt(i, 1));
-    }
-    return res;
-  }
-
-  @NotNull
-  protected Action[] createActions() {
-    return new Action[]{getOKAction(), getCancelAction(), getHelpAction()};
-  }
-
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp("reference.dialogs.createTestsFromGoTo");
+  @Override
+  protected String getHelpId() {
+    return "reference.dialogs.createTestsFromGoTo";
   }
 }

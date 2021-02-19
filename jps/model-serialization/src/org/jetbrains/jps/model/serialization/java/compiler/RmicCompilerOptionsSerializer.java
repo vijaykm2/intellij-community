@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,9 +24,6 @@ import org.jetbrains.jps.model.java.compiler.JpsJavaCompilerConfiguration;
 import org.jetbrains.jps.model.java.compiler.RmicCompilerOptions;
 import org.jetbrains.jps.model.serialization.JpsProjectExtensionSerializer;
 
-/**
- * @author nik
- */
 public class RmicCompilerOptionsSerializer extends JpsProjectExtensionSerializer {
   private final String myCompilerId;
 
@@ -37,18 +34,14 @@ public class RmicCompilerOptionsSerializer extends JpsProjectExtensionSerializer
 
   @Override
   public void loadExtension(@NotNull JpsProject project, @NotNull Element componentTag) {
-    JpsJavaCompilerConfiguration configuration = JpsJavaExtensionService.getInstance().getOrCreateCompilerConfiguration(project);
+    JpsJavaCompilerConfiguration configuration = JpsJavaExtensionService.getInstance().getCompilerConfiguration(project);
     RmicCompilerOptions options = XmlSerializer.deserialize(componentTag, RmicCompilerOptions.class);
-    configuration.setCompilerOptions(myCompilerId, options == null? new RmicCompilerOptions() : options);
+    configuration.setCompilerOptions(myCompilerId, options);
   }
 
   @Override
   public void loadExtensionWithDefaultSettings(@NotNull JpsProject project) {
-    JpsJavaCompilerConfiguration configuration = JpsJavaExtensionService.getInstance().getOrCreateCompilerConfiguration(project);
+    JpsJavaCompilerConfiguration configuration = JpsJavaExtensionService.getInstance().getCompilerConfiguration(project);
     configuration.setCompilerOptions(myCompilerId, new RmicCompilerOptions());
-  }
-
-  @Override
-  public void saveExtension(@NotNull JpsProject project, @NotNull Element componentTag) {
   }
 }

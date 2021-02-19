@@ -23,10 +23,11 @@ import com.intellij.psi.impl.source.SourceTreeToPsiMap;
 import com.intellij.psi.impl.source.tree.*;
 import com.intellij.psi.tree.ChildRoleBase;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 
 public class PsiExpressionStatementImpl extends CompositePsiElement implements PsiExpressionStatement {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiExpressionStatementImpl");
+  private static final Logger LOG = Logger.getInstance(PsiExpressionStatementImpl.class);
 
   public PsiExpressionStatementImpl() {
     super(JavaElementType.EXPRESSION_STATEMENT);
@@ -57,7 +58,7 @@ public class PsiExpressionStatementImpl extends CompositePsiElement implements P
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
     if (i == JavaTokenType.SEMICOLON) {
@@ -81,6 +82,7 @@ public class PsiExpressionStatementImpl extends CompositePsiElement implements P
     }
   }
 
+  @Override
   public String toString() {
     return "PsiExpressionStatement";
   }
@@ -93,5 +95,14 @@ public class PsiExpressionStatementImpl extends CompositePsiElement implements P
     else {
       super.deleteChildInternal(child);
     }
+  }
+
+  @Override
+  public void replaceChildInternal(@NotNull ASTNode child, @NotNull TreeElement newElement) {
+    if (ElementType.EXPRESSION_BIT_SET.contains(child.getElementType()) &&
+        !ElementType.EXPRESSION_BIT_SET.contains(newElement.getElementType())) {
+      throw new IncorrectOperationException("Expression expected; got: " + newElement.getElementType());
+    }
+    super.replaceChildInternal(child, newElement);
   }
 }

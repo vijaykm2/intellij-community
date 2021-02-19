@@ -1,34 +1,26 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.execution;
 
+import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.extensions.ExtensionPointName;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsActions;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
+import com.intellij.openapi.util.text.TextWithMnemonic;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 
 /**
  * Describes a specific way of executing any possible run configuration. The three default executors provided by the IntelliJ Platform
- * by default are Run, Debug and (in IntelliJ IDEA Ultimate and certain platform-based IDEs) Run with Coverage. Each executor gets its
+ * by default are Run, Debug and Run with Coverage. Each executor gets its
  * own toolbar button, which starts the selected run configuration using this executor, and its own context menu item for starting
  * a configuration using this executor.
  *
+ * @see ExecutorRegistry
  * @author spleaner
  */
 public abstract class Executor {
@@ -40,7 +32,10 @@ public abstract class Executor {
    * @return the ID of the toolwindow (usually {@link com.intellij.openapi.wm.ToolWindowId#RUN} or
    * {@link com.intellij.openapi.wm.ToolWindowId#DEBUG}).
    */
+  @NotNull
   public abstract String getToolWindowId();
+
+  @NotNull
   public abstract Icon getToolWindowIcon();
 
   /**
@@ -63,20 +58,27 @@ public abstract class Executor {
    *
    * @return the executor action description.
    */
+  @NlsActions.ActionDescription
   public abstract String getDescription();
 
   @NotNull
+  @NlsActions.ActionText
   public abstract String getActionName();
 
   /**
    * Returns the unique ID of the executor.
+   *
    * @return the ID of the executor.
    */
   @NotNull
   @NonNls
   public abstract String getId();
 
+  /**
+   * @return text of the action in {@linkplain TextWithMnemonic#parse(String) text-with-mnemonic} format
+   */
   @NotNull
+  @Nls(capitalization = Nls.Capitalization.Title)
   public abstract String getStartActionText();
 
   @NonNls
@@ -85,7 +87,55 @@ public abstract class Executor {
   @NonNls
   public abstract String getHelpId();
 
-  public String getStartActionText(String configurationName) {
-    return getStartActionText() + (StringUtil.isEmpty(configurationName) ? "" : " '" + StringUtil.first(configurationName, 30, true) + "'");
+  /**
+   * Returns the way to customize ExecutorAction (or ExecutorGroupActionGroup) created for this Executor by ExecutorRegistryImpl
+   *
+   * @return the way to customize {@link com.intellij.execution.ExecutorRegistryImpl.ExecutorAction}
+   * (or {@link com.intellij.execution.ExecutorRegistryImpl.ExecutorGroupActionGroup}) created for this Executor,
+   * that will be shown in {@link com.intellij.execution.ExecutorRegistryImpl#RUNNERS_GROUP} group on main toolbar
+   */
+  @Nullable
+  public ActionWrapper runnerActionsGroupExecutorActionCustomizer() {
+    return null;
+  }
+
+  @FunctionalInterface
+  public interface ActionWrapper {
+    @NotNull
+    AnAction wrap(@NotNull AnAction original);
+  }
+
+  /**
+   * @return text of the action specialized for given configuration name
+   * in {@linkplain TextWithMnemonic#parse(String) text-with-mnemonic} format.
+   */
+  @NotNull
+  @NlsSafe
+  public String getStartActionText(@NlsSafe @NotNull String configurationName) {
+    String configName = StringUtil.isEmpty(configurationName) ? "" : " '" + shortenNameIfNeeded(configurationName) + "'";
+    return TextWithMnemonic.parse(getStartActionText()).append(configName).toString();
+  }
+
+  /**
+   * Return false to suppress action visibility for given project.
+   */
+  public boolean isApplicable(@NotNull Project project) {
+    return true;
+  }
+
+  /**
+   * @return whether the executor can be run on targets or not.
+   */
+  @ApiStatus.Experimental
+  public boolean isSupportedOnTarget() {
+    return false;
+  }
+
+  /**
+   * Too long names don't fit into UI controls and have to be trimmed
+   */
+  @Contract(pure = true)
+  public static String shortenNameIfNeeded(@NotNull String name) {
+    return StringUtil.trimMiddle(name, Registry.intValue("run.configuration.max.name.length", 80));
   }
 }

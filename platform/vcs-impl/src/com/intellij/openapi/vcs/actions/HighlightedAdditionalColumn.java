@@ -18,7 +18,6 @@ package com.intellij.openapi.vcs.actions;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.vcs.annotate.FileAnnotation;
-import com.intellij.openapi.vcs.annotate.LineAnnotationAspect;
 import com.intellij.openapi.vcs.annotate.TextAnnotationPresentation;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 
@@ -28,11 +27,9 @@ import java.util.Map;
 class HighlightedAdditionalColumn extends AnnotationFieldGutter {
 
   HighlightedAdditionalColumn(FileAnnotation annotation,
-                              Editor editor,
-                              LineAnnotationAspect aspect,
                               TextAnnotationPresentation presentation,
                               Couple<Map<VcsRevisionNumber, Color>> colorScheme) {
-    super(annotation, editor, aspect, presentation, colorScheme);
+    super(annotation, presentation, colorScheme);
   }
 
   @Override

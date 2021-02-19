@@ -16,6 +16,7 @@
 package com.intellij.openapi.externalSystem.model.execution;
 
 import com.intellij.openapi.externalSystem.model.task.TaskData;
+import com.intellij.openapi.util.NlsSafe;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -24,7 +25,6 @@ import org.jetbrains.annotations.Nullable;
  * fields which are initialized at constructor and ide serialization is not capable to handle such scenario properly.
  * 
  * @author Denis Zhdanov
- * @since 5/18/13 11:28 PM
  */
 public class ExternalTaskPojo implements Comparable<ExternalTaskPojo> {
   
@@ -51,7 +51,7 @@ public class ExternalTaskPojo implements Comparable<ExternalTaskPojo> {
   }
   
   @NotNull
-  public String getName() {
+  public @NlsSafe String getName() {
     return myName;
   }
 
@@ -60,7 +60,7 @@ public class ExternalTaskPojo implements Comparable<ExternalTaskPojo> {
   }
 
   @Nullable
-  public String getDescription() {
+  public @NlsSafe String getDescription() {
     return myDescription;
   }
 

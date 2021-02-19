@@ -18,9 +18,10 @@ package org.zmlx.hg4idea.provider;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.FilePath;
-import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.history.BaseDiffFromHistoryHandler;
+import com.intellij.openapi.vcs.history.DiffFromHistoryHandler;
+import com.intellij.openapi.vcs.history.VcsFileRevision;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.vcsUtil.VcsUtil;
 import org.jetbrains.annotations.NotNull;
@@ -31,9 +32,7 @@ import org.zmlx.hg4idea.util.HgUtil;
 import java.util.List;
 
 /**
- * {@link com.intellij.openapi.vcs.history.DiffFromHistoryHandler#showDiffForTwo(com.intellij.openapi.project.Project, com.intellij.openapi.vcs.FilePath, com.intellij.openapi.vcs.history.VcsFileRevision, com.intellij.openapi.vcs.history.VcsFileRevision) "Show Diff" for 2 revision} calls the common code.
- *
- * @author Nadya Zabrodina
+ * {@link DiffFromHistoryHandler#showDiffForTwo(Project, FilePath, VcsFileRevision, VcsFileRevision) "Show Diff" for 2 revision} calls the common code.
  */
 public class HgDiffFromHistoryHandler extends BaseDiffFromHistoryHandler<HgFileRevision> {
 
@@ -51,7 +50,7 @@ public class HgDiffFromHistoryHandler extends BaseDiffFromHistoryHandler<HgFileR
 
   @NotNull
   @Override
-  protected List<Change> getAffectedChanges(@NotNull FilePath path, @NotNull HgFileRevision rev) throws VcsException {
+  protected List<Change> getAffectedChanges(@NotNull FilePath path, @NotNull HgFileRevision rev) {
     return executeDiff(path, null, rev);
   }
 
@@ -66,6 +65,7 @@ public class HgDiffFromHistoryHandler extends BaseDiffFromHistoryHandler<HgFileR
     VirtualFile root = VcsUtil.getVcsRootFor(myProject, path);
     LOG.assertTrue(root != null, "Repository is null for " + path);
 
-    return HgUtil.getDiff(myProject, root, path, rev1, rev2);
+    return HgUtil
+      .getDiff(myProject, root, path, rev1 != null ? rev1.getRevisionNumber() : null, rev2 != null ? rev2.getRevisionNumber() : null);
   }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.history.integration;
 
 import com.intellij.history.core.LocalHistoryFacade;
@@ -22,6 +8,7 @@ import com.intellij.history.core.tree.DirectoryEntry;
 import com.intellij.history.core.tree.Entry;
 import com.intellij.history.core.tree.FileEntry;
 import com.intellij.history.core.tree.RootEntry;
+import com.intellij.ide.scratch.ScratchFileService;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
@@ -32,21 +19,25 @@ import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.Clock;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.*;
+import com.intellij.openapi.vfs.CharsetToolkit;
+import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.ReadonlyStatusHandler;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.encoding.EncodingRegistry;
+import com.intellij.openapi.vfs.ex.temp.TempFileSystem;
 import com.intellij.openapi.vfs.newvfs.ManagingFS;
 import com.intellij.openapi.vfs.newvfs.NewVirtualFile;
-import com.intellij.util.NullableFunction;
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
+import com.intellij.openapi.vfs.newvfs.impl.VirtualFileSystemEntry;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -63,41 +54,128 @@ public class IdeaGateway {
   public boolean isVersioned(@NotNull VirtualFile f, boolean shouldBeInContent) {
     if (!f.isInLocalFileSystem()) return false;
 
-    if (!f.isDirectory() && StringUtil.endsWith(f.getNameSequence(), ".class")) return false;
-
-    Project[] openProjects = ProjectManager.getInstance().getOpenProjects();
-    boolean isInContent = false;
-    for (Project each : openProjects) {
-      if (each.isDefault()) continue;
-      if (!each.isInitialized()) continue;
-      if (Comparing.equal(each.getWorkspaceFile(), f)) return false;
-      ProjectFileIndex index = ProjectRootManager.getInstance(each).getFileIndex();
-      
-      if (index.isExcluded(f)) return false;
-      isInContent |= index.isInContent(f);
+    if (!f.isDirectory()) {
+      CharSequence fileName = f.getNameSequence();
+      if (StringUtil.equals(fileName, "workspace.xml") || StringUtil.endsWith(fileName, ".iws")
+          || StringUtil.endsWith(fileName, ".class")) {
+        return false;
+      }
     }
+
+    VersionedFilterData versionedFilterData = getVersionedFilterData();
+
+    int numberOfOpenProjects = versionedFilterData.myOpenedProjects.size();
+
+    // optimisation: FileTypeManager.isFileIgnored(f) will be checked inside ProjectFileIndex.isUnderIgnored()
+    if (numberOfOpenProjects == 0) {
+      if (shouldBeInContent) return false; // there is no project, so the file can't be in content
+      if (FileTypeManager.getInstance().isFileIgnored(f)) return false;
+
+      return true;
+    }
+
+    boolean isExcludedFromAll = true;
+    boolean isInContent = false;
+
+    for (int i = 0; i < numberOfOpenProjects; ++i) {
+      ProjectFileIndex index = versionedFilterData.myProjectFileIndices.get(i);
+
+      if (index.isUnderIgnored(f)) return false;
+      isInContent |= index.isInContent(f);
+      isExcludedFromAll &= index.isExcluded(f);
+    }
+
+    if (isExcludedFromAll) return false;
     if (shouldBeInContent && !isInContent) return false;
-    
-    // optimisation: FileTypeManager.isFileIgnored(f) already checked inside ProjectFileIndex.isIgnored()
-    return openProjects.length != 0 || !FileTypeManager.getInstance().isFileIgnored(f);
+
+    return true;
+  }
+
+  @NotNull
+  protected static VersionedFilterData getVersionedFilterData() {
+    VersionedFilterData versionedFilterData;
+    VfsEventDispatchContext vfsEventDispatchContext = ourCurrentEventDispatchContext.get();
+    if (vfsEventDispatchContext != null) {
+      versionedFilterData = vfsEventDispatchContext.myFilterData;
+      if (versionedFilterData == null) versionedFilterData = vfsEventDispatchContext.myFilterData = new VersionedFilterData();
+    } else {
+      versionedFilterData = new VersionedFilterData();
+    }
+    return versionedFilterData;
+  }
+
+  private static final ThreadLocal<VfsEventDispatchContext> ourCurrentEventDispatchContext = new ThreadLocal<>();
+
+  private static class VfsEventDispatchContext implements AutoCloseable {
+    final List<? extends VFileEvent> myEvents;
+    final boolean myBeforeEvents;
+    final VfsEventDispatchContext myPreviousContext;
+
+    VersionedFilterData myFilterData;
+
+    VfsEventDispatchContext(List<? extends VFileEvent> events, boolean beforeEvents) {
+      myEvents = events;
+      myBeforeEvents = beforeEvents;
+      myPreviousContext = ourCurrentEventDispatchContext.get();
+      if (myPreviousContext != null) {
+        myFilterData = myPreviousContext.myFilterData;
+      }
+      ourCurrentEventDispatchContext.set(this);
+    }
+
+    @Override
+    public void close() {
+      ourCurrentEventDispatchContext.set(myPreviousContext);
+      if (myPreviousContext != null && myPreviousContext.myFilterData == null && myFilterData != null) {
+        myPreviousContext.myFilterData = myFilterData;
+      }
+    }
+  }
+
+  public void runWithVfsEventsDispatchContext(List<? extends VFileEvent> events, boolean beforeEvents, Runnable action) {
+    try (VfsEventDispatchContext ignored = new VfsEventDispatchContext(events, beforeEvents)) {
+      action.run();
+    }
+  }
+
+  private static class VersionedFilterData {
+    final List<Project> myOpenedProjects = new ArrayList<>();
+    final List<ProjectFileIndex> myProjectFileIndices = new ArrayList<>();
+
+    VersionedFilterData() {
+      Project[] openProjects = ProjectManager.getInstance().getOpenProjects();
+
+      for (Project each : openProjects) {
+        if (each.isDefault()) continue;
+        if (!each.isInitialized()) continue;
+
+        myOpenedProjects.add(each);
+        myProjectFileIndices.add(ProjectRootManager.getInstance(each).getFileIndex());
+      }
+    }
   }
 
   public boolean areContentChangesVersioned(@NotNull VirtualFile f) {
-    return isVersioned(f) && !f.isDirectory() && !f.getFileType().isBinary();
+    return isVersioned(f) && !f.isDirectory() &&
+           (areContentChangesVersioned(f.getName()) || ScratchFileService.findRootType(f) != null);
   }
 
   public boolean areContentChangesVersioned(@NotNull String fileName) {
     return !FileTypeManager.getInstance().getFileTypeByFileName(fileName).isBinary();
   }
 
-  public boolean ensureFilesAreWritable(@NotNull Project p, @NotNull List<VirtualFile> ff) {
+  public boolean ensureFilesAreWritable(@NotNull Project p, @NotNull List<? extends VirtualFile> ff) {
     ReadonlyStatusHandler h = ReadonlyStatusHandler.getInstance(p);
-    return !h.ensureFilesWritable(VfsUtilCore.toVirtualFileArray(ff)).hasReadonlyFiles();
+    return !h.ensureFilesWritable(ff).hasReadonlyFiles();
   }
 
   @Nullable
   public VirtualFile findVirtualFile(@NotNull String path) {
-    return LocalFileSystem.getInstance().findFileByPath(path);
+    VirtualFile file = LocalFileSystem.getInstance().findFileByPath(path);
+    if (file == null && ApplicationManager.getApplication().isUnitTestMode()) {
+      return TempFileSystem.getInstance().findFileByPath(path);
+    }
+    return file;
   }
 
   @NotNull
@@ -135,7 +213,7 @@ public class IdeaGateway {
   public List<VirtualFile> getAllFilesFrom(@NotNull String path) {
     VirtualFile f = findVirtualFile(path);
     if (f == null) return Collections.emptyList();
-    return collectFiles(f, new ArrayList<VirtualFile>());
+    return collectFiles(f, new ArrayList<>());
   }
 
   @NotNull
@@ -155,7 +233,7 @@ public class IdeaGateway {
   public static Iterable<VirtualFile> iterateDBChildren(VirtualFile f) {
     if (!(f instanceof NewVirtualFile)) return Collections.emptyList();
     NewVirtualFile nf = (NewVirtualFile)f;
-    return nf.iterInDbChildren();
+    return nf.iterInDbChildrenWithoutLoadingVfsFromOtherProjects();
   }
 
   @NotNull
@@ -187,7 +265,7 @@ public class IdeaGateway {
 
   private void doCreateChildrenForPathOnly(@NotNull DirectoryEntry parent,
                                            @NotNull String path,
-                                           @NotNull Iterable<VirtualFile> children) {
+                                           @NotNull Iterable<? extends VirtualFile> children) {
     for (VirtualFile child : children) {
       String name = StringUtil.trimStart(child.getName(), "/"); // on Mac FS root name is "/"
       if (!path.startsWith(name)) continue;
@@ -207,8 +285,7 @@ public class IdeaGateway {
     if (!file.isDirectory()) {
       if (!isVersioned(file)) return null;
 
-      Pair<StoredContent, Long> contentAndStamps = getActualContentNoAcquire(file);
-      return new FileEntry(file.getName(), contentAndStamps.first, contentAndStamps.second, !file.isWritable());
+      return doCreateFileEntry(file, getActualContentNoAcquire(file));
     }
     DirectoryEntry newDir = new DirectoryEntry(file.getName());
     doCreateChildrenForPathOnly(newDir, path, iterateDBChildren(file));
@@ -242,36 +319,49 @@ public class IdeaGateway {
       else {
         contentAndStamps = getActualContentNoAcquire(file);
       }
-      return new FileEntry(file.getName(), contentAndStamps.first, contentAndStamps.second, !file.isWritable());
+
+      return doCreateFileEntry(file, contentAndStamps);
     }
-    DirectoryEntry newDir = new DirectoryEntry(file.getName());
+
+    DirectoryEntry newDir = null;
+    if (file instanceof VirtualFileSystemEntry) {
+      int nameId = ((VirtualFileSystemEntry)file).getNameId();
+      if (nameId > 0) {
+        newDir = new DirectoryEntry(nameId);
+      }
+    }
+
+    if (newDir == null) {
+      newDir = new DirectoryEntry(file.getName());
+    }
+
     doCreateChildren(newDir, iterateDBChildren(file), forDeletion);
     if (!isVersioned(file) && newDir.getChildren().isEmpty()) return null;
     return newDir;
   }
 
-  private void doCreateChildren(@NotNull DirectoryEntry parent, Iterable<VirtualFile> children, final boolean forDeletion) {
-    List<Entry> entries = ContainerUtil.mapNotNull(children, new NullableFunction<VirtualFile, Entry>() {
-      @Override
-      public Entry fun(@NotNull VirtualFile each) {
-        return doCreateEntry(each, forDeletion);
-      }
-    });
+  @NotNull
+  private Entry doCreateFileEntry(@NotNull VirtualFile file, Pair<StoredContent, Long> contentAndStamps) {
+    if (file instanceof VirtualFileSystemEntry) {
+      return new FileEntry(((VirtualFileSystemEntry)file).getNameId(), contentAndStamps.first, contentAndStamps.second, !file.isWritable());
+    }
+    return new FileEntry(file.getName(), contentAndStamps.first, contentAndStamps.second, !file.isWritable());
+  }
+
+  private void doCreateChildren(@NotNull DirectoryEntry parent, Iterable<? extends VirtualFile> children, final boolean forDeletion) {
+    List<Entry> entries = ContainerUtil.mapNotNull(children, each -> doCreateEntry(each, forDeletion));
     parent.addChildren(entries);
   }
 
   public void registerUnsavedDocuments(@NotNull final LocalHistoryFacade vcs) {
-    ApplicationManager.getApplication().runReadAction(new Runnable() {
-      @Override
-      public void run() {
-        vcs.beginChangeSet();
-        for (Document d : FileDocumentManager.getInstance().getUnsavedDocuments()) {
-          VirtualFile f = getFile(d);
-          if (!shouldRegisterDocument(f)) continue;
-          registerDocumentContents(vcs, f, d);
-        }
-        vcs.endChangeSet(null);
+    ApplicationManager.getApplication().runReadAction(() -> {
+      vcs.beginChangeSet();
+      for (Document d : FileDocumentManager.getInstance().getUnsavedDocuments()) {
+        VirtualFile f = getFile(d);
+        if (!shouldRegisterDocument(f)) continue;
+        registerDocumentContents(vcs, f, d);
       }
+      vcs.endChangeSet(null);
     });
   }
 
@@ -351,25 +441,15 @@ public class IdeaGateway {
   }
 
   private static byte[] bytesFromDocument(@NotNull Document d) {
-    try {
-      return d.getText().getBytes(getFile(d).getCharset().name());
-    }
-    catch (UnsupportedEncodingException e) {
-      return d.getText().getBytes();
-    }
+    VirtualFile file = getFile(d);
+    Charset charset = file != null ? file.getCharset() : EncodingRegistry.getInstance().getDefaultCharset();
+    return d.getText().getBytes(charset);
   }
 
-  public String stringFromBytes(@NotNull byte[] bytes, @NotNull String path) {
-    try {
-      VirtualFile file = findVirtualFile(path);
-      if (file == null) {
-        return CharsetToolkit.bytesToString(bytes, EncodingRegistry.getInstance().getDefaultCharset());
-      }
-      return new String(bytes, file.getCharset().name());
-    }
-    catch (UnsupportedEncodingException e1) {
-      return new String(bytes);
-    }
+  public String stringFromBytes(byte @NotNull [] bytes, @NotNull String path) {
+    VirtualFile file = findVirtualFile(path);
+    Charset charset = file != null ? file.getCharset() : EncodingRegistry.getInstance().getDefaultCharset();
+    return CharsetToolkit.bytesToString(bytes, charset);
   }
 
   public void saveAllUnsavedDocuments() {
@@ -391,7 +471,7 @@ public class IdeaGateway {
     return FileTypeManager.getInstance().getFileTypeByFileName(fileName);
   }
 
-  private static class ContentAndTimestamps {
+  private static final class ContentAndTimestamps {
     long registeredTimestamp;
     StoredContent content;
     long documentModificationStamp;

@@ -1,32 +1,21 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.testFramework.fixtures.impl;
 
-import com.intellij.compiler.CompilerConfigurationImpl;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleType;
 import com.intellij.openapi.module.StdModuleTypes;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.JavaSdk;
+import com.intellij.openapi.projectRoots.ProjectJdkTable;
 import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.projectRoots.impl.MockJdkWrapper;
 import com.intellij.openapi.projectRoots.impl.ProjectJdkImpl;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTable;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -35,27 +24,29 @@ import com.intellij.pom.java.LanguageLevel;
 import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.builders.JavaModuleFixtureBuilder;
 import com.intellij.testFramework.fixtures.IdeaProjectTestFixture;
+import com.intellij.testFramework.fixtures.MavenDependencyUtil;
 import com.intellij.testFramework.fixtures.ModuleFixture;
 import com.intellij.testFramework.fixtures.TestFixtureBuilder;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-/**
- * @author mike
- */
-abstract class JavaModuleFixtureBuilderImpl<T extends ModuleFixture> extends ModuleFixtureBuilderImpl<T> implements JavaModuleFixtureBuilder<T> {
-  private final List<Lib> myLibraries = new ArrayList<Lib>();
+public abstract class JavaModuleFixtureBuilderImpl<T extends ModuleFixture> extends ModuleFixtureBuilderImpl<T> implements JavaModuleFixtureBuilder<T> {
+  private final List<Lib> myLibraries = new ArrayList<>();
+  private final List<MavenLib> myMavenLibraries = new ArrayList<>();
+
   private String myJdk;
   private MockJdkLevel myMockJdkLevel = MockJdkLevel.jdk14;
-  private LanguageLevel myLanguageLevel = null;
+  private LanguageLevel myLanguageLevel;
 
-  public JavaModuleFixtureBuilderImpl(final TestFixtureBuilder<? extends IdeaProjectTestFixture> fixtureBuilder) {
+  public JavaModuleFixtureBuilderImpl(@NotNull TestFixtureBuilder<? extends IdeaProjectTestFixture> fixtureBuilder) {
     super(StdModuleTypes.JAVA, fixtureBuilder);
   }
 
@@ -63,33 +54,42 @@ abstract class JavaModuleFixtureBuilderImpl<T extends ModuleFixture> extends Mod
     super(moduleType, fixtureBuilder);
   }
 
+  @NotNull
   @Override
-  public JavaModuleFixtureBuilder setLanguageLevel(final LanguageLevel languageLevel) {
+  public JavaModuleFixtureBuilder setLanguageLevel(@NotNull final LanguageLevel languageLevel) {
     myLanguageLevel = languageLevel;
     return this;
   }
 
+  @NotNull
   @Override
-  public JavaModuleFixtureBuilder addLibrary(String libraryName, String... classPath) {
-    final HashMap<OrderRootType, String[]> map = new HashMap<OrderRootType, String[]>();
+  public JavaModuleFixtureBuilder addLibrary(String libraryName, String @NotNull ... classPath) {
     for (String path : classPath) {
       if (!new File(path).exists()) {
         System.out.println(path + " does not exist");
       }
     }
-    map.put(OrderRootType.CLASSES, classPath);
+    Map<OrderRootType, String[]> map = Collections.singletonMap(OrderRootType.CLASSES, classPath);
     myLibraries.add(new Lib(libraryName, map));
     return this;
   }
 
+  @NotNull
   @Override
-  public JavaModuleFixtureBuilder addLibrary(@NonNls final String libraryName, final Map<OrderRootType, String[]> roots) {
+  public JavaModuleFixtureBuilder addLibrary(@NonNls final String libraryName, @NotNull final Map<OrderRootType, String[]> roots) {
     myLibraries.add(new Lib(libraryName, roots));
     return this;
   }
 
   @Override
-  public JavaModuleFixtureBuilder addLibraryJars(String libraryName, String basePath, String... jars) {
+  public @NotNull JavaModuleFixtureBuilder addMavenLibrary(@NotNull MavenLib lib) {
+    myMavenLibraries.add(lib);
+    return this;
+  }
+
+  @NotNull
+  @Override
+  public JavaModuleFixtureBuilder addLibraryJars(String libraryName, @NotNull String basePath, String @NotNull ... jars) {
     if (!basePath.endsWith("/")) {
       basePath += "/";
     }
@@ -100,14 +100,15 @@ abstract class JavaModuleFixtureBuilderImpl<T extends ModuleFixture> extends Mod
     return addLibrary(libraryName, classPath);
   }
 
+  @NotNull
   @Override
-  public JavaModuleFixtureBuilder addJdk(String jdkPath) {
+  public JavaModuleFixtureBuilder addJdk(@NotNull String jdkPath) {
     myJdk = jdkPath;
     return this;
   }
 
   @Override
-  public void setMockJdkLevel(final MockJdkLevel level) {
+  public void setMockJdkLevel(@NotNull final MockJdkLevel level) {
     myMockJdkLevel = level;
   }
 
@@ -115,53 +116,63 @@ abstract class JavaModuleFixtureBuilderImpl<T extends ModuleFixture> extends Mod
   protected void initModule(final Module module) {
     super.initModule(module);
 
-    final ModifiableRootModel model = ModuleRootManager.getInstance(module).getModifiableModel();
-    final LibraryTable libraryTable = model.getModuleLibraryTable();
-
-    for (Lib lib : myLibraries) {
-      String libraryName = lib.getName();
-
-      final Library library = libraryTable.createLibrary(libraryName);
-
-      final Library.ModifiableModel libraryModel = library.getModifiableModel();
-
-      for (OrderRootType rootType : OrderRootType.getAllTypes()) {
-        final String[] roots = lib.getRoots(rootType);
-        for (String root : roots) {
-          VirtualFile vRoot = LocalFileSystem.getInstance().refreshAndFindFileByPath(root);
-          if (vRoot != null && OrderRootType.CLASSES.equals(rootType) && !vRoot.isDirectory()) {
-            final VirtualFile jar = JarFileSystem.getInstance().refreshAndFindFileByPath(root + "!/");
-            if (jar != null) vRoot = jar;
+    ModuleRootModificationUtil.updateModel(module, model -> {
+      LibraryTable libraryTable = model.getModuleLibraryTable();
+      for (Lib lib : myLibraries) {
+        Library library = libraryTable.createLibrary(lib.getName());
+        Library.ModifiableModel libraryModel = library.getModifiableModel();
+        boolean success = false;
+        try {
+          for (OrderRootType rootType : OrderRootType.getAllTypes()) {
+            for (String root : lib.getRoots(rootType)) {
+              VirtualFile vRoot = LocalFileSystem.getInstance().refreshAndFindFileByPath(root);
+              if (vRoot != null && OrderRootType.CLASSES.equals(rootType) && !vRoot.isDirectory()) {
+                VirtualFile jar = JarFileSystem.getInstance().refreshAndFindFileByPath(root + "!/");
+                if (jar != null) {
+                  vRoot = jar;
+                }
+              }
+              if (vRoot != null) {
+                libraryModel.addRoot(vRoot, rootType);
+              }
+            }
           }
-          if (vRoot != null) {
-            libraryModel.addRoot(vRoot, rootType);
+          success = true;
+        }
+        finally {
+          if (!success) {
+            Disposer.dispose(libraryModel);
           }
         }
+
+        libraryModel.commit();
       }
-      libraryModel.commit();
-    }
 
-    final Sdk jdk;
-    if (myJdk != null) {
-      VfsRootAccess.allowRootAccessTemporarily(module, myJdk);
-      jdk = JavaSdk.getInstance().createJdk(module.getName() + "_jdk", myJdk, false);
-      ((ProjectJdkImpl)jdk).setVersionString("java 1.5");
-    }
-    else {
-      jdk = IdeaTestUtil.getMockJdk17();
-    }
-    if (jdk != null) {
-      model.setSdk(new MockJdkWrapper(CompilerConfigurationImpl.getTestsExternalCompilerHome(), jdk));
-    }
+      for (MavenLib mavenLib : myMavenLibraries) {
+        MavenDependencyUtil.addFromMaven(model, mavenLib.getCoordinates(), mavenLib.isIncludeTransitiveDependencies(),
+                                         mavenLib.getDependencyScope());
+      }
 
-    if (myLanguageLevel != null) {
-      model.getModuleExtension(LanguageLevelModuleExtension.class).setLanguageLevel(myLanguageLevel);
-    }
-    else if (myMockJdkLevel == MockJdkLevel.jdk15) {
-      model.getModuleExtension(LanguageLevelModuleExtension.class).setLanguageLevel(LanguageLevel.JDK_1_5);
-    }
+      final Sdk jdk;
+      if (myJdk != null) {
+        VfsRootAccess.allowRootAccess(module, myJdk);
+        jdk = JavaSdk.getInstance().createJdk(module.getName() + "_jdk", myJdk, false);
+        ((ProjectJdkImpl)jdk).setVersionString(StringUtil.notNullize(IdeaTestUtil.getMockJdkVersion(myJdk), "java 1.5"));
+      }
+      else {
+        jdk = IdeaTestUtil.getMockJdk17();
+      }
 
-    model.commit();
+      registerJdk(jdk, module.getProject());
+      model.setSdk(jdk);
+
+      if (myLanguageLevel != null) {
+        model.getModuleExtension(LanguageLevelModuleExtension.class).setLanguageLevel(myLanguageLevel);
+      }
+      else if (myMockJdkLevel == MockJdkLevel.jdk15) {
+        model.getModuleExtension(LanguageLevelModuleExtension.class).setLanguageLevel(LanguageLevel.JDK_1_5);
+      }
+    });
 
     for (OrderEntry entry : ModuleRootManager.getInstance(module).getOrderEntries()) {
       if (entry instanceof LibraryOrderEntry) {
@@ -169,6 +180,21 @@ abstract class JavaModuleFixtureBuilderImpl<T extends ModuleFixture> extends Mod
         libraryCreated(library, module);
       }
     }
+  }
+
+  private static void registerJdk(Sdk jdk, Project project) {
+    ProjectJdkTable jdkTable = ProjectJdkTable.getInstance();
+
+    // Remove all JDK named as jdk.getName()
+    // There may be several of them as findJdk just searches a list
+    while (true) {
+      Sdk byName = jdkTable.findJdk(jdk.getName());
+      if (byName == null) break;
+
+      jdkTable.removeJdk(byName);
+    }
+
+    WriteAction.runAndWait(()-> jdkTable.addJdk(jdk, project));
   }
 
   @Override
@@ -200,7 +226,7 @@ abstract class JavaModuleFixtureBuilderImpl<T extends ModuleFixture> extends Mod
     private final String myName;
     private final Map<OrderRootType, String []> myRoots;
 
-    public Lib(final String name, final Map<OrderRootType, String[]> roots) {
+    Lib(final String name, final Map<OrderRootType, String[]> roots) {
       myName = name;
       myRoots = roots;
     }
@@ -211,7 +237,7 @@ abstract class JavaModuleFixtureBuilderImpl<T extends ModuleFixture> extends Mod
 
     public String [] getRoots(OrderRootType rootType) {
       final String[] roots = myRoots.get(rootType);
-      return roots != null ? roots : ArrayUtil.EMPTY_STRING_ARRAY;
+      return roots != null ? roots : ArrayUtilRt.EMPTY_STRING_ARRAY;
     }
   }
 }

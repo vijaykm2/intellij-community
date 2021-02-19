@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,11 +17,17 @@ package com.intellij.ui;
 
 import com.intellij.openapi.ui.Divider;
 import com.intellij.openapi.ui.OnePixelDivider;
+import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
+
+import java.awt.*;
+import java.util.function.Supplier;
 
 /**
  * @author Konstantin Bulenkov
  */
 public class OnePixelSplitter extends JBSplitter {
+  private Supplier<Insets> myBlindZone;
 
   public OnePixelSplitter() {
     super();
@@ -33,8 +39,19 @@ public class OnePixelSplitter extends JBSplitter {
     init();
   }
 
+  public OnePixelSplitter(boolean vertical, @NotNull @NonNls String proportionKey, float defaultProportion) {
+    super(vertical, proportionKey, defaultProportion);
+    init();
+  }
+
   public OnePixelSplitter(boolean vertical, float proportion) {
     super(vertical, proportion);
+    init();
+  }
+
+  public OnePixelSplitter(@NotNull @NonNls String proportionKey, float defaultProportion) {
+    super(proportionKey, defaultProportion);
+
     init();
   }
 
@@ -50,10 +67,20 @@ public class OnePixelSplitter extends JBSplitter {
 
   protected void init() {
     setDividerWidth(1);
+    setFocusable(false);
   }
 
   @Override
   protected Divider createDivider() {
     return new OnePixelDivider(isVertical(), this);
+  }
+
+  public void setBlindZone(Supplier<Insets> blindZone) {
+    myDivider.setOpaque(blindZone == null);
+    myBlindZone = blindZone;
+  }
+
+  public Supplier<Insets> getBlindZone() {
+    return myBlindZone;
   }
 }

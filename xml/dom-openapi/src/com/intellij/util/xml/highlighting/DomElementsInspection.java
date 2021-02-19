@@ -27,16 +27,12 @@ import com.intellij.psi.xml.XmlElement;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.Consumer;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xml.*;
 import com.intellij.util.xml.reflect.AbstractDomChildrenDescription;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Arrays;
-import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -45,12 +41,12 @@ import java.util.Set;
  * @see com.intellij.util.xml.highlighting.BasicDomElementsInspection
  */
 public abstract class DomElementsInspection<T extends DomElement> extends XmlSuppressableInspectionTool {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.util.xml.highlighting.DomElementsInspection");
+  private static final Logger LOG = Logger.getInstance(DomElementsInspection.class);
 
   private final Set<Class<? extends T>> myDomClasses;
 
-  public DomElementsInspection(Class<? extends T> domClass, @NotNull Class<? extends T>... additionalClasses) {
-    myDomClasses = new THashSet<Class<? extends T>>(Arrays.asList(additionalClasses));
+  public DomElementsInspection(Class<? extends T> domClass, Class<? extends T> @NotNull ... additionalClasses) {
+    myDomClasses = ContainerUtil.set(additionalClasses);
     myDomClasses.add(domClass);
   }
 
@@ -64,7 +60,7 @@ public abstract class DomElementsInspection<T extends DomElement> extends XmlSup
   public void checkFileElement(DomFileElement<T> domFileElement, final DomElementAnnotationHolder holder) {
     final DomHighlightingHelper helper =
       DomElementAnnotationsManager.getInstance(domFileElement.getManager().getProject()).getHighlightingHelper();
-    final Consumer<DomElement> consumer = new Consumer<DomElement>() {
+    final Consumer<DomElement> consumer = new Consumer<>() {
       @Override
       public void consume(final DomElement element) {
         checkChildren(element, this);
@@ -74,8 +70,7 @@ public abstract class DomElementsInspection<T extends DomElement> extends XmlSup
     consumer.consume(domFileElement.getRootElement());
   }
 
-  @SuppressWarnings({"MethodMayBeStatic"})
-  protected void checkChildren(final DomElement element, Consumer<DomElement> visitor) {
+  protected void checkChildren(final DomElement element, Consumer<? super DomElement> visitor) {
     final XmlElement xmlElement = element.getXmlElement();
     if (xmlElement instanceof XmlTag) {
       for (final DomElement child : DomUtil.getDefinedChildren(element, true, true)) {
@@ -113,8 +108,7 @@ public abstract class DomElementsInspection<T extends DomElement> extends XmlSup
    * {@link #checkDomElement(com.intellij.util.xml.DomElement, DomElementAnnotationHolder, DomHighlightingHelper)} instead.
    */
   @Override
-  @Nullable
-  public ProblemDescriptor[] checkFile(@NotNull PsiFile file, @NotNull InspectionManager manager, boolean isOnTheFly) {
+  public ProblemDescriptor @Nullable [] checkFile(@NotNull PsiFile file, @NotNull InspectionManager manager, boolean isOnTheFly) {
     if (file instanceof XmlFile && (file.isPhysical() || ApplicationManager.getApplication().isUnitTestMode())) {
       for (Class<? extends T> domClass: myDomClasses) {
         final DomFileElement<? extends T> fileElement = DomManager.getDomManager(file.getProject()).getFileElement((XmlFile)file, domClass);
@@ -141,23 +135,17 @@ public abstract class DomElementsInspection<T extends DomElement> extends XmlSup
   /**
    * not intended to be overridden or called by implementors
    */
-  @Nullable
-  protected ProblemDescriptor[] checkDomFile(@NotNull final DomFileElement<T> domFileElement,
-                                             @NotNull final InspectionManager manager,
-                                             @SuppressWarnings("UnusedParameters") final boolean isOnTheFly) {
+  protected ProblemDescriptor @Nullable [] checkDomFile(@NotNull final DomFileElement<T> domFileElement,
+                                                        @NotNull final InspectionManager manager,
+                                                        final boolean isOnTheFly) {
     final DomElementAnnotationsManager annotationsManager = DomElementAnnotationsManager.getInstance(manager.getProject());
 
     final List<DomElementProblemDescriptor> list = annotationsManager.checkFileElement(domFileElement, this, isOnTheFly);
     if (list.isEmpty()) return ProblemDescriptor.EMPTY_ARRAY;
 
     List<ProblemDescriptor> problems =
-      ContainerUtil.concat(list, new Function<DomElementProblemDescriptor, Collection<? extends ProblemDescriptor>>() {
-        @Override
-        public Collection<ProblemDescriptor> fun(final DomElementProblemDescriptor s) {
-          return annotationsManager.createProblemDescriptors(manager, s);
-        }
-      });
-    return problems.toArray(new ProblemDescriptor[problems.size()]);
+      ContainerUtil.concat(list, s -> annotationsManager.createProblemDescriptors(manager, s));
+    return problems.toArray(ProblemDescriptor.EMPTY_ARRAY);
   }
 
   /**

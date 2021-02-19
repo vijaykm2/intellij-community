@@ -15,6 +15,8 @@
  */
 package com.intellij.codeInsight.editorActions;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.awt.datatransfer.DataFlavor;
 import java.io.Serializable;
 
@@ -24,7 +26,7 @@ import java.io.Serializable;
 public class ReferenceTransferableData implements TextBlockTransferableData, Cloneable, Serializable {
   private final ReferenceData[] myReferenceDatas;
 
-  public ReferenceTransferableData(final ReferenceData[] referenceDatas) {
+  public ReferenceTransferableData(ReferenceData @NotNull [] referenceDatas) {
     myReferenceDatas = referenceDatas;
   }
 
@@ -65,7 +67,7 @@ public class ReferenceTransferableData implements TextBlockTransferableData, Clo
     return new ReferenceTransferableData(newReferenceData);
   }
 
-  public ReferenceData[] getData() {
+  public ReferenceData @NotNull [] getData() {
     return myReferenceDatas;
   }
 }

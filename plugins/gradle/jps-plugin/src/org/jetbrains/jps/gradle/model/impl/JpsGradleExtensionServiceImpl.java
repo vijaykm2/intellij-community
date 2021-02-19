@@ -1,28 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.gradle.model.impl;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.JDOMUtil;
-import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.containers.ConcurrentFactoryMap;
-import com.intellij.util.containers.FactoryMap;
+import com.intellij.util.containers.FileCollectionFactory;
 import com.intellij.util.xmlb.XmlSerializer;
-import gnu.trove.THashMap;
-import org.jdom.Document;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.builders.storage.BuildDataPaths;
@@ -42,20 +25,12 @@ import java.util.Map;
 
 /**
  * @author Vladislav.Soroka
- * @since 7/10/2014
  */
-public class JpsGradleExtensionServiceImpl extends JpsGradleExtensionService {
+public final class JpsGradleExtensionServiceImpl extends JpsGradleExtensionService {
   private static final Logger LOG = Logger.getInstance(JpsGradleExtensionServiceImpl.class);
-  private static final JpsElementChildRole<JpsSimpleElement<Boolean>> PRODUCTION_ON_TEST_ROLE = JpsElementChildRoleBase.create("production on test");
-  private final Map<File, GradleProjectConfiguration> myLoadedConfigs =
-    new THashMap<File, GradleProjectConfiguration>(FileUtil.FILE_HASHING_STRATEGY);
-  private final FactoryMap<File, Boolean> myConfigFileExists = new ConcurrentFactoryMap<File, Boolean>() {
-    @Nullable
-    @Override
-    protected Boolean create(File key) {
-      return key.exists();
-    }
-  };
+  private static final JpsElementChildRole<JpsSimpleElement<Boolean>> PRODUCTION_ON_TEST_ROLE = JpsElementChildRoleBase.create("gradle production on test");
+  private final Map<File, GradleProjectConfiguration> myLoadedConfigs = FileCollectionFactory.createCanonicalFileMap();
+  private final Map<File, Boolean> myConfigFileExists = ConcurrentFactoryMap.createMap(key -> key.exists());
 
   public JpsGradleExtensionServiceImpl() {
     ResourcesBuilder.registerEnabler(new StandardResourceBuilderEnabler() {
@@ -74,12 +49,12 @@ public class JpsGradleExtensionServiceImpl extends JpsGradleExtensionService {
     return module.getContainer().getChild(JpsGradleModuleExtensionImpl.ROLE);
   }
 
-  @NotNull
   @Override
-  public JpsGradleModuleExtension getOrCreateExtension(@NotNull JpsModule module) {
+  @NotNull
+  public JpsGradleModuleExtension getOrCreateExtension(@NotNull JpsModule module, @Nullable String moduleType) {
     JpsGradleModuleExtension extension = module.getContainer().getChild(JpsGradleModuleExtensionImpl.ROLE);
     if (extension == null) {
-      extension = new JpsGradleModuleExtensionImpl();
+      extension = new JpsGradleModuleExtensionImpl(moduleType);
       module.getContainer().setChild(JpsGradleModuleExtensionImpl.ROLE, extension);
     }
     return extension;
@@ -121,12 +96,13 @@ public class JpsGradleExtensionServiceImpl extends JpsGradleExtensionService {
       config = myLoadedConfigs.get(configFile);
       if (config == null) {
         config = new GradleProjectConfiguration();
-        try {
-          final Document document = JDOMUtil.loadDocument(configFile);
-          XmlSerializer.deserializeInto(config, document.getRootElement());
-        }
-        catch (Exception e) {
-          LOG.info(e);
+        if (configFile.exists()) {
+          try {
+            XmlSerializer.deserializeInto(config, JDOMUtil.load(configFile));
+          }
+          catch (Exception e) {
+            LOG.info(e);
+          }
         }
         myLoadedConfigs.put(configFile, config);
       }

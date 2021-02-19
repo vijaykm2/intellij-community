@@ -16,8 +16,9 @@
 package com.intellij.openapi.diff.impl.dir.actions;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.EmptyAction;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.diff.impl.dir.DirDiffTableModel;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Konstantin Bulenkov
@@ -25,14 +26,15 @@ import com.intellij.openapi.diff.impl.dir.DirDiffTableModel;
 public class EnableLeft extends DirDiffAction {
   protected EnableLeft(DirDiffTableModel model) {
     super(model);
-    EmptyAction.setupAction(this, "DirDiffMenu.EnableLeft", null);
+    ActionUtil.copyFrom(this, "DirDiffMenu.EnableLeft");
   }
 
   @Override
-  public boolean isSelected(AnActionEvent e) {
+  public boolean isSelected(@NotNull AnActionEvent e) {
     return getModel().isShowNewOnSource();
   }
 
+  @Override
   public void updateState(boolean state) {
     getModel().setShowNewOnSource(state);
   }

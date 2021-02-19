@@ -12,11 +12,11 @@
  */
 package com.intellij.codeInsight.template;
 
-import com.intellij.codeInsight.CodeInsightBundle;
-import com.intellij.openapi.fileTypes.StdFileTypes;
+import com.intellij.ide.highlighter.XmlFileType;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.xml.XmlBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -25,7 +25,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public class XslTextContextType extends TemplateContextType {
   public XslTextContextType() {
-    super("XSL_TEXT", CodeInsightBundle.message("dialog.edit.template.checkbox.xsl.text"), XmlContextType.class);
+    super("XSL_TEXT", XmlBundle.message("dialog.edit.template.checkbox.xsl.text"), XmlContextType.class);
   }
 
   @Override
@@ -38,7 +38,7 @@ public class XslTextContextType extends TemplateContextType {
   }
 
   public static boolean isXslOrXsltFile(@Nullable PsiFile file) {
-    return file != null && file.getFileType() == StdFileTypes.XML
+    return file != null && file.getFileType() == XmlFileType.INSTANCE
         && (FileUtilRt.extensionEquals(file.getName(), "xsl") || FileUtilRt.extensionEquals(file.getName(), "xslt"));
   }
 }

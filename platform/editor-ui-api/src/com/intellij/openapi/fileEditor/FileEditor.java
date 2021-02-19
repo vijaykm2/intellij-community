@@ -1,27 +1,14 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileEditor;
 
 import com.intellij.codeHighlighting.BackgroundEditorHighlighter;
 import com.intellij.ide.structureView.StructureViewBuilder;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.UserDataHolder;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.DeprecatedMethodException;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import java.beans.PropertyChangeListener;
@@ -42,9 +29,11 @@ public interface FileEditor extends UserDataHolder, Disposable {
    */
   @NonNls String PROP_VALID = "valid";
 
+  FileEditor[] EMPTY_ARRAY = {};
+
   /**
    * @return component which represents editor in the UI.
-   * The method should never return <code>null</code>.
+   * The method should never return {@code null}.
    */
   @NotNull
   JComponent getComponent();
@@ -59,16 +48,17 @@ public interface FileEditor extends UserDataHolder, Disposable {
    * @return editor's name, a string that identifies editor among
    * other editors. For example, UI form might have two editor: "GUI Designer"
    * and "Text". So "GUI Designer" can be a name of one editor and "Text"
-   * can be a name of other editor. The method should never return <code>null</code>.
+   * can be a name of other editor. The method should never return {@code null}.
    */
-  @NonNls @NotNull
-  String getName();
+  @Nls(capitalization = Nls.Capitalization.Title) @NotNull String getName();
 
   /**
-   * @return editor's internal state. Method should never return <code>null</code>.
+   * @return editor's internal state. Method should never return {@code null}.
    */
   @NotNull
-  FileEditorState getState(@NotNull FileEditorStateLevel level);
+  default FileEditorState getState(@NotNull FileEditorStateLevel level) {
+    return FileEditorState.INSTANCE;
+  }
 
   /**
    * Applies given state to the editor.
@@ -77,13 +67,21 @@ public interface FileEditor extends UserDataHolder, Disposable {
   void setState(@NotNull FileEditorState state);
 
   /**
+   * In some cases, it's desirable to set state exactly as requested (e.g. on tab splitting), in other cases a different behaviour is
+   * preferred, e.g. bringing caret into view on text editor opening. This method passes additional flag to FileEditor to indicate
+   * the desired way to set state.
+   */
+  default void setState(@NotNull FileEditorState state, boolean exactState) {
+    setState(state);
+  }
+  /**
    * @return whether the editor's content is modified in comparison with its file.
    */
   boolean isModified();
 
   /**
    * @return whether the editor is valid or not. An editor is valid if the contents displayed in it still exists. For example, an editor
-   * displaying the contents of a file stops being valid if the file is deleted.
+   * displaying the contents of a file stops being valid if the file is deleted. Editor can also become invalid when it's disposed.
    */
   boolean isValid();
 
@@ -92,22 +90,24 @@ public interface FileEditor extends UserDataHolder, Disposable {
    * This can happen in two cases: editor is selected because the selected file
    * has been changed or editor for the selected file has been changed.
    */
-  void selectNotify();
+  default void selectNotify() {
+  }
 
   /**
    * This method is invoked each time when the editor is deselected.
    */
-  void deselectNotify();
+  default void deselectNotify() {
+  }
 
   /**
-   * Removes specified listener
+   * Adds specified listener.
    *
    * @param listener to be added
    */
   void addPropertyChangeListener(@NotNull PropertyChangeListener listener);
 
   /**
-   * Adds specified listener
+   * Removes specified listener.
    *
    * @param listener to be removed
    */
@@ -115,10 +115,12 @@ public interface FileEditor extends UserDataHolder, Disposable {
 
   /**
    * @return highlighter object to perform background analysis and highlighting activities.
-   * Return <code>null</code> if no background highlighting activity necessary for this file editor.
+   * Return {@code null} if no background highlighting activity necessary for this file editor.
    */
   @Nullable
-  BackgroundEditorHighlighter getBackgroundHighlighter();
+  default BackgroundEditorHighlighter getBackgroundHighlighter() {
+    return null;
+  }
 
   /**
    * The method is optional. Currently is used only by find usages subsystem
@@ -128,5 +130,20 @@ public interface FileEditor extends UserDataHolder, Disposable {
   FileEditorLocation getCurrentLocation();
 
   @Nullable
-  StructureViewBuilder getStructureViewBuilder();
+  default StructureViewBuilder getStructureViewBuilder() {
+    return null;
+  }
+
+  @ApiStatus.Internal
+  Key<VirtualFile> FILE_KEY = Key.create("FILE_KEY");
+
+  /**
+   * Returns the file for which {@link FileEditorProvider#createEditor)} was called.
+   * The default implementation is temporary, and shall be dropped in future.
+   */
+  @Nullable 
+  default VirtualFile getFile() {
+    DeprecatedMethodException.reportDefaultImplementation(getClass(), "getFile", "A proper @NotNull implementation required");
+    return FILE_KEY.get(this);
+  }
 }

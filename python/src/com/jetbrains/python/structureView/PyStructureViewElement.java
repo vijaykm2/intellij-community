@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.structureView;
 
 import com.intellij.ide.structureView.StructureViewTreeElement;
@@ -25,7 +11,9 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.ui.LayeredIcon;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.psi.*;
-import icons.PythonIcons;
+import com.jetbrains.python.psi.impl.PyPsiUtils;
+import com.jetbrains.python.psi.types.TypeEvalContext;
+import icons.PythonPsiApiIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -46,11 +34,11 @@ public class PyStructureViewElement implements StructureViewTreeElement {
     PREDEFINED // like "__init__"; only if really visible
   }
 
-  private PyElement myElement;
-  private Visibility myVisibility;
+  private final PyElement myElement;
+  private final Visibility myVisibility;
   private Icon myIcon;
-  private boolean myInherited;
-  private boolean myField;
+  private final boolean myInherited;
+  private final boolean myField;
 
   protected PyStructureViewElement(PyElement element, Visibility visibility, boolean inherited, boolean field) {
     myElement = element;
@@ -67,9 +55,10 @@ public class PyStructureViewElement implements StructureViewTreeElement {
     return new PyStructureViewElement(element, visibility, inherited, field);
   }
 
+  @Nullable
   @Override
   public PyElement getValue() {
-    return myElement;
+    return myElement.isValid() ? myElement : null;
   }
 
   public boolean isInherited() {
@@ -82,17 +71,20 @@ public class PyStructureViewElement implements StructureViewTreeElement {
 
   @Override
   public void navigate(boolean requestFocus) {
-    myElement.navigate(requestFocus);
+    final PyElement element = getValue();
+    if (element != null) {
+      myElement.navigate(requestFocus);
+    }
   }
 
   @Override
   public boolean canNavigate() {
-    return myElement.canNavigate();
+    return myElement.isValid() && myElement.canNavigate();
   }
 
   @Override
   public boolean canNavigateToSource() {
-    return myElement.canNavigateToSource();
+    return myElement.isValid() && myElement.canNavigateToSource();
   }
 
   public void setIcon(Icon icon) {
@@ -117,14 +109,21 @@ public class PyStructureViewElement implements StructureViewTreeElement {
     return name != null ? name.hashCode() : 0;
   }
 
-  @NotNull
-  public StructureViewTreeElement[] getChildren() {
-    final Collection<StructureViewTreeElement> children = new ArrayList<StructureViewTreeElement>();
-    for (PyElement e : getElementChildren(myElement)) {
+  @Override
+  public StructureViewTreeElement @NotNull [] getChildren() {
+    final PyElement element = getValue();
+    if (element == null) {
+      return EMPTY_ARRAY;
+    }
+
+    final Collection<StructureViewTreeElement> children = new ArrayList<>();
+    for (PyElement e : getElementChildren(element)) {
       children.add(createChild(e, getElementVisibility(e), false, elementIsField(e)));
     }
-    if (myElement instanceof PyClass && myElement.isValid()) {
-      for (PyClass c : ((PyClass)myElement).getAncestorClasses()) {
+    PyPsiUtils.assertValid(element);
+    if (element instanceof PyClass) {
+      final TypeEvalContext context = TypeEvalContext.codeAnalysis(element.getProject(), element.getContainingFile());
+      for (PyClass c : ((PyClass)element).getAncestorClasses(context)) {
         for (PyElement e: getElementChildren(c)) {
           final StructureViewTreeElement inherited = createChild(e, getElementVisibility(e), true, elementIsField(e));
           if (!children.contains(inherited)) {
@@ -133,7 +132,7 @@ public class PyStructureViewElement implements StructureViewTreeElement {
         }
       }
     }
-    return children.toArray(new StructureViewTreeElement[children.size()]);
+    return children.toArray(StructureViewTreeElement.EMPTY_ARRAY);
   }
 
   protected boolean elementIsField(PyElement element) {
@@ -150,13 +149,11 @@ public class PyStructureViewElement implements StructureViewTreeElement {
   }
 
   private Collection<PyElement> getElementChildren(final PyElement element) {
-    final Collection<PyElement> children = new ArrayList<PyElement>();
-    if (!element.isValid()) {
-      return children;
-    }
+    Collection<PyElement> children = new LinkedHashSet<>();
+    PyPsiUtils.assertValid(element);
     element.acceptChildren(new PyElementVisitor() {
       @Override
-      public void visitElement(PsiElement e) {
+      public void visitElement(@NotNull PsiElement e) {
         if (isWorthyItem(e, element)) {
           children.add((PyElement)e);
         }
@@ -167,31 +164,29 @@ public class PyStructureViewElement implements StructureViewTreeElement {
     });
     if (element instanceof PyClass) {
       final List<PyElement> attrs = getClassAttributes((PyClass)element);
-      final List<PyElement> filtered = new ArrayList<PyElement>();
-      final Set<String> names = new HashSet<String>();
+      final List<PyElement> filtered = new ArrayList<>();
+      final Set<String> names = new HashSet<>();
       for (PyElement attr : attrs) {
         final String name = attr.getName();
-        if (attr.isValid() && !names.contains(name)) {
+        PyPsiUtils.assertValid(attr);
+        if (!names.contains(name)) {
           filtered.add(attr);
         }
         names.add(name);
       }
-      final Comparator<PyElement> comparator = new Comparator<PyElement>() {
-        @Override
-        public int compare(PyElement e1, PyElement e2) {
-          final String n1 = e1.getName();
-          final String n2 = e2.getName();
-          return (n1 != null && n2 != null) ? n1.compareTo(n2) : 0;
-        }
+      final Comparator<PyElement> comparator = (e1, e2) -> {
+        final String n1 = e1.getName();
+        final String n2 = e2.getName();
+        return (n1 != null && n2 != null) ? n1.compareTo(n2) : 0;
       };
-      Collections.sort(filtered, comparator);
+      filtered.sort(comparator);
       children.addAll(filtered);
     }
     return children;
   }
 
   protected List<PyElement> getClassAttributes(PyClass cls) {
-    final List<PyElement> results = new ArrayList<PyElement>();
+    final List<PyElement> results = new ArrayList<>();
     results.addAll(cls.getInstanceAttributes());
     results.addAll(cls.getClassAttributes());
     return results;
@@ -200,7 +195,7 @@ public class PyStructureViewElement implements StructureViewTreeElement {
   private static Visibility getVisibilityByName(@Nullable String name) {
     if (name != null) {
       if (name.startsWith("__")) {
-        if (PyNames.UnderscoredAttributes.contains(name)) {
+        if (PyNames.UNDERSCORED_ATTRIBUTES.contains(name)) {
           return Visibility.PREDEFINED;
         }
         else {
@@ -233,13 +228,15 @@ public class PyStructureViewElement implements StructureViewTreeElement {
   @NotNull
   @Override
   public ItemPresentation getPresentation() {
-    final ItemPresentation presentation = myElement.getPresentation();
+    final PyElement element = getValue();
+    final ItemPresentation presentation = element != null ? element.getPresentation() : null;
+
     return new ColoredItemPresentation() {
       @Nullable
       @Override
       public String getPresentableText() {
-        if (myElement instanceof PyFile) {
-          return myElement.getName();
+        if (element instanceof PyFile) {
+          return element.getName();
         }
         return presentation != null ? presentation.getPresentableText() : PyNames.UNNAMED_ELEMENT;
       }
@@ -255,14 +252,12 @@ public class PyStructureViewElement implements StructureViewTreeElement {
 
       @Nullable
       @Override
-      public String getLocationString() {
-        return null;
-      }
-
-      @Nullable
-      @Override
       public Icon getIcon(boolean open) {
-        Icon normal_icon = myElement.getIcon(0);
+        if (element == null) {
+          return null;
+        }
+
+        Icon normal_icon = element.getIcon(0);
         if (myIcon != null) normal_icon = myIcon; // override normal
         if (myVisibility == Visibility.NORMAL) {
           return normal_icon;
@@ -272,13 +267,13 @@ public class PyStructureViewElement implements StructureViewTreeElement {
           icon.setIcon(normal_icon, 0);
           Icon overlay = null;
           if (myVisibility == Visibility.PRIVATE || myVisibility == Visibility.PROTECTED) {
-            overlay = PythonIcons.Python.Nodes.Lock;
+            overlay = PythonPsiApiIcons.Nodes.Lock;
           }
           else if (myVisibility == Visibility.PREDEFINED) {
-            overlay = PythonIcons.Python.Nodes.Cyan_dot;
+            overlay = PythonPsiApiIcons.Nodes.CyanDot;
           }
           else if (myVisibility == Visibility.INVISIBLE) {
-            overlay = PythonIcons.Python.Nodes.Red_inv_triangle;
+            overlay = PythonPsiApiIcons.Nodes.RedInvTriangle;
           }
           if (overlay != null) {
             icon.setIcon(overlay, 1);

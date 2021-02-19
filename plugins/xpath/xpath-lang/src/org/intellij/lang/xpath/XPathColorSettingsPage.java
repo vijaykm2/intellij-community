@@ -1,25 +1,5 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/*
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 15.03.2006
- * Time: 18:26:09
- */
 package org.intellij.lang.xpath;
 
 import com.intellij.openapi.editor.colors.TextAttributesKey;
@@ -28,6 +8,7 @@ import com.intellij.openapi.fileTypes.SyntaxHighlighterFactory;
 import com.intellij.openapi.options.colors.AttributesDescriptor;
 import com.intellij.openapi.options.colors.ColorDescriptor;
 import com.intellij.openapi.options.colors.ColorSettingsPage;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -36,49 +17,54 @@ import javax.swing.*;
 import java.util.Map;
 
 public class XPathColorSettingsPage implements ColorSettingsPage {
+    @Override
     @NotNull
     public String getDisplayName() {
-        return "XPath";
+        return XPathFileType.XPATH.getName();
     }
 
+    @Override
     @Nullable
     public Icon getIcon() {
         return XPathFileType.XPATH.getIcon();
     }
 
-    @NotNull
-    public AttributesDescriptor[] getAttributeDescriptors() {
+    @Override
+    public AttributesDescriptor @NotNull [] getAttributeDescriptors() {
         return new AttributesDescriptor[]{
-                new AttributesDescriptor("Keyword", XPathHighlighter.XPATH_KEYWORD),
-                new AttributesDescriptor("Name", XPathHighlighter.XPATH_NAME),
-                new AttributesDescriptor("Number", XPathHighlighter.XPATH_NUMBER),
-                new AttributesDescriptor("String", XPathHighlighter.XPATH_STRING),
-                new AttributesDescriptor("Operator", XPathHighlighter.XPATH_OPERATION_SIGN),
-                new AttributesDescriptor("Parentheses", XPathHighlighter.XPATH_PARENTH),
-                new AttributesDescriptor("Brackets", XPathHighlighter.XPATH_BRACKET),
-                new AttributesDescriptor("Function", XPathHighlighter.XPATH_FUNCTION),
-                new AttributesDescriptor("Variable", XPathHighlighter.XPATH_VARIABLE),
-                new AttributesDescriptor("Extension Prefix", XPathHighlighter.XPATH_PREFIX),
-                new AttributesDescriptor("Other", XPathHighlighter.XPATH_TEXT),
+                new AttributesDescriptor(XPathBundle.message("attribute.descriptor.keyword"), XPathHighlighter.XPATH_KEYWORD),
+                new AttributesDescriptor(XPathBundle.message("attribute.descriptor.name"), XPathHighlighter.XPATH_NAME),
+                new AttributesDescriptor(XPathBundle.message("attribute.descriptor.number"), XPathHighlighter.XPATH_NUMBER),
+                new AttributesDescriptor(XPathBundle.message("attribute.descriptor.string"), XPathHighlighter.XPATH_STRING),
+                new AttributesDescriptor(XPathBundle.message("attribute.descriptor.operator"), XPathHighlighter.XPATH_OPERATION_SIGN),
+                new AttributesDescriptor(XPathBundle.message("attribute.descriptor.parentheses"), XPathHighlighter.XPATH_PARENTH),
+                new AttributesDescriptor(XPathBundle.message("attribute.descriptor.brackets"), XPathHighlighter.XPATH_BRACKET),
+                new AttributesDescriptor(XPathBundle.message("attribute.descriptor.function"), XPathHighlighter.XPATH_FUNCTION),
+                new AttributesDescriptor(XPathBundle.message("attribute.descriptor.variable"), XPathHighlighter.XPATH_VARIABLE),
+                new AttributesDescriptor(XPathBundle.message("attribute.descriptor.extension.prefix"), XPathHighlighter.XPATH_PREFIX),
+                new AttributesDescriptor(XPathBundle.message("attribute.descriptor.other"), XPathHighlighter.XPATH_TEXT),
         };
     }
 
-    @NotNull
-    public ColorDescriptor[] getColorDescriptors() {
-        return new ColorDescriptor[0];
+    @Override
+    public ColorDescriptor @NotNull [] getColorDescriptors() {
+        return ColorDescriptor.EMPTY_ARRAY;
     }
 
+    @Override
     @NotNull
     public SyntaxHighlighter getHighlighter() {
         return SyntaxHighlighterFactory.getSyntaxHighlighter(XPathFileType.XPATH.getLanguage(), null, null);
     }
 
+    @Override
     @NonNls
     @NotNull
     public String getDemoText() {
         return "//prefix:*[ext:name() = 'changes']/element[(position() mod 2) = $pos + 1]/parent::*";
     }
 
+    @Override
     @Nullable
     public Map<String, TextAttributesKey> getAdditionalHighlightingTagToDescriptorMap() {
         return null;

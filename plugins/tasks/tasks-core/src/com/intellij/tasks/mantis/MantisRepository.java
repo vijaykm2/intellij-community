@@ -1,9 +1,10 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.mantis;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.KeyValue;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.tasks.Task;
 import com.intellij.tasks.TaskBundle;
@@ -11,7 +12,6 @@ import com.intellij.tasks.TaskRepositoryType;
 import com.intellij.tasks.impl.BaseRepository;
 import com.intellij.tasks.impl.BaseRepositoryImpl;
 import com.intellij.tasks.mantis.model.*;
-import com.intellij.util.Function;
 import com.intellij.util.NullableFunction;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.net.HttpConfigurable;
@@ -93,7 +93,7 @@ public class MantisRepository extends BaseRepositoryImpl {
     ensureProjectsRefreshed();
     MantisConnectPortType soap = createSoap();
 
-    List<Task> tasks = new ArrayList<Task>(limit);
+    List<Task> tasks = new ArrayList<>(limit);
 
     int pageNumber = offset / PAGE_SIZE + 1;
     // what the heck does it suppose to mean?
@@ -107,11 +107,11 @@ public class MantisRepository extends BaseRepositoryImpl {
       }
       pageNumber++;
     }
-    return tasks.toArray(new Task[tasks.size()]);
+    return tasks.toArray(Task.EMPTY_ARRAY);
   }
 
   private List<Task> getIssuesFromPage(@NotNull MantisConnectPortType soap, int pageNumber, int pageSize) throws Exception {
-    List<IssueHeaderData> collectedHeaders = new ArrayList<IssueHeaderData>();
+    List<IssueHeaderData> collectedHeaders = new ArrayList<>();
     boolean isWorkaround = myCurrentProject.isUnspecified() && !myAllProjectsAvailable;
     // Projects to iterate over, actually needed only when "All Projects" pseudo-project is selected
     // and is unsupported on server side.
@@ -124,13 +124,11 @@ public class MantisRepository extends BaseRepositoryImpl {
       IssueHeaderData[] headers = fetchProjectIssues(soap, project, myCurrentFilter, pageNumber, pageSize);
       ContainerUtil.addAll(collectedHeaders, headers);
     }
-    return ContainerUtil.mapNotNull(collectedHeaders, new NullableFunction<IssueHeaderData, Task>() {
-      public Task fun(IssueHeaderData issueData) {
-        if (issueData.getId() == null || issueData.getSummary() == null) {
-          return null;
-        }
-        return new MantisTask(issueData, MantisRepository.this);
+    return ContainerUtil.mapNotNull(collectedHeaders, (NullableFunction<IssueHeaderData, Task>)issueData -> {
+      if (issueData.getId() == null || issueData.getSummary() == null) {
+        return null;
       }
+      return new MantisTask(issueData, this);
     });
   }
 
@@ -169,7 +167,7 @@ public class MantisRepository extends BaseRepositoryImpl {
   @NotNull
   public List<MantisProject> getProjects() throws Exception {
     ensureProjectsRefreshed();
-    return myProjects == null ? Collections.<MantisProject>emptyList() : myProjects;
+    return myProjects == null ? Collections.emptyList() : myProjects;
   }
 
   private void ensureProjectsRefreshed() throws Exception {
@@ -183,16 +181,11 @@ public class MantisRepository extends BaseRepositoryImpl {
     myAllProjectsAvailable = checkAllProjectsAvailable(soap);
 
     List<MantisProject> projects =
-      new ArrayList<MantisProject>(ContainerUtil.map(fetchUserProjects(soap), new Function<ProjectData, MantisProject>() {
-        @Override
-        public MantisProject fun(final ProjectData data) {
-          return new MantisProject(data);
-        }
-      }));
-    List<MantisFilter> commonFilters = new LinkedList<MantisFilter>();
+      new ArrayList<>(ContainerUtil.map(fetchUserProjects(soap), data -> new MantisProject(data)));
+    List<MantisFilter> commonFilters = new LinkedList<>();
     for (MantisProject project : projects) {
       FilterData[] rawFilters = fetchProjectFilters(soap, project);
-      List<MantisFilter> projectFilters = new LinkedList<MantisFilter>();
+      List<MantisFilter> projectFilters = new LinkedList<>();
       for (FilterData data : rawFilters) {
         MantisFilter filter = new MantisFilter(data);
         if (data.getProject_id().intValue() == 0) {
@@ -205,12 +198,7 @@ public class MantisRepository extends BaseRepositoryImpl {
       project.setFilters(projectFilters);
     }
 
-    Collections.sort(commonFilters, new Comparator<MantisFilter>() {
-      @Override
-      public int compare(MantisFilter f1, MantisFilter f2) {
-          return f1.getName().compareTo(f2.getName());
-      }
-    });
+    commonFilters.sort(Comparator.comparing(MantisFilter::getName));
     commonFilters.add(0, MantisFilter.newUndefined());
 
     MantisProject undefined = MantisProject.newUndefined();
@@ -246,8 +234,8 @@ public class MantisRepository extends BaseRepositoryImpl {
   @NotNull
   private MantisConnectPortType createSoap() throws Exception {
     if (isUseProxy()) {
-      for (KeyValue<String, String> pair : HttpConfigurable.getJvmPropertiesList(false, null)) {
-        String key = pair.getKey(), value = pair.getValue();
+      for (Pair<String, String> pair : HttpConfigurable.getInstance().getJvmProperties(false, null)) {
+        String key = pair.first, value = pair.second;
         // Axis uses another names for username and password properties
         // see http://axis.apache.org/axis/java/client-side-axis.html for complete list
         if (key.equals(JavaProxyProperty.HTTP_USERNAME)) {
@@ -274,8 +262,7 @@ public class MantisRepository extends BaseRepositoryImpl {
     }
   }
 
-  @NotNull
-  private ProjectData[] fetchUserProjects(@NotNull MantisConnectPortType soap) throws Exception {
+  private ProjectData @NotNull [] fetchUserProjects(@NotNull MantisConnectPortType soap) throws Exception {
     try {
       return soap.mc_projects_get_user_accessible(getUsername(), getPassword());
     }
@@ -284,8 +271,7 @@ public class MantisRepository extends BaseRepositoryImpl {
     }
   }
 
-  @NotNull
-  private FilterData[] fetchProjectFilters(@NotNull MantisConnectPortType soap, @NotNull MantisProject project) throws Exception {
+  private FilterData @NotNull [] fetchProjectFilters(@NotNull MantisConnectPortType soap, @NotNull MantisProject project) throws Exception {
     try {
       return soap.mc_filter_get(getUsername(), getPassword(), BigInteger.valueOf(project.getId()));
     }
@@ -294,9 +280,8 @@ public class MantisRepository extends BaseRepositoryImpl {
     }
   }
 
-  @NotNull
-  private IssueHeaderData[] fetchProjectIssues(@NotNull MantisConnectPortType soap, @NotNull MantisProject project,
-                                               @NotNull MantisFilter filter, int pageNumber, int pageSize) throws Exception {
+  private IssueHeaderData @NotNull [] fetchProjectIssues(@NotNull MantisConnectPortType soap, @NotNull MantisProject project,
+                                                         @NotNull MantisFilter filter, int pageNumber, int pageSize) throws Exception {
     try {
       if (filter.isUnspecified()) {
         return soap.mc_project_get_issue_headers(getUsername(), getPassword(),

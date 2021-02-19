@@ -1,156 +1,221 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.rt.execution;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
+import java.io.*;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.jar.JarInputStream;
+import java.util.jar.Manifest;
 
 /**
+ * Do not use this command-line method on Java 9+ - use @argfile instead.
+ *
  * @author anna
- * @since 12-Aug-2008
+ * @noinspection SSBasedInspection, UseOfSystemOutOrSystemErr
  */
-public class CommandLineWrapper {
+public final class CommandLineWrapper {
+  private static final class AppData {
+    private final List<String> properties;
+    private final Class<?> mainClass;
+    private final String[] args;
 
-  /**
-   * The VM property is needed to workaround incorrect escaped URLs handling in WebSphere,
-   * see <a href="https://youtrack.jetbrains.com/issue/IDEA-126859#comment=27-778948">IDEA-126859</a> for additional details
-   */
-  public static final String PROPERTY_DO_NOT_ESCAPE_CLASSPATH_URL = "idea.do.not.escape.classpath.url";
-
-  private static final String PREFIX = "-D";
+    private AppData(List<String> properties, Class<?> mainClass, String[] args) {
+      this.properties = properties;
+      this.mainClass = mainClass;
+      this.args = args;
+    }
+  }
 
   public static void main(String[] args) throws Exception {
-    final boolean notEscapeClasspathUrl = Boolean.valueOf(System.getProperty(PROPERTY_DO_NOT_ESCAPE_CLASSPATH_URL)).booleanValue();
-    final List urls = new ArrayList();
-    final File file = new File(args[0]);
-    final StringBuffer buf = new StringBuffer();
-    final BufferedReader reader = new BufferedReader(new FileReader(file));
     try {
-      while(reader.ready()) {
-        final String fileName = reader.readLine();
-        if (buf.length() > 0) {
-          buf.append(File.pathSeparator);
+      Class.forName("java.lang.Module");
+      System.err.println(
+        "`CommandLineWrapper` is ill-suited for launching apps on Java 9+.\n" +
+        "If the run configuration uses \"classpath file\", please change it to \"@argfile\".\n" +
+        "Otherwise, please contact support.");
+      System.exit(1);
+    }
+    catch (ClassNotFoundException ignored) { }
+
+    File file = new File(args[0]);
+    AppData appData = args[0].endsWith(".jar") ? loadMainClassFromClasspathJar(file, args) : loadMainClassWithCustomLoader(file, args);
+
+    List<String> properties = appData.properties;
+    for (String property : properties) {
+      if (property.startsWith("-D")) {
+        int p = property.indexOf('=');
+        if (p > 0) {
+          System.setProperty(property.substring(2, p), property.substring(p + 1));
         }
-        buf.append(fileName);
-        File classpathElement = new File(fileName);
-        try {
-          //noinspection Since15, deprecation
-          urls.add(notEscapeClasspathUrl ? classpathElement.toURL() : classpathElement.toURI().toURL());
+        else {
+          System.setProperty(property.substring(2), "");
         }
-        catch (NoSuchMethodError e) {
-          //noinspection deprecation
-          urls.add(classpathElement.toURL());
-        }
+      }
+    }
+
+    Method main = appData.mainClass.getMethod("main", String[].class);
+    main.setAccessible(true);  // need to launch package-private classes
+    main.invoke(null, new Object[]{appData.args});
+  }
+
+  private static AppData loadMainClassFromClasspathJar(File jarFile, String[] args) throws Exception {
+    List<String> properties = Collections.emptyList();
+    String[] mainArgs;
+
+    JarInputStream inputStream = new JarInputStream(new FileInputStream(jarFile));
+    try {
+      Manifest manifest = inputStream.getManifest();
+
+      String vmOptions = manifest != null ? manifest.getMainAttributes().getValue("VM-Options") : null;
+      if (vmOptions != null) {
+        properties = splitBySpaces(vmOptions);
+      }
+
+      String programParameters = manifest != null ? manifest.getMainAttributes().getValue("Program-Parameters") : null;
+      if (programParameters == null) {
+        mainArgs = Arrays.copyOfRange(args, 2, args.length);
+      }
+      else {
+        List<String> list = splitBySpaces(programParameters);
+        mainArgs = list.toArray(new String[0]);
       }
     }
     finally {
-      reader.close();
+      inputStream.close();
+      jarFile.deleteOnExit();
     }
-    if (!file.delete()) file.deleteOnExit();
-    System.setProperty("java.class.path", buf.toString());
 
-    int startArgsIdx = 2;
-    if (args[1].equals("@vm_params")) {
-      startArgsIdx = 4;
-      final File vmParamsFile = new File(args[2]);
-      final BufferedReader vmParamsReader = new BufferedReader(new FileReader(vmParamsFile));
-      try {
-        while (vmParamsReader.ready()) {
-          final String vmParam = vmParamsReader.readLine().trim();
-          final int eqIdx = vmParam.indexOf('=');
-          String vmParamName;
-          String vmParamValue;
+    return new AppData(properties, Class.forName(args[1]), mainArgs);
+  }
 
-          if (eqIdx > -1 && eqIdx < vmParam.length() - 1) {
-            vmParamName = vmParam.substring(0, eqIdx);
-            vmParamValue = vmParam.substring(eqIdx + 1);
-          } else {
-            vmParamName = vmParam;
-            vmParamValue = "";
+  /**
+   * The implementation is copied from com.intellij.util.execution.ParametersListUtil#parse and adapted to old Java versions.
+   */
+  private static List<String> splitBySpaces(String parameterString) {
+    parameterString = parameterString.trim();
+
+    List<String> params = new ArrayList<String>();
+    StringBuilder token = new StringBuilder(128);
+    boolean inQuotes = false;
+    boolean escapedQuote = false;
+    boolean nonEmpty = false;
+
+    for (int i = 0; i < parameterString.length(); i++) {
+      final char ch = parameterString.charAt(i);
+
+      if (ch == '\"') {
+        if (!escapedQuote) {
+          inQuotes = !inQuotes;
+          nonEmpty = true;
+          continue;
+        }
+        escapedQuote = false;
+      }
+      else if (Character.isWhitespace(ch)) {
+        if (!inQuotes) {
+          if (token.length() > 0 || nonEmpty) {
+            params.add(token.toString());
+            token.setLength(0);
+            nonEmpty = false;
           }
-          vmParamName = vmParamName.trim();
-          if (vmParamName.startsWith(PREFIX)) {
-            vmParamName = vmParamName.substring(PREFIX.length());
-            System.setProperty(vmParamName, vmParamValue);
-          }
+          continue;
         }
       }
-      finally {
-        vmParamsReader.close();
+      else if (ch == '\\') {
+        if (i < parameterString.length() - 1 && parameterString.charAt(i + 1) == '"') {
+          escapedQuote = true;
+          continue;
+        }
       }
-      if (!vmParamsFile.delete()) vmParamsFile.deleteOnExit();
+
+      token.append(ch);
+    }
+
+    if (token.length() > 0 || nonEmpty) {
+      params.add(token.toString());
+    }
+
+    return params;
+  }
+
+  /**
+   * args: "classpath file" [ @vm_params "VM options file" ] [ @app_params "args file" ] "main class" [ args ... ]
+   */
+  private static AppData loadMainClassWithCustomLoader(File classpathFile, String[] args) throws Exception {
+    List<URL> classpathUrls = new ArrayList<URL>();
+    StringBuilder classpathString = new StringBuilder();
+    List<String> pathElements = readLinesAndDeleteFile(classpathFile);
+    for (String pathElement : pathElements) {
+      classpathUrls.add(toUrl(new File(pathElement)));
+      if (classpathString.length() > 0) classpathString.append(File.pathSeparator);
+      classpathString.append(pathElement);
+    }
+    System.setProperty("java.class.path", classpathString.toString());
+
+    int startArgsIdx = 2;
+
+    List<String> properties = Collections.emptyList();
+    if (args.length > startArgsIdx && "@vm_params".equals(args[startArgsIdx - 1])) {
+      properties = readLinesAndDeleteFile(new File(args[startArgsIdx]));
+      startArgsIdx += 2;
+    }
+
+    String[] mainArgs;
+    if (args.length > startArgsIdx && "@app_params".equals(args[startArgsIdx - 1])) {
+      List<String> lines = readLinesAndDeleteFile(new File(args[startArgsIdx]));
+      mainArgs = lines.toArray(new String[0]);
+      startArgsIdx += 2;
+    }
+    else {
+      mainArgs = Arrays.copyOfRange(args, startArgsIdx, args.length);
     }
 
     String mainClassName = args[startArgsIdx - 1];
-    String[] mainArgs = new String[args.length - startArgsIdx];
-    System.arraycopy(args, startArgsIdx, mainArgs, 0, mainArgs.length);
-
-    for (int i = 0; i < urls.size(); i++) {
-      URL url = (URL)urls.get(i);
-      urls.set(i, internFileProtocol(url));
-    }
-
-    ClassLoader loader = new URLClassLoader((URL[])urls.toArray(new URL[urls.size()]), null);
-    final String classLoader = System.getProperty("java.system.class.loader");
-    if (classLoader != null) {
+    ClassLoader loader = new URLClassLoader(classpathUrls.toArray(new URL[0]), null);
+    String systemLoaderName = System.getProperty("java.system.class.loader");
+    if (systemLoaderName != null) {
       try {
-        loader = (ClassLoader)Class.forName(classLoader).getConstructor(new Class[]{ClassLoader.class}).newInstance(new Object[]{loader});
+        loader = (ClassLoader)Class.forName(systemLoaderName).getConstructor(new Class[]{ClassLoader.class}).newInstance(new Object[]{loader});
       }
-      catch (Exception e) {
-        //leave URL class loader
-      }
+      catch (Exception ignored) { }
     }
-
-    Class mainClass = loader.loadClass(mainClassName);
+    Class<?> mainClass = loader.loadClass(mainClassName);
     Thread.currentThread().setContextClassLoader(loader);
-    //noinspection SSBasedInspection
-    Class mainArgType = (new String[0]).getClass();
-    Method main = mainClass.getMethod("main", new Class[]{mainArgType});
-    ensureAccess(main);
-    main.invoke(null, new Object[]{mainArgs});
+
+    return new AppData(properties, mainClass, mainArgs);
   }
 
-  private static URL internFileProtocol(URL url) {
+  /** @noinspection ResultOfMethodCallIgnored */
+  private static List<String> readLinesAndDeleteFile(File file) throws IOException {
+    BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), "UTF-8"));
     try {
-      if ("file".equals(url.getProtocol())) {
-        return new URL("file", url.getHost(), url.getPort(), url.getFile());
-      }
+      List<String> lines = new ArrayList<String>();
+      String line;
+      while ((line = reader.readLine()) != null) lines.add(line);
+      return lines;
     }
-    catch (MalformedURLException ignored) {
+    finally {
+      reader.close();
+      file.delete();
     }
+  }
+
+  /** @noinspection deprecation */
+  private static URL toUrl(File classpathElement) throws MalformedURLException {
+    URL url;
+    try {
+      url = classpathElement.toURI().toURL();
+    }
+    catch (NoSuchMethodError e) {
+      url = classpathElement.toURL();
+    }
+    url = new URL("file", url.getHost(), url.getPort(), url.getFile());
     return url;
   }
-
-  private static void ensureAccess(Object reflectionObject) {
-   // need to call setAccessible here in order to be able to launch package-local classes
-   // calling setAccessible() via reflection because the method is missing from java version 1.1.x
-   final Class aClass = reflectionObject.getClass();
-   try {
-     final Method setAccessibleMethod = aClass.getMethod("setAccessible", new Class[] {boolean.class});
-     setAccessibleMethod.invoke(reflectionObject, new Object[] {Boolean.TRUE});
-   }
-   catch (Exception e) {
-     // the method not found
-   }
- }
 }

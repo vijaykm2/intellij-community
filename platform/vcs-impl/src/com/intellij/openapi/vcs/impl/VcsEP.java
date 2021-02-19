@@ -1,40 +1,17 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.impl;
 
-import com.intellij.lifecycle.PeriodicalTasksCloser;
-import com.intellij.openapi.components.BaseComponent;
-import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.AbstractExtensionPointBean;
 import com.intellij.openapi.extensions.ExtensionPointName;
+import com.intellij.openapi.extensions.PluginAware;
+import com.intellij.openapi.extensions.PluginDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.AbstractVcs;
-import com.intellij.openapi.vcs.VcsActiveEnvironmentsProxy;
 import com.intellij.util.xmlb.annotations.Attribute;
+import com.intellij.util.xmlb.annotations.Transient;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
-/**
- * @author yole
- */
-public class VcsEP extends AbstractExtensionPointBean {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.impl.VcsEP");
-
-  public static final ExtensionPointName<VcsEP> EP_NAME = ExtensionPointName.create("com.intellij.vcs");
+public final class VcsEP implements PluginAware {
+  public static final ExtensionPointName<VcsEP> EP_NAME = new ExtensionPointName<>("com.intellij.vcs");
 
   // these must be public for scrambling compatibility
   @Attribute("name")
@@ -47,46 +24,22 @@ public class VcsEP extends AbstractExtensionPointBean {
   public String administrativeAreaName;
   @Attribute("crawlUpToCheckUnderVcs")
   public boolean crawlUpToCheckUnderVcs;
+  @Attribute("areChildrenValidMappings")
+  public boolean areChildrenValidMappings;
 
-  private AbstractVcs myVcs;
-  private final Object LOCK = new Object();
+  private PluginDescriptor pluginDescriptor;
 
-  @Nullable
-  public AbstractVcs getVcs(@NotNull Project project) {
-    synchronized (LOCK) {
-      if (myVcs != null) {
-        return myVcs;
-      }
-    }
-    AbstractVcs vcs = getInstance(project, vcsClass);
-    synchronized (LOCK) {
-      if (myVcs == null) {
-        myVcs = VcsActiveEnvironmentsProxy.proxyVcs(vcs);
-      }
-      return myVcs;
-    }
+  public @NotNull AbstractVcs createVcs(@NotNull Project project) {
+    return project.instantiateClass(vcsClass, pluginDescriptor);
   }
 
-  @Nullable
-  private AbstractVcs getInstance(@NotNull Project project, @NotNull String vcsClass) {
-    try {
-      final Class<? extends AbstractVcs> foundClass = findClass(vcsClass);
-      final Class<?>[] interfaces = foundClass.getInterfaces();
-      for (Class<?> anInterface : interfaces) {
-        if (BaseComponent.class.isAssignableFrom(anInterface)) {
-          return PeriodicalTasksCloser.getInstance().safeGetComponent(project, foundClass);
-        }
-      }
-      return instantiate(vcsClass, project.getPicoContainer());
-    }
-    catch(Exception e) {
-      LOG.error(e);
-      return null;
-    }
+  public @NotNull VcsDescriptor createDescriptor() {
+    return new VcsDescriptor(administrativeAreaName, displayName, name, crawlUpToCheckUnderVcs, areChildrenValidMappings);
   }
 
-  @NotNull
-  public VcsDescriptor createDescriptor() {
-    return new VcsDescriptor(administrativeAreaName, displayName, name, crawlUpToCheckUnderVcs);
+  @Override
+  @Transient
+  public void setPluginDescriptor(@NotNull PluginDescriptor pluginDescriptor) {
+    this.pluginDescriptor = pluginDescriptor;
   }
 }

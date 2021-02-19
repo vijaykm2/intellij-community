@@ -1,9 +1,10 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.io.webSocket;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.AtomicNotNullLazyValue;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NotNullLazyValue;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
@@ -28,23 +29,19 @@ import java.util.Map;
 public abstract class WebSocketHandshakeHandler extends HttpRequestHandler implements ClientListener, ExceptionHandler {
   private static final Logger LOG = Logger.getInstance(WebSocketHandshakeHandler.class);
 
-  private final AtomicNotNullLazyValue<ClientManager> clientManager = new AtomicNotNullLazyValue<ClientManager>() {
-    @NotNull
-    @Override
-    protected ClientManager compute() {
-      ClientManager result = new ClientManager(WebSocketHandshakeHandler.this, WebSocketHandshakeHandler.this);
-      Disposable serverDisposable = BuiltInServerManager.getInstance().getServerDisposable();
-      assert serverDisposable != null;
-      Disposer.register(serverDisposable, result);
-      serverCreated(result);
-      return result;
-    }
-  };
+  private final NotNullLazyValue<ClientManager> clientManager = NotNullLazyValue.atomicLazy(() -> {
+    ClientManager result = new ClientManager(this, this, null);
+    Disposable serverDisposable = BuiltInServerManager.getInstance().getServerDisposable();
+    assert serverDisposable != null;
+    Disposer.register(serverDisposable, result);
+    serverCreated(result);
+    return result;
+  });
 
   @Override
   public boolean isSupported(@NotNull FullHttpRequest request) {
     return request.method() == HttpMethod.GET &&
-           "WebSocket".equalsIgnoreCase(request.headers().get(HttpHeaderNames.UPGRADE)) &&
+           "WebSocket".equalsIgnoreCase(request.headers().getAsString(HttpHeaderNames.UPGRADE)) &&
            request.uri().length() > 2;
   }
 
@@ -63,7 +60,7 @@ public abstract class WebSocketHandshakeHandler extends HttpRequestHandler imple
   }
 
   private void handleWebSocketRequest(@NotNull final ChannelHandlerContext context, @NotNull FullHttpRequest request, @NotNull final QueryStringDecoder uriDecoder) {
-    WebSocketServerHandshakerFactory factory = new WebSocketServerHandshakerFactory("ws://" + request.headers().get(HttpHeaderNames.HOST) + uriDecoder.path(), null, false, NettyUtil.MAX_CONTENT_LENGTH);
+    WebSocketServerHandshakerFactory factory = new WebSocketServerHandshakerFactory("ws://" + request.headers().getAsString(HttpHeaderNames.HOST) + uriDecoder.path(), null, false, NettyUtil.MAX_CONTENT_LENGTH); //NON-NLS
     WebSocketServerHandshaker handshaker = factory.newHandshaker(request);
     if (handshaker == null) {
       WebSocketServerHandshakerFactory.sendUnsupportedVersionResponse(context.channel());
@@ -75,10 +72,10 @@ public abstract class WebSocketHandshakeHandler extends HttpRequestHandler imple
     }
 
     final Client client = new WebSocketClient(context.channel(), handshaker);
-    context.attr(ClientManager.CLIENT).set(client);
+    context.channel().attr(ClientManagerKt.getCLIENT()).set(client);
     handshaker.handshake(context.channel(), request).addListener(new ChannelFutureListener() {
       @Override
-      public void operationComplete(ChannelFuture future) throws Exception {
+      public void operationComplete(ChannelFuture future) {
         if (future.isSuccess()) {
           ClientManager clientManager = WebSocketHandshakeHandler.this.clientManager.getValue();
           clientManager.addClient(client);
@@ -86,7 +83,7 @@ public abstract class WebSocketHandshakeHandler extends HttpRequestHandler imple
           BuiltInServer.replaceDefaultHandler(context, messageChannelHandler);
           ChannelHandlerContext messageChannelHandlerContext = context.pipeline().context(messageChannelHandler);
           context.pipeline().addBefore(messageChannelHandlerContext.name(), "webSocketFrameAggregator", new WebSocketFrameAggregator(NettyUtil.MAX_CONTENT_LENGTH));
-          messageChannelHandlerContext.attr(ClientManager.CLIENT).set(client);
+          messageChannelHandlerContext.channel().attr(ClientManagerKt.getCLIENT()).set(client);
           connected(client, uriDecoder.parameters());
         }
       }

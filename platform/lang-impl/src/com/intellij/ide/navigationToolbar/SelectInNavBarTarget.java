@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.navigationToolbar;
 
 import com.intellij.ide.DataManager;
-import com.intellij.ide.SelectInManager;
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.StandardTargetWeights;
 import com.intellij.ide.impl.SelectInTargetPsiWrapper;
 import com.intellij.ide.ui.UISettings;
@@ -26,10 +12,15 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.openapi.wm.IdeRootPaneNorthExtension;
+import com.intellij.openapi.wm.ex.IdeFrameEx;
+import com.intellij.psi.PsiDirectory;
+import com.intellij.psi.PsiDirectoryContainer;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFileSystemItem;
 import com.intellij.util.Consumer;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
@@ -37,10 +28,10 @@ import javax.swing.*;
  * @author Anna Kozlova
  * @author Konstantin Bulenkov
  */
-public class SelectInNavBarTarget extends SelectInTargetPsiWrapper implements DumbAware {
+final class SelectInNavBarTarget extends SelectInTargetPsiWrapper implements DumbAware {
   public static final String NAV_BAR_ID = "NavBar";
 
-  public SelectInNavBarTarget(final Project project) {
+  SelectInNavBarTarget(@NotNull Project project) {
     super(project);
   }
 
@@ -52,32 +43,35 @@ public class SelectInNavBarTarget extends SelectInTargetPsiWrapper implements Du
 
   @Override
   protected boolean canSelect(final PsiFileSystemItem file) {
-    return UISettings.getInstance().SHOW_NAVIGATION_BAR;
+    return UISettings.getInstance().getShowNavigationBar();
   }
 
   @Override
   protected void select(final Object selector, final VirtualFile virtualFile, final boolean requestFocus) {
-    selectInNavBar();
+    selectInNavBar(false);
   }
 
   @Override
   protected void select(final PsiElement element, boolean requestFocus) {
-    selectInNavBar();
+    selectInNavBar(false);
   }
 
-  private static void selectInNavBar() {
+  public static void selectInNavBar(boolean showPopup) {
     DataManager.getInstance().getDataContextFromFocus()
-      .doWhenDone(new Consumer<DataContext>() {
-        @Override
-        public void consume(DataContext context) {
-          final IdeFrame frame = IdeFrame.KEY.getData(context);
-          if (frame != null) {
-            final IdeRootPaneNorthExtension navBarExt = frame.getNorthExtension(NavBarRootPaneExtension.NAV_BAR);
-            if (navBarExt != null) {
-              final JComponent c = navBarExt.getComponent();
-              final NavBarPanel panel = (NavBarPanel)c.getClientProperty("NavBarPanel");
-              panel.rebuildAndSelectTail(true);
-            }
+      .doWhenDone((Consumer<DataContext>)context -> {
+        IdeFrame frame = IdeFrame.KEY.getData(context);
+        if (frame instanceof IdeFrameEx) {
+          final IdeRootPaneNorthExtension navBarExt = ((IdeFrameEx)frame).getNorthExtension(NavBarRootPaneExtension.NAV_BAR);
+          if (navBarExt != null) {
+            final JComponent c = navBarExt.getComponent();
+            final NavBarPanel panel = (NavBarPanel)c.getClientProperty("NavBarPanel");
+            panel.rebuildAndSelectItem((list) -> {
+              if (UISettings.getInstance().getShowMembersInNavigationBar()) {
+                int lastDirectory = ContainerUtil.lastIndexOf(list, (item) -> item.getObject() instanceof PsiDirectory || item.getObject() instanceof PsiDirectoryContainer);
+                if (lastDirectory >= 0 && lastDirectory < list.size() - 1) return lastDirectory;
+              }
+              return list.size() - 1;
+            }, showPopup);
           }
         }
       });
@@ -93,12 +87,7 @@ public class SelectInNavBarTarget extends SelectInTargetPsiWrapper implements Du
     return null;
   }
 
-  @Override
-  protected boolean canWorkWithCustomObjects() {
-    return false;
-  }
-
   public String toString() {
-    return SelectInManager.NAV_BAR;
+    return IdeBundle.message("navigation.bar");
   }
 }

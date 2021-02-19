@@ -1,21 +1,13 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.profile.codeInspection.ui;
 
+import com.intellij.analysis.AnalysisBundle;
+import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInspection.ex.InspectionProfileImpl;
+import com.intellij.icons.AllIcons;
+import com.intellij.ide.util.scopeChooser.ScopeChooserConfigurable;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.options.ShowSettingsUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.psi.search.scope.NonProjectFilesScope;
@@ -27,7 +19,7 @@ import com.intellij.ui.AnActionButtonRunnable;
 import com.intellij.ui.ListUtil;
 import com.intellij.ui.ToolbarDecorator;
 import com.intellij.ui.components.JBList;
-import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.EditableModel;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -35,27 +27,36 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
-/**
- * @author Dmitry Batkovich
- */
 public class ScopesOrderDialog extends DialogWrapper {
-
-  private final JList myOptionsList = new JBList();
-
+  private final JList<NamedScope> myOptionsList = new JBList<>();
   private final InspectionProfileImpl myInspectionProfile;
+  @NotNull
   private final Project myProject;
   private final JPanel myPanel;
+  private final MyModel myModel;
 
-  public ScopesOrderDialog(final @NotNull Component parent,
-                           final InspectionProfileImpl inspectionProfile,
-                           final Project project) {
+  ScopesOrderDialog(@NotNull final Component parent,
+                    @NotNull InspectionProfileImpl inspectionProfile,
+                    @NotNull Project project) {
     super(parent, true);
     myInspectionProfile = inspectionProfile;
     myProject = project;
+    myModel = new MyModel();
+    reloadScopeList();
+    myOptionsList.setModel(myModel);
+    myOptionsList.setSelectedIndex(0);
+    myOptionsList.setCellRenderer(new DefaultListCellRenderer() {
+      @Override
+      public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+        if (value instanceof NamedScope) {
+          setText(((NamedScope)value).getPresentableName());
+        }
+        return super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+      }
+    });
 
     final JPanel listPanel = ToolbarDecorator.createDecorator(myOptionsList).setMoveDownAction(new AnActionButtonRunnable() {
       @Override
@@ -67,40 +68,39 @@ public class ScopesOrderDialog extends DialogWrapper {
       public void run(AnActionButton anActionButton) {
         ListUtil.moveSelectedItemsUp(myOptionsList);
       }
+    }).addExtraAction(new AnActionButton(CodeInsightBundle.messagePointer("action.AnActionButton.text.edit.scopes"), AllIcons.Actions.Edit) {
+      @Override
+      public void actionPerformed(@NotNull AnActionEvent e) {
+        ShowSettingsUtil.getInstance().editConfigurable(project, new ScopeChooserConfigurable(project));
+        reloadScopeList();
+      }
     }).disableRemoveAction().disableAddAction().createPanel();
-    final JLabel descr = new JLabel("<html><p>If file appears in two or more scopes, it will be " +
-                                           "inspected with settings of the topmost scope in list above.</p><p/>" +
-                                           "<p>Scope order is set globally for all inspections in the profile.</p></html>");
-    descr.setPreferredSize(JBUI.size(300, 100));
+    final JLabel descr = new JLabel(AnalysisBundle.message("inspections.settings.scopes.order.help.label"));
     UIUtil.applyStyle(UIUtil.ComponentStyle.SMALL, descr);
     myPanel = new JPanel();
     myPanel.setLayout(new BorderLayout());
     myPanel.add(listPanel, BorderLayout.CENTER);
     myPanel.add(descr, BorderLayout.SOUTH);
-    fillList();
     init();
-    setTitle("Scopes Order");
+    setTitle(AnalysisBundle.message("inspections.settings.scopes.order.title"));
   }
 
-  private void fillList() {
-    DefaultListModel model = new DefaultListModel();
-    model.removeAllElements();
+  private void reloadScopeList() {
+    myModel.removeAllElements();
 
-    final List<String> scopes = new ArrayList<String>();
+    final List<NamedScope> scopes = new ArrayList<>();
     for (final NamedScopesHolder holder : NamedScopesHolder.getAllNamedScopeHolders(myProject)) {
       for (final NamedScope scope : holder.getScopes()) {
         if (!(scope instanceof NonProjectFilesScope)) {
-          scopes.add(scope.getName());
+          scopes.add(scope);
         }
       }
     }
-    scopes.remove(CustomScopesProviderEx.getAllScope().getName());
-    Collections.sort(scopes, new ScopeOrderComparator(myInspectionProfile));
-    for (String scopeName : scopes) {
-      model.addElement(scopeName);
+    scopes.remove(CustomScopesProviderEx.getAllScope());
+    scopes.sort(Comparator.comparing(namedScope -> namedScope.getScopeId(), new ScopeOrderComparator(myInspectionProfile)));
+    for (NamedScope scope : scopes) {
+      myModel.addElement(scope);
     }
-    myOptionsList.setModel(model);
-    myOptionsList.setSelectedIndex(0);
   }
 
   @Nullable
@@ -112,14 +112,38 @@ public class ScopesOrderDialog extends DialogWrapper {
   @Override
   protected void doOKAction() {
     final int size = myOptionsList.getModel().getSize();
-    final String[] newScopeOrder = new String[size];
+    final List<String> newScopeOrder = new ArrayList<>();
     for (int i = 0; i < size; i++) {
-      final String scopeName = (String) myOptionsList.getModel().getElementAt(i);
-      newScopeOrder[i] = scopeName;
+      final NamedScope namedScope = myOptionsList.getModel().getElementAt(i);
+      newScopeOrder.add(namedScope.getScopeId());
     }
-    if (!Arrays.equals(newScopeOrder, myInspectionProfile.getScopesOrder())) {
+    if (!newScopeOrder.equals(myInspectionProfile.getScopesOrder())) {
       myInspectionProfile.setScopesOrder(newScopeOrder);
     }
     super.doOKAction();
+  }
+
+  private static class MyModel extends DefaultListModel<NamedScope> implements EditableModel {
+    @Override
+    public void addRow() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void exchangeRows(int oldIndex, int newIndex) {
+      NamedScope scope1 = getElementAt(newIndex);
+      set(newIndex, getElementAt(oldIndex));
+      set(oldIndex, scope1);
+    }
+
+    @Override
+    public boolean canExchangeRows(int oldIndex, int newIndex) {
+      return true;
+    }
+
+    @Override
+    public void removeRow(int idx) {
+      throw new UnsupportedOperationException();
+    }
   }
 }

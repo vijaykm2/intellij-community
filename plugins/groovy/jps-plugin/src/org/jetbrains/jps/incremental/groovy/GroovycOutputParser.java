@@ -1,19 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.incremental.groovy;
 
 import com.intellij.execution.process.ProcessOutputTypes;
@@ -21,19 +6,25 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.groovy.compiler.rt.GroovyCompilerMessageCategories;
 import org.jetbrains.groovy.compiler.rt.GroovyRtConstants;
+import org.jetbrains.groovy.compiler.rt.OutputItem;
 import org.jetbrains.jps.ModuleChunk;
 import org.jetbrains.jps.incremental.CompileContext;
 import org.jetbrains.jps.incremental.messages.BuildMessage;
 import org.jetbrains.jps.incremental.messages.CompilerMessage;
 import org.jetbrains.jps.incremental.messages.ProgressMessage;
+import org.jetbrains.jps.model.JpsDummyElement;
+import org.jetbrains.jps.model.java.JpsJavaSdkType;
+import org.jetbrains.jps.model.library.sdk.JpsSdk;
+import org.jetbrains.jps.model.module.JpsModule;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -44,10 +35,9 @@ import java.util.Map;
  * @date: 16.04.2007
  */
 public class GroovycOutputParser {
-  private static final String GROOVY_COMPILER_IN_OPERATION = "Groovy compiler in operation...";
   public static final String GRAPE_ROOT = "grape.root";
-  private final List<OutputItem> myCompiledItems = new ArrayList<OutputItem>();
-  private final List<CompilerMessage> compilerMessages = new ArrayList<CompilerMessage>();
+  private final List<OutputItem> myCompiledItems = new ArrayList<>();
+  private final List<CompilerMessage> compilerMessages = new ArrayList<>();
   private final StringBuffer stdErr = new StringBuffer();
   private final ModuleChunk myChunk;
   private final CompileContext myContext;
@@ -57,7 +47,7 @@ public class GroovycOutputParser {
     myContext = context;
   }
 
-  private static final Logger LOG = Logger.getInstance("#org.jetbrains.jps.incremental.groovy.GroovycOSProcessHandler");
+  private static final Logger LOG = Logger.getInstance(GroovycOutputParser.class);
   private int myExitCode;
 
   public void notifyTextAvailable(final String text, final Key outputType) {
@@ -69,7 +59,7 @@ public class GroovycOutputParser {
       return;
     }
 
-    if (outputType == ProcessOutputTypes.STDERR && !text.startsWith("Picked up JAVA_TOOL_OPTIONS")) {
+    if (outputType == ProcessOutputTypes.STDERR && !isSafeStderr(text)) {
       stdErr.append(StringUtil.convertLineSeparators(text));
       return;
     }
@@ -78,22 +68,29 @@ public class GroovycOutputParser {
     parseOutput(text);
   }
 
+  private static boolean isSafeStderr(String line) {
+    return line.startsWith("SLF4J:") || line.startsWith("Picked up JAVA_TOOL_OPTIONS");
+  }
+
   private final StringBuffer outputBuffer = new StringBuffer();
 
-  private void updateStatus(@NotNull String status) {
-    myContext.processMessage(new ProgressMessage(status + " [" + myChunk.getPresentableShortName() + "]"));
+  private void updateStatus(@Nls @NotNull String status) {
+    myContext.processMessage(new ProgressMessage(
+      GroovyJpsBundle.message("status.0.chunk.name.1", status, myChunk.getPresentableShortName())
+    ));
   }
 
   private void parseOutput(String text) {
     final String trimmed = text.trim();
 
     if (trimmed.startsWith(GroovyRtConstants.PRESENTABLE_MESSAGE)) {
-      updateStatus(trimmed.substring(GroovyRtConstants.PRESENTABLE_MESSAGE.length()));
+      String message = trimmed.substring(GroovyRtConstants.PRESENTABLE_MESSAGE.length());
+      updateStatus(message);
       return;
     }
 
     if (GroovyRtConstants.CLEAR_PRESENTABLE.equals(trimmed)) {
-      updateStatus(GROOVY_COMPILER_IN_OPERATION);
+      updateStatus(GroovyJpsBundle.message("groovy.compiler.in.operation"));
       return;
     }
 
@@ -154,13 +151,25 @@ public class GroovycOutputParser {
                                    ? BuildMessage.Kind.WARNING
                                    : BuildMessage.Kind.INFO;
 
-        CompilerMessage compilerMessage = new CompilerMessage("Groovyc", kind, message, url, -1, -1, -1, lineInt, columnInt);
+        if (StringUtil.isEmpty(url) || "null".equals(url)) {
+          url = null;
+          message = GroovyJpsBundle.message("while.compiling.chunk.0.message.1", myChunk.getPresentableShortName(), message);
+        }
+
+        CompilerMessage compilerMessage = new CompilerMessage(
+          GroovyJpsBundle.message("compiler.name.groovyc"),
+          kind, message, url, -1, -1, -1, lineInt, columnInt
+        );
         if (LOG.isDebugEnabled()) {
           LOG.debug("Message: " + compilerMessage);
         }
-        compilerMessages.add(compilerMessage);
+        addCompilerMessage(compilerMessage);
       }
     }
+  }
+
+  void addCompilerMessage(CompilerMessage compilerMessage) {
+    compilerMessages.add(compilerMessage);
   }
 
   private String handleOutputBuffer(String startMarker, String endMarker) {
@@ -178,49 +187,21 @@ public class GroovycOutputParser {
   }
 
   private static List<String> splitAndTrim(String compiled) {
-    return ContainerUtil.map(StringUtil.split(compiled, GroovyRtConstants.SEPARATOR), new Function<String, String>() {
-      public String fun(String s) {
-        return s.trim();
-      }
-    });
+    return ContainerUtil.map(StringUtil.split(compiled, GroovyRtConstants.SEPARATOR), s -> s.trim());
   }
 
-  public List<OutputItem> getSuccessfullyCompiled() {
-    return myCompiledItems;
-  }
-
-  public boolean shouldRetry() {
-    if (myExitCode != 0) {
-      LOG.debug("Non-zero exit code");
-      return true;
-    }
-    for (CompilerMessage message : compilerMessages) {
-      if (message.getKind() == BuildMessage.Kind.ERROR) {
-        LOG.debug("Error message: " + message);
-        return true;
-      }
-      if (message.getMessageText().contains(GroovyRtConstants.GROOVYC_STUB_GENERATION_FAILED)) {
-        LOG.debug("Stub failed message: " + message);
-        return true;
-      }
-    }
-    if (getStdErr().length() > 0) {
-      LOG.debug("Non-empty stderr: '" + getStdErr() + "'");
-      return true;
-    }
-    return false;
-  }
-
-  public List<CompilerMessage> getCompilerMessages(String moduleName) {
-    ArrayList<CompilerMessage> messages = new ArrayList<CompilerMessage>(compilerMessages);
+  private List<CompilerMessage> getCompilerMessages() {
+    ArrayList<CompilerMessage> messages = new ArrayList<>(compilerMessages);
     final StringBuffer unparsedBuffer = getStdErr();
     if (unparsedBuffer.length() != 0) {
       String msg = unparsedBuffer.toString();
       if (msg.contains(GroovyRtConstants.NO_GROOVY)) {
-        messages.add(new CompilerMessage("", BuildMessage.Kind.ERROR,
-                                         "Cannot compile Groovy files: no Groovy library is defined for module '" + moduleName + "'"));
+        messages.add(reportNoGroovy(msg));
       } else {
-        messages.add(new CompilerMessage("Groovyc", BuildMessage.Kind.INFO, msg));
+        messages.add(new CompilerMessage(
+          GroovyJpsBundle.message("compiler.name.groovyc"), BuildMessage.Kind.INFO,
+          GroovyJpsBundle.message("while.compiling.chunk.0.message.1", myChunk.getPresentableShortName(), msg)
+        ));
       }
 
     }
@@ -231,10 +212,38 @@ public class GroovycOutputParser {
           return messages;
         }
       }
-      messages.add(new CompilerMessage("Groovyc", BuildMessage.Kind.ERROR, "Internal groovyc error: code " + myExitCode));
+      messages.add(new CompilerMessage(
+        GroovyJpsBundle.message("compiler.name.groovyc"), BuildMessage.Kind.ERROR,
+        GroovyJpsBundle.message("internal.groovyc.error.code.0", myExitCode)
+      ));
     }
 
     return messages;
+  }
+
+  @NotNull
+  CompilerMessage reportNoGroovy(@Nullable String fullOutput) {
+    JpsModule module = myChunk.representativeTarget().getModule();
+    String moduleName = module.getName();
+    JpsSdk<JpsDummyElement> sdk = module.getSdk(JpsJavaSdkType.INSTANCE);
+    if (fullOutput != null && fullOutput.contains("Bad version number")) {
+      if (sdk == null) {
+        return new CompilerMessage(
+          "", BuildMessage.Kind.ERROR,
+          GroovyJpsBundle.message("no.groovy.cannot.load.0", moduleName)
+        );
+      }
+      else {
+        return new CompilerMessage(
+          "", BuildMessage.Kind.ERROR,
+          GroovyJpsBundle.message("no.groovy.cannot.load.0.jdk.1", moduleName, sdk.getVersionString())
+        );
+      }
+    }
+    return new CompilerMessage(
+      "", BuildMessage.Kind.ERROR,
+      GroovyJpsBundle.message("no.groovy.library.0", moduleName)
+    );
   }
 
   public StringBuffer getStdErr() {
@@ -250,7 +259,7 @@ public class GroovycOutputParser {
                                                    String classpath) throws IOException {
     File tempFile = FileUtil.createTempFile("ideaGroovyToCompile", ".txt", true);
 
-    final Writer writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(tempFile)));
+    final Writer writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(tempFile), StandardCharsets.UTF_8));
     try {
       writer.write(classpath);
       writer.write("\n");
@@ -301,22 +310,7 @@ public class GroovycOutputParser {
     outputBuffer.setLength(0);
   }
 
-  static class OutputItem {
-    public final String outputPath;
-    public final String sourcePath;
-
-    public OutputItem(String outputPath, String sourceFileName) {
-      this.outputPath = outputPath;
-      sourcePath = sourceFileName;
-    }
-
-    @Override
-    public String toString() {
-      return "OutputItem{" +
-             "outputPath='" + outputPath + '\'' +
-             ", sourcePath='" + sourcePath + '\'' +
-             '}';
-    }
+  @NotNull GroovyCompilerResult result() {
+    return new GroovyCompilerResult(myCompiledItems, getCompilerMessages());
   }
-
 }

@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.youtrack;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -7,7 +8,6 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.tasks.impl.TaskUtil;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.hash.LinkedHashMap;
 import org.jdom.Element;
@@ -16,6 +16,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.InputStream;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -29,8 +30,8 @@ import static com.intellij.openapi.editor.HighlighterColors.TEXT;
  * See https://confluence.jetbrains.com/display/YTD5/Intellisense+for+issue+search for format details.
  * <p/>
  * It also provides two additional classes to represent tokens highlighting and
- * available completion items from response: {@link com.intellij.tasks.youtrack.YouTrackIntellisense.HighlightRange}
- * and {@link com.intellij.tasks.youtrack.YouTrackIntellisense.CompletionItem}.
+ * available completion items from response: {@link YouTrackIntellisense.HighlightRange}
+ * and {@link YouTrackIntellisense.CompletionItem}.
  *
  * @author Mikhail Golubev
  */
@@ -52,7 +53,7 @@ public class YouTrackIntellisense {
   );
   private static final int CACHE_SIZE = 30;
 
-  private static class SizeLimitedCache<K, V> extends LinkedHashMap<K, V> {
+  private static final class SizeLimitedCache<K, V> extends LinkedHashMap<K, V> {
     private final int myMaxSize;
 
     private SizeLimitedCache(int max) {
@@ -67,7 +68,7 @@ public class YouTrackIntellisense {
   }
 
   private static final Map<Pair<String, Integer>, Response> ourCache =
-    Collections.synchronizedMap(new SizeLimitedCache<Pair<String, Integer>, Response>(CACHE_SIZE));
+    Collections.synchronizedMap(new SizeLimitedCache<>(CACHE_SIZE));
 
   @NotNull
   private static TextAttributes getAttributeByStyleClass(@NotNull String styleClass) {
@@ -111,7 +112,8 @@ public class YouTrackIntellisense {
     }
     LOG.debug("Cache " + (response != null? "hit" : "miss"));
     if (response == null) {
-      final String url = String.format("%s?filter=%s&caret=%d", INTELLISENSE_RESOURCE, URLEncoder.encode(query, "utf-8"), caret);
+      final String url = String.format("%s?filter=%s&caret=%d", INTELLISENSE_RESOURCE, URLEncoder.encode(query, StandardCharsets.UTF_8),
+                                       caret);
       final long startTime = System.currentTimeMillis();
       response = new Response(myRepository.doREST(url, false).getResponseBodyAsStream());
       LOG.debug(String.format("Intellisense request to YouTrack took %d ms to complete", System.currentTimeMillis() - startTime));
@@ -126,34 +128,24 @@ public class YouTrackIntellisense {
 
   /**
    * Main wrapper around "IntelliSense" element in YouTrack response. It delegates further parsing
-   * to {@link com.intellij.tasks.youtrack.YouTrackIntellisense.HighlightRange} and
-   * {@link com.intellij.tasks.youtrack.YouTrackIntellisense.CompletionItem}
+   * to {@link YouTrackIntellisense.HighlightRange} and
+   * {@link YouTrackIntellisense.CompletionItem}
    */
   public static class Response {
 
-    private List<HighlightRange> myHighlightRanges;
-    private List<CompletionItem> myCompletionItems;
+    private final List<HighlightRange> myHighlightRanges;
+    private final List<CompletionItem> myCompletionItems;
 
     public Response(@NotNull InputStream stream) throws Exception {
       final Element root = new SAXBuilder().build(stream).getRootElement();
       TaskUtil.prettyFormatXmlToLog(LOG, root);
       @NotNull final Element highlight = root.getChild("highlight");
       //assert highlight != null : "no '/IntelliSense/highlight' element in YouTrack response";
-      myHighlightRanges = ContainerUtil.map(highlight.getChildren("range"), new Function<Element, HighlightRange>() {
-        @Override
-        public HighlightRange fun(Element range) {
-          return new HighlightRange(range);
-        }
-      });
+      myHighlightRanges = ContainerUtil.map(highlight.getChildren("range"), range -> new HighlightRange(range));
 
       @NotNull final Element suggest = root.getChild("suggest");
       //assert suggest != null : "no '/IntelliSense/suggest' element in YouTrack response";
-      myCompletionItems = ContainerUtil.map(suggest.getChildren("item"), new Function<Element, CompletionItem>() {
-        @Override
-        public CompletionItem fun(Element item) {
-          return new CompletionItem(item);
-        }
-      });
+      myCompletionItems = ContainerUtil.map(suggest.getChildren("item"), item -> new CompletionItem(item));
     }
 
     @NotNull
@@ -171,8 +163,9 @@ public class YouTrackIntellisense {
    * Wrapper around content of "highlight/range" element of YouTrack response
    */
   public static class HighlightRange {
-    private int myStart, myEnd;
-    private String myStyleClass;
+    private final int myStart;
+    private final int myEnd;
+    private final String myStyleClass;
 
     public HighlightRange(@NotNull Element rangeElement) {
       //assert "range".equals(rangeElement.getName());
@@ -214,13 +207,14 @@ public class YouTrackIntellisense {
    * Wrapper around content of "suggest/item" element in YouTrack response
    */
   public static class CompletionItem {
-    private TextRange myMatchRange, myCompletionRange;
-    private int myCaretPosition;
-    private String myDescription;
-    private String mySuffix;
-    private String myPrefix;
-    private String myOption;
-    private String myStyleClass;
+    private final TextRange myMatchRange;
+    private final TextRange myCompletionRange;
+    private final int myCaretPosition;
+    private final String myDescription;
+    private final String mySuffix;
+    private final String myPrefix;
+    private final String myOption;
+    private final String myStyleClass;
 
     public CompletionItem(@NotNull Element item) {
       //assert "item".equals(item.getName())

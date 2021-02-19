@@ -1,25 +1,13 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.encapsulateFields;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.java.JavaBundle;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Iconable;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiFormatUtil;
 import com.intellij.psi.util.PsiFormatUtilBase;
@@ -31,9 +19,11 @@ import com.intellij.refactoring.ui.RefactoringDialog;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.refactoring.util.RefactoringMessageUtil;
 import com.intellij.ui.*;
+import com.intellij.ui.icons.RowIcon;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.IconUtil;
 import com.intellij.util.ui.EmptyIcon;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NonNls;
 
@@ -50,8 +40,6 @@ import java.util.Set;
 public class EncapsulateFieldsDialog extends RefactoringDialog implements EncapsulateFieldsDescriptor {
   private static final Logger LOG = Logger.getInstance(EncapsulateFieldsDialog.class);
 
-  private static final String REFACTORING_NAME = RefactoringBundle.message("encapsulate.fields.title");
-
   private static final int CHECKED_COLUMN = 0;
   private static final int FIELD_COLUMN = 1;
   private static final int GETTER_COLUMN = 2;
@@ -59,7 +47,6 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
 
   private final EncapsulateFieldHelper myHelper;
 
-  private final Project myProject;
   private final PsiClass myClass;
 
   private final PsiField[] myFields;
@@ -71,7 +58,7 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
   private final String[] mySetterNames;
   private final PsiMethod[] mySetterPrototypes;
 
-  private JTable myTable;
+  private JBTable myTable;
   private MyTableModel myTableModel;
 
   private final JCheckBox myCbEncapsulateGet = new NonFocusableCheckBox();
@@ -103,11 +90,10 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
 
   public EncapsulateFieldsDialog(Project project, PsiClass aClass, final Set preselectedFields, EncapsulateFieldHelper helper) {
     super(project, true);
-    myProject = project;
     myClass = aClass;
     myHelper = helper;
 
-    String title = REFACTORING_NAME;
+    String title = getRefactoringName();
     String qName = myClass.getQualifiedName();
     if (qName != null) {
       title += " - " + qName;
@@ -140,6 +126,7 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     init();
   }
 
+  @Override
   public FieldDescriptor[] getSelectedFields() {
     int[] rows = getCheckedRows();
     FieldDescriptor[] descriptors = new FieldDescriptor[rows.length];
@@ -160,14 +147,17 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     return descriptors;
   }
 
+  @Override
   public boolean isToEncapsulateGet() {
     return myCbEncapsulateGet.isSelected();
   }
 
+  @Override
   public boolean isToEncapsulateSet() {
     return myCbEncapsulateSet.isSelected();
   }
 
+  @Override
   public boolean isToUseAccessorsWhenAccessible() {
     if (getFieldsVisibility() == null) {
       // "as is"
@@ -176,6 +166,7 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     return myCbUseAccessorsWhenAccessible.isSelected();
   }
 
+  @Override
   @PsiModifier.ModifierConstant
   public String getFieldsVisibility() {
     if (myRbFieldPrivate.isSelected()) {
@@ -192,6 +183,7 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     }
   }
 
+  @Override
   public int getJavadocPolicy() {
     return myJavadocPolicy.getPolicy();
   }
@@ -201,10 +193,12 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     return myClass;
   }
 
+  @Override
   protected String getDimensionServiceKey() {
     return "#com.intellij.refactoring.encapsulateFields.EncalpsulateFieldsDialog";
   }
 
+  @Override
   @PsiModifier.ModifierConstant
   public String getAccessorsVisibility() {
     if (myRbAccessorPublic.isSelected()) {
@@ -221,16 +215,17 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     }
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     JPanel panel = new JPanel(new BorderLayout());
     panel.add(createTable(), BorderLayout.CENTER);
 
-    myCbEncapsulateGet.setText(RefactoringBundle.message("encapsulate.fields.get.access.checkbox"));
-    myCbEncapsulateSet.setText(RefactoringBundle.message("encapsulate.fields.set.access.checkbox"));
-    myCbUseAccessorsWhenAccessible.setText(RefactoringBundle.message("encapsulate.fields.use.accessors.even.when.field.is.accessible.checkbox"));
-    myRbFieldPrivate.setText(RefactoringBundle.message("encapsulate.fields.private.radio"));
-    myRbFieldProtected.setText(RefactoringBundle.message("encapsulate.fields.protected.radio"));
-    myRbFieldPackageLocal.setText(RefactoringBundle.message("encapsulate.fields..package.local.radio"));
+    myCbEncapsulateGet.setText(JavaRefactoringBundle.message("encapsulate.fields.get.access.checkbox"));
+    myCbEncapsulateSet.setText(JavaRefactoringBundle.message("encapsulate.fields.set.access.checkbox"));
+    myCbUseAccessorsWhenAccessible.setText(JavaRefactoringBundle.message("encapsulate.fields.use.accessors.even.when.field.is.accessible.checkbox"));
+    myRbFieldPrivate.setText(JavaRefactoringBundle.message("encapsulate.fields.private.radio"));
+    myRbFieldProtected.setText(JavaRefactoringBundle.message("encapsulate.fields.protected.radio"));
+    myRbFieldPackageLocal.setText(JavaRefactoringBundle.message("encapsulate.fields..package.local.radio"));
     myRbFieldAsIs.setText(RefactoringBundle.getVisibilityAsIs());
     myRbAccessorPublic.setText(RefactoringBundle.getVisibilityPublic());
     myRbAccessorProtected.setText(RefactoringBundle.getVisibilityProtected());
@@ -252,6 +247,7 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     myCbEncapsulateGet.setSelected(true);
     myCbEncapsulateSet.setSelected(true);
     ActionListener checkboxListener = new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         if (myCbEncapsulateGet.equals(e.getSource())) {
           if (!myCbEncapsulateGet.isSelected()) {
@@ -271,6 +267,7 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     myCbEncapsulateGet.addActionListener(checkboxListener);
     myCbEncapsulateSet.addActionListener(checkboxListener);
     myRbFieldAsIs.addItemListener(new ItemListener() {
+      @Override
       public void itemStateChanged(ItemEvent e) {
         if (myRbFieldAsIs.isSelected()) {
           myCbUseAccessorWhenAccessibleValue = myCbUseAccessorsWhenAccessible.isSelected();
@@ -301,13 +298,13 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     leftBox.add(myCbUseAccessorsWhenAccessible);
     JPanel leftPanel = new JPanel(new BorderLayout());
     leftPanel.setBorder(IdeBorderFactory.createTitledBorder(
-      RefactoringBundle.message("encapsulate.fields.encapsulate.border.title"), true));
+      JavaRefactoringBundle.message("encapsulate.fields.encapsulate.border.title")));
     leftPanel.add(leftBox, BorderLayout.CENTER);
     leftPanel.add(Box.createHorizontalStrut(5), BorderLayout.WEST);
 
     JPanel encapsulateBox = new JPanel(new BorderLayout());
     encapsulateBox.add(leftPanel, BorderLayout.CENTER);
-    myJavadocPolicy = new DocCommentPanel("JavaDoc");
+    myJavadocPolicy = new DocCommentPanel(JavaBundle.message("encapsulate.fields.dialog.javadoc.title"));
     encapsulateBox.add(myJavadocPolicy, BorderLayout.EAST);
     boolean hasJavadoc = false;
     for (PsiField field : myFields) {
@@ -325,7 +322,7 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     fieldsBox.add(myRbFieldAsIs);
     JPanel fieldsVisibilityPanel = new JPanel(new BorderLayout());
     fieldsVisibilityPanel.setBorder(IdeBorderFactory.createTitledBorder(
-      RefactoringBundle.message("encapsulate.fields..encapsulated.fields.visibility.border.title"), true));
+      JavaRefactoringBundle.message("encapsulate.fields..encapsulated.fields.visibility.border.title")));
     fieldsVisibilityPanel.add(fieldsBox, BorderLayout.CENTER);
     fieldsVisibilityPanel.add(Box.createHorizontalStrut(5), BorderLayout.WEST);
 
@@ -336,7 +333,7 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     methodsBox.add(myRbAccessorPrivate);
     JPanel methodsVisibilityPanel = new JPanel(new BorderLayout());
     methodsVisibilityPanel.setBorder(IdeBorderFactory.createTitledBorder(
-      RefactoringBundle.message("encapsulate.fields.accessors.visibility.border.title"), true));
+      JavaRefactoringBundle.message("encapsulate.fields.accessors.visibility.border.title")));
     methodsVisibilityPanel.add(methodsBox, BorderLayout.CENTER);
     methodsVisibilityPanel.add(Box.createHorizontalStrut(5), BorderLayout.WEST);
 
@@ -370,7 +367,8 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     columnModel.getColumn(SETTER_COLUMN).setCellRenderer(renderer);
     TableUtil.setupCheckboxColumn(columnModel.getColumn(CHECKED_COLUMN));
 
-    myTable.setPreferredScrollableViewportSize(new Dimension(550, myTable.getRowHeight() * 12));
+    myTable.setPreferredScrollableViewportSize(JBUI.size(550, -1));
+    myTable.setVisibleRowCount(12);
     myTable.getSelectionModel().setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 
     JScrollPane scrollPane = ScrollPaneFactory.createScrollPane(myTable);
@@ -378,12 +376,13 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
 //    CompTitledBorder titledBorder = new CompTitledBorder(label);
     JPanel panel = new JPanel(new BorderLayout());
     Border border = IdeBorderFactory.createTitledBorder(
-      RefactoringBundle.message("encapsulate.fields.fields.to.encapsulate.border.title"), false);
+      JavaRefactoringBundle.message("encapsulate.fields.fields.to.encapsulate.border.title"), false);
     panel.setBorder(border);
     panel.add(scrollPane);
 
     // make ESC and ENTER work when focus is in the table
     myTable.registerKeyboardAction(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         TableCellEditor editor = myTable.getCellEditor();
         if (editor != null) {
@@ -399,6 +398,7 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "enable_disable");
     @NonNls ActionMap actionMap = myTable.getActionMap();
     actionMap.put("enable_disable", new AbstractAction() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         if (myTable.isEditing()) return;
         int[] rows = myTable.getSelectedRows();
@@ -422,6 +422,7 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     // make ENTER work when the table has focus
     inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "invokeImpl");
     actionMap.put("invokeImpl", new AbstractAction() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         TableCellEditor editor = myTable.getCellEditor();
         if (editor != null) {
@@ -435,10 +436,12 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     return panel;
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return myTable;
   }
 
+  @Override
   protected void doAction() {
     if (myTable.isEditing()) {
       TableCellEditor editor = myTable.getCellEditor();
@@ -448,12 +451,13 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     }
     String errorString = validateData();
     if (errorString != null) { // were errors
-      CommonRefactoringUtil.showErrorMessage(REFACTORING_NAME, errorString, HelpID.ENCAPSULATE_FIELDS, myProject);
+      CommonRefactoringUtil.showErrorMessage(getRefactoringName(), errorString, HelpID.ENCAPSULATE_FIELDS, myProject);
       return;
     }
 
     if (getCheckedRows().length == 0) {
-      CommonRefactoringUtil.showErrorMessage(REFACTORING_NAME, "Nothing found to encapsulate", HelpID.ENCAPSULATE_FIELDS, myProject);
+      String noTargetMessage = JavaRefactoringBundle.message("encapsulate.fields.no.target");
+      CommonRefactoringUtil.showErrorMessage(getRefactoringName(), noTargetMessage, HelpID.ENCAPSULATE_FIELDS, myProject);
       return;
     }
 
@@ -465,6 +469,7 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
   /**
    * @return error string if errors were found, or null if everything is ok
    */
+  @NlsContexts.DialogMessage
   private String validateData() {
     PsiManager manager = PsiManager.getInstance(myProject);
     for (int idx = 0; idx < myFields.length; idx++) {
@@ -509,19 +514,23 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     return rows;
   }
 
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(HelpID.ENCAPSULATE_FIELDS);
+  @Override
+  protected String getHelpId() {
+    return HelpID.ENCAPSULATE_FIELDS;
   }
 
   private class MyTableModel extends AbstractTableModel {
+    @Override
     public int getColumnCount() {
       return 4;
     }
 
+    @Override
     public int getRowCount() {
       return myFields.length;
     }
 
+    @Override
     public Class getColumnClass(int columnIndex) {
       if (columnIndex == CHECKED_COLUMN) {
         return Boolean.class;
@@ -529,10 +538,11 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
       return super.getColumnClass(columnIndex);
     }
 
+    @Override
     public Object getValueAt(int rowIndex, int columnIndex) {
       switch (columnIndex) {
         case CHECKED_COLUMN:
-          return myCheckedMarks[rowIndex] ? Boolean.TRUE : Boolean.FALSE;
+          return myCheckedMarks[rowIndex];
         case FIELD_COLUMN:
           return myFieldNames[rowIndex];
         case GETTER_COLUMN:
@@ -544,21 +554,23 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
       }
     }
 
+    @Override
     public String getColumnName(int column) {
       switch (column) {
         case CHECKED_COLUMN:
           return " ";
         case FIELD_COLUMN:
-          return RefactoringBundle.message("encapsulate.fields.field.column.name");
+          return JavaRefactoringBundle.message("encapsulate.fields.field.column.name");
         case GETTER_COLUMN:
-          return RefactoringBundle.message("encapsulate.fields.getter.column.name");
+          return JavaRefactoringBundle.message("encapsulate.fields.getter.column.name");
         case SETTER_COLUMN:
-          return RefactoringBundle.message("encapsulate.fields.setter.column.name");
+          return JavaRefactoringBundle.message("encapsulate.fields.setter.column.name");
         default:
           throw new RuntimeException("Incorrect column index");
       }
     }
 
+    @Override
     public boolean isCellEditable(int rowIndex, int columnIndex) {
       if (columnIndex == CHECKED_COLUMN) return true;
       if (myCheckedMarks[rowIndex]) {
@@ -570,6 +582,7 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
       return false;
     }
 
+    @Override
     public void setValueAt(final Object aValue, final int rowIndex, final int columnIndex) {
       if (columnIndex == CHECKED_COLUMN) {
         myCheckedMarks[rowIndex] = ((Boolean) aValue).booleanValue();
@@ -596,6 +609,7 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
   }
 
   private class MyTableRenderer extends DefaultTableCellRenderer {
+    @Override
     public Component getTableCellRendererComponent(JTable table, final Object value,
                                                    boolean isSelected, boolean hasFocus, final int row,
                                                    final int column) {
@@ -642,9 +656,7 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
               setForeground(JBColor.RED);
             }
 
-            RowIcon icon = new RowIcon(2);
-            icon.setIcon(methodIcon, 0);
-            icon.setIcon(overrideIcon, 1);
+            RowIcon icon = IconManager.getInstance().createRowIcon(methodIcon, overrideIcon);
             setIcon(icon);
             setDisabledIcon(icon);
             break;
@@ -670,7 +682,7 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
 
     private void configureColors(boolean isSelected, JTable table, boolean hasFocus, final int row, final int column) {
       setForeground(isSelected ? UIUtil.getTableSelectionForeground() : UIUtil.getTableForeground());
-      setBackground(isSelected ? UIUtil.getTableSelectionBackground() : UIUtil.getTableBackground());
+      setBackground(isSelected ? UIUtil.getTableSelectionBackground(true) : UIUtil.getTableBackground());
       if (hasFocus) {
         if (table.isCellEditable(row, column)) {
           super.setForeground(UIUtil.getTableFocusCellForeground());
@@ -680,4 +692,7 @@ public class EncapsulateFieldsDialog extends RefactoringDialog implements Encaps
     }
   }
 
+  private static @NlsContexts.DialogTitle String getRefactoringName() {
+    return JavaRefactoringBundle.message("encapsulate.fields.title");
+  }
 }

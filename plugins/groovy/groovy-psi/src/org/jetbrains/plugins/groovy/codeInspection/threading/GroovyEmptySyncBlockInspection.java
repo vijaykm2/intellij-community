@@ -15,9 +15,9 @@
  */
 package org.jetbrains.plugins.groovy.codeInspection.threading;
 
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrStatement;
@@ -27,23 +27,9 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrOpenBlock;
 public class GroovyEmptySyncBlockInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return THREADING_ISSUES;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Empty 'synchronized' block";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "Empty '#ref' block #loc";
+    return GroovyBundle.message("inspection.message.empty.ref.block");
 
   }
 
@@ -56,7 +42,7 @@ public class GroovyEmptySyncBlockInspection extends BaseInspection {
   private static class Visitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitSynchronizedStatement(GrSynchronizedStatement synchronizedStatement) {
+    public void visitSynchronizedStatement(@NotNull GrSynchronizedStatement synchronizedStatement) {
       super.visitSynchronizedStatement(synchronizedStatement);
       final GrOpenBlock body = synchronizedStatement.getBody();
       if (body == null || !isEmpty(body)) {

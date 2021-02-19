@@ -15,25 +15,29 @@
  */
 package com.intellij.find.editorHeaderActions;
 
-import com.intellij.find.EditorSearchComponent;
+import com.intellij.find.FindBundle;
 import com.intellij.find.FindSettings;
-import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.find.SearchSession;
+import com.intellij.icons.AllIcons;
+import com.intellij.openapi.actionSystem.ex.TooltipDescriptionProvider;
+import org.jetbrains.annotations.NotNull;
 
-public class ToggleMatchCase extends EditorHeaderToggleAction {
-  private static final String CASE_SENSITIVE = "Match &Case";
-
-  public ToggleMatchCase(EditorSearchComponent editorSearchComponent) {
-    super(editorSearchComponent, CASE_SENSITIVE);
+public class ToggleMatchCase extends EditorHeaderToggleAction implements Embeddable, TooltipDescriptionProvider {
+  public ToggleMatchCase() {
+    super(FindBundle.message("find.case.sensitive"),
+          AllIcons.Actions.MatchCase,
+          AllIcons.Actions.MatchCaseHovered,
+          AllIcons.Actions.MatchCaseSelected);
   }
 
   @Override
-  public boolean isSelected(AnActionEvent e) {
-    return getEditorSearchComponent().getFindModel().isCaseSensitive();
+  protected boolean isSelected(@NotNull SearchSession session) {
+    return session.getFindModel().isCaseSensitive();
   }
 
   @Override
-  public void setSelected(AnActionEvent e, boolean state) {
-    getEditorSearchComponent().getFindModel().setCaseSensitive(state);
-    FindSettings.getInstance().setLocalCaseSensitive(state);
+  protected void setSelected(@NotNull SearchSession session, boolean selected) {
+    session.getFindModel().setCaseSensitive(selected);
+    FindSettings.getInstance().setLocalCaseSensitive(selected);
   }
 }

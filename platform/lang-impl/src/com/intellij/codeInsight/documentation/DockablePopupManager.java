@@ -1,78 +1,119 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.documentation;
 
+import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.wm.ToolWindow;
-import com.intellij.openapi.wm.ToolWindowAnchor;
-import com.intellij.openapi.wm.ToolWindowType;
-import com.intellij.openapi.wm.WindowManager;
-import com.intellij.openapi.wm.ex.ToolWindowManagerEx;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.wm.*;
+import com.intellij.openapi.wm.ex.ToolWindowEx;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.psi.util.PsiUtilBase;
 import com.intellij.ui.content.*;
-import com.intellij.util.Consumer;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.Activatable;
 import com.intellij.util.ui.update.UiNotifyConnector;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 
-/**
- * User: anna
- * Date: 5/7/12
- */
 public abstract class DockablePopupManager<T extends JComponent & Disposable> {
-  protected ToolWindow myToolWindow = null;
-  protected boolean myAutoUpdateDocumentation = PropertiesComponent.getInstance().isTrueValue(getAutoUpdateEnabledProperty());
-  protected Runnable myAutoUpdateRequest;
+  private final static Logger LOG = Logger.getInstance(DockablePopupManager.class);
+  protected ToolWindow myToolWindow;
+  private Runnable myAutoUpdateRequest;
+  private boolean myAutoUpdateMuted;
   @NotNull protected final Project myProject;
 
   public DockablePopupManager(@NotNull Project project) {
     myProject = project;
   }
 
+  @NonNls
   protected abstract String getShowInToolWindowProperty();
+
+  @NonNls
   protected abstract String getAutoUpdateEnabledProperty();
 
+  protected boolean getAutoUpdateDefault() {
+    return false;
+  }
+
+  @Nls
   protected abstract String getAutoUpdateTitle();
+
+  @Nls
   protected abstract String getRestorePopupDescription();
+
+  @Nls
   protected abstract String getAutoUpdateDescription();
 
   protected abstract T createComponent();
-  protected abstract void doUpdateComponent(PsiElement element, PsiElement originalElement, T component);
+
+  protected void doUpdateComponent(@NotNull CompletableFuture<? extends PsiElement> elementFuture, PsiElement originalElement, T component) {
+    doUpdateComponent(elementFuture, originalElement, component, false);
+  }
+
+  protected void doUpdateComponent(@NotNull CompletableFuture<? extends PsiElement> elementFuture,
+                                   PsiElement originalElement,
+                                   T component,
+                                   boolean onAutoUpdate) {
+    try {
+      doUpdateComponent(elementFuture.get(), originalElement, component, onAutoUpdate);
+    }
+    catch (InterruptedException | ExecutionException e) {
+      LOG.debug("Cannot update component", e);
+    }
+  }
+
+  protected abstract void doUpdateComponent(@NotNull PsiElement element, PsiElement originalElement, T component);
+
+  protected void doUpdateComponent(@NotNull PsiElement element, PsiElement originalElement, T component, boolean onAutoUpdate) {
+    doUpdateComponent(element, originalElement, component);
+  }
+
+  protected void doUpdateComponent(Editor editor, PsiFile psiFile, boolean requestFocus) { doUpdateComponent(editor, psiFile); }
+
+  protected void doUpdateComponent(Editor editor, PsiFile psiFile, boolean requestFocus, boolean onAutoUpdate) {
+    doUpdateComponent(editor, psiFile, requestFocus);
+  }
+
   protected abstract void doUpdateComponent(Editor editor, PsiFile psiFile);
+
   protected abstract void doUpdateComponent(@NotNull PsiElement element);
 
-  protected abstract String getTitle(PsiElement element);
+  protected void doUpdateComponent(@NotNull PsiElement element, boolean onAutoUpdate) {
+    doUpdateComponent(element);
+  }
+
+  protected abstract @NlsContexts.TabTitle String getTitle(PsiElement element);
+
   protected abstract String getToolwindowId();
-  
+
+  protected @NlsContexts.TabTitle String getToolwindowTitle() {
+    LOG.error(getClass().getName() + " should override getToolwindowTitle() method");
+    //noinspection HardCodedStringLiteral
+    return getToolwindowId(); // fallback for API compatibility
+  }
+
   public Content recreateToolWindow(PsiElement element, PsiElement originalElement) {
     if (myToolWindow == null) {
       createToolWindow(element, originalElement);
@@ -88,40 +129,53 @@ public abstract class DockablePopupManager<T extends JComponent & Disposable> {
     return content;
   }
 
-  public void createToolWindow(final PsiElement element, PsiElement originalElement) {
+  public void createToolWindow(@NotNull PsiElement element, PsiElement originalElement) {
+    doCreateToolWindow(element, null, originalElement);
+  }
+
+  public void createToolWindow(@NotNull CompletableFuture<PsiElement> elementFuture, PsiElement originalElement) {
+    doCreateToolWindow(null, elementFuture, originalElement);
+  }
+
+  private void doCreateToolWindow(@Nullable PsiElement element,
+                                  @Nullable CompletableFuture<PsiElement> elementFuture,
+                                  PsiElement originalElement) {
     assert myToolWindow == null;
 
-    final T component = createComponent();
+    T component = createComponent();
 
-    final ToolWindowManagerEx toolWindowManagerEx = ToolWindowManagerEx.getInstanceEx(myProject);
-    final ToolWindow toolWindow = toolWindowManagerEx.getToolWindow(getToolwindowId());
-    myToolWindow = toolWindow == null
-                   ? toolWindowManagerEx.registerToolWindow(getToolwindowId(), true, ToolWindowAnchor.RIGHT, myProject)
-                   : toolWindow;
-    myToolWindow.setIcon(AllIcons.Toolwindows.Documentation);
+    ToolWindowManager toolWindowManager = ToolWindowManager.getInstance(myProject);
+    ToolWindow toolWindow = toolWindowManager.getToolWindow(getToolwindowId());
+    if (toolWindow == null) {
+      toolWindow = toolWindowManager
+        .registerToolWindow(RegisterToolWindowTask.closable(getToolwindowId(), this::getToolwindowTitle,
+                                                            AllIcons.Toolwindows.Documentation, ToolWindowAnchor.RIGHT));
+    }
+    else {
+      toolWindow.setAvailable(true);
+    }
+    myToolWindow = toolWindow;
 
-    myToolWindow.setAvailable(true, null);
-    myToolWindow.setToHideOnEmptyContent(false);
+    toolWindow.setToHideOnEmptyContent(false);
 
-    final Rectangle rectangle = WindowManager.getInstance().getIdeFrame(myProject).suggestChildFrameBounds();
-    myToolWindow.setDefaultState(ToolWindowAnchor.RIGHT, ToolWindowType.FLOATING, rectangle);
+    setToolwindowDefaultState(myToolWindow);
 
-    final ContentManager contentManager = myToolWindow.getContentManager();
-    final ContentFactory contentFactory = ContentFactory.SERVICE.getInstance();
-    final Content content = contentFactory.createContent(component, getTitle(element), false);
-    contentManager.addContent(content);
-
-    contentManager.addContentManagerListener(new ContentManagerAdapter() {
+    ContentManager contentManager = toolWindow.getContentManager();
+    String displayName = element != null ? getTitle(element) : "";
+    contentManager.addContent(ContentFactory.SERVICE.getInstance().createContent(component, displayName, false));
+    contentManager.addContentManagerListener(new ContentManagerListener() {
       @Override
-      public void contentRemoved(ContentManagerEvent event) {
+      public void contentRemoved(@NotNull ContentManagerEvent event) {
         restorePopupBehavior();
       }
     });
 
+    installComponentActions(toolWindow, component);
+
     new UiNotifyConnector(component, new Activatable() {
       @Override
       public void showNotify() {
-        restartAutoUpdate(myAutoUpdateDocumentation);
+        restartAutoUpdate(PropertiesComponent.getInstance().getBoolean(getAutoUpdateEnabledProperty(), getAutoUpdateDefault()));
       }
 
       @Override
@@ -133,54 +187,59 @@ public abstract class DockablePopupManager<T extends JComponent & Disposable> {
     myToolWindow.show(null);
     PropertiesComponent.getInstance().setValue(getShowInToolWindowProperty(), Boolean.TRUE.toString());
     restartAutoUpdate(PropertiesComponent.getInstance().getBoolean(getAutoUpdateEnabledProperty(), true));
-    doUpdateComponent(element, originalElement, component);
+    if (element != null) {
+      doUpdateComponent(element, originalElement, component, false);
+    }
+    else {
+      //noinspection ConstantConditions
+      doUpdateComponent(elementFuture, originalElement, component, false);
+    }
   }
 
+  protected void installComponentActions(@NotNull ToolWindow toolWindow, T component) {
+    ((ToolWindowEx)toolWindow).setAdditionalGearActions(new DefaultActionGroup(createActions()));
+  }
+
+  protected void setToolwindowDefaultState(@NotNull ToolWindow toolWindow) {
+    Rectangle rectangle = WindowManager.getInstance().getIdeFrame(myProject).suggestChildFrameBounds();
+    toolWindow.setDefaultState(ToolWindowAnchor.RIGHT, ToolWindowType.FLOATING, rectangle);
+  }
 
   protected AnAction[] createActions() {
     ToggleAction toggleAutoUpdateAction = new ToggleAction(getAutoUpdateTitle(), getAutoUpdateDescription(),
                                            AllIcons.General.AutoscrollFromSource) {
       @Override
-      public boolean isSelected(AnActionEvent e) {
-        return myAutoUpdateDocumentation;
+      public boolean isSelected(@NotNull AnActionEvent e) {
+        return PropertiesComponent.getInstance().getBoolean(getAutoUpdateEnabledProperty(),
+                                                            getAutoUpdateDefault());
       }
 
       @Override
-      public void setSelected(AnActionEvent e, boolean state) {
-        PropertiesComponent.getInstance().setValue(getAutoUpdateEnabledProperty(), String.valueOf(state));
-        myAutoUpdateDocumentation = state;
+      public void setSelected(@NotNull AnActionEvent e, boolean state) {
+        PropertiesComponent.getInstance().setValue(getAutoUpdateEnabledProperty(), state, getAutoUpdateDefault());
         restartAutoUpdate(state);
       }
     };
-    return new AnAction[]{toggleAutoUpdateAction, createRestorePopupAction()};
+    return new AnAction[]{createRestorePopupAction(), toggleAutoUpdateAction};
   }
 
   @NotNull
   protected AnAction createRestorePopupAction() {
-    return new AnAction("Restore Popup", getRestorePopupDescription(), AllIcons.Actions.Cancel) {
+    return new DumbAwareAction(CodeInsightBundle.messagePointer("action.AnActionButton.text.open.as.popup"), () -> getRestorePopupDescription(), null) {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         restorePopupBehavior();
       }
     };
   }
 
-  protected void restartAutoUpdate(final boolean state) {
-    if (state && myToolWindow != null) {
+  void restartAutoUpdate(final boolean state) {
+    boolean enabled = state && myToolWindow != null && !myAutoUpdateMuted;
+    if (enabled) {
       if (myAutoUpdateRequest == null) {
-        myAutoUpdateRequest = new Runnable() {
-          @Override
-          public void run() {
-            updateComponent();
-          }
-        };
+        myAutoUpdateRequest = () -> updateComponent(false, true);
 
-        UIUtil.invokeLaterIfNeeded(new Runnable() {
-          @Override
-          public void run() {
-            IdeEventQueue.getInstance().addIdleListener(myAutoUpdateRequest, 500);
-          }
-        });
+        UIUtil.invokeLaterIfNeeded(() -> IdeEventQueue.getInstance().addIdleListener(myAutoUpdateRequest, 500));
       }
     }
     else {
@@ -191,19 +250,43 @@ public abstract class DockablePopupManager<T extends JComponent & Disposable> {
     }
   }
 
-  public void updateComponent() {
-    if (myProject.isDisposed()) return;
-
-    DataManager.getInstance().getDataContextFromFocus().doWhenDone(new Consumer<DataContext>() {
-      @Override
-      public void consume(@NotNull DataContext dataContext) {
-        if (!myProject.isOpen()) return;
-        updateComponentInner(dataContext);
-      }
+  public void muteAutoUpdateTill(@NotNull Disposable disposable) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    myAutoUpdateMuted = true;
+    resetAutoUpdateState();
+    Disposer.register(disposable, () -> {
+      ApplicationManager.getApplication().assertIsDispatchThread();
+      myAutoUpdateMuted = false;
+      resetAutoUpdateState();
     });
   }
 
-  private void updateComponentInner(@NotNull DataContext dataContext) {
+  public void resetAutoUpdateState() {
+    restartAutoUpdate(PropertiesComponent.getInstance().getBoolean(getAutoUpdateEnabledProperty(), getAutoUpdateDefault()));
+  }
+
+  public void updateComponent() {
+    updateComponent(false);
+  }
+
+  public void updateComponent(boolean requestFocus) {
+    updateComponent(requestFocus, false);
+  }
+
+  protected void updateComponent(boolean requestFocus, boolean onAutoUpdate) {
+    if (myProject.isDisposed()) {
+      return;
+    }
+
+    DataManager.getInstance()
+      .getDataContextFromFocusAsync()
+      .onSuccess(dataContext -> {
+        if (!myProject.isOpen()) return;
+        updateComponentInner(dataContext, requestFocus, onAutoUpdate);
+      });
+  }
+
+  private void updateComponentInner(@NotNull DataContext dataContext, boolean requestFocus, boolean onAutoUpdate) {
     if (CommonDataKeys.PROJECT.getData(dataContext) != myProject) {
       return;
     }
@@ -212,39 +295,40 @@ public abstract class DockablePopupManager<T extends JComponent & Disposable> {
     if (editor == null) {
       PsiElement element = CommonDataKeys.PSI_ELEMENT.getData(dataContext);
       if (element != null) {
-        doUpdateComponent(element);
+        doUpdateComponent(element, onAutoUpdate);
       }
       return;
     }
 
-    PsiDocumentManager.getInstance(myProject).commitAllDocuments();
-    final PsiFile file = PsiUtilBase.getPsiFileInEditor(editor, myProject);
-
-    final Editor injectedEditor = InjectedLanguageUtil.getEditorForInjectedLanguageNoCommit(editor, file);
-    if (injectedEditor != null) {
-      final PsiFile psiFile = PsiUtilBase.getPsiFileInEditor(injectedEditor, myProject);
-      if (psiFile != null) {
-        doUpdateComponent(injectedEditor, psiFile);
+    PsiDocumentManager.getInstance(myProject).performLaterWhenAllCommitted(() -> {
+      if (editor.isDisposed()) {
         return;
       }
-    }
 
-    if (file != null) {
-      doUpdateComponent(editor, file);
-    }
+      PsiFile file = PsiUtilBase.getPsiFileInEditor(editor, myProject);
+      Editor injectedEditor = InjectedLanguageUtil.getEditorForInjectedLanguageNoCommit(editor, file);
+      PsiFile injectedFile = PsiUtilBase.getPsiFileInEditor(injectedEditor, myProject);
+      if (injectedFile != null) {
+        doUpdateComponent(injectedEditor, injectedFile, requestFocus, onAutoUpdate);
+      }
+      else if (file != null) {
+        doUpdateComponent(editor, file, requestFocus, onAutoUpdate);
+      }
+    });
   }
 
 
-  protected void restorePopupBehavior() {
-    if (myToolWindow != null) {
-      PropertiesComponent.getInstance().setValue(getShowInToolWindowProperty(), Boolean.FALSE.toString());
-      ToolWindowManagerEx toolWindowManagerEx = ToolWindowManagerEx.getInstanceEx(myProject);
-      toolWindowManagerEx.hideToolWindow(getToolwindowId(), false);
-      toolWindowManagerEx.unregisterToolWindow(getToolwindowId());
-      Disposer.dispose(myToolWindow.getContentManager());
-      myToolWindow = null;
-      restartAutoUpdate(false);
+  public void restorePopupBehavior() {
+    ToolWindow toolWindow = myToolWindow;
+    if (toolWindow == null) {
+      return;
     }
+
+    PropertiesComponent.getInstance().setValue(getShowInToolWindowProperty(), Boolean.FALSE.toString());
+    toolWindow.remove();
+    Disposer.dispose(toolWindow.getContentManager());
+    myToolWindow = null;
+    restartAutoUpdate(false);
   }
 
   public boolean hasActiveDockedDocWindow() {

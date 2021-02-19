@@ -10,6 +10,6 @@ class Test {
   static void m(Test t, Object s) {}
 
   static void test() {
-    <error descr="Incompatible types. Found: '<method reference>', required: 'Test.I'">I i = Test::m;</error>
+    I i = Test::<error descr="Reference to 'm' is ambiguous, both 'm(Test, String)' and 'm(String)' match">m</error>;
   }
 }

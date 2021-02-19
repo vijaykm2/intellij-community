@@ -1,24 +1,9 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License")
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.tooling.builder
 
 import org.gradle.api.Project
 import org.gradle.api.Task
 import org.gradle.api.file.FileVisitDetails
-import org.gradle.api.file.FileVisitor
 import org.gradle.api.java.archives.Manifest
 import org.gradle.api.plugins.WarPlugin
 import org.gradle.api.tasks.bundling.War
@@ -26,29 +11,33 @@ import org.gradle.util.GradleVersion
 import org.jetbrains.annotations.NotNull
 import org.jetbrains.annotations.Nullable
 import org.jetbrains.plugins.gradle.model.web.WebConfiguration
+import org.jetbrains.plugins.gradle.tooling.AbstractModelBuilderService
 import org.jetbrains.plugins.gradle.tooling.ErrorMessageBuilder
-import org.jetbrains.plugins.gradle.tooling.ModelBuilderService
+import org.jetbrains.plugins.gradle.tooling.ModelBuilderContext
 import org.jetbrains.plugins.gradle.tooling.internal.web.WarModelImpl
 import org.jetbrains.plugins.gradle.tooling.internal.web.WebConfigurationImpl
 import org.jetbrains.plugins.gradle.tooling.internal.web.WebResourceImpl
 
+import static org.jetbrains.plugins.gradle.tooling.internal.ExtraModelBuilder.reportModelBuilderFailure
+
 /**
  * @author Vladislav.Soroka
- * @since 6/25/2014
  */
-class WarModelBuilderImpl implements ModelBuilderService {
+class WarModelBuilderImpl extends AbstractModelBuilderService {
 
   private static final String WEB_APP_DIR_PROPERTY = "webAppDir"
   private static final String WEB_APP_DIR_NAME_PROPERTY = "webAppDirName"
+  private static is4OrBetter = GradleVersion.current().baseVersion >= GradleVersion.version("4.0")
+
 
   @Override
-  public boolean canBuild(String modelName) {
-    return WebConfiguration.name.equals(modelName)
+  boolean canBuild(String modelName) {
+    return WebConfiguration.name == modelName
   }
 
   @Nullable
   @Override
-  public Object buildAll(String modelName, Project project) {
+  Object buildAll(String modelName, Project project, @NotNull ModelBuilderContext context) {
     final WarPlugin warPlugin = project.plugins.findPlugin(WarPlugin)
     if (warPlugin == null) return null
 
@@ -68,77 +57,49 @@ class WarModelBuilderImpl implements ModelBuilderService {
         final List<WebConfiguration.WebResource> webResources = []
         final War warTask = task as War
         warModel.webXml = warTask.webXml
-        warTask.rootSpec.setIncludeEmptyDirs(true)
-
-        warTask.rootSpec.walk({ def resolver ->
-          // def resolver ->
-          //      in Gradle v1.x - org.gradle.api.internal.file.copy.CopySpecInternal
-          //      in Gradle v2.x - org.gradle.api.internal.file.copy.CopySpecResolver
-
-          if (resolver.metaClass.respondsTo(resolver, 'setIncludeEmptyDirs', boolean)) {
-            resolver.setIncludeEmptyDirs(true)
-          }
-          if (!resolver.metaClass.respondsTo(resolver, 'getDestPath') ||
-              !resolver.metaClass.respondsTo(resolver, 'getSource')) {
-            throw new RuntimeException("${GradleVersion.current()} is not supported by web artifact importer")
-          }
-
-          final String relativePath = resolver.destPath.pathString
-          def sourcePaths
-
-          if (resolver.metaClass.respondsTo(resolver, 'getSourcePaths')) {
-            sourcePaths = resolver.getSourcePaths()
-          } else if (resolver.hasProperty('sourcePaths')) {
-            sourcePaths = resolver.sourcePaths
-          } else if (resolver.hasProperty('this$0') && resolver.this$0.metaClass.respondsTo(resolver, 'getSourcePaths')) {
-            sourcePaths = resolver.this$0.getSourcePaths()
-          } else if (resolver.hasProperty('this$0') && resolver.this$0.hasProperty('sourcePaths')) {
-            sourcePaths = resolver.this$0.sourcePaths
-          } /*else {
-            throw new RuntimeException("${GradleVersion.current()} is not supported by web artifact importer")
-          }*/
-
-          if(sourcePaths) {
-            (sourcePaths.flatten() as List).each { def path ->
-              if (path instanceof String) {
-                def file = new File(path)
-                addPath(webResources, relativePath, "", file.absolute ? file : new File(warTask.project.projectDir, path))
-              }
-            }
-          }
-
-          resolver.source.visit(new FileVisitor() {
+        try {
+          CopySpecWalker.walk(warTask.rootSpec, new CopySpecWalker.Visitor() {
             @Override
-            public void visitDir(FileVisitDetails dirDetails) {
-              try {
-                addPath(webResources, relativePath, dirDetails.path, dirDetails.file)
-              }
-              catch (Exception ignore) {
-              }
+            void visitSourcePath(String relativePath, String path) {
+              def file = new File(path)
+              addPath(webResources, relativePath, "", file.absolute ? file : new File(warTask.project.projectDir, path))
             }
 
             @Override
-            public void visitFile(FileVisitDetails fileDetails) {
-              try {
-                if (warTask.webXml == null ||
-                    !fileDetails.file.canonicalPath.equals(warTask.webXml.canonicalPath)) {
-                  addPath(webResources, relativePath, fileDetails.path, fileDetails.file)
-                }
-              }
-              catch (Exception ignore) {
+            void visitDir(String relativePath, FileVisitDetails dirDetails) {
+              addPath(webResources, relativePath, dirDetails.path, dirDetails.file)
+            }
+
+            @Override
+            void visitFile(String relativePath, FileVisitDetails fileDetails) {
+              if (warTask.webXml == null ||
+                  !fileDetails.file.canonicalPath.equals(warTask.webXml.canonicalPath)) {
+                addPath(webResources, relativePath, fileDetails.path, fileDetails.file)
               }
             }
           })
-        })
+          warModel.classpath = new LinkedHashSet<>(warTask.classpath.files)
+        }
+        catch (Exception e) {
+          reportModelBuilderFailure(project, this, context, e)
+        }
 
         warModel.webResources = webResources
-        warModel.classpath = warTask.classpath.files
+        warModel.archivePath = warTask.archivePath
 
         Manifest manifest = warTask.manifest
         if (manifest != null) {
-          def writer = new StringWriter()
-          manifest.writeTo(writer)
-          warModel.manifestContent = writer.toString()
+          if(is4OrBetter) {
+            if(manifest instanceof org.gradle.api.java.archives.internal.ManifestInternal) {
+              ByteArrayOutputStream baos = new ByteArrayOutputStream()
+              manifest.writeTo(baos)
+              warModel.manifestContent = baos.toString(manifest.contentCharset)
+            }
+          } else {
+            def writer = new StringWriter()
+            manifest.writeTo(writer)
+            warModel.manifestContent = writer.toString()
+          }
         }
         warModels.add(warModel)
       }
@@ -149,10 +110,10 @@ class WarModelBuilderImpl implements ModelBuilderService {
 
   @NotNull
   @Override
-  public ErrorMessageBuilder getErrorMessageBuilder(@NotNull Project project, @NotNull Exception e) {
+  ErrorMessageBuilder getErrorMessageBuilder(@NotNull Project project, @NotNull Exception e) {
     ErrorMessageBuilder.create(
-      project, e, "Web project import errors"
-    ).withDescription("Web Facets/Artifacts will not be configured")
+      project, e, "JEE project import errors"
+    ).withDescription("Web Facets/Artifacts will not be configured properly")
   }
 
   private static addPath(List<WebConfiguration.WebResource> webResources, String warRelativePath, String fileRelativePath, File file) {

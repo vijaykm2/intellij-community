@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2007 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,20 +16,15 @@
 package com.siyeh.ig.errorhandling;
 
 import com.intellij.psi.PsiCodeBlock;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiTryStatement;
+import com.intellij.psi.util.FileTypeUtils;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
-import com.intellij.psi.util.FileTypeUtils;
 import org.jetbrains.annotations.NotNull;
 
 public class EmptyTryBlockInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("empty.try.block.display.name");
-  }
 
   @Override
   public boolean isEnabledByDefault() {
@@ -44,6 +39,11 @@ public class EmptyTryBlockInspection extends BaseInspection {
   }
 
   @Override
+  public boolean shouldInspect(PsiFile file) {
+    return !FileTypeUtils.isInServerPageFile(file);
+  }
+
+  @Override
   public BaseInspectionVisitor buildVisitor() {
     return new EmptyTryBlockVisitor();
   }
@@ -54,14 +54,11 @@ public class EmptyTryBlockInspection extends BaseInspection {
     @Override
     public void visitTryStatement(@NotNull PsiTryStatement statement) {
       super.visitTryStatement(statement);
-      if (FileTypeUtils.isInServerPageFile(statement.getContainingFile())) {
-        return;
-      }
       final PsiCodeBlock finallyBlock = statement.getTryBlock();
       if (finallyBlock == null) {
         return;
       }
-      if (finallyBlock.getStatements().length != 0) {
+      if (!finallyBlock.isEmpty()) {
         return;
       }
       registerStatementError(statement);

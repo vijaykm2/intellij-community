@@ -11,7 +11,7 @@ import java.io.File;
  * @author Mikhail Golubev
  */
 public class ParsingTest extends ParsingTestCase {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.tasks.generic.ParsingTest");
+  private static final Logger LOG = Logger.getInstance(ParsingTest.class);
 
   public ParsingTest() {
     super("psi", "jql", new JqlParserDefinition());
@@ -71,11 +71,6 @@ public class ParsingTest extends ParsingTestCase {
   @Override
   protected boolean includeRanges() {
     return true;
-  }
-
-  @Override
-  protected boolean skipSpaces() {
-    return false;
   }
 
   @Override

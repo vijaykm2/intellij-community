@@ -26,7 +26,7 @@ import com.intellij.psi.xml.XmlElementType;
 import com.intellij.psi.xml.XmlTokenType;
 
 public class XmlFilterLexer extends BaseFilterLexer {
-  static final TokenSet ourNoWordsTokenSet = TokenSet.create(
+  public static final TokenSet NO_WORDS_TOKEN_SET = TokenSet.create(
     XmlTokenType.TAG_WHITE_SPACE,
     TokenType.WHITE_SPACE,
     XmlTokenType.XML_REAL_WHITE_SPACE,
@@ -67,13 +67,13 @@ public class XmlFilterLexer extends BaseFilterLexer {
     else if (tokenType == XmlTokenType.XML_ENTITY_REF_TOKEN || tokenType == XmlTokenType.XML_CHAR_ENTITY_REF) {
       scanWordsInToken(UsageSearchContext.IN_CODE, false, false);
     }
-    else if (tokenType == XmlElementType.XML_TEXT) {
+    else if (tokenType == XmlElementType.XML_TEXT || tokenType == XmlElementType.HTML_RAW_TEXT) {
       scanWordsInToken(UsageSearchContext.IN_PLAIN_TEXT | UsageSearchContext.IN_FOREIGN_LANGUAGES, false, false);
     }
     else if (tokenType == XmlTokenType.XML_TAG_CHARACTERS) {
       scanWordsInToken(UsageSearchContext.IN_PLAIN_TEXT | UsageSearchContext.IN_FOREIGN_LANGUAGES, false, false);
     }
-    else if (!ourNoWordsTokenSet.contains(tokenType)) {
+    else if (!NO_WORDS_TOKEN_SET.contains(tokenType)) {
       scanWordsInToken(UsageSearchContext.IN_PLAIN_TEXT, false, false);
     }
 

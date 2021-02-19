@@ -1,35 +1,35 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.importing;
 
 import com.intellij.ProjectTopics;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider;
+import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProviderImpl;
 import com.intellij.openapi.module.ModifiableModuleModel;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ModuleRootEvent;
 import com.intellij.openapi.roots.ModuleRootListener;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.testFramework.ExtensionTestUtil;
 import com.intellij.testFramework.PlatformTestUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.maven.MavenCustomRepositoryHelper;
 import org.jetbrains.idea.maven.MavenImportingTestCase;
+import org.jetbrains.idea.maven.model.MavenId;
 import org.jetbrains.idea.maven.model.MavenProjectProblem;
 import org.jetbrains.idea.maven.project.MavenProject;
+import org.jetbrains.idea.maven.project.MavenProjectChanges;
+import org.jetbrains.idea.maven.project.MavenProjectsProcessorTask;
+import org.jetbrains.idea.maven.project.MavenProjectsTree;
 import org.jetbrains.idea.maven.server.MavenServerManager;
 
 import java.io.File;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 
 public class MiscImportingTest extends MavenImportingTestCase {
   private int beforeRootsChangedCount;
@@ -40,18 +40,18 @@ public class MiscImportingTest extends MavenImportingTestCase {
     super.setUp();
     myProject.getMessageBus().connect().subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
       @Override
-      public void beforeRootsChange(ModuleRootEvent event) {
+      public void beforeRootsChange(@NotNull ModuleRootEvent event) {
         beforeRootsChangedCount++;
       }
 
       @Override
-      public void rootsChanged(ModuleRootEvent event) {
+      public void rootsChanged(@NotNull ModuleRootEvent event) {
         rootsChangedCount++;
       }
     });
   }
 
-  public void testRestarting() throws Exception {
+  public void testRestarting() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>" +
@@ -101,7 +101,7 @@ public class MiscImportingTest extends MavenImportingTestCase {
     assertModules("project");
   }
 
-  public void testImportingAllAvailableFilesIfNotInitialized() throws Exception {
+  public void testImportingAllAvailableFilesIfNotInitialized() {
     createModule("m1");
     createModule("m2");
     createProjectSubDirs("m1/src/main/java",
@@ -129,7 +129,7 @@ public class MiscImportingTest extends MavenImportingTestCase {
     assertSources("m2", "src/main/java");
   }
 
-  public void testImportingFiresRootChangesOnlyOnce() throws Exception {
+  public void testImportingFiresRootChangesOnlyOnce() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>");
@@ -137,7 +137,7 @@ public class MiscImportingTest extends MavenImportingTestCase {
     assertRootsChanged(1);
   }
 
-  public void testResolvingFiresRootChangesOnlyOnce() throws Exception {
+  public void testResolvingFiresRootChangesOnlyOnce() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>");
@@ -145,7 +145,7 @@ public class MiscImportingTest extends MavenImportingTestCase {
     assertRootsChanged(1);
   }
 
-  public void testImportingWithLibrariesAndFacetsFiresRootChangesOnlyOnce() throws Exception {
+  public void testImportingWithLibrariesAndFacetsFiresRootChangesOnlyOnce() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>" +
@@ -167,7 +167,7 @@ public class MiscImportingTest extends MavenImportingTestCase {
     assertRootsChanged(1);
   }
 
-  public void testFacetsDoNotFireRootsChanges() throws Exception {
+  public void testFacetsDoNotFireRootsChanges() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>" +
@@ -176,7 +176,7 @@ public class MiscImportingTest extends MavenImportingTestCase {
     assertRootsChanged(1);
   }
 
-  public void testDoNotRecreateModulesBeforeResolution() throws Exception {
+  public void testDoNotRecreateModulesBeforeResolution() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>");
@@ -247,59 +247,72 @@ public class MiscImportingTest extends MavenImportingTestCase {
     assertTrue(jarFile.exists());
   }
 
-  public void testClearUnresolvedPluginsAfterPluginResolution() throws Exception {
-    File repo = new File(myDir, "repo");
-    setRepositoryPath(repo.getPath());
+  public void testClearUnresolvedPluginsAfterPluginResolution() {
+    try {
+      File repo = new File(myDir, "repo");
+      setRepositoryPath(repo.getPath());
 
-    importProject("<groupId>test</groupId>" +
-                  "<artifactId>project</artifactId>" +
-                  "<version>1</version>" +
-                  "" +
-                  "<build>" +
-                  "  <plugins>" +
-                  "    <plugin>" +
-                  "      <artifactId>maven-surefire-plugin</artifactId>" +
-                  "    </plugin>" +
-                  "  </plugins>" +
-                  "</build>");
+      createProjectPom("<groupId>test</groupId>" +
+                       "<artifactId>project</artifactId>" +
+                       "<version>1</version>" +
+                       "" +
+                       "<build>" +
+                       "  <plugins>" +
+                       "    <plugin>" +
+                       "      <artifactId>maven-surefire-plugin</artifactId>" +
+                       "    </plugin>" +
+                       "  </plugins>" +
+                       "</build>");
+      importProjectWithErrors();
 
-    List<MavenProjectProblem> problems = myProjectsTree.getRootProjects().get(0).getProblems();
-    assertTrue(problems.size() > 0);
+      List<MavenProjectProblem> problems = myProjectsTree.getRootProjects().get(0).getProblems();
+      assertTrue(problems.size() > 0);
 
-    for (MavenProjectProblem problem : problems) {
-      assertTrue(problem.getDescription(), problem.getDescription().contains("Unresolved plugin"));
+      for (MavenProjectProblem problem : problems) {
+        assertTrue(problem.getDescription(), problem.getDescription().contains("Unresolved plugin"));
+      }
+
+      resolvePlugins();
+
+      assertEquals(0, myProjectsTree.getRootProjects().get(0).getProblems().size());
     }
-
-    resolvePlugins();
-
-    assertEquals(0, myProjectsTree.getRootProjects().get(0).getProblems().size());
+    finally {
+      // do not lock files by maven process
+      MavenServerManager.getInstance().shutdown(true);
+    }
   }
 
   public void testMavenExtensionsAreLoadedAndAfterProjectsReadIsCalled() throws Exception {
-    MavenCustomRepositoryHelper helper = new MavenCustomRepositoryHelper(myDir, "plugins");
-    setRepositoryPath(helper.getTestDataPath("plugins"));
-    getMavenGeneralSettings().setWorkOffline(true);
+    try {
+      MavenCustomRepositoryHelper helper = new MavenCustomRepositoryHelper(myDir, "plugins");
+      setRepositoryPath(helper.getTestDataPath("plugins"));
+      getMavenGeneralSettings().setWorkOffline(true);
 
-    importProjectWithMaven3("<groupId>test</groupId>" +
-                            "<artifactId>project</artifactId>" +
-                            "<version>1</version>" +
-                            "" +
-                            "<build>" +
-                            "  <extensions>" +
-                            "    <extension>" +
-                            "      <groupId>intellij.test</groupId>" +
-                            "      <artifactId>maven-extension</artifactId>" +
-                            "      <version>1.0</version>" +
-                            "    </extension>" +
-                            "  </extensions>" +
-                            "</build>");
+      importProject("<groupId>test</groupId>" +
+                    "<artifactId>project</artifactId>" +
+                    "<version>1</version>" +
+                    "" +
+                    "<build>" +
+                    "  <extensions>" +
+                    "    <extension>" +
+                    "      <groupId>intellij.test</groupId>" +
+                    "      <artifactId>maven-extension</artifactId>" +
+                    "      <version>1.0</version>" +
+                    "    </extension>" +
+                    "  </extensions>" +
+                    "</build>");
 
-    List<MavenProject> projects = myProjectsTree.getProjects();
-    assertEquals(1, projects.size());
-    MavenProject mavenProject = projects.get(0);
-    assertEquals("Name for test:project generated by MyMavenExtension.", mavenProject.getFinalName());
+      List<MavenProject> projects = myProjectsTree.getProjects();
+      assertEquals(1, projects.size());
+      MavenProject mavenProject = projects.get(0);
+      assertEquals("Name for test:project generated by MyMavenExtension.", mavenProject.getFinalName());
 
-    PlatformTestUtil.assertPathsEqual(myProjectPom.getPath(), mavenProject.getProperties().getProperty("workspace-info"));
+      PlatformTestUtil.assertPathsEqual(myProjectPom.getPath(), mavenProject.getProperties().getProperty("workspace-info"));
+    }
+    finally {
+      // do not lock files by maven process
+      MavenServerManager.getInstance().shutdown(true);
+    }
   }
 
   public void testExceptionsFromMavenExtensionsAreReportedAsProblems() throws Exception {
@@ -307,20 +320,21 @@ public class MiscImportingTest extends MavenImportingTestCase {
     setRepositoryPath(helper.getTestDataPath("plugins"));
     getMavenGeneralSettings().setWorkOffline(true);
 
-    importProjectWithMaven3("<groupId>test</groupId>" +
-                            "<artifactId>project</artifactId>" +
-                            "<version>1</version>" +
-                            "<description>throw!</description>" +
-                            "" +
-                            "<build>" +
-                            "  <extensions>" +
-                            "    <extension>" +
-                            "      <groupId>intellij.test</groupId>" +
-                            "      <artifactId>maven-extension</artifactId>" +
-                            "      <version>1.0</version>" +
-                            "    </extension>" +
-                            "  </extensions>" +
-                            "</build>");
+    createProjectPom("<groupId>test</groupId>" +
+                     "<artifactId>project</artifactId>" +
+                     "<version>1</version>" +
+                     "<description>throw!</description>" +
+                     "" +
+                     "<build>" +
+                     "  <extensions>" +
+                     "    <extension>" +
+                     "      <groupId>intellij.test</groupId>" +
+                     "      <artifactId>maven-extension</artifactId>" +
+                     "      <version>1.0</version>" +
+                     "    </extension>" +
+                     "  </extensions>" +
+                     "</build>");
+    importProjectWithErrors();
 
     List<MavenProject> projects = myProjectsTree.getProjects();
     assertEquals(1, projects.size());
@@ -329,7 +343,7 @@ public class MiscImportingTest extends MavenImportingTestCase {
     assertEquals("throw!", mavenProject.getProblems().get(0).getDescription());
   }
 
-  public void testCheckingIfModuleIsNotDisposedBeforeCommitOnImport() throws Exception {
+  public void testCheckingIfModuleIsNotDisposedBeforeCommitOnImport() {
     if (ignore()) return;
 
     importProject("<groupId>test</groupId>" +
@@ -355,7 +369,7 @@ public class MiscImportingTest extends MavenImportingTestCase {
     assertModules("project", "m1", "m2");
 
     myProjectsManager.scheduleImportInTests(myProjectsManager.getProjectsFiles());
-    myProjectsManager.importProjects(new MavenDefaultModifiableModelsProvider(myProject) {
+    myProjectsManager.importProjects(new IdeModifiableModelsProviderImpl(myProject) {
       @Override
       public void commit() {
         ModifiableModuleModel model = ModuleManager.getInstance(myProject).getModifiableModel();
@@ -367,8 +381,65 @@ public class MiscImportingTest extends MavenImportingTestCase {
     });
   }
 
+  public void testUserPropertiesCanBeCustomizedByMavenImporters() {
+    Disposable disposable = Disposer.newDisposable();
+    try {
+      ExtensionTestUtil.maskExtensions(MavenImporter.EXTENSION_POINT_NAME,
+                                       Collections.<MavenImporter>singletonList(new NameSettingMavenImporter("name-from-properties")),
+                                       disposable);
+      importProject("<groupId>test</groupId>" +
+                    "<artifactId>project</artifactId>" +
+                    "<version>1</version>" +
+                    "<name>${myName}</name>");
+    }
+    finally {
+      Disposer.dispose(disposable);
+    }
+
+    MavenProject project = myProjectsManager.findProject(new MavenId("test", "project", "1"));
+    assertNotNull(project);
+    assertEquals("name-from-properties", project.getName());
+  }
+
   private void assertRootsChanged(int count) {
     assertEquals(count, rootsChangedCount);
     assertEquals(rootsChangedCount, beforeRootsChangedCount);
+  }
+
+  private static class NameSettingMavenImporter extends MavenImporter {
+    private final String myName;
+
+    NameSettingMavenImporter(String name) {
+      super("gid", "id");
+      myName = name;
+    }
+
+    @Override
+    public void customizeUserProperties(Project project, MavenProject mavenProject, Properties properties) {
+      properties.setProperty("myName", myName);
+    }
+
+    @Override
+    public boolean isApplicable(MavenProject mavenProject) {
+      return true;
+    }
+
+    @Override
+    public void preProcess(Module module,
+                           MavenProject mavenProject,
+                           MavenProjectChanges changes,
+                           IdeModifiableModelsProvider modifiableModelsProvider) {
+    }
+
+    @Override
+    public void process(IdeModifiableModelsProvider modifiableModelsProvider,
+                        Module module,
+                        MavenRootModelAdapter rootModel,
+                        MavenProjectsTree mavenModel,
+                        MavenProject mavenProject,
+                        MavenProjectChanges changes,
+                        Map<MavenProject, String> mavenProjectToModuleName,
+                        List<MavenProjectsProcessorTask> postTasks) {
+    }
   }
 }

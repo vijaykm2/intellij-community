@@ -15,9 +15,9 @@
  */
 package org.jetbrains.plugins.groovy.codeInspection.exception;
 
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrStatement;
@@ -27,23 +27,9 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrOpenBlock;
 public class GroovyEmptyTryBlockInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return ERROR_HANDLING;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Empty 'try' block";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "Empty '#ref' block #loc";
+    return GroovyBundle.message("inspection.message.empty.ref.block");
 
   }
 
@@ -55,7 +41,7 @@ public class GroovyEmptyTryBlockInspection extends BaseInspection {
 
   private static class Visitor extends BaseInspectionVisitor {
     @Override
-    public void visitTryStatement(GrTryCatchStatement tryCatchStatement) {
+    public void visitTryStatement(@NotNull GrTryCatchStatement tryCatchStatement) {
       super.visitTryStatement(tryCatchStatement);
       final GrOpenBlock body = tryCatchStatement.getTryBlock();
       if (body == null || !isEmpty(body)) {

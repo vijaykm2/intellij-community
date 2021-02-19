@@ -34,7 +34,7 @@ public class PyMethodNavigationOffsetProvider implements MethodNavigationOffsetP
   @Override
   public int[] getMethodNavigationOffsets(final PsiFile file, final int caretOffset) {
     if (file instanceof PyFile) {
-      final ArrayList<PsiElement> array = new ArrayList<PsiElement>();
+      final ArrayList<PsiElement> array = new ArrayList<>();
       addNavigationElements(array, file);
       return MethodUpDownUtil.offsetsFromElements(array);
     }
@@ -54,7 +54,7 @@ public class PyMethodNavigationOffsetProvider implements MethodNavigationOffsetP
       array.add(psiElement);
     }
     else if (psiElement instanceof PyClass) {
-      Collections.addAll(array, ((PyClass)psiElement).getMethods(false));
+      Collections.addAll(array, ((PyClass)psiElement).getMethods());
     }
   }
 }

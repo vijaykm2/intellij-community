@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.rest;
 
-import com.google.common.collect.Sets;
 import com.intellij.lang.Language;
 import com.intellij.lang.LanguageParserDefinitions;
 import com.intellij.lang.ParserDefinition;
@@ -25,9 +10,12 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.impl.source.PsiFileImpl;
 import com.intellij.psi.templateLanguages.TemplateLanguageFileViewProvider;
+import com.intellij.psi.tree.IElementType;
 import com.jetbrains.python.PythonLanguage;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import java.util.HashSet;
 import java.util.Set;
 
 /**
@@ -54,8 +42,9 @@ public class RestFileViewProvider extends MultiplePsiFilesPerDocumentFileViewPro
     return PythonLanguage.getInstance();
   }
 
+  @NotNull
   @Override
-  protected MultiplePsiFilesPerDocumentFileViewProvider cloneInner(VirtualFile virtualFile) {
+  protected MultiplePsiFilesPerDocumentFileViewProvider cloneInner(@NotNull VirtualFile virtualFile) {
     return new RestFileViewProvider(getManager(), virtualFile, false);
   }
 
@@ -63,13 +52,14 @@ public class RestFileViewProvider extends MultiplePsiFilesPerDocumentFileViewPro
   @NotNull
   public Set<Language> getLanguages() {
     if (myLanguages == null) {
-      myLanguages = Sets.newLinkedHashSet();
-      myLanguages.add(getBaseLanguage());
+      final Set<Language> languages = new HashSet<>();
+      languages.add(getBaseLanguage());
       Language djangoTemplateLanguage = Language.findLanguageByID("DjangoTemplate");
       if (djangoTemplateLanguage != null) {
-        myLanguages.add(djangoTemplateLanguage);
+        languages.add(djangoTemplateLanguage);
       }
-      myLanguages.add(getTemplateDataLanguage());
+      languages.add(getTemplateDataLanguage());
+      myLanguages = languages;
     }
     return myLanguages;
   }
@@ -90,6 +80,17 @@ public class RestFileViewProvider extends MultiplePsiFilesPerDocumentFileViewPro
     }
     else if (lang == RestLanguage.INSTANCE) {
       return def.createFile(this);
+    }
+    return null;
+  }
+
+  @Override
+  public @Nullable IElementType getContentElementType(@NotNull Language language) {
+    if (language == getTemplateDataLanguage()) {
+      return RestPythonElementTypes.PYTHON_BLOCK_DATA;
+    }
+    else if (language.getID().equals("DjangoTemplate")) {
+      return RestPythonElementTypes.DJANGO_BLOCK_DATA;
     }
     return null;
   }

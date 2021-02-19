@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.xml;
 
+import com.intellij.lang.ASTNode;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.meta.MetaRegistry;
 import com.intellij.psi.impl.source.resolve.reference.ReferenceProvidersRegistry;
@@ -27,14 +14,12 @@ import com.intellij.psi.xml.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author Mike
- */
 public class XmlCommentImpl extends XmlElementImpl implements XmlComment, XmlElementType, PsiMetaOwner, PsiLanguageInjectionHost {
   public XmlCommentImpl() {
     super(XML_COMMENT);
   }
 
+  @NotNull
   @Override
   public IElementType getTokenType() {
     return XML_COMMENT;
@@ -63,20 +48,25 @@ public class XmlCommentImpl extends XmlElementImpl implements XmlComment, XmlEle
 
   @Override
   public XmlTagChild getNextSiblingInTag() {
-    if(getParent() instanceof XmlTag) return (XmlTagChild)getNextSibling();
+    if(getParent() instanceof XmlTag) {
+      PsiElement sibling = getNextSibling();
+      return sibling instanceof XmlTagChild ? (XmlTagChild)sibling : null;
+    }
     return null;
   }
 
   @Override
   public XmlTagChild getPrevSiblingInTag() {
-    if(getParent() instanceof XmlTag) return (XmlTagChild)getPrevSibling();
+    if(getParent() instanceof XmlTag) {
+      PsiElement sibling = getPrevSibling();
+      return sibling instanceof XmlTagChild ? (XmlTagChild)sibling : null;
+    }
     return null;
   }
 
   @Override
-  @NotNull
-  public PsiReference[] getReferences() {
-    return ReferenceProvidersRegistry.getReferencesFromProviders(this, XmlComment.class);
+  public PsiReference @NotNull [] getReferences() {
+    return ReferenceProvidersRegistry.getReferencesFromProviders(this);
   }
 
   @Override
@@ -94,7 +84,7 @@ public class XmlCommentImpl extends XmlElementImpl implements XmlComment, XmlEle
     assert document != null;
 
     final XmlComment comment = PsiTreeUtil.getChildOfType(document, XmlComment.class);
-    
+
     assert comment != null;
     replaceAllChildrenToChildrenOf(comment.getNode());
 
@@ -105,5 +95,12 @@ public class XmlCommentImpl extends XmlElementImpl implements XmlComment, XmlEle
   @NotNull
   public LiteralTextEscaper<? extends PsiLanguageInjectionHost> createLiteralTextEscaper() {
     return new XmlCommentLiteralEscaper(this);
+  }
+
+  @NotNull
+  @Override
+  public String getCommentText() {
+    ASTNode node = getNode().findChildByType(XmlTokenType.XML_COMMENT_CHARACTERS);
+    return node == null ? "" : node.getText();
   }
 }

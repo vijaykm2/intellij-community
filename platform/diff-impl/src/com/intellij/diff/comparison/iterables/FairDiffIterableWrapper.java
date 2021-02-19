@@ -20,11 +20,10 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.Iterator;
 
-@SuppressWarnings("ConstantConditions")
-class FairDiffIterableWrapper extends DiffIterableBase implements FairDiffIterable {
+class FairDiffIterableWrapper implements FairDiffIterable {
   @NotNull private final DiffIterable myIterable;
 
-  public FairDiffIterableWrapper(@NotNull DiffIterable iterable) {
+  FairDiffIterableWrapper(@NotNull DiffIterable iterable) {
     myIterable = iterable;
   }
 

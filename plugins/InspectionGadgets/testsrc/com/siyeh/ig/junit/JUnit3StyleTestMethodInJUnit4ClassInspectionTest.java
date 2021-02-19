@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +16,18 @@
 package com.siyeh.ig.junit;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Bas Leijdekkers
  */
-public class JUnit3StyleTestMethodInJUnit4ClassInspectionTest extends LightInspectionTestCase {
+public class JUnit3StyleTestMethodInJUnit4ClassInspectionTest extends LightJavaInspectionTestCase {
 
   public void testJUnit3StyleTestMethodInJUnit4Class() { doTest(); }
   public void testBeforeAnnotationUsed() { doTest(); }
+  public void testSimpleJUnit5() { doTest(); }
+  public void testOtherAnnotation() { doTest(); }
 
   @Nullable
   @Override
@@ -37,21 +39,32 @@ public class JUnit3StyleTestMethodInJUnit4ClassInspectionTest extends LightInspe
   protected String[] getEnvironmentClasses() {
     return new String[] {
       "package org.junit;" +
-      "import java.lang.annotation.ElementType;" +
-      "import java.lang.annotation.Retention;" +
-      "import java.lang.annotation.RetentionPolicy;" +
-      "import java.lang.annotation.Target;" +
+      "import java.lang.annotation.*;" +
       "@Retention(RetentionPolicy.RUNTIME)" +
       "@Target({ElementType.METHOD})" +
       "public @interface Before {}",
       "package org.junit;" +
-      "import java.lang.annotation.ElementType;" +
-      "import java.lang.annotation.Retention;" +
-      "import java.lang.annotation.RetentionPolicy;" +
-      "import java.lang.annotation.Target;" +
+      "import java.lang.annotation.*;" +
       "@Retention(RetentionPolicy.RUNTIME)" +
       "@Target({ElementType.METHOD})" +
-      "public @interface Test {}"
+      "public @interface After {}",
+      "package org.junit;" +
+      "import java.lang.annotation.*;" +
+      "@Retention(RetentionPolicy.RUNTIME)" +
+      "@Target({ElementType.METHOD})" +
+      "public @interface Ignore {}",
+      "package org.junit;" +
+      "import java.lang.annotation.*;" +
+      "@Retention(RetentionPolicy.RUNTIME)" +
+      "@Target({ElementType.METHOD})" +
+      "public @interface Test {}",
+      "package org.junit.jupiter.api;" +
+      "import java.lang.annotation.*;" +
+      "@Retention(RetentionPolicy.RUNTIME)" +
+      "@Target({ElementType.METHOD})" +
+      "public @interface Test {}",
+      "package org.junit.platform.commons.annotation;" +
+      "public @interface Testable {}"
     };
   }
 }

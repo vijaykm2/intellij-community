@@ -1,50 +1,36 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.breakpoints;
 
 import com.intellij.debugger.SourcePosition;
-import com.intellij.debugger.engine.BreakpointStepMethodFilter;
-import com.intellij.debugger.engine.CompoundPositionManager;
-import com.intellij.debugger.engine.DebugProcessImpl;
-import com.intellij.debugger.engine.LambdaMethodFilter;
+import com.intellij.debugger.engine.*;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
-import com.intellij.debugger.engine.requests.RequestManagerImpl;
+import com.intellij.debugger.engine.events.SuspendContextCommandImpl;
+import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.util.containers.MultiMap;
 import com.sun.jdi.*;
-import com.sun.jdi.request.BreakpointRequest;
+import com.sun.jdi.event.LocatableEvent;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Sep 13, 2006
  */
 public class StepIntoBreakpoint extends RunToCursorBreakpoint {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.ui.breakpoints.StepIntoBreakpoint");
-  @NotNull
-  private final BreakpointStepMethodFilter myFilter;
+  private static final Logger LOG = Logger.getInstance(StepIntoBreakpoint.class);
+  @NotNull private final BreakpointStepMethodFilter myFilter;
+  @Nullable private RequestHint myHint;
 
-  StepIntoBreakpoint(@NotNull Project project, @NotNull SourcePosition pos, @NotNull BreakpointStepMethodFilter filter) {
+  protected StepIntoBreakpoint(@NotNull Project project, @NotNull SourcePosition pos, @NotNull BreakpointStepMethodFilter filter) {
     super(project, pos, false);
     myFilter = filter;
   }
 
+  @Override
   protected void createRequestForPreparedClass(DebugProcessImpl debugProcess, ReferenceType classType) {
     try {
       final CompoundPositionManager positionManager = debugProcess.getPositionManager();
@@ -63,41 +49,33 @@ public class StepIntoBreakpoint extends RunToCursorBreakpoint {
       }
 
       if (!locations.isEmpty()) {
-        final Set<Method> methods = new HashSet<Method>();
+        MultiMap<Method, Location> methods = new MultiMap<>();
         for (Location loc : locations) {
           if (acceptLocation(debugProcess, classType, loc)) {
-            methods.add(loc.method());
+            methods.putValue(loc.method(), loc);
           }
         }
         Location location = null;
         final int methodsFound = methods.size();
         if (methodsFound == 1) {
-          location = methods.iterator().next().location();
+          location = methods.values().iterator().next();
         }
         else {
           if (myFilter instanceof LambdaMethodFilter) {
             final LambdaMethodFilter lambdaFilter = (LambdaMethodFilter)myFilter;
             if (lambdaFilter.getLambdaOrdinal() < methodsFound) {
-              final Method[] candidates = methods.toArray(new Method[methodsFound]);
-              Arrays.sort(candidates, new Comparator<Method>() {
-                public int compare(Method m1, Method m2) {
-                  return getMethodOrdinal(m1) - getMethodOrdinal(m2);
-                }
-              });
-              location = candidates[lambdaFilter.getLambdaOrdinal()].location();
+              Method[] candidates = methods.keySet().toArray(new Method[methodsFound]);
+              Arrays.sort(candidates, DebuggerUtilsEx.LAMBDA_ORDINAL_COMPARATOR);
+              location = methods.get(candidates[lambdaFilter.getLambdaOrdinal()]).iterator().next();
             }
           }
           else {
             if (methodsFound > 0) {
-              location = methods.iterator().next().location();
+              location = methods.values().iterator().next();
             }
           }
         }
-        if (location != null) {
-          final RequestManagerImpl requestsManager = debugProcess.getRequestsManager();
-          final BreakpointRequest request = requestsManager.createBreakpointRequest(this, location);
-          requestsManager.enableRequest(request);
-        }
+        createLocationBreakpointRequest(this, location, debugProcess);
       }
     }
     catch (ClassNotPreparedException ex) {
@@ -110,28 +88,12 @@ public class StepIntoBreakpoint extends RunToCursorBreakpoint {
         LOG.debug("ObjectCollectedException: " + ex.getMessage());
       }
     }
-    catch (InternalException ex) {
-      LOG.info(ex);
-    }
     catch(Exception ex) {
       LOG.info(ex);
     }
   }
 
-  private static int getMethodOrdinal(Method m) {
-    final String name = m.name();
-    final int dollarIndex = name.lastIndexOf("$");
-    if (dollarIndex < 0) {
-      return 0;
-    }
-    try {
-      return Integer.parseInt(name.substring(dollarIndex + 1));
-    }
-    catch (NumberFormatException e) {
-      return 0;
-    }
-  }
-
+  @Override
   protected boolean acceptLocation(DebugProcessImpl debugProcess, ReferenceType classType, Location loc) {
     try {
       return myFilter.locationMatches(debugProcess, loc);
@@ -151,5 +113,21 @@ public class StepIntoBreakpoint extends RunToCursorBreakpoint {
       return breakpoint;
     }
     return null;
+  }
+
+  @Override
+  public boolean processLocatableEvent(@NotNull SuspendContextCommandImpl action, LocatableEvent event)
+    throws EventProcessingException {
+    boolean res = super.processLocatableEvent(action, event);
+    SuspendContextImpl context = action.getSuspendContext();
+    if (res && context != null) {
+      context.getDebugProcess().resetIgnoreSteppingFilters(event.location(), myHint);
+    }
+    return res;
+  }
+
+  @Override
+  public void setRequestHint(RequestHint hint) {
+    myHint = hint;
   }
 }

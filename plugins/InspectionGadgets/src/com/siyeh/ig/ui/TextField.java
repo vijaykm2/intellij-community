@@ -16,6 +16,7 @@
 package com.siyeh.ig.ui;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.ReflectionUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -34,8 +35,8 @@ public class TextField extends JTextField {
     getDocument().addDocumentListener(documentListener);
   }
 
-  private static String getPropertyValue(InspectionProfileEntry owner,
-                                         String property) {
+  private static @NlsSafe String getPropertyValue(InspectionProfileEntry owner,
+                                                  String property) {
     return ReflectionUtil.getField(owner.getClass(), owner, String.class, property);
   }
 
@@ -50,7 +51,7 @@ public class TextField extends JTextField {
     private final InspectionProfileEntry owner;
     private final String property;
 
-    public TextFieldDocumentListener(InspectionProfileEntry owner,
+    TextFieldDocumentListener(InspectionProfileEntry owner,
                                      String property) {
       this.owner = owner;
       this.property = property;

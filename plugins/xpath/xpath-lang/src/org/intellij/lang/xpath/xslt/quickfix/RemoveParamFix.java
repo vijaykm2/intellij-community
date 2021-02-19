@@ -20,6 +20,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.IncorrectOperationException;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NotNull;
 
 public class RemoveParamFix extends AbstractFix {
@@ -31,19 +32,28 @@ public class RemoveParamFix extends AbstractFix {
         myTag = tag;
     }
 
+    @Override
     @NotNull
     public String getText() {
-        return "Remove Argument '" + myName + "'";
+        return XPathBundle.message("intention.name.remove.argument", myName);
     }
 
+    @Override
+    public String getFamilyName() {
+        return XPathBundle.message("intention.family.name.remove.argument");
+    }
+
+    @Override
     public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
         myTag.delete();
     }
 
+    @Override
     public boolean isAvailableImpl(@NotNull Project project, Editor editor, PsiFile file) {
         return myTag.isValid();
     }
 
+    @Override
     protected boolean requiresEditor() {
         return false;
     }

@@ -1,107 +1,75 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util;
 
 import com.intellij.concurrency.AsyncFuture;
-import com.intellij.util.containers.ContainerUtil;
-import gnu.trove.THashSet;
-import gnu.trove.TObjectHashingStrategy;
+import com.intellij.openapi.progress.ProgressManager;
+import it.unimi.dsi.fastutil.Hash;
+import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet;
+import it.unimi.dsi.fastutil.objects.ObjectSets;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 
-/**
- * @author max
- */
-public class UniqueResultsQuery<T, M> implements Query<T> {
-  private final Query<T> myOriginal;
-  private final TObjectHashingStrategy<M> myHashingStrategy;
-  private final Function<T, M> myMapper;
+public final class UniqueResultsQuery<T, M> extends AbstractQuery<T> {
+  @NotNull private final Query<? extends T> myOriginal;
+  @Nullable private final Hash.Strategy<? super M> myHashingStrategy;
+  @NotNull private final Function<? super T, ? extends M> myMapper;
 
-  public UniqueResultsQuery(@NotNull Query<T> original) {
-    this(original, ContainerUtil.<M>canonicalStrategy(), (Function<T, M>)FunctionUtil.<M>id());
+  public UniqueResultsQuery(@NotNull Query<? extends T> original) {
+    this(original, Functions.identity());
   }
 
-  public UniqueResultsQuery(@NotNull Query<T> original, @NotNull TObjectHashingStrategy<M> hashingStrategy) {
-    this(original, hashingStrategy, (Function<T, M>)FunctionUtil.<M>id());
-  }
-
-  public UniqueResultsQuery(@NotNull Query<T> original, @NotNull TObjectHashingStrategy<M> hashingStrategy, @NotNull Function<T, M> mapper) {
+  public UniqueResultsQuery(@NotNull Query<? extends T> original, @NotNull Hash.Strategy<? super M> hashingStrategy) {
     myOriginal = original;
     myHashingStrategy = hashingStrategy;
+    myMapper = Functions.identity();
+  }
+
+  public UniqueResultsQuery(@NotNull Query<? extends T> original, @NotNull Function<? super T, ? extends M> mapper) {
+    myOriginal = original;
+    myHashingStrategy = null;
     myMapper = mapper;
   }
 
   @Override
-  public T findFirst() {
-    return myOriginal.findFirst();
+  protected boolean processResults(@NotNull Processor<? super T> consumer) {
+    return delegateProcessResults(myOriginal, new MyProcessor(createSet(), consumer));
   }
 
-  @Override
-  public boolean forEach(@NotNull final Processor<T> consumer) {
-    return process(consumer, Collections.synchronizedSet(new THashSet<M>(myHashingStrategy)));
-  }
-
-  @NotNull
-  @Override
-  public AsyncFuture<Boolean> forEachAsync(@NotNull Processor<T> consumer) {
-    return processAsync(consumer, Collections.synchronizedSet(new THashSet<M>(myHashingStrategy)));
-  }
-
-  private boolean process(@NotNull Processor<T> consumer, @NotNull Set<M> processedElements) {
-    return myOriginal.forEach(new MyProcessor(processedElements, consumer));
-  }
-
-  @NotNull
-  private AsyncFuture<Boolean> processAsync(@NotNull Processor<T> consumer, @NotNull Set<M> processedElements) {
-    return myOriginal.forEachAsync(new MyProcessor(processedElements, consumer));
-  }
-
-  @Override
-  @NotNull
-  public Collection<T> findAll() {
-    final CommonProcessors.CollectProcessor<T> processor = new CommonProcessors.CollectProcessor<T>(Collections.synchronizedList(new ArrayList<T>()));
-    forEach(processor);
-    return processor.getResults();
+  private @NotNull Set<M> createSet() {
+    if (myHashingStrategy == null) {
+      return Collections.synchronizedSet(new HashSet<>());
+    }
+    return ObjectSets.synchronize(new ObjectOpenCustomHashSet<>(myHashingStrategy));
   }
 
   @NotNull
   @Override
-  public T[] toArray(@NotNull final T[] a) {
-    return findAll().toArray(a);
+  public AsyncFuture<Boolean> forEachAsync(@NotNull Processor<? super T> consumer) {
+    return myOriginal.forEachAsync(new MyProcessor(createSet(), consumer));
   }
 
-  @Override
-  public Iterator<T> iterator() {
-    return findAll().iterator();
-  }
+  private final class MyProcessor implements Processor<T> {
+    private final Set<? super M> myProcessedElements;
+    private final Processor<? super T> myConsumer;
 
-  private class MyProcessor implements Processor<T> {
-    private final Set<M> myProcessedElements;
-    private final Processor<T> myConsumer;
-
-    public MyProcessor(@NotNull Set<M> processedElements, @NotNull Processor<T> consumer) {
+    MyProcessor(@NotNull Set<? super M> processedElements, @NotNull Processor<? super T> consumer) {
       myProcessedElements = processedElements;
       myConsumer = consumer;
     }
 
     @Override
     public boolean process(final T t) {
-      return !myProcessedElements.add(myMapper.fun(t)) || myConsumer.process(t);
+      ProgressManager.checkCanceled();
+      // in case of exception do not mark the element as processed, we couldn't recover otherwise
+      M m = myMapper.fun(t);
+      if (myProcessedElements.contains(m)) return true;
+      boolean result = myConsumer.process(t);
+      myProcessedElements.add(m);
+      return result;
     }
   }
 

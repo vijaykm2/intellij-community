@@ -24,6 +24,7 @@ import org.intellij.lang.xpath.psi.XPathBinaryExpression;
 import org.intellij.lang.xpath.psi.XPathExpression;
 import org.intellij.lang.xpath.psi.XPathFunctionCall;
 import org.intellij.lang.xpath.validation.ExpectedTypeUtil;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NotNull;
 
 public class RemoveExplicitConversionFix extends ReplaceElementFix<XPathExpression> {
@@ -32,14 +33,16 @@ public class RemoveExplicitConversionFix extends ReplaceElementFix<XPathExpressi
         super(ExpectedTypeUtil.unparenthesize(expression));
     }
 
+    @Override
     @NotNull
     public String getText() {
-        return "Remove Explicit Type Conversion";
+        return getFamilyName();
     }
 
+    @Override
     @NotNull
     public String getFamilyName() {
-        return "ImplicitTypeConversion";
+        return XPathBundle.message("intention.family.name.remove.explicit.type.conversion");
     }
 
   @Override
@@ -51,6 +54,7 @@ public class RemoveExplicitConversionFix extends ReplaceElementFix<XPathExpressi
         && ((XPathFunctionCall)startElement).getArgumentList().length == 1;
     }
 
+    @Override
     public void invokeImpl(Project project, PsiFile file) throws IncorrectOperationException {
       PsiElement myElement = getStartElement();
       final XPathExpression arg0 = ((XPathFunctionCall)myElement).getArgumentList()[0];

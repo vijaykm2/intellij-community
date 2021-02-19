@@ -24,63 +24,46 @@
  */
 package org.jetbrains.lang.manifest.header;
 
-import com.intellij.openapi.components.ServiceManager;
-import com.intellij.openapi.extensions.Extensions;
-import com.intellij.openapi.util.NotNullLazyValue;
-import com.intellij.openapi.util.text.LevenshteinDistance;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.util.ClearableLazyValue;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.CollectionFactory;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.lang.manifest.psi.Header;
 import org.jetbrains.lang.manifest.psi.HeaderValuePart;
 
-import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
 
 /**
  * @author Robert F. Beeger (robert@beeger.net)
  */
-public class HeaderParserRepository {
+public final class HeaderParserRepository {
   public static HeaderParserRepository getInstance() {
-    return ServiceManager.getService(HeaderParserRepository.class);
+    return ApplicationManager.getApplication().getService(HeaderParserRepository.class);
   }
 
-  private final NotNullLazyValue<Map<String, HeaderParser>> myParsers = new NotNullLazyValue<Map<String, HeaderParser>>() {
+  private final ClearableLazyValue<Map<String, HeaderParser>> myParsers = new ClearableLazyValue<>() {
     @NotNull
     @Override
     protected Map<String, HeaderParser> compute() {
-      Map<String, HeaderParser> map = ContainerUtil.newHashMap();
-      for (HeaderParserProvider provider : Extensions.getExtensions(HeaderParserProvider.EP_NAME)) {
+      Map<String, HeaderParser> map = CollectionFactory.createCaseInsensitiveStringMap();
+      for (HeaderParserProvider provider : HeaderParserProvider.EP_NAME.getExtensionList()) {
         map.putAll(provider.getHeaderParsers());
       }
       return map;
     }
   };
 
+  public HeaderParserRepository() {
+    HeaderParserProvider.EP_NAME.addChangeListener(myParsers::drop, null);
+  }
+
   @Nullable
   public HeaderParser getHeaderParser(@Nullable String headerName) {
     return myParsers.getValue().get(headerName);
-  }
-
-  @NotNull
-  public Collection<HeaderNameMatch> getMatches(@NotNull String headerName) {
-    HeaderParser parser = myParsers.getValue().get(headerName);
-    if (parser != null) {
-      return ContainerUtil.emptyList();
-    }
-
-    LevenshteinDistance distance = new LevenshteinDistance();
-    Set<HeaderNameMatch> result = new TreeSet<HeaderNameMatch>();
-    for (Map.Entry<String, HeaderParser> entry : myParsers.getValue().entrySet()) {
-      String otherName = entry.getKey();
-      int dist = distance.calculateMetrics(headerName, otherName);
-      result.add(new HeaderNameMatch(dist, otherName));
-    }
-    return result;
   }
 
   @NotNull
@@ -94,8 +77,7 @@ public class HeaderParserRepository {
     return parser != null ? parser.getConvertedValue(header) : null;
   }
 
-  @NotNull
-  public PsiReference[] getReferences(@NotNull HeaderValuePart headerValuePart) {
+  public PsiReference @NotNull [] getReferences(@NotNull HeaderValuePart headerValuePart) {
     Header header = PsiTreeUtil.getParentOfType(headerValuePart, Header.class);
     if (header != null) {
       HeaderParser parser = getHeaderParser(header.getName());

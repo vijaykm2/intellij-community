@@ -25,7 +25,7 @@ import java.util.List;
 
 public class InMemoryChangeListStorage implements ChangeListStorage {
   private int myCurrentId;
-  private List<ChangeSet> mySets = new ArrayList<ChangeSet>();
+  private final List<ChangeSet> mySets = new ArrayList<>();
 
   @Override
   public void close() {
@@ -50,6 +50,6 @@ public class InMemoryChangeListStorage implements ChangeListStorage {
   }
 
   @Override
-  public void purge(long period, int intervalBetweenActivities, Consumer<ChangeSet> processor) {
+  public void purge(long period, int intervalBetweenActivities, Consumer<? super ChangeSet> processor) {
   }
 }

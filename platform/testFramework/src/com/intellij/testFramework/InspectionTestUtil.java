@@ -1,54 +1,45 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework;
 
 import com.intellij.analysis.AnalysisScope;
 import com.intellij.codeInsight.daemon.HighlightDisplayKey;
+import com.intellij.codeInspection.InspectionEP;
+import com.intellij.codeInspection.InspectionProfileEntry;
+import com.intellij.codeInspection.LocalInspectionEP;
+import com.intellij.codeInspection.ex.GlobalInspectionContextBase;
 import com.intellij.codeInspection.ex.GlobalInspectionContextImpl;
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
 import com.intellij.codeInspection.ui.InspectionToolPresentation;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.testFramework.fixtures.impl.GlobalInspectionContextForTests;
+import com.intellij.util.containers.JBIterable;
 import com.intellij.util.ui.UIUtil;
 import org.jdom.Document;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.TestOnly;
 import org.junit.Assert;
 
 import java.io.CharArrayReader;
 import java.io.File;
 import java.io.StreamTokenizer;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
-public class InspectionTestUtil {
+public final class InspectionTestUtil {
   private InspectionTestUtil() {
   }
 
-  protected static void compareWithExpected(Document expectedDoc, Document doc, boolean checkRange) throws Exception {
-    List<Element> expectedProblems = new ArrayList<Element>(expectedDoc.getRootElement().getChildren("problem"));
-    List<Element> reportedProblems = new ArrayList<Element>(doc.getRootElement().getChildren("problem"));
+  public static void compareWithExpected(Element expectedDoc, Element doc, boolean checkRange) throws Exception {
+    List<Element> expectedProblems = new ArrayList<>(expectedDoc.getChildren("problem"));
+    List<Element> reportedProblems = new ArrayList<>(doc.getChildren("problem"));
 
-    Element[] expectedArray = expectedProblems.toArray(new Element[expectedProblems.size()]);
-    boolean failed = false;
+    Element[] expectedArray = expectedProblems.toArray(new Element[0]);
 
-expected:
+    List<String> problems = new ArrayList<>();
+
+    expected:
     for (Element expectedProblem : expectedArray) {
-      Element[] reportedArrayed = reportedProblems.toArray(new Element[reportedProblems.size()]);
+      Element[] reportedArrayed = reportedProblems.toArray(new Element[0]);
       for (Element reportedProblem : reportedArrayed) {
         if (compareProblemWithExpected(reportedProblem, expectedProblem, checkRange)) {
           expectedProblems.remove(expectedProblem);
@@ -58,17 +49,17 @@ expected:
       }
 
       Document missing = new Document(expectedProblem.clone());
-      System.out.println("The following haven't been reported as expected: " + new String(JDOMUtil.printDocument(missing, "\n")));
-      failed = true;
+      problems.add("The following haven't been reported as expected: " + JDOMUtil.writeDocument(missing, "\n"));
     }
 
     for (Element reportedProblem : reportedProblems) {
       Document extra = new Document(reportedProblem.clone());
-      System.out.println("The following has been unexpectedly reported: " + new String(JDOMUtil.printDocument(extra, "\n")));
-      failed = true;
+      problems.add("The following has been unexpectedly reported: " + JDOMUtil.writeDocument(extra, "\n"));
     }
 
-    Assert.assertFalse(failed);
+    if (!problems.isEmpty()) {
+      Assert.fail(String.join("\n", problems));
+    }
   }
 
   static boolean compareProblemWithExpected(Element reportedProblem, Element expectedProblem, boolean checkRange) throws Exception {
@@ -83,8 +74,8 @@ expected:
     Element reportedTextRange = reportedProblem.getChild("entry_point");
     if (reportedTextRange == null) return false;
     Element expectedTextRange = expectedProblem.getChild("entry_point");
-    return Comparing.equal(reportedTextRange.getAttributeValue("TYPE"), expectedTextRange.getAttributeValue("TYPE")) &&
-           Comparing.equal(reportedTextRange.getAttributeValue("FQNAME"), expectedTextRange.getAttributeValue("FQNAME"));
+    return Objects.equals(reportedTextRange.getAttributeValue("TYPE"), expectedTextRange.getAttributeValue("TYPE")) &&
+           Objects.equals(reportedTextRange.getAttributeValue("FQNAME"), expectedTextRange.getAttributeValue("FQNAME"));
   }
 
   static boolean compareDescriptions(Element reportedProblem, Element expectedProblem) throws Exception {
@@ -116,7 +107,7 @@ expected:
   }
 
   static boolean compareLines(Element reportedProblem, Element expectedProblem) {
-    return Comparing.equal(reportedProblem.getChildText("line"), expectedProblem.getChildText("line"));
+    return Objects.equals(reportedProblem.getChildText("line"), expectedProblem.getChildText("line"));
   }
 
   static boolean compareFiles(Element reportedProblem, Element expectedProblem) {
@@ -126,38 +117,45 @@ expected:
     }
     File reportedFile = new File(reportedFileName);
 
-    return Comparing.equal(reportedFile.getName(), expectedProblem.getChildText("file"));
+    return Objects.equals(reportedFile.getName(), expectedProblem.getChildText("file"));
   }
 
   public static void compareToolResults(@NotNull GlobalInspectionContextImpl context,
                                         @NotNull InspectionToolWrapper toolWrapper,
                                         boolean checkRange,
-                                        String testDir) {
-    final Element root = new Element("problems");
-    final Document doc = new Document(root);
-    InspectionToolPresentation presentation = context.getPresentation(toolWrapper);
+                                        @NotNull String testDir) {
+    compareToolResults(context, checkRange, testDir, Collections.singletonList(toolWrapper));
+  }
 
-    presentation.updateContent();  //e.g. dead code need check for reachables
-    presentation.exportResults(root);
+  static void compareToolResults(@NotNull GlobalInspectionContextImpl context,
+                                 boolean checkRange,
+                                 @NotNull String testDir,
+                                 @NotNull Collection<? extends InspectionToolWrapper> toolWrappers) {
+    final Element root = new Element(GlobalInspectionContextBase.PROBLEMS_TAG_NAME);
 
-    File file = new File(testDir + "/expected.xml");
+    for (InspectionToolWrapper toolWrapper : toolWrappers) {
+      InspectionToolPresentation presentation = context.getPresentation(toolWrapper);
+      presentation.updateContent();  //e.g. dead code need check for reachables
+      presentation.exportResults(p -> root.addContent(p), x -> false, x -> false);
+    }
+
     try {
-      Document expectedDocument = JDOMUtil.loadDocument(file);
-
-      compareWithExpected(expectedDocument, doc, checkRange);
+      File file = new File(testDir + "/expected.xml");
+      compareWithExpected(JDOMUtil.load(file), root, checkRange);
     }
     catch (Exception e) {
       throw new RuntimeException(e);
     }
   }
 
+  @TestOnly
   public static void runTool(@NotNull InspectionToolWrapper toolWrapper,
                              @NotNull final AnalysisScope scope,
                              @NotNull final GlobalInspectionContextForTests globalContext) {
     final String shortName = toolWrapper.getShortName();
     final HighlightDisplayKey key = HighlightDisplayKey.find(shortName);
     if (key == null){
-      HighlightDisplayKey.register(shortName);
+      HighlightDisplayKey.register(shortName, toolWrapper.getDisplayName(), toolWrapper.getID());
     }
 
     globalContext.doInspections(scope);
@@ -165,5 +163,30 @@ expected:
       UIUtil.dispatchAllInvocationEvents();
     }
     while (!globalContext.isFinished());
+  }
+
+  @NotNull
+  public static <T extends InspectionProfileEntry> List<InspectionProfileEntry> instantiateTools(@NotNull Collection<Class<? extends T>> inspections) {
+    Set<String> classNames = JBIterable.from(inspections).transform(Class::getName).toSet();
+    return instantiateTools(classNames);
+  }
+
+  public static <T extends InspectionProfileEntry> T instantiateTool(Class<? extends T> inspection) {
+    return (T)instantiateTools(Collections.singleton(inspection)).get(0);
+  }
+
+  @NotNull
+  public static List<InspectionProfileEntry> instantiateTools(Set<String> classNames) {
+    List<InspectionProfileEntry> tools = JBIterable.of(LocalInspectionEP.LOCAL_INSPECTION, InspectionEP.GLOBAL_INSPECTION)
+      .flatten((o) -> o.getExtensionList())
+      .filter((o) -> classNames.contains(o.implementationClass))
+      .transform(InspectionEP::instantiateTool)
+      .toList();
+    if (tools.size() != classNames.size()) {
+      Set<String> missing = new TreeSet<>(classNames);
+      missing.removeAll(JBIterable.from(tools).transform((o) -> o.getClass().getName()).toSet());
+      throw new RuntimeException("Unregistered inspections requested: " + missing);
+    }
+    return tools;
   }
 }

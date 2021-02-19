@@ -1,24 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.refactoring.extract.method;
 
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Splitter;
@@ -32,8 +17,9 @@ import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.ui.EditorTextField;
 import com.intellij.ui.IdeBorderFactory;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.ui.JBUI;
-import gnu.trove.TObjectHashingStrategy;
+import it.unimi.dsi.fastutil.Hash;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -44,8 +30,8 @@ import org.jetbrains.plugins.groovy.lang.psi.impl.utils.DuplicatesUtil;
 import org.jetbrains.plugins.groovy.refactoring.GroovyRefactoringBundle;
 import org.jetbrains.plugins.groovy.refactoring.GroovyRefactoringUtil;
 import org.jetbrains.plugins.groovy.refactoring.extract.ExtractUtil;
+import org.jetbrains.plugins.groovy.refactoring.extract.GrParameterTablePanel;
 import org.jetbrains.plugins.groovy.refactoring.extract.InitialInfo;
-import org.jetbrains.plugins.groovy.refactoring.extract.ParameterTablePanel;
 import org.jetbrains.plugins.groovy.refactoring.ui.GrMethodSignatureComponent;
 import org.jetbrains.plugins.groovy.refactoring.ui.GroovyComboboxVisibilityPanel;
 import org.jetbrains.plugins.groovy.settings.GroovyApplicationSettings;
@@ -76,7 +62,7 @@ public class GroovyExtractMethodDialog extends DialogWrapper {
   private ComboBoxVisibilityPanel<String> myVisibilityPanel;
   private Splitter mySplitter;
   private JCheckBox myForceReturnCheckBox;
-  private ParameterTablePanel myParameterTablePanel;
+  private GrParameterTablePanel myParameterTablePanel;
   private final Project myProject;
 
   public GroovyExtractMethodDialog(InitialInfo info, PsiClass owner) {
@@ -87,7 +73,7 @@ public class GroovyExtractMethodDialog extends DialogWrapper {
     myParameterTablePanel.init(myHelper);
 
     setModal(true);
-    setTitle(GroovyExtractMethodHandler.REFACTORING_NAME);
+    setTitle(GroovyExtractMethodHandler.getRefactoringName());
     init();
     setUpNameField();
     setUpDialog();
@@ -144,7 +130,7 @@ public class GroovyExtractMethodDialog extends DialogWrapper {
     myNameLabel.setLabelFor(myNameField);
 
     final PsiType type = myHelper.getOutputType();
-    if (type != PsiType.VOID) {
+    if (!PsiType.VOID.equals(type)) {
       myForceReturnCheckBox.setSelected(GroovyApplicationSettings.getInstance().FORCE_RETURN);
     }
     else {
@@ -157,11 +143,7 @@ public class GroovyExtractMethodDialog extends DialogWrapper {
     myNameLabel.setLabelFor(myNameField);
     myNameField.addDocumentListener(new DocumentListener() {
       @Override
-      public void beforeDocumentChange(DocumentEvent event) {
-      }
-
-      @Override
-      public void documentChanged(DocumentEvent event) {
+      public void documentChanged(@NotNull DocumentEvent event) {
         fireNameDataChanged();
       }
     });
@@ -213,14 +195,8 @@ public class GroovyExtractMethodDialog extends DialogWrapper {
   }
 
   @Override
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(HelpID.EXTRACT_METHOD);
-  }
-
-  @Override
-  @NotNull
-  protected Action[] createActions() {
-    return new Action[]{getOKAction(), getCancelAction(), getHelpAction()};
+  protected String getHelpId() {
+    return HelpID.EXTRACT_METHOD;
   }
 
   private void createUIComponents() {
@@ -247,7 +223,7 @@ public class GroovyExtractMethodDialog extends DialogWrapper {
       }
     });
 
-    myParameterTablePanel = new ParameterTablePanel() {
+    myParameterTablePanel = new GrParameterTablePanel() {
       @Override
       protected void updateSignature(){
         GroovyExtractMethodDialog.this.updateSignature();
@@ -266,18 +242,21 @@ public class GroovyExtractMethodDialog extends DialogWrapper {
   }
 
   private static boolean validateMethod(GrMethod method, ExtractMethodInfoHelper helper) {
-    ArrayList<String> conflicts = new ArrayList<String>();
+    ArrayList<String> conflicts = new ArrayList<>();
     PsiClass owner = helper.getOwner();
     PsiMethod[] methods = ArrayUtil.mergeArrays(owner.getAllMethods(), new PsiMethod[]{method}, PsiMethod.ARRAY_FACTORY);
-    final Map<PsiMethod, List<PsiMethod>> map = DuplicatesUtil.factorDuplicates(methods, new TObjectHashingStrategy<PsiMethod>() {
+    final Map<PsiMethod, List<PsiMethod>> map = DuplicatesUtil.factorDuplicates(methods, new Hash.Strategy<>() {
       @Override
-      public int computeHashCode(PsiMethod method) {
-        return method.getSignature(PsiSubstitutor.EMPTY).hashCode();
+      public int hashCode(@Nullable PsiMethod method) {
+        return method == null ? 0 : method.getSignature(PsiSubstitutor.EMPTY).hashCode();
       }
 
       @Override
-      public boolean equals(PsiMethod method1, PsiMethod method2) {
-        return method1.getSignature(PsiSubstitutor.EMPTY).equals(method2.getSignature(PsiSubstitutor.EMPTY));
+      public boolean equals(@Nullable PsiMethod method1, @Nullable PsiMethod method2) {
+        return method1 == method2 ||
+               (method1 != null &&
+                method2 != null &&
+                method1.getSignature(PsiSubstitutor.EMPTY).equals(method2.getSignature(PsiSubstitutor.EMPTY)));
       }
     });
 
@@ -300,7 +279,7 @@ public class GroovyExtractMethodDialog extends DialogWrapper {
   }
 
   private static boolean reportConflicts(final ArrayList<String> conflicts, final Project project) {
-    ConflictsDialog conflictsDialog = new ConflictsDialog(project, conflicts);
+    ConflictsDialog conflictsDialog = new ConflictsDialog(project, ArrayUtilRt.toStringArray(conflicts));
     return conflictsDialog.showAndGet();
   }
 
@@ -354,7 +333,7 @@ public class GroovyExtractMethodDialog extends DialogWrapper {
     ExtractMethodInfoHelper myHelper;
     String myEnteredName;
 
-    public MyExtractMethodSettings(GroovyExtractMethodDialog dialog) {
+    MyExtractMethodSettings(GroovyExtractMethodDialog dialog) {
       myHelper = dialog.getHelper();
       myEnteredName = dialog.getEnteredName();
     }

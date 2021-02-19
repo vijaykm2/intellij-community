@@ -21,12 +21,16 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.zmlx.hg4idea.HgBundle;
 import org.zmlx.hg4idea.command.HgRebaseCommand;
 import org.zmlx.hg4idea.execution.HgCommandResult;
 import org.zmlx.hg4idea.repo.HgRepository;
 import org.zmlx.hg4idea.util.HgErrorUtil;
+import org.zmlx.hg4idea.util.HgUtil;
 
 import java.util.Collection;
+
+import static org.zmlx.hg4idea.HgNotificationIdsHolder.REBASE_ABORT_ERROR;
 
 public class HgAbortRebaseAction extends HgProcessStateAction {
 
@@ -39,16 +43,19 @@ public class HgAbortRebaseAction extends HgProcessStateAction {
                          @NotNull Collection<HgRepository> repositories,
                          @Nullable final HgRepository selectedRepo) {
 
-    new Task.Backgroundable(project, "Abort Rebasing...") {
+    new Task.Backgroundable(project, HgBundle.message("action.hg4idea.Rebase.Abort.progress")) {
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
         if (selectedRepo != null) {
           HgRebaseCommand rebaseCommand = new HgRebaseCommand(project, selectedRepo);
           HgCommandResult result = rebaseCommand.abortRebase();
           if (HgErrorUtil.isAbort(result)) {
-            new HgCommandResultNotifier(project).notifyError(result, "Hg Error", "Couldn't abort rebasing");
+            new HgCommandResultNotifier(project).notifyError(REBASE_ABORT_ERROR,
+                                                             result,
+                                                             HgBundle.message("hg4idea.hg.error"),
+                                                             HgBundle.message("action.hg4idea.Rebase.Abort.error"));
           }
-          HgErrorUtil.markDirtyAndHandleErrors(project, selectedRepo.getRoot());
+          HgUtil.markDirectoryDirty(project, selectedRepo.getRoot());
         }
       }
     }.queue();

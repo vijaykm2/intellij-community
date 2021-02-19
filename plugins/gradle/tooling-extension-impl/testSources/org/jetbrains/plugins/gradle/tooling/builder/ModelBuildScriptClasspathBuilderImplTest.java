@@ -19,9 +19,10 @@ import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import org.gradle.tooling.model.DomainObjectSet;
 import org.gradle.tooling.model.idea.IdeaModule;
+import org.gradle.tooling.model.idea.IdeaProject;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.gradle.model.BuildScriptClasspathModel;
-import org.jetbrains.plugins.gradle.model.ClasspathEntryModel;
+import org.jetbrains.plugins.gradle.tooling.annotation.TargetVersions;
 import org.junit.Test;
 
 import java.io.File;
@@ -32,7 +33,6 @@ import static org.junit.Assert.*;
 
 /**
  * @author Vladislav.Soroka
- * @since 1/16/14
  */
 public class ModelBuildScriptClasspathBuilderImplTest extends AbstractModelBuilderTest {
 
@@ -41,22 +41,24 @@ public class ModelBuildScriptClasspathBuilderImplTest extends AbstractModelBuild
   }
 
   @Test
-  public void testModelBuildScriptClasspathBuilder() throws Exception {
+  @TargetVersions("2.0+")
+  public void testModelBuildScriptClasspathBuilder() {
 
-    DomainObjectSet<? extends IdeaModule> ideaModules = allModels.getIdeaProject().getModules();
+    DomainObjectSet<? extends IdeaModule> ideaModules = allModels.getModel(IdeaProject.class).getModules();
 
     List<BuildScriptClasspathModel> ideaModule =
       ContainerUtil.mapNotNull(ideaModules, new Function<IdeaModule, BuildScriptClasspathModel>() {
         @Override
         public BuildScriptClasspathModel fun(IdeaModule module) {
-          BuildScriptClasspathModel classpathModel = allModels.getExtraProject(module, BuildScriptClasspathModel.class);
+          BuildScriptClasspathModel classpathModel = allModels.getModel(module, BuildScriptClasspathModel.class);
 
           if (module.getName().equals("moduleWithAdditionalClasspath")) {
             assertNotNull(classpathModel);
             assertEquals(3, classpathModel.getClasspath().size());
 
             assertEquals("junit-4.11.jar", new File(classpathModel.getClasspath().getAt(0).getClasses().iterator().next()).getName());
-            assertEquals("hamcrest-core-1.3.jar", new File(classpathModel.getClasspath().getAt(1).getClasses().iterator().next()).getName());
+            assertEquals("hamcrest-core-1.3.jar",
+                         new File(classpathModel.getClasspath().getAt(1).getClasses().iterator().next()).getName());
             assertEquals("someDep.jar", new File(classpathModel.getClasspath().getAt(2).getClasses().iterator().next()).getName());
           }
           else if (module.getName().equals("baseModule") ||
@@ -88,7 +90,7 @@ public class ModelBuildScriptClasspathBuilderImplTest extends AbstractModelBuild
   }
 
   @Override
-  protected Set<Class> getModels() {
-    return ContainerUtil.<Class>set(BuildScriptClasspathModel.class);
+  protected Set<Class<?>> getModels() {
+    return ContainerUtil.<Class<?>>set(BuildScriptClasspathModel.class);
   }
 }

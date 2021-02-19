@@ -16,56 +16,14 @@
 package org.jetbrains.idea.maven.indices;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Pair;
-import org.apache.lucene.search.Query;
-import org.jetbrains.idea.maven.dom.MavenVersionComparable;
-import org.jetbrains.idea.maven.model.MavenArtifactInfo;
 
 import java.util.*;
 
 public abstract class MavenSearcher<RESULT_TYPE extends MavenArtifactSearchResult> {
 
   public List<RESULT_TYPE> search(Project project, String pattern, int maxResult) {
-    Pair<String, Query> patternAndQuery = preparePatternAndQuery(pattern);
-
-    MavenProjectIndicesManager m = MavenProjectIndicesManager.getInstance(project);
-    Set<MavenArtifactInfo> infos = m.search(patternAndQuery.second, maxResult);
-
-    List<RESULT_TYPE> result = new ArrayList<RESULT_TYPE>(processResults(infos, patternAndQuery.first, maxResult));
-    sort(result);
-    return result;
+    return searchImpl(project, pattern, maxResult);
   }
 
-  protected abstract Pair<String, Query> preparePatternAndQuery(String pattern);
-
-  protected abstract Collection<RESULT_TYPE> processResults(Set<MavenArtifactInfo> infos, String pattern, int maxResult);
-
-  private void sort(List<RESULT_TYPE> result) {
-    for (RESULT_TYPE each : result) {
-      if (each.versions.size() > 1) {
-        TreeMap<MavenVersionComparable, MavenArtifactInfo> tree = new TreeMap<MavenVersionComparable, MavenArtifactInfo>(Collections.reverseOrder());
-
-        for (MavenArtifactInfo artifactInfo : each.versions) {
-          tree.put(new MavenVersionComparable(artifactInfo.getVersion()), artifactInfo);
-        }
-
-        each.versions.clear();
-        each.versions.addAll(tree.values());
-      }
-    }
-
-    Collections.sort(result, new Comparator<RESULT_TYPE>() {
-      public int compare(RESULT_TYPE o1, RESULT_TYPE o2) {
-        return makeSortKey(o1).compareTo(makeSortKey(o2));
-      }
-    });
-  }
-
-  protected String makeSortKey(RESULT_TYPE result) {
-    return makeKey(result.versions.get(0));
-  }
-
-  protected String makeKey(MavenArtifactInfo result) {
-    return result.getGroupId() + ":" + result.getArtifactId();
-  }
+  protected abstract List<RESULT_TYPE> searchImpl(Project project, String pattern, int maxResult);
 }

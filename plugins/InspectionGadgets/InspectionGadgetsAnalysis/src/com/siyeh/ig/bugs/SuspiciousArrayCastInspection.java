@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,23 +17,16 @@ package com.siyeh.ig.bugs;
 
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Bas Leijdekkers
  */
 public class SuspiciousArrayCastInspection extends BaseInspection {
-
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("suspicious.array.cast.display.name");
-  }
 
   @NotNull
   @Override
@@ -67,21 +60,11 @@ public class SuspiciousArrayCastInspection extends BaseInspection {
       if (!(type instanceof PsiArrayType)) {
         return;
       }
-      final PsiType castComponentType = castType.getDeepComponentType();
-      if (!(castComponentType instanceof PsiClassType)) {
-        return;
-      }
-      final PsiClassType castClassType = (PsiClassType)castComponentType;
-      final PsiClass castClass = castClassType.resolve();
+      final PsiClass castClass = PsiUtil.resolveClassInClassTypeOnly(castType.getDeepComponentType());
       if (castClass == null) {
         return;
       }
-      final PsiType componentType = type.getDeepComponentType();
-      if (!(componentType instanceof PsiClassType)) {
-        return;
-      }
-      final PsiClassType classType = (PsiClassType)componentType;
-      final PsiClass aClass = classType.resolve();
+      final PsiClass aClass = PsiUtil.resolveClassInClassTypeOnly(type.getDeepComponentType());
       if (aClass == null || !castClass.isInheritor(aClass, true) || isCollectionToArrayCall(operand)) {
         return;
       }
@@ -94,7 +77,7 @@ public class SuspiciousArrayCastInspection extends BaseInspection {
       }
       final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)expression;
       final PsiExpressionList argumentList = methodCallExpression.getArgumentList();
-      if (argumentList.getExpressions().length != 1) {
+      if (argumentList.getExpressionCount() != 1) {
         return false;
       }
       final PsiReferenceExpression methodExpression = methodCallExpression.getMethodExpression();
@@ -106,7 +89,7 @@ public class SuspiciousArrayCastInspection extends BaseInspection {
         return false;
       }
       final PsiClass containingClass = method.getContainingClass();
-      return !(containingClass == null || !InheritanceUtil.isInheritor(containingClass, CommonClassNames.JAVA_UTIL_COLLECTION));
+      return InheritanceUtil.isInheritor(containingClass, CommonClassNames.JAVA_UTIL_COLLECTION);
     }
   }
 }

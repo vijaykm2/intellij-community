@@ -15,6 +15,7 @@
  */
 package com.intellij.vcs.log;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 
@@ -35,6 +36,7 @@ public interface VcsRef {
    * Returns the display name of the reference.
    */
   @NotNull
+  @NlsSafe
   String getName();
 
   /**
@@ -48,5 +50,4 @@ public interface VcsRef {
    */
   @NotNull
   VirtualFile getRoot();
-
 }

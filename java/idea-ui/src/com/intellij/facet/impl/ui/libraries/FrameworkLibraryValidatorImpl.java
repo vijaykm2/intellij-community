@@ -20,23 +20,19 @@ import com.intellij.facet.ui.FacetValidatorsManager;
 import com.intellij.facet.ui.ValidationResult;
 import com.intellij.facet.ui.libraries.FrameworkLibraryValidator;
 import com.intellij.ide.IdeBundle;
-import com.intellij.openapi.roots.libraries.Library;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.openapi.roots.libraries.LibraryKind;
 import com.intellij.openapi.roots.ui.configuration.libraries.AddCustomLibraryDialog;
 import com.intellij.openapi.roots.ui.configuration.libraries.CustomLibraryDescription;
 import com.intellij.openapi.roots.ui.configuration.libraries.LibraryPresentationManager;
 import com.intellij.openapi.util.Ref;
-import com.intellij.util.Processor;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.util.Set;
 
-/**
- * @author nik
- */
 public class FrameworkLibraryValidatorImpl extends FrameworkLibraryValidator {
-  private CustomLibraryDescription myLibraryDescription;
+  private final CustomLibraryDescription myLibraryDescription;
   private final LibrariesValidatorContext myContext;
   private final FacetValidatorsManager myValidatorsManager;
   private final String myLibraryCategoryName;
@@ -56,29 +52,27 @@ public class FrameworkLibraryValidatorImpl extends FrameworkLibraryValidator {
   public ValidationResult check() {
     final Set<? extends LibraryKind> libraryKinds = myLibraryDescription.getSuitableLibraryKinds();
     final Ref<Boolean> found = Ref.create(false);
-    myContext.getRootModel().orderEntries().using(myContext.getModulesProvider()).recursively().librariesOnly().forEachLibrary(new Processor<Library>() {
-      @Override
-      public boolean process(Library library) {
-        if (LibraryPresentationManager.getInstance().isLibraryOfKind(library, myContext.getLibrariesContainer(), libraryKinds)) {
-          found.set(true);
-          return false;
-        }
-        return true;
+    myContext.getRootModel().orderEntries().using(myContext.getModulesProvider()).recursively().librariesOnly().forEachLibrary(library -> {
+      if (LibraryPresentationManager.getInstance().isLibraryOfKind(library, myContext.getLibrariesContainer(), libraryKinds)) {
+        found.set(true);
+        return false;
       }
+      return true;
     });
     if (found.get()) return ValidationResult.OK;
 
-    return new ValidationResult(IdeBundle.message("label.missed.libraries.text", myLibraryCategoryName), new LibrariesQuickFix(myLibraryDescription));
+    return new ValidationResult(JavaUiBundle.message("label.missed.libraries.text", myLibraryCategoryName), new LibrariesQuickFix(myLibraryDescription));
   }
 
   private class LibrariesQuickFix extends FacetConfigurationQuickFix {
-    private CustomLibraryDescription myDescription;
+    private final CustomLibraryDescription myDescription;
 
-    public LibrariesQuickFix(CustomLibraryDescription description) {
+    LibrariesQuickFix(CustomLibraryDescription description) {
       super(IdeBundle.message("button.fix"));
       myDescription = description;
     }
 
+    @Override
     public void run(final JComponent place) {
       AddCustomLibraryDialog dialog = AddCustomLibraryDialog.createDialog(myDescription, myContext.getLibrariesContainer(),
                                                                           myContext.getModule(), myContext.getModifiableRootModel(), null);

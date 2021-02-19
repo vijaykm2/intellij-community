@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger;
 
 import com.intellij.openapi.util.text.StringUtil;
@@ -7,34 +8,40 @@ import java.util.Map;
 
 
 // todo: extensive types support
-public class PyTypeHandler {
+public final class PyTypeHandler {
 
   private interface Formatter {
     String format(String value);
   }
 
   private static final Formatter DEFAULT_FORMATTER = new Formatter() {
+    @Override
     public String format(final String value) {
       return value;
     }
   };
 
   private static final Formatter STR_FORMATTER = new Formatter() {
+    @Override
     public String format(final String value) {
-      return new StringBuilder(value.length() + 2).append('\'').append(StringUtil.replace(value, "'", "\\'").replace("\\", "\\\\")).append(
-        '\'').toString();
+      return "'" +
+             StringUtil.replace(value, "\\", "\\\\").replace("'", "\\'") +
+             '\'';
     }
   };
 
   private static final Formatter UNI_FORMATTER = new Formatter() {
+    @Override
     public String format(final String value) {
-      return new StringBuilder(value.length() + 3).append("u'").append(StringUtil.replace(value, "'", "\\'").replace("\\", "\\\\")).append('\'').toString();
+      return "u'" +
+             StringUtil.replace(value, "\\", "\\\\").replace("'", "\\'") +
+             '\'';
     }
   };
 
   private static final Map<String, Formatter> FORMATTERS;
   static {
-    FORMATTERS = new HashMap<String, Formatter>();
+    FORMATTERS = new HashMap<>();
     FORMATTERS.put("str", STR_FORMATTER);
     FORMATTERS.put("unicode", UNI_FORMATTER);
     //numpy types

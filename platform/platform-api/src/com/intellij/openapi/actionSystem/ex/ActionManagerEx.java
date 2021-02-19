@@ -1,45 +1,37 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.actionSystem.ex;
 
-
 import com.intellij.ide.DataManager;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.editor.actionSystem.EditorAction;
+import com.intellij.openapi.editor.actionSystem.EditorActionHandlerBean;
 import com.intellij.openapi.extensions.PluginId;
+import com.intellij.util.TriConsumer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.event.InputEvent;
 import java.util.Comparator;
-
+import java.util.List;
 
 public abstract class ActionManagerEx extends ActionManager {
   public static ActionManagerEx getInstanceEx() {
     return (ActionManagerEx)getInstance();
   }
 
-  public abstract ActionToolbar createActionToolbar(String place, @NotNull ActionGroup group, boolean horizontal, boolean decorateButtons);
+  @NotNull
+  public abstract ActionToolbar createActionToolbar(@NotNull String place, @NotNull ActionGroup group, boolean horizontal, boolean decorateButtons);
 
-  public abstract void fireBeforeActionPerformed(AnAction action, DataContext dataContext, AnActionEvent event);
+  public abstract void fireBeforeActionPerformed(@NotNull AnAction action, @NotNull DataContext dataContext, @NotNull AnActionEvent event);
 
-  public abstract void fireAfterActionPerformed(AnAction action, DataContext dataContext, AnActionEvent event);
+  public abstract void fireAfterActionPerformed(@NotNull AnAction action, @NotNull DataContext dataContext, @NotNull AnActionEvent event);
 
 
-  public abstract void fireBeforeEditorTyping(char c, DataContext dataContext);
+  public abstract void fireBeforeEditorTyping(char c, @NotNull DataContext dataContext);
+
+  public abstract void fireAfterEditorTyping(char c, @NotNull DataContext dataContext);
 
   /**
    * For logging purposes
@@ -49,17 +41,14 @@ public abstract class ActionManagerEx extends ActionManager {
 
   public abstract String getPrevPreformedActionId();
 
-
   /**
    * Comparator compares action ids (String) on order of action registration.
    *
-   * @return a negative integer if action that corresponds to the first id was registered earler than the action that corresponds
-   *         <p/>
-   *         to the second id; zero if both ids are equal; a positive number otherwise.
+   * @return a negative integer if action that corresponds to the first id was registered earlier than the action that corresponds
+   *  to the second id; zero if both ids are equal; a positive number otherwise.
    */
-
+  @NotNull
   public abstract Comparator<String> getRegistrationOrderComparator();
-
 
   /**
    * Similar to {@link KeyStroke#getKeyStroke(String)} but allows keys in lower case.
@@ -69,7 +58,7 @@ public abstract class ActionManagerEx extends ActionManager {
    * @return null if string cannot be parsed.
    */
   @Nullable
-  public static KeyStroke getKeyStroke(String s) {
+  public static KeyStroke getKeyStroke(@NotNull String s) {
     KeyStroke result = null;
     try {
       result = KeyStroke.getKeyStroke(s);
@@ -77,7 +66,7 @@ public abstract class ActionManagerEx extends ActionManager {
     catch (Exception ex) {
       //ok
     }
-    if (result == null && s != null && s.length() >= 2 && s.charAt(s.length() - 2) == ' ') {
+    if (result == null && s.length() >= 2 && s.charAt(s.length() - 2) == ' ') {
       try {
         String s1 = s.substring(0, s.length() - 1) + Character.toUpperCase(s.charAt(s.length() - 1));
         result = KeyStroke.getKeyStroke(s1);
@@ -89,22 +78,39 @@ public abstract class ActionManagerEx extends ActionManager {
   }
 
 
-  @NotNull
-  public abstract String[] getPluginActions(PluginId pluginId);
+  public abstract String @NotNull [] getPluginActions(@NotNull PluginId pluginId);
 
-  public abstract void queueActionPerformedEvent(final AnAction action, DataContext context, AnActionEvent event);
+  public abstract void queueActionPerformedEvent(@NotNull AnAction action, @NotNull DataContext context, @NotNull AnActionEvent event);
 
   public abstract boolean isActionPopupStackEmpty();
 
-  public abstract boolean isTransparentOnlyActionsUpdateNow();
-
-  public void fireBeforeActionPerformed(String actionId, InputEvent event) {
-    final AnAction action = getAction(actionId);
-    if (action != null) {
-      final DataContext context = DataManager.getInstance().getDataContext();
-      final AnActionEvent e = new AnActionEvent(event, context, ActionPlaces.UNKNOWN, action.getTemplatePresentation(), this, 0);
-      fireBeforeActionPerformed(action, context, e);
-    }
+  public void fireBeforeActionPerformed(@NotNull String actionId, @NotNull InputEvent event, @NotNull String place) {
+    fireActionPerformed(actionId, event, place, this::fireBeforeActionPerformed);
   }
+
+  public void fireAfterActionPerformed(@NotNull String actionId, @NotNull InputEvent event, @NotNull String place) {
+    fireActionPerformed(actionId, event, place, this::fireAfterActionPerformed);
+  }
+
+  private void fireActionPerformed(@NotNull String actionId,
+                                   @NotNull InputEvent event,
+                                   @NotNull String place,
+                                   TriConsumer<? super AnAction, ? super DataContext, ? super AnActionEvent> firingFunction) {
+    DataManager.getInstance().getDataContextFromFocusAsync().onSuccess(dataContext -> {
+      final AnAction action = getAction(actionId);
+      if (action != null) {
+        AnActionEvent e = AnActionEvent.createFromAnAction(action, event, place, dataContext);
+        firingFunction.accept(action, dataContext, e);
+      }
+    });
+  }
+
+  /**
+   * Allows to receive notifications when popup menus created from action groups are shown and hidden.
+   */
+  @SuppressWarnings("unused")  // used in Rider
+  public abstract void addActionPopupMenuListener(@NotNull ActionPopupMenuListener listener, @NotNull Disposable parentDisposable);
+
+  public abstract @NotNull List<EditorActionHandlerBean> getRegisteredHandlers(@NotNull EditorAction editorAction);
 }
 

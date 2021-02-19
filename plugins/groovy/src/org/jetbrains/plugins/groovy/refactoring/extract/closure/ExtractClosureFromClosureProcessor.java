@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,9 +47,9 @@ public class ExtractClosureFromClosureProcessor extends ExtractClosureProcessorB
   }
 
   @Override
-  protected boolean preprocessUsages(Ref<UsageInfo[]> refUsages) {
+  protected boolean preprocessUsages(@NotNull Ref<UsageInfo[]> refUsages) {
     UsageInfo[] usagesIn = refUsages.get();
-    MultiMap<PsiElement, String> conflicts = new MultiMap<PsiElement, String>();
+    MultiMap<PsiElement, String> conflicts = new MultiMap<>();
 
     if (!myHelper.generateDelegate()) {
       for (GrStatement statement : myHelper.getStatements()) {
@@ -64,7 +64,7 @@ public class ExtractClosureFromClosureProcessor extends ExtractClosureProcessorB
 
 
   @Override
-  protected void performRefactoring(UsageInfo[] usages) {
+  protected void performRefactoring(UsageInfo @NotNull [] usages) {
     GrIntroduceClosureParameterProcessor.processExternalUsages(usages, myHelper, generateClosure(myHelper));
     GrIntroduceClosureParameterProcessor.processClosure(usages, myHelper);
 
@@ -72,12 +72,11 @@ public class ExtractClosureFromClosureProcessor extends ExtractClosureProcessorB
     ExtractUtil.replaceStatement(declarationOwner, myHelper);
   }
 
-  @NotNull
   @Override
-  protected UsageInfo[] findUsages() {
+  protected UsageInfo @NotNull [] findUsages() {
     final GrVariable var = (GrVariable)myHelper.getToSearchFor();
     if (var != null) {
-      final List<UsageInfo> result = new ArrayList<UsageInfo>();
+      final List<UsageInfo> result = new ArrayList<>();
       for (PsiReference ref : ReferencesSearch.search(var)) {
         final PsiElement element = ref.getElement();
         if (element.getLanguage() != GroovyLanguage.INSTANCE) {
@@ -90,7 +89,7 @@ public class ExtractClosureFromClosureProcessor extends ExtractClosureProcessorB
 
         result.add(new ExternalUsageInfo(element));
       }
-      return result.toArray(new UsageInfo[result.size()]);
+      return result.toArray(UsageInfo.EMPTY_ARRAY);
     }
     return UsageInfo.EMPTY_ARRAY;
   }

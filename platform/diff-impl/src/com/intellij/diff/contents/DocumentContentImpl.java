@@ -16,8 +16,8 @@
 package com.intellij.diff.contents;
 
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.fileTypes.FileType;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.LineSeparator;
 import org.jetbrains.annotations.NotNull;
@@ -28,35 +28,37 @@ import java.nio.charset.Charset;
 /**
  * Allows to compare some text associated with document.
  */
-public class DocumentContentImpl implements DiffContent, DocumentContent {
-  @NotNull private final Document myDocument;
-
+public class DocumentContentImpl extends DocumentContentBase {
   @Nullable private final FileType myType;
   @Nullable private final VirtualFile myHighlightFile;
 
   @Nullable private final LineSeparator mySeparator;
   @Nullable private final Charset myCharset;
+  @Nullable private final Boolean myBOM;
 
   public DocumentContentImpl(@NotNull Document document) {
-    this(document, null, null, null, null);
+    this(null, document, null);
   }
 
-  public DocumentContentImpl(@NotNull Document document,
+  public DocumentContentImpl(@Nullable Project project,
+                             @NotNull Document document,
+                             @Nullable FileType type) {
+    this(project, document, type, null, null, null, null);
+  }
+
+  public DocumentContentImpl(@Nullable Project project,
+                             @NotNull Document document,
                              @Nullable FileType type,
                              @Nullable VirtualFile highlightFile,
                              @Nullable LineSeparator separator,
-                             @Nullable Charset charset) {
-    myDocument = document;
+                             @Nullable Charset charset,
+                             @Nullable Boolean bom) {
+    super(project, document);
     myType = type;
     myHighlightFile = highlightFile;
     mySeparator = separator;
     myCharset = charset;
-  }
-
-  @NotNull
-  @Override
-  public Document getDocument() {
-    return myDocument;
+    myBOM = bom;
   }
 
   @Nullable
@@ -67,20 +69,14 @@ public class DocumentContentImpl implements DiffContent, DocumentContent {
 
   @Nullable
   @Override
-  public OpenFileDescriptor getOpenFileDescriptor(int offset) {
-    return null;
-  }
-
-  @Nullable
-  @Override
-  public OpenFileDescriptor getOpenFileDescriptor() {
-    return getOpenFileDescriptor(0);
-  }
-
-  @Nullable
-  @Override
   public LineSeparator getLineSeparator() {
     return mySeparator;
+  }
+
+  @Override
+  @Nullable
+  public Boolean hasBom() {
+    return myBOM;
   }
 
   @Nullable
@@ -93,9 +89,5 @@ public class DocumentContentImpl implements DiffContent, DocumentContent {
   @Override
   public Charset getCharset() {
     return myCharset;
-  }
-
-  @Override
-  public void onAssigned(boolean isAssigned) {
   }
 }

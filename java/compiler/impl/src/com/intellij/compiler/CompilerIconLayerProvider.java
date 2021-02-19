@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,8 @@
  */
 package com.intellij.compiler;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.ide.IconLayerProvider;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.FileIndexFacade;
@@ -53,9 +53,10 @@ public class CompilerIconLayerProvider implements IconLayerProvider {
     return null;
   }
 
+  @NotNull
   @Override
   public String getLayerDescription() {
-    return CodeInsightBundle.message("node.excluded.flag.tooltip");
+    return JavaCompilerBundle.message("node.excluded.flag.tooltip");
   }
 
   public static boolean isExcluded(final VirtualFile vFile, final Project project) {

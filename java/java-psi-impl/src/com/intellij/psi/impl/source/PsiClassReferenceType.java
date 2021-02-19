@@ -1,87 +1,119 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source;
 
-import com.intellij.openapi.util.Comparing;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
+import com.intellij.psi.augment.PsiAugmentProvider;
 import com.intellij.psi.impl.light.LightClassReference;
+import com.intellij.psi.impl.light.LightClassTypeReference;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.SmartList;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 
-/**
- * @author max
- */
+import static com.intellij.util.ObjectUtils.notNull;
+
 public class PsiClassReferenceType extends PsiClassType.Stub {
-  @NotNull
-  private final PsiJavaCodeReferenceElement myReference;
+  private final ClassReferencePointer myReference;
 
   public PsiClassReferenceType(@NotNull PsiJavaCodeReferenceElement reference, LanguageLevel level) {
     this(reference, level, collectAnnotations(reference));
   }
 
-  public PsiClassReferenceType(@NotNull PsiJavaCodeReferenceElement reference, LanguageLevel level, @NotNull PsiAnnotation[] annotations) {
+  public PsiClassReferenceType(@NotNull PsiJavaCodeReferenceElement reference, LanguageLevel level, PsiAnnotation @NotNull [] annotations) {
     super(level, annotations);
+    myReference = ClassReferencePointer.constant(reference);
+  }
+
+  public PsiClassReferenceType(@NotNull PsiJavaCodeReferenceElement reference, LanguageLevel level, @NotNull TypeAnnotationProvider provider) {
+    this(ClassReferencePointer.constant(reference), level, provider);
+  }
+
+  PsiClassReferenceType(@NotNull ClassReferencePointer reference, LanguageLevel level, @NotNull TypeAnnotationProvider provider) {
+    super(level, provider);
     myReference = reference;
   }
 
-  private static PsiAnnotation[] collectAnnotations(PsiJavaCodeReferenceElement reference) {
+  private static PsiAnnotation @NotNull [] collectAnnotations(PsiJavaCodeReferenceElement reference) {
     List<PsiAnnotation> result = null;
     for (PsiElement child = reference.getFirstChild(); child != null; child = child.getNextSibling()) {
       if (child instanceof PsiAnnotation) {
-        if (result == null) result = new SmartList<PsiAnnotation>();
+        if (result == null) result = new SmartList<>();
         result.add((PsiAnnotation)child);
       }
     }
-    return result == null ? PsiAnnotation.EMPTY_ARRAY : result.toArray(new PsiAnnotation[result.size()]);
+    return result == null ? PsiAnnotation.EMPTY_ARRAY : result.toArray(PsiAnnotation.EMPTY_ARRAY);
   }
 
   @Override
   public boolean isValid() {
-    return myReference.isValid();
+    PsiJavaCodeReferenceElement reference = myReference.retrieveReference();
+    if (reference != null && reference.isValid()) {
+      for (PsiAnnotation annotation : getAnnotations(false)) {
+        if (!annotation.isValid()) return false;
+      }
+      return true;
+    }
+    return false;
   }
 
   @Override
   public boolean equalsToText(@NotNull String text) {
-    return Comparing.equal(text, getCanonicalText());
+    PsiJavaCodeReferenceElement reference = getReference();
+    String name = reference.getReferenceName();
+    return (name == null || text.contains(name)) && Objects.equals(text, getCanonicalText());
   }
 
   @Override
-  @NotNull
-  public GlobalSearchScope getResolveScope() {
-    return myReference.getResolveScope();
+  public @NotNull GlobalSearchScope getResolveScope() {
+    return getReference().getResolveScope();
   }
 
   @Override
-  @NotNull
-  public LanguageLevel getLanguageLevel() {
+  public PsiAnnotation @NotNull [] getAnnotations() {
+    return getAnnotations(true);
+  }
+
+  private PsiAnnotation[] getAnnotations(boolean merge) {
+    PsiAnnotation[] annotations = super.getAnnotations();
+
+    if (merge) {
+      PsiJavaCodeReferenceElement reference = myReference.retrieveReference();
+      if (reference != null && reference.isValid() && reference.isQualified()) {
+        PsiAnnotation[] embedded = collectAnnotations(reference);
+        if (annotations.length > 0 && embedded.length > 0) {
+          LinkedHashSet<PsiAnnotation> set = new LinkedHashSet<>();
+          ContainerUtil.addAll(set, annotations);
+          ContainerUtil.addAll(set, embedded);
+          annotations = set.toArray(PsiAnnotation.EMPTY_ARRAY);
+        }
+        else {
+          annotations = ArrayUtil.mergeArrays(annotations, embedded);
+        }
+      }
+    }
+
+    return annotations;
+  }
+
+  @Override
+  public @NotNull LanguageLevel getLanguageLevel() {
     if (myLanguageLevel != null) return myLanguageLevel;
-    return PsiUtil.getLanguageLevel(myReference);
+    return PsiUtil.getLanguageLevel(getReference());
   }
 
-  @NotNull
   @Override
-  public PsiClassType setLanguageLevel(@NotNull final LanguageLevel languageLevel) {
+  public @NotNull PsiClassType setLanguageLevel(final @NotNull LanguageLevel languageLevel) {
     if (languageLevel.equals(myLanguageLevel)) return this;
-    return new PsiClassReferenceType(myReference, languageLevel, getAnnotations());
+    return new PsiClassReferenceType(getReference(), languageLevel, getAnnotationProvider());
   }
 
   @Override
@@ -89,16 +121,15 @@ public class PsiClassReferenceType extends PsiClassType.Stub {
     return resolveGenerics().getElement();
   }
 
-  private static class DelegatingClassResolveResult implements PsiClassType.ClassResolveResult {
+  private static final class DelegatingClassResolveResult implements PsiClassType.ClassResolveResult {
     private final JavaResolveResult myDelegate;
 
     private DelegatingClassResolveResult(@NotNull JavaResolveResult delegate) {
       myDelegate = delegate;
     }
 
-    @NotNull
     @Override
-    public PsiSubstitutor getSubstitutor() {
+    public @NotNull PsiSubstitutor getSubstitutor() {
       return myDelegate.getSubstitutor();
     }
 
@@ -135,87 +166,89 @@ public class PsiClassReferenceType extends PsiClassType.Stub {
   }
 
   @Override
-  @NotNull
-  public ClassResolveResult resolveGenerics() {
-    PsiUtilCore.ensureValid(myReference);
-    final JavaResolveResult result = myReference.advancedResolve(false);
+  public @NotNull ClassResolveResult resolveGenerics() {
+    PsiJavaCodeReferenceElement reference = getReference();
+    if (!reference.isValid()) {
+      if (reference instanceof LightClassTypeReference) {
+        PsiUtil.ensureValidType(((LightClassTypeReference)reference).getType());
+      }
+      throw new PsiInvalidElementAccessException(reference, myReference.toString() + "; augmenters=" + PsiAugmentProvider.EP_NAME.getExtensionList());
+    }
+    final JavaResolveResult result = reference.advancedResolve(false);
     return result.getElement() == null ? ClassResolveResult.EMPTY : new DelegatingClassResolveResult(result);
   }
 
   @Override
-  @NotNull
-  public PsiClassType rawType() {
-    PsiElement resolved = myReference.resolve();
+  public @NotNull PsiClassType rawType() {
+    PsiJavaCodeReferenceElement reference = getReference();
+    PsiElement resolved = reference.resolve();
     if (resolved instanceof PsiClass) {
       PsiClass aClass = (PsiClass)resolved;
       if (!PsiUtil.typeParametersIterable(aClass).iterator().hasNext()) return this;
-      PsiManager manager = myReference.getManager();
-      final PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+      PsiManager manager = reference.getManager();
+      final PsiElementFactory factory = JavaPsiFacade.getElementFactory(manager.getProject());
       final PsiSubstitutor rawSubstitutor = factory.createRawSubstitutor(aClass);
-      return factory.createType(aClass, rawSubstitutor, getLanguageLevel(), getAnnotations());
+      return new PsiImmediateClassType(aClass, rawSubstitutor, getLanguageLevel(), getAnnotationProvider());
     }
-    String qualifiedName = myReference.getQualifiedName();
-    String name = myReference.getReferenceName();
+    String qualifiedName = reference.getQualifiedName();
+    String name = reference.getReferenceName();
     if (name == null) name = "";
-    LightClassReference reference = new LightClassReference(myReference.getManager(), name, qualifiedName, myReference.getResolveScope());
-    return new PsiClassReferenceType(reference, null, getAnnotations());
+    LightClassReference lightReference = new LightClassReference(reference.getManager(), name, qualifiedName, reference.getResolveScope());
+    return new PsiClassReferenceType(lightReference, null, getAnnotationProvider());
   }
 
   @Override
   public String getClassName() {
-    return myReference.getReferenceName();
+    return getReference().getReferenceName();
   }
 
   @Override
-  @NotNull
-  public PsiType[] getParameters() {
-    return myReference.getTypeParameters();
+  public PsiType @NotNull [] getParameters() {
+    return getReference().getTypeParameters();
   }
 
-  @NotNull
-  public PsiClassType createImmediateCopy() {
-    ClassResolveResult resolveResult = resolveGenerics();
-    PsiClass element = resolveResult.getElement();
-    return element == null ? this : new PsiImmediateClassType(element, resolveResult.getSubstitutor());
-  }
-
-  @NotNull
   @Override
-  public String getPresentableText() {
-    String presentableText = PsiNameHelper.getPresentableText(myReference);
-    PsiAnnotation[] annotations = getAnnotations();
-    if (annotations.length == 0) return presentableText;
+  public @NotNull String getPresentableText(boolean annotated) {
+    PsiJavaCodeReferenceElement ref = getReference();
+    if (!annotated) return PsiNameHelper.getPresentableText(ref);
+    PsiAnnotation[] annotations;
+    if (ref.getQualifier() != null) {
+      // like java.lang.@Anno String
+      annotations = notNull(PsiTreeUtil.getChildrenOfType(ref, PsiAnnotation.class), PsiAnnotation.EMPTY_ARRAY);
+    }
+    else {
+      annotations = getAnnotations(false);
+    }
 
-    StringBuilder sb = new StringBuilder();
-    PsiNameHelper.appendAnnotations(sb, annotations, false);
-    sb.append(presentableText);
-    return sb.toString();
+    return PsiNameHelper.getPresentableText(ref.getReferenceName(), annotations, ref.getTypeParameters());
   }
 
-  @NotNull
   @Override
-  public String getCanonicalText(boolean annotated) {
+  public @NotNull String getCanonicalText(boolean annotated) {
     return getText(annotated);
   }
 
-  @NotNull
   @Override
-  public String getInternalCanonicalText() {
-    return getText(true);
+  public @NotNull String getInternalCanonicalText() {
+    return getCanonicalText(true);
   }
 
   private String getText(boolean annotated) {
-    if (myReference instanceof PsiJavaCodeReferenceElementImpl) {
-      PsiAnnotation[] annotations = getAnnotations();
-      if (!annotated || annotations.length == 0) annotations = null;
-      PsiJavaCodeReferenceElementImpl impl = (PsiJavaCodeReferenceElementImpl)myReference;
-      return impl.getCanonicalText(annotated, annotations, impl.getContainingFile());
+    PsiJavaCodeReferenceElement reference = getReference();
+    if (reference instanceof PsiAnnotatedJavaCodeReferenceElement) {
+      PsiAnnotatedJavaCodeReferenceElement ref = (PsiAnnotatedJavaCodeReferenceElement)reference;
+      PsiAnnotation[] annotations = annotated ? getAnnotations(false) : PsiAnnotation.EMPTY_ARRAY;
+      return ref.getCanonicalText(annotated, annotations.length == 0 ? null : annotations);
     }
-    return myReference.getCanonicalText();
+    return reference.getCanonicalText();
   }
 
-  @NotNull
-  public PsiJavaCodeReferenceElement getReference() {
-    return myReference;
+  public @NotNull PsiJavaCodeReferenceElement getReference() {
+    return myReference.retrieveNonNullReference();
+  }
+
+  @Override
+  public @Nullable PsiElement getPsiContext() {
+    return myReference.retrieveReference();
   }
 }

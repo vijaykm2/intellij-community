@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package com.intellij.util.xml;
 
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
@@ -30,7 +29,7 @@ import java.util.List;
  */
 public class DomNamespacesTest extends DomTestCase {
 
-  public void testUseExistingNamespace() throws Throwable {
+  public void testUseExistingNamespace() {
     final MyElement element = createElement("<a xmlns=\"foo\" xmlns:bar=\"bar\"/>", MyElement.class);
     registerNamespacePolicies(element);
 
@@ -45,7 +44,7 @@ public class DomNamespacesTest extends DomTestCase {
     assertEquals("bar", barChildTag.getNamespacePrefix());
   }
 
-  public void testDefineNewNamespace() throws Throwable {
+  public void testDefineNewNamespace() {
     final MyElement element = createElement("<a/>", MyElement.class);
     registerNamespacePolicies(element);
 
@@ -62,7 +61,7 @@ public class DomNamespacesTest extends DomTestCase {
     assertEquals("bar", barChildTag.getAttributeValue("xmlns"));
   }
 
-  public void testCollectionChildNamespace() throws Throwable {
+  public void testCollectionChildNamespace() {
     final MyElement element = createElement("<a xmlns:foo=\"foo\"/>", MyElement.class);
     registerNamespacePolicies(element);
 
@@ -73,7 +72,7 @@ public class DomNamespacesTest extends DomTestCase {
     assertNull(fooChildTag.getAttributeValue("xmlns"));
   }
 
-  public void testNoNamespaceForFixedChild() throws Throwable {
+  public void testNoNamespaceForFixedChild() {
     final MyElement element = createElement("<a xmlns:foo=\"foo\"/>", MyElement.class);
     registerNamespacePolicies(element);
 
@@ -84,7 +83,7 @@ public class DomNamespacesTest extends DomTestCase {
     assertNull(childTag.getAttributeValue("xmlns"));
   }
 
-  public void testNoNamespaceForCollectionChild() throws Throwable {
+  public void testNoNamespaceForCollectionChild() {
     final MyElement element = createElement("<a xmlns:foo=\"foo\"/>", MyElement.class);
     registerNamespacePolicies(element);
 
@@ -95,7 +94,7 @@ public class DomNamespacesTest extends DomTestCase {
     assertNull(childTag.getAttributeValue("xmlns"));
   }
 
-  public void testNamespaceEqualToParent() throws Throwable {
+  public void testNamespaceEqualToParent() {
     final MyElement element = createElement("<a xmlns=\"foo\"/>", MyElement.class);
     registerNamespacePolicies(element);
 
@@ -106,7 +105,7 @@ public class DomNamespacesTest extends DomTestCase {
     assertNull(childTag.getAttributeValue("xmlns"));
   }
 
-  public void testNamespaceEqualToParent2() throws Throwable {
+  public void testNamespaceEqualToParent2() {
     final MyElement root = createElement("<a xmlns=\"foo\"/>", MyElement.class);
     registerNamespacePolicies(root);
     final MyFooElement element = root.addFooElement();
@@ -122,28 +121,22 @@ public class DomNamespacesTest extends DomTestCase {
     assertNull(child.getXmlElementNamespaceKey());
   }
 
-  public void testHardcodedNamespacePrefix() throws Throwable {
+  public void testHardcodedNamespacePrefix() {
     final XmlFile xmlFile = createXmlFile("<a xmlns:sys=\"\"/>");
     final MyElement element = getDomManager().getFileElement(xmlFile, MyElement.class, "a").getRootElement();
     final MyElement hardcodedElement = element.getHardcodedElement();
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(Result result) throws Throwable {
-        hardcodedElement.ensureTagExists();
-      }
-    }.execute();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      hardcodedElement.ensureTagExists();
+    });
     assertTrue(element.isValid());
     assertTrue(hardcodedElement.isValid());
     assertNotNull(hardcodedElement.getXmlElement());
     assertEquals("<sys:aaa/>", hardcodedElement.getXmlElement().getText());
     assertEquals("sys:aaa", hardcodedElement.getXmlTag().getName());
 
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(Result result) throws Throwable {
-        hardcodedElement.getHardcodedElement().getHardcodedElement().ensureTagExists();
-      }
-    }.execute();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      hardcodedElement.getHardcodedElement().getHardcodedElement().ensureTagExists();
+    });
 
     assertTrue(element.isValid());
     assertTrue(hardcodedElement.isValid());
@@ -153,7 +146,7 @@ public class DomNamespacesTest extends DomTestCase {
     assertEquals(1, element.getXmlTag().getSubTags().length);
   }
 
-  public void testAutoChooseNamespaceIfPresent() throws Throwable {
+  public void testAutoChooseNamespaceIfPresent() {
     final MyElement root = createElement("<a xmlns=\"foo\"/>", MyElement.class);
     getDomManager().getDomFileDescription(root.getXmlElement()).registerNamespacePolicy("foo", "bar", "foo");
 
@@ -164,8 +157,8 @@ public class DomNamespacesTest extends DomTestCase {
     assertEquals(0, fooChildTag.getAttributes().length);
   }
 
-  public void testNonemptyRootTagPrefix() throws Throwable {
-    getDomManager().registerFileDescription(new DomFileDescription<MyFooElement>(MyFooElement.class, "a", "foons") {
+  public void testNonemptyRootTagPrefix() {
+    getDomManager().registerFileDescription(new DomFileDescription<>(MyFooElement.class, "a", "foons") {
 
       @Override
       protected void initializeFileDescription() {
@@ -183,8 +176,8 @@ public class DomNamespacesTest extends DomTestCase {
     assertSame(psiFile.getDocument().getRootTag(), root.getXmlElement());
   }
 
-  public void testSpringAopLike() throws Throwable {
-    getDomManager().registerFileDescription(new DomFileDescription<MyBeans>(MyBeans.class, "beans", "beans", "aop") {
+  public void testSpringAopLike() {
+    getDomManager().registerFileDescription(new DomFileDescription<>(MyBeans.class, "beans", "beans", "aop") {
 
       @Override
       protected void initializeFileDescription() {
@@ -207,8 +200,8 @@ public class DomNamespacesTest extends DomTestCase {
     assertEquals(assertOneElement(aopConfig.getPointcuts()), pointcut);
   }
 
-  public void testSpringUtilLike() throws Throwable {
-    getDomManager().registerFileDescription(new DomFileDescription<MyBeans>(MyBeans.class, "beans", "beans", "util") {
+  public void testSpringUtilLike() {
+    getDomManager().registerFileDescription(new DomFileDescription<>(MyBeans.class, "beans", "beans", "util") {
 
       @Override
       protected void initializeFileDescription() {
@@ -245,7 +238,7 @@ public class DomNamespacesTest extends DomTestCase {
     description.registerNamespacePolicy("bar", bar);
   }
 
-  public void testFindChildDescriptionWithoutNamespace() throws Throwable {
+  public void testFindChildDescriptionWithoutNamespace() {
     final DomGenericInfo info = getDomManager().getGenericInfo(MyListOrSet.class);
     assertNotNull(info.getAttributeChildDescription("attr"));
     assertNotNull(info.getAttributeChildDescription("attr").getType());
@@ -255,7 +248,7 @@ public class DomNamespacesTest extends DomTestCase {
     assertNotNull(info.getFixedChildDescription("ref").getType());
   }
 
-  public void testCopyFromHonorsNamespaces() throws Throwable {
+  public void testCopyFromHonorsNamespaces() {
     final MyElement element = createElement("<a xmlns=\"foo\" xmlns:bar=\"bar\"/>", MyElement.class);
     registerNamespacePolicies(element);
 
@@ -269,12 +262,7 @@ public class DomNamespacesTest extends DomTestCase {
                                              "<sys:aaa/>" +
                                              "</f:a>", MyElement.class);
     registerNamespacePolicies(element2, "foo1", "bar1");
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(Result result) throws Throwable {
-        element.copyFrom(element2);
-      }
-    }.execute();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> element.copyFrom(element2));
 
     assertEquals("<a xmlns=\"foo\" xmlns:bar=\"bar\">" +
                  "<bar:bar-child/>" +
@@ -288,7 +276,7 @@ public class DomNamespacesTest extends DomTestCase {
                  element.getXmlTag().getText());
   }
 
-  public void testAttributeWithAnotherNamespace() throws Throwable {
+  public void testAttributeWithAnotherNamespace() {
     final MyElement element = createElement("<a xmlns=\"foo\" xmlns:bar=\"bar\"><foo-child bar:my-attribute=\"xxx\"/></a>", MyElement.class);
     registerNamespacePolicies(element);
     final MyFooElement fooElement = element.getFooChild();

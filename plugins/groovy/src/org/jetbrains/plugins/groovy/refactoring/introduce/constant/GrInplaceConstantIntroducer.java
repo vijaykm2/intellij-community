@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.introduce.constant;
 
 import com.intellij.psi.*;
@@ -20,10 +6,11 @@ import com.intellij.refactoring.JavaRefactoringSettings;
 import com.intellij.refactoring.introduce.inplace.OccurrencesChooser;
 import com.intellij.refactoring.introduceField.IntroduceConstantHandler;
 import com.intellij.ui.components.JBCheckBox;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFileBase;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
@@ -37,16 +24,13 @@ import org.jetbrains.plugins.groovy.refactoring.introduce.field.GroovyInplaceFie
 import javax.swing.*;
 import java.util.ArrayList;
 
-/**
- * Created by Max Medvedev on 8/29/13
- */
 public class GrInplaceConstantIntroducer extends GrAbstractInplaceIntroducer<GrIntroduceConstantSettings> {
   private final GrInplaceIntroduceConstantPanel myPanel;
   private final GrIntroduceContext myContext;
   private final String[] mySuggestedNames;
 
   public GrInplaceConstantIntroducer(GrIntroduceContext context, OccurrencesChooser.ReplaceChoice choice) {
-    super(IntroduceConstantHandler.REFACTORING_NAME, choice, context);
+    super(IntroduceConstantHandler.getRefactoringNameText(), choice, context);
 
     myContext = context;
 
@@ -60,7 +44,7 @@ public class GrInplaceConstantIntroducer extends GrAbstractInplaceIntroducer<GrI
       if (initializer != null) {
         ContainerUtil.addAll(result, GroovyNameSuggestionUtil.suggestVariableNames(initializer, new GroovyInplaceFieldValidator(context), true));
       }
-      mySuggestedNames = ArrayUtil.toStringArray(result);
+      mySuggestedNames = ArrayUtilRt.toStringArray(result);
     }
     else {
       GrExpression expression = context.getExpression();
@@ -71,11 +55,11 @@ public class GrInplaceConstantIntroducer extends GrAbstractInplaceIntroducer<GrI
 
   @Override
   protected String getActionName() {
-    return GrIntroduceConstantHandler.REFACTORING_NAME;
+    return GroovyBundle.message("introduce.constant.title");
   }
 
   @Override
-  protected String[] suggestNames(boolean replaceAll, @Nullable GrVariable variable) {
+  protected String @NotNull [] suggestNames(boolean replaceAll, @Nullable GrVariable variable) {
     return mySuggestedNames;
   }
 
@@ -92,13 +76,15 @@ public class GrInplaceConstantIntroducer extends GrAbstractInplaceIntroducer<GrI
 
   @Override
   protected GrVariable runRefactoring(GrIntroduceContext context, GrIntroduceConstantSettings settings, boolean processUsages) {
-    if (processUsages) {
-      return new GrIntroduceConstantProcessor(context, settings).run();
-    }
-    else {
-      PsiElement scope = context.getScope();
-      return new GrIntroduceConstantProcessor(context, settings).addDeclaration(scope instanceof GroovyFileBase ? ((GroovyFileBase)scope).getScriptClass() : (PsiClass)scope).getVariables()[0];
-    }
+    return refactorInWriteAction(() -> {
+      if (processUsages) {
+        return new GrIntroduceConstantProcessor(context, settings).run();
+      }
+      else {
+        PsiElement scope = context.getScope();
+        return new GrIntroduceConstantProcessor(context, settings).addDeclaration(scope instanceof GroovyFileBase ? ((GroovyFileBase)scope).getScriptClass() : (PsiClass)scope).getVariables()[0];
+      }
+    });
   }
 
   @Nullable
@@ -210,9 +196,7 @@ public class GrInplaceConstantIntroducer extends GrAbstractInplaceIntroducer<GrI
     return super.performRefactoring();
   }
 
-  /**
-   * Created by Max Medvedev on 8/29/13
-   */
+
   public class GrInplaceIntroduceConstantPanel {
     private JBCheckBox myMoveToAnotherClassJBCheckBox;
     private JPanel myRootPane;

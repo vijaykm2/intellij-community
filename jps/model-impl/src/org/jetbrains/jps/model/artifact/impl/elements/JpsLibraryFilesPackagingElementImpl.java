@@ -32,9 +32,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author nik
- */
 public class JpsLibraryFilesPackagingElementImpl extends JpsComplexPackagingElementBase<JpsLibraryFilesPackagingElementImpl> implements JpsLibraryFilesPackagingElement {
   private static final JpsElementChildRole<JpsLibraryReference>
     LIBRARY_REFERENCE_CHILD_ROLE = JpsElementChildRoleBase.create("library reference");
@@ -63,7 +60,7 @@ public class JpsLibraryFilesPackagingElementImpl extends JpsComplexPackagingElem
   public List<JpsPackagingElement> getSubstitution() {
     JpsLibrary library = getLibraryReference().resolve();
     if (library == null) return Collections.emptyList();
-    List<JpsPackagingElement> result = new ArrayList<JpsPackagingElement>();
+    List<JpsPackagingElement> result = new ArrayList<>();
     for (File file : library.getFiles(JpsOrderRootType.COMPILED)) {
       String path = FileUtil.toSystemIndependentName(file.getAbsolutePath());
       if (file.isDirectory()) {

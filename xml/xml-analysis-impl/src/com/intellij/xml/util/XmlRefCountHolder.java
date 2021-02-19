@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.util;
 
 import com.intellij.codeInsight.daemon.impl.analysis.XmlHighlightVisitor;
@@ -21,6 +7,7 @@ import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.UserDataCache;
 import com.intellij.psi.*;
+import com.intellij.psi.html.HtmlTag;
 import com.intellij.psi.impl.source.resolve.reference.impl.providers.IdReferenceProvider;
 import com.intellij.psi.impl.source.xml.PossiblePrefixReference;
 import com.intellij.psi.impl.source.xml.SchemaPrefix;
@@ -39,38 +26,39 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * @author spleaner
  */
-public class XmlRefCountHolder {
+public final class XmlRefCountHolder {
   private static final Key<CachedValue<XmlRefCountHolder>> xmlRefCountHolderKey = Key.create("xml ref count holder");
 
   private static final UserDataCache<CachedValue<XmlRefCountHolder>, XmlFile, Object> CACHE =
-    new UserDataCache<CachedValue<XmlRefCountHolder>, XmlFile, Object>() {
+    new UserDataCache<>() {
       @Override
       protected CachedValue<XmlRefCountHolder> compute(final XmlFile file, final Object p) {
-        return CachedValuesManager.getManager(file.getProject()).createCachedValue(new CachedValueProvider<XmlRefCountHolder>() {
-          @Override
-          public Result<XmlRefCountHolder> compute() {
-            final XmlRefCountHolder holder = new XmlRefCountHolder();
-            final Language language = file.getViewProvider().getBaseLanguage();
-            final PsiFile psiFile = file.getViewProvider().getPsi(language);
-            assert psiFile != null;
-            psiFile.accept(new IdGatheringRecursiveVisitor(holder));
-            return new Result<XmlRefCountHolder>(holder, file);
-          }
+        return CachedValuesManager.getManager(file.getProject()).createCachedValue(() -> {
+          final XmlRefCountHolder holder = new XmlRefCountHolder();
+          final Language language = file.getViewProvider().getBaseLanguage();
+          final PsiFile psiFile = file.getViewProvider().getPsi(language);
+          assert psiFile != null;
+          psiFile.accept(new IdGatheringRecursiveVisitor(holder));
+          return new CachedValueProvider.Result<>(holder, file);
         }, false);
       }
     };
 
-  private final Map<String, List<Pair<XmlAttributeValue, Boolean>>> myId2AttributeListMap = new HashMap<String, List<Pair<XmlAttributeValue, Boolean>>>();
-  private final Set<XmlAttributeValue> myPossiblyDuplicateIds = new HashSet<XmlAttributeValue>();
-  private final List<XmlAttributeValue> myIdReferences = new ArrayList<XmlAttributeValue>();
-  private final Set<String> myAdditionallyDeclaredIds = new HashSet<String>();
-  private final Set<PsiElement> myDoNotValidateParentsList = new HashSet<PsiElement>();
-  private final Set<String> myUsedPrefixes = new HashSet<String>();
-  private final Set<String> myUsedNamespaces = new HashSet<String>();
+  private final Map<String, List<Pair<XmlAttributeValue, Boolean>>> myId2AttributeListMap = new HashMap<>();
+  private final Set<XmlAttributeValue> myPossiblyDuplicateIds = new HashSet<>();
+  private final List<XmlAttributeValue> myIdReferences = new ArrayList<>();
+  private final Set<String> myAdditionallyDeclaredIds = new HashSet<>();
+  private final Set<PsiElement> myDoNotValidateParentsList = new HashSet<>();
+  private final Set<String> myUsedPrefixes = new HashSet<>();
+  private final Set<String> myUsedNamespaces = new HashSet<>();
+
+  private static final Pattern PREFIX_PATTERN = Pattern.compile("[\\w_][\\w_.]*:");
 
   @Nullable
   public static XmlRefCountHolder getRefCountHolder(@NotNull XmlFile file) {
@@ -100,7 +88,7 @@ public class XmlRefCountHolder {
   private void registerId(@NotNull final String id, @NotNull final XmlAttributeValue attributeValue, final boolean soft) {
     List<Pair<XmlAttributeValue, Boolean>> list = myId2AttributeListMap.get(id);
     if (list == null) {
-      list = new ArrayList<Pair<XmlAttributeValue, Boolean>>();
+      list = new ArrayList<>();
       myId2AttributeListMap.put(id, list);
     }
     else if (!soft) {
@@ -108,30 +96,28 @@ public class XmlRefCountHolder {
       final boolean html5 = HtmlUtil.isHtml5Context(attributeValue);
 
       // mark as duplicate
-      List<XmlAttributeValue> notSoft = ContainerUtil.mapNotNull(list, new NullableFunction<Pair<XmlAttributeValue, Boolean>, XmlAttributeValue>() {
-        @Override
-        public XmlAttributeValue fun(Pair<XmlAttributeValue, Boolean> pair) {
-          if (html5 && !"id".equalsIgnoreCase(((XmlAttribute)pair.first.getParent()).getName())) {
-            // according to HTML 5 (http://www.w3.org/TR/html5/dom.html#the-id-attribute) spec
-            // only id attribute is unique identifier
-            return null;
-          }
-          if (html && pair.first.getParent().getParent() == attributeValue.getParent().getParent()) {
-            // according to HTML 4 (http://www.w3.org/TR/html401/struct/global.html#adef-id,
-            // http://www.w3.org/TR/html401/struct/links.html#h-12.2.3) spec id and name occupy
-            // same namespace, but having same values on one tag is ok
-            return null;
-          }
-          return pair.second ? null : pair.first;
-        }
-      });
+      List<XmlAttributeValue> notSoft = ContainerUtil.mapNotNull(list,
+                                                                 (NullableFunction<Pair<XmlAttributeValue, Boolean>, XmlAttributeValue>)pair -> {
+                                                                   if (html5 && !"id".equalsIgnoreCase(((XmlAttribute)pair.first.getParent()).getName())) {
+                                                                     // according to HTML 5 (http://www.w3.org/TR/html5/dom.html#the-id-attribute) spec
+                                                                     // only id attribute is unique identifier
+                                                                     return null;
+                                                                   }
+                                                                   if (html && pair.first.getParent().getParent() == attributeValue.getParent().getParent()) {
+                                                                     // according to HTML 4 (http://www.w3.org/TR/html401/struct/global.html#adef-id,
+                                                                     // http://www.w3.org/TR/html401/struct/links.html#h-12.2.3) spec id and name occupy
+                                                                     // same namespace, but having same values on one tag is ok
+                                                                     return null;
+                                                                   }
+                                                                   return pair.second ? null : pair.first;
+                                                                 });
       if (!notSoft.isEmpty()) {
         myPossiblyDuplicateIds.addAll(notSoft);
         myPossiblyDuplicateIds.add(attributeValue);
       }
     }
 
-    list.add(new Pair<XmlAttributeValue, Boolean>(attributeValue, soft));
+    list.add(new Pair<>(attributeValue, soft));
   }
 
   private void registerAdditionalId(@NotNull final String id) {
@@ -160,7 +146,7 @@ public class XmlRefCountHolder {
     return myUsedNamespaces.contains(ns);
   }
 
-  private static class IdGatheringRecursiveVisitor extends XmlRecursiveElementVisitor {
+  private static final class IdGatheringRecursiveVisitor extends XmlRecursiveElementWalkingVisitor {
     private final XmlRefCountHolder myHolder;
 
     private IdGatheringRecursiveVisitor(@NotNull XmlRefCountHolder holder) {
@@ -169,7 +155,7 @@ public class XmlRefCountHolder {
     }
 
     @Override
-    public void visitElement(final PsiElement element) {
+    public void visitElement(@NotNull final PsiElement element) {
       if (element instanceof OuterLanguageElement) {
         visitOuterLanguageElement(element);
       }
@@ -191,7 +177,7 @@ public class XmlRefCountHolder {
     }
 
     @Override
-    public void visitComment(final PsiComment comment) {
+    public void visitComment(@NotNull final PsiComment comment) {
       doVisitAnyComment(comment);
       super.visitComment(comment);
     }
@@ -214,7 +200,7 @@ public class XmlRefCountHolder {
       myHolder.addUsedPrefix(tag.getNamespacePrefix());
       myHolder.addUsedNamespace(tag.getNamespace());
       String text = tag.getValue().getTrimmedText();
-      detectPrefix(text);
+      detectPrefix(text, tag);
       super.visitXmlTag(tag);
     }
 
@@ -240,7 +226,7 @@ public class XmlRefCountHolder {
       final XmlElementDescriptor descriptor = tag.getDescriptor();
       if (descriptor == null) return;
 
-      final XmlAttributeDescriptor attributeDescriptor = descriptor.getAttributeDescriptor(attribute);
+      final XmlAttributeDescriptor attributeDescriptor = attribute.getDescriptor();
       if (attributeDescriptor != null) {
         if (attributeDescriptor.hasIdType()) {
           updateMap(attribute, value, false);
@@ -266,15 +252,16 @@ public class XmlRefCountHolder {
       }
 
       String s = value.getValue();
-      detectPrefix(s);
+      detectPrefix(s, tag);
       super.visitXmlAttributeValue(value);
     }
 
-    private void detectPrefix(String s) {
-      if (s != null) {
-        int pos = s.indexOf(':');
-        if (pos > 0) {
-          myHolder.addUsedPrefix(s.substring(0, pos));
+    private void detectPrefix(String s, XmlTag tag) {
+      if (s != null && !(tag instanceof HtmlTag) && s.length() < 1000) {
+        Matcher matcher = PREFIX_PATTERN.matcher(s);
+        while (matcher.find()) {
+          String group = matcher.group();
+          myHolder.addUsedPrefix(group.substring(0, group.length() - 1));
         }
       }
     }

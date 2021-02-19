@@ -14,22 +14,26 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: May 20, 2002
- * Time: 4:13:37 PM
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.openapi.editor.actions;
 
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.editor.*;
+import com.intellij.openapi.editor.Caret;
+import com.intellij.openapi.editor.CaretAction;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.VisualPosition;
 import com.intellij.openapi.editor.actionSystem.EditorWriteActionHandler;
+import com.intellij.openapi.editor.ex.EditorEx;
+import com.intellij.openapi.editor.ex.util.EmptyEditorHighlighter;
+import com.intellij.openapi.editor.highlighter.EditorHighlighter;
+import com.intellij.openapi.editor.highlighter.HighlighterIterator;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.util.MathUtil;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.Locale;
+
+import static com.intellij.psi.StringEscapesTokenTypes.VALID_STRING_ESCAPE_TOKEN;
 
 public class ToggleCaseAction extends TextComponentEditorAction {
   public ToggleCaseAction() {
@@ -39,33 +43,25 @@ public class ToggleCaseAction extends TextComponentEditorAction {
   private static class Handler extends EditorWriteActionHandler {
     @Override
     public void executeWriteAction(final Editor editor, @Nullable Caret caret, DataContext dataContext) {
-      final Ref<Boolean> toLowerCase = new Ref<Boolean>(Boolean.FALSE);
-      runForCaret(editor, caret, new CaretAction() {
-        @Override
-        public void perform(Caret caret) {
-          if (!caret.hasSelection()) {
-            caret.selectWordAtCaret(true);
-          }
-          String selectedText = caret.getSelectedText();
-          if (selectedText != null && !selectedText.equals(toCase(selectedText, true))) {
-            toLowerCase.set(Boolean.TRUE);
-          }
+      final Ref<Boolean> toLowerCase = new Ref<>(Boolean.FALSE);
+      runForCaret(editor, caret, c -> {
+        if (!c.hasSelection()) {
+          c.selectWordAtCaret(true);
+        }
+        int selectionStartOffset = c.getSelectionStart();
+        int selectionEndOffset = c.getSelectionEnd();
+        String originalText = editor.getDocument().getText(new TextRange(selectionStartOffset, selectionEndOffset));
+        if (!originalText.equals(toCase(editor, selectionStartOffset, selectionEndOffset, true))) {
+          toLowerCase.set(Boolean.TRUE);
         }
       });
-      runForCaret(editor, caret, new CaretAction() {
-        @Override
-        public void perform(Caret caret) {
-          VisualPosition caretPosition = caret.getVisualPosition();
-          int selectionStartOffset = caret.getSelectionStart();
-          int selectionEndOffset = caret.getSelectionEnd();
-          VisualPosition selectionStartPosition = caret.getSelectionStartPosition();
-          VisualPosition selectionEndPosition = caret.getSelectionEndPosition();
-          caret.removeSelection();
-          String text = editor.getDocument().getText(new TextRange(selectionStartOffset, selectionEndOffset));
-          editor.getDocument().replaceString(selectionStartOffset, selectionEndOffset, toCase(text, toLowerCase.get()));
-          caret.moveToVisualPosition(caretPosition);
-          caret.setSelection(selectionStartPosition, selectionStartOffset, selectionEndPosition, selectionEndOffset);
-        }
+      runForCaret(editor, caret, c -> {
+        VisualPosition caretPosition = c.getVisualPosition();
+        int selectionStartOffset = c.getSelectionStart();
+        int selectionEndOffset = c.getSelectionEnd();
+        editor.getDocument().replaceString(selectionStartOffset, selectionEndOffset,
+                                           toCase(editor, selectionStartOffset, selectionEndOffset, toLowerCase.get()));
+        c.moveToVisualPosition(caretPosition);
       });
     }
 
@@ -77,16 +73,30 @@ public class ToggleCaseAction extends TextComponentEditorAction {
         action.perform(caret);
       }
     }
-    private static String toCase(final String text, final boolean lower) {
-      StringBuilder builder = new StringBuilder(text.length());
-      boolean prevIsSlash = false;
-      for( int i = 0; i < text.length(); ++i) {
-        char c = text.charAt(i);
-        if( !prevIsSlash ) {
-          c = lower ? Character.toLowerCase(c) : Character.toUpperCase(c);
-        }
-        prevIsSlash = c == '\\';
-        builder.append(c);
+
+    private static String toCase(Editor editor, int startOffset, int endOffset, final boolean lower) {
+      CharSequence text = editor.getDocument().getImmutableCharSequence();
+      EditorHighlighter highlighter;
+      if (editor instanceof EditorEx) {
+        highlighter = ((EditorEx)editor).getHighlighter();
+      }
+      else {
+        highlighter = new EmptyEditorHighlighter();
+        highlighter.setText(text);
+      }
+      HighlighterIterator iterator = highlighter.createIterator(startOffset);
+      StringBuilder builder = new StringBuilder(endOffset - startOffset);
+      while (!iterator.atEnd()) {
+        int start = MathUtil.clamp(iterator.getStart(), startOffset, endOffset);
+        int end = MathUtil.clamp(iterator.getEnd(), startOffset, endOffset);
+        CharSequence fragment = text.subSequence(start, end);
+
+        builder.append(iterator.getTokenType() == VALID_STRING_ESCAPE_TOKEN ? fragment :
+                       lower ? fragment.toString().toLowerCase(Locale.getDefault()) :
+                       fragment.toString().toUpperCase(Locale.getDefault()));
+
+        if (end == endOffset) break;
+        iterator.advance();
       }
       return builder.toString();
     }

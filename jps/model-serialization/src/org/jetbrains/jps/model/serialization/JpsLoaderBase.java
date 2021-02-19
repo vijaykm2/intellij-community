@@ -1,35 +1,22 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.model.serialization;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.openapi.util.io.FileUtil;
 import org.jdom.Element;
 import org.jdom.JDOMException;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.TimingLog;
 import org.jetbrains.jps.model.JpsElement;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
 
-/**
- * @author nik
- */
 public abstract class JpsLoaderBase {
   private static final Logger LOG = Logger.getInstance(JpsLoaderBase.class);
   private static final int MAX_ATTEMPTS = 5;
@@ -39,25 +26,22 @@ public abstract class JpsLoaderBase {
     myMacroExpander = macroExpander;
   }
 
-  protected Element loadRootElement(final File file) {
+  /**
+   * Returns null if file doesn't exist
+   */
+  @Nullable
+  protected Element loadRootElement(@NotNull Path file) {
     return loadRootElement(file, myMacroExpander);
   }
 
-  protected <E extends JpsElement> void loadComponents(File dir,
-                                                       final String defaultFileName,
+  protected <E extends JpsElement> void loadComponents(@NotNull Path dir,
+                                                       @NotNull Path defaultConfigFile,
                                                        JpsElementExtensionSerializerBase<E> serializer,
                                                        final E element) {
     String fileName = serializer.getConfigFileName();
-    File configFile = new File(dir, fileName != null ? fileName : defaultFileName);
-    Runnable timingLog = TimingLog.startActivity("loading: " + configFile.getName() + ":" + serializer.getComponentName());
-    Element componentTag;
-    if (configFile.exists()) {
-      componentTag = JDomSerializationUtil.findComponent(loadRootElement(configFile), serializer.getComponentName());
-    }
-    else {
-      componentTag = null;
-    }
-
+    Path configFile = fileName == null ? defaultConfigFile : dir.resolve(fileName);
+    Runnable timingLog = TimingLog.startActivity("loading: " + configFile.getFileName() + ":" + serializer.getComponentName());
+    Element componentTag = loadComponentData(serializer, configFile);
     if (componentTag != null) {
       serializer.loadExtension(element, componentTag);
     }
@@ -67,39 +51,55 @@ public abstract class JpsLoaderBase {
     timingLog.run();
   }
 
-  protected static Element loadRootElement(final File file, final JpsMacroExpander macroExpander) {
-    try {
-      final Element element = tryLoadRootElement(file);
-      macroExpander.substitute(element, SystemInfo.isFileSystemCaseSensitive);
-      return element;
-    }
-    catch (JDOMException e) {
-      throw new CannotLoadJpsModelException(file, "Cannot parse xml file " + file.getAbsolutePath() + ": " + e.getMessage(), e);
-    }
-    catch (IOException e) {
-      throw new CannotLoadJpsModelException(file, "Cannot read file " + file.getAbsolutePath() + ": " + e.getMessage(), e);
-    }
+  @Nullable
+  protected <E extends JpsElement> Element loadComponentData(@NotNull JpsElementExtensionSerializerBase<E> serializer, @NotNull Path configFile) {
+    return JDomSerializationUtil.findComponent(loadRootElement(configFile), serializer.getComponentName());
   }
 
-  private static Element tryLoadRootElement(File file) throws IOException, JDOMException {
-    for (int i = 0; i < MAX_ATTEMPTS - 1; i++) {
+  /**
+   * Returns null if file doesn't exist
+   */
+  @Nullable
+  protected static Element loadRootElement(@NotNull Path file, @NotNull JpsMacroExpander macroExpander) {
+    final Element element = tryLoadRootElement(file);
+    if (element != null) {
+      macroExpander.substitute(element, SystemInfo.isFileSystemCaseSensitive);
+    }
+    return element;
+  }
+
+  @Nullable
+  public static Element tryLoadRootElement(@NotNull Path file) {
+    int i = 0;
+    while (true) {
       try {
-        return JDOMUtil.loadDocument(file).getRootElement();
+        return JDOMUtil.load(Files.newBufferedReader(file));
       }
-      catch (Exception e) {
-        LOG.info("Loading attempt #" + i + " failed", e);
+      catch (NoSuchFileException e) {
+        return null;
       }
+      catch (IOException | JDOMException e) {
+        if (++i == MAX_ATTEMPTS) {
+          //noinspection InstanceofCatchParameter
+          throw new CannotLoadJpsModelException(file.toFile(), "Cannot " + (e instanceof IOException ? "read" : "parse") + " file " + file.toAbsolutePath() + ": " + e.getMessage(), e);
+        }
+
+        LOG.info("Loading attempt #" + i + " failed for " + file.toAbsolutePath(), e);
+        try {
+          LOG.info("File content: " + FileUtil.loadFile(file.toFile()));
+        }
+        catch (IOException ignored) {
+        }
+      }
+
       //most likely configuration file is being written by IDE so we'll wait a little
       try {
         //noinspection BusyWait
         Thread.sleep(300);
       }
-      catch (InterruptedException ignored) { }
+      catch (InterruptedException ignored) {
+        return null;
+      }
     }
-    return JDOMUtil.loadDocument(file).getRootElement();
-  }
-
-  protected static boolean isXmlFile(File file) {
-    return file.isFile() && FileUtilRt.extensionEquals(file.getName(), "xml");
   }
 }

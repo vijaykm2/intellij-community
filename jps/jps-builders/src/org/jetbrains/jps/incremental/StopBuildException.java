@@ -15,20 +15,21 @@
  */
 package org.jetbrains.jps.incremental;
 
+import org.jetbrains.annotations.Nls;
+
 /**
  * This exception indicates that build should be stopped.
  * It is assumed that all necessary messages have been reported already, so optional message passed toi constructor 
  * is treated as build progress message
  * 
  * @author Eugene Zhuravlev
- *         Date: 9/20/11
  */
 public class StopBuildException extends ProjectBuildException{
   public StopBuildException() {
     this(null);
   }
 
-  public StopBuildException(String infoMessage) {
+  public StopBuildException(@Nls(capitalization = Nls.Capitalization.Sentence) String infoMessage) {
     super(infoMessage);
   }
 

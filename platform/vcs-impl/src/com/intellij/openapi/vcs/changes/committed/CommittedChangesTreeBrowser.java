@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.committed;
 
 import com.intellij.ide.CopyProvider;
@@ -12,26 +13,30 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.keymap.Keymap;
 import com.intellij.openapi.keymap.KeymapManager;
+import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.ui.SplitterProportionsData;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.VcsActions;
 import com.intellij.openapi.vcs.VcsDataKeys;
 import com.intellij.openapi.vcs.changes.Change;
-import com.intellij.openapi.vcs.changes.ChangesUtil;
 import com.intellij.openapi.vcs.changes.ContentRevision;
 import com.intellij.openapi.vcs.changes.issueLinks.TreeLinkMouseListener;
 import com.intellij.openapi.vcs.versionBrowser.CommittedChangeList;
-import com.intellij.pom.Navigatable;
 import com.intellij.ui.*;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.ui.treeStructure.actions.CollapseAllAction;
 import com.intellij.ui.treeStructure.actions.ExpandAllAction;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.MultiMap;
 import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.messages.Topic;
 import com.intellij.util.ui.StatusText;
 import com.intellij.util.ui.tree.TreeUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -47,21 +52,28 @@ import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreeModel;
 import javax.swing.tree.TreePath;
 import java.awt.*;
-import java.util.*;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.util.List;
+import java.util.*;
+
+import static com.intellij.openapi.keymap.KeymapUtil.getActiveKeymapShortcuts;
+import static com.intellij.openapi.vcs.changes.ChangesUtil.getFiles;
+import static com.intellij.openapi.vcs.changes.ChangesUtil.getNavigatableArray;
+import static com.intellij.util.WaitForProgressToShow.runOrInvokeLaterAboveProgress;
 
 /**
  * @author yole
  */
-public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataProvider, Disposable, DecoratorManager {
+public class CommittedChangesTreeBrowser extends JPanel implements DataProvider, Disposable, DecoratorManager {
   private static final Border RIGHT_BORDER = IdeBorderFactory.createBorder(SideBorder.TOP | SideBorder.LEFT);
 
   private final Project myProject;
-  private final Tree myChangesTree;
-  private final RepositoryChangesBrowser myDetailsView;
+  @NotNull private final ChangesBrowserTree myChangesTree;
+  private final MyRepositoryChangesViewer myDetailsView;
   private List<CommittedChangeList> myChangeLists;
   private List<CommittedChangeList> mySelectedChangeLists;
-  private ChangeListGroupingStrategy myGroupingStrategy = new DateChangeListGroupingStrategy();
+  @NotNull private ChangeListGroupingStrategy myGroupingStrategy = new DateChangeListGroupingStrategy();
   private final CompositeChangeListFilteringStrategy myFilteringStrategy = new CompositeChangeListFilteringStrategy();
   private final JPanel myLeftPanel;
   private final FilterChangeListener myFilterChangeListener = new FilterChangeListener();
@@ -70,7 +82,8 @@ public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataP
   private final TreeExpander myTreeExpander;
   private String myHelpId;
 
-  public static final Topic<CommittedChangesReloadListener> ITEMS_RELOADED = new Topic<CommittedChangesReloadListener>("ITEMS_RELOADED", CommittedChangesReloadListener.class);
+  public static final Topic<CommittedChangesReloadListener> ITEMS_RELOADED =
+    new Topic<>("ITEMS_RELOADED", CommittedChangesReloadListener.class);
 
   private final List<CommittedChangeListDecorator> myDecorators;
 
@@ -80,25 +93,32 @@ public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataP
   private final MessageBusConnection myConnection;
   private TreeState myState;
 
-  public CommittedChangesTreeBrowser(final Project project, final List<CommittedChangeList> changeLists) {
+  public CommittedChangesTreeBrowser(final Project project, final List<? extends CommittedChangeList> changeLists) {
     super(new BorderLayout());
 
     myProject = project;
-    myDecorators = new LinkedList<CommittedChangeListDecorator>();
-    myChangeLists = changeLists;
+    myDecorators = new LinkedList<>();
+    myChangeLists = new ArrayList<>(changeLists);
     myChangesTree = new ChangesBrowserTree();
     myChangesTree.setRootVisible(false);
     myChangesTree.setShowsRootHandles(true);
     myChangesTree.setCellRenderer(new CommittedChangeListRenderer(project, myDecorators));
     TreeUtil.expandAll(myChangesTree);
-    myChangesTree.getExpandableItemsHandler().setEnabled(false);
+    myChangesTree.setExpandableItemsEnabled(false);
 
-    myDetailsView = new RepositoryChangesBrowser(project, Collections.<CommittedChangeList>emptyList());
-    myDetailsView.getViewer().setScrollPaneBorder(RIGHT_BORDER);
+    myDetailsView = new MyRepositoryChangesViewer(project);
 
     myChangesTree.getSelectionModel().addTreeSelectionListener(new TreeSelectionListener() {
+      @Override
       public void valueChanged(TreeSelectionEvent e) {
         updateBySelectionChange();
+      }
+    });
+
+    myChangesTree.addComponentListener(new ComponentAdapter() {
+      @Override
+      public void componentResized(ComponentEvent e) {
+        myChangesTree.invalidateNodeSizes();
       }
     });
 
@@ -125,8 +145,10 @@ public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataP
 
     myConnection = myProject.getMessageBus().connect();
     myConnection.subscribe(ITEMS_RELOADED, new CommittedChangesReloadListener() {
+      @Override
       public void itemsReloaded() {
       }
+      @Override
       public void emptyRefresh() {
         updateGrouping();
       }
@@ -144,11 +166,9 @@ public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataP
 
     add(mainSplitter, BorderLayout.CENTER);
 
-    myInnerSplitter = new WiseSplitter(new Runnable() {
-      public void run() {
-        filterSplitter.doLayout();
-        updateModel();
-      }
+    myInnerSplitter = new WiseSplitter(() -> {
+      filterSplitter.doLayout();
+      updateModel();
     }, filterSplitter);
     Disposer.register(this, myInnerSplitter);
 
@@ -163,29 +183,24 @@ public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataP
 
   private void updateGrouping() {
     if (myGroupingStrategy.changedSinceApply()) {
-      ApplicationManager.getApplication().invokeLater(new Runnable() {
-        public void run() {
-          updateModel();
-        }
-      }, ModalityState.NON_MODAL);
+      ApplicationManager.getApplication().invokeLater(() -> updateModel(), ModalityState.NON_MODAL);
     }
   }
 
-  private TreeModel buildTreeModel(final List<CommittedChangeList> filteredChangeLists) {
+  private TreeModel buildTreeModel(List<? extends CommittedChangeList> filteredChangeLists) {
     DefaultMutableTreeNode root = new DefaultMutableTreeNode();
     DefaultTreeModel model = new DefaultTreeModel(root);
-    Collections.sort(filteredChangeLists, myGroupingStrategy.getComparator());
+    filteredChangeLists = ContainerUtil.sorted(filteredChangeLists, myGroupingStrategy.getComparator());
     myGroupingStrategy.beforeStart();
     DefaultMutableTreeNode lastGroupNode = null;
-    String lastGroupName = null;
-    for(CommittedChangeList list: filteredChangeLists) {
-      String groupName = myGroupingStrategy.getGroupName(list);
-      if (!Comparing.equal(groupName, lastGroupName)) {
+    @Nls String lastGroupName = null;
+    for(CommittedChangeList list : filteredChangeLists) {
+      String groupName = StringUtil.notNullize(myGroupingStrategy.getGroupName(list));
+      if (!Objects.equals(groupName, lastGroupName)) {
         lastGroupName = groupName;
         lastGroupNode = new DefaultMutableTreeNode(lastGroupName);
         root.add(lastGroupNode);
       }
-      assert lastGroupNode != null;
       lastGroupNode.add(new DefaultMutableTreeNode(list));
     }
     return model;
@@ -201,43 +216,44 @@ public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataP
 
   public void setToolBar(JComponent toolBar) {
     myLeftPanel.add(toolBar, BorderLayout.NORTH);
-    Dimension prefSize = myDetailsView.getHeaderPanel().getPreferredSize();
-    if (prefSize.height < toolBar.getPreferredSize().height) {
-      prefSize.height = toolBar.getPreferredSize().height;
-      myDetailsView.getHeaderPanel().setPreferredSize(prefSize);
-    }
+    myDetailsView.syncSizeWithToolbar(toolBar);
   }
 
+  @Override
   public void dispose() {
     myConnection.disconnect();
     mySplitterProportionsData.saveSplitterProportions(this);
     mySplitterProportionsData.externalizeToDimensionService("CommittedChanges.SplitterProportions");
-    myDetailsView.dispose();
   }
 
-  public void setItems(@NotNull List<CommittedChangeList> items, final CommittedChangesBrowserUseCase useCase) {
+  public void setItems(@NotNull List<? extends CommittedChangeList> items, final CommittedChangesBrowserUseCase useCase) {
     myDetailsView.setUseCase(useCase);
-    myChangeLists = items;
+    myChangeLists = new ArrayList<>(items);
     myFilteringStrategy.setFilterBase(items);
-    myProject.getMessageBus().syncPublisher(ITEMS_RELOADED).itemsReloaded();
+    BackgroundTaskUtil.syncPublisher(myProject, ITEMS_RELOADED).itemsReloaded();
     updateModel();
   }
 
   private void updateModel() {
+    TreeState state = TreeState.createOn(myChangesTree, (DefaultMutableTreeNode)myChangesTree.getModel().getRoot());
     final List<CommittedChangeList> filteredChangeLists = myFilteringStrategy.filterChangeLists(myChangeLists);
-    final TreePath[] paths = myChangesTree.getSelectionPaths();
     myChangesTree.setModel(buildTreeModel(filteredChangeLists));
+    state.applyTo(myChangesTree);
     TreeUtil.expandAll(myChangesTree);
-    myChangesTree.setSelectionPaths(paths);
   }
 
-  public void setGroupingStrategy(ChangeListGroupingStrategy strategy) {
+  public void setGroupingStrategy(@NotNull ChangeListGroupingStrategy strategy) {
     myGroupingStrategy = strategy;
     updateModel();
   }
 
+  @NotNull
+  public ChangeListGroupingStrategy getGroupingStrategy() {
+    return myGroupingStrategy;
+  }
+
   private void updateBySelectionChange() {
-    List<CommittedChangeList> selection = new ArrayList<CommittedChangeList>();
+    List<CommittedChangeList> selection = new ArrayList<>();
     final TreePath[] selectionPaths = myChangesTree.getSelectionPaths();
     if (selectionPaths != null) {
       for(TreePath path: selectionPaths) {
@@ -256,19 +272,13 @@ public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataP
 
   @NotNull
   public static List<Change> collectChanges(final List<? extends CommittedChangeList> selectedChangeLists, final boolean withMovedTrees) {
-    List<Change> result = new ArrayList<Change>();
-    Collections.sort(selectedChangeLists, new Comparator<CommittedChangeList>() {
-      public int compare(final CommittedChangeList o1, final CommittedChangeList o2) {
-        return o1.getCommitDate().compareTo(o2.getCommitDate());
-      }
-    });
-    for(CommittedChangeList cl: selectedChangeLists) {
-      final Collection<Change> changes = withMovedTrees ? cl.getChangesWithMovedTrees() : cl.getChanges();
-      for(Change c: changes) {
-        addOrReplaceChange(result, c);
-      }
+    selectedChangeLists.sort(CommittedChangeListByDateComparator.ASCENDING);
+
+    List<Change> changes = new ArrayList<>();
+    for (CommittedChangeList cl : selectedChangeLists) {
+      changes.addAll(withMovedTrees ? cl.getChangesWithMovedTrees() : cl.getChanges());
     }
-    return result;
+    return zipChanges(changes);
   }
 
   /**
@@ -276,50 +286,84 @@ public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataP
    * <b>NB:</b> changes must be given in the time-ascending order, i.e the first change in the list should be the oldest one.
    */
   @NotNull
-  public static List<Change> zipChanges(@NotNull List<Change> changes) {
-    final List<Change> result = new ArrayList<Change>();
-    for (Change change : changes) {
-      addOrReplaceChange(result, change);
-    }
-    return result;
-  }
+  public static List<Change> zipChanges(@NotNull List<? extends Change> changes) {
+    // TODO: further improvements needed
+    // We may want to process collisions more consistent
 
-  private static void addOrReplaceChange(final List<Change> changes, final Change c) {
-    final ContentRevision beforeRev = c.getBeforeRevision();
-    // todo!!! further improvements needed
-    if (beforeRev != null) {
-      final String beforeName = beforeRev.getFile().getName();
-      final String beforeAbsolutePath = beforeRev.getFile().getIOFile().getAbsolutePath();
-      for(Change oldChange: changes) {
-        ContentRevision rev = oldChange.getAfterRevision();
-        // first compare name, which is many times faster - to remove 99% not matching
-        if (rev != null && (rev.getFile().getName().equals(beforeName)) && rev.getFile().getIOFile().getAbsolutePath().equals(beforeAbsolutePath)) {
-          changes.remove(oldChange);
-          if (oldChange.getBeforeRevision() != null || c.getAfterRevision() != null) {
-            changes.add(new Change(oldChange.getBeforeRevision(), c.getAfterRevision()));
-          }
-          return;
-        }
+    // Possible solution: avoid creating duplicate entries for the same FilePath. No changes in the output should have same beforePath or afterPath.
+    // We may take earliest and latest revisions for each file.
+    //
+    // The main problem would be to keep existing movements in non-conflicting cases (where input changes are taken from linear sequence of commits)
+    // case1: "a -> b; b -> c" - file renamed twice in the same revision (as source and as target)
+    // case2: "a -> b" "b -> c" - file renamed twice in consequent commits
+    // case3: "a -> b; b -> a" - files swapped vs "a -> b" "b -> a" - file rename canceled
+    // case4: "delete a" "b -> a" "modify a"
+    // ...
+    // but return "good enough" result for input with conflicting changes
+    // case1: "new a", "new a"
+    // case2: "a -> b", "new b"
+    // ...
+    //
+    // getting "actually good" results is impossible without knowledge of commits topology.
+
+
+    // key - after path (nullable)
+    MultiMap<FilePath, Change> map = MultiMap.createLinked();
+
+    for (Change change : changes) {
+      ContentRevision bRev = change.getBeforeRevision();
+      ContentRevision aRev = change.getAfterRevision();
+      FilePath bPath = bRev != null ? bRev.getFile() : null;
+      FilePath aPath = aRev != null ? aRev.getFile() : null;
+
+      if (bRev == null) {
+        map.putValue(aPath, change);
+        continue;
+      }
+
+      Collection<Change> bucket = map.get(bPath);
+      if (bucket.isEmpty()) {
+        map.putValue(aPath, change);
+        continue;
+      }
+
+      Change oldChange = bucket.iterator().next();
+      bucket.remove(oldChange);
+
+      ContentRevision oldRevision = oldChange.getBeforeRevision();
+      if (oldRevision != null || aRev != null) {
+        map.putValue(aPath, new Change(oldRevision, aRev));
       }
     }
-    changes.add(c);
+
+    // put deletions into appropriate place in list
+    Collection<Change> deleted = map.remove(null);
+    if (deleted != null) {
+      for (Change change : deleted) {
+        //noinspection ConstantConditions
+        map.putValue(change.getBeforeRevision().getFile(), change);
+      }
+    }
+
+    return new ArrayList<>(map.values());
   }
 
   private List<CommittedChangeList> getSelectedChangeLists() {
     return TreeUtil.collectSelectedObjectsOfType(myChangesTree, CommittedChangeList.class);
   }
 
-  public void setTableContextMenu(final ActionGroup group, final List<AnAction> auxiliaryActions) {
+  public void setTableContextMenu(final ActionGroup group, final List<? extends AnAction> auxiliaryActions) {
     DefaultActionGroup menuGroup = new DefaultActionGroup();
     menuGroup.add(group);
     for (AnAction action : auxiliaryActions) {
       menuGroup.add(action);
     }
-    menuGroup.add(ActionManager.getInstance().getAction(IdeActions.ACTION_COPY));
+    menuGroup.add(ActionManager.getInstance().getAction(VcsActions.ACTION_COPY_REVISION_NUMBER));
     PopupHandler.installPopupHandler(myChangesTree, menuGroup, ActionPlaces.UNKNOWN, ActionManager.getInstance());
   }
 
-  public void removeFilteringStrategy(final CommittedChangesFilterKey key) {
+  @Override
+  public void removeFilteringStrategy(@NotNull CommittedChangesFilterKey key) {
     final ChangeListFilteringStrategy strategy = myFilteringStrategy.removeStrategy(key);
     if (strategy != null) {
       strategy.removeChangeListener(myFilterChangeListener);
@@ -327,7 +371,8 @@ public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataP
     myInnerSplitter.remove(key);
   }
 
-  public boolean setFilteringStrategy(final ChangeListFilteringStrategy filteringStrategy) {
+  @Override
+  public boolean setFilteringStrategy(@NotNull ChangeListFilteringStrategy filteringStrategy) {
     if (myInnerSplitter.canAdd()) {
       filteringStrategy.addChangeListener(myFilterChangeListener);
 
@@ -345,7 +390,7 @@ public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataP
   }
 
   public ActionToolbar createGroupFilterToolbar(final Project project, final ActionGroup leadGroup, @Nullable final ActionGroup tailGroup,
-                                                final List<AnAction> extra) {
+                                                final List<? extends AnAction> extra) {
     DefaultActionGroup toolbarGroup = new DefaultActionGroup();
     toolbarGroup.add(leadGroup);
     toolbarGroup.addSeparator();
@@ -353,15 +398,11 @@ public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataP
     toolbarGroup.add(new SelectGroupingAction(project, this));
     final ExpandAllAction expandAllAction = new ExpandAllAction(myChangesTree);
     final CollapseAllAction collapseAllAction = new CollapseAllAction(myChangesTree);
-    expandAllAction.registerCustomShortcutSet(
-      new CustomShortcutSet(KeymapManager.getInstance().getActiveKeymap().getShortcuts(IdeActions.ACTION_EXPAND_ALL)),
-      myChangesTree);
-    collapseAllAction.registerCustomShortcutSet(
-      new CustomShortcutSet(KeymapManager.getInstance().getActiveKeymap().getShortcuts(IdeActions.ACTION_COLLAPSE_ALL)),
-      myChangesTree);
+    expandAllAction.registerCustomShortcutSet(getActiveKeymapShortcuts(IdeActions.ACTION_EXPAND_ALL), myChangesTree);
+    collapseAllAction.registerCustomShortcutSet(getActiveKeymapShortcuts(IdeActions.ACTION_COLLAPSE_ALL), myChangesTree);
     toolbarGroup.add(expandAllAction);
     toolbarGroup.add(collapseAllAction);
-    toolbarGroup.add(ActionManager.getInstance().getAction(IdeActions.ACTION_COPY));
+    toolbarGroup.add(ActionManager.getInstance().getAction(VcsActions.ACTION_COPY_REVISION_NUMBER));
     toolbarGroup.add(new ContextHelpAction(myHelpId));
     if (tailGroup != null) {
       toolbarGroup.add(tailGroup);
@@ -369,68 +410,69 @@ public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataP
     for (AnAction anAction : extra) {
       toolbarGroup.add(anAction);
     }
-    return ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, toolbarGroup, true);
+    return ActionManager.getInstance().createActionToolbar("CommittedChangesTree", toolbarGroup, true);
   }
 
-  public void calcData(DataKey key, DataSink sink) {
-    if (key.equals(VcsDataKeys.CHANGES)) {
-      final Collection<Change> changes = collectChanges(getSelectedChangeLists(), false);
-      sink.put(VcsDataKeys.CHANGES, changes.toArray(new Change[changes.size()]));
-    } else if (key.equals(VcsDataKeys.HAVE_SELECTED_CHANGES)) {
-      final int count = myChangesTree.getSelectionCount();
-      sink.put(VcsDataKeys.HAVE_SELECTED_CHANGES, count > 0 ? Boolean.TRUE : Boolean.FALSE);
+  @Nullable
+  @Override
+  public Object getData(@NotNull String dataId) {
+    if (VcsDataKeys.CHANGES.is(dataId)) {
+      return collectChanges(getSelectedChangeLists(), false).toArray(new Change[0]);
     }
-    else if (key.equals(VcsDataKeys.CHANGES_WITH_MOVED_CHILDREN)) {
-      final Collection<Change> changes = collectChanges(getSelectedChangeLists(), true);
-      sink.put(VcsDataKeys.CHANGES_WITH_MOVED_CHILDREN, changes.toArray(new Change[changes.size()]));
+    if (VcsDataKeys.HAVE_SELECTED_CHANGES.is(dataId)) {
+      return myChangesTree.getSelectionCount() > 0;
     }
-    else if (key.equals(VcsDataKeys.CHANGE_LISTS)) {
-      final List<CommittedChangeList> lists = getSelectedChangeLists();
-      if (!lists.isEmpty()) {
-        sink.put(VcsDataKeys.CHANGE_LISTS, lists.toArray(new CommittedChangeList[lists.size()]));
-      }
+    if (VcsDataKeys.CHANGES_WITH_MOVED_CHILDREN.is(dataId)) {
+      return collectChanges(getSelectedChangeLists(), true).toArray(new Change[0]);
     }
-    else if (key.equals(CommonDataKeys.NAVIGATABLE_ARRAY)) {
-      final Collection<Change> changes = collectChanges(getSelectedChangeLists(), false);
-      Navigatable[] result = ChangesUtil.getNavigatableArray(myProject, ChangesUtil.getFilesFromChanges(changes));
-      sink.put(CommonDataKeys.NAVIGATABLE_ARRAY, result);
+    if (VcsDataKeys.CHANGE_LISTS.is(dataId)) {
+      List<CommittedChangeList> changeLists = getSelectedChangeLists();
+      return !changeLists.isEmpty() ? changeLists.toArray(new CommittedChangeList[0]) : null;
     }
-    else if (key.equals(PlatformDataKeys.HELP_ID)) {
-      sink.put(PlatformDataKeys.HELP_ID, myHelpId);
-    } else if (VcsDataKeys.SELECTED_CHANGES_IN_DETAILS.equals(key)) {
-      final List<Change> selectedChanges = myDetailsView.getSelectedChanges();
-      sink.put(VcsDataKeys.SELECTED_CHANGES_IN_DETAILS, selectedChanges.toArray(new Change[selectedChanges.size()]));
+    if (VcsDataKeys.SELECTED_CHANGES_IN_DETAILS.is(dataId)) {
+      return myDetailsView.getSelectedChanges().toArray(new Change[0]);
     }
+    if (CommonDataKeys.NAVIGATABLE_ARRAY.is(dataId)) {
+      Collection<Change> changes = collectChanges(getSelectedChangeLists(), false);
+      return getNavigatableArray(myProject, getFiles(changes.stream()));
+    }
+    if (PlatformDataKeys.HELP_ID.is(dataId)) {
+      return myHelpId;
+    }
+    return null;
   }
 
   public TreeExpander getTreeExpander() {
     return myTreeExpander;
   }
 
+  @Override
   public void repaintTree() {
     myChangesTree.revalidate();
     myChangesTree.repaint();
   }
 
-  public void install(final CommittedChangeListDecorator decorator) {
+  @Override
+  public void install(@NotNull CommittedChangeListDecorator decorator) {
     myDecorators.add(decorator);
     repaintTree();
   }
 
-  public void remove(final CommittedChangeListDecorator decorator) {
+  @Override
+  public void remove(@NotNull CommittedChangeListDecorator decorator) {
     myDecorators.remove(decorator);
     repaintTree();
   }
 
-  public void reportLoadedLists(final CommittedChangeListsListener listener) {
-    ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
-      public void run() {
-        listener.onBeforeStartReport();
-        for (CommittedChangeList list : myChangeLists) {
-          listener.report(list);
-        }
-        listener.onAfterEndReport();
+  @Override
+  public void reportLoadedLists(@NotNull CommittedChangeListsListener listener) {
+    List<CommittedChangeList> lists = new ArrayList<>(myChangeLists);
+    BackgroundTaskUtil.executeOnPooledThread(this, () -> {
+      listener.onBeforeStartReport();
+      for (CommittedChangeList list : lists) {
+        listener.report(list);
       }
+      listener.onAfterEndReport();
     });
   }
 
@@ -443,18 +485,18 @@ public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataP
     updateModel();
   }
 
-  public void append(final List<CommittedChangeList> list) {
+  public void append(@NotNull List<? extends CommittedChangeList> list) {
     final TreeState state = myChangeLists.isEmpty() && myState != null ? myState :
-      TreeState.createOn(myChangesTree, (DefaultMutableTreeNode)myChangesTree.getModel().getRoot());
+                            TreeState.createOn(myChangesTree, (DefaultMutableTreeNode)myChangesTree.getModel().getRoot());
     state.setScrollToSelection(false);
     myChangeLists.addAll(list);
 
     myFilteringStrategy.appendFilterBase(list);
 
     myChangesTree.setModel(buildTreeModel(myFilteringStrategy.filterChangeLists(myChangeLists)));
-    state.applyTo(myChangesTree, (DefaultMutableTreeNode)myChangesTree.getModel().getRoot());
+    state.applyTo(myChangesTree, myChangesTree.getModel().getRoot());
     TreeUtil.expandAll(myChangesTree);
-    myProject.getMessageBus().syncPublisher(ITEMS_RELOADED).itemsReloaded();
+    BackgroundTaskUtil.syncPublisher(myProject, ITEMS_RELOADED).itemsReloaded();
   }
 
   public static class MoreLauncher implements Runnable {
@@ -466,27 +508,26 @@ public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataP
       myList = list;
     }
 
+    @Override
     public void run() {
       ChangeListDetailsAction.showDetailsPopup(myProject, myList);
     }
   }
 
   private class FilterChangeListener implements ChangeListener {
+    @Override
     public void stateChanged(ChangeEvent e) {
       if (ApplicationManager.getApplication().isDispatchThread()) {
         updateModel();
-      } else {
-        ApplicationManager.getApplication().invokeLater(new Runnable() {
-          public void run() {
-            updateModel();
-          }
-        });
+      }
+      else {
+        ApplicationManager.getApplication().invokeLater(() -> updateModel());
       }
     }
   }
 
-  private class ChangesBrowserTree extends Tree implements TypeSafeDataProvider {
-    public ChangesBrowserTree() {
+  private class ChangesBrowserTree extends Tree implements DataProvider {
+    ChangesBrowserTree() {
       super(buildTreeModel(myFilteringStrategy.filterChangeLists(myChangeLists)));
     }
 
@@ -495,22 +536,21 @@ public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataP
       return true;
     }
 
-    public void calcData(final DataKey key, final DataSink sink) {
-      if (key.equals(PlatformDataKeys.COPY_PROVIDER)) {
-        sink.put(PlatformDataKeys.COPY_PROVIDER, myCopyProvider);
+    @Nullable
+    @Override
+    public Object getData(@NotNull String dataId) {
+      if (PlatformDataKeys.COPY_PROVIDER.is(dataId)) return myCopyProvider;
+      if (PlatformDataKeys.TREE_EXPANDER.is(dataId)) return myTreeExpander;
+      if (VcsDataKeys.SELECTED_CHANGES.is(dataId) ||
+          VcsDataKeys.CHANGE_LEAD_SELECTION.is(dataId) ||
+          CommittedChangesBrowserUseCase.DATA_KEY.is(dataId)) {
+        return myDetailsView.getData(dataId);
       }
-      else if (key.equals(PlatformDataKeys.TREE_EXPANDER)) {
-        sink.put(PlatformDataKeys.TREE_EXPANDER, myTreeExpander);
-      } else {
-        final String name = key.getName();
-        if (VcsDataKeys.SELECTED_CHANGES.is(name) || VcsDataKeys.CHANGE_LEAD_SELECTION.is(name) ||
-            CommittedChangesBrowserUseCase.DATA_KEY.is(name)) {
-          final Object data = myDetailsView.getData(name);
-          if (data != null) {
-            sink.put(key, data);
-          }
-        }
-      }
+      return null;
+    }
+
+    public void invalidateNodeSizes() {
+      TreeUtil.invalidateCacheAndRepaint(getUI());
     }
   }
 
@@ -520,10 +560,30 @@ public class CommittedChangesTreeBrowser extends JPanel implements TypeSafeDataP
   }
 
   public void setLoading(final boolean value) {
-    new AbstractCalledLater(myProject, ModalityState.NON_MODAL) {
-      public void run() {
-        myChangesTree.setPaintBusy(value);
-      }
-    }.callMe();
+    runOrInvokeLaterAboveProgress(() -> myChangesTree.setPaintBusy(value), ModalityState.NON_MODAL, myProject);
+  }
+
+  private static class MyRepositoryChangesViewer extends CommittedChangesBrowser {
+    private final JComponent myHeaderPanel = new JPanel();
+
+    MyRepositoryChangesViewer(Project project) {
+      super(project);
+    }
+
+    @Nullable
+    @Override
+    protected JComponent createHeaderPanel() {
+      return myHeaderPanel;
+    }
+
+    @NotNull
+    @Override
+    protected Border createViewerBorder() {
+      return RIGHT_BORDER;
+    }
+
+    public void syncSizeWithToolbar(@NotNull JComponent toolbar) {
+      myHeaderPanel.setPreferredSize(new Dimension(0, toolbar.getPreferredSize().height));
+    }
   }
 }

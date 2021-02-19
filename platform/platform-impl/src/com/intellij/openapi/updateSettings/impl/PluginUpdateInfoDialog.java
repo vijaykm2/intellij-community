@@ -1,46 +1,35 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.updateSettings.impl;
 
 import com.intellij.ide.IdeBundle;
+import com.intellij.ide.plugins.IdeaPluginDescriptor;
 import com.intellij.ide.plugins.PluginManagerMain;
+import com.intellij.notification.NotificationType;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.ApplicationNamesInfo;
+import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.progress.PerformInBackgroundOption;
 import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
-import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.TableUtil;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.Collection;
+import java.util.List;
 import java.util.Set;
 
 /**
  * @author pti
  */
-class PluginUpdateInfoDialog extends AbstractUpdateDialog {
+final class PluginUpdateInfoDialog extends AbstractUpdateDialog {
   private final Collection<PluginDownloader> myUploadedPlugins;
   private final boolean myPlatformUpdate;
 
-  public PluginUpdateInfoDialog(Collection<PluginDownloader> uploadedPlugins, boolean enableLink) {
+  PluginUpdateInfoDialog(Collection<PluginDownloader> uploadedPlugins, boolean enableLink) {
     super(enableLink);
     myUploadedPlugins = uploadedPlugins;
     myPlatformUpdate = false;
@@ -50,11 +39,16 @@ class PluginUpdateInfoDialog extends AbstractUpdateDialog {
   /**
    * Used from {@link UpdateInfoDialog} when both platform and plugin updates are available.
    */
-  PluginUpdateInfoDialog(Component parent, @NotNull Collection<PluginDownloader> updatePlugins) {
-    super(parent, false);
+  PluginUpdateInfoDialog(@NotNull Collection<PluginDownloader> updatePlugins) {
+    super(false);
     myUploadedPlugins = updatePlugins;
     myPlatformUpdate = true;
     init();
+  }
+
+  @Override
+  protected String getDimensionServiceKey() {
+    return "#com.intellij.openapi.updateSettings.impl.PluginUpdateInfoDialog";
   }
 
   @Override
@@ -77,21 +71,42 @@ class PluginUpdateInfoDialog extends AbstractUpdateDialog {
   protected void doOKAction() {
     super.doOKAction();
 
-    ProgressManager.getInstance().run(new Task.Backgroundable(null, IdeBundle.message("progress.downloading.plugins"), true, PerformInBackgroundOption.DEAF) {
-      @Override
-      public void run(@NotNull ProgressIndicator indicator) {
-        UpdateChecker.saveDisabledToUpdatePlugins();
-        boolean updated = UpdateChecker.installPluginUpdates(myUploadedPlugins, indicator);
-        if (updated && !myPlatformUpdate) {
-          ApplicationManager.getApplication().invokeLater(new Runnable() {
-            @Override
-            public void run() {
-              PluginManagerMain.notifyPluginsUpdated(null);
-            }
-          }, ModalityState.NON_MODAL);
+    if (!myPlatformUpdate) {
+      String message = IdeBundle.message("updates.notification.title", ApplicationNamesInfo.getInstance().getFullProductName());
+      new Task.Backgroundable(null, message, true, PerformInBackgroundOption.DEAF) {
+        @Override
+        public void run(@NotNull ProgressIndicator indicator) {
+          final List<PluginDownloader> downloaders = UpdateInstaller.downloadPluginUpdates(myUploadedPlugins, indicator);
+          if (!downloaders.isEmpty()) {
+            ApplicationManager.getApplication().invokeLater(() -> {
+              final PluginUpdateResult result = UpdateInstaller.installDownloadedPluginUpdates(downloaders, getContentPanel(), true);
+              if (result.getPluginsInstalled().size() > 0) {
+                if (result.getRestartRequired()) {
+                  PluginManagerMain.notifyPluginsUpdated(null);
+                }
+                else {
+                  String message = notificationText(result);
+                  UpdateChecker.getNotificationGroupForUpdateResults()
+                    .createNotification(message, NotificationType.INFORMATION, "plugins.updated.without.restart")
+                    .notify(myProject);
+                }
+              }
+            });
+          }
         }
-      }
-    });
+      }.queue();
+    }
+  }
+
+  static @NlsContexts.NotificationContent @NotNull String notificationText(@NotNull PluginUpdateResult result) {
+    if (result.getPluginsInstalled().size() == 1) {
+      IdeaPluginDescriptor installedPlugin = result.getPluginsInstalled().get(0);
+      return IdeBundle.message("notification.content.updated.plugin.to.version", installedPlugin.getName(), installedPlugin.getVersion());
+    }
+    else {
+      return IdeBundle.message("notification.content.updated.plugins",
+                               StringUtil.join(result.getPluginsInstalled(), plugin -> plugin.getName(), ", "));
+    }
   }
 
   private class PluginUpdateInfoPanel {
@@ -100,29 +115,27 @@ class PluginUpdateInfoDialog extends AbstractUpdateDialog {
     private JPanel myPluginsPanel;
     private JEditorPane myMessageArea;
 
-    public PluginUpdateInfoPanel() {
+    PluginUpdateInfoPanel() {
       myPluginsToUpdateLabel.setVisible(true);
       myPluginsPanel.setVisible(true);
 
-      final DetectedPluginsPanel foundPluginsPanel = new DetectedPluginsPanel();
+      DetectedPluginsPanel foundPluginsPanel = new DetectedPluginsPanel();
       foundPluginsPanel.addAll(myUploadedPlugins);
       TableUtil.ensureSelectionExists(foundPluginsPanel.getEntryTable());
-      foundPluginsPanel.addStateListener(new DetectedPluginsPanel.Listener() {
-        @Override
-        public void stateChanged() {
-          final Set<String> skipped = foundPluginsPanel.getSkippedPlugins();
-          final PluginDownloader any = ContainerUtil.find(myUploadedPlugins, new Condition<PluginDownloader>() {
-            @Override
-            public boolean value(PluginDownloader plugin) {
-              return !skipped.contains(plugin.getPluginId());
-            }
-          });
-          getOKAction().setEnabled(any != null);
-        }
-      });
+      foundPluginsPanel.addStateListener(() -> updateState(foundPluginsPanel));
       myPluginsPanel.add(foundPluginsPanel, BorderLayout.CENTER);
 
       configureMessageArea(myMessageArea);
+
+      updateState(foundPluginsPanel);
+    }
+
+    private void updateState(DetectedPluginsPanel panel) {
+      if (!myPlatformUpdate) {
+        Set<PluginId> skipped = panel.getSkippedPlugins();
+        boolean nothingSelected = myUploadedPlugins.stream().allMatch(plugin -> skipped.contains(plugin.getId()));
+        getOKAction().setEnabled(!nothingSelected);
+      }
     }
   }
 }

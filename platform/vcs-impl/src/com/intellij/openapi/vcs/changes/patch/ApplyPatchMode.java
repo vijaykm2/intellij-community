@@ -16,25 +16,25 @@
 package com.intellij.openapi.vcs.changes.patch;
 
 import com.intellij.openapi.vcs.VcsBundle;
+import com.intellij.openapi.util.NlsContexts;
 
 /**
  * @author irengrig
- *         Date: 2/25/11
- *         Time: 5:23 PM
  */
 public enum ApplyPatchMode {
   APPLY(VcsBundle.message("patch.apply.dialog.title"), true),
   UNSHELVE(VcsBundle.message("unshelve.changes.dialog.title"), false),
   APPLY_PATCH_IN_MEMORY(VcsBundle.message("patch.apply.dialog.title"), false);
 
-  private final String myTitle;
+  private final @NlsContexts.DialogTitle String myTitle;
   private final boolean myCanChangePatchFile;
 
-  ApplyPatchMode(String title, boolean canChangePatchFile) {
+  ApplyPatchMode(@NlsContexts.DialogTitle String title, boolean canChangePatchFile) {
     myTitle = title;
     myCanChangePatchFile = canChangePatchFile;
   }
 
+  @NlsContexts.DialogTitle
   public String getTitle() {
     return myTitle;
   }

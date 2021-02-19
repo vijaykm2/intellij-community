@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,12 @@
  */
 package com.intellij.refactoring.typeCook;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiTypeCastExpression;
 import com.intellij.refactoring.BaseRefactoringProcessor;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.typeCook.deductive.builder.ReductionSystem;
 import com.intellij.refactoring.typeCook.deductive.builder.Result;
 import com.intellij.refactoring.typeCook.deductive.builder.SystemBuilder;
@@ -28,9 +28,12 @@ import com.intellij.refactoring.typeCook.deductive.resolver.Binding;
 import com.intellij.refactoring.typeCook.deductive.resolver.ResolverTree;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewDescriptor;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 public class TypeCookProcessor extends BaseRefactoringProcessor {
   private PsiElement[] myElements;
@@ -44,13 +47,14 @@ public class TypeCookProcessor extends BaseRefactoringProcessor {
     mySettings = settings;
   }
 
+  @Override
   @NotNull
-  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo[] usages) {
+  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo @NotNull [] usages) {
     return new TypeCookViewDescriptor(myElements);
   }
 
-  @NotNull
-  protected UsageInfo[] findUsages() {
+  @Override
+  protected UsageInfo @NotNull [] findUsages() {
     final SystemBuilder systemBuilder = new SystemBuilder(myProject, mySettings);
 
     final ReductionSystem commonSystem = systemBuilder.build(myElements);
@@ -79,6 +83,7 @@ public class TypeCookProcessor extends BaseRefactoringProcessor {
     for (final PsiElement element : changedItems) {
       if (!(element instanceof PsiTypeCastExpression)) {
         usages[i++] = new UsageInfo(element) {
+          @Override
           public String getTooltipText() {
             return myResult.getCookedType(element).getCanonicalText();
           }
@@ -92,12 +97,14 @@ public class TypeCookProcessor extends BaseRefactoringProcessor {
     return usages;
   }
 
-  protected void refreshElements(PsiElement[] elements) {
+  @Override
+  protected void refreshElements(PsiElement @NotNull [] elements) {
     myElements = elements;
   }
 
-  protected void performRefactoring(UsageInfo[] usages) {
-    final Set<PsiElement> victims = new HashSet<PsiElement>();
+  @Override
+  protected void performRefactoring(UsageInfo @NotNull [] usages) {
+    final Set<PsiElement> victims = new HashSet<>();
 
     for (UsageInfo usage : usages) {
       victims.add(usage.getElement());
@@ -113,11 +120,13 @@ public class TypeCookProcessor extends BaseRefactoringProcessor {
     return true;
   }
 
+  @Override
+  @NotNull
   protected String getCommandName() {
-    return RefactoringBundle.message("type.cook.command");
+    return JavaRefactoringBundle.message("type.cook.command");
   }
 
   public List<PsiElement> getElements() {
-    return Collections.unmodifiableList(Arrays.asList(myElements));
+    return ContainerUtil.immutableList(myElements);
   }
 }

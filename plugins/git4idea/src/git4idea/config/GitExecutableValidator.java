@@ -16,61 +16,47 @@
 package git4idea.config;
 
 import com.intellij.execution.ExecutableValidator;
-import com.intellij.execution.configurations.GeneralCommandLine;
-import com.intellij.execution.process.CapturingProcessHandler;
-import com.intellij.execution.process.ProcessOutput;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.vcs.VcsException;
-import com.intellij.openapi.vfs.CharsetToolkit;
 import git4idea.i18n.GitBundle;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * Project service that is used to check whether currently set git executable is valid (just calls 'git version' and parses the output),
  * and to display notification to the user proposing to fix the project set up.
+ *
  * @author Kirill Likhodedov
+ * @deprecated in favor of {@link GitExecutableManager#identifyVersion(String)} and {@link GitExecutableProblemsNotifier}
  */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
 public class GitExecutableValidator extends ExecutableValidator {
-
   public GitExecutableValidator(@NotNull Project project) {
     super(project, GitBundle.message("git.executable.notification.title"), GitBundle.message("git.executable.notification.description"));
   }
 
   @Override
   protected String getCurrentExecutable() {
-    return GitVcsApplicationSettings.getInstance().getPathToGit();
+    GitExecutable executable = GitExecutableManager.getInstance().getExecutable(myProject);
+    if (executable instanceof GitExecutable.Local) return executable.getExePath();
+    return "";
   }
 
   @NotNull
   @Override
   protected String getConfigurableDisplayName() {
-    return GitVcsConfigurable.DISPLAY_NAME;
+    return GitBundle.message("settings.git.option.group");
   }
 
   @Override
-  public boolean isExecutableValid(@NotNull String executable) {
+  public boolean isExecutableValid(@NotNull String pathToGit) {
     try {
-      GeneralCommandLine commandLine = new GeneralCommandLine();
-      commandLine.setExePath(executable);
-      commandLine.addParameter("--version");
-      CapturingProcessHandler handler = new CapturingProcessHandler(commandLine.createProcess(), CharsetToolkit.getDefaultSystemCharset());
-      ProcessOutput result = handler.runProcess(30 * 1000);
-      return !result.isTimeout() && (result.getExitCode() == 0) && result.getStderr().isEmpty();
-    } catch (Throwable e) {
-      return false;
+      GitExecutable.Local executable = new GitExecutable.Local(pathToGit);
+      GitVersion version = GitExecutableManager.getInstance().identifyVersion(executable);
+      return !GitVersion.NULL.equals(version);
     }
-  }
-
-  /**
-   * Checks if git executable is valid. If not (which is a common case for low-level vcs exceptions), shows the
-   * notification. Otherwise throws the exception.
-   * This is to be used in catch-clauses
-   * @param e exception which was thrown.
-   * @throws VcsException if git executable is valid.
-   */
-   public void showNotificationOrThrow(VcsException e) throws VcsException {
-    if (checkExecutableAndNotifyIfNeeded()) {
-      throw e;
+    catch (GitVersionIdentificationException e) {
+      return false;
     }
   }
 }

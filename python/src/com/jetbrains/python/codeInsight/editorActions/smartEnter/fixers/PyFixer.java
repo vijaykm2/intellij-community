@@ -25,8 +25,6 @@ import org.jetbrains.annotations.NotNull;
 /**
  * Created by IntelliJ IDEA.
  * Author: Alexey.Ivanov
- * Date:   15.04.2010
- * Time:   17:10:33
  */
 public abstract class PyFixer<T extends PyElement> {
   private final Class<T> myClass;
@@ -35,13 +33,17 @@ public abstract class PyFixer<T extends PyElement> {
     myClass = aClass;
   }
 
+  @SuppressWarnings("unchecked")
   public final void apply(@NotNull Editor editor, @NotNull PySmartEnterProcessor processor, @NotNull PsiElement element)
     throws IncorrectOperationException {
-    if (myClass.isInstance(element)) {
-      //noinspection unchecked
+    if (myClass.isInstance(element) && isApplicable(editor, (T)element)) {
       doApply(editor, processor, (T)element);
     }
   }
+  
+  protected boolean isApplicable(@NotNull Editor editor, @NotNull T element) {
+    return myClass.isInstance(element);
+  }
 
-  public abstract void doApply(@NotNull Editor editor, @NotNull PySmartEnterProcessor processor, @NotNull T element);
+  protected abstract void doApply(@NotNull Editor editor, @NotNull PySmartEnterProcessor processor, @NotNull T element);
 }

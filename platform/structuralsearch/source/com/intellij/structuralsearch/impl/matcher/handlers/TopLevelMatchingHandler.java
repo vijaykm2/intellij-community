@@ -1,16 +1,13 @@
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.impl.matcher.handlers;
 
 import com.intellij.dupLocator.iterators.NodeIterator;
-import com.intellij.dupLocator.iterators.SiblingNodeIterator;
 import com.intellij.psi.PsiComment;
 import com.intellij.psi.PsiElement;
 import com.intellij.structuralsearch.StructuralSearchUtil;
 import com.intellij.structuralsearch.impl.matcher.MatchContext;
 import com.intellij.structuralsearch.impl.matcher.iterators.SsrFilteringNodeIterator;
 import org.jetbrains.annotations.NotNull;
-
-import java.util.ArrayList;
-import java.util.List;
 
 public final class TopLevelMatchingHandler extends MatchingHandler implements DelegatingHandler {
   private final MatchingHandler delegate;
@@ -20,16 +17,11 @@ public final class TopLevelMatchingHandler extends MatchingHandler implements De
     setFilter(_delegate.getFilter());
   }
 
-  public boolean match(final PsiElement patternNode, final PsiElement matchedNode, final MatchContext matchContext) {
+  @Override
+  public boolean match(final PsiElement patternNode, final PsiElement matchedNode, final @NotNull MatchContext matchContext) {
     final boolean matched = delegate.match(patternNode, matchedNode, matchContext);
 
     if (matched) {
-      List<PsiElement> matchedNodes = matchContext.getMatchedNodes();
-      if (matchedNodes == null) {
-        matchedNodes = new ArrayList<PsiElement>();
-        matchContext.setMatchedNodes(matchedNodes);
-      }
-
       PsiElement elementToAdd = matchedNode;
 
       if (patternNode instanceof PsiComment && StructuralSearchUtil.isDocCommentOwner(matchedNode)) {
@@ -39,38 +31,33 @@ public final class TopLevelMatchingHandler extends MatchingHandler implements De
         assert elementToAdd instanceof PsiComment;
       }
 
-      matchedNodes.add(elementToAdd);
+      matchContext.addMatchedNode(elementToAdd);
     }
 
     if ((!matched || matchContext.getOptions().isRecursiveSearch()) &&
         matchContext.getPattern().getStrategy().continueMatching(matchedNode) &&
         matchContext.shouldRecursivelyMatch()
        ) {
-      matchContext.getMatcher().matchContext(
-        new SsrFilteringNodeIterator(
-          new SiblingNodeIterator(matchedNode.getFirstChild())
-        )
-      );
+      final PsiElement child = matchedNode.getFirstChild();
+      if (child != null) {
+        matchContext.getMatcher().matchContext(SsrFilteringNodeIterator.create(child));
+      }
     }
     return matched;
   }
 
   @Override
-  public boolean canMatch(PsiElement patternNode, PsiElement matchedNode) {
-    return delegate.canMatch(patternNode, matchedNode);
+  public boolean canMatch(@NotNull PsiElement patternNode, PsiElement matchedNode, @NotNull MatchContext context) {
+    return delegate.canMatch(patternNode, matchedNode, context);
   }
 
   @Override
-  public boolean matchSequentially(final NodeIterator nodes, final NodeIterator nodes2, final MatchContext context) {
-    return delegate.matchSequentially(nodes, nodes2, context);
+  public boolean matchSequentially(final @NotNull NodeIterator patternNodes, final @NotNull NodeIterator matchNodes, final @NotNull MatchContext context) {
+    return delegate.matchSequentially(patternNodes, matchNodes, context);
   }
 
-  public boolean match(final PsiElement patternNode,
-                       final PsiElement matchedNode, final int start, final int end, final MatchContext context) {
-    return match(patternNode, matchedNode, context);
-  }
-
-  public boolean isMatchSequentiallySucceeded(final NodeIterator nodes2) {
+  @Override
+  public boolean isMatchSequentiallySucceeded(final @NotNull NodeIterator matchNodes) {
     return true;
   }
 
@@ -79,6 +66,7 @@ public final class TopLevelMatchingHandler extends MatchingHandler implements De
     return delegate.shouldAdvanceTheMatchFor(patternElement, matchedElement);
   }
 
+  @Override
   public MatchingHandler getDelegate() {
     return delegate;
   }

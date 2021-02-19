@@ -16,12 +16,12 @@
 package com.siyeh.ig.assignment;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
-public class AssignmentToSuperclassFieldInspectionTest extends LightInspectionTestCase {
+public class AssignmentToSuperclassFieldInspectionTest extends LightJavaInspectionTestCase {
 
-  public void testAssignmentToSuperclassField() throws Exception {
+  public void testAssignmentToSuperclassField() {
     doTest();
   }
 

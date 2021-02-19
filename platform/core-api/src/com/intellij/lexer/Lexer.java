@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,35 +15,55 @@
  */
 package com.intellij.lexer;
 
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.tree.IElementType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * Interface for breaking a file into a sequence of tokens.
+ *
  * @see LexerBase for certain methods' implementation
  */
 public abstract class Lexer {
+  private static final Logger LOG = Logger.getInstance(Lexer.class);
+  private static final long LEXER_START_THRESHOLD = 500;
 
   /**
-   * Prepare for lexing character data from <code>buffer</code> passed. Internal lexer state is supposed to be <code>initialState</code>. It is guaranteed
-   * that the value of initialState has been returned by {@link #getState()} method of this <code>Lexer</code> at condition <code>startOffset=getTokenStart()</code>
-   * This method is used to incrementally relex changed characters using lexing data acquired from this particular lexer sometime in the past.
+   * Prepare for lexing character data from {@code buffer} passed. Internal lexer state is supposed to be {@code initialState}. It is guaranteed
+   * that the value of initialState is the same as returned by {@link #getState()} method of this lexer at condition {@code startOffset=getTokenStart()}.
+   * This method is used to incrementally re-lex changed characters using lexing data acquired from this particular lexer sometime in the past.
    *
    * @param buffer       character data for lexing.
    * @param startOffset  offset to start lexing from
    * @param endOffset    offset to stop lexing at
    * @param initialState the initial state of the lexer.
-   * @since IDEA 7
    */
   public abstract void start(@NotNull CharSequence buffer, int startOffset, int endOffset, int initialState);
 
+  private void startMeasured(@NotNull CharSequence buffer, int startOffset, int endOffset, int initialState) {
+    if (!LOG.isDebugEnabled()) {
+      start(buffer, startOffset, endOffset, initialState);
+      return;
+    }
+    long start = System.currentTimeMillis();
+    start(buffer, startOffset, endOffset, initialState);
+    long startDuration = System.currentTimeMillis() - start;
+    if (startDuration > LEXER_START_THRESHOLD) {
+      LOG.debug("Starting lexer took: ", startDuration,
+                "; at ", startOffset, " - ", endOffset, "; state: ", initialState,
+                "; text: ", StringUtil.shortenTextWithEllipsis(buffer.toString(), 1024, 500)
+      );
+    }
+  }
+
   public final void start(@NotNull CharSequence buf, int start, int end) {
-    start(buf, start, end, 0);
+    startMeasured(buf, start, end, 0);
   }
 
   public final void start(@NotNull CharSequence buf) {
-    start(buf, 0, buf.length(), 0);
+    startMeasured(buf, 0, buf.length(), 0);
   }
 
   @NotNull
@@ -64,7 +84,7 @@ public abstract class Lexer {
   public abstract int getState();
 
   /**
-   * Returns the token at the current position of the lexer or <code>null</code> if lexing is finished.
+   * Returns the token at the current position of the lexer or {@code null} if lexing is finished.
    *
    * @return the current token.
    */
@@ -108,17 +128,17 @@ public abstract class Lexer {
 
   /**
    * Returns the buffer sequence over which the lexer is running. This method should return the
-   * same buffer instance which was passed to the <code>start()</code> method.
+   * same buffer instance which was passed to the {@code start()} method.
+   *
    * @return the lexer buffer.
-   * @since IDEA 7
    */
   @NotNull
   public abstract CharSequence getBufferSequence();
 
   /**
    * Returns the offset at which the lexer will stop lexing. This method should return
-   * the length of the buffer or the value passed in the <code>endOffset</code> parameter
-   * to the <code>start()</code> method.
+   * the length of the buffer or the value passed in the {@code endOffset} parameter
+   * to the {@code start()} method.
    *
    * @return the lexing end offset
    */

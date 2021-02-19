@@ -36,20 +36,22 @@ import org.intellij.lang.xpath.validation.ExpectedTypeUtil;
 import org.intellij.lang.xpath.xslt.XsltSupport;
 import org.intellij.lang.xpath.xslt.psi.XsltVariable;
 import org.intellij.lang.xpath.xslt.util.XsltCodeInsightUtil;
+import org.intellij.plugins.xpathView.XPathBundle;
 
 import javax.xml.namespace.QName;
 import java.util.List;
 import java.util.Set;
 
-@SuppressWarnings({"ComponentNotRegistered"})
 public class XsltExtractFunctionAction extends BaseIntroduceAction<RefactoringOptions> {
 
+  @Override
   public String getRefactoringName() {
-    return "Extract Function";
+    return XPathBundle.message("dialog.title.extract.function");
   }
 
+  @Override
   protected String getCommandName() {
-    return "Extract XSLT Function";
+    return XPathBundle.message("command.name.extract.xslt.function");
   }
 
   @Override
@@ -59,6 +61,7 @@ public class XsltExtractFunctionAction extends BaseIntroduceAction<RefactoringOp
     return super.actionPerformedImpl(file, editor, context, offset);
   }
 
+  @Override
   protected boolean extractImpl(XPathExpression expression, Set<XPathExpression> matchingExpressions, List<XmlTag> otherMatches, RefactoringOptions dlg) {
     final XmlAttribute attribute = PsiTreeUtil.getContextOfType(expression, XmlAttribute.class, true);
     assert attribute != null;
@@ -136,19 +139,22 @@ public class XsltExtractFunctionAction extends BaseIntroduceAction<RefactoringOp
     return type.getName();
   }
 
+  @Override
   protected RefactoringOptions getSettings(XPathExpression expression, Set<XPathExpression> matchingExpressions) {
-    final String name = Messages.showInputDialog(expression.getProject(), "Function Name: ", getRefactoringName(), Messages.getQuestionIcon());
+    final String name = Messages.showInputDialog(expression.getProject(), XPathBundle.message("dialog.message.function.name"), getRefactoringName(), Messages.getQuestionIcon());
     final boolean[] b = new boolean[]{false};
     if (name != null) {
       final String[] parts = name.split(":", 2);
       if (parts.length < 2) {
-        Messages.showMessageDialog(expression.getProject(), "Custom functions require a prefixed name", "Error", Messages.getErrorIcon());
+        Messages.showMessageDialog(expression.getProject(), XPathBundle.message("dialog.message.custom.functions.require.prefixed.name"),
+                                   XPathBundle.message("dialog.title.error"), Messages.getErrorIcon());
         b[0] = true;
       }
       final XmlElement context = PsiTreeUtil.getContextOfType(expression, XmlElement.class);
       final NamespaceContext namespaceContext = expression.getXPathContext().getNamespaceContext();
       if (namespaceContext != null && context != null && namespaceContext.resolve(parts[0], context) == null) {
-        Messages.showMessageDialog(expression.getProject(), "Prefix '" + parts[0] + "' is not defined", "Error", Messages.getErrorIcon());
+        Messages.showMessageDialog(expression.getProject(), XPathBundle.message("dialog.message.prefix.not.defined", parts[0]),
+                                   XPathBundle.message("dialog.title.error"), Messages.getErrorIcon());
         b[0] = true;
       }
     }

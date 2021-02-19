@@ -1,21 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.ui.configuration.projectRoot;
 
-import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.application.ApplicationManager;
@@ -30,84 +16,116 @@ import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.ui.MasterDetailsComponent;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.NlsContexts.ListItem;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.Consumer;
 import com.intellij.util.EventDispatcher;
+import com.intellij.util.ObjectUtils;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.*;
 
+import static com.intellij.openapi.util.NlsActions.*;
+
 /**
  * @author anna
- * @since 05-Jun-2006
  */
 public class ProjectSdksModel implements SdkModel {
-  private static final Logger LOG = Logger.getInstance("com.intellij.openapi.roots.ui.configuration.projectRoot.ProjectSdksModel");
+  private static final Logger LOG = Logger.getInstance(ProjectSdksModel.class);
 
-  private final HashMap<Sdk, Sdk> myProjectSdks = new HashMap<Sdk, Sdk>();
+  private final HashMap<Sdk, Sdk> myProjectSdks = new HashMap<>();
   private final EventDispatcher<Listener> mySdkEventsDispatcher = EventDispatcher.create(Listener.class);
 
-  private boolean myModified = false;
+  private boolean myModified;
 
   private Sdk myProjectSdk;
-  private boolean myInitialized = false;
+  private boolean myInitialized;
 
+  @NotNull
   @Override
   public Listener getMulticaster() {
     return mySdkEventsDispatcher.getMulticaster();
   }
 
   @Override
-  public Sdk[] getSdks() {
-    return myProjectSdks.values().toArray(new Sdk[myProjectSdks.size()]);
+  public Sdk @NotNull [] getSdks() {
+    return myProjectSdks.values().toArray(new Sdk[0]);
   }
 
   @Override
   @Nullable
-  public Sdk findSdk(String sdkName) {
+  public Sdk findSdk(@NotNull String sdkName) {
     for (Sdk projectJdk : myProjectSdks.values()) {
-      if (Comparing.strEqual(projectJdk.getName(), sdkName)) return projectJdk;
+      if (sdkName.equals(projectJdk.getName())) return projectJdk;
     }
     return null;
   }
 
   @Override
-  public void addListener(Listener listener) {
+  public void addListener(@NotNull Listener listener) {
     mySdkEventsDispatcher.addListener(listener);
   }
 
   @Override
-  public void removeListener(Listener listener) {
+  public void removeListener(@NotNull Listener listener) {
     mySdkEventsDispatcher.removeListener(listener);
+  }
+
+  public void syncSdks() {
+    final Sdk[] projectSdks = ProjectJdkTable.getInstance().getAllJdks();
+    for (Sdk sdk : projectSdks) {
+      if (myProjectSdks.containsKey(sdk) || myProjectSdks.containsValue(sdk)) continue;
+
+      Sdk editableCopy;
+      try {
+        editableCopy = (Sdk)sdk.clone();
+      }
+      catch (CloneNotSupportedException e) {
+        LOG.error(e);
+        continue;
+      }
+
+      myProjectSdks.put(sdk, editableCopy);
+      SdkDownloadTracker.getInstance().registerEditableSdk(sdk, editableCopy);
+      getMulticaster().sdkAdded(editableCopy);
+    }
   }
 
   public void reset(@Nullable Project project) {
     myProjectSdks.clear();
-    final Sdk[] projectSdks = ProjectJdkTable.getInstance().getAllJdks();
+    ProjectJdkTable jdkTable = ProjectJdkTable.getInstance();
+    jdkTable.preconfigure();
+    final Sdk[] projectSdks = jdkTable.getAllJdks();
     for (Sdk sdk : projectSdks) {
       try {
-        myProjectSdks.put(sdk, (Sdk)sdk.clone());
+        Sdk editable = (Sdk)sdk.clone();
+        myProjectSdks.put(sdk, editable);
+        SdkDownloadTracker.getInstance().registerEditableSdk(sdk, editable);
       }
       catch (CloneNotSupportedException e) {
         LOG.error(e);
       }
     }
     if (project != null) {
-      myProjectSdk = findSdk(ProjectRootManager.getInstance(project).getProjectSdkName());
+      String sdkName = ProjectRootManager.getInstance(project).getProjectSdkName();
+      myProjectSdk = sdkName == null ? null : findSdk(sdkName);
     }
     myModified = false;
     myInitialized = true;
   }
 
   public void disposeUIResources() {
+    myProjectSdks.values().forEach(it -> ObjectUtils.consumeIfCast(it, Disposable.class, Disposer::dispose));
     myProjectSdks.clear();
     myInitialized = false;
   }
 
+  @NotNull
   public HashMap<Sdk, Sdk> getProjectSdks() {
     return myProjectSdks;
   }
@@ -129,58 +147,61 @@ public class ProjectSdksModel implements SdkModel {
     if (!canApply(errorString, configurable, addedOnly)) {
       throw new ConfigurationException(errorString[0]);
     }
-    final Sdk[] allFromTable = ProjectJdkTable.getInstance().getAllJdks();
-    final ArrayList<Sdk> itemsInTable = new ArrayList<Sdk>();
-    // Delete removed and fill itemsInTable
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      @Override
-      public void run() {
-        final ProjectJdkTable jdkTable = ProjectJdkTable.getInstance();
-        for (final Sdk tableItem : allFromTable) {
-          if (myProjectSdks.containsKey(tableItem)) {
-            itemsInTable.add(tableItem);
-          }
-          else {
-            jdkTable.removeJdk(tableItem);
-          }
-        }
-      }
-    });
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      @Override
-      public void run() {
-        // Now all removed items are deleted from table, itemsInTable contains all items in table
-        final ProjectJdkTable jdkTable = ProjectJdkTable.getInstance();
-        for (Sdk originalJdk : itemsInTable) {
-          final Sdk modifiedJdk = myProjectSdks.get(originalJdk);
-          LOG.assertTrue(modifiedJdk != null);
-          LOG.assertTrue(originalJdk != modifiedJdk);
-          jdkTable.updateJdk(originalJdk, modifiedJdk);
-        }
-        // Add new items to table
-        final Sdk[] allJdks = jdkTable.getAllJdks();
-        for (final Sdk projectJdk : myProjectSdks.keySet()) {
-          LOG.assertTrue(projectJdk != null);
-          if (ArrayUtilRt.find(allJdks, projectJdk) == -1) {
-            jdkTable.addJdk(projectJdk);
-            jdkTable.updateJdk(projectJdk, myProjectSdks.get(projectJdk));
-          }
-        }
-      }
-    });
+
+    doApply();
     myModified = false;
   }
 
-  private boolean canApply(String[] errorString, @Nullable MasterDetailsComponent rootConfigurable, boolean addedOnly) throws ConfigurationException {
+  private void doApply() {
+    ApplicationManager.getApplication().runWriteAction(() -> {
+      final ArrayList<Sdk> itemsInTable = new ArrayList<>();
+      final ProjectJdkTable jdkTable = ProjectJdkTable.getInstance();
+      final Sdk[] allFromTable = jdkTable.getAllJdks();
 
-    LinkedHashMap<Sdk, Sdk> sdks = new LinkedHashMap<Sdk, Sdk>(myProjectSdks);
+      // Delete removed and fill itemsInTable
+      for (final Sdk tableItem : allFromTable) {
+        if (myProjectSdks.containsKey(tableItem)) {
+          itemsInTable.add(tableItem);
+        }
+        else {
+          jdkTable.removeJdk(tableItem);
+        }
+      }
+
+      // Now all removed items are deleted from table, itemsInTable contains all items in table
+      for (Sdk originalJdk : itemsInTable) {
+        final Sdk modifiedJdk = myProjectSdks.get(originalJdk);
+        LOG.assertTrue(modifiedJdk != null);
+        LOG.assertTrue(originalJdk != modifiedJdk);
+        jdkTable.updateJdk(originalJdk, modifiedJdk);
+      }
+      // Add new items to table
+      final Sdk[] allJdks = jdkTable.getAllJdks();
+      for (final Sdk projectJdk : myProjectSdks.keySet()) {
+        LOG.assertTrue(projectJdk != null);
+        if (ArrayUtilRt.find(allJdks, projectJdk) == -1) {
+          jdkTable.addJdk(projectJdk);
+          jdkTable.updateJdk(projectJdk, myProjectSdks.get(projectJdk));
+
+          SdkDownloadTracker.getInstance().tryRegisterSdkDownloadFailureHandler(projectJdk, () -> {
+            ApplicationManager.getApplication().runWriteAction(() -> {
+              ProjectJdkTable.getInstance().removeJdk(projectJdk);
+            });
+          });
+        }
+      }
+    });
+  }
+
+  private boolean canApply(String @NotNull [] errorString, @Nullable MasterDetailsComponent rootConfigurable, boolean addedOnly) throws ConfigurationException {
+    Map<Sdk, Sdk> sdks = new LinkedHashMap<>(myProjectSdks);
     if (addedOnly) {
       Sdk[] allJdks = ProjectJdkTable.getInstance().getAllJdks();
       for (Sdk jdk : allJdks) {
         sdks.remove(jdk);
       }
     }
-    ArrayList<String> allNames = new ArrayList<String>();
+    ArrayList<String> allNames = new ArrayList<>();
     Sdk itemWithError = null;
     for (Sdk currItem : sdks.values()) {
       String currName = currItem.getName();
@@ -219,7 +240,7 @@ public class ProjectSdksModel implements SdkModel {
     return false;
   }
 
-  public void removeSdk(final Sdk editableObject) {
+  public void removeSdk(@NotNull Sdk editableObject) {
     Sdk projectJdk = null;
     for (Sdk jdk : myProjectSdks.keySet()) {
       if (myProjectSdks.get(jdk) == editableObject) {
@@ -229,56 +250,247 @@ public class ProjectSdksModel implements SdkModel {
     }
     if (projectJdk != null) {
       myProjectSdks.remove(projectJdk);
+      SdkDownloadTracker.getInstance().onSdkRemoved(projectJdk);
       mySdkEventsDispatcher.getMulticaster().beforeSdkRemove(projectJdk);
       myModified = true;
     }
   }
 
-  public void createAddActions(DefaultActionGroup group, final JComponent parent, final Consumer<Sdk> updateTree) {
-    createAddActions(group, parent, updateTree, null);
+  public void createAddActions(@NotNull DefaultActionGroup group,
+                               @NotNull final JComponent parent,
+                               @NotNull final Consumer<? super Sdk> updateTree,
+                               @Nullable Condition<? super SdkTypeId> filter) {
+    createAddActions(group, parent, null, updateTree, filter);
   }
 
-  public void createAddActions(DefaultActionGroup group,
-                               final JComponent parent,
-                               final Consumer<Sdk> updateTree,
-                               @Nullable Condition<SdkTypeId> filter) {
-    final SdkType[] types = SdkType.getAllTypes();
-    for (final SdkType type : types) {
-      if (filter != null && !filter.value(type)) continue;
-      final AnAction addAction = new DumbAwareAction(type.getPresentableName(), null, type.getIconForAddAction()) {
+  @NotNull
+  private static List<SdkType> getAddableSdkTypes(@Nullable Condition<? super SdkTypeId> filter) {
+    return ContainerUtil.filter(SdkType.getAllTypes(), type ->
+      type.allowCreationByUser() && (filter == null || filter.value(type))
+    );
+  }
+
+  public void createAddActions(@NotNull DefaultActionGroup group,
+                               @NotNull final JComponent parent,
+                               @Nullable final Sdk selectedSdk,
+                               @NotNull final Consumer<? super Sdk> updateTree,
+                               @Nullable Condition<? super SdkTypeId> filter) {
+
+    Map<SdkType, NewSdkAction> downloadActions = createDownloadActions(filter);
+    Map<SdkType, NewSdkAction> defaultAddActions = createAddActions(filter);
+
+    for (SdkType type : getAddableSdkTypes(filter)) {
+      NewSdkAction downloadAction = downloadActions.get(type);
+      if (downloadAction != null) {
+        group.add(downloadAction.setOverrides(selectedSdk, parent, updateTree));
+      }
+      NewSdkAction defaultAction = defaultAddActions.get(type);
+      if (defaultAction != null) {
+        group.add(defaultAction.setOverrides(selectedSdk, parent, updateTree));
+      }
+    }
+  }
+
+  public static abstract class NewSdkAction extends DumbAwareAction {
+    private final SdkType mySdkType;
+
+    private Sdk mySelectedSdkOverride;
+    private JComponent myParentOverride;
+    private Consumer<? super Sdk> myCallbackOverride;
+
+    @NotNull @ListItem private final String myListItemText;
+    /** this is the text that is shown for the item in the nested list pop-up of SdkPopup **/
+    @NotNull @ListItem private final String myListSubItemText;
+
+    private NewSdkAction(@NotNull SdkType sdkType,
+                         @NotNull @ActionText String actionText,
+                         @NotNull @ListItem String listItemText,
+                         @NotNull @ListItem String listSubItemText,
+                         @Nullable Icon icon) {
+      super(actionText, null, icon);
+      myListItemText = listItemText;
+      myListSubItemText = listSubItemText;
+      mySdkType = sdkType;
+    }
+
+    @NotNull
+    @ListItem
+    public final String getListItemText() {
+      return myListItemText;
+    }
+
+    @NotNull
+    @ListItem
+    public final String getListSubItemText() {
+      return myListSubItemText;
+    }
+
+    @NotNull
+    NewSdkAction setOverrides(@Nullable Sdk selectedSdkFallback,
+                              @NotNull JComponent parentFallback,
+                              @NotNull Consumer<? super Sdk> callbackFallback) {
+      mySelectedSdkOverride = selectedSdkFallback;
+      myParentOverride = parentFallback;
+      myCallbackOverride = callbackFallback;
+      return this;
+    }
+
+    @NotNull
+    public final SdkType getSdkType() {
+      return mySdkType;
+    }
+
+    @Override
+    public final void actionPerformed(@NotNull AnActionEvent e) {
+      Sdk selectedSdk = mySelectedSdkOverride;
+      JComponent parent = myParentOverride;
+      Consumer<? super Sdk> callback = myCallbackOverride;
+
+      if (callback == null || parent == null) return;
+      actionPerformed(selectedSdk, parent, callback);
+    }
+
+    public abstract void actionPerformed(@Nullable Sdk selectedSdk,
+                                         @NotNull JComponent parent,
+                                         @NotNull Consumer<? super Sdk> callback);
+  }
+
+  @NotNull
+  public Map<SdkType, NewSdkAction> createDownloadActions(@Nullable Condition<? super SdkTypeId> filter) {
+    Map<SdkType, NewSdkAction> result = new LinkedHashMap<>();
+    for (final SdkType type : getAddableSdkTypes(filter)) {
+      SdkDownload downloadExtension = SdkDownload.EP_NAME.findFirstSafe(it -> it.supportsDownload(type));
+      if (downloadExtension == null) continue;
+
+      String text = ProjectBundle.message("sdk.configure.download.action", type.getPresentableName());
+      String title = ProjectBundle.message("sdk.configure.download.actionTitle", type.getPresentableName());
+      String subText = ProjectBundle.message("sdk.configure.download.subAction", type.getPresentableName());
+
+      NewSdkAction downloadAction = new NewSdkAction(type, title, text, subText, downloadExtension.getIconForDownloadAction(type)) {
         @Override
-        public void actionPerformed(@NotNull AnActionEvent e) {
-          doAdd(parent, type, updateTree);
+        public void actionPerformed(@Nullable Sdk selectedSdk,
+                                    @NotNull JComponent parent,
+                                    @NotNull Consumer<? super Sdk> callback) {
+          doDownload(downloadExtension, parent, selectedSdk, type, callback);
         }
       };
-      group.add(addAction);
+
+      result.put(type, downloadAction);
     }
+    return result;
   }
 
-  public void doAdd(JComponent parent, final SdkType type, final Consumer<Sdk> callback) {
+  protected boolean forceAddActionToSelectFromDisk(@NotNull SdkType type) {
+    return false;
+  }
+
+  @NotNull
+  public Map<SdkType, NewSdkAction> createAddActions(@Nullable Condition<? super SdkTypeId> filter) {
+    Map<SdkType, NewSdkAction> result = new LinkedHashMap<>();
+    for (final SdkType type : getAddableSdkTypes(filter)) {
+      String sdkPresentableName = type.getPresentableName(), text, title, subText;
+
+      boolean isForce = forceAddActionToSelectFromDisk(type);
+      if (isForce) {
+        text = ProjectBundle.message("sdk.configure.addFromDisk.sdkType.action", sdkPresentableName);
+        title = ProjectBundle.message("sdk.configure.addFromDisk.sdkType.actionTitle", sdkPresentableName);
+        subText = ProjectBundle.message("sdk.configure.addFromDisk.sdkType.subAction", sdkPresentableName);
+      } else {
+        text = ProjectBundle.message("sdk.configure.add.sdkType.action", sdkPresentableName);
+        title = ProjectBundle.message("sdk.configure.add.sdkType.actionTitle", sdkPresentableName);
+        subText = ProjectBundle.message("sdk.configure.add.sdkType.subAction", sdkPresentableName);
+      }
+
+      NewSdkAction addAction = new NewSdkAction(type, title, text, subText, type.getIconForAddAction()) {
+        @Override
+        public void actionPerformed(@Nullable Sdk selectedSdk,
+                                    @NotNull JComponent parent,
+                                    @NotNull Consumer<? super Sdk> callback) {
+          if (!isForce && type.supportsCustomCreateUI()) {
+            type.showCustomCreateUI(ProjectSdksModel.this, parent, selectedSdk, sdk -> setupSdk(sdk, callback));
+          } else {
+            SdkConfigurationUtil.selectSdkHome(type, home -> addSdk(type, home, callback));
+          }
+        }
+      };
+      result.put(type, addAction);
+    }
+    return result;
+  }
+
+  public void doAdd(@NotNull JComponent parent, @NotNull final SdkType type, @NotNull final Consumer<? super Sdk> callback) {
+    doAdd(parent, null, type, callback);
+  }
+
+  public void doDownload(@NotNull SdkDownload downloadExtension,
+                         @NotNull JComponent parent,
+                         @Nullable final Sdk selectedSdk,
+                         @NotNull final SdkType type,
+                         @NotNull final Consumer<? super Sdk> callback) {
+    LOG.assertTrue(downloadExtension.supportsDownload(type));
+    myModified = true;
+
+    downloadExtension.showDownloadUI(type, this, parent, selectedSdk, sdk -> setupInstallableSdk(type, sdk, callback));
+  }
+
+  public void doAdd(@NotNull JComponent parent, @Nullable final Sdk selectedSdk, @NotNull final SdkType type, @NotNull final Consumer<? super Sdk> callback) {
     myModified = true;
     if (type.supportsCustomCreateUI()) {
-      type.showCustomCreateUI(this, parent, new Consumer<Sdk>() {
-        @Override
-        public void consume(Sdk sdk) {
-          setupSdk(sdk, callback);
-        }
-      });
+      type.showCustomCreateUI(this, parent, selectedSdk, sdk -> setupSdk(sdk, callback));
     }
     else {
-      SdkConfigurationUtil.selectSdkHome(type, new Consumer<String>() {
-        @Override
-        public void consume(final String home) {
-          String newSdkName = SdkConfigurationUtil.createUniqueSdkName(type, home, myProjectSdks.values());
-          final ProjectJdkImpl newJdk = new ProjectJdkImpl(newSdkName, type);
-          newJdk.setHomePath(home);
-          setupSdk(newJdk, callback);
-        }
-      });
+      SdkConfigurationUtil.selectSdkHome(type, home -> addSdk(type, home, callback));
     }
   }
 
-  private void setupSdk(Sdk newJdk, Consumer<Sdk> callback) {
+  public void addSdk(@NotNull SdkType type, @NotNull String home, @Nullable Consumer<? super Sdk> callback) {
+    final Sdk newJdk = createSdk(type, home);
+    setupSdk(newJdk, callback);
+  }
+
+  @NotNull
+  public Sdk createSdk(@NotNull SdkType type, @NotNull String home) {
+    String newSdkName = SdkConfigurationUtil.createUniqueSdkName(type, home, myProjectSdks.values());
+    return createSdkInternal(type, newSdkName, home);
+  }
+
+  @NotNull
+  public Sdk createSdk(@NotNull SdkType type, @NotNull String suggestedName, @NotNull String home) {
+    String newSdkName = SdkConfigurationUtil.createUniqueSdkName(suggestedName, myProjectSdks.values());
+    return createSdkInternal(type, newSdkName, home);
+  }
+
+  @NotNull
+  private static Sdk createSdkInternal(@NotNull SdkType type,
+                                       @NotNull String newSdkName,
+                                       @NotNull String home) {
+    final ProjectJdkImpl newJdk = new ProjectJdkImpl(newSdkName, type);
+    newJdk.setHomePath(home);
+    return newJdk;
+  }
+
+  public void setupInstallableSdk(@NotNull SdkType type,
+                                  @NotNull SdkDownloadTask item,
+                                  @Nullable Consumer<? super Sdk> callback) {
+    // we do not ask the SdkType to set up the SDK for us, instead, we return an incomplete SDK to the
+    // model with an expectation it would be updated later on
+    String suggestedName = item.getSuggestedSdkName();
+    String homeDir = FileUtil.toSystemIndependentName(item.getPlannedHomeDir());
+    Sdk sdk = createSdk(type, suggestedName, homeDir);
+
+    SdkDownloadTracker tracker = SdkDownloadTracker.getInstance();
+    tracker.registerSdkDownload(sdk, item);
+    doAdd(sdk, (editableSdk) -> {
+      tracker.registerEditableSdk(sdk, editableSdk);
+      tracker.tryRegisterSdkDownloadFailureHandler(sdk, () -> removeSdk(editableSdk));
+      if (callback != null) {
+        callback.consume(editableSdk);
+      }
+    });
+    tracker.startSdkDownloadIfNeeded(sdk);
+  }
+
+  private void setupSdk(@NotNull Sdk newJdk, @Nullable Consumer<? super Sdk> callback) {
     String home = newJdk.getHomePath();
     SdkType sdkType = (SdkType)newJdk.getSdkType();
     if (!sdkType.setupSdkPaths(newJdk, this)) return;
@@ -292,11 +504,11 @@ public class ProjectSdksModel implements SdkModel {
   }
 
   @Override
-  public void addSdk(Sdk sdk) {
+  public void addSdk(@NotNull Sdk sdk) {
     doAdd(sdk, null);
   }
 
-  public void doAdd(Sdk newSdk, @Nullable Consumer<Sdk> updateTree) {
+  public void doAdd(@NotNull Sdk newSdk, @Nullable Consumer<? super Sdk> updateTree) {
     myModified = true;
     try {
       Sdk editableCopy = (Sdk)newSdk.clone();
@@ -313,8 +525,11 @@ public class ProjectSdksModel implements SdkModel {
 
   @Nullable
   public Sdk findSdk(@Nullable final Sdk modelJdk) {
-    for (Sdk jdk : myProjectSdks.keySet()) {
-      if (Comparing.equal(myProjectSdks.get(jdk), modelJdk)) return jdk;
+    for (Map.Entry<Sdk, Sdk> entry : myProjectSdks.entrySet()) {
+      Sdk jdk = entry.getKey();
+      if (Comparing.equal(entry.getValue(), modelJdk)) {
+        return jdk;
+      }
     }
     return null;
   }

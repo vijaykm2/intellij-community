@@ -1,99 +1,97 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.roots;
 
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.roots.*;
-import com.intellij.openapi.roots.impl.ContentEntryImpl;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.configurationStore.StoreUtil;
+import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.ModuleManager;
+import com.intellij.openapi.roots.ContentEntry;
+import com.intellij.openapi.roots.ModuleRootManager;
+import com.intellij.openapi.roots.ModuleRootModel;
+import com.intellij.openapi.roots.ModuleRootModificationUtil;
+import com.intellij.openapi.util.JDOMUtil;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.testFramework.IdeaTestCase;
+import com.intellij.testFramework.JavaProjectTestCase;
 import com.intellij.testFramework.PsiTestUtil;
+import com.intellij.util.io.PathKt;
+import org.jdom.Element;
 
-import java.io.IOException;
+import java.nio.file.Path;
 
-public class ManagingContentRootsTest extends IdeaTestCase {
+public class ManagingContentRootsTest extends JavaProjectTestCase {
   private VirtualFile dir;
 
   @Override
   protected void setUp() throws Exception {
     super.setUp();
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          LocalFileSystem fs = LocalFileSystem.getInstance();
-          dir = fs.refreshAndFindFileByIoFile(createTempDirectory());
-        }
-        catch (IOException e) {
-          throw new RuntimeException(e);
-        }
-      }
-    });
+    dir = getTempDir().createVirtualDir();
   }
 
-  public void testCreationOfContentRootWithFile() throws IOException {
-    VirtualFile root = dir.createChildDirectory(null, "root");
+  public void testCreationOfContentRootWithFile() {
+    VirtualFile root = createChildDirectory(dir, "root");
     String url = root.getUrl();
 
     PsiTestUtil.addContentRoot(myModule, root);
-
-
     assertEquals(root, findContentEntry(url).getFile());
 
-    root.delete(null);
+    delete(root);
     assertNotNull(findContentEntry(url));
 
-    root = dir.createChildDirectory(null, "root");
+    root = createChildDirectory(dir, "root");
     assertEquals(root, findContentEntry(url).getFile());
   }
 
-  public void testCreationOfContentRootWithUrl() throws IOException {
-    VirtualFile root = dir.createChildDirectory(null, "root");
+  public void testCreationOfContentRootWithUrl() {
+    VirtualFile root = createChildDirectory(dir, "root");
     String url = root.getUrl();
     String path = root.getPath();
-    root.delete(null);
+    delete(root);
 
     addContentRoot(path);
 
     assertNotNull(findContentEntry(url));
 
-    root = dir.createChildDirectory(null, "root");
+    root = createChildDirectory(dir, "root");
     assertEquals(root, findContentEntry(url).getFile());
   }
 
-  public void testCreationOfContentRootWithUrlWhenFileExists() throws IOException {
-    VirtualFile root = dir.createChildDirectory(null, "root");
+  public void testCreationOfContentRootWithUrlWhenFileExists() {
+    VirtualFile root = createChildDirectory(dir, "root");
     addContentRoot(root.getPath());
     assertEquals(root, findContentEntry(root.getUrl()).getFile());
   }
 
-  public void testGettingModifiableModelCorrectlySetsRootModelForContentEntries() {
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      @Override
-      public void run() {
-        PsiTestUtil.addContentRoot(myModule, dir);
+  public void testExcludePatternSerialization() throws Exception {
+    PsiTestUtil.addContentRoot(myModule, dir);
+    ModuleRootModificationUtil.updateModel(myModule, model -> findContentEntry(dir.getUrl(), model).addExcludePattern("exc"));
+    StoreUtil.saveDocumentsAndProjectSettings(myProject);
 
-        ModifiableRootModel m = getRootManager().getModifiableModel();
-        ContentEntry e = findContentEntry(dir.getUrl(), m);
+    Element root = JDOMUtil.load(myModule.getModuleNioFile());
+    String elementText = "<content url=\"file://$MODULE_DIR$/" + dir.getNameSequence() + "\">\n" +
+                         "  <excludePattern pattern=\"exc\" />\n" +
+                         "</content>";
+    assertEquals(elementText, JDOMUtil.writeElement(root.getChild("component").getChild("content")));
+  }
 
-        assertSame(m, ((ContentEntryImpl)e).getRootModel());
-        m.dispose();
-      }
-    });
+  public void testExcludePatternDeserialization() throws Exception {
+    Path dir = getTempDir().createDir();
+    String dirUrl = VfsUtilCore.pathToUrl(dir.toString());
+
+    Path iml = dir.resolve("module.iml");
+    PathKt.write(
+      iml,
+      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+      "<module type=\"JAVA_MODULE\" version=\"4\">\n" +
+      "  <component name=\"NewModuleRootManager\">\n" +
+      "    <content url=\"" + dirUrl + "\">\n" +
+      "      <excludePattern pattern=\"exc\" />\n" +
+      "    </content>\n" +
+      "  </component>\n" +
+      "</module>");
+
+    Module module = WriteAction.computeAndWait(() -> ModuleManager.getInstance(myProject).loadModule(iml));
+    assertEquals("exc", assertOneElement(findContentEntry(dirUrl, ModuleRootManager.getInstance(module)).getExcludePatterns()));
   }
 
   private ContentEntry findContentEntry(String url) {
@@ -108,12 +106,7 @@ public class ManagingContentRootsTest extends IdeaTestCase {
   }
 
   private void addContentRoot(final String path) {
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      @Override
-      public void run() {
-        ModuleRootModificationUtil.addContentRoot(getModule(), path);
-      }
-    });
+    ModuleRootModificationUtil.addContentRoot(getModule(), path);
   }
 
   private ModuleRootManager getRootManager() {

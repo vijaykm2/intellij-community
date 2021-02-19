@@ -15,8 +15,7 @@
  */
 package com.intellij.util.xml;
 
-import com.intellij.codeInsight.CodeInsightBundle;
-import com.intellij.ide.IdeBundle;
+import com.intellij.codeInspection.util.InspectionMessage;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,17 +41,18 @@ public abstract class Converter<T> {
    * @param context context
    * @return error message used to highlight the errors somewhere in the UI, most often - like unresolved references in XML
    */
+  @InspectionMessage
   @Nullable
   public String getErrorMessage(@Nullable String s, final ConvertContext context) {
-    return CodeInsightBundle.message("error.cannot.convert.default.message", s);
+    return XmlDomBundle.message("dom.converter.cannot.convert.default", s);
   }
 
 
   /**
-   * @deprecated {@link com.intellij.util.xml.converters.values.NumberValueConverter}
+   * @deprecated not necessary for Integer, use {@link com.intellij.util.xml.converters.values.NumberValueConverter}
    */
   @Deprecated
-  public static final Converter<Integer> INTEGER_CONVERTER = new Converter<Integer>() {
+  public static final Converter<Integer> INTEGER_CONVERTER = new Converter<>() {
     @Override
     public Integer fromString(final String s, final ConvertContext context) {
       if (s == null) return null;
@@ -66,17 +66,20 @@ public abstract class Converter<T> {
 
     @Override
     public String toString(final Integer t, final ConvertContext context) {
-      return t == null? null: t.toString();
+      return t == null ? null : t.toString();
     }
 
     @Override
     public String getErrorMessage(final String s, final ConvertContext context) {
-      return IdeBundle.message("value.should.be.integer");
+      return XmlDomBundle.message("dom.converter.value.should.be.integer");
     }
   };
 
+  /**
+   * @deprecated unnecessary
+   */
   @Deprecated
-  public static final Converter<String> EMPTY_CONVERTER = new Converter<String>() {
+  public static final Converter<String> EMPTY_CONVERTER = new Converter<>() {
     @Override
     public String fromString(final String s, final ConvertContext context) {
       return s;
@@ -86,7 +89,6 @@ public abstract class Converter<T> {
     public String toString(final String t, final ConvertContext context) {
       return t;
     }
-
   };
 
 }

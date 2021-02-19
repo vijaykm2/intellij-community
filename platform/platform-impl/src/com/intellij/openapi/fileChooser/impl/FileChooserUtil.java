@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileChooser.impl;
 
 import com.intellij.ide.util.PropertiesComponent;
@@ -20,34 +6,58 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileSaverDescriptor;
 import com.intellij.openapi.fileChooser.PathChooserDialog;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectUtil;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.NullableFunction;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.nio.file.Path;
 import java.util.List;
 
 public final class FileChooserUtil {
   private static final String LAST_OPENED_FILE_PATH = "last_opened_file_path";
 
   @Nullable
-  public static VirtualFile getLastOpenedFile(@Nullable final Project project) {
-    if (project != null) {
-      final String path = PropertiesComponent.getInstance(project).getValue(LAST_OPENED_FILE_PATH);
-      if (path != null) {
-        return LocalFileSystem.getInstance().findFileByPath(path);
-      }
+  public static VirtualFile getLastOpenedFile(@Nullable Project project) {
+    String path;
+    if (project == null) {
+      path = PropertiesComponent.getInstance().getValue(LAST_OPENED_FILE_PATH);
     }
-    return null;
+    else {
+      path = PropertiesComponent.getInstance(project).getValue(LAST_OPENED_FILE_PATH);
+    }
+    return path != null ? LocalFileSystem.getInstance().findFileByPath(path) : null;
   }
 
-  public static void setLastOpenedFile(@Nullable final Project project, @Nullable final VirtualFile file) {
-    if (project != null && !project.isDisposed() && file != null) {
+  /**
+   * @deprecated Use {@link #setLastOpenedFile(Project, Path)}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public static void setLastOpenedFile(@Nullable Project project, @Nullable VirtualFile file) {
+    if (file == null) {
+      return;
+    }
+    if (project == null) {
+      PropertiesComponent.getInstance().setValue(LAST_OPENED_FILE_PATH, file.getPath());
+    }
+    else if (!project.isDisposed()) {
       PropertiesComponent.getInstance(project).setValue(LAST_OPENED_FILE_PATH, file.getPath());
+    }
+  }
+
+  public static void setLastOpenedFile(@Nullable Project project, @NotNull Path file) {
+    if (project == null) {
+      PropertiesComponent.getInstance().setValue(LAST_OPENED_FILE_PATH, FileUtil.toSystemIndependentName(file.toString()));
+    }
+    else if (!project.isDisposed()) {
+      PropertiesComponent.getInstance(project).setValue(LAST_OPENED_FILE_PATH, FileUtil.toSystemIndependentName(file.toString()));
     }
   }
 
@@ -58,7 +68,7 @@ public final class FileChooserUtil {
     VirtualFile result;
 
     if (toSelect == null && lastPath == null) {
-      result = project == null? null : project.getBaseDir();
+      result = project == null || project.isDefault() ? null : ProjectUtil.guessProjectDir(project);
     }
     else if (toSelect != null && lastPath != null) {
       if (Boolean.TRUE.equals(descriptor.getUserData(PathChooserDialog.PREFER_LAST_OVER_EXPLICIT))) {
@@ -89,12 +99,7 @@ public final class FileChooserUtil {
 
   @NotNull
   public static List<VirtualFile> getChosenFiles(@NotNull final FileChooserDescriptor descriptor,
-                                                 @NotNull final List<VirtualFile> selectedFiles) {
-    return ContainerUtil.mapNotNull(selectedFiles, new NullableFunction<VirtualFile, VirtualFile>() {
-      @Override
-      public VirtualFile fun(final VirtualFile file) {
-        return file != null && file.isValid() ? descriptor.getFileToSelect(file) : null;
-      }
-    });
+                                                 @NotNull final List<? extends VirtualFile> selectedFiles) {
+    return ContainerUtil.mapNotNull(selectedFiles, file -> file != null && file.isValid() ? descriptor.getFileToSelect(file) : null);
   }
 }

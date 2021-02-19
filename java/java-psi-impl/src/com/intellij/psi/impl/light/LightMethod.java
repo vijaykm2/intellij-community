@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.light;
 
 import com.intellij.lang.Language;
@@ -28,7 +14,8 @@ import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.util.MethodSignature;
 import com.intellij.psi.util.MethodSignatureBackedByPsiMethod;
-import com.intellij.ui.RowIcon;
+import com.intellij.ui.IconManager;
+import com.intellij.ui.icons.RowIcon;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.PlatformIcons;
 import org.jetbrains.annotations.NotNull;
@@ -40,20 +27,42 @@ import java.util.List;
  * @author ven
  */
 public class LightMethod extends LightElement implements PsiMethod {
-  private final PsiMethod myMethod;
-  private final PsiClass myContainingClass;
+
+  protected final @NotNull PsiMethod myMethod;
+  protected final @NotNull PsiClass myContainingClass;
+  protected final @NotNull PsiSubstitutor mySubstitutor;
+
+  public LightMethod(@NotNull PsiClass containingClass, @NotNull PsiMethod method, @NotNull PsiSubstitutor substitutor) {
+    this(containingClass.getManager(), method, containingClass, containingClass.getLanguage(), substitutor);
+  }
 
   public LightMethod(@NotNull PsiManager manager, @NotNull PsiMethod method, @NotNull PsiClass containingClass) {
-    this(manager, method, containingClass, JavaLanguage.INSTANCE);
+    this(manager, method, containingClass, PsiSubstitutor.EMPTY);
+  }
+
+  public LightMethod(@NotNull PsiManager manager,
+                     @NotNull PsiMethod method,
+                     @NotNull PsiClass containingClass,
+                     @NotNull PsiSubstitutor substitutor) {
+    this(manager, method, containingClass, JavaLanguage.INSTANCE, substitutor);
   }
 
   public LightMethod(@NotNull PsiManager manager,
                      @NotNull PsiMethod method,
                      @NotNull PsiClass containingClass,
                      @NotNull Language language) {
+    this(manager, method, containingClass, language, PsiSubstitutor.EMPTY);
+  }
+
+  public LightMethod(@NotNull PsiManager manager,
+                     @NotNull PsiMethod method,
+                     @NotNull PsiClass containingClass,
+                     @NotNull Language language,
+                     @NotNull PsiSubstitutor substitutor) {
     super(manager, language);
     myMethod = method;
     myContainingClass = containingClass;
+    mySubstitutor = substitutor;
   }
 
   @Override
@@ -67,7 +76,7 @@ public class LightMethod extends LightElement implements PsiMethod {
   }
 
   @Override
-  @NotNull public PsiTypeParameter[] getTypeParameters() {
+  public PsiTypeParameter @NotNull [] getTypeParameters() {
     return myMethod.getTypeParameters();
   }
 
@@ -121,7 +130,7 @@ public class LightMethod extends LightElement implements PsiMethod {
 
   @Override
   public PsiType getReturnType() {
-    return myMethod.getReturnType();
+    return mySubstitutor.substitute(myMethod.getReturnType());
   }
 
   @Override
@@ -132,7 +141,9 @@ public class LightMethod extends LightElement implements PsiMethod {
   @Override
   @NotNull
   public PsiParameterList getParameterList() {
-    return myMethod.getParameterList();
+    return mySubstitutor == PsiSubstitutor.EMPTY
+           ? myMethod.getParameterList()
+           : new LightParameterListWrapper(myMethod.getParameterList(), mySubstitutor);
   }
 
   @Override
@@ -168,20 +179,17 @@ public class LightMethod extends LightElement implements PsiMethod {
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] findSuperMethods() {
+  public PsiMethod @NotNull [] findSuperMethods() {
     return myMethod.findSuperMethods();
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] findSuperMethods(boolean checkAccess) {
+  public PsiMethod @NotNull [] findSuperMethods(boolean checkAccess) {
     return myMethod.findSuperMethods(checkAccess);
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] findSuperMethods(PsiClass parentClass) {
+  public PsiMethod @NotNull [] findSuperMethods(PsiClass parentClass) {
     return myMethod.findSuperMethods(parentClass);
   }
 
@@ -198,8 +206,7 @@ public class LightMethod extends LightElement implements PsiMethod {
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] findDeepestSuperMethods() {
+  public PsiMethod @NotNull [] findDeepestSuperMethods() {
     return myMethod.findDeepestSuperMethods();
   }
 
@@ -223,6 +230,7 @@ public class LightMethod extends LightElement implements PsiMethod {
     return myContainingClass.isValid();
   }
 
+  @NotNull
   @Override
   public PsiClass getContainingClass() {
     return myContainingClass;
@@ -235,7 +243,7 @@ public class LightMethod extends LightElement implements PsiMethod {
 
   @Override
   public String toString() {
-    return "PsiMethod:" + getName();
+    return "Light PSI method wrapper:" + getName();
   }
 
   @Override
@@ -246,7 +254,7 @@ public class LightMethod extends LightElement implements PsiMethod {
   @Override
   public Icon getElementIcon(final int flags) {
     Icon methodIcon = hasModifierProperty(PsiModifier.ABSTRACT) ? PlatformIcons.ABSTRACT_METHOD_ICON : PlatformIcons.METHOD_ICON;
-    RowIcon baseIcon = ElementPresentationUtil.createLayeredIcon(methodIcon, this, false);
+    RowIcon baseIcon = IconManager.getInstance().createLayeredIcon(this, methodIcon, ElementPresentationUtil.getFlags(this, false));
     return ElementPresentationUtil.addVisibilityIcon(this, flags, baseIcon);
   }
 

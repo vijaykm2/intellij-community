@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2013 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package com.siyeh.ig.controlflow;
 
+import com.intellij.codeInspection.CleanupLocalInspectionTool;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiConditionalExpression;
@@ -24,16 +25,11 @@ import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.EquivalenceChecker;
 import org.jetbrains.annotations.NotNull;
 
-public class ConditionalExpressionWithIdenticalBranchesInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("conditional.expression.with.identical.branches.display.name");
-  }
+public class ConditionalExpressionWithIdenticalBranchesInspection extends BaseInspection implements CleanupLocalInspectionTool {
 
   @Override
   @NotNull
@@ -43,30 +39,29 @@ public class ConditionalExpressionWithIdenticalBranchesInspection extends BaseIn
 
   @Override
   public InspectionGadgetsFix buildFix(Object... infos) {
-    return new CollapseConditional();
+    return new CollapseConditionalFix();
   }
 
-  private static class CollapseConditional extends InspectionGadgetsFix {
-
-    @Override
-    @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message("conditional.expression.with.identical.branches.collapse.quickfix");
-    }
+  private static class CollapseConditionalFix extends InspectionGadgetsFix {
 
     @Override
     @NotNull
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("conditional.expression.with.identical.branches.collapse.quickfix");
     }
 
     @Override
     public void doFix(Project project, ProblemDescriptor descriptor) {
-      final PsiConditionalExpression expression = (PsiConditionalExpression)descriptor.getPsiElement();
-      final PsiExpression thenExpression = expression.getThenExpression();
-      assert thenExpression != null;
-      final String bodyText = thenExpression.getText();
-      PsiReplacementUtil.replaceExpression(expression, bodyText);
+      final PsiConditionalExpression conditionalExpression = (PsiConditionalExpression)descriptor.getPsiElement();
+      final PsiExpression thenExpression = conditionalExpression.getThenExpression();
+      if (thenExpression == null) {
+        return;
+      }
+      final PsiExpression elseExpression = conditionalExpression.getElseExpression();
+      if (EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(thenExpression, elseExpression)) {
+        CommentTracker commentTracker = new CommentTracker();
+        PsiReplacementUtil.replaceExpression(conditionalExpression, commentTracker.text(thenExpression), commentTracker);
+      }
     }
   }
 
@@ -81,8 +76,11 @@ public class ConditionalExpressionWithIdenticalBranchesInspection extends BaseIn
     public void visitConditionalExpression(PsiConditionalExpression expression) {
       super.visitConditionalExpression(expression);
       final PsiExpression thenExpression = expression.getThenExpression();
+      if (thenExpression == null) {
+        return;
+      }
       final PsiExpression elseExpression = expression.getElseExpression();
-      if (thenExpression != null && EquivalenceChecker.expressionsAreEquivalent(thenExpression, elseExpression)) {
+      if (EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(thenExpression, elseExpression)) {
         registerError(expression);
       }
     }

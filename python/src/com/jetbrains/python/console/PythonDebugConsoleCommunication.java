@@ -1,22 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.console;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.vfs.encoding.EncodingProjectManager;
 import com.intellij.util.Function;
 import com.jetbrains.python.console.pydev.AbstractConsoleCommunication;
 import com.jetbrains.python.console.pydev.InterpreterResponse;
@@ -26,20 +14,24 @@ import com.jetbrains.python.debugger.PyDebuggerException;
 import com.jetbrains.python.debugger.pydev.PyDebugCallback;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.Charset;
 import java.util.List;
 
-/**
- * @author traff
- */
 public class PythonDebugConsoleCommunication extends AbstractConsoleCommunication {
+  private static final Logger LOG = Logger.getInstance(PythonDebugConsoleCommunication.class);
   private final PyDebugProcess myDebugProcess;
+  private boolean myNeedsMore = false;
+  private boolean firstExecution = true;
+  @NotNull private final PythonConsoleView myConsoleView;
 
-  private final StringBuilder myExpression = new StringBuilder();
-
-
-  public PythonDebugConsoleCommunication(Project project, PyDebugProcess debugProcess) {
+  public PythonDebugConsoleCommunication(@NotNull Project project,
+                                         @NotNull PyDebugProcess debugProcess,
+                                         @NotNull PythonConsoleView consoleView) {
     super(project);
     myDebugProcess = debugProcess;
+    myConsoleView = consoleView;
   }
 
   @NotNull
@@ -49,13 +41,18 @@ public class PythonDebugConsoleCommunication extends AbstractConsoleCommunicatio
   }
 
   @Override
-  public String getDescription(String text) {
-    return null;
+  public String getDescription(String refExpression) throws Exception {
+    return myDebugProcess.getDescription(refExpression);
   }
 
   @Override
   public boolean isWaitingForInput() {
-    return false;
+    return waitingForInput;
+  }
+
+  @Override
+  public boolean needsMore() {
+    return myNeedsMore;
   }
 
   @Override
@@ -63,8 +60,12 @@ public class PythonDebugConsoleCommunication extends AbstractConsoleCommunicatio
     return false;
   }
 
-  protected void exec(final ConsoleCodeFragment command, final PyDebugCallback<Pair<String, Boolean>> callback) {
-    myDebugProcess.consoleExec(command.getText(), new PyDebugCallback<String>() {
+  protected void exec(ConsoleCodeFragment command, final PyDebugCallback<Pair<String, Boolean>> callback) {
+    if (firstExecution) {
+      firstExecution = false;
+      myConsoleView.addConsoleFolding(true, false);
+    }
+    myDebugProcess.consoleExec(command.getText(), new PyDebugCallback<>() {
       @Override
       public void ok(String value) {
         callback.ok(parseExecResponseString(value));
@@ -77,26 +78,53 @@ public class PythonDebugConsoleCommunication extends AbstractConsoleCommunicatio
     });
   }
 
+  @Override
   public void execInterpreter(ConsoleCodeFragment code, final Function<InterpreterResponse, Object> callback) {
-    myExpression.append(code.getText());
-    exec(new ConsoleCodeFragment(myExpression.toString(), false), new PyDebugCallback<Pair<String, Boolean>>() {
-      @Override
-      public void ok(Pair<String, Boolean> executed) {
-        boolean more = executed.second;
+    if (waitingForInput) {
+      final OutputStream processInput = myDebugProcess.getProcessHandler().getProcessInput();
+      if (processInput != null) {
+        try {
+          final Charset defaultCharset = EncodingProjectManager.getInstance(myDebugProcess.getProject()).getDefaultCharset();
+          processInput.write((code.getText()).getBytes(defaultCharset));
+          processInput.flush();
 
-        if (!more) {
-          myExpression.setLength(0);
         }
-        callback.fun(new InterpreterResponse(more, isWaitingForInput()));
+        catch (IOException e) {
+          LOG.error(e.getMessage());
+        }
       }
+      myNeedsMore = false;
+      waitingForInput = false;
+      notifyCommandExecuted(waitingForInput);
 
-      @Override
-      public void error(PyDebuggerException exception) {
-        myExpression.setLength(0);
-        callback.fun(new InterpreterResponse(false, isWaitingForInput()));
-      }
-    });
+    }
+    else {
+
+      exec(new ConsoleCodeFragment(code.getText(), false), new PyDebugCallback<>() {
+        @Override
+        public void ok(Pair<String, Boolean> executed) {
+          boolean more = executed.second;
+          myNeedsMore = more;
+          notifyCommandExecuted(more);
+          callback.fun(new InterpreterResponse(more, isWaitingForInput()));
+        }
+
+        @Override
+        public void error(PyDebuggerException exception) {
+          myNeedsMore = false;
+          notifyCommandExecuted(false);
+          callback.fun(new InterpreterResponse(false, isWaitingForInput()));
+        }
+      });
+    }
   }
+
+  @Override
+  public void notifyInputRequested() {
+    waitingForInput = true;
+    super.notifyInputRequested();
+  }
+
 
   @Override
   public void interrupt() {
@@ -105,5 +133,9 @@ public class PythonDebugConsoleCommunication extends AbstractConsoleCommunicatio
 
   public boolean isSuspended() {
     return myDebugProcess.getSession().isSuspended();
+  }
+
+  public void resume() {
+    myDebugProcess.getSession().resume();
   }
 }

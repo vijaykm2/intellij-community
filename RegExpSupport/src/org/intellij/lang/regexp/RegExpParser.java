@@ -16,40 +16,44 @@
 package org.intellij.lang.regexp;
 
 import com.intellij.lang.ASTNode;
+import com.intellij.lang.LightPsiParser;
 import com.intellij.lang.PsiBuilder;
 import com.intellij.lang.PsiParser;
-import com.intellij.psi.StringEscapesTokenTypes;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.tree.TokenSet;
+import org.intellij.lang.regexp.psi.impl.RegExpCharImpl;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.EnumSet;
 
-@SuppressWarnings({"RedundantIfStatement"})
-public class RegExpParser implements PsiParser {
+public class RegExpParser implements PsiParser, LightPsiParser {
+  private static final TokenSet PROPERTY_TOKENS = TokenSet.create(RegExpTT.NUMBER, RegExpTT.COMMA, RegExpTT.NAME, RegExpTT.RBRACE);
   private final EnumSet<RegExpCapability> myCapabilities;
-
-  public RegExpParser() {
-    myCapabilities = EnumSet.noneOf(RegExpCapability.class);
-  }
 
   public RegExpParser(EnumSet<RegExpCapability> capabilities) {
     myCapabilities = capabilities;
   }
 
-  @NotNull
-  public ASTNode parse(IElementType root, PsiBuilder builder) {
-//        builder.setDebugMode(true);
+  @Override
+  public void parseLight(IElementType root, PsiBuilder builder) {
     final PsiBuilder.Marker rootMarker = builder.mark();
 
-    parsePattern(builder);
-
-    while (!builder.eof()) {
+    while (true) {
+      parsePattern(builder);
+      if (builder.eof()) break;
       patternExpected(builder);
-      builder.advanceLexer();
+      if (builder.eof()) break;
     }
 
     rootMarker.done(root);
+  }
+
+  @Override
+  @NotNull
+  public ASTNode parse(@NotNull IElementType root, @NotNull PsiBuilder builder) {
+    parseLight(root, builder);
     return builder.getTreeBuilt();
   }
 
@@ -57,50 +61,39 @@ public class RegExpParser implements PsiParser {
   /**
    * PATTERN ::= BRANCH "|" PATTERN | BRANCH
    */
-  private boolean parsePattern(PsiBuilder builder) {
+  protected void parsePattern(PsiBuilder builder) {
     final PsiBuilder.Marker marker = builder.mark();
 
-    if (!parseBranch(builder)) {
-      marker.drop();
-      return false;
-    }
+    parseBranch(builder);
 
     while (builder.getTokenType() == RegExpTT.UNION) {
       builder.advanceLexer();
-      if (!parseBranch(builder)) {
-        // TODO: no test coverage
-        patternExpected(builder);
-        break;
-      }
+      parseBranch(builder);
     }
 
     marker.done(RegExpElementTypes.PATTERN);
-
-    return true;
   }
 
   /**
    * BRANCH  ::= ATOM BRANCH | ""
    */
-  @SuppressWarnings({"StatementWithEmptyBody"})
-  private boolean parseBranch(PsiBuilder builder) {
-    PsiBuilder.Marker marker = builder.mark();
+  private void parseBranch(PsiBuilder builder) {
+    final PsiBuilder.Marker marker = builder.mark();
 
-    if (!parseAtom(builder)) {
+    while (!parseAtom(builder)) {
       final IElementType token = builder.getTokenType();
       if (token == RegExpTT.GROUP_END || token == RegExpTT.UNION || token == null) {
         // empty branches are allowed
         marker.done(RegExpElementTypes.BRANCH);
-        return true;
+        return;
       }
-      marker.drop();
-      return false;
+      patternExpected(builder);
     }
 
-    for (; parseAtom(builder);) ;
+    //noinspection StatementWithEmptyBody
+    while (parseAtom(builder)) {}
 
     marker.done(RegExpElementTypes.BRANCH);
-    return true;
   }
 
   /**
@@ -108,18 +101,18 @@ public class RegExpParser implements PsiParser {
    * CLOSURE     ::= GROUP QUANTIFIER
    */
   private boolean parseAtom(PsiBuilder builder) {
-    PsiBuilder.Marker marker = parseGroup(builder);
+    final PsiBuilder.Marker marker = parseGroup(builder);
 
     if (marker == null) {
       return false;
     }
-    marker = marker.precede();
+    final PsiBuilder.Marker marker2 = marker.precede();
 
     if (parseQuantifier(builder)) {
-      marker.done(RegExpElementTypes.CLOSURE);
+      marker2.done(RegExpElementTypes.CLOSURE);
     }
     else {
-      marker.drop();
+      marker2.drop();
     }
 
     return true;
@@ -136,17 +129,20 @@ public class RegExpParser implements PsiParser {
 
     if (builder.getTokenType() == RegExpTT.LBRACE) {
       builder.advanceLexer();
-      boolean minOmitted = false;
-      if (builder.getTokenType() == RegExpTT.COMMA && myCapabilities.contains(RegExpCapability.OMIT_NUMBERS_IN_QUANTIFIERS)) {
-        minOmitted = true;
+      final boolean minOmitted = builder.getTokenType() == RegExpTT.COMMA &&
+                                 myCapabilities.contains(RegExpCapability.OMIT_NUMBERS_IN_QUANTIFIERS);
+      if (minOmitted) {
         builder.advanceLexer();
       }
-      else if (builder.getTokenType() != RegExpTT.NUMBER && myCapabilities.contains(RegExpCapability.DANGLING_METACHARACTERS)) {
-        marker.done(RegExpTT.CHARACTER);
-        return true;
-      }
       else {
-        checkMatches(builder, RegExpTT.NUMBER, "Number expected");
+        if (builder.getTokenType() == RegExpTT.NUMBER) {
+          final PsiBuilder.Marker numberMark = builder.mark();
+          builder.advanceLexer();
+          numberMark.done(RegExpElementTypes.NUMBER);
+        }
+        else {
+          builder.error(RegExpBundle.message("parse.error.number.expected"));
+        }
       }
       if (builder.getTokenType() == RegExpTT.RBRACE) {
         builder.advanceLexer();
@@ -155,7 +151,7 @@ public class RegExpParser implements PsiParser {
       }
       else {
         if (!minOmitted) {
-          checkMatches(builder, RegExpTT.COMMA, "',' expected");
+          checkMatches(builder, RegExpTT.COMMA, RegExpBundle.message("parse.error.comma.expected"));
         }
         if (builder.getTokenType() == RegExpTT.RBRACE) {
           builder.advanceLexer();
@@ -163,13 +159,15 @@ public class RegExpParser implements PsiParser {
           marker.done(RegExpElementTypes.QUANTIFIER);
         }
         else if (builder.getTokenType() == RegExpTT.NUMBER) {
+          final PsiBuilder.Marker numberMark = builder.mark();
           builder.advanceLexer();
-          checkMatches(builder, RegExpTT.RBRACE, "'}' expected");
+          numberMark.done(RegExpElementTypes.NUMBER);
+          checkMatches(builder, RegExpTT.RBRACE, RegExpBundle.message("parse.error.closing.brace.expected"));
           parseQuantifierType(builder);
           marker.done(RegExpElementTypes.QUANTIFIER);
         }
         else {
-          builder.error("'}' or number expected");
+          builder.error(RegExpBundle.message("parse.error.closing.brace.or.number.expected"));
           marker.done(RegExpElementTypes.QUANTIFIER);
           return true;
         }
@@ -189,15 +187,12 @@ public class RegExpParser implements PsiParser {
   }
 
   private static void parseQuantifierType(PsiBuilder builder) {
-    if (builder.getTokenType() == RegExpTT.PLUS) {
-      builder.advanceLexer();
-    }
-    else if (builder.getTokenType() == RegExpTT.QUEST) {
+    if (builder.getTokenType() == RegExpTT.PLUS || builder.getTokenType() == RegExpTT.QUEST) {
       builder.advanceLexer();
     }
     else {
       if (RegExpTT.QUANTIFIERS.contains(builder.getTokenType())) {
-        builder.error("Dangling metacharacter");
+        builder.error(RegExpBundle.message("error.dangling.metacharacter"));
       }
     }
   }
@@ -217,114 +212,132 @@ public class RegExpParser implements PsiParser {
     if (builder.getTokenType() == RegExpTT.CARET) {
       builder.advanceLexer();
     }
+    parseClassIntersection(builder);
 
-    // DEFLIST
-    if (parseClassIntersection(builder)) {
-      while (RegExpTT.CHARACTERS2.contains(builder.getTokenType()) ||
-             builder.getTokenType() == RegExpTT.CLASS_BEGIN ||
-             builder.getTokenType() == RegExpTT.PROPERTY ||
-             builder.getTokenType() == RegExpTT.BRACKET_EXPRESSION_BEGIN) {
-        parseClassIntersection(builder);
-      }
-    }
-
-    checkMatches(builder, RegExpTT.CLASS_END, "Unclosed character class");
+    checkMatches(builder, RegExpTT.CLASS_END, RegExpBundle.message("parse.error.unclosed.character.class"));
     marker.done(RegExpElementTypes.CLASS);
     return marker;
   }
 
-  private boolean parseClassIntersection(PsiBuilder builder) {
-    PsiBuilder.Marker marker = builder.mark();
+  private void parseClassIntersection(PsiBuilder builder) {
+    final PsiBuilder.Marker marker = builder.mark();
 
-    if (!parseClassdef(builder, false)) {
+    boolean left = parseClassdef(builder);
+    if (RegExpTT.ANDAND != builder.getTokenType()) {
       marker.drop();
-      return false;
+      return;
     }
     while (RegExpTT.ANDAND == builder.getTokenType()) {
       builder.advanceLexer();
-      parseClassdef(builder, true);
-      marker.done(RegExpElementTypes.INTERSECTION);
-      marker = marker.precede();
+      final boolean right = parseClassdef(builder);
+      if (!left && !right) {
+        builder.error(RegExpBundle.message("parse.error.character.class.expected"));
+      }
+      left = right;
     }
-
-    marker.drop();
-    return true;
+    marker.done(RegExpElementTypes.INTERSECTION);
   }
 
-  private boolean parseClassdef(PsiBuilder builder, boolean mayBeEmpty) {
-    final IElementType token = builder.getTokenType();
-    if (token == RegExpTT.CLASS_BEGIN) {
-      parseClass(builder);
+  private boolean parseClassdef(PsiBuilder builder) {
+    int count = 0;
+    while (true) {
+      final IElementType token = builder.getTokenType();
+      if (token == RegExpTT.CLASS_BEGIN) {
+        parseClass(builder);
+      }
+      else if (token == RegExpTT.BRACKET_EXPRESSION_BEGIN) {
+        parseBracketExpression(builder);
+      }
+      else if (token == RegExpTT.MYSQL_CHAR_BEGIN) {
+        parseMysqlCharExpression(builder);
+      }
+      else if (token == RegExpTT.MYSQL_CHAR_EQ_BEGIN) {
+        parseMysqlCharEqExpression(builder);
+      }
+      else if (RegExpTT.CHARACTERS.contains(token) || token == RegExpTT.NAMED_CHARACTER) {
+        parseCharacterRange(builder);
+      }
+      else if (token == RegExpTT.CHAR_CLASS) {
+        final PsiBuilder.Marker m = builder.mark();
+        builder.advanceLexer();
+        m.done(RegExpElementTypes.SIMPLE_CLASS);
+      }
+      else if (token == RegExpTT.PROPERTY) {
+        parseProperty(builder);
+      }
+      else {
+        return count > 0;
+      }
+      count++;
     }
-    else if (token == RegExpTT.BRACKET_EXPRESSION_BEGIN) {
-      parseBracketExpression(builder);
-    }
-    else if (RegExpTT.CHARACTERS2.contains(token)) {
-      parseSimpleClassdef(builder);
-    }
-    else if (token == RegExpTT.PROPERTY) {
-      parseProperty(builder);
-    }
-    else if (mayBeEmpty) {
-      // TODO: no test coverage
-      return true;
-    }
-    else {
-      return false;
-    }
-    return true;
   }
 
   private static void parseBracketExpression(PsiBuilder builder) {
     final PsiBuilder.Marker marker = builder.mark();
     builder.advanceLexer();
-    checkMatches(builder, RegExpTT.NAME, "POSIX character class name expected");
-    checkMatches(builder, RegExpTT.BRACKET_EXPRESSION_END, "Unclosed POSIX bracket expression");
+    if (builder.getTokenType() == RegExpTT.CARET) {
+      builder.advanceLexer();
+    }
+    checkMatches(builder, RegExpTT.NAME, RegExpBundle.message("parse.error.posix.character.class.name.expected"));
+    checkMatches(builder, RegExpTT.BRACKET_EXPRESSION_END, RegExpBundle.message("parse.error.unclosed.posix.bracket.expression"));
     marker.done(RegExpElementTypes.POSIX_BRACKET_EXPRESSION);
   }
 
-  private void parseSimpleClassdef(PsiBuilder builder) {
-    assert RegExpTT.CHARACTERS2.contains(builder.getTokenType());
-
+  private static void parseMysqlCharExpression(PsiBuilder builder) {
     final PsiBuilder.Marker marker = builder.mark();
-    makeChar(builder);
+    builder.advanceLexer();
+    if (builder.getTokenType() == RegExpTT.NAME) {
+      builder.advanceLexer();
+    }
+    else {
+      checkMatches(builder, RegExpTT.CHARACTER, RegExpBundle.message("parse.error.character.or.mysql.character.name.expected"));
+    }
+    checkMatches(builder, RegExpTT.MYSQL_CHAR_END, RegExpBundle.message("parse.error.unclosed.mysql.character.expression"));
+    marker.done(RegExpElementTypes.MYSQL_CHAR_EXPRESSION);
+  }
 
-    IElementType t = builder.getTokenType();
-    if (t == RegExpTT.MINUS) {
-      final PsiBuilder.Marker m = builder.mark();
+  private static void parseMysqlCharEqExpression(PsiBuilder builder) {
+    final PsiBuilder.Marker marker = builder.mark();
+    builder.advanceLexer();
+    checkMatches(builder, RegExpTT.CHARACTER, RegExpBundle.message("parse.error.character.expected"));
+    checkMatches(builder, RegExpTT.MYSQL_CHAR_EQ_END, RegExpBundle.message("parse.error.unclosed.mysql.character.equivalence.class"));
+    marker.done(RegExpElementTypes.MYSQL_CHAR_EQ_EXPRESSION);
+  }
+
+  private void parseCharacterRange(PsiBuilder builder) {
+    final PsiBuilder.Marker rangeMarker = builder.mark();
+    parseCharacter(builder);
+
+    if (builder.getTokenType() == RegExpTT.MINUS) {
+      final PsiBuilder.Marker minusMarker = builder.mark();
       builder.advanceLexer();
 
-      t = builder.getTokenType();
-      if (RegExpTT.CHARACTERS2.contains(t)) {
-        m.drop();
-        makeChar(builder);
-        marker.done(RegExpElementTypes.CHAR_RANGE);
+      final IElementType t = builder.getTokenType();
+      if (RegExpTT.CHARACTERS.contains(t) || t == RegExpTT.NAMED_CHARACTER) {
+        minusMarker.drop();
+        parseCharacter(builder);
+        rangeMarker.done(RegExpElementTypes.CHAR_RANGE);
       }
       else {
-        marker.drop();
-        m.done(t == RegExpTT.CHAR_CLASS ? RegExpElementTypes.SIMPLE_CLASS : RegExpElementTypes.CHAR);
-
         if (t == RegExpTT.CLASS_END) { // [a-]
-          return;
+          rangeMarker.drop();
+          minusMarker.done(RegExpElementTypes.CHAR);
         }
-        else if (t == RegExpTT.CLASS_BEGIN) { // [a-[b]]
-          if (parseClassdef(builder, false)) {
-            return;
-          }
+        else if (t == RegExpTT.CLASS_BEGIN) { // [a-[b]]\
+          rangeMarker.drop();
+          minusMarker.done(RegExpElementTypes.CHAR);
+          parseClassdef(builder);
         }
-        builder.error("Illegal character range");
+        else {
+          minusMarker.drop();
+          builder.error(RegExpBundle.message("parse.error.illegal.character.range"));
+          rangeMarker.done(RegExpElementTypes.CHAR_RANGE);
+        }
       }
     }
     else {
-      marker.drop();
+      rangeMarker.drop();
     }
-  }
-
-  private static void makeChar(PsiBuilder builder) {
-    final IElementType t = builder.getTokenType();
-    PsiBuilder.Marker m = builder.mark();
-    builder.advanceLexer();
-    m.done(t == RegExpTT.CHAR_CLASS ? RegExpElementTypes.SIMPLE_CLASS : RegExpElementTypes.CHAR);
   }
 
   /**
@@ -339,48 +352,40 @@ public class RegExpParser implements PsiParser {
 
     if (RegExpTT.GROUPS.contains(type)) {
       builder.advanceLexer();
-      if (!parsePattern(builder)) {
-        patternExpected(builder);
-      }
-      else {
-        checkMatches(builder, RegExpTT.GROUP_END, "Unclosed group");
-      }
+      parseGroupEnd(builder);
       marker.done(RegExpElementTypes.GROUP);
     }
     else if (type == RegExpTT.SET_OPTIONS) {
       builder.advanceLexer();
 
-      final PsiBuilder.Marker o = builder.mark();
       if (builder.getTokenType() == RegExpTT.OPTIONS_ON) {
+        final PsiBuilder.Marker o = builder.mark();
         builder.advanceLexer();
+        o.done(RegExpElementTypes.OPTIONS);
       }
       if (builder.getTokenType() == RegExpTT.OPTIONS_OFF) {
+        final PsiBuilder.Marker o = builder.mark();
         builder.advanceLexer();
+        o.done(RegExpElementTypes.OPTIONS);
       }
-      o.done(RegExpElementTypes.OPTIONS);
 
       if (builder.getTokenType() == RegExpTT.COLON) {
         builder.advanceLexer();
-        if (!parsePattern(builder)) {
-          // TODO: no test coverage
-          patternExpected(builder);
-        }
-        else {
-          checkMatches(builder, RegExpTT.GROUP_END, "Unclosed group");
-        }
+        parseGroupEnd(builder);
         marker.done(RegExpElementTypes.GROUP);
       }
       else {
-        checkMatches(builder, RegExpTT.GROUP_END, "Unclosed options group");
+        checkMatches(builder, RegExpTT.GROUP_END, RegExpBundle.message("parse.error.unclosed.options.group"));
         marker.done(RegExpElementTypes.SET_OPTIONS);
       }
     }
-    else if (type == StringEscapesTokenTypes.INVALID_CHARACTER_ESCAPE_TOKEN) {
-      builder.error("Illegal/unsupported escape sequence");
-      builder.advanceLexer();
-      marker.done(RegExpElementTypes.CHAR);
+    else if (RegExpTT.CHARACTERS.contains(type) || type == RegExpTT.NAMED_CHARACTER) {
+      marker.drop();
+      parseCharacter(builder);
     }
-    else if (RegExpTT.CHARACTERS.contains(type)) {
+    else if (type == RegExpTT.NUMBER || type == RegExpTT.COMMA) {
+      // don't show these as errors
+      builder.remapCurrentToken(RegExpTT.CHARACTER);
       builder.advanceLexer();
       marker.done(RegExpElementTypes.CHAR);
     }
@@ -394,63 +399,45 @@ public class RegExpParser implements PsiParser {
     }
     else if (type == RegExpTT.PYTHON_NAMED_GROUP || type == RegExpTT.RUBY_NAMED_GROUP || type == RegExpTT.RUBY_QUOTED_NAMED_GROUP) {
       builder.advanceLexer();
-      checkMatches(builder, RegExpTT.NAME, "Group name expected");
-      checkMatches(builder, type == RegExpTT.RUBY_QUOTED_NAMED_GROUP ? RegExpTT.QUOTE : RegExpTT.GT, "Unclosed group name");
-      if (!parsePattern(builder)) {
-        patternExpected(builder);
-      }
-      else {
-        checkMatches(builder, RegExpTT.GROUP_END, "Unclosed group");
-      }
+      checkMatches(builder, RegExpTT.NAME, RegExpBundle.message("parse.error.group.name.expected"));
+      checkMatches(builder, type == RegExpTT.RUBY_QUOTED_NAMED_GROUP ? RegExpTT.QUOTE : RegExpTT.GT,
+                   RegExpBundle.message("parse.error.unclosed.group.name"));
+      parseGroupEnd(builder);
       marker.done(RegExpElementTypes.GROUP);
     }
-    else if (type == RegExpTT.PYTHON_NAMED_GROUP_REF) {
+    else if (type == RegExpTT.PYTHON_NAMED_GROUP_REF || type == RegExpTT.PCRE_RECURSIVE_NAMED_GROUP_REF) {
       parseNamedGroupRef(builder, marker, RegExpTT.GROUP_END);
     }
-    else if (type == RegExpTT.RUBY_NAMED_GROUP_REF) {
+    else if (type == RegExpTT.RUBY_NAMED_GROUP_REF || type == RegExpTT.RUBY_NAMED_GROUP_CALL) {
       parseNamedGroupRef(builder, marker, RegExpTT.GT);
     }
-    else if (type == RegExpTT.RUBY_QUOTED_NAMED_GROUP_REF) {
+    else if (type == RegExpTT.RUBY_QUOTED_NAMED_GROUP_REF || type == RegExpTT.RUBY_QUOTED_NAMED_GROUP_CALL) {
       parseNamedGroupRef(builder, marker, RegExpTT.QUOTE);
     }
-    else if (type == RegExpTT.PYTHON_COND_REF) {
+    else if (type == RegExpTT.CONDITIONAL) {
       builder.advanceLexer();
-      if (builder.getTokenType() == RegExpTT.NAME || builder.getTokenType() == RegExpTT.NUMBER) {
+      parseCondition(builder);
+      parseBranch(builder);
+      if (builder.getTokenType() == RegExpTT.UNION) {
         builder.advanceLexer();
+        parseBranch(builder);
       }
-      else {
-        builder.error("Group name or number expected");
+      if (!checkMatches(builder, RegExpTT.GROUP_END, RegExpBundle.message("parse.error.unclosed.group"))) {
+        parseGroupEnd(builder);
       }
-      checkMatches(builder, RegExpTT.GROUP_END, "Unclosed group reference");
-      if (!parseBranch(builder)) {
-        patternExpected(builder);
-      }
-      else {
-        if (builder.getTokenType() == RegExpTT.UNION) {
-          builder.advanceLexer();
-          if (!parseBranch(builder)) {
-            patternExpected(builder);
-          }
-        }
-        checkMatches(builder, RegExpTT.GROUP_END, "Unclosed group");
-      }
-      marker.done(RegExpElementTypes.PY_COND_REF);
+      marker.done(RegExpElementTypes.CONDITIONAL);
     }
     else if (type == RegExpTT.PROPERTY) {
+      marker.drop();
       parseProperty(builder);
-      marker.done(RegExpElementTypes.PROPERTY);
     }
-    else if (RegExpTT.SIMPLE_CLASSES.contains(type)) {
+    else if (type == RegExpTT.DOT || type == RegExpTT.CHAR_CLASS) {
       builder.advanceLexer();
       marker.done(RegExpElementTypes.SIMPLE_CLASS);
     }
     else if (type == RegExpTT.CLASS_BEGIN) {
       marker.drop();
       return parseClass(builder);
-    }
-    else if (type == RegExpTT.LBRACE && myCapabilities.contains(RegExpCapability.DANGLING_METACHARACTERS)) {
-      builder.advanceLexer();
-      marker.done(RegExpElementTypes.CHAR);
     }
     else {
       marker.drop();
@@ -459,53 +446,180 @@ public class RegExpParser implements PsiParser {
     return marker;
   }
 
+  private void parseCondition(PsiBuilder builder) {
+    final IElementType type = builder.getTokenType();
+    if (RegExpTT.LOOKAROUND_GROUPS.contains(type)) {
+      final PsiBuilder.Marker marker = builder.mark();
+      builder.advanceLexer();
+      parseGroupEnd(builder);
+      marker.done(RegExpElementTypes.GROUP);
+    }
+    else {
+      if (RegExpTT.GROUP_BEGIN == type) {
+        parseGroupReferenceCondition(builder, RegExpTT.GROUP_END);
+      }
+      else if (RegExpTT.QUOTED_CONDITION_BEGIN == type) {
+        parseGroupReferenceCondition(builder, RegExpTT.QUOTED_CONDITION_END);
+      }
+      else if (RegExpTT.ANGLE_BRACKET_CONDITION_BEGIN == type) {
+        parseGroupReferenceCondition(builder, RegExpTT.ANGLE_BRACKET_CONDITION_END);
+      }
+    }
+  }
+
+  private void parseGroupReferenceCondition(PsiBuilder builder, IElementType endToken) {
+    final PsiBuilder.Marker marker = builder.mark();
+    builder.advanceLexer();
+    final IElementType next = builder.getTokenType();
+    final Boolean named;
+    if (next == RegExpTT.NAME) {
+      builder.advanceLexer();
+      named = true;
+    }
+    else if (next == RegExpTT.NUMBER) {
+      builder.advanceLexer();
+      named = false;
+    }
+    else {
+      named = null;
+      builder.error(RegExpBundle.message("parse.error.group.name.or.number.expected"));
+      parsePattern(builder);
+    }
+    checkMatches(builder, endToken, RegExpBundle.message("parse.error.unclosed.group.reference"));
+    if (named == Boolean.TRUE) {
+      marker.done(RegExpElementTypes.NAMED_GROUP_REF);
+    }
+    else if (named == Boolean.FALSE) {
+      marker.done(RegExpElementTypes.BACKREF);
+    }
+    else {
+      marker.drop();
+    }
+  }
+
+  private void parseGroupEnd(PsiBuilder builder) {
+    parsePattern(builder);
+    checkMatches(builder, RegExpTT.GROUP_END, RegExpBundle.message("parse.error.unclosed.group"));
+  }
+
   private static void parseNamedGroupRef(PsiBuilder builder, PsiBuilder.Marker marker, IElementType type) {
     builder.advanceLexer();
-    checkMatches(builder, RegExpTT.NAME, "Group name expected");
-    checkMatches(builder, type, "Unclosed group reference");
+    checkMatches(builder, RegExpTT.NAME, RegExpBundle.message("parse.error.group.name.expected"));
+    checkMatches(builder, type, RegExpBundle.message("parse.error.unclosed.group.reference"));
     marker.done(RegExpElementTypes.NAMED_GROUP_REF);
   }
 
-  private static void parseProperty(PsiBuilder builder) {
-    checkMatches(builder, RegExpTT.PROPERTY, "'\\p' expected");
+  private static boolean isLetter(CharSequence text) {
+    if (text == null) return false;
+    assert text.length() == 1;
+    final char c = text.charAt(0);
+    return AsciiUtil.isLetter(c);
+  }
 
+  private void parseProperty(PsiBuilder builder) {
+    final PsiBuilder.Marker marker = builder.mark();
+    builder.advanceLexer();
     if (builder.getTokenType() == RegExpTT.CATEGORY_SHORT_HAND) {
+      if (!myCapabilities.contains(RegExpCapability.UNICODE_CATEGORY_SHORTHAND)) {
+        builder.error(RegExpBundle.message("parse.error.category.shorthand.not.allowed.in.this.regular.expression.dialect"));
+      }
       builder.advanceLexer();
-      return;
-    }
-    checkMatches(builder, RegExpTT.LBRACE, "Character category expected");
-    if (builder.getTokenType() == RegExpTT.NAME) {
-      builder.advanceLexer();
-    }
-    else if (builder.getTokenType() == RegExpTT.RBRACE) {
-      builder.error("Empty character family");
     }
     else {
-      builder.error("Character family name expected");
-      builder.advanceLexer();
+      if (builder.getTokenType() == RegExpTT.CHARACTER && isLetter(builder.getTokenText())) {
+        builder.error(myCapabilities.contains(RegExpCapability.UNICODE_CATEGORY_SHORTHAND) ?
+                      RegExpBundle.message("parse.error.illegal.category.shorthand") :
+                      RegExpBundle.message("parse.error.opening.brace.expected"));
+        builder.advanceLexer();
+      }
+      else if (checkMatches(builder, RegExpTT.LBRACE, myCapabilities.contains(RegExpCapability.UNICODE_CATEGORY_SHORTHAND) ?
+                                                      RegExpBundle.message("parse.error.opening.brace.or.category.shorthand.expected") :
+                                                      RegExpBundle.message("parse.error.opening.brace.expected"))) {
+        if (builder.getTokenType() == RegExpTT.CARET) {
+          if (!myCapabilities.contains(RegExpCapability.CARET_NEGATED_PROPERTIES)) {
+            builder.error(RegExpBundle.message("parse.error.negating.a.property.not.allowed.in.this.regular.expression.dialect"));
+          }
+          builder.advanceLexer();
+        }
+        if (builder.getTokenType() == RegExpTT.NAME) {
+          builder.advanceLexer(); //name
+          if (myCapabilities.contains(RegExpCapability.PROPERTY_VALUES) && builder.getTokenType() == RegExpTT.EQ) {
+            builder.advanceLexer(); //eq
+            checkMatches(builder, RegExpTT.NAME, RegExpBundle.message("parse.error.property.value.expected"));
+          }
+          checkMatches(builder, RegExpTT.RBRACE, RegExpBundle.message("parse.error.unclosed.property"));
+        }
+        else
+        {
+          if (builder.getTokenType() == RegExpTT.RBRACE) {
+            builder.error(RegExpBundle.message("parse.error.empty.property"));
+            builder.advanceLexer();
+          }
+          else {
+            builder.error(RegExpBundle.message("parse.error.property.name.expected"));
+          }
+          while (PROPERTY_TOKENS.contains(builder.getTokenType())) {
+            builder.advanceLexer();
+          }
+        }
+      }
     }
-    checkMatches(builder, RegExpTT.RBRACE, "Unclosed character family");
+    marker.done(RegExpElementTypes.PROPERTY);
+  }
+
+  private static void parseCharacter(PsiBuilder builder) {
+    final PsiBuilder.Marker marker = builder.mark();
+    if (builder.getTokenType() == RegExpTT.NAMED_CHARACTER) {
+      builder.advanceLexer();
+      checkMatches(builder, RegExpTT.LBRACE, RegExpBundle.message("parse.error.opening.brace.expected"));
+      checkMatches(builder, RegExpTT.NAME, RegExpBundle.message("parse.error.unicode.character.name.expected"));
+      checkMatches(builder, RegExpTT.RBRACE, RegExpBundle.message("parse.error.closing.brace.expected"));
+      marker.done(RegExpElementTypes.NAMED_CHARACTER);
+    }
+    else if (builder.getTokenType() == RegExpTT.UNICODE_CHAR) {
+      final String text1 = builder.getTokenText();
+      assert text1 != null;
+      final int value1 = RegExpCharImpl.unescapeChar(text1);
+      builder.advanceLexer();
+      // merge surrogate pairs into single regexp char
+      if (!Character.isSupplementaryCodePoint(value1) && Character.isHighSurrogate((char)value1)) {
+        final String text2 = builder.getTokenText();
+        assert text2 != null;
+        final int value2 = RegExpCharImpl.unescapeChar(text2);
+        if (!Character.isSupplementaryCodePoint(value2) && Character.isLowSurrogate((char)value2)) {
+          builder.advanceLexer();
+        }
+      }
+      marker.done(RegExpElementTypes.CHAR);
+    }
+    else {
+      builder.advanceLexer();
+      marker.done(RegExpElementTypes.CHAR);
+    }
   }
 
   private static void patternExpected(PsiBuilder builder) {
     final IElementType token = builder.getTokenType();
     if (token == RegExpTT.GROUP_END) {
-      builder.error("Unmatched closing ')'");
+      builder.error(RegExpBundle.message("parse.error.unmatched.closing.parenthesis"));
     }
-    else if (RegExpTT.QUANTIFIERS.contains(token)) {
-      builder.error("Dangling metacharacter");
+    else if (RegExpTT.QUANTIFIERS.contains(token) || token == RegExpTT.RBRACE || token == RegExpTT.CLASS_END) {
+      builder.error(RegExpBundle.message("error.dangling.metacharacter"));
     }
     else {
-      builder.error("Pattern expected");
+      builder.error(RegExpBundle.message("parse.error.pattern.expected"));
     }
+    builder.advanceLexer();
   }
 
-  protected static void checkMatches(final PsiBuilder builder, final IElementType token, final String message) {
+  protected static boolean checkMatches(final PsiBuilder builder, final IElementType token, @NotNull @NlsContexts.ParsingError String message) {
     if (builder.getTokenType() == token) {
       builder.advanceLexer();
+      return true;
     }
     else {
       builder.error(message);
+      return false;
     }
   }
 }

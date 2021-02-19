@@ -1,22 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.java.stubs;
 
 import com.intellij.psi.*;
@@ -24,14 +6,12 @@ import com.intellij.psi.impl.source.*;
 import com.intellij.psi.impl.source.tree.java.*;
 
 public class SourceStubPsiFactory extends StubPsiFactory {
+  public static final SourceStubPsiFactory INSTANCE = new SourceStubPsiFactory();
+
   @Override
   public PsiClass createClass(PsiClassStub stub) {
-    if (stub.isEnumConstantInitializer()) {
-      return new PsiEnumConstantInitializerImpl(stub);
-    }
-    if (stub.isAnonymous()) {
-      return new PsiAnonymousClassImpl(stub);
-    }
+    if (stub.isEnumConstantInitializer()) return new PsiEnumConstantInitializerImpl(stub);
+    if (stub.isAnonymous()) return new PsiAnonymousClassImpl(stub);
     return new PsiClassImpl(stub);
   }
 
@@ -47,7 +27,7 @@ public class SourceStubPsiFactory extends StubPsiFactory {
 
   @Override
   public PsiReferenceList createClassReferenceList(PsiClassReferenceListStub stub) {
-    return new PsiReferenceListImpl(stub, stub.getStubType());
+    return new PsiReferenceListImpl(stub);
   }
 
   @Override
@@ -62,12 +42,7 @@ public class SourceStubPsiFactory extends StubPsiFactory {
 
   @Override
   public PsiImportStatementBase createImportStatement(PsiImportStatementStub stub) {
-    if (stub.isStatic()) {
-      return new PsiImportStaticStatementImpl(stub);
-    }
-    else {
-      return new PsiImportStatementImpl(stub);
-    }
+    return stub.isStatic()? new PsiImportStaticStatementImpl(stub) : new PsiImportStatementImpl(stub);
   }
 
   @Override
@@ -82,7 +57,7 @@ public class SourceStubPsiFactory extends StubPsiFactory {
 
   @Override
   public PsiParameter createParameter(PsiParameterStub stub) {
-    return stub.isReceiver() ? new PsiReceiverParameterImpl(stub) : new PsiParameterImpl(stub);
+    return new PsiParameterImpl(stub);
   }
 
   @Override
@@ -108,5 +83,40 @@ public class SourceStubPsiFactory extends StubPsiFactory {
   @Override
   public PsiNameValuePair createNameValuePair(PsiNameValuePairStub stub) {
     return new PsiNameValuePairImpl(stub);
+  }
+
+  @Override
+  public PsiJavaModule createModule(PsiJavaModuleStub stub) {
+    return new PsiJavaModuleImpl(stub);
+  }
+
+  @Override
+  public PsiRequiresStatement createRequiresStatement(PsiRequiresStatementStub stub) {
+    return new PsiRequiresStatementImpl(stub);
+  }
+
+  @Override
+  public PsiPackageAccessibilityStatement createPackageAccessibilityStatement(PsiPackageAccessibilityStatementStub stub) {
+    return new PsiPackageAccessibilityStatementImpl(stub);
+  }
+
+  @Override
+  public PsiUsesStatement createUsesStatement(PsiUsesStatementStub stub) {
+    return new PsiUsesStatementImpl(stub);
+  }
+
+  @Override
+  public PsiProvidesStatement createProvidesStatement(PsiProvidesStatementStub stub) {
+    return new PsiProvidesStatementImpl(stub);
+  }
+
+  @Override
+  public PsiRecordComponent createRecordComponent(PsiRecordComponentStub stub) {
+    return new PsiRecordComponentImpl(stub);
+  }
+
+  @Override
+  public PsiRecordHeader createRecordHeader(PsiRecordHeaderStub stub) {
+    return new PsiRecordHeaderImpl(stub);
   }
 }

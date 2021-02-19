@@ -1,30 +1,14 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.ui;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CustomShortcutSet;
 import com.intellij.openapi.application.ApplicationBundle;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.NullableComputable;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.wm.IdeFocusManager;
-import com.intellij.ui.AnActionButton;
-import com.intellij.ui.AnActionButtonRunnable;
-import com.intellij.ui.HoverHyperlinkLabel;
-import com.intellij.ui.ToolbarDecorator;
+import com.intellij.ui.*;
 import com.intellij.ui.table.TableView;
 import com.intellij.util.IconUtil;
 import org.jetbrains.annotations.NonNls;
@@ -50,7 +34,7 @@ import java.util.List;
 public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyText {
 
   private static final Icon WARNING_ICON = UIUtil.getBalloonWarningIcon();
-  private static final Icon EMPTY_ICON = EmptyIcon.create(WARNING_ICON);
+  private static final Icon EMPTY_ICON = IconManager.getInstance().createEmptyIcon(WARNING_ICON);
   @NonNls private static final String REMOVE_KEY = "REMOVE_SELECTED";
 
   public interface RowHeightProvider {
@@ -58,13 +42,13 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
   }
 
   public interface Fix extends Runnable {
-    String getTitle();
+    @NlsContexts.LinkLabel String getTitle();
   }
 
   private class ColumnInfoWrapper extends ColumnInfo<Item, Object> {
     private final ColumnInfo<Item, Object> myDelegate;
 
-    public ColumnInfoWrapper(ColumnInfo<Item, Object> delegate) {
+    ColumnInfoWrapper(ColumnInfo<Item, Object> delegate) {
       super(delegate.getName());
       myDelegate = delegate;
     }
@@ -108,17 +92,17 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
 
   private JPanel myContentPane;
   private TableView<Item> myTable;
-  private AnActionButton myRemoveButton;
+  private final AnActionButton myRemoveButton;
   private JLabel myMessageLabel;
   private HoverHyperlinkLabel myFixLink;
   private JPanel myTablePanel;
-  private final List<String> myWarnings = new ArrayList<String>();
+  private final List<String> myWarnings = new ArrayList<>();
   private Fix myFixRunnable;
 
   protected abstract Item cloneOf(Item item);
 
   @Nullable
-  protected Pair<String, Fix> validate(List<Item> current, List<String> warnings) {
+  protected Pair<String, Fix> validate(List<? extends Item> current, List<? super String> warnings) {
     String error = null;
     for (int i = 0; i < current.size(); i++) {
       Item item = current.get(i);
@@ -140,10 +124,11 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
   protected abstract Item createItem();
 
   private class IconColumn extends ColumnInfo<Item, Object> implements RowHeightProvider {
-    public IconColumn() {
+    IconColumn() {
       super(" ");
     }
 
+    @Override
     public String valueOf(Item item) {
       return null;
     }
@@ -153,17 +138,14 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
       return WARNING_ICON.getIconWidth() + 2;
     }
 
+    @Override
     public int getRowHeight() {
       return WARNING_ICON.getIconHeight();
     }
 
     @Override
     public TableCellRenderer getRenderer(final Item item) {
-      return new WarningIconCellRenderer(new NullableComputable<String>() {
-        public String compute() {
-          return myWarnings.get(doGetItems().indexOf(item));
-        }
-      });
+      return new WarningIconCellRenderer(() -> myWarnings.get(doGetItems().indexOf(item)));
     }
   }
 
@@ -173,8 +155,13 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
     return myTable.getEmptyText();
   }
 
+  public void setShowGrid(boolean v) {
+    myTable.setShowGrid(v);
+  }
+
   private void createUIComponents() {
-    myTable = new ChangesTrackingTableView<Item>() {
+    myTable = new ChangesTrackingTableView<>() {
+      @Override
       protected void onCellValueChanged(int row, int column, Object value) {
         final Item original = getItems().get(row);
         Item override = cloneOf(original);
@@ -192,7 +179,7 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
     myFixLink = new HoverHyperlinkLabel(null);
   }
 
-  protected ValidatingTableEditor(@Nullable AnActionButton ... extraButtons) {
+  protected ValidatingTableEditor(AnActionButton @Nullable ... extraButtons) {
     ToolbarDecorator decorator =
       ToolbarDecorator.createDecorator(myTable).disableRemoveAction().disableUpAction().disableDownAction();
     decorator.setAddAction(new AnActionButtonRunnable() {
@@ -206,7 +193,7 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
 
     myRemoveButton = new AnActionButton(ApplicationBundle.message("button.remove"), IconUtil.getRemoveIcon()) {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         removeSelected();
       }
     };
@@ -222,6 +209,7 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
     myTablePanel.add(decorator.createPanel(), BorderLayout.CENTER);
 
     myTable.getSelectionModel().addListSelectionListener(new ListSelectionListener() {
+      @Override
       public void valueChanged(ListSelectionEvent e) {
         updateButtons();
       }
@@ -229,12 +217,14 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
 
     myTable.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), REMOVE_KEY);
     myTable.getActionMap().put(REMOVE_KEY, new AbstractAction() {
+      @Override
       public void actionPerformed(final ActionEvent e) {
         removeSelected();
       }
     });
 
     myFixLink.addHyperlinkListener(new HyperlinkListener() {
+      @Override
       public void hyperlinkUpdate(HyperlinkEvent e) {
         if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED && myFixRunnable != null) {
           myFixRunnable.run();
@@ -255,7 +245,7 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
 
   private void removeSelected() {
     myTable.stopEditing();
-    List<Item> items = new ArrayList<Item>(doGetItems());
+    List<Item> items = new ArrayList<>(doGetItems());
     final int[] rows = myTable.getSelectedRows();
     for (int i = rows.length - 1; i >= 0; i--) {
       items.remove(rows[i]);
@@ -275,7 +265,7 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
     if (newItem == null) {
       return;
     }
-    List<Item> items = new ArrayList<Item>(doGetItems());
+    List<Item> items = new ArrayList<>(doGetItems());
     items.add(newItem);
 
     setItems(items);
@@ -294,7 +284,7 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
     return (ListTableModel<Item>)myTable.getModel();
   }
 
-  public void setModel(ColumnInfo<Item, Object>[] valueColumns, List<Item> items) {
+  public void setModel(ColumnInfo<Item, Object>[] valueColumns, List<? extends Item> items) {
     ColumnInfo[] columns = new ColumnInfo[valueColumns.length + 1];
     IconColumn iconColumn = new IconColumn();
     int maxHeight = iconColumn.getRowHeight();
@@ -308,7 +298,7 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
     }
 
     myTable.stopEditing();
-    myTable.setModelAndUpdateColumns(new ListTableModel<Item>(columns));
+    myTable.setModelAndUpdateColumns(new ListTableModel<>(columns));
     if (maxHeight > 0) {
       myTable.setRowHeight(maxHeight);
     }
@@ -322,7 +312,7 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
   }
 
   private List<Item> doGetItems() {
-    List<Item> items = new ArrayList<Item>(getTableModel().getItems());
+    List<Item> items = new ArrayList<>(getTableModel().getItems());
     if (myTable.isEditing()) {
       Object value = ChangesTrackingTableView.getValue(myTable.getEditorComponent());
       ColumnInfo column = ((ListTableModel)myTable.getModel()).getColumnInfos()[myTable.getEditingColumn()];
@@ -331,9 +321,9 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
     return items;
   }
 
-  private void setItems(List<Item> items) {
+  private void setItems(List<? extends Item> items) {
     if (items.isEmpty()) {
-      getTableModel().setItems(Collections.<Item>emptyList());
+      getTableModel().setItems(Collections.emptyList());
       myWarnings.clear();
     }
     else {
@@ -341,7 +331,7 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
       for (Item item : items) {
         myWarnings.add(null);
       }
-      getTableModel().setItems(new ArrayList<Item>(items));
+      getTableModel().setItems(new ArrayList<>(items));
     }
     updateButtons();
   }
@@ -355,7 +345,7 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
   }
 
   public void updateMessage(int index, @Nullable Item override) {
-    List<Item> current = new ArrayList<Item>(doGetItems());
+    List<Item> current = new ArrayList<>(doGetItems());
     if (override != null) {
       current.set(index, override);
     }
@@ -364,7 +354,7 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
     myTable.repaint();
   }
 
-  protected void displayMessageAndFix(@Nullable Pair<String, Fix> messageAndFix) {
+  protected void displayMessageAndFix(@Nullable Pair<@NlsContexts.DialogMessage String, Fix> messageAndFix) {
     if (messageAndFix != null) {
       myMessageLabel.setText(messageAndFix.first);
       myMessageLabel.setIcon(WARNING_ICON);
@@ -392,9 +382,9 @@ public abstract class ValidatingTableEditor<Item> implements ComponentWithEmptyT
 
 
   private static class WarningIconCellRenderer extends DefaultTableCellRenderer {
-    private final NullableComputable<String> myWarningProvider;
+    private final NullableComputable<@NlsContexts.HintText String> myWarningProvider;
 
-    public WarningIconCellRenderer(NullableComputable<String> warningProvider) {
+    WarningIconCellRenderer(NullableComputable<@NlsContexts.HintText String> warningProvider) {
       myWarningProvider = warningProvider;
     }
 

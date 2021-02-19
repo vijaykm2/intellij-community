@@ -16,9 +16,10 @@
 package git4idea.reset;
 
 import com.intellij.dvcs.DvcsUtil;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBRadioButton;
@@ -26,9 +27,13 @@ import com.intellij.util.ui.GridBag;
 import com.intellij.util.ui.RadioButtonEnumModel;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.vcs.log.VcsFullCommitDetails;
+import com.intellij.vcs.log.util.VcsUserUtil;
 import com.intellij.xml.util.XmlStringUtil;
+import git4idea.i18n.GitBundle;
 import git4idea.repo.GitRepository;
 import git4idea.repo.GitRepositoryManager;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -40,7 +45,7 @@ import static com.intellij.dvcs.DvcsUtil.getShortRepositoryName;
 
 public class GitNewResetDialog extends DialogWrapper {
 
-  private static final String DIALOG_ID = "git.new.reset.dialog";
+  private static final String DIALOG_ID = "git.new.reset.dialog"; //NON-NLS
   
   @NotNull private final Project myProject;
   @NotNull private final Map<GitRepository, VcsFullCommitDetails> myCommits;
@@ -58,9 +63,8 @@ public class GitNewResetDialog extends DialogWrapper {
     myButtonGroup = new ButtonGroup();
 
     init();
-    setTitle("Git Reset");
-    setOKButtonText("Reset");
-    setOKButtonMnemonic('R');
+    setTitle(GitBundle.message("git.reset.dialog.title"));
+    setOKButtonText(GitBundle.message("git.reset.button"));
     setResizable(false);
   }
 
@@ -75,9 +79,9 @@ public class GitNewResetDialog extends DialogWrapper {
     String description = prepareDescription(myProject, myCommits);
     panel.add(new JBLabel(XmlStringUtil.wrapInHtml(description)), gb.nextLine().next().coverLine());
 
-    String explanation = "This will reset the current branch head to the selected commit, <br/>" +
-                         "and update the working tree and the index according to the selected mode:";
-    panel.add(new JBLabel(XmlStringUtil.wrapInHtml(explanation), UIUtil.ComponentStyle.SMALL), gb.nextLine().next().coverLine());
+    JBLabel descriptionLabel =
+      new JBLabel(XmlStringUtil.wrapInHtml(GitBundle.message("git.reset.dialog.description")), UIUtil.ComponentStyle.SMALL);
+    panel.add(descriptionLabel, gb.nextLine().next().coverLine());
 
     for (GitResetMode mode : GitResetMode.values()) {
       JBRadioButton button = new JBRadioButton(mode.getName());
@@ -98,47 +102,56 @@ public class GitNewResetDialog extends DialogWrapper {
     return DIALOG_ID;
   }
 
+  @Nls
   @NotNull
   private static String prepareDescription(@NotNull Project project, @NotNull Map<GitRepository, VcsFullCommitDetails> commits) {
     if (commits.size() == 1 && !isMultiRepo(project)) {
       Map.Entry<GitRepository, VcsFullCommitDetails> entry = commits.entrySet().iterator().next();
-      return String.format("%s -> %s", getSourceText(entry.getKey()), getTargetText(entry.getValue()));
+      return String.format("%s -> %s", getSourceText(entry.getKey()), getTargetText(entry.getValue())); //NON-NLS
     }
 
-    StringBuilder desc = new StringBuilder("");
+    @NlsSafe StringBuilder desc = new StringBuilder();
     for (Map.Entry<GitRepository, VcsFullCommitDetails> entry : commits.entrySet()) {
       GitRepository repository = entry.getKey();
       VcsFullCommitDetails commit = entry.getValue();
-      desc.append(String.format("%s in %s -> %s<br/>", getSourceText(repository),
-                                getShortRepositoryName(repository), getTargetText(commit)));
+      String sourceInRepo = GitBundle.message("git.reset.dialog.description.source.in.repository",
+                                              getSourceText(repository),
+                                              getShortRepositoryName(repository));
+      desc.append(String.format("%s -> %s<br/>", //NON-NLS
+                                sourceInRepo,
+                                getTargetText(commit)));
     }
     return desc.toString();
   }
 
   @NotNull
+  @Nls
   private static String getTargetText(@NotNull VcsFullCommitDetails commit) {
-    String commitMessage = StringUtil.escapeXml(StringUtil.shortenTextWithEllipsis(commit.getSubject(), 20, 0));
-    return String.format("<code><b>%s</b> \"%s\"</code> by <code>%s</code>",
-                         commit.getId().toShortString(), commitMessage, commit.getAuthor().getName());
+    String commitMessage = StringUtil.shortenTextWithEllipsis(commit.getSubject(), 20, 0);
+    HtmlChunk commitDetails = HtmlChunk.tag("code").children(
+      HtmlChunk.text(commit.getId().toShortString()).bold(),
+      HtmlChunk.text(" \"" + commitMessage + "\""));
+    HtmlChunk author = HtmlChunk.tag("code").addText(VcsUserUtil.getShortPresentation(commit.getAuthor()));
+    return GitBundle.message("git.reset.dialog.description.commit.details.by.author", commitDetails, author);
   }
 
   @NotNull
+  @NonNls
   private static String getSourceText(@NotNull GitRepository repository) {
     String currentRevision = repository.getCurrentRevision();
     assert currentRevision != null;
     String text = repository.getCurrentBranch() == null ?
-                  "HEAD (" + DvcsUtil.getShortHash(currentRevision) + ")" :
+                  "HEAD (" + DvcsUtil.getShortHash(currentRevision) + ")" : //NON-NLS
                   repository.getCurrentBranch().getName();
-    return "<b>" + text + "</b>";
+    return XmlStringUtil.wrapInHtmlTag(text, "b");
   }
 
   private static boolean isMultiRepo(@NotNull Project project) {
-    return ServiceManager.getService(project, GitRepositoryManager.class).moreThanOneRoot();
+    return GitRepositoryManager.getInstance(project).moreThanOneRoot();
   }
 
   @NotNull
   public GitResetMode getResetMode() {
     return myEnumModel.getSelected();
   }
-
 }

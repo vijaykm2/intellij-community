@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,13 @@
  */
 package com.intellij.codeInspection.reference;
 
+import com.intellij.codeInspection.GlobalInspectionTool;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiModifierListOwner;
+import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.uast.UDeclaration;
 
 import java.util.Collection;
 
@@ -26,7 +29,6 @@ import java.util.Collection;
  * A node in the reference graph corresponding to a Java method.
  *
  * @author anna
- * @since 6.0
  */
 public interface RefMethod extends RefJavaElement {
   /**
@@ -78,8 +80,8 @@ public interface RefMethod extends RefJavaElement {
   boolean isTestMethod();
 
   /**
-   * Checks if the signature of the method matches the signature of the standard <code>main</code>
-   * or <code>premain</code> method.
+   * Checks if the signature of the method matches the signature of the standard {@code main}
+   * or {@code premain} method.
    *
    * @return true if the method can be a main function of the application, false otherwise.
    */
@@ -130,30 +132,43 @@ public interface RefMethod extends RefJavaElement {
   @Nullable String getReturnValueIfSame();
 
   /**
-   * Returns the list of exceptions which are included in the <code>throws</code> list
-   * of the method but cannot be actually thrown.
+   * Returns the list of exceptions which are included in the {@code throws} list
+   * of the method but cannot be actually thrown. 
+   * 
+   * To return valid results, requires com.intellij.codeInspection.unneededThrows.RedundantThrowsGraphAnnotator.
+   * (Dbl) Annotator registration is possible in {@link GlobalInspectionTool#initialize(com.intellij.codeInspection.GlobalInspectionContext)}
+   * or {@link GlobalInspectionTool#getAnnotator(RefManager)} 
    *
    * @return the list of exceptions declared but not thrown, or null if there are no
    * such exceptions.
    */
-  @Nullable PsiClass[] getUnThrownExceptions();
+  PsiClass @Nullable [] getUnThrownExceptions();
 
   /**
    * Returns the list of reference graph nodes for the method parameters.
    *
    * @return the method parameters.
    */
-  @NotNull RefParameter[] getParameters();
+  RefParameter @NotNull [] getParameters();
 
   /**
    * Returns the class to which the method belongs.
    *
    * @return the class instance.
    */
+  @Nullable
   RefClass getOwnerClass();
 
+  @Deprecated
   @Override
-  PsiModifierListOwner getElement();
+  default PsiModifierListOwner getElement() {
+    return ObjectUtils.tryCast(getPsiElement(), PsiModifierListOwner.class);
+  }
+
+  @Override
+  default UDeclaration getUastElement() {
+    throw new UnsupportedOperationException();
+  }
 
   boolean isCalledOnSubClass();
 }

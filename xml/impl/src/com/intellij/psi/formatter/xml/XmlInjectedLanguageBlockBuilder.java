@@ -26,11 +26,9 @@ import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.formatter.common.InjectedLanguageBlockBuilder;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.xml.XmlElementType;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
-* @author nik
-*/
 public class XmlInjectedLanguageBlockBuilder extends InjectedLanguageBlockBuilder {
   private final XmlFormattingPolicy myXmlFormattingPolicy;
 
@@ -38,14 +36,14 @@ public class XmlInjectedLanguageBlockBuilder extends InjectedLanguageBlockBuilde
     myXmlFormattingPolicy = formattingPolicy;
   }
 
+  @NotNull
   @Override
-  public Block createInjectedBlock(ASTNode node,
-                                   Block originalBlock,
+  public Block createInjectedBlock(@NotNull ASTNode node,
+                                   @NotNull Block originalBlock,
                                    Indent indent,
                                    int offset,
                                    TextRange range,
-                                   @Nullable Language language)
-  {
+                                   @Nullable Language language) {
     return new AnotherLanguageBlockWrapper(node, myXmlFormattingPolicy, originalBlock, indent, offset, range);
   }
 
@@ -68,14 +66,11 @@ public class XmlInjectedLanguageBlockBuilder extends InjectedLanguageBlockBuilde
   public boolean canProcessFragment(String text, final ASTNode injectionHost) {
     IElementType type = injectionHost.getElementType();
     if (type == XmlElementType.XML_TEXT) {
-      text = text.trim();
-      text = text.replace("<![CDATA[", "");
-      text = text.replace("]]>", "");
+      return true;
     }
     else if (type == XmlElementType.XML_COMMENT) {   // <!--[if IE]>, <![endif]--> of conditional comments injection
       return true;
     }
-
     return text.isEmpty();
   }
 

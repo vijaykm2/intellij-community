@@ -15,10 +15,10 @@
  */
 package com.intellij.refactoring.rename;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiJavaCodeReferenceElement;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.util.ConflictsUtil;
 import com.intellij.refactoring.util.RefactoringUIUtil;
 
@@ -33,9 +33,10 @@ public class ClassHidesUnqualifiableClassUsageInfo extends UnresolvableCollision
     myHiddenClass = hiddenClass;
   }
 
+  @Override
   public String getDescription() {
     final PsiElement container = ConflictsUtil.getContainer(myHiddenClass);
-    return RefactoringBundle.message("renamed.class.will.hide.0.in.1", RefactoringUIUtil.getDescription(myHiddenClass, false),
+    return JavaRefactoringBundle.message("renamed.class.will.hide.0.in.1", RefactoringUIUtil.getDescription(myHiddenClass, false),
                                      RefactoringUIUtil.getDescription(container, false));
   }
 }

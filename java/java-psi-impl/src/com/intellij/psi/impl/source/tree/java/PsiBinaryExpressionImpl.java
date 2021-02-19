@@ -22,6 +22,7 @@ import com.intellij.psi.impl.source.resolve.JavaResolveCache;
 import com.intellij.psi.impl.source.tree.ChildRole;
 import com.intellij.psi.impl.source.tree.ElementType;
 import com.intellij.psi.impl.source.tree.JavaElementType;
+import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.tree.ChildRoleBase;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
@@ -30,10 +31,8 @@ import com.intellij.util.Function;
 import org.jetbrains.annotations.NotNull;
 
 public class PsiBinaryExpressionImpl extends ExpressionPsiElement implements PsiBinaryExpression {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiBinaryExpressionImpl");
+  private static final Logger LOG = Logger.getInstance(PsiBinaryExpressionImpl.class);
 
-  /** used via reflection in {@link com.intellij.psi.impl.source.tree.JavaElementType.JavaCompositeElementType#JavaCompositeElementType(java.lang.String, java.lang.Class)} */
-  @SuppressWarnings("UnusedDeclaration")
   public PsiBinaryExpressionImpl() {
     this(JavaElementType.BINARY_EXPRESSION);
   }
@@ -84,12 +83,7 @@ public class PsiBinaryExpressionImpl extends ExpressionPsiElement implements Psi
     return TypeConversionUtil.calcTypeForBinaryExpression(lType, rType, sign, true);
   }
 
-  private static final Function<PsiBinaryExpressionImpl,PsiType> MY_TYPE_EVALUATOR = new Function<PsiBinaryExpressionImpl, PsiType>() {
-    @Override
-    public PsiType fun(PsiBinaryExpressionImpl expression) {
-      return doGetType(expression);
-    }
-  };
+  private static final Function<PsiBinaryExpressionImpl,PsiType> MY_TYPE_EVALUATOR = expression -> doGetType(expression);
   @Override
   public PsiType getType() {
     return JavaResolveCache.getInstance(getProject()).getType(this, MY_TYPE_EVALUATOR);
@@ -114,7 +108,7 @@ public class PsiBinaryExpressionImpl extends ExpressionPsiElement implements Psi
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     if (ElementType.EXPRESSION_BIT_SET.contains(child.getElementType())) {
       if (child == getFirstChildNode()) return ChildRole.LOPERAND;
@@ -143,13 +137,21 @@ public class PsiBinaryExpressionImpl extends ExpressionPsiElement implements Psi
     }
   }
 
+  @Override
   public String toString() {
     return "PsiBinaryExpression:" + getText();
   }
 
-  @NotNull
   @Override
-  public PsiExpression[] getOperands() {
+  public boolean processDeclarations(@NotNull PsiScopeProcessor processor,
+                                     @NotNull ResolveState state,
+                                     PsiElement lastParent,
+                                     @NotNull PsiElement place) {
+    return PsiPolyadicExpressionImpl.processDeclarations(this, processor, state, lastParent, place);
+  }
+
+  @Override
+  public PsiExpression @NotNull [] getOperands() {
     PsiExpression rOperand = getROperand();
     return rOperand == null ? new PsiExpression[]{getLOperand()} : new PsiExpression[]{getLOperand(), rOperand};
   }

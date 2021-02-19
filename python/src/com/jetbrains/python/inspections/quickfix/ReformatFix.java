@@ -15,7 +15,6 @@
  */
 package com.jetbrains.python.inspections.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.intention.HighPriorityAction;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInspection.LocalQuickFix;
@@ -25,6 +24,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.util.IncorrectOperationException;
+import com.jetbrains.python.PyBundle;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -34,13 +34,7 @@ public class ReformatFix implements IntentionAction, LocalQuickFix, HighPriority
   @NotNull
   @Override
   public String getText() {
-    return "Reformat file";
-  }
-
-  @NotNull
-  @Override
-  public String getName() {
-    return getText();
+    return PyBundle.message("QFIX.reformat.file");
   }
 
   @NotNull
@@ -61,9 +55,6 @@ public class ReformatFix implements IntentionAction, LocalQuickFix, HighPriority
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) {
-      return;
-    }
     CodeStyleManager.getInstance(project).reformat(file);
   }
 

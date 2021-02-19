@@ -15,11 +15,12 @@
  */
 package com.intellij.uiDesigner.i18n;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.FileModificationService;
-import com.intellij.codeInspection.i18n.JavaI18nUtil;
 import com.intellij.codeInspection.i18n.JavaI18nizeQuickFixDialog;
+import com.intellij.codeInspection.util.IntentionName;
+import com.intellij.lang.properties.PropertiesBundle;
 import com.intellij.lang.properties.psi.PropertiesFile;
+import com.intellij.lang.properties.references.I18nUtil;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
@@ -33,7 +34,6 @@ import com.intellij.psi.PsiFile;
 import com.intellij.uiDesigner.designSurface.GuiEditor;
 import com.intellij.uiDesigner.lw.StringDescriptor;
 import com.intellij.uiDesigner.quickFixes.QuickFix;
-import com.intellij.uiDesigner.radComponents.RadComponent;
 import com.intellij.util.IncorrectOperationException;
 
 import java.util.Collection;
@@ -41,13 +41,16 @@ import java.util.Collection;
 /**
  * @author yole
  */
-public abstract class I18nizeFormQuickFix extends QuickFix {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.uiDesigner.i18n.I18nizeFormQuickFix");
+public class I18nizeFormQuickFix extends QuickFix {
+  private static final Logger LOG = Logger.getInstance(I18nizeFormQuickFix.class);
+  private final StringDescriptorAccessor myAccessor;
 
-  public I18nizeFormQuickFix(final GuiEditor editor, final String name, final RadComponent component) {
-    super(editor, name, component);
+  I18nizeFormQuickFix(final GuiEditor editor, final @IntentionName String name, StringDescriptorAccessor accessor) {
+    super(editor, name, accessor.getComponent());
+    myAccessor = accessor;
   }
 
+  @Override
   public void run() {
     final StringDescriptor descriptor = getStringDescriptorValue();
     final Project project = myEditor.getProject();
@@ -58,7 +61,8 @@ public abstract class I18nizeFormQuickFix extends QuickFix {
       return;
     }
     String initialValue = StringUtil.escapeStringCharacters(descriptor.getValue());
-    final JavaI18nizeQuickFixDialog dialog = new JavaI18nizeQuickFixDialog(project, psiFile, null, initialValue, null, false, false) {
+    final JavaI18nizeQuickFixDialog<?> dialog = new JavaI18nizeQuickFixDialog<>(project, psiFile, null, initialValue, null, false, false) {
+      @Override
       protected String getDimensionServiceKey() {
         return "#com.intellij.codeInsight.i18n.I18nizeQuickFixDialog_Form";
       }
@@ -79,20 +83,14 @@ public abstract class I18nizeFormQuickFix extends QuickFix {
       }
     }
 
-    CommandProcessor.getInstance().executeCommand(project, new Runnable() {
-      public void run() {
-        ApplicationManager.getApplication().runWriteAction(new Runnable() {
-          public void run() {
-            try {
-              JavaI18nUtil.createProperty(project, propertiesFiles, dialog.getKey(), dialog.getValue());
-            }
-            catch (IncorrectOperationException e) {
-              LOG.error(e);
-            }
-          }
-        });
+    CommandProcessor.getInstance().executeCommand(project, () -> ApplicationManager.getApplication().runWriteAction(() -> {
+      try {
+        I18nUtil.createProperty(project, propertiesFiles, dialog.getKey(), dialog.getValue());
       }
-    }, CodeInsightBundle.message("quickfix.i18n.command.name"), project);
+      catch (IncorrectOperationException e) {
+        LOG.error(e);
+      }
+    }), PropertiesBundle.message("quickfix.i18n.command.name"), project);
 
     // saving files is necessary to ensure correct reload of properties files by UI Designer
     for (PropertiesFile file : propertiesFiles) {
@@ -100,17 +98,8 @@ public abstract class I18nizeFormQuickFix extends QuickFix {
     }
 
     if (aPropertiesFile != null) {
-      final ProjectFileIndex fileIndex = ProjectRootManager.getInstance(project).getFileIndex();
-      String packageName = fileIndex.getPackageNameByDirectory(aPropertiesFile.getVirtualFile().getParent());
-      if (packageName != null) {
-        String bundleName;
-        if (packageName.length() > 0) {
-          bundleName = packageName + "." + aPropertiesFile.getResourceBundle().getBaseName();
-        }
-        else {
-          bundleName = aPropertiesFile.getResourceBundle().getBaseName();
-        }
-        bundleName = bundleName.replace('.', '/');
+      String bundleName = getBundleName(project, aPropertiesFile);
+      if (bundleName != null){
         try {
           setStringDescriptorValue(new StringDescriptor(bundleName, dialog.getKey()));
         }
@@ -122,6 +111,25 @@ public abstract class I18nizeFormQuickFix extends QuickFix {
     }
   }
 
-  protected abstract StringDescriptor getStringDescriptorValue();
-  protected abstract void setStringDescriptorValue(final StringDescriptor descriptor) throws Exception;
+  static String getBundleName(Project project, PropertiesFile aPropertiesFile) {
+    final ProjectFileIndex fileIndex = ProjectRootManager.getInstance(project).getFileIndex();
+    String packageName = fileIndex.getPackageNameByDirectory(aPropertiesFile.getVirtualFile().getParent());
+    if (packageName == null) return null;
+    String bundleName;
+    if (!packageName.isEmpty()) {
+      bundleName = packageName + "." + aPropertiesFile.getResourceBundle().getBaseName();
+    }
+    else {
+      bundleName = aPropertiesFile.getResourceBundle().getBaseName();
+    }
+    return bundleName.replace('.', '/');
+  }
+
+  protected StringDescriptor getStringDescriptorValue() {
+    return myAccessor.getStringDescriptorValue();
+  }
+
+  protected void setStringDescriptorValue(final StringDescriptor descriptor) throws Exception {
+    myAccessor.setStringDescriptorValue(descriptor);
+  }
 }

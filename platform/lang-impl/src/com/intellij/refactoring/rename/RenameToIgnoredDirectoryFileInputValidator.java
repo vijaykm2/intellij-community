@@ -22,19 +22,16 @@ import com.intellij.patterns.PlatformPatterns;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.util.ProcessingContext;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * User: anna
- * Date: 4/5/11
- */
 public class RenameToIgnoredDirectoryFileInputValidator implements RenameInputValidatorEx {
   @Nullable
   @Override
   public String getErrorMessage(String newName, Project project) {
     if (FileTypeManager.getInstance().isFileIgnored(newName)) {
-      return "Trying to create a directory with ignored name, result will not be visible";
+      return RefactoringBundle.message("dialog.message.new.directory.with.ignored.name.warning");
     }
     return null;
   }

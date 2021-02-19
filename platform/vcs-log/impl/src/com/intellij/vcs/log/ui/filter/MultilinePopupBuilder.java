@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,58 +15,59 @@
  */
 package com.intellij.vcs.log.ui.filter;
 
-import com.intellij.codeInsight.completion.CompletionResultSet;
-import com.intellij.codeInsight.lookup.LookupElementBuilder;
+import com.google.common.primitives.Chars;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonShortcuts;
-import com.intellij.openapi.components.ServiceManager;
-import com.intellij.openapi.fileTypes.FileTypes;
+import com.intellij.openapi.fileTypes.PlainTextLanguage;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.ComponentPopupBuilder;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.spellchecker.ui.SpellCheckingEditorCustomization;
-import com.intellij.ui.EditorCustomization;
 import com.intellij.ui.EditorTextField;
-import com.intellij.ui.EditorTextFieldProvider;
+import com.intellij.ui.LanguageTextField;
 import com.intellij.ui.SoftWrapsEditorCustomization;
-import com.intellij.util.Function;
-import com.intellij.util.TextFieldCompletionProviderDumbAware;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.textCompletion.DefaultTextCompletionValueDescriptor;
+import com.intellij.util.textCompletion.TextFieldWithCompletion;
+import com.intellij.util.textCompletion.ValuesCompletionProvider.ValuesCompletionProviderDumbAware;
+import com.intellij.util.ui.JBDimension;
+import com.intellij.util.ui.JBUI;
+import com.intellij.vcs.log.VcsLogBundle;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
 import java.awt.*;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
 class MultilinePopupBuilder {
-
-  private static final char[] SEPARATORS = { ',', '|', '\n' };
+  static final char[] SEPARATORS = {'|', '\n'};
 
   @NotNull private final EditorTextField myTextField;
+  private final char[] mySeparators;
 
-  MultilinePopupBuilder(@NotNull Project project, @NotNull final Collection<String> values, @NotNull String initialValue) {
-    myTextField = createTextField(project);
-    new MyCompletionProvider(values).apply(myTextField);
-    myTextField.setText(initialValue);
+  MultilinePopupBuilder(@NotNull Project project,
+                        @NotNull Collection<String> values,
+                        @NotNull String initialValue,
+                        @Nullable CompletionPrefixProvider completionPrefixProvider) {
+    myTextField = new TextFieldWithCompletion(project, new MyCompletionProvider(values, completionPrefixProvider),
+                                              initialValue, false, true, false);
+    setupTextField(myTextField);
+    mySeparators = SEPARATORS;
   }
 
-  @NotNull
-  private static EditorTextField createTextField(@NotNull Project project) {
-    final EditorTextFieldProvider service = ServiceManager.getService(project, EditorTextFieldProvider.class);
-    List<EditorCustomization>
-      features = Arrays.<EditorCustomization>asList(SoftWrapsEditorCustomization.ENABLED, SpellCheckingEditorCustomization.DISABLED);
-    EditorTextField textField = service.getEditorField(FileTypes.PLAIN_TEXT.getLanguage(), project, features);
-    textField.setBorder(new CompoundBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2), textField.getBorder()));
-    textField.setOneLineMode(false);
-    return textField;
+  MultilinePopupBuilder(@NotNull Project project, @NotNull String initialValue, char[] separators) {
+    myTextField = new LanguageTextField(PlainTextLanguage.INSTANCE, project, initialValue,
+                                        new LanguageTextField.SimpleDocumentCreator(), false);
+    setupTextField(myTextField);
+    mySeparators = separators;
   }
 
   @NotNull
@@ -75,13 +76,13 @@ class MultilinePopupBuilder {
     panel.add(myTextField, BorderLayout.CENTER);
     ComponentPopupBuilder builder = JBPopupFactory.getInstance().createComponentPopupBuilder(panel, myTextField)
       .setCancelOnClickOutside(true)
-      .setAdText(KeymapUtil.getShortcutsText(CommonShortcuts.CTRL_ENTER.getShortcuts()) + " to finish")
+      .setAdText(getAdText())
       .setRequestFocus(true)
       .setResizable(true)
       .setMayBeParent(true);
 
-    final JBPopup popup = builder.createPopup();
-    popup.setMinimumSize(new Dimension(200, 90));
+    JBPopup popup = builder.createPopup();
+    popup.setMinimumSize(new JBDimension(200, 90));
     AnAction okAction = new DumbAwareAction() {
       @Override
       public void actionPerformed(@NotNull AnActionEvent e) {
@@ -94,52 +95,65 @@ class MultilinePopupBuilder {
   }
 
   @NotNull
-  Collection<String> getSelectedValues() {
-    return ContainerUtil.mapNotNull(StringUtil.tokenize(myTextField.getText(), new String(SEPARATORS)), new Function<String, String>() {
-      @Override
-      public String fun(String value) {
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
-      }
+  @NlsContexts.PopupAdvertisement
+  private String getAdText() {
+    return VcsLogBundle.message("vcs.log.filter.popup.advertisement.with.key.text", getSeparatorsText(mySeparators),
+                                KeymapUtil.getShortcutsText(CommonShortcuts.CTRL_ENTER.getShortcuts()));
+  }
+
+  @NotNull
+  List<String> getSelectedValues() {
+    return ContainerUtil.mapNotNull(StringUtil.tokenize(myTextField.getText(), new String(mySeparators)), value -> {
+      String trimmed = value.trim();
+      return trimmed.isEmpty() ? null : trimmed;
     });
   }
 
-  private static class MyCompletionProvider extends TextFieldCompletionProviderDumbAware {
-
-    @NotNull private final Collection<String> myValues;
-
-    MyCompletionProvider(@NotNull Collection<String> values) {
-      super(true);
-      myValues = values;
-    }
-
-    @NotNull
-    @Override
-    protected String getPrefix(@NotNull String currentTextPrefix) {
-      final int separatorPosition = lastSeparatorPosition(currentTextPrefix);
-      return separatorPosition == -1 ? currentTextPrefix : currentTextPrefix.substring(separatorPosition + 1).trim();
-    }
-
-    private static int lastSeparatorPosition(@NotNull String text) {
-      int lastPosition = -1;
-      for (char separator : SEPARATORS) {
-        int lio = text.lastIndexOf(separator);
-        if (lio > lastPosition) {
-          lastPosition = lio;
-        }
+  @NotNull
+  private static String getSeparatorsText(char[] separators) {
+    StringBuilder s = new StringBuilder();
+    for (char c : separators) {
+      String separator = c == '\n' ? VcsLogBundle.message("vcs.log.filter.popup.advertisement.text.new.lines") : Character.toString(c);
+      if (s.length() == 0) {
+        s.append(separator);
       }
-      return lastPosition;
+      else {
+        s.append(" ").append(VcsLogBundle.message("vcs.log.filter.popup.advertisement.text.or.suffix", separator));
+      }
+    }
+    return s.toString();
+  }
+
+  private static void setupTextField(@NotNull EditorTextField textField) {
+    textField.addSettingsProvider(editor -> SoftWrapsEditorCustomization.ENABLED.customize(editor));
+    textField.setBorder(new CompoundBorder(JBUI.Borders.empty(2), textField.getBorder()));
+  }
+
+  interface CompletionPrefixProvider {
+    String getPrefix(@NotNull String text, int offset);
+  }
+
+  private static class MyCompletionProvider extends ValuesCompletionProviderDumbAware<String> {
+    @Nullable private final CompletionPrefixProvider myCompletionPrefixProvider;
+
+    MyCompletionProvider(@NotNull Collection<String> values, @Nullable CompletionPrefixProvider completionPrefixProvider) {
+      super(new DefaultTextCompletionValueDescriptor.StringValueDescriptor(), Chars.asList(SEPARATORS), values, false);
+      myCompletionPrefixProvider = completionPrefixProvider;
     }
 
-    @SuppressWarnings("StringToUpperCaseOrToLowerCaseWithoutLocale")
+    @Nullable
     @Override
-    protected void addCompletionVariants(@NotNull String text, int offset, @NotNull String prefix,
-                                         @NotNull CompletionResultSet result) {
-      result.addLookupAdvertisement("Select one or more users separated with comma, | or new lines");
-      for (String completionVariant : myValues) {
-        final LookupElementBuilder element = LookupElementBuilder.create(completionVariant);
-        result.addElement(element.withLookupString(completionVariant.toLowerCase()));
+    public String getPrefix(@NotNull String text, int offset) {
+      if (myCompletionPrefixProvider != null) {
+        return myCompletionPrefixProvider.getPrefix(text, offset);
       }
+      return super.getPrefix(text, offset);
+    }
+
+    @Nullable
+    @Override
+    public String getAdvertisement() {
+      return VcsLogBundle.message("vcs.log.filter.popup.advertisement.text", getSeparatorsText(SEPARATORS));
     }
   }
 }

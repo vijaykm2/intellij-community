@@ -15,6 +15,7 @@
  */
 package com.intellij.codeInsight.daemon.impl;
 
+import com.intellij.codeInsight.CodeInsightSettings;
 import com.intellij.codeInsight.daemon.ReferenceImporter;
 import com.intellij.codeInsight.daemon.impl.quickfix.ImportClassFix;
 import com.intellij.lang.java.JavaLanguage;
@@ -50,7 +51,7 @@ public class JavaReferenceImporter implements ReferenceImporter {
       if (element instanceof PsiJavaCodeReferenceElement) {
         PsiJavaCodeReferenceElement ref = (PsiJavaCodeReferenceElement)element;
         if (ref.multiResolve(true).length == 0) {
-          new ImportClassFix(ref).doFix(editor, false, allowCaretNearRef);
+          new ImportClassFix(ref).doFix(editor, false, allowCaretNearRef, true);
           return true;
         }
       }
@@ -60,20 +61,7 @@ public class JavaReferenceImporter implements ReferenceImporter {
   }
 
   @Override
-  public boolean autoImportReferenceAt(@NotNull Editor editor, @NotNull PsiFile file, int offset) {
-    if (!file.getViewProvider().getLanguages().contains(JavaLanguage.INSTANCE)) {
-      return false;
-    }
-
-    PsiReference element = file.findReferenceAt(offset);
-    if (element instanceof PsiJavaCodeReferenceElement) {
-      PsiJavaCodeReferenceElement ref = (PsiJavaCodeReferenceElement)element;
-      if (ref.multiResolve(true).length == 0) {
-        new ImportClassFix(ref).doFix(editor, false, true);
-        return true;
-      }
-    }
-
-    return false;
+  public boolean isAddUnambiguousImportsOnTheFlyEnabled(@NotNull PsiFile file) {
+    return file.getViewProvider().getLanguages().contains(JavaLanguage.INSTANCE) && CodeInsightSettings.getInstance().ADD_UNAMBIGIOUS_IMPORTS_ON_THE_FLY;
   }
 }

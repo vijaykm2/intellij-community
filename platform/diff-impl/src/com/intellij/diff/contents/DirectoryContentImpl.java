@@ -15,28 +15,36 @@
  */
 package com.intellij.diff.contents;
 
+import com.intellij.diff.util.DiffUtil;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.pom.Navigatable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class DirectoryContentImpl implements DiffContent, DirectoryContent {
+public class DirectoryContentImpl extends DiffContentBase implements DirectoryContent {
   @NotNull private final VirtualFile myFile;
   @Nullable private final Project myProject;
+  @Nullable private final VirtualFile myHighlightFile;
 
   public DirectoryContentImpl(@Nullable Project project, @NotNull VirtualFile file) {
+    this(project, file, file);
+  }
+
+  public DirectoryContentImpl(@Nullable Project project, @NotNull VirtualFile file, @Nullable VirtualFile highlightFile) {
     assert file.isValid() && file.isDirectory();
     myProject = project;
     myFile = file;
+    myHighlightFile = highlightFile;
   }
 
   @Nullable
   @Override
-  public OpenFileDescriptor getOpenFileDescriptor() {
-    if (myProject == null || myProject.isDefault()) return null;
-    return new OpenFileDescriptor(myProject, myFile);
+  public Navigatable getNavigatable() {
+    if (!DiffUtil.canNavigateToFile(myProject, myHighlightFile)) return null;
+    return new OpenFileDescriptor(myProject, myHighlightFile);
   }
 
   @NotNull
@@ -52,6 +60,7 @@ public class DirectoryContentImpl implements DiffContent, DirectoryContent {
   }
 
   @Override
-  public void onAssigned(boolean isAssigned) {
+  public String toString() {
+    return super.toString() + ":" + myFile;
   }
 }

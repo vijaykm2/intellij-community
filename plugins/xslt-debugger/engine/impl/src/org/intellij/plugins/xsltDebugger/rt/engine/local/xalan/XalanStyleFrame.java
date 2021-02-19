@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.xsltDebugger.rt.engine.local.xalan;
 
 import org.apache.xalan.templates.ElemLiteralResult;
@@ -35,7 +36,7 @@ class XalanStyleFrame extends AbstractFrame<Debugger.StyleFrame> implements Debu
   private final String myURI;
   private final String myInstr;
 
-  public XalanStyleFrame(TracerEvent ev, Debugger.StyleFrame currentFrame, boolean withSourceFrame) {
+  XalanStyleFrame(TracerEvent ev, Debugger.StyleFrame currentFrame, boolean withSourceFrame) {
     super(currentFrame);
     myWithSourceFrame = withSourceFrame;
 
@@ -91,7 +92,7 @@ class XalanStyleFrame extends AbstractFrame<Debugger.StyleFrame> implements Debu
   }
 
   private List<Debugger.Variable> collectVariables() {
-    final Set<Debugger.Variable> variables = new HashSet<Debugger.Variable>();
+    final Set<Debugger.Variable> variables = new HashSet<>();
 
     ElemTemplateElement p = myCurrentElement;
     while (p != null) {
@@ -115,8 +116,8 @@ class XalanStyleFrame extends AbstractFrame<Debugger.StyleFrame> implements Debu
       addVariable(variable, true, variables);
     }
 
-    final ArrayList<Debugger.Variable> result = new ArrayList<Debugger.Variable>(variables);
-    Collections.sort(result, VariableComparator.INSTANCE);
+    final ArrayList<Debugger.Variable> result = new ArrayList<>(variables);
+    result.sort(VariableComparator.INSTANCE);
     return result;
   }
 
@@ -144,6 +145,7 @@ class XalanStyleFrame extends AbstractFrame<Debugger.StyleFrame> implements Debu
 
       final DTMNodeProxy c = new DTMNodeProxy(dtm, ctx);
       final PrefixResolver prefixResolver = new PrefixResolverDefault(c) {
+        @Override
         public String getNamespaceForPrefix(String prefix, Node context) {
           if (context instanceof DTMNodeProxy) {
             final DTMNodeProxy proxy = (DTMNodeProxy)context;

@@ -33,7 +33,6 @@ import com.intellij.ide.dnd.FileCopyPasteUtil;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.uiDesigner.SerializedComponentData;
-import com.intellij.util.ThrowableRunnable;
 import org.jdom.Element;
 import org.jdom.output.XMLOutputter;
 import org.jetbrains.annotations.NotNull;
@@ -87,21 +86,18 @@ public class CommonEditActionsProvider implements DeleteProvider, CopyProvider, 
 
   @Override
   public void deleteElement(final @NotNull DataContext dataContext) {
-    myDesigner.getToolProvider().execute(new ThrowableRunnable<Exception>() {
-      @Override
-      public void run() throws Exception {
-        EditableArea area = getArea(dataContext);
-        List<RadComponent> selection = area.getSelection();
+    myDesigner.getToolProvider().execute(() -> {
+      EditableArea area = getArea(dataContext);
+      List<RadComponent> selection = area.getSelection();
 
-        if (selection.isEmpty()) {
-          return;
-        }
-
-        myDesigner.getToolProvider().loadDefaultTool();
-        List<RadComponent> components = RadComponent.getPureSelection(selection);
-        updateSelectionBeforeDelete(area, components.get(0), selection);
-        handleDeletion(components);
+      if (selection.isEmpty()) {
+        return;
       }
+
+      myDesigner.getToolProvider().loadDefaultTool();
+      List<RadComponent> components = RadComponent.getPureSelection(selection);
+      updateSelectionBeforeDelete(area, components.get(0), selection);
+      handleDeletion(components);
     }, DesignerBundle.message("command.delete.selection"), true);
   }
 
@@ -236,7 +232,7 @@ public class CommonEditActionsProvider implements DeleteProvider, CopyProvider, 
       return true;
     }
     catch (Throwable e) {
-      myDesigner.showError("Copy error", e);
+      myDesigner.showError(DesignerBundle.message("designer.copy.error"), e);
       return false;
     }
   }

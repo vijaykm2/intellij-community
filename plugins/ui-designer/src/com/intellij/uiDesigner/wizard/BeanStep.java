@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.wizard;
 
 import com.intellij.ide.util.ClassFilter;
@@ -24,7 +10,6 @@ import com.intellij.ide.wizard.StepAdapter;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtil;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.uiDesigner.UIDesignerBundle;
@@ -35,6 +20,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
+import java.util.Objects;
 
 /**
  * @author Anton Katilin
@@ -51,13 +37,14 @@ final class BeanStep extends StepAdapter{
   private JLabel myExistClassLabel;
   private final WizardData myData;
 
-  public BeanStep(@NotNull final WizardData data) {
+  BeanStep(@NotNull final WizardData data) {
     myData = data;
 
     myPackageLabel.setLabelFor(myTfWithBtnChoosePackage.getTextField());
     myExistClassLabel.setLabelFor(myTfWitgBtnChooseClass.getTextField());
 
     final ItemListener itemListener = new ItemListener() {
+      @Override
       public void itemStateChanged(final ItemEvent e) {
         final boolean state = myRbBindToNewBean.isSelected();
 
@@ -78,11 +65,13 @@ final class BeanStep extends StepAdapter{
 
     myTfWitgBtnChooseClass.addActionListener(
       new ActionListener() {
+        @Override
         public void actionPerformed(final ActionEvent e) {
           final TreeClassChooser chooser = TreeClassChooserFactory.getInstance(myData.myProject).createWithInnerClassesScopeChooser(
             UIDesignerBundle.message("title.choose.bean.class"),
             GlobalSearchScope.projectScope(myData.myProject),
             new ClassFilter() {
+              @Override
               public boolean isAccepted(final PsiClass aClass) {
                 return aClass.getParent() instanceof PsiJavaFile;
               }
@@ -100,6 +89,7 @@ final class BeanStep extends StepAdapter{
     );
 
     myTfWithBtnChoosePackage.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(final ActionEvent e) {
         final PackageChooserDialog dialog = new PackageChooserDialog(UIDesignerBundle.message("title.choose.package"), myData.myProject);
         dialog.selectPackage(myTfWithBtnChoosePackage.getText());
@@ -112,6 +102,7 @@ final class BeanStep extends StepAdapter{
     });
   }
 
+  @Override
   public void _init() {
     // Select way of binding
     if(myData.myBindToNewBean){
@@ -137,6 +128,7 @@ final class BeanStep extends StepAdapter{
     }
   }
 
+  @Override
   public void _commit(boolean finishChosen) throws CommitStepException{
     final boolean newBindToNewBean = myRbBindToNewBean.isSelected();
     if(myData.myBindToNewBean != newBindToNewBean){
@@ -177,8 +169,8 @@ final class BeanStep extends StepAdapter{
       }
 
       if(
-        !Comparing.equal(oldShortClassName, shortClassName) ||
-        !Comparing.equal(oldPackageName, packageName)
+        !Objects.equals(oldShortClassName, shortClassName) ||
+        !Objects.equals(oldPackageName, packageName)
       ){
         // After bean class changed we need to reset all previously set bindings
         resetBindings();
@@ -197,13 +189,14 @@ final class BeanStep extends StepAdapter{
       }
       myData.myBeanClass = aClass;
 
-      if(!Comparing.equal(oldFqClassName, newFqClassName)){
+      if(!Objects.equals(oldFqClassName, newFqClassName)){
         // After bean class changed we need to reset all previously set bindings
         resetBindings();
       }
     }
   }
 
+  @Override
   public JComponent getComponent() {
     return myComponent;
   }

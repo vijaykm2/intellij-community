@@ -14,23 +14,18 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 01.07.2002
- * Time: 15:48:33
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.makeStatic;
 
+import com.intellij.model.ModelBranch;
 import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiType;
 import com.intellij.refactoring.util.VariableData;
-import com.intellij.util.containers.HashMap;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 public final class Settings {
@@ -56,22 +51,22 @@ public final class Settings {
   }
 
 
-  public Settings(boolean replaceUsages, @Nullable String classParameterName, @Nullable VariableData[] variableDatum) {
+  public Settings(boolean replaceUsages, @Nullable String classParameterName, VariableData @Nullable [] variableDatum) {
     this(replaceUsages, classParameterName, variableDatum, false);
   }
 
   public Settings(boolean replaceUsages,
                   @Nullable String classParameterName,
-                  @Nullable VariableData[] variableDatum,
+                  VariableData @Nullable [] variableDatum,
                   boolean delegate) {
     myReplaceUsages = replaceUsages;
     myDelegate = delegate;
     myMakeClassParameter = classParameterName != null;
     myClassParameterName = classParameterName;
     myMakeFieldParameters = variableDatum != null;
-    myFieldToNameList = new ArrayList<FieldParameter>();
+    myFieldToNameList = new ArrayList<>();
     if(myMakeFieldParameters) {
-      myFieldToNameMapping = new HashMap<PsiField, String>();
+      myFieldToNameMapping = new HashMap<>();
       for (VariableData data : variableDatum) {
         if (data.passAsParameter) {
           myFieldToNameMapping.put((PsiField)data.variable, data.name);
@@ -84,15 +79,25 @@ public final class Settings {
     }
   }
 
-  public Settings(boolean replaceUsages, String classParameterName,
-                  PsiField[] fields, String[] names) {
+  public Settings(boolean replaceUsages,
+                  String classParameterName,
+                  PsiField[] fields,
+                  String[] names) {
+    this(replaceUsages, classParameterName, fields, names, false);
+  }
+
+  private Settings(boolean replaceUsages,
+                   String classParameterName,
+                   PsiField[] fields,
+                   String[] names,
+                   boolean delegate) {
     myReplaceUsages = replaceUsages;
     myMakeClassParameter = classParameterName != null;
     myClassParameterName = classParameterName;
     myMakeFieldParameters = fields.length > 0;
-    myFieldToNameList = new ArrayList<FieldParameter>();
+    myFieldToNameList = new ArrayList<>();
     if (myMakeFieldParameters) {
-      myFieldToNameMapping = new HashMap<PsiField, String>();
+      myFieldToNameMapping = new HashMap<>();
       for (int i = 0; i < fields.length; i++) {
         final PsiField field = fields[i];
         final String name = names[i];
@@ -103,7 +108,15 @@ public final class Settings {
     else {
       myFieldToNameMapping = null;
     }
-    myDelegate = false;
+    myDelegate = delegate;
+  }
+
+  @NotNull Settings obtainBranchCopy(@NotNull ModelBranch branch) {
+    if (myFieldToNameList.isEmpty()) return this; 
+    return new Settings(myReplaceUsages, myClassParameterName,
+                        ContainerUtil.map2Array(myFieldToNameList, PsiField.class, fp -> branch.obtainPsiCopy(fp.field)),
+                        ContainerUtil.map2Array(myFieldToNameList, String.class, fp -> fp.name),
+                        myDelegate);
   }
 
   public boolean isReplaceUsages() {

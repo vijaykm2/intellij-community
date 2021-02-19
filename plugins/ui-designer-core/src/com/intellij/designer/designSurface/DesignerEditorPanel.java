@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.designer.designSurface;
 
 import com.intellij.designer.*;
@@ -30,7 +16,6 @@ import com.intellij.designer.propertyTable.InplaceContext;
 import com.intellij.designer.propertyTable.PropertyTableTab;
 import com.intellij.designer.propertyTable.TablePanelActionPolicy;
 import com.intellij.diagnostic.AttachmentFactory;
-import com.intellij.diagnostic.LogMessageEx;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.command.CommandProcessor;
@@ -44,6 +29,7 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.ThreeComponentsSplitter;
 import com.intellij.openapi.ui.VerticalFlowLayout;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.registry.Registry;
@@ -55,12 +41,15 @@ import com.intellij.ui.JBColor;
 import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBLayeredPane;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.ExceptionUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.ThrowableRunnable;
-import com.intellij.util.containers.IntArrayList;
+import com.intellij.util.containers.FixedHashMap;
 import com.intellij.util.ui.AsyncProcessIcon;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -72,15 +61,17 @@ import java.awt.*;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.lang.reflect.InvocationTargetException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * @author Alexander Lobas
  */
 public abstract class DesignerEditorPanel extends JPanel
   implements DesignerEditorPanelFacade, DataProvider, ModuleProvider, RadPropertyContext {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.designer.designSurface.DesignerEditorPanel");
+  private static final Logger LOG = Logger.getInstance(DesignerEditorPanel.class);
 
   protected static final Integer LAYER_COMPONENT = JLayeredPane.DEFAULT_LAYER;
   protected static final Integer LAYER_DECORATION = JLayeredPane.POPUP_LAYER;
@@ -101,7 +92,7 @@ public abstract class DesignerEditorPanel extends JPanel
   protected final VirtualFile myFile;
 
   private final CardLayout myLayout = new CardLayout();
-  private final ThreeComponentsSplitter myContentSplitter = new ThreeComponentsSplitter();
+  private final ThreeComponentsSplitter myContentSplitter;
   private final JPanel myPanel = new JPanel(myLayout);
   private JComponent myDesignerCard;
 
@@ -126,10 +117,10 @@ public abstract class DesignerEditorPanel extends JPanel
 
   private PaletteItem myActivePaletteItem;
   private List<?> myExpandedComponents;
-  private final Map<String, Property> mySelectionPropertyMap = new HashMap<String, Property>();
+  private final Map<String, Property> mySelectionPropertyMap = new HashMap<>();
   private int[][] myExpandedState;
   private int[][] mySelectionState;
-  private final Map<String, int[][]> mySourceSelectionState = new FixedHashMap<String, int[][]>(16);
+  private final Map<String, int[][]> mySourceSelectionState = new FixedHashMap<>(16);
 
   private FixableMessageAction myWarnAction;
 
@@ -154,6 +145,7 @@ public abstract class DesignerEditorPanel extends JPanel
     initUI();
 
     myToolProvider.loadDefaultTool();
+    myContentSplitter = new ThreeComponentsSplitter(myEditor);
   }
 
   private void initUI() {
@@ -167,13 +159,10 @@ public abstract class DesignerEditorPanel extends JPanel
     createErrorCard();
     createProgressPanel();
 
-    UIUtil.invokeLaterIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        DesignerEditorPanel designer = DesignerEditorPanel.this;
-        getDesignerWindowManager().bind(designer);
-        getPaletteWindowManager().bind(designer);
-      }
+    UIUtil.invokeLaterIfNeeded(() -> {
+      DesignerEditorPanel designer = this;
+      getDesignerWindowManager().bind(designer);
+      getPaletteWindowManager().bind(designer);
     });
   }
 
@@ -253,6 +242,7 @@ public abstract class DesignerEditorPanel extends JPanel
     return content;
   }
 
+  @Override
   public final ThreeComponentsSplitter getContentSplitter() {
     return myContentSplitter;
   }
@@ -343,7 +333,7 @@ public abstract class DesignerEditorPanel extends JPanel
     myPanel.add(myErrorPanel, ERROR_CARD);
   }
 
-  public final void showError(@NotNull String message, @NotNull Throwable e) {
+  public final void showError(@NotNull @Nls String message, @NotNull Throwable e) {
     if (isProjectClosed()) {
       return;
     }
@@ -364,9 +354,7 @@ public abstract class DesignerEditorPanel extends JPanel
       showErrorPage(info);
     }
     if (info.myShowLog) {
-      LOG.error(LogMessageEx.createEvent(info.myDisplayMessage,
-                                         info.myMessage + "\n" + ExceptionUtil.getThrowableText(info.myThrowable),
-                                         getErrorAttachments(info)));
+      LOG.error(message, e, getErrorAttachments(info));
     }
   }
 
@@ -415,6 +403,7 @@ public abstract class DesignerEditorPanel extends JPanel
 
       if (message.myQuickFix != null) {
         warnLabel.addHyperlinkListener(new HyperlinkListener() {
+          @Override
           public void hyperlinkUpdate(final HyperlinkEvent e) {
             if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
               message.myQuickFix.run();
@@ -433,11 +422,11 @@ public abstract class DesignerEditorPanel extends JPanel
     }
     if (message.myAdditionalFixes != null && message.myAdditionalFixes.size() > 0) {
       JPanel fixesPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-      fixesPanel.setBorder(IdeBorderFactory.createEmptyBorder(3, 0, 10, 0));
+      fixesPanel.setBorder(JBUI.Borders.empty(3, 0, 10, 0));
       fixesPanel.setOpaque(false);
       fixesPanel.add(Box.createHorizontalStrut(icon.getIconWidth()));
 
-      for (Pair<String, Runnable> pair : message.myAdditionalFixes) {
+      for (Pair<@Nls String, Runnable> pair : message.myAdditionalFixes) {
         HyperlinkLabel fixLabel = new HyperlinkLabel();
         fixLabel.setOpaque(false);
         fixLabel.setHyperlinkText(pair.getFirst());
@@ -483,7 +472,7 @@ public abstract class DesignerEditorPanel extends JPanel
     myProgressPanel.setOpaque(false);
   }
 
-  protected final void showProgress(String message) {
+  protected final void showProgress(@Nls String message) {
     myProgressMessage.setText(message);
     if (myProgressPanel.getParent() == null) {
       myGlassLayer.setEnabled(false);
@@ -588,9 +577,9 @@ public abstract class DesignerEditorPanel extends JPanel
     if (myRootComponent != null && myExpandedState == null && mySelectionState == null) {
       myExpandedState = new int[myExpandedComponents == null ? 0 : myExpandedComponents.size()][];
       for (int i = 0; i < myExpandedState.length; i++) {
-        IntArrayList path = new IntArrayList();
+        IntList path = new IntArrayList();
         componentToPath((RadComponent)myExpandedComponents.get(i), path);
-        myExpandedState[i] = path.toArray();
+        myExpandedState[i] = path.toIntArray();
       }
 
       mySelectionState = getSelectionState();
@@ -616,19 +605,19 @@ public abstract class DesignerEditorPanel extends JPanel
     return getSelectionState(mySurfaceArea.getSelection());
   }
 
-  protected static int[][] getSelectionState(List<RadComponent> selection) {
+  protected static int[][] getSelectionState(List<? extends RadComponent> selection) {
     int[][] selectionState = new int[selection.size()][];
 
     for (int i = 0; i < selectionState.length; i++) {
-      IntArrayList path = new IntArrayList();
+      IntList path = new IntArrayList();
       componentToPath(selection.get(i), path);
-      selectionState[i] = path.toArray();
+      selectionState[i] = path.toIntArray();
     }
 
     return selectionState;
   }
 
-  private static void componentToPath(RadComponent component, IntArrayList path) {
+  private static void componentToPath(RadComponent component, IntList path) {
     RadComponent parent = component.getParent();
 
     if (parent != null) {
@@ -641,7 +630,7 @@ public abstract class DesignerEditorPanel extends JPanel
     DesignerToolWindowContent toolManager = getDesignerToolWindow();
 
     if (myExpandedState != null) {
-      List<RadComponent> expanded = new ArrayList<RadComponent>();
+      List<RadComponent> expanded = new ArrayList<>();
       for (int[] path : myExpandedState) {
         pathToComponent(expanded, myRootComponent, path, 0);
       }
@@ -650,7 +639,7 @@ public abstract class DesignerEditorPanel extends JPanel
       myExpandedState = null;
     }
 
-    List<RadComponent> selection = new ArrayList<RadComponent>();
+    List<RadComponent> selection = new ArrayList<>();
 
     int[][] selectionState = mySourceSelectionState.get(getEditorText());
     if (selectionState != null) {
@@ -677,7 +666,7 @@ public abstract class DesignerEditorPanel extends JPanel
     mySelectionState = null;
   }
 
-  protected static void pathToComponent(List<RadComponent> components, RadComponent component, int[] path, int index) {
+  protected static void pathToComponent(List<? super RadComponent> components, RadComponent component, int[] path, int index) {
     if (index == path.length) {
       components.add(component);
     }
@@ -726,7 +715,7 @@ public abstract class DesignerEditorPanel extends JPanel
    * Returns a suitable version label from the version attribute from a {@link PaletteItem} version
    */
   @NotNull
-  public String getVersionLabel(@Nullable String version) {
+  public @NlsSafe String getVersionLabel(@Nullable String version) {
     return StringUtil.notNullize(version);
   }
 
@@ -762,7 +751,7 @@ public abstract class DesignerEditorPanel extends JPanel
   }
 
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     return myActionPanel.getData(dataId);
   }
 
@@ -770,7 +759,6 @@ public abstract class DesignerEditorPanel extends JPanel
     Disposer.dispose(myProgressIcon);
     getDesignerWindowManager().dispose(this);
     getPaletteWindowManager().dispose(this);
-    Disposer.dispose(myContentSplitter);
   }
 
   protected AbstractToolWindowManager getDesignerWindowManager() {
@@ -794,13 +782,14 @@ public abstract class DesignerEditorPanel extends JPanel
     return null;
   }
 
+  @Override
   @Nullable
   public RadComponent getRootComponent() {
     return myRootComponent;
   }
 
   public Object[] getTreeRoots() {
-    return myRootComponent == null ? ArrayUtil.EMPTY_OBJECT_ARRAY : new Object[]{myRootComponent};
+    return myRootComponent == null ? ArrayUtilRt.EMPTY_OBJECT_ARRAY : new Object[]{myRootComponent};
   }
 
   public abstract TreeComponentDecorator getTreeDecorator();
@@ -813,8 +802,7 @@ public abstract class DesignerEditorPanel extends JPanel
     return TablePanelActionPolicy.ALL;
   }
 
-  @Nullable
-  public PropertyTableTab[] getPropertyTableTabs() {
+  public PropertyTableTab @Nullable [] getPropertyTableTabs() {
     return null;
   }
 
@@ -931,6 +919,7 @@ public abstract class DesignerEditorPanel extends JPanel
       return DesignerEditorPanel.this.getRootSelectionDecorator();
     }
 
+    @Override
     @Nullable
     public EditOperation processRootOperation(OperationContext context) {
       return DesignerEditorPanel.this.processRootOperation(context);
@@ -978,32 +967,21 @@ public abstract class DesignerEditorPanel extends JPanel
     public boolean execute(final ThrowableRunnable<Exception> operation, String command, final boolean updateProperties) {
       myLastExecuteCommand = command;
       final Ref<Boolean> result = Ref.create(Boolean.TRUE);
-      CommandProcessor.getInstance().executeCommand(getProject(), new Runnable() {
-        public void run() {
-          result.set(DesignerEditorPanel.this.execute(operation, updateProperties));
-        }
-      }, command, null);
+      CommandProcessor.getInstance().executeCommand(getProject(),
+                                                    () -> result.set(DesignerEditorPanel.this.execute(operation, updateProperties)), command, null);
       return result.get();
     }
 
     @Override
     public void executeWithReparse(final ThrowableRunnable<Exception> operation, String command) {
       myLastExecuteCommand = command;
-      CommandProcessor.getInstance().executeCommand(getProject(), new Runnable() {
-        public void run() {
-          DesignerEditorPanel.this.executeWithReparse(operation);
-        }
-      }, command, null);
+      CommandProcessor.getInstance().executeCommand(getProject(), () -> DesignerEditorPanel.this.executeWithReparse(operation), command, null);
     }
 
     @Override
     public void execute(final List<EditOperation> operations, String command) {
       myLastExecuteCommand = command;
-      CommandProcessor.getInstance().executeCommand(getProject(), new Runnable() {
-        public void run() {
-          DesignerEditorPanel.this.execute(operations);
-        }
-      }, command, null);
+      CommandProcessor.getInstance().executeCommand(getProject(), () -> DesignerEditorPanel.this.execute(operations), command, null);
     }
 
     @Override
@@ -1017,7 +995,7 @@ public abstract class DesignerEditorPanel extends JPanel
     }
 
     @Override
-    public void showError(@NonNls String message, Throwable e) {
+    public void showError(@Nls String message, Throwable e) {
       DesignerEditorPanel.this.showError(message, e);
     }
 
@@ -1043,6 +1021,7 @@ public abstract class DesignerEditorPanel extends JPanel
   }
 
   private final class MyLayeredPane extends JBLayeredPane implements Scrollable {
+    @Override
     public void doLayout() {
       for (int i = getComponentCount() - 1; i >= 0; i--) {
         Component component = getComponent(i);
@@ -1050,10 +1029,12 @@ public abstract class DesignerEditorPanel extends JPanel
       }
     }
 
+    @Override
     public Dimension getMinimumSize() {
       return getPreferredSize();
     }
 
+    @Override
     public Dimension getPreferredSize() {
       Rectangle bounds = myScrollPane.getViewport().getBounds();
       Dimension size = getSceneSize(this);
@@ -1064,14 +1045,17 @@ public abstract class DesignerEditorPanel extends JPanel
       return size;
     }
 
+    @Override
     public Dimension getPreferredScrollableViewportSize() {
       return getPreferredSize();
     }
 
+    @Override
     public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
       return 10;
     }
 
+    @Override
     public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
       if (orientation == SwingConstants.HORIZONTAL) {
         return visibleRect.width - 10;
@@ -1079,10 +1063,12 @@ public abstract class DesignerEditorPanel extends JPanel
       return visibleRect.height - 10;
     }
 
+    @Override
     public boolean getScrollableTracksViewportWidth() {
       return false;
     }
 
+    @Override
     public boolean getScrollableTracksViewportHeight() {
       return false;
     }
@@ -1090,15 +1076,15 @@ public abstract class DesignerEditorPanel extends JPanel
 
   private class FixableMessageAction extends AbstractComboBoxAction<FixableMessageInfo> {
     private final DefaultActionGroup myActionGroup = new DefaultActionGroup();
-    private String myTitle;
+    private @NlsSafe String myTitle;
     private boolean myIsAdded;
 
-    public FixableMessageAction() {
+    FixableMessageAction() {
       myActionPanel.getActionGroup().add(myActionGroup);
 
       Presentation presentation = getTemplatePresentation();
-      presentation.setDescription("Warnings");
-      presentation.setIcon(AllIcons.Ide.Warning_notifications);
+      presentation.setDescription(DesignerBundle.message("designer.action.warnings.description"));
+      presentation.setIcon(AllIcons.General.Warning);
     }
 
     public void show(List<FixableMessageInfo> messages) {
@@ -1130,12 +1116,12 @@ public abstract class DesignerEditorPanel extends JPanel
           final AnAction[] defaultAction = new AnAction[1];
           DefaultActionGroup popupGroup = new DefaultActionGroup() {
             @Override
-            public boolean canBePerformed(DataContext context) {
+            public boolean canBePerformed(@NotNull DataContext context) {
               return true;
             }
 
             @Override
-            public void actionPerformed(AnActionEvent e) {
+            public void actionPerformed(@NotNull AnActionEvent e) {
               defaultAction[0].actionPerformed(e);
             }
           };
@@ -1145,7 +1131,7 @@ public abstract class DesignerEditorPanel extends JPanel
           if (message.myQuickFix != null && (message.myLinkText.length() > 0 || message.myAfterLinkText.length() > 0)) {
             AnAction popupAction = new AnAction() {
               @Override
-              public void actionPerformed(AnActionEvent e) {
+              public void actionPerformed(@NotNull AnActionEvent e) {
                 message.myQuickFix.run();
               }
             };
@@ -1154,10 +1140,10 @@ public abstract class DesignerEditorPanel extends JPanel
             defaultAction[0] = popupAction;
           }
           if (message.myAdditionalFixes != null && message.myAdditionalFixes.size() > 0) {
-            for (final Pair<String, Runnable> pair : message.myAdditionalFixes) {
+            for (final Pair<@Nls String, Runnable> pair : message.myAdditionalFixes) {
               AnAction popupAction = new AnAction() {
                 @Override
-                public void actionPerformed(AnActionEvent e) {
+                public void actionPerformed(@NotNull AnActionEvent e) {
                   pair.second.run();
                 }
               };
@@ -1188,7 +1174,7 @@ public abstract class DesignerEditorPanel extends JPanel
       }
     }
 
-    private String cleanText(String text) {
+    private @Nls String cleanText(@NlsSafe String text) {
       if (text != null) {
         text = text.trim();
         text = StringUtil.replace(text, "&nbsp;", " ");
@@ -1224,10 +1210,10 @@ public abstract class DesignerEditorPanel extends JPanel
   }
 
   public static final class ErrorInfo {
-    public String myMessage;
-    public String myDisplayMessage;
+    public @Nls String myMessage;
+    public @Nls String myDisplayMessage;
 
-    public final List<FixableMessageInfo> myMessages = new ArrayList<FixableMessageInfo>();
+    public final List<FixableMessageInfo> myMessages = new ArrayList<>();
 
     public Throwable myThrowable;
 
@@ -1238,55 +1224,24 @@ public abstract class DesignerEditorPanel extends JPanel
 
   public static final class FixableMessageInfo {
     public final boolean myErrorIcon;
-    public final String myBeforeLinkText;
-    public final String myLinkText;
-    public final String myAfterLinkText;
+    public final @Nls String myBeforeLinkText;
+    public final @Nls String myLinkText;
+    public final @Nls String myAfterLinkText;
     public final Runnable myQuickFix;
-    public final List<Pair<String, Runnable>> myAdditionalFixes;
+    public final List<Pair<@Nls String, Runnable>> myAdditionalFixes;
 
     public FixableMessageInfo(boolean errorIcon,
-                              String beforeLinkText,
-                              String linkText,
-                              String afterLinkText,
+                              @Nls String beforeLinkText,
+                              @Nls String linkText,
+                              @Nls String afterLinkText,
                               Runnable quickFix,
-                              List<Pair<String, Runnable>> additionalFixes) {
+                              List<Pair<@Nls String, Runnable>> additionalFixes) {
       myErrorIcon = errorIcon;
       myBeforeLinkText = beforeLinkText;
       myLinkText = linkText;
       myAfterLinkText = afterLinkText;
       myQuickFix = quickFix;
       myAdditionalFixes = additionalFixes;
-    }
-  }
-
-  private static class FixedHashMap<K, V> extends HashMap<K, V> {
-    private final int mySize;
-    private final List<K> myKeys = new LinkedList<K>();
-
-    public FixedHashMap(int size) {
-      mySize = size;
-    }
-
-    @Override
-    public V put(K key, V value) {
-      if (!myKeys.contains(key)) {
-        if (myKeys.size() >= mySize) {
-          remove(myKeys.remove(0));
-        }
-        myKeys.add(key);
-      }
-      return super.put(key, value);
-    }
-
-    @Override
-    public V get(Object key) {
-      if (myKeys.contains(key)) {
-        int index = myKeys.indexOf(key);
-        int last = myKeys.size() - 1;
-        myKeys.set(index, myKeys.get(last));
-        myKeys.set(last, (K)key);
-      }
-      return super.get(key);
     }
   }
 }

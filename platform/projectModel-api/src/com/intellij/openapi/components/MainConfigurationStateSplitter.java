@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 package com.intellij.openapi.components;
 
 import com.intellij.openapi.util.JDOMUtil;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Pair;
 import com.intellij.util.SmartList;
 import com.intellij.util.text.UniqueNameGenerator;
@@ -26,10 +27,11 @@ import java.util.Iterator;
 import java.util.List;
 
 public abstract class MainConfigurationStateSplitter extends StateSplitterEx {
+  @NotNull
   @Override
   public final List<Pair<Element, String>> splitState(@NotNull Element state) {
     UniqueNameGenerator generator = new UniqueNameGenerator();
-    List<Pair<Element, String>> result = new SmartList<Pair<Element, String>>();
+    List<Pair<Element, String>> result = new SmartList<>();
     for (Iterator<Element> iterator = state.getChildren(getSubStateTagName()).iterator(); iterator.hasNext(); ) {
       Element element = iterator.next();
       iterator.remove();
@@ -47,10 +49,17 @@ public abstract class MainConfigurationStateSplitter extends StateSplitterEx {
   }
 
   @NotNull
-  protected abstract String getSubStateFileName(@NotNull Element element);
+  protected String getSubStateFileName(@NotNull Element element) {
+    for (Element option : element.getChildren("option")) {
+      if (option.getAttributeValue("name").equals("myName")) {
+        return option.getAttributeValue("value");
+      }
+    }
+    throw new IllegalStateException();
+  }
 
   @NotNull
-  protected abstract String getComponentStateFileName();
+  protected abstract @NlsSafe String getComponentStateFileName();
 
   @NotNull
   protected abstract String getSubStateTagName();

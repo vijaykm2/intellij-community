@@ -1,22 +1,10 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor;
 
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.editor.event.CaretListener;
 import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.openapi.util.Disposer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -53,11 +41,13 @@ public interface CaretModel {
    * @param blockSelection This parameter is currently ignored.
    * @param scrollToCaret  if true, the document should be scrolled so that the caret is visible after the move.
    */
-  void moveCaretRelatively(int columnShift,
-                           int lineShift,
-                           boolean withSelection,
-                           boolean blockSelection,
-                           boolean scrollToCaret);
+  default void moveCaretRelatively(int columnShift,
+                                   int lineShift,
+                                   boolean withSelection,
+                                   boolean blockSelection,
+                                   boolean scrollToCaret) {
+    getCurrentCaret().moveCaretRelatively(columnShift, lineShift, withSelection, scrollToCaret);
+  }
 
   /**
    * Moves the caret to the specified logical position.
@@ -65,21 +55,27 @@ public interface CaretModel {
    *
    * @param pos the position to move to.
    */
-  void moveToLogicalPosition(@NotNull LogicalPosition pos);
+  default void moveToLogicalPosition(@NotNull LogicalPosition pos) {
+    getCurrentCaret().moveToLogicalPosition(pos);
+  }
 
   /**
    * Moves the caret to the specified visual position.
    *
    * @param pos the position to move to.
    */
-  void moveToVisualPosition(@NotNull VisualPosition pos);
+  default void moveToVisualPosition(@NotNull VisualPosition pos) {
+    getCurrentCaret().moveToVisualPosition(pos);
+  }
 
   /**
-   * Short hand for calling {@link #moveToOffset(int, boolean)} with <code>'false'</code> as a second argument.
+   * Short hand for calling {@link #moveToOffset(int, boolean)} with {@code 'false'} as a second argument.
    *
    * @param offset      the offset to move to
    */
-  void moveToOffset(int offset);
+  default void moveToOffset(int offset) {
+    moveToOffset(offset, false);
+  }
 
   /**
    * Moves the caret to the specified offset in the document.
@@ -91,18 +87,18 @@ public interface CaretModel {
    *                                We may want to clearly indicate where to put the caret then. Given parameter allows to do that.
    *                                <b>Note:</b> it's ignored if there is no soft wrap at the given offset
    */
-  void moveToOffset(int offset, boolean locateBeforeSoftWrap);
+  default void moveToOffset(int offset, boolean locateBeforeSoftWrap) {
+    getCurrentCaret().moveToOffset(offset, locateBeforeSoftWrap);
+  }
 
   /**
-   * Caret position may be updated on document change (e.g. consider that user updates from VCS that causes addition of text
-   * before caret. Caret offset, visual and logical positions should be updated then). So, there is a possible case
-   * that caret model in in the process of caret position update now.
-   * <p/>
-   * Current method allows to check that.
-   *
-   * @return    <code>true</code> if caret position is up-to-date for now; <code>false</code> otherwise
+   * Tells whether caret model is in consistent state currently. This might not be the case during document update, but client code can
+   * observe such a state only in specific circumstances. So unless you're implementing very low-level editor logic (involving
+   * {@code PrioritizedDocumentListener}), you don't need this method - you'll only see it return {@code true}.
    */
-  boolean isUpToDate();
+  default boolean isUpToDate() {
+    return getCurrentCaret().isUpToDate();
+  }
 
   /**
    * Returns the logical position of the caret.
@@ -110,7 +106,9 @@ public interface CaretModel {
    * @return the caret position.
    */
   @NotNull
-  LogicalPosition getLogicalPosition();
+  default LogicalPosition getLogicalPosition() {
+    return getCurrentCaret().getLogicalPosition();
+  }
 
   /**
    * Returns the visual position of the caret.
@@ -118,14 +116,18 @@ public interface CaretModel {
    * @return the caret position.
    */
   @NotNull
-  VisualPosition getVisualPosition();
+  default VisualPosition getVisualPosition() {
+    return getCurrentCaret().getVisualPosition();
+  }
 
   /**
    * Returns the offset of the caret in the document.
    *
    * @return the caret offset.
    */
-  int getOffset();
+  default int getOffset() {
+    return getCurrentCaret().getOffset();
+  }
 
   /**
    * Adds a listener for receiving notifications about caret movement and caret addition/removal
@@ -133,6 +135,17 @@ public interface CaretModel {
    * @param listener the listener instance.
    */
   void addCaretListener(@NotNull CaretListener listener);
+
+  /**
+   * Adds a listener for receiving notifications about caret movement and caret addition/removal.
+   * The listener is removed when the given parent disposable is disposed.
+   *
+   * @param listener the listener instance.
+   */
+  default void addCaretListener(@NotNull CaretListener listener, @NotNull Disposable parentDisposable) {
+    addCaretListener(listener);
+    Disposer.register(parentDisposable, () -> removeCaretListener(listener));
+  }
 
   /**
    * Removes a listener for receiving notifications about caret movement and caret addition/removal
@@ -144,12 +157,16 @@ public interface CaretModel {
   /**
    * @return    document offset for the start of the logical line where caret is located
    */
-  int getVisualLineStart();
+  default int getVisualLineStart() {
+    return getCurrentCaret().getVisualLineStart();
+  }
 
   /**
    * @return    document offset that points to the first symbol shown at the next visual line after the one with caret on it
    */
-  int getVisualLineEnd();
+  default int getVisualLineEnd() {
+    return getCurrentCaret().getVisualLineEnd();
+  }
 
   /**
    * Returns visual representation of caret (e.g. background color).
@@ -163,6 +180,11 @@ public interface CaretModel {
    * are not supported when the corresponding Editor instance is a facade over a Swing JTextArea component.
    */
   boolean supportsMultipleCarets();
+
+  /**
+   * Maximum number of carets that can be created in the editor.
+   */
+  int getMaxCaretCount();
 
   /**
    * Returns current caret - the one, query and update methods in the model operate at the moment. In the current implementation this is
@@ -186,29 +208,51 @@ public interface CaretModel {
   int getCaretCount();
 
   /**
-   * Returns all carets currently existing in the document, ordered by their position in the document.
+   * Returns all carets currently existing in the document, ordered by their visual position in editor. Use {@link #getCaretCount()} if you
+   * only need to know the number of carets, it's much faster.
    */
   @NotNull
   List<Caret> getAllCarets();
 
   /**
-   * Returns a caret at the given position in the document, or <code>null</code>, if there's no caret there.
+   * Returns a caret at the given position in the document, or {@code null}, if there's no caret there.
    */
   @Nullable
   Caret getCaretAt(@NotNull VisualPosition pos);
 
   /**
-   * Adds a new caret at the given position, and returns corresponding Caret instance. Locations outside of possible values for the given
-   * document are trimmed automatically.
-   * Does nothing if multiple carets are not supporeted, a caret already exists at specified location or selection of existing caret
-   * includes the specified location, <code>null</code> is returned in this case.
+   * Same as {@link #addCaret(VisualPosition, boolean)} with {@code true} as a {@code makePrimary} boolean parameter value.
    */
   @Nullable
-  Caret addCaret(@NotNull VisualPosition pos);
+  default Caret addCaret(@NotNull VisualPosition pos) {
+    return addCaret(pos, true);
+  }
 
   /**
-   * Removes a given caret if it's recognized by the model and is not the only existing caret in the document, returning <code>true</code>.
-   * <code>false</code> is returned if any of the above condition doesn't hold, and the removal cannot happen.
+   * Adds a new caret at the given position, and returns corresponding {@link Caret} instance. Locations outside of possible values
+   * for the given document are trimmed automatically.
+   * Newly added caret will become a primary caret if and only if {@code makePrimary} value is {@code true}.
+   * Does nothing if multiple carets are not supported, a maximum number of carets already exists in editor (see
+   * {@link #getMaxCaretCount()}), a caret already exists at specified location or selection of existing caret
+   * includes the specified location, {@code null} is returned in this case.
+   */
+  @Nullable
+  Caret addCaret(@NotNull VisualPosition pos, boolean makePrimary);
+
+  /**
+   * Adds a new caret at the given position, and returns corresponding {@link Caret} instance. Locations outside of possible values
+   * for the given document are trimmed automatically.
+   * Newly added caret will become a primary caret if and only if {@code makePrimary} value is {@code true}.
+   * Does nothing if multiple carets are not supported, a maximum number of carets already exists in editor (see
+   * {@link #getMaxCaretCount()}), a caret already exists at specified location or selection of existing caret
+   * includes the specified location, {@code null} is returned in this case.
+   */
+  @Nullable
+  Caret addCaret(@NotNull LogicalPosition pos, boolean makePrimary);
+
+  /**
+   * Removes a given caret if it's recognized by the model and is not the only existing caret in the document, returning {@code true}.
+   * {@code false} is returned if any of the above condition doesn't hold, and the removal cannot happen.
    */
   boolean removeCaret(@NotNull Caret caret);
 
@@ -221,28 +265,35 @@ public interface CaretModel {
    * Sets the number of carets, their positions and selection ranges according to the provided data. Null values for caret position or
    * selection boundaries will mean that corresponding caret's position and/or selection won't be changed.
    * <p>
-   * If multiple carets are not supported, the behaviour is unspecified.
+   * If the number of passed {@link CaretState} items is larger than {@link #getMaxCaretCount()}, excessive items will be ignored.
+   * Editor might display a user-visible notification in such a case.
    * <p>
    * System selection will be updated, if such feature is supported by current editor.
    *
+   * @throws IllegalArgumentException if {@code caretStates} list is empty
+   *
    * @see #supportsMultipleCarets()
    * @see #getCaretsAndSelections()
+   * @see #setCaretsAndSelections(List, boolean)
    */
-  void setCaretsAndSelections(@NotNull List<CaretState> caretStates);
+  void setCaretsAndSelections(@NotNull List<? extends CaretState> caretStates);
 
   /**
    * Sets the number of carets, their positions and selection ranges according to the provided data. Null values for caret position or
    * selection boundaries will mean that corresponding caret's position and/or selection won't be changed.
    * <p>
-   * If multiple carets are not supported, the behaviour is unspecified.
+   * If the number of passed {@link CaretState} items is larger than {@link #getMaxCaretCount()}, excessive items will be ignored.
+   * Editor might display a user-visible notification in such a case.
    * <p>
    * System selection will be updated, if such feature is supported by current editor
-   * and corresponding invocation parameter is set to <code>true</code>.
+   * and corresponding invocation parameter is set to {@code true}.
+   *
+   * @throws IllegalArgumentException if {@code caretStates} list is empty
    *
    * @see #supportsMultipleCarets()
    * @see #getCaretsAndSelections()
    */
-  void setCaretsAndSelections(@NotNull List<CaretState> caretStates, boolean updateSystemSelection);
+  void setCaretsAndSelections(@NotNull List<? extends CaretState> caretStates, boolean updateSystemSelection);
 
   /**
    * Returns the current positions of all carets and their selections. The order of entries in the returned list does not necessarily
@@ -250,17 +301,14 @@ public interface CaretModel {
    * {@link #setCaretsAndSelections(List)} will restore the state of carets, including the internal caret order, in particular,
    * the caret, that was primary when this method was called, will be the primary one after corresponding
    * {@link #setCaretsAndSelections(List)} invocation.
-   * <p>
-   * If multiple carets are not supported, the behaviour is unspecified.
    *
-   * @see #supportsMultipleCarets()
    * @see #setCaretsAndSelections(List)
    */
   @NotNull
   List<CaretState> getCaretsAndSelections();
 
   /**
-   * Same as {@link #runForEachCaret(CaretAction, boolean)} with <code>reverseOrder</code> set to <code>false</code>
+   * Same as {@link #runForEachCaret(CaretAction, boolean)} with {@code reverseOrder} set to {@code false}
    */
   void runForEachCaret(@NotNull CaretAction action);
 
@@ -270,10 +318,20 @@ public interface CaretModel {
    * At the end, merging of carets and selections is performed, so that no two carets will occur at the same logical position and
    * no two selection will overlap after this method is finished.
    * <p>
-   * Carets are iterated in position order (top-to-bottom) if <code>reverseOrder</code> is <code>false</code>, and in reverse order
-   * if it's <code>true</code>.
+   * Carets are iterated in position order (top-to-bottom) if {@code reverseOrder} is {@code false}, and in reverse order
+   * if it's {@code true}.
+   * <p>
+   * It's possible to call this method not from EDT (for read-only operations). Caret merging is not performed in this case, and no
+   * notifications to {@link CaretActionListener}-s are sent.
    */
   void runForEachCaret(@NotNull CaretAction action, boolean reverseOrder);
+
+  /**
+   * Adds a listener which will be notified before and after all-caret operations are performed by {@link #runForEachCaret(CaretAction)} and
+   * {@link #runForEachCaret(CaretAction, boolean)}. Listeners will be notified only if those methods are invoked from EDT (non-EDT
+   * invocations are not allowed to change caret state anyway).
+   */
+  void addCaretActionListener(@NotNull CaretActionListener listener, @NotNull Disposable disposable);
 
   /**
    * Executes the given task, performing caret merging afterwards. Caret merging will not happen until the operation is finished.

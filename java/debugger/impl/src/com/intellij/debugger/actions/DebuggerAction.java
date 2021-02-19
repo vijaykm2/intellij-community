@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * Class DebuggerAction
@@ -24,20 +10,21 @@ package com.intellij.debugger.actions;
 import com.intellij.debugger.DebuggerManagerEx;
 import com.intellij.debugger.engine.JavaDebugProcess;
 import com.intellij.debugger.impl.DebuggerContextImpl;
-import com.intellij.debugger.impl.DebuggerStateManager;
 import com.intellij.debugger.ui.impl.DebuggerTreePanel;
 import com.intellij.debugger.ui.impl.watch.DebuggerTree;
 import com.intellij.debugger.ui.impl.watch.DebuggerTreeNodeImpl;
 import com.intellij.ide.DataManager;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.DoubleClickListener;
 import com.intellij.xdebugger.XDebugProcess;
 import com.intellij.xdebugger.XDebugSession;
-import com.intellij.xdebugger.impl.frame.XDebugView;
-import com.intellij.xdebugger.impl.ui.tree.XDebuggerTree;
-import com.intellij.xdebugger.impl.ui.tree.nodes.XValueNodeImpl;
+import com.intellij.xdebugger.XDebuggerManager;
+import com.intellij.xdebugger.impl.ui.DebuggerUIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -48,7 +35,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public abstract class DebuggerAction extends AnAction {
-  private static final DebuggerTreeNodeImpl[] EMPTY_TREE_NODE_ARRAY = new DebuggerTreeNodeImpl[0];
+  private static class Holder {
+    private static final DebuggerTreeNodeImpl[] EMPTY_TREE_NODE_ARRAY = new DebuggerTreeNodeImpl[0];
+  }
 
   @Nullable
   public static DebuggerTree getTree(DataContext dataContext){
@@ -79,24 +68,24 @@ public abstract class DebuggerAction extends AnAction {
     return (DebuggerTreeNodeImpl)component;
   }
 
-  @Nullable
-  public static DebuggerTreeNodeImpl[] getSelectedNodes(DataContext dataContext) {
+  public static DebuggerTreeNodeImpl @Nullable [] getSelectedNodes(DataContext dataContext) {
     DebuggerTree tree = getTree(dataContext);
     if(tree == null) return null;
     TreePath[] paths = tree.getSelectionPaths();
     if (paths == null || paths.length == 0) {
-      return EMPTY_TREE_NODE_ARRAY;
+      return Holder.EMPTY_TREE_NODE_ARRAY;
     }
-    List<DebuggerTreeNodeImpl> nodes = new ArrayList<DebuggerTreeNodeImpl>(paths.length);
+    List<DebuggerTreeNodeImpl> nodes = new ArrayList<>(paths.length);
     for (TreePath path : paths) {
       Object component = path.getLastPathComponent();
       if (component instanceof DebuggerTreeNodeImpl) {
         nodes.add((DebuggerTreeNodeImpl) component);
       }
     }
-    return nodes.toArray(new DebuggerTreeNodeImpl[nodes.size()]);
+    return nodes.toArray(new DebuggerTreeNodeImpl[0]);
   }
 
+  @NotNull
   public static DebuggerContextImpl getDebuggerContext(DataContext dataContext) {
     DebuggerTreePanel panel = getPanel(dataContext);
     if(panel != null) {
@@ -105,12 +94,6 @@ public abstract class DebuggerAction extends AnAction {
       Project project = CommonDataKeys.PROJECT.getData(dataContext);
       return project != null ? (DebuggerManagerEx.getInstanceEx(project)).getContext() : DebuggerContextImpl.EMPTY_CONTEXT;
     }
-  }
-
-  @Nullable
-  public static DebuggerStateManager getContextManager(DataContext dataContext) {
-    DebuggerTreePanel panel = getPanel(dataContext);
-    return panel == null ? null : panel.getContextManager();
   }
 
   public static boolean isContextView(AnActionEvent e) {
@@ -123,7 +106,7 @@ public abstract class DebuggerAction extends AnAction {
   public static Disposable installEditAction(final JTree tree, String actionName) {
     final DoubleClickListener listener = new DoubleClickListener() {
       @Override
-      protected boolean onDoubleClick(MouseEvent e) {
+      protected boolean onDoubleClick(@NotNull MouseEvent e) {
         if (tree.getPathForLocation(e.getX(), e.getY()) == null) return false;
         DataContext dataContext = DataManager.getInstance().getDataContext(tree);
         GotoFrameSourceAction.doAction(dataContext);
@@ -132,15 +115,10 @@ public abstract class DebuggerAction extends AnAction {
     };
     listener.installOn(tree);
 
-    final AnAction action = ActionManager.getInstance().getAction(actionName);
-    action.registerCustomShortcutSet(CommonShortcuts.getEditSource(), tree);
+    Disposable disposable = () -> listener.uninstall(tree);
+    DebuggerUIUtil.registerActionOnComponent(actionName, tree, disposable);
 
-    return new Disposable() {
-      public void dispose() {
-        listener.uninstall(tree);
-        action.unregisterCustomShortcutSet(tree);
-      }
-    };
+    return disposable;
   }
 
   public static boolean isFirstStart(final AnActionEvent event) {
@@ -153,23 +131,14 @@ public abstract class DebuggerAction extends AnAction {
   }
 
   public static void enableAction(final AnActionEvent event, final boolean enable) {
-    SwingUtilities.invokeLater(new Runnable() {
-      public void run() {
-        event.getPresentation().setEnabled(enable);
-        event.getPresentation().setVisible(true);
-      }
+    SwingUtilities.invokeLater(() -> {
+      event.getPresentation().setEnabled(enable);
+      event.getPresentation().setVisible(true);
     });
   }
 
   public static void refreshViews(final AnActionEvent e) {
-    XDebuggerTree tree = XDebuggerTree.getTree(e.getDataContext());
-    if (tree != null) {
-    refreshViews(XDebugView.getSession(tree));
-    }
-  }
-
-  public static void refreshViews(@NotNull XValueNodeImpl node) {
-    refreshViews(XDebugView.getSession(node.getTree()));
+    refreshViews(getSession(e));
   }
 
   public static void refreshViews(@Nullable XDebugSession session) {
@@ -180,5 +149,22 @@ public abstract class DebuggerAction extends AnAction {
       }
       session.rebuildViews();
     }
+  }
+
+  public static boolean isInJavaSession(AnActionEvent e) {
+    XDebugSession session = getSession(e);
+    return session != null && session.getDebugProcess() instanceof JavaDebugProcess;
+  }
+
+  @Nullable
+  public static XDebugSession getSession(AnActionEvent e) {
+    XDebugSession session = e.getData(XDebugSession.DATA_KEY);
+    if (session == null) {
+      Project project = e.getProject();
+      if (project != null) {
+        session = XDebuggerManager.getInstance(project).getCurrentSession();
+      }
+    }
+    return session;
   }
 }

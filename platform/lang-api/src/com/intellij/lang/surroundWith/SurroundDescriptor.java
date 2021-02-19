@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ import org.jetbrains.annotations.NotNull;
  * Defines a code fragment type on which the Surround With action can be used for files
  * in a custom language. All surround descriptors registered for a language are queried
  * sequentially, and as soon as one is found that returns a non-empty list of elements
- * from {@link #getElementsToSurround(com.intellij.psi.PsiFile, int, int)}, the user
+ * from {@link #getElementsToSurround(PsiFile, int, int)}, the user
  * is prompted to choose a specific surrounder for that surround descriptor.
  *
  * @author ven
@@ -40,8 +40,7 @@ public interface SurroundDescriptor {
    * @param endOffset   the selection end offset, with whitespaces skipped
    * @return the elements to be surrounded, or an empty array if cannot surround
    */
-  @NotNull
-  PsiElement[] getElementsToSurround(PsiFile file, int startOffset, int endOffset);
+  PsiElement @NotNull [] getElementsToSurround(PsiFile file, int startOffset, int endOffset);
 
   /**
    * Returns the list of surrounders (surround templates) which can be used for this
@@ -49,8 +48,7 @@ public interface SurroundDescriptor {
    *
    * @return the list of surrounders.
    */
-  @NotNull
-  Surrounder[] getSurrounders();
+  Surrounder @NotNull [] getSurrounders();
 
   boolean isExclusive();
 }

@@ -15,36 +15,34 @@
  */
 package org.intellij.plugins.xsltDebugger.ui.actions;
 
-import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DataKey;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.ide.CopyPasteManager;
 import org.intellij.plugins.xsltDebugger.rt.engine.OutputEventQueue;
 import org.intellij.plugins.xsltDebugger.ui.GeneratedStructureModel;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 import java.awt.datatransfer.StringSelection;
 
-@SuppressWarnings({ "ComponentNotRegistered" })
 public class CopyValueAction extends AnAction {
   public static final DataKey<DefaultMutableTreeNode> SELECTED_NODE = DataKey.create("SELECTED_NODE");
 
   public CopyValueAction(JComponent component) {
-    final AnAction action = ActionManager.getInstance().getAction("$Copy");
-    if (action != null) {
-      copyFrom(action);
-      registerCustomShortcutSet(getShortcutSet(), component);
-    }
+    ActionUtil.copyFrom(this, "$Copy");
+    registerCustomShortcutSet(getShortcutSet(), component);
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     e.getPresentation().setEnabled(isEnabled(e));
   }
 
-  public void actionPerformed(AnActionEvent e) {
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final DefaultMutableTreeNode node = e.getData(SELECTED_NODE);
     if (node instanceof GeneratedStructureModel.StructureNode) {
       final GeneratedStructureModel.StructureNode structureNode = (GeneratedStructureModel.StructureNode)node;

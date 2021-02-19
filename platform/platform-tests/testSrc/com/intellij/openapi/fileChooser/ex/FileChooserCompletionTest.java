@@ -1,8 +1,9 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileChooser.ex;
 
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.testFramework.FlyIdeaTestCase;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -16,7 +17,7 @@ public class FileChooserCompletionTest extends FlyIdeaTestCase {
   private File myParent;
   private LocalFsFinder myFinder;
 
-  private final Map<String, String> myMacros = new HashMap<String, String>();
+  private final Map<String, String> myMacros = new HashMap<>();
   private File myFolder11;
   private File myFolder21;
 
@@ -33,13 +34,13 @@ public class FileChooserCompletionTest extends FlyIdeaTestCase {
   }
 
   public void testBasicComplete() throws Exception {
-    assertComplete("", ArrayUtil.EMPTY_STRING_ARRAY, null);
-    assertComplete("1", ArrayUtil.EMPTY_STRING_ARRAY, null);
+    assertComplete("", ArrayUtilRt.EMPTY_STRING_ARRAY, null);
+    assertComplete("1", ArrayUtilRt.EMPTY_STRING_ARRAY, null);
 
 
     basicSetup();
 
-    assertComplete("f", ArrayUtil.EMPTY_STRING_ARRAY, null);
+    assertComplete("f", ArrayUtilRt.EMPTY_STRING_ARRAY, null);
 
     assertComplete("/", new String[] {
       "a",
@@ -74,7 +75,7 @@ public class FileChooserCompletionTest extends FlyIdeaTestCase {
       "folder12",
     }, "folder11");
 
-    assertComplete("/foo", ArrayUtil.EMPTY_STRING_ARRAY, null);
+    assertComplete("/foo", ArrayUtilRt.EMPTY_STRING_ARRAY, null);
 
     assertTrue(new File(myParent, "qw/child.txt").mkdirs());
     assertTrue(new File(myParent, "qwe").mkdir());
@@ -98,7 +99,7 @@ public class FileChooserCompletionTest extends FlyIdeaTestCase {
 
   public void testComplete() throws Exception {
     basicSetup();
-    
+
     myParent = null;
     myMacros.put("$FOLDER_11$", myFolder11.getAbsolutePath());
     myMacros.put("$FOLDER_21$", myFolder21.getAbsolutePath());
@@ -140,12 +141,7 @@ public class FileChooserCompletionTest extends FlyIdeaTestCase {
 
     final List<String> expectedList = Arrays.asList(expected);
 
-    Collections.sort(result.myToComplete, new Comparator<FileLookup.LookupFile>() {
-      @Override
-      public int compare(final FileLookup.LookupFile o1, final FileLookup.LookupFile o2) {
-        return o1.getName().compareTo(o2.getName());
-      }
-    });
+    Collections.sort(result.myToComplete, Comparator.comparing(FileLookup.LookupFile::getName));
     Collections.sort(expectedList);
 
     assertEquals(asString(expectedList, result), asString(result.myToComplete, result));
@@ -157,7 +153,7 @@ public class FileChooserCompletionTest extends FlyIdeaTestCase {
     }
   }
 
-  private String asString(List objects, FileTextFieldImpl.CompletionResult completion) {
+  private String asString(List<?> objects, FileTextFieldImpl.CompletionResult completion) {
     StringBuilder result = new StringBuilder();
     for (int i = 0; i < objects.size(); i++) {
       final Object each = objects.get(i);

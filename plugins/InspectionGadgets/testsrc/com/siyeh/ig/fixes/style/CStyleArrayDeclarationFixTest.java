@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.fixes.style;
 
-import com.siyeh.InspectionGadgetsBundle;
+import com.intellij.pom.java.LanguageLevel;
+import com.intellij.testFramework.builders.JavaModuleFixtureBuilder;
 import com.siyeh.ig.IGQuickFixesTestCase;
 import com.siyeh.ig.style.CStyleArrayDeclarationInspection;
 
@@ -24,14 +11,53 @@ import com.siyeh.ig.style.CStyleArrayDeclarationInspection;
  */
 public class CStyleArrayDeclarationFixTest extends IGQuickFixesTestCase {
 
-  public void testSimpleMethod() { doTest(); }
-  public void testFieldWithWhitespace() { doTest(); }
+  @Override
+  protected void tuneFixture(JavaModuleFixtureBuilder builder) throws Exception {
+    super.tuneFixture(builder);
+    builder.setLanguageLevel(LanguageLevel.JDK_15_PREVIEW);
+  }
+
+  public void testMethod() { doTest(); }
+  public void testLocalVariable() {
+    doTest();
+  }
+  public void testField() { doTest(); }
+  public void testInForLoop() { doTest(); }
+  public void testMultipleVariablesSingleDeclaration() { doTest(); }
+  public void testMultipleFieldsSingleDeclaration() { doTest(); }
+  public void testParameter() { doTest(); }
+  public void testRecord() { doTest(); }
+
+  @Override
+  protected String[] getEnvironmentClasses() {
+    return new String[]{
+      "import java.lang.annotation.ElementType;\n" +
+      "import java.lang.annotation.Retention;\n" +
+      "import java.lang.annotation.RetentionPolicy;\n" +
+      "import java.lang.annotation.Target;\n" +
+      "\n" +
+      "@Retention(RetentionPolicy.CLASS)\n" +
+      "@Target({ElementType.METHOD, ElementType.FIELD, ElementType.PARAMETER, ElementType.LOCAL_VARIABLE, ElementType.TYPE_USE})\n" +
+      "public @interface Required {\n" +
+      "}",
+
+      "import java.lang.annotation.ElementType;\n" +
+      "import java.lang.annotation.Retention;\n" +
+      "import java.lang.annotation.RetentionPolicy;\n" +
+      "import java.lang.annotation.Target;\n" +
+      "\n" +
+      "@Retention(RetentionPolicy.CLASS)\n" +
+      "@Target({ElementType.METHOD, ElementType.FIELD, ElementType.PARAMETER, ElementType.LOCAL_VARIABLE, ElementType.TYPE_USE})\n" +
+      "public @interface Preliminary {\n" +
+      "}"
+    };
+  }
 
   @Override
   public void setUp() throws Exception {
     super.setUp();
     myFixture.enableInspections(new CStyleArrayDeclarationInspection());
     myRelativePath = "style/cstyle_array_declaration";
-    myDefaultHint = InspectionGadgetsBundle.message("c.style.array.declaration.replace.quickfix");
+    myDefaultHint = "Fix all 'C-style array declaration' problems in file";
   }
 }

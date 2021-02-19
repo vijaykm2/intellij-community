@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,17 +14,11 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 16.04.2002
- * Time: 15:37:30
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.makeStatic;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.lang.findUsages.DescriptiveNameUtil;
+import com.intellij.model.PsiElementUsageInfo;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
@@ -35,7 +29,6 @@ import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.BaseRefactoringProcessor;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.listeners.RefactoringEventData;
 import com.intellij.refactoring.ui.ConflictsDialog;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
@@ -54,7 +47,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 
 public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParameterListOwner> extends BaseRefactoringProcessor {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.makeMethodStatic.MakeMethodStaticProcessor");
+  private static final Logger LOG = Logger.getInstance(MakeMethodStaticProcessor.class);
 
   protected T myMember;
   protected Settings mySettings;
@@ -67,8 +60,9 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
     mySettings = settings;
   }
 
+  @Override
   @NotNull
-  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo[] usages) {
+  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo @NotNull [] usages) {
     return new MakeMethodOrClassStaticViewDescriptor(myMember);
   }
 
@@ -88,13 +82,14 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
 
   @Nullable
   @Override
-  protected RefactoringEventData getAfterData(UsageInfo[] usages) {
+  protected RefactoringEventData getAfterData(UsageInfo @NotNull [] usages) {
     RefactoringEventData data = new RefactoringEventData();
     data.addElement(myMember);
     return data;
   }
 
-  protected final boolean preprocessUsages(final Ref<UsageInfo[]> refUsages) {
+  @Override
+  protected final boolean preprocessUsages(@NotNull final Ref<UsageInfo[]> refUsages) {
     UsageInfo[] usagesIn = refUsages.get();
     if (myPrepareSuccessfulSwingThreadCallback != null) {
       MultiMap<PsiElement, String> conflicts = getConflictDescriptions(usagesIn);
@@ -109,7 +104,7 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
         refUsages.set(filterInternalUsages(usagesIn));
       }
     }
-    final Set<UsageInfo> toMakeStatic = new LinkedHashSet<UsageInfo>();
+    final Set<UsageInfo> toMakeStatic = new LinkedHashSet<>();
     refUsages.set(filterOverriding(usagesIn, toMakeStatic));
     if (!findAdditionalMembers(toMakeStatic)) return false;
     prepareSuccessful();
@@ -118,8 +113,8 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
 
   protected boolean findAdditionalMembers(Set<UsageInfo> toMakeStatic) {return true;}
 
-  private static UsageInfo[] filterOverriding(UsageInfo[] usages, Set<UsageInfo> suggestToMakeStatic) {
-    ArrayList<UsageInfo> result = new ArrayList<UsageInfo>();
+  private static UsageInfo[] filterOverriding(UsageInfo[] usages, Set<? super UsageInfo> suggestToMakeStatic) {
+    ArrayList<UsageInfo> result = new ArrayList<>();
     for (UsageInfo usage : usages) {
       if (usage instanceof ChainedCallUsageInfo) {
         suggestToMakeStatic.add(usage);
@@ -127,22 +122,22 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
         result.add(usage);
       }
     }
-    return result.toArray(new UsageInfo[result.size()]);
+    return result.toArray(UsageInfo.EMPTY_ARRAY);
   }
 
   private static UsageInfo[] filterInternalUsages(UsageInfo[] usages) {
-    ArrayList<UsageInfo> result = new ArrayList<UsageInfo>();
+    ArrayList<UsageInfo> result = new ArrayList<>();
     for (UsageInfo usage : usages) {
       if (!(usage instanceof InternalUsageInfo)) {
         result.add(usage);
       }
     }
-    return result.toArray(new UsageInfo[result.size()]);
+    return result.toArray(UsageInfo.EMPTY_ARRAY);
   }
 
   protected MultiMap<PsiElement,String> getConflictDescriptions(UsageInfo[] usages) {
-    MultiMap<PsiElement, String> conflicts = new MultiMap<PsiElement, String>();
-    HashSet<PsiElement> processed = new HashSet<PsiElement>();
+    MultiMap<PsiElement, String> conflicts = new MultiMap<>();
+    HashSet<PsiElement> processed = new HashSet<>();
     String typeString = StringUtil.capitalize(UsageViewUtil.getType(myMember));
     for (UsageInfo usageInfo : usages) {
       if (usageInfo instanceof InternalUsageInfo && !(usageInfo instanceof SelfUsageInfo)) {
@@ -160,13 +155,13 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
             PsiField field = (PsiField)referencedElement;
 
             if (mySettings.getNameForField(field) == null) {
-              String message = RefactoringBundle.message("0.uses.non.static.1.which.is.not.passed.as.a.parameter", typeString,
+              String message = JavaRefactoringBundle.message("0.uses.non.static.1.which.is.not.passed.as.a.parameter", typeString,
                                                          RefactoringUIUtil.getDescription(field, true));
               conflicts.putValue(field, message);
             }
           }
           else {
-            String message = RefactoringBundle.message("0.uses.1.which.needs.class.instance", typeString, RefactoringUIUtil.getDescription(referencedElement, true));
+            String message = JavaRefactoringBundle.message("0.uses.1.which.needs.class.instance", typeString, RefactoringUIUtil.getDescription(referencedElement, true));
             conflicts.putValue(referencedElement, message);
           }
         }
@@ -174,7 +169,7 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
       if (usageInfo instanceof OverridingMethodUsageInfo) {
         LOG.assertTrue(myMember instanceof PsiMethod);
         final PsiMethod overridingMethod = ((PsiMethod)usageInfo.getElement());
-        String message = RefactoringBundle.message("method.0.is.overridden.by.1", RefactoringUIUtil.getDescription(myMember, false),
+        String message = JavaRefactoringBundle.message("method.0.is.overridden.by.1", RefactoringUIUtil.getDescription(myMember, false),
                                                    RefactoringUIUtil.getDescription(overridingMethod, true));
         conflicts.putValue(overridingMethod, message);
       }
@@ -184,7 +179,7 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
         if (processed.contains(container)) continue;
         processed.add(container);
         List<Settings.FieldParameter> fieldParameters = mySettings.getParameterOrderList();
-        ArrayList<PsiField> inaccessible = new ArrayList<PsiField>();
+        ArrayList<PsiField> inaccessible = new ArrayList<>();
 
         for (final Settings.FieldParameter fieldParameter : fieldParameters) {
           if (!PsiUtil.isAccessible(fieldParameter.field, element, null)) {
@@ -202,27 +197,16 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
 
   private static void createInaccessibleFieldsConflictDescription(ArrayList<PsiField> inaccessible, PsiElement container,
                                                                                      MultiMap<PsiElement, String> conflicts) {
-    if (inaccessible.size() == 1) {
-      final PsiField field = inaccessible.get(0);
-      conflicts.putValue(field, RefactoringBundle.message("field.0.is.not.accessible",
-                                       CommonRefactoringUtil.htmlEmphasize(field.getName()),
-                                       RefactoringUIUtil.getDescription(container, true)));
-    } else {
-
-      for (int j = 0; j < inaccessible.size(); j++) {
-        PsiField field = inaccessible.get(j);
-        conflicts.putValue(field, RefactoringBundle.message("field.0.is.not.accessible",
-                                       CommonRefactoringUtil.htmlEmphasize(field.getName()),
-                                       RefactoringUIUtil.getDescription(container, true)));
-
-
-      }
+    for (PsiField field : inaccessible) {
+      conflicts.putValue(field, JavaRefactoringBundle.message(
+        "field.0.is.not.accessible", CommonRefactoringUtil.htmlEmphasize(field.getName()), 
+        RefactoringUIUtil.getDescription(container, true)));
     }
   }
 
-  @NotNull
-  protected UsageInfo[] findUsages() {
-    ArrayList<UsageInfo> result = new ArrayList<UsageInfo>();
+  @Override
+  protected UsageInfo @NotNull [] findUsages() {
+    ArrayList<UsageInfo> result = new ArrayList<>();
 
     ContainerUtil.addAll(result, MakeStaticUtil.findClassRefsInMember(myMember, true));
 
@@ -240,7 +224,7 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
       }
     }
 
-    return result.toArray(new UsageInfo[result.size()]);
+    return result.toArray(UsageInfo.EMPTY_ARRAY);
   }
 
   protected abstract void findExternalUsages(ArrayList<UsageInfo> result);
@@ -254,7 +238,7 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
         if (qualifier instanceof PsiThisExpression) qualifier = null;
       }
       if (!PsiTreeUtil.isAncestor(myMember, element, true) || qualifier != null) {
-        result.add(new UsageInfo(element));
+        result.add(new PsiElementUsageInfo(element));
       }
 
       processExternalReference(element, method, result);
@@ -304,8 +288,10 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
     return false;
   }
 
+  @Override
+  @NotNull
   protected String getCommandName() {
-    return RefactoringBundle.message("make.static.command", DescriptiveNameUtil.getDescriptiveName(myMember));
+    return JavaRefactoringBundle.message("make.static.command", DescriptiveNameUtil.getDescriptiveName(myMember));
   }
 
   public T getMember() {
@@ -316,9 +302,10 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
     return mySettings;
   }
 
-  protected void performRefactoring(UsageInfo[] usages) {
+  @Override
+  protected void performRefactoring(UsageInfo @NotNull [] usages) {
     PsiManager manager = myMember.getManager();
-    PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(manager.getProject());
 
     try {
       for (UsageInfo usage : usages) {
@@ -335,7 +322,7 @@ public abstract class MakeMethodOrClassStaticProcessor<T extends PsiTypeParamete
       changeSelf(factory, usages);
     }
     catch (IncorrectOperationException ex) {
-      LOG.assertTrue(false);
+      LOG.error(ex);
     }
   }
 

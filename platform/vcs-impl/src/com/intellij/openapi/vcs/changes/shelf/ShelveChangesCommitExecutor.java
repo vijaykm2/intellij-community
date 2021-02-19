@@ -1,25 +1,5 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/*
- * Created by IntelliJ IDEA.
- * User: yole
- * Date: 23.11.2006
- * Time: 13:40:27
- */
 package com.intellij.openapi.vcs.changes.shelf;
 
 import com.intellij.CommonBundle;
@@ -34,11 +14,10 @@ import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
 import java.util.Collection;
 
 public class ShelveChangesCommitExecutor extends LocalCommitExecutor {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.changes.shelf.ShelveChangesCommitExecutor");
+  private static final Logger LOG = Logger.getInstance(ShelveChangesCommitExecutor.class);
 
   private final Project myProject;
 
@@ -46,13 +25,16 @@ public class ShelveChangesCommitExecutor extends LocalCommitExecutor {
     myProject = project;
   }
 
+  @NotNull
+  @Override
   @Nls
   public String getActionText() {
     return VcsBundle.message("shelve.changes.action");
   }
 
   @NotNull
-  public CommitSession createCommitSession() {
+  @Override
+  public CommitSession createCommitSession(@NotNull CommitContext commitContext) {
     return new ShelveChangesCommitSession();
   }
 
@@ -61,61 +43,39 @@ public class ShelveChangesCommitExecutor extends LocalCommitExecutor {
     return "reference.dialogs.vcs.shelve";
   }
 
-  private class ShelveChangesCommitSession implements CommitSession, CommitSessionContextAware {
+  @Override
+  public boolean supportsPartialCommit() {
+    return true;
+  }
 
-    @Nullable
-    public JComponent getAdditionalConfigurationUI() {
-      return null;
-    }
-
+  private class ShelveChangesCommitSession implements CommitSession {
     @Override
-    public void setContext(CommitContext context) {
-    }
-
-    @Nullable
-    public JComponent getAdditionalConfigurationUI(final Collection<Change> changes, final String commitMessage) {
-      return null;
-    }
-
     public boolean canExecute(Collection<Change> changes, String commitMessage) {
       return changes.size() > 0;
     }
 
-    public void execute(Collection<Change> changes, String commitMessage) {
+    @Override
+    public void execute(@NotNull Collection<Change> changes, @Nullable String commitMessage) {
       if (changes.size() > 0 && !ChangesUtil.hasFileChanges(changes)) {
-        WaitForProgressToShow.runOrInvokeLaterAboveProgress(new Runnable() {
-          public void run() {
-            Messages
-              .showErrorDialog(myProject, VcsBundle.message("shelve.changes.only.directories"), VcsBundle.message("shelve.changes.action"));
-          }
-        }, null, myProject);
+        WaitForProgressToShow.runOrInvokeLaterAboveProgress(() -> Messages
+          .showErrorDialog(myProject, VcsBundle.message("shelve.changes.only.directories"), VcsBundle.message("shelve.changes.action")), null, myProject);
         return;
       }
       try {
-        final ShelvedChangeList list = ShelveChangesManager.getInstance(myProject).shelveChanges(changes, commitMessage, true);
+        final ShelvedChangeList list = ShelveChangesManager.getInstance(myProject).shelveChanges(changes, commitMessage, true, false, true);
         ShelvedChangesViewManager.getInstance(myProject).activateView(list);
 
-        Change[] changesArray = changes.toArray(new Change[changes.size()]);
-        // todo better under lock   
-        ChangeList changeList = ChangesUtil.getChangeListIfOnlyOne(myProject, changesArray);
-        if (changeList instanceof LocalChangeList) {
-          LocalChangeList localChangeList = (LocalChangeList) changeList;
-          if (localChangeList.getChanges().size() == changes.size() && !localChangeList.isReadOnly() && (! localChangeList.isDefault())) {
-            ChangeListManager.getInstance(myProject).removeChangeList(localChangeList.getName());
-          }
+        Change[] changesArray = changes.toArray(new Change[0]);
+        LocalChangeList changeList = ChangesUtil.getChangeListIfOnlyOne(myProject, changesArray);
+        if (changeList != null) {
+          ChangeListManager.getInstance(myProject).scheduleAutomaticEmptyChangeListDeletion(changeList, true);
         }
       }
       catch (final Exception ex) {
         LOG.info(ex);
-        WaitForProgressToShow.runOrInvokeLaterAboveProgress(new Runnable() {
-          public void run() {
-            Messages.showErrorDialog(myProject, VcsBundle.message("create.patch.error.title", ex.getMessage()), CommonBundle.getErrorTitle());
-          }
-        }, ModalityState.NON_MODAL, myProject);
+        WaitForProgressToShow.runOrInvokeLaterAboveProgress(
+          () -> Messages.showErrorDialog(myProject, VcsBundle.message("create.patch.error.title", ex.getMessage()), CommonBundle.getErrorTitle()), ModalityState.NON_MODAL, myProject);
       }
-    }
-
-    public void executionCanceled() {
     }
 
     @Override

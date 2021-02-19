@@ -23,7 +23,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.HashSet;
 import java.util.Set;
 
-public class InitializationUtils {
+public final class InitializationUtils {
 
   private InitializationUtils() {}
 
@@ -47,7 +47,7 @@ public class InitializationUtils {
   }
 
   public static boolean blockAssignsVariableOrFails(@Nullable PsiCodeBlock block, @NotNull PsiVariable variable, boolean strict) {
-    return blockAssignsVariableOrFails(block, variable, new HashSet<MethodSignature>(), strict);
+    return blockAssignsVariableOrFails(block, variable, new HashSet<>(), strict);
   }
 
   private static boolean blockAssignsVariableOrFails(@Nullable PsiCodeBlock block, @NotNull PsiVariable variable,
@@ -224,10 +224,12 @@ public class InitializationUtils {
                                                             @NotNull Set<MethodSignature> checkedMethods, boolean strict) {
     final PsiResourceList resourceList = tryStatement.getResourceList();
     if (resourceList != null) {
-      for (PsiResourceVariable resourceVariable : resourceList.getResourceVariables()) {
-        final PsiExpression initializer = resourceVariable.getInitializer();
-        if (expressionAssignsVariableOrFails(initializer, variable, checkedMethods, strict)) {
-          return true;
+      for (PsiResourceListElement resource : resourceList) {
+        if (resource instanceof PsiResourceVariable) {
+          final PsiExpression initializer = ((PsiResourceVariable)resource).getInitializer();
+          if (expressionAssignsVariableOrFails(initializer, variable, checkedMethods, strict)) {
+            return true;
+          }
         }
       }
     }
@@ -238,7 +240,7 @@ public class InitializationUtils {
         initializedInTryAndCatch &= ExceptionUtils.blockThrowsException(catchBlock);
       }
       else {
-        initializedInTryAndCatch &= blockAssignsVariableOrFails(catchBlock, variable, checkedMethods, strict);
+        initializedInTryAndCatch &= blockAssignsVariableOrFails(catchBlock, variable, checkedMethods, false);
       }
     }
     return initializedInTryAndCatch || blockAssignsVariableOrFails(tryStatement.getFinallyBlock(), variable, checkedMethods, strict);
@@ -350,13 +352,9 @@ public class InitializationUtils {
       return expressionAssignsVariableOrFails(accessExpression.getArrayExpression(), variable, checkedMethods, strict) ||
              expressionAssignsVariableOrFails(accessExpression.getIndexExpression(), variable, checkedMethods, strict);
     }
-    else if (expression instanceof PsiPrefixExpression) {
-      final PsiPrefixExpression prefixExpression = (PsiPrefixExpression)expression;
-      return expressionAssignsVariableOrFails(prefixExpression.getOperand(), variable, checkedMethods, strict);
-    }
-    else if (expression instanceof PsiPostfixExpression) {
-      final PsiPostfixExpression postfixExpression = (PsiPostfixExpression)expression;
-      return expressionAssignsVariableOrFails(postfixExpression.getOperand(), variable, checkedMethods, strict);
+    else if (expression instanceof PsiUnaryExpression) {
+      final PsiUnaryExpression unaryOperation = (PsiUnaryExpression)expression;
+      return expressionAssignsVariableOrFails(unaryOperation.getOperand(), variable, checkedMethods, strict);
     }
     else if (expression instanceof PsiPolyadicExpression) {
       final PsiPolyadicExpression polyadicExpression = (PsiPolyadicExpression)expression;

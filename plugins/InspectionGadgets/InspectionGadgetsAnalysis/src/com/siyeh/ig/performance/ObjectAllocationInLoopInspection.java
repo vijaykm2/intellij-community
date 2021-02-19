@@ -15,28 +15,56 @@
  */
 package com.siyeh.ig.performance;
 
+import com.intellij.codeInsight.Nullability;
+import com.intellij.codeInsight.PsiEquivalenceUtil;
+import com.intellij.codeInspection.dataFlow.ContractReturnValue;
+import com.intellij.codeInspection.dataFlow.JavaMethodContractUtil;
+import com.intellij.codeInspection.dataFlow.NullabilityUtil;
+import com.intellij.codeInspection.dataFlow.StandardMethodContract;
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.psi.*;
+import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.psiutils.ControlFlowUtils;
+import com.siyeh.ig.psiutils.ExpressionUtils;
+import com.siyeh.ig.psiutils.TypeUtils;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.PropertyKey;
 
-public class ObjectAllocationInLoopInspection extends BaseInspection {
+import java.util.List;
 
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "object.allocation.in.loop.display.name");
+import static com.intellij.util.ObjectUtils.tryCast;
+
+public final class ObjectAllocationInLoopInspection extends BaseInspection {
+  enum Kind {
+    NEW_OPERATOR("object.allocation.in.loop.new.descriptor"),
+    METHOD_CALL("object.allocation.in.loop.problem.call.descriptor"),
+    METHOD_REFERENCE("object.allocation.in.loop.problem.methodref.descriptor"),
+    CAPTURING_LAMBDA("object.allocation.in.loop.problem.lambda.descriptor"),
+    STRING_CONCAT("object.allocation.in.loop.problem.string.concat"),
+    ARRAY_INITIALIZER("object.allocation.in.loop.problem.array.initializer.descriptor");
+
+    private final @PropertyKey(resourceBundle = InspectionGadgetsBundle.BUNDLE) String myMessage;
+
+    Kind(@PropertyKey(resourceBundle = InspectionGadgetsBundle.BUNDLE) String message) {
+      myMessage = message;
+    }
+
+    @Override
+    public @InspectionMessage String toString() {
+      return InspectionGadgetsBundle.message(myMessage);
+    }
   }
 
   @Override
   @NotNull
   protected String buildErrorString(Object... infos) {
-    return InspectionGadgetsBundle.message(
-      "object.allocation.in.loop.problem.descriptor");
+    Kind kind = (Kind)infos[0];
+    return kind.toString();
   }
 
   @Override
@@ -44,90 +72,100 @@ public class ObjectAllocationInLoopInspection extends BaseInspection {
     return new ObjectAllocationInLoopsVisitor();
   }
 
-  private static class ObjectAllocationInLoopsVisitor
-    extends BaseInspectionVisitor {
+  private static class ObjectAllocationInLoopsVisitor extends BaseInspectionVisitor {
+    @Override
+    public void visitMethodCallExpression(PsiMethodCallExpression call) {
+      super.visitMethodCallExpression(call);
+      PsiMethod method = call.resolveMethod();
+      if (method != null) {
+        List<StandardMethodContract> contracts = JavaMethodContractUtil.getMethodContracts(method);
+        ContractReturnValue value = JavaMethodContractUtil.getNonFailingReturnValue(contracts);
+        if (ContractReturnValue.returnNew().equals(value) && isPerformedRepeatedlyInLoop(call)) {
+          registerMethodCallError(call, Kind.METHOD_CALL);
+        }
+      }
+    }
+
+    @Override
+    public void visitArrayInitializerExpression(PsiArrayInitializerExpression expression) {
+      if (!(expression.getParent() instanceof PsiNewExpression) &&
+          !(expression.getParent() instanceof PsiArrayInitializerExpression) &&
+          isPerformedRepeatedlyInLoop(expression)) {
+        registerError(expression, Kind.ARRAY_INITIALIZER);
+      }
+    }
+
+    @Override
+    public void visitMethodReferenceExpression(PsiMethodReferenceExpression expression) {
+      super.visitMethodReferenceExpression(expression);
+      if (!PsiMethodReferenceUtil.isStaticallyReferenced(expression) &&
+          isPerformedRepeatedlyInLoop(expression)) {
+        registerError(expression, Kind.METHOD_REFERENCE);
+      }
+    }
+
+    @Override
+    public void visitLambdaExpression(PsiLambdaExpression lambda) {
+      super.visitLambdaExpression(lambda);
+      if (isPerformedRepeatedlyInLoop(lambda) && LambdaUtil.isCapturingLambda(lambda)) {
+        registerError(lambda.getParameterList(), Kind.CAPTURING_LAMBDA);
+      }
+    }
 
     @Override
     public void visitNewExpression(@NotNull PsiNewExpression expression) {
       super.visitNewExpression(expression);
-      if (!ControlFlowUtils.isInLoop(expression)) {
-        return;
+      if (isPerformedRepeatedlyInLoop(expression)) {
+        registerNewExpressionError(expression, expression.isArrayCreation() ? Kind.ARRAY_INITIALIZER : Kind.NEW_OPERATOR);
       }
-      if (ControlFlowUtils.isInExitStatement(expression)) {
-        return;
-      }
-      final PsiStatement newExpressionStatement =
-        PsiTreeUtil.getParentOfType(expression, PsiStatement.class);
-      if (newExpressionStatement == null) {
-        return;
-      }
-      final PsiStatement parentStatement =
-        PsiTreeUtil.getParentOfType(newExpressionStatement,
-                                    PsiStatement.class);
-      if (!ControlFlowUtils.statementMayCompleteNormally(
-        parentStatement)) {
-        return;
-      }
-      if (isAllocatedOnlyOnce(expression)) {
-        return;
-      }
-      registerNewExpressionError(expression);
     }
 
-    private static boolean isAllocatedOnlyOnce(
-      PsiNewExpression expression) {
-      final PsiElement parent = expression.getParent();
-      if (!(parent instanceof PsiAssignmentExpression)) {
+    @Override
+    public void visitPolyadicExpression(PsiPolyadicExpression expression) {
+      IElementType type = expression.getOperationTokenType();
+      if (JavaTokenType.PLUS.equals(type) && TypeUtils.isJavaLangString(expression.getType()) &&
+          !PsiUtil.isConstantExpression(expression) && isPerformedRepeatedlyInLoop(expression)) {
+        registerError(expression, Kind.STRING_CONCAT);
+      }
+      super.visitPolyadicExpression(expression);
+    }
+
+    private static boolean isPerformedRepeatedlyInLoop(@NotNull PsiExpression expression) {
+      if (!ControlFlowUtils.isInLoop(expression)) return false;
+      if (ControlFlowUtils.isInExitStatement(expression)) return false;
+      final PsiStatement newExpressionStatement = PsiTreeUtil.getParentOfType(expression, PsiStatement.class);
+      if (newExpressionStatement == null) return false;
+      final PsiStatement parentStatement = PsiTreeUtil.getParentOfType(newExpressionStatement, PsiStatement.class);
+      if (!ControlFlowUtils.statementMayCompleteNormally(parentStatement)) return false;
+      return !isAllocatedOnlyOnce(expression);
+    }
+
+    private static boolean isAllocatedOnlyOnce(PsiExpression expression) {
+      final PsiAssignmentExpression assignment =
+        PsiTreeUtil.getParentOfType(expression, PsiAssignmentExpression.class, true, PsiStatement.class);
+      if (assignment == null) return false;
+      final PsiReferenceExpression assignedRef = tryCast(assignment.getLExpression(), PsiReferenceExpression.class);
+      if (assignedRef == null) return false;
+      // to support cases like if(foo == null) foo = new Foo(new Bar());
+      if (assignment.getRExpression() != expression &&
+          NullabilityUtil.getExpressionNullability(assignment.getRExpression()) != Nullability.NOT_NULL) {
         return false;
       }
-      final PsiAssignmentExpression assignmentExpression =
-        (PsiAssignmentExpression)parent;
-      final PsiExpression lExpression =
-        assignmentExpression.getLExpression();
-      if (!(lExpression instanceof PsiReferenceExpression)) {
-        return false;
+      final PsiIfStatement ifStatement = PsiTreeUtil.getParentOfType(assignment, PsiIfStatement.class);
+      if (ifStatement == null) return false;
+      boolean equals;
+      if (PsiTreeUtil.isAncestor(ifStatement.getThenBranch(), assignment, true)) {
+        equals = true;
       }
-      final PsiIfStatement ifStatement =
-        PsiTreeUtil.getParentOfType(assignmentExpression,
-                                    PsiIfStatement.class);
-      if (ifStatement == null) {
-        return false;
-      }
-      final PsiExpression condition = ifStatement.getCondition();
-      if (!(condition instanceof PsiBinaryExpression)) {
-        return false;
-      }
-      final PsiBinaryExpression binaryExpression =
-        (PsiBinaryExpression)condition;
-      if (binaryExpression.getOperationTokenType() !=
-          JavaTokenType.EQEQ) {
-        return false;
-      }
-      final PsiReferenceExpression referenceExpression =
-        (PsiReferenceExpression)lExpression;
-      final PsiExpression lhs = binaryExpression.getLOperand();
-      final PsiExpression rhs = binaryExpression.getROperand();
-      if (lhs instanceof PsiLiteralExpression) {
-        if (!"null".equals(lhs.getText())) {
-          return false;
-        }
-        if (!(rhs instanceof PsiReferenceExpression)) {
-          return false;
-        }
-        return referenceExpression.getText().equals(rhs.getText());
-      }
-      else if (rhs instanceof PsiLiteralExpression) {
-        if (!"null".equals(rhs.getText())) {
-          return false;
-        }
-        if (!(lhs instanceof PsiReferenceExpression)) {
-          return false;
-        }
-        return referenceExpression.getText().equals(lhs.getText());
+      else if (PsiTreeUtil.isAncestor(ifStatement.getElseBranch(), assignment, true)) {
+        equals = false;
       }
       else {
         return false;
       }
+      final PsiExpression condition = ifStatement.getCondition();
+      PsiReferenceExpression nullCheckedRef = ExpressionUtils.getReferenceExpressionFromNullComparison(condition, equals);
+      return nullCheckedRef != null && PsiEquivalenceUtil.areElementsEquivalent(nullCheckedRef, assignedRef);
     }
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2014 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,13 +28,6 @@ public class AssignmentToStaticFieldFromInstanceMethodInspection
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "assignment.to.static.field.from.instance.method.display.name");
-  }
-
-  @Override
-  @NotNull
   public String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message(
       "assignment.to.static.field.from.instance.method.problem.descriptor");
@@ -42,33 +35,22 @@ public class AssignmentToStaticFieldFromInstanceMethodInspection
 
   @Override
   public BaseInspectionVisitor buildVisitor() {
-    return new AssignmentToStaticFieldFromInstanceMethod();
+    return new AssignmentToStaticFieldFromInstanceMethodVisitor();
   }
 
-  private static class AssignmentToStaticFieldFromInstanceMethod
+  private static class AssignmentToStaticFieldFromInstanceMethodVisitor
     extends BaseInspectionVisitor {
 
     @Override
     public void visitAssignmentExpression(@NotNull PsiAssignmentExpression expression) {
+      super.visitAssignmentExpression(expression);
       final PsiExpression lhs = expression.getLExpression();
       checkForStaticFieldAccess(lhs);
     }
 
     @Override
-    public void visitPrefixExpression(
-      @NotNull PsiPrefixExpression expression) {
-      final IElementType tokenType = expression.getOperationTokenType();
-      if (!tokenType.equals(JavaTokenType.PLUSPLUS) &&
-          !tokenType.equals(JavaTokenType.MINUSMINUS)) {
-        return;
-      }
-      final PsiExpression operand = expression.getOperand();
-      checkForStaticFieldAccess(operand);
-    }
-
-    @Override
-    public void visitPostfixExpression(
-      @NotNull PsiPostfixExpression expression) {
+    public void visitUnaryExpression(@NotNull PsiUnaryExpression expression) {
+      super.visitUnaryExpression(expression);
       final IElementType tokenType = expression.getOperationTokenType();
       if (!tokenType.equals(JavaTokenType.PLUSPLUS) &&
           !tokenType.equals(JavaTokenType.MINUSMINUS)) {
@@ -82,9 +64,6 @@ public class AssignmentToStaticFieldFromInstanceMethodInspection
       if (!(expression instanceof PsiReferenceExpression)) {
         return;
       }
-      if (isInStaticMethod(expression)) {
-        return;
-      }
       final PsiElement referent = ((PsiReference)expression).resolve();
       if (referent == null) {
         return;
@@ -93,15 +72,19 @@ public class AssignmentToStaticFieldFromInstanceMethodInspection
         return;
       }
       final PsiField fieldReferenced = (PsiField)referent;
-      if (fieldReferenced.hasModifierProperty(PsiModifier.STATIC)) {
-        registerError(expression);
+      if (!fieldReferenced.hasModifierProperty(PsiModifier.STATIC)) {
+        return;
       }
+      if (isInStaticMember(expression)) {
+        return;
+      }
+      registerError(expression);
     }
 
-    private static boolean isInStaticMethod(PsiElement element) {
+    private static boolean isInStaticMember(PsiElement element) {
       final PsiMember member =
         PsiTreeUtil.getParentOfType(element,
-                                    PsiMethod.class, PsiClassInitializer.class);
+                                    PsiMethod.class, PsiClassInitializer.class, PsiField.class);
       if (member == null) {
         return false;
       }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package org.jetbrains.plugins.groovy.intentions.declaration;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
@@ -48,7 +47,7 @@ public class GrIntroduceLocalVariableIntention extends Intention {
 
   private static boolean isTargetVisible(PsiElement element) {
     if (PsiUtil.isExpressionStatement(element) && element instanceof GrExpression) {
-      if (((GrExpression)element).getType() != PsiType.VOID) {
+      if (!PsiType.VOID.equals(((GrExpression)element).getType())) {
         if (PsiTreeUtil.getParentOfType(element, GrAssignmentExpression.class) == null) {
           return true;
         }
@@ -64,15 +63,15 @@ public class GrIntroduceLocalVariableIntention extends Intention {
   }
 
   @Override
-  protected void processIntention(@NotNull final PsiElement element, final Project project, final Editor editor) throws IncorrectOperationException {
+  protected void processIntention(@NotNull final PsiElement element, @NotNull final Project project, final Editor editor) throws IncorrectOperationException {
     setSelection(editor, getTargetExpression(element));
     final PsiFile file = element.getContainingFile();
-    ApplicationManager.getApplication().invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        new GrIntroduceVariableHandler().invoke(project, editor, file, null);
-      }
-    });
+    new GrIntroduceVariableHandler().invoke(project, editor, file, null);
+  }
+
+  @Override
+  public boolean startInWriteAction() {
+    return false;
   }
 
   @NotNull
@@ -80,10 +79,7 @@ public class GrIntroduceLocalVariableIntention extends Intention {
   protected PsiElementPredicate getElementPredicate() {
     return new PsiElementPredicate() {
       @Override
-      public boolean satisfiedBy(PsiElement element) {
-        if (element == null) {
-          return false;
-        }
+      public boolean satisfiedBy(@NotNull PsiElement element) {
         return getTargetExpression(element) != null;
       }
     };

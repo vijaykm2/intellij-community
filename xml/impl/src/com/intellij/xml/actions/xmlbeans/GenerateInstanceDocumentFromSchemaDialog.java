@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.actions.xmlbeans;
 
 
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.javaee.ExternalResourceManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
@@ -28,7 +15,7 @@ import com.intellij.psi.templateLanguages.TemplateLanguageFileViewProvider;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.ui.JBColor;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.xml.XmlBundle;
 import com.intellij.xml.XmlElementDescriptor;
 import org.jetbrains.annotations.NotNull;
@@ -150,7 +137,7 @@ public class GenerateInstanceDocumentFromSchemaDialog extends DialogWrapper {
   }
 
   public static void configureComboBox(JComboBox combo, List<String> lastValues) {  // without -editor.selectAll- no focus
-    combo.setModel(new DefaultComboBoxModel(ArrayUtil.toStringArray(lastValues)));
+    combo.setModel(new DefaultComboBoxModel(ArrayUtilRt.toStringArray(lastValues)));
   }
 
   private void updateFile() {
@@ -160,14 +147,14 @@ public class GenerateInstanceDocumentFromSchemaDialog extends DialogWrapper {
     List<String> myRootValues;
 
     if (psifile == null) {
-      configureComboBox(rootElementChooser, Collections.<String>emptyList());
+      configureComboBox(rootElementChooser, Collections.emptyList());
       return;
     }
 
     final XmlTag rootTag = getRootTag(psifile);
 
     if (rootTag == null) {
-      configureComboBox(rootElementChooser, Collections.<String>emptyList());
+      configureComboBox(rootElementChooser, Collections.emptyList());
       rootElementChooser.setSelectedIndex(-1);
       previousUri = uri;
       return;
@@ -225,7 +212,7 @@ public class GenerateInstanceDocumentFromSchemaDialog extends DialogWrapper {
   }
 
   @Nullable
-  protected String doValidateWithData() {
+  protected @InspectionMessage String doValidateWithData() {
     String rootElementName = getElementName();
     if (rootElementName == null || rootElementName.length() == 0) {
       return XmlBundle.message("schema2.instance.no.valid.root.element.name.validation.error");

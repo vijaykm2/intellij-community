@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.favoritesTreeView;
 
 import com.intellij.ide.dnd.aware.DnDAwareTree;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonShortcuts;
@@ -31,18 +18,13 @@ import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.Consumer;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * Created with IntelliJ IDEA.
- * User: Irina.Chernushina
- * Date: 6/7/12
- * Time: 4:33 PM
- */
 public class TaskDefaultFavoriteListProvider extends AbstractFavoritesListProvider {
   public static final String CURRENT_TASK = "Current task";
 
@@ -133,8 +115,8 @@ public class TaskDefaultFavoriteListProvider extends AbstractFavoritesListProvid
   //        if (parent instanceof ProjectViewNodeWithChildrenList) {
   //          // add through manager
   //          //((ProjectViewNodeWithChildrenList)parent).addChildBefore(noteNode, treeNode);
-  //          final List<AbstractTreeNode> pathToSelected = FavoritesTreeUtil.getLogicalPathToSelected(tree);
-  //          final List<AbstractTreeNode> elements;
+  //          final List<AbstractTreeNode<?>> pathToSelected = FavoritesTreeUtil.getLogicalPathToSelected(tree);
+  //          final List<AbstractTreeNode<?>> elements;
   //          AbstractTreeNode sibling;
   //          if (pathToSelected.isEmpty()) {
   //            elements = pathToSelected;
@@ -146,7 +128,7 @@ public class TaskDefaultFavoriteListProvider extends AbstractFavoritesListProvid
   //          }
   //          favoritesManager.addRoot(CURRENT_TASK, elements, noteNode, sibling);
   //        } else if (parent instanceof FavoritesListNode) {
-  //          favoritesManager.addRoot(CURRENT_TASK, Collections.<AbstractTreeNode>emptyList(), noteNode, treeNode);
+  //          favoritesManager.addRoot(CURRENT_TASK, Collections.<AbstractTreeNode<?>>emptyList(), noteNode, treeNode);
   //        }
   //      }
   //    };
@@ -158,8 +140,8 @@ public class TaskDefaultFavoriteListProvider extends AbstractFavoritesListProvid
   //}
 
   // ! containing self
-  public static List<AbstractTreeNode> getPathToUsualNode(final AbstractTreeNode treeNode) {
-    final List<AbstractTreeNode> result = new ArrayList<AbstractTreeNode>();
+  public static List<AbstractTreeNode<?>> getPathToUsualNode(final AbstractTreeNode treeNode) {
+    final List<AbstractTreeNode<?>> result = new ArrayList<>();
     AbstractTreeNode current = treeNode;
     while (current != null && (!(current instanceof FavoritesRootNode))) {
       result.add(current);
@@ -169,10 +151,10 @@ public class TaskDefaultFavoriteListProvider extends AbstractFavoritesListProvid
     return result;
   }
 
-  public static List<AbstractTreeNode> getPathToUsualNode(final AbstractTreeNode treeNode, final Tree tree) {
+  public static List<AbstractTreeNode<?>> getPathToUsualNode(final AbstractTreeNode treeNode, final Tree tree) {
     final AbstractTreeNode parent = treeNode.getParent();
     if (parent instanceof ProjectViewNodeWithChildrenList) {
-      final List<AbstractTreeNode> pathToSelected = FavoritesTreeUtil.getLogicalPathToSelected(tree);
+      final List<AbstractTreeNode<?>> pathToSelected = FavoritesTreeUtil.getLogicalPathToSelected(tree);
       if (pathToSelected.isEmpty()) {
         return pathToSelected;
       }
@@ -185,34 +167,30 @@ public class TaskDefaultFavoriteListProvider extends AbstractFavoritesListProvid
 
   private void showNotePopup(Project project,
                              final DnDAwareTree tree,
-                             final Consumer<String> after, final String initText) {
+                             final Consumer<? super String> after, final String initText) {
     final JTextArea textArea = new JTextArea(3, 50);
     textArea.setFont(UIUtil.getTreeFont());
     textArea.setText(initText);
     final JBScrollPane pane = new JBScrollPane(textArea);
     final ComponentPopupBuilder builder = JBPopupFactory.getInstance().createComponentPopupBuilder(pane, textArea)
       .setCancelOnClickOutside(true)
-      .setAdText(KeymapUtil.getShortcutsText(CommonShortcuts.CTRL_ENTER.getShortcuts()) + " to finish")
-      .setTitle("Comment")
+      .setAdText(
+        LangBundle.message("popup.advertisement.to.finish", KeymapUtil.getShortcutsText(CommonShortcuts.CTRL_ENTER.getShortcuts())))
+      .setTitle(LangBundle.message("popup.title.comment"))
       .setMovable(true)
       .setRequestFocus(true).setResizable(true).setMayBeParent(true);
     final JBPopup popup = builder.createPopup();
     final JComponent content = popup.getContent();
     final AnAction action = new AnAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         popup.closeOk(e.getInputEvent());
         unregisterCustomShortcutSet(content);
         after.consume(textArea.getText());
       }
     };
     action.registerCustomShortcutSet(CommonShortcuts.CTRL_ENTER, content);
-    ApplicationManager.getApplication().invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        popup.showInCenterOf(tree);
-      }
-    }, ModalityState.NON_MODAL, project.getDisposed());
+    ApplicationManager.getApplication().invokeLater(() -> popup.showInCenterOf(tree), ModalityState.NON_MODAL, project.getDisposed());
   }
 
   //private Operation getCustomEditOperation() {

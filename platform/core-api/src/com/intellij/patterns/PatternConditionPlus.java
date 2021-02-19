@@ -35,12 +35,14 @@ public abstract class PatternConditionPlus<Target, Value> extends PatternConditi
     return myValuePattern;
   }
 
-  public abstract boolean processValues(final Target t, final ProcessingContext context, final PairProcessor<Value, ProcessingContext> processor);
+  public abstract boolean processValues(final Target t, final ProcessingContext context, final PairProcessor<? super Value, ? super ProcessingContext> processor);
 
+  @Override
   public boolean accepts(@NotNull final Target t, final ProcessingContext context) {
     return !processValues(t, context, this);
   }
 
+  @Override
   public final boolean process(Value p, ProcessingContext context) {
     return !myValuePattern.accepts(p, context);
   }

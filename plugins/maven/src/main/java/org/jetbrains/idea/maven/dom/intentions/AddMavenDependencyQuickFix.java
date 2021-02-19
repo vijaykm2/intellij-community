@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +17,9 @@ package org.jetbrains.idea.maven.dom.intentions;
 
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.intention.LowPriorityAction;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -37,13 +37,18 @@ import org.jetbrains.idea.maven.dom.model.MavenDomProjectModel;
 import org.jetbrains.idea.maven.indices.MavenArtifactSearchDialog;
 import org.jetbrains.idea.maven.model.MavenId;
 import org.jetbrains.idea.maven.project.MavenProject;
+import org.jetbrains.idea.maven.project.MavenProjectsManager;
 
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class AddMavenDependencyQuickFix implements IntentionAction, LowPriorityAction {
 
-  private static final Pattern CLASSNAME_PATTERN = Pattern.compile("(\\p{javaJavaIdentifierStart}\\p{javaJavaIdentifierPart}*\\.)*\\p{Lu}\\p{javaJavaIdentifierPart}+");
+  private static final Pattern CLASSNAME_PATTERN =
+    Pattern.compile("(\\p{javaJavaIdentifierStart}\\p{javaJavaIdentifierPart}*\\.)*\\p{Lu}\\p{javaJavaIdentifierPart}+");
 
   private final PsiJavaCodeReferenceElement myRef;
 
@@ -51,16 +56,19 @@ public class AddMavenDependencyQuickFix implements IntentionAction, LowPriorityA
     myRef = ref;
   }
 
+  @Override
   @NotNull
   public String getText() {
-    return "Add Maven Dependency...";
+    return MavenDomBundle.message("fix.add.dependency");
   }
 
+  @Override
   @NotNull
   public String getFamilyName() {
     return MavenDomBundle.message("inspection.group");
   }
 
+  @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
     return myRef.isValid() && MavenDomUtil.findContainingProject(file) != null && looksLikeClassName(getReferenceText());
   }
@@ -71,6 +79,7 @@ public class AddMavenDependencyQuickFix implements IntentionAction, LowPriorityA
     return CLASSNAME_PATTERN.matcher(text).matches();
   }
 
+  @Override
   public void invoke(@NotNull final Project project, Editor editor, final PsiFile file) throws IncorrectOperationException {
     if (!myRef.isValid()) return;
 
@@ -83,24 +92,38 @@ public class AddMavenDependencyQuickFix implements IntentionAction, LowPriorityA
     final MavenDomProjectModel model = MavenDomUtil.getMavenDomProjectModel(project, mavenProject.getFile());
     if (model == null) return;
 
-    new WriteCommandAction(project, "Add Maven Dependency", DomUtil.getFile(model)) {
-      @Override
-      protected void run(Result result) throws Throwable {
-        boolean isTestSource = false;
+    WriteCommandAction.writeCommandAction(project, DomUtil.getFile(model)).withName(
+      MavenDomBundle.message("maven.dom.quickfix.add.maven.dependency")).run(() -> {
+      boolean isTestSource = false;
 
-        VirtualFile virtualFile = file.getOriginalFile().getVirtualFile();
-        if (virtualFile != null) {
-          isTestSource = ProjectRootManager.getInstance(project).getFileIndex().isInTestSourceContent(virtualFile);
-        }
+      VirtualFile virtualFile = file.getOriginalFile().getVirtualFile();
+      if (virtualFile != null) {
+        isTestSource = ProjectRootManager.getInstance(project).getFileIndex().isInTestSourceContent(virtualFile);
+      }
 
-        for (MavenId each : ids) {
+      Map<MavenId, MavenDomDependency> dependencyMap = model.getDependencies().getDependencies().stream().collect(Collectors.toMap(
+        it -> new MavenId(it.getGroupId().getStringValue(), it.getArtifactId().getStringValue(), it.getVersion().getStringValue()),
+        Function.identity()
+      ));
+
+      for (MavenId each : ids) {
+        MavenDomDependency existingDependency = dependencyMap.get(each);
+        if (existingDependency == null) {
           MavenDomDependency dependency = MavenDomUtil.createDomDependency(model, null, each);
           if (isTestSource) {
             dependency.getScope().setStringValue("test");
           }
         }
+        else {
+          if ("test".equals(existingDependency.getScope().getStringValue()) && !isTestSource) {
+            existingDependency.getScope().setValue(null);
+          }
+        }
       }
-    }.execute();
+    });
+
+    FileDocumentManager.getInstance().saveAllDocuments();
+    MavenProjectsManager.getInstance(project).forceUpdateAllProjectsOrFindAllAvailablePomFiles();
   }
 
   public String getReferenceText() {
@@ -117,6 +140,7 @@ public class AddMavenDependencyQuickFix implements IntentionAction, LowPriorityA
     return result.getQualifiedName();
   }
 
+  @Override
   public boolean startInWriteAction() {
     return false;
   }

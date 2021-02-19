@@ -20,9 +20,6 @@ import junit.framework.TestCase;
 import java.util.Iterator;
 import java.util.ListIterator;
 
-/**
- * @author nik
- */
 public class SortedListTest extends TestCase {
   public void testAdd() {
     SortedList<String> list = createList();
@@ -84,6 +81,6 @@ public class SortedListTest extends TestCase {
   }
 
   private static SortedList<String> createList() {
-    return new SortedList<String>(String.CASE_INSENSITIVE_ORDER);
+    return new SortedList<>(String.CASE_INSENSITIVE_ORDER);
   }
 }

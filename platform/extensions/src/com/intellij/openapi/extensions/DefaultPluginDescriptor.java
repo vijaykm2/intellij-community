@@ -1,44 +1,33 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.extensions;
 
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * @author Alexander Kireyev
- */
-public class DefaultPluginDescriptor implements PluginDescriptor {
-  private PluginId myPluginId;
-  private ClassLoader myPluginClassLoader;
+import java.nio.file.Path;
+import java.util.Date;
 
-  public DefaultPluginDescriptor(String pluginId) {
+public final class DefaultPluginDescriptor implements PluginDescriptor {
+  private final @NotNull PluginId myPluginId;
+  private final ClassLoader myPluginClassLoader;
+
+  public DefaultPluginDescriptor(@NotNull String pluginId) {
     myPluginId = PluginId.getId(pluginId);
+    myPluginClassLoader = null;
   }
 
   public DefaultPluginDescriptor(@NotNull PluginId pluginId) {
     myPluginId = pluginId;
+    myPluginClassLoader = null;
   }
 
-  public DefaultPluginDescriptor(@NotNull PluginId pluginId, final ClassLoader pluginClassLoader) {
+  public DefaultPluginDescriptor(@NotNull PluginId pluginId, @Nullable ClassLoader pluginClassLoader) {
     myPluginId = pluginId;
     myPluginClassLoader = pluginClassLoader;
   }
 
   @Override
-  public PluginId getPluginId() {
+  public @NotNull PluginId getPluginId() {
     return myPluginId;
   }
 
@@ -47,11 +36,107 @@ public class DefaultPluginDescriptor implements PluginDescriptor {
     return myPluginClassLoader;
   }
 
-  public void setPluginId(@NotNull PluginId pluginId) {
-    myPluginId = pluginId;
+  @Override
+  public Path getPluginPath() {
+    return null;
   }
 
-  public void setPluginClassLoader(final ClassLoader pluginClassLoader) {
-    myPluginClassLoader = pluginClassLoader;
+  @Override
+  public @Nullable String getDescription() {
+    return null;
+  }
+
+  @Override
+  public String getChangeNotes() {
+    return null;
+  }
+
+  @Override
+  public String getName() {
+    return null;
+  }
+
+  @Override
+  public @Nullable String getProductCode() {
+    return null;
+  }
+
+  @Override
+  public @Nullable Date getReleaseDate() {
+    return null;
+  }
+
+  @Override
+  public boolean isLicenseOptional() {
+    return false;
+  }
+
+  @Override
+  public int getReleaseVersion() {
+    return 0;
+  }
+
+  @Override
+  public PluginId @NotNull [] getOptionalDependentPluginIds() {
+    return PluginId.EMPTY_ARRAY;
+  }
+
+  @Override
+  public String getVendor() {
+    return null;
+  }
+
+  @Override
+  public String getOrganization() {
+    return null;
+  }
+
+  @Override
+  public String getVersion() {
+    return null;
+  }
+
+  @Override
+  public String getResourceBundleBaseName() {
+    return null;
+  }
+
+  @Override
+  public String getCategory() {
+    return null;
+  }
+
+  @Override
+  public String getVendorEmail() {
+    return null;
+  }
+
+  @Override
+  public String getVendorUrl() {
+    return null;
+  }
+
+  @Override
+  public String getUrl() {
+    return null;
+  }
+
+  @Override
+  public String getSinceBuild() {
+    return null;
+  }
+
+  @Override
+  public String getUntilBuild() {
+    return null;
+  }
+
+  @Override
+  public boolean isEnabled() {
+    return false;
+  }
+
+  @Override
+  public void setEnabled(boolean enabled) {
   }
 }

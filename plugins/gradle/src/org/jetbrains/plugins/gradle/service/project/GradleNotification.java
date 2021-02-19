@@ -15,21 +15,23 @@
  */
 package org.jetbrains.plugins.gradle.service.project;
 
+import com.intellij.notification.NotificationDisplayType;
 import com.intellij.notification.NotificationGroup;
 import com.intellij.notification.NotificationListener;
 import com.intellij.notification.NotificationType;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.ui.AppUIUtil;
+import com.intellij.openapi.util.NlsContexts;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Vladislav.Soroka
- * @since 12/10/13
  */
 public class GradleNotification {
-  private static final NotificationGroup NOTIFICATION_GROUP = NotificationGroup.balloonGroup("Gradle Notification Group");
+  public static final NotificationGroup NOTIFICATION_GROUP = new NotificationGroup("Gradle Notification Group",
+                                                                                    NotificationDisplayType.STICKY_BALLOON,
+                                                                                    true);
 
   @NotNull private final Project myProject;
 
@@ -42,16 +44,11 @@ public class GradleNotification {
     myProject = project;
   }
 
-  public void showBalloon(@NotNull final String title,
-                          @NotNull final String message,
+  public void showBalloon(@NotNull @NlsContexts.NotificationTitle final String title,
+                          @NotNull  @NlsContexts.NotificationContent final String message,
                           @NotNull final NotificationType type,
                           @Nullable final NotificationListener listener) {
-    AppUIUtil.invokeLaterIfProjectAlive(myProject, new Runnable() {
-      @Override
-      public void run() {
-        NOTIFICATION_GROUP.createNotification(title, message, type, listener).notify(myProject);
-      }
-    });
+    NOTIFICATION_GROUP.createNotification(title, message, type, listener).notify(myProject);
   }
 }
 

@@ -15,7 +15,9 @@
  */
 package com.jetbrains.python;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.openapi.actionSystem.IdeActions;
+import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.jetbrains.python.fixtures.PyTestCase;
 
 /**
@@ -28,6 +30,13 @@ public class PyJoinLinesTest extends PyTestCase {
     myFixture.configureByFile("joinLines/" + getTestName(false) + ".py");
     myFixture.performEditorAction(IdeActions.ACTION_EDITOR_JOIN_LINES);
     myFixture.checkResultByFile("joinLines/" + getTestName(false) + "-after.py");
+  }
+
+  private void doTestWithCodeStyleSettings() {
+    CodeStyleSettings settings = CodeStyle.getSettings(myFixture.getProject());
+    settings.setRightMargin(PythonLanguage.getInstance(), 79);
+
+    doTest();
   }
 
   public void testBinaryOpBelow() {
@@ -139,6 +148,27 @@ public class PyJoinLinesTest extends PyTestCase {
     doTest();
   }
 
+  //PY-12205
+  public void testStringsProducesTooLongLineAfterJoin() {
+    doTestWithCodeStyleSettings();
+  }
+
+  //PY-12205
+  public void testStringsWithDifferentQuotesTooLongToJoin() {
+    doTestWithCodeStyleSettings();
+  }
+
+  //PY-12205
+  public void testStringsWithTripleQuotesTooLongToJoin() {
+    doTestWithCodeStyleSettings();
+  }
+
+  //PY-12205
+  public void testCommentProducesTooLongLineAfterJoin() {
+
+    doTestWithCodeStyleSettings();
+  }
+
   // PY-15564
   public void testBackslashBetweenTargetsInImport() {
     doTest();
@@ -146,6 +176,14 @@ public class PyJoinLinesTest extends PyTestCase {
 
   // PY-15564
   public void testBackslashBetweenTargetsInFromImport() {
+    doTest();
+  }
+
+  public void testFStrings() {
+    doTest();
+  }
+  
+  public void testFStringAndPlainLiteral() {
     doTest();
   }
 }

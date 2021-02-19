@@ -15,6 +15,8 @@
  */
 package org.jetbrains.idea.maven.tasks.actions;
 
+import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.keymap.impl.ui.EditKeymapsDialog;
@@ -23,6 +25,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.project.MavenProject;
 import org.jetbrains.idea.maven.project.MavenProjectsManager;
+import org.jetbrains.idea.maven.tasks.MavenKeymapExtension;
 import org.jetbrains.idea.maven.tasks.MavenShortcutsManager;
 import org.jetbrains.idea.maven.utils.MavenDataKeys;
 import org.jetbrains.idea.maven.utils.actions.MavenAction;
@@ -32,7 +35,7 @@ import java.util.List;
 
 public class AssignShortcutAction extends MavenAction {
   @Override
-  protected boolean isAvailable(AnActionEvent e) {
+  protected boolean isAvailable(@NotNull AnActionEvent e) {
     final DataContext context = e.getDataContext();
     return super.isAvailable(e) && !isIgnoredProject(context) && getGoalActionId(context) != null;
   }
@@ -44,6 +47,7 @@ public class AssignShortcutAction extends MavenAction {
     return projectsManager != null && projectsManager.isIgnored(project);
   }
 
+  @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
     final DataContext context = e.getDataContext();
     String actionId = getGoalActionId(context);
@@ -65,7 +69,14 @@ public class AssignShortcutAction extends MavenAction {
     String goal = goals.get(0);
 
     final MavenShortcutsManager shortcutsManager = getShortcutsManager(context);
-    return shortcutsManager != null ? shortcutsManager.getActionId(project.getPath(), goal) : null;
+    String actionId = shortcutsManager != null ? shortcutsManager.getActionId(project.getPath(), goal) : null;
+    if (actionId != null) {
+      AnAction action = ActionManager.getInstance().getAction(actionId);
+      if (action == null) {
+        MavenKeymapExtension.getOrRegisterAction(project, actionId, goal);
+      }
+    }
+    return actionId;
   }
 
   @Nullable

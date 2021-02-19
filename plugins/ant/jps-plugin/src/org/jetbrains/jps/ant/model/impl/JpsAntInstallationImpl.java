@@ -26,9 +26,6 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author nik
- */
 public class JpsAntInstallationImpl extends JpsElementBase<JpsAntInstallationImpl> implements JpsAntInstallation {
   private final File myAntHome;
   private final String myName;
@@ -70,14 +67,14 @@ public class JpsAntInstallationImpl extends JpsElementBase<JpsAntInstallationImp
   }
 
   public static List<String> getClasspath(final List<String> classpath, final List<String> jarDirectories) {
-    List<String> result = new ArrayList<String>(classpath);
+    List<String> result = new ArrayList<>(classpath);
     for (String directory : jarDirectories) {
       addAllJarsFromDirectory(result, new File(directory));
     }
     return result;
   }
 
-  public static void addAllJarsFromDirectory(List<String> classpath, final File dir) {
+  public static void addAllJarsFromDirectory(List<? super String> classpath, final File dir) {
     File[] files = dir.listFiles();
     if (files != null) {
       for (File file : files) {

@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.introduceParameter;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.CommandProcessor;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.impl.DocumentMarkupModel;
 import com.intellij.openapi.editor.markup.EffectType;
@@ -25,21 +11,21 @@ import com.intellij.openapi.editor.markup.HighlighterTargetArea;
 import com.intellij.openapi.editor.markup.MarkupModel;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.VariableKind;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.SearchScope;
-import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.JavaRefactoringSettings;
 import com.intellij.refactoring.RefactoringActionHandler;
 import com.intellij.refactoring.ui.TypeSelectorManagerImpl;
 import com.intellij.ui.JBColor;
+import com.intellij.util.ui.JBInsets;
 import gnu.trove.TIntArrayList;
-import gnu.trove.TIntProcedure;
+import it.unimi.dsi.fastutil.ints.IntList;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -48,13 +34,7 @@ import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * User: anna
- * Date: 2/25/11
- */
 public class InplaceIntroduceParameterPopup extends AbstractJavaInplaceIntroducer {
-  private static final Logger LOG = Logger.getInstance("#" + InplaceIntroduceParameterPopup.class.getName());
-
   private final PsiMethod myMethod;
   private final PsiMethod myMethodToSearchFor;
   private final boolean myMustBeFinal;
@@ -71,16 +51,16 @@ public class InplaceIntroduceParameterPopup extends AbstractJavaInplaceIntroduce
                                  final PsiMethod method,
                                  final PsiMethod methodToSearchFor,
                                  final PsiExpression[] occurrences,
-                                 final TIntArrayList parametersToRemove,
+                                 final IntList parametersToRemove,
                                  final boolean mustBeFinal) {
-    super(project, editor, expr, localVar, occurrences, typeSelectorManager, IntroduceParameterHandler.REFACTORING_NAME
+    super(project, editor, expr, localVar, occurrences, typeSelectorManager, IntroduceParameterHandler.getRefactoringName()
     );
     myMethod = method;
     myMethodToSearchFor = methodToSearchFor;
     myMustBeFinal = mustBeFinal;
 
     myWholePanel.add(getPreviewComponent(), new GridBagConstraints(0, GridBagConstraints.RELATIVE, 2, 1, 1, 0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL,
-                                                                             new Insets(0,5,0,5), 0,0));
+                                                                   JBInsets.create(0, 5), 0, 0));
     myPanel = new InplaceIntroduceParameterUI(project, localVar, expr, method, parametersToRemove, typeSelectorManager,
                                               myOccurrences) {
       @Override
@@ -95,6 +75,7 @@ public class InplaceIntroduceParameterPopup extends AbstractJavaInplaceIntroduce
         restartInplaceIntroduceTemplate();
       }
 
+      @Override
       protected TIntArrayList getParametersToRemove() {
         TIntArrayList parameters = new TIntArrayList();
         if (myCbReplaceAllOccurences == null || myCbReplaceAllOccurences.isSelected()) {
@@ -113,23 +94,19 @@ public class InplaceIntroduceParameterPopup extends AbstractJavaInplaceIntroduce
   @Override
   protected PsiVariable createFieldToStartTemplateOn(final String[] names, final PsiType defaultType) {
     final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(myMethod.getProject());
-    return ApplicationManager.getApplication().runWriteAction(new Computable<PsiParameter>() {
-      @Override
-      public PsiParameter compute() {
-        final PsiParameter anchor = JavaIntroduceParameterMethodUsagesProcessor.getAnchorParameter(myMethod);
-        final PsiParameter psiParameter = (PsiParameter)myMethod.getParameterList()
-          .addAfter(elementFactory.createParameter(chooseName(names, myMethod.getLanguage()), defaultType), anchor);
-        PsiUtil.setModifierProperty(psiParameter, PsiModifier.FINAL, myPanel.hasFinalModifier());
-        myParameterIndex = myMethod.getParameterList().getParameterIndex(psiParameter);
-        return psiParameter;
-      }
+    return WriteAction.compute(() -> {
+      final PsiParameter anchor = JavaIntroduceParameterMethodUsagesProcessor.getAnchorParameter(myMethod);
+      final PsiParameter psiParameter = (PsiParameter)myMethod.getParameterList()
+        .addAfter(elementFactory.createParameter(chooseName(names, myMethod.getLanguage()), defaultType), anchor);
+      PsiUtil.setModifierProperty(psiParameter, PsiModifier.FINAL, myPanel.hasFinalModifier());
+      myParameterIndex = myMethod.getParameterList().getParameterIndex(psiParameter);
+      return psiParameter;
     });
   }
 
   @Override
   protected PsiElement checkLocalScope() {
-    final PsiVariable variable = getLocalVariable();
-    return variable == null ? myMethod : PsiTreeUtil.getParentOfType(variable, PsiMethod.class);
+    return myMethod;
   }
 
   @Override
@@ -183,6 +160,7 @@ public class InplaceIntroduceParameterPopup extends AbstractJavaInplaceIntroduce
     myPanel.saveSettings(JavaRefactoringSettings.getInstance());
   }
 
+  @Override
   protected void performIntroduce() {
     boolean isDeleteLocalVariable = false;
 
@@ -205,28 +183,22 @@ public class InplaceIntroduceParameterPopup extends AbstractJavaInplaceIntroduce
                                       isGenerateDelegate(),
                                       getType(),
                                       parametersToRemove);
-    final Runnable runnable = new Runnable() {
-      public void run() {
-        final Runnable performRefactoring = new Runnable() {
-          public void run() {
-            processor.setPrepareSuccessfulSwingThreadCallback(new Runnable() {
-              @Override
-              public void run() {
-              }
-            });
-            processor.run();
-            normalizeParameterIdxAccordingToRemovedParams(parametersToRemove);
-            final PsiParameter parameter = getParameter();
-            if (parameter != null) {
-              InplaceIntroduceParameterPopup.super.saveSettings(parameter);
-            }
-          }
-        };
-        if (ApplicationManager.getApplication().isUnitTestMode()) {
-          performRefactoring.run();
-        } else {
-          ApplicationManager.getApplication().invokeLater(performRefactoring);
+    final Runnable runnable = () -> {
+      final Runnable performRefactoring = () -> {
+        processor.setPrepareSuccessfulSwingThreadCallback(() -> {
+        });
+        processor.run();
+        normalizeParameterIdxAccordingToRemovedParams(parametersToRemove);
+        final PsiParameter parameter = getParameter();
+        if (parameter != null) {
+          super.saveSettings(parameter);
         }
+      };
+      if (ApplicationManager.getApplication().isUnitTestMode()) {
+        performRefactoring.run();
+      }
+      else {
+        ApplicationManager.getApplication().invokeLater(performRefactoring, myProject.getDisposed());
       }
     };
     CommandProcessor.getInstance().executeCommand(myProject, runnable, getCommandName(), null);
@@ -247,10 +219,10 @@ public class InplaceIntroduceParameterPopup extends AbstractJavaInplaceIntroduce
     final PsiElement declarationScope = variable != null ? ((PsiParameter)variable).getDeclarationScope() : null;
     if (declarationScope instanceof PsiMethod) {
       final PsiMethod psiMethod = (PsiMethod)declarationScope;
-      final StringBuilder buf = new StringBuilder();
+      final @NonNls StringBuilder buf = new StringBuilder();
       buf.append(psiMethod.getName()).append(" (");
       boolean frst = true;
-      final List<TextRange> ranges2Remove = new ArrayList<TextRange>();
+      final List<TextRange> ranges2Remove = new ArrayList<>();
       TextRange addedRange = null;
       for (PsiParameter parameter : psiMethod.getParameterList().getParameters()) {
         if (frst) {
@@ -295,7 +267,7 @@ public class InplaceIntroduceParameterPopup extends AbstractJavaInplaceIntroduce
   private static TextAttributes getTestAttributesForRemoval() {
     final TextAttributes textAttributes = new TextAttributes();
     textAttributes.setEffectType(EffectType.STRIKEOUT);
-    textAttributes.setEffectColor(Color.BLACK);
+    textAttributes.setEffectColor(JBColor.BLACK);
     return textAttributes;
   }
 
@@ -305,17 +277,15 @@ public class InplaceIntroduceParameterPopup extends AbstractJavaInplaceIntroduce
   }
 
   private void normalizeParameterIdxAccordingToRemovedParams(TIntArrayList parametersToRemove) {
-    parametersToRemove.forEach(new TIntProcedure() {
-      @Override
-      public boolean execute(int value) {
-        if (myParameterIndex >= value) {
-          myParameterIndex--;
-        }
-        return true;
+    parametersToRemove.forEach(value -> {
+      if (myParameterIndex >= value) {
+        myParameterIndex--;
       }
+      return true;
     });
   }
 
+  @Override
   public void setReplaceAllOccurrences(boolean replaceAll) {
     myPanel.setReplaceAllOccurrences(replaceAll);
   }

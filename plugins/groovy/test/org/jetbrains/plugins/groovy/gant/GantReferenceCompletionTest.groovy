@@ -1,39 +1,28 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.gant
 
-import com.intellij.openapi.module.Module
-import com.intellij.openapi.roots.ContentEntry
-import com.intellij.openapi.roots.ModifiableRootModel
-import com.intellij.openapi.roots.OrderRootType
-import com.intellij.openapi.roots.libraries.Library
-import com.intellij.openapi.vfs.JarFileSystem
 import com.intellij.testFramework.LightProjectDescriptor
-import com.intellij.testFramework.fixtures.DefaultLightProjectDescriptor
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
+import groovy.transform.CompileStatic
+import org.jetbrains.plugins.groovy.LibraryLightProjectDescriptor
+import org.jetbrains.plugins.groovy.RepositoryTestLibrary
 import org.jetbrains.plugins.groovy.codeInspection.assignment.GroovyAssignabilityCheckInspection
 import org.jetbrains.plugins.groovy.codeInspection.untypedUnresolvedAccess.GroovyUntypedAccessInspection
 import org.jetbrains.plugins.groovy.util.TestUtils
+
+import static org.jetbrains.plugins.groovy.GroovyProjectDescriptors.LIB_GROOVY_1_7
+
 /**
  * @author ilyas
  */
-public class GantReferenceCompletionTest extends LightCodeInsightFixtureTestCase {
-  static def descriptor = new GantProjectDescriptor()
+@CompileStatic
+class GantReferenceCompletionTest extends LightJavaCodeInsightFixtureTestCase {
 
-  final LightProjectDescriptor projectDescriptor = descriptor
+  private static final LightProjectDescriptor GANT_PROJECT = new LibraryLightProjectDescriptor(
+    LIB_GROOVY_1_7 + new RepositoryTestLibrary('org.codehaus.gant:gant_groovy1.7:1.9.7')
+  )
+
+  final LightProjectDescriptor projectDescriptor = GANT_PROJECT
   final String basePath = TestUtils.testDataPath + "gant/completion"
 
   void complete(String text) {
@@ -46,7 +35,7 @@ public class GantReferenceCompletionTest extends LightCodeInsightFixtureTestCase
     assert myFixture.lookupElementStrings.containsAll(items as List)
   }
 
-  public void testDep() {
+  void testDep() {
     checkVariants """
 target(aaa: "") {
     dep<caret>
@@ -54,25 +43,25 @@ target(aaa: "") {
 """, "depends", "dependset"
   }
 
-  public void testAntBuilderJavac() {
+  void testAntBuilderJavac() {
     checkVariants """
 target(aaa: "") {
     ant.jav<caret>
 }""", "java", "javac", "javadoc", "javadoc2", "javaresource"
   }
 
-  public void testAntJavacTarget() {
+  void testAntJavacTarget() {
     checkVariants """
 target(aaa: "") {
     jav<caret>
 }""", "java", "javac", "javadoc", "javadoc2", "javaresource"
   }
 
-  public void testInclude() {
+  void testInclude() {
     checkVariants "inc<caret>", "include", "includeTool", "includeTargets"
   }
 
-  public void testMutual() {
+  void testMutual() {
     checkVariants """
 target(genga: "") { }
 target(aaa: "") {
@@ -80,18 +69,18 @@ target(aaa: "") {
 }""", 'genga'
   }
 
-  public void testUnknownQualifier() {
+  void testUnknownQualifier() {
     complete """
 target(aaa: "") {
     foo.jav<caret>
 }"""
   }
 
-  public void testTopLevelNoAnt() {
+  void testTopLevelNoAnt() {
     complete "jav<caret>"
   }
 
-  public void testInMethodNoAnt() {
+  void testInMethodNoAnt() {
     complete """
 target(aaa: "") {
   foo()
@@ -103,11 +92,11 @@ def foo() {
 """
   }
 
-  public void testPatternset() throws Exception {
+  void testPatternset() throws Exception {
     checkVariants "ant.patt<caret>t", "patternset"
   }
 
-  public void testTagsInsideTags() throws Exception {
+  void testTagsInsideTags() throws Exception {
     myFixture.configureByText "a.groovy", """
 AntBuilder ant
 ant.zip {
@@ -118,8 +107,8 @@ ant.zip {
     myFixture.completeBasic()
     assertSameElements myFixture.lookupElementStrings, "include", "includesfile"
   }
-  
-  public void testTagsInsideTagsInGantTarget() throws Exception {
+
+  void testTagsInsideTagsInGantTarget() throws Exception {
     checkVariants """
 target(aaa: "") {
   zip {
@@ -130,7 +119,7 @@ target(aaa: "") {
 }""", "include", "includesfile", "includeTargets", "includeTool"
   }
 
-  public void testUntypedTargets() throws Exception {
+  void testUntypedTargets() throws Exception {
     myFixture.enableInspections(new GroovyUntypedAccessInspection())
 
     myFixture.configureByText "a.gant", """
@@ -140,10 +129,9 @@ target (default : '') {
         delete(file: 'to.txt')
 }"""
     myFixture.checkHighlighting(true, false, false)
-
   }
 
-  public void testStringTargets() throws Exception {
+  void testStringTargets() throws Exception {
     myFixture.enableInspections(new GroovyAssignabilityCheckInspection())
 
     myFixture.configureByText "a.gant", """
@@ -155,21 +143,4 @@ target (default : '') {
 }"""
     myFixture.checkHighlighting(true, false, false)
   }
-
-  static final def GANT_JARS = ["gant.jar", "ant.jar", "ant-junit.jar", "ant-launcher.jar", "commons.jar"]
-
-}
-
-class GantProjectDescriptor extends DefaultLightProjectDescriptor {
-    public void configureModule(Module module, ModifiableRootModel model, ContentEntry contentEntry) {
-      final Library.ModifiableModel modifiableModel = model.getModuleLibraryTable().createLibrary("GROOVY").getModifiableModel();
-
-      def fs = JarFileSystem.instance
-      modifiableModel.addRoot(fs.findFileByPath("$TestUtils.mockGroovyLibraryHome/$TestUtils.GROOVY_JAR!/"), OrderRootType.CLASSES);
-
-      GantReferenceCompletionTest.GANT_JARS.each {
-        modifiableModel.addRoot(fs.findFileByPath("${TestUtils.absoluteTestDataPath}mockGantLib/lib/$it!/"), OrderRootType.CLASSES);
-      }
-      modifiableModel.commit();
-    }
 }

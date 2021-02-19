@@ -1,24 +1,7 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.generate.view;
 
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.UnnamedConfigurable;
 import com.intellij.openapi.project.Project;
@@ -27,8 +10,7 @@ import com.intellij.openapi.ui.Namer;
 import com.intellij.openapi.util.Cloner;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Factory;
-import com.intellij.psi.PsiType;
-import gnu.trove.Equality;
+import com.intellij.openapi.util.NlsContexts;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
@@ -38,105 +20,125 @@ import org.jetbrains.java.generate.template.toString.ToStringTemplatesManager;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Map;
+import java.util.Objects;
+import java.util.function.BiPredicate;
 
 public class TemplatesPanel extends NamedItemsListEditor<TemplateResource> {
-    private static final Namer<TemplateResource> NAMER = new Namer<TemplateResource>() {
-        public String getName(TemplateResource templateResource) {
-            return templateResource.getFileName();
-        }
+  private static final Namer<TemplateResource> NAMER = new Namer<>() {
+    @Override
+    public String getName(TemplateResource templateResource) {
+      return templateResource.getFileName();
+    }
 
-        public boolean canRename(TemplateResource item) {
-            return !item.isDefault();
-        }
+    @Override
+    public boolean canRename(TemplateResource item) {
+      return !item.isDefault();
+    }
 
-        public void setName(TemplateResource templateResource, String name) {
-            templateResource.setFileName(name);
-        }
-    };
+    @Override
+    public void setName(TemplateResource templateResource, String name) {
+      templateResource.setFileName(name);
+    }
+  };
 
-    private static final Factory<TemplateResource> FACTORY = new Factory<TemplateResource>() {
-        public TemplateResource create() {
-            return new TemplateResource();
-        }
-    };
+  private static final Factory<TemplateResource> FACTORY = () -> new TemplateResource();
 
-    private static final Cloner<TemplateResource> CLONER = new Cloner<TemplateResource>() {
-        public TemplateResource cloneOf(TemplateResource templateResource) {
-            if (templateResource.isDefault()) return templateResource;
-            return copyOf(templateResource);
-        }
+  private static final Cloner<TemplateResource> CLONER = new Cloner<>() {
+    @Override
+    public TemplateResource cloneOf(TemplateResource templateResource) {
+      if (templateResource.isDefault()) return templateResource;
+      return copyOf(templateResource);
+    }
 
-        public TemplateResource copyOf(TemplateResource templateResource) {
-            TemplateResource result = new TemplateResource();
-            result.setFileName(templateResource.getFileName());
-            result.setTemplate(templateResource.getTemplate());
-            return result;
-        }
-    };
+    @Override
+    public TemplateResource copyOf(TemplateResource templateResource) {
+      TemplateResource result = new TemplateResource();
+      result.setFileName(templateResource.getFileName());
+      result.setTemplate(templateResource.getTemplate());
+      return result;
+    }
+  };
 
-    private static final Equality<TemplateResource> COMPARER = new Equality<TemplateResource>() {
-        public boolean equals(TemplateResource o1, TemplateResource o2) {
-            return Comparing.equal(o1.getTemplate(), o2.getTemplate()) && Comparing.equal(o1.getFileName(), o2.getFileName());
-        }
-    };
+  private static final BiPredicate<TemplateResource, TemplateResource> COMPARER =
+    (o1, o2) -> Objects.equals(o1.getTemplate(), o2.getTemplate()) && Objects.equals(o1.getFileName(), o2.getFileName());
   private final Project myProject;
   private final TemplatesManager myTemplatesManager;
+  private @NlsContexts.HintText String myHint;
 
   public TemplatesPanel(Project project) {
     this(project, ToStringTemplatesManager.getInstance());
   }
 
   public TemplatesPanel(Project project, TemplatesManager templatesManager) {
-        super(NAMER, FACTORY, CLONER, COMPARER,
-                new ArrayList<TemplateResource>(templatesManager.getAllTemplates()));
+    super(NAMER, FACTORY, CLONER, COMPARER,
+          new ArrayList<>(templatesManager.getAllTemplates()));
 
-        //ServiceManager.getService(project, MasterDetailsStateService.class).register("ToStringTemplates.UI", this);
+    //ServiceManager.getService(project, MasterDetailsStateService.class).register("ToStringTemplates.UI", this);
     myProject = project;
     myTemplatesManager = templatesManager;
   }
 
-    @Nls
-    public String getDisplayName() {
-        return "Templates";
-    }
+  public void setHint(@NlsContexts.HintText String hint) {
+    myHint = hint;
+  }
 
   @Override
-    protected String subjDisplayName() {
-        return "template";
-    }
+  @Nls
+  public String getDisplayName() {
+    return JavaBundle.message("configurable.TemplatesPanel.display.name");
+  }
 
-    @Nullable
-    @NonNls
-    public String getHelpTopic() {
-        return "Templates Dialog";
-    }
+  @Override
+  protected String getCopyDialogTitle() {
+    return JavaBundle.message("dialog.title.copy.template");
+  }
 
-    @Override
-    public boolean isModified() {
-        return super.isModified() || !Comparing.equal(myTemplatesManager.getDefaultTemplate(), getSelectedItem());
-    }
+  @Override
+  protected String getCreateNewDialogTitle() {
+    return JavaBundle.message("dialog.title.create.new.template");
+  }
 
-    @Override
-    protected boolean canDelete(TemplateResource item) {
-        return !item.isDefault();
-    }
+  @Override
+  protected @NlsContexts.Label String getNewLabelText() {
+    return JavaBundle.message("label.new.template.name");
+  }
 
-    protected UnnamedConfigurable createConfigurable(TemplateResource item) {
-        return new GenerateTemplateConfigurable(item, Collections.<String, PsiType>emptyMap(), myProject, onMultipleFields());
-    }
+  @Override
+  @Nullable
+  @NonNls
+  public String getHelpTopic() {
+    return "Templates_Dialog";
+  }
 
-    protected boolean onMultipleFields() {
-      return true;
-    }
+  @Override
+  public boolean isModified() {
+    return super.isModified() || !Comparing.equal(myTemplatesManager.getDefaultTemplate(), getSelectedItem());
+  }
 
-    @Override
-    public void apply() throws ConfigurationException {
-        super.apply();
-        myTemplatesManager.setTemplates(getItems());
-        final TemplateResource selection = getSelectedItem();
-        if (selection != null) {
-            myTemplatesManager.setDefaultTemplate(selection);
-        }
+  @Override
+  protected boolean canDelete(TemplateResource item) {
+    return !item.isDefault();
+  }
+
+  @Override
+  protected UnnamedConfigurable createConfigurable(TemplateResource item) {
+    final GenerateTemplateConfigurable configurable =
+      new GenerateTemplateConfigurable(item, Collections.emptyMap(), myProject, onMultipleFields());
+    configurable.setHint(myHint);
+    return configurable;
+  }
+
+  protected boolean onMultipleFields() {
+    return true;
+  }
+
+  @Override
+  public void apply() throws ConfigurationException {
+    super.apply();
+    myTemplatesManager.setTemplates(getItems());
+    final TemplateResource selection = getSelectedItem();
+    if (selection != null) {
+      myTemplatesManager.setDefaultTemplate(selection);
     }
+  }
 }

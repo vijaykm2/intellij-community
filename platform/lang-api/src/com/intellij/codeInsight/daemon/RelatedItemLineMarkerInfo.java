@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,49 +17,55 @@ package com.intellij.codeInsight.daemon;
 
 import com.intellij.navigation.GotoRelatedItem;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
+import com.intellij.openapi.util.NotNullFactory;
 import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
 import com.intellij.util.Function;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.ui.UIUtil;
-import com.intellij.xml.util.XmlStringUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
-/**
- * @author nik
- */
 public class RelatedItemLineMarkerInfo<T extends PsiElement> extends MergeableLineMarkerInfo<T> {
-  private final NotNullLazyValue<Collection<? extends GotoRelatedItem>> myTargets;
+  private final NotNullLazyValue<? extends Collection<? extends GotoRelatedItem>> myTargets;
 
+  /**
+   * @deprecated Use {@link #RelatedItemLineMarkerInfo(PsiElement, TextRange, Icon, Function, GutterIconNavigationHandler, GutterIconRenderer.Alignment, NotNullFactory)} instead
+   */
+  @Deprecated
   public RelatedItemLineMarkerInfo(@NotNull T element, @NotNull TextRange range, Icon icon, int updatePass,
                                    @Nullable Function<? super T, String> tooltipProvider,
                                    @Nullable GutterIconNavigationHandler<T> navHandler,
-                                   GutterIconRenderer.Alignment alignment,
-                                   @NotNull NotNullLazyValue<Collection<? extends GotoRelatedItem>> targets) {
-    super(element, range, icon, updatePass, tooltipProvider, navHandler, alignment);
+                                   @NotNull GutterIconRenderer.Alignment alignment,
+                                   @NotNull NotNullLazyValue<? extends Collection<? extends GotoRelatedItem>> targets) {
+    super(element, range, icon, tooltipProvider, navHandler, alignment);
     myTargets = targets;
   }
 
+  /**
+   * @deprecated Use {@link #RelatedItemLineMarkerInfo(PsiElement, TextRange, Icon, Function, GutterIconNavigationHandler, GutterIconRenderer.Alignment, NotNullFactory)} instead
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public RelatedItemLineMarkerInfo(@NotNull T element, @NotNull TextRange range, Icon icon, int updatePass,
                                    @Nullable Function<? super T, String> tooltipProvider,
                                    @Nullable GutterIconNavigationHandler<T> navHandler,
-                                   GutterIconRenderer.Alignment alignment,
+                                   @NotNull GutterIconRenderer.Alignment alignment,
                                    @NotNull final Collection<? extends GotoRelatedItem> targets) {
-    this(element, range, icon, updatePass, tooltipProvider, navHandler, alignment, new NotNullLazyValue<Collection<? extends GotoRelatedItem>>() {
-      @NotNull
-      @Override
-      protected Collection<? extends GotoRelatedItem> compute() {
-        return targets;
-      }
-    });
+    this(element, range, icon, tooltipProvider, navHandler, alignment, ()->targets);
+  }
+
+  public RelatedItemLineMarkerInfo(@NotNull T element, @NotNull TextRange range, Icon icon,
+                                   @Nullable Function<? super T, String> tooltipProvider,
+                                   @Nullable GutterIconNavigationHandler<T> navHandler,
+                                   @NotNull GutterIconRenderer.Alignment alignment,
+                                   @NotNull NotNullFactory<? extends Collection<? extends GotoRelatedItem>> targets) {
+    super(element, range, icon, tooltipProvider, navHandler, alignment);
+    myTargets = NotNullLazyValue.createValue(targets);
   }
 
   @NotNull
@@ -70,7 +76,7 @@ public class RelatedItemLineMarkerInfo<T extends PsiElement> extends MergeableLi
   @Override
   public GutterIconRenderer createGutterRenderer() {
     if (myIcon == null) return null;
-    return new RelatedItemLineMarkerGutterIconRenderer<T>(this);
+    return new RelatedItemLineMarkerGutterIconRenderer<>(this);
   }
 
   @Override
@@ -79,40 +85,17 @@ public class RelatedItemLineMarkerInfo<T extends PsiElement> extends MergeableLi
   }
 
   @Override
-  public Icon getCommonIcon(@NotNull List<MergeableLineMarkerInfo> infos) {
+  public Icon getCommonIcon(@NotNull List<? extends MergeableLineMarkerInfo<?>> infos) {
     return myIcon;
   }
 
-  @Override
-  public Function<? super PsiElement, String> getCommonTooltip(@NotNull final List<MergeableLineMarkerInfo> infos) {
-    return new Function<PsiElement, String>() {
-      @Override
-      public String fun(PsiElement element) {
-        Set<String> tooltips = new HashSet<String>(ContainerUtil.mapNotNull(infos, new Function<MergeableLineMarkerInfo, String>() {
-          @Override
-          public String fun(MergeableLineMarkerInfo info) {
-            return info.getLineMarkerTooltip();
-          }
-        }));
-        StringBuilder tooltip = new StringBuilder();
-        for (String info : tooltips) {
-          if (tooltip.length() > 0) {
-            tooltip.append(UIUtil.BORDER_LINE);
-          }
-          tooltip.append(UIUtil.getHtmlBody(info));
-        }
-        return XmlStringUtil.wrapInHtml(tooltip);
-      }
-    };
-  }
-
   private static class RelatedItemLineMarkerGutterIconRenderer<T extends PsiElement> extends LineMarkerGutterIconRenderer<T> {
-    public RelatedItemLineMarkerGutterIconRenderer(final RelatedItemLineMarkerInfo<T> markerInfo) {
+    RelatedItemLineMarkerGutterIconRenderer(final RelatedItemLineMarkerInfo<T> markerInfo) {
       super(markerInfo);
     }
 
     @Override
-    protected boolean looksTheSameAs(@NotNull LineMarkerGutterIconRenderer renderer) {
+    protected boolean looksTheSameAs(@NotNull LineMarkerGutterIconRenderer<?> renderer) {
       if (!(renderer instanceof RelatedItemLineMarkerGutterIconRenderer) || !super.looksTheSameAs(renderer)) {
         return false;
       }

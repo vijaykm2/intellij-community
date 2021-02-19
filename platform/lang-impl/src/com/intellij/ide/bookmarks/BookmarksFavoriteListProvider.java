@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.bookmarks;
 
-import com.intellij.ide.IdeBundle;
 import com.intellij.ide.favoritesTreeView.AbstractFavoritesListProvider;
 import com.intellij.ide.favoritesTreeView.FavoritesManager;
 import com.intellij.ide.projectView.PresentationData;
@@ -23,9 +8,13 @@ import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.ColoredTreeCellRenderer;
 import com.intellij.ui.CommonActionsPanel;
-import com.intellij.ui.LayeredIcon;
+import com.intellij.ui.IconManager;
+import com.intellij.ui.icons.RowIcon;
+import com.intellij.ui.scale.JBUIScale;
+import com.intellij.util.ui.EmptyIcon;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 import javax.swing.*;
 import java.util.Collection;
@@ -33,18 +22,14 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-/**
- * User: Vassiliy.Kudryashov
- */
 public class BookmarksFavoriteListProvider extends AbstractFavoritesListProvider<Bookmark> implements BookmarksListener {
-  private final BookmarkManager myBookmarkManager;
-  private final FavoritesManager myFavoritesManager;
+  @VisibleForTesting
+  public static final Icon BOOKMARK = BookmarkType.DEFAULT.getIcon();
 
-  public BookmarksFavoriteListProvider(Project project, BookmarkManager bookmarkManager, FavoritesManager favoritesManager) {
+  public BookmarksFavoriteListProvider(Project project) {
     super(project, "Bookmarks");
-    myBookmarkManager = bookmarkManager;
-    myFavoritesManager = favoritesManager;
-    project.getMessageBus().connect(project).subscribe(BookmarksListener.TOPIC, this);
+
+    project.getMessageBus().connect().subscribe(BookmarksListener.TOPIC, this);
     updateChildren();
   }
 
@@ -64,19 +49,19 @@ public class BookmarksFavoriteListProvider extends AbstractFavoritesListProvider
   }
 
   @Override
-  public String getListName(Project project) {
-    return "Bookmarks";
+  public void bookmarksOrderChanged() {
+    updateChildren();
   }
 
   private void updateChildren() {
     if (myProject.isDisposed()) return;
     myChildren.clear();
-    List<Bookmark> bookmarks = myBookmarkManager.getValidBookmarks();
-    for (final Bookmark bookmark : bookmarks) {
-      AbstractTreeNode<Bookmark> child = new AbstractTreeNode<Bookmark>(myProject, bookmark) {
+    List<Bookmark> bookmarks = BookmarkManager.getInstance(myProject).getValidBookmarks();
+    for (Bookmark bookmark : bookmarks) {
+      AbstractTreeNode<Bookmark> child = new AbstractTreeNode<>(myProject, bookmark) {
         @NotNull
         @Override
-        public Collection<? extends AbstractTreeNode> getChildren() {
+        public Collection<? extends AbstractTreeNode<Bookmark>> getChildren() {
           return Collections.emptyList();
         }
 
@@ -96,7 +81,7 @@ public class BookmarksFavoriteListProvider extends AbstractFavoritesListProvider
         }
 
         @Override
-        protected void update(PresentationData presentation) {
+        protected void update(@NotNull PresentationData presentation) {
           presentation.setPresentableText(bookmark.toString());
           presentation.setIcon(bookmark.getIcon());
         }
@@ -104,7 +89,7 @@ public class BookmarksFavoriteListProvider extends AbstractFavoritesListProvider
       child.setParent(myNode);
       myChildren.add(child);
     }
-    myFavoritesManager.fireListeners(getListName(myProject));
+    FavoritesManager.getInstance(myProject).fireListeners(getListName(myProject));
   }
 
   @Nullable
@@ -112,9 +97,9 @@ public class BookmarksFavoriteListProvider extends AbstractFavoritesListProvider
   public String getCustomName(@NotNull CommonActionsPanel.Buttons type) {
     switch (type) {
       case EDIT:
-        return IdeBundle.message("action.bookmark.edit.description");
+        return BookmarkBundle.message("action.bookmark.edit.description");
       case REMOVE:
-        return IdeBundle.message("action.bookmark.delete");
+        return BookmarkBundle.message("action.bookmark.delete");
       default:
         return null;
     }
@@ -145,27 +130,26 @@ public class BookmarksFavoriteListProvider extends AbstractFavoritesListProvider
   public void handle(@NotNull CommonActionsPanel.Buttons type, Project project, @NotNull Set<Object> selectedObjects, JComponent component) {
     switch (type) {
       case EDIT:
-
         if (selectedObjects.size() != 1) {
-          return;
+          break;
         }
         Object toEdit = selectedObjects.iterator().next();
         if (toEdit instanceof AbstractTreeNode && ((AbstractTreeNode)toEdit).getValue() instanceof Bookmark) {
           Bookmark bookmark = (Bookmark)((AbstractTreeNode)toEdit).getValue();
           if (bookmark == null) {
-            return;
+            break;
           }
-          BookmarkManager.getInstance(project).editDescription(bookmark);
+          BookmarkManager.getInstance(project).editDescription(bookmark, component);
         }
-        return;
+        break;
       case REMOVE:
         for (Object toRemove : selectedObjects) {
-          Bookmark bookmark = (Bookmark)((AbstractTreeNode)toRemove).getValue();
+          @SuppressWarnings("unchecked")
+          Bookmark bookmark = ((AbstractTreeNode<Bookmark>)toRemove).getValue();
           BookmarkManager.getInstance(project).removeBookmark(bookmark);
         }
-        return;
-      default: {
-      }
+        break;
+      default:
     }
   }
 
@@ -184,18 +168,23 @@ public class BookmarksFavoriteListProvider extends AbstractFavoritesListProvider
                                 int row,
                                 boolean hasFocus) {
     renderer.clear();
-    renderer.setIcon(Bookmark.DEFAULT_ICON);
+    renderer.setIcon(BOOKMARK);
     if (value instanceof Bookmark) {
       Bookmark bookmark = (Bookmark)value;
       BookmarkItem.setupRenderer(renderer, myProject, bookmark, selected);
       if (renderer.getIcon() != null) {
-        renderer.setIcon(LayeredIcon.createHorizontalIcon(bookmark.getIcon(), renderer.getIcon()));
+        RowIcon icon = IconManager.getInstance().createRowIcon(3, RowIcon.Alignment.CENTER);
+        icon.setIcon(bookmark.getIcon(), 0);
+        icon.setIcon(JBUIScale.scaleIcon(EmptyIcon.create(1)), 1);
+        icon.setIcon(renderer.getIcon(), 2);
+        renderer.setIcon(icon);
       }
       else {
         renderer.setIcon(bookmark.getIcon());
       }
     }
     else {
+      //noinspection HardCodedStringLiteral
       renderer.append(getListName(myProject));
     }
   }

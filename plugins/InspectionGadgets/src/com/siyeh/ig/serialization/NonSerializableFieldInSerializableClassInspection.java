@@ -1,5 +1,5 @@
 /*
- * Copyright 2006-2012 Dave Griffith, Bas Leijdekkers
+ * Copyright 2006-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,20 +15,95 @@
  */
 package com.siyeh.ig.serialization;
 
+import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInspection.util.SpecialAnnotationsUtil;
+import com.intellij.psi.*;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
+import com.siyeh.ig.BaseInspectionVisitor;
+import com.siyeh.ig.InspectionGadgetsFix;
+import com.siyeh.ig.fixes.AddToIgnoreIfAnnotatedByListQuickFix;
+import com.siyeh.ig.psiutils.SerializationUtils;
+import com.siyeh.ig.ui.ExternalizableStringSet;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
-public class NonSerializableFieldInSerializableClassInspection extends NonSerializableFieldInSerializableClassInspectionBase {
+public class NonSerializableFieldInSerializableClassInspection extends SerializableInspectionBase {
+  @SuppressWarnings({"PublicField"})
+  public final ExternalizableStringSet ignorableAnnotations = new ExternalizableStringSet();
+
   @Override
-  public JComponent createOptionsPanel() {
-    return SerializableInspectionUtil.createOptions(this);
+  protected JComponent @NotNull [] createAdditionalOptions() {
+    return new JComponent[]{SpecialAnnotationsUtil.createSpecialAnnotationsListControl(
+      ignorableAnnotations, InspectionGadgetsBundle.message("ignore.if.annotated.by"))};
   }
 
   @Override
-  protected JComponent[] createAdditionalOptions() {
-    return new JComponent[]{SpecialAnnotationsUtil.createSpecialAnnotationsListControl(
-      ignorableAnnotations, InspectionGadgetsBundle.message("ignore.if.annotated.by"))};
+  @NotNull
+  public String buildErrorString(Object... infos) {
+    return InspectionGadgetsBundle.message(
+      "non.serializable.field.in.serializable.class.problem.descriptor");
+  }
+
+  @Override
+  protected InspectionGadgetsFix @NotNull [] buildFixes(Object... infos) {
+    final PsiModifierListOwner field = (PsiModifierListOwner)infos[0];
+    return AddToIgnoreIfAnnotatedByListQuickFix.build(field, ignorableAnnotations);
+  }
+
+  @Override
+  public BaseInspectionVisitor buildVisitor() {
+    return new NonSerializableFieldInSerializableClassVisitor();
+  }
+
+  private class NonSerializableFieldInSerializableClassVisitor extends BaseInspectionVisitor {
+
+    @Override
+    public void visitField(@NotNull PsiField field) {
+      PsiClass containingClass = field.getContainingClass();
+      if (containingClass == null) {
+        return;
+      }
+      if (ignoreAnonymousInnerClasses && containingClass instanceof PsiAnonymousClass) {
+        return;
+      }
+      if (isIgnoredSubclass(containingClass)) {
+        return;
+      }
+      visitVariable(field, containingClass);
+    }
+
+    @Override
+    public void visitRecordComponent(PsiRecordComponent recordComponent) {
+      visitVariable(recordComponent, recordComponent.getContainingClass());
+    }
+
+    private void visitVariable(@NotNull PsiVariable psiVariable, @Nullable PsiClass containingClass) {
+      if (psiVariable.hasModifierProperty(PsiModifier.TRANSIENT) || psiVariable.hasModifierProperty(PsiModifier.STATIC)) {
+        return;
+      }
+      if (!SerializationUtils.isSerializable(containingClass)) {
+        return;
+      }
+      PsiType variableType = psiVariable.getType();
+      if (SerializationUtils.isProbablySerializable(variableType)) {
+        return;
+      }
+      PsiClass variableClass = PsiUtil.resolveClassInClassTypeOnly(variableType);
+      if (variableClass != null && isIgnoredSubclass(variableClass)) {
+        return;
+      }
+      if (SerializationUtils.hasWriteObject(containingClass) || SerializationUtils.hasWriteReplace(containingClass)) {
+        return;
+      }
+      if (AnnotationUtil.isAnnotated(psiVariable, ignorableAnnotations, 0)) {
+        return;
+      }
+      PsiIdentifier nameIdentifier = psiVariable.getNameIdentifier();
+      assert nameIdentifier != null;
+      registerError(nameIdentifier, psiVariable);
+    }
   }
 }

@@ -15,30 +15,29 @@
  */
 package com.intellij.refactoring.util.duplicates;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.util.IncorrectOperationException;
 
 import java.util.List;
 
-/**
-* User: anna
-* Date: 1/16/12
-*/
 class ConstantMatchProvider implements MatchProvider {
   private final PsiField myField;
   private final Project myProject;
   private final List<Match> myMatches;
-  private static final Logger LOG = Logger.getInstance("#" + ConstantMatchProvider.class.getName());
+  private static final Logger LOG = Logger.getInstance(ConstantMatchProvider.class);
 
-  public ConstantMatchProvider(PsiMember member, Project project, List<Match> matches) {
+  ConstantMatchProvider(PsiMember member, Project project, List<Match> matches) {
     myField = (PsiField)member;
     myProject = project;
     myMatches = matches;
   }
+
+  @Override
+  public void prepareSignature(Match match) {}
 
   @Override
   public PsiElement processMatch(Match match) throws IncorrectOperationException {
@@ -69,6 +68,6 @@ class ConstantMatchProvider implements MatchProvider {
 
   @Override
   public String getReplaceDuplicatesTitle(int idx, int size) {
-    return RefactoringBundle.message("process.duplicates.title", idx, size);
+    return JavaRefactoringBundle.message("process.duplicates.title", idx, size);
   }
 }

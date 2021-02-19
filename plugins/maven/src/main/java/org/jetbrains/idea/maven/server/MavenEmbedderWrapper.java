@@ -1,25 +1,15 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.server;
 
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.model.*;
 import org.jetbrains.idea.maven.project.MavenConsole;
+import org.jetbrains.idea.maven.server.RemotePathTransformerFactory.Transformer;
 import org.jetbrains.idea.maven.utils.MavenLog;
 import org.jetbrains.idea.maven.utils.MavenProcessCanceledException;
 import org.jetbrains.idea.maven.utils.MavenProgressIndicator;
@@ -28,16 +18,15 @@ import java.io.File;
 import java.rmi.NoSuchObjectException;
 import java.rmi.RemoteException;
 import java.rmi.server.UnicastRemoteObject;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
-public abstract class MavenEmbedderWrapper extends RemoteObjectWrapper<MavenServerEmbedder> {
+public abstract class MavenEmbedderWrapper extends MavenRemoteObjectWrapper<MavenServerEmbedder> {
   private Customization myCustomization;
+  private Project myProject;
 
-  public MavenEmbedderWrapper(@Nullable RemoteObjectWrapper<?> parent) {
+  public MavenEmbedderWrapper(@NotNull Project project, @Nullable RemoteObjectWrapper<?> parent) {
     super(parent);
+    myProject = project;
   }
 
   @Override
@@ -49,38 +38,45 @@ public abstract class MavenEmbedderWrapper extends RemoteObjectWrapper<MavenServ
   }
 
   public void customizeForResolve(MavenConsole console, MavenProgressIndicator indicator) {
-    setCustomization(console, indicator, null, false, false);
-    perform(new Retriable<Object>() {
-      @Override
-      public Object execute() throws RemoteException {
-        doCustomize();
-        return null;
-      }
+    setCustomization(console, indicator, null, false, false, null);
+    perform(() -> {
+      doCustomize();
+      return null;
     });
   }
 
   public void customizeForResolve(MavenWorkspaceMap workspaceMap, MavenConsole console, MavenProgressIndicator indicator, boolean alwaysUpdateSnapshot) {
-    setCustomization(console, indicator, workspaceMap, false, alwaysUpdateSnapshot);
-    perform(new Retriable<Object>() {
-      @Override
-      public Object execute() throws RemoteException {
-        doCustomize();
-        return null;
-      }
+    customizeForResolve(workspaceMap, console, indicator, alwaysUpdateSnapshot, null);
+  }
+
+  public void customizeForResolve(MavenWorkspaceMap workspaceMap, MavenConsole console, MavenProgressIndicator indicator,
+                                  boolean alwaysUpdateSnapshot, @Nullable Properties userProperties) {
+    setCustomization(console, indicator, workspaceMap, false, alwaysUpdateSnapshot, userProperties);
+    perform(() -> {
+      doCustomize();
+      return null;
     });
   }
 
   public void customizeForStrictResolve(MavenWorkspaceMap workspaceMap,
                                         MavenConsole console,
                                         MavenProgressIndicator indicator) {
-    setCustomization(console, indicator, workspaceMap, true, false);
-    perform(new Retriable<Object>() {
-      @Override
-      public Object execute() throws RemoteException {
-        doCustomize();
-        return null;
-      }
+    setCustomization(console, indicator, workspaceMap, true, false, null);
+    perform(() -> {
+      doCustomize();
+      return null;
     });
+  }
+
+  public void customizeForGetVersions() {
+    perform(() -> {
+      doCustomizeComponents();
+      return null;
+    });
+  }
+
+  private synchronized void doCustomizeComponents() throws RemoteException {
+    getOrCreateWrappee().customizeComponents(ourToken);
   }
 
   private synchronized void doCustomize() throws RemoteException {
@@ -88,19 +84,38 @@ public abstract class MavenEmbedderWrapper extends RemoteObjectWrapper<MavenServ
                                    myCustomization.failOnUnresolvedDependency,
                                    myCustomization.console,
                                    myCustomization.indicator,
-                                   myCustomization.alwaysUpdateSnapshot);
+                                   myCustomization.alwaysUpdateSnapshot || ApplicationManager.getApplication().isUnitTestMode(),
+                                   myCustomization.userProperties,
+                                   ourToken);
+  }
+
+  public MavenServerExecutionResult resolveProject(@NotNull final VirtualFile file,
+                                                               @NotNull final Collection<String> activeProfiles,
+                                                               @NotNull final Collection<String> inactiveProfiles)
+    throws MavenProcessCanceledException {
+    return resolveProject(Collections.singleton(file), activeProfiles, inactiveProfiles).iterator().next();
   }
 
   @NotNull
-  public MavenServerExecutionResult resolveProject(@NotNull final VirtualFile file,
+  public Collection<MavenServerExecutionResult> resolveProject(@NotNull final Collection<VirtualFile> files,
                                                    @NotNull final Collection<String> activeProfiles,
                                                    @NotNull final Collection<String> inactiveProfiles)
     throws MavenProcessCanceledException {
-    return perform(new RetriableCancelable<MavenServerExecutionResult>() {
-      @Override
-      public MavenServerExecutionResult execute() throws RemoteException, MavenServerProcessCanceledException {
-        return getOrCreateWrappee().resolveProject(new File(file.getPath()), activeProfiles, inactiveProfiles);
+    return performCancelable(() -> {
+      Transformer transformer = files.isEmpty() ?
+                                Transformer.ID :
+                                RemotePathTransformerFactory.createForProject(myProject);
+      final List<File> ioFiles = ContainerUtil.map(files, file -> new File(transformer.toRemotePath(file.getPath())));
+      Collection<MavenServerExecutionResult> results =
+        getOrCreateWrappee().resolveProject(ioFiles, activeProfiles, inactiveProfiles, ourToken);
+      if (transformer != Transformer.ID) {
+        for (MavenServerExecutionResult result : results) {
+          MavenServerExecutionResult.ProjectData data = result.projectData;
+          if (data == null) continue;
+          new MavenBuildPathsChange((String s) -> transformer.toIdePath(s)).perform(data.mavenModel);
+        }
       }
+      return results;
     });
   }
 
@@ -108,24 +123,21 @@ public abstract class MavenEmbedderWrapper extends RemoteObjectWrapper<MavenServ
   public String evaluateEffectivePom(@NotNull final VirtualFile file,
                                      @NotNull final Collection<String> activeProfiles,
                                      @NotNull final Collection<String> inactiveProfiles) throws MavenProcessCanceledException {
-    return perform(new RetriableCancelable<String>() {
-      @Override
-      public String execute() throws RemoteException, MavenServerProcessCanceledException {
-        return getOrCreateWrappee()
-          .evaluateEffectivePom(new File(file.getPath()), new ArrayList<String>(activeProfiles), new ArrayList<String>(inactiveProfiles));
-      }
-    });
+    return evaluateEffectivePom(new File(file.getPath()), activeProfiles, inactiveProfiles);
+  }
+
+  @Nullable
+  public String evaluateEffectivePom(@NotNull final File file,
+                                     @NotNull final Collection<String> activeProfiles,
+                                     @NotNull final Collection<String> inactiveProfiles) throws MavenProcessCanceledException {
+    return performCancelable(() -> getOrCreateWrappee()
+      .evaluateEffectivePom(file, new ArrayList<>(activeProfiles), new ArrayList<>(inactiveProfiles), ourToken));
   }
 
   @NotNull
   public MavenArtifact resolve(@NotNull final MavenArtifactInfo info,
                                @NotNull final List<MavenRemoteRepository> remoteRepositories) throws MavenProcessCanceledException {
-    return perform(new RetriableCancelable<MavenArtifact>() {
-      @Override
-      public MavenArtifact execute() throws RemoteException, MavenServerProcessCanceledException {
-        return getOrCreateWrappee().resolve(info, remoteRepositories);
-      }
-    });
+    return performCancelable(() -> getOrCreateWrappee().resolve(info, remoteRepositories, ourToken));
   }
 
   @NotNull
@@ -133,12 +145,15 @@ public abstract class MavenEmbedderWrapper extends RemoteObjectWrapper<MavenServ
     @NotNull final List<MavenArtifactInfo> artifacts,
     @NotNull final List<MavenRemoteRepository> remoteRepositories) throws MavenProcessCanceledException {
 
-    return perform(new RetriableCancelable<List<MavenArtifact>>() {
-      @Override
-      public List<MavenArtifact> execute() throws RemoteException, MavenServerProcessCanceledException {
-        return getOrCreateWrappee().resolveTransitively(artifacts, remoteRepositories);
-      }
-    });
+    return performCancelable(() -> getOrCreateWrappee().resolveTransitively(artifacts, remoteRepositories, ourToken));
+  }
+
+  @NotNull
+  public List<String> retrieveVersions(@NotNull final String groupId,
+                                       @NotNull final String artifactId,
+                                       @NotNull final List<MavenRemoteRepository> remoteRepositories) throws MavenProcessCanceledException {
+
+    return performCancelable(() -> getOrCreateWrappee().retrieveAvailableVersions(groupId, artifactId, remoteRepositories, ourToken));
   }
 
   public Collection<MavenArtifact> resolvePlugin(@NotNull final MavenPlugin plugin,
@@ -155,7 +170,7 @@ public abstract class MavenEmbedderWrapper extends RemoteObjectWrapper<MavenServ
     }
 
     try {
-      return getOrCreateWrappee().resolvePlugin(plugin, repositories, id, transitive);
+      return getOrCreateWrappee().resolvePlugin(plugin, repositories, id, transitive, ourToken);
     }
     catch (RemoteException e) {
       // do not try to reconnect here since we have lost NativeMavenProjectHolder anyway.
@@ -167,18 +182,17 @@ public abstract class MavenEmbedderWrapper extends RemoteObjectWrapper<MavenServ
     }
   }
 
+  public MavenModel readModel(final File file) throws MavenProcessCanceledException {
+    return performCancelable(() -> getOrCreateWrappee().readModel(file, ourToken));
+  }
+
   @NotNull
   public MavenServerExecutionResult execute(@NotNull final VirtualFile file,
                                             @NotNull final Collection<String> activeProfiles,
                                             @NotNull final Collection<String> inactiveProfiles,
                                             @NotNull final List<String> goals) throws MavenProcessCanceledException {
-    return perform(new RetriableCancelable<MavenServerExecutionResult>() {
-      @Override
-      public MavenServerExecutionResult execute() throws RemoteException, MavenServerProcessCanceledException {
-        return getOrCreateWrappee()
-          .execute(new File(file.getPath()), activeProfiles, inactiveProfiles, goals, Collections.<String>emptyList(), false, false);
-      }
-    });
+    return performCancelable(() -> getOrCreateWrappee()
+      .execute(new File(file.getPath()), activeProfiles, inactiveProfiles, goals, Collections.emptyList(), false, false, ourToken));
   }
 
   @NotNull
@@ -189,20 +203,15 @@ public abstract class MavenEmbedderWrapper extends RemoteObjectWrapper<MavenServ
                                             @NotNull final List<String> selectedProjects,
                                             final boolean alsoMake,
                                             final boolean alsoMakeDependents) throws MavenProcessCanceledException {
-    return perform(new RetriableCancelable<MavenServerExecutionResult>() {
-      @Override
-      public MavenServerExecutionResult execute() throws RemoteException, MavenServerProcessCanceledException {
-        return getOrCreateWrappee()
-          .execute(new File(file.getPath()), activeProfiles, inactiveProfiles, goals, selectedProjects, alsoMake, alsoMakeDependents);
-      }
-    });
+    return performCancelable(() -> getOrCreateWrappee()
+      .execute(new File(file.getPath()), activeProfiles, inactiveProfiles, goals, selectedProjects, alsoMake, alsoMakeDependents, ourToken));
   }
 
   public void reset() {
     MavenServerEmbedder w = getWrappee();
     if (w == null) return;
     try {
-      w.reset();
+      w.reset(ourToken);
     }
     catch (RemoteException e) {
       handleRemoteError(e);
@@ -214,7 +223,7 @@ public abstract class MavenEmbedderWrapper extends RemoteObjectWrapper<MavenServ
     MavenServerEmbedder w = getWrappee();
     if (w == null) return;
     try {
-      w.release();
+      w.release(ourToken);
     }
     catch (RemoteException e) {
       handleRemoteError(e);
@@ -227,7 +236,7 @@ public abstract class MavenEmbedderWrapper extends RemoteObjectWrapper<MavenServ
     MavenServerEmbedder w = getWrappee();
     if (w == null) return;
     try {
-      w.clearCaches();
+      w.clearCaches(ourToken);
     }
     catch (RemoteException e) {
       handleRemoteError(e);
@@ -238,7 +247,7 @@ public abstract class MavenEmbedderWrapper extends RemoteObjectWrapper<MavenServ
     MavenServerEmbedder w = getWrappee();
     if (w == null) return;
     try {
-      w.clearCachesFor(projectId);
+      w.clearCachesFor(projectId, ourToken);
     }
     catch (RemoteException e) {
       handleRemoteError(e);
@@ -249,13 +258,15 @@ public abstract class MavenEmbedderWrapper extends RemoteObjectWrapper<MavenServ
                                              MavenProgressIndicator indicator,
                                              MavenWorkspaceMap workspaceMap,
                                              boolean failOnUnresolvedDependency,
-                                             boolean alwaysUpdateSnapshot) {
+                                             boolean alwaysUpdateSnapshot,
+                                             @Nullable Properties userProperties) {
     resetCustomization();
-    myCustomization = new Customization(MavenServerManager.wrapAndExport(console),
-                                        MavenServerManager.wrapAndExport(indicator),
+    myCustomization = new Customization(wrapAndExport(console),
+                                        wrapAndExport(indicator),
                                         workspaceMap,
                                         failOnUnresolvedDependency,
-                                        alwaysUpdateSnapshot);
+                                        alwaysUpdateSnapshot,
+                                        userProperties);
   }
 
   private synchronized void resetCustomization() {
@@ -277,24 +288,49 @@ public abstract class MavenEmbedderWrapper extends RemoteObjectWrapper<MavenServ
     myCustomization = null;
   }
 
-  private static class Customization {
+  private static final class Customization {
     private final MavenServerConsole console;
     private final MavenServerProgressIndicator indicator;
 
     private final MavenWorkspaceMap workspaceMap;
     private final boolean failOnUnresolvedDependency;
     private final boolean alwaysUpdateSnapshot;
+    private final Properties userProperties;
 
     private Customization(MavenServerConsole console,
                           MavenServerProgressIndicator indicator,
                           MavenWorkspaceMap workspaceMap,
                           boolean failOnUnresolvedDependency,
-                          boolean alwaysUpdateSnapshot) {
+                          boolean alwaysUpdateSnapshot,
+                          @Nullable Properties userProperties) {
       this.console = console;
       this.indicator = indicator;
       this.workspaceMap = workspaceMap;
       this.failOnUnresolvedDependency = failOnUnresolvedDependency;
       this.alwaysUpdateSnapshot = alwaysUpdateSnapshot;
+      this.userProperties = userProperties;
     }
   }
+
+
+
+
+
+  protected MavenServerConsole wrapAndExport(final MavenConsole console) {
+    return doWrapAndExport(new RemoteMavenServerConsole(console));
+  }
+
+  private static class RemoteMavenServerConsole extends MavenRemoteObject implements MavenServerConsole {
+    private final MavenConsole myConsole;
+
+    RemoteMavenServerConsole(MavenConsole console) {
+      myConsole = console;
+    }
+
+    @Override
+    public void printMessage(int level, String message, Throwable throwable) {
+      myConsole.printMessage(level, message, throwable);
+    }
+  }
+
 }

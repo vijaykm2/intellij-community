@@ -16,17 +16,18 @@
 package com.jetbrains.python.newProject;
 
 import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.platform.DirectoryProjectGenerator;
+import com.intellij.openapi.util.NlsSafe;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author yole
  */
-public interface PyFrameworkProjectGenerator<T> extends DirectoryProjectGenerator<T> {
-  String getFrameworkTitle();
+public interface PyFrameworkProjectGenerator {
 
-  boolean isFrameworkInstalled(Sdk sdk);
+  @NotNull
+  @NlsSafe String getFrameworkTitle();
 
-  boolean acceptsRemoteSdk();
+  boolean isFrameworkInstalled(@NotNull Sdk sdk);
 
   boolean supportsPython3();
 }

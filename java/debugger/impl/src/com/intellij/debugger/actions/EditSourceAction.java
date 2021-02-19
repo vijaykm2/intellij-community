@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,48 +17,59 @@ package com.intellij.debugger.actions;
 
 import com.intellij.debugger.DebuggerInvocationUtil;
 import com.intellij.debugger.SourcePosition;
+import com.intellij.debugger.engine.DebugProcessImpl;
+import com.intellij.debugger.engine.SourcePositionProvider;
+import com.intellij.debugger.engine.SuspendContextImpl;
 import com.intellij.debugger.engine.evaluation.expression.Modifier;
 import com.intellij.debugger.engine.events.DebuggerContextCommandImpl;
 import com.intellij.debugger.impl.DebuggerContextImpl;
 import com.intellij.debugger.impl.DebuggerSession;
-import com.intellij.debugger.engine.SourcePositionProvider;
-import com.intellij.debugger.ui.impl.watch.*;
-import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.debugger.ui.impl.watch.DebuggerTreeNodeImpl;
+import com.intellij.debugger.ui.impl.watch.NodeDescriptorImpl;
+import com.intellij.debugger.ui.impl.watch.WatchItemDescriptor;
+import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.IdeActions;
+import com.intellij.openapi.actionSystem.Presentation;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
+import org.jetbrains.annotations.NotNull;
 
 public class EditSourceAction extends DebuggerAction{
-  public void actionPerformed(AnActionEvent e) {
-    final Project project = CommonDataKeys.PROJECT.getData(e.getDataContext());
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    final Project project = e.getProject();
 
     if(project == null) {
       return;
     }
 
-    final DebuggerContextImpl debuggerContext = getDebuggerContext(e.getDataContext());
     final DebuggerTreeNodeImpl selectedNode = getSelectedNode(e.getDataContext());
-    if(debuggerContext != null && selectedNode != null) {
-      debuggerContext.getDebugProcess().getManagerThread().schedule(new DebuggerContextCommandImpl(debuggerContext) {
-        public void threadAction() {
-          final SourcePosition sourcePosition = getSourcePosition(selectedNode, debuggerContext);
-          if (sourcePosition != null) {
-            sourcePosition.navigate(true);
+    if (selectedNode != null) {
+      final DebuggerContextImpl debuggerContext = getDebuggerContext(e.getDataContext());
+      DebugProcessImpl process = debuggerContext.getDebugProcess();
+      if (process != null) {
+        process.getManagerThread().schedule(new DebuggerContextCommandImpl(debuggerContext) {
+          @Override
+          public void threadAction(@NotNull SuspendContextImpl suspendContext) {
+            final SourcePosition sourcePosition = getSourcePosition(selectedNode, debuggerContext);
+            if (sourcePosition != null) {
+              sourcePosition.navigate(true);
+            }
           }
-        }
-      });
+        });
+      }
     }
   }
 
-  private SourcePosition getSourcePosition(DebuggerTreeNodeImpl selectedNode, DebuggerContextImpl debuggerContext) {
-    DebuggerTreeNodeImpl node = selectedNode;
+  private static SourcePosition getSourcePosition(DebuggerTreeNodeImpl selectedNode, DebuggerContextImpl debuggerContext) {
     final DebuggerContextImpl context = debuggerContext;
 
-    if(node == null || context == null) {
+    if (selectedNode == null || context == null) {
       return null;
     }
 
-    final Project project = context.getProject();
+    final Project project = selectedNode.getProject();
 
     final DebuggerSession debuggerSession = context.getDebuggerSession();
 
@@ -66,7 +77,7 @@ public class EditSourceAction extends DebuggerAction{
       return null;
     }
 
-    NodeDescriptorImpl nodeDescriptor = node.getDescriptor();
+    NodeDescriptorImpl nodeDescriptor = selectedNode.getDescriptor();
     if(nodeDescriptor instanceof WatchItemDescriptor) {
       Modifier modifier = ((WatchItemDescriptor)nodeDescriptor).getModifier();
       if(modifier == null) {
@@ -76,31 +87,25 @@ public class EditSourceAction extends DebuggerAction{
     }
 
     final NodeDescriptorImpl nodeDescriptor1 = nodeDescriptor;
-    return ApplicationManager.getApplication().runReadAction(new Computable<SourcePosition>() {
-      public SourcePosition compute() {
-        return SourcePositionProvider.getSourcePosition(nodeDescriptor1, project, context);
-      }
-    });
+    return ReadAction.compute(() -> SourcePositionProvider.getSourcePosition(nodeDescriptor1, project, context));
   }
 
-  public void update(AnActionEvent e) {
-    final Project project = CommonDataKeys.PROJECT.getData(e.getDataContext());
+  @Override
+  public void update(@NotNull AnActionEvent e) {
+    final Project project = e.getProject();
 
     final DebuggerContextImpl debuggerContext = getDebuggerContext(e.getDataContext());
     final DebuggerTreeNodeImpl node = getSelectedNode(e.getDataContext());
 
     final Presentation presentation = e.getPresentation();
-    if(debuggerContext != null && debuggerContext.getDebugProcess() != null) {
+    if (debuggerContext.getDebugProcess() != null) {
       presentation.setEnabled(true);
       debuggerContext.getDebugProcess().getManagerThread().schedule(new DebuggerContextCommandImpl(debuggerContext) {
-        public void threadAction() {
+        @Override
+        public void threadAction(@NotNull SuspendContextImpl suspendContext) {
           final SourcePosition position = getSourcePosition(node, debuggerContext);
           if (position == null) {
-            DebuggerInvocationUtil.swingInvokeLater(project, new Runnable() {
-              public void run() {
-                presentation.setEnabled(false);
-              }
-            });
+            DebuggerInvocationUtil.swingInvokeLater(project, () -> presentation.setEnabled(false));
           }
         }
       });

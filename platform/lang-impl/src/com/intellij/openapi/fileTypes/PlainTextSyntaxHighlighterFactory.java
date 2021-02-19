@@ -47,16 +47,16 @@ public class PlainTextSyntaxHighlighterFactory extends SyntaxHighlighterFactory 
         return createPlainTextLexer();
       }
 
-      @NotNull
       @Override
-      public TextAttributesKey[] getTokenHighlights(IElementType tokenType) {
-        return EMPTY;
+      public TextAttributesKey @NotNull [] getTokenHighlights(IElementType tokenType) {
+        return TextAttributesKey.EMPTY_ARRAY;
       }
     };
   }
 
+  @NotNull
   public static Lexer createPlainTextLexer() {
-    ArrayList<TokenParser> tokenParsers = new ArrayList<TokenParser>();
+    ArrayList<TokenParser> tokenParsers = new ArrayList<>();
     tokenParsers.add(new WhitespaceParser());
 
     tokenParsers.addAll(BraceTokenParser.getBraces());

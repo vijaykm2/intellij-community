@@ -17,9 +17,9 @@
 package com.intellij.history.core.changes;
 
 import com.intellij.history.core.Content;
-import com.intellij.history.core.StreamUtil;
+import com.intellij.history.core.DataStreamUtil;
 import com.intellij.history.utils.LocalHistoryLog;
-import com.intellij.util.Producer;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.DataInputOutputUtil;
@@ -32,10 +32,11 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 
 public class ChangeSet {
   private final long myId;
-  @Nullable private String myName;
+  @Nullable private @NlsContexts.Label String myName;
   private final long myTimestamp;
   private final List<Change> myChanges;
 
@@ -44,18 +45,18 @@ public class ChangeSet {
   public ChangeSet(long id, long timestamp) {
     myId = id;
     myTimestamp = timestamp;
-    myChanges = new ArrayList<Change>();
+    myChanges = new ArrayList<>();
   }
 
   public ChangeSet(DataInput in) throws IOException {
     myId = DataInputOutputUtil.readLONG(in);
-    myName = StreamUtil.readStringOrNull(in);
+    myName = DataStreamUtil.readStringOrNull(in); //NON-NLS
     myTimestamp = DataInputOutputUtil.readTIME(in);
 
     int count = DataInputOutputUtil.readINT(in);
-    List<Change> changes = new ArrayList<Change>(count);
+    List<Change> changes = new ArrayList<>(count);
     while (count-- > 0) {
-      changes.add(StreamUtil.readChange(in));
+      changes.add(DataStreamUtil.readChange(in));
     }
     myChanges = Collections.unmodifiableList(changes);
     isLocked = true;
@@ -64,19 +65,20 @@ public class ChangeSet {
   public void write(DataOutput out) throws IOException {
     LocalHistoryLog.LOG.assertTrue(isLocked, "Changeset should be locked");
     DataInputOutputUtil.writeLONG(out, myId);
-    StreamUtil.writeStringOrNull(out, myName);
+    DataStreamUtil.writeStringOrNull(out, myName);
     DataInputOutputUtil.writeTIME(out, myTimestamp);
 
     DataInputOutputUtil.writeINT(out, myChanges.size());
     for (Change c : myChanges) {
-      StreamUtil.writeChange(out, c);
+      DataStreamUtil.writeChange(out, c);
     }
   }
 
-  public void setName(@Nullable String name) {
+  public void setName(@Nullable @NlsContexts.Label String name) {
     myName = name;
   }
 
+  @NlsContexts.Label
   @Nullable
   public String getName() {
     return myName;
@@ -90,159 +92,105 @@ public class ChangeSet {
     isLocked = true;
   }
 
+  @NlsContexts.Label
   @Nullable
   public String getLabel() {
-    return accessChanges(new Producer<String>() {
-      @Override
-      public String produce() {
-        for (Change each : myChanges) {
-          if (each instanceof PutLabelChange) {
-            return ((PutLabelChange)each).getName();
-          }
+    //noinspection RedundantTypeArguments
+    return this.<@NlsContexts.Label @Nullable String>accessChanges(() -> {
+      for (Change each : myChanges) {
+        if (each instanceof PutLabelChange) {
+          return ((PutLabelChange)each).getName();
         }
-        return null;
       }
+      return null;
     });
   }
 
   public int getLabelColor() {
-    return accessChanges(new Producer<Integer>() {
-      @Override
-      public Integer produce() {
-        for (Change each : myChanges) {
-          if (each instanceof PutSystemLabelChange) {
-            return ((PutSystemLabelChange)each).getColor();
-          }
+    return accessChanges(() -> {
+      for (Change each : myChanges) {
+        if (each instanceof PutSystemLabelChange) {
+          return ((PutSystemLabelChange)each).getColor();
         }
-        return -1;
       }
+      return -1;
     });
   }
 
   public void addChange(final Change c) {
     LocalHistoryLog.LOG.assertTrue(!isLocked, "Changeset is already locked");
-    accessChanges(new Runnable() {
-      @Override
-      public void run() {
-        myChanges.add(c);
-      }
-    });
+    accessChanges((Runnable)() -> myChanges.add(c));
   }
 
   public List<Change> getChanges() {
-    return accessChanges(new Producer<List<Change>>() {
-      @Override
-      public List<Change> produce() {
-        if (isLocked) return myChanges;
-        return Collections.unmodifiableList(new ArrayList<Change>(myChanges));
-      }
+    return accessChanges(() -> {
+      if (isLocked) return myChanges;
+      return Collections.unmodifiableList(new ArrayList<>(myChanges));
     });
   }
 
   public boolean isEmpty() {
-    return accessChanges(new Producer<Boolean>() {
-      @Override
-      public Boolean produce() {
-        return myChanges.isEmpty();
-      }
-    });
+    return accessChanges(() -> myChanges.isEmpty());
   }
 
   public boolean affectsPath(final String paths) {
-    return accessChanges(new Producer<Boolean>() {
-      @Override
-      public Boolean produce() {
-        for (Change c : myChanges) {
-          if (c.affectsPath(paths)) return true;
-        }
-        return false;
+    return accessChanges(() -> {
+      for (Change c : myChanges) {
+        if (c.affectsPath(paths)) return true;
       }
+      return false;
     });
   }
 
   public boolean isCreationalFor(final String path) {
-    return accessChanges(new Producer<Boolean>() {
-      @Override
-      public Boolean produce() {
-        for (Change c : myChanges) {
-          if (c.isCreationalFor(path)) return true;
-        }
-        return false;
+    return accessChanges(() -> {
+      for (Change c : myChanges) {
+        if (c.isCreationalFor(path)) return true;
       }
+      return false;
     });
   }
 
   public List<Content> getContentsToPurge() {
-    return accessChanges(new Producer<List<Content>>() {
-      @Override
-      public List<Content> produce() {
-        List<Content> result = new ArrayList<Content>();
-        for (Change c : myChanges) {
-          result.addAll(c.getContentsToPurge());
-        }
-        return result;
+    return accessChanges(() -> {
+      List<Content> result = new ArrayList<>();
+      for (Change c : myChanges) {
+        result.addAll(c.getContentsToPurge());
       }
+      return result;
     });
   }
 
   public boolean isContentChangeOnly() {
-    return accessChanges(new Producer<Boolean>() {
-      @Override
-      public Boolean produce() {
-        return myChanges.size() == 1 && getFirstChange() instanceof ContentChange;
-      }
-    });
+    return accessChanges(() -> myChanges.size() == 1 && getFirstChange() instanceof ContentChange);
   }
 
   public boolean isLabelOnly() {
-    return accessChanges(new Producer<Boolean>() {
-      @Override
-      public Boolean produce() {
-        return myChanges.size() == 1 && getFirstChange() instanceof PutLabelChange;
-      }
-    });
+    return accessChanges(() -> myChanges.size() == 1 && getFirstChange() instanceof PutLabelChange);
   }
 
   public Change getFirstChange() {
-    return accessChanges(new Producer<Change>() {
-      @Override
-      public Change produce() {
-        return myChanges.get(0);
-      }
-    });
+    return accessChanges(() -> myChanges.get(0));
   }
 
   public Change getLastChange() {
-    return accessChanges(new Producer<Change>() {
-      @Override
-      public Change produce() {
-        return myChanges.get(myChanges.size() - 1);
-      }
-    });
+    return accessChanges(() -> myChanges.get(myChanges.size() - 1));
   }
 
   public List<String> getAffectedPaths() {
-    return accessChanges(new Producer<List<String>>() {
-      @Override
-      public List<String> produce() {
-        List<String> result = new SmartList<String>();
-        for (Change each : myChanges) {
-          if (each instanceof StructuralChange) {
-            result.add(((StructuralChange)each).getPath());
-          }
+    return accessChanges(() -> {
+      List<String> result = new SmartList<>();
+      for (Change each : myChanges) {
+        if (each instanceof StructuralChange) {
+          result.add(((StructuralChange)each).getPath());
         }
-        return result;
       }
+      return result;
     });
   }
 
   public String toString() {
-    return accessChanges(new Producer<String>() {
-      @Override
-      public String produce() {
-        return myChanges.toString();
-      }
-    });
+    return accessChanges(() -> myChanges.toString());
   }
 
   public long getId() {
@@ -285,25 +233,20 @@ public class ChangeSet {
     v.end(this);
   }
 
-  private <T> T accessChanges(@NotNull Producer<T> func) {
+  private <T> T accessChanges(@NotNull Supplier<T> func) {
     if (isLocked) {
-      //noinspection ConstantConditions
-      return func.produce();
+      return func.get();
     }
 
     synchronized (myChanges) {
-      //noinspection ConstantConditions
-      return func.produce();
+      return func.get();
     }
   }
 
   private void accessChanges(@NotNull final Runnable func) {
-    accessChanges(new Producer<Object>() {
-      @Override
-      public Object produce() {
-        func.run();
-        return null;
-      }
+    accessChanges(() -> {
+      func.run();
+      return null;
     });
   }
 }

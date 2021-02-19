@@ -15,6 +15,7 @@ package org.zmlx.hg4idea.action;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.zmlx.hg4idea.HgBundle;
 import org.zmlx.hg4idea.command.HgTagCreateCommand;
 import org.zmlx.hg4idea.execution.HgCommandException;
 import org.zmlx.hg4idea.execution.HgCommandResult;
@@ -25,6 +26,9 @@ import org.zmlx.hg4idea.util.HgErrorUtil;
 
 import java.util.Collection;
 
+import static org.zmlx.hg4idea.HgNotificationIdsHolder.TAG_CREATION_ERROR;
+import static org.zmlx.hg4idea.HgNotificationIdsHolder.TAG_CREATION_FAILED;
+
 public class HgCreateTagAction extends HgAbstractGlobalSingleRepoAction {
 
   public void execute(@NotNull final Project project,
@@ -34,22 +38,26 @@ public class HgCreateTagAction extends HgAbstractGlobalSingleRepoAction {
     final HgTagDialog dialog = new HgTagDialog(project, repositories, selectedRepo);
     if (dialog.showAndGet()) {
       try {
-        new HgTagCreateCommand(project, dialog.getRepository(), dialog.getTagName(), reference).execute(new HgCommandResultHandler() {
+        new HgTagCreateCommand(project, dialog.getRepository(), dialog.getTagName(), reference).executeAsynchronously(new HgCommandResultHandler() {
           @Override
           public void process(@Nullable HgCommandResult result) {
             if (HgErrorUtil.hasErrorsInCommandExecution(result)) {
               new HgCommandResultNotifier(project)
-                .notifyError(result, "Creation failed", "Tag creation [" + dialog.getTagName() + "] failed");
+                .notifyError(TAG_CREATION_ERROR,
+                             result,
+                             HgBundle.message("hg4idea.branch.creation.error"),
+                             HgBundle.message("action.hg4idea.CreateTag.error.msg", dialog.getTagName()));
             }
           }
         });
       }
       catch (HgCommandException e) {
-        HgErrorUtil.handleException(project, e);
+        HgErrorUtil.handleException(project, TAG_CREATION_FAILED, e);
       }
     }
   }
 
+  @Override
   protected void execute(@NotNull final Project project,
                          @NotNull Collection<HgRepository> repositories,
                          @Nullable HgRepository selectedRepo) {

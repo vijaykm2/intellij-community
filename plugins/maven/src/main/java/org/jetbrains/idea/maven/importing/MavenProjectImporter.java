@@ -1,45 +1,51 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.importing;
 
 import com.intellij.compiler.impl.javaCompiler.javac.JavacConfiguration;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.externalSystem.model.project.ProjectId;
+import com.intellij.openapi.externalSystem.project.PackagingModifiableModel;
+import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider;
 import com.intellij.openapi.module.ModifiableModuleModel;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.ModuleType;
+import com.intellij.openapi.module.impl.ModulePathKt;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.LibraryOrderEntry;
 import com.intellij.openapi.roots.ModifiableRootModel;
 import com.intellij.openapi.roots.ModuleRootModel;
 import com.intellij.openapi.roots.OrderEntry;
-import com.intellij.openapi.roots.impl.libraries.LibraryImpl;
+import com.intellij.openapi.roots.impl.libraries.LibraryEx;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.Function;
+import com.intellij.packaging.artifacts.ArtifactManager;
+import com.intellij.packaging.artifacts.ModifiableArtifactModel;
+import com.intellij.packaging.impl.artifacts.ArtifactManagerImpl;
+import com.intellij.packaging.impl.artifacts.ArtifactModelImpl;
+import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.Stack;
+import com.intellij.workspaceModel.ide.WorkspaceModel;
+import com.intellij.workspaceModel.storage.WorkspaceEntity;
+import com.intellij.workspaceModel.storage.WorkspaceEntityStorage;
+import com.intellij.workspaceModel.storage.WorkspaceEntityStorageBuilder;
 import gnu.trove.THashMap;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.importing.configurers.MavenModuleConfigurer;
+import org.jetbrains.idea.maven.importing.worktree.IdeModifiableModelsProviderBridge;
+import org.jetbrains.idea.maven.importing.worktree.MavenExternalSource;
+import org.jetbrains.idea.maven.importing.worktree.WorkspaceModuleImporter;
 import org.jetbrains.idea.maven.model.MavenArtifact;
+import org.jetbrains.idea.maven.model.MavenId;
 import org.jetbrains.idea.maven.project.*;
 import org.jetbrains.idea.maven.utils.MavenLog;
 import org.jetbrains.idea.maven.utils.MavenProcessCanceledException;
@@ -50,31 +56,35 @@ import org.jetbrains.jps.model.java.compiler.JpsJavaCompilerOptions;
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
+import java.util.function.Predicate;
+
+import static org.jetbrains.idea.maven.project.MavenProjectChanges.ALL;
 
 public class MavenProjectImporter {
+  private static final Logger LOG = Logger.getInstance(MavenProjectImporter.class);
   private final Project myProject;
   private final MavenProjectsTree myProjectsTree;
   private final Map<VirtualFile, Module> myFileToModuleMapping;
   private volatile Map<MavenProject, MavenProjectChanges> myProjectsToImportWithChanges;
   private volatile Set<MavenProject> myAllProjects;
   private final boolean myImportModuleGroupsRequired;
-  private final MavenModifiableModelsProvider myModelsProvider;
+  private final IdeModifiableModelsProvider myModelsProvider;
   private final MavenImportingSettings myImportingSettings;
 
   private final ModifiableModuleModel myModuleModel;
 
-  private final List<Module> myCreatedModules = new ArrayList<Module>();
+  private final List<Module> myCreatedModules = new ArrayList<>();
 
-  private final Map<MavenProject, Module> myMavenProjectToModule = new THashMap<MavenProject, Module>();
-  private final Map<MavenProject, String> myMavenProjectToModuleName = new THashMap<MavenProject, String>();
-  private final Map<MavenProject, String> myMavenProjectToModulePath = new THashMap<MavenProject, String>();
+  private final Map<MavenProject, Module> myMavenProjectToModule = new THashMap<>();
+  private final Map<MavenProject, String> myMavenProjectToModuleName = new THashMap<>();
+  private final Map<MavenProject, String> myMavenProjectToModulePath = new THashMap<>();
 
   public MavenProjectImporter(Project p,
                               MavenProjectsTree projectsTree,
                               Map<VirtualFile, Module> fileToModuleMapping,
                               Map<MavenProject, MavenProjectChanges> projectsToImportWithChanges,
                               boolean importModuleGroupsRequired,
-                              MavenModifiableModelsProvider modelsProvider,
+                              IdeModifiableModelsProvider modelsProvider,
                               MavenImportingSettings importingSettings) {
     myProject = p;
     myProjectsTree = projectsTree;
@@ -84,17 +94,129 @@ public class MavenProjectImporter {
     myModelsProvider = modelsProvider;
     myImportingSettings = importingSettings;
 
-    myModuleModel = modelsProvider.getModuleModel();
+    myModuleModel = modelsProvider.getModifiableModuleModel();
   }
 
   @Nullable
   public List<MavenProjectsProcessorTask> importProject() {
-    List<MavenProjectsProcessorTask> postTasks = new ArrayList<MavenProjectsProcessorTask>();
+    if (MavenUtil.newModelEnabled(myProject)) {
+      return importProjectAsWorkspaceModel();
+    }
+    else {
+      return importProjectOldWay();
+    }
+  }
 
+  private <T extends WorkspaceEntity> T findFirst(WorkspaceEntityStorage storage, Class<T> klass, Predicate<? super T> filter) {
+    Iterator<T> iterator = storage.entities(klass).iterator();
+    while (iterator.hasNext()) {
+      T next = iterator.next();
+      if (filter.test(next)) {
+        return next;
+      }
+    }
+    return null;
+  }
+
+  private List<MavenProjectsProcessorTask> importProjectAsWorkspaceModel() {
+    //todo need to rewrite MavenModuleImporter and remove duplicated code in this method
+    Map<MavenProject, MavenProjectChanges> projectsToImportWithChanges = myProjectsToImportWithChanges;
+
+    List<MavenProjectsProcessorTask> postTasks = new ArrayList<>();
+
+    // in the case projects are changed during importing we must memorise them
+    myAllProjects = new LinkedHashSet<>(myProjectsTree.getProjects());
+
+    myAllProjects.addAll(projectsToImportWithChanges.keySet()); // some projects may already have been removed from the tree
+
+
+    IdeModifiableModelsProviderBridge legacyBridgeModelsProvider = (IdeModifiableModelsProviderBridge)myModelsProvider;
+    WorkspaceEntityStorageBuilder diff = legacyBridgeModelsProvider.getDiff();
+
+    for (MavenProject each : myAllProjects) {
+      new WorkspaceModuleImporter(myProject, each, myProjectsTree, diff).importModule();
+      myMavenProjectToModuleName.put(each, each.getDisplayName());
+    }
+
+    Iterator<WorkspaceEntity> entities = diff.entities(WorkspaceEntity.class).iterator();
+
+    while (entities.hasNext()) {
+      WorkspaceEntity next = entities.next();
+      diff.changeSource(next, MavenExternalSource.getINSTANCE());
+    }
+
+    WriteAction.runAndWait(() -> {
+      WorkspaceModel.getInstance(myProject).<Void>updateProjectModel(builder -> {
+        builder.replaceBySource(it -> it.equals(MavenExternalSource.getINSTANCE()), diff.toStorage());
+        return null;
+      });
+    });
+
+
+    WorkspaceEntityStorageBuilder facetDiff =
+      WorkspaceEntityStorageBuilder.from(WorkspaceModel.getInstance(myProject).getEntityStorage().getCurrent());
+    IdeModifiableModelsProviderBridge providerForFacets = new IdeModifiableModelsProviderBridge(myProject, facetDiff);
+
+    List<Module> modulesToMavenize = new ArrayList<>();
+    List<MavenModuleImporter> importers = new ArrayList<>();
+    ModuleManager moduleManager = ModuleManager.getInstance(myProject);
+    for (MavenProject mavenProject : myAllProjects) {
+      Module module = moduleManager.findModuleByName(mavenProject.getDisplayName());
+      if (module == null) continue;
+      myCreatedModules.add(module);
+      MavenModuleImporter importer = new MavenModuleImporter(module,
+                                                             myProjectsTree,
+                                                             mavenProject,
+                                                             ALL,
+                                                             myMavenProjectToModuleName,
+                                                             myImportingSettings,
+                                                             providerForFacets);
+      importers.add(importer);
+
+      //need for facets importing
+      //importer.setRootModelAdapter(new MavenRootModelAdapter(new MavenRootModelAdapterLegacyImpl(mavenProject, module, providerForFacets)));
+    }
+
+    configFacets(postTasks, importers);
+    setMavenizedModules(modulesToMavenize, true);
+    saveFacets(providerForFacets, moduleManager);
+    saveArtifacts(providerForFacets);
+
+    WriteAction.runAndWait(() -> {
+      WorkspaceModel.getInstance(myProject).<Void>updateProjectModel(builder -> {
+        builder.replaceBySource(it -> it.equals(MavenExternalSource.getINSTANCE()), facetDiff.toStorage());
+        return null;
+      });
+    });
+
+    // legacy importerss
+
+    return postTasks;
+  }
+
+  private void saveFacets(IdeModifiableModelsProviderBridge providerForFacets, ModuleManager moduleManager) {
+    WriteAction.runAndWait(() -> {
+      myAllProjects.stream().map(mavenProject -> moduleManager.findModuleByName(mavenProject.getDisplayName()))
+        .filter(Objects::nonNull).forEach(module -> providerForFacets.getModifiableFacetModel(module).commit());
+    });
+  }
+
+  private void saveArtifacts(IdeModifiableModelsProviderBridge provider) {
+    ModifiableArtifactModel artifactModel = provider.getModifiableModel(PackagingModifiableModel.class).getModifiableArtifactModel();
+    ArtifactManagerImpl manager = (ArtifactManagerImpl)ArtifactManager.getInstance(myProject);
+    WriteAction.runAndWait(() -> {
+      manager.commit((ArtifactModelImpl)artifactModel);
+    });
+  }
+
+  @Nullable
+  private List<MavenProjectsProcessorTask> importProjectOldWay() {
+    List<MavenProjectsProcessorTask> postTasks = new ArrayList<>();
     boolean hasChanges;
 
     // in the case projects are changed during importing we must memorise them
-    myAllProjects = new LinkedHashSet<MavenProject>(myProjectsTree.getProjects());
+    myAllProjects = new LinkedHashSet<>(myProjectsTree.getProjects());
+
     myAllProjects.addAll(myProjectsToImportWithChanges.keySet()); // some projects may already have been removed from the tree
 
     hasChanges = deleteIncompatibleModules();
@@ -118,41 +240,62 @@ public class MavenProjectImporter {
 
     if (myProject.isDisposed()) return null;
 
-    boolean modulesDeleted = deleteObsoleteModules();
-    hasChanges |= modulesDeleted;
-    if (hasChanges) {
-      removeUnusedProjectLibraries();
+    try {
+      boolean modulesDeleted = deleteObsoleteModules();
+      hasChanges |= modulesDeleted;
+      if (hasChanges) {
+        removeUnusedProjectLibraries();
+      }
+    }
+    catch (ProcessCanceledException e) {
+      throw e;
+    }
+    catch (Exception e) {
+      disposeModifiableModels();
+      LOG.error(e);
+      return null;
     }
 
-    final boolean finalHasChanges = hasChanges;
+    if (hasChanges) {
+      MavenUtil.invokeAndWaitWriteAction(myProject, () -> {
+        myModelsProvider.commit();
 
-    MavenUtil.invokeAndWaitWriteAction(myProject, new Runnable() {
-      public void run() {
-        if (finalHasChanges) {
-          myModelsProvider.commit();
+        if (projectsHaveChanges) {
+          removeOutdatedCompilerConfigSettings();
+        }
+      });
 
-          if (projectsHaveChanges) {
-            removeOutdatedCompilerConfigSettings();
+      if (projectsHaveChanges) {
+        setMavenizedModules(ContainerUtil.map(myProjectsToImportWithChanges.keySet(),
+                                              mavenProject -> myMavenProjectToModule.get(mavenProject)), true);
+      }
 
-            for (MavenProject mavenProject : myAllProjects) {
-              Module module = myMavenProjectToModule.get(mavenProject);
-              if (module != null && module.isDisposed()) {
-                module = null;
-              }
+      List<MavenModuleConfigurer> configurers = MavenModuleConfigurer.getConfigurers();
 
-              for (MavenModuleConfigurer configurer : MavenModuleConfigurer.getConfigurers()) {
-                configurer.configure(mavenProject, myProject, module);
-              }
-            }
+      MavenUtil.runInBackground(myProject, MavenProjectBundle.message("command.name.configuring.projects"), false, indicator -> {
+        float count = 0;
+        for (MavenProject mavenProject : myAllProjects) {
+          Module module = myMavenProjectToModule.get(mavenProject);
+          if(module == null) {
+            continue;
+          }
+          indicator.setFraction(count++ / myAllProjects.size());
+          indicator.setText2(MavenProjectBundle.message("progress.details.configuring.module", module.getName()));
+          for (MavenModuleConfigurer configurer : configurers) {
+            configurer.configure(mavenProject, myProject, module);
           }
         }
-        else {
-          myModelsProvider.dispose();
-        }
-      }
-    });
+      });
+    }
+    else {
+      disposeModifiableModels();
+    }
 
     return postTasks;
+  }
+
+  private void disposeModifiableModels() {
+    MavenUtil.invokeAndWaitWriteAction(myProject, () -> myModelsProvider.dispose());
   }
 
   private boolean projectsToImportHaveChanges() {
@@ -163,7 +306,7 @@ public class MavenProjectImporter {
   }
 
   private Map<MavenProject, MavenProjectChanges> collectProjectsToImport(Map<MavenProject, MavenProjectChanges> projectsToImport) {
-    Map<MavenProject, MavenProjectChanges> result = new THashMap<MavenProject, MavenProjectChanges>(projectsToImport);
+    Map<MavenProject, MavenProjectChanges> result = new THashMap<>(projectsToImport);
     result.putAll(collectNewlyCreatedProjects()); // e.g. when 'create modules fro aggregators' setting changes
 
     Set<MavenProject> allProjectsToImport = result.keySet();
@@ -178,12 +321,12 @@ public class MavenProjectImporter {
   }
 
   private Map<MavenProject, MavenProjectChanges> collectNewlyCreatedProjects() {
-    Map<MavenProject, MavenProjectChanges> result = new THashMap<MavenProject, MavenProjectChanges>();
+    Map<MavenProject, MavenProjectChanges> result = new THashMap<>();
 
     for (MavenProject each : myAllProjects) {
       Module module = myFileToModuleMapping.get(each.getFile());
       if (module == null) {
-        result.put(each, MavenProjectChanges.ALL);
+        result.put(each, ALL);
       }
     }
 
@@ -191,7 +334,7 @@ public class MavenProjectImporter {
   }
 
   private Set<MavenProject> selectProjectsToImport(Collection<MavenProject> originalProjects) {
-    Set<MavenProject> result = new THashSet<MavenProject>();
+    Set<MavenProject> result = new THashSet<>();
     for (MavenProject each : originalProjects) {
       if (!shouldCreateModuleFor(each)) continue;
       result.add(each);
@@ -218,38 +361,37 @@ public class MavenProjectImporter {
     for (Pair<MavenProject, Module> each : incompatibleMavenized) {
       myFileToModuleMapping.remove(each.first.getFile());
       myModuleModel.disposeModule(each.second);
-      changed |= true;
+      changed = true;
     }
 
     if (incompatibleNotMavenized.isEmpty()) return changed;
 
-    final int[] result = new int[1];
-    MavenUtil.invokeAndWait(myProject, myModelsProvider.getModalityStateForQuestionDialogs(), new Runnable() {
-      public void run() {
-        String message = ProjectBundle.message("maven.import.incompatible.modules",
-                                               incompatibleNotMavenized.size(),
-                                               formatProjectsWithModules(incompatibleNotMavenized));
+    final int[] result = new int[]{Messages.OK};
+    if (!ApplicationManager.getApplication().isHeadlessEnvironment()) {
+      MavenUtil.invokeAndWait(myProject, myModelsProvider.getModalityStateForQuestionDialogs(), () -> {
+        String message = MavenProjectBundle.message("maven.import.incompatible.modules",
+                                                    incompatibleNotMavenized.size(),
+                                                    formatProjectsWithModules(incompatibleNotMavenized));
         String[] options = {
-          ProjectBundle.message("maven.import.incompatible.modules.recreate"),
-          ProjectBundle.message("maven.import.incompatible.modules.ignore")
+          MavenProjectBundle.message("maven.import.incompatible.modules.recreate"),
+          MavenProjectBundle.message("maven.import.incompatible.modules.ignore")
         };
 
         result[0] = Messages.showOkCancelDialog(myProject, message,
-                                                ProjectBundle.message("maven.project.import.title"),
+                                                MavenProjectBundle.message("maven.project.import.title"),
                                                 options[0], options[1], Messages.getQuestionIcon());
-      }
-    });
+      });
+    }
 
     if (result[0] == Messages.OK) {
       for (Pair<MavenProject, Module> each : incompatibleNotMavenized) {
         myFileToModuleMapping.remove(each.first.getFile());
         myModuleModel.disposeModule(each.second);
       }
-      changed |= true;
+      changed = true;
     }
     else {
       myProjectsTree.setIgnoredState(MavenUtil.collectFirsts(incompatibleNotMavenized), true, true);
-      changed |= false;
     }
 
     return changed;
@@ -260,8 +402,8 @@ public class MavenProjectImporter {
    * @return the first List in returned Pair contains already mavenized modules, the second List - not mavenized
    */
   private Pair<List<Pair<MavenProject, Module>>, List<Pair<MavenProject, Module>>> collectIncompatibleModulesWithProjects() {
-    List<Pair<MavenProject, Module>> incompatibleMavenized = new ArrayList<Pair<MavenProject, Module>>();
-    List<Pair<MavenProject, Module>> incompatibleNotMavenized = new ArrayList<Pair<MavenProject, Module>>();
+    List<Pair<MavenProject, Module>> incompatibleMavenized = new ArrayList<>();
+    List<Pair<MavenProject, Module>> incompatibleNotMavenized = new ArrayList<>();
 
     MavenProjectsManager manager = MavenProjectsManager.getInstance(myProject);
     for (MavenProject each : myAllProjects) {
@@ -276,17 +418,15 @@ public class MavenProjectImporter {
   }
 
   private static String formatProjectsWithModules(List<Pair<MavenProject, Module>> projectsWithModules) {
-    return StringUtil.join(projectsWithModules, new Function<Pair<MavenProject, Module>, String>() {
-        public String fun(Pair<MavenProject, Module> each) {
-          MavenProject project = each.first;
-          Module module = each.second;
-          return ModuleType.get(module).getName() +
-                 " '" +
-                 module.getName() +
-                 "' for Maven project " +
-                 project.getMavenId().getDisplayString();
-        }
-      }, "<br>");
+    return StringUtil.join(projectsWithModules, each -> {
+      MavenProject project = each.first;
+      Module module = each.second;
+      return ModuleType.get(module).getName() +
+             " '" +
+             module.getName() +
+             "' for Maven project " +
+             project.getMavenId().getDisplayString();
+    }, "<br>");
   }
 
   private boolean deleteObsoleteModules() {
@@ -295,17 +435,17 @@ public class MavenProjectImporter {
 
     setMavenizedModules(obsoleteModules, false);
 
-    final int[] result = new int[1];
-    MavenUtil.invokeAndWait(myProject, myModelsProvider.getModalityStateForQuestionDialogs(), new Runnable() {
-      public void run() {
-        result[0] = Messages.showYesNoDialog(myProject,
-                                             ProjectBundle.message("maven.import.message.delete.obsolete", formatModules(obsoleteModules)),
-                                             ProjectBundle.message("maven.project.import.title"),
-                                             Messages.getQuestionIcon());
-      }
-    });
+    if (!ApplicationManager.getApplication().isHeadlessEnvironment() || ApplicationManager.getApplication().isUnitTestMode()) {
+      final int[] result = new int[1];
+      MavenUtil.invokeAndWait(myProject, myModelsProvider.getModalityStateForQuestionDialogs(),
+                              () -> result[0] = Messages.showYesNoDialog(myProject,
+                                                                         MavenProjectBundle.message("maven.import.message.delete.obsolete",
+                                                                                                    formatModules(obsoleteModules)),
+                                                                         MavenProjectBundle.message("maven.project.import.title"),
+                                                                         Messages.getQuestionIcon()));
 
-    if (result[0] == Messages.NO) return false;// NO
+      if (result[0] == Messages.NO) return false;// NO
+    }
 
     for (Module each : obsoleteModules) {
       if (!each.isDisposed()) {
@@ -317,14 +457,14 @@ public class MavenProjectImporter {
   }
 
   private List<Module> collectObsoleteModules() {
-    List<Module> remainingModules = new ArrayList<Module>();
+    List<Module> remainingModules = new ArrayList<>();
     Collections.addAll(remainingModules, myModuleModel.getModules());
 
     for (MavenProject each : selectProjectsToImport(myAllProjects)) {
       remainingModules.remove(myMavenProjectToModule.get(each));
     }
 
-    List<Module> obsolete = new ArrayList<Module>();
+    List<Module> obsolete = new ArrayList<>();
     final MavenProjectsManager manager = MavenProjectsManager.getInstance(myProject);
     for (Module each : remainingModules) {
       if (manager.isMavenizedModule(each)) {
@@ -364,12 +504,12 @@ public class MavenProjectImporter {
     // I couldn't manage to write a test for this since behaviour of VirtualFileManager
     // and FileWatcher differs from real-life execution.
 
-    List<MavenArtifact> artifacts = new ArrayList<MavenArtifact>();
+    List<MavenArtifact> artifacts = new ArrayList<>();
     for (MavenProject each : myProjectsToImportWithChanges.keySet()) {
       artifacts.addAll(each.getDependencies());
     }
 
-    final Set<File> files = new THashSet<File>();
+    final Set<File> files = new THashSet<>();
     for (MavenArtifact each : artifacts) {
       if (each.isResolved()) files.add(each.getFile());
     }
@@ -379,9 +519,10 @@ public class MavenProjectImporter {
     }
     else {
       postTasks.add(new MavenProjectsProcessorTask() {
+        @Override
         public void perform(Project project, MavenEmbeddersManager embeddersManager, MavenConsole console, MavenProgressIndicator indicator)
           throws MavenProcessCanceledException {
-          indicator.setText("Refreshing files...");
+          indicator.setText(MavenProjectBundle.message("progress.text.refreshing.files"));
           doRefreshFiles(files);
         }
       });
@@ -412,10 +553,10 @@ public class MavenProjectImporter {
     javacOptions.ADDITIONAL_OPTIONS_STRING = options;
   }
 
-  private void importModules(final List<MavenProjectsProcessorTask> postTasks) {
+  private void importModules(final List<MavenProjectsProcessorTask> tasks) {
     Map<MavenProject, MavenProjectChanges> projectsWithChanges = myProjectsToImportWithChanges;
 
-    Set<MavenProject> projectsWithNewlyCreatedModules = new THashSet<MavenProject>();
+    Set<MavenProject> projectsWithNewlyCreatedModules = new THashSet<>();
 
     for (MavenProject each : projectsWithChanges.keySet()) {
       if (ensureModuleCreated(each)) {
@@ -423,19 +564,22 @@ public class MavenProjectImporter {
       }
     }
 
-    List<Module> modulesToMavenize = new ArrayList<Module>();
-    List<MavenModuleImporter> importers = new ArrayList<MavenModuleImporter>();
+    List<MavenModuleImporter> importers = new ArrayList<>();
 
     for (Map.Entry<MavenProject, MavenProjectChanges> each : projectsWithChanges.entrySet()) {
       MavenProject project = each.getKey();
       Module module = myMavenProjectToModule.get(project);
       boolean isNewModule = projectsWithNewlyCreatedModules.contains(project);
-
+      MavenId mavenId = project.getMavenId();
+      myModelsProvider.registerModulePublication(
+        module, new ProjectId(mavenId.getGroupId(), mavenId.getArtifactId(), mavenId.getVersion()));
       MavenModuleImporter moduleImporter = createModuleImporter(module, project, each.getValue());
-      modulesToMavenize.add(module);
       importers.add(moduleImporter);
 
-      moduleImporter.config(isNewModule);
+      MavenRootModelAdapter rootModelAdapter =
+        new MavenRootModelAdapter(new MavenRootModelAdapterLegacyImpl(project, module, myModelsProvider));
+      rootModelAdapter.init(isNewModule);
+      moduleImporter.config(rootModelAdapter);
     }
 
     for (MavenProject project : myAllProjects) {
@@ -447,23 +591,26 @@ public class MavenProjectImporter {
       }
     }
 
+    configFacets(tasks, importers);
+  }
+
+  private void configFacets(List<MavenProjectsProcessorTask> tasks, List<MavenModuleImporter> importers) {
     for (MavenModuleImporter importer : importers) {
       importer.preConfigFacets();
     }
 
     for (MavenModuleImporter importer : importers) {
-      importer.configFacets(postTasks);
+      importer.configFacets(tasks);
     }
 
-    setMavenizedModules(modulesToMavenize, true);
+    for (MavenModuleImporter importer : importers) {
+      importer.postConfigFacets();
+    }
   }
 
   private void setMavenizedModules(final Collection<Module> modules, final boolean mavenized) {
-    MavenUtil.invokeAndWaitWriteAction(myProject, new Runnable() {
-      public void run() {
-        MavenProjectsManager.getInstance(myProject).setMavenizedModules(modules, mavenized);
-      }
-    });
+    MavenUtil
+      .invokeAndWaitWriteAction(myProject, () -> MavenProjectsManager.getInstance(myProject).setMavenizedModules(modules, mavenized));
   }
 
   private boolean ensureModuleCreated(MavenProject project) {
@@ -474,6 +621,8 @@ public class MavenProjectImporter {
     // for some reason newModule opens the existing iml file, so we
     // have to remove it beforehand.
     deleteExistingImlFile(path);
+    String moduleName = ModulePathKt.getModuleNameByFilePath(path);
+    deleteExistingModuleByName(moduleName);
 
     final Module module = myModuleModel.newModule(path, project.getModuleType().getId());
     myMavenProjectToModule.put(project, module);
@@ -481,8 +630,16 @@ public class MavenProjectImporter {
     return true;
   }
 
+  private void deleteExistingModuleByName(final String name) {
+    Module module = myModuleModel.findModuleByName(name);
+    if (module != null) {
+      myModuleModel.disposeModule(module);
+    }
+  }
+
   private void deleteExistingImlFile(final String path) {
     MavenUtil.invokeAndWaitWriteAction(myProject, new Runnable() {
+      @Override
       public void run() {
         try {
           VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByPath(path);
@@ -508,7 +665,7 @@ public class MavenProjectImporter {
   private void configModuleGroups() {
     if (!myImportingSettings.isCreateModuleGroups()) return;
 
-    final Stack<String> groups = new Stack<String>();
+    final Stack<String> groups = new Stack<>();
     final boolean createTopLevelGroup = myProjectsTree.getRootProjects().size() > 1;
 
     myProjectsTree.visit(new MavenProjectsTree.SimpleVisitor() {
@@ -520,13 +677,14 @@ public class MavenProjectImporter {
         return myMavenProjectToModuleName.containsKey(project);
       }
 
+      @Override
       public void visit(MavenProject each) {
         depth++;
 
         String name = myMavenProjectToModuleName.get(each);
 
         if (shouldCreateGroup(each)) {
-          groups.push(ProjectBundle.message("module.group.name", name));
+          groups.push(MavenProjectBundle.message("module.group.name", name));
         }
 
         if (!shouldCreateModuleFor(each)) {
@@ -535,9 +693,10 @@ public class MavenProjectImporter {
 
         Module module = myModuleModel.findModuleByName(name);
         if (module == null) return;
-        myModuleModel.setModuleGroupPath(module, groups.isEmpty() ? null : ArrayUtil.toStringArray(groups));
+        myModuleModel.setModuleGroupPath(module, groups.isEmpty() ? null : ArrayUtilRt.toStringArray(groups));
       }
 
+      @Override
       public void leave(MavenProject each) {
         if (shouldCreateGroup(each)) {
           groups.pop();
@@ -553,7 +712,7 @@ public class MavenProjectImporter {
   }
 
   private boolean removeUnusedProjectLibraries() {
-    Set<Library> unusedLibraries = new HashSet<Library>();
+    Set<Library> unusedLibraries = new HashSet<>();
     Collections.addAll(unusedLibraries, myModelsProvider.getAllLibraries());
 
     for (ModuleRootModel eachModel : collectModuleModels()) {
@@ -575,19 +734,19 @@ public class MavenProjectImporter {
   }
 
   private static boolean isDisposed(Library library) {
-    return library instanceof LibraryImpl && ((LibraryImpl)library).isDisposed();
+    return library instanceof LibraryEx && ((LibraryEx)library).isDisposed();
   }
 
   private Collection<ModuleRootModel> collectModuleModels() {
-    Map<Module, ModuleRootModel> rootModels = new THashMap<Module, ModuleRootModel>();
+    Map<Module, ModuleRootModel> rootModels = new THashMap<>();
     for (MavenProject each : myProjectsToImportWithChanges.keySet()) {
       Module module = myMavenProjectToModule.get(each);
-      ModifiableRootModel rootModel = myModelsProvider.getRootModel(module);
+      ModifiableRootModel rootModel = myModelsProvider.getModifiableRootModel(module);
       rootModels.put(module, rootModel);
     }
     for (Module each : myModuleModel.getModules()) {
       if (rootModels.containsKey(each)) continue;
-      rootModels.put(each, myModelsProvider.getRootModel(each));
+      rootModels.put(each, myModelsProvider.getModifiableRootModel(each));
     }
     return rootModels.values();
   }

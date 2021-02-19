@@ -1,13 +1,15 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.redmine;
 
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.tasks.TaskBundle;
 import com.intellij.tasks.config.BaseRepositoryEditor;
 import com.intellij.tasks.impl.TaskUiUtil;
 import com.intellij.tasks.redmine.model.RedmineProject;
-import com.intellij.ui.ListCellRendererWrapper;
+import com.intellij.ui.SimpleListCellRenderer;
 import com.intellij.ui.components.JBCheckBox;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.util.Consumer;
@@ -26,13 +28,13 @@ import java.util.List;
  * @author Dennis.Ushakov
  */
 public class RedmineRepositoryEditor extends BaseRepositoryEditor<RedmineRepository> {
-  private ComboBox myProjectCombo;
+  private ComboBox<RedmineProjectItem> myProjectCombo;
   private JTextField myAPIKey;
   private JCheckBox myAllAssigneesCheckBox;
   private JBLabel myProjectLabel;
   private JBLabel myAPIKeyLabel;
 
-  public RedmineRepositoryEditor(final Project project, final RedmineRepository repository, Consumer<RedmineRepository> changeListener) {
+  public RedmineRepositoryEditor(final Project project, final RedmineRepository repository, Consumer<? super RedmineRepository> changeListener) {
     super(project, repository, changeListener);
 
     myTestButton.setEnabled(myRepository.isConfigured());
@@ -45,12 +47,7 @@ public class RedmineRepositoryEditor extends BaseRepositoryEditor<RedmineReposit
 
     toggleCredentialsVisibility();
 
-    UIUtil.invokeLaterIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        initialize();
-      }
-    });
+    UIUtil.invokeLaterIfNeeded(() -> initialize());
   }
 
   @Override
@@ -98,34 +95,26 @@ public class RedmineRepositoryEditor extends BaseRepositoryEditor<RedmineReposit
   @Nullable
   @Override
   protected JComponent createCustomPanel() {
-    myProjectLabel = new JBLabel("Project:", SwingConstants.RIGHT);
-    myProjectCombo = new ComboBox(300);
+    myProjectLabel = new JBLabel(TaskBundle.message("label.project"), SwingConstants.RIGHT);
+    myProjectCombo = new ComboBox<>(300);
     //myProjectCombo.setRenderer(new TaskUiUtil.SimpleComboBoxRenderer("Set URL and password/token first"));
-    myProjectCombo.setRenderer(new ListCellRendererWrapper<RedmineProjectItem>() {
-      @Override
-      public void customize(JList list, RedmineProjectItem value, int index, boolean selected, boolean hasFocus) {
-        if (value == null) {
-          setText("Set URL and password/token first");
-        }
-        else {
-          if (myProjectCombo.isPopupVisible()) {
-            //if (value.myLevel == 0 && value.myProject != RedmineRepository.UNSPECIFIED_PROJECT) {
-              //setFont(UIUtil.getListFont().deriveFont(Font.BOLD));
-            //}
-            setText(StringUtil.repeat("   ", value.myLevel) + value.myProject.getName());
-          }
-          else {
-            // Do not indent selected project
-            setText(value.myProject.getName());
-          }
-        }
+    myProjectCombo.setRenderer(SimpleListCellRenderer.create(TaskBundle.message("label.set.url.password.token.first"), value -> {
+      if (myProjectCombo.isPopupVisible()) {
+        //if (value.myLevel == 0 && value.myProject != RedmineRepository.UNSPECIFIED_PROJECT) {
+        //setFont(UIUtil.getListFont().deriveFont(Font.BOLD));
+        //}
+        return StringUtil.repeat("   ", value.myLevel) + value.myProject.getName();
       }
-    });
+      else {
+        // Do not indent selected project
+        return value.myProject.getName();
+      }
+    }));
 
-    myAPIKeyLabel = new JBLabel("API Token:", SwingConstants.RIGHT);
+    myAPIKeyLabel = new JBLabel(TaskBundle.message("label.api.token"), SwingConstants.RIGHT);
     myAPIKey = new JPasswordField();
 
-    myAllAssigneesCheckBox = new JBCheckBox("Include issues not assigned to me");
+    myAllAssigneesCheckBox = new JBCheckBox(TaskBundle.message("checkbox.include.issues.not.assigned.to.me"));
     return FormBuilder.createFormBuilder()
       .addLabeledComponent(myAPIKeyLabel, myAPIKey)
       .addLabeledComponent(myProjectLabel, myProjectCombo)
@@ -144,7 +133,7 @@ public class RedmineRepositoryEditor extends BaseRepositoryEditor<RedmineReposit
     public final RedmineProject myProject;
     public final int myLevel;
 
-    public RedmineProjectItem(@NotNull RedmineProject project, int level) {
+    RedmineProjectItem(@NotNull RedmineProject project, int level) {
       myProject = project;
       myLevel = level;
     }
@@ -169,9 +158,9 @@ public class RedmineRepositoryEditor extends BaseRepositoryEditor<RedmineReposit
     }
   }
 
-  private class FetchProjectsTask extends TaskUiUtil.ComboBoxUpdater<RedmineProjectItem> {
+  private final class FetchProjectsTask extends TaskUiUtil.ComboBoxUpdater<RedmineProjectItem> {
     private FetchProjectsTask() {
-      super(RedmineRepositoryEditor.this.myProject, "Downloading Redmine projects...", myProjectCombo);
+      super(RedmineRepositoryEditor.this.myProject, TaskBundle.message("progress.title.downloading.redmine.projects"), myProjectCombo);
     }
 
     @Override
@@ -191,8 +180,8 @@ public class RedmineRepositoryEditor extends BaseRepositoryEditor<RedmineReposit
     protected List<RedmineProjectItem> fetch(@NotNull ProgressIndicator indicator) throws Exception {
       // Seems that Redmine always return its project hierarchy in DFS order.
       // So it's easy to find level of each project using stack of parents.
-      Stack<RedmineProject> parents = new Stack<RedmineProject>();
-      List<RedmineProjectItem> items = new ArrayList<RedmineProjectItem>();
+      Stack<RedmineProject> parents = new Stack<>();
+      List<RedmineProjectItem> items = new ArrayList<>();
       for (RedmineProject project : myRepository.fetchProjects()) {
         RedmineProject parentProject = project.getParent();
         if (parentProject == null) {

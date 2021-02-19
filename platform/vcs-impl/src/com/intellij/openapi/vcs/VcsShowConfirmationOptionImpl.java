@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,32 +15,29 @@
  */
 package com.intellij.openapi.vcs;
 
+import org.jetbrains.annotations.ApiStatus;
 
-public class VcsShowConfirmationOptionImpl extends VcsAbstractSetting implements VcsShowConfirmationOption{
+/**
+ * @deprecated Use {@link VcsShowConfirmationOption#STATIC_SHOW_CONFIRMATION}
+ */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+public class VcsShowConfirmationOptionImpl implements VcsShowConfirmationOption {
   private Value myValue = Value.SHOW_CONFIRMATION;
-
-  private final String myCaption;
-
-  private final String myDoNothingCaption;
-  private final String myShowConfirmationCaption;
-  private final String myDoActionSilentlyCaption;
 
   public VcsShowConfirmationOptionImpl(final String displayName,
                                        final String caption,
                                        final String doNothingCaption,
                                        final String showConfirmationCaption,
                                        final String doActionSilentlyCaption) {
-    super(displayName);
-    myCaption = caption;
-    myDoNothingCaption = doNothingCaption;
-    myShowConfirmationCaption = showConfirmationCaption;
-    myDoActionSilentlyCaption = doActionSilentlyCaption;
   }
 
+  @Override
   public Value getValue() {
     return myValue;
   }
 
+  @Override
   public void setValue(Value value) {
     myValue = value;
   }

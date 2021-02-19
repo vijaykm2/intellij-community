@@ -1,31 +1,19 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.projectWizard.importSources.util;
 
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.NullableFunction;
-import com.intellij.util.text.StringFactory;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 
 public abstract class CommonSourceRootDetectionUtil<F> {
 
@@ -34,9 +22,9 @@ public abstract class CommonSourceRootDetectionUtil<F> {
 
   @Nullable
   public Pair<F, String> suggestRootForFileWithPackageStatement(F file,
-                                                                 F topmostPossibleRoot,
-                                                                 NullableFunction<CharSequence, String> packageNameFetcher,
-                                                                 boolean packagePrefixSupported) {
+                                                                F topmostPossibleRoot,
+                                                                NullableFunction<? super CharSequence, String> packageNameFetcher,
+                                                                boolean packagePrefixSupported) {
     if (!isFile(file)) return null;
 
     final CharSequence chars;
@@ -55,7 +43,7 @@ public abstract class CommonSourceRootDetectionUtil<F> {
         int index1 = packageName.lastIndexOf('.', index - 1);
         String token = packageName.substring(index1 + 1, index);
         String dirName = getName(root);
-        final boolean equalsToToken = SystemInfo.isFileSystemCaseSensitive ? dirName.equals(token) : dirName.equalsIgnoreCase(token);
+        final boolean equalsToToken = isCaseSensitive(root) ? dirName.equals(token) : dirName.equalsIgnoreCase(token);
         if (!equalsToToken || root.equals(topmostPossibleRoot)) {
           String packagePrefix = packageName.substring(0, index);
           if (!packagePrefixSupported && packagePrefix.length() > 0) {
@@ -76,6 +64,7 @@ public abstract class CommonSourceRootDetectionUtil<F> {
   }
 
   protected abstract String getName(final F file);
+  protected abstract boolean isCaseSensitive(@NotNull F file);
 
   @Nullable
   protected abstract F getParentFile(final F file);
@@ -84,11 +73,21 @@ public abstract class CommonSourceRootDetectionUtil<F> {
 
   protected abstract boolean isFile(final F file);
 
-  public static final CommonSourceRootDetectionUtil<File> IO_FILE = new CommonSourceRootDetectionUtil<File>() {
+  public static final CommonSourceRootDetectionUtil<File> IO_FILE = new CommonSourceRootDetectionUtil<>() {
 
     @Override
     protected String getName(final File file) {
       return file.getName();
+    }
+
+    @Override
+    protected boolean isCaseSensitive(@NotNull File file) {
+      try {
+        return FileUtil.isFileSystemCaseSensitive(file.getPath());
+      }
+      catch (FileNotFoundException e) {
+        return SystemInfo.isFileSystemCaseSensitive;
+      }
     }
 
     @Override
@@ -98,7 +97,7 @@ public abstract class CommonSourceRootDetectionUtil<F> {
 
     @Override
     protected CharSequence loadText(final File file) throws IOException {
-      return StringFactory.createShared(loadFileTextSkippingBom(file));
+      return loadFileTextSkippingBom(file);
     }
 
     @Override
@@ -107,23 +106,24 @@ public abstract class CommonSourceRootDetectionUtil<F> {
     }
   };
 
-  private static char[] loadFileTextSkippingBom(File file) throws IOException {
-    //noinspection IOResourceOpenedButNotSafelyClosed
-    InputStream stream = CharsetToolkit.inputStreamSkippingBOM(new BufferedInputStream(new FileInputStream(file)));
-    Reader reader = new InputStreamReader(stream);
-    try {
-      return FileUtilRt.loadText(reader, (int)file.length());
-    }
-    finally {
-      reader.close();
+  @NotNull
+  private static String loadFileTextSkippingBom(File file) throws IOException {
+    try (InputStream stream = CharsetToolkit.inputStreamSkippingBOM(new BufferedInputStream(new FileInputStream(file)));
+         Reader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
+      return new String(FileUtilRt.loadText(reader, (int)file.length()));
     }
   }
 
-  public static final CommonSourceRootDetectionUtil<VirtualFile> VIRTUAL_FILE = new CommonSourceRootDetectionUtil<VirtualFile>() {
+  public static final CommonSourceRootDetectionUtil<VirtualFile> VIRTUAL_FILE = new CommonSourceRootDetectionUtil<>() {
 
     @Override
     protected String getName(VirtualFile file) {
       return file.getName();
+    }
+
+    @Override
+    protected boolean isCaseSensitive(@NotNull VirtualFile file) {
+      return file.isCaseSensitive();
     }
 
     @Override

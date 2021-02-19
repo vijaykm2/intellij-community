@@ -7,7 +7,7 @@ class Test {
   <T extends Runnable> void call1(T t) {}
 
   {
-    call<error descr="'call(T)' in 'Test' cannot be applied to '(<lambda expression>)'">(() -> {})</error>; 
+    call(<error descr="Target type of a lambda conversion must be an interface">() -> {}</error>);
     call1(() -> {}); 
   }
 }

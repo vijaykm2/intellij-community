@@ -17,6 +17,7 @@ package org.zmlx.hg4idea.command.mq;
 
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
+import org.zmlx.hg4idea.HgBundle;
 import org.zmlx.hg4idea.action.HgCommandResultNotifier;
 import org.zmlx.hg4idea.execution.HgCommandExecutor;
 import org.zmlx.hg4idea.execution.HgCommandResult;
@@ -24,6 +25,8 @@ import org.zmlx.hg4idea.repo.HgRepository;
 import org.zmlx.hg4idea.util.HgErrorUtil;
 
 import java.util.Collections;
+
+import static org.zmlx.hg4idea.HgNotificationIdsHolder.QGOTO_ERROR;
 
 public class HgQGotoCommand {
   @NotNull private final HgRepository myRepository;
@@ -38,7 +41,10 @@ public class HgQGotoCommand {
       .executeInCurrentThread(myRepository.getRoot(), "qgoto", Collections.singletonList(name));
     if (HgErrorUtil.hasErrorsInCommandExecution(result)) {
       new HgCommandResultNotifier(project)
-        .notifyError(result, "QGoto command failed", "Could not go to patch " + name);
+        .notifyError(QGOTO_ERROR,
+                     result,
+                     HgBundle.message("action.hg4idea.QGotoFromPatches.error"),
+                     HgBundle.message("action.hg4idea.QGotoFromPatches.error.msg", name));
     }
     myRepository.update();
     return result;

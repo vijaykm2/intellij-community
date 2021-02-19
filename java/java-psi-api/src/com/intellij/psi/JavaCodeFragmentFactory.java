@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
 import com.intellij.openapi.components.ServiceManager;
@@ -67,10 +53,14 @@ public abstract class JavaCodeFragmentFactory {
    * Flag for {@linkplain #createTypeCodeFragment(String, PsiElement, boolean, int)} - allows disjunctive type.
    */
   public static final int ALLOW_DISJUNCTION = 0x04;
+  /**
+   * Flag for {@linkplain #createTypeCodeFragment(String, PsiElement, boolean, int)} - allows conjunctive type.
+   */
+  public static final int ALLOW_INTERSECTION = 0x08;
 
   /**
    * Creates a Java type code fragment from the text of the name of a Java type (the name
-   * of a primitive type, array type or class), with <code>void</code> and ellipsis
+   * of a primitive type, array type or class), with {@code void} and ellipsis
    * not treated as a valid type.
    *
    * @param text       the text of the Java type to create.
@@ -98,7 +88,7 @@ public abstract class JavaCodeFragmentFactory {
   public abstract PsiTypeCodeFragment createTypeCodeFragment(@NotNull String text,
                                                              @Nullable PsiElement context,
                                                              boolean isPhysical,
-                                                             @MagicConstant(flags = {ALLOW_VOID, ALLOW_ELLIPSIS, ALLOW_DISJUNCTION}) int flags);
+                                                             @MagicConstant(flags = {ALLOW_VOID, ALLOW_ELLIPSIS, ALLOW_DISJUNCTION, ALLOW_INTERSECTION}) int flags);
 
   /**
    * Creates a Java reference code fragment from the text of a Java reference to a
@@ -118,4 +108,16 @@ public abstract class JavaCodeFragmentFactory {
                                                                                boolean isPhysical,
                                                                                boolean isClassesAccepted);
 
+  /**
+   * Creates a Java code fragment from the text of a Java class member (field, method, class initializer, nested class).
+   *
+   * @param text       the text of the member to create
+   * @param context    the context for resolving references from the member
+   * @param isPhysical whether the code fragment is created as a physical element
+   *                   (see {@link PsiElement#isPhysical()}).
+   * @return the created code fragment.
+   */
+  public abstract JavaCodeFragment createMemberCodeFragment(@NotNull String text,
+                                                            @Nullable PsiElement context,
+                                                            boolean isPhysical);
 }

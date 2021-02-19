@@ -19,19 +19,22 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
-import org.intellij.images.ImagesBundle;
+import org.intellij.images.search.TagFilter;
+import org.intellij.images.thumbnail.actions.ThemeFilter;
 import org.intellij.images.ui.ImageComponentDecorator;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * Thumbnail thumbnail is a component with thumbnails for a set of {@link com.intellij.openapi.vfs.VirtualFile}.
+ * Thumbnail thumbnail is a component with thumbnails for a set of {@link VirtualFile}.
  *
  * @author <a href="mailto:aefimov.box@gmail.com">Alexey Efimov</a>
  */
 public interface ThumbnailView extends Disposable, ImageComponentDecorator {
   DataKey<ThumbnailView> DATA_KEY = DataKey.create(ThumbnailView.class.getName());
 
-  String TOOLWINDOW_ID = ImagesBundle.message("thumbnails.toolwindow.name");
+  @NonNls String TOOLWINDOW_ID = "Thumbnails";
 
   @NotNull
   Project getProject();
@@ -58,12 +61,11 @@ public interface ThumbnailView extends Disposable, ImageComponentDecorator {
 
   boolean isSelected(@NotNull VirtualFile file);
 
-  @NotNull
-  VirtualFile[] getSelection();
+  VirtualFile @NotNull [] getSelection();
 
   /**
    * Scroll to selection. If ToolWindow is not active, then
-   * it will perform activatation before scroll.
+   * it will perform activation before scroll.
    */
   void scrollToSelection();
 
@@ -72,4 +74,24 @@ public interface ThumbnailView extends Disposable, ImageComponentDecorator {
   boolean isVisible();
 
   void activate();
+
+  void setFilter(ThemeFilter filter);
+
+  /**
+   * null means all files accepted
+   */
+  @Nullable
+  ThemeFilter getFilter();
+
+  void setTagFilters(TagFilter[] filter);
+
+  /**
+   * null means all files accepted
+   */
+  TagFilter @Nullable [] getTagFilters();
+
+  /**
+   * update UI: preview visibility, etc
+   */
+  void refresh();
 }

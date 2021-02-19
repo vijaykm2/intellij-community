@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.ide.AppLifecycleListener;
+import com.intellij.jna.JnaLoader;
 import com.intellij.openapi.application.ApplicationActivationListener;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.util.text.StringUtil;
@@ -31,11 +18,11 @@ import static com.intellij.ui.mac.foundation.Foundation.nsString;
 /**
  * @author Dennis.Ushakov
  */
-class MountainLionNotifications implements SystemNotificationsImpl.Notifier {
+final class MountainLionNotifications implements SystemNotificationsImpl.Notifier {
   private static MountainLionNotifications ourInstance;
 
   public static synchronized MountainLionNotifications getInstance() {
-    if (ourInstance == null) {
+    if (ourInstance == null && JnaLoader.isLoaded()) {
       ourInstance = new MountainLionNotifications();
     }
     return ourInstance;
@@ -43,13 +30,13 @@ class MountainLionNotifications implements SystemNotificationsImpl.Notifier {
 
   private MountainLionNotifications() {
     final MessageBusConnection connection = ApplicationManager.getApplication().getMessageBus().connect();
-    connection.subscribe(ApplicationActivationListener.TOPIC, new ApplicationActivationListener.Adapter() {
+    connection.subscribe(ApplicationActivationListener.TOPIC, new ApplicationActivationListener() {
       @Override
-      public void applicationActivated(IdeFrame ideFrame) {
+      public void applicationActivated(@NotNull IdeFrame ideFrame) {
         cleanupDeliveredNotifications();
       }
     });
-    connection.subscribe(AppLifecycleListener.TOPIC, new AppLifecycleListener.Adapter() {
+    connection.subscribe(AppLifecycleListener.TOPIC, new AppLifecycleListener() {
       @Override
       public void appClosing() {
         cleanupDeliveredNotifications();

@@ -1,48 +1,35 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.vcs;
 
 import com.intellij.dvcs.repo.Repository;
-import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.impl.ProjectLevelVcsManagerImpl;
 import com.intellij.openapi.vfs.LocalFileSystem;
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.ObjectUtils;
 import hg4idea.test.HgExecutor;
 import hg4idea.test.HgPlatformTest;
 import org.jetbrains.annotations.NotNull;
+import org.zmlx.hg4idea.HgGlobalSettings;
 import org.zmlx.hg4idea.HgVcs;
 import org.zmlx.hg4idea.repo.HgRepository;
 import org.zmlx.hg4idea.util.HgUtil;
 
 import java.io.File;
+import java.util.Objects;
 
 import static com.intellij.openapi.vcs.Executor.cd;
 import static com.intellij.openapi.vcs.Executor.touch;
 import static hg4idea.test.HgExecutor.hg;
+import static org.zmlx.hg4idea.util.HgUtil.DOT_HG;
 
 public class HgTaskBranchesTest extends TaskBranchesTest {
 
   @Override
   protected void setUp() throws Exception {
     super.setUp();
-    HgVcs hgVcs = ObjectUtils.assertNotNull(HgVcs.getInstance(myProject));
-    hgVcs.getGlobalSettings().setHgExecutable(HgExecutor.getHgExecutable());
+    HgVcs hgVcs = Objects.requireNonNull(HgVcs.getInstance(myProject));
+    hgVcs.getProjectSettings().setCheckIncomingOutgoing(false);
+    HgGlobalSettings.getInstance().setHgExecutable(HgExecutor.getHgExecutable());
   }
 
   @NotNull
@@ -54,14 +41,27 @@ public class HgTaskBranchesTest extends TaskBranchesTest {
     HgPlatformTest.initRepo(root);
     touch("a.txt");
     hg("add a.txt");
-    hg("commit -m another");
+    hg("commit -m another -u abc");
     hg("up -r 0");
     ProjectLevelVcsManagerImpl vcsManager = (ProjectLevelVcsManagerImpl)ProjectLevelVcsManager.getInstance(myProject);
+    HgVcs hgVcs = HgVcs.getInstance(myProject);
+    assert hgVcs != null;
     vcsManager.setDirectoryMapping(root, HgVcs.VCS_NAME);
-    VirtualFile file = LocalFileSystem.getInstance().findFileByIoFile(new File(root));
-    HgRepository repository = HgUtil.getRepositoryManager(myProject).getRepositoryForRoot(file);
+    assertNotNull(LocalFileSystem.getInstance().refreshAndFindFileByIoFile(new File(root, DOT_HG)));
+
+    HgRepository repository =
+      HgUtil.getRepositoryManager(myProject).getRepositoryForRoot(LocalFileSystem.getInstance().findFileByIoFile(new File(root)));
     assertNotNull("Couldn't find repository for root " + root, repository);
     return repository;
+  }
+
+  @Override
+  protected void createAndCommitChanges(@NotNull Repository repository) {
+    cd(repository.getRoot());
+    touch("foo.txt");
+    hg("add foo.txt");
+    hg("commit -m another -u abc");
+    repository.update();
   }
 
   @NotNull
@@ -75,12 +75,6 @@ public class HgTaskBranchesTest extends TaskBranchesTest {
     if (!(repository instanceof HgRepository)) return 0;
     return ((HgRepository)repository).getOpenedBranches().size() +
            ((HgRepository)repository).getBookmarks().size();
-  }
-
-  @Override
-  protected void addFiles(@NotNull Project project, @NotNull VirtualFile root, @NotNull VirtualFile file) {
-    cd(root);
-    hg("add " + file.getPath());
   }
 }
 

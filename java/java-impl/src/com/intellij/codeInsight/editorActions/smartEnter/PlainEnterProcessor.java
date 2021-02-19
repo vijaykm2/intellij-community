@@ -32,19 +32,13 @@ import com.intellij.util.text.CharArrayUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Created by IntelliJ IDEA.
- * User: max
- * Date: Sep 5, 2003
- * Time: 10:54:59 PM
- * To change this template use Options | File Templates.
- */
 public class PlainEnterProcessor implements EnterProcessor {
   @Override
   public boolean doEnter(Editor editor, PsiElement psiElement, boolean isModified) {
     if (expandCodeBlock(editor, psiElement)) return true;
 
-    getEnterHandler(IdeActions.ACTION_EDITOR_START_NEW_LINE).execute(editor, ((EditorEx)editor).getDataContext());
+    getEnterHandler(IdeActions.ACTION_EDITOR_START_NEW_LINE).execute(editor, editor.getCaretModel().getCurrentCaret(),
+                                                                     ((EditorEx)editor).getDataContext());
     return true;
   }
 
@@ -73,7 +67,7 @@ public class PlainEnterProcessor implements EnterProcessor {
     editor.getCaretModel().moveToOffset(firstElement != null ?
                                         firstElement.getTextRange().getStartOffset() :
                                         block.getTextRange().getEndOffset());
-    enterHandler.execute(editor, ((EditorEx)editor).getDataContext());
+    enterHandler.execute(editor, editor.getCaretModel().getCurrentCaret(), ((EditorEx)editor).getDataContext());
     return true;
   }
 
@@ -94,9 +88,17 @@ public class PlainEnterProcessor implements EnterProcessor {
       return ((PsiTryStatement)element).getFinallyBlock();
     }
 
+    if (element instanceof PsiSynchronizedStatement) {
+      return ((PsiSynchronizedStatement)element).getBody();
+    }
+
     if (element instanceof PsiMethod) {
       PsiCodeBlock methodBody = ((PsiMethod)element).getBody();
       if (methodBody != null) return methodBody;
+    }
+
+    if (element instanceof PsiSwitchStatement) {
+      return ((PsiSwitchStatement)element).getBody();
     }
 
     PsiStatement body = null;
@@ -136,9 +138,9 @@ public class PlainEnterProcessor implements EnterProcessor {
    * @param editor      target editor
    * @param codeBlock   target code block to which new empty line is going to be inserted
    * @param element     target element under caret
-   * @return            <code>true</code> if it was found out that the given code block starts with the empty line and caret
+   * @return            {@code true} if it was found out that the given code block starts with the empty line and caret
    *                    is pointed to correct position there, i.e. no additional processing is required;
-   *                    <code>false</code> otherwise
+   *                    {@code false} otherwise
    */
   private static boolean processExistingBlankLine(@NotNull Editor editor, @Nullable PsiCodeBlock codeBlock, @Nullable PsiElement element) {
     PsiWhiteSpace whiteSpace = null;
@@ -190,16 +192,7 @@ public class PlainEnterProcessor implements EnterProcessor {
     EditorActionManager actionManager = EditorActionManager.getInstance();
     EditorActionHandler actionHandler = actionManager.getActionHandler(IdeActions.ACTION_EDITOR_MOVE_LINE_END);
     final DataContext dataContext = DataManager.getInstance().getDataContext(editor.getComponent());
-    if (dataContext == null) {
-      i = CharArrayUtil.shiftForwardUntil(whiteSpaceText, i, "\n");
-      if (i >= whiteSpaceText.length()) {
-        i = whiteSpaceText.length();
-      }
-      editor.getCaretModel().moveToOffset(i + textRange.getStartOffset());
-    }
-    else {
-      actionHandler.execute(editor, dataContext);
-    }
+    actionHandler.execute(editor, editor.getCaretModel().getCurrentCaret(), dataContext);
     return  true;
   }
 }

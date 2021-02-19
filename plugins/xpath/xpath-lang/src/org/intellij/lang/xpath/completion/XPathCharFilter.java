@@ -6,11 +6,6 @@ import com.intellij.codeInsight.lookup.LookupElement;
 import org.intellij.lang.xpath.XPathFile;
 import org.jetbrains.annotations.Nullable;
 
-/*
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 03.09.13
- */
 public class XPathCharFilter extends CharFilter {
   @Nullable
   @Override
@@ -22,7 +17,7 @@ public class XPathCharFilter extends CharFilter {
       // could be an XML file during XML autocompletion
 
       final LookupElement item = lookup.getCurrentItem();
-      if (item == null || !(item.getObject() instanceof org.intellij.lang.xpath.completion.Lookup)) {
+      if (!(item instanceof AbstractLookup)) {
         // current completion item isn't something XPath related, continue with other handlers
         return null;
       }

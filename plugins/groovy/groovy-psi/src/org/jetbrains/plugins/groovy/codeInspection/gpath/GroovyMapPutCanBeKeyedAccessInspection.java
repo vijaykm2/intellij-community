@@ -22,9 +22,9 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.util.IncorrectOperationException;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
@@ -40,23 +40,9 @@ public class GroovyMapPutCanBeKeyedAccessInspection extends BaseInspection {
   private final ReplaceWithPropertyAccessFix fix = new ReplaceWithPropertyAccessFix();
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return GPATH;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Call to Map.put can be keyed access";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "Call to '#ref' can be keyed access #loc";
+    return GroovyBundle.message("inspection.message.call.to.ref.can.be.keyed.access");
   }
 
   @NotNull
@@ -74,18 +60,17 @@ public class GroovyMapPutCanBeKeyedAccessInspection extends BaseInspection {
 
     @Override
     @NotNull
-    public String getName() {
-      return "Replace with keyed access";
+    public String getFamilyName() {
+      return GroovyBundle.message("intention.family.name.replace.with.keyed.access");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
+    public void doFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor)
         throws IncorrectOperationException {
       final PsiElement referenceName = descriptor.getPsiElement();
       final GrReferenceExpression invokedExpression = (GrReferenceExpression) referenceName.getParent();
       final GrMethodCallExpression callExpression = (GrMethodCallExpression) invokedExpression.getParent();
       final GrArgumentList argumentList = callExpression.getArgumentList();
-      assert argumentList != null;
       final GrExpression[] args = argumentList.getExpressionArguments();
       replaceExpression(callExpression, invokedExpression.getQualifierExpression().getText() +
           '[' + args[0].getText() + "]=" + args[1].getText());
@@ -94,12 +79,9 @@ public class GroovyMapPutCanBeKeyedAccessInspection extends BaseInspection {
 
   private static class Visitor extends BaseInspectionVisitor {
     @Override
-    public void visitMethodCallExpression(GrMethodCallExpression grMethodCallExpression) {
+    public void visitMethodCallExpression(@NotNull GrMethodCallExpression grMethodCallExpression) {
       super.visitMethodCallExpression(grMethodCallExpression);
       final GrArgumentList args = grMethodCallExpression.getArgumentList();
-      if (args == null) {
-        return;
-      }
       if (args.getExpressionArguments().length != 2) {
         return;
       }

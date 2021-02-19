@@ -1,40 +1,30 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.profile.codeInspection.ui.filter;
 
 import com.intellij.codeInspection.ex.GlobalInspectionToolWrapper;
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
 import com.intellij.codeInspection.ex.ScopeToolState;
 import com.intellij.codeInspection.ex.Tools;
+import com.intellij.lang.Language;
+import com.intellij.lang.MetaLanguage;
 import com.intellij.lang.annotation.HighlightSeverity;
-import com.intellij.util.containers.HashSet;
+import com.intellij.profile.codeInspection.ui.inspectionsTree.InspectionConfigTreeNode;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashSet;
 import java.util.Set;
 
 /**
  * @author Dmitry Batkovich
  */
 public abstract class InspectionsFilter {
-
-  private final Set<HighlightSeverity> mySuitableSeverities = new HashSet<HighlightSeverity>();
-  private final Set<String> mySuitableLanguageIds = new HashSet<String>();
+  private final Set<HighlightSeverity> mySuitableSeverities = new HashSet<>();
+  private final Set<Language> mySuitableLanguages = new HashSet<>();
   private Boolean mySuitableInspectionsStates;
   private boolean myAvailableOnlyForAnalyze;
   private boolean myShowOnlyCleanupInspections;
+  private boolean myShowOnlyModifiedInspections;
 
   public boolean isAvailableOnlyForAnalyze() {
     return myAvailableOnlyForAnalyze;
@@ -52,12 +42,17 @@ public abstract class InspectionsFilter {
     return mySuitableSeverities.contains(severity);
   }
 
-  public boolean containsLanguageId(final String languageId) {
-    return mySuitableLanguageIds.contains(languageId);
+  public boolean containsLanguage(final Language  language) {
+    return mySuitableLanguages.contains(language);
   }
 
   public void setShowOnlyCleanupInspections(final boolean showOnlyCleanupInspections) {
     myShowOnlyCleanupInspections = showOnlyCleanupInspections;
+    filterChanged();
+  }
+
+  public void setShowOnlyModifiedInspections(boolean showOnlyModifiedInspections) {
+    myShowOnlyModifiedInspections = showOnlyModifiedInspections;
     filterChanged();
   }
 
@@ -81,13 +76,13 @@ public abstract class InspectionsFilter {
     filterChanged();
   }
 
-  public void addLanguageId(String languageId) {
-    mySuitableLanguageIds.add(languageId);
+  public void addLanguage(Language language) {
+    mySuitableLanguages.add(language);
     filterChanged();
   }
 
-  public void removeLanguageId(String languageId) {
-    mySuitableLanguageIds.remove(languageId);
+  public void removeLanguage(Language language) {
+    mySuitableLanguages.remove(language);
     filterChanged();
   }
 
@@ -95,8 +90,9 @@ public abstract class InspectionsFilter {
     mySuitableInspectionsStates = null;
     myAvailableOnlyForAnalyze = false;
     myShowOnlyCleanupInspections = false;
+    myShowOnlyModifiedInspections = false;
     mySuitableSeverities.clear();
-    mySuitableLanguageIds.clear();
+    mySuitableLanguages.clear();
     filterChanged();
   }
 
@@ -104,11 +100,12 @@ public abstract class InspectionsFilter {
     return mySuitableInspectionsStates == null
            && !myAvailableOnlyForAnalyze
            && !myShowOnlyCleanupInspections
+           && !myShowOnlyModifiedInspections
            && mySuitableSeverities.isEmpty()
-           && mySuitableLanguageIds.isEmpty();
+           && mySuitableLanguages.isEmpty();
   }
 
-  public boolean matches(final Tools tools) {
+  public boolean matches(@NotNull Tools tools, final InspectionConfigTreeNode node) {
     if (myShowOnlyCleanupInspections && !tools.getTool().isCleanupTool()) {
       return false;
     }
@@ -117,7 +114,7 @@ public abstract class InspectionsFilter {
       return false;
     }
 
-    if (myAvailableOnlyForAnalyze != isAvailableOnlyForAnalyze(tools)) {
+    if (myAvailableOnlyForAnalyze && !isAvailableOnlyForAnalyze(tools)) {
       return false;
     }
 
@@ -137,14 +134,32 @@ public abstract class InspectionsFilter {
       }
     }
 
-    final String languageId = tools.getDefaultState().getTool().getLanguage();
-    return mySuitableLanguageIds.isEmpty() || mySuitableLanguageIds.contains(languageId);
+    if (!mySuitableLanguages.isEmpty()) {
+      String languageId = tools.getDefaultState().getTool().getLanguage();
+      if (languageId != null) {
+        Language language = Language.findLanguageByID(languageId);
+        if (language instanceof MetaLanguage) {
+          if (((MetaLanguage)language).getMatchingLanguages().stream().noneMatch(mySuitableLanguages::contains)) return false;
+        }
+        else {
+          if (!mySuitableLanguages.contains(language)) return false;
+        }
+      }
+      else if (!mySuitableLanguages.contains(null)) {
+        return false;
+      }
+    }
+    return !myShowOnlyModifiedInspections || node.isProperSetting();
   }
 
   protected abstract void filterChanged();
 
-  private static boolean isAvailableOnlyForAnalyze(final Tools tools) {
-    final InspectionToolWrapper tool = tools.getTool();
+  private static boolean isAvailableOnlyForAnalyze(@NotNull Tools tools) {
+    InspectionToolWrapper<?, ?> tool = tools.getTool();
     return tool instanceof GlobalInspectionToolWrapper && ((GlobalInspectionToolWrapper)tool).worksInBatchModeOnly();
+  }
+
+  public boolean isShowOnlyModifiedInspections() {
+    return myShowOnlyModifiedInspections;
   }
 }

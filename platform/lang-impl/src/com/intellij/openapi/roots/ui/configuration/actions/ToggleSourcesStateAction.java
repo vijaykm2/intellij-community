@@ -24,13 +24,14 @@ import com.intellij.openapi.roots.ui.configuration.ContentEntryEditor;
 import com.intellij.openapi.roots.ui.configuration.ContentEntryTreeEditor;
 import com.intellij.openapi.roots.ui.configuration.ModuleSourceRootEditHandler;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.model.JpsElement;
 
 import javax.swing.*;
+import java.util.Locale;
 
 /**
  * @author Eugene Zhuravlev
- * @since Oct 14, 2003
  */
 public class ToggleSourcesStateAction<P extends JpsElement> extends ContentEntryEditingAction {
   private final ContentEntryTreeEditor myEntryTreeEditor;
@@ -42,12 +43,13 @@ public class ToggleSourcesStateAction<P extends JpsElement> extends ContentEntry
     myEditHandler = editHandler;
     final Presentation templatePresentation = getTemplatePresentation();
     templatePresentation.setText(editHandler.getMarkRootButtonText());
-    templatePresentation.setDescription(ProjectBundle.message("module.toggle.sources.action.description", editHandler.getRootTypeName()));
+    templatePresentation.setDescription(ProjectBundle.messagePointer("module.toggle.sources.action.description",
+                                                              editHandler.getFullRootTypeName().toLowerCase(Locale.getDefault())));
     templatePresentation.setIcon(editHandler.getRootIcon());
   }
 
   @Override
-  public boolean isSelected(final AnActionEvent e) {
+  public boolean isSelected(@NotNull final AnActionEvent e) {
     final VirtualFile[] selectedFiles = getSelectedFiles();
     if (selectedFiles.length == 0) return false;
 
@@ -56,7 +58,7 @@ public class ToggleSourcesStateAction<P extends JpsElement> extends ContentEntry
   }
 
   @Override
-  public void setSelected(final AnActionEvent e, final boolean isSelected) {
+  public void setSelected(@NotNull final AnActionEvent e, final boolean isSelected) {
     final VirtualFile[] selectedFiles = getSelectedFiles();
     assert selectedFiles.length != 0;
 

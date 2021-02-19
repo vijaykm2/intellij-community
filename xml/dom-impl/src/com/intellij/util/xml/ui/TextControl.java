@@ -25,8 +25,8 @@ import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFileFactory;
 import com.intellij.ui.EditorTextField;
 import com.intellij.ui.ReferenceEditorWithBrowseButton;
-import com.intellij.ui.UIBundle;
 import com.intellij.util.Function;
+import com.intellij.util.xml.XmlDomBundle;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -62,17 +62,12 @@ public class TextControl extends EditorTextFieldControl<TextPanel> {
       boundedComponent = new TextPanel();
     }
     boundedComponent.removeAll();
-    final Function<String, Document> factory = new Function<String, Document>() {
-      @Override
-      public Document fun(final String s) {
-        return PsiDocumentManager.getInstance(project)
-        .getDocument(PsiFileFactory.getInstance(project).createFileFromText("a.txt", PlainTextLanguage.INSTANCE, "", true, false));
-      }
-    };
+    final Function<String, Document> factory = s -> PsiDocumentManager.getInstance(project)
+    .getDocument(PsiFileFactory.getInstance(project).createFileFromText("a.txt", PlainTextLanguage.INSTANCE, "", true, false));
     final TextPanel boundedComponent1 = boundedComponent;
     final EditorTextField editorTextField = new EditorTextField(factory.fun(""), project, FileTypes.PLAIN_TEXT) {
       @Override
-      protected EditorEx createEditor() {
+      protected @NotNull EditorEx createEditor() {
         final EditorEx editor = super.createEditor();
         return boundedComponent1 instanceof MultiLineTextPanel ? makeBigEditor(editor, ((MultiLineTextPanel)boundedComponent1).getRowCount()) : editor;
       }
@@ -90,7 +85,7 @@ public class TextControl extends EditorTextFieldControl<TextPanel> {
         public void actionPerformed(ActionEvent e) {
           EditorTextField textArea = new EditorTextField(editorTextField.getDocument(), project, FileTypes.PLAIN_TEXT) {
             @Override
-            protected EditorEx createEditor() {
+            protected @NotNull EditorEx createEditor() {
               final EditorEx editor = super.createEditor();
               editor.setEmbeddedIntoDialogWrapper(true);
               return makeBigEditor(editor, 5);
@@ -106,7 +101,7 @@ public class TextControl extends EditorTextFieldControl<TextPanel> {
           builder.setDimensionServiceKey("TextControl");
           builder.setCenterPanel(textArea);
           builder.setPreferredFocusComponent(textArea);
-          builder.setTitle(UIBundle.message("big.text.control.window.title"));
+          builder.setTitle(XmlDomBundle.message("big.text.control.window.title"));
           builder.addCloseButton();
           builder.show();
         }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,7 +32,6 @@ import com.intellij.refactoring.util.usageInfo.NoConstructorClassUsageInfo;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewUtil;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashSet;
 import org.jetbrains.plugins.groovy.GroovyLanguage;
 import org.jetbrains.plugins.groovy.lang.groovydoc.psi.api.GrDocTagValueToken;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrOpenBlock;
@@ -41,29 +40,28 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMe
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Set;
 
 /**
  * @author Maxim.Medvedev
  */
 class GrChageSignatureUsageSearcher {
+  private static final Logger LOG = Logger.getInstance(GrChageSignatureUsageSearcher.class);
+
   private final JavaChangeInfo myChangeInfo;
-  private static final Logger LOG =
-    Logger.getInstance("org.jetbrains.plugins.groovy.refactoring.changeSignature.GrChageSignatureUsageSearcher");
 
   GrChageSignatureUsageSearcher(JavaChangeInfo changeInfo) {
     this.myChangeInfo = changeInfo;
   }
 
   public UsageInfo[] findUsages() {
-    ArrayList<UsageInfo> result = new ArrayList<UsageInfo>();
-    final PsiElement element = myChangeInfo.getMethod();
-    if (element instanceof PsiMethod) {
-      final PsiMethod method = (PsiMethod)element;
-
+    ArrayList<UsageInfo> result = new ArrayList<>();
+    final PsiMethod method = myChangeInfo.getMethod();
+    if (method != null) {
       findSimpleUsages(method, result);
 
-      final UsageInfo[] usageInfos = result.toArray(new UsageInfo[result.size()]);
+      final UsageInfo[] usageInfos = result.toArray(UsageInfo.EMPTY_ARRAY);
       return UsageViewUtil.removeDuplicatedUsages(usageInfos);
     }
     return UsageInfo.EMPTY_ARRAY;
@@ -104,7 +102,7 @@ class GrChageSignatureUsageSearcher {
     if (!GroovyLanguage.INSTANCE.equals(method.getLanguage())) return;
 
     final PsiParameter[] parameters = method.getParameterList().getParameters();
-    final Set<PsiParameter> deletedOrRenamedParameters = new HashSet<PsiParameter>();
+    final Set<PsiParameter> deletedOrRenamedParameters = new HashSet<>();
     if (isOriginal) {
       ContainerUtil.addAll(deletedOrRenamedParameters, parameters);
       for (ParameterInfo parameterInfo : myChangeInfo.getNewParameters()) {
@@ -185,7 +183,7 @@ class GrChageSignatureUsageSearcher {
                                                         boolean isOriginal) {
 
     GlobalSearchScope projectScope = GlobalSearchScope.projectScope(method.getProject());
-    PsiMethod[] overridingMethods = OverridingMethodsSearch.search(method, true).toArray(PsiMethod.EMPTY_ARRAY);
+    PsiMethod[] overridingMethods = OverridingMethodsSearch.search(method).toArray(PsiMethod.EMPTY_ARRAY);
 
     for (PsiMethod overridingMethod : overridingMethods) {
       if (GroovyLanguage.INSTANCE.equals(overridingMethod.getLanguage())) {
@@ -274,9 +272,6 @@ class GrChageSignatureUsageSearcher {
       UsageInfo usageInfo = new ChangeSignatureParameterUsageInfo(parmRef, parameter.getName(), info.getName());
       results.add(usageInfo);
     }
-    if (info.getName() != parameter.getName()) {
-      
-    }
   }
 
   private boolean needToCatchExceptions(PsiMethod caller) {
@@ -292,7 +287,7 @@ class GrChageSignatureUsageSearcher {
     private final PsiElement myCollidingElement;
     private final PsiMethod myMethod;
 
-    public RenamedParameterCollidesWithLocalUsageInfo(PsiParameter parameter, PsiElement collidingElement, PsiMethod method) {
+    RenamedParameterCollidesWithLocalUsageInfo(PsiParameter parameter, PsiElement collidingElement, PsiMethod method) {
       super(parameter, collidingElement);
       myCollidingElement = collidingElement;
       myMethod = method;

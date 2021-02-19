@@ -21,8 +21,7 @@ import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.colors.EditorColors;
-import com.intellij.openapi.editor.colors.EditorColorsManager;
-import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.psi.PsiElement;
@@ -38,46 +37,37 @@ import java.util.List;
  * @author yole
  */
 public abstract class HighlightUsagesHandlerBase<T extends PsiElement> {
-  protected final Editor myEditor;
-  protected final PsiFile myFile;
+  @NotNull protected final Editor myEditor;
+  @NotNull protected final PsiFile myFile;
 
-  protected List<TextRange> myReadUsages = new ArrayList<TextRange>();
-  protected List<TextRange> myWriteUsages = new ArrayList<TextRange>();
-  protected String myStatusText;
-  protected String myHintText;
+  protected List<TextRange> myReadUsages = new ArrayList<>();
+  protected List<TextRange> myWriteUsages = new ArrayList<>();
+  protected @NlsContexts.StatusBarText String myStatusText;
+  protected @NlsContexts.HintText String myHintText;
 
-  protected HighlightUsagesHandlerBase(final Editor editor, final PsiFile file) {
+  protected HighlightUsagesHandlerBase(@NotNull Editor editor, @NotNull PsiFile file) {
     myEditor = editor;
     myFile = file;
   }
 
   public void highlightUsages() {
     List<T> targets = getTargets();
-    if (targets == null) {
-      return;
-    }
-    selectTargets(targets, new Consumer<List<T>>() {
-      @Override
-      public void consume(final List<T> targets) {
-        computeUsages(targets);
-        performHighlighting();
-      }
+    selectTargets(targets, targets1 -> {
+      computeUsages(targets1);
+      performHighlighting();
     });
   }
 
-  protected void performHighlighting() {
+  private void performHighlighting() {
     boolean clearHighlights = HighlightUsagesHandler.isClearHighlights(myEditor);
-    EditorColorsManager manager = EditorColorsManager.getInstance();
-    TextAttributes attributes = manager.getGlobalScheme().getAttributes(EditorColors.SEARCH_RESULT_ATTRIBUTES);
-    TextAttributes writeAttributes = manager.getGlobalScheme().getAttributes(EditorColors.WRITE_SEARCH_RESULT_ATTRIBUTES);
     HighlightUsagesHandler.highlightRanges(HighlightManager.getInstance(myEditor.getProject()),
-                                           myEditor, attributes, clearHighlights, myReadUsages);
+                                           myEditor, EditorColors.SEARCH_RESULT_ATTRIBUTES, clearHighlights, myReadUsages);
     HighlightUsagesHandler.highlightRanges(HighlightManager.getInstance(myEditor.getProject()),
-                                           myEditor, writeAttributes, clearHighlights, myWriteUsages);
+                                           myEditor, EditorColors.WRITE_SEARCH_RESULT_ATTRIBUTES, clearHighlights, myWriteUsages);
     if (!clearHighlights) {
-      WindowManager.getInstance().getStatusBar(myEditor.getProject()).setInfo(myStatusText);
+      WindowManager.getInstance().getStatusBar(myFile.getProject()).setInfo(myStatusText);
 
-      HighlightHandlerBase.setupFindModel(myEditor.getProject()); // enable f3 navigation
+      HighlightHandlerBase.setupFindModel(myFile.getProject()); // enable f3 navigation
     }
     if (myHintText != null) {
       HintManager.getInstance().showInformationHint(myEditor, myHintText);
@@ -98,6 +88,7 @@ public abstract class HighlightUsagesHandlerBase<T extends PsiElement> {
     }
   }
 
+  @NotNull
   public abstract List<T> getTargets();
 
   @Nullable
@@ -105,9 +96,9 @@ public abstract class HighlightUsagesHandlerBase<T extends PsiElement> {
     return null;
   }
 
-  protected abstract void selectTargets(List<T> targets, Consumer<List<T>> selectionConsumer);
+  protected abstract void selectTargets(@NotNull List<? extends T> targets, @NotNull Consumer<? super List<? extends T>> selectionConsumer);
 
-  public abstract void computeUsages(List<T> targets);
+  public abstract void computeUsages(@NotNull List<? extends T> targets);
 
   protected void addOccurrence(@NotNull PsiElement element) {
     TextRange range = element.getTextRange();
@@ -123,5 +114,13 @@ public abstract class HighlightUsagesHandlerBase<T extends PsiElement> {
 
   public List<TextRange> getWriteUsages() {
     return myWriteUsages;
+  }
+
+  /**
+   * In case of egoistic handler (highlightReferences = false) IdentifierHighlighterPass applies information only from this particular handler.
+   * Otherwise additional information would be collected from reference search as well. 
+   */
+  public boolean highlightReferences() {
+    return false;
   }
 }

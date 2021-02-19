@@ -55,6 +55,7 @@ csv
 ctypes
 curses
 datetime
+dataclasses
 dbhash
 dbm
 decimal
@@ -73,6 +74,7 @@ ensurepip
 enum
 errno
 exceptions
+faulthandler
 fcntl
 filecmp
 fileinput
@@ -113,6 +115,7 @@ importlib
 imputil
 inspect
 io
+ipaddress
 itertools
 json
 keyword
@@ -136,6 +139,8 @@ MimeWriter
 mimify
 mmap
 modulefinder
+msilib
+msvcrt
 multifile
 multiprocessing
 mutex
@@ -197,6 +202,7 @@ rlcompleter
 robotparser
 runpy
 sched
+secrets
 select
 selectors
 sets
@@ -265,6 +271,7 @@ tty
 turtle
 turtledemo
 types
+typing
 tzparse
 unicodedata
 unittest
@@ -281,6 +288,8 @@ warnings
 wave
 weakref
 webbrowser
+winreg
+winsound
 whichdb
 whrandom
 wsgiref
@@ -290,6 +299,7 @@ xmllib
 xmlrpc
 xmlrpclib
 xxsubtype
+zipapp
 zipfile
 zipimport
 zlib

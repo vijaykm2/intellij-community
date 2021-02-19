@@ -16,7 +16,9 @@
 package org.intellij.plugins.intelliLang.references;
 
 import com.intellij.codeInspection.LocalInspectionTool;
+import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiReference;
@@ -24,7 +26,6 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 05.08.13
  */
 public class InjectedReferencesInspection extends LocalInspectionTool {
 
@@ -33,13 +34,20 @@ public class InjectedReferencesInspection extends LocalInspectionTool {
   public PsiElementVisitor buildVisitor(@NotNull final ProblemsHolder holder, boolean isOnTheFly) {
     return new PsiElementVisitor() {
       @Override
-      public void visitElement(PsiElement element) {
+      public void visitElement(@NotNull PsiElement element) {
 
         PsiReference[] injected = InjectedReferencesContributor.getInjectedReferences(element);
         if (injected != null) {
           for (PsiReference reference : injected) {
             if (reference.resolve() == null) {
-              holder.registerProblem(reference);
+              TextRange range = reference.getRangeInElement();
+              if (range.isEmpty() && range.getStartOffset() == 1 && "\"\"".equals(element.getText())) {
+                String message = ProblemsHolder.unresolvedReferenceMessage(reference);
+                holder.registerProblem(element, message, ProblemHighlightType.LIKE_UNKNOWN_SYMBOL, TextRange.create(0, 2));
+              }
+              else {
+                holder.registerProblem(reference);
+              }
             }
           }
         }

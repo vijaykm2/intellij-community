@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2013 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,37 +26,48 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
-import com.intellij.util.IncorrectOperationException;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.InspectionGadgetsBundle;
+import com.siyeh.ig.BaseInspection;
+import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.fixes.SuppressForTestsScopeFix;
+import com.siyeh.ig.psiutils.ExceptionUtils;
+import com.siyeh.ig.psiutils.TypeUtils;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
-public class TooBroadCatchInspection extends TooBroadCatchInspectionBase {
+public class TooBroadCatchInspection extends BaseInspection {
 
-  @NotNull
+  @SuppressWarnings({"PublicField"})
+  public boolean onlyWarnOnRootExceptions = false;
+  @SuppressWarnings({"PublicField", "UnusedDeclaration"})
+  public boolean ignoreInTestCode = false; // keep for compatibility
+  @SuppressWarnings("PublicField")
+  public boolean ignoreThrown = false;
+
   @Override
-  protected InspectionGadgetsFix[] buildFixes(Object... infos) {
-    final List<PsiClass> maskedTypes = (List<PsiClass>)infos[0];
-    final List<InspectionGadgetsFix> fixes = new ArrayList();
-    for (PsiClass thrown : maskedTypes) {
-      if (CommonClassNames.JAVA_LANG_RUNTIME_EXCEPTION.equals(maskedTypes.get(0).getQualifiedName())) {
+  protected InspectionGadgetsFix @NotNull [] buildFixes(Object... infos) {
+    final PsiElement context = (PsiElement)infos[1];
+    final SmartTypePointerManager pointerManager = SmartTypePointerManager.getInstance(context.getProject());
+    final List<PsiType> maskedTypes = (List<PsiType>)infos[0];
+    final List<InspectionGadgetsFix> fixes = new ArrayList<>();
+    for (PsiType thrown : maskedTypes) {
+      final String typeText = thrown.getCanonicalText();
+      if (CommonClassNames.JAVA_LANG_RUNTIME_EXCEPTION.equals(typeText)) {
         fixes.add(new ReplaceWithRuntimeExceptionFix());
       }
       else {
-        fixes.add(new AddCatchSectionFix(thrown));
+        fixes.add(new AddCatchSectionFix(pointerManager.createSmartTypePointer(thrown), typeText));
       }
     }
-    final PsiElement context = (PsiElement)infos[1];
     final InspectionGadgetsFix fix = SuppressForTestsScopeFix.build(this, context);
     if (fix != null) {
       fixes.add(fix);
     }
-    return fixes.toArray(new InspectionGadgetsFix[fixes.size()]);
+    return fixes.toArray(InspectionGadgetsFix.EMPTY_ARRAY);
   }
 
   @Override
@@ -67,17 +78,42 @@ public class TooBroadCatchInspection extends TooBroadCatchInspectionBase {
     return panel;
   }
 
+  @Override
+  @NotNull
+  public String getID() {
+    return "OverlyBroadCatchBlock";
+  }
+
+  @Override
+  @NotNull
+  protected String buildErrorString(Object... infos) {
+    final List<PsiType> typesMasked = (List<PsiType>)infos[0];
+    String typesMaskedString = typesMasked.get(0).getPresentableText();
+    if (typesMasked.size() == 1) {
+      return InspectionGadgetsBundle.message("too.broad.catch.problem.descriptor", typesMaskedString);
+    }
+    else {
+      //Collections.sort(typesMasked);
+      final int lastTypeIndex = typesMasked.size() - 1;
+      for (int i = 1; i < lastTypeIndex; i++) {
+        typesMaskedString += ", ";
+        typesMaskedString += typesMasked.get(i).getPresentableText();
+      }
+      final String lastTypeString = typesMasked.get(lastTypeIndex).getPresentableText();
+      return InspectionGadgetsBundle.message("too.broad.catch.problem.descriptor1", typesMaskedString, lastTypeString);
+    }
+  }
+
+  @Override
+  public BaseInspectionVisitor buildVisitor() {
+    return new TooBroadCatchVisitor();
+  }
+
   private static class ReplaceWithRuntimeExceptionFix extends InspectionGadgetsFix {
     @NotNull
     @Override
-    public String getName() {
-      return InspectionGadgetsBundle.message("replace.with.catch.clause.for.runtime.exception.quickfix");
-    }
-
-    @NotNull
-    @Override
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("replace.with.catch.clause.for.runtime.exception.quickfix");
     }
 
     @Override
@@ -95,13 +131,13 @@ public class TooBroadCatchInspection extends TooBroadCatchInspectionBase {
   }
 
   private static class AddCatchSectionFix extends InspectionGadgetsFix {
-
-    private final SmartPsiElementPointer<PsiClass> myThrown;
+    @SafeFieldForPreview
+    private final SmartTypePointer myThrown;
     private final String myText;
 
-    AddCatchSectionFix(PsiClass thrown) {
-      myThrown = SmartPointerManager.getInstance(thrown.getProject()).createSmartPsiElementPointer(thrown);
-      myText = thrown.getName();
+    AddCatchSectionFix(SmartTypePointer thrown, String typeText) {
+      myThrown = thrown;
+      myText = typeText;
     }
 
     @Override
@@ -113,11 +149,15 @@ public class TooBroadCatchInspection extends TooBroadCatchInspectionBase {
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Add 'catch' clause";
+      return InspectionGadgetsBundle.message("add.catch.section.fix.family.name");
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
+      final PsiType thrownType = myThrown.getType();
+      if (thrownType == null) {
+        return;
+      }
       final PsiElement typeElement = descriptor.getPsiElement();
       if (typeElement == null) {
         return;
@@ -135,11 +175,7 @@ public class TooBroadCatchInspection extends TooBroadCatchInspectionBase {
       final JavaCodeStyleManager codeStyleManager = JavaCodeStyleManager.getInstance(project);
       final String name = codeStyleManager.suggestUniqueVariableName("e", myTryStatement.getTryBlock(), false);
       final PsiElementFactory factory = JavaPsiFacade.getInstance(project).getElementFactory();
-      final PsiClass aClass = myThrown.getElement();
-      if (aClass == null) {
-        return;
-      }
-      final PsiCatchSection section = factory.createCatchSection(factory.createType(aClass), name, myTryStatement);
+      final PsiCatchSection section = factory.createCatchSection(thrownType, name, myTryStatement);
       final PsiCatchSection element = (PsiCatchSection)myTryStatement.addBefore(section, myBeforeCatchSection);
       codeStyleManager.shortenClassReferences(element);
 
@@ -160,6 +196,84 @@ public class TooBroadCatchInspection extends TooBroadCatchInspectionBase {
         editor.getScrollingModel().scrollToCaret(ScrollType.RELATIVE);
         editor.getSelectionModel().setSelection(range.getStartOffset(), range.getEndOffset());
       }
+    }
+  }
+
+  private class TooBroadCatchVisitor extends BaseInspectionVisitor {
+
+    @Override
+    public void visitTryStatement(@NotNull PsiTryStatement statement) {
+      super.visitTryStatement(statement);
+      final PsiCodeBlock tryBlock = statement.getTryBlock();
+      if (tryBlock == null) {
+        return;
+      }
+      final Set<PsiClassType> thrownTypes = ExceptionUtils.calculateExceptionsThrown(tryBlock);
+      ExceptionUtils.calculateExceptionsThrown(statement.getResourceList(), thrownTypes);
+      final Set<PsiType> caughtTypes = new HashSet<>(thrownTypes.size());
+      final PsiCatchSection[] catchSections = statement.getCatchSections();
+      boolean runtimeExceptionSeen = false;
+      for (final PsiCatchSection catchSection : catchSections) {
+        final PsiParameter parameter = catchSection.getParameter();
+        if (parameter == null) {
+          continue;
+        }
+        final PsiTypeElement typeElement = parameter.getTypeElement();
+        if (typeElement == null) {
+          continue;
+        }
+        final PsiTypeElement[] children = PsiTreeUtil.getChildrenOfType(typeElement, PsiTypeElement.class);
+        if (children != null) {
+          for (PsiTypeElement child : children) {
+            runtimeExceptionSeen = check(thrownTypes, child, runtimeExceptionSeen, caughtTypes);
+          }
+        }
+        else {
+          runtimeExceptionSeen = check(thrownTypes, typeElement, runtimeExceptionSeen, caughtTypes);
+        }
+      }
+    }
+
+    private boolean check(Set<? extends PsiClassType> thrownTypes, PsiTypeElement caughtTypeElement, boolean runtimeExceptionSeen, Set<? super PsiType> caughtTypes) {
+      final PsiType caughtType = caughtTypeElement.getType();
+      if (CommonClassNames.JAVA_LANG_RUNTIME_EXCEPTION.equals(caughtType.getCanonicalText())) {
+        runtimeExceptionSeen = true;
+      }
+      else if (thrownTypes.isEmpty() && CommonClassNames.JAVA_LANG_EXCEPTION.equals(caughtType.getCanonicalText())) {
+        if (!runtimeExceptionSeen) {
+          final PsiClassType runtimeExceptionType = TypeUtils.getType(CommonClassNames.JAVA_LANG_RUNTIME_EXCEPTION, caughtTypeElement);
+          registerError(caughtTypeElement, Collections.singletonList(runtimeExceptionType), caughtTypeElement);
+        }
+      }
+      final List<PsiType> maskedExceptions = findMaskedExceptions(thrownTypes, caughtType, caughtTypes);
+      if (maskedExceptions.isEmpty()) {
+        return runtimeExceptionSeen;
+      }
+      registerError(caughtTypeElement, maskedExceptions, caughtTypeElement);
+      return runtimeExceptionSeen;
+    }
+
+    private List<PsiType> findMaskedExceptions(Set<? extends PsiClassType> thrownTypes, PsiType caughtType, Set<? super PsiType> caughtTypes) {
+      if (thrownTypes.contains(caughtType)) {
+        caughtTypes.add(caughtType);
+        thrownTypes.remove(caughtType);
+        if (ignoreThrown) {
+          return Collections.emptyList();
+        }
+      }
+      if (onlyWarnOnRootExceptions) {
+        if (!ExceptionUtils.isGenericExceptionClass(caughtType)) {
+          return Collections.emptyList();
+        }
+      }
+      final List<PsiType> maskedTypes = new ArrayList<>();
+      for (PsiType typeThrown : thrownTypes) {
+        if (!caughtTypes.contains(typeThrown) && caughtType.isAssignableFrom(typeThrown)) {
+          caughtTypes.add(typeThrown);
+          maskedTypes.add(typeThrown);
+        }
+      }
+      return maskedTypes;
     }
   }
 }

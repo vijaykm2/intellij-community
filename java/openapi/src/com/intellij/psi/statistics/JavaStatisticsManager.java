@@ -1,38 +1,26 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.statistics;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.VariableKind;
 import com.intellij.psi.util.TypeConversionUtil;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * @author yole
  */
 public abstract class JavaStatisticsManager {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.statistics.JavaStatisticsManager");
+  private static final Logger LOG = Logger.getInstance(JavaStatisticsManager.class);
   @NonNls public static final String CLASS_PREFIX = "class#";
 
+  @NotNull
   private static StatisticsInfo createVariableUseInfo(final String name, final VariableKind variableKind,
                                                       final String propertyName,
                                                       final PsiType type) {
@@ -41,6 +29,7 @@ public abstract class JavaStatisticsManager {
     return new StatisticsInfo(key1, key2);
   }
 
+  @NotNull
   private static String getVariableNameUseKey1(String propertyName, PsiType type) {
     @NonNls StringBuilder buffer = new StringBuilder();
     buffer.append("variableName#");
@@ -54,62 +43,63 @@ public abstract class JavaStatisticsManager {
     return buffer.toString();
   }
 
+  @NotNull
   private static String getVariableNameUseKey2(VariableKind kind, String name) {
-    StringBuilder buffer = new StringBuilder();
-    buffer.append(kind);
-    buffer.append("#");
-    buffer.append(name);
-    return buffer.toString();
+    return kind + "#" + name;
   }
 
   public static int getVariableNameUseCount(String name, VariableKind variableKind, String propertyName, PsiType type) {
-    return createVariableUseInfo(name, variableKind, propertyName, type).getUseCount();
+    return StatisticsManager.getInstance().getUseCount(createVariableUseInfo(name, variableKind, propertyName, type));
   }
 
   public static void incVariableNameUseCount(String name, VariableKind variableKind, String propertyName, PsiType type) {
-    createVariableUseInfo(name, variableKind, propertyName, type).incUseCount();
+    StatisticsManager.getInstance().incUseCount(createVariableUseInfo(name, variableKind, propertyName, type));
   }
 
   @Nullable
-  public static String getName(String key2){
-    final int startIndex = key2.indexOf("#");
+  public static String getName(@NotNull String key2){
+    final int startIndex = key2.indexOf('#');
     LOG.assertTrue(startIndex >= 0);
     @NonNls String s = key2.substring(0, startIndex);
     if(!"variableName".equals(s)) return null;
-    final int index = key2.indexOf("#", startIndex + 1);
+    final int index = key2.indexOf('#', startIndex + 1);
     LOG.assertTrue(index >= 0);
     return key2.substring(index + 1);
   }
 
-  private static VariableKind getVariableKindFromKey2(String key2){
-    int index = key2.indexOf("#");
+  @NotNull
+  private static VariableKind getVariableKindFromKey2(@NotNull String key2){
+    int index = key2.indexOf('#');
     LOG.assertTrue(index >= 0);
     String s = key2.substring(0, index);
     return VariableKind.valueOf(s);
   }
 
-  private static String getVariableNameFromKey2(String key2){
-    int index = key2.indexOf("#");
+  @NotNull
+  private static String getVariableNameFromKey2(@NotNull String key2){
+    int index = key2.indexOf('#');
     LOG.assertTrue(index >= 0);
     return key2.substring(index + 1);
   }
 
-  @NonNls @NotNull
+  @NonNls
+  @NotNull
   public static String getMemberUseKey1(@Nullable PsiType qualifierType) {
     qualifierType = TypeConversionUtil.erasure(qualifierType);
     return "member#" + (qualifierType == null ? "" : qualifierType.getCanonicalText());
   }
 
   @NonNls
-  public static String getMemberUseKey2(PsiMember member) {
+  @NotNull
+  public static String getMemberUseKey2(@NotNull PsiMember member) {
     if (member instanceof PsiMethod){
       PsiMethod method = (PsiMethod)member;
       @NonNls StringBuilder buffer = new StringBuilder();
       buffer.append("method#");
       buffer.append(method.getName());
-      for (PsiParameter parm : method.getParameterList().getParameters()) {
+      for (PsiParameter param : method.getParameterList().getParameters()) {
         buffer.append("#");
-        buffer.append(parm.getType().getPresentableText());
+        buffer.append(param.getType().getPresentableText());
       }
       return buffer.toString();
     }
@@ -118,17 +108,21 @@ public abstract class JavaStatisticsManager {
       return "field#" + member.getName();
     }
 
+    if (member instanceof PsiRecordComponent) {
+      return "record#" + member.getName();
+    }
     return CLASS_PREFIX + ((PsiClass)member).getQualifiedName();
   }
 
-  public static StatisticsInfo createInfo(@Nullable final PsiType qualifierType, final PsiMember member) {
+  @NotNull
+  public static StatisticsInfo createInfo(@Nullable final PsiType qualifierType, @NotNull PsiMember member) {
     return new StatisticsInfo(getMemberUseKey1(qualifierType), getMemberUseKey2(member));
   }
 
-  public static String[] getAllVariableNamesUsed(VariableKind variableKind, String propertyName, PsiType type) {
+  public static String @NotNull [] getAllVariableNamesUsed(VariableKind variableKind, String propertyName, PsiType type) {
     StatisticsInfo[] keys2 = StatisticsManager.getInstance().getAllValues(getVariableNameUseKey1(propertyName, type));
 
-    ArrayList<String> list = new ArrayList<String>();
+    List<String> list = new ArrayList<>();
 
     for (StatisticsInfo key2 : keys2) {
       VariableKind variableKind1 = getVariableKindFromKey2(key2.getValue());
@@ -137,9 +131,10 @@ public abstract class JavaStatisticsManager {
       list.add(name);
     }
 
-    return ArrayUtil.toStringArray(list);
+    return ArrayUtilRt.toStringArray(list);
   }
 
+  @NotNull @NonNls
   public static String getAfterNewKey(@Nullable PsiType expectedType) {
     return getMemberUseKey1(expectedType) + "###smartAfterNew";
   }

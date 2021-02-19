@@ -16,50 +16,45 @@
 package com.intellij.diff.chains;
 
 import com.intellij.diff.requests.DiffRequest;
+import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.util.UserDataHolder;
-import com.intellij.openapi.util.UserDataHolderBase;
-import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
 import java.util.List;
 
-public class SimpleDiffRequestChain extends UserDataHolderBase implements DiffRequestChain {
-  @NotNull private final List<DiffRequestProducerWrapper> myRequests;
-  private int myIndex = 0;
+public class SimpleDiffRequestChain extends DiffRequestChainBase {
+  @NotNull private final List<? extends DiffRequestProducer> myRequests;
 
   public SimpleDiffRequestChain(@NotNull DiffRequest request) {
     this(Collections.singletonList(request));
   }
 
   public SimpleDiffRequestChain(@NotNull List<? extends DiffRequest> requests) {
-    myRequests = ContainerUtil.map(requests, new Function<DiffRequest, DiffRequestProducerWrapper>() {
-      @Override
-      public DiffRequestProducerWrapper fun(DiffRequest request) {
-        return new DiffRequestProducerWrapper(request);
-      }
-    });
+    myRequests = ContainerUtil.map(requests, request -> new DiffRequestProducerWrapper(request));
+  }
+
+  private SimpleDiffRequestChain(@NotNull List<? extends DiffRequestProducer> requests, @Nullable Object constructorFlag) {
+    assert constructorFlag == null;
+    myRequests = requests;
+  }
+
+  public static SimpleDiffRequestChain fromProducer(@NotNull DiffRequestProducer producer) {
+    return fromProducers(Collections.singletonList(producer));
+  }
+
+  public static SimpleDiffRequestChain fromProducers(@NotNull List<? extends DiffRequestProducer> producers) {
+    return new SimpleDiffRequestChain(producers, null);
   }
 
   @Override
   @NotNull
-  public List<DiffRequestProducerWrapper> getRequests() {
+  public List<? extends DiffRequestProducer> getRequests() {
     return myRequests;
-  }
-
-  @Override
-  public int getIndex() {
-    return myIndex;
-  }
-
-  @Override
-  public void setIndex(int index) {
-    assert index >= 0 && index < myRequests.size();
-    myIndex = index;
   }
 
   public static class DiffRequestProducerWrapper implements DiffRequestProducer {
@@ -77,13 +72,15 @@ public class SimpleDiffRequestChain extends UserDataHolderBase implements DiffRe
     @NotNull
     @Override
     public String getName() {
-      return StringUtil.notNullize(myRequest.getTitle(), "Change");
+      String title = myRequest.getTitle();
+      if (title != null) return title;
+      return DiffBundle.message("diff.files.generic.request.title");
     }
 
     @NotNull
     @Override
     public DiffRequest process(@NotNull UserDataHolder context, @NotNull ProgressIndicator indicator)
-      throws DiffRequestProducerException, ProcessCanceledException {
+      throws ProcessCanceledException {
       return myRequest;
     }
   }

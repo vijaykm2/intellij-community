@@ -1,28 +1,42 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.bugzilla;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Version;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.tasks.*;
+import com.intellij.tasks.CustomTaskState;
+import com.intellij.tasks.LocalTask;
+import com.intellij.tasks.Task;
+import com.intellij.tasks.TaskBundle;
+import com.intellij.tasks.TaskRepositoryType;
 import com.intellij.tasks.impl.BaseRepository;
 import com.intellij.tasks.impl.BaseRepositoryImpl;
 import com.intellij.tasks.impl.RequestFailedException;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.xmlb.annotations.Tag;
-import org.apache.xmlrpc.*;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Hashtable;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.Vector;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import org.apache.xmlrpc.CommonsXmlRpcTransport;
+import org.apache.xmlrpc.XmlRpcClient;
+import org.apache.xmlrpc.XmlRpcClientException;
+import org.apache.xmlrpc.XmlRpcException;
+import org.apache.xmlrpc.XmlRpcRequest;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Mikhail Golubev
@@ -33,14 +47,9 @@ public class BugzillaRepository extends BaseRepositoryImpl {
 
   private static final Logger LOG = Logger.getInstance(BugzillaRepository.class);
 
-  // Copied from SendTimeTrackingInformationDialog
-  public static final Pattern TIME_SPENT_PATTERN = Pattern.compile("([0-9]+)d ([0-9]+)h ([0-9]+)m");
-
   private Version myVersion;
-
   private boolean myAuthenticated;
   private String myAuthenticationToken;
-
   private String myProductName = "";
   private String myComponentName = "";
 
@@ -84,12 +93,7 @@ public class BugzillaRepository extends BaseRepositoryImpl {
     Hashtable<String, Object> response = createIssueSearchRequest(query, offset, limit, withClosed).execute();
 
     Vector<Hashtable<String, Object>> bugs = (Vector<Hashtable<String, Object>>)response.get("bugs");
-    return ContainerUtil.map2Array(bugs, BugzillaTask.class, new Function<Hashtable<String, Object>, BugzillaTask>() {
-      @Override
-      public BugzillaTask fun(Hashtable<String, Object> hashTable) {
-        return new BugzillaTask(hashTable, BugzillaRepository.this);
-      }
-    });
+    return ContainerUtil.map2Array(bugs, BugzillaTask.class, hashTable -> new BugzillaTask(hashTable, this));
   }
 
   private BugzillaXmlRpcRequest createIssueSearchRequest(String query, int offset, int limit, boolean withClosed) throws Exception {
@@ -142,7 +146,9 @@ public class BugzillaRepository extends BaseRepositoryImpl {
       }
       String version = (String)result.get("version");
       String[] parts = version.split("\\.", 3);
-      myVersion = new Version(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]), Integer.parseInt(parts[2]));
+      myVersion = new Version(Integer.parseInt(parts[0]),
+                              parts.length > 1 ? Integer.parseInt(parts[1]) : 0,
+                              parts.length > 2 ? Integer.parseInt(parts[2]) : 0);
       if (myVersion.lessThan(3, 4)) {
         throw new RequestFailedException("Bugzilla before 3.4 is not supported");
       }
@@ -195,14 +201,14 @@ public class BugzillaRepository extends BaseRepositoryImpl {
       final String name;
       final Iterable<String> canChangeTo;
 
-      public Status(String name, boolean isOpen, Iterable<String> canChangeTo) {
+      Status(String name, boolean isOpen, Iterable<String> canChangeTo) {
         this.isOpen = isOpen;
         this.name = name;
         this.canChangeTo = canChangeTo;
       }
     }
 
-    final Map<String, Status> statuses = new HashMap<String, Status>();
+    final Map<String, Status> statuses = new HashMap<>();
     for (Hashtable<String, ?> statusInfo : (Vector<Hashtable<String, ?>>)statusesInfo.get("values")) {
       final String name = (String)statusInfo.get("name");
       if (StringUtil.isEmpty(name)) {
@@ -216,7 +222,7 @@ public class BugzillaRepository extends BaseRepositoryImpl {
     if (currentState != null) {
       final Status status = statuses.get(currentState);
       if (status != null) {
-        final Set<CustomTaskState> result = new HashSet<CustomTaskState>();
+        final Set<CustomTaskState> result = new HashSet<>();
         for (String targetStatusName : status.canChangeTo) {
           final Status targetStatus = statuses.get(targetStatusName);
           if (targetStatus != null) {
@@ -244,12 +250,7 @@ public class BugzillaRepository extends BaseRepositoryImpl {
 
   @NotNull
   private static List<String> extractNotEmptyNames(@NotNull Vector<Hashtable<String, ?>> vector) {
-    return ContainerUtil.mapNotNull(vector, new Function<Hashtable<String, ?>, String>() {
-      @Override
-      public String fun(Hashtable<String, ?> table) {
-        return StringUtil.nullize((String)table.get("name"));
-      }
-    });
+    return ContainerUtil.mapNotNull(vector, table -> StringUtil.nullize((String)table.get("name")));
   }
 
   @Override
@@ -258,14 +259,13 @@ public class BugzillaRepository extends BaseRepositoryImpl {
                             task.getLastPost(), task.getTimeSpentFromLastPost(), timeSpent));
     Matcher matcher = TIME_SPENT_PATTERN.matcher(timeSpent);
     if (matcher.find()) {
-      int days = Integer.valueOf(matcher.group(1));
-      int hours = Integer.valueOf(matcher.group(2));
-      int minutes = Integer.valueOf(matcher.group(3));
+      int hours = Integer.valueOf(matcher.group(1));
+      int minutes = Integer.valueOf(matcher.group(2));
       BugzillaXmlRpcRequest request = new BugzillaXmlRpcRequest("Bug.update")
         .requireAuthentication(true)
         .withParameter("ids", newVector(task.getId()))
         // the number of hours worked on the bug as double
-        .withParameter("work_time", days * 24 + hours + minutes / 60.0);
+        .withParameter("work_time", hours + minutes / 60.0);
       if (!StringUtil.isEmptyOrSpaces(comment)) {
         request.withParameter("comment", newHashTable("body", comment, "is_private", false));
       }
@@ -289,8 +289,8 @@ public class BugzillaRepository extends BaseRepositoryImpl {
       .withParameter("ids", productIdsResponse.get("ids"))
       .execute();
 
-    List<String> productNames = new ArrayList<String>();
-    List<String> componentNames = new ArrayList<String>();
+    List<String> productNames = new ArrayList<>();
+    List<String> componentNames = new ArrayList<>();
 
     for (Hashtable<String, Object> info : (Vector<Hashtable<String, Object>>)productInfoResponse.get("products")) {
       productNames.add((String)info.get("name"));
@@ -329,12 +329,12 @@ public class BugzillaRepository extends BaseRepositoryImpl {
   }
 
   private static <T> Vector<T> newVector(T... elements) {
-    return new Vector<T>(Arrays.asList(elements));
+    return new Vector<>(Arrays.asList(elements));
   }
 
   private static <K, V> Hashtable<K, V> newHashTable(Object... pairs) {
     assert pairs.length % 2 == 0;
-    Hashtable<K, V> table = new Hashtable<K, V>();
+    Hashtable<K, V> table = new Hashtable<>();
     for (int i = 0; i < pairs.length; i += 2) {
       // Null values are not allowed, because Bugzilla reacts unexpectedly on them.
       if (pairs[i + 1] != null) {
@@ -369,7 +369,7 @@ public class BugzillaRepository extends BaseRepositoryImpl {
   private class BugzillaXmlRpcRequest {
     // Copied from Trac repository
     private class Transport extends CommonsXmlRpcTransport {
-      public Transport() throws MalformedURLException {
+      Transport() throws MalformedURLException {
         super(new URL(getUrl()), getHttpClient());
       }
 
@@ -380,10 +380,10 @@ public class BugzillaRepository extends BaseRepositoryImpl {
 
     private final String myMethodName;
     private boolean myRequireAuthentication;
-    private final HashMap<String, Object> myParameters = new HashMap<String, Object>();
+    private final HashMap<String, Object> myParameters = new HashMap<>();
     private final Transport myTransport;
 
-    public BugzillaXmlRpcRequest(@NotNull String methodName) throws MalformedURLException {
+    BugzillaXmlRpcRequest(@NotNull String methodName) throws MalformedURLException {
       myMethodName = methodName;
       myTransport = new Transport();
     }
@@ -416,8 +416,8 @@ public class BugzillaRepository extends BaseRepositoryImpl {
           myParameters.put("Bugzilla_token", myAuthenticationToken);
         }
       }
-      Vector<Hashtable<String, Object>> parameters = new Vector<Hashtable<String, Object>>();
-      parameters.add(new Hashtable<String, Object>(myParameters));
+      Vector<Hashtable<String, Object>> parameters = new Vector<>();
+      parameters.add(new Hashtable<>(myParameters));
       try {
         return  (T)new XmlRpcClient(getUrl()).execute(new XmlRpcRequest(myMethodName, parameters), myTransport);
       }
@@ -438,8 +438,8 @@ public class BugzillaRepository extends BaseRepositoryImpl {
     if (!(o instanceof BugzillaRepository)) return false;
     BugzillaRepository repository = (BugzillaRepository)o;
 
-    if (!Comparing.equal(myProductName, repository.getProductName())) return false;
-    if (!Comparing.equal(myComponentName, repository.getComponentName())) return false;
+    if (!Objects.equals(myProductName, repository.getProductName())) return false;
+    if (!Objects.equals(myComponentName, repository.getComponentName())) return false;
 
     return true;
   }

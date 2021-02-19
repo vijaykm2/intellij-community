@@ -1,23 +1,12 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util;
 
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.util.ObjectUtils;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.SimpleModificationTracker;
+import com.intellij.openapi.util.text.StringUtilRt;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -25,70 +14,123 @@ import org.jetbrains.annotations.Nullable;
 import java.lang.reflect.Field;
 
 /**
+ * Allows simple persistence of application/project-level values.
+ * <p/>
+ * Roaming is disabled for PropertiesComponent, so, use it only and only for temporary non-roamable properties.
+ * <p/>
+ * See <a href="http://www.jetbrains.org/intellij/sdk/docs/basics/persisting_state_of_components.html">Using PropertiesComponent for Simple non-roamable Persistence</a>.
+ *
  * @author max
  * @author Konstantin Bulenkov
  */
-public abstract class PropertiesComponent {
-  public abstract void unsetValue(String name);
+public abstract class PropertiesComponent extends SimpleModificationTracker {
+  public abstract void unsetValue(@NonNls @NotNull String name);
 
-  public abstract boolean isValueSet(String name);
+  public abstract boolean isValueSet(@NonNls @NotNull String name);
 
   @Nullable
-  public abstract String getValue(@NonNls String name);
+  public abstract @NonNls String getValue(@NonNls @NotNull String name);
 
-  public abstract void setValue(@NonNls String name, String value);
+  /**
+   * Consider to use {@link #setValue(String, String, String)} to avoid write defaults.
+   */
+  public abstract void setValue(@NonNls @NotNull String name, @NonNls @Nullable String value);
 
   /**
    * Set value or unset if equals to default value
    */
-  public abstract void setValue(@NotNull String name, @NotNull String value, @NotNull String defaultValue);
+  public abstract void setValue(@NonNls @NotNull String name, @NonNls @Nullable String value, @Nullable String defaultValue);
 
-  @Nullable
-  public abstract String[] getValues(@NonNls String name);
+  /**
+   * Set value or unset if equals to default value
+   */
+  public abstract void setValue(@NonNls @NotNull String name, float value, float defaultValue);
 
-  public abstract void setValues(@NonNls String name, String[] values);
+  /**
+   * Set value or unset if equals to default value
+   */
+  public abstract void setValue(@NonNls @NotNull String name, int value, int defaultValue);
 
-  public static PropertiesComponent getInstance(Project project) {
-    return ServiceManager.getService(project, PropertiesComponent.class);
+  /**
+   * Set value or unset if equals to false
+   */
+  public final void setValue(@NonNls @NotNull String name, boolean value) {
+    setValue(name, value, false);
   }
 
+  /**
+   * Set value or unset if equals to default
+   */
+  public abstract void setValue(@NonNls @NotNull String name, boolean value, boolean defaultValue);
+
+  public abstract String @Nullable [] getValues(@NonNls @NotNull String name);
+
+  public abstract void setValues(@NonNls @NotNull String name, String[] values);
+
+  /**
+   * Returns the project-level instance.
+   */
+  public static PropertiesComponent getInstance(@NotNull Project project) {
+    return project.getService(PropertiesComponent.class);
+  }
+
+  /**
+   * Returns the application-level instance.
+   */
   public static PropertiesComponent getInstance() {
-    return ServiceManager.getService(PropertiesComponent.class);
+    return ApplicationManager.getApplication().getService(PropertiesComponent.class);
   }
 
   public final boolean isTrueValue(@NonNls String name) {
-    return Boolean.valueOf(getValue(name)).booleanValue();
+    return Boolean.parseBoolean(getValue(name));
   }
 
-  public final boolean getBoolean(@NonNls String name, boolean defaultValue) {
+  public final boolean getBoolean(@NonNls @NotNull String name, boolean defaultValue) {
     return isValueSet(name) ? isTrueValue(name) : defaultValue;
   }
 
+  public final boolean getBoolean(@NonNls @NotNull String name) {
+    return getBoolean(name, false);
+  }
+
   @NotNull
-  public String getValue(@NonNls String name, @NotNull String defaultValue) {
-    if (!isValueSet(name)) {
-      return defaultValue;
-    }
-    return ObjectUtils.notNull(getValue(name), defaultValue);
+  public @NlsSafe String getValue(@NonNls @NotNull String name, @NotNull String defaultValue) {
+    String value = getValue(name);
+    return value == null ? defaultValue : value;
   }
 
-  public final int getOrInitInt(@NonNls String name, int defaultValue) {
-    try {
-      return Integer.parseInt(getValue(name));
-    } catch (NumberFormatException e) {
-      return defaultValue;
-    }
+  /**
+   * @deprecated Use {@link #getInt(String, int)}
+   * Init was never performed and in any case is not recommended.
+   */
+  @Deprecated
+  public final int getOrInitInt(@NonNls @NotNull String name, int defaultValue) {
+    return getInt(name, defaultValue);
   }
 
-  public final long getOrInitLong(@NonNls String name, long defaultValue) {
-    try {
-      return Long.parseLong(getValue(name));
-    } catch (NumberFormatException e) {
-      return defaultValue;
-    }
+  public int getInt(@NonNls @NotNull String name, int defaultValue) {
+    return StringUtilRt.parseInt(getValue(name), defaultValue);
   }
 
-  public String getOrInit(@NonNls String name, String defaultValue) {
+  public long getLong(@NonNls @NotNull String name, long defaultValue) {
+    return StringUtilRt.parseLong(getValue(name), defaultValue);
+  }
+
+  /**
+   * @deprecated Use {@link #getLong(String, long)}
+   * Init was never performed and in any case is not recommended.
+   */
+  @Deprecated
+  public final long getOrInitLong(@NonNls @NotNull String name, long defaultValue) {
+    return getLong(name, defaultValue);
+  }
+
+  /**
+   * @deprecated Use {@link #getValue(String, String)}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public String getOrInit(@NonNls @NotNull String name, String defaultValue) {
     if (!isValueSet(name)) {
       setValue(name, defaultValue);
       return defaultValue;
@@ -157,12 +199,14 @@ public abstract class PropertiesComponent {
     }
   }
 
-  public float getFloat(String name, float defaultValue) {
+  public float getFloat(@NonNls @NotNull String name, float defaultValue) {
     if (isValueSet(name)) {
       try {
-        return Float.parseFloat(getValue(name));
+        final String value = getValue(name);
+        if (value != null) return Float.parseFloat(value);
       }
-      catch (NumberFormatException ignore) {}
+      catch (NumberFormatException ignore) {
+      }
     }
     return defaultValue;
   }

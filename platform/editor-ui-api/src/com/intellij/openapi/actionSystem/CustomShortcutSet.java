@@ -15,8 +15,8 @@
  */
 package com.intellij.openapi.actionSystem;
 
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -26,47 +26,40 @@ import javax.swing.*;
  */
 
 public final class CustomShortcutSet implements ShortcutSet {
+
+  public static final CustomShortcutSet EMPTY = new CustomShortcutSet(Shortcut.EMPTY_ARRAY);
+
   private final Shortcut[] myShortcuts;
 
   /**
-   * Creates <code>CustomShortcutSet</code> which contains only one
+   * Creates {@code CustomShortcutSet} which contains only one
    * single stroke keyboard shortcut.
    */
   public CustomShortcutSet(@NotNull KeyStroke keyStroke){
     this(new KeyboardShortcut(keyStroke, null));
   }
 
-  public CustomShortcutSet() {
-    myShortcuts = Shortcut.EMPTY_ARRAY;
-  }
-
   /**
-   * Creates <code>CustomShortcutSet</code> which contains specified keyboard and
+   * Creates {@code CustomShortcutSet} which contains specified keyboard and
    * mouse shortcuts.
    *
    * @param shortcuts keyboard shortcuts
    */
-  public CustomShortcutSet(@NotNull Shortcut... shortcuts){
+  public CustomShortcutSet(Shortcut @NotNull ... shortcuts){
     myShortcuts = shortcuts.length == 0 ? Shortcut.EMPTY_ARRAY : shortcuts.clone();
   }
 
-  public CustomShortcutSet(Integer... keyCodes) {
-    myShortcuts = ContainerUtil.map(keyCodes, new Function<Integer, Shortcut>() {
-      @Override
-      public Shortcut fun(Integer integer) {
-        return new KeyboardShortcut(KeyStroke.getKeyStroke(integer, 0), null);
-      }
-    }, Shortcut.EMPTY_ARRAY);
+  public CustomShortcutSet(Integer @NotNull ... keyCodes) {
+    myShortcuts = ContainerUtil.map(keyCodes, integer -> new KeyboardShortcut(KeyStroke.getKeyStroke(integer, 0), null), Shortcut.EMPTY_ARRAY);
   }
 
   @Override
-  @NotNull
-  public Shortcut[] getShortcuts(){
+  public Shortcut @NotNull [] getShortcuts(){
     return myShortcuts.length == 0 ? Shortcut.EMPTY_ARRAY : myShortcuts.clone();
   }
 
   @NotNull
-  public static CustomShortcutSet fromString(@NotNull String... keyboardShortcuts) {
+  public static CustomShortcutSet fromString(@NonNls String @NotNull ... keyboardShortcuts) {
     final KeyboardShortcut[] shortcuts = new KeyboardShortcut[keyboardShortcuts.length];
     for (int i = 0; i < keyboardShortcuts.length; i++) {
       shortcuts[i] = KeyboardShortcut.fromString(keyboardShortcuts[i]);

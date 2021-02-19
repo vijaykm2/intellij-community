@@ -15,18 +15,23 @@
  */
 package com.intellij.openapi.roots.ui.configuration.projectRoot;
 
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.ide.JavaUiBundle;
+import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.roots.libraries.LibraryTablePresentation;
 import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar;
+import com.intellij.openapi.roots.ui.configuration.ProjectStructureConfigurable;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collections;
+import java.util.List;
+
 public class ProjectLibrariesConfigurable extends BaseLibrariesConfigurable {
-  public ProjectLibrariesConfigurable(final Project project) {
-    super(project, LibraryTablesRegistrar.PROJECT_LEVEL);
+  public ProjectLibrariesConfigurable(ProjectStructureConfigurable projectStructureConfigurable) {
+    super(projectStructureConfigurable, LibraryTablesRegistrar.PROJECT_LEVEL);
   }
 
   @Override
@@ -37,7 +42,7 @@ public class ProjectLibrariesConfigurable extends BaseLibrariesConfigurable {
   @Override
   @Nls
   public String getDisplayName() {
-    return "Libraries";
+    return JavaUiBundle.message("configurable.ProjectLibrariesConfigurable.display.name");
   }
 
   @Override
@@ -55,11 +60,15 @@ public class ProjectLibrariesConfigurable extends BaseLibrariesConfigurable {
 
   @Override
   public BaseLibrariesConfigurable getOppositeGroup() {
-    return GlobalLibrariesConfigurable.getInstance(myProject);
+    return myProjectStructureConfigurable.getGlobalLibrariesConfigurable();
   }
 
+  /**
+   * @deprecated use {@link ProjectStructureConfigurable#getProjectLibrariesConfigurable()}
+   */
+  @Deprecated
   public static ProjectLibrariesConfigurable getInstance(final Project project) {
-    return ServiceManager.getService(project, ProjectLibrariesConfigurable.class);
+    return ProjectStructureConfigurable.getInstance(project).getProjectLibrariesConfigurable();
   }
 
   @Override
@@ -67,8 +76,18 @@ public class ProjectLibrariesConfigurable extends BaseLibrariesConfigurable {
     return LibraryTablesRegistrar.getInstance().getLibraryTable(myProject).getPresentation();
   }
 
+  @NotNull
+  @Override
+  protected List<? extends AnAction> createCopyActions(boolean fromPopup) {
+    List<? extends AnAction> actions = super.createCopyActions(fromPopup);
+    if (fromPopup) {
+      return ContainerUtil.concat(actions, Collections.singletonList(new ConvertProjectLibraryToRepositoryLibraryAction(this, myContext)));
+    }
+    return actions;
+  }
+
   @Override
   protected String getAddText() {
-    return ProjectBundle.message("add.new.project.library.text");
+    return JavaUiBundle.message("add.new.project.library.text");
   }
 }

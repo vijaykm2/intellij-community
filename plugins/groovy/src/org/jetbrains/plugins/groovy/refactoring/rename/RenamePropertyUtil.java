@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.rename;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -40,7 +26,7 @@ import java.util.List;
 /**
  * @author Maxim.Medvedev
  */
-public class RenamePropertyUtil {
+public final class RenamePropertyUtil {
   private RenamePropertyUtil() {
   }
 
@@ -74,7 +60,7 @@ public class RenamePropertyUtil {
     if (containingClass == null) return member(m);
     final boolean isStatic = m.hasModifierProperty(PsiModifier.STATIC);
 
-    List<PsiElement> property = new ArrayList<PsiElement>();
+    List<PsiElement> property = new ArrayList<>();
     assert name != null;
     ContainerUtil.addAll(property, GroovyPropertyUtils.getAllGetters(containingClass, name, isStatic, false));
     ContainerUtil.addAll(property, GroovyPropertyUtils.getAllSetters(containingClass, name, isStatic, false));
@@ -101,15 +87,15 @@ public class RenamePropertyUtil {
   }
 
   private static Pair<List<? extends PsiElement>, String> property(List<PsiElement> list, String name) {
-    return Pair.<List<? extends PsiElement>, String>create(list, name);
+    return Pair.create(list, name);
   }
 
   private static Pair<List<? extends PsiElement>, String> cancel() {
-    return Pair.<List<? extends PsiElement>, String>create(Collections.<PsiElement>emptyList(), null);
+    return Pair.create(Collections.emptyList(), null);
   }
 
   private static Pair<List<? extends PsiElement>, String> member(PsiMember m) {
-    return Pair.<List<? extends PsiElement>, String>create(Collections.singletonList(m), null);
+    return Pair.create(Collections.singletonList(m), null);
   }
 
   private static class AskDialog extends DialogWrapper {

@@ -37,13 +37,6 @@ public class DateToStringInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "call.to.date.tostring.display.name");
-  }
-
-  @Override
-  @NotNull
   public String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message(
       "call.to.date.tostring.problem.descriptor");
@@ -70,7 +63,7 @@ public class DateToStringInspection extends BaseInspection {
         return;
       }
       final PsiExpressionList argumentList = expression.getArgumentList();
-      if (argumentList.getExpressions().length != 0) {
+      if (!argumentList.isEmpty()) {
         return;
       }
       if (NonNlsUtils.isNonNlsAnnotatedUse(expression)) {

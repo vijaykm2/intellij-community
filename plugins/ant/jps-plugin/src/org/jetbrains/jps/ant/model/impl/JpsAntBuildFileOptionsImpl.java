@@ -22,9 +22,6 @@ import org.jetbrains.jps.ant.model.JpsAntBuildFileOptions;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author nik
- */
 public class JpsAntBuildFileOptionsImpl implements JpsAntBuildFileOptions {
   private int myMaxStackSize = 2;
   private String myAntCommandLineParameters = "";
@@ -32,9 +29,9 @@ public class JpsAntBuildFileOptionsImpl implements JpsAntBuildFileOptions {
   private String myCustomJdkName = "";
   private boolean myUseProjectDefaultAnt = true;
   private String myAntInstallationName;
-  private final List<String> myClasspath = new ArrayList<String>();
-  private final List<String> myJarDirectories = new ArrayList<String>();
-  private final List<BuildFileProperty> myProperties = new ArrayList<BuildFileProperty>();
+  private final List<String> myClasspath = new ArrayList<>();
+  private final List<String> myJarDirectories = new ArrayList<>();
+  private final List<BuildFileProperty> myProperties = new ArrayList<>();
 
   public void setMaxStackSize(int maxStackSize) {
     myMaxStackSize = maxStackSize;

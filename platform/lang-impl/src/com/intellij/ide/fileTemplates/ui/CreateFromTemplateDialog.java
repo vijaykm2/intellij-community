@@ -24,14 +24,18 @@ import com.intellij.ide.fileTemplates.FileTemplateManager;
 import com.intellij.ide.fileTemplates.FileTemplateUtil;
 import com.intellij.ide.fileTemplates.actions.AttributesDefaults;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.ex.IdeFocusTraversalPolicy;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
+import com.intellij.util.ui.JBUI;
 import org.apache.velocity.runtime.parser.ParseException;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -42,7 +46,7 @@ import java.awt.*;
 import java.util.Properties;
 
 public class CreateFromTemplateDialog extends DialogWrapper {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.fileTemplates.ui.CreateFromTemplateDialog");
+  private static final Logger LOG = Logger.getInstance(CreateFromTemplateDialog.class);
   @NotNull private final PsiDirectory myDirectory;
   @NotNull private final Project myProject;
   private PsiElement myCreatedElement;
@@ -69,7 +73,19 @@ public class CreateFromTemplateDialog extends DialogWrapper {
       myDefaultProperties.setProperty(FileTemplate.ATTRIBUTE_NAME, attributesDefaults.getDefaultFileName());
       mustEnterName = false;
     }
-
+    if (!template.getFileName().isEmpty()) {
+      String fileName = FileTemplateUtil.mergeTemplate(myDefaultProperties, template.getFileName(), false);
+      try {
+        String[] strings = FileTemplateUtil.calculateAttributes(fileName, myDefaultProperties, false, project);
+        if (strings.length == 0) {
+          myDefaultProperties.setProperty(FileTemplate.ATTRIBUTE_NAME, fileName);
+          mustEnterName = false;
+        }
+      }
+      catch (ParseException e) {
+        showErrorDialog(e);
+      }
+    }
     String[] unsetAttributes = null;
     try {
       unsetAttributes = myTemplate.getUnsetAttributes(myDefaultProperties, project);
@@ -90,6 +106,11 @@ public class CreateFromTemplateDialog extends DialogWrapper {
   }
 
   public PsiElement create(){
+    if (ApplicationManager.getApplication().isUnitTestMode()) {
+      doCreate(myTemplate.getName() + "." + myTemplate.getExtension());
+      Disposer.dispose(getDisposable());
+      return myCreatedElement;
+    }
     if (myAttrPanel != null) {
       if (myAttrPanel.hasSomethingToAsk()) {
         show();
@@ -117,24 +138,27 @@ public class CreateFromTemplateDialog extends DialogWrapper {
 
   private void doCreate(@Nullable String fileName)  {
     try {
-      String newName = fileName;
-      PsiDirectory directory = myDirectory;
-      if (fileName != null) {
-        final String finalFileName = fileName;
-        CreateFileAction.MkDirs mkDirs = ApplicationManager.getApplication().runWriteAction(new Computable<CreateFileAction.MkDirs>() {
-            @Override
-            public CreateFileAction.MkDirs compute() {
-              return new CreateFileAction.MkDirs(finalFileName, myDirectory);
-            }
-          });
-        newName = mkDirs.newName;
-        directory = mkDirs.directory;
+      Properties properties = myAttrPanel.getProperties(myDefaultProperties);
+      for (FileTemplate child : myTemplate.getChildren()) {
+        createFile(child.getFileName(), child, properties);
       }
-      myCreatedElement = FileTemplateUtil.createFromTemplate(myTemplate, newName, myAttrPanel.getProperties(myDefaultProperties), directory);
+      String mainFileName = StringUtil.isEmpty(myTemplate.getFileName()) ? fileName : myTemplate.getFileName();
+      myCreatedElement = createFile(mainFileName, myTemplate, properties);
     }
     catch (Exception e) {
       showErrorDialog(e);
     }
+  }
+
+  private @NotNull PsiElement createFile(@Nullable String fileName,
+                                         @NotNull FileTemplate template,
+                                         @NotNull Properties properties) throws Exception {
+    if (fileName != null) {
+      String newName = FileTemplateUtil.mergeTemplate(properties, fileName, false);
+      CreateFileAction.MkDirs mkDirs = WriteAction.compute(() -> new CreateFileAction.MkDirs(newName, myDirectory));
+      return FileTemplateUtil.createFromTemplate(template, mkDirs.newName, properties, mkDirs.directory);
+    }
+    return FileTemplateUtil.createFromTemplate(template, null, properties, myDirectory);
   }
 
   public Properties getEnteredProperties() {
@@ -146,14 +170,14 @@ public class CreateFromTemplateDialog extends DialogWrapper {
     Messages.showMessageDialog(myProject, filterMessage(e.getMessage()), getErrorMessage(), Messages.getErrorIcon());
   }
 
-  private String getErrorMessage() {
+  private @NlsContexts.DialogTitle String getErrorMessage() {
     return FileTemplateUtil.findHandler(myTemplate).getErrorMessage();
   }
 
   @Nullable
-  private String filterMessage(String message){
+  private @NlsContexts.DialogMessage String filterMessage(@NlsContexts.DialogMessage String message){
     if (message == null) {
-      message = "unknown error";
+      message = IdeBundle.message("dialog.message.unknown.error");
     }
 
     @NonNls String ioExceptionPrefix = "java.io.IOException:";
@@ -171,7 +195,8 @@ public class CreateFromTemplateDialog extends DialogWrapper {
   protected JComponent createCenterPanel(){
     myAttrPanel.ensureFitToScreen(200, 200);
     JPanel centerPanel = new JPanel(new GridBagLayout());
-    centerPanel.add(myAttrComponent, new GridBagConstraints(0, 0, 1, 1, 1.0, 1.0, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(0, 0, 0, 0), 0, 0));
+    centerPanel.add(myAttrComponent, new GridBagConstraints(0, 0, 1, 1, 1.0, 1.0, GridBagConstraints.CENTER, GridBagConstraints.BOTH,
+                                                            JBUI.emptyInsets(), 0, 0));
     return centerPanel;
   }
 

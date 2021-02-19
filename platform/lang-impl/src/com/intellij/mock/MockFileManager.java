@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.mock;
 
 import com.intellij.openapi.vfs.VirtualFile;
@@ -22,25 +8,22 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.SingleRootFileViewProvider;
 import com.intellij.psi.impl.PsiManagerEx;
 import com.intellij.psi.impl.file.impl.FileManager;
-import com.intellij.util.containers.WeakFactoryMap;
+import com.intellij.util.containers.ConcurrentFactoryMap;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * @author peter
  */
 public class MockFileManager implements FileManager {
   private final PsiManagerEx myManager;
-  // in mock tests it's LightVirtualFile, they're only alive when they're referenced, 
+  // in mock tests it's LightVirtualFile, they're only alive when they're referenced,
   // and there can not be several instances representing the same file
-  private final WeakFactoryMap<VirtualFile, FileViewProvider> myViewProviders = new WeakFactoryMap<VirtualFile, FileViewProvider>() {
-    @Override
-    protected FileViewProvider create(VirtualFile key) {
-      return new SingleRootFileViewProvider(myManager, key);
-    }
-  };
+  private final Map<VirtualFile, FileViewProvider> myViewProviders;
 
   @Override
   @NotNull
@@ -50,11 +33,7 @@ public class MockFileManager implements FileManager {
 
   public MockFileManager(PsiManagerEx manager) {
     myManager = manager;
-  }
-
-  @Override
-  public void dispose() {
-    throw new UnsupportedOperationException("Method dispose is not yet implemented in " + getClass().getName());
+    myViewProviders = ConcurrentFactoryMap.create(key->new SingleRootFileViewProvider(myManager, key), ContainerUtil::createConcurrentWeakKeyWeakValueMap);
   }
 
   @Override

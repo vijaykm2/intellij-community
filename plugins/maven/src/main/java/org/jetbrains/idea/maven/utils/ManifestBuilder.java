@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.utils;
 
 import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.io.StreamUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.codehaus.plexus.archiver.jar.Manifest;
@@ -40,7 +25,6 @@ import static org.codehaus.plexus.archiver.jar.Manifest.Attribute;
 
 /**
  * @author Vladislav.Soroka
- * @since 5/22/2014
  */
 public class ManifestBuilder {
 
@@ -67,22 +51,11 @@ public class ManifestBuilder {
   @NotNull
   public java.util.jar.Manifest build() throws ManifestBuilderException {
     try {
-      Element mavenPackagingPluginConfiguration = null;
-      final String packaging = myMavenProject.getPackaging();
-      if (StringUtil.isEmpty(packaging)) {
-        mavenPackagingPluginConfiguration = myMavenProject.getPluginConfiguration("org.apache.maven.plugins", "maven-jar-plugin");
-      }
-      else {
-        final String pluginArtifactId = PACKAGING_PLUGINS.get(StringUtil.toLowerCase(packaging));
-        if (pluginArtifactId != null) {
-          mavenPackagingPluginConfiguration = myMavenProject.getPluginConfiguration("org.apache.maven.plugins", pluginArtifactId);
-        }
-      }
-
+      Element mavenPackagingPluginConfiguration = getMavenPackagingPluginConfiguration(myMavenProject);
       final Element mavenArchiveConfiguration =
         mavenPackagingPluginConfiguration != null ? mavenPackagingPluginConfiguration.getChild("archive") : null;
 
-      if (mavenArchiveConfiguration == null) return getDefaultManifest(Collections.<String, String>emptyMap());
+      if (mavenArchiveConfiguration == null) return getDefaultManifest(Collections.emptyMap());
 
       final Element manifestEntries = mavenArchiveConfiguration.getChild("manifestEntries");
       Map<String, String> entries = getManifestEntries(manifestEntries);
@@ -111,6 +84,16 @@ public class ManifestBuilder {
   }
 
   @NotNull
+  public static String getClasspath(@NotNull MavenProject mavenProject) {
+    Element mavenPackagingPluginConfiguration = getMavenPackagingPluginConfiguration(mavenProject);
+    final Element mavenArchiveConfiguration =
+      mavenPackagingPluginConfiguration != null ? mavenPackagingPluginConfiguration.getChild("archive") : null;
+    final Element manifestConfiguration = mavenArchiveConfiguration != null ? mavenArchiveConfiguration.getChild("manifest") : null;
+    final ManifestImporter manifestImporter = ManifestImporter.getManifestImporter(mavenProject.getPackaging());
+    return manifestImporter.getClasspath(mavenProject, manifestConfiguration);
+  }
+
+  @NotNull
   public static String getClasspathPrefix(@Nullable Element manifestConfiguration) {
     String classpathPrefix = MavenJDOMUtil.findChildValueByPath(manifestConfiguration, "classpathPrefix", "").replaceAll("\\\\", "/");
     if (classpathPrefix.length() != 0 && !classpathPrefix.endsWith("/")) {
@@ -119,12 +102,28 @@ public class ManifestBuilder {
     return classpathPrefix;
   }
 
+  @Nullable
+  private static Element getMavenPackagingPluginConfiguration(@NotNull MavenProject mavenProject) {
+    Element mavenPackagingPluginConfiguration = null;
+    final String packaging = mavenProject.getPackaging();
+    if (StringUtil.isEmpty(packaging)) {
+      mavenPackagingPluginConfiguration = mavenProject.getPluginConfiguration("org.apache.maven.plugins", "maven-jar-plugin");
+    }
+    else {
+      final String pluginArtifactId = PACKAGING_PLUGINS.get(StringUtil.toLowerCase(packaging));
+      if (pluginArtifactId != null) {
+        mavenPackagingPluginConfiguration = mavenProject.getPluginConfiguration("org.apache.maven.plugins", pluginArtifactId);
+      }
+    }
+    return mavenPackagingPluginConfiguration;
+  }
+
 
   private static Map<String, String> getManifestEntries(Element manifestEntries) {
     boolean hasManifestEntries = manifestEntries != null && manifestEntries.getContentSize() > 0;
     Map<String, String> entries = hasManifestEntries ?
-                                  new LinkedHashMap<String, String>(manifestEntries.getContentSize()) :
-                                  Collections.<String, String>emptyMap();
+                                  new LinkedHashMap<>(manifestEntries.getContentSize()) :
+                                  Collections.emptyMap();
     if (hasManifestEntries) {
       for (Element element : manifestEntries.getChildren()) {
         entries.put(element.getName(), element.getTextTrim());
@@ -186,7 +185,6 @@ public class ManifestBuilder {
 
   @Nullable
   private Manifest getUserSuppliedManifest(@Nullable Element mavenArchiveConfiguration) {
-    Manifest manifest = null;
     String manifestPath = MavenJDOMUtil.findChildValueByPath(mavenArchiveConfiguration, "manifestFile");
     if (manifestPath != null) {
       File manifestFile = new File(manifestPath);
@@ -194,21 +192,14 @@ public class ManifestBuilder {
         manifestFile = new File(myMavenProject.getDirectory(), manifestPath);
       }
       if (manifestFile.isFile()) {
-        FileInputStream fis = null;
-        try {
-          //noinspection IOResourceOpenedButNotSafelyClosed
-          fis = new FileInputStream(manifestFile);
-          manifest = new Manifest(fis);
+        try (FileInputStream fis = new FileInputStream(manifestFile)) {
+          return new Manifest(fis);
         }
-        catch (IOException ignore) {
-        }
-        finally {
-          StreamUtil.closeStream(fis);
-        }
+        catch (IOException ignore) { }
       }
     }
 
-    return manifest;
+    return null;
   }
 
   @NotNull

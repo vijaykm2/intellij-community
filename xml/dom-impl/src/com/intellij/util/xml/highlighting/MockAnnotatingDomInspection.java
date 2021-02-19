@@ -25,7 +25,7 @@ import org.jetbrains.annotations.NonNls;
  */
 public class MockAnnotatingDomInspection<T extends DomElement> extends BasicDomElementsInspection<T>{
 
-  public MockAnnotatingDomInspection(final Class<T> domClass) {
+  public MockAnnotatingDomInspection(final Class<? extends T> domClass) {
     super(domClass);
   }
 
@@ -41,13 +41,6 @@ public class MockAnnotatingDomInspection<T extends DomElement> extends BasicDomE
   @NotNull
   public String getGroupDisplayName() {
     throw new UnsupportedOperationException("Method getGroupDisplayName is not yet implemented in " + getClass().getName());
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    throw new UnsupportedOperationException("Method getDisplayName is not yet implemented in " + getClass().getName());
   }
 
   @Override

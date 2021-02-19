@@ -19,11 +19,10 @@ import com.intellij.util.diff.Diff;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-@SuppressWarnings("ConstantConditions")
 class DiffChangeDiffIterable extends ChangeDiffIterableBase {
   @Nullable private final Diff.Change myChange;
 
-  public DiffChangeDiffIterable(@Nullable Diff.Change change, int length1, int length2) {
+  DiffChangeDiffIterable(@Nullable Diff.Change change, int length1, int length2) {
     super(length1, length2);
     myChange = change;
   }
@@ -34,10 +33,11 @@ class DiffChangeDiffIterable extends ChangeDiffIterableBase {
     return new DiffChangeChangeIterable(myChange);
   }
 
+  @SuppressWarnings("ConstantConditions")
   private static class DiffChangeChangeIterable implements ChangeIterable {
     @Nullable private Diff.Change myChange;
 
-    public DiffChangeChangeIterable(@Nullable Diff.Change change) {
+    DiffChangeChangeIterable(@Nullable Diff.Change change) {
       myChange = change;
     }
 

@@ -15,39 +15,54 @@
  */
 package com.intellij.vcs.log.graph;
 
+import com.intellij.openapi.util.Condition;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
 /**
  * PermanentGraph is created once per repository, and forever until the log is refreshed. <br/>
- * An instance can be achieved by {@link PermanentGraphBuilder}. <br/>
- * This graph contains all commits in the log and may occupy a lot.
+ * This graph contains all commits in the log and may occupy a lot of memory.
  *
  * @see VisibleGraph
  */
-public interface PermanentGraph<CommitId> {
+public interface PermanentGraph<Id> {
+
+  /**
+   * Create a new instance of VisibleGraph with specific sort type, visible branches and commits.
+   *
+   * @param sortType               mechanism of sorting for commits in the graph (see {@link SortType}):
+   *                               <ul><li/> sort topologically and by date,
+   *                               <li/> show incoming commits first for merges (IntelliSort),
+   *                               <li/> show incoming commits on top of main branch commits as if they were rebased (linear IntelliSort).</ul>
+   * @param headsOfVisibleBranches heads of visible branches, null value means all branches are visible.
+   * @param matchedCommits         visible commits, null value means all commits are visible.
+   * @return new instance of VisibleGraph.
+   */
+  @NotNull
+  VisibleGraph<Id> createVisibleGraph(@NotNull SortType sortType,
+                                      @Nullable Set<? extends Id> headsOfVisibleBranches,
+                                      @Nullable Set<? extends Id> matchedCommits);
 
   @NotNull
-  VisibleGraph<CommitId> createVisibleGraph(@NotNull SortType sortType,
-                                            @Nullable Set<CommitId> headsOfVisibleBranches,
-                                            @Nullable Set<CommitId> matchedCommits);
+  List<GraphCommit<Id>> getAllCommits();
 
   @NotNull
-  List<GraphCommit<CommitId>> getAllCommits();
+  List<Id> getChildren(@NotNull Id commit);
 
   @NotNull
-  List<CommitId> getChildren(@NotNull CommitId commit);
+  Set<Id> getContainingBranches(@NotNull Id commit);
 
   @NotNull
-  Set<CommitId> getContainingBranches(@NotNull CommitId commit);
+  Condition<Id> getContainedInBranchCondition(@NotNull Collection<? extends Id> currentBranchHead);
 
   enum SortType {
-    Normal("Off", "Sort commits topologically and by date"),
-    Bek("Standard", "In case of merge show incoming commits first (directly below merge commit)"),
-    LinearBek("Linear", "In case of merge show incoming commits on top of main branch commits as if they were rebased");
+    Normal("Off", "Sort commits topologically and by date"), // NON-NLS
+    Bek("Standard", "In case of merge show incoming commits first (directly below merge commit)"), // NON-NLS
+    LinearBek("Linear", "In case of merge show incoming commits on top of main branch commits as if they were rebased"); // NON-NLS
 
     @NotNull private final String myPresentation;
     @NotNull private final String myDescription;

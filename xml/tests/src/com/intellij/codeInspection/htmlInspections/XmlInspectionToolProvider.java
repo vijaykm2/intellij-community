@@ -18,13 +18,14 @@ package com.intellij.codeInspection.htmlInspections;
 import com.intellij.codeInsight.daemon.impl.analysis.*;
 import com.intellij.codeInspection.InspectionToolProvider;
 import com.intellij.xml.util.*;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author yole
  */
 public class XmlInspectionToolProvider implements InspectionToolProvider {
   @Override
-  public Class[] getInspectionClasses() {
+  public Class @NotNull [] getInspectionClasses() {
     return new Class[] {
       CheckTagEmptyBodyInspection.class,
       CheckDtdReferencesInspection.class,

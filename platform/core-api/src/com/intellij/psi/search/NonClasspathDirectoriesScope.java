@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,15 +16,15 @@
 
 package com.intellij.psi.search;
 
+import com.intellij.core.CoreBundle;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.Function;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -35,12 +35,7 @@ public class NonClasspathDirectoriesScope extends GlobalSearchScope {
   private final Set<VirtualFile> myRoots;
 
   public NonClasspathDirectoriesScope(@NotNull Collection<VirtualFile> roots) {
-    myRoots = ContainerUtil.newHashSet(roots);
-  }
-
-  @Override
-  public boolean isSearchOutsideRootModel() {
-    return true;
+    myRoots = new HashSet<>(roots);
   }
 
   @NotNull
@@ -55,11 +50,6 @@ public class NonClasspathDirectoriesScope extends GlobalSearchScope {
   @Override
   public boolean contains(@NotNull VirtualFile file) {
     return VfsUtilCore.isUnder(file, myRoots);
-  }
-
-  @Override
-  public int compare(@NotNull VirtualFile file1, @NotNull VirtualFile file2) {
-    return 0;
   }
 
   @Override
@@ -85,10 +75,8 @@ public class NonClasspathDirectoriesScope extends GlobalSearchScope {
   }
 
   @Override
-  public int hashCode() {
-    int result = super.hashCode();
-    result = 31 * result + myRoots.hashCode();
-    return result;
+  public int calcHashCode() {
+    return myRoots.hashCode();
   }
 
   @NotNull
@@ -96,13 +84,8 @@ public class NonClasspathDirectoriesScope extends GlobalSearchScope {
   public String getDisplayName() {
     if (myRoots.size() == 1) {
       VirtualFile root = myRoots.iterator().next();
-      return "Directory '" + root.getName() + "'";
+      return CoreBundle.message("scope.display.name.directory.0", root.getName());
     }
-    return "Directories " + StringUtil.join(myRoots, new Function<VirtualFile, String>() {
-      @Override
-      public String fun(VirtualFile file) {
-        return "'" + file.getName() + "'";
-      }
-    }, ", ");
+    return CoreBundle.message("scope.display.name.directories.0", StringUtil.join(myRoots, file -> "'" + file.getName() + "'", ", "));
   }
 }

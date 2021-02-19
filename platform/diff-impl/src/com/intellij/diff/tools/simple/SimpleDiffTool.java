@@ -18,6 +18,7 @@ package com.intellij.diff.tools.simple;
 import com.intellij.diff.DiffContext;
 import com.intellij.diff.FrameDiffTool;
 import com.intellij.diff.requests.DiffRequest;
+import com.intellij.openapi.diff.DiffBundle;
 import org.jetbrains.annotations.NotNull;
 
 public class SimpleDiffTool implements FrameDiffTool {
@@ -26,18 +27,22 @@ public class SimpleDiffTool implements FrameDiffTool {
   @NotNull
   @Override
   public DiffViewer createComponent(@NotNull DiffContext context, @NotNull DiffRequest request) {
+    if (SimpleOnesideDiffViewer.canShowRequest(context, request)) return new SimpleOnesideDiffViewer(context, request);
+    if (SimpleDiffViewer.canShowRequest(context, request)) return new SimpleDiffViewer(context, request);
     if (SimpleThreesideDiffViewer.canShowRequest(context, request)) return new SimpleThreesideDiffViewer(context, request);
-    return new SimpleDiffViewer(context, request);
+    throw new IllegalArgumentException(request.toString());
   }
 
   @Override
   public boolean canShow(@NotNull DiffContext context, @NotNull DiffRequest request) {
-    return SimpleDiffViewer.canShowRequest(context, request) || SimpleThreesideDiffViewer.canShowRequest(context, request);
+    return SimpleOnesideDiffViewer.canShowRequest(context, request) ||
+           SimpleDiffViewer.canShowRequest(context, request) ||
+           SimpleThreesideDiffViewer.canShowRequest(context, request);
   }
 
   @NotNull
   @Override
   public String getName() {
-    return "Default viewer";
+    return DiffBundle.message("side.by.side.viewer");
   }
 }

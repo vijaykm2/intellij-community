@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2011 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,22 +17,15 @@ package com.siyeh.ig.imports;
 
 import com.intellij.codeInspection.CleanupLocalInspectionTool;
 import com.intellij.psi.*;
+import com.intellij.psi.util.FileTypeUtils;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.fixes.DeleteImportFix;
-import com.intellij.psi.util.FileTypeUtils;
 import org.jetbrains.annotations.NotNull;
 
 public class SamePackageImportInspection extends BaseInspection implements CleanupLocalInspectionTool {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "import.from.same.package.display.name");
-  }
 
   @Override
   @NotNull
@@ -47,6 +40,11 @@ public class SamePackageImportInspection extends BaseInspection implements Clean
   }
 
   @Override
+  public boolean shouldInspect(PsiFile file) {
+    return !FileTypeUtils.isInServerPageFile(file);
+  }
+
+  @Override
   public BaseInspectionVisitor buildVisitor() {
     return new SamePackageImportVisitor();
   }
@@ -58,9 +56,6 @@ public class SamePackageImportInspection extends BaseInspection implements Clean
     public void visitImportList(PsiImportList importList) {
       final PsiElement parent = importList.getParent();
       if (!(parent instanceof PsiJavaFile)) {
-        return;
-      }
-      if (FileTypeUtils.isInServerPageFile(importList)) {
         return;
       }
       final PsiJavaFile javaFile = (PsiJavaFile)parent;
@@ -83,7 +78,7 @@ public class SamePackageImportInspection extends BaseInspection implements Clean
           if (text == null) {
             return;
           }
-          final int classNameIndex = text.lastIndexOf((int)'.');
+          final int classNameIndex = text.lastIndexOf('.');
           final String parentName;
           if (classNameIndex < 0) {
             parentName = "";

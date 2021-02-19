@@ -30,7 +30,7 @@ public abstract class AbstractLineWrapPositionStrategyTest {
   private Mockery myMockery;
   private Project myProject;
 
-  public void setUp() {
+  public void prepare() {
     myMockery = new JUnit4Mockery() {{
       setImposteriser(ClassImposteriser.INSTANCE);
     }};
@@ -55,6 +55,9 @@ public abstract class AbstractLineWrapPositionStrategyTest {
     final Document result = myMockery.mock(Document.class);
     myMockery.checking(new Expectations() {{
       allowing(result).getCharsSequence(); will(returnValue(text));
+      allowing(result).getLineNumber(with(any(int.class))); will(returnValue(0));
+      allowing(result).getLineStartOffset(0); will(returnValue(0));
+      allowing(result).getLineEndOffset(0); will(returnValue(text.length()));
     }});
     return result;
   }
@@ -115,7 +118,7 @@ public abstract class AbstractLineWrapPositionStrategyTest {
     }
 
     private void processWrap() {
-      buffer.append(rawDocument.substring(index, tmpWrapIndex));
+      buffer.append(rawDocument, index, tmpWrapIndex);
       index = tmpWrapIndex + WRAP_MARKER.length();
       wrapIndex = buffer.length();
       if (rawDocument.indexOf(WRAP_MARKER, index) >= 0) {
@@ -124,7 +127,7 @@ public abstract class AbstractLineWrapPositionStrategyTest {
     }
 
     private void processMaxPreferredIndex() {
-      buffer.append(rawDocument.substring(index, tmpEdgeIndex));
+      buffer.append(rawDocument, index, tmpEdgeIndex);
       index = tmpEdgeIndex + EDGE_MARKER.length();
       edgeIndex = buffer.length();
       if (rawDocument.indexOf(EDGE_MARKER, index) >= 0) {

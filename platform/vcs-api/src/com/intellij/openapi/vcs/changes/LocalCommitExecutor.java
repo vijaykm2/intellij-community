@@ -15,9 +15,10 @@
  */
 package com.intellij.openapi.vcs.changes;
 
-/**
- * User: anna
- * Date: 2/17/12
- */
-public abstract class LocalCommitExecutor implements CommitExecutorWithHelp {
+import com.intellij.ide.HelpIdProvider;
+import com.intellij.openapi.extensions.ProjectExtensionPointName;
+
+public abstract class LocalCommitExecutor implements CommitExecutor, HelpIdProvider {
+  public static final ProjectExtensionPointName<LocalCommitExecutor> LOCAL_COMMIT_EXECUTOR =
+    new ProjectExtensionPointName<>("com.intellij.vcs.changes.localCommitExecutor");
 }

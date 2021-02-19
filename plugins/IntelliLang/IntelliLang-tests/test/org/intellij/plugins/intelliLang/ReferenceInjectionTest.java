@@ -1,13 +1,19 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.intelliLang;
 
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiLanguageInjectionHost;
-import com.intellij.psi.PsiManager;
-import com.intellij.psi.PsiReference;
-import com.intellij.psi.impl.PsiModificationTrackerImpl;
+import com.intellij.lang.Language;
+import com.intellij.openapi.command.WriteCommandAction;
+import com.intellij.openapi.command.undo.UndoManager;
+import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.fileEditor.TextEditor;
+import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider;
+import com.intellij.openapi.ui.TestDialog;
+import com.intellij.openapi.ui.TestDialogManager;
+import com.intellij.psi.*;
 import com.intellij.psi.impl.source.resolve.reference.impl.providers.FileReference;
+import com.intellij.psi.injection.Injectable;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import com.intellij.util.ui.UIUtil;
 import org.intellij.plugins.intelliLang.inject.InjectLanguageAction;
 import org.intellij.plugins.intelliLang.inject.UnInjectLanguageAction;
 import org.intellij.plugins.intelliLang.references.FileReferenceInjector;
@@ -17,10 +23,9 @@ import org.jdom.Element;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 02.08.13
  */
-public class ReferenceInjectionTest extends LightCodeInsightFixtureTestCase {
-  public void testInjectReference() throws Exception {
+public class ReferenceInjectionTest extends AbstractLanguageInjectionTestCase {
+  public void testInjectReference() {
     myFixture.configureByText("foo.xml", "<foo xmlns=\"http://foo.bar\" \n" +
                                          "     xxx=\"ba<caret>r\"/>");
     assertNull(myFixture.getReferenceAtCaretPosition());
@@ -33,7 +38,7 @@ public class ReferenceInjectionTest extends LightCodeInsightFixtureTestCase {
     assertTrue(new UnInjectLanguageAction().isAvailable(getProject(), myFixture.getEditor(), myFixture.getFile()));
 
     myFixture.configureByText("bar.xml",
-                              "<foo xmlns=\"<error descr=\"URI is not registered (Settings | Project Settings | Schemas and DTDs)\">http://foo.bar</error>\" \n" +
+                              "<foo xmlns=\"<error descr=\"URI is not registered (Settings | Languages & Frameworks | Schemas and DTDs)\">http://foo.bar</error>\" \n" +
                               "     xxx=\"<error descr=\"Cannot resolve file 'bar'\">b<caret>ar</error>\"/>");
     myFixture.testHighlighting();
 
@@ -41,7 +46,7 @@ public class ReferenceInjectionTest extends LightCodeInsightFixtureTestCase {
     assertNull(myFixture.getReferenceAtCaretPosition());
   }
 
-  public void testSurviveSerialization() throws Exception {
+  public void testSurviveSerialization() {
     myFixture.configureByText("foo.xml", "<foo xmlns=\"http://foo.bar\" \n" +
                                          "     xxx=\"ba<caret>r\"/>");
     assertNull(myFixture.getReferenceAtCaretPosition());
@@ -53,14 +58,14 @@ public class ReferenceInjectionTest extends LightCodeInsightFixtureTestCase {
     Element element = configuration.getState();
     configuration.loadState(element);
 
-    ((PsiModificationTrackerImpl)PsiManager.getInstance(getProject()).getModificationTracker()).incCounter();
+    PsiManager.getInstance(getProject()).dropPsiCaches();
     assertTrue(myFixture.getReferenceAtCaretPosition() instanceof FileReference);
 
     UnInjectLanguageAction.invokeImpl(getProject(), myFixture.getEditor(), myFixture.getFile());
     assertNull(myFixture.getReferenceAtCaretPosition());
   }
 
-  public void testInjectIntoTagValue() throws Exception {
+  public void testInjectIntoTagValue() {
     myFixture.configureByText("foo.xml", "<foo xmlns=\"http://foo.bar\" <bar>x<caret>xx</bar>/>");
     assertNull(myFixture.getReferenceAtCaretPosition());
 
@@ -71,7 +76,7 @@ public class ReferenceInjectionTest extends LightCodeInsightFixtureTestCase {
     assertNull(myFixture.getReferenceAtCaretPosition());
   }
 
-  public void testInjectIntoJava() throws Exception {
+  public void testInjectIntoJava() {
     myFixture.configureByText("Foo.java", "class Foo {\n" +
                                           "    String bar() {\n" +
                                           "        return \"ba<caret>r.xml\";\n" +
@@ -88,12 +93,169 @@ public class ReferenceInjectionTest extends LightCodeInsightFixtureTestCase {
     assertNull(getInjectedReferences());
   }
 
-  public void testInjectByAnnotation() throws Exception {
+  public void testInjectionDoesntSurviveLiteralReplacement() {
+    myFixture.configureByText("Survive.java", "class Survive {\n" +
+                                          "    String bar() {\n" +
+                                          "        return \"ba<caret>r.xml\";\n" +
+                                          "    }    \n" +
+                                          "}");
+    assertNull(getInjectedReferences());
+
+    InjectLanguageAction.invokeImpl(getProject(), myFixture.getEditor(), myFixture.getFile(), new FileReferenceInjector());
+    PsiReference[] references = getInjectedReferences();
+    PsiReference reference = assertOneElement(references);
+    assertTrue(reference instanceof FileReference);
+
+    String textToReplace = "\"bar.xml\"";
+
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      PsiDocumentManager manager = PsiDocumentManager.getInstance(getProject());
+      Document document = manager.getDocument(getFile());
+      int start = document.getText().indexOf(textToReplace);
+      document.replaceString(start, start + textToReplace.length(), "null");
+      manager.commitDocument(document);
+    });
+
+    assertNull(getInjectedReferences());
+  }
+
+  public void testUndoLanguageInjection() {
+    myFixture.configureByText("Foo.java", "class Foo {\n" +
+                                          "    String bar() {\n" +
+                                          "        String result = \"{\\\"a<caret>\\\" : 1}\";\n" +
+                                          "        return result;\n" +
+                                          "    }    \n" +
+                                          "}");
+    InjectLanguageAction.invokeImpl(getProject(),
+                                    myFixture.getEditor(),
+                                    myFixture.getFile(),
+                                    Injectable.fromLanguage(Language.findLanguageByID("JSON")));
+    myFixture.checkResult("class Foo {\n" +
+                          "    String bar() {\n" +
+                          "        String result = \"{\\\"a\\\" : 1}\";\n" +
+                          "        return result;\n" +
+                          "    }    \n" +
+                          "}");
+    assertInjectedLangAtCaret("JSON");
+    undo();
+    assertInjectedLangAtCaret(null);
+  }
+
+  private void undo() {
+    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+      final TestDialog oldTestDialog = TestDialogManager.setTestDialog(TestDialog.OK);
+      try {
+        UndoManager undoManager = UndoManager.getInstance(getProject());
+        TextEditor textEditor = TextEditorProvider.getInstance().getTextEditor(getEditor());
+        undoManager.undo(textEditor);
+      }
+      finally {
+        TestDialogManager.setTestDialog(oldTestDialog);
+      }
+    });
+  }
+
+  public void testInjectByAnnotation() {
     myFixture.configureByText("Foo.java", "class Foo {\n" +
                                           "    @org.intellij.lang.annotations.Language(\"file-reference\")\n" +
                                           "    String bar() {\n" +
                                           "       return \"<error descr=\"Cannot resolve file 'unknown.file'\">unknown.file</error>\";\n" +
                                           "    }  \n" +
+                                          "}");
+    myFixture.testHighlighting();
+  }
+
+  public void testConvertToAnnotationLanguageInjection() {
+    myFixture.configureByText("Foo.java", "class Foo {\n" +
+                                          "    String bar() {\n" +
+                                          "        String result = \"{\\\"a<caret>\\\" : 1}\";\n" +
+                                          "        return result;\n" +
+                                          "    }    \n" +
+                                          "}");
+    PsiLanguageInjectionHost injectionHost = myFixture.findElementByText("\"{\\\"a\\\" : 1}\"", PsiLanguageInjectionHost.class);
+    SmartPsiElementPointer<PsiLanguageInjectionHost> hostPtr = SmartPointerManager.createPointer(injectionHost);
+
+    StoringFixPresenter storedFix = new StoringFixPresenter();
+    InjectLanguageAction.invokeImpl(getProject(),
+                                    myFixture.getEditor(),
+                                    myFixture.getFile(),
+                                    Injectable.fromLanguage(Language.findLanguageByID("JSON")),
+                                    storedFix);
+    myFixture.checkResult("class Foo {\n" +
+                          "    String bar() {\n" +
+                          "        String result = \"{\\\"a\\\" : 1}\";\n" +
+                          "        return result;\n" +
+                          "    }    \n" +
+                          "}");
+    assertInjectedLangAtCaret("JSON");
+
+    storedFix.process(hostPtr.getElement());
+    myFixture.checkResult("import org.intellij.lang.annotations.Language;\n" +
+                          "\n" +
+                          "class Foo {\n" +
+                          "    String bar() {\n" +
+                          "        @Language(\"JSON\") String result = \"{\\\"a\\\" : 1}\";\n" +
+                          "        return result;\n" +
+                          "    }    \n" +
+                          "}");
+    assertInjectedLangAtCaret("JSON");
+
+    UnInjectLanguageAction.invokeImpl(getProject(), myFixture.getEditor(), myFixture.getFile());
+    assertInjectedLangAtCaret(null);
+  }
+
+  public void testConvertToAnnotationReferenceInjection() {
+    myFixture.configureByText("Foo.java", "class Foo {\n" +
+                                          "    String bar() {\n" +
+                                          "        String result = \"ba<caret>r.xml\";\n" +
+                                          "        return result;\n" +
+                                          "    }    \n" +
+                                          "}");
+    PsiLanguageInjectionHost injectionHost = myFixture.findElementByText("\"bar.xml\"", PsiLanguageInjectionHost.class);
+    SmartPsiElementPointer<PsiLanguageInjectionHost> hostPtr = SmartPointerManager.createPointer(injectionHost);
+
+    StoringFixPresenter storedFix = new StoringFixPresenter();
+
+    InjectLanguageAction.invokeImpl(getProject(), myFixture.getEditor(), myFixture.getFile(), new FileReferenceInjector(), storedFix);
+    myFixture.checkResult("class Foo {\n" +
+                          "    String bar() {\n" +
+                          "        String result = \"bar.xml\";\n" +
+                          "        return result;\n" +
+                          "    }    \n" +
+                          "}");
+    assertTrue(assertOneElement(getInjectedReferences()) instanceof FileReference);
+
+    storedFix.process((hostPtr.getElement()));
+    myFixture.checkResult("import org.intellij.lang.annotations.Language;\n" +
+                          "\n" +
+                          "class Foo {\n" +
+                          "    String bar() {\n" +
+                          "        @Language(\"file-reference\") String result = \"bar.xml\";\n" +
+                          "        return result;\n" +
+                          "    }    \n" +
+                          "}");
+    assertTrue(assertOneElement(getInjectedReferences()) instanceof FileReference);
+
+    UnInjectLanguageAction.invokeImpl(getProject(), myFixture.getEditor(), myFixture.getFile());
+    assertNull(getInjectedReferences());
+  }
+
+  public void testTernary() {
+    myFixture.configureByText("Foo.java", "class Foo {\n" +
+                                          "    void bar() {\n" +
+                                          "        @org.intellij.lang.annotations.Language(\"encoding-reference\")\n" +
+                                          "        String cset = true ? \"<error descr=\"Unknown encoding: 'cp1252345'\">cp1252345</error>\" : \"utf-8\";//\n" +
+                                          "    }\n" +
+                                          "}");
+    myFixture.testHighlighting();
+  }
+
+  public void testEmptyLiteral() {
+    myFixture.configureByText("Foo.java", "class Foo {\n" +
+                                          "    void bar() {\n" +
+                                          "        @org.intellij.lang.annotations.Language(\"encoding-reference\")\n" +
+                                          "        String cset = true ? <error descr=\"Unknown encoding: ''\">\"\"</error> : \"utf-8\";//\n" +
+                                          "    }\n" +
                                           "}");
     myFixture.testHighlighting();
   }
@@ -113,7 +275,14 @@ public class ReferenceInjectionTest extends LightCodeInsightFixtureTestCase {
 
   @Override
   protected void tearDown() throws Exception {
-    myFixture.disableInspections(new InjectedReferencesInspection());
-    super.tearDown();
+    try {
+      myFixture.disableInspections(new InjectedReferencesInspection());
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      super.tearDown();
+    }
   }
 }

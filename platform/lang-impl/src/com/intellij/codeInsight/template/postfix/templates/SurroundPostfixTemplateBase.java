@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.template.postfix.templates;
 
 import com.intellij.lang.surroundWith.Surrounder;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
@@ -26,8 +13,8 @@ public abstract class SurroundPostfixTemplateBase extends PostfixTemplateWithExp
 
   @NotNull protected final PostfixTemplatePsiInfo myPsiInfo;
 
-  protected SurroundPostfixTemplateBase(@NotNull String name,
-                                        @NotNull String descr,
+  protected SurroundPostfixTemplateBase(@NotNull @NlsSafe String name,
+                                        @NotNull @NlsSafe String descr,
                                         @NotNull PostfixTemplatePsiInfo psiInfo,
                                         @NotNull PostfixTemplateExpressionSelector selector) {
     super(name, descr, selector);
@@ -36,8 +23,8 @@ public abstract class SurroundPostfixTemplateBase extends PostfixTemplateWithExp
 
 
   @Override
-  public final void expandForChooseExpression(@NotNull PsiElement context, @NotNull final Editor editor) {
-    PsiElement replace = getReplacedExpression(context);
+  public final void expandForChooseExpression(@NotNull PsiElement expression, @NotNull final Editor editor) {
+    PsiElement replace = getReplacedExpression(expression);
     TextRange range = PostfixTemplatesUtils.surround(getSurrounder(), editor, replace);
 
     if (range != null) {
@@ -45,10 +32,9 @@ public abstract class SurroundPostfixTemplateBase extends PostfixTemplateWithExp
     }
   }
 
-  protected PsiElement getReplacedExpression(PsiElement topmostExpression) {
-    PsiElement expression = getWrappedExpression(topmostExpression);
-    assert topmostExpression != null;
-    return topmostExpression.replace(expression);
+  protected PsiElement getReplacedExpression(@NotNull PsiElement expression) {
+    PsiElement wrappedExpression = getWrappedExpression(expression);
+    return expression.replace(wrappedExpression);
   }
 
   protected PsiElement getWrappedExpression(PsiElement expression) {
@@ -63,12 +49,12 @@ public abstract class SurroundPostfixTemplateBase extends PostfixTemplateWithExp
   }
 
   @NotNull
-  protected String getHead() {
+  protected @NlsSafe String getHead() {
     return "";
   }
 
   @NotNull
-  protected String getTail() {
+  protected @NlsSafe String getTail() {
     return "";
   }
 

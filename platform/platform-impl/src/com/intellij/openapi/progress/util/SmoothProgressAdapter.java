@@ -1,39 +1,30 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.progress.util;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.StandardProgressIndicator;
 import com.intellij.openapi.progress.WrappedProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.util.Alarm;
+import com.intellij.openapi.wm.ex.ProgressIndicatorEx;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.concurrency.Semaphore;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
-public class SmoothProgressAdapter extends AbstractProgressIndicatorExBase implements BlockingProgressIndicator, WrappedProgressIndicator,
-                                                                            StandardProgressIndicator {
+public final class SmoothProgressAdapter extends AbstractProgressIndicatorExBase implements ProgressIndicatorEx, WrappedProgressIndicator,
+                                                                                            StandardProgressIndicator {
   private static final int SHOW_DELAY = 500;
 
-  private final Alarm myStartupAlarm = new Alarm(Alarm.ThreadToUse.SHARED_THREAD);
+  private Future<?> myStartupAlarm = CompletableFuture.completedFuture(null);
 
   private final ProgressIndicator myOriginal;
   private final Project myProject;
@@ -45,7 +36,7 @@ public class SmoothProgressAdapter extends AbstractProgressIndicatorExBase imple
   private final Runnable myShowRequest = new Runnable() {
     @Override
     public void run() {
-      synchronized(SmoothProgressAdapter.this){
+      synchronized(getLock()){
         if (!isRunning()) {
           return;
         }
@@ -67,6 +58,10 @@ public class SmoothProgressAdapter extends AbstractProgressIndicatorExBase imple
       myOriginal.setModalityProgress(this);
       setModalityProgress(this);
     }
+    ProgressManager.assertNotCircular(original);
+    if (original.isRunning() || original.isCanceled()) {
+      throw new IllegalArgumentException("Original indicator must be not started and not cancelled: "+original);
+    }
   }
 
   @NotNull
@@ -87,15 +82,16 @@ public class SmoothProgressAdapter extends AbstractProgressIndicatorExBase imple
   }
 
   @Override
-  public synchronized void start() {
-    if (isRunning()) return;
+  public void start() {
+    synchronized (getLock()) {
+      if (isRunning()) return;
 
-    super.start();
-    myOriginalStarted = false;
-    myStartupAlarm.addRequest(myShowRequest, SHOW_DELAY);
+      super.start();
+      myOriginalStarted = false;
+      myStartupAlarm = AppExecutorUtil.getAppScheduledExecutorService().schedule(myShowRequest, SHOW_DELAY, TimeUnit.MILLISECONDS);
+    }
   }
 
-  @Override
   public void startBlocking() {
     ApplicationManager.getApplication().assertIsDispatchThread();
     start();
@@ -130,66 +126,69 @@ public class SmoothProgressAdapter extends AbstractProgressIndicatorExBase imple
   }
 
   @Override
-  public synchronized void stop() {
-    if (myOriginal.isRunning()) {
-      myOriginal.stop();
-    }
-    else {
-      myStartupAlarm.cancelAllRequests();
-
-      if (!myOriginalStarted && myOriginal instanceof Disposable) {
-        // dispose original because start & stop were not called so original progress might not have released its resources 
-        Disposer.dispose(((Disposable)myOriginal));
+  public void stop() {
+    synchronized (getLock()) {
+      if (myOriginal.isRunning()) {
+        myOriginalStarted = true;
+        myOriginal.stop();
       }
-    }
+      myStartupAlarm.cancel(false);
 
-    // needed only for correct assertion of !progress.isRunning() in ApplicationImpl.runProcessWithProgressSynchroniously
-    final Semaphore semaphore = new Semaphore();
-    semaphore.down();
+      // needed only for correct assertion of !progress.isRunning() in ApplicationImpl.runProcessWithProgressSynchronously
+      final Semaphore semaphore = new Semaphore();
+      semaphore.down();
 
-    SwingUtilities.invokeLater(
-      new Runnable() {
-        @Override
-        public void run() {
+      SwingUtilities.invokeLater(
+        () -> {
+          if (!myOriginalStarted && myOriginal instanceof Disposable) {
+            // dispose original because start & stop were not called so original progress might not have released its resources
+            Disposer.dispose((Disposable)myOriginal);
+          }
+
           semaphore.waitFor();
           if (myDialog != null){
-            //System.out.println("myDialog.destroyProcess()");
             myDialog.close(DialogWrapper.OK_EXIT_CODE);
             myDialog = null;
           }
         }
+      );
+
+      try {
+        super.stop(); // should be last to not leaveModal before closing the dialog
       }
-    );
-
-    try {
-      super.stop(); // should be last to not leaveModal before closing the dialog
-    }
-    finally {
-      semaphore.up();
+      finally {
+        semaphore.up();
+      }
     }
   }
 
   @Override
-  public synchronized void setText(String text) {
-    super.setText(text);
-    if (myOriginal.isRunning()) {
-      myOriginal.setText(text);
+  public void setText(String text) {
+    synchronized (getLock()) {
+      super.setText(text);
+      if (myOriginal.isRunning()) {
+        myOriginal.setText(text);
+      }
     }
   }
 
   @Override
-  public synchronized void setFraction(double fraction) {
-    super.setFraction(fraction);
-    if (myOriginal.isRunning()) {
-      myOriginal.setFraction(fraction);
+  public void setFraction(double fraction) {
+    synchronized (getLock()) {
+      super.setFraction(fraction);
+      if (myOriginal.isRunning()) {
+        myOriginal.setFraction(fraction);
+      }
     }
   }
-  
+
   @Override
-  public synchronized void setText2(String text) {
-    super.setText2(text);
-    if (myOriginal.isRunning()) {
-      myOriginal.setText2(text);
+  public void setText2(String text) {
+    synchronized (getLock()) {
+      super.setText2(text);
+      if (myOriginal.isRunning()) {
+        myOriginal.setText2(text);
+      }
     }
   }
 

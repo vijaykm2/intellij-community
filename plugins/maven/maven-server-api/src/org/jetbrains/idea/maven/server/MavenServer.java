@@ -15,6 +15,7 @@
  */
 package org.jetbrains.idea.maven.server;
 
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles;
 import org.jetbrains.idea.maven.model.MavenModel;
 
@@ -22,20 +23,22 @@ import java.io.File;
 import java.rmi.Remote;
 import java.rmi.RemoteException;
 import java.util.Collection;
+import org.jetbrains.idea.maven.server.security.MavenToken;
 
 public interface MavenServer extends Remote {
-  void set(MavenServerLogger logger, MavenServerDownloadListener downloadListener) throws RemoteException;
+  void set(MavenServerLogger logger, MavenServerDownloadListener downloadListener, MavenToken token) throws RemoteException;
 
-  MavenServerEmbedder createEmbedder(MavenServerSettings settings) throws RemoteException;
+  MavenServerEmbedder createEmbedder(MavenEmbedderSettings settings, MavenToken token) throws RemoteException;
 
-  MavenServerIndexer createIndexer() throws RemoteException;
+  MavenServerIndexer createIndexer(MavenToken token) throws RemoteException;
 
-  MavenModel interpolateAndAlignModel(MavenModel model, File basedir) throws RemoteException;
+  @NotNull
+  MavenModel interpolateAndAlignModel(MavenModel model, File basedir, MavenToken token) throws RemoteException;
 
-  MavenModel assembleInheritance(MavenModel model, MavenModel parentModel) throws RemoteException;
+  MavenModel assembleInheritance(MavenModel model, MavenModel parentModel, MavenToken token) throws RemoteException;
 
   ProfileApplicationResult applyProfiles(MavenModel model,
                                          File basedir,
                                          MavenExplicitProfiles explicitProfiles,
-                                         Collection<String> alwaysOnProfiles) throws RemoteException;
+                                         Collection<String> alwaysOnProfiles, MavenToken token) throws RemoteException;
 }

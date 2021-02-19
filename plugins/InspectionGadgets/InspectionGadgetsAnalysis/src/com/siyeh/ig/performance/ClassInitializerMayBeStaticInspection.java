@@ -19,9 +19,8 @@
  */
 package com.siyeh.ig.performance;
 
+import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.codeInspection.InspectionManager;
-import com.intellij.openapi.extensions.Extensions;
-import com.intellij.openapi.extensions.ExtensionsArea;
 import com.intellij.openapi.util.Condition;
 import com.intellij.psi.*;
 import com.siyeh.InspectionGadgetsBundle;
@@ -30,7 +29,6 @@ import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.fixes.ChangeModifierFix;
 import com.siyeh.ig.psiutils.ClassUtils;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 public class ClassInitializerMayBeStaticInspection extends BaseInspection {
@@ -52,14 +50,6 @@ public class ClassInitializerMayBeStaticInspection extends BaseInspection {
   }
 
   @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "class.initializer.may.be.static.display.name");
-  }
-
-  @Override
   public BaseInspectionVisitor buildVisitor() {
     return new ClassInitializerCanBeStaticVisitor();
   }
@@ -74,26 +64,25 @@ public class ClassInitializerMayBeStaticInspection extends BaseInspection {
       if (containingClass == null) {
         return;
       }
-      final Condition<PsiElement>[] addins = InspectionManager.CANT_BE_STATIC_EXTENSION.getExtensions();
-      for (Condition<PsiElement> addin : addins) {
-        if (addin.value(initializer)) {
-          return;
-        }
+      for (Condition<PsiElement> addin : InspectionManager.CANT_BE_STATIC_EXTENSION.getExtensionList()) {
+        if (addin.value(initializer)) return;
       }
       final PsiElement scope = containingClass.getScope();
       if (!(scope instanceof PsiJavaFile) &&
-          !containingClass.hasModifierProperty(PsiModifier.STATIC)) {
+          !containingClass.hasModifierProperty(PsiModifier.STATIC) &&
+          !HighlightingFeature.INNER_STATICS.isAvailable(containingClass)) {
         return;
       }
 
-      final MethodReferenceVisitor visitor =
-        new MethodReferenceVisitor(initializer);
-      initializer.accept(visitor);
-      if (!visitor.areReferencesStaticallyAccessible()) {
-        return;
-      }
+      if (dependsOnInstanceMembers(initializer)) return;
 
       registerClassInitializerError(initializer);
     }
+  }
+
+  public static boolean dependsOnInstanceMembers(PsiClassInitializer initializer) {
+    final MethodReferenceVisitor visitor = new MethodReferenceVisitor(initializer);
+    initializer.accept(visitor);
+    return !visitor.areReferencesStaticallyAccessible();
   }
 }

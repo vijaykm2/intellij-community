@@ -17,23 +17,24 @@
 package com.jetbrains.python.testing;
 
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.ui.CollectionComboBoxModel;
 import com.jetbrains.python.PyBundle;
+import org.jetbrains.annotations.Nls;
 
 import java.util.List;
 
-/**
- * User: catherine
- */
 
 public class PythonTestConfigurationsModel extends CollectionComboBoxModel {
-  public static final String PYTHONS_UNITTEST_NAME = PyBundle.message("runcfg.unittest.display_name");
-  public static final String PYTHONS_NOSETEST_NAME = PyBundle.message("runcfg.nosetests.display_name");
-  public static final String PY_TEST_NAME = PyBundle.message("runcfg.pytest.display_name");
-  public static final String PYTHONS_ATTEST_NAME = PyBundle.message("runcfg.attest.display_name");
+  /**
+   * @deprecated Use {@link #getPythonsUnittestName()} instead
+   */
+  @Deprecated
+  public static final String PYTHONS_UNITTEST_NAME = "Unittests";
 
+  @NlsSafe
   private String myTestRunner;
-  private Module myModule;
+  private final Module myModule;
 
   public PythonTestConfigurationsModel(final List items, final Object selection, Module module) {
     super(items, selection);
@@ -51,5 +52,9 @@ public class PythonTestConfigurationsModel extends CollectionComboBoxModel {
 
   public Object getTestRunner() {
     return myTestRunner;
+  }
+
+  public static @Nls String getPythonsUnittestName() {
+    return PyBundle.message("runcfg.unittest.display_name");
   }
 }

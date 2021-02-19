@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.folding.impl;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -32,7 +18,7 @@ import java.util.StringTokenizer;
  * @author yole
  */
 public class XmlElementSignatureProvider extends AbstractElementSignatureProvider {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.folding.impl.XmlElementSignatureProvider");
+  private static final Logger LOG = Logger.getInstance(XmlElementSignatureProvider.class);
 
   @Override
   public String getSignature(@NotNull PsiElement element) {
@@ -46,7 +32,9 @@ public class XmlElementSignatureProvider extends AbstractElementSignatureProvide
       buffer.append(name.length() == 0 ? "<unnamed>" : escape(name));
 
       buffer.append(ELEMENT_TOKENS_SEPARATOR);
-      buffer.append(getChildIndex(tag, parent, name, XmlTag.class));
+      int childIndex = getChildIndex(tag, parent, name, XmlTag.class);
+      if (childIndex < 0) return null;
+      buffer.append(childIndex);
 
       if (!(parent instanceof PsiFile)) {
         String parentSignature = getSignature(parent);
@@ -91,7 +79,7 @@ public class XmlElementSignatureProvider extends AbstractElementSignatureProvide
             // html tag, not found in jsp tree
             result = restoreElementInternal(HtmlUtil.getRealXmlDocument((XmlDocument)parent), unescapedName, index, XmlTag.class);
           }
-          else if (name.equals("<unnamed>") && parent != null) {
+          else if (name.equals("<unnamed>")) {
             // scriplet/declaration missed because null name
             result = restoreElementInternal(parent, "", index, XmlTag.class);
           }

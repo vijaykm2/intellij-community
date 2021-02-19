@@ -15,11 +15,12 @@
  */
 package com.intellij.xml.util;
 
+import com.intellij.codeInsight.daemon.impl.analysis.RemoveAttributeIntentionFix;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.codeInspection.XmlQuickFixFactory;
-import com.intellij.codeInspection.htmlInspections.RemoveAttributeIntentionAction;
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.text.StringUtil;
@@ -31,6 +32,7 @@ import com.intellij.psi.xml.XmlElement;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.ArrayUtil;
 import com.intellij.xml.XmlTagRuleProvider;
+import com.intellij.xml.analysis.XmlAnalysisBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -47,7 +49,8 @@ public abstract class XmlTagRuleProviderBase extends XmlTagRuleProvider {
   public static Rule unusedIfPresent(String attrPresent, String ... attrUnused) {
     Effect[] effects = new Effect[attrUnused.length];
     for (int i = 0; i < effects.length; i++) {
-      effects[i] = unused(attrUnused[i], "The attribute '" + attrUnused[i] + "' is unused because the attribute '" + attrPresent + "' is present");
+      effects[i] = unused(
+        attrUnused[i], XmlAnalysisBundle.message("xml.inspections.attribute.unused.because.other.attribute.present", attrUnused[i], attrPresent));
     }
 
     return new ConditionRule(ifAttrPresent(attrPresent), effects);
@@ -55,28 +58,29 @@ public abstract class XmlTagRuleProviderBase extends XmlTagRuleProvider {
 
   public static Rule unusedAllIfPresent(String attrPresent, String ... attrUnused) {
     return new ConditionRule(ifAttrPresent(attrPresent),
-                             new InvalidAllExpectSome("The attribute is unused because the attribute " + attrPresent + " is present",
-                                                      ProblemHighlightType.LIKE_UNUSED_SYMBOL,
-                                                      ArrayUtil.append(attrUnused, attrPresent)));
+                             new InvalidAllExpectSome(
+                               XmlAnalysisBundle.message("xml.inspections.all.attributes.unused.because.an.attribute.present", attrPresent),
+                               ProblemHighlightType.LIKE_UNUSED_SYMBOL,
+                               ArrayUtil.append(attrUnused, attrPresent)));
   }
 
-  public static Effect invalid(String attrName, String text) {
+  public static Effect invalid(String attrName, @InspectionMessage String text) {
     return new InvalidAttrEffect(attrName, text, ProblemHighlightType.GENERIC_ERROR_OR_WARNING);
   }
 
   public static Effect unused(String attrName) {
-    return new InvalidAttrEffect(attrName, "Attribute '" + attrName + "' is unused", ProblemHighlightType.LIKE_UNUSED_SYMBOL);
+    return new InvalidAttrEffect(attrName, XmlAnalysisBundle.message("xml.inspections.attribute.unused", attrName), ProblemHighlightType.LIKE_UNUSED_SYMBOL);
   }
 
-  public static Effect unused(String attrName, String text) {
+  public static Effect unused(String attrName, @InspectionMessage String text) {
     return new InvalidAttrEffect(attrName, text, ProblemHighlightType.LIKE_UNUSED_SYMBOL);
   }
 
-  public static Effect unusedAll(String text, String... attrNames) {
+  public static Effect unusedAll(@InspectionMessage String text, String... attrNames) {
     return new InvalidAllExpectSome(text, ProblemHighlightType.LIKE_UNUSED_SYMBOL, attrNames);
   }
 
-  public static Rule rule(Condition<XmlTag> condition, Effect ... effect) {
+  public static Rule rule(Condition<? super XmlTag> condition, Effect ... effect) {
     return new ConditionRule(condition, effect);
   }
 
@@ -106,12 +110,7 @@ public abstract class XmlTagRuleProviderBase extends XmlTagRuleProvider {
   }
 
   public static Condition<XmlTag> ifAttrPresent(final String attrName) {
-    return new Condition<XmlTag>() {
-      @Override
-      public boolean value(XmlTag tag) {
-        return tag.getAttribute(attrName) != null;
-      }
-    };
+    return tag -> tag.getAttribute(attrName) != null;
   }
 
   // ---=== Classes ===---
@@ -122,10 +121,10 @@ public abstract class XmlTagRuleProviderBase extends XmlTagRuleProvider {
 
   public static class InvalidAttrEffect extends Effect {
     private final String myAttrName;
-    private final String myText;
+    private final @InspectionMessage String myText;
     private final ProblemHighlightType myType;
 
-    public InvalidAttrEffect(String attrName, String text, ProblemHighlightType type) {
+    public InvalidAttrEffect(String attrName, @InspectionMessage String text, ProblemHighlightType type) {
       myAttrName = attrName;
       myText = text;
       myType = type;
@@ -137,7 +136,7 @@ public abstract class XmlTagRuleProviderBase extends XmlTagRuleProvider {
       if (attribute != null) {
         PsiElement attributeNameElement = getAttributeNameElement(attribute);
         if (attributeNameElement != null) {
-          holder.registerProblem(attributeNameElement, myText, myType, new RemoveAttributeIntentionAction(myAttrName));
+          holder.registerProblem(attributeNameElement, myText, myType, new RemoveAttributeIntentionFix(myAttrName));
         }
       }
     }
@@ -145,10 +144,10 @@ public abstract class XmlTagRuleProviderBase extends XmlTagRuleProvider {
 
   public static class InvalidAllExpectSome extends Effect {
     private final String[] myAttrNames;
-    private final String myText;
+    private final @InspectionMessage String myText;
     private final ProblemHighlightType myType;
 
-    public InvalidAllExpectSome(String text, ProblemHighlightType type, String... attrNames) {
+    public InvalidAllExpectSome(@InspectionMessage String text, ProblemHighlightType type, String... attrNames) {
       myAttrNames = attrNames;
       myText = text;
       myType = type;
@@ -161,7 +160,7 @@ public abstract class XmlTagRuleProviderBase extends XmlTagRuleProvider {
         if (!ArrayUtil.contains(attrName, myAttrNames)) {
           PsiElement attributeNameElement = getAttributeNameElement(xmlAttribute);
           if (attributeNameElement != null) {
-            holder.registerProblem(attributeNameElement, myText, myType, new RemoveAttributeIntentionAction(attrName));
+            holder.registerProblem(attributeNameElement, myText, myType, new RemoveAttributeIntentionFix(attrName));
           }
         }
       }
@@ -169,10 +168,10 @@ public abstract class XmlTagRuleProviderBase extends XmlTagRuleProvider {
   }
 
   public static class ConditionRule extends Rule {
-    private final Condition<XmlTag> myCondition;
+    private final Condition<? super XmlTag> myCondition;
     private final Effect[] myEffect;
 
-    public ConditionRule(Condition<XmlTag> condition, Effect ... effect) {
+    public ConditionRule(Condition<? super XmlTag> condition, Effect ... effect) {
       this.myCondition = condition;
       this.myEffect = effect;
     }
@@ -226,12 +225,16 @@ public abstract class XmlTagRuleProviderBase extends XmlTagRuleProvider {
       PsiElement tagNameElement = getTagNameElement(tag);
       if (tagNameElement == null) return;
 
-      LocalQuickFix[] fixes = new LocalQuickFix[myAttributeNames.length];
-      for (int i = 0; i < myAttributeNames.length; i++) {
-        fixes[i] = XmlQuickFixFactory.getInstance().insertRequiredAttributeFix(tag, myAttributeNames[i]);
+      LocalQuickFix[] fixes = LocalQuickFix.EMPTY_ARRAY;
+      if (holder.isOnTheFly()) {
+        fixes = new LocalQuickFix[myAttributeNames.length];
+        for (int i = 0; i < myAttributeNames.length; i++) {
+          fixes[i] = XmlQuickFixFactory.getInstance().insertRequiredAttributeFix(tag, myAttributeNames[i]);
+        }
       }
 
-      holder.registerProblem(tagNameElement, "Tag should have one of following attributes: " + StringUtil.join(myAttributeNames, ", "),
+      holder.registerProblem(tagNameElement,
+                             XmlAnalysisBundle.message("xml.inspections.tag.should.have.one.of.following.attributes.0", StringUtil.join(myAttributeNames, ", ")),
                              myProblemHighlightType,
                              fixes);
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +17,10 @@
 package com.intellij.ui.tabs;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.psi.search.scope.packageSet.NamedScopeManager;
-import com.intellij.ui.ColorUtil;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.psi.search.scope.packageSet.NamedScopesHolder;
 import org.jdom.Element;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -32,14 +33,14 @@ class FileColorConfiguration implements Cloneable {
   private static final String SCOPE_NAME = "scope";
 
   private String myScopeName;
-  private String myColorName;
+  private String myColorID;
 
-  public FileColorConfiguration() {
+  FileColorConfiguration() {
   }
 
-  public FileColorConfiguration(final String scopeName, final String colorName) {
+  FileColorConfiguration(final String scopeName, @NonNls String colorID) {
     myScopeName = scopeName;
-    myColorName = colorName;
+    myColorID = colorID;
   }
 
   public String getScopeName() {
@@ -50,32 +51,20 @@ class FileColorConfiguration implements Cloneable {
     myScopeName = scopeName;
   }
 
-  public String getColorName() {
-    return myColorName;
+  @NonNls
+  public String getColorID() {
+    return myColorID;
   }
 
-  public String getColorPresentableName() {
-    return ColorUtil.fromHex(myColorName, null) == null ? myColorName : "Custom";
-  }
-
-  public void setColorName(final String colorName) {
-    myColorName = colorName;
+  public void setColorID(@NonNls String colorID) {
+    myColorID = colorID;
   }
 
   public boolean isValid(Project project) {
-    if (myScopeName == null || myScopeName.length() == 0) {
+    if (StringUtil.isEmpty(myScopeName) || myColorID == null) {
       return false;
     }
-
-    if (myColorName == null) {
-      return false;
-    }
-
-    if (project != null) {
-      return NamedScopeManager.getScope(project, myScopeName) != null;
-    } else {
-      return true;
-    }
+    return project == null || NamedScopesHolder.getScope(project, myScopeName) != null;
   }
 
   public void save(@NotNull final Element e) {
@@ -86,7 +75,7 @@ class FileColorConfiguration implements Cloneable {
     final Element tab = new Element(FileColorsModel.FILE_COLOR);
 
     tab.setAttribute(SCOPE_NAME, getScopeName());
-    tab.setAttribute(COLOR, myColorName);
+    tab.setAttribute(COLOR, myColorID);
 
     e.addContent(tab);
   }
@@ -98,7 +87,7 @@ class FileColorConfiguration implements Cloneable {
 
     FileColorConfiguration that = (FileColorConfiguration)o;
 
-    if (!myColorName.equals(that.myColorName)) return false;
+    if (!myColorID.equals(that.myColorID)) return false;
     if (!myScopeName.equals(that.myScopeName)) return false;
 
     return true;
@@ -107,7 +96,7 @@ class FileColorConfiguration implements Cloneable {
   @Override
   public int hashCode() {
     int result = myScopeName.hashCode();
-    result = 31 * result + myColorName.hashCode();
+    result = 31 * result + myColorID.hashCode();
     return result;
   }
 
@@ -115,7 +104,7 @@ class FileColorConfiguration implements Cloneable {
   public FileColorConfiguration clone() throws CloneNotSupportedException {
     final FileColorConfiguration result = new FileColorConfiguration();
 
-    result.myColorName = myColorName;
+    result.myColorID = myColorID;
     result.myScopeName = myScopeName;
 
     return result;

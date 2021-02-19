@@ -26,14 +26,10 @@ import com.intellij.util.ProcessingContext;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.javaFX.fxml.JavaFxPsiUtil;
 
-/**
-* User: anna
-*/
 class ImportReferenceProvider extends PsiReferenceProvider {
 
-  @NotNull
   @Override
-  public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
+  public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
     if (element instanceof XmlProcessingInstruction) {
       final ASTNode importNode = element.getNode().findChildByType(XmlTokenType.XML_TAG_CHARACTERS);
       if (importNode != null) {

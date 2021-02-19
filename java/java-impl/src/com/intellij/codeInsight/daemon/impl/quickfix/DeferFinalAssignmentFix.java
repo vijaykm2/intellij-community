@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,18 +14,11 @@
  * limitations under the License.
  */
 
-/**
- * Created by IntelliJ IDEA.
- * User: cdr
- * Date: Nov 19, 2002
- * Time: 12:03:39 PM
- * To change this template use Options | File Templates.
- */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -36,12 +29,13 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class DeferFinalAssignmentFix implements IntentionAction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.daemon.impl.quickfix.DeferFinalAssignmentFix");
+  private static final Logger LOG = Logger.getInstance(DeferFinalAssignmentFix.class);
 
   private final PsiVariable variable;
   private final PsiReferenceExpression expression;
@@ -63,10 +57,14 @@ public class DeferFinalAssignmentFix implements IntentionAction {
     return QuickFixBundle.message("defer.final.assignment.with.temp.text", variable.getName());
   }
 
+  @Nullable
+  @Override
+  public PsiElement getElementToMakeWritable(@NotNull PsiFile currentFile) {
+    return variable;
+  }
+
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-    if (!FileModificationService.getInstance().prepareFileForWrite(variable.getContainingFile())) return;
-
     if (variable instanceof PsiField) {
       deferField((PsiField)variable);
     }
@@ -107,10 +105,10 @@ public class DeferFinalAssignmentFix implements IntentionAction {
 
   private void deferVariable(PsiElement outerCodeBlock, PsiVariable variable, PsiElement tempDeclarationAnchor) throws IncorrectOperationException {
     if (outerCodeBlock == null) return;
-    List<PsiReferenceExpression> outerReferences = new ArrayList<PsiReferenceExpression>();
+    List<PsiReferenceExpression> outerReferences = new ArrayList<>();
     collectReferences(outerCodeBlock, variable, outerReferences);
 
-    PsiElementFactory factory = JavaPsiFacade.getInstance(variable.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(variable.getProject());
     Project project = variable.getProject();
     String tempName = suggestNewName(project, variable);
     PsiDeclarationStatement tempVariableDeclaration = factory.createVariableDeclarationStatement(tempName, variable.getType(), null);
@@ -152,7 +150,7 @@ public class DeferFinalAssignmentFix implements IntentionAction {
                                                         PsiStatement finalAssignment,
                                                         ControlFlow controlFlow,
                                                         int minOffset,
-                                                        List references) throws IncorrectOperationException {
+                                                        @NotNull List<? extends PsiElement> references) throws IncorrectOperationException {
     int offset = ControlFlowUtil.getMinDefinitelyReachedOffset(controlFlow, minOffset, references);
     if (offset == controlFlow.getSize()) {
       codeBlock.add(finalAssignment);
@@ -161,7 +159,10 @@ public class DeferFinalAssignmentFix implements IntentionAction {
     PsiElement element = null; //controlFlow.getEndOffset(codeBlock) == offset ? getEnclosingStatement(controlFlow.getElement(offset)) : null;
     while (offset < controlFlow.getSize()) {
       element = controlFlow.getElement(offset);
-      if (element != null) element = PsiUtil.getEnclosingStatement(element);
+      while (element != null) {
+        if (element.getParent() == codeBlock) break;
+        element = element.getParent();
+      }
       int startOffset = controlFlow.getStartOffset(element);
       if (startOffset != -1 && startOffset >= minOffset && element instanceof PsiStatement) break;
       offset++;
@@ -182,7 +183,7 @@ public class DeferFinalAssignmentFix implements IntentionAction {
 
   }
 
-  private static void collectReferences(PsiElement context, final PsiVariable variable, final List<PsiReferenceExpression> references) {
+  private static void collectReferences(PsiElement context, final PsiVariable variable, final List<? super PsiReferenceExpression> references) {
     context.accept(new JavaRecursiveElementWalkingVisitor() {
       @Override public void visitReferenceExpression(PsiReferenceExpression expression) {
         if (expression.resolve() == variable) references.add(expression);
@@ -208,7 +209,7 @@ public class DeferFinalAssignmentFix implements IntentionAction {
       !(variable instanceof PsiParameter) &&
       !(variable instanceof ImplicitVariable) &&
       expression.isValid() &&
-      variable.getManager().isInProject(variable)
+      BaseIntentionAction.canModify(variable)
         ;
   }
 

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.internal;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -24,21 +10,20 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.ui.components.JBScrollPane;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 
 /**
  * @author Konstantin Bulenkov
  */
-@SuppressWarnings("UndesirableClassUsage")
 public class ShowNonRetinaImagesActions extends DumbAwareAction {
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getProject();
     if (project == null) return;
     class ImageInfo {
@@ -48,7 +33,7 @@ public class ShowNonRetinaImagesActions extends DumbAwareAction {
       boolean retina_dark;
 
     }
-    HashMap<String, ImageInfo> info = new HashMap<String, ImageInfo>();
+    HashMap<String, ImageInfo> info = new HashMap<>();
     final Collection<VirtualFile> images = FilenameIndex.getAllFilesByExt(project, "png", GlobalSearchScope.projectScope(project));
     for (VirtualFile image : images) {
       final String path = image.getPath();
@@ -69,13 +54,13 @@ public class ShowNonRetinaImagesActions extends DumbAwareAction {
       }
     }
 
-    final ArrayList<String> retinaMissed = new ArrayList<String>();
+    final ArrayList<String> retinaMissed = new ArrayList<>();
     for (String key : info.keySet()) {
       if (!info.get(key).retina && info.get(key).normal) {
         retinaMissed.add(key);
       }
     }
-    Collections.sort(retinaMissed, String.CASE_INSENSITIVE_ORDER);
+    retinaMissed.sort(String.CASE_INSENSITIVE_ORDER);
 
     new DialogWrapper(project) {
       {

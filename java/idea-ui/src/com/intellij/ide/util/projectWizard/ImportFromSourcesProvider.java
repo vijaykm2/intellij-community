@@ -15,6 +15,7 @@
  */
 package com.intellij.ide.util.projectWizard;
 
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.util.newProjectWizard.StepSequence;
 import com.intellij.ide.util.newProjectWizard.modes.CreateModuleFromSourcesMode;
 import com.intellij.ide.util.projectWizard.importSources.impl.ProjectFromSourcesBuilderImpl;
@@ -25,7 +26,6 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 11/2/12
  */
 public class ImportFromSourcesProvider extends ProjectImportProvider {
 
@@ -48,6 +48,6 @@ public class ImportFromSourcesProvider extends ProjectImportProvider {
   @Nullable
   @Override
   public String getFileSample() {
-    return "directory with <b>existing sources</b>";
+    return JavaUiBundle.message("directory.with.existing.sources");
   }
 }

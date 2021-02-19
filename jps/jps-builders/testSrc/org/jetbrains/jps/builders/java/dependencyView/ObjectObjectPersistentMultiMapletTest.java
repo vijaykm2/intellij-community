@@ -19,37 +19,37 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.testFramework.UsefulTestCase;
 import com.intellij.util.io.CaseInsensitiveEnumeratorStringDescriptor;
 import com.intellij.util.io.DataExternalizer;
+import com.intellij.util.io.IOUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.*;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 
 public class ObjectObjectPersistentMultiMapletTest extends UsefulTestCase {
-  private static final CollectionFactory<IntValueStreamable> COLLECTION_FACTORY = new CollectionFactory<IntValueStreamable>() {
-    @Override
-    public Collection<IntValueStreamable> create() {
-      return new ArrayList<IntValueStreamable>();
-    }
-  };
+  private static final BuilderCollectionFactory<IntValueStreamable> COLLECTION_FACTORY = () -> new ArrayList<>();
 
   public void testReplaceWithEqualButNotSameKey() throws IOException {
     File file = FileUtil.createTempFile(getTestDirectoryName(), null);
     ObjectObjectPersistentMultiMaplet<String, IntValueStreamable> maplet =
-      new ObjectObjectPersistentMultiMaplet<String, IntValueStreamable>(file, new CaseInsensitiveEnumeratorStringDescriptor(),
-                                                                        new IntValueExternalizer(),
-                                                                        COLLECTION_FACTORY);
-    maplet.put("a", new IntValueStreamable(1));
-    assertEquals(1, assertOneElement(maplet.get("a")).value);
-    maplet.replace("A", Collections.singletonList(new IntValueStreamable(2)));
-    assertEquals(2, assertOneElement(maplet.get("a")).value);
+      new ObjectObjectPersistentMultiMaplet<>(file, new CaseInsensitiveEnumeratorStringDescriptor(),
+                                              new IntValueExternalizer(),
+                                              COLLECTION_FACTORY);
+    try {
+      maplet.put("a", new IntValueStreamable(1));
+      assertEquals(1, assertOneElement(maplet.get("a")).value);
+      maplet.replace("A", Collections.singletonList(new IntValueStreamable(2)));
+      assertEquals(2, assertOneElement(maplet.get("a")).value);
+    } finally {
+      maplet.close();
+      IOUtil.deleteAllFilesStartingWith(file);
+    }
   }
 
   private static class IntValueStreamable implements Streamable {
     public int value;
 
-    public IntValueStreamable(int value) {
+    IntValueStreamable(int value) {
       this.value = value;
     }
 

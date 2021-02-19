@@ -1,53 +1,30 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.ant;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.util.Pair;
 import com.intellij.util.ExceptionUtil;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.util.ReflectionUtil;
 import org.jetbrains.annotations.Nullable;
 
 import java.lang.ref.SoftReference;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.Hashtable;
-import java.util.Iterator;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
 * @author Eugene Zhuravlev
-*         Date: Apr 9, 2010
 */
 public final class ReflectedProject {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.lang.ant.ReflectedProject");
-  
-  @NonNls private static final String INIT_METHOD_NAME = "init";
-  @NonNls private static final String GET_TASK_DEFINITIONS_METHOD_NAME = "getTaskDefinitions";
-  @NonNls private static final String GET_DATA_TYPE_DEFINITIONS_METHOD_NAME = "getDataTypeDefinitions";
-  @NonNls private static final String GET_PROPERTIES_METHOD_NAME = "getProperties";
-
+  private static final Logger LOG = Logger.getInstance(ReflectedProject.class);
 
   private static final List<SoftReference<Pair<ReflectedProject, ClassLoader>>> ourProjects =
-    new ArrayList<SoftReference<Pair<ReflectedProject, ClassLoader>>>();
+    new ArrayList<>();
 
   private static final ReentrantLock ourProjectsLock = new ReentrantLock();
-  
+  public static final String ANT_PROJECT_CLASS = "org.apache.tools.ant.Project";
+
   private final Object myProject;
   private Hashtable myTaskDefinitions;
   private Hashtable myDataTypeDefinitions;
@@ -76,7 +53,7 @@ public final class ReflectedProject {
     final ReflectedProject reflectedProj = new ReflectedProject(classLoader);
     ourProjectsLock.lock();
     try {
-      ourProjects.add(new SoftReference<Pair<ReflectedProject, ClassLoader>>(
+      ourProjects.add(new SoftReference<>(
         Pair.create(reflectedProj, classLoader)
       ));
     }
@@ -89,16 +66,16 @@ public final class ReflectedProject {
   ReflectedProject(final ClassLoader classLoader) {
     Object project = null;
     try {
-      final Class projectClass = classLoader.loadClass("org.apache.tools.ant.Project");
+      final Class projectClass = classLoader.loadClass(ANT_PROJECT_CLASS);
       if (projectClass != null) {
         project = projectClass.newInstance();
-        Method method = projectClass.getMethod(INIT_METHOD_NAME);
+        Method method = projectClass.getMethod("init");
         method.invoke(project);
-        method = getMethod(projectClass, GET_TASK_DEFINITIONS_METHOD_NAME);
+        method = ReflectionUtil.getMethod(projectClass, "getTaskDefinitions");
         myTaskDefinitions = (Hashtable)method.invoke(project);
-        method = getMethod(projectClass, GET_DATA_TYPE_DEFINITIONS_METHOD_NAME);
+        method = ReflectionUtil.getMethod(projectClass, "getDataTypeDefinitions");
         myDataTypeDefinitions = (Hashtable)method.invoke(project);
-        method = getMethod(projectClass, GET_PROPERTIES_METHOD_NAME);
+        method = ReflectionUtil.getMethod(projectClass, "getProperties");
         myProperties = (Hashtable)method.invoke(project);
         myTargetClass = classLoader.loadClass("org.apache.tools.ant.Target");
       }
@@ -118,22 +95,13 @@ public final class ReflectedProject {
     myProject = project;
   }
 
-  private static Method getMethod(final Class introspectionHelperClass, final String name) throws NoSuchMethodException {
-    final Method method;
-    method = introspectionHelperClass.getMethod(name);
-    if (!method.isAccessible()) {
-      method.setAccessible(true);
-    }
-    return method;
-  }
-
   @Nullable
-  public Hashtable<String, Class> getTaskDefinitions() {
+  public Map<String, Class<?>> getTaskDefinitions() {
     return myTaskDefinitions;
   }
 
   @Nullable
-  public Hashtable<String, Class> getDataTypeDefinitions() {
+  public Map<String, Class<?>> getDataTypeDefinitions() {
     return myDataTypeDefinitions;
   }
 
@@ -141,7 +109,7 @@ public final class ReflectedProject {
     return myProperties;
   }
 
-  public Class getTargetClass() {
+  public Class<?> getTargetClass() {
     return myTargetClass;
   }
 

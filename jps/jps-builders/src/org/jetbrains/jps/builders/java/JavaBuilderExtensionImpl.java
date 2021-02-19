@@ -15,6 +15,7 @@
  */
 package org.jetbrains.jps.builders.java;
 
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.incremental.java.JavaBuilder;
 import org.jetbrains.jps.model.java.JpsJavaModuleType;
 import org.jetbrains.jps.model.module.JpsModuleType;
@@ -23,15 +24,13 @@ import java.io.File;
 import java.util.Collections;
 import java.util.Set;
 
-/**
- * @author nik
- */
 public class JavaBuilderExtensionImpl extends JavaBuilderExtension {
   @Override
-  public boolean shouldHonorFileEncodingForCompilation(File file) {
+  public boolean shouldHonorFileEncodingForCompilation(@NotNull File file) {
     return JavaBuilder.JAVA_SOURCES_FILTER.accept(file);
   }
 
+  @NotNull
   @Override
   public Set<? extends JpsModuleType<?>> getCompilableModuleTypes() {
     return Collections.singleton(JpsJavaModuleType.INSTANCE);

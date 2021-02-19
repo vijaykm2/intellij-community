@@ -1,31 +1,18 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.io;
 
 import com.intellij.util.containers.SLRUMap;
-import jsr166e.extra.SequenceLock;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * @author peter
  */
-public class CachingEnumerator<Data> implements DataEnumerator<Data> {
+public final class CachingEnumerator<Data> implements DataEnumerator<Data> {
   private static final int STRIPE_POWER = 4;
   private static final int STRIPE_COUNT = 1 << STRIPE_POWER;
   private static final int STRIPE_MASK = STRIPE_COUNT - 1;
@@ -35,47 +22,55 @@ public class CachingEnumerator<Data> implements DataEnumerator<Data> {
   private final DataEnumerator<Data> myBase;
   private final KeyDescriptor<Data> myDataDescriptor;
 
-  public CachingEnumerator(DataEnumerator<Data> base, KeyDescriptor<Data> dataDescriptor) {
+  public CachingEnumerator(@NotNull DataEnumerator<Data> base, @NotNull KeyDescriptor<Data> dataDescriptor) {
     myBase = base;
     myDataDescriptor = dataDescriptor;
     int protectedSize = 8192;
     int probationalSize = 8192;
 
     for(int i = 0; i < STRIPE_COUNT; ++i) {
-      myHashcodeToIdCache[i] = new SLRUMap<Integer, Integer>(protectedSize / STRIPE_COUNT, probationalSize / STRIPE_COUNT);
-      myIdToStringCache[i] = new SLRUMap<Integer, Data>(protectedSize / STRIPE_COUNT, probationalSize / STRIPE_COUNT);
-      myStripeLocks[i] = new SequenceLock();
+      myHashcodeToIdCache[i] = new SLRUMap<>(protectedSize / STRIPE_COUNT, probationalSize / STRIPE_COUNT);
+      myIdToStringCache[i] = new SLRUMap<>(protectedSize / STRIPE_COUNT, probationalSize / STRIPE_COUNT);
+      myStripeLocks[i] = new ReentrantLock();
     }
 
   }
 
+  @Override
   public int enumerate(@Nullable Data value) throws IOException {
-    int valueHashCode =-1;
-    int stripe = -1;
-
-    if (myHashcodeToIdCache != null && value != null) {
+    int valueHashCode;
+    int stripe;
+    if (value == null) {
+      valueHashCode = -1;
+      stripe = -1;
+    }
+    else {
       valueHashCode = myDataDescriptor.getHashCode(value);
       stripe = Math.abs(valueHashCode) & STRIPE_MASK;
+    }
 
+    Lock lock1 = null;
+    if (value != null) {
+      lock1 = myStripeLocks[stripe];
+      lock1.lock();
       Integer cachedId;
-
-      myStripeLocks[stripe].lock();
       try {
         cachedId = myHashcodeToIdCache[stripe].get(valueHashCode);
       }
       finally {
-        myStripeLocks[stripe].unlock();
+        lock1.unlock();
       }
 
       if (cachedId != null) {
         int stripe2 = idStripe(cachedId.intValue());
-        myStripeLocks[stripe2].lock();
+        Lock lock2 = myStripeLocks[stripe2];
+        lock2.lock();
         try {
           Data s = myIdToStringCache[stripe2].get(cachedId);
           if (s != null && myDataDescriptor.isEqual(value, s)) return cachedId.intValue();
         }
         finally {
-          myStripeLocks[stripe2].unlock();
+          lock2.unlock();
         }
       }
     }
@@ -83,22 +78,24 @@ public class CachingEnumerator<Data> implements DataEnumerator<Data> {
     int enumerate = myBase.enumerate(value);
 
     if (stripe != -1) {
+      lock1.lock();
       Integer enumeratedInteger;
-
-      myStripeLocks[stripe].lock();
       try {
         enumeratedInteger = enumerate;
         myHashcodeToIdCache[stripe].put(valueHashCode, enumeratedInteger);
-      } finally {
-        myStripeLocks[stripe].unlock();
+      }
+      finally {
+        lock1.unlock();
       }
 
       int stripe2 = idStripe(enumerate);
-      myStripeLocks[stripe2].lock();
+      Lock lock2 = myStripeLocks[stripe2];
+      lock2.lock();
       try {
         myIdToStringCache[stripe2].put(enumeratedInteger, value);
-      } finally {
-        myStripeLocks[stripe2].unlock();
+      }
+      finally {
+        lock2.unlock();
       }
     }
 
@@ -110,40 +107,48 @@ public class CachingEnumerator<Data> implements DataEnumerator<Data> {
     return Math.abs(h ^ (h >>> 7) ^ (h >>> 4)) & STRIPE_MASK;
   }
 
+  @Override
   @Nullable
   public Data valueOf(int idx) throws IOException {
-    int stripe = -1;
-    if (myIdToStringCache != null) {
-      stripe = idStripe(idx);
-      myStripeLocks[stripe].lock();
-      try {
-        Data s = myIdToStringCache[stripe].get(idx);
-        if (s != null) return s;
-      }
-      finally {
-        myStripeLocks[stripe].unlock();
-      }
+    int stripe = idStripe(idx);
+    Lock lock = myStripeLocks[stripe];
+    lock.lock();
+    try {
+      Data s = myIdToStringCache[stripe].get(idx);
+      if (s != null) return s;
     }
+    finally {
+      lock.unlock();
+    }
+
     Data s = myBase.valueOf(idx);
 
-    if (stripe != -1 && s != null) {
-      myStripeLocks[stripe].lock();
+    if (s != null) {
+      lock.lock();
       try {
         myIdToStringCache[stripe].put(idx, s);
       }
       finally {
-        myStripeLocks[stripe].unlock();
+        lock.unlock();
       }
     }
     return s;
   }
 
-  public void close() throws IOException {
+  void close() {
+    clear();
+  }
+
+  private void clear() {
     for(int i = 0; i < myIdToStringCache.length; ++i) {
       myStripeLocks[i].lock();
-      myIdToStringCache[i].clear();
-      myHashcodeToIdCache[i].clear();
-      myStripeLocks[i].unlock();
+      try {
+        myIdToStringCache[i].clear();
+        myHashcodeToIdCache[i].clear();
+      }
+      finally {
+        myStripeLocks[i].unlock();
+      }
     }
   }
 }

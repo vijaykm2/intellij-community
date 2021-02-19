@@ -16,22 +16,20 @@
 package org.jetbrains.java.generate.velocity;
 
 import com.intellij.codeInsight.generation.VelocityIncludesClassLoader;
+import com.intellij.openapi.util.ClassLoaderUtil;
 import org.apache.commons.collections.ExtendedProperties;
-import org.apache.velocity.app.Velocity;
 import org.apache.velocity.app.VelocityEngine;
 import org.apache.velocity.runtime.RuntimeConstants;
 import org.apache.velocity.runtime.log.SimpleLog4JLogSystem;
-import org.apache.velocity.runtime.resource.loader.ClasspathResourceLoader;
-import org.apache.velocity.runtime.resource.loader.FileResourceLoader;
 
 /**
  * Velocity factory.
  * <p/>
  * Creating instances of the VelocityEngine.
  */
-public class VelocityFactory {
+public final class VelocityFactory {
   private static class Holder {
-    private static final VelocityEngine engine = newVeloictyEngine();
+    private static final VelocityEngine engine = newVelocityEngine();
   }
 
   /**
@@ -47,15 +45,17 @@ public class VelocityFactory {
    *
    * @return a new velocity engine that is initialized.
    */
-  private static VelocityEngine newVeloictyEngine() {
+  private static VelocityEngine newVelocityEngine() {
     ExtendedProperties prop = new ExtendedProperties();
     prop.addProperty(RuntimeConstants.RUNTIME_LOG_LOGSYSTEM_CLASS, SimpleLog4JLogSystem.class.getName());
     prop.addProperty("runtime.log.logsystem.log4j.category", "GenerateToString");
     prop.addProperty(RuntimeConstants.RESOURCE_LOADER, "includes");
     prop.addProperty("includes.resource.loader.class", VelocityIncludesClassLoader.class.getName());
+    prop.addProperty(RuntimeConstants.VM_PERM_ALLOW_INLINE_REPLACE_GLOBAL, "true");
+
     VelocityEngine velocity = new VelocityEngine();
     velocity.setExtendedProperties(prop);
-    velocity.init();
+    ClassLoaderUtil.runWithClassLoader(VelocityIncludesClassLoader.class.getClassLoader(), () -> velocity.init());
     return velocity;
   }
 

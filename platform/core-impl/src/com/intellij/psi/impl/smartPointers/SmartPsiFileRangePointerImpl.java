@@ -15,6 +15,7 @@
  */
 package com.intellij.psi.impl.smartPointers;
 
+import com.intellij.lang.Language;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.ProperTextRange;
@@ -22,16 +23,13 @@ import com.intellij.psi.*;
 import com.intellij.psi.impl.FreeThreadedFileViewProvider;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * User: cdr
- */
 class SmartPsiFileRangePointerImpl extends SmartPsiElementPointerImpl<PsiFile> implements SmartPsiFileRange {
-  SmartPsiFileRangePointerImpl(@NotNull PsiFile containingFile, @NotNull ProperTextRange range) {
-    super(containingFile, createElementInfo(containingFile, range), PsiFile.class);
+  SmartPsiFileRangePointerImpl(@NotNull SmartPointerManagerImpl manager, @NotNull PsiFile containingFile, @NotNull ProperTextRange range, boolean forInjected) {
+    super(manager, containingFile, createElementInfo(containingFile, range, forInjected));
   }
 
   @NotNull
-  private static SmartPointerElementInfo createElementInfo(@NotNull PsiFile containingFile, @NotNull ProperTextRange range) {
+  private static SmartPointerElementInfo createElementInfo(@NotNull PsiFile containingFile, @NotNull ProperTextRange range, boolean forInjected) {
     Project project = containingFile.getProject();
     if (containingFile.getViewProvider() instanceof FreeThreadedFileViewProvider) {
       PsiLanguageInjectionHost host = InjectedLanguageManager.getInstance(project).getInjectionHost(containingFile);
@@ -40,13 +38,23 @@ class SmartPsiFileRangePointerImpl extends SmartPsiElementPointerImpl<PsiFile> i
         return new InjectedSelfElementInfo(project, containingFile, range, containingFile, hostPointer);
       }
     }
-    if (range.equals(containingFile.getTextRange())) return new FileElementInfo(containingFile);
-    return new SelfElementInfo(project, range, PsiElement.class, containingFile, containingFile.getLanguage());
+    if (!forInjected && range.equals(containingFile.getTextRange())) return new FileElementInfo(containingFile);
+    return new SelfElementInfo(range, Identikit.fromTypes(PsiElement.class, null, Language.ANY), containingFile, forInjected);
+  }
+
+  @Override
+  public PsiFile getContainingFile() {
+    return getElementInfo().restoreFile(myManager);
   }
 
   @Override
   public PsiFile getElement() {
     if (getRange() == null) return null; // range is invalid
     return getContainingFile();
+  }
+
+  @Override
+  public String toString() {
+    return "SmartPsiFileRangePointerImpl{" + getElementInfo() + "}";
   }
 }

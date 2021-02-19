@@ -1,9 +1,9 @@
 package com.intellij.codeInsight.generation.ui;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.ide.wizard.AbstractWizard;
 import com.intellij.ide.wizard.Step;
 import com.intellij.ide.wizard.StepAdapter;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.refactoring.classMembers.MemberInfoBase;
@@ -16,21 +16,22 @@ import javax.swing.event.TableModelListener;
 import java.awt.*;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Nikolay.Tropin
  * 8/20/13
  */
-public abstract class AbstractGenerateEqualsWizard <C extends PsiElement, M extends PsiElement, I extends MemberInfoBase<M>> 
+public abstract class AbstractGenerateEqualsWizard <C extends PsiElement, M extends PsiElement, I extends MemberInfoBase<M>>
   extends AbstractWizard<Step> {
-  
+
   protected final C myClass;
 
   protected final AbstractMemberSelectionPanel<M, I> myEqualsPanel;
   protected final AbstractMemberSelectionPanel<M, I> myHashCodePanel;
   protected final AbstractMemberSelectionPanel<M, I> myNonNullPanel;
-  protected final HashMap<M, I> myFieldsToHashCode;
-  protected final HashMap<M, I> myFieldsToNonNull;
+  protected final Map<M, I> myFieldsToHashCode;
+  protected final Map<M, I> myFieldsToNonNull;
 
   private int myNonNullStepCode;
   private int myEqualsStepCode;
@@ -60,12 +61,12 @@ public abstract class AbstractGenerateEqualsWizard <C extends PsiElement, M exte
     protected abstract AbstractMemberSelectionPanel<M, I> getEqualsPanel();
     protected abstract AbstractMemberSelectionPanel<M, I> getHashCodePanel();
     protected abstract AbstractMemberSelectionPanel<M, I> getNonNullPanel();
-    protected abstract void updateHashCodeMemberInfos(Collection<I> equalsMemberInfos);
-    protected abstract void updateNonNullMemberInfos(Collection<I> equalsMemberInfos);
+    protected abstract void updateHashCodeMemberInfos(Collection<? extends I> equalsMemberInfos);
+    protected abstract void updateNonNullMemberInfos(Collection<? extends I> equalsMemberInfos);
   }
 
   public AbstractGenerateEqualsWizard(Project project, Builder<C, M, I> builder) {
-    super(CodeInsightBundle.message("generate.equals.hashcode.wizard.title"), project);
+    super(JavaBundle.message("generate.equals.hashcode.wizard.title"), project);
     myBuilder = builder;
     myClass = builder.getPsiClass();
     myClassFields = builder.getClassFields();
@@ -170,6 +171,7 @@ public abstract class AbstractGenerateEqualsWizard <C extends PsiElement, M exte
   }
 
   private class MyTableModelListener implements TableModelListener {
+    @Override
     public void tableChanged(TableModelEvent modelEvent) {
       updateButtons();
     }
@@ -178,7 +180,7 @@ public abstract class AbstractGenerateEqualsWizard <C extends PsiElement, M exte
   private static class MyStep extends StepAdapter {
     final AbstractMemberSelectionPanel myPanel;
 
-    public MyStep(AbstractMemberSelectionPanel panel) {
+    MyStep(AbstractMemberSelectionPanel panel) {
       myPanel = panel;
     }
 

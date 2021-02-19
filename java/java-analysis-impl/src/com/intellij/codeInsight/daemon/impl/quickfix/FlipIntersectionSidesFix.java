@@ -15,8 +15,8 @@
  */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -24,18 +24,13 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-/**
-* User: anna
-* Date: 10/31/13
-*/
 public class FlipIntersectionSidesFix implements IntentionAction {
-  private static final Logger LOG = Logger.getInstance("#" + FlipIntersectionSidesFix.class.getName());
+  private static final Logger LOG = Logger.getInstance(FlipIntersectionSidesFix.class);
   private final String myClassName;
   private final List<PsiTypeElement> myConjuncts;
   private final PsiTypeElement myConjunct;
@@ -55,13 +50,13 @@ public class FlipIntersectionSidesFix implements IntentionAction {
   @NotNull
   @Override
   public String getText() {
-    return "Move '" + myClassName + "' to the beginning";
+    return JavaAnalysisBundle.message("move.0.to.the.beginning", myClassName);
   }
 
   @NotNull
   @Override
   public String getFamilyName() {
-    return "Move to front";
+    return JavaAnalysisBundle.message("move.to.front");
   }
 
   @Override
@@ -74,16 +69,10 @@ public class FlipIntersectionSidesFix implements IntentionAction {
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
     myConjuncts.remove(myConjunct);
     myConjuncts.add(0, myConjunct);
 
-    final String intersectionTypeText = StringUtil.join(myConjuncts, new Function<PsiTypeElement, String>() {
-      @Override
-      public String fun(PsiTypeElement element) {
-        return element.getText();
-      }
-    }, " & ");
+    final String intersectionTypeText = StringUtil.join(myConjuncts, element -> element.getText(), " & ");
     final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(project);
     final PsiTypeCastExpression fixedCast =
       (PsiTypeCastExpression)elementFactory.createExpressionFromText("(" + intersectionTypeText + ") a", myCastTypeElement);

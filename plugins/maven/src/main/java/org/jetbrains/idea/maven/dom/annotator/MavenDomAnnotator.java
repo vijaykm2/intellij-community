@@ -1,24 +1,10 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.dom.annotator;
 
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.ide.util.PsiNavigationSupport;
 import com.intellij.lang.annotation.HighlightSeverity;
-import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.vfs.LocalFileSystem;
@@ -38,6 +24,7 @@ import org.jetbrains.idea.maven.project.MavenProject;
 import java.util.Arrays;
 
 public class MavenDomAnnotator implements DomElementsAnnotator {
+  @Override
   public void annotate(DomElement element, DomElementAnnotationHolder holder) {
     if (element instanceof MavenDomProjectModel) {
       addProblems(element, (MavenDomProjectModel)element, holder,
@@ -68,25 +55,33 @@ public class MavenDomAnnotator implements DomElementsAnnotator {
     }
   }
 
-  private static class OpenProblemFileFix implements LocalQuickFix {
+  private static final class OpenProblemFileFix implements LocalQuickFix {
     private final VirtualFile myFile;
 
     private OpenProblemFileFix(VirtualFile file) {
       myFile = file;
     }
 
+    @Override
     @NotNull
     public String getName() {
       return MavenDomBundle.message("fix.open.file", myFile.getName());
     }
 
+    @Override
     @NotNull
     public String getFamilyName() {
       return MavenDomBundle.message("inspection.group");
     }
 
+    @Override
+    public boolean startInWriteAction() {
+      return false;
+    }
+
+    @Override
     public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
-      new OpenFileDescriptor(project, myFile).navigate(true);
+      PsiNavigationSupport.getInstance().createNavigatable(project, myFile, -1).navigate(true);
     }
   }
 }

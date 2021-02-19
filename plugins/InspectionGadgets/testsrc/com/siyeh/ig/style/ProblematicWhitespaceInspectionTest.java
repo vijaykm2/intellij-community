@@ -15,22 +15,23 @@
  */
 package com.siyeh.ig.style;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.codeInspection.InspectionProfileEntry;
 import com.intellij.codeInspection.ProblematicWhitespaceInspection;
 import com.intellij.ide.highlighter.HtmlFileType;
 import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 
 /**
  * @author Bas Leijdekkers
  */
-public class ProblematicWhitespaceInspectionTest extends LightInspectionTestCase {
+@SuppressWarnings("InfiniteRecursion")
+public class ProblematicWhitespaceInspectionTest extends LightJavaInspectionTestCase {
 
   public void testHtml() {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
+    final CodeStyleSettings settings = CodeStyle.getSettings(getProject());
     settings.getIndentOptions(HtmlFileType.INSTANCE).USE_TAB_CHARACTER = false;
     myFixture.configureByText("X.html", "<warning descr=\"File 'X.html' uses tabs for indentation\"><html>\n" +
                                         "\t<body></body>\n" +
@@ -39,7 +40,7 @@ public class ProblematicWhitespaceInspectionTest extends LightInspectionTestCase
   }
 
   public void testTabsInFile() {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
+    final CodeStyleSettings settings = CodeStyle.getSettings(getProject());
     settings.getIndentOptions(JavaFileType.INSTANCE).USE_TAB_CHARACTER = false;
     doTest("/*File 'X.java' uses tabs for indentation*/class X {\n" +
            "\tString s;\n" +
@@ -47,7 +48,7 @@ public class ProblematicWhitespaceInspectionTest extends LightInspectionTestCase
   }
 
   public void testTabsInFile2() {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
+    final CodeStyleSettings settings = CodeStyle.getSettings(getProject());
     settings.getIndentOptions(JavaFileType.INSTANCE).USE_TAB_CHARACTER = true;
     doTest("class X {\n" +
            "\tString s;\n" +
@@ -55,7 +56,7 @@ public class ProblematicWhitespaceInspectionTest extends LightInspectionTestCase
   }
 
   public void testSpacesInFile() {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
+    final CodeStyleSettings settings = CodeStyle.getSettings(getProject());
     settings.getIndentOptions(JavaFileType.INSTANCE).USE_TAB_CHARACTER = true;
     doTest("/*File 'X.java' uses spaces for indentation*/class X {\n" +
            "  String s;\n" +
@@ -63,7 +64,7 @@ public class ProblematicWhitespaceInspectionTest extends LightInspectionTestCase
   }
 
   public void testSpacesInFile2() {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
+    final CodeStyleSettings settings = CodeStyle.getSettings(getProject());
     settings.getIndentOptions(JavaFileType.INSTANCE).USE_TAB_CHARACTER = false;
     doTest("class X {\n" +
            "  String s;\n" +
@@ -71,7 +72,7 @@ public class ProblematicWhitespaceInspectionTest extends LightInspectionTestCase
   }
 
   public void testSmartTabsInFile() {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
+    final CodeStyleSettings settings = CodeStyle.getSettings(getProject());
     final CommonCodeStyleSettings.IndentOptions options = settings.getIndentOptions(JavaFileType.INSTANCE);
     options.USE_TAB_CHARACTER = true;
     options.SMART_TABS = true;
@@ -81,7 +82,7 @@ public class ProblematicWhitespaceInspectionTest extends LightInspectionTestCase
   }
 
   public void testSmartTabsInFile2() {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
+    final CodeStyleSettings settings = CodeStyle.getSettings(getProject());
     final CommonCodeStyleSettings.IndentOptions options = settings.getIndentOptions(JavaFileType.INSTANCE);
     options.USE_TAB_CHARACTER = true;
     options.SMART_TABS = true;
@@ -95,7 +96,7 @@ public class ProblematicWhitespaceInspectionTest extends LightInspectionTestCase
   }
 
   public void testSmartTabsInFile3() {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
+    final CodeStyleSettings settings = CodeStyle.getSettings(getProject());
     final CommonCodeStyleSettings.IndentOptions options = settings.getIndentOptions(JavaFileType.INSTANCE);
     options.USE_TAB_CHARACTER = true;
     options.SMART_TABS = true;
@@ -109,18 +110,18 @@ public class ProblematicWhitespaceInspectionTest extends LightInspectionTestCase
   }
 
   public void testSmartTabsInFileWithoutBinaryExpressionMultilineAlignment() {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
+    final CodeStyleSettings settings = CodeStyle.getSettings(getProject());
     final CommonCodeStyleSettings.IndentOptions options = settings.getIndentOptions(JavaFileType.INSTANCE);
     options.USE_TAB_CHARACTER = true;
     options.SMART_TABS = true;
-    doTest("class X {{\n" +
+    doTest("class X {static{\n" +
            "\tSystem.out.println(\"asdf\" +\n" +
            "\t\t\t                   \"asdf\");\n" +
            "}}");
   }
 
   public void testSuppression1() {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
+    final CodeStyleSettings settings = CodeStyle.getSettings(getProject());
     settings.getIndentOptions(JavaFileType.INSTANCE).USE_TAB_CHARACTER = false;
     myFixture.configureByText("X.html", "<!--suppress ProblematicWhitespace --><html>\n" +
                                         "\t<body></body>\n" +
@@ -129,7 +130,7 @@ public class ProblematicWhitespaceInspectionTest extends LightInspectionTestCase
   }
 
   public void testSuppression2() {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
+    final CodeStyleSettings settings = CodeStyle.getSettings(getProject());
     settings.getIndentOptions(JavaFileType.INSTANCE).USE_TAB_CHARACTER = false;
     myFixture.configureByText("x.css", "/*noinspection ProblematicWhitespace*/\n" +
                                        "div {\n" +
@@ -139,7 +140,7 @@ public class ProblematicWhitespaceInspectionTest extends LightInspectionTestCase
   }
 
   public void testSuppression3() {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
+    final CodeStyleSettings settings = CodeStyle.getSettings(getProject());
     settings.getIndentOptions(JavaFileType.INSTANCE).USE_TAB_CHARACTER = false;
     doTest("@SuppressWarnings(\"ProblematicWhitespace\") class X {\n" +
            "\tString s;\n" +

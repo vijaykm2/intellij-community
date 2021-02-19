@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import com.intellij.openapi.editor.markup.GutterIconRenderer;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.uiDesigner.UIDesignerBundle;
@@ -68,6 +69,7 @@ public class BoundIconRenderer extends GutterIconRenderer {
     }
   }
 
+  @Override
   @NotNull
   public Icon getIcon() {
     if (myIcon != null) {
@@ -76,14 +78,17 @@ public class BoundIconRenderer extends GutterIconRenderer {
     return PlatformIcons.UI_FORM_ICON;
   }
 
+  @Override
   public boolean isNavigateAction() {
     return true;
   }
 
+  @Override
   @Nullable
   public AnAction getClickAction() {
     return new AnAction() {
-      public void actionPerformed(AnActionEvent e) {
+      @Override
+      public void actionPerformed(@NotNull AnActionEvent e) {
         List<PsiFile> formFiles = getBoundFormFiles();
         if (formFiles.size() > 0) {
           final VirtualFile virtualFile = formFiles.get(0).getVirtualFile();
@@ -104,6 +109,7 @@ public class BoundIconRenderer extends GutterIconRenderer {
     };
   }
 
+  @Override
   @Nullable
   public String getTooltipText() {
     List<PsiFile> formFiles = getBoundFormFiles();
@@ -129,7 +135,7 @@ public class BoundIconRenderer extends GutterIconRenderer {
     return formFiles;
   }
 
-  private static String composeText(final List<PsiFile> formFiles) {
+  private static @NlsSafe String composeText(final List<PsiFile> formFiles) {
     @NonNls StringBuilder result = new StringBuilder("<html><body>");
     result.append(UIDesignerBundle.message("ui.is.bound.header"));
     @NonNls String sep = "";

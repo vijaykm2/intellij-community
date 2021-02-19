@@ -1,23 +1,5 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/*
- * User: anna
- * Date: 21-Jan-2008
- */
 package com.intellij.ide.favoritesTreeView;
 
 import com.intellij.ide.favoritesTreeView.smartPointerPsiNodes.ClassSmartPointerNode;
@@ -48,7 +30,7 @@ import java.util.Collection;
 
 public class PsiClassFavoriteNodeProvider extends FavoriteNodeProvider {
   @Override
-  public Collection<AbstractTreeNode> getFavoriteNodes(final DataContext context, final ViewSettings viewSettings) {
+  public Collection<AbstractTreeNode<?>> getFavoriteNodes(final DataContext context, @NotNull final ViewSettings viewSettings) {
     final Project project = CommonDataKeys.PROJECT.getData(context);
     if (project == null) return null;
     PsiElement[] elements = LangDataKeys.PSI_ELEMENT_ARRAY.getData(context);
@@ -59,10 +41,10 @@ public class PsiClassFavoriteNodeProvider extends FavoriteNodeProvider {
       }
     }
     if (elements != null) {
-      final Collection<AbstractTreeNode> result = new ArrayList<AbstractTreeNode>();
+      final Collection<AbstractTreeNode<?>> result = new ArrayList<>();
       for (PsiElement element : elements) {
         if (element instanceof PsiClass && checkClassUnderSources(element, project)) {
-          result.add(new ClassSmartPointerNode(project, element, viewSettings));
+          result.add(new ClassSmartPointerNode(project, (PsiClass)element, viewSettings));
         }
       }
       return result.isEmpty() ? null : result;
@@ -70,7 +52,7 @@ public class PsiClassFavoriteNodeProvider extends FavoriteNodeProvider {
     return null;
   }
 
-  private boolean checkClassUnderSources(final PsiElement element, final Project project) {
+  private static boolean checkClassUnderSources(final PsiElement element, final Project project) {
     final PsiFile file = element.getContainingFile();
     if (file != null && file.getVirtualFile() != null) {
       final FileIndexFacade indexFacade = FileIndexFacade.getInstance(project);
@@ -81,9 +63,9 @@ public class PsiClassFavoriteNodeProvider extends FavoriteNodeProvider {
   }
 
   @Override
-  public AbstractTreeNode createNode(final Project project, final Object element, final ViewSettings viewSettings) {
+  public AbstractTreeNode createNode(final Project project, final Object element, @NotNull final ViewSettings viewSettings) {
     if (element instanceof PsiClass && checkClassUnderSources((PsiElement)element, project)) {
-      return new ClassSmartPointerNode(project, element, viewSettings);
+      return new ClassSmartPointerNode(project, (PsiClass)element, viewSettings);
     }
     return super.createNode(project, element, viewSettings);
   }

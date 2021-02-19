@@ -18,6 +18,8 @@ package com.intellij.ide.palette;
 
 import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -33,7 +35,7 @@ public interface PaletteGroup {
    *
    * @return the text of the group header for the palette group, or null if no header should be shown.
    */
-  @Nullable String getName();
+  @Nullable @NlsSafe String getName();
 
   String getTabName();
 
@@ -52,7 +54,7 @@ public interface PaletteGroup {
    * @param dataId  the data constant id (see {@link com.intellij.openapi.actionSystem.PlatformDataKeys}).
    * @return the data item, or null if no data is available for this constant.
    */
-  @Nullable Object getData(Project project, String dataId);
+  @Nullable Object getData(Project project, @NotNull String dataId);
 
   /**
    * Processes the drop of a palette item on the specified index in the palette group.

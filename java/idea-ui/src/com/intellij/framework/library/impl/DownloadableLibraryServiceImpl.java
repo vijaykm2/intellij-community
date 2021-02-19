@@ -19,7 +19,10 @@ import com.intellij.facet.frameworks.beans.Artifact;
 import com.intellij.facet.frameworks.beans.RequiredFrameworkVersion;
 import com.intellij.framework.FrameworkAvailabilityCondition;
 import com.intellij.framework.FrameworkVersion;
-import com.intellij.framework.library.*;
+import com.intellij.framework.library.DownloadableLibraryDescription;
+import com.intellij.framework.library.DownloadableLibraryService;
+import com.intellij.framework.library.DownloadableLibraryType;
+import com.intellij.framework.library.LibraryVersionProperties;
 import com.intellij.ide.util.frameworkSupport.CustomLibraryDescriptionImpl;
 import com.intellij.ide.util.frameworkSupport.FrameworkSupportModel;
 import com.intellij.ide.util.newProjectWizard.impl.FrameworkSupportModelBase;
@@ -32,17 +35,15 @@ import org.jetbrains.annotations.NotNull;
 
 import java.net.URL;
 
-/**
- * @author nik
- */
 public class DownloadableLibraryServiceImpl extends DownloadableLibraryService {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.framework.library.impl.DownloadableLibraryServiceImpl");
+  private static final Logger LOG = Logger.getInstance(DownloadableLibraryServiceImpl.class);
 
   @NotNull
   @Override
-  public DownloadableLibraryDescription createLibraryDescription(@NotNull String groupId, @NotNull final URL... localUrls) {
+  public DownloadableLibraryDescription createLibraryDescription(@NotNull String groupId, final URL @NotNull ... localUrls) {
     return new LibraryVersionsFetcher(groupId, localUrls) {
-      //todo[nik] pull up this method after moving corresponding API to lang-api
+      //todo[nik] pull up this method after moving corresponding API to intellij.platform.lang
+      @Override
       @NotNull
       protected FrameworkAvailabilityCondition createAvailabilityCondition(Artifact version) {
         RequiredFrameworkVersion groupVersion = version.getRequiredFrameworkVersion();
@@ -74,7 +75,7 @@ public class DownloadableLibraryServiceImpl extends DownloadableLibraryService {
     private final String myGroupId;
     private final String myVersionId;
 
-    public FrameworkLibraryAvailabilityCondition(String groupId, String versionId) {
+    FrameworkLibraryAvailabilityCondition(String groupId, String versionId) {
       myGroupId = groupId;
       myVersionId = versionId;
     }

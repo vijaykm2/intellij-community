@@ -17,26 +17,25 @@
 
 package com.intellij.find.actions;
 
+import com.intellij.find.FindBundle;
 import com.intellij.find.findInProject.FindInProjectManager;
+import com.intellij.ide.lightEdit.LightEdit;
 import com.intellij.notification.NotificationGroup;
+import com.intellij.notification.NotificationGroupManager;
 import com.intellij.notification.NotificationType;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.psi.PsiDirectoryContainer;
 import com.intellij.psi.PsiElement;
+import org.jetbrains.annotations.NotNull;
 
 public class FindInPathAction extends AnAction implements DumbAware {
-  public static final NotificationGroup NOTIFICATION_GROUP = NotificationGroup.toolWindowGroup("Find in Path", ToolWindowId.FIND, false);
-
-  { // enabled in modal content for find in path <-> replace in path modal dialog transition
-    setEnabledInModalContext(true);
-  }
+  public static final NotificationGroup NOTIFICATION_GROUP = NotificationGroupManager.getInstance().getNotificationGroup("Find in Path");
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     DataContext dataContext = e.getDataContext();
     Project project = e.getData(CommonDataKeys.PROJECT);
 
@@ -46,29 +45,29 @@ public class FindInPathAction extends AnAction implements DumbAware {
       return;
     }
 
-    findManager.findInProject(dataContext);
+    findManager.findInProject(dataContext, null);
   }
 
   static void showNotAvailableMessage(AnActionEvent e, Project project) {
-    final String message = "'" + e.getPresentation().getText() + "' is not available while search is in progress";
+    final String message = FindBundle.message("notification.content.not.available.while.search.in.progress", e.getPresentation().getText());
     NOTIFICATION_GROUP.createNotification(message, NotificationType.WARNING).notify(project);
   }
 
   @Override
-  public void update(AnActionEvent e){
+  public void update(@NotNull AnActionEvent e){
     doUpdate(e);
   }
 
-  static void doUpdate(AnActionEvent e) {
+  static void doUpdate(@NotNull AnActionEvent e) {
     Presentation presentation = e.getPresentation();
     Project project = e.getData(CommonDataKeys.PROJECT);
-    presentation.setEnabled(project != null);
+    presentation.setEnabled(project != null && !LightEdit.owns(project));
     if (ActionPlaces.isPopupPlace(e.getPlace())) {
       presentation.setVisible(isValidSearchScope(e));
     }
   }
 
-  private static boolean isValidSearchScope(AnActionEvent e) {
+  private static boolean isValidSearchScope(@NotNull AnActionEvent e) {
     final PsiElement[] elements = e.getData(LangDataKeys.PSI_ELEMENT_ARRAY);
     if (elements != null && elements.length == 1 && elements[0] instanceof PsiDirectoryContainer) {
       return true;

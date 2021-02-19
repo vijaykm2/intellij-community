@@ -15,6 +15,7 @@
  */
 package com.intellij.lang.ant.dom;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -31,7 +32,6 @@ import java.io.File;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Apr 26, 2010
  */
 public class AntPathConverter extends Converter<PsiFileSystemItem> implements CustomReferenceConverter<PsiFileSystemItem>{
 
@@ -84,12 +84,12 @@ public class AntPathConverter extends Converter<PsiFileSystemItem> implements Cu
   }
 
   @Nullable
-  protected String getPathResolveRoot(ConvertContext context, AntDomProject antProject) {
+  protected @NlsSafe String getPathResolveRoot(ConvertContext context, AntDomProject antProject) {
     return antProject.getProjectBasedirPath();
   }
 
   @Nullable
-  protected String getAttributeDefaultValue(ConvertContext context, GenericAttributeValue attribValue) {
+  protected @NlsSafe String getAttributeDefaultValue(ConvertContext context, GenericAttributeValue attribValue) {
     return null;
   }
 
@@ -103,8 +103,8 @@ public class AntPathConverter extends Converter<PsiFileSystemItem> implements Cu
   }
 
 
-  @NotNull
-  public PsiReference[] createReferences(GenericDomValue<PsiFileSystemItem> genericDomValue, PsiElement element, ConvertContext context) {
+  @Override
+  public PsiReference @NotNull [] createReferences(GenericDomValue<PsiFileSystemItem> genericDomValue, PsiElement element, ConvertContext context) {
     if (genericDomValue instanceof GenericAttributeValue) {
       final GenericAttributeValue attrib = (GenericAttributeValue)genericDomValue;
       if (attrib.getRawText() != null) {

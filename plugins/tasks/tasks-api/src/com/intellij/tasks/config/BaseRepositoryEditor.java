@@ -1,27 +1,16 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.config;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.tasks.CommitPlaceholderProvider;
+import com.intellij.tasks.TaskApiBundle;
 import com.intellij.tasks.TaskManager;
 import com.intellij.tasks.TaskRepository;
 import com.intellij.tasks.impl.BaseRepository;
@@ -34,6 +23,7 @@ import com.intellij.ui.components.JBTabbedPane;
 import com.intellij.util.Consumer;
 import com.intellij.util.net.HttpConfigurable;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -74,23 +64,25 @@ public class BaseRepositoryEditor<T extends BaseRepository> extends TaskReposito
   private boolean myApplying;
   protected Project myProject;
   protected final T myRepository;
-  private final Consumer<T> myChangeListener;
+  private final Consumer<? super T> myChangeListener;
   private final Document myDocument;
   private final Editor myEditor;
   private JComponent myAnchor;
 
-  public BaseRepositoryEditor(final Project project, final T repository, Consumer<T> changeListener) {
+  public BaseRepositoryEditor(final Project project, final T repository, Consumer<? super T> changeListener) {
     myProject = project;
     myRepository = repository;
     myChangeListener = changeListener;
 
     myTestButton.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         afterTestConnection(TaskManager.getManager(project).testConnection(repository));
       }
     });
 
     myProxySettingsButton.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         HttpConfigurable.editConfigurable(myPanel);
         enableButtons();
@@ -121,7 +113,8 @@ public class BaseRepositoryEditor<T extends BaseRepository> extends TaskReposito
     myEditor = EditorFactory.getInstance().createEditor(myDocument);
     myEditor.getSettings().setCaretRowShown(false);
     myEditorPanel.add(myEditor.getComponent(), BorderLayout.CENTER);
-    myComment.setText("Available placeholders: " + repository.getComment());
+
+    setupPlaceholdersComment();
     String advertiser = repository.getRepositoryType().getAdvertiser();
     if (advertiser != null) {
       Messages.installHyperlinkSupport(myAdvertiser);
@@ -153,6 +146,24 @@ public class BaseRepositoryEditor<T extends BaseRepository> extends TaskReposito
 
     setAnchor(myUseProxy);
     loginAnonymouslyChanged(!myLoginAnonymouslyJBCheckBox.isSelected());
+  }
+
+  private void setupPlaceholdersComment() {
+    StringBuilder comment = new StringBuilder();
+    for (CommitPlaceholderProvider extension : CommitPlaceholderProvider.EXTENSION_POINT_NAME.getExtensionList()) {
+      String[] placeholders = extension.getPlaceholders(myRepository);
+      for (String placeholder : placeholders) {
+        if (comment.length() > 0) {
+          comment.append(", ");
+        }
+        comment.append("{").append(placeholder).append("}");
+        String description = extension.getPlaceholderDescription(placeholder);
+        if (description != null) {
+          comment.append(" (").append(description).append(")");
+        }
+      }
+    }
+    myComment.setText(TaskApiBundle.message("label.html.available.placeholders.html", comment));
   }
 
 
@@ -190,6 +201,7 @@ public class BaseRepositoryEditor<T extends BaseRepository> extends TaskReposito
 
   protected void installListener(JCheckBox checkBox) {
     checkBox.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         doApply();
       }
@@ -199,12 +211,8 @@ public class BaseRepositoryEditor<T extends BaseRepository> extends TaskReposito
   protected void installListener(JTextField textField) {
     textField.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
-        ApplicationManager.getApplication().invokeLater(new Runnable() {
-          public void run() {
-            doApply();
-          }
-        });
+      protected void textChanged(@NotNull DocumentEvent e) {
+        ApplicationManager.getApplication().invokeLater(() -> doApply());
       }
     });
   }
@@ -221,9 +229,9 @@ public class BaseRepositoryEditor<T extends BaseRepository> extends TaskReposito
   }
 
   protected void installListener(final Document document) {
-    document.addDocumentListener(new com.intellij.openapi.editor.event.DocumentAdapter() {
+    document.addDocumentListener(new DocumentListener() {
       @Override
-      public void documentChanged(com.intellij.openapi.editor.event.DocumentEvent e) {
+      public void documentChanged(@NotNull com.intellij.openapi.editor.event.DocumentEvent e) {
         doApply();
       }
     });
@@ -238,6 +246,7 @@ public class BaseRepositoryEditor<T extends BaseRepository> extends TaskReposito
       try {
         myApplying = true;
         apply();
+        myChangeListener.consume(myRepository);
         enableEditor();
       }
       finally {
@@ -252,6 +261,7 @@ public class BaseRepositoryEditor<T extends BaseRepository> extends TaskReposito
     ((EditorEx)myEditor).setRendererMode(!selected);
   }
 
+  @Override
   public JComponent createComponent() {
     return myPanel;
   }
@@ -272,6 +282,7 @@ public class BaseRepositoryEditor<T extends BaseRepository> extends TaskReposito
     myRepository.setUsername(myUserNameText.getText().trim());
     //noinspection deprecation
     myRepository.setPassword(myPasswordText.getText());
+    myRepository.storeCredentials();
     myRepository.setShared(myShareUrlCheckBox.isSelected());
     myRepository.setUseProxy(myUseProxy.isSelected());
     myRepository.setUseHttpAuthentication(myUseHttpAuthenticationCheckBox.isSelected());
@@ -279,8 +290,6 @@ public class BaseRepositoryEditor<T extends BaseRepository> extends TaskReposito
 
     myRepository.setShouldFormatCommitMessage(myAddCommitMessage.isSelected());
     myRepository.setCommitMessageFormat(myDocument.getText());
-
-    myChangeListener.consume(myRepository);
   }
 
   @Override

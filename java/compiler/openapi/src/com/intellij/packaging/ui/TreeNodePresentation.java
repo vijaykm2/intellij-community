@@ -15,16 +15,15 @@
  */
 package com.intellij.packaging.ui;
 
+import com.intellij.ide.projectView.PresentationData;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.ui.SimpleTextAttributes;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import com.intellij.ide.projectView.PresentationData;
-import com.intellij.ui.SimpleTextAttributes;
 
-/**
- * @author nik
- */
 public abstract class TreeNodePresentation {
-  public abstract String getPresentableName();
+  public abstract @NlsSafe String getPresentableName();
 
   public String getSearchName() {
     return getPresentableName();
@@ -34,7 +33,7 @@ public abstract class TreeNodePresentation {
                               SimpleTextAttributes commentAttributes);
 
   @Nullable
-  public String getTooltipText() {
+  public @NlsContexts.Tooltip String getTooltipText() {
     return null;
   }
 
@@ -43,14 +42,6 @@ public abstract class TreeNodePresentation {
   }
 
   public void navigateToSource() {
-  }
-
-  /**
-   * @deprecated this method is not used and will be removed in the future
-   */
-  @Nullable
-  public Object getSourceObject() {
-    return null;
   }
 
   public abstract int getWeight();

@@ -1,4 +1,3 @@
-import imp
 import sys
 import datetime
 import os
@@ -61,19 +60,24 @@ class TeamcityDocTestResult(TeamcityTestResult):
   def stopSuite(self, suite):
     self.messages.testSuiteFinished(suite.name)
 
-  def addFailure(self, test, err = ''):
-    self.messages.testFailed(self.getTestName(test),
-      message='Failure', details=err)
+  def addFailure(self, test, err = '', expected=None, actual=None):
+    self.messages.testFailed(self.getTestName(test), expected=expected, actual=actual,
+      message='Failure', details=err, duration=int(self.__getDuration(test)))
 
   def addError(self, test, err = ''):
     self.messages.testError(self.getTestName(test),
-      message='Error', details=err)
+      message='Error', details=err, duration=self.__getDuration(test))
 
   def stopTest(self, test):
+    duration = self.__getDuration(test)
+    self.messages.testFinished(self.getTestName(test), duration=int(duration))
+
+  def __getDuration(self, test):
     start = getattr(test, "startTime", datetime.datetime.now())
     d = datetime.datetime.now() - start
-    duration=d.microseconds / 1000 + d.seconds * 1000 + d.days * 86400000
-    self.messages.testFinished(self.getTestName(test), duration=int(duration))
+    duration = d.microseconds / 1000 + d.seconds * 1000 + d.days * 86400000
+    return duration
+
 
 class DocTestRunner(doctest.DocTestRunner):
   """
@@ -175,7 +179,8 @@ class DocTestRunner(doctest.DocTestRunner):
         self.result.startTest(example)
         err = self._failure_header(test, example) +\
               self._checker.output_difference(example, got, self.optionflags)
-        self.result.addFailure(example, err)
+        expected = getattr(example, "want", None)
+        self.result.addFailure(example, err, expected=expected, actual=got)
 
       elif outcome is BOOM:
         self.result.startTest(example)
@@ -196,6 +201,15 @@ modules = {}
 
 
 runner = DocTestRunner()
+
+
+def _load_file(moduleName, fileName):
+  if sys.version_info >= (3, 3):
+      from importlib import machinery
+      return machinery.SourceFileLoader(moduleName, fileName).load_module()
+  else:
+    import imp
+    return imp.load_source(moduleName, fileName)
 
 def loadSource(fileName):
   """
@@ -220,7 +234,7 @@ def loadSource(fileName):
       cnt += 1
     moduleName = getModuleName(prefix, cnt)
   debug("/ Loading " + fileName + " as " + moduleName)
-  module = imp.load_source(moduleName, fileName)
+  module = _load_file(moduleName, fileName)
   modules[moduleName] = module
   return module
 

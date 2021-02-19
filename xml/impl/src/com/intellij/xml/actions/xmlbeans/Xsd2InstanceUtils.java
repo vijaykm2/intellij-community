@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.actions.xmlbeans;
 
 import com.intellij.openapi.vfs.VirtualFile;
@@ -26,6 +12,7 @@ import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlDocument;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.util.ArrayUtil;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlNSDescriptor;
 import com.intellij.xml.impl.schema.XmlNSDescriptorImpl;
@@ -37,6 +24,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 
@@ -89,12 +77,11 @@ public class Xsd2InstanceUtils {
         }
       }
 
-        XmlObject[] schemas = (XmlObject[]) sdocs.toArray(new XmlObject[sdocs.size()]);
+        XmlObject[] schemas = (XmlObject[]) sdocs.toArray(new XmlObject[0]);
 
         SchemaTypeSystem sts = null;
         if (schemas.length > 0)
         {
-            Collection errors = new ArrayList();
             XmlOptions compileOptions = new XmlOptions();
             if (dl)
                 compileOptions.setCompileDownloadUrls();
@@ -105,10 +92,12 @@ public class Xsd2InstanceUtils {
 
           try {
             sts = XmlBeans.compileXsd(schemas, XmlBeans.getBuiltinTypeSystem(), compileOptions);
-          } catch (XmlException e) {
-              String out = "Schema compilation errors: ";
-              for (Object error : errors) out += "\n" + error;
-              throw new IllegalArgumentException(out);
+          }
+          catch (XmlException e) {
+            StringBuilder out = new StringBuilder("Schema compilation errors: ");
+            Collection errors = e.getErrors();
+            for (Object error : errors) out.append("\n").append(error);
+              throw new IllegalArgumentException(out.toString());
           }
         }
 
@@ -149,7 +138,7 @@ public class Xsd2InstanceUtils {
     if (metaData instanceof XmlNSDescriptorImpl) {
       XmlNSDescriptorImpl nsDescriptor = (XmlNSDescriptorImpl) metaData;
 
-      List<String> elementDescriptors = new ArrayList<String>();
+      List<String> elementDescriptors = new ArrayList<>();
       XmlElementDescriptor[] rootElementsDescriptors = nsDescriptor.getRootElementsDescriptors(PsiTreeUtil.getParentOfType(rootTag, XmlDocument.class));
       for(XmlElementDescriptor e:rootElementsDescriptors) {
         elementDescriptors.add(e.getName());
@@ -160,8 +149,8 @@ public class Xsd2InstanceUtils {
     return Collections.emptyList();
   }
 
-  public static String processAndSaveAllSchemas(@NotNull XmlFile file, @NotNull final Map<String, String> scannedToFileName,
-                                          final @NotNull SchemaReferenceProcessor schemaReferenceProcessor) {
+  public static @NotNull String processAndSaveAllSchemas(@NotNull XmlFile file, @NotNull final Map<String, String> scannedToFileName,
+                                                         final @NotNull SchemaReferenceProcessor schemaReferenceProcessor) {
     final String fileName = file.getName();
 
     String previous = scannedToFileName.get(fileName);
@@ -173,7 +162,7 @@ public class Xsd2InstanceUtils {
     final StringBuilder result = new StringBuilder();
 
     file.acceptChildren(new XmlRecursiveElementVisitor() {
-      @Override public void visitElement(PsiElement psiElement) {
+      @Override public void visitElement(@NotNull PsiElement psiElement) {
         super.visitElement(psiElement);
         if (psiElement instanceof LeafPsiElement) {
           final String text = psiElement.getText();
@@ -199,15 +188,14 @@ public class Xsd2InstanceUtils {
         } else if ("schemaLocation".equals(xmlAttribute.getName())) {
           final PsiReference[] references = xmlAttribute.getValueElement().getReferences();
 
-          if (references.length > 0) {
-            PsiElement psiElement = references[0].resolve();
+          PsiReference reference = ArrayUtil.getLastElement(references);
+          if (reference != null) {
+            PsiElement psiElement = reference.resolve();
 
             if (psiElement instanceof XmlFile) {
               final String s = processAndSaveAllSchemas(((XmlFile) psiElement), scannedToFileName, schemaReferenceProcessor);
-              if (s != null) {
-                result.append(xmlAttribute.getName()).append("='").append(s).append('\'');
-                replaced = true;
-              }
+              result.append(xmlAttribute.getName()).append("='").append(s).append('\'');
+              replaced = true;
             }
           }
         }
@@ -223,10 +211,10 @@ public class Xsd2InstanceUtils {
       bytes = content.getBytes(virtualFile.getCharset());
     } else {
       try {
-        final String charsetName = XmlUtil.extractXmlEncodingFromProlog(content.getBytes());
-        bytes = charsetName != null ? content.getBytes(charsetName) : content.getBytes();
+        final String charsetName = XmlUtil.extractXmlEncodingFromProlog(content.getBytes(StandardCharsets.UTF_8));
+        bytes = charsetName != null ? content.getBytes(charsetName) : content.getBytes(StandardCharsets.UTF_8);
       } catch (UnsupportedEncodingException e) {
-        bytes = content.getBytes();
+        bytes = content.getBytes(StandardCharsets.UTF_8);
       }
     }
 

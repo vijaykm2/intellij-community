@@ -19,13 +19,14 @@ import com.intellij.openapi.util.io.FileUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.builders.BuildRootDescriptor;
 import org.jetbrains.jps.incremental.ResourcesTarget;
+import org.jetbrains.jps.model.JpsProject;
+import org.jetbrains.jps.model.java.JpsJavaExtensionService;
+import org.jetbrains.jps.model.java.compiler.JpsCompilerExcludes;
 
 import java.io.File;
+import java.io.FileFilter;
 import java.util.Set;
 
-/**
- * @author nik
- */
 public class ResourceRootDescriptor extends BuildRootDescriptor {
   @NotNull private final File myRoot;
   @NotNull private final ResourcesTarget myTarget;
@@ -59,6 +60,14 @@ public class ResourceRootDescriptor extends BuildRootDescriptor {
   @NotNull
   public String getPackagePrefix() {
     return myPackagePrefix;
+  }
+
+  @NotNull
+  @Override
+  public FileFilter createFileFilter() {
+    final JpsProject project = getTarget().getModule().getProject();
+    final JpsCompilerExcludes excludes = JpsJavaExtensionService.getInstance().getCompilerConfiguration(project).getCompilerExcludes();
+    return file -> !excludes.isExcluded(file);
   }
 
   @Override

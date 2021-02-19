@@ -20,22 +20,23 @@ import com.intellij.lang.ASTNode;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.javadoc.PsiDocParamRef;
 import com.intellij.psi.impl.source.tree.JavaDocElementType;
 import com.intellij.psi.javadoc.PsiDocTag;
-import com.intellij.psi.javadoc.PsiDocTagValue;
 import com.intellij.psi.javadoc.PsiInlineDocTag;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.xml.util.HtmlUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import static com.intellij.util.text.CharArrayUtil.containsOnlyWhiteSpaces;
+
 /**
  * Advises typing in javadoc if necessary.
  * 
  * @author Denis Zhdanov
- * @since 2/2/11 11:17 AM
  */
 public class JavadocTypedHandler extends TypedHandlerDelegate {
 
@@ -44,13 +45,28 @@ public class JavadocTypedHandler extends TypedHandlerDelegate {
   private static final char SLASH = '/';
   private static final String COMMENT_PREFIX = "!--";
   
+  @NotNull
   @Override
-  public Result charTyped(char c, Project project, @NotNull Editor editor, @NotNull PsiFile file) {
-    if (project == null) {
-      return Result.CONTINUE;
+  public Result charTyped(char c, @NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file) {
+    if (file instanceof PsiJavaFile) {
+      if (!insertClosingTagIfNecessary(c, project, editor, file)) {
+        adjustStartTagIndent(c, editor, file);
+      }
     }
-    insertClosingTagIfNecessary(c, project, editor, file);
     return Result.CONTINUE;
+  }
+
+  private static void adjustStartTagIndent(char c, @NotNull Editor editor, @NotNull PsiFile file) {
+    if (c == '@') {
+      final int offset = editor.getCaretModel().getOffset();
+      PsiElement currElement = file.findElementAt(offset);
+      if (currElement instanceof PsiWhiteSpace) {
+        PsiElement prev = currElement.getPrevSibling();
+        if (prev != null && prev.getNode().getElementType() == JavaDocTokenType.DOC_COMMENT_LEADING_ASTERISKS) {
+          editor.getDocument().replaceString(currElement.getTextRange().getStartOffset(), offset - 1, " ");
+        }
+      }
+    }
   }
 
   /**
@@ -60,7 +76,7 @@ public class JavadocTypedHandler extends TypedHandlerDelegate {
    * @param project   current project
    * @param editor    current editor
    * @param file      current file
-   * @return          <code>true</code> if closing tag is inserted; <code>false</code> otherwise
+   * @return          {@code true} if closing tag is inserted; {@code false} otherwise
    */
   private static boolean insertClosingTagIfNecessary(char c, @NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file) {
     if (c != CLOSE_TAG_SYMBOL || !CodeInsightSettings.getInstance().JAVADOC_GENERATE_CLOSING_TAG) {
@@ -87,9 +103,9 @@ public class JavadocTypedHandler extends TypedHandlerDelegate {
   }
 
   /**
-   * Tries to derive start tag name assuming that given offset points to position just after <code>'>'</code> symbol.
+   * Tries to derive start tag name assuming that given offset points to position just after {@code '>'} symbol.
    * <p/>
-   * Is expected to return <code>null</code> when offset is not located just after start tag, e.g. the following situations:
+   * Is expected to return {@code null} when offset is not located just after start tag, e.g. the following situations:
    * <pre>
    * <ul>
    *   <li>standalone {@code '>'} symbol (surrounded by white spaces);</li>
@@ -100,10 +116,10 @@ public class JavadocTypedHandler extends TypedHandlerDelegate {
    * 
    * @param text            target text
    * @param afterTagOffset  offset that points after 
-   * @return                tag name if the one is parsed; <code>null</code> otherwise
+   * @return                tag name if the one is parsed; {@code null} otherwise
    */
   @Nullable
-  static String getTagName(@NotNull CharSequence text, int afterTagOffset) {
+  public static String getTagName(@NotNull CharSequence text, int afterTagOffset) {
     if (afterTagOffset > text.length()) {
       return null;
     }
@@ -148,7 +164,7 @@ public class JavadocTypedHandler extends TypedHandlerDelegate {
     }
 
     PsiElement element = elementAtCaret;
-    while(element instanceof PsiWhiteSpace) {
+    while(element instanceof PsiWhiteSpace || element != null && containsOnlyWhiteSpaces(element.getText())) {
       element = element.getPrevSibling();
     }
 
@@ -161,16 +177,9 @@ public class JavadocTypedHandler extends TypedHandlerDelegate {
     }
     
     if (element instanceof PsiDocTag) {
-      // We don't want to provide closing tag for the type parameters, i.e. at situations like the one below:
-      // /**
-      //  * @param <T>[caret]
-      //  */
       PsiDocTag tag = (PsiDocTag)element;
-      if ("param".equals(tag.getName())) {
-        final PsiDocTagValue value = tag.getValueElement();
-        if (value == null || value.getTextRange().getEndOffset() == offset) {
-          return false;
-        } 
+      if ("param".equals(tag.getName()) && isTypeParamBracketClosedAfterParamTag(tag, offset)) {
+        return false; 
       }
     }
 
@@ -184,4 +193,23 @@ public class JavadocTypedHandler extends TypedHandlerDelegate {
            && (JavaDocTokenType.ALL_JAVADOC_TOKENS.contains(node.getElementType())
                || JavaDocElementType.ALL_JAVADOC_ELEMENTS.contains(node.getElementType()));
   }
+  
+  private static boolean isTypeParamBracketClosedAfterParamTag(PsiDocTag tag, int bracketOffset) {
+    PsiElement paramToDocument = getDocumentingParameter(tag);
+    if (paramToDocument == null) return false;
+    
+    TextRange paramRange = paramToDocument.getTextRange();
+    return paramRange.getEndOffset() == bracketOffset;
+  }
+
+  @Nullable
+  private static PsiElement getDocumentingParameter(PsiDocTag tag) {
+    for(PsiElement element = tag.getFirstChild(); element != null; element = element.getNextSibling()) {
+      if (element instanceof PsiDocParamRef) {
+        return element;
+      }
+    }
+    return null;
+  }
+  
 }

@@ -1,3 +1,4 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.impl.httpclient;
 
 import com.intellij.openapi.vfs.CharsetToolkit;
@@ -6,7 +7,7 @@ import com.intellij.tasks.config.TaskSettings;
 import com.intellij.tasks.impl.BaseRepository;
 import com.intellij.tasks.impl.RequestFailedException;
 import com.intellij.tasks.impl.TaskUtil;
-import com.intellij.util.net.HttpConfigurable;
+import com.intellij.util.net.IdeHttpClientHelpers;
 import com.intellij.util.net.ssl.CertificateManager;
 import org.apache.http.*;
 import org.apache.http.auth.AuthScope;
@@ -19,7 +20,6 @@ import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpRequestBase;
 import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.conn.routing.HttpRoute;
-import org.apache.http.conn.ssl.X509HostnameVerifier;
 import org.apache.http.impl.auth.BasicScheme;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.impl.client.HttpClientBuilder;
@@ -29,9 +29,10 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 /**
- * This alternative base implementation of {@link com.intellij.tasks.impl.BaseRepository} should be used
+ * This alternative base implementation of {@link BaseRepository} should be used
  * for new connectors that use httpclient-4.x instead of legacy httpclient-3.1.
  *
  * @author Mikhail Golubev
@@ -62,10 +63,7 @@ public abstract class NewBaseRepositoryImpl extends BaseRepository {
   protected HttpClient getHttpClient() {
     HttpClientBuilder builder = HttpClients.custom()
       .setDefaultRequestConfig(createRequestConfig())
-      .setSslcontext(CertificateManager.getInstance().getSslContext())
-        // TODO: use custom one for additional certificate check
-        //.setHostnameVerifier(SSLConnectionSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER)
-      .setHostnameVerifier((X509HostnameVerifier)CertificateManager.HOSTNAME_VERIFIER)
+      .setSSLContext(CertificateManager.getInstance().getSslContext())
       .setDefaultCredentialsProvider(createCredentialsProvider())
       .addInterceptorFirst(PREEMPTIVE_BASIC_AUTH)
       .addInterceptorLast(createRequestInterceptor());
@@ -91,7 +89,9 @@ public abstract class NewBaseRepositoryImpl extends BaseRepository {
       provider.setCredentials(BASIC_AUTH_SCOPE, new UsernamePasswordCredentials(getUsername(), getPassword()));
     }
     // Proxy authentication
-    HttpConfigurable.getInstance().setProxyCredentials(provider, isUseProxy());
+    if (isUseProxy()) {
+      IdeHttpClientHelpers.ApacheHttpClient4.setProxyCredentialsForUrlIfEnabled(provider, getUrl());
+    }
 
     return provider;
   }
@@ -102,7 +102,9 @@ public abstract class NewBaseRepositoryImpl extends BaseRepository {
     RequestConfig.Builder builder = RequestConfig.custom()
       .setConnectTimeout(3000)
       .setSocketTimeout(tasksSettings.CONNECTION_TIMEOUT);
-    HttpConfigurable.getInstance().setProxy(builder, isUseProxy());
+    if (isUseProxy()) {
+      IdeHttpClientHelpers.ApacheHttpClient4.setProxyForUrlIfEnabled(builder, getUrl());
+    }
 
     return builder.build();
   }
@@ -128,7 +130,7 @@ public abstract class NewBaseRepositoryImpl extends BaseRepository {
    * @return described URL
    */
   @NotNull
-  public String getRestApiUrl(@NotNull Object... parts) {
+  public String getRestApiUrl(Object @NotNull ... parts) {
     StringBuilder builder = new StringBuilder(getUrl());
     builder.append(getRestApiPathPrefix());
     if (builder.charAt(builder.length() - 1) == '/') {
@@ -145,11 +147,11 @@ public abstract class NewBaseRepositoryImpl extends BaseRepository {
 
   private static class PreemptiveBasicAuthInterceptor implements HttpRequestInterceptor {
     @Override
-    public void process(HttpRequest request, HttpContext context) throws HttpException, IOException {
+    public void process(HttpRequest request, HttpContext context) throws HttpException {
       final CredentialsProvider provider = (CredentialsProvider)context.getAttribute(HttpClientContext.CREDS_PROVIDER);
       final Credentials credentials = provider.getCredentials(BASIC_AUTH_SCOPE);
       if (credentials != null) {
-        request.addHeader(new BasicScheme(CharsetToolkit.UTF8_CHARSET).authenticate(credentials, request, context));
+        request.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(credentials, request, context));
       }
       final HttpHost proxyHost = ((HttpRoute)context.getAttribute(HttpClientContext.HTTP_ROUTE)).getProxyHost();
       if (proxyHost != null) {

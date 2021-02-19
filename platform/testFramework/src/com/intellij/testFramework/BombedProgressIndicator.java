@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,9 +22,12 @@ import com.intellij.openapi.progress.util.AbstractProgressIndicatorBase;
 import com.intellij.openapi.progress.util.ProgressIndicatorBase;
 import com.intellij.util.concurrency.Semaphore;
 import junit.framework.TestCase;
+import org.jetbrains.annotations.NotNull;
 
+import java.util.Arrays;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.function.Predicate;
 
 /**
  * A progress indicator that starts throwing {@link ProcessCanceledException} after n {@link #checkCanceled()} attempts, where
@@ -33,21 +36,34 @@ import java.util.concurrent.Future;
  * @author peter
  */
 public class BombedProgressIndicator extends AbstractProgressIndicatorBase {
+  private final Predicate<StackTraceElement[]> myStackCondition;
   private int myRemainingChecks;
   private volatile Thread myThread;
 
   public BombedProgressIndicator(int checkCanceledCount) {
     myRemainingChecks = checkCanceledCount;
+    myStackCondition = null;
+  }
+
+  private BombedProgressIndicator(@NotNull Predicate<StackTraceElement[]> stackCondition) {
+    myStackCondition = stackCondition;
+    myRemainingChecks = -1;
   }
 
   @Override
   public void checkCanceled() throws ProcessCanceledException {
     if (myThread == Thread.currentThread()) { // to prevent CoreProgressManager future from interfering with its periodical checkCanceled
-      if (myRemainingChecks > 0) {
-        myRemainingChecks--;
-      }
-      else {
-        cancel();
+      if (myStackCondition != null) {
+        if (myStackCondition.test(new Throwable().getStackTrace())) {
+          cancel();
+        }
+      } else {
+        if (myRemainingChecks > 0) {
+          myRemainingChecks--;
+        }
+        else {
+          cancel();
+        }
       }
     }
     super.checkCanceled();
@@ -66,52 +82,48 @@ public class BombedProgressIndicator extends AbstractProgressIndicatorBase {
 
     // ProgressManager invokes indicator.checkCanceled only when there's at least one canceled indicator. So we have to create a mock one
     // on an unrelated thread and cancel it immediately.
-    Future<?> future = ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
-      @Override
-      public void run() {
-        final ProgressIndicatorBase mockIndicator = new ProgressIndicatorBase();
-        ProgressManager.getInstance().runProcess(new Runnable() {
-          @Override
-          public void run() {
-            mockIndicator.cancel();
-            canStart.up();
-            finished.waitFor();
-            try {
-              ProgressManager.checkCanceled();
-              TestCase.fail();
-            }
-            catch (ProcessCanceledException ignored) {
-            }
-          }
-        }, mockIndicator);
-      }
+    Future<?> future = ApplicationManager.getApplication().executeOnPooledThread(() -> {
+      final ProgressIndicatorBase mockIndicator = new ProgressIndicatorBase();
+      ProgressManager.getInstance().runProcess(() -> {
+        mockIndicator.cancel();
+        canStart.up();
+        finished.waitFor();
+        try {
+          ProgressManager.checkCanceled();
+          TestCase.fail();
+        }
+        catch (ProcessCanceledException ignored) {
+        }
+      }, mockIndicator);
     });
 
-    ProgressManager.getInstance().runProcess(new Runnable() {
-      @Override
-      public void run() {
-        canStart.waitFor();
-        try {
-          runnable.run();
-        }
-        catch (ProcessCanceledException ignore) {
-        }
-        finally {
-          finished.up();
-        }
+    ProgressManager.getInstance().runProcess(() -> {
+      canStart.waitFor();
+      try {
+        runnable.run();
+      }
+      catch (ProcessCanceledException ignore) {
+      }
+      finally {
+        finished.up();
       }
     }, this);
 
     try {
       future.get();
     }
-    catch (InterruptedException e) {
-      throw new RuntimeException(e);
-    }
-    catch (ExecutionException e) {
+    catch (InterruptedException | ExecutionException e) {
       throw new RuntimeException(e);
     }
 
     return isCanceled();
+  }
+
+  public static BombedProgressIndicator explodeOnStack(Predicate<StackTraceElement[]> stackCondition) {
+    return new BombedProgressIndicator(stackCondition);
+  }
+
+  public static BombedProgressIndicator explodeOnStackElement(Predicate<? super StackTraceElement> stackElementCondition) {
+    return explodeOnStack(stack -> Arrays.stream(stack).anyMatch(stackElementCondition));
   }
 }

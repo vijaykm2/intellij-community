@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,6 @@ import static com.intellij.util.BitUtil.isSet;
  * Do not use this class directly.
  *
  * @author Dmitry Avdeev
- * @since 12.0
  */
 public class FileInfo {
   private static final int BROKEN_SYMLINK = -1;
@@ -52,8 +51,8 @@ public class FileInfo {
     final boolean isSymlink = isSet(attributes, FILE_ATTRIBUTE_REPARSE_POINT);
     final boolean isHidden = isSet(attributes, FILE_ATTRIBUTE_HIDDEN);
     final boolean isWritable = !isSet(attributes, FILE_ATTRIBUTE_READONLY);
-    final long javaTimestamp = timestamp / 10000 - 11644473600000l;
-    return new FileAttributes(isDirectory, isSpecial, isSymlink, isHidden, length, javaTimestamp, isWritable);
+    final long javaTimestamp = timestamp / 10000 - 11644473600000L;
+    return new FileAttributes(isDirectory, isSpecial, isSymlink, isHidden, length, javaTimestamp, isDirectory || isWritable);
   }
 
   @Override

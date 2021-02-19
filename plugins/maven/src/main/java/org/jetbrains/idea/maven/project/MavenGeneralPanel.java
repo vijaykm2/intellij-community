@@ -1,49 +1,35 @@
-/* ==========================================================================
- * Copyright 2006 Mevenide Team
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- * =========================================================================
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.project;
 
+import com.intellij.CommonBundle;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.PanelWithAnchor;
 import com.intellij.ui.components.JBLabel;
-import com.intellij.util.Function;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.execution.MavenExecutionOptions;
+import org.jetbrains.idea.maven.execution.MavenRCSettingsWatcher;
+import org.jetbrains.idea.maven.execution.MavenSettingsObservable;
 import org.jetbrains.idea.maven.utils.ComboBoxUtil;
 
 import javax.swing.*;
 import java.util.Arrays;
 
-/**
- * @author Ralf Quebbemann (ralfq@codehaus.org)
- */
-public class MavenGeneralPanel implements  PanelWithAnchor {
+public class MavenGeneralPanel implements PanelWithAnchor, MavenSettingsObservable {
   private JCheckBox checkboxWorkOffline;
   private JPanel panel;
   private JComboBox outputLevelCombo;
   private JCheckBox checkboxProduceExceptionErrorMessages;
   private JComboBox checksumPolicyCombo;
   private JComboBox failPolicyCombo;
-  private JComboBox pluginUpdatePolicyCombo;
   private JCheckBox checkboxUsePluginRegistry;
   private JCheckBox checkboxRecursive;
   private MavenEnvironmentForm mavenPathsForm;
-  private JBLabel myMultiprojectBuildFailPolicyLabel;
+  private JBLabel myMultiProjectBuildFailPolicyLabel;
   private JCheckBox alwaysUpdateSnapshotsCheckBox;
   private JTextField threadsEditor;
   private final DefaultComboBoxModel outputLevelComboModel = new DefaultComboBoxModel();
@@ -52,61 +38,44 @@ public class MavenGeneralPanel implements  PanelWithAnchor {
   private final DefaultComboBoxModel pluginUpdatePolicyComboModel = new DefaultComboBoxModel();
   private JComponent anchor;
 
+  private JCheckBox showDialogWithAdvancedSettingsCheckBox;
+  private boolean isShowAdvancedSettingsCheckBox = false;
+
   public MavenGeneralPanel() {
     fillOutputLevelCombobox();
     fillChecksumPolicyCombobox();
     fillFailureBehaviorCombobox();
-    fillPluginUpdatePolicyCombobox();
-
-    setAnchor(myMultiprojectBuildFailPolicyLabel);
+    setAnchor(myMultiProjectBuildFailPolicyLabel);
   }
 
   private void fillOutputLevelCombobox() {
     ComboBoxUtil.setModel(outputLevelCombo, outputLevelComboModel,
                           Arrays.asList(MavenExecutionOptions.LoggingLevel.values()),
-                          new Function<MavenExecutionOptions.LoggingLevel, Pair<String, ?>>() {
-                            public Pair<String, MavenExecutionOptions.LoggingLevel> fun(MavenExecutionOptions.LoggingLevel each) {
-                              return Pair.create(each.getDisplayString(), each);
-                            }
-                          });
+                          each -> Pair.create(each.getDisplayString(), each));
   }
 
   private void fillFailureBehaviorCombobox() {
     ComboBoxUtil.setModel(failPolicyCombo, failPolicyComboModel,
                           Arrays.asList(MavenExecutionOptions.FailureMode.values()),
-                          new Function<MavenExecutionOptions.FailureMode, Pair<String, ?>>() {
-                            public Pair<String, MavenExecutionOptions.FailureMode> fun(MavenExecutionOptions.FailureMode each) {
-                              return Pair.create(each.getDisplayString(), each);
-                            }
-                          });
+                          each -> Pair.create(each.getDisplayString(), each));
   }
 
   private void fillChecksumPolicyCombobox() {
     ComboBoxUtil.setModel(checksumPolicyCombo, checksumPolicyComboModel,
                           Arrays.asList(MavenExecutionOptions.ChecksumPolicy.values()),
-                          new Function<MavenExecutionOptions.ChecksumPolicy, Pair<String, ?>>() {
-                            public Pair<String, MavenExecutionOptions.ChecksumPolicy> fun(MavenExecutionOptions.ChecksumPolicy each) {
-                              return Pair.create(each.getDisplayString(), each);
-                            }
-                          });
+                          each -> Pair.create(each.getDisplayString(), each));
   }
 
-  private void fillPluginUpdatePolicyCombobox() {
-    ComboBoxUtil.setModel(pluginUpdatePolicyCombo, pluginUpdatePolicyComboModel,
-                          Arrays.asList(MavenExecutionOptions.PluginUpdatePolicy.values()),
-                          new Function<MavenExecutionOptions.PluginUpdatePolicy, Pair<String, ?>>() {
-                            public Pair<String, MavenExecutionOptions.PluginUpdatePolicy> fun(MavenExecutionOptions.PluginUpdatePolicy each) {
-                              return Pair.create(each.getDisplayString(), each);
-                            }
-                          });
+
+  public void showCheckBoxWithAdvancedSettings() {
+    isShowAdvancedSettingsCheckBox = true;
   }
 
   public JComponent createComponent() {
+    showDialogWithAdvancedSettingsCheckBox.setVisible(isShowAdvancedSettingsCheckBox);
+
     mavenPathsForm.createComponent(); // have to initialize all listeners
     return panel;
-  }
-
-  public void disposeUIResources() {
   }
 
   protected void setData(MavenGeneralSettings data) {
@@ -126,13 +95,15 @@ public class MavenGeneralPanel implements  PanelWithAnchor {
     data.setAlwaysUpdateSnapshots(alwaysUpdateSnapshotsCheckBox.isSelected());
     data.setThreads(threadsEditor.getText());
 
+    data.setShowDialogWithAdvancedSettings(showDialogWithAdvancedSettingsCheckBox.isSelected());
+
     data.endUpdate();
   }
 
-  protected void getData(MavenGeneralSettings data) {
+  protected void initializeFormData(MavenGeneralSettings data, Project project) {
     checkboxWorkOffline.setSelected(data.isWorkOffline());
 
-    mavenPathsForm.getData(data);
+    mavenPathsForm.initializeFormData(data, project);
 
     checkboxProduceExceptionErrorMessages.setSelected(data.isPrintErrorStackTraces());
     checkboxUsePluginRegistry.setSelected(data.isUsePluginRegistry());
@@ -144,11 +115,13 @@ public class MavenGeneralPanel implements  PanelWithAnchor {
     ComboBoxUtil.select(checksumPolicyComboModel, data.getChecksumPolicy());
     ComboBoxUtil.select(failPolicyComboModel, data.getFailureBehavior());
     ComboBoxUtil.select(pluginUpdatePolicyComboModel, data.getPluginUpdatePolicy());
+
+    showDialogWithAdvancedSettingsCheckBox.setSelected(data.isShowDialogWithAdvancedSettings());
   }
 
   @Nls
   public String getDisplayName() {
-    return ProjectBundle.message("maven.tab.general");
+    return CommonBundle.message("tab.title.general");
   }
 
   @Override
@@ -159,7 +132,27 @@ public class MavenGeneralPanel implements  PanelWithAnchor {
   @Override
   public void setAnchor(JComponent anchor) {
     this.anchor = anchor;
-    myMultiprojectBuildFailPolicyLabel.setAnchor(anchor);
+    myMultiProjectBuildFailPolicyLabel.setAnchor(anchor);
     mavenPathsForm.setAnchor(anchor);
+  }
+
+  @ApiStatus.Internal
+  public void applyTargetEnvironmentConfiguration(@NotNull Project project, @Nullable String targetName) {
+    mavenPathsForm.apply(project, targetName);
+  }
+
+  @Override
+  public void registerSettingsWatcher(@NotNull MavenRCSettingsWatcher watcher) {
+    watcher.registerComponent("workOffline", checkboxWorkOffline);
+    mavenPathsForm.registerSettingsWatcher(watcher);
+    watcher.registerComponent("produceExceptionErrorMessages", checkboxProduceExceptionErrorMessages);
+    watcher.registerComponent("usePluginRegistry", checkboxUsePluginRegistry);
+    watcher.registerComponent("recursive", checkboxRecursive);
+    watcher.registerComponent("alwaysUpdateSnapshots", alwaysUpdateSnapshotsCheckBox);
+    watcher.registerComponent("threadsEditor", threadsEditor);
+    watcher.registerComponent("outputLevel", outputLevelCombo);
+    watcher.registerComponent("checksumPolicy", checksumPolicyCombo);
+    watcher.registerComponent("failPolicy", failPolicyCombo);
+    watcher.registerComponent("showDialogWithAdvancedSettings", showDialogWithAdvancedSettingsCheckBox);
   }
 }

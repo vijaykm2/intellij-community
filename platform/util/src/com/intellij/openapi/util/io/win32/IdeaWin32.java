@@ -1,44 +1,39 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.util.io.win32;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.SystemInfo;
-import com.intellij.util.SystemProperties;
-import com.intellij.util.lang.UrlClassLoader;
+import com.intellij.openapi.util.SystemInfoRt;
+import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.util.loader.NativeLibraryLoader;
+import com.intellij.util.system.CpuArch;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.io.IOException;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.zip.CRC32;
 
 /**
  * Do not use this class directly.
  *
  * @author Dmitry Avdeev
- * @since 12.0
  */
-public class IdeaWin32 {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.util.io.win32.IdeaWin32");
-  private static final boolean DEBUG_ENABLED = LOG.isDebugEnabled();
+public final class IdeaWin32 {
+  private static final Logger LOG = Logger.getInstance(IdeaWin32.class);
+  private static final boolean TRACE_ENABLED = LOG.isTraceEnabled();
 
   private static final IdeaWin32 ourInstance;
 
   static {
     IdeaWin32 instance = null;
-    if (SystemInfo.isWin2kOrNewer && SystemProperties.getBooleanProperty("idea.use.native.fs.for.win", true)) {
+    if (SystemInfoRt.isWindows && Boolean.parseBoolean(System.getProperty("idea.use.native.fs.for.win", "true"))) {
       try {
-        UrlClassLoader.loadPlatformLibrary("IdeaWin32");
+        if (!loadBundledLibrary()) {
+          NativeLibraryLoader.loadPlatformLibrary("IdeaWin32");
+        }
         instance = new IdeaWin32();
         LOG.info("Native filesystem for Windows is operational");
       }
@@ -49,12 +44,31 @@ public class IdeaWin32 {
     ourInstance = instance;
   }
 
+  private static boolean loadBundledLibrary() throws IOException {
+    String name = CpuArch.isIntel64() ? "IdeaWin64" : "IdeaWin32";
+    URL bundled = IdeaWin32.class.getResource(name + ".dll");
+    if (bundled == null) {
+      return false;
+    }
+
+    byte[] content = FileUtilRt.loadBytes(bundled.openStream());
+    CRC32 crc32 = new CRC32();
+    crc32.update(content, 0, content.length);
+    long hash = Math.abs(crc32.getValue());
+    Path file = Paths.get(FileUtilRt.getTempDirectory(), name + '.' + hash + ".dll");
+    if (!Files.exists(file)) {
+      Files.createDirectories(file.getParent());
+      Files.write(file, content);
+    }
+    System.load(file.toString());
+    return true;
+  }
+
   public static boolean isAvailable() {
     return ourInstance != null;
   }
 
-  @NotNull
-  public static IdeaWin32 getInstance() {
+  public static @NotNull IdeaWin32 getInstance() {
     if (!isAvailable()) {
       throw new IllegalStateException("Native filesystem for Windows is not loaded");
     }
@@ -67,15 +81,14 @@ public class IdeaWin32 {
 
   private static native void initIDs();
 
-  @Nullable
-  public FileInfo getInfo(@NotNull String path) {
+  public @Nullable FileInfo getInfo(@NotNull String path) {
     path = path.replace('/', '\\');
-    if (DEBUG_ENABLED) {
-      LOG.debug("getInfo(" + path + ")");
+    if (TRACE_ENABLED) {
+      LOG.trace("getInfo(" + path + ")");
       long t = System.nanoTime();
       FileInfo result = getInfo0(path);
       t = (System.nanoTime() - t) / 1000;
-      LOG.debug("  " + t + " mks");
+      LOG.trace("  " + t + " mks");
       return result;
     }
     else {
@@ -83,15 +96,14 @@ public class IdeaWin32 {
     }
   }
 
-  @Nullable
-  public String resolveSymLink(@NotNull String path) {
+  public @Nullable String resolveSymLink(@NotNull String path) {
     path = path.replace('/', '\\');
-    if (DEBUG_ENABLED) {
-      LOG.debug("resolveSymLink(" + path + ")");
+    if (TRACE_ENABLED) {
+      LOG.trace("resolveSymLink(" + path + ")");
       long t = System.nanoTime();
       String result = resolveSymLink0(path);
       t = (System.nanoTime() - t) / 1000;
-      LOG.debug("  " + t + " mks");
+      LOG.trace("  " + t + " mks");
       return result;
     }
     else {
@@ -99,15 +111,14 @@ public class IdeaWin32 {
     }
   }
 
-  @Nullable
-  public FileInfo[] listChildren(@NotNull String path) {
+  public FileInfo @Nullable [] listChildren(@NotNull String path) {
     path = path.replace('/', '\\');
-    if (DEBUG_ENABLED) {
-      LOG.debug("list(" + path + ")");
+    if (TRACE_ENABLED) {
+      LOG.trace("list(" + path + ")");
       long t = System.nanoTime();
       FileInfo[] children = listChildren0(path);
       t = (System.nanoTime() - t) / 1000;
-      LOG.debug("  " + (children == null ? -1 : children.length) + " children, " + t + " mks");
+      LOG.trace("  " + (children == null ? -1 : children.length) + " children, " + t + " mks");
       return children;
     }
     else {

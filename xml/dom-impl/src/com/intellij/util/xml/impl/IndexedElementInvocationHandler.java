@@ -34,8 +34,8 @@ import java.util.List;
 /**
  * @author peter
  */
-public class IndexedElementInvocationHandler extends DomInvocationHandler<FixedChildDescriptionImpl, ElementStub>{
-  private static final Logger LOG = Logger.getInstance("#com.intellij.util.xml.impl.IndexedElementInvocationHandler");
+public class IndexedElementInvocationHandler extends DomInvocationHandler {
+  private static final Logger LOG = Logger.getInstance(IndexedElementInvocationHandler.class);
   private final int myIndex;
 
   public IndexedElementInvocationHandler(final EvaluatedXmlName tagName,
@@ -48,7 +48,6 @@ public class IndexedElementInvocationHandler extends DomInvocationHandler<FixedC
     myIndex = index;
   }
 
-  @SuppressWarnings({"EqualsWhichDoesntCheckParameterClass"})
   public boolean equals(final Object obj) {
     return super.equals(obj) && myIndex == ((IndexedElementInvocationHandler)obj).myIndex;
   }
@@ -60,7 +59,7 @@ public class IndexedElementInvocationHandler extends DomInvocationHandler<FixedC
   @Nullable
   @Override
   protected String getValue() {
-    return myStub == null ? super.getValue() : myStub.getValue();
+    return myStub == null ? super.getValue() : ((ElementStub)myStub).getValue();
   }
 
   @Override
@@ -87,19 +86,21 @@ public class IndexedElementInvocationHandler extends DomInvocationHandler<FixedC
     }
 
     final XmlTag[] newTag = new XmlTag[1];
-    getManager().runChange(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          final XmlTag parentTag = parent.getXmlTag();
-          newTag[0] = (XmlTag)parentTag.add(parent.createChildTag(getXmlName()));
-        }
-        catch (IncorrectOperationException e) {
-          LOG.error(e);
-        }
+    getManager().runChange(() -> {
+      try {
+        final XmlTag parentTag = parent.getXmlTag();
+        newTag[0] = (XmlTag)parentTag.add(parent.createChildTag(getXmlName()));
+      }
+      catch (IncorrectOperationException e) {
+        LOG.error(e);
       }
     });
     return newTag[0];
+  }
+
+  @Override
+  public FixedChildDescriptionImpl getChildDescription() {
+    return (FixedChildDescriptionImpl)super.getChildDescription();
   }
 
   @Override
@@ -156,12 +157,8 @@ public class IndexedElementInvocationHandler extends DomInvocationHandler<FixedC
   public final DomElement createPathStableCopy() {
     final DomFixedChildDescription description = getChildDescription();
     final DomElement parentCopy = getParent().createStableCopy();
-    return getManager().createStableValue(new Factory<DomElement>() {
-      @Override
-      public DomElement create() {
-        return parentCopy.isValid() ? description.getValues(parentCopy).get(myIndex) : null;
-      }
-    });
+    return getManager().createStableValue(
+      (Factory<DomElement>)() -> parentCopy.isValid() ? description.getValues(parentCopy).get(myIndex) : null);
   }
 
 }

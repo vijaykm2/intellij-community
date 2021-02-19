@@ -15,9 +15,9 @@
  */
 package org.jetbrains.plugins.groovy.codeInspection.control;
 
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrSwitchStatement;
@@ -26,23 +26,9 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.clauses.GrCaseSectio
 public class GroovySwitchStatementWithNoDefaultInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONTROL_FLOW;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Switch statement with no default case";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "#ref statement with no default branch#loc";
+    return GroovyBundle.message("inspection.message.ref.statement.with.no.default.branch");
 
   }
 
@@ -55,7 +41,7 @@ public class GroovySwitchStatementWithNoDefaultInspection extends BaseInspection
   private static class Visitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitSwitchStatement(GrSwitchStatement switchStatement) {
+    public void visitSwitchStatement(@NotNull GrSwitchStatement switchStatement) {
       super.visitSwitchStatement(switchStatement);
       final GrCaseSection[] caseSections = switchStatement.getCaseSections();
       for (GrCaseSection caseSection : caseSections) {

@@ -15,14 +15,15 @@
  */
 package com.theoryinpractice.testng.configuration.browser;
 
-import com.intellij.openapi.project.Project;
+import com.intellij.execution.configuration.BrowseModuleValueActionListener;
 import com.intellij.openapi.fileChooser.FileChooser;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.execution.configuration.BrowseModuleValueActionListener;
+import com.theoryinpractice.testng.TestngBundle;
 
 /**
- * @author Hani Suleiman Date: Jul 21, 2005 Time: 12:56:02 PM
+ * @author Hani Suleiman
  */
 public class SuiteBrowser extends BrowseModuleValueActionListener
 {
@@ -36,12 +37,12 @@ public class SuiteBrowser extends BrowseModuleValueActionListener
           @Override
           public boolean isFileVisible(VirtualFile virtualFile, boolean showHidden) {
                 if(!showHidden && virtualFile.getName().charAt(0) == '.') return false;
-                return virtualFile.isDirectory() || "xml".equals(virtualFile.getExtension());
+                return virtualFile.isDirectory() || "xml".equals(virtualFile.getExtension()) || "yaml".equals(virtualFile.getExtension());
             }
         };
-        descriptor.setDescription("Please select the testng.xml suite file");
-        descriptor.setTitle("Select Suite");
-      VirtualFile file = FileChooser.chooseFile(descriptor, getProject(), null);
+        descriptor.setDescription((TestngBundle.message("testng.suite.browser.select.xml.or.yaml.suite.file")));
+        descriptor.setTitle(TestngBundle.message("testng.suite.browser.select.suite"));
+        VirtualFile file = FileChooser.chooseFile(descriptor, getProject(), null);
         return file != null ? file.getPath() : null;
     }
 

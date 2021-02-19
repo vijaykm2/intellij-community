@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,9 +27,6 @@ import org.jetbrains.jps.model.serialization.facet.JpsFacetConfigurationSerializ
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author nik
- */
 public class JpsAppEngineModelSerializerExtension extends JpsModelSerializerExtension {
   @NotNull
   @Override
@@ -38,7 +35,7 @@ public class JpsAppEngineModelSerializerExtension extends JpsModelSerializerExte
   }
 
   private static class JpsAppEngineModuleExtensionSerializer extends JpsFacetConfigurationSerializer<JpsAppEngineModuleExtension> {
-    public JpsAppEngineModuleExtensionSerializer() {
+    JpsAppEngineModuleExtensionSerializer() {
       super(JpsAppEngineModuleExtensionImpl.ROLE, "google-app-engine", "Google App Engine");
     }
 
@@ -47,13 +44,8 @@ public class JpsAppEngineModelSerializerExtension extends JpsModelSerializerExte
                                                         String name,
                                                         JpsElement parent,
                                                         JpsModule module) {
-      AppEngineModuleExtensionProperties properties = XmlSerializer.deserialize(facetConfigurationElement, AppEngineModuleExtensionProperties.class);
-      return new JpsAppEngineModuleExtensionImpl(properties != null ? properties : new AppEngineModuleExtensionProperties());
-    }
-
-    @Override
-    protected void saveExtension(JpsAppEngineModuleExtension extension, Element facetConfigurationTag, JpsModule module) {
-      XmlSerializer.serializeInto(((JpsAppEngineModuleExtensionImpl)extension).getProperties(), facetConfigurationTag);
+      return new JpsAppEngineModuleExtensionImpl(
+        XmlSerializer.deserialize(facetConfigurationElement, AppEngineModuleExtensionProperties.class));
     }
   }
 }

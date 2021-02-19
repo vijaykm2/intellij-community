@@ -1,19 +1,25 @@
 package com.siyeh.ig.style;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
-public class UnnecessaryToStringCallInspectionTest extends LightInspectionTestCase {
+public class UnnecessaryToStringCallInspectionTest extends LightJavaInspectionTestCase {
 
-  public void testUnnecessaryToString() throws Exception {
+  public void testUnnecessaryToString() {
+    doTest();
+  }
+
+  public void testUnnecessaryToStringNotNullOnly() {
     doTest();
   }
 
   @Nullable
   @Override
   protected InspectionProfileEntry getInspection() {
-    return new UnnecessaryToStringCallInspection();
+    UnnecessaryToStringCallInspection inspection = new UnnecessaryToStringCallInspection();
+    inspection.notNullQualifierOnly = getTestName(false).contains("NotNullOnly");
+    return inspection;
   }
 
   @Override

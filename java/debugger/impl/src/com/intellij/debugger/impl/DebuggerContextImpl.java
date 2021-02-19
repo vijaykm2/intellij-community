@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * Interface DebuggerContextImpl
@@ -32,23 +18,21 @@ import com.intellij.debugger.jdi.StackFrameProxyImpl;
 import com.intellij.debugger.jdi.ThreadReferenceProxyImpl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
-import com.sun.jdi.ObjectReference;
 import com.sun.jdi.Value;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 
 public final class DebuggerContextImpl implements DebuggerContext {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.impl.DebuggerContextImpl");
+  private static final Logger LOG = Logger.getInstance(DebuggerContextImpl.class);
 
-  public static final DebuggerContextImpl EMPTY_CONTEXT = createDebuggerContext((DebuggerSession)null, null, null, null);
+  public static final DebuggerContextImpl EMPTY_CONTEXT = createDebuggerContext(null, null, null, null);
 
   private boolean myInitialized;
 
   @Nullable
   private final DebuggerSession myDebuggerSession;
-  private final DebugProcessImpl myDebugProcess;
   private final SuspendContextImpl mySuspendContext;
   private final ThreadReferenceProxyImpl myThreadProxy;
 
@@ -57,7 +41,6 @@ public final class DebuggerContextImpl implements DebuggerContext {
   private PsiElement myContextElement;
 
   private DebuggerContextImpl(@Nullable DebuggerSession session,
-                              @Nullable DebugProcessImpl debugProcess,
                               @Nullable SuspendContextImpl context,
                               ThreadReferenceProxyImpl threadProxy,
                               StackFrameProxyImpl frameProxy,
@@ -65,11 +48,9 @@ public final class DebuggerContextImpl implements DebuggerContext {
                               PsiElement contextElement,
                               boolean initialized) {
     LOG.assertTrue(frameProxy == null || threadProxy == null || threadProxy == frameProxy.threadProxy());
-    LOG.assertTrue(debugProcess != null || frameProxy == null && threadProxy == null);
     myDebuggerSession = session;
     myThreadProxy = threadProxy;
     myFrameProxy = frameProxy;
-    myDebugProcess = debugProcess;
     mySourcePosition = position;
     mySuspendContext = context;
     myContextElement = contextElement;
@@ -84,9 +65,10 @@ public final class DebuggerContextImpl implements DebuggerContext {
   @Nullable
   @Override
   public DebugProcessImpl getDebugProcess() {
-    return myDebugProcess;
+    return myDebuggerSession != null ? myDebuggerSession.getProcess() : null;
   }
 
+  @Nullable
   public ThreadReferenceProxyImpl getThreadProxy() {
     return myThreadProxy;
   }
@@ -98,7 +80,7 @@ public final class DebuggerContextImpl implements DebuggerContext {
 
   @Override
   public Project getProject() {
-    return myDebugProcess != null ? myDebugProcess.getProject() : null;
+    return myDebuggerSession != null ? myDebuggerSession.getProject() : null;
   }
 
   @Override
@@ -130,26 +112,17 @@ public final class DebuggerContextImpl implements DebuggerContext {
   @Nullable
   public EvaluationContextImpl createEvaluationContext() {
     DebuggerManagerThreadImpl.assertIsManagerThread();
-    StackFrameProxyImpl frameProxy = getFrameProxy();
-    ObjectReference objectReference;
-    try {
-      objectReference = frameProxy != null ? frameProxy.thisObject() : null;
-    }
-    catch (EvaluateException e) {
-      LOG.info(e);
-      objectReference = null;
-    }
     SuspendContextImpl context = getSuspendContext();
-    return context != null ? new EvaluationContextImpl(context, frameProxy, objectReference) : null;
+    return context != null ? new EvaluationContextImpl(context, getFrameProxy()) : null;
   }
 
+  @NotNull
   public static DebuggerContextImpl createDebuggerContext(@Nullable DebuggerSession session,
                                                           @Nullable SuspendContextImpl context,
                                                           ThreadReferenceProxyImpl threadProxy,
                                                           StackFrameProxyImpl frameProxy) {
     LOG.assertTrue(frameProxy == null || threadProxy == null || threadProxy == frameProxy.threadProxy());
-    LOG.assertTrue(session == null || session.getProcess() != null);
-    return new DebuggerContextImpl(session, session != null ? session.getProcess() : null, context, threadProxy, frameProxy, null, null, context == null);
+    return new DebuggerContextImpl(session, context, threadProxy, frameProxy, null, null, context == null);
   }
 
   public void initCaches() {
@@ -167,15 +140,10 @@ public final class DebuggerContextImpl implements DebuggerContext {
     }
 
     if (myFrameProxy != null) {
-      PsiDocumentManager.getInstance(getProject()).commitAndRunReadAction(new Runnable() {
-        @Override
-        public void run() {
-          if (mySourcePosition == null) {
-            mySourcePosition = ContextUtil.getSourcePosition(DebuggerContextImpl.this);
-          }
-          myContextElement = ContextUtil.getContextElement(mySourcePosition);
-        }
-      });
+      if (mySourcePosition == null) {
+        mySourcePosition = ContextUtil.getSourcePosition(this);
+      }
+      myContextElement = ContextUtil.getContextElement(mySourcePosition);
     }
   }
 
@@ -190,6 +158,6 @@ public final class DebuggerContextImpl implements DebuggerContext {
 
   public boolean isEvaluationPossible() {
     final DebugProcessImpl debugProcess = getDebugProcess();
-    return debugProcess != null && debugProcess.getSuspendManager().getPausedContext() != null;
+    return debugProcess != null && debugProcess.isEvaluationPossible();
   }
 }

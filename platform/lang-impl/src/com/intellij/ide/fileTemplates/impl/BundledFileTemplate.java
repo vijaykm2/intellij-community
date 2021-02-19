@@ -19,10 +19,8 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 4/6/11
  */
 public final class BundledFileTemplate extends FileTemplateBase {
-
   private final DefaultTemplate myDefaultTemplate;
   private final boolean myInternal;
   private boolean myEnabled = true; // when user 'deletes' bundled plugin, it simply becomes disabled
@@ -30,6 +28,15 @@ public final class BundledFileTemplate extends FileTemplateBase {
   public BundledFileTemplate(@NotNull DefaultTemplate defaultTemplate, boolean internal) {
     myDefaultTemplate = defaultTemplate;
     myInternal = internal;
+  }
+
+  // these complications are to avoid eager initialization/load of huge files
+  @Override
+  public boolean isLiveTemplateEnabled() {
+    if (isLiveTemplateEnabledChanged()) {
+      return super.isLiveTemplateEnabled();
+    }
+    return isLiveTemplateEnabledByDefault();
   }
 
   @Override
@@ -69,22 +76,20 @@ public final class BundledFileTemplate extends FileTemplateBase {
   @Override
   public boolean isDefault() {
     // todo: consider isReformat option here?
-    if (!getText().equals(getDefaultText())) {
-      return false;
-    }
-    return true;
+    return getText().equals(getDefaultText());
   }
 
+  @NotNull
   @Override
   public BundledFileTemplate clone() {
     return (BundledFileTemplate)super.clone();
   }
 
-  public boolean isEnabled() {
+  boolean isEnabled() {
     return myInternal || myEnabled;
   }
 
-  public void setEnabled(boolean enabled) {
+  void setEnabled(boolean enabled) {
     if (enabled != myEnabled) {
       myEnabled = enabled;
       if (!enabled) {
@@ -93,17 +98,23 @@ public final class BundledFileTemplate extends FileTemplateBase {
     }
   }
 
-  public void revertToDefaults() {
+  void revertToDefaults() {
     setText(null);
     setReformatCode(DEFAULT_REFORMAT_CODE_VALUE);
+    setLiveTemplateEnabled(isLiveTemplateEnabledByDefault());
   }
 
-  public boolean isTextModified() {
+  boolean isTextModified() {
     return !getText().equals(getDefaultText());
   }
 
   @Override
+  public boolean isLiveTemplateEnabledByDefault() {
+    return myDefaultTemplate.getText().contains("#[[$");
+  }
+
+  @Override
   public String toString() {
-    return myDefaultTemplate.getTemplateURL() == null ? "" : myDefaultTemplate.getTemplateURL().toString();
+    return myDefaultTemplate.getTemplateURL().toString();
   }
 }

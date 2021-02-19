@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.actions.xmlbeans;
 
 import com.intellij.javaee.ExternalResourceManager;
@@ -20,12 +6,11 @@ import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
@@ -34,26 +19,25 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.xml.XmlFile;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.xml.XmlBundle;
-import gnu.trove.THashMap;
 import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 
 /**
  * @author Konstantin Bulenkov
  */
-public class GenerateInstanceDocumentFromSchemaAction extends AnAction {
+public final class GenerateInstanceDocumentFromSchemaAction extends AnAction {
   @Override
-  public void update(AnActionEvent e) {
-    final VirtualFile file = CommonDataKeys.VIRTUAL_FILE.getData(e.getDataContext());
+  public void update(@NotNull AnActionEvent e) {
+    final VirtualFile file = e.getData(CommonDataKeys.VIRTUAL_FILE);
     final boolean enabled = isAcceptableFile(file);
     e.getPresentation().setEnabled(enabled);
     if (ActionPlaces.isPopupPlace(e.getPlace())) {
@@ -62,41 +46,34 @@ public class GenerateInstanceDocumentFromSchemaAction extends AnAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
-    final Project project = CommonDataKeys.PROJECT.getData(e.getDataContext());
-    final VirtualFile file = CommonDataKeys.VIRTUAL_FILE.getData(e.getDataContext());
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    final Project project = e.getProject();
+    final VirtualFile file = e.getData(CommonDataKeys.VIRTUAL_FILE);
 
     final GenerateInstanceDocumentFromSchemaDialog dialog = new GenerateInstanceDocumentFromSchemaDialog(project, file);
-    dialog.setOkAction(new Runnable() {
-      @Override
-      public void run() {
-        doAction(project, dialog);
-      }
-    });
+    dialog.setOkAction(() -> doAction(project, dialog));
 
     dialog.show();
   }
 
-  private void doAction(final Project project, final GenerateInstanceDocumentFromSchemaDialog dialog) {
+  public static void doAction(final Project project, final GenerateInstanceDocumentFromSchemaDialog dialog) {
     FileDocumentManager.getInstance().saveAllDocuments();
 
-    @NonNls List<String> parameters = new LinkedList<String>();
+    @NonNls List<String> parameters = new LinkedList<>();
 
     final String url = dialog.getUrl().getText();
     final VirtualFile relativeFile = VfsUtilCore.findRelativeFile(ExternalResourceManager.getInstance().getResourceLocation(url), null);
-    final PsiFile file = PsiManager.getInstance(project).findFile(relativeFile);
-    if (! (file instanceof XmlFile)) {
-      Messages.showErrorDialog(project, "This is not XmlFile" + file == null ? "" : " (" + file.getFileType().getName() + ")", XmlBundle.message("error"));
-      return;
-    }
-
-    VirtualFile relativeFileDir;
     if (relativeFile == null) {
       Messages.showErrorDialog(project, XmlBundle.message("file.doesnt.exist", url), XmlBundle.message("error"));
       return;
-    } else {
-      relativeFileDir = relativeFile.getParent();
     }
+    final PsiFile file = PsiManager.getInstance(project).findFile(relativeFile);
+    if (!(file instanceof XmlFile)) {
+      Messages.showErrorDialog(project, " (" + file.getFileType().getDescription() + ")", XmlBundle.message("error"));
+      return;
+    }
+
+    VirtualFile relativeFileDir = relativeFile.getParent();
     if (relativeFileDir == null) {
       Messages.showErrorDialog(project, XmlBundle.message("file.doesnt.exist", url), XmlBundle.message("error"));
       return;
@@ -109,7 +86,7 @@ public class GenerateInstanceDocumentFromSchemaAction extends AnAction {
     if (!dialog.enableUniquenessCheck()) {
       parameters.add("-noupa");
     }
-
+    parameters.add("-dl");
 
     String pathToUse;
 
@@ -120,7 +97,7 @@ public class GenerateInstanceDocumentFromSchemaAction extends AnAction {
 
       pathToUse = tempDir.getPath() + File.separatorChar + Xsd2InstanceUtils.processAndSaveAllSchemas(
         (XmlFile) file,
-        new THashMap<String, String>(),
+        new HashMap<>(),
         new Xsd2InstanceUtils.SchemaReferenceProcessor() {
           @Override
           public void processSchema(String schemaFileName, byte[] schemaContent) {
@@ -147,40 +124,26 @@ public class GenerateInstanceDocumentFromSchemaAction extends AnAction {
 
     String xml;
     try {
-      xml = Xsd2InstanceUtils.generate(ArrayUtil.toStringArray(parameters));
+      xml = Xsd2InstanceUtils.generate(ArrayUtilRt.toStringArray(parameters));
     } catch (IllegalArgumentException e) {
       Messages.showErrorDialog(project, StringUtil.getMessage(e), XmlBundle.message("error"));
       return;
     }
 
 
+    String xmlFileName = relativeFileDir.getPath() + File.separatorChar + dialog.getOutputFileName();
 
-    final VirtualFile baseDirForCreatedInstanceDocument1 = relativeFileDir;
-    String xmlFileName = baseDirForCreatedInstanceDocument1.getPath() + File.separatorChar + dialog.getOutputFileName();
-
-    FileOutputStream fileOutputStream;
     try {
-      fileOutputStream = new FileOutputStream(xmlFileName);
-      try {
         // the generated XML doesn't have any XML declaration -> utf-8
-        fileOutputStream.write(xml.getBytes("utf-8"));
-      }
-      finally {
-        fileOutputStream.close();
-      }
-
       final File xmlFile = new File(xmlFileName);
-      VirtualFile virtualFile = ApplicationManager.getApplication().runWriteAction(new Computable<VirtualFile>() {
-        @Override
-        @Nullable
-        public VirtualFile compute() {
-          return LocalFileSystem.getInstance().refreshAndFindFileByIoFile(xmlFile);
-        }
-      });
+      FileUtil.writeToFile(xmlFile, xml);
+
+      VirtualFile virtualFile =
+        WriteAction.compute(() -> LocalFileSystem.getInstance().refreshAndFindFileByIoFile(xmlFile));
       FileEditorManager.getInstance(project).openFile(virtualFile, true);
     }
     catch (IOException e) {
-      Messages.showErrorDialog(project, "Could not save generated XML document: " + StringUtil.getMessage(e), XmlBundle.message("error"));
+      Messages.showErrorDialog(project, XmlBundle.message("could.not.save.generated.xml.document.0", StringUtil.getMessage(e)), XmlBundle.message("error"));
     }
   }
 

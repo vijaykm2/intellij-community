@@ -20,11 +20,11 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.roots.OrderEntry;
 import org.jetbrains.annotations.NotNull;
 
-public abstract class OrderEntryBaseImpl extends RootModelComponentBase implements OrderEntry {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.roots.impl.OrderEntryVeryBaseImpl");
+abstract class OrderEntryBaseImpl extends RootModelComponentBase implements OrderEntry {
+  private static final Logger LOG = Logger.getInstance(OrderEntryBaseImpl.class);
 
   private int myIndex;
-  private static int _hc = 0;
+  private static int _hc;
 
   @SuppressWarnings({"AssignmentToStaticFieldFromInstanceMethod"})
   private final int hc = _hc++;
@@ -48,7 +48,6 @@ public abstract class OrderEntryBaseImpl extends RootModelComponentBase implemen
   }
 
   @Override
-  @SuppressWarnings({"EqualsWhichDoesntCheckParameterClass"})
   public final boolean equals(Object obj) {
     return obj == this;
   }

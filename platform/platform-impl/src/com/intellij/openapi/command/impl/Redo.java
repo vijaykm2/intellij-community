@@ -1,59 +1,56 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.command.impl;
 
-import com.intellij.CommonBundle;
+import com.intellij.ide.IdeBundle;
+import com.intellij.idea.ActionsBundle;
 import com.intellij.openapi.fileEditor.FileEditor;
+import com.intellij.openapi.util.text.StringUtil;
 
 /**
- * author: lesya
+ * @author lesya
  */
 class Redo extends UndoRedo {
   Redo(UndoManagerImpl manager, FileEditor editor) {
     super(manager, editor);
   }
 
+  @Override
   protected UndoRedoStacksHolder getStackHolder() {
     return myManager.getRedoStacksHolder();
   }
 
+  @Override
   protected UndoRedoStacksHolder getReverseStackHolder() {
     return myManager.getUndoStacksHolder();
   }
 
+  @Override
   protected String getActionName() {
-    return CommonBundle.message("redo.confirmation.title");
+    return IdeBundle.message("redo.dialog.title");
   }
 
+  @Override
   protected String getActionName(String commandName) {
-    return CommonBundle.message("redo.command.confirmation.text", commandName);
+    if (StringUtil.isEmpty(commandName)) commandName = ActionsBundle.message("action.redo.description.empty");
+    return IdeBundle.message("redo.command", commandName);
   }
 
+  @Override
   protected void performAction() {
     myUndoableGroup.redo();
   }
 
+  @Override
   protected EditorAndState getBeforeState() {
     return myUndoableGroup.getStateBefore();
   }
 
+  @Override
   protected EditorAndState getAfterState() {
     return myUndoableGroup.getStateAfter();
   }
 
+  @Override
   protected void setBeforeState(EditorAndState state) {
     myUndoableGroup.setStateBefore(state);
   }

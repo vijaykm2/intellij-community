@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.roots.impl;
 
@@ -24,17 +10,20 @@ import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerManager;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import org.jdom.Element;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.jps.model.serialization.module.JpsModuleRootModelSerializer;
 import org.jetbrains.jps.model.serialization.java.JpsJavaModelSerializerExtension;
+import org.jetbrains.jps.model.serialization.module.JpsModuleRootModelSerializer;
 
 /**
- * @author dsl
+ * This class isn't used in the new implementation of project model, which is based on {@link com.intellij.workspaceModel.ide Workspace Model}.
+ * It shouldn't be used directly, its interface {@link ModuleOrderEntry} should be used instead.
  */
+@ApiStatus.Internal
 public class ModuleOrderEntryImpl extends OrderEntryBaseImpl implements ModuleOrderEntry, WritableOrderEntry, ClonableOrderEntry {
   @NonNls public static final String ENTRY_TYPE = JpsModuleRootModelSerializer.MODULE_TYPE;
   @NonNls public static final String MODULE_NAME_ATTR = JpsModuleRootModelSerializer.MODULE_NAME_ATTRIBUTE;
@@ -42,7 +31,7 @@ public class ModuleOrderEntryImpl extends OrderEntryBaseImpl implements ModuleOr
   @NonNls private static final String PRODUCTION_ON_TEST_ATTRIBUTE = "production-on-test";
 
   private final ModulePointer myModulePointer;
-  private boolean myExported = false;
+  private boolean myExported;
   @NotNull private DependencyScope myScope;
   private boolean myProductionOnTestDependency;
 
@@ -58,7 +47,7 @@ public class ModuleOrderEntryImpl extends OrderEntryBaseImpl implements ModuleOr
     myScope = DependencyScope.COMPILE;
   }
 
-  ModuleOrderEntryImpl(Element element, RootModelImpl rootModel) throws InvalidDataException {
+  ModuleOrderEntryImpl(@NotNull Element element, @NotNull RootModelImpl rootModel) throws InvalidDataException {
     super(rootModel);
     myExported = element.getAttributeValue(EXPORTED_ATTR) != null;
     final String moduleName = element.getAttributeValue(MODULE_NAME_ATTR);
@@ -71,10 +60,9 @@ public class ModuleOrderEntryImpl extends OrderEntryBaseImpl implements ModuleOr
     myProductionOnTestDependency = element.getAttributeValue(PRODUCTION_ON_TEST_ATTRIBUTE) != null;
   }
 
-  private ModuleOrderEntryImpl(ModuleOrderEntryImpl that, RootModelImpl rootModel) {
+  private ModuleOrderEntryImpl(@NotNull ModuleOrderEntryImpl that, @NotNull RootModelImpl rootModel) {
     super(rootModel);
-    final ModulePointer thatModule = that.myModulePointer;
-    myModulePointer = ModulePointerManager.getInstance(rootModel.getProject()).create(thatModule.getModuleName());
+    myModulePointer = ModulePointerManager.getInstance(rootModel.getProject()).create(that.myModulePointer.getModuleName());
     myExported = that.myExported;
     myProductionOnTestDependency = that.myProductionOnTestDependency;
     myScope = that.myScope;
@@ -86,23 +74,25 @@ public class ModuleOrderEntryImpl extends OrderEntryBaseImpl implements ModuleOr
     return getRootModel().getModule();
   }
 
+  @Override
   public boolean isProductionOnTestDependency() {
     return myProductionOnTestDependency;
   }
 
+  @Override
   public void setProductionOnTestDependency(boolean productionOnTestDependency) {
+    getRootModel().assertWritable();
     myProductionOnTestDependency = productionOnTestDependency;
   }
 
   @Override
-  @NotNull
-  public VirtualFile[] getFiles(OrderRootType type) {
+  public VirtualFile @NotNull [] getFiles(@NotNull OrderRootType type) {
     final OrderRootsEnumerator enumerator = getEnumerator(type);
     return enumerator != null ? enumerator.getRoots() : VirtualFile.EMPTY_ARRAY;
   }
 
   @Nullable
-  private OrderRootsEnumerator getEnumerator(OrderRootType type) {
+  private OrderRootsEnumerator getEnumerator(@NotNull OrderRootType type) {
     final Module module = myModulePointer.getModule();
     if (module == null) return null;
 
@@ -110,10 +100,9 @@ public class ModuleOrderEntryImpl extends OrderEntryBaseImpl implements ModuleOr
   }
 
   @Override
-  @NotNull
-  public String[] getUrls(OrderRootType rootType) {
+  public String @NotNull [] getUrls(@NotNull OrderRootType rootType) {
     final OrderRootsEnumerator enumerator = getEnumerator(rootType);
-    return enumerator != null ? enumerator.getUrls() : ArrayUtil.EMPTY_STRING_ARRAY;
+    return enumerator != null ? enumerator.getUrls() : ArrayUtilRt.EMPTY_STRING_ARRAY;
   }
 
   @Override
@@ -122,7 +111,7 @@ public class ModuleOrderEntryImpl extends OrderEntryBaseImpl implements ModuleOr
   }
 
   @Override
-  public <R> R accept(RootPolicy<R> policy, R initialValue) {
+  public <R> R accept(@NotNull RootPolicy<R> policy, R initialValue) {
     return policy.visitModuleOrderEntry(this, initialValue);
   }
 
@@ -144,7 +133,7 @@ public class ModuleOrderEntryImpl extends OrderEntryBaseImpl implements ModuleOr
   }
 
   @Override
-  public void writeExternal(Element rootElement) throws WriteExternalException {
+  public void writeExternal(@NotNull Element rootElement) throws WriteExternalException {
     final Element element = OrderEntryFactory.createOrderEntryElement(ENTRY_TYPE);
     element.setAttribute(MODULE_NAME_ATTR, getModuleName());
     if (myExported) {
@@ -158,15 +147,17 @@ public class ModuleOrderEntryImpl extends OrderEntryBaseImpl implements ModuleOr
   }
 
   @Override
+  @NotNull
   public String getModuleName() {
     return myModulePointer.getModuleName();
   }
 
+  @NotNull
   @Override
-  public OrderEntry cloneEntry(RootModelImpl rootModel,
-                               ProjectRootManagerImpl projectRootManager,
-                               VirtualFilePointerManager filePointerManager) {
-    return new ModuleOrderEntryImpl(this, rootModel);
+  public OrderEntry cloneEntry(@NotNull ModifiableRootModel rootModel,
+                               @NotNull ProjectRootManagerImpl projectRootManager,
+                               @NotNull VirtualFilePointerManager filePointerManager) {
+    return new ModuleOrderEntryImpl(this, (RootModelImpl)rootModel);
   }
 
   @Override

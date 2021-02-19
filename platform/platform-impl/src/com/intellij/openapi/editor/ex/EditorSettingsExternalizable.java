@@ -1,57 +1,75 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.ex;
 
+import com.intellij.ide.ui.UINumericRange;
+import com.intellij.lang.Language;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.*;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.RoamingType;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
+import com.intellij.openapi.editor.actions.CaretStopOptions;
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapAppliancePlaces;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.serviceContainer.NonInjectable;
+import com.intellij.ui.breadcrumbs.BreadcrumbsProvider;
+import com.intellij.util.xmlb.XmlSerializerUtil;
 import org.intellij.lang.annotations.MagicConstant;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
-@State(
-  name = "EditorSettings",
-  storages = {@Storage(file = StoragePathMacros.APP_CONFIG + "/editor.xml")}
-)
+@State(name = "EditorSettings", storages = @Storage("editor.xml"))
 public class EditorSettingsExternalizable implements PersistentStateComponent<EditorSettingsExternalizable.OptionSet> {
+  @NonNls
+  public static final String PROP_VIRTUAL_SPACE = "VirtualSpace";
+  @NonNls
+  public static final String PROP_BREADCRUMBS_PER_LANGUAGE = "BreadcrumbsPerLanguage";
+
+  @NonNls
+  public static final String PROP_DOC_COMMENT_RENDERING = "DocCommentRendering";
+
+  public static final UINumericRange BLINKING_RANGE = new UINumericRange(500, 10, 1500);
+  public static final UINumericRange TOOLTIPS_DELAY_RANGE = new UINumericRange(500, 1, 5000);
+
+  private static final String SOFT_WRAP_FILE_MASKS_ENABLED_DEFAULT = "*";
+  @NonNls private static final String SOFT_WRAP_FILE_MASKS_DISABLED_DEFAULT = "*.md; *.txt; *.rst; *.adoc";
+
   //Q: make it interface?
   public static final class OptionSet {
     public String LINE_SEPARATOR;
     public String USE_SOFT_WRAPS;
+    public String SOFT_WRAP_FILE_MASKS;
     public boolean USE_CUSTOM_SOFT_WRAP_INDENT = false;
     public int CUSTOM_SOFT_WRAP_INDENT = 0;
     public boolean IS_VIRTUAL_SPACE = false;
     public boolean IS_CARET_INSIDE_TABS;
     @NonNls public String STRIP_TRAILING_SPACES = STRIP_TRAILING_SPACES_CHANGED;
     public boolean IS_ENSURE_NEWLINE_AT_EOF = false;
-    public boolean SHOW_QUICK_DOC_ON_MOUSE_OVER_ELEMENT = false;
-    public long QUICK_DOC_ON_MOUSE_OVER_DELAY_MS = 500;
+    public boolean REMOVE_TRAILING_BLANK_LINES = false;
+    public boolean SHOW_QUICK_DOC_ON_MOUSE_OVER_ELEMENT = true;
+    public boolean SHOW_INSPECTION_WIDGET = true;
+    public int TOOLTIPS_DELAY_MS = TOOLTIPS_DELAY_RANGE.initial;
     public boolean SHOW_INTENTION_BULB = true;
     public boolean IS_CARET_BLINKING = true;
-    public int CARET_BLINKING_PERIOD = 500;
+    public int CARET_BLINKING_PERIOD = BLINKING_RANGE.initial;
     public boolean IS_RIGHT_MARGIN_SHOWN = true;
-    public boolean ARE_LINE_NUMBERS_SHOWN = false;
+    public boolean ARE_LINE_NUMBERS_SHOWN = true;
+    public boolean ARE_GUTTER_ICONS_SHOWN = true;
     public boolean IS_FOLDING_OUTLINE_SHOWN = true;
+    public boolean SHOW_BREADCRUMBS_ABOVE = false;
+    public boolean SHOW_BREADCRUMBS = true;
+    public boolean ENABLE_RENDERED_DOC = false;
 
     public boolean SMART_HOME = true;
 
@@ -63,6 +81,7 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
     @SuppressWarnings("SpellCheckingInspection")
     public boolean IS_ALL_SOFTWRAPS_SHOWN = false;
     public boolean IS_INDENT_GUIDES_SHOWN = true;
+    public boolean IS_FOCUS_MODE = false;
     public boolean IS_ANIMATED_SCROLLING = true;
     public boolean IS_CAMEL_WORDS = false;
     public boolean ADDITIONAL_PAGE_AT_BOTTOM = false;
@@ -75,26 +94,53 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
     public boolean RENAME_VARIABLES_INPLACE = true;
     public boolean PRESELECT_RENAME = true;
     public boolean SHOW_INLINE_DIALOG = true;
-    
+
     public boolean REFRAIN_FROM_SCROLLING = false;
 
-    public boolean SHOW_NOTIFICATION_AFTER_REFORMAT_CODE_ACTION = true;
-    public boolean SHOW_NOTIFICATION_AFTER_OPTIMIZE_IMPORTS_ACTION = true;
+    public boolean ADD_CARETS_ON_DOUBLE_CTRL = true;
+
+    public BidiTextDirection BIDI_TEXT_DIRECTION = BidiTextDirection.CONTENT_BASED;
+
+    public boolean SHOW_PARAMETER_NAME_HINTS = true;
+
+    public boolean KEEP_TRAILING_SPACE_ON_CARET_LINE = true;
+
+    private final Map<String, Boolean> mapLanguageBreadcrumbs = new HashMap<>();
+
+    public Map<String, Boolean> getLanguageBreadcrumbsMap() {
+      return mapLanguageBreadcrumbs;
+    }
+
+    @SuppressWarnings("unused")
+    public void setLanguageBreadcrumbsMap(Map<String, Boolean> map) {
+      if (this.mapLanguageBreadcrumbs != map) {
+        this.mapLanguageBreadcrumbs.clear();
+        this.mapLanguageBreadcrumbs.putAll(map);
+      }
+    }
+  }
+
+  @State(name = "OsSpecificEditorSettings", storages = @Storage(value = "editor.os-specific.xml", roamingType = RoamingType.PER_OS))
+  public static final class OsSpecificState implements PersistentStateComponent<OsSpecificState> {
+    public CaretStopOptions CARET_STOP_OPTIONS = new CaretStopOptions();
+
+    @Override
+    public OsSpecificState getState() { return this; }
+
+    @Override
+    public void loadState(@NotNull OsSpecificState state) { XmlSerializerUtil.copyBean(state, this); }
   }
 
   private static final String COMPOSITE_PROPERTY_SEPARATOR = ":";
 
+  @NotNull private final OsSpecificState myOsSpecificState;
+
   private final Set<SoftWrapAppliancePlaces> myPlacesToUseSoftWraps = EnumSet.noneOf(SoftWrapAppliancePlaces.class);
   private OptionSet myOptions = new OptionSet();
   private final PropertyChangeSupport myPropertyChangeSupport = new PropertyChangeSupport(this);
+  private final Map<String, Boolean> myDefaultBreadcrumbVisibility = new HashMap<>();
 
   private int myBlockIndent;
-  //private int myTabSize = 4;
-  //private boolean myUseTabCharacter = false;
-
-  private int myAdditionalLinesCount = 10;
-  private int myAdditionalColumnsCount = 20;
-  private boolean myLineMarkerAreaShown = true;
 
   @NonNls public static final String STRIP_TRAILING_SPACES_NONE = "None";
   @NonNls public static final String STRIP_TRAILING_SPACES_CHANGED = "Changed";
@@ -103,38 +149,44 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
   @MagicConstant(stringValues = {STRIP_TRAILING_SPACES_NONE, STRIP_TRAILING_SPACES_CHANGED, STRIP_TRAILING_SPACES_WHOLE})
   public @interface StripTrailingSpaces {}
 
-  @NonNls public static final String DEFAULT_FONT_NAME = "Courier";
+  public EditorSettingsExternalizable() {
+    this(ApplicationManager.getApplication().getService(OsSpecificState.class));
+  }
+
+  @NonInjectable
+  public EditorSettingsExternalizable(@NotNull OsSpecificState state) {
+    myOsSpecificState = state;
+  }
 
   public static EditorSettingsExternalizable getInstance() {
     if (ApplicationManager.getApplication().isDisposed()) {
-      return new EditorSettingsExternalizable();
+      return new EditorSettingsExternalizable(new OsSpecificState());
     }
     else {
-      return ServiceManager.getService(EditorSettingsExternalizable.class);
+      return ApplicationManager.getApplication().getService(EditorSettingsExternalizable.class);
     }
   }
 
-  public void addPropertyChangeListener(PropertyChangeListener listener){
+  public void addPropertyChangeListener(@NotNull PropertyChangeListener listener, @NotNull Disposable disposable) {
     myPropertyChangeSupport.addPropertyChangeListener(listener);
+    Disposer.register(disposable, () -> myPropertyChangeSupport.removePropertyChangeListener(listener));
   }
 
-  public void removePropertyChangeListener(PropertyChangeListener listener){
-    myPropertyChangeSupport.removePropertyChangeListener(listener);
-  }
-
-  @Nullable
+  @NotNull
   @Override
   public OptionSet getState() {
     return myOptions;
   }
 
   @Override
-  public void loadState(OptionSet state) {
+  public void loadState(@NotNull OptionSet state) {
     myOptions = state;
     parseRawSoftWraps();
   }
 
   private void parseRawSoftWraps() {
+    myPlacesToUseSoftWraps.clear();
+
     if (StringUtil.isEmpty(myOptions.USE_SOFT_WRAPS)) {
       return;
     }
@@ -143,10 +195,6 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
     for (String placeName : placeNames) {
       try {
         SoftWrapAppliancePlaces place = SoftWrapAppliancePlaces.valueOf(placeName);
-        if (place == SoftWrapAppliancePlaces.VCS_DIFF) {
-          // Don't keep separate setting for vcs diff window for now and let it share the value for main editor.
-          continue;
-        }
         myPlacesToUseSoftWraps.add(place);
       }
       catch (IllegalArgumentException e) {
@@ -189,29 +237,12 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
     myOptions.ARE_LINE_NUMBERS_SHOWN = val;
   }
 
-  public int getAdditionalLinesCount() {
-    return myAdditionalLinesCount;
+  public boolean areGutterIconsShown() {
+    return myOptions.ARE_GUTTER_ICONS_SHOWN;
   }
 
-  public void setAdditionalLinesCount(int additionalLinesCount) {
-    myAdditionalLinesCount = additionalLinesCount;
-  }
-
-  @SuppressWarnings({"UnusedDeclaration", "SpellCheckingInspection"})
-  public int getAdditinalColumnsCount() {
-    return myAdditionalColumnsCount;
-  }
-
-  public void setAdditionalColumnsCount(int value) {
-    myAdditionalColumnsCount = value;
-  }
-
-  public boolean isLineMarkerAreaShown() {
-    return myLineMarkerAreaShown;
-  }
-
-  public void setLineMarkerAreaShown(boolean lineMarkerAreaShown) {
-    myLineMarkerAreaShown = lineMarkerAreaShown;
+  public void setGutterIconsShown(boolean val) {
+    myOptions.ARE_GUTTER_ICONS_SHOWN = val;
   }
 
   public boolean isFoldingOutlineShown() {
@@ -220,6 +251,95 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
 
   public void setFoldingOutlineShown(boolean val) {
     myOptions.IS_FOLDING_OUTLINE_SHOWN = val;
+  }
+
+  /**
+   * @return {@code true} if breadcrumbs should be shown above the editor, {@code false} otherwise
+   */
+  public boolean isBreadcrumbsAbove() {
+    return myOptions.SHOW_BREADCRUMBS_ABOVE;
+  }
+
+  /**
+   * @param value {@code true} if breadcrumbs should be shown above the editor, {@code false} otherwise
+   * @return {@code true} if an option was modified, {@code false} otherwise
+   */
+  public boolean setBreadcrumbsAbove(boolean value) {
+    if (myOptions.SHOW_BREADCRUMBS_ABOVE == value) return false;
+    myOptions.SHOW_BREADCRUMBS_ABOVE = value;
+    return true;
+  }
+
+  /**
+   * @return {@code true} if breadcrumbs should be shown, {@code false} otherwise
+   */
+  public boolean isBreadcrumbsShown() {
+    return myOptions.SHOW_BREADCRUMBS;
+  }
+
+  /**
+   * @param value {@code true} if breadcrumbs should be shown, {@code false} otherwise
+   * @return {@code true} if an option was modified, {@code false} otherwise
+   */
+  public boolean setBreadcrumbsShown(boolean value) {
+    if (myOptions.SHOW_BREADCRUMBS == value) return false;
+    myOptions.SHOW_BREADCRUMBS = value;
+    return true;
+  }
+
+  /**
+   * @param languageID the language identifier to configure
+   * @return {@code true} if breadcrumbs should be shown for the specified language, {@code false} otherwise
+   */
+  public boolean isBreadcrumbsShownFor(String languageID) {
+    Boolean visible = myOptions.mapLanguageBreadcrumbs.get(languageID);
+    if (visible == null) {
+      Boolean defaultVisible = myDefaultBreadcrumbVisibility.get(languageID);
+      if (defaultVisible == null) {
+        for (BreadcrumbsProvider provider : BreadcrumbsProvider.EP_NAME.getExtensionList()) {
+          for (Language language : provider.getLanguages()) {
+            myDefaultBreadcrumbVisibility.put(language.getID(), provider.isShownByDefault());
+          }
+        }
+        defaultVisible = myDefaultBreadcrumbVisibility.get(languageID);
+      }
+      return defaultVisible == null || defaultVisible;
+    }
+    return visible;
+  }
+
+  public void resetDefaultBreadcrumbVisibility() {
+    myDefaultBreadcrumbVisibility.clear();
+  }
+
+  public boolean hasBreadcrumbSettings(String languageID) {
+    return myOptions.mapLanguageBreadcrumbs.containsKey(languageID);
+  }
+
+  /**
+   * @param languageID the language identifier to configure
+   * @param value      {@code true} if breadcrumbs should be shown for the specified language, {@code false} otherwise
+   * @return {@code true} if an option was modified, {@code false} otherwise
+   */
+  public boolean setBreadcrumbsShownFor(String languageID, boolean value) {
+    Boolean visible = myOptions.mapLanguageBreadcrumbs.put(languageID, value);
+    boolean newValue = (visible == null || visible) != value;
+    if (newValue) {
+      myPropertyChangeSupport.firePropertyChange(PROP_BREADCRUMBS_PER_LANGUAGE, visible, (Boolean)value);
+    }
+    return newValue;
+  }
+
+  public boolean isDocCommentRenderingEnabled() {
+    return myOptions.ENABLE_RENDERED_DOC;
+  }
+
+  public void setDocCommentRenderingEnabled(boolean value) {
+    boolean oldValue = myOptions.ENABLE_RENDERED_DOC;
+    myOptions.ENABLE_RENDERED_DOC = value;
+    if (oldValue != value) {
+      myPropertyChangeSupport.firePropertyChange(PROP_DOC_COMMENT_RENDERING, oldValue, value);
+    }
   }
 
   public boolean isBlockCursor() {
@@ -255,15 +375,7 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
   }
 
   public boolean isUseSoftWraps(@NotNull SoftWrapAppliancePlaces place) {
-    if (myPlacesToUseSoftWraps.contains(place)) {
-      return true;
-    }
-
-    // For now use soft wraps at vcs diff if they are enabled for the main editors.
-    if (place == SoftWrapAppliancePlaces.VCS_DIFF) {
-      return myPlacesToUseSoftWraps.contains(SoftWrapAppliancePlaces.MAIN_EDITOR);
-    }
-    return false;
+    return myPlacesToUseSoftWraps.contains(place);
   }
 
   public void setUseSoftWraps(boolean use) {
@@ -283,6 +395,9 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
       myPlacesToUseSoftWraps.remove(place);
     }
     storeRawSoftWraps();
+    if (place == SoftWrapAppliancePlaces.MAIN_EDITOR) {
+      setSoftWrapFileMasks(getSoftWrapFileMasks());
+    }
   }
 
   public boolean isUseCustomSoftWrapIndent() {
@@ -306,7 +421,9 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
   }
 
   public void setVirtualSpace(boolean val) {
+    boolean oldValue = myOptions.IS_VIRTUAL_SPACE;
     myOptions.IS_VIRTUAL_SPACE = val;
+    myPropertyChangeSupport.firePropertyChange(PROP_VIRTUAL_SPACE, oldValue, val);
   }
 
   public boolean isCaretInsideTabs() {
@@ -326,11 +443,11 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
   }
 
   public int getBlinkPeriod() {
-    return myOptions.CARET_BLINKING_PERIOD;
+    return BLINKING_RANGE.fit(myOptions.CARET_BLINKING_PERIOD);
   }
 
   public void setBlinkPeriod(int blinkInterval) {
-    myOptions.CARET_BLINKING_PERIOD = blinkInterval;
+    myOptions.CARET_BLINKING_PERIOD = BLINKING_RANGE.fit(blinkInterval);
   }
 
 
@@ -340,6 +457,14 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
 
   public void setEnsureNewLineAtEOF(boolean ensure) {
     myOptions.IS_ENSURE_NEWLINE_AT_EOF = ensure;
+  }
+
+  public boolean isRemoveTrailingBlankLines() {
+    return myOptions.REMOVE_TRAILING_BLANK_LINES;
+  }
+
+  public void setRemoveTrailingBlankLines(boolean remove) {
+    myOptions.REMOVE_TRAILING_BLANK_LINES = remove;
   }
 
   @StripTrailingSpaces
@@ -359,18 +484,29 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
     myOptions.SHOW_QUICK_DOC_ON_MOUSE_OVER_ELEMENT = show;
   }
 
-  public long getQuickDocOnMouseOverElementDelayMillis() {
-    return myOptions.QUICK_DOC_ON_MOUSE_OVER_DELAY_MS;
+
+  public boolean isShowInspectionWidget() {
+    return myOptions.SHOW_INSPECTION_WIDGET;
   }
 
-  public void setQuickDocOnMouseOverElementDelayMillis(long delay) throws IllegalArgumentException {
-    if (delay <= 0) {
-      throw new IllegalArgumentException(String.format(
-        "Non-positive delay for the 'show quick doc on mouse over element' value detected! Expected positive value but got %d",
-        delay
-      ));
-    }
-    myOptions.QUICK_DOC_ON_MOUSE_OVER_DELAY_MS = delay;
+  public void setShowInspectionWidget(boolean show) {
+    myOptions.SHOW_INSPECTION_WIDGET = show;
+  }
+
+  /**
+   * @deprecated Use {@link #getTooltipsDelay()} instead
+   */
+  @Deprecated
+  public int getQuickDocOnMouseOverElementDelayMillis() {
+    return getTooltipsDelay();
+  }
+
+  public int getTooltipsDelay() {
+    return TOOLTIPS_DELAY_RANGE.fit(myOptions.TOOLTIPS_DELAY_MS);
+  }
+
+  public void setTooltipsDelay(int delay) {
+    myOptions.TOOLTIPS_DELAY_MS = TOOLTIPS_DELAY_RANGE.fit(delay);
   }
 
   public boolean isShowIntentionBulb() {
@@ -387,6 +523,14 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
 
   public void setRefrainFromScrolling(boolean b) {
     myOptions.REFRAIN_FROM_SCROLLING = b;
+  }
+
+  public boolean isShowNotificationAfterReformat() {
+    return Registry.is("editor.show.notification.after.reformat");
+  }
+
+  public boolean isShowNotificationAfterOptimizeImports() {
+    return Registry.is("editor.show.notification.after.optimize.imports");
   }
 
   public boolean isWhitespacesShown() {
@@ -435,6 +579,14 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
 
   public void setIndentGuidesShown(boolean val) {
     myOptions.IS_INDENT_GUIDES_SHOWN = val;
+  }
+
+  public boolean isFocusMode() {
+    return myOptions.IS_FOCUS_MODE;
+  }
+
+  public void setFocusMode(boolean val) {
+    myOptions.IS_FOCUS_MODE = val;
   }
 
   public boolean isSmoothScrolling() {
@@ -500,12 +652,76 @@ public class EditorSettingsExternalizable implements PersistentStateComponent<Ed
   public void setPreselectRename(final boolean val) {
     myOptions.PRESELECT_RENAME = val;
   }
-  
+
   public boolean isShowInlineLocalDialog() {
     return myOptions.SHOW_INLINE_DIALOG;
   }
 
   public void setShowInlineLocalDialog(final boolean val) {
     myOptions.SHOW_INLINE_DIALOG = val;
+  }
+
+  public boolean addCaretsOnDoubleCtrl() {
+    return myOptions.ADD_CARETS_ON_DOUBLE_CTRL;
+  }
+
+  public void setAddCaretsOnDoubleCtrl(boolean val) {
+    myOptions.ADD_CARETS_ON_DOUBLE_CTRL = val;
+  }
+
+  public BidiTextDirection getBidiTextDirection() {
+    return myOptions.BIDI_TEXT_DIRECTION;
+  }
+
+  public void setBidiTextDirection(BidiTextDirection direction) {
+    myOptions.BIDI_TEXT_DIRECTION = direction;
+  }
+
+  /**
+   * @deprecated use {@link com.intellij.codeInsight.hints.HintUtilsKt#isParameterHintsEnabledForLanguage(Language)} instead
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public boolean isShowParameterNameHints() {
+    return myOptions.SHOW_PARAMETER_NAME_HINTS;
+  }
+
+  /**
+   * @deprecated use {@link com.intellij.codeInsight.hints.HintUtilsKt#setShowParameterHintsForLanguage(boolean, Language)} instead
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public void setShowParameterNameHints(boolean value) {
+    myOptions.SHOW_PARAMETER_NAME_HINTS = value;
+  }
+
+  public boolean isKeepTrailingSpacesOnCaretLine() {
+    return myOptions.KEEP_TRAILING_SPACE_ON_CARET_LINE;
+  }
+
+  public void setKeepTrailingSpacesOnCaretLine(boolean keep) {
+    myOptions.KEEP_TRAILING_SPACE_ON_CARET_LINE = keep;
+  }
+
+  @NotNull
+  public String getSoftWrapFileMasks() {
+    String storedValue = myOptions.SOFT_WRAP_FILE_MASKS;
+    if (storedValue != null) {
+      return storedValue;
+    }
+    return isUseSoftWraps() ? SOFT_WRAP_FILE_MASKS_ENABLED_DEFAULT : SOFT_WRAP_FILE_MASKS_DISABLED_DEFAULT;
+  }
+
+  public void setSoftWrapFileMasks(@NotNull String value) {
+    myOptions.SOFT_WRAP_FILE_MASKS = value;
+  }
+
+  @NotNull
+  public CaretStopOptions getCaretStopOptions() {
+    return myOsSpecificState.CARET_STOP_OPTIONS;
+  }
+
+  public void setCaretStopOptions(@NotNull CaretStopOptions options) {
+    myOsSpecificState.CARET_STOP_OPTIONS = options;
   }
 }

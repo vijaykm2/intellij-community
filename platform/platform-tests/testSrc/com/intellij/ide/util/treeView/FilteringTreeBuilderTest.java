@@ -1,6 +1,6 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.treeView;
 
-import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Ref;
 import com.intellij.ui.TreeUIHelper;
@@ -8,7 +8,10 @@ import com.intellij.ui.speedSearch.ElementFilter;
 import com.intellij.ui.treeStructure.*;
 import com.intellij.ui.treeStructure.filtered.FilteringTreeBuilder;
 import com.intellij.ui.treeStructure.filtered.FilteringTreeStructure;
+import com.intellij.util.ui.tree.TreeUtilTest;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.concurrency.Promise;
 
 import java.util.LinkedHashMap;
 
@@ -53,7 +56,18 @@ public class FilteringTreeBuilderTest extends BaseTreeTestCase  {
     Disposer.register(getRootDisposable(), myBuilder);
   }
 
-  public void testFilter() throws Exception {
+  public void testFilter() {
+    TreeUtilTest.waitForTestOnEDT(() -> {
+      try {
+        implFilter();
+      }
+      catch (Exception exception) {
+        throw new IllegalStateException(exception);
+      }
+    });
+  }
+
+  private void implFilter() throws Exception {
     myTree.setRootVisible(false);
 
     final Node f1 = myRoot.addChild("folder1");
@@ -100,7 +114,7 @@ public class FilteringTreeBuilderTest extends BaseTreeTestCase  {
              + " folder2\n");
 
     updateFilter("fo_");
-    assertTree("+/\n");
+    assertTree("/\n");
 
     updateFilter("");
     assertTree("-/\n"
@@ -166,17 +180,17 @@ public class FilteringTreeBuilderTest extends BaseTreeTestCase  {
     select(new Object[] {node}, false);
   }
 
-  private void updateFilter(final String text) throws Exception {
+  private void updateFilter(final String text) {
      update(text, null);
    }
 
-  private void update(final String text, @Nullable final Object selection) throws Exception {
+  private void update(final String text, @Nullable final Object selection) {
     myFilter.update(text, selection);
   }
 
-  private class Node extends CachingSimpleNode {
+  private static final class Node extends CachingSimpleNode {
 
-    private final LinkedHashMap<String, Node> myKids = new LinkedHashMap<String, Node>();
+    private final LinkedHashMap<String, Node> myKids = new LinkedHashMap<>();
 
     private Node(final SimpleNode aParent, String name) {
       super(aParent);
@@ -198,7 +212,7 @@ public class FilteringTreeBuilderTest extends BaseTreeTestCase  {
 
     @Override
     protected SimpleNode[] buildChildren() {
-      return myKids.isEmpty() ? NO_CHILDREN : myKids.values().toArray(new Node[myKids.size()]);
+      return myKids.isEmpty() ? NO_CHILDREN : myKids.values().toArray(new Node[0]);
     }
 
     @Override
@@ -208,12 +222,11 @@ public class FilteringTreeBuilderTest extends BaseTreeTestCase  {
 
     @Override
     protected void updateFileStatus() {
-      
     }
   }
 
   private Object findNode(final String name) {
-    final Ref<Object> node = new Ref<Object>();
+    final Ref<Object> node = new Ref<>();
     ((SimpleTree)myTree).accept(myBuilder, new SimpleNodeVisitor() {
       @Override
       public boolean accept(final SimpleNode simpleNode) {
@@ -239,7 +252,8 @@ public class FilteringTreeBuilderTest extends BaseTreeTestCase  {
       return value.toString().startsWith(myPattern);
     }
 
-    public ActionCallback update(final String pattern, Object selection) {
+    @NotNull
+    public Promise<?> update(final String pattern, Object selection) {
       myPattern = pattern;
       return fireUpdate(selection, true, false);
     }

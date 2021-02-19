@@ -1,5 +1,7 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service.execution;
 
+import com.intellij.execution.ExecutionBundle;
 import com.intellij.execution.configurations.ConfigurationFactory;
 import com.intellij.execution.configurations.ConfigurationType;
 import com.intellij.execution.configurations.RunConfiguration;
@@ -8,53 +10,75 @@ import com.intellij.openapi.externalSystem.ExternalSystemUiAware;
 import com.intellij.openapi.externalSystem.model.ExternalProjectInfo;
 import com.intellij.openapi.externalSystem.model.ProjectSystemId;
 import com.intellij.openapi.externalSystem.model.execution.ExternalSystemTaskExecutionSettings;
-import com.intellij.openapi.externalSystem.model.execution.ExternalTaskPojo;
 import com.intellij.openapi.externalSystem.service.ui.DefaultExternalSystemUiAware;
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.externalSystem.util.ExternalSystemBundle;
+import com.intellij.openapi.externalSystem.util.ExternalSystemUiUtil;
 import com.intellij.openapi.externalSystem.util.ExternalSystemUtil;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.DeprecatedMethodException;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.util.Collections;
 import java.util.List;
 
 /**
  * Basic run configuration type for external system tasks.
- *
- * @author Denis Zhdanov
- * @since 23.05.13 17:43
  */
 public abstract class AbstractExternalSystemTaskConfigurationType implements ConfigurationType {
-
   @NotNull private final ProjectSystemId myExternalSystemId;
-  @NotNull private final ConfigurationFactory[] myFactories = new ConfigurationFactory[1];
+  private final ConfigurationFactory @NotNull [] myFactories = new ConfigurationFactory[1];
 
-  @NotNull private final NotNullLazyValue<Icon> myIcon = new NotNullLazyValue<Icon>() {
-    @NotNull
-    @Override
-    protected Icon compute() {
-      ExternalSystemManager<?, ?, ?, ?, ?> manager = ExternalSystemApiUtil.getManager(myExternalSystemId);
-      Icon result = null;
-      if (manager instanceof ExternalSystemUiAware) {
-        result = ((ExternalSystemUiAware)manager).getProjectIcon();
-      }
-      return result == null ? DefaultExternalSystemUiAware.INSTANCE.getTaskIcon() : result;
-    }
-  };
+  @NotNull private final NotNullLazyValue<Icon> myIcon;
 
   protected AbstractExternalSystemTaskConfigurationType(@NotNull final ProjectSystemId externalSystemId) {
     myExternalSystemId = externalSystemId;
     myFactories[0] = new ConfigurationFactory(this) {
+      @NotNull
       @Override
-      public RunConfiguration createTemplateConfiguration(Project project) {
+      public RunConfiguration createTemplateConfiguration(@NotNull Project project) {
         return doCreateConfiguration(myExternalSystemId, project, this, "");
       }
+
+      @Override
+      public @NotNull String getId() {
+        return getConfigurationFactoryId();
+      }
+
+      @Override
+      public boolean isEditableInDumbMode() {
+        return AbstractExternalSystemTaskConfigurationType.this.isEditableInDumbMode();
+      }
     };
+    myIcon = NotNullLazyValue.createValue(() -> {
+        ExternalSystemManager<?, ?, ?, ?, ?> manager = ExternalSystemApiUtil.getManager(myExternalSystemId);
+        Icon result = null;
+        if (manager instanceof ExternalSystemUiAware) {
+          result = ((ExternalSystemUiAware)manager).getProjectIcon();
+        }
+        return result == null ? DefaultExternalSystemUiAware.INSTANCE.getTaskIcon() : result;
+      });
+  }
+
+  protected boolean isEditableInDumbMode() {
+    return false;
+  }
+
+  /**
+   * This method must be overridden and a proper ID must be returned from it (it'll be used as a key in run configuration file).
+   */
+  @NonNls
+  @NotNull
+  protected String getConfigurationFactoryId() {
+    DeprecatedMethodException.reportDefaultImplementation(getClass(), "getConfigurationFactoryId",
+      "The default implementation delegates to 'ProjectSystemId::getReadableName' which is supposed to be localized but return value of this method must not be localized.");
+    return myExternalSystemId.getReadableName();
   }
 
   @NotNull
@@ -67,16 +91,15 @@ public abstract class AbstractExternalSystemTaskConfigurationType implements Con
     return myFactories[0];
   }
 
-  @SuppressWarnings("MethodMayBeStatic")
   @NotNull
   protected ExternalSystemRunConfiguration doCreateConfiguration(@NotNull ProjectSystemId externalSystemId,
                                                                  @NotNull Project project,
                                                                  @NotNull ConfigurationFactory factory,
-                                                                 @NotNull String name)
-  {
+                                                                 @NotNull String name) {
     return new ExternalSystemRunConfiguration(externalSystemId, project, factory, name);
   }
 
+  @NotNull
   @Override
   public String getDisplayName() {
     return myExternalSystemId.getReadableName();
@@ -104,32 +127,33 @@ public abstract class AbstractExternalSystemTaskConfigurationType implements Con
   }
 
   @NotNull
-  public static String generateName(@NotNull Project project, @NotNull ExternalSystemTaskExecutionSettings settings) {
+  public static @NlsActions.ActionText String generateName(@NotNull Project project, @NotNull ExternalSystemTaskExecutionSettings settings) {
     return generateName(
       project, settings.getExternalSystemId(), settings.getExternalProjectPath(), settings.getTaskNames(), settings.getExecutionName()
     );
   }
 
   @NotNull
-  public static String generateName(@NotNull Project project, @NotNull ExternalTaskPojo task, @NotNull ProjectSystemId externalSystemId) {
-    return generateName(project, externalSystemId, task.getLinkedExternalProjectPath(), Collections.singletonList(task.getName()));
+  public static @NlsActions.ActionText String generateName(@NotNull Project project,
+                                                           @NotNull ProjectSystemId externalSystemId,
+                                                           @Nullable String externalProjectPath,
+                                                           @NotNull List<String> taskNames,
+                                                           @Nullable @Nls String executionName) {
+    return generateName(project, externalSystemId, externalProjectPath, taskNames, executionName, " [", "]");
   }
 
   @NotNull
-  public static String generateName(@NotNull Project project,
-                                    @NotNull ProjectSystemId externalSystemId,
-                                    @Nullable String externalProjectPath,
-                                    @NotNull List<String> taskNames) {
-    return generateName(project, externalSystemId, externalProjectPath, taskNames, null);
-  }
-
-  @NotNull
-  public static String generateName(@NotNull Project project,
-                                    @NotNull ProjectSystemId externalSystemId,
-                                    @Nullable String externalProjectPath,
-                                    @NotNull List<String> taskNames,
-                                    @Nullable String executionName) {
-
+  public static @NlsActions.ActionText String generateName(@NotNull Project project,
+                                                           @NotNull ProjectSystemId externalSystemId,
+                                                           @Nullable String externalProjectPath,
+                                                           @NotNull List<String> taskNames,
+                                                           @Nullable @Nls String executionName,
+                                                           @NotNull String tasksPrefix,
+                                                           @NotNull String tasksPostfix) {
+    if (!StringUtil.isEmpty(executionName)) {
+      return executionName;
+    }
+    boolean isTasksAbsent = taskNames.isEmpty();
     String rootProjectPath = null;
     if (externalProjectPath != null) {
       final ExternalProjectInfo projectInfo = ExternalSystemUtil.getExternalProjectInfo(project, externalSystemId, externalProjectPath);
@@ -138,34 +162,39 @@ public abstract class AbstractExternalSystemTaskConfigurationType implements Con
       }
     }
 
-    StringBuilder buffer = new StringBuilder();
+    @Nls StringBuilder buffer = new StringBuilder();
     final String projectName;
     if (rootProjectPath == null) {
       projectName = null;
     }
     else {
-      projectName = ExternalSystemApiUtil.getProjectRepresentationName(externalProjectPath, rootProjectPath);
+      final ExternalSystemUiAware uiAware = ExternalSystemUiUtil.getUiAware(externalSystemId);
+      projectName = uiAware.getProjectRepresentationName(project, externalProjectPath, rootProjectPath);
     }
     if (!StringUtil.isEmptyOrSpaces(projectName)) {
       buffer.append(projectName);
-      buffer.append(' ');
-    } else {
+    }
+    else if (!StringUtil.isEmptyOrSpaces(externalProjectPath)) {
       buffer.append(externalProjectPath);
-      buffer.append(' ');
     }
 
-    buffer.append('[');
+    if (!isTasksAbsent) buffer.append(tasksPrefix);
     if (!StringUtil.isEmpty(executionName)) {
       buffer.append(executionName);
     }
-    else if (!taskNames.isEmpty()) {
-      for (String taskName : taskNames) {
-        buffer.append(taskName).append(' ');
+    else {
+      if (!isTasksAbsent) {
+        for (String taskName : taskNames) {
+          buffer.append(taskName).append(' ');
+        }
+        buffer.setLength(buffer.length() - 1);
       }
-      buffer.setLength(buffer.length() - 1);
     }
-    buffer.append(']');
+    if (!isTasksAbsent) buffer.append(tasksPostfix);
 
+    if (buffer.length() == 0) {
+      buffer.append(ExecutionBundle.message("run.configuration.unnamed.name.prefix"));
+    }
     return buffer.toString();
   }
 }

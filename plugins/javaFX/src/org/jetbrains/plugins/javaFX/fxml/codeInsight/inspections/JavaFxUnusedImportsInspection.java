@@ -15,11 +15,8 @@
  */
 package org.jetbrains.plugins.javaFX.fxml.codeInsight.inspections;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInspection.*;
-import com.intellij.lang.ImportOptimizer;
-import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
@@ -30,24 +27,20 @@ import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlProcessingInstruction;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.javaFX.JavaFXBundle;
 import org.jetbrains.plugins.javaFX.fxml.JavaFxFileTypeFactory;
 import org.jetbrains.plugins.javaFX.fxml.JavaFxPsiUtil;
 import org.jetbrains.plugins.javaFX.fxml.codeInsight.JavaFxImportsOptimizer;
 
 import java.util.*;
 
-/**
- * User: anna
- * Date: 4/18/13
- */
 public class JavaFxUnusedImportsInspection extends XmlSuppressableInspectionTool {
-  @Nullable
   @Override
-  public ProblemDescriptor[] checkFile(@NotNull PsiFile file, @NotNull InspectionManager manager, final boolean isOnTheFly) {
+  public ProblemDescriptor @Nullable [] checkFile(@NotNull PsiFile file, @NotNull InspectionManager manager, final boolean isOnTheFly) {
     if (!JavaFxFileTypeFactory.isFxml(file)) return null;
     final XmlDocument document = ((XmlFile)file).getDocument();
     if (document == null) return null;
-    final Set<String> usedNames = new HashSet<String>();
+    final Set<String> usedNames = new HashSet<>();
     file.accept(new JavaFxImportsOptimizer.JavaFxUsedClassesVisitor() {
       @Override
       protected void appendClassName(String fqn) {
@@ -57,14 +50,19 @@ public class JavaFxUnusedImportsInspection extends XmlSuppressableInspectionTool
           usedNames.add(packageName);
         }
       }
+
+      @Override
+      protected void appendDemandedPackageName(@NotNull String packageName) {
+        usedNames.add(packageName);
+      }
     });
 
     final InspectionManager inspectionManager = InspectionManager.getInstance(file.getProject());
 
-    final List<ProblemDescriptor> problems = new ArrayList<ProblemDescriptor>();
+    final List<ProblemDescriptor> problems = new ArrayList<>();
     final Collection<XmlProcessingInstruction> instructions =
       PsiTreeUtil.findChildrenOfType(document.getProlog(), XmlProcessingInstruction.class);
-    final Map<String, XmlProcessingInstruction> targetProcessingInstructions = new LinkedHashMap<String, XmlProcessingInstruction>();
+    final Map<String, XmlProcessingInstruction> targetProcessingInstructions = new LinkedHashMap<>();
     for (XmlProcessingInstruction instruction : instructions) {
       final String target = JavaFxPsiUtil.getInstructionTarget("import", instruction);
       if (target != null) {
@@ -76,23 +74,18 @@ public class JavaFxUnusedImportsInspection extends XmlSuppressableInspectionTool
       if (target.endsWith(".*")) {
         if (!usedNames.contains(StringUtil.trimEnd(target, ".*"))) {
           problems.add(inspectionManager
-                         .createProblemDescriptor(instruction, "Unused import", new JavaFxOptimizeImportsFix(), ProblemHighlightType.LIKE_UNUSED_SYMBOL, isOnTheFly));
+                         .createProblemDescriptor(instruction, JavaFXBundle.message("inspection.javafx.unused.imports.problem"), new JavaFxOptimizeImportsFix(), ProblemHighlightType.LIKE_UNUSED_SYMBOL, isOnTheFly));
         }
       }
       else if (!usedNames.contains(target) || targetProcessingInstructions.containsKey(StringUtil.getPackageName(target) + ".*")) {
         problems.add(inspectionManager
-                       .createProblemDescriptor(instruction, "Unused import", new JavaFxOptimizeImportsFix(), ProblemHighlightType.LIKE_UNUSED_SYMBOL, isOnTheFly));
+                       .createProblemDescriptor(instruction, JavaFXBundle.message("inspection.javafx.unused.imports.problem"), new JavaFxOptimizeImportsFix(), ProblemHighlightType.LIKE_UNUSED_SYMBOL, isOnTheFly));
       }
     }
-    return problems.isEmpty() ? null : problems.toArray(new ProblemDescriptor[problems.size()]);
+    return problems.isEmpty() ? null : problems.toArray(ProblemDescriptor.EMPTY_ARRAY);
   }
 
   private static class JavaFxOptimizeImportsFix implements LocalQuickFix {
-    @NotNull
-    @Override
-    public String getName() {
-      return QuickFixBundle.message("optimize.imports.fix");
-    }
 
     @Override
     @NotNull
@@ -106,15 +99,7 @@ public class JavaFxUnusedImportsInspection extends XmlSuppressableInspectionTool
       if (psiElement == null) return;
       final PsiFile file = psiElement.getContainingFile();
       if (file == null || !JavaFxFileTypeFactory.isFxml(file)) return;
-      if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
-      ImportOptimizer optimizer = new JavaFxImportsOptimizer();
-      final Runnable runnable = optimizer.processFile(file);
-      new WriteCommandAction.Simple(project, getFamilyName(), file) {
-        @Override
-        protected void run() throws Throwable {
-          runnable.run();
-        }
-      }.execute();
+      new JavaFxImportsOptimizer().processFile(file).run();
     }
   }
 }

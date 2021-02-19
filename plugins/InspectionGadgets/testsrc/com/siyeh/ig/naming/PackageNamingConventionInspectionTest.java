@@ -13,23 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-/**
- * (c) 2013 Desert Island BV
- * created: 09 10 2013
- */
 package com.siyeh.ig.naming;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 
 /**
  * @author Bas Leijdekkers
  */
-public class PackageNamingConventionInspectionTest extends LightInspectionTestCase {
+public class PackageNamingConventionInspectionTest extends LightJavaInspectionTestCase {
 
   public void testSharedLocalInspection() {
     doTest("package /*Package name 'a' is too short*/a/**/./*Package name 'bbbbbbbbbbbbbbbbbbbb' is too long*/bbbbbbbbbbbbbbbbbbbb/**/;" +
+           "class X {}");
+  }
+
+  public void testNoAssertion() {
+    doTest("package /*Package name 'a' is too short*/a/**/./*!Identifier expected*/;/*!*/" +
            "class X {}");
   }
 

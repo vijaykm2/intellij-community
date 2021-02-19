@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.options.ex;
 
@@ -20,7 +6,6 @@ import com.intellij.ide.ui.search.SearchUtil;
 import com.intellij.ui.ColorUtil;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBTabbedPane;
-import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -32,14 +17,12 @@ import java.awt.image.Kernel;
 import java.util.HashSet;
 import java.util.Set;
 
-/**
- * User: anna
- * Date: 10-Feb-2006
- */
 public class GlassPanel extends JComponent {
-  private final Set<JComponent> myLightComponents = new HashSet<JComponent>();
+  private final Set<JComponent> myLightComponents = new HashSet<>();
   private final JComponent myPanel;
   private static final Insets EMPTY_INSETS = new Insets(0, 0, 0, 0);
+  private static final JBColor SPOTLIGHT_BORDER_COLOR = JBColor.namedColor("Settings.Spotlight.borderColor",
+                                                                                   ColorUtil.toAlpha(JBColor.ORANGE, 100));
 
 
   public GlassPanel(JComponent containingPanel) {
@@ -47,6 +30,7 @@ public class GlassPanel extends JComponent {
     setVisible(false);
   }
 
+  @Override
   public void paintComponent(Graphics g) {
     paintSpotlights(g);
   }
@@ -93,7 +77,7 @@ public class GlassPanel extends JComponent {
         g2.fill(mask);
 
         g2.setStroke(new BasicStroke(stroke));
-        g2.setColor(ColorUtil.toAlpha(JBColor.ORANGE, 100));
+        g2.setColor(SPOTLIGHT_BORDER_COLOR);
         g2.draw(mask);
       }
       finally {
@@ -103,7 +87,7 @@ public class GlassPanel extends JComponent {
   }
 
   @Nullable
-  private static Area getComponentArea(final JComponent surfaceComponent, final JComponent lightComponent, int offset) {
+  private Area getComponentArea(final JComponent surfaceComponent, final JComponent lightComponent, int offset) {
     if (!lightComponent.isShowing()) return null;
 
     final Point panelPoint = SwingUtilities.convertPoint(lightComponent, new Point(0, 0), surfaceComponent);
@@ -114,12 +98,12 @@ public class GlassPanel extends JComponent {
     final boolean isWithBorder = Boolean.TRUE.equals(lightComponent.getClientProperty(SearchUtil.HIGHLIGHT_WITH_BORDER));
     final boolean isLabelFromTabbedPane = Boolean.TRUE.equals(lightComponent.getClientProperty(JBTabbedPane.LABEL_FROM_TABBED_PANE));
 
-    if ((insetsToIgnore == null || (UIUtil.isUnderAquaLookAndFeel() && lightComponent instanceof JButton)) || isWithBorder) {
+    if (insetsToIgnore == null || isWithBorder) {
       insetsToIgnore = EMPTY_INSETS;
     }
 
-    int hInset = isWithBorder ? 7 : isLabelFromTabbedPane ? 20 : 7;
-    int vInset = isWithBorder ? 1 : isLabelFromTabbedPane ? 10 : 5;
+    int hInset = getComponentHInset(isWithBorder, isLabelFromTabbedPane);
+    int vInset = getComponentVInset(isWithBorder, isLabelFromTabbedPane);
     hInset += offset;
     vInset += offset;
     int xCoord = x - hInset + insetsToIgnore.left;
@@ -131,6 +115,14 @@ public class GlassPanel extends JComponent {
                                                 width,
                                                 height,
                                                 Math.min(height, 30), Math.min(height, 30)));
+  }
+
+  protected int getComponentHInset(boolean isWithBorder, boolean isLabelFromTabbedPane) {
+    return isWithBorder ? 7 : isLabelFromTabbedPane ? 20 : 7;
+  }
+
+  protected int getComponentVInset(boolean isWithBorder, boolean isLabelFromTabbedPane) {
+    return isWithBorder ? 1 : isLabelFromTabbedPane ? 10 : 5;
   }
 
   protected static Kernel getBlurKernel(int blurSize) {

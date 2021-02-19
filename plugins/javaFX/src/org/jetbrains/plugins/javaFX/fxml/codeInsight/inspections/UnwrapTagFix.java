@@ -15,7 +15,6 @@
  */
 package org.jetbrains.plugins.javaFX.fxml.codeInsight.inspections;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.diagnostic.Logger;
@@ -27,13 +26,11 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.psi.xml.XmlTagChild;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.javaFX.JavaFXBundle;
 import org.jetbrains.plugins.javaFX.fxml.JavaFxFileTypeFactory;
 
-/**
-* User: anna
-*/
 public class UnwrapTagFix implements LocalQuickFix {
-  private static final Logger LOG = Logger.getInstance("#" + UnwrapTagFix.class.getName());
+  private static final Logger LOG = Logger.getInstance(UnwrapTagFix.class);
   private final String myTagName;
 
   public UnwrapTagFix(String tagName) {
@@ -43,13 +40,13 @@ public class UnwrapTagFix implements LocalQuickFix {
   @NotNull
   @Override
   public String getName() {
-    return "Unwrap '" + myTagName + "'";
+    return JavaFXBundle.message("inspection.javafx.default.tag.unwrap.tag.fix.name", myTagName);
   }
 
   @NotNull
   @Override
   public String getFamilyName() {
-    return getName();
+    return JavaFXBundle.message("inspection.javafx.default.tag.unwrap.tag.fix.family.name");
   }
 
   @Override
@@ -57,18 +54,18 @@ public class UnwrapTagFix implements LocalQuickFix {
     final PsiElement element = descriptor.getPsiElement();
     if (element != null) {
       final PsiFile containingFile = element.getContainingFile();
-      LOG.assertTrue(containingFile != null && JavaFxFileTypeFactory.isFxml(containingFile), containingFile == null ? "no containing file found" : "containing file: " + containingFile.getName());
-      final XmlTag xmlTag = PsiTreeUtil.getParentOfType(element, XmlTag.class);
+      LOG.assertTrue(containingFile != null && JavaFxFileTypeFactory.isFxml(containingFile),
+                     containingFile == null ? "no containing file found" : "containing file: " + containingFile.getName());
+      final XmlTag xmlTag = PsiTreeUtil.getParentOfType(element, XmlTag.class, false);
       if (xmlTag != null) {
         final XmlTag parentTag = xmlTag.getParentTag();
         final PsiElement[] children = PsiTreeUtil.getChildrenOfType(xmlTag, XmlTagChild.class);
-        if (children != null) {
-          if (!FileModificationService.getInstance().preparePsiElementsForWrite(element)) return;
-          if (children.length > 0) {
-            parentTag.addRange(children[0], children[children.length - 1]);
-          }
-          xmlTag.delete();
-          CodeStyleManager.getInstance(project).reformat(parentTag);
+        if (children != null && children.length > 0 && parentTag != null) {
+          parentTag.addRange(children[0], children[children.length - 1]);
+        }
+        xmlTag.delete();
+        if (parentTag != null) {
+          CodeStyleManager.getInstance(project).reformat(parentTag, true);
         }
       }
     }

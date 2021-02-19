@@ -18,19 +18,21 @@ package com.intellij.util.xml.actions;
 import com.intellij.ide.util.ClassFilter;
 import com.intellij.ide.util.TreeClassChooser;
 import com.intellij.ide.util.TreeClassChooserFactory;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.xml.DomElement;
 import com.intellij.util.xml.actions.generate.DomTemplateRunner;
 import com.intellij.util.xml.ui.actions.generate.CreateDomElementAction;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -76,23 +78,18 @@ public abstract class CreateClassMappingAction<T extends DomElement> extends Cre
                                      final PsiFile file,
                                      final Project project,
                                      PsiClass selectedClass) {
-    final Map<String,String> map = new HashMap<String, String>();
+    final Map<String, String> map = new HashMap<>();
     map.put("CLASS_NAME", selectedClass.getQualifiedName());
-    new WriteCommandAction.Simple(project, file) {
-      @Override
-      protected void run() throws Throwable {
-        DomTemplateRunner.getInstance(project).runTemplate(createElement(context), myTemplate, editor, map);
-      }
-    }.execute();
+    WriteCommandAction.writeCommandAction(project, file).run(() -> DomTemplateRunner.getInstance(project).runTemplate(createElement(context), myTemplate, editor, map));
     return null;
   }
 
-  protected String getChooserTitle() {
+  protected @NlsContexts.DialogTitle String getChooserTitle() {
     String text = getTemplatePresentation().getText();
-    if (text.endsWith("...")) {
+    if (text != null && text.endsWith("...")) {
       text = StringUtil.trimEnd(text, "...");
     }
-    return "Choose " + text + " Class";
+    return JavaBundle.message("create.class.mapping.dialog.title", text);
   }
 
   protected abstract DomElement createElement(T context);

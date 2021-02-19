@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2010 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,59 +15,26 @@
  */
 package com.intellij.codeInsight.template.macro;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.template.Expression;
 import com.intellij.codeInsight.template.ExpressionContext;
 import com.intellij.codeInsight.template.Result;
 import com.intellij.codeInsight.template.TextResult;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.codeStyle.NameUtil;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * @author Konstantin Bulenkov
+ * @author peter
  */
 public class CapitalizeAndUnderscoreMacro extends MacroBase {
+
   public CapitalizeAndUnderscoreMacro() {
     super("capitalizeAndUnderscore", CodeInsightBundle.message("macro.capitalizeAndUnderscore.string"));
   }
 
-  protected CapitalizeAndUnderscoreMacro(String name, String description) {
-    super(name, description);
-  }
-
   @Override
-  protected Result calculateResult(@NotNull Expression[] params, ExpressionContext context, boolean quick) {
+  protected Result calculateResult(Expression @NotNull [] params, ExpressionContext context, boolean quick) {
     String text = getTextResult(params, context, true);
-    if (StringUtil.isNotEmpty(text)) {
-      return new TextResult(convertString(text));
-    }
-    return null;
-  }
-
-  @VisibleForTesting
-  public String convertString(String text) {
-    final String[] words = NameUtil.nameToWords(text);
-    boolean insertUnderscore = false;
-    final StringBuilder buf = new StringBuilder();
-    for (String word : words) {
-      if (!Character.isLetterOrDigit(word.charAt(0))) {
-        buf.append("_");
-        insertUnderscore = false;
-        continue;
-      }
-      if (insertUnderscore) {
-        buf.append("_");
-      } else {
-        insertUnderscore = true;
-      }
-      buf.append(convertCase(word));
-    }
-    return buf.toString();
-  }
-
-  protected String convertCase(String word) {
-    return StringUtil.toUpperCase(word);
+    return text != null ? new TextResult(!text.isEmpty() ? NameUtil.capitalizeAndUnderscore(text) : "") : null;
   }
 }

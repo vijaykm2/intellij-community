@@ -1,10 +1,16 @@
 import sys
 import imp
 import os
+import fnmatch
+import sys
+sys.stderr.write("Warning: You are using test runners in legacy mode\n. "
+                 "That means you have 'python.tests.enableUniversalTests=false' in registry.\n"
+                 "This mode will be dropped in 2021. Consider removing this entry from registry and migrating to new test runners")
+roots = sys.path[:]
 
 helpers_dir = os.getenv("PYCHARM_HELPERS_DIR", sys.path[0])
 if sys.path[0] != helpers_dir:
-    sys.path.insert(0, helpers_dir)
+  sys.path.insert(0, helpers_dir)
 
 from tcunittest import TeamcityTestRunner
 from nose_helper import TestLoader, ContextSuite
@@ -23,45 +29,76 @@ def loadSource(fileName):
   baseName = os.path.basename(fileName)
   moduleName = os.path.splitext(baseName)[0]
 
+  if os.path.isdir(fileName):
+    fileName = fileName.rstrip('/\\') + os.path.sep
+
   # for users wanted to run unittests under django
-  #because of django took advantage of module name
+  # because of django took advantage of module name
   settings_file = os.getenv('DJANGO_SETTINGS_MODULE')
+
   if settings_file and moduleName == "models":
     baseName = os.path.realpath(fileName)
     moduleName = ".".join((baseName.split(os.sep)[-2], "models"))
+  else:
+    path = fileName
+    for p in roots:
+      # Python 2.6+
+      try:
+        rel_path = os.path.relpath(fileName, start=p)
+        if rel_path.find('..') == -1 and len(rel_path) < len(path):
+          path = rel_path
+      except:
+        pass # relpath can raise an error in case of different drives for a path and start on Windows
 
-  if moduleName in modules and len(sys.argv[1:-1]) == 1: # add unique number to prevent name collisions
+    if path.endswith('.py'):
+      path = path[0:-3]
+
+    moduleName = path.replace('/', '.').replace('\\', '.')
+
+  if moduleName in modules and len(sys.argv[1:-1]) == 1:  # add unique number to prevent name collisions
     cnt = 2
     prefix = moduleName
     while getModuleName(prefix, cnt) in modules:
       cnt += 1
     moduleName = getModuleName(prefix, cnt)
+
   debug("/ Loading " + fileName + " as " + moduleName)
-  module = imp.load_source(moduleName, fileName)
+
+  try:
+    module = imp.load_source(moduleName, fileName)
+  except SystemError:  # probably failed because of the relative imports
+    # first we import module with all its parents
+    __import__(moduleName)
+
+    # then load it by filename to be sure it is the one we need
+    module = imp.load_source(moduleName, fileName)
+
   modules[moduleName] = module
   return module
 
 def walkModules(modulesAndPattern, dirname, names):
   modules = modulesAndPattern[0]
   pattern = modulesAndPattern[1]
-  prog_list = [re.compile(pat.strip()) for pat in pattern.split(',')]
+  # fnmatch converts glob to regexp
+  prog_list = [re.compile(fnmatch.translate(pat.strip())) for pat in pattern.split(',')]
   for name in names:
     for prog in prog_list:
       if name.endswith(".py") and prog.match(name):
         modules.append(loadSource(os.path.join(dirname, name)))
 
-def loadModulesFromFolderRec(folder, pattern = "test.*"):
-  modules = []
-  if PYTHON_VERSION_MAJOR == 3:
-    prog_list = [re.compile(pat.strip()) for pat in pattern.split(',')]
-    for root, dirs, files in os.walk(folder):
-      for name in files:
-        for prog in prog_list:
-          if name.endswith(".py") and prog.match(name):
-            modules.append(loadSource(os.path.join(root, name)))
-  else:   # actually for jython compatibility
-    os.path.walk(folder, walkModules, (modules, pattern))
 
+# For default pattern see https://docs.python.org/2/library/unittest.html#test-discovery
+def loadModulesFromFolderRec(folder, pattern="test*.py"):
+  modules = []
+  # fnmatch converts glob to regexp
+  prog_list = [re.compile(fnmatch.translate(pat.strip())) for pat in pattern.split(',')]
+  for root, dirs, files in os.walk(folder):
+    files = [f for f in files if not f[0] == '.']
+    dirs[:] = [d for d in dirs if not d[0] == '.']
+    for name in files:
+      for prog in prog_list:
+        if name.endswith(".py") and prog.match(name):
+          modules.append(loadSource(os.path.join(root, name)))
   return modules
 
 testLoader = TestLoader()
@@ -88,6 +125,9 @@ if __name__ == "__main__":
     all = unittest.TestSuite()
     pure_unittest = True
 
+    if len(sys.argv) == 2:  # If folder not provided, we need pretend folder is current
+     sys.argv.insert(1, ".")
+
   options = {}
   for arg in sys.argv[1:-1]:
     arg = arg.strip()
@@ -101,14 +141,14 @@ if __name__ == "__main__":
     a = arg.split("::")
     if len(a) == 1:
       # From module or folder
-      a_splitted = a[0].split(";")
+      a_splitted = a[0].split("_args_separator_")  # ";" can't be used with bash, so we use "_args_separator_"
       if len(a_splitted) != 1:
         # means we have pattern to match against
-        if a_splitted[0].endswith(os.path.sep):
+        if os.path.isdir(a_splitted[0]):
           debug("/ from folder " + a_splitted[0] + ". Use pattern: " + a_splitted[1])
           modules = loadModulesFromFolderRec(a_splitted[0], a_splitted[1])
       else:
-        if a[0].endswith(os.path.sep):
+        if os.path.isdir(a[0]):
           debug("/ from folder " + a[0])
           modules = loadModulesFromFolderRec(a[0])
         else:
@@ -128,7 +168,7 @@ if __name__ == "__main__":
         all.addTests(testLoader.loadTestsFromTestCase(getattr(module, a[1])))
       else:
         all.addTests(testLoader.loadTestsFromTestClass(getattr(module, a[1])),
-          getattr(module, a[1]))
+                     getattr(module, a[1]))
     else:
       # From method in class or from function
       debug("/ from method " + a[2] + " in testcase " + a[1] + " in " + a[0])

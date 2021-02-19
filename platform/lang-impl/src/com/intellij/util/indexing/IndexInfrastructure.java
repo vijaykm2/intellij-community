@@ -1,134 +1,96 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.indexing;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.ex.dummy.DummyFileSystem;
-import com.intellij.openapi.vfs.newvfs.persistent.PersistentFS;
+import com.intellij.openapi.util.text.Strings;
 import com.intellij.psi.stubs.StubIndexKey;
 import com.intellij.psi.stubs.StubUpdatingIndex;
+import com.intellij.util.SystemProperties;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
-import java.util.Locale;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
-@SuppressWarnings({"HardCodedStringLiteral"})
-public class IndexInfrastructure {
-  private static final boolean ourUnitTestMode = ApplicationManager.getApplication().isUnitTestMode();
+public final class IndexInfrastructure {
   private static final String STUB_VERSIONS = ".versions";
   private static final String PERSISTENT_INDEX_DIRECTORY_NAME = ".persistent";
 
   private IndexInfrastructure() {
   }
 
-  @NotNull
-  public static File getVersionFile(@NotNull ID<?, ?> indexName) {
-    return new File(getIndexDirectory(indexName, true), indexName + ".ver");
+  public static @NotNull Path getVersionFile(@NotNull ID<?, ?> indexName) throws IOException {
+    return getIndexDirectory(indexName, true).resolve(indexName + ".ver");
   }
 
-  @NotNull
-  public static File getStorageFile(@NotNull ID<?, ?> indexName) {
-    return new File(getIndexRootDir(indexName), indexName.toString());
+  public static @NotNull Path getStorageFile(@NotNull ID<?, ?> indexName) throws IOException {
+    return getIndexRootDir(indexName).resolve(indexName.getName());
   }
 
-  @NotNull
-  public static File getInputIndexStorageFile(@NotNull ID<?, ?> indexName) {
-    return new File(getIndexRootDir(indexName), indexName +"_inputs");
+  public static @NotNull Path getInputIndexStorageFile(@NotNull ID<?, ?> indexName) throws IOException {
+    return getIndexRootDir(indexName).resolve(indexName + "_inputs");
   }
 
-  @NotNull
-  public static File getIndexRootDir(@NotNull ID<?, ?> indexName) {
+  public static @NotNull Path getIndexRootDir(@NotNull ID<?, ?> indexName) throws IOException {
     return getIndexDirectory(indexName, false);
   }
 
-  public static File getPersistentIndexRoot() {
-    File indexDir = new File(PathManager.getIndexRoot() + File.separator + PERSISTENT_INDEX_DIRECTORY_NAME);
-    indexDir.mkdirs();
+  public static @NotNull Path getPersistentIndexRoot() throws IOException {
+    Path indexDir = PathManager.getIndexRoot().resolve(PERSISTENT_INDEX_DIRECTORY_NAME);
+    Files.createDirectories(indexDir);
     return indexDir;
   }
 
-  @NotNull
-  public static File getPersistentIndexRootDir(@NotNull ID<?, ?> indexName) {
+  public static @NotNull Path getPersistentIndexRootDir(@NotNull ID<?, ?> indexName) throws IOException {
     return getIndexDirectory(indexName, false, PERSISTENT_INDEX_DIRECTORY_NAME);
   }
 
-  @NotNull
-  private static File getIndexDirectory(@NotNull ID<?, ?> indexName, boolean forVersion) {
+  private static @NotNull Path getIndexDirectory(@NotNull ID<?, ?> indexName, boolean forVersion) throws IOException {
     return getIndexDirectory(indexName, forVersion, "");
   }
 
-  @NotNull
-  private static File getIndexDirectory(@NotNull ID<?, ?> indexName, boolean forVersion, String relativePath) {
-    final String dirName = indexName.toString().toLowerCase(Locale.US);
-    File indexDir;
+  private static @NotNull Path getIndexDirectory(@NotNull ID<?, ?> indexId, boolean forVersion, String relativePath) throws IOException {
+    return getIndexDirectory(indexId.getName(), relativePath, indexId instanceof StubIndexKey, forVersion);
+  }
 
-    if (indexName instanceof StubIndexKey) {
+  private static @NotNull Path getIndexDirectory(String indexName, String relativePath, boolean stubKey, boolean forVersion) throws IOException {
+    indexName = Strings.toLowerCase(indexName);
+    Path indexDir;
+    if (stubKey) {
       // store StubIndices under StubUpdating index' root to ensure they are deleted
       // when StubUpdatingIndex version is changed
-      indexDir = new File(getIndexDirectory(StubUpdatingIndex.INDEX_ID, false, relativePath), forVersion ? STUB_VERSIONS : dirName);
-    } else {
-      if (relativePath.length() > 0) relativePath = File.separator + relativePath;
-      indexDir = new File(PathManager.getIndexRoot() + relativePath, dirName);
+      indexDir = getIndexDirectory(StubUpdatingIndex.INDEX_ID, false, relativePath).resolve(forVersion ? STUB_VERSIONS : indexName);
     }
-    indexDir.mkdirs();
+    else {
+      indexDir = PathManager.getIndexRoot();
+      if (!relativePath.isEmpty()) {
+        indexDir = indexDir.resolve(relativePath);
+      }
+      indexDir = indexDir.resolve(indexName);
+    }
+    if (!FileBasedIndex.USE_IN_MEMORY_INDEX) {
+      // TODO should be created automatically with storages
+      Files.createDirectories(indexDir);
+    }
     return indexDir;
   }
 
-  @Nullable
-  public static VirtualFile findFileById(@NotNull PersistentFS fs, final int id) {
-    if (ourUnitTestMode) {
-      final VirtualFile testFile = findTestFile(id);
-      if (testFile != null) {
-        return testFile;
-      }
-    }
-
-    return fs.findFileById(id);
-
-    /*
-
-    final boolean isDirectory = fs.isDirectory(id);
-    final DirectoryInfo directoryInfo = isDirectory ? dirIndex.getInfoForDirectoryId(id) : dirIndex.getInfoForDirectoryId(fs.getParent(id));
-    if (directoryInfo != null && (directoryInfo.contentRoot != null || directoryInfo.sourceRoot != null || directoryInfo.libraryClassRoot != null)) {
-      return isDirectory? directoryInfo.directory : directoryInfo.directory.findChild(fs.getName(id));
-    }
-    return null;
-    */
+  @ApiStatus.Internal
+  public static @NotNull Path getFileBasedIndexRootDir(@NotNull String indexName) throws IOException {
+    return getIndexDirectory(indexName, "", false, false);
   }
 
-  @Nullable
-  public static VirtualFile findFileByIdIfCached(@NotNull PersistentFS fs, final int id) {
-    if (ourUnitTestMode) {
-      final VirtualFile testFile = findTestFile(id);
-      if (testFile != null) {
-        return testFile;
-      }
-    }
-    return fs.findFileByIdIfCached(id);
+  @ApiStatus.Internal
+  public static @NotNull Path getStubIndexRootDir(@NotNull String indexName) throws IOException {
+    return getIndexDirectory(indexName, "", true, false);
   }
 
-  @Nullable
-  private static VirtualFile findTestFile(final int id) {
-    return DummyFileSystem.getInstance().findById(id);
+  public static boolean hasIndices() {
+    return !SystemProperties.is("idea.skip.indices.initialization");
+  }
+
+  public static boolean isIndexesInitializationSuspended() {
+    return SystemProperties.is("idea.suspend.indexes.initialization");
   }
 }

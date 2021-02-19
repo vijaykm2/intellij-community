@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,9 +18,11 @@ package org.jetbrains.plugins.gradle.execution;
 import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemBeforeRunTask;
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemBeforeRunTaskProvider;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import icons.GradleIcons;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.gradle.util.GradleConstants;
 
@@ -28,9 +30,8 @@ import javax.swing.*;
 
 /**
  * @author Vladislav.Soroka
- * @since 5/30/2014
  */
-public class GradleBeforeRunTaskProvider extends ExternalSystemBeforeRunTaskProvider {
+public class GradleBeforeRunTaskProvider extends ExternalSystemBeforeRunTaskProvider implements DumbAware {
   public static final Key<ExternalSystemBeforeRunTask> ID = Key.create("Gradle.BeforeRunTask");
 
   public GradleBeforeRunTaskProvider(Project project) {
@@ -50,7 +51,7 @@ public class GradleBeforeRunTaskProvider extends ExternalSystemBeforeRunTaskProv
 
   @Nullable
   @Override
-  public ExternalSystemBeforeRunTask createTask(RunConfiguration runConfiguration) {
+  public ExternalSystemBeforeRunTask createTask(@NotNull RunConfiguration runConfiguration) {
     return new ExternalSystemBeforeRunTask(ID, GradleConstants.SYSTEM_ID);
   }
 }

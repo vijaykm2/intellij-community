@@ -6,19 +6,25 @@ import org.jetbrains.jps.model.JpsElementChildRole;
 import org.jetbrains.jps.model.ex.JpsElementBase;
 import org.jetbrains.jps.model.ex.JpsElementChildRoleBase;
 
-/**
- * @author nik
- */
+import java.util.ArrayList;
+import java.util.List;
+
 public class JpsMavenModuleExtensionImpl extends JpsElementBase<JpsMavenModuleExtensionImpl> implements JpsMavenModuleExtension {
   public static final JpsElementChildRole<JpsMavenModuleExtension> ROLE = JpsElementChildRoleBase.create("maven");
 
-  public JpsMavenModuleExtensionImpl() {
+  private final List<String> myAnnotationProcessorModules = new ArrayList<>();
+
+  @Override
+  public List<String> getAnnotationProcessorModules() {
+    return myAnnotationProcessorModules;
   }
 
   @NotNull
   @Override
   public JpsMavenModuleExtensionImpl createCopy() {
-    return new JpsMavenModuleExtensionImpl();
+    JpsMavenModuleExtensionImpl extension = new JpsMavenModuleExtensionImpl();
+    extension.myAnnotationProcessorModules.addAll(this.myAnnotationProcessorModules);
+    return extension;
   }
 
   @Override

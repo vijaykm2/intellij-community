@@ -1,32 +1,20 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.errorTreeView;
 
 import com.intellij.ui.CustomizeColoredTreeCellRenderer;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
+
 /**
  * @author Eugene Zhuravlev
- *         Date: Nov 12, 2004
  */
 public abstract class ErrorTreeElement {
   public static final ErrorTreeElement[] EMPTY_ARRAY = new ErrorTreeElement[0];
-  
-  private final ErrorTreeElementKind myKind;
+
+  private ErrorTreeElementKind myKind;
 
   protected ErrorTreeElement() {
     this(ErrorTreeElementKind.GENERIC);
@@ -41,10 +29,15 @@ public abstract class ErrorTreeElement {
     return myKind;
   }
 
+  public void setKind(@NotNull ErrorTreeElementKind kind) {
+    myKind = kind;
+  }
+
   public abstract String[] getText();
 
   public abstract Object getData();
 
+  @Override
   public final String toString() {
     String[] text = getText();
     return text != null && text.length > 0? text[0] : "";
@@ -60,5 +53,15 @@ public abstract class ErrorTreeElement {
   @Nullable
   public CustomizeColoredTreeCellRenderer getRightSelfRenderer() {
     return null;
+  }
+  
+  @Nullable
+  public Icon getIcon() {
+    return getKind().getIcon();
+  }
+  
+  @NotNull
+  public @Nls String getPresentableText() {
+    return getKind().getPresentableText();
   }
 }

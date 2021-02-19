@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,13 +23,14 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.actionSystem.Toggleable;
 import com.intellij.openapi.actionSystem.impl.ActionButton;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.codeStyle.arrangement.model.ArrangementMatchCondition;
 import com.intellij.psi.codeStyle.arrangement.std.ArrangementSettingsToken;
 import com.intellij.psi.codeStyle.arrangement.std.ArrangementUiComponent;
-import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.SimpleColoredComponent;
 import com.intellij.util.ui.GridBag;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -41,7 +42,6 @@ import java.util.Set;
 
 /**
  * @author Denis Zhdanov
- * @since 10/31/12 5:00 PM
  */
 public class ArrangementListRowDecorator extends JPanel implements ArrangementUiComponent {
 
@@ -85,7 +85,7 @@ public class ArrangementListRowDecorator extends JPanel implements ArrangementUi
     init();
   }
 
-  public void setError(@Nullable String message) {
+  public void setError(@NlsContexts.DialogMessage @Nullable String message) {
     myRowIndexControl.setError(StringUtil.isNotEmpty(message));
     setToolTipText(message);
   }
@@ -98,7 +98,7 @@ public class ArrangementListRowDecorator extends JPanel implements ArrangementUi
     add(new InsetsPanel(mySortLabel), new GridBag().anchor(GridBagConstraints.CENTER).insets(0, 0, 0, ArrangementConstants.HORIZONTAL_GAP));
     add(myDelegate.getUiComponent(), new GridBag().weightx(1).anchor(GridBagConstraints.WEST));
     add(myEditButton, new GridBag().anchor(GridBagConstraints.EAST));
-    setBorder(IdeBorderFactory.createEmptyBorder(ArrangementConstants.VERTICAL_GAP));
+    setBorder(JBUI.Borders.empty(ArrangementConstants.VERTICAL_GAP));
   }
 
   @Override
@@ -133,14 +133,14 @@ public class ArrangementListRowDecorator extends JPanel implements ArrangementUi
 
   public void setBeingEdited(boolean beingEdited) {
     if (myBeingEdited && !beingEdited) {
-      myEditButton.getPresentation().putClientProperty(Toggleable.SELECTED_PROPERTY, false);
+      Toggleable.setSelected(myEditButton.getPresentation(), false);
     }
     if (!beingEdited && !myUnderMouse) {
       myEditButton.setVisible(false);
     }
     if (beingEdited && !myBeingEdited) {
       myEditButton.setVisible(true);
-      myEditButton.getPresentation().putClientProperty(Toggleable.SELECTED_PROPERTY, true);
+      Toggleable.setSelected(myEditButton.getPresentation(), true);
     }
     myBeingEdited = beingEdited;
   }
@@ -191,8 +191,8 @@ public class ArrangementListRowDecorator extends JPanel implements ArrangementUi
     Rectangle bounds = getButtonScreenBounds();
     if (!myBeingEdited && bounds != null) {
       boolean selected = bounds.contains(event.getLocationOnScreen());
-      boolean wasSelected = myEditButton.getPresentation().getClientProperty(Toggleable.SELECTED_PROPERTY) == Boolean.TRUE;
-      myEditButton.getPresentation().putClientProperty(Toggleable.SELECTED_PROPERTY, selected);
+      boolean wasSelected = Toggleable.isSelected(myEditButton.getPresentation());
+      Toggleable.setSelected(myEditButton.getPresentation(), selected);
       if (selected ^ wasSelected) {
         return myScreenBounds;
       }

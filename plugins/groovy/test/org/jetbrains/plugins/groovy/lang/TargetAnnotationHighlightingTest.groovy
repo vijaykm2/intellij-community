@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,11 @@
 package org.jetbrains.plugins.groovy.lang
 
 import com.intellij.testFramework.LightProjectDescriptor
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 /**
  * @author Max Medvedev
  */
-class TargetAnnotationHighlightingTest extends LightCodeInsightFixtureTestCase {
+class TargetAnnotationHighlightingTest extends LightJavaCodeInsightFixtureTestCase {
   final LightProjectDescriptor projectDescriptor = LightProjectDescriptor.EMPTY_PROJECT_DESCRIPTOR
 
   private void addElementType() {
@@ -65,7 +65,7 @@ public @interface Target {
 ''')
   }
 
-  public void testTargetAnnotationInsideGroovy1() {
+  void testTargetAnnotationInsideGroovy1() {
     addElementType()
     addTarget()
     myFixture.addFileToProject('Ann.groovy', '''
@@ -92,7 +92,7 @@ class C {
     myFixture.testHighlighting(true, false, false)
   }
 
-  public void testTargetAnnotationInsideGroovy2() {
+  void testTargetAnnotationInsideGroovy2() {
     addElementType()
     addTarget()
     myFixture.addFileToProject('Ann.groovy', '''
@@ -118,7 +118,7 @@ class C {
     myFixture.testHighlighting(true, false, false)
   }
 
-  public void testTargetAnnotationInsideGroovy3() {
+  void testTargetAnnotationInsideGroovy3() {
     addElementType()
     addTarget()
     myFixture.addFileToProject('Ann.groovy', '''

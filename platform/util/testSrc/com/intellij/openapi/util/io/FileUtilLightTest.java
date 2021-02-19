@@ -1,38 +1,19 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.util.io;
 
+import com.intellij.openapi.util.PropertiesUtil;
 import com.intellij.openapi.util.SystemInfo;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.PairProcessor;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.ThreeState;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.Convertor;
 import org.junit.Test;
 
 import java.io.IOException;
 import java.io.StringReader;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.hamcrest.CoreMatchers.sameInstance;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.*;
 
 public class FileUtilLightTest {
@@ -118,14 +99,6 @@ public class FileUtilLightTest {
   }
 
   @Test
-  public void testRemoveAncestors() {
-    List<String> data = Arrays.asList("/a/b/c", "/a", "/a/b", "/d/e", "/b/c", "/a/d", "/b/c/ttt", "/a/ewq.euq");
-    String[] expected = {"/a","/b/c","/d/e"};
-    @SuppressWarnings("unchecked") Collection<String> result = FileUtil.removeAncestors(data, Convertor.SELF, PairProcessor.TRUE);
-    assertArrayEquals(expected, ArrayUtil.toStringArray(result));
-  }
-
-  @Test
   public void testCheckImmediateChildren() {
     String root = "/a";
     String[] data = {"/a/b/c", "/a", "/a/b", "/d/e", "/b/c", "/a/d", "/a/b/c/d/e"};
@@ -166,20 +139,8 @@ public class FileUtilLightTest {
   @Test
   public void testLoadProperties() throws IOException {
     String data = "key2=value2\nkey1=value1\nkey3=value3";
-    Map<String, String> map = FileUtil.loadProperties(new StringReader(data));
-    assertEquals(ContainerUtil.newArrayList("key2", "key1", "key3"), ContainerUtil.newArrayList(map.keySet()));
-  }
-
-  @Test
-  public void testRootPath() {
-    assertTrue(FileUtil.isRootPath("/"));
-    assertTrue(FileUtil.isRootPath("c:/"));
-    assertTrue(FileUtil.isRootPath("Z:\\"));
-
-    assertFalse(FileUtil.isRootPath(""));
-    assertFalse(FileUtil.isRootPath("/tmp"));
-    assertFalse(FileUtil.isRootPath("c:"));
-    assertFalse(FileUtil.isRootPath("X:\\Temp"));
+    Map<String, String> map = PropertiesUtil.loadProperties(new StringReader(data));
+    assertEquals(ContainerUtil.newArrayList("key2", "key1", "key3"), new ArrayList<>(map.keySet()));
   }
 
   @Test
@@ -203,16 +164,53 @@ public class FileUtilLightTest {
   @Test
   public void sanitizeFileName() {
     String newS = "tmp";
-    assertThat(FileUtil.sanitizeFileName(newS), sameInstance(newS));
-    assertThat(FileUtil.sanitizeFileName("_test"), sameInstance("_test"));
+    assertThat(FileUtil.sanitizeFileName(newS)).isSameAs(newS);
+    assertThat(FileUtil.sanitizeFileName("_test")).isSameAs("_test");
 
-    assertThat(FileUtil.sanitizeFileName(" "), equalTo("_"));
-    assertThat(FileUtil.sanitizeFileName("\u2026"), equalTo(""));
-    assertThat(FileUtil.sanitizeFileName("q_test"), sameInstance("q_test"));
-    assertThat(FileUtil.sanitizeFileName("12_"), sameInstance("12_"));
-    assertThat(FileUtil.sanitizeFileName("12_  123"), equalTo("12___123"));
-    assertThat(FileUtil.sanitizeFileName(" 12\u2026123"), equalTo("_12123"));
+    assertThat(FileUtil.sanitizeFileName(" ")).isEqualTo("_");
+    assertThat(FileUtil.sanitizeFileName("\u2026")).isEmpty();
+    assertThat(FileUtil.sanitizeFileName("q_test")).isSameAs("q_test");
+    assertThat(FileUtil.sanitizeFileName("12_")).isSameAs("12_");
+    assertThat(FileUtil.sanitizeFileName("12_  123")).isEqualTo("12___123");
+    assertThat(FileUtil.sanitizeFileName(" 12\u2026123")).isEqualTo("_12123");
 
-    assertThat(FileUtil.sanitizeFileName("a+b+c"), equalTo("a_b_c"));
+    assertThat(FileUtil.sanitizeFileName("a+b+c")).isEqualTo("a_b_c");
+  }
+
+  @Test
+  public void windowsShortName() {
+    assertTrue(FileUtil.containsWindowsShortName("C:\\dir~1"));
+    assertTrue(FileUtil.containsWindowsShortName("C:\\dir~1\\"));
+    assertTrue(FileUtil.containsWindowsShortName("C:\\dir~1\\file.txt"));
+    assertTrue(FileUtil.containsWindowsShortName("C:/dir/file~1"));
+    assertTrue(FileUtil.containsWindowsShortName("C:/dir/file~1.txt"));
+    assertTrue(FileUtil.containsWindowsShortName("C:/dir/file~1.1"));
+
+    assertFalse(FileUtil.containsWindowsShortName("~"));
+    assertFalse(FileUtil.containsWindowsShortName("C:\\some~dir"));
+    assertFalse(FileUtil.containsWindowsShortName("C:\\some-dir~1"));
+    assertFalse(FileUtil.containsWindowsShortName("C:/dir/file~1.extension"));
+    assertFalse(FileUtil.containsWindowsShortName("C:/dir/file.~1"));
+    assertFalse(FileUtil.containsWindowsShortName("C:/dir/file.ext~1"));
+  }
+
+  @Test
+  public void windowsAbsolutePath() {
+    assertTrue(FileUtil.isWindowsAbsolutePath("C:\\Users"));
+    assertTrue(FileUtil.isWindowsAbsolutePath("C:/Users"));
+    assertTrue(FileUtil.isWindowsAbsolutePath("X:/Users"));
+    assertTrue(FileUtil.isWindowsAbsolutePath("X:/"));
+    assertTrue(FileUtil.isWindowsAbsolutePath("X:"));
+    assertTrue(FileUtil.isWindowsAbsolutePath("X:\\"));
+    assertTrue(FileUtil.isWindowsAbsolutePath("X:\\Users\\user.data.txt"));
+
+    assertFalse(FileUtil.isWindowsAbsolutePath(""));
+    assertFalse(FileUtil.isWindowsAbsolutePath("/"));
+    assertFalse(FileUtil.isWindowsAbsolutePath("/home"));
+    assertFalse(FileUtil.isWindowsAbsolutePath("C"));
+    assertFalse(FileUtil.isWindowsAbsolutePath("1"));
+    assertFalse(FileUtil.isWindowsAbsolutePath("1:"));
+    assertFalse(FileUtil.isWindowsAbsolutePath("C:C"));
+    assertFalse(FileUtil.isWindowsAbsolutePath("C?"));
   }
 }

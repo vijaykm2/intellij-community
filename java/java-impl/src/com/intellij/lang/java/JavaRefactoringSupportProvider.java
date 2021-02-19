@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.java;
 
 import com.intellij.lang.refactoring.RefactoringSupportProvider;
@@ -21,8 +7,11 @@ import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.PsiSearchHelper;
 import com.intellij.psi.search.SearchScope;
+import com.intellij.psi.util.JavaPsiRecordUtil;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.RefactoringActionHandler;
+import com.intellij.refactoring.actions.IntroduceFunctionalParameterHandler;
 import com.intellij.refactoring.changeSignature.ChangeSignatureHandler;
 import com.intellij.refactoring.changeSignature.JavaChangeSignatureHandler;
 import com.intellij.refactoring.extractInterface.ExtractInterfaceHandler;
@@ -32,6 +21,7 @@ import com.intellij.refactoring.extractclass.ExtractClassHandler;
 import com.intellij.refactoring.introduceField.IntroduceConstantHandler;
 import com.intellij.refactoring.introduceField.IntroduceFieldHandler;
 import com.intellij.refactoring.introduceParameter.IntroduceParameterHandler;
+import com.intellij.refactoring.introduceVariable.IntroduceFunctionalVariableHandler;
 import com.intellij.refactoring.introduceVariable.IntroduceVariableHandler;
 import com.intellij.refactoring.memberPullUp.JavaPullUpHandler;
 import com.intellij.refactoring.memberPushDown.JavaPushDownHandler;
@@ -66,7 +56,7 @@ public class JavaRefactoringSupportProvider extends RefactoringSupportProvider {
 
   @Override
   public boolean isMemberInplaceRenameAvailable(@NotNull PsiElement elementToRename, @Nullable PsiElement context) {
-    return elementToRename instanceof PsiMember;
+    return elementToRename instanceof PsiMember || elementToRename instanceof PsiJavaModule || isCanonicalConstructorParameter(elementToRename);
   }
 
   @Override
@@ -83,6 +73,17 @@ public class JavaRefactoringSupportProvider extends RefactoringSupportProvider {
   @Override
   public RefactoringActionHandler getIntroduceParameterHandler() {
     return new IntroduceParameterHandler();
+  }
+
+  @Nullable
+  @Override
+  public RefactoringActionHandler getIntroduceFunctionalParameterHandler() {
+    return new IntroduceFunctionalParameterHandler();
+  }
+
+  @Override
+  public RefactoringActionHandler getIntroduceFunctionalVariableHandler() {
+    return new IntroduceFunctionalVariableHandler();
   }
 
   @Override
@@ -118,18 +119,16 @@ public class JavaRefactoringSupportProvider extends RefactoringSupportProvider {
   @Override
   public boolean isInplaceIntroduceAvailable(@NotNull PsiElement element, PsiElement context) {
     if (!(element instanceof PsiExpression)) return false;
-    if (context == null || context.getContainingFile() != element.getContainingFile()) return false;
+    if (context == null) return false;
     return true;
   }
 
   public static boolean mayRenameInplace(PsiElement elementToRename, final PsiElement nameSuggestionContext) {
     if (nameSuggestionContext != null && nameSuggestionContext.getContainingFile() != elementToRename.getContainingFile()) return false;
-    if (!(elementToRename instanceof PsiLocalVariable) &&
-        !(elementToRename instanceof PsiParameter) &&
-        !(elementToRename instanceof PsiLabeledStatement)) {
+    if (!PsiUtil.isJvmLocalVariable(elementToRename) && !(elementToRename instanceof PsiLabeledStatement)) {
       return false;
     }
-    SearchScope useScope = PsiSearchHelper.SERVICE.getInstance(elementToRename.getProject()).getUseScope(elementToRename);
+    SearchScope useScope = PsiSearchHelper.getInstance(elementToRename.getProject()).getUseScope(elementToRename);
     if (!(useScope instanceof LocalSearchScope)) return false;
     PsiElement[] scopeElements = ((LocalSearchScope)useScope).getScope();
     if (scopeElements.length > 1 &&                          // assume there are no elements with use scopes with holes in them
@@ -137,6 +136,7 @@ public class JavaRefactoringSupportProvider extends RefactoringSupportProvider {
         !isResourceVariable(scopeElements)) {
       return false;    // ... and badly scoped resource variables
     }
+    if (isCanonicalConstructorParameter(elementToRename)) return false;
     PsiFile containingFile = elementToRename.getContainingFile();
     return PsiTreeUtil.isAncestor(containingFile, scopeElements[0], false);
   }
@@ -160,5 +160,12 @@ public class JavaRefactoringSupportProvider extends RefactoringSupportProvider {
     return scopeElements.length == 2 &&
            scopeElements[0] instanceof PsiResourceList &&
            scopeElements[1] instanceof PsiCodeBlock;
+  }
+
+  private static boolean isCanonicalConstructorParameter(@NotNull PsiElement elementToRename) {
+    if (!(elementToRename instanceof PsiParameter)) return false;
+    PsiMethod method = PsiTreeUtil.getParentOfType(elementToRename.getParent(), PsiMethod.class);
+    if (method == null) return false;
+    return JavaPsiRecordUtil.isExplicitCanonicalConstructor(method);
   }
 }

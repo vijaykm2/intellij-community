@@ -1,58 +1,35 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.ui;
 
-import com.intellij.openapi.util.SystemInfo;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.ui.SimpleColoredComponent;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.Vector;
 
-public class ComboBoxWithWidePopup extends JComboBox {
-
-  private boolean myLayingOut = false;
+public class ComboBoxWithWidePopup<E> extends JComboBox<E> {
   private int myMinLength = 20;
 
-  public ComboBoxWithWidePopup(final ComboBoxModel aModel) {
-    super(aModel);
-
-    if (SystemInfo.isMac && UIUtil.isUnderAquaLookAndFeel()) setMaximumRowCount(25);
-  }
-
-  public ComboBoxWithWidePopup(final Object[] items) {
-    super(items);
-
-    if (SystemInfo.isMac && UIUtil.isUnderAquaLookAndFeel()) setMaximumRowCount(25);
-  }
-
-  public ComboBoxWithWidePopup(final Vector<?> items) {
-    super(items);
-
-    if (SystemInfo.isMac && UIUtil.isUnderAquaLookAndFeel()) setMaximumRowCount(25);
-  }
-
   public ComboBoxWithWidePopup() {
+
   }
-  
-  @SuppressWarnings("GtkPreferredJComboBoxRenderer")
+
+  public ComboBoxWithWidePopup(@NotNull ComboBoxModel<E> model) {
+    super(model);
+  }
+
+  public ComboBoxWithWidePopup(E @NotNull [] items) {
+    super(items);
+  }
+
   @Override
-  public void setRenderer(ListCellRenderer renderer) {
-    super.setRenderer(new AdjustingListCellRenderer(this, renderer));
+  public void setRenderer(ListCellRenderer<? super E> renderer) {
+    if (renderer instanceof SimpleColoredComponent) {
+      SimpleColoredComponent scc = (SimpleColoredComponent)renderer;
+      scc.getIpad().top = scc.getIpad().bottom = 0;
+    }
+
+    super.setRenderer(new AdjustingListCellRenderer(renderer));
   }
 
   public void setMinLength(int minLength) {
@@ -66,58 +43,40 @@ public class ComboBoxWithWidePopup extends JComboBox {
     return myMinLength;
   }
 
-  public void doLayout() {
-    try {
-      myLayingOut = true;
-      super.doLayout();
-    }
-    finally {
-      myLayingOut = false;
-    }
+  /**
+   * @return minimum width of a popup that is wide enough to show all the combobox's items horizontally
+   */
+  public int getMinimumPopupWidth() {
+    // Original preferred size of JComboBox is calculated as max of all pref sizes of combobox's items.
+    // See javax.swing.plaf.basic.BasicComboBoxUI#getDisplaySize()
+    //
+    // Please note that "getPreferredSize().width" cannot be used as getPreferredSize might be overridden
+    // to return a value different to "max of all pref sizes of comboBox's items".
+    return super.getPreferredSize().width;
   }
 
-  public Dimension getSize() {
-    Dimension size = super.getSize();
-    if (!myLayingOut) {
-      size.width = Math.max(size.width, getOriginalPreferredSize().width);
-    }
-    return size;
-  }
-  
-  private Dimension _getSuperSize() {
-    return super.getSize();
-  }
+  private class AdjustingListCellRenderer implements ListCellRenderer<E> {
+    private final ListCellRenderer<? super E> delegate;
 
-  protected Dimension getOriginalPreferredSize() {
-    return getPreferredSize();
-  }
-
-  private class AdjustingListCellRenderer implements ListCellRenderer {
-    private final ListCellRenderer myOldRenderer;
-    private final ComboBoxWithWidePopup myComboBox;
-
-    public AdjustingListCellRenderer(ComboBoxWithWidePopup comboBox, ListCellRenderer oldRenderer) {
-      myComboBox = comboBox;
-      myOldRenderer = oldRenderer;
+    AdjustingListCellRenderer(ListCellRenderer<? super E> delegate) {
+      this.delegate = delegate;
     }
 
     @Override
-    public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-      Object _value = value;
-      if (index == -1 && _value instanceof String && !myComboBox.isValid()) {
+    public Component getListCellRendererComponent(JList<? extends E> list, E value, int index, boolean isSelected, boolean cellHasFocus) {
+      if (index == -1 && value instanceof String && !isValid()) {
         int minLength = getMinLength();
+        String stringValue = (String)value;
 
-        Dimension size = myComboBox._getSuperSize();
-        String stringValue = (String)_value;
-
-        if (size.width == 0) {
+        if (getSize().width == 0) {
           if (stringValue.length() > minLength) {
-            _value = stringValue.substring(0, minLength);
+            @SuppressWarnings("unchecked") E e = (E)stringValue.substring(0, minLength);
+            value = e;
           }
         }
       }
 
-      return myOldRenderer.getListCellRendererComponent(list, _value, index, isSelected, cellHasFocus);
+      return delegate.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
     }
   }
 }

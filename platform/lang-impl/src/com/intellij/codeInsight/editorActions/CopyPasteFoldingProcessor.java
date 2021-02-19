@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import com.intellij.codeInsight.folding.impl.CodeFoldingManagerImpl;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.FoldRegion;
 import com.intellij.openapi.editor.RangeMarker;
+import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiFile;
@@ -42,24 +43,28 @@ public class CopyPasteFoldingProcessor extends CopyPastePostProcessor<FoldingTra
     // might be slow
     //CodeFoldingManager.getInstance(file.getManager().getProject()).updateFoldRegions(editor);
 
-    final ArrayList<FoldingData> list = new ArrayList<FoldingData>();
+    final ArrayList<FoldingData> list = new ArrayList<>();
     final FoldRegion[] regions = editor.getFoldingModel().getAllFoldRegions();
     for (final FoldRegion region : regions) {
       if (!region.isValid()) continue;
+      int refOffset = 0;
       for (int j = 0; j < startOffsets.length; j++) {
+        refOffset += startOffsets[j];
         if (startOffsets[j] <= region.getStartOffset() && region.getEndOffset() <= endOffsets[j]) {
           list.add(
             new FoldingData(
-              region.getStartOffset() - startOffsets[j],
-              region.getEndOffset() - startOffsets[j],
+              region.getStartOffset() - refOffset, // offsets should be relative to clipboard contents start
+              region.getEndOffset() - refOffset,
               region.isExpanded()
             )
           );
+          break;
         }
+        refOffset -= endOffsets[j] + 1; // 1 accounts for line break inserted between contents corresponding to different carets
       }
     }
 
-    return Collections.singletonList(new FoldingTransferableData(list.toArray(new FoldingData[list.size()])));
+    return Collections.singletonList(new FoldingTransferableData(list.toArray(new FoldingData[0])));
   }
 
   @NotNull
@@ -72,10 +77,7 @@ public class CopyPasteFoldingProcessor extends CopyPastePostProcessor<FoldingTra
         foldingData = (FoldingTransferableData)content.getTransferData(flavor);
       }
     }
-    catch (UnsupportedFlavorException e) {
-      // do nothing
-    }
-    catch (IOException e) {
+    catch (UnsupportedFlavorException | IOException e) {
       // do nothing
     }
 
@@ -90,26 +92,32 @@ public class CopyPasteFoldingProcessor extends CopyPastePostProcessor<FoldingTra
                                       final Editor editor,
                                       final RangeMarker bounds,
                                       int caretOffset,
-                                      Ref<Boolean> indented,
-                                      final List<FoldingTransferableData> values) {
+                                      Ref<? super Boolean> indented,
+                                      final List<? extends FoldingTransferableData> values) {
     assert values.size() == 1;
     final FoldingTransferableData value = values.get(0);
     if (value.getData().length == 0) return;
 
     final CodeFoldingManagerImpl foldingManager = (CodeFoldingManagerImpl)CodeFoldingManager.getInstance(project);
+    if (foldingManager == null) return; // default project
     foldingManager.updateFoldRegions(editor, true);
 
-    Runnable operation = new Runnable() {
-      @Override
-      public void run() {
-        for (FoldingData data : value.getData()) {
-          FoldRegion region = foldingManager.findFoldRegion(editor, data.startOffset + bounds.getStartOffset(), data.endOffset + bounds.getStartOffset());
-          if (region != null) {
-            region.setExpanded(data.isExpanded);
-          }
+    Runnable operation = () -> {
+      for (FoldingData data : value.getData()) {
+        FoldRegion region =
+          foldingManager.findFoldRegion(editor, data.startOffset + bounds.getStartOffset(), data.endOffset + bounds.getStartOffset());
+        if (region != null) {
+          region.setExpanded(data.isExpanded);
         }
       }
     };
+    int verticalPositionBefore = editor.getScrollingModel().getVisibleAreaOnScrollingFinished().y;
     editor.getFoldingModel().runBatchFoldingOperation(operation);
+    EditorUtil.runWithAnimationDisabled(editor, () -> editor.getScrollingModel().scrollVertically(verticalPositionBefore));
+  }
+
+  @Override
+  public boolean requiresAllDocumentsToBeCommitted(@NotNull Editor editor, @NotNull Project project) {
+    return false;
   }
 }

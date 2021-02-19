@@ -1,76 +1,43 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.updateSettings.impl;
 
-import com.intellij.util.containers.ContainerUtil;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.ide.IdeBundle;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.PropertyKey;
 
-import java.util.List;
+public enum ChannelStatus {
+  EAP("eap", "channel.status.eap"),
+  MILESTONE("milestone", "channel.status.milestone"),
+  BETA("beta", "channel.status.beta"),
+  RELEASE("release", "channel.status.stable");
 
-public class ChannelStatus implements Comparable<ChannelStatus> {
-  @NonNls public static final String EAP_CODE = "eap";
-  @NonNls public static final String RELEASE_CODE = "release";
-
-  public static final ChannelStatus EAP = new ChannelStatus(0, EAP_CODE, "Early Access Program");
-  public static final ChannelStatus MILESTONE = new ChannelStatus(1, "milestone", "Milestone Releases");
-  public static final ChannelStatus BETA = new ChannelStatus(2, "beta", "Beta Releases or Public Previews");
-  public static final ChannelStatus RELEASE = new ChannelStatus(3, RELEASE_CODE, "New Major Version Releases");
-
-  private static final List<ChannelStatus> ALL_TYPES = ContainerUtil.immutableList(RELEASE, BETA, MILESTONE, EAP);
-
-  private final int myOrder;
   private final String myCode;
-  private final String myDisplayName;
+  private final String myDisplayNameKey;
 
-  private ChannelStatus(int order, String code, String displayName) {
-    myOrder = order;
+  ChannelStatus(String code, @PropertyKey(resourceBundle = IdeBundle.BUNDLE) String displayNameKey) {
     myCode = code;
-    myDisplayName = displayName;
+    myDisplayNameKey = displayNameKey;
   }
 
   public static ChannelStatus fromCode(String code) {
-    if (EAP_CODE.equalsIgnoreCase(code)) return EAP;
-    if ("milestone".equalsIgnoreCase(code)) return MILESTONE;
-    if ("beta".equalsIgnoreCase(code)) return BETA;
-
+    for (ChannelStatus type : values()) {
+      if (type.getCode().equalsIgnoreCase(code)) {
+        return type;
+      }
+    }
     return RELEASE;
-  }
-
-  public int compareTo(ChannelStatus o) {
-    return myOrder - o.myOrder;
   }
 
   public String getCode() {
     return myCode;
   }
 
-  public String getDisplayName() {
-    return myDisplayName;
-  }
-
-  public static List<ChannelStatus> all() {
-    return ALL_TYPES;
+  public @Nls(capitalization = Nls.Capitalization.Title) String getDisplayName() {
+    return IdeBundle.message(myDisplayNameKey);
   }
 
   @Override
   public String toString() {
-    return myDisplayName;
+    return getDisplayName();
   }
 }

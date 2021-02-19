@@ -15,7 +15,6 @@
  */
 package com.intellij.vcs.log.graph.impl.print;
 
-import com.intellij.openapi.util.Pair;
 import com.intellij.vcs.log.graph.GraphColorManager;
 import com.intellij.vcs.log.graph.api.LinearGraph;
 import com.intellij.vcs.log.graph.api.elements.GraphEdge;
@@ -23,72 +22,66 @@ import com.intellij.vcs.log.graph.api.elements.GraphElement;
 import com.intellij.vcs.log.graph.api.elements.GraphNode;
 import com.intellij.vcs.log.graph.api.permanent.PermanentGraphInfo;
 import com.intellij.vcs.log.graph.utils.LinearGraphUtils;
+import com.intellij.vcs.log.graph.utils.NormalEdge;
 import org.jetbrains.annotations.NotNull;
 
 public class ColorGetterByLayoutIndex<CommitId> {
   @NotNull private final LinearGraph myLinearGraph;
   @NotNull private final PermanentGraphInfo<CommitId> myPermanentGraphInfo;
+  @NotNull private final GraphColorManager<CommitId> myColorManager;
 
-  public ColorGetterByLayoutIndex(@NotNull LinearGraph linearGraph, @NotNull PermanentGraphInfo<CommitId> permanentGraphInfo) {
+  public ColorGetterByLayoutIndex(@NotNull LinearGraph linearGraph,
+                                  @NotNull PermanentGraphInfo<CommitId> permanentGraphInfo,
+                                  @NotNull GraphColorManager<CommitId> colorManager) {
     myLinearGraph = linearGraph;
     myPermanentGraphInfo = permanentGraphInfo;
+    myColorManager = colorManager;
   }
 
   public int getColorId(@NotNull GraphElement element) {
-    int upNodeIndex, downNodeIndex;
     if (element instanceof GraphNode) {
-      upNodeIndex = ((GraphNode)element).getNodeIndex();
-      downNodeIndex = upNodeIndex;
+      int nodeId = myLinearGraph.getNodeId(((GraphNode)element).getNodeIndex());
+      return getNodeColor(nodeId, getLayoutIndex(nodeId));
     }
     else {
       GraphEdge edge = (GraphEdge)element;
-      Pair<Integer, Integer> normalEdge = LinearGraphUtils.asNormalEdge(edge);
-      if (normalEdge != null) {
-        upNodeIndex = normalEdge.first;
-        downNodeIndex = normalEdge.second;
+      NormalEdge normalEdge = LinearGraphUtils.asNormalEdge(edge);
+      if (normalEdge == null) {
+        int nodeId = myLinearGraph.getNodeId(LinearGraphUtils.getNotNullNodeIndex(edge));
+        return getNodeColor(nodeId, getLayoutIndex(nodeId));
       }
-      else {
-        upNodeIndex = LinearGraphUtils.getNotNullNodeIndex(edge);
-        downNodeIndex = upNodeIndex;
+
+      int upNodeId = myLinearGraph.getNodeId(normalEdge.up);
+      int downNodeId = myLinearGraph.getNodeId(normalEdge.down);
+      int upLayoutIndex = getLayoutIndex(upNodeId);
+      int downLayoutIndex = getLayoutIndex(downNodeId);
+
+      if (upLayoutIndex >= downLayoutIndex) {
+        return getNodeColor(upNodeId, upLayoutIndex);
       }
+
+      return getNodeColor(downNodeId, downLayoutIndex);
     }
+  }
 
-    int upLayoutIndex = getLayoutIndex(upNodeIndex);
-    int downLayoutIndex = getLayoutIndex(downNodeIndex);
-
-    CommitId headCommitId = getOneOfHeads(upNodeIndex);
-    GraphColorManager<CommitId> myColorManager = myPermanentGraphInfo.getGraphColorManager();
-    if (upLayoutIndex != downLayoutIndex) {
-      return myColorManager.getColorOfFragment(headCommitId, Math.max(upLayoutIndex, downLayoutIndex));
-    }
-
-    if (upLayoutIndex == myPermanentGraphInfo.getPermanentGraphLayout().getLayoutIndex(getHeadNodeId(upNodeIndex))) {
+  private int getNodeColor(int nodeId, int layoutIndex) {
+    int headNodeId = getHeadNodeId(nodeId);
+    CommitId headCommitId = myPermanentGraphInfo.getPermanentCommitsInfo().getCommitId(headNodeId);
+    if (layoutIndex == myPermanentGraphInfo.getPermanentGraphLayout().getLayoutIndex(headNodeId)) {
       return myColorManager.getColorOfBranch(headCommitId);
     }
     else {
-      return myColorManager.getColorOfFragment(headCommitId, upLayoutIndex);
+      return myColorManager.getColorOfFragment(headCommitId, layoutIndex);
     }
-
   }
 
-  private int getHeadNodeId(int upNodeIndex) {
-    int nodeId = getNodeId(upNodeIndex);
+  private int getHeadNodeId(int nodeId) {
     if (nodeId < 0) return 0;
     return myPermanentGraphInfo.getPermanentGraphLayout().getOneOfHeadNodeIndex(nodeId);
   }
 
-  private CommitId getOneOfHeads(int upNodeIndex) {
-    return myPermanentGraphInfo.getPermanentCommitsInfo().getCommitId(getHeadNodeId(upNodeIndex));
-  }
-
-  private int getLayoutIndex(int upNodeIndex) {
-    int nodeId = getNodeId(upNodeIndex);
+  private int getLayoutIndex(int nodeId) {
     if (nodeId < 0) return nodeId;
     return myPermanentGraphInfo.getPermanentGraphLayout().getLayoutIndex(nodeId);
   }
-
-  private int getNodeId(int upNodeIndex) {
-    return myLinearGraph.getNodeId(upNodeIndex);
-  }
-
 }

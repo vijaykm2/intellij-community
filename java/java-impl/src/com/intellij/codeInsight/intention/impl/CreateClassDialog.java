@@ -1,38 +1,24 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.intention.impl;
 
 import com.intellij.CommonBundle;
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.daemon.impl.quickfix.ClassKind;
 import com.intellij.ide.util.PackageUtil;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CustomShortcutSet;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.JavaProjectRootsUtil;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pass;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiNameHelper;
@@ -40,6 +26,7 @@ import com.intellij.refactoring.MoveDestination;
 import com.intellij.refactoring.PackageWrapper;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.move.moveClassesOrPackages.DestinationFolderComboBox;
+import com.intellij.refactoring.move.moveClassesOrPackages.MultipleRootsMoveDestination;
 import com.intellij.refactoring.ui.PackageNameReferenceEditorCombo;
 import com.intellij.refactoring.util.RefactoringMessageUtil;
 import com.intellij.ui.DocumentAdapter;
@@ -47,6 +34,7 @@ import com.intellij.ui.RecentsManager;
 import com.intellij.ui.ReferenceEditorComboWithBrowseButton;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.ui.JBInsets;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -59,7 +47,7 @@ import java.awt.event.KeyEvent;
 
 public class CreateClassDialog extends DialogWrapper {
   private final JLabel myInformationLabel = new JLabel("#");
-  private final JLabel myPackageLabel = new JLabel(CodeInsightBundle.message("dialog.create.class.destination.package.label"));
+  private final JLabel myPackageLabel = new JLabel(JavaBundle.message("dialog.create.class.destination.package.label"));
   private final ReferenceEditorComboWithBrowseButton myPackageComponent;
   private final JTextField myTfClassName = new MyTextField();
   private final Project myProject;
@@ -86,7 +74,7 @@ public class CreateClassDialog extends DialogWrapper {
   @NonNls private static final String RECENTS_KEY = "CreateClassDialog.RecentsKey";
 
   public CreateClassDialog(@NotNull Project project,
-                           @NotNull String title,
+                           @NotNull @NlsContexts.DialogTitle String title,
                            @NotNull String targetClassName,
                            @NotNull String targetPackageName,
                            @NotNull ClassKind kind,
@@ -97,24 +85,24 @@ public class CreateClassDialog extends DialogWrapper {
     myModule = defaultModule;
     myClassName = targetClassName;
     myProject = project;
-    myPackageComponent = new PackageNameReferenceEditorCombo(targetPackageName, myProject, RECENTS_KEY, CodeInsightBundle.message("dialog.create.class.package.chooser.title"));
+    myPackageComponent = new PackageNameReferenceEditorCombo(targetPackageName, myProject, RECENTS_KEY, JavaBundle.message("dialog.create.class.package.chooser.title"));
     myPackageComponent.setTextFieldPreferredWidth(40);
 
     init();
 
     if (!myClassNameEditable) {
-      setTitle(CodeInsightBundle.message("dialog.create.class.name", StringUtil.capitalize(kind.getDescription()), targetClassName));
+      setTitle(JavaBundle.message("dialog.create.class.name", StringUtil.capitalize(kind.getDescriptionAccusative()), targetClassName));
     }
     else {
-      myInformationLabel.setText(CodeInsightBundle.message("dialog.create.class.label", kind.getDescription()));
+      myInformationLabel.setText(JavaBundle.message("dialog.create.class.label", kind.getDescriptionAccusative()));
       setTitle(title);
     }
 
     myTfClassName.setText(myClassName);
-    myDestinationCB.setData(myProject, getBaseDir(targetPackageName), new Pass<String>() {
+    myDestinationCB.setData(myProject, getBaseDir(targetPackageName), new Pass<@NlsContexts.DialogMessage String>() {
       @Override
-      public void pass(String s) {
-        setErrorText(s);
+      public void pass(@NlsContexts.DialogMessage String s) {
+        setErrorText(s, myDestinationCB);
       }
     }, myPackageComponent.getChildComponent());
   }
@@ -125,12 +113,6 @@ public class CreateClassDialog extends DialogWrapper {
 
   protected boolean reportBaseInSourceSelectionInTest() {
     return false;
-  }
-
-  @NotNull
-  @Override
-  protected Action[] createActions() {
-    return new Action[]{getOKAction(), getCancelAction()};
   }
 
   @Override
@@ -148,7 +130,7 @@ public class CreateClassDialog extends DialogWrapper {
     JPanel panel = new JPanel(new GridBagLayout());
     GridBagConstraints gbConstraints = new GridBagConstraints();
 
-    gbConstraints.insets = new Insets(4, 8, 4, 8);
+    gbConstraints.insets = JBInsets.create(4, 8);
     gbConstraints.fill = GridBagConstraints.HORIZONTAL;
     gbConstraints.anchor = GridBagConstraints.WEST;
 
@@ -156,7 +138,7 @@ public class CreateClassDialog extends DialogWrapper {
       gbConstraints.weightx = 0;
       gbConstraints.gridwidth = 1;
       panel.add(myInformationLabel, gbConstraints);
-      gbConstraints.insets = new Insets(4, 8, 4, 8);
+      gbConstraints.insets = JBInsets.create(4, 8);
       gbConstraints.gridx = 1;
       gbConstraints.weightx = 1;
       gbConstraints.gridwidth = 1;
@@ -166,7 +148,7 @@ public class CreateClassDialog extends DialogWrapper {
 
       myTfClassName.getDocument().addDocumentListener(new DocumentAdapter() {
         @Override
-        protected void textChanged(DocumentEvent e) {
+        protected void textChanged(@NotNull DocumentEvent e) {
           getOKAction().setEnabled(PsiNameHelper.getInstance(myProject).isIdentifier(myTfClassName.getText()));
         }
       });
@@ -184,7 +166,7 @@ public class CreateClassDialog extends DialogWrapper {
 
     new AnAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         myPackageComponent.getButton().doClick();
       }
     }.registerCustomShortcutSet(new CustomShortcutSet(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK)), myPackageComponent.getChildComponent());
@@ -240,28 +222,26 @@ public class CreateClassDialog extends DialogWrapper {
     final String packageName = getPackageName();
 
     final String[] errorString = new String[1];
-    CommandProcessor.getInstance().executeCommand(myProject, new Runnable() {
-      @Override
-      public void run() {
-        try {
-          final PackageWrapper targetPackage = new PackageWrapper(PsiManager.getInstance(myProject), packageName);
-          final MoveDestination destination = myDestinationCB.selectDirectory(targetPackage, false);
-          if (destination == null) return;
-          myTargetDirectory = ApplicationManager.getApplication().runWriteAction(new Computable<PsiDirectory>() {
-            @Override
-            public PsiDirectory compute() {
-              return destination.getTargetDirectory(getBaseDir(packageName));
-            }
-          });
-          if (myTargetDirectory == null) {
-            errorString[0] = ""; // message already reported by PackageUtil
-            return;
+    CommandProcessor.getInstance().executeCommand(myProject, () -> {
+      try {
+        final PackageWrapper targetPackage = new PackageWrapper(PsiManager.getInstance(myProject), packageName);
+        final MoveDestination destination = myDestinationCB.selectDirectory(targetPackage, false);
+        if (destination == null) return;
+        myTargetDirectory = WriteAction.compute(() -> {
+          PsiDirectory baseDir = getBaseDir(packageName);
+          if (baseDir == null && destination instanceof MultipleRootsMoveDestination) {
+            errorString[0] = "Destination not found for package '" + packageName + "'";
+            return null;
           }
-          errorString[0] = RefactoringMessageUtil.checkCanCreateClass(myTargetDirectory, getClassName());
+          return destination.getTargetDirectory(baseDir);
+        });
+        if (myTargetDirectory == null) {
+          return;
         }
-        catch (IncorrectOperationException e) {
-          errorString[0] = e.getMessage();
-        }
+        errorString[0] = RefactoringMessageUtil.checkCanCreateClass(myTargetDirectory, getClassName());
+      }
+      catch (IncorrectOperationException e) {
+        errorString[0] = e.getMessage();
       }
     }, CodeInsightBundle.message("create.directory.command"), null);
 

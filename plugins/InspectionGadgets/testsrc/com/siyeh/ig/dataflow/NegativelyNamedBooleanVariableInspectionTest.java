@@ -16,14 +16,13 @@
 package com.siyeh.ig.dataflow;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 
 /**
  * @author Bas Leijdekkers
  */
-public class NegativelyNamedBooleanVariableInspectionTest extends LightInspectionTestCase {
+public class NegativelyNamedBooleanVariableInspectionTest extends LightJavaInspectionTestCase {
 
   public void testTree() {
     doTest("class X {" +
@@ -34,8 +33,7 @@ public class NegativelyNamedBooleanVariableInspectionTest extends LightInspectio
   }
 
   public void testPrefix() {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
-    settings.FIELD_NAME_PREFIX = "m_";
+    JavaCodeStyleSettings.getInstance(getProject()).FIELD_NAME_PREFIX = "m_";
     doTest("class Y {" +
            "  private boolean /*Boolean variable 'm_isNonValid' is negatively named*/m_isNonValid/**/ = false;" +
            "}");

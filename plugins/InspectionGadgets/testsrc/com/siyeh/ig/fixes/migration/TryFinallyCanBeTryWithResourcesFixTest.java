@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
  */
 package com.siyeh.ig.fixes.migration;
 
+import com.intellij.pom.java.LanguageLevel;
+import com.intellij.testFramework.builders.JavaModuleFixtureBuilder;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.IGQuickFixesTestCase;
 import com.siyeh.ig.migration.TryFinallyCanBeTryWithResourcesInspection;
@@ -23,6 +25,19 @@ public class TryFinallyCanBeTryWithResourcesFixTest extends IGQuickFixesTestCase
 
   public void testComments() { doTest(); }
   public void testMultiple() { doTest(); }
+  public void testKeepResourceCallInBlock() { doTest(); }
+  public void testTryInCatchBlock() { doTest(); }
+  public void testJava9() { doTest(); }
+  public void testJava9WithParameter() { doTest(); }
+  public void testCatch() { doTest(); }
+  public void testTryWithResource() { doTest(); }
+  public void testFirstNotInitialized() { doTest(); }
+  public void testIDEA209231() { doTest(); }
+
+  @Override
+  protected void tuneFixture(JavaModuleFixtureBuilder builder) throws Exception {
+    builder.setLanguageLevel(LanguageLevel.JDK_1_9);
+  }
 
   @Override
   public void setUp() throws Exception {

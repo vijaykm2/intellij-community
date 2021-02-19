@@ -14,24 +14,18 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: mike
- * Date: Aug 20, 2002
- * Time: 8:49:24 PM
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
+import com.intellij.psi.filters.FilterPositionUtil;
 import com.intellij.psi.util.ClassUtil;
+import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 public class ImportClassFix extends ImportClassFixBase<PsiJavaCodeReferenceElement, PsiJavaCodeReferenceElement> {
   public ImportClassFix(@NotNull PsiJavaCodeReferenceElement element) {
@@ -49,7 +43,7 @@ public class ImportClassFix extends ImportClassFixBase<PsiJavaCodeReferenceEleme
   }
 
   @Override
-  protected void bindReference(PsiReference ref, PsiClass targetClass) {
+  protected void bindReference(@NotNull PsiReference ref, @NotNull PsiClass targetClass) {
     if (ref instanceof PsiImportStaticReferenceElement) {
       ((PsiImportStaticReferenceElement)ref).bindToTargetClass(targetClass);
     }
@@ -65,12 +59,12 @@ public class ImportClassFix extends ImportClassFixBase<PsiJavaCodeReferenceEleme
   }
 
   @Override
-  protected String getQualifiedName(PsiJavaCodeReferenceElement reference) {
+  protected String getQualifiedName(@NotNull PsiJavaCodeReferenceElement reference) {
     return reference.getQualifiedName();
   }
 
   @Override
-  protected boolean isQualified(PsiJavaCodeReferenceElement reference) {
+  protected boolean isQualified(@NotNull PsiJavaCodeReferenceElement reference) {
     return reference.isQualified();
   }
 
@@ -99,7 +93,7 @@ public class ImportClassFix extends ImportClassFixBase<PsiJavaCodeReferenceEleme
   }
 
   @Override
-  protected String getRequiredMemberName(PsiJavaCodeReferenceElement reference) {
+  protected String getRequiredMemberName(@NotNull PsiJavaCodeReferenceElement reference) {
     PsiElement parent = reference.getParent();
     if (parent instanceof PsiJavaCodeReferenceElement) {
       return ((PsiJavaCodeReferenceElement)parent).getReferenceName();
@@ -109,17 +103,27 @@ public class ImportClassFix extends ImportClassFixBase<PsiJavaCodeReferenceEleme
   }
 
   @Override
-  protected boolean canReferenceClass(PsiJavaCodeReferenceElement ref) {
+  protected boolean canReferenceClass(@NotNull PsiJavaCodeReferenceElement ref) {
+    if (PsiTreeUtil.getParentOfType(ref, PsiImportStatementBase.class) != null) return false;
     if (ref instanceof PsiReferenceExpression) {
       PsiElement parent = ref.getParent();
       return parent instanceof PsiReferenceExpression || parent instanceof PsiExpressionStatement;
     }
-    return true;
+    return !inReturnTypeOfIncompleteGenericMethod(ref);
   }
 
-  @NotNull
+  private static boolean inReturnTypeOfIncompleteGenericMethod(@NotNull PsiJavaCodeReferenceElement element) {
+    PsiTypeElement type = SyntaxTraverser.psiApi().parents(element).filter(PsiTypeElement.class).last();
+    PsiElement prev = FilterPositionUtil.searchNonSpaceNonCommentBack(type);
+    PsiTypeParameterList typeParameterList = PsiTreeUtil.getParentOfType(prev, PsiTypeParameterList.class);
+    if (typeParameterList != null && typeParameterList.getParent() instanceof PsiErrorElement) {
+      return Arrays.stream(typeParameterList.getTypeParameters()).anyMatch(p -> Objects.equals(element.getReferenceName(), p.getName()));
+    }
+    return false;
+  }
+
   @Override
-  protected List<PsiClass> filterByContext(@NotNull List<PsiClass> candidates, @NotNull PsiJavaCodeReferenceElement ref) {
+  protected @NotNull Collection<PsiClass> filterByContext(@NotNull Collection<PsiClass> candidates, @NotNull PsiJavaCodeReferenceElement ref) {
     if (ref instanceof PsiReferenceExpression) {
       return Collections.emptyList();
     }
@@ -130,7 +134,10 @@ public class ImportClassFix extends ImportClassFixBase<PsiJavaCodeReferenceEleme
       if (var instanceof PsiVariable) {
         PsiExpression initializer = ((PsiVariable)var).getInitializer();
         if (initializer != null) {
-          return filterAssignableFrom(initializer.getType(), candidates);
+          PsiType type = initializer.getType();
+          if (type != null) {
+            return filterAssignableFrom(type, candidates);
+          }
         }
       }
       if (var instanceof PsiParameter) {
@@ -142,7 +149,7 @@ public class ImportClassFix extends ImportClassFixBase<PsiJavaCodeReferenceEleme
   }
 
   @Override
-  protected boolean isAccessible(PsiMember member, PsiJavaCodeReferenceElement reference) {
-    return member.hasModifierProperty(PsiModifier.PUBLIC) || member.hasModifierProperty(PsiModifier.PROTECTED);
+  protected boolean isAccessible(@NotNull PsiMember member, @NotNull PsiJavaCodeReferenceElement reference) {
+    return PsiUtil.isAccessible(member, reference, null);
   }
 }

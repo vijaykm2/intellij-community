@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.introduce.parameter;
 
 import com.intellij.ide.util.SuperMethodWarningUtil;
@@ -33,13 +19,10 @@ import com.intellij.refactoring.RefactoringActionHandler;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.introduce.inplace.OccurrencesChooser;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
-import com.intellij.util.Function;
-import com.intellij.util.PairFunction;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrParametersOwner;
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrParameterListOwner;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrClosableBlock;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
 import org.jetbrains.plugins.groovy.refactoring.GrRefactoringError;
@@ -62,11 +45,11 @@ import java.util.Map;
  * @author Maxim.Medvedev
  */
 public class GrIntroduceParameterHandler implements RefactoringActionHandler, MethodOrClosureScopeChooser.JBPopupOwner {
-  static final String REFACTORING_NAME = RefactoringBundle.message("introduce.parameter.title");
   private JBPopup myEnclosingMethodsPopup;
 
   @Override
-  public void invoke(@NotNull final Project project, @NotNull final Editor editor, @NotNull final PsiFile file, @Nullable final DataContext dataContext) {
+  public void invoke(@NotNull final Project project, final Editor editor, final PsiFile file, @Nullable final DataContext dataContext) {
+    if (editor == null || file == null) return;
     final SelectionModel selectionModel = editor.getSelectionModel();
     if (!selectionModel.hasSelection()) {
       final int offset = editor.getCaretModel().getOffset();
@@ -75,22 +58,17 @@ public class GrIntroduceParameterHandler implements RefactoringActionHandler, Me
       if (expressions.isEmpty()) {
         GrIntroduceHandlerBase.updateSelectionForVariable(editor, file, selectionModel, offset);
       }
-      else if (expressions.size() == 1) {
+      else if (expressions.size() == 1 || ApplicationManager.getApplication().isUnitTestMode()) {
         final TextRange textRange = expressions.get(0).getTextRange();
         selectionModel.setSelection(textRange.getStartOffset(), textRange.getEndOffset());
       }
       else {
-        IntroduceTargetChooser.showChooser(editor, expressions, new Pass<GrExpression>() {
-          @Override
-          public void pass(final GrExpression selectedValue) {
-            invoke(project, editor, file, selectedValue.getTextRange().getStartOffset(), selectedValue.getTextRange().getEndOffset());
-          }
-        }, new Function<GrExpression, String>() {
-          @Override
-          public String fun(GrExpression grExpression) {
-            return grExpression.getText();
-          }
-        }
+        IntroduceTargetChooser.showChooser(editor, expressions, new Pass<>() {
+                                             @Override
+                                             public void pass(final GrExpression selectedValue) {
+                                               invoke(project, editor, file, selectedValue.getTextRange().getStartOffset(), selectedValue.getTextRange().getEndOffset());
+                                             }
+                                           }, grExpression -> grExpression.getText()
         );
         return;
       }
@@ -111,16 +89,16 @@ public class GrIntroduceParameterHandler implements RefactoringActionHandler, Me
   }
 
   private void chooseScopeAndRun(@NotNull final InitialInfo initialInfo, @NotNull final Editor editor) {
-    final List<GrParametersOwner> scopes = findScopes(initialInfo);
+    final List<GrParameterListOwner> scopes = findScopes(initialInfo);
 
     if (scopes.isEmpty()) {
       throw new GrRefactoringError(GroovyRefactoringBundle.message("there.is.no.method.or.closure"));
     }
     else if (scopes.size() == 1 || ApplicationManager.getApplication().isUnitTestMode()) {
-      final GrParametersOwner owner = scopes.get(0);
+      final GrParameterListOwner owner = scopes.get(0);
       final PsiElement toSearchFor;
       if (owner instanceof GrMethod) {
-        toSearchFor = SuperMethodWarningUtil.checkSuperMethod((PsiMethod)owner, RefactoringBundle.message("to.refactor"));
+        toSearchFor = SuperMethodWarningUtil.checkSuperMethod((PsiMethod)owner);
         if (toSearchFor == null) return; //if it is null, refactoring was canceled
       }
       else {
@@ -129,23 +107,20 @@ public class GrIntroduceParameterHandler implements RefactoringActionHandler, Me
       showDialogOrStartInplace(new IntroduceParameterInfoImpl(initialInfo, owner, toSearchFor), editor);
     }
     else {
-      myEnclosingMethodsPopup = MethodOrClosureScopeChooser.create(scopes, editor, this, new PairFunction<GrParametersOwner, PsiElement, Object>() {
-        @Override
-        public Object fun(GrParametersOwner owner, PsiElement element) {
-          showDialogOrStartInplace(new IntroduceParameterInfoImpl(initialInfo, owner, element), editor);
-          return null;
-        }
+      myEnclosingMethodsPopup = MethodOrClosureScopeChooser.create(scopes, editor, this, (owner, element) -> {
+        showDialogOrStartInplace(new IntroduceParameterInfoImpl(initialInfo, owner, element), editor);
+        return null;
       });
       myEnclosingMethodsPopup.showInBestPositionFor(editor);
     }
   }
 
   @NotNull
-  private static List<GrParametersOwner> findScopes(@NotNull InitialInfo initialInfo) {
+  private static List<GrParameterListOwner> findScopes(@NotNull InitialInfo initialInfo) {
     PsiElement place = initialInfo.getContext();
-    final List<GrParametersOwner> scopes = new ArrayList<GrParametersOwner>();
+    final List<GrParameterListOwner> scopes = new ArrayList<>();
     while (true) {
-      final GrParametersOwner parent = PsiTreeUtil.getParentOfType(place, GrMethod.class, GrClosableBlock.class);
+      final GrParameterListOwner parent = PsiTreeUtil.getParentOfType(place, GrParameterListOwner.class);
       if (parent == null) break;
       scopes.add(parent);
       place = parent;
@@ -164,7 +139,7 @@ public class GrIntroduceParameterHandler implements RefactoringActionHandler, Me
     if (isInplace(info, editor)) {
       final GrIntroduceContext context = createContext(info, editor);
       Map<OccurrencesChooser.ReplaceChoice, List<Object>> occurrencesMap = GrIntroduceHandlerBase.fillChoice(context);
-      new IntroduceOccurrencesChooser(editor).showChooser(new Pass<OccurrencesChooser.ReplaceChoice>() {
+      new IntroduceOccurrencesChooser(editor).showChooser(new Pass<>() {
         @Override
         public void pass(OccurrencesChooser.ReplaceChoice choice) {
           startInplace(info, context, choice);
@@ -195,7 +170,7 @@ public class GrIntroduceParameterHandler implements RefactoringActionHandler, Me
   }
 
   @Override
-  public void invoke(@NotNull Project project, @NotNull PsiElement[] elements, DataContext dataContext) {
+  public void invoke(@NotNull Project project, PsiElement @NotNull [] elements, DataContext dataContext) {
     // Does nothing
   }
 

@@ -14,31 +14,21 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 05.06.2002
- * Time: 12:43:27
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.rename;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiMethod;
-import com.intellij.refactoring.RefactoringBundle;
-import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.refactoring.util.RefactoringUIUtil;
-import com.intellij.usageView.UsageViewUtil;
 
 public class FieldHidesLocalUsageInfo extends UnresolvableCollisionUsageInfo {
   public FieldHidesLocalUsageInfo(PsiElement element, PsiElement referencedElement) {
     super(element, referencedElement);
   }
 
+  @Override
   public String getDescription() {
-    String descr = RefactoringBundle.message("local.will.be.hidden.renamed",
-                                             RefactoringUIUtil.getDescription(getElement(), true));
-    return CommonRefactoringUtil.capitalize(descr);
+    return JavaRefactoringBundle.message("local.will.be.hidden.renamed.description",
+                                         RefactoringUIUtil.getDescription(getElement(), true));
   }
 }

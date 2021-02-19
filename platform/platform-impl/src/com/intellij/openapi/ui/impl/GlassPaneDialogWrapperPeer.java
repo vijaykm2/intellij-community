@@ -1,29 +1,16 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.ui.impl;
 
+import com.intellij.diagnostic.LoadingState;
+import com.intellij.icons.AllIcons;
 import com.intellij.ide.DataManager;
+import com.intellij.ide.RemoteDesktopService;
 import com.intellij.ide.impl.TypeSafeDataProviderAdapter;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.actionSystem.TypeSafeDataProvider;
-import com.intellij.openapi.application.Application;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
@@ -33,15 +20,17 @@ import com.intellij.openapi.ui.popup.StackingPopupDispatcher;
 import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.IdeFrame;
-import com.intellij.openapi.wm.WindowManager;
 import com.intellij.openapi.wm.ex.WindowManagerEx;
 import com.intellij.openapi.wm.impl.IdeFrameImpl;
 import com.intellij.openapi.wm.impl.IdeGlassPaneEx;
-import com.intellij.ui.FocusTrackback;
+import com.intellij.ui.ComponentUtil;
 import com.intellij.ui.ScreenUtil;
 import com.intellij.ui.components.JBLayeredPane;
-import com.intellij.util.ui.JBUI;
+import com.intellij.ui.jcef.HwFacadeJPanel;
+import com.intellij.util.MathUtil;
+import com.intellij.util.ui.JBInsets;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -56,72 +45,47 @@ import java.lang.ref.WeakReference;
 /**
  * @author spleaner
  */
-public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements FocusTrackbackProvider {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.ui.impl.GlassPaneDialogWrapperPeer");
+public final class GlassPaneDialogWrapperPeer extends DialogWrapperPeer {
+  private static final Logger LOG = Logger.getInstance(GlassPaneDialogWrapperPeer.class);
 
-  private DialogWrapper myWrapper;
-  private WindowManagerEx myWindowManager;
-  private Project myProject;
+  private final DialogWrapper myWrapper;
   private MyDialog myDialog;
-  private boolean myCanBeParent;
-  private String myTitle;
 
-  public GlassPaneDialogWrapperPeer(DialogWrapper wrapper, Project project, boolean canBeParent) throws GlasspanePeerUnavailableException {
+  public GlassPaneDialogWrapperPeer(@Nullable Project project, DialogWrapper wrapper) throws GlasspanePeerUnavailableException {
     myWrapper = wrapper;
-    myCanBeParent = canBeParent;
-
-    myWindowManager = null;
-    Application application = ApplicationManager.getApplication();
-    if (application != null && application.hasComponent(WindowManager.class)) {
-      myWindowManager = (WindowManagerEx) WindowManager.getInstance();
-    }
 
     Window window = null;
-    if (myWindowManager != null) {
-
+    if (LoadingState.APP_STARTED.isOccurred()) {
       if (project == null) {
         project = CommonDataKeys.PROJECT.getData(DataManager.getInstance().getDataContext());
       }
 
-      myProject = project;
-
-      window = myWindowManager.suggestParentWindow(project);
+      WindowManagerEx windowManager = WindowManagerEx.getInstanceEx();
+      window = windowManager.suggestParentWindow(project);
       if (window == null) {
-        Window focusedWindow = myWindowManager.getMostRecentFocusedWindow();
+        Window focusedWindow = windowManager.getMostRecentFocusedWindow();
         if (focusedWindow instanceof IdeFrameImpl) {
           window = focusedWindow;
         }
       }
     }
 
-    Window owner;
-    if (window != null) {
-      owner = window;
-    } else {
-      owner = JOptionPane.getRootFrame();
-    }
+    Window owner = window != null ? window : JOptionPane.getRootFrame();
 
     createDialog(owner);
   }
 
-  public GlassPaneDialogWrapperPeer(DialogWrapper wrapper, boolean canBeParent) throws GlasspanePeerUnavailableException {
-    this(wrapper, (Project)null, canBeParent);
+  public GlassPaneDialogWrapperPeer(@NotNull DialogWrapper wrapper) throws GlasspanePeerUnavailableException {
+    this(null, wrapper);
   }
 
-  public GlassPaneDialogWrapperPeer(DialogWrapper wrapper, @NotNull Component parent, boolean canBeParent)
-      throws GlasspanePeerUnavailableException {
+  public GlassPaneDialogWrapperPeer(DialogWrapper wrapper, @NotNull Component parent) throws GlasspanePeerUnavailableException {
     myWrapper = wrapper;
-    myCanBeParent = canBeParent;
     if (!parent.isShowing() && parent != JOptionPane.getRootFrame()) {
       throw new IllegalArgumentException("parent must be showing: " + parent);
     }
-    myWindowManager = null;
-    Application application = ApplicationManager.getApplication();
-    if (application != null && application.hasComponent(WindowManager.class)) {
-      myWindowManager = (WindowManagerEx) WindowManager.getInstance();
-    }
 
-    Window owner = parent instanceof Window ? (Window) parent : (Window) SwingUtilities.getAncestorOfClass(Window.class, parent);
+    Window owner = ComponentUtil.getWindow(parent);
     if (!(owner instanceof Dialog) && !(owner instanceof Frame)) {
       owner = JOptionPane.getRootFrame();
     }
@@ -131,34 +95,24 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
 
   private void createDialog(final Window owner) throws GlasspanePeerUnavailableException {
     Window active = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
-    if (!(active instanceof JDialog) && owner instanceof IdeFrame) {
-
-      Component glassPane;
-
-      // Not all successor of IdeFrame are frames
-      if (owner instanceof JFrame) {
-        glassPane = ((JFrame)owner).getGlassPane();
-      }
-      else if (owner instanceof JDialog) {
-        glassPane = ((JDialog)owner).getGlassPane();
-      }
-      else {
-        throw new IllegalStateException("Cannot find glass pane for " + owner.getClass().getName());
-      }
-
-      assert glassPane instanceof IdeGlassPaneEx : "GlassPane should be instance of IdeGlassPane!";
-      myDialog = new MyDialog((IdeGlassPaneEx) glassPane, myWrapper, myProject);
-    } else {
+    if (active instanceof JDialog || !(owner instanceof IdeFrame)) {
       throw new GlasspanePeerUnavailableException();
     }
-  }
 
-  @Override
-  public FocusTrackback getFocusTrackback() {
-    if (myDialog != null) {
-      return myDialog.getFocusTrackback();
+    Component glassPane;
+    // Not all successor of IdeFrame are frames
+    if (owner instanceof JFrame) {
+      glassPane = ((JFrame)owner).getGlassPane();
     }
-     return null;
+    else if (owner instanceof JDialog) {
+      glassPane = ((JDialog)owner).getGlassPane();
+    }
+    else {
+      throw new IllegalStateException("Cannot find glass pane for " + owner.getClass().getName());
+    }
+
+    assert glassPane instanceof IdeGlassPaneEx : "GlassPane should be instance of IdeGlassPane!";
+    myDialog = new MyDialog((IdeGlassPaneEx)glassPane, myWrapper);
   }
 
   @Override
@@ -198,8 +152,6 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
     if (myDialog != null) {
       Disposer.dispose(myDialog);
       myDialog = null;
-      myProject = null;
-      myWindowManager = null;
     }
   }
 
@@ -269,7 +221,6 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
 
   @Override
   public void setTitle(final String title) {
-    myTitle = title;
   }
 
   // TODO: WTF?! VOID?!!!
@@ -304,19 +255,7 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
 
     SwingUtilities.convertPointFromScreen(_p, pane);
 
-    final Insets insets = myDialog.getInsets();
-
-    // todo: fix coords to include shadow (border) paddings
-    // todo: reimplement dragging in every client to calculate window position properly
-    int _x = _p.x - insets.left;
-    int _y = _p.y - insets.top;
-
-    final Container container = myDialog.getTransparentPane();
-
-    _x = _x > 0 ? (_x + myDialog.getWidth() < container.getWidth() ? _x : container.getWidth() - myDialog.getWidth()) : 0;
-    _y = _y > 0 ? (_y + myDialog.getHeight() < container.getHeight() ? _y : container.getHeight() - myDialog.getHeight()) : 0;
-
-    myDialog.setLocation(_x, _y);
+    myDialog.setLocation(_p.x, _p.y);
   }
 
   @Override
@@ -327,7 +266,7 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
 
     myDialog.setVisible(true);
 
-    return new ActionCallback.Done();
+    return ActionCallback.DONE;
   }
 
   @Override
@@ -376,37 +315,38 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
   private void hidePopupsIfNeeded() {
     if (!SystemInfo.isMac) return;
 
-    StackingPopupDispatcher.getInstance().hidePersistentPopups();
+    final StackingPopupDispatcher stackingPopupDispatcher = StackingPopupDispatcher.getInstance();
+    stackingPopupDispatcher.hidePersistentPopups();
 
     Disposer.register(myDialog, new Disposable() {
       @Override
       public void dispose() {
-        StackingPopupDispatcher.getInstance().restorePersistentPopups();
+        stackingPopupDispatcher.restorePersistentPopups();
       }
     });
   }
 
-  private static class MyDialog extends JPanel implements Disposable, DialogWrapperDialog, DataProvider, FocusTrackback.Provider {
+  private static final class MyDialog extends HwFacadeJPanel implements Disposable, DialogWrapperDialog, DataProvider {
     private final WeakReference<DialogWrapper> myDialogWrapper;
     private final IdeGlassPaneEx myPane;
     private JComponent myContentPane;
     private MyRootPane myRootPane;
     private BufferedImage shadow;
+    private int shadowWidth;
+    private int shadowHeight;
     private final JLayeredPane myTransparentPane;
-    private JButton myDefaultButton;
-    private Dimension myShadowSize = null;
     private final Container myWrapperPane;
     private Component myPreviouslyFocusedComponent;
     private Dimension myCachedSize = null;
 
-    private MyDialog(IdeGlassPaneEx pane, DialogWrapper wrapper, Project project) {
+    private MyDialog(IdeGlassPaneEx pane, DialogWrapper wrapper) {
       setLayout(new BorderLayout());
       setOpaque(false);
-      setBorder(BorderFactory.createEmptyBorder(ShadowBorderPainter.TOP_SIZE, ShadowBorderPainter.SIDE_SIZE,
-          ShadowBorderPainter.BOTTOM_SIZE, ShadowBorderPainter.SIDE_SIZE));
+      setBorder(BorderFactory.createEmptyBorder(AllIcons.Ide.Shadow.Top.getIconHeight(), AllIcons.Ide.Shadow.Left.getIconWidth(),
+                                                AllIcons.Ide.Shadow.Bottom.getIconHeight(), AllIcons.Ide.Shadow.Right.getIconWidth()));
 
       myPane = pane;
-      myDialogWrapper = new WeakReference<DialogWrapper>(wrapper);
+      myDialogWrapper = new WeakReference<>(wrapper);
 //      myProject = new WeakReference<Project>(project);
 
       myRootPane = new MyRootPane(this); // be careful with DialogWrapper.dispose()!
@@ -442,7 +382,8 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
                 if (myCachedSize == null) {
                   myCachedSize = c.getPreferredSize();
                   location = getLocationInCenter(myCachedSize, c.getLocation());
-                } else {
+                }
+                else {
                   location = c.getLocation();
                 }
 
@@ -451,11 +392,12 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
 
                 final DialogWrapper dialogWrapper = myDialogWrapper.get();
                 if (dialogWrapper != null) {
-                  final int width = (int) (_width * dialogWrapper.getHorizontalStretch());
-                  final int height = (int) (_height * dialogWrapper.getVerticalStretch());
-                  c.setBounds((int) location.getX(), (int) location.getY(), width, height);
-                } else {
-                  c.setBounds((int) location.getX(), (int) location.getY(), (int) _width, (int) _height);
+                  final int width = (int)(_width * dialogWrapper.getHorizontalStretch());
+                  final int height = (int)(_height * dialogWrapper.getVerticalStretch());
+                  c.setBounds((int)location.getX(), (int)location.getY(), width, height);
+                }
+                else {
+                  c.setBounds((int)location.getX(), (int)location.getY(), (int)_width, (int)_height);
                 }
               }
             }
@@ -475,10 +417,6 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
       });
 
       return result;
-    }
-
-    public Container getTransparentPane() {
-      return myTransparentPane;
     }
 
     private TransparentLayeredPane getExistingTransparentPane() {
@@ -531,7 +469,8 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
         myTransparentPane.repaint();
 
         if (myPreviouslyFocusedComponent != null) {
-          myPreviouslyFocusedComponent.requestFocus();
+          Component component = myPreviouslyFocusedComponent;
+          IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(component, true));
           myPreviouslyFocusedComponent = null;
         }
 
@@ -544,7 +483,7 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
 
     @Override
     public void paint(final Graphics g) {
-      UIUtil.applyRenderingHints(g);
+      UISettings.setupAntialiasing(g);
       super.paint(g);
     }
 
@@ -568,54 +507,32 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
     }
 
     @Override
-    public void setBounds(final int x, final int y, final int width, final int height) {
-      super.setBounds(x, y, width, height);
-
-      if (myShadowSize == null || !myShadowSize.equals(getSize())) {
-        createShadow();
-        myShadowSize = getSize();
-      }
-    }
-
-    @Override
-    public void setLocation(final int x, final int y) {
+    public void setBounds(int x, int y, int width, int height) {
       final Container p = myTransparentPane;
       if (p != null) {
-        final Dimension s = p.getSize();
+        Rectangle bounds = new Rectangle(p.getWidth() - width, p.getHeight() - height);
+        JBInsets.removeFrom(bounds, getInsets());
 
-        final int _x = (int) (x + getWidth() > s.getWidth() ? s.getWidth() - getWidth() : x);
-        final int _y = (int) (y + getHeight() > s.getHeight() ? s.getHeight() - getHeight() : y);
-        super.setLocation(_x, _y);
-      } else {
-        super.setLocation(x, y);
+        x = bounds.width < 0 ? bounds.width / 2 : MathUtil.clamp(x, bounds.x, bounds.x + bounds.width);
+        y = bounds.height < 0 ? bounds.height / 2 : MathUtil.clamp(y, bounds.y, bounds.y + bounds.height);
       }
-    }
+      super.setBounds(x, y, width, height);
 
-    private void createShadow() {
-      if (!UISettings.isRemoteDesktopConnected() && !JBUI.isHiDPI()) {
-        shadow = ShadowBorderPainter.createShadow(this, getWidth(), getHeight());
+      if (RemoteDesktopService.isRemoteSession()) {
+        shadow = null;
+      }
+      else if (shadow == null || shadowWidth != width || shadowHeight != height) {
+        shadow = ShadowBorderPainter.createShadow(this, width, height);
+        shadowWidth = width;
+        shadowHeight = height;
       }
     }
 
     @Override
     public void dispose() {
       remove(getContentPane());
-      repaint();
-
-      final Runnable disposer = new Runnable() {
-        @Override
-        public void run() {
-          setVisible(false);
-        }
-      };
-
-      if (EventQueue.isDispatchThread()) {
-        disposer.run();
-      } else {
-        //noinspection SSBasedInspection
-        SwingUtilities.invokeLater(disposer);
-      }
-
+      setVisible(false);
+      DialogWrapper.unregisterKeyboardActions(myWrapperPane);
       myRootPane = null;
     }
 
@@ -645,7 +562,7 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
     }
 
     @Override
-    public Object getData(@NonNls final String dataId) {
+    public Object getData(@NotNull @NonNls final String dataId) {
       final DialogWrapper wrapper = myDialogWrapper.get();
       if (wrapper instanceof DataProvider) {
         return ((DataProvider) wrapper).getData(dataId);
@@ -668,11 +585,6 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
       super.setSize(rect.width, rect.height);
     }
 
-    @Override
-    public FocusTrackback getFocusTrackback() {
-      return null;
-    }
-
     @Nullable
     private Point getLocationInCenter(Dimension size, @Nullable Point _default) {
       if (myTransparentPane != null) {
@@ -691,13 +603,12 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
       }
     }
 
-    public void setDefaultButton(final JButton defaultButton) {
+    public void setDefaultButton(JButton defaultButton) {
       //((JComponent)myPane).getRootPane().setDefaultButton(defaultButton);
-      myDefaultButton = defaultButton;
     }
   }
 
-  private static class MyRootPane extends JRootPane implements Disposable {
+  private static final class MyRootPane extends JRootPane implements Disposable {
     private MyDialog myDialog;
 
     private MyRootPane(final MyDialog dialog) {
@@ -713,6 +624,7 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
 
     @Override
     public void dispose() {
+      DialogWrapper.cleanupRootPane(this);
       myDialog = null;
     }
 
@@ -733,12 +645,18 @@ public class GlassPaneDialogWrapperPeer extends DialogWrapperPeer implements Foc
     public void setDefaultButton(final JButton defaultButton) {
       myDialog.setDefaultButton(defaultButton);
     }
+
+    @Override
+    public void setContentPane(Container contentPane) {
+      super.setContentPane(contentPane);
+      contentPane.addMouseMotionListener(new MouseMotionAdapter() {}); // listen to mouse motion events for a11y
+    }
   }
 
   public static class GlasspanePeerUnavailableException extends Exception {
   }
 
-  public static class TransparentLayeredPane extends JBLayeredPane {
+  public static final class TransparentLayeredPane extends JBLayeredPane {
     private TransparentLayeredPane() {
       setLayout(new BorderLayout());
       setOpaque(false);

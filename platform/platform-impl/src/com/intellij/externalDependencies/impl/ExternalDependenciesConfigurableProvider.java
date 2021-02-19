@@ -18,12 +18,8 @@ package com.intellij.externalDependencies.impl;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurableProvider;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.registry.Registry;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author nik
- */
 public class ExternalDependenciesConfigurableProvider extends ConfigurableProvider {
   private final Project myProject;
 
@@ -35,10 +31,5 @@ public class ExternalDependenciesConfigurableProvider extends ConfigurableProvid
   @Override
   public Configurable createConfigurable() {
     return new ExternalDependenciesConfigurable(myProject);
-  }
-
-  @Override
-  public boolean canCreateConfigurable() {
-    return Registry.is("ide.configure.project.external.dependencies");
   }
 }

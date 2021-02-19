@@ -21,7 +21,6 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiWhiteSpace;
 import com.intellij.psi.PsiErrorElement;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.psi.xml.XmlText;
 
@@ -46,16 +45,6 @@ public class XmlPolicy extends XmlFormattingPolicy{
   }
 
   @Override
-  public boolean insertLineBreakBeforeFirstAttribute(XmlAttribute attribute) {
-    return false;
-  }
-
-  @Override
-  public boolean insertLineBreakAfterLastAttribute(XmlAttribute attribute) {
-    return false;
-  }
-
-  @Override
   public boolean insertLineBreakAfterTagBegin(XmlTag tag) {
     return false;
   }
@@ -67,14 +56,13 @@ public class XmlPolicy extends XmlFormattingPolicy{
 
   @Override
   public WrapType getWrappingTypeForTagEnd(final XmlTag xmlTag) {
-    return xmlTag.getSubTags().length > 0 ? WrapType.ALWAYS
-           : WrapType.NORMAL;
+    return AbstractXmlBlock.hasSubTags(xmlTag) ? WrapType.ALWAYS : WrapType.NORMAL;
   }
 
   @Override
   public WrapType getWrappingTypeForTagBegin(final XmlTag tag) {
     final PsiElement element = tag.getNextSibling();
-    if (element instanceof XmlText && !(element.getFirstChild() instanceof PsiWhiteSpace) && tag.getSubTags().length == 0) return WrapType.NORMAL;
+    if (element instanceof XmlText && !(element.getFirstChild() instanceof PsiWhiteSpace) && !AbstractXmlBlock.hasSubTags(tag)) return WrapType.NORMAL;
     return WrapType.ALWAYS;
   }
 
@@ -162,4 +150,8 @@ public class XmlPolicy extends XmlFormattingPolicy{
     return false;
   }
 
+  @Override
+  public boolean isKeepSpacesAroundInlineTags() {
+    return true;
+  }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.dom;
 
 import com.intellij.lang.properties.IProperty;
@@ -38,6 +24,8 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.XmlElement;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.testFramework.LightVirtualFile;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xml.*;
 import com.intellij.util.xml.reflect.DomCollectionChildDescription;
@@ -45,11 +33,14 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.dom.model.*;
 import org.jetbrains.idea.maven.model.MavenConstants;
+import org.jetbrains.idea.maven.model.MavenCoordinate;
 import org.jetbrains.idea.maven.model.MavenId;
 import org.jetbrains.idea.maven.model.MavenResource;
+import org.jetbrains.idea.maven.plugins.groovy.MavenGroovyPomCompletionContributor;
 import org.jetbrains.idea.maven.project.MavenProject;
 import org.jetbrains.idea.maven.project.MavenProjectsManager;
 import org.jetbrains.idea.maven.utils.MavenLog;
+import org.jetbrains.idea.maven.utils.MavenUtil;
 
 import java.util.Collections;
 import java.util.HashSet;
@@ -58,7 +49,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class MavenDomUtil {
+public final class MavenDomUtil {
 
   private static final Key<Pair<Long, Set<VirtualFile>>> FILTERED_RESOURCES_ROOTS_KEY = Key.create("MavenDomUtil.FILTERED_RESOURCES_ROOTS");
 
@@ -75,10 +66,15 @@ public class MavenDomUtil {
   public static boolean isProjectFile(PsiFile file) {
     if (!(file instanceof XmlFile)) return false;
 
-    String name = file.getName();
-    return name.equals(MavenConstants.POM_XML) ||
-           name.endsWith(".pom") ||
-           name.equals(MavenConstants.SUPER_POM_XML);
+    XmlTag rootTag = ((XmlFile)file).getRootTag();
+    if (rootTag == null || !"project".equals(rootTag.getName())) return false;
+
+    String xmlns = rootTag.getAttributeValue("xmlns");
+    if (xmlns != null && xmlns.startsWith("http://maven.apache.org/POM/")) {
+      return true;
+    }
+
+    return MavenUtil.isPomFileName(file.getName());
   }
 
   public static boolean isProfilesFile(PsiFile file) {
@@ -89,9 +85,6 @@ public class MavenDomUtil {
 
   public static boolean isSettingsFile(PsiFile file) {
     if (!(file instanceof XmlFile)) return false;
-
-    String name = file.getName();
-    if (!name.equals(MavenConstants.SETTINGS_XML)) return false;
 
     XmlTag rootTag = ((XmlFile)file).getRootTag();
     if (rootTag == null || !"settings".equals(rootTag.getName())) return false;
@@ -153,14 +146,15 @@ public class MavenDomUtil {
     MavenDomParent result = mavenModel.getMavenParent();
 
     VirtualFile pomFile = DomUtil.getFile(mavenModel).getVirtualFile();
-    Project project = mavenModel.getXmlElement().getProject();
+    Project project = mavenModel.getManager().getProject();
 
     MavenId parentId = parentProject.getMavenId();
     result.getGroupId().setStringValue(parentId.getGroupId());
     result.getArtifactId().setStringValue(parentId.getArtifactId());
     result.getVersion().setStringValue(parentId.getVersion());
 
-    if (!Comparing.equal(pomFile.getParent().getParent(), parentProject.getDirectoryFile())) {
+    if (!Comparing.equal(pomFile.getParent().getParent(), parentProject.getDirectoryFile())
+        || !FileUtil.namesEqual(MavenConstants.POM_XML, parentProject.getFile().getName())) {
       result.getRelativePath().setValue(PsiManager.getInstance(project).findFile(parentProject.getFile()));
     }
 
@@ -188,7 +182,11 @@ public class MavenDomUtil {
   private static VirtualFile getVirtualFile(PsiFile psiFile) {
     if (psiFile == null) return null;
     psiFile = psiFile.getOriginalFile();
-    return psiFile.getVirtualFile();
+    VirtualFile virtualFile = psiFile.getVirtualFile();
+    if (virtualFile instanceof LightVirtualFile) {
+      virtualFile = ObjectUtils.chooseNotNull(psiFile.getUserData(MavenGroovyPomCompletionContributor.ORIGINAL_POM_FILE), virtualFile);
+    }
+    return virtualFile;
   }
 
   @Nullable
@@ -322,6 +320,7 @@ public class MavenDomUtil {
     return prop == null ? null : prop.getPsiElement().getFirstChild().getNextSibling().getNextSibling();
   }
 
+  @Nullable
   private static Set<VirtualFile> getFilteredResourcesRoots(@NotNull MavenProject mavenProject) {
     Pair<Long, Set<VirtualFile>> cachedValue = mavenProject.getCachedValue(FILTERED_RESOURCES_ROOTS_KEY);
 
@@ -331,11 +330,15 @@ public class MavenDomUtil {
       for (MavenResource resource : ContainerUtil.concat(mavenProject.getResources(), mavenProject.getTestResources())) {
         if (!resource.isFiltered()) continue;
 
-        VirtualFile resourceDir = LocalFileSystem.getInstance().findFileByPath(resource.getDirectory());
+        String resourceDirectory = resource.getDirectory();
+        if (resourceDirectory == null) {
+          continue;
+        }
+        VirtualFile resourceDir = LocalFileSystem.getInstance().findFileByPath(resourceDirectory);
         if (resourceDir == null) continue;
 
         if (set == null) {
-          set = new HashSet<VirtualFile>();
+          set = new HashSet<>();
         }
 
         set.add(resourceDir);
@@ -353,10 +356,11 @@ public class MavenDomUtil {
   }
 
   public static boolean isFilteredResourceFile(PsiElement element) {
-    VirtualFile file = getVirtualFile(element);
+    PsiFile psiFile = element.getContainingFile();
+    VirtualFile file = getVirtualFile(psiFile);
     if (file == null) return false;
 
-    MavenProjectsManager manager = MavenProjectsManager.getInstance(element.getProject());
+    MavenProjectsManager manager = MavenProjectsManager.getInstance(psiFile.getProject());
     MavenProject mavenProject = manager.findContainingProject(file);
     if (mavenProject == null) return false;
 
@@ -377,8 +381,13 @@ public class MavenDomUtil {
     return DomService.getInstance().getFileElements(MavenDomProjectModel.class, p, GlobalSearchScope.projectScope(p));
   }
 
+  @NotNull
   public static MavenId describe(PsiFile psiFile) {
     MavenDomProjectModel model = getMavenDomModel(psiFile, MavenDomProjectModel.class);
+
+    if (model == null) {
+      return new MavenId(null, null, null);
+    }
 
     String groupId = model.getGroupId().getStringValue();
     String artifactId = model.getArtifactId().getStringValue();
@@ -399,13 +408,15 @@ public class MavenDomUtil {
   public static MavenDomDependency createDomDependency(MavenDomProjectModel model,
                                                        @Nullable Editor editor,
                                                        @NotNull final MavenId id) {
+
     return createDomDependency(model.getDependencies(), editor, id);
   }
+
 
   @NotNull
   public static MavenDomDependency createDomDependency(MavenDomDependencies dependencies,
                                                        @Nullable Editor editor,
-                                                       @NotNull final MavenId id) {
+                                                       @NotNull final MavenCoordinate id) {
     MavenDomDependency dep = createDomDependency(dependencies, editor);
 
     dep.getGroupId().setStringValue(id.getGroupId());
@@ -452,5 +463,22 @@ public class MavenDomUtil {
       }
     }
     return -1;
+  }
+
+  @NotNull
+  public static String getProjectName(MavenDomProjectModel model) {
+    MavenProject mavenProject = findProject(model);
+    if (mavenProject != null) {
+      return mavenProject.getDisplayName();
+    }
+    else {
+      String name = model.getName().getStringValue();
+      if (!StringUtil.isEmptyOrSpaces(name)) {
+        return name;
+      }
+      else {
+        return "pom.xml"; // ?
+      }
+    }
   }
 }

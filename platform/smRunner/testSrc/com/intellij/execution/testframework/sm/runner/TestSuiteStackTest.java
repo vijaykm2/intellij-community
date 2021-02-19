@@ -15,8 +15,7 @@
  */
 package com.intellij.execution.testframework.sm.runner;
 
-import com.intellij.testFramework.exceptionCases.AssertionErrorCase;
-import com.intellij.util.SystemProperties;
+import com.intellij.openapi.diagnostic.DefaultLogger;
 
 /**
  * @author Roman Chernyatchik
@@ -28,7 +27,7 @@ public class TestSuiteStackTest extends BaseSMTRunnerTestCase {
   protected void setUp() throws Exception {
     super.setUp();
 
-    myTestSuiteStack = new TestSuiteStack();
+    myTestSuiteStack = new TestSuiteStack("from tests");
   }
 
   @Override
@@ -71,22 +70,19 @@ public class TestSuiteStackTest extends BaseSMTRunnerTestCase {
   }
 
   public void testPopEmptySuite_DebugMode() throws Throwable {
-    // enable debug mode
+    DefaultLogger.disableStderrDumping(getTestRootDisposable());
+
     enableDebugMode();
 
-    assertException(new AssertionErrorCase() {
-      @Override
-      public void tryClosure() {
-        myTestSuiteStack.popSuite("some suite");
-      }
-    });
+    assertThrows(Throwable.class, () -> myTestSuiteStack.popSuite("some suite"));
   }
 
-  public void testPopEmptySuite_NormalMode() throws Throwable {
+  public void testPopEmptySuite_NormalMode() {
     assertNull(myTestSuiteStack.popSuite("some suite"));
   }
 
   public void testPopInconsistentSuite_DebugMode() throws Throwable {
+    DefaultLogger.disableStderrDumping(getTestRootDisposable());
     enableDebugMode();
 
     final String suiteName = mySuite.getName();
@@ -99,16 +95,11 @@ public class TestSuiteStackTest extends BaseSMTRunnerTestCase {
     assertEquals(4, myTestSuiteStack.getStackSize());
     assertEquals("3", myTestSuiteStack.getCurrentSuite().getName());
 
-    assertException(new AssertionErrorCase() {
-      @Override
-      public void tryClosure() {
-        myTestSuiteStack.popSuite(suiteName);
-      }
-    });
+    assertThrows(Throwable.class, () -> myTestSuiteStack.popSuite(suiteName));
     assertEquals(4, myTestSuiteStack.getStackSize());
   }
 
-  public void testPopInconsistentSuite_NormalMode() throws Throwable {
+  public void testPopInconsistentSuite_NormalMode() {
     final String suiteName = mySuite.getName();
 
     myTestSuiteStack.pushSuite(createSuiteProxy("0"));
@@ -124,7 +115,7 @@ public class TestSuiteStackTest extends BaseSMTRunnerTestCase {
     assertEquals(1, myTestSuiteStack.getStackSize());
   }
 
-  public void testPopSuite() throws Throwable {
+  public void testPopSuite() {
     final String suiteName = mySuite.getName();
 
     myTestSuiteStack.pushSuite(mySuite);

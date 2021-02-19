@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.vcs.log.graph.parser;
 
 import com.intellij.openapi.util.Pair;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.vcs.log.graph.api.EdgeFilter;
@@ -25,10 +10,12 @@ import com.intellij.vcs.log.graph.api.LinearGraph;
 import com.intellij.vcs.log.graph.api.elements.GraphEdge;
 import com.intellij.vcs.log.graph.api.elements.GraphEdgeType;
 import com.intellij.vcs.log.graph.api.elements.GraphNode;
+import gnu.trove.TIntIntHashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -40,10 +27,10 @@ import static com.intellij.vcs.log.graph.parser.EdgeNodeCharConverter.parseGraph
 public class LinearGraphParser {
 
   public static LinearGraph parse(@NotNull String in) {
-    List<GraphNode> graphNodes = new ArrayList<GraphNode>();
+    List<GraphNode> graphNodes = new ArrayList<>();
 
-    Map<GraphNode, List<String>> edges = ContainerUtil.newHashMap();
-    Map<Integer, Integer> nodeIdToNodeIndex = ContainerUtil.newHashMap();
+    Map<GraphNode, List<String>> edges = new HashMap<>();
+    TIntIntHashMap nodeIdToNodeIndex = new TIntIntHashMap();
 
     for (String line : toLines(in)) { // parse input and create nodes
       Pair<Pair<Integer, GraphNode>, List<String>> graphNodePair = parseLine(line, graphNodes.size());
@@ -65,8 +52,8 @@ public class LinearGraphParser {
         switch (type) {
           case USUAL:
           case DOTTED:
-            Integer downNodeIndex = nodeIdToNodeIndex.get(pairEdge.first);
-            assert downNodeIndex != null;
+            assert nodeIdToNodeIndex.containsKey(pairEdge.first);
+            int downNodeIndex = nodeIdToNodeIndex.get(pairEdge.first);
             edge = GraphEdge.createNormalEdge(graphNode.getNodeIndex(), downNodeIndex, type);
             break;
 
@@ -98,22 +85,18 @@ public class LinearGraphParser {
     GraphNode graphNode = new GraphNode(lineNumber, parseGraphNodeType(pair.second));
 
     String[] edges = line.substring(separatorIndex + 2).split("\\s");
-    List<String> normalEdges = ContainerUtil.mapNotNull(edges, new Function<String, String>() {
-      @Nullable
-      @Override
-      public String fun(String s) {
-        if (s.isEmpty()) return null;
-        return s;
-      }
+    List<String> normalEdges = ContainerUtil.mapNotNull(edges, s -> {
+      if (s.isEmpty()) return null;
+      return s;
     });
     return Pair.create(Pair.create(pair.first, graphNode), normalEdges);
   }
 
   private static Pair<Integer, Character> parseNumberWithChar(@NotNull String in) {
-    return new Pair<Integer, Character>(Integer.decode(in.substring(0, in.length() - 2)), in.charAt(in.length() - 1));
+    return new Pair<>(Integer.decode(in.substring(0, in.length() - 2)), in.charAt(in.length() - 1));
   }
 
-  private static class TestLinearGraphWithElementsInfo implements LinearGraph {
+  private static final class TestLinearGraphWithElementsInfo implements LinearGraph {
 
     private final List<GraphNode> myGraphNodes;
     private final MultiMap<Integer, GraphEdge> myUpEdges;
@@ -135,7 +118,7 @@ public class LinearGraphParser {
     @NotNull
     @Override
     public List<GraphEdge> getAdjacentEdges(int nodeIndex, @NotNull EdgeFilter filter) {
-      List<GraphEdge> result = ContainerUtil.newArrayList();
+      List<GraphEdge> result = new ArrayList<>();
 
       for (GraphEdge upEdge : myUpEdges.get(nodeIndex)) {
         if (upEdge.getType().isNormalEdge() && filter.upNormal) result.add(upEdge);

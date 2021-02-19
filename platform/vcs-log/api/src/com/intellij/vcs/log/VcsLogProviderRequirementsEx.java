@@ -15,16 +15,17 @@
  */
 package com.intellij.vcs.log;
 
+import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Set;
+import java.util.Collection;
 
 import static com.intellij.vcs.log.VcsLogProvider.Requirements;
 
 /**
  * Extension of the standard {@link Requirements} which contains data used by some VCSs. <br/>
- * An object of this object is actually passed to {@link #readFirstBlock(com.intellij.util.Consumer}, but VcsLogProviders
- * which need this additional information must check for instanceof before casting & be able to fallback.
+ * An instance of this class is actually passed to {@link VcsLogProvider#readFirstBlock(VirtualFile, Requirements)},
+ * but VcsLogProviders which need this additional information must check for instanceof before casting & be able to fallback.
  */
 public interface VcsLogProviderRequirementsEx extends Requirements {
 
@@ -38,6 +39,5 @@ public interface VcsLogProviderRequirementsEx extends Requirements {
    * Returns the refs which were in the log before the refresh request.
    */
   @NotNull
-  Set<VcsRef> getPreviousRefs();
-
+  Collection<VcsRef> getPreviousRefs();
 }

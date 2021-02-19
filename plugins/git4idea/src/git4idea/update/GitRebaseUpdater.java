@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.update;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -20,41 +6,53 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.VcsNotifier;
+import com.intellij.openapi.vcs.changes.Change;
+import com.intellij.openapi.vcs.impl.LocalChangesUnderRoots;
 import com.intellij.openapi.vcs.update.UpdatedFiles;
-import com.intellij.openapi.vfs.VirtualFile;
-import git4idea.GitBranch;
+import com.intellij.util.containers.ContainerUtil;
 import git4idea.GitUtil;
 import git4idea.branch.GitBranchPair;
 import git4idea.commands.Git;
 import git4idea.commands.GitCommandResult;
+import git4idea.i18n.GitBundle;
 import git4idea.rebase.GitRebaser;
 import git4idea.repo.GitRepository;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Handles 'git pull --rebase'
  */
-public class GitRebaseUpdater extends GitUpdater {
+public final class GitRebaseUpdater extends GitUpdater {
   private static final Logger LOG = Logger.getInstance(GitRebaseUpdater.class.getName());
   private final GitRebaser myRebaser;
+  @NotNull private final GitBranchPair myBranchPair;
 
   public GitRebaseUpdater(@NotNull Project project,
                           @NotNull Git git,
-                          @NotNull VirtualFile root,
-                          @NotNull final Map<VirtualFile, GitBranchPair> trackedBranches,
+                          @NotNull GitRepository repository,
+                          @NotNull GitBranchPair branchPair,
                           @NotNull ProgressIndicator progressIndicator,
                           @NotNull UpdatedFiles updatedFiles) {
-    super(project, git, root, trackedBranches, progressIndicator, updatedFiles);
+    super(project, git, repository, progressIndicator, updatedFiles);
     myRebaser = new GitRebaser(myProject, git, myProgressIndicator);
+    myBranchPair = branchPair;
   }
 
   @Override
   public boolean isSaveNeeded() {
-    return true;
+    Collection<Change> localChanges = LocalChangesUnderRoots.getChangesUnderRoots(Collections.singletonList(myRoot), myProject).get(myRoot);
+    try {
+      return !ContainerUtil.isEmpty(localChanges) ||
+             GitUtil.hasLocalChanges(true, myProject, myRoot);
+    }
+    catch (VcsException e) {
+      LOG.info("isSaveNeeded failed to check local changes", e);
+      return true;
+    }
   }
 
   @NotNull
@@ -63,27 +61,23 @@ public class GitRebaseUpdater extends GitUpdater {
     LOG.info("doUpdate ");
     String remoteBranch = getRemoteBranchToMerge();
     List<String> params = Collections.singletonList(remoteBranch);
-    return myRebaser.rebase(myRoot, params, new Runnable() {
-      @Override
-      public void run() {
-        cancel();
-      }
-    }, null);
+    return myRebaser.rebase(myRoot, params, () -> cancel(), null);
   }
 
   @NotNull
   private String getRemoteBranchToMerge() {
-    GitBranchPair gitBranchPair = myTrackedBranches.get(myRoot);
-    GitBranch dest = gitBranchPair.getDest();
-    LOG.assertTrue(dest != null, String.format("Destination branch is null for source branch %s in %s",
-                                               gitBranchPair.getBranch().getName(), myRoot));
-    return dest.getName();
+    return myBranchPair.getTarget().getName();
   }
 
   public void cancel() {
     myRebaser.abortRebase(myRoot);
-    myProgressIndicator.setText2("Refreshing files for the root " + myRoot.getPath());
+    myProgressIndicator.setText2(GitBundle.message("progress.details.refreshing.files.for.root", myRoot.getPath()));
     myRoot.refresh(false, true);
+  }
+
+  @NotNull
+  GitBranchPair getSourceAndTarget() {
+    return myBranchPair;
   }
 
   @Override
@@ -103,27 +97,26 @@ public class GitRebaseUpdater extends GitUpdater {
       return false;
     }
     try {
-      markStart(myRoot);
+      markStart(repository);
     }
     catch (VcsException e) {
-      LOG.info("Couldn't mark start for repository " + myRoot, e);
+      LOG.info("Couldn't mark start for repository " + repository, e);
       return false;
     }
 
     GitCommandResult result = myGit.merge(repository, getRemoteBranchToMerge(), Collections.singletonList("--ff-only"));
 
     try {
-      markEnd(myRoot);
+      markEnd(repository);
     }
     catch (VcsException e) {
       // this is not critical, and update has already happened,
       // so we just notify the user about problems with collecting the updated changes.
-      LOG.info("Couldn't mark end for repository " + myRoot, e);
+      LOG.info("Couldn't mark end for repository " + repository, e);
       VcsNotifier.getInstance(myProject).
-        notifyMinorWarning("Couldn't collect the updated files info",
-                           String.format("Update of %s was successful, but we couldn't collect the updated changes because of an error",
-                                         myRoot), null
-        );
+        notifyMinorWarning("git.rebase.collect.updated.changes.error",
+                           GitBundle.message("notification.title.couldnt.collect.updated.files.info"),
+                           GitBundle.message("notification.content.couldnt.collect.updated.files.info", repository));
     }
     return result.success();
   }

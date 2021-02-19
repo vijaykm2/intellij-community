@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,47 +15,24 @@
  */
 package com.intellij.profile;
 
-import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.InvalidDataException;
-import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.openapi.options.ExternalizableScheme;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.xmlb.SmartSerializer;
 import com.intellij.util.xmlb.annotations.OptionTag;
-import com.intellij.util.xmlb.annotations.Transient;
-import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * User: anna
- * Date: 01-Dec-2005
- */
-public abstract class ProfileEx implements Profile {
-  private static final Logger LOG = Logger.getInstance(ProfileEx.class);
-
+public abstract class ProfileEx implements Comparable, ExternalizableScheme {
   public static final String SCOPE = "scope";
   public static final String NAME = "name";
+  public static final String PROFILE = "profile";
 
-  private final SmartSerializer mySerializer;
+  protected final SmartSerializer mySerializer;
 
-  @NotNull
-  protected String myName;
-
-  @SuppressWarnings("unused")
-  @OptionTag("myLocal")
-  // exists only to preserve compatibility
-  private boolean myLocal;
-
-  protected ProfileManager myProfileManager;
-
-  private boolean myIsProjectLevel;
+  protected @NotNull @NlsSafe String myName;
 
   public ProfileEx(@NotNull String name) {
-    this(name, SmartSerializer.skipEmptySerializer());
-  }
-
-  protected ProfileEx(@NotNull String name, @NotNull SmartSerializer serializer) {
     myName = name;
-    mySerializer = serializer;
+    mySerializer = SmartSerializer.skipEmptySerializer();
   }
 
   @Override
@@ -67,92 +44,25 @@ public abstract class ProfileEx implements Profile {
   }
 
   @Override
-  public void copyFrom(@NotNull Profile profile) {
-    try {
-      Element config = new Element("config");
-      profile.writeExternal(config);
-      readExternal(config);
-    }
-    catch (WriteExternalException e) {
-      LOG.error(e);
-    }
-    catch (InvalidDataException e) {
-      LOG.error(e);
-    }
-  }
-
-  @Override
-  @Transient
-  public boolean isLocal() {
-    return !myIsProjectLevel;
-  }
-
-  @Override
-  @Transient
-  public boolean isProjectLevel() {
-    return myIsProjectLevel;
-  }
-
-  @Override
-  public void setProjectLevel(boolean isProjectLevel) {
-    myIsProjectLevel = isProjectLevel;
-  }
-
-  @Override
-  public void setLocal(boolean isLocal) {
-    myIsProjectLevel = !isLocal;
-  }
-
-  @Override
   public void setName(@NotNull String name) {
     myName = name;
   }
 
   @Override
-  @NotNull
-  @Transient
-  public ProfileManager getProfileManager() {
-    return myProfileManager;
-  }
-
-  @Override
-  public void setProfileManager(@NotNull ProfileManager profileManager) {
-    myProfileManager = profileManager;
-  }
-
-  @Override
-  public void readExternal(Element element) throws InvalidDataException {
-    mySerializer.readExternal(this, element);
-  }
-
-  public void serializeInto(@NotNull Element element, boolean preserveCompatibility) {
-    mySerializer.writeExternal(this, element, preserveCompatibility);
-  }
-
-  @Override
-  public void writeExternal(Element element) throws WriteExternalException {
-    serializeInto(element, true);
-  }
-
-  public void profileChanged() {
-  }
-
   public boolean equals(Object o) {
     return this == o || o instanceof ProfileEx && myName.equals(((ProfileEx)o).myName);
   }
 
+  @Override
   public int hashCode() {
     return myName.hashCode();
   }
 
   @Override
   public int compareTo(@NotNull Object o) {
-    if (o instanceof Profile) {
-      return getName().compareToIgnoreCase(((Profile)o).getName());
+    if (o instanceof ProfileEx) {
+      return getName().compareToIgnoreCase(((ProfileEx)o).getName());
     }
     return 0;
-  }
-
-  public void convert(@NotNull Element element, @NotNull Project project) {
   }
 }

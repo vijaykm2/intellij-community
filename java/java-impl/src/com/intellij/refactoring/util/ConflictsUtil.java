@@ -1,40 +1,20 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/**
- * created at Oct 8, 2001
- * @author Jeka
- */
 package com.intellij.refactoring.util;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.lang.findUsages.DescriptiveNameUtil;
 import com.intellij.psi.*;
+import com.intellij.psi.impl.light.LightRecordCanonicalConstructor;
 import com.intellij.psi.impl.source.resolve.FileContextUtil;
 import com.intellij.psi.search.searches.ClassInheritorsSearch;
-import com.intellij.psi.util.MethodSignature;
-import com.intellij.psi.util.MethodSignatureUtil;
-import com.intellij.psi.util.PsiFormatUtil;
-import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.util.*;
 import com.intellij.refactoring.RefactoringBundle;
-import com.intellij.util.Processor;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class ConflictsUtil {
+public final class ConflictsUtil {
   private ConflictsUtil() {
   }
 
@@ -57,7 +37,7 @@ public class ConflictsUtil {
   }
 
   public static void checkMethodConflicts(@Nullable PsiClass aClass,
-                                          PsiMethod refactoredMethod,
+                                          @Nullable PsiMethod refactoredMethod,
                                           final PsiMethod prototype,
                                           final MultiMap<PsiElement,String> conflicts) {
     if (prototype == null) return;
@@ -75,10 +55,11 @@ public class ConflictsUtil {
       }
     }
 
-    if (method != null && method != refactoredMethod && !isStaticInterfaceMethods(aClass, refactoredMethod, method)) {
+    if (method != null && method != refactoredMethod && !isStaticInterfaceMethods(aClass, refactoredMethod, method)
+        && (!(method instanceof LightRecordCanonicalConstructor) || !(refactoredMethod instanceof LightRecordCanonicalConstructor))) {
       if (aClass.equals(method.getContainingClass())) {
         final String classDescr = aClass instanceof PsiAnonymousClass ?
-                                  RefactoringBundle.message("current.class") :
+                                  JavaRefactoringBundle.message("current.class") :
                                   RefactoringUIUtil.getDescription(aClass, false);
         conflicts.putValue(method, RefactoringBundle.message("method.0.is.already.defined.in.the.1",
                                                 protoMethodInfo,
@@ -91,27 +72,25 @@ public class ConflictsUtil {
             boolean isMethodAbstract = method.hasModifierProperty(PsiModifier.ABSTRACT);
             boolean isMyMethodAbstract = refactoredMethod != null && refactoredMethod.hasModifierProperty(PsiModifier.ABSTRACT);
             final String conflict = isMethodAbstract != isMyMethodAbstract ?
-                                    RefactoringBundle.message("method.0.will.implement.method.of.the.base.class", protoMethodInfo, className) :
-                                    RefactoringBundle.message("method.0.will.override.a.method.of.the.base.class", protoMethodInfo, className);
+                                    JavaRefactoringBundle.message("method.0.will.implement.method.of.the.base.class", protoMethodInfo, className) :
+                                    JavaRefactoringBundle.message("method.0.will.override.a.method.of.the.base.class", protoMethodInfo, className);
             conflicts.putValue(method, conflict);
           }
           else { // prototype is private, will be compile-error
-            conflicts.putValue(method, RefactoringBundle.message("method.0.will.hide.method.of.the.base.class",
+            conflicts.putValue(method, JavaRefactoringBundle.message("method.0.will.hide.method.of.the.base.class",
                                                     protoMethodInfo, className));
           }
         }
       }
     }
     if (aClass != null && prototype.hasModifierProperty(PsiModifier.PRIVATE)) {
-      ClassInheritorsSearch.search(aClass).forEach(new Processor<PsiClass>() {
-        @Override
-        public boolean process(PsiClass aClass) {
-          final PsiMethod[] methods = aClass.findMethodsBySignature(prototype, false);
-          for (PsiMethod method : methods) {
-            conflicts.putValue(method, "Method " + RefactoringUIUtil.getDescription(method, true) + " will override method of the base class " + RefactoringUIUtil.getDescription(aClass, false));
-          }
-          return true;
+      ClassInheritorsSearch.search(aClass).forEach(aClass1 -> {
+        final PsiMethod[] methods = aClass1.findMethodsBySignature(prototype, false);
+        for (PsiMethod method1 : methods) {
+          conflicts.putValue(method1, "Method " + RefactoringUIUtil.getDescription(method1, true) + " will override method of the base class " + RefactoringUIUtil.getDescription(
+            aClass1, false));
         }
+        return true;
       });
     }
   }
@@ -124,8 +103,8 @@ public class ConflictsUtil {
   private static String getMethodPrototypeString(final PsiMethod prototype) {
     return PsiFormatUtil.formatMethod(
       prototype,
-      PsiSubstitutor.EMPTY, PsiFormatUtil.SHOW_NAME | PsiFormatUtil.SHOW_PARAMETERS,
-      PsiFormatUtil.SHOW_TYPE
+      PsiSubstitutor.EMPTY, PsiFormatUtilBase.SHOW_NAME | PsiFormatUtilBase.SHOW_PARAMETERS,
+      PsiFormatUtilBase.SHOW_TYPE
     );
   }
 
@@ -134,17 +113,19 @@ public class ConflictsUtil {
     if (existingField != null) {
       if (aClass.equals(existingField.getContainingClass())) {
         String className = aClass instanceof PsiAnonymousClass ?
-                           RefactoringBundle.message("current.class") :
+                           JavaRefactoringBundle.message("current.class") :
                            RefactoringUIUtil.getDescription(aClass, false);
-        final String conflict = RefactoringBundle.message("field.0.is.already.defined.in.the.1",
+        final String conflict = JavaRefactoringBundle.message("field.0.is.already.defined.in.the.1",
                                                           existingField.getName(), className);
         conflicts.putValue(existingField, conflict);
       }
       else { // method somewhere in base class
         if (!existingField.hasModifierProperty(PsiModifier.PRIVATE)) {
-          String fieldInfo = PsiFormatUtil.formatVariable(existingField, PsiFormatUtil.SHOW_NAME | PsiFormatUtil.SHOW_TYPE | PsiFormatUtil.TYPE_AFTER, PsiSubstitutor.EMPTY);
+          String fieldInfo = PsiFormatUtil.formatVariable(existingField, PsiFormatUtilBase.SHOW_NAME |
+                                                                         PsiFormatUtilBase.SHOW_TYPE |
+                                                                         PsiFormatUtilBase.TYPE_AFTER, PsiSubstitutor.EMPTY);
           String className = RefactoringUIUtil.getDescription(existingField.getContainingClass(), false);
-          final String descr = RefactoringBundle.message("field.0.will.hide.field.1.of.the.base.class",
+          final String descr = JavaRefactoringBundle.message("field.0.will.hide.field.1.of.the.base.class",
                                                          newName, fieldInfo, className);
           conflicts.putValue(existingField, descr);
         }

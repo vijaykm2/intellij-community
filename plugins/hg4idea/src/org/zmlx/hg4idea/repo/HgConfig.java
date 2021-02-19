@@ -1,8 +1,10 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.zmlx.hg4idea.repo;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.zmlx.hg4idea.command.HgShowConfigCommand;
@@ -11,10 +13,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
 
-/**
- * @author Nadya Zabrodina
- */
-public class HgConfig {
+public final class HgConfig {
 
   @NotNull private final Map<String, Map<String, String>> myConfigMap;
 
@@ -41,7 +40,7 @@ public class HgConfig {
   }
 
   @Nullable
-  public String getNamedConfig(@NotNull String sectionName, @Nullable String configName) {
+  public String getNamedConfig(@NotNull @NonNls String sectionName, @Nullable @NonNls String configName) {
     if (StringUtil.isEmptyOrSpaces(sectionName) || StringUtil.isEmptyOrSpaces(configName)) {
       return null;
     }
@@ -51,7 +50,12 @@ public class HgConfig {
 
   @NotNull
   public Collection<String> getPaths() {
-    Map<String, String> pathOptions = myConfigMap.get("paths");
-    return pathOptions != null ? pathOptions.values() : Collections.<String>emptyList();
+    Map<String, String> pathOptions = myConfigMap.get("paths"); //NON-NLS
+    return pathOptions != null ? pathOptions.values() : Collections.emptyList();
+  }
+
+  public boolean isMqUsed() {
+    String value = getNamedConfig("extensions", "mq");
+    return (value != null && !value.trim().startsWith("!"));
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,12 +20,12 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
-import com.siyeh.ig.psiutils.ParenthesesUtils;
-import org.jetbrains.annotations.Nls;
+import com.siyeh.ig.psiutils.ClassUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -33,12 +33,6 @@ import org.jetbrains.annotations.Nullable;
  * @author Bas Leijdekkers
  */
 public class DoubleBraceInitializationInspection extends BaseInspection {
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("double.brace.initialization.display.name");
-  }
 
   @NotNull
   @Override
@@ -50,9 +44,14 @@ public class DoubleBraceInitializationInspection extends BaseInspection {
   @Override
   protected InspectionGadgetsFix buildFix(Object... infos) {
     final PsiClass aClass = (PsiClass)infos[0];
-    final PsiElement parent = PsiTreeUtil.skipParentsOfType(aClass, PsiNewExpression.class, ParenthesesUtils.class);
+    final PsiElement parent = PsiTreeUtil.skipParentsOfType(aClass, PsiNewExpression.class, PsiParenthesizedExpression.class);
     if (!(parent instanceof PsiVariable) && !(parent instanceof PsiAssignmentExpression)) {
       return null;
+    }
+    PsiElement anchor = PsiTreeUtil.getParentOfType(aClass, PsiMember.class, PsiStatement.class);
+    if (anchor instanceof PsiMember) {
+      PsiClass surroundingClass = ((PsiMember)anchor).getContainingClass();
+      if (surroundingClass == null || surroundingClass.isInterface()) return null;
     }
     return new DoubleBraceInitializationFix();
   }
@@ -61,14 +60,8 @@ public class DoubleBraceInitializationInspection extends BaseInspection {
 
     @NotNull
     @Override
-    public String getName() {
-      return InspectionGadgetsBundle.message("double.brace.initialization.quickfix");
-    }
-
-    @NotNull
-    @Override
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("double.brace.initialization.quickfix");
     }
 
     @Override
@@ -83,14 +76,14 @@ public class DoubleBraceInitializationInspection extends BaseInspection {
         return;
       }
       final PsiNewExpression newExpression = (PsiNewExpression)parent;
-      final PsiElement ancestor = PsiTreeUtil.skipParentsOfType(newExpression, ParenthesesUtils.class);
+      final PsiElement ancestor = PsiTreeUtil.skipParentsOfType(newExpression, PsiParenthesizedExpression.class);
       final String qualifierText;
       if (ancestor instanceof PsiVariable) {
         qualifierText = ((PsiVariable)ancestor).getName();
       }
       else if (ancestor instanceof PsiAssignmentExpression) {
         final PsiAssignmentExpression assignmentExpression = (PsiAssignmentExpression)ancestor;
-        final PsiExpression lhs = ParenthesesUtils.stripParentheses(assignmentExpression.getLExpression());
+        final PsiExpression lhs = PsiUtil.skipParenthesizedExprDown(assignmentExpression.getLExpression());
         if (!(lhs instanceof PsiReferenceExpression)) {
           return;
         }
@@ -186,31 +179,7 @@ public class DoubleBraceInitializationInspection extends BaseInspection {
     @Override
     public void visitAnonymousClass(PsiAnonymousClass aClass) {
       super.visitAnonymousClass(aClass);
-      final PsiClassInitializer[] initializers = aClass.getInitializers();
-      if (initializers.length != 1) {
-        return;
-      }
-      final PsiClassInitializer initializer = initializers[0];
-      if (initializer.hasModifierProperty(PsiModifier.STATIC)) {
-        // don't warn on broken code
-        return;
-      }
-      final PsiField[] fields = aClass.getFields();
-      if (fields.length != 0) {
-        return;
-      }
-      final PsiMethod[] methods = aClass.getMethods();
-      if (methods.length != 0) {
-        return;
-      }
-      final PsiClass[] innerClasses = aClass.getInnerClasses();
-      if (innerClasses.length != 0) {
-        return;
-      }
-      final PsiJavaCodeReferenceElement reference = aClass.getBaseClassReference();
-      if (reference.resolve() == null) {
-        return;
-      }
+      if (ClassUtils.getDoubleBraceInitializer(aClass) == null) return;
       registerClassError(aClass, aClass);
     }
   }

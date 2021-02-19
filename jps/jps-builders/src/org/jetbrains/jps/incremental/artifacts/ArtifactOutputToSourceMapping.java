@@ -1,26 +1,13 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.incremental.artifacts;
 
-import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.SmartList;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.DataExternalizer;
 import com.intellij.util.io.IOUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.jps.incremental.relativizer.PathRelativizerService;
 import org.jetbrains.jps.incremental.storage.AbstractStateStorage;
 import org.jetbrains.jps.incremental.storage.PathStringDescriptor;
 
@@ -30,45 +17,57 @@ import java.util.List;
 
 /**
  * Stores source paths for each output path. If a source file or an output file is located in a jar file the path to the jar file is stored.
- *
- * @author nik
  */
 public class ArtifactOutputToSourceMapping extends AbstractStateStorage<String, List<ArtifactOutputToSourceMapping.SourcePathAndRootIndex>> {
-  public ArtifactOutputToSourceMapping(File storePath) throws IOException {
+  private final PathRelativizerService myRelativizer;
+
+  public ArtifactOutputToSourceMapping(File storePath, PathRelativizerService relativizer) throws IOException {
     super(storePath, PathStringDescriptor.INSTANCE, new SourcePathListExternalizer());
+    myRelativizer = relativizer;
   }
 
   @Override
   public void update(String path, @Nullable List<SourcePathAndRootIndex> state) throws IOException {
-    super.update(FileUtil.toSystemIndependentName(path), state);
+    super.update(normalizePath(path), state != null ? normalizePaths(state) : null);
   }
 
   @Override
   public void appendData(String path, List<SourcePathAndRootIndex> data) throws IOException {
-    super.appendData(FileUtil.toSystemIndependentName(path), data);
+    super.appendData(normalizePath(path), data != null ? normalizePaths(data) : null);
   }
 
   public void appendData(String outputPath, int rootIndex, String sourcePath) throws IOException {
-    super.appendData(outputPath, Collections.singletonList(new SourcePathAndRootIndex(sourcePath, rootIndex)));
+    super.appendData(normalizePath(outputPath), Collections.singletonList(new SourcePathAndRootIndex(normalizePath(sourcePath), rootIndex)));
   }
 
   @Override
   public void remove(String path) throws IOException {
-    super.remove(FileUtil.toSystemIndependentName(path));
+    super.remove(normalizePath(path));
   }
 
   @Nullable
   @Override
   public List<SourcePathAndRootIndex> getState(String path) throws IOException {
-    return super.getState(FileUtil.toSystemIndependentName(path));
+    List<SourcePathAndRootIndex> list = super.getState(normalizePath(path));
+    return list != null ? ContainerUtil.map(list, it -> new SourcePathAndRootIndex(myRelativizer.toFull(it.myPath), it.myRootIndex)) : null;
   }
 
-  public static class SourcePathAndRootIndex {
+  private String normalizePath(@NotNull String path) {
+    return myRelativizer.toRelative(path);
+  }
+
+  private List<SourcePathAndRootIndex> normalizePaths(@NotNull List<SourcePathAndRootIndex> state) {
+    List<SourcePathAndRootIndex> normalizePathList = new SmartList<>();
+    state.forEach(it -> normalizePathList.add(new SourcePathAndRootIndex(normalizePath(it.myPath), it.myRootIndex)));
+    return normalizePathList;
+  }
+
+  public static final class SourcePathAndRootIndex {
     private final String myPath;
     private final int myRootIndex;
 
     private SourcePathAndRootIndex(String path, int rootIndex) {
-      myPath = FileUtil.toSystemIndependentName(path);
+      myPath = path;
       myRootIndex = rootIndex;
     }
 
@@ -92,7 +91,7 @@ public class ArtifactOutputToSourceMapping extends AbstractStateStorage<String, 
 
     @Override
     public List<SourcePathAndRootIndex> read(@NotNull DataInput in) throws IOException {
-      List<SourcePathAndRootIndex> result = new SmartList<SourcePathAndRootIndex>();
+      List<SourcePathAndRootIndex> result = new SmartList<>();
       final DataInputStream stream = (DataInputStream)in;
       while (stream.available() > 0) {
         final String path = IOUtil.readUTF(stream);

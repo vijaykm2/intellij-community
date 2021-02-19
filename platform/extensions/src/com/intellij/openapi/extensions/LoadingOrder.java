@@ -1,27 +1,12 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.extensions;
 
-import com.intellij.openapi.util.Couple;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.graph.CachingSemiGraph;
 import com.intellij.util.graph.DFSTBuilder;
 import com.intellij.util.graph.GraphGenerator;
-import org.jdom.Element;
+import com.intellij.util.graph.InboundSemiGraph;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -41,66 +26,103 @@ import java.util.*;
  *
  * @author Alexander Kireyev
  */
-public class LoadingOrder {
-  @NonNls private static final String FIRST_STR = "FIRST";
-  @NonNls private static final String LAST_STR = "LAST";
-  @NonNls private static final String BEFORE_STR = "BEFORE ";
-  @NonNls private static final String BEFORE_STR_OLD = "BEFORE:";
-  @NonNls private static final String AFTER_STR = "AFTER ";
-  @NonNls private static final String AFTER_STR_OLD = "AFTER:";
+public final class LoadingOrder {
+  @NonNls public static final String FIRST_STR = "first";
+  @NonNls public static final String LAST_STR = "last";
+  @NonNls public static final String BEFORE_STR = "before ";
+  @NonNls public static final String BEFORE_STR_OLD = "before:";
+  @NonNls public static final String AFTER_STR = "after ";
+  @NonNls public static final String AFTER_STR_OLD = "after:";
+
+  @NonNls public static final String ORDER_RULE_SEPARATOR = ",";
 
   public static final LoadingOrder ANY = new LoadingOrder();
   public static final LoadingOrder FIRST = new LoadingOrder(FIRST_STR);
   public static final LoadingOrder LAST = new LoadingOrder(LAST_STR);
 
-  @NonNls private final String myName; // for debug only
+  // for debug only
+  @NonNls private final String myName;
+
   private final boolean myFirst;
   private final boolean myLast;
-  private final Set<String> myBefore = new LinkedHashSet<String>(2);
-  private final Set<String> myAfter = new LinkedHashSet<String>(2);
+  private final Set<String> myBefore;
+  private final Set<String> myAfter;
 
   private LoadingOrder() {
     myName = "ANY";
     myFirst = false;
     myLast = false;
+    myBefore = Collections.emptySet();
+    myAfter = Collections.emptySet();
   }
 
   private LoadingOrder(@NonNls @NotNull String text) {
     myName = text;
     boolean last = false;
     boolean first = false;
-    for (final String string : StringUtil.split(text, ",")) {
+    Set<String> before = null;
+    Set<String> after = null;
+    for (String string : StringUtil.split(text, ORDER_RULE_SEPARATOR)) {
       String trimmed = string.trim();
-      if (trimmed.equalsIgnoreCase(FIRST_STR)) first = true;
-      else if (trimmed.equalsIgnoreCase(LAST_STR)) last = true;
-      else if (StringUtil.startsWithIgnoreCase(trimmed, BEFORE_STR)) myBefore.add(trimmed.substring(BEFORE_STR.length()).trim());
-      else if (StringUtil.startsWithIgnoreCase(trimmed, BEFORE_STR_OLD)) myBefore.add(trimmed.substring(BEFORE_STR_OLD.length()).trim());
-      else if (StringUtil.startsWithIgnoreCase(trimmed, AFTER_STR)) myAfter.add(trimmed.substring(AFTER_STR.length()).trim());
-      else if (StringUtil.startsWithIgnoreCase(trimmed, AFTER_STR_OLD)) myAfter.add(trimmed.substring(AFTER_STR_OLD.length()).trim());
-      else throw new AssertionError("Invalid specification: " + trimmed + "; should be one of FIRST, LAST, BEFORE <id> or AFTER <id>");
+      if (trimmed.equalsIgnoreCase(FIRST_STR)) {
+        first = true;
+      }
+      else if (trimmed.equalsIgnoreCase(LAST_STR)) {
+        last = true;
+      }
+      else if (StringUtil.startsWithIgnoreCase(trimmed, BEFORE_STR)) {
+        if (before == null) {
+          before = new LinkedHashSet<>(2);
+        }
+        before.add(trimmed.substring(BEFORE_STR.length()).trim());
+      }
+      else if (StringUtil.startsWithIgnoreCase(trimmed, BEFORE_STR_OLD)) {
+        if (before == null) {
+          before = new LinkedHashSet<>(2);
+        }
+        before.add(trimmed.substring(BEFORE_STR_OLD.length()).trim());
+      }
+      else if (StringUtil.startsWithIgnoreCase(trimmed, AFTER_STR)) {
+        if (after == null) {
+          after = new LinkedHashSet<>(2);
+        }
+        after.add(trimmed.substring(AFTER_STR.length()).trim());
+      }
+      else if (StringUtil.startsWithIgnoreCase(trimmed, AFTER_STR_OLD)) {
+        if (after == null) {
+          after = new LinkedHashSet<>(2);
+        }
+        after.add(trimmed.substring(AFTER_STR_OLD.length()).trim());
+      }
+      else {
+        throw new AssertionError("Invalid specification: " + trimmed + "; should be one of FIRST, LAST, BEFORE <id> or AFTER <id>");
+      }
     }
+    myBefore = before == null ? Collections.emptySet() : before;
+    myAfter = after == null ? Collections.emptySet() : after;
     myFirst = first;
     myLast = last;
   }
 
+  @Override
   public String toString() {
     return myName;
   }
 
+  @Override
   public boolean equals(final Object o) {
-    if (this == o) return true;
-    if (!(o instanceof LoadingOrder)) return false;
+    if (this == o) {
+      return true;
+    }
+    if (!(o instanceof LoadingOrder)) {
+      return false;
+    }
 
-    final LoadingOrder that = (LoadingOrder)o;
-
-    if (myFirst != that.myFirst) return false;
-    if (myLast != that.myLast) return false;
-    if (!myAfter.equals(that.myAfter)) return false;
-    if (!myBefore.equals(that.myBefore)) return false;
-
-    return true;
+    LoadingOrder that = (LoadingOrder)o;
+    return myFirst == that.myFirst && myLast == that.myLast && myAfter.equals(that.myAfter) && myBefore.equals(that.myBefore);
   }
 
+  @Override
   public int hashCode() {
     int result = myFirst ? 1 : 0;
     result = 31 * result + (myLast ? 1 : 0);
@@ -109,46 +131,66 @@ public class LoadingOrder {
     return result;
   }
 
-  public static LoadingOrder before(@NonNls final String id) {
+  public static LoadingOrder before(@NonNls String id) {
     return new LoadingOrder(BEFORE_STR + id);
   }
 
-  public static LoadingOrder after(@NonNls final String id) {
+  public static LoadingOrder after(@NonNls String id) {
     return new LoadingOrder(AFTER_STR + id);
   }
 
-  public static void sort(@NotNull Orderable... orderable) {
-    sort(Arrays.asList(orderable));
+  public static void sort(Orderable @NotNull [] orderable) {
+    if (orderable.length > 1) {
+      sort(Arrays.asList(orderable));
+    }
   }
 
-  public static void sort(@NotNull final List<? extends Orderable> orderable) {
-    // our graph is pretty sparse so do benefit from the fact
-    final Map<String, Orderable> map = ContainerUtil.newLinkedHashMap();
-    final Map<Orderable, LoadingOrder> cachedMap = ContainerUtil.newLinkedHashMap();
-    final Set<Orderable> first = new LinkedHashSet<Orderable>(1);
-    final Set<Orderable> hasBefore = new LinkedHashSet<Orderable>(orderable.size());
-    for (Orderable o : orderable) {
-      String id = o.getOrderId();
-      if (StringUtil.isNotEmpty(id)) map.put(id, o);
-      LoadingOrder order = o.getOrder();
-      cachedMap.put(o, order);
-      if (order.myFirst) first.add(o);
-      if (order.myBefore.size() != 0) hasBefore.add(o);
+  public static void sort(@NotNull List<? extends Orderable> orderable) {
+    if (orderable.size() < 2) {
+      return;
     }
 
-    GraphGenerator.SemiGraph<Orderable> graph = new GraphGenerator.SemiGraph<Orderable>() {
+    // our graph is pretty sparse so do benefit from the fact
+    final Map<String, Orderable> map = new LinkedHashMap<>();
+    final Map<Orderable, LoadingOrder> cachedMap = new LinkedHashMap<>();
+    final Set<Orderable> first = new LinkedHashSet<>(1);
+    final Set<Orderable> hasBefore = new LinkedHashSet<>(orderable.size());
+    for (Orderable o : orderable) {
+      String id = o.getOrderId();
+      if (StringUtil.isNotEmpty(id)) {
+        map.put(id, o);
+      }
+      LoadingOrder order = o.getOrder();
+      if (order == ANY) {
+        continue;
+      }
+
+      cachedMap.put(o, order);
+      if (order.myFirst) {
+        first.add(o);
+      }
+      if (!order.myBefore.isEmpty()) {
+        hasBefore.add(o);
+      }
+    }
+
+    if (cachedMap.isEmpty()) {
+      return;
+    }
+
+    InboundSemiGraph<Orderable> graph = new InboundSemiGraph<Orderable>() {
       @Override
-      public Collection<Orderable> getNodes() {
-        List<Orderable> list = ContainerUtil.newArrayList(orderable);
+      public @NotNull Collection<Orderable> getNodes() {
+        List<Orderable> list = new ArrayList<>(orderable);
         Collections.reverse(list);
         return list;
       }
 
       @Override
-      public Iterator<Orderable> getIn(Orderable n) {
-        LoadingOrder order = cachedMap.get(n);
+      public @NotNull Iterator<Orderable> getIn(Orderable n) {
+        LoadingOrder order = cachedMap.getOrDefault(n, ANY);
 
-        Set<Orderable> predecessors = new LinkedHashSet<Orderable>();
+        Set<Orderable> predecessors = new LinkedHashSet<>();
         for (String id : order.myAfter) {
           Orderable o = map.get(id);
           if (o != null) {
@@ -159,7 +201,7 @@ public class LoadingOrder {
         String id = n.getOrderId();
         if (StringUtil.isNotEmpty(id)) {
           for (Orderable o : hasBefore) {
-            LoadingOrder hisOrder = cachedMap.get(o);
+            LoadingOrder hisOrder = cachedMap.getOrDefault(o, ANY);
             if (hisOrder.myBefore.contains(id)) {
               predecessors.add(o);
             }
@@ -168,7 +210,7 @@ public class LoadingOrder {
 
         if (order.myLast) {
           for (Orderable o : orderable) {
-            LoadingOrder hisOrder = cachedMap.get(o);
+            LoadingOrder hisOrder = cachedMap.getOrDefault(o, ANY);
             if (!hisOrder.myLast) {
               predecessors.add(o);
             }
@@ -183,24 +225,34 @@ public class LoadingOrder {
       }
     };
 
-    DFSTBuilder<Orderable> builder = new DFSTBuilder<Orderable>(new GraphGenerator<Orderable>(new CachingSemiGraph<Orderable>(graph)));
-
+    DFSTBuilder<Orderable> builder = new DFSTBuilder<>(GraphGenerator.generate(CachingSemiGraph.cache(graph)));
     if (!builder.isAcyclic()) {
-      Couple<Orderable> p = builder.getCircularDependency();
-      throw new SortingException("Could not satisfy sorting requirements", p.first.getDescribingElement(), p.second.getDescribingElement());
+      Pair<Orderable, Orderable> p = Objects.requireNonNull(builder.getCircularDependency());
+      throw new SortingException("Could not satisfy sorting requirements", p.first, p.second);
     }
 
-    Collections.sort(orderable, builder.comparator());
+    orderable.sort(builder.comparator());
   }
 
-  public static LoadingOrder readOrder(@NonNls String orderAttr) {
-    return orderAttr != null ? new LoadingOrder(orderAttr) : ANY;
+  public static @NotNull LoadingOrder readOrder(@Nullable String orderAttr) {
+    if (orderAttr == null) {
+      return ANY;
+    }
+    else if (orderAttr.equals(FIRST_STR)) {
+      return FIRST;
+    }
+    else if (orderAttr.equals(LAST_STR)) {
+      return LAST;
+    }
+    else {
+      return new LoadingOrder(orderAttr);
+    }
   }
 
   public interface Orderable {
     @Nullable
     String getOrderId();
+
     LoadingOrder getOrder();
-    Element getDescribingElement();
   }
 }

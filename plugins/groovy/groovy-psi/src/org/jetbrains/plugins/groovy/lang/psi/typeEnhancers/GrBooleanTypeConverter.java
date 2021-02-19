@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.typeEnhancers;
 
 import com.intellij.psi.PsiType;
@@ -28,22 +14,21 @@ import org.jetbrains.plugins.groovy.lang.psi.impl.statements.expressions.TypesUt
 public class GrBooleanTypeConverter extends GrTypeConverter {
 
   @Override
-  public boolean isApplicableTo(@NotNull ApplicableTo position) {
-    return true;
+  public boolean isApplicableTo(@NotNull Position position) {
+    return position != Position.EXPLICIT_CAST && position != Position.GENERIC_PARAMETER;
   }
 
   @Nullable
   @Override
-  public ConversionResult isConvertibleEx(@NotNull PsiType targetType,
-                                          @NotNull PsiType actualType,
-                                          @NotNull GroovyPsiElement context,
-                                          @NotNull ApplicableTo currentPosition) {
-    if (PsiType.BOOLEAN != TypesUtil.unboxPrimitiveTypeWrapper(targetType)) return null;
+  public ConversionResult isConvertible(@NotNull PsiType targetType,
+                                        @NotNull PsiType actualType,
+                                        @NotNull Position position,
+                                        @NotNull GroovyPsiElement context) {
+    if (!PsiType.BOOLEAN.equals(TypesUtil.unboxPrimitiveTypeWrapper(targetType))) return null;
     if (PsiType.NULL == actualType) {
-      switch (currentPosition) {
+      switch (position) {
         case METHOD_PARAMETER:
           return null;
-        case EXPLICIT_CAST:
         case ASSIGNMENT:
         case RETURN_VALUE:
           return ConversionResult.OK;
@@ -51,7 +36,7 @@ public class GrBooleanTypeConverter extends GrTypeConverter {
           return null;
       }
     }
-    return currentPosition == ApplicableTo.ASSIGNMENT || currentPosition == ApplicableTo.RETURN_VALUE
+    return position == Position.ASSIGNMENT || position == Position.RETURN_VALUE
            ? ConversionResult.OK
            : null;
   }

@@ -27,7 +27,7 @@ import java.awt.event.KeyEvent;
 public class MultiColumnList extends JTable {
   private final ListModel myModel;
   private ListCellRenderer myRenderer;
-  private JList myList;
+  private final JList myList;
   private Dimension myPrefSize;
 
   public MultiColumnList(ListModel model) {
@@ -37,7 +37,6 @@ public class MultiColumnList extends JTable {
     setShowGrid(false);
     setCellSelectionEnabled(true);
     setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
-    //noinspection UndesirableClassUsage
     myList = new JList(model) {
       @Override
       public void setBorder(Border border) {
@@ -188,6 +187,7 @@ public class MultiColumnList extends JTable {
     return myPrefSize;
   }
 
+  @SuppressWarnings("HardCodedStringLiteral")
   public static void main(String[] args) {
     final JFrame frame = new JFrame("Test");
     frame.setSize(300, 300);

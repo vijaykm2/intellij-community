@@ -22,7 +22,7 @@ import com.intellij.openapi.util.UserDataHolderBase;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public abstract class DiffContext implements UserDataHolder {
+public abstract class DiffContext implements UserDataHolder, FocusableContext {
   protected final UserDataHolderBase myUserDataHolder = new UserDataHolderBase();
 
   @Nullable
@@ -30,10 +30,9 @@ public abstract class DiffContext implements UserDataHolder {
 
   public abstract boolean isWindowFocused();
 
-  public abstract boolean isFocused();
-
-  public abstract void requestFocus();
-
+  /**
+   * @see com.intellij.diff.util.DiffUserDataKeys
+   */
   @Nullable
   @Override
   public <T> T getUserData(@NotNull Key<T> key) {

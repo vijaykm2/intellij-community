@@ -17,11 +17,10 @@ package com.intellij.debugger.engine.evaluation.expression;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Jan 22, 2007
  */
 public class SuperEvaluator extends ThisEvaluator{
 
-  public SuperEvaluator(final int iterations) {
-    super(iterations);
+  public SuperEvaluator(CaptureTraverser traverser) {
+    super(traverser);
   }
 }

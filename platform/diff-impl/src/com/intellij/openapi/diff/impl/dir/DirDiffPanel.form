@@ -111,7 +111,7 @@
                                     <properties>
                                       <horizontalAlignment value="2"/>
                                       <iconTextGap value="0"/>
-                                      <text value="&amp;Filter:"/>
+                                      <text resource-bundle="messages/DiffBundle" key="button.dirdiff.filter"/>
                                     </properties>
                                   </component>
                                 </children>
@@ -139,7 +139,7 @@
                         <properties/>
                         <border type="none"/>
                         <children>
-                          <component id="1fb9d" class="com.intellij.ui.table.JBTable" binding="myTable">
+                          <component id="1fb9d" class="com.intellij.ui.table.JBTable" binding="myTable" custom-create="true">
                             <constraints/>
                             <properties>
                               <intercellSpacing width="0" height="0"/>

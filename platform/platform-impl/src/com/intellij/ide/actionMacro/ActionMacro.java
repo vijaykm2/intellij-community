@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actionMacro;
 
 import com.intellij.ide.IdeBundle;
@@ -23,9 +9,7 @@ import com.intellij.openapi.editor.actionSystem.TypedAction;
 import com.intellij.openapi.ui.playback.commands.KeyCodeTypeCommand;
 import com.intellij.openapi.ui.playback.commands.TypeCommand;
 import com.intellij.openapi.util.Couple;
-import com.intellij.openapi.util.InvalidDataException;
-import com.intellij.openapi.util.JDOMExternalizable;
-import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import org.intellij.lang.annotations.JdkConstants;
 import org.jdom.Element;
@@ -35,13 +19,10 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author max
- */
-public class ActionMacro implements JDOMExternalizable {
+public final class ActionMacro {
   private String myName;
 
-  private final ArrayList<ActionDescriptor> myActions = new ArrayList<ActionDescriptor>();
+  private final ArrayList<ActionDescriptor> myActions = new ArrayList<>();
   @NonNls
   public static final String MACRO_ACTION_PREFIX = "Macro.";
   @NonNls
@@ -68,6 +49,7 @@ public class ActionMacro implements JDOMExternalizable {
     myName = name;
   }
 
+  @NlsSafe
   public String getName() {
     return myName;
   }
@@ -77,10 +59,10 @@ public class ActionMacro implements JDOMExternalizable {
   }
 
   public ActionDescriptor[] getActions() {
-    return myActions.toArray(new ActionDescriptor[myActions.size()]);
+    return myActions.toArray(new ActionDescriptor[0]);
   }
 
-  public void readExternal(Element macro) throws InvalidDataException {
+  public void readExternal(Element macro) {
     setName(macro.getAttributeValue(ATTRIBUTE_NAME));
     List actions = macro.getChildren();
     for (final Object o : actions) {
@@ -115,7 +97,7 @@ public class ActionMacro implements JDOMExternalizable {
     return KeyCodeTypeCommand.unparseKeyCodes(keyCodes);
   }
 
-  public void writeExternal(Element macro) throws WriteExternalException {
+  public void writeExternal(Element macro)  {
     macro.setAttribute(ATTRIBUTE_NAME, myName);
     final ActionDescriptor[] actions = getActions();
     for (ActionDescriptor action : actions) {
@@ -143,10 +125,12 @@ public class ActionMacro implements JDOMExternalizable {
     }
   }
 
+  @Override
   public String toString() {
     return myName;
   }
 
+  @Override
   protected Object clone() {
     ActionMacro copy = new ActionMacro(myName);
     for (int i = 0; i < myActions.size(); i++) {
@@ -157,6 +141,7 @@ public class ActionMacro implements JDOMExternalizable {
     return copy;
   }
 
+  @Override
   public boolean equals(Object o) {
     if (this == o) return true;
     if (!(o instanceof ActionMacro)) return false;
@@ -169,6 +154,7 @@ public class ActionMacro implements JDOMExternalizable {
     return true;
   }
 
+  @Override
   public int hashCode() {
     int result;
     result = myName.hashCode();
@@ -214,8 +200,8 @@ public class ActionMacro implements JDOMExternalizable {
 
     private String myText;
 
-    private final List<Integer> myKeyCodes = new ArrayList<Integer>();
-    private final List<Integer> myModifiers = new ArrayList<Integer>();
+    private final List<Integer> myKeyCodes = new ArrayList<>();
+    private final List<Integer> myModifiers = new ArrayList<>();
 
     public TypedDescriptor(@NotNull String text, List<Integer> keyCodes, List<Integer> modifiers) {
       myText = text;
@@ -241,20 +227,24 @@ public class ActionMacro implements JDOMExternalizable {
       return myText;
     }
 
+    @Override
     public Object clone() {
       return new TypedDescriptor(myText, myKeyCodes, myModifiers);
     }
 
+    @Override
     public boolean equals(Object o) {
       if (this == o) return true;
       if (!(o instanceof TypedDescriptor)) return false;
       return myText.equals(((TypedDescriptor)o).myText);
     }
 
+    @Override
     public int hashCode() {
       return myText.hashCode();
     }
 
+    @Override
     public void generateTo(StringBuffer script) {
       if (TypeCommand.containsUnicode(myText)) {
         script.append(KeyCodeTypeCommand.PREFIX).append(" ");
@@ -276,13 +266,16 @@ public class ActionMacro implements JDOMExternalizable {
       }
     }
 
+    @Override
     public String toString() {
       return IdeBundle.message("action.descriptor.typing", myText);
     }
 
+    @Override
     public void playBack(DataContext context) {
       Editor editor = CommonDataKeys.EDITOR.getData(context);
-      final TypedAction typedAction = EditorActionManager.getInstance().getTypedAction();
+      EditorActionManager.getInstance();
+      final TypedAction typedAction = TypedAction.getInstance();
       for (final char aChar : myText.toCharArray()) {
         typedAction.actionPerformed(editor, aChar, context);
       }
@@ -305,17 +298,21 @@ public class ActionMacro implements JDOMExternalizable {
       myKeyStroke = stroke;
     }
 
+    @Override
     public Object clone() {
       return new ShortcutActionDesciption(myKeyStroke);
     }
 
+    @Override
     public void playBack(DataContext context) {
     }
 
+    @Override
     public void generateTo(StringBuffer script) {
       script.append("%[").append(myKeyStroke).append("]\n");
     }
 
+    @Override
     public String toString() {
       return IdeBundle.message("action.descriptor.keystroke", myKeyStroke);
     }
@@ -336,24 +333,29 @@ public class ActionMacro implements JDOMExternalizable {
       return actionId;
     }
 
+    @Override
     public String toString() {
       return IdeBundle.message("action.descriptor.action", actionId);
     }
 
+    @Override
     public Object clone() {
       return new IdActionDescriptor(actionId);
     }
 
+    @Override
     public boolean equals(Object o) {
       if (this == o) return true;
       if (!(o instanceof IdActionDescriptor)) return false;
       return actionId.equals(((IdActionDescriptor)o).actionId);
     }
 
+    @Override
     public int hashCode() {
       return actionId.hashCode();
     }
 
+    @Override
     public void playBack(DataContext context) {
       AnAction action = ActionManager.getInstance().getAction(getActionId());
       if (action == null) return;
@@ -366,6 +368,7 @@ public class ActionMacro implements JDOMExternalizable {
       action.actionPerformed(event);
     }
 
+    @Override
     public void generateTo(StringBuffer script) {
       script.append("%action ").append(getActionId()).append("\n");
     }

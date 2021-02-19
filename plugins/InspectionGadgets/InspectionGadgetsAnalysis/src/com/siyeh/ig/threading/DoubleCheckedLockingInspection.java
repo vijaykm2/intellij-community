@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2014 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2016 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
+import com.siyeh.ig.psiutils.ComparisonUtils;
 import com.siyeh.ig.psiutils.ControlFlowUtils;
 import com.siyeh.ig.psiutils.EquivalenceChecker;
 import com.siyeh.ig.psiutils.SideEffectChecker;
@@ -38,13 +39,6 @@ public class DoubleCheckedLockingInspection extends BaseInspection {
    * @noinspection PublicField
    */
   public boolean ignoreOnVolatileVariables = false;
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "double.checked.locking.display.name");
-  }
 
   @Override
   @NotNull
@@ -71,7 +65,7 @@ public class DoubleCheckedLockingInspection extends BaseInspection {
     return new DoubleCheckedLockingFix(field);
   }
 
-  private static class DoubleCheckedLockingFix extends InspectionGadgetsFix {
+  private static final class DoubleCheckedLockingFix extends InspectionGadgetsFix {
 
     private final String myFieldName;
 
@@ -88,7 +82,7 @@ public class DoubleCheckedLockingInspection extends BaseInspection {
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Make field volatile";
+      return InspectionGadgetsBundle.message("double.checked.locking.fix.family.name");
     }
 
     @Override
@@ -127,12 +121,9 @@ public class DoubleCheckedLockingInspection extends BaseInspection {
       return (PsiField)target;
     }
     else if (expression instanceof PsiBinaryExpression) {
-      final PsiBinaryExpression binaryExpression =
-        (PsiBinaryExpression)expression;
-      final IElementType tokenType =
-        binaryExpression.getOperationTokenType();
-      if (!JavaTokenType.EQEQ.equals(tokenType)
-          && !JavaTokenType.NE.equals(tokenType)) {
+      final PsiBinaryExpression binaryExpression = (PsiBinaryExpression)expression;
+      final IElementType tokenType = binaryExpression.getOperationTokenType();
+      if (!ComparisonUtils.isComparisonOperation(tokenType)) {
         return null;
       }
       final PsiExpression lhs = binaryExpression.getLOperand();
@@ -181,24 +172,16 @@ public class DoubleCheckedLockingInspection extends BaseInspection {
       if (!(thenBranch instanceof PsiSynchronizedStatement)) {
         return;
       }
-      final PsiSynchronizedStatement synchronizedStatement =
-        (PsiSynchronizedStatement)thenBranch;
+      final PsiSynchronizedStatement synchronizedStatement = (PsiSynchronizedStatement)thenBranch;
       final PsiCodeBlock body = synchronizedStatement.getBody();
-      if (body == null) {
-        return;
-      }
-      final PsiStatement[] statements = body.getStatements();
-      if (statements.length != 1) {
-        return;
-      }
-      final PsiStatement firstStatement = statements[0];
+      final PsiStatement firstStatement = ControlFlowUtils.getOnlyStatementInBlock(body);
       if (!(firstStatement instanceof PsiIfStatement)) {
         return;
       }
       final PsiIfStatement innerIf = (PsiIfStatement)firstStatement;
       final PsiExpression innerCondition = innerIf.getCondition();
-      if (!EquivalenceChecker.expressionsAreEquivalent(innerCondition,
-                                                       outerCondition)) {
+      if (!EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(innerCondition,
+                                                                                    outerCondition)) {
         return;
       }
       final PsiField field;

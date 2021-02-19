@@ -1,90 +1,178 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.idea;
 
-import com.intellij.ide.Bootstrap;
+import com.intellij.ide.BootstrapBundle;
+import com.intellij.ide.BootstrapClassLoaderUtil;
+import com.intellij.ide.WindowsCommandLineProcessor;
+import com.intellij.ide.startup.StartupActionScriptManager;
+import com.intellij.openapi.application.JetBrainsProtocolHandler;
 import com.intellij.openapi.application.PathManager;
-import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.SystemInfoRt;
-import com.intellij.openapi.util.io.FileUtilRt;
-import com.intellij.util.ArrayUtilRt;
-import com.intellij.util.Restarter;
-import com.intellij.util.ui.JBUI;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.util.lang.PathClassLoader;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
 import java.awt.*;
 import java.io.*;
-import java.util.ArrayList;
-import java.util.Collections;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Properties;
 
-import static java.io.File.pathSeparator;
-
-public class Main {
+public final class Main {
   public static final int NO_GRAPHICS = 1;
-  public static final int UPDATE_FAILED = 2;
+  public static final int RESTART_FAILED = 2;
   public static final int STARTUP_EXCEPTION = 3;
   public static final int JDK_CHECK_FAILED = 4;
   public static final int DIR_CHECK_FAILED = 5;
   public static final int INSTANCE_CHECK_FAILED = 6;
   public static final int LICENSE_ERROR = 7;
   public static final int PLUGIN_ERROR = 8;
+  public static final int OUT_OF_MEMORY = 9;
+  public static final int UNSUPPORTED_JAVA_VERSION = 10;
+  public static final int PRIVACY_POLICY_REJECTION = 11;
+  public static final int INSTALLATION_CORRUPTED = 12;
+  public static final int ACTIVATE_WRONG_TOKEN_CODE = 13;
+  public static final int ACTIVATE_NOT_INITIALIZED = 14;
+  public static final int ACTIVATE_ERROR = 15;
+  public static final int ACTIVATE_DISPOSING = 16;
 
+  public static final String FORCE_PLUGIN_UPDATES = "idea.force.plugin.updates";
+
+  private static final String MAIN_RUNNER_CLASS_NAME = "com.intellij.ide.plugins.MainRunner";
   private static final String AWT_HEADLESS = "java.awt.headless";
   private static final String PLATFORM_PREFIX_PROPERTY = "idea.platform.prefix";
-  private static final String[] NO_ARGS = {};
+  private static final List<String> HEADLESS_COMMANDS = List.of(
+    "ant", "duplocate", "dump-shared-index", "traverseUI", "buildAppcodeCache", "format", "keymap", "update", "inspections", "intentions",
+    "rdserver-headless", "thinClient-headless");
+  private static final List<String> GUI_COMMANDS = List.of("diff", "merge");
 
   private static boolean isHeadless;
   private static boolean isCommandLine;
+  private static boolean hasGraphics = true;
+  private static boolean isLightEdit;
 
   private Main() { }
 
-  @SuppressWarnings("MethodNamesDifferingOnlyByCase")
   public static void main(String[] args) {
+    LinkedHashMap<String, Long> startupTimings = new LinkedHashMap<>(6);
+    startupTimings.put("startup begin", System.nanoTime());
+
     if (args.length == 1 && "%f".equals(args[0])) {
-      args = NO_ARGS;
+      //noinspection SSBasedInspection
+      args = new String[0];
+    }
+
+    if (args.length == 1 && args[0].startsWith(JetBrainsProtocolHandler.PROTOCOL)) {
+      JetBrainsProtocolHandler.processJetBrainsLauncherParameters(args[0]);
+      //noinspection SSBasedInspection
+      args = new String[0];
     }
 
     setFlags(args);
 
-    if (isHeadless()) {
-      System.setProperty(AWT_HEADLESS, Boolean.TRUE.toString());
-    }
-    else if (GraphicsEnvironment.isHeadless()) {
-      showMessage("Startup Error", "Unable to detect graphics environment", true);
+    if (!isHeadless() && !checkGraphics()) {
       System.exit(NO_GRAPHICS);
-    }
-    else if (args.length == 0) {
-      try {
-        installPatch();
-      }
-      catch (Throwable t) {
-        showMessage("Update Failed", t);
-        System.exit(UPDATE_FAILED);
-      }
     }
 
     try {
-      Bootstrap.main(args, Main.class.getName() + "Impl", "start");
+      if (Runtime.version().feature() < 11) {
+        String baseName = System.getProperty(PLATFORM_PREFIX_PROPERTY, "idea")
+          .replace("AndroidStudio", "studio").replace("Edu", "");
+        if (baseName.startsWith("Py")) baseName = "pycharm";
+        else if (baseName.equals("Ruby")) baseName = "rubymine";
+
+        @Nls StringBuilder message = new StringBuilder(BootstrapBundle.message("bootstrap.error.message.unsupported.jre", 11)).append('\n');
+        int min = message.length();
+
+        String javaHome = System.getProperty("java.home");
+        if (javaHome.endsWith(File.separatorChar + "jre")) javaHome = javaHome.substring(0, javaHome.length() - 4);
+
+        boolean win = System.getProperty("os.name", "").startsWith("Windows"), x64 = "amd64".equals(System.getProperty("os.arch"));
+        String envVar = baseName.toUpperCase(Locale.ENGLISH) + "_JDK" + (win && x64 ? "_64" : "");
+        String envValue = System.getenv(envVar);
+        if (envValue != null && Files.isSameFile(Paths.get(envValue), Paths.get(javaHome))) {
+          message.append(BootstrapBundle.message("bootstrap.error.message.unsupported.jre.env", envVar));
+        }
+        else {
+          String configPath = PathManager.getDefaultConfigPathFor(System.getProperty("idea.paths.selector", ""));
+          String suffix = win ? x64 ? "64.exe" : ".exe" : "";
+          Path file = Paths.get(configPath, baseName.toLowerCase(Locale.ENGLISH) + suffix + ".jdk");
+          try {
+            Path jdkPath = Paths.get(Files.readString(file));
+            if (Files.isSameFile(jdkPath, Paths.get(javaHome))) {
+              message.append(BootstrapBundle.message("bootstrap.error.message.unsupported.jre.file", file));
+            }
+          }
+          catch (IOException ignored) { }
+        }
+
+        if (message.length() == min) {
+          message.append(BootstrapBundle.message("bootstrap.error.message.unsupported.jre.other", supportUrl()));
+        }
+
+        message.append("\n\n").append(BootstrapBundle.message("bootstrap.error.message.jre.details", jreDetails()));
+
+        showMessage(BootstrapBundle.message("bootstrap.error.title.unsupported.jre"), message.toString(), true);
+        System.exit(UNSUPPORTED_JAVA_VERSION);
+      }
+
+      bootstrap(args, startupTimings);
     }
     catch (Throwable t) {
-      showMessage("Start Failed", t);
+      showMessage(BootstrapBundle.message("bootstrap.error.title.start.failed"), t);
       System.exit(STARTUP_EXCEPTION);
+    }
+  }
+
+  private static void bootstrap(String[] args, LinkedHashMap<String, Long> startupTimings) throws Throwable {
+    startupTimings.put("properties loading", System.nanoTime());
+    PathManager.loadProperties();
+
+    startupTimings.put("plugin updates install", System.nanoTime());
+    // this check must be performed before system directories are locked
+    if (!isCommandLine || Boolean.getBoolean(FORCE_PLUGIN_UPDATES)) {
+      boolean configImportNeeded = !isHeadless() && !Files.exists(Path.of(PathManager.getConfigPath()));
+      if (!configImportNeeded) {
+        installPluginUpdates();
+      }
+    }
+
+    startupTimings.put("classloader init", System.nanoTime());
+    PathClassLoader newClassLoader = BootstrapClassLoaderUtil.initClassLoader();
+    Thread.currentThread().setContextClassLoader(newClassLoader);
+
+    startupTimings.put("MainRunner search", System.nanoTime());
+    Class<?> mainClass = newClassLoader.loadClassInsideSelf(MAIN_RUNNER_CLASS_NAME, true);
+    if (mainClass == null) {
+      throw new ClassNotFoundException(MAIN_RUNNER_CLASS_NAME);
+    }
+
+    WindowsCommandLineProcessor.ourMainRunnerClass = mainClass;
+    MethodHandles.lookup()
+      .findStatic(mainClass, "start", MethodType.methodType(void.class, String.class, String[].class, LinkedHashMap.class))
+      .invokeExact(Main.class.getName() + "Impl", args, startupTimings);
+  }
+
+  @SuppressWarnings("HardCodedStringLiteral")
+  private static void installPluginUpdates() {
+    try {
+      StartupActionScriptManager.executeActionScript();
+    }
+    catch (IOException e) {
+      showMessage("Plugin Installation Error",
+                  "The IDE failed to install some plugins.\n\n" +
+                  "Most probably, this happened because of a change in a serialization format.\n" +
+                  "Please try again, and if the problem persists, please report it\n" +
+                  "to https://jb.gg/ide/critical-startup-errors\n\n" +
+                  "The cause: " + e, false);
     }
   }
 
@@ -96,13 +184,46 @@ public class Main {
     return isCommandLine;
   }
 
-  public static void setFlags(String[] args) {
-    isHeadless = isHeadless(args);
-    isCommandLine = isCommandLine(args);
+  public static boolean isLightEdit() {
+    return isLightEdit;
   }
 
-  private static boolean isHeadless(String[] args) {
-    if (Boolean.valueOf(System.getProperty(AWT_HEADLESS))) {
+  public static void setFlags(String @NotNull [] args) {
+    isHeadless = isHeadless(args);
+    isCommandLine = isHeadless || (args.length > 0 && GUI_COMMANDS.contains(args[0]));
+    if (isHeadless) {
+      System.setProperty(AWT_HEADLESS, Boolean.TRUE.toString());
+    }
+    isLightEdit = "LightEdit".equals(System.getProperty(PLATFORM_PREFIX_PROPERTY)) || !isCommandLine && isFileAfterOptions(args);
+  }
+
+  private static boolean isFileAfterOptions(String @NotNull [] args) {
+    for (String arg : args) {
+      if (!arg.startsWith("-")) { // If not an option
+        try {
+          Path path = Paths.get(arg);
+          return Files.isRegularFile(path) || !Files.exists(path);
+        }
+        catch (Throwable t) {
+          return false;
+        }
+      }
+      else if (arg.equals("-l") || arg.equals("--line") || arg.equals("-c") || arg.equals("--column")) { // NON-NLS
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @TestOnly
+  public static void setHeadlessInTestMode(boolean headless) {
+    isHeadless = headless;
+    isCommandLine = true;
+    isLightEdit = false;
+  }
+
+  public static boolean isHeadless(String @NotNull [] args) {
+    if (Boolean.getBoolean(AWT_HEADLESS)) {
       return true;
     }
 
@@ -111,147 +232,106 @@ public class Main {
     }
 
     String firstArg = args[0];
-    return Comparing.strEqual(firstArg, "ant") ||
-           Comparing.strEqual(firstArg, "duplocate") ||
-           Comparing.strEqual(firstArg, "traverseUI") ||
-           (firstArg.length() < 20 && firstArg.endsWith("inspect"));
+    return HEADLESS_COMMANDS.contains(firstArg) || firstArg.length() < 20 && firstArg.endsWith("inspect"); //NON-NLS
   }
 
-  private static boolean isCommandLine(String[] args) {
-    if (isHeadless()) return true;
-    return args.length > 0 && Comparing.strEqual(args[0], "diff");
-  }
-
-  public static boolean isUITraverser(final String[] args) {
-    return args.length > 0 && Comparing.strEqual(args[0], "traverseUI");
-  }
-
-  private static void installPatch() throws IOException {
-    String platform = System.getProperty(PLATFORM_PREFIX_PROPERTY, "idea");
-    String patchFileName = ("jetbrains.patch.jar." + platform).toLowerCase(Locale.US);
-    String tempDir = System.getProperty("java.io.tmpdir");
-
-    // always delete previous patch copy
-    File patchCopy = new File(tempDir, patchFileName + "_copy");
-    File log4jCopy = new File(tempDir, "log4j.jar." + platform + "_copy");
-    File jnaUtilsCopy = new File(tempDir, "jna-utils.jar." + platform + "_copy");
-    File jnaCopy = new File(tempDir, "jna.jar." + platform + "_copy");
-    if (!FileUtilRt.delete(patchCopy) || !FileUtilRt.delete(log4jCopy) || !FileUtilRt.delete(jnaUtilsCopy) || !FileUtilRt.delete(jnaCopy)) {
-      throw new IOException("Cannot delete temporary files in " + tempDir);
+  private static boolean checkGraphics() {
+    if (GraphicsEnvironment.isHeadless()) {
+      showMessage(BootstrapBundle.message("bootstrap.error.title.startup.error"),
+                  BootstrapBundle.message("bootstrap.error.message.no.graphics.environment"),
+                  true);
+      return false;
     }
+    return true;
+  }
 
-    File patch = new File(tempDir, patchFileName);
-    if (!patch.exists()) return;
+  public static void showMessage(@Nls(capitalization = Nls.Capitalization.Title) String title, Throwable t) {
+    @Nls(capitalization = Nls.Capitalization.Sentence) StringWriter message = new StringWriter();
 
-    File log4j = new File(PathManager.getLibPath(), "log4j.jar");
-    if (!log4j.exists()) throw new IOException("Log4J is missing: " + log4j);
-
-    File jnaUtils = new File(PathManager.getLibPath(), "jna-utils.jar");
-    if (!jnaUtils.exists()) throw new IOException("jna-utils.jar is missing: " + jnaUtils);
-
-    File jna = new File(PathManager.getLibPath(), "jna.jar");
-    if (!jna.exists()) throw new IOException("jna is missing: " + jna);
-
-    copyFile(patch, patchCopy, true);
-    copyFile(log4j, log4jCopy, false);
-    copyFile(jna, jnaCopy, false);
-    copyFile(jnaUtils, jnaUtilsCopy, false);
-
-    int status = 0;
-    if (Restarter.isSupported()) {
-      List<String> args = new ArrayList<String>();
-
-      if (SystemInfoRt.isWindows) {
-        File launcher = new File(PathManager.getBinPath(), "VistaLauncher.exe");
-        args.add(Restarter.createTempExecutable(launcher).getPath());
-      }
-
-      //noinspection SpellCheckingInspection
-      Collections.addAll(args,
-                         System.getProperty("java.home") + "/bin/java",
-                         "-Xmx750m",
-                         "-Djna.nosys=true",
-                         "-Djna.boot.library.path=",
-                         "-Djna.debug_load=true",
-                         "-Djna.debug_load.jna=true",
-                         "-classpath",
-                         patchCopy.getPath() + pathSeparator + log4jCopy.getPath() + pathSeparator + jnaCopy.getPath() + pathSeparator + jnaUtilsCopy.getPath(),
-                         "-Djava.io.tmpdir=" + tempDir,
-                         "-Didea.updater.log=" + PathManager.getLogPath(),
-                         "-Dswing.defaultlaf=" + UIManager.getSystemLookAndFeelClassName(),
-                         "com.intellij.updater.Runner",
-                         "install",
-                         PathManager.getHomePath());
-
-      status = Restarter.scheduleRestart(ArrayUtilRt.toStringArray(args));
+    AWTError awtError = findGraphicsError(t);
+    if (awtError != null) {
+      message.append(BootstrapBundle.message("bootstrap.error.message.failed.to.initialize.graphics.environment"));
+      message.append("\n\n");
+      hasGraphics = false;
+      t = awtError;
     }
     else {
-      String message = "Patch update is not supported - please do it manually";
-      showMessage("Update Error", message, true);
+      message.append(BootstrapBundle.message("bootstrap.error.message.internal.error.please.refer.to.0", supportUrl()));
+      message.append("\n\n");
     }
 
-    System.exit(status);
-  }
-
-  private static void copyFile(File original, File copy, boolean move) throws IOException {
-    if (move) {
-      if (!original.renameTo(copy) || !FileUtilRt.delete(original)) {
-        throw new IOException("Cannot create temporary file: " + copy);
-      }
-    }
-    else {
-      FileUtilRt.copy(original, copy);
-      if (!copy.exists()) {
-        throw new IOException("Cannot create temporary file: " + copy);
-      }
-    }
-  }
-
-  public static void showMessage(String title, Throwable t) {
-    StringWriter message = new StringWriter();
-    message.append("Internal error. Please report to https://");
-    boolean studio = "AndroidStudio".equalsIgnoreCase(System.getProperty(PLATFORM_PREFIX_PROPERTY));
-    message.append(studio ? "code.google.com/p/android/issues" : "youtrack.jetbrains.com");
-    message.append("\n\n");
     t.printStackTrace(new PrintWriter(message));
-    showMessage(title, message.toString(), true);
+
+    message.append("\n-----\n").append(BootstrapBundle.message("bootstrap.error.message.jre.details", jreDetails()));
+
+    showMessage(title, message.toString(), true); //NON-NLS
   }
 
-  @SuppressWarnings({"UseJBColor", "UndesirableClassUsage", "UseOfSystemOutOrSystemErr"})
-  public static void showMessage(String title, String message, boolean error) {
+  private static AWTError findGraphicsError(Throwable t) {
+    while (t != null) {
+      if (t instanceof AWTError) {
+        return (AWTError)t;
+      }
+      t = t.getCause();
+    }
+    return null;
+  }
+
+  private static @NlsSafe String jreDetails() {
+    Properties sp = System.getProperties();
+    String jre = sp.getProperty("java.runtime.version", sp.getProperty("java.version", "(unknown)"));
+    String vendor = sp.getProperty("java.vendor", "(unknown vendor)");
+    String arch = sp.getProperty("os.arch", "(unknown arch)");
+    String home = sp.getProperty("java.home", "(unknown java.home)");
+    return jre + ' ' + arch + " (" + vendor + ")\n" + home;
+  }
+
+  private static @NlsSafe String supportUrl() {
+    boolean studio = "AndroidStudio".equalsIgnoreCase(System.getProperty(PLATFORM_PREFIX_PROPERTY));
+    return studio ? "https://code.google.com/p/android/issues" : "https://jb.gg/ide/critical-startup-errors";
+  }
+
+  @SuppressWarnings({"UndesirableClassUsage", "UseOfSystemOutOrSystemErr"})
+  public static void showMessage(@Nls(capitalization = Nls.Capitalization.Title) String title,
+                                 @Nls(capitalization = Nls.Capitalization.Sentence) String message,
+                                 boolean error) {
     PrintStream stream = error ? System.err : System.out;
-    stream.println("\n" + title + ": " + message);
+    stream.println();
+    stream.println(title);
+    stream.println(message);
 
-    boolean headless = isCommandLine() || GraphicsEnvironment.isHeadless();
-    if (!headless) {
-      try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); }
-      catch (Throwable ignore) { }
+    boolean headless = !hasGraphics || isCommandLine() || GraphicsEnvironment.isHeadless();
+    if (headless) return;
 
-      try {
-        JTextPane textPane = new JTextPane();
-        textPane.setEditable(false);
-        textPane.setText(message.replaceAll("\t", "    "));
-        textPane.setBackground(UIUtil.getPanelBackground());
-        textPane.setCaretPosition(0);
-        JScrollPane scrollPane = new JScrollPane(
-          textPane, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        scrollPane.setBorder(null);
+    try {
+      UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+    }
+    catch (Throwable ignore) { }
 
-        int maxHeight = Math.min(JBUI.scale(600), Toolkit.getDefaultToolkit().getScreenSize().height - 150);
-        Dimension component = scrollPane.getPreferredSize();
-        if (component.height >= maxHeight) {
-          Object setting = UIManager.get("ScrollBar.width");
-          int width = setting instanceof Integer ? ((Integer)setting).intValue() : 20;
-          scrollPane.setPreferredSize(new Dimension(component.width + width, maxHeight));
-        }
+    try {
+      JTextPane textPane = new JTextPane();
+      textPane.setEditable(false);
+      textPane.setText(message.replaceAll("\t", "    "));
+      textPane.setBackground(UIManager.getColor("Panel.background"));
+      textPane.setCaretPosition(0);
+      JScrollPane scrollPane = new JScrollPane(textPane,
+                                               ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+                                               ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+      scrollPane.setBorder(null);
 
-        int type = error ? JOptionPane.ERROR_MESSAGE : JOptionPane.INFORMATION_MESSAGE;
-        JOptionPane.showMessageDialog(JOptionPane.getRootFrame(), scrollPane, title, type);
+      int maxHeight = Toolkit.getDefaultToolkit().getScreenSize().height / 2;
+      int maxWidth = Toolkit.getDefaultToolkit().getScreenSize().width / 2;
+      Dimension component = scrollPane.getPreferredSize();
+      if (component.height > maxHeight || component.width > maxWidth) {
+        scrollPane.setPreferredSize(new Dimension(Math.min(maxWidth, component.width), Math.min(maxHeight, component.height)));
       }
-      catch (Throwable t) {
-        stream.println("\nAlso, an UI exception occurred on attempt to show above message:");
-        t.printStackTrace(stream);
-      }
+
+      int type = error ? JOptionPane.ERROR_MESSAGE : JOptionPane.WARNING_MESSAGE;
+      JOptionPane.showMessageDialog(JOptionPane.getRootFrame(), scrollPane, title, type);
+    }
+    catch (Throwable t) {
+      stream.println("\nAlso, a UI exception occurred on an attempt to show the above message");
+      t.printStackTrace(stream);
     }
   }
 }

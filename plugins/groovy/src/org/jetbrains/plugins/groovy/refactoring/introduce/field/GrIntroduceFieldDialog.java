@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.introduce.field;
 
 import com.intellij.codeInsight.TestFrameworks;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -26,11 +13,11 @@ import com.intellij.refactoring.introduceField.IntroduceFieldHandler;
 import com.intellij.refactoring.ui.NameSuggestionsField;
 import com.intellij.refactoring.util.RadioUpDownListener;
 import com.intellij.ui.components.JBRadioButton;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.GroovyFileType;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElement;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyRecursiveElementVisitor;
@@ -43,10 +30,10 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.literals
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefinition;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMember;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
+import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyNamesUtil;
 import org.jetbrains.plugins.groovy.lang.psi.impl.PsiImplUtil;
 import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GroovyScriptClass;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
-import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyNamesUtil;
 import org.jetbrains.plugins.groovy.refactoring.GroovyRefactoringBundle;
 import org.jetbrains.plugins.groovy.refactoring.introduce.GrIntroduceContext;
 import org.jetbrains.plugins.groovy.refactoring.introduce.GrIntroduceDialog;
@@ -101,7 +88,7 @@ public class GrIntroduceFieldDialog extends DialogWrapper implements GrIntroduce
     initVisibility();
 
     ButtonGroup initialization = new ButtonGroup();
-    ArrayList<JRadioButton> inits = ContainerUtil.newArrayList();
+    ArrayList<JRadioButton> inits = new ArrayList<>();
 
     inits.add(myCurrentMethodRadioButton);
     inits.add(myFieldDeclarationRadioButton);
@@ -117,7 +104,7 @@ public class GrIntroduceFieldDialog extends DialogWrapper implements GrIntroduce
     for (JRadioButton init : inits) {
       initialization.add(init);
     }
-    new RadioUpDownListener(inits.toArray(new JRadioButton[inits.size()]));
+    new RadioUpDownListener(inits.toArray(new JRadioButton[0]));
 
     if (clazz instanceof GroovyScriptClass) {
       myClassConstructorSRadioButton.setEnabled(false);
@@ -138,7 +125,7 @@ public class GrIntroduceFieldDialog extends DialogWrapper implements GrIntroduce
 
     myInvokedOnLocalVar  = context.getVar() == null ? getInvokedOnLocalVar(context.getExpression()) : context.getVar().getName();
     if (myInvokedOnLocalVar != null) {
-      myReplaceAllOccurrencesCheckBox.setText("Replace all occurrences and remove variable '" + myInvokedOnLocalVar + "'");
+      myReplaceAllOccurrencesCheckBox.setText(GroovyBundle.message("replace.all.occurrences.and.remove.variable.0", myInvokedOnLocalVar));
       if (context.getVar() != null) {
         myReplaceAllOccurrencesCheckBox.setEnabled(false);
         myReplaceAllOccurrencesCheckBox.setSelected(true);
@@ -149,12 +136,7 @@ public class GrIntroduceFieldDialog extends DialogWrapper implements GrIntroduce
       myReplaceAllOccurrencesCheckBox.setVisible(false);
     }
 
-    myNameField.addDataChangedListener(new NameSuggestionsField.DataChanged() {
-      @Override
-      public void dataChanged() {
-        validateOKAction();
-      }
-    });
+    myNameField.addDataChangedListener(() -> validateOKAction());
 
     ItemListener l = new ItemListener() {
       @Override
@@ -193,13 +175,13 @@ public class GrIntroduceFieldDialog extends DialogWrapper implements GrIntroduce
                                           isAlwaysInvokedConstructor((PsiMethod)container, clazz);
     hasLHSUsages = hasLhsUsages(myContext);
 
-    setTitle(IntroduceFieldHandler.REFACTORING_NAME);
+    setTitle(IntroduceFieldHandler.getRefactoringNameText());
     init();
     checkErrors();
   }
 
   private void checkErrors() {
-    List<String> errors = new ArrayList<String>();
+    List<String> errors = new ArrayList<>();
     if (myCurrentMethodRadioButton.isSelected() && myDeclareFinalCheckBox.isSelected() && !isInvokedInAlwaysInvokedConstructor) {
       errors.add(GroovyRefactoringBundle.message("final.field.cant.be.initialized.in.cur.method"));
     }
@@ -218,8 +200,12 @@ public class GrIntroduceFieldDialog extends DialogWrapper implements GrIntroduce
       setErrorText(null);
     }
     else {
-      setErrorText(StringUtil.join(errors, "\n"));
+      setErrorText(errorString(errors));
     }
+  }
+
+  private static @NlsSafe @NotNull String errorString(List<String> errors) {
+    return StringUtil.join(errors, "\n");
   }
 
   private static boolean hasLhsUsages(@NotNull GrIntroduceContext context) {
@@ -264,7 +250,7 @@ public class GrIntroduceFieldDialog extends DialogWrapper implements GrIntroduce
     return true;
   }
 
-  private static boolean allOccurrencesInOneMethod(@NotNull PsiElement[] occurrences, PsiElement scope) {
+  private static boolean allOccurrencesInOneMethod(PsiElement @NotNull [] occurrences, PsiElement scope) {
     if (occurrences.length == 0) return true;
     GrMember container = GrIntroduceFieldHandler.getContainer(occurrences[0], scope);
     if (container == null) return false;
@@ -298,12 +284,12 @@ public class GrIntroduceFieldDialog extends DialogWrapper implements GrIntroduce
     final GrVariable var = myContext.getVar();
     final StringPartInfo stringPart = myContext.getStringPart();
 
-    List<String> list = new ArrayList<String>();
+    List<String> list = new ArrayList<>();
     if (var != null) {
       list.add(var.getName());
     }
-    ContainerUtil.addAll(list, suggestNames());
-    myNameField = new NameSuggestionsField(ArrayUtil.toStringArray(list), myContext.getProject(), GroovyFileType.GROOVY_FILE_TYPE);
+    list.addAll(suggestNames());
+    myNameField = new NameSuggestionsField(ArrayUtilRt.toStringArray(list), myContext.getProject(), GroovyFileType.GROOVY_FILE_TYPE);
 
     if (expression != null) {
       myTypeComboBox = GrTypeComboBox.createTypeComboBoxFromExpression(expression);
@@ -419,7 +405,7 @@ public class GrIntroduceFieldDialog extends DialogWrapper implements GrIntroduce
     }
   }
 
-  private static class ExpressionChecker extends GroovyRecursiveElementVisitor {
+  private static final class ExpressionChecker extends GroovyRecursiveElementVisitor {
     private final PsiClass myClass;
     private final PsiElement myScope;
 
@@ -431,7 +417,7 @@ public class GrIntroduceFieldDialog extends DialogWrapper implements GrIntroduce
     }
 
     @Override
-    public void visitReferenceExpression(GrReferenceExpression refExpr) {
+    public void visitReferenceExpression(@NotNull GrReferenceExpression refExpr) {
       super.visitReferenceExpression(refExpr);
       final PsiElement resolved = refExpr.resolve();
       if (!(resolved instanceof GrVariable)) return;
@@ -460,7 +446,7 @@ public class GrIntroduceFieldDialog extends DialogWrapper implements GrIntroduce
     final String name = getName();
     String message = RefactoringBundle.message("field.exists", name, clazz.getQualifiedName());
     if (clazz.findFieldByName(name, true) != null &&
-        Messages.showYesNoDialog(myContext.getProject(), message, IntroduceFieldHandler.REFACTORING_NAME, Messages.getWarningIcon()) != Messages.YES) {
+        Messages.showYesNoDialog(myContext.getProject(), message, IntroduceFieldHandler.getRefactoringNameText(), Messages.getWarningIcon()) != Messages.YES) {
       return;
     }
     super.doOKAction();

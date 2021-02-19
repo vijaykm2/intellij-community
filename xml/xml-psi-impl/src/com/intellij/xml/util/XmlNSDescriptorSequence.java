@@ -28,15 +28,8 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Created by IntelliJ IDEA.
- * User: ik
- * Date: 08.09.2003
- * Time: 17:27:43
- * To change this template use Options | File Templates.
- */
 public class XmlNSDescriptorSequence implements XmlNSDescriptor{
-  final List<XmlNSDescriptor> sequence = new ArrayList<XmlNSDescriptor>();
+  final List<XmlNSDescriptor> sequence = new ArrayList<>();
 
   public XmlNSDescriptorSequence(){
   }
@@ -61,14 +54,13 @@ public class XmlNSDescriptorSequence implements XmlNSDescriptor{
   }
 
   @Override
-  @NotNull
-  public XmlElementDescriptor[] getRootElementsDescriptors(@Nullable final XmlDocument document) {
-    final List<XmlElementDescriptor> descriptors = new ArrayList<XmlElementDescriptor>();
+  public XmlElementDescriptor @NotNull [] getRootElementsDescriptors(@Nullable final XmlDocument document) {
+    final List<XmlElementDescriptor> descriptors = new ArrayList<>();
     for (XmlNSDescriptor descriptor : sequence) {
       ContainerUtil.addAll(descriptors, descriptor.getRootElementsDescriptors(document));
     }
 
-    return descriptors.toArray(new XmlElementDescriptor[descriptors.size()]);
+    return descriptors.toArray(XmlElementDescriptor.EMPTY_ARRAY);
   }
 
   @Override
@@ -82,14 +74,6 @@ public class XmlNSDescriptorSequence implements XmlNSDescriptor{
 
   public List<XmlNSDescriptor> getSequence(){
     return sequence;
-  }
-
-  @Override
-  public boolean isHierarhyEnabled() {
-    for (XmlNSDescriptor descriptor : sequence) {
-      if (descriptor.isHierarhyEnabled()) return true;
-    }
-    return false;
   }
 
   @Override
@@ -127,10 +111,10 @@ public class XmlNSDescriptorSequence implements XmlNSDescriptor{
   }
 
   @Override
-  public Object[] getDependences(){
-    final List<Object> ret = new ArrayList<Object>();
+  public Object @NotNull [] getDependencies(){
+    List<Object> ret = new ArrayList<>();
     for (XmlNSDescriptor descriptor : sequence) {
-      ContainerUtil.addAll(ret, descriptor.getDependences());
+      ContainerUtil.addAll(ret, descriptor.getDependencies());
     }
     return ret.toArray();
   }

@@ -43,6 +43,7 @@ public class FormLayoutCodeGenerator extends LayoutCodeGenerator {
   public static String[] HORZ_ALIGN_FIELDS = new String[] { "LEFT", "CENTER", "RIGHT", "FILL" };
   public static String[] VERT_ALIGN_FIELDS = new String[] { "TOP", "CENTER", "BOTTOM", "FILL" };
 
+  @Override
   public void generateContainerLayout(final LwContainer lwContainer, final GeneratorAdapter generator, final int componentLocal) {
     FormLayout formLayout = (FormLayout) lwContainer.getLayout();
 
@@ -85,7 +86,8 @@ public class FormLayoutCodeGenerator extends LayoutCodeGenerator {
     generator.invokeVirtual(ourFormLayoutType, setGroupsMethod);
   }
 
-  public void generateComponentLayout(final LwComponent lwComponent, final GeneratorAdapter generator, final int componentLocal, final int parentLocal) {
+  @Override
+  public void generateComponentLayout(final LwComponent lwComponent, final GeneratorAdapter generator, final int componentLocal, final int parentLocal, final String formClassName) {
     generator.loadLocal(parentLocal);
     generator.loadLocal(componentLocal);
     addNewCellConstraints(generator, lwComponent);

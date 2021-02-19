@@ -25,9 +25,6 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
-/**
- * @author nik
- */
 public class JavaDeploymentSourceUtilImpl extends JavaDeploymentSourceUtil {
   @NotNull
   @Override
@@ -39,7 +36,7 @@ public class JavaDeploymentSourceUtilImpl extends JavaDeploymentSourceUtil {
   @Override
   public List<DeploymentSource> createArtifactDeploymentSources(@NotNull Project project,
                                                                 @NotNull Collection<? extends Artifact> artifacts) {
-    List<DeploymentSource> sources = new ArrayList<DeploymentSource>();
+    List<DeploymentSource> sources = new ArrayList<>();
     ArtifactPointerManager pointerManager = ArtifactPointerManager.getInstance(project);
     for (Artifact artifact : artifacts) {
       sources.add(createArtifactDeploymentSource(pointerManager.createPointer(artifact)));
@@ -52,7 +49,7 @@ public class JavaDeploymentSourceUtilImpl extends JavaDeploymentSourceUtil {
   public List<DeploymentSource> createArtifactDeploymentSources(Project project, ArtifactType... artifactTypes) {
     if (project.isDefault()) return Collections.emptyList();
     Artifact[] artifacts = ArtifactManager.getInstance(project).getArtifacts();
-    List<Artifact> supportedArtifacts = new ArrayList<Artifact>();
+    List<Artifact> supportedArtifacts = new ArrayList<>();
     Set<ArtifactType> typeSet = ContainerUtil.set(artifactTypes);
     for (Artifact artifact : artifacts) {
       if (typeSet.contains(artifact.getArtifactType())) {

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.execution;
 
 import com.intellij.compiler.options.CompileStepBeforeRun;
@@ -24,29 +10,41 @@ import com.intellij.execution.configurations.ConfigurationTypeUtil;
 import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.execution.executors.DefaultRunExecutor;
 import com.intellij.execution.impl.DefaultJavaProgramRunner;
+import com.intellij.execution.process.ProcessEvent;
+import com.intellij.execution.process.ProcessHandler;
+import com.intellij.execution.process.ProcessListener;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ProgramRunner;
+import com.intellij.execution.ui.RunContentDescriptor;
+import com.intellij.execution.wsl.WslDistributionManager;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
-import icons.MavenIcons;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.maven.execution.build.DelegateBuildRunner;
 import org.jetbrains.idea.maven.project.MavenGeneralSettings;
 import org.jetbrains.idea.maven.project.MavenProject;
 import org.jetbrains.idea.maven.project.MavenProjectsManager;
+import org.jetbrains.idea.maven.project.MavenWorkspaceSettingsComponent;
 import org.jetbrains.idea.maven.utils.MavenUtil;
 
 import javax.swing.*;
+import java.util.Collections;
 import java.util.List;
+
+import static icons.OpenapiIcons.RepositoryLibraryLogo;
 
 /**
  * @author Vladislav.Kaznacheev
  */
-public class MavenRunConfigurationType implements ConfigurationType {
+public final class MavenRunConfigurationType implements ConfigurationType {
+  private static final Key<Boolean> IS_DELEGATE_BUILD = new Key<>("IS_DELEGATE_BUILD");
   private final ConfigurationFactory myFactory;
   private static final int MAX_NAME_LENGTH = 40;
 
@@ -58,49 +56,10 @@ public class MavenRunConfigurationType implements ConfigurationType {
    * reflection
    */
   MavenRunConfigurationType() {
-    myFactory = new ConfigurationFactory(this) {
-      @Override
-      public RunConfiguration createTemplateConfiguration(Project project) {
-        return new MavenRunConfiguration(project, this, "");
-      }
-
-      @Override
-      public RunConfiguration createTemplateConfiguration(Project project, RunManager runManager) {
-        return new MavenRunConfiguration(project, this, "");
-      }
-
-      @Override
-      public RunConfiguration createConfiguration(String name, RunConfiguration template) {
-        MavenRunConfiguration cfg = (MavenRunConfiguration)super.createConfiguration(name, template);
-
-        if (!StringUtil.isEmptyOrSpaces(cfg.getRunnerParameters().getWorkingDirPath())) return cfg;
-
-        Project project = cfg.getProject();
-        if (project == null) return cfg;
-
-        MavenProjectsManager projectsManager = MavenProjectsManager.getInstance(project);
-
-        List<MavenProject> projects = projectsManager.getProjects();
-        if (projects.size() != 1) {
-          return cfg;
-        }
-
-        VirtualFile directory = projects.get(0).getDirectoryFile();
-
-        cfg.getRunnerParameters().setWorkingDirPath(directory.getPath());
-
-        return cfg;
-      }
-
-      @Override
-      public void configureBeforeRunTaskDefaults(Key<? extends BeforeRunTask> providerID, BeforeRunTask task) {
-        if (providerID == CompileStepBeforeRun.ID || providerID == CompileStepBeforeRunNoErrorCheck.ID) {
-          task.setEnabled(false);
-        }
-      }
-    };
+    myFactory = new MavenRunConfigurationFactory(this);
   }
 
+  @NotNull
   @Override
   public String getDisplayName() {
     return RunnerBundle.message("maven.run.configuration.name");
@@ -113,12 +72,17 @@ public class MavenRunConfigurationType implements ConfigurationType {
 
   @Override
   public Icon getIcon() {
-    return MavenIcons.Phase;
+    return RepositoryLibraryLogo;
   }
 
   @Override
   public ConfigurationFactory[] getConfigurationFactories() {
     return new ConfigurationFactory[]{myFactory};
+  }
+
+  @Override
+  public String getHelpTopic() {
+    return "reference.dialogs.rundebug.MavenRunConfiguration";
   }
 
   @Override
@@ -128,19 +92,20 @@ public class MavenRunConfigurationType implements ConfigurationType {
     return "MavenRunConfiguration";
   }
 
-  public static String generateName(Project project, MavenRunnerParameters runnerParameters) {
+  public static @NlsSafe String generateName(Project project, MavenRunnerParameters runnerParameters) {
     StringBuilder stringBuilder = new StringBuilder();
 
     final String name = getMavenProjectName(project, runnerParameters);
     if (!StringUtil.isEmptyOrSpaces(name)) {
       stringBuilder.append(name);
-      stringBuilder.append(" ");
     }
 
-    stringBuilder.append("[");
-    listGoals(stringBuilder, runnerParameters.getGoals());
-    stringBuilder.append("]");
-
+    List<String> goals = runnerParameters.getGoals();
+    if (!goals.isEmpty()) {
+      stringBuilder.append(" [");
+      listGoals(stringBuilder, goals);
+      stringBuilder.append("]");
+    }
     return stringBuilder.toString();
   }
 
@@ -175,6 +140,11 @@ public class MavenRunConfigurationType implements ConfigurationType {
     return null;
   }
 
+  public static boolean isDelegate(ExecutionEnvironment environment) {
+    Boolean res = IS_DELEGATE_BUILD.get(environment);
+    return res != null && res;
+  }
+
 
   public static void runConfiguration(Project project,
                                       MavenRunnerParameters params,
@@ -182,38 +152,183 @@ public class MavenRunConfigurationType implements ConfigurationType {
     runConfiguration(project, params, null, null, callback);
   }
 
+
   public static void runConfiguration(Project project,
                                       @NotNull MavenRunnerParameters params,
                                       @Nullable MavenGeneralSettings settings,
-                                      @Nullable  MavenRunnerSettings runnerSettings,
+                                      @Nullable MavenRunnerSettings runnerSettings,
                                       @Nullable ProgramRunner.Callback callback) {
+    runConfiguration(project, params, settings, runnerSettings, callback, false);
+  }
+
+  public static void runConfiguration(Project project,
+                                      @NotNull MavenRunnerParameters params,
+                                      @Nullable MavenGeneralSettings settings,
+                                      @Nullable MavenRunnerSettings runnerSettings,
+                                      @Nullable ProgramRunner.Callback callback,
+                                      boolean isDelegateBuild) {
+
     RunnerAndConfigurationSettings configSettings = createRunnerAndConfigurationSettings(settings,
                                                                                          runnerSettings,
                                                                                          params,
-                                                                                         project);
+                                                                                         project,
+                                                                                         generateName(project, params),
+                                                                                         isDelegateBuild);
+    boolean reimportAfterRun = false;
+    if (!MavenUtil.isProjectTrustedEnoughToImport(project, false, false)) {
+      if (!MavenUtil.isProjectTrustedEnoughToImport(project, true, true)) {
+        MavenUtil.showError(project,
+                            RunnerBundle.message("notification.title.failed.to.execute.maven.goal"),
+                            RunnerBundle.message("notification.project.is.untrusted"));
+        return;
+      }
+      reimportAfterRun = true;
+    }
 
-    ProgramRunner runner = DefaultJavaProgramRunner.getInstance();
+    ProgramRunner runner = isDelegateBuild ? DelegateBuildRunner.getDelegateRunner() : DefaultJavaProgramRunner.getInstance();
     Executor executor = DefaultRunExecutor.getRunExecutorInstance();
+    ExecutionEnvironment environment = new ExecutionEnvironment(executor, runner, configSettings, project);
+    environment.putUserData(IS_DELEGATE_BUILD, isDelegateBuild);
     try {
-      runner.execute(new ExecutionEnvironment(executor, runner, configSettings, project), callback);
+      registerCallback(project, callback, environment, reimportAfterRun);
+
+      runner.execute(environment);
     }
     catch (ExecutionException e) {
-      MavenUtil.showError(project, "Failed to execute Maven goal", e);
+      MavenUtil.showError(project, RunnerBundle.message("notification.title.failed.to.execute.maven.goal"), e);
     }
   }
+
+  private static void registerCallback(Project project,
+                                       ProgramRunner.@Nullable Callback callback,
+                                       ExecutionEnvironment environment,
+                                       boolean finalReimportAfterRun) {
+    environment.setCallback(new ProgramRunner.Callback() {
+      @Override
+      public void processStarted(RunContentDescriptor descriptor) {
+        if (callback != null) {
+          callback.processStarted(descriptor);
+        }
+        if (!finalReimportAfterRun) {
+          return;
+        }
+        ProcessHandler handler = descriptor.getProcessHandler();
+        if (handler != null) {
+          handler.addProcessListener(new ProcessListener() {
+            @Override
+            public void startNotified(@NotNull ProcessEvent event) {
+
+            }
+
+            @Override
+            public void processTerminated(@NotNull ProcessEvent event) {
+              ApplicationManager.getApplication().invokeLater(() -> {
+                MavenProjectsManager.getInstance(project).forceUpdateAllProjectsOrFindAllAvailablePomFiles();
+              });
+            }
+
+            @Override
+            public void onTextAvailable(@NotNull ProcessEvent event,
+                                        @NotNull Key outputType) {
+
+            }
+          });
+        }
+      }
+    });
+  }
+
+
+  @NotNull
+
+  public static RunnerAndConfigurationSettings createRunnerAndConfigurationSettings(@Nullable MavenGeneralSettings generalSettings,
+                                                                                    @Nullable MavenRunnerSettings runnerSettings,
+                                                                                    @NotNull MavenRunnerParameters params,
+                                                                                    @NotNull Project project) {
+    return createRunnerAndConfigurationSettings(generalSettings, runnerSettings, params, project, generateName(project, params), false);
+  }
+
 
   @NotNull
   public static RunnerAndConfigurationSettings createRunnerAndConfigurationSettings(@Nullable MavenGeneralSettings generalSettings,
                                                                                     @Nullable MavenRunnerSettings runnerSettings,
-                                                                                    MavenRunnerParameters params,
-                                                                                    Project project) {
+                                                                                    @NotNull MavenRunnerParameters params,
+                                                                                    @NotNull Project project,
+                                                                                    @NotNull String name,
+                                                                                    boolean isDelegate) {
     MavenRunConfigurationType type = ConfigurationTypeUtil.findConfigurationType(MavenRunConfigurationType.class);
 
-    RunnerAndConfigurationSettings settings = RunManager.getInstance(project).createRunConfiguration(generateName(project, params), type.myFactory);
+    RunnerAndConfigurationSettings settings = RunManager.getInstance(project).createConfiguration(name, type.myFactory);
     MavenRunConfiguration runConfiguration = (MavenRunConfiguration)settings.getConfiguration();
+    if (isDelegate) {
+      runConfiguration.setBeforeRunTasks(Collections.emptyList());
+    }
+    MavenGeneralSettings generalSettingsToRun =
+      generalSettings != null ? generalSettings : MavenWorkspaceSettingsComponent.getInstance(project).getSettings().generalSettings;
     runConfiguration.setRunnerParameters(params);
-    runConfiguration.setGeneralSettings(generalSettings);
-    runConfiguration.setRunnerSettings(runnerSettings);
+    runConfiguration.setGeneralSettings(generalSettingsToRun);
+    MavenRunnerSettings runnerSettingsToRun =
+      runnerSettings != null ? runnerSettings : new MavenRunnerSettings();
+    runConfiguration.setRunnerSettings(runnerSettingsToRun);
+    if (WslDistributionManager.isWslPath(params.getWorkingDirPath())) {
+      //todo: find appropriate WSL distribution
+      runConfiguration.setDefaultTargetName("WSL");
+    }
     return settings;
+  }
+
+  public static class MavenRunConfigurationFactory extends ConfigurationFactory {
+    public MavenRunConfigurationFactory(ConfigurationType type) {super(type);}
+
+    @NotNull
+    @Override
+    public RunConfiguration createTemplateConfiguration(@NotNull Project project) {
+      return new MavenRunConfiguration(project, this, "");
+    }
+
+    @NotNull
+    @Override
+    public RunConfiguration createTemplateConfiguration(@NotNull Project project, @NotNull RunManager runManager) {
+      return new MavenRunConfiguration(project, this, "");
+    }
+
+    @Override
+    public @NotNull String getId() {
+      return "Maven";
+    }
+
+    @NotNull
+    @Override
+    public RunConfiguration createConfiguration(@Nullable String name, @NotNull RunConfiguration template) {
+      MavenRunConfiguration cfg = (MavenRunConfiguration)super.createConfiguration(name, template);
+
+      if (!StringUtil.isEmptyOrSpaces(cfg.getRunnerParameters().getWorkingDirPath())) return cfg;
+
+      Project project = cfg.getProject();
+      MavenProjectsManager projectsManager = MavenProjectsManager.getInstance(project);
+
+      List<MavenProject> projects = projectsManager.getProjects();
+      if (projects.size() != 1) {
+        return cfg;
+      }
+
+      VirtualFile directory = projects.get(0).getDirectoryFile();
+
+      cfg.getRunnerParameters().setWorkingDirPath(directory.getPath());
+
+      return cfg;
+    }
+
+    @Override
+    public void configureBeforeRunTaskDefaults(Key<? extends BeforeRunTask> providerID, BeforeRunTask task) {
+      if (providerID == CompileStepBeforeRun.ID || providerID == CompileStepBeforeRunNoErrorCheck.ID) {
+        task.setEnabled(false);
+      }
+    }
+
+    @Override
+    public boolean isEditableInDumbMode() {
+      return true;
+    }
   }
 }

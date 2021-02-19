@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,29 +15,26 @@
  */
 package com.intellij.application.options;
 
-import com.intellij.openapi.application.ApplicationBundle;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
-import com.intellij.ui.ListCellRendererWrapper;
+import com.intellij.ui.SimpleListCellRenderer;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-
 import java.awt.*;
 
-import static com.intellij.psi.codeStyle.JavaCodeStyleSettings.FULLY_QUALIFY_NAMES_ALWAYS;
-import static com.intellij.psi.codeStyle.JavaCodeStyleSettings.FULLY_QUALIFY_NAMES_IF_NOT_IMPORTED;
-import static com.intellij.psi.codeStyle.JavaCodeStyleSettings.SHORTEN_NAMES_ALWAYS_AND_ADD_IMPORT;
+import static com.intellij.psi.codeStyle.JavaCodeStyleSettings.*;
 
 public class FullyQualifiedNamesInJavadocOptionProvider {
 
   private JPanel myPanel;
-  private ComboBox myComboBox;
+  private ComboBox<QualifyJavadocOptions> myComboBox;
 
-  public FullyQualifiedNamesInJavadocOptionProvider(@NotNull CodeStyleSettings settings) {
+  public FullyQualifiedNamesInJavadocOptionProvider() {
     composePanel();
-    reset(settings);
   }
 
   public void reset(@NotNull CodeStyleSettings settings) {
@@ -69,20 +66,13 @@ public class FullyQualifiedNamesInJavadocOptionProvider {
   private void composePanel() {
     myPanel = new JPanel(new GridBagLayout());
 
-    myComboBox = new ComboBox();
+    myComboBox = new ComboBox<>();
     for (QualifyJavadocOptions options : QualifyJavadocOptions.values()) {
       myComboBox.addItem(options);
     }
-    myComboBox.setRenderer(new ListCellRendererWrapper() {
-      @Override
-      public void customize(final JList list, final Object value, final int index, final boolean selected, final boolean hasFocus) {
-        if (value instanceof QualifyJavadocOptions) {
-          setText(((QualifyJavadocOptions)value).getPresentableText());
-        }
-      }
-    });
+    myComboBox.setRenderer(SimpleListCellRenderer.create("", QualifyJavadocOptions::getPresentableText));
 
-    JLabel title = new JLabel(ApplicationBundle.message("radio.use.fully.qualified.class.names.in.javadoc"));
+    JLabel title = new JLabel(JavaBundle.message("radio.use.fully.qualified.class.names.in.javadoc"));
     myPanel.setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
 
     GridBagConstraints left = new GridBagConstraints();
@@ -91,7 +81,7 @@ public class FullyQualifiedNamesInJavadocOptionProvider {
     GridBagConstraints right = new GridBagConstraints();
     right.anchor = GridBagConstraints.WEST;
     right.weightx = 1.0;
-    right.insets = new Insets(0, 5, 0, 0);
+    right.insets = JBUI.insetsLeft(5);
 
     myPanel.add(title, left);
     myPanel.add(myComboBox, right);
@@ -100,9 +90,9 @@ public class FullyQualifiedNamesInJavadocOptionProvider {
 
 enum QualifyJavadocOptions {
 
-  FQ_ALWAYS(FULLY_QUALIFY_NAMES_ALWAYS, ApplicationBundle.message("radio.use.fully.qualified.class.names.in.javadoc.always")),
-  SHORTEN_ALWAYS(SHORTEN_NAMES_ALWAYS_AND_ADD_IMPORT, ApplicationBundle.message("radio.use.fully.qualified.class.names.in.javadoc.never")),
-  FQ_WHEN_NOT_IMPORTED(FULLY_QUALIFY_NAMES_IF_NOT_IMPORTED, ApplicationBundle.message("radio.use.fully.qualified.class.names.in.javadoc.if.not.imported"));
+  FQ_ALWAYS(FULLY_QUALIFY_NAMES_ALWAYS, JavaBundle.message("radio.use.fully.qualified.class.names.in.javadoc.always")),
+  SHORTEN_ALWAYS(SHORTEN_NAMES_ALWAYS_AND_ADD_IMPORT, JavaBundle.message("radio.use.fully.qualified.class.names.in.javadoc.never")),
+  FQ_WHEN_NOT_IMPORTED(FULLY_QUALIFY_NAMES_IF_NOT_IMPORTED, JavaBundle.message("radio.use.fully.qualified.class.names.in.javadoc.if.not.imported"));
 
   private final String myText;
   private final int myOption;

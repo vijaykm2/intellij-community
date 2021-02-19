@@ -1,46 +1,33 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.impl.http;
 
-import com.intellij.openapi.application.Result;
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
-import com.intellij.openapi.vfs.VfsBundle;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.Url;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.concurrency.AsyncPromise;
 import org.jetbrains.concurrency.Promise;
+import org.jetbrains.concurrency.Promises;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * @author nik
- */
+import static org.jetbrains.concurrency.Promises.rejectedPromise;
+
 public class RemoteFileInfoImpl implements RemoteContentProvider.DownloadingCallback, RemoteFileInfo {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vfs.impl.http.RemoteFileInfoImpl");
+  private static final Logger LOG = Logger.getInstance(RemoteFileInfoImpl.class);
   private final Object myLock = new Object();
   private final Url myUrl;
   private final RemoteFileManagerImpl myManager;
@@ -49,7 +36,7 @@ public class RemoteFileInfoImpl implements RemoteContentProvider.DownloadingCall
   private VirtualFile myLocalVirtualFile;
   private VirtualFile myPrevLocalFile;
   private RemoteFileState myState = RemoteFileState.DOWNLOADING_NOT_STARTED;
-  private String myErrorMessage;
+  private @NlsContexts.DialogMessage String myErrorMessage;
   private final AtomicBoolean myCancelled = new AtomicBoolean();
   private final List<FileDownloadingListener> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
 
@@ -98,7 +85,7 @@ public class RemoteFileInfoImpl implements RemoteContentProvider.DownloadingCall
       }
       catch (IOException e) {
         LOG.info(e);
-        errorOccurred(VfsBundle.message("cannot.create.local.file", e.getMessage()), false);
+        errorOccurred(IdeBundle.message("cannot.create.local.file", e.getMessage()), false);
         return;
       }
       myCancelled.set(false);
@@ -139,16 +126,13 @@ public class RemoteFileInfoImpl implements RemoteContentProvider.DownloadingCall
       localIOFile = myLocalFile;
     }
 
-    VirtualFile localFile = new WriteAction<VirtualFile>() {
-      @Override
-      protected void run(@NotNull final Result<VirtualFile> result) {
-        final VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(localIOFile);
-        if (file != null) {
-          file.refresh(false, false);
-        }
-        result.setResult(file);
+    VirtualFile localFile = WriteAction.computeAndWait(() -> {
+      final VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(localIOFile);
+      if (file != null) {
+        file.refresh(false, false);
       }
-    }.execute().getResultObject();
+      return file;
+    });
     LOG.assertTrue(localFile != null, "Virtual local file not found for " + localIOFile.getAbsolutePath());
     LOG.debug("Virtual local file: " + localFile + ", size = " + localFile.getLength());
     synchronized (myLock) {
@@ -175,7 +159,7 @@ public class RemoteFileInfoImpl implements RemoteContentProvider.DownloadingCall
   }
 
   @Override
-  public void errorOccurred(@NotNull final String errorMessage, boolean cancelled) {
+  public void errorOccurred(@NotNull final @NlsContexts.DialogMessage String errorMessage, boolean cancelled) {
     LOG.debug("Error: " + errorMessage);
     synchronized (myLock) {
       myLocalVirtualFile = null;
@@ -198,7 +182,7 @@ public class RemoteFileInfoImpl implements RemoteContentProvider.DownloadingCall
   }
 
   @Override
-  public void setProgressText(@NotNull final String text, final boolean indeterminate) {
+  public void setProgressText(@NotNull final @NlsContexts.ProgressText String text, final boolean indeterminate) {
     for (FileDownloadingListener listener : myListeners) {
       listener.progressMessageChanged(indeterminate, text);
     }
@@ -212,6 +196,7 @@ public class RemoteFileInfoImpl implements RemoteContentProvider.DownloadingCall
   }
 
   @Override
+  @NonNls
   public String toString() {
     final String errorMessage = getErrorMessage();
     return "state=" + getState()
@@ -262,7 +247,7 @@ public class RemoteFileInfoImpl implements RemoteContentProvider.DownloadingCall
   private class MyRefreshingDownloadingListener extends FileDownloadingAdapter {
     private final Runnable myPostRunnable;
 
-    public MyRefreshingDownloadingListener(final Runnable postRunnable) {
+    MyRefreshingDownloadingListener(final Runnable postRunnable) {
       myPostRunnable = postRunnable;
     }
 
@@ -275,7 +260,7 @@ public class RemoteFileInfoImpl implements RemoteContentProvider.DownloadingCall
     }
 
     @Override
-    public void fileDownloaded(final VirtualFile localFile) {
+    public void fileDownloaded(@NotNull final VirtualFile localFile) {
       removeDownloadingListener(this);
       if (myPostRunnable != null) {
         myPostRunnable.run();
@@ -292,7 +277,6 @@ public class RemoteFileInfoImpl implements RemoteContentProvider.DownloadingCall
   }
 
   @NotNull
-  @Override
   public Promise<VirtualFile> download() {
     synchronized (myLock) {
       switch (getState()) {
@@ -302,21 +286,21 @@ public class RemoteFileInfoImpl implements RemoteContentProvider.DownloadingCall
         case DOWNLOADING_IN_PROGRESS:
           return createDownloadedCallback(this);
         case DOWNLOADED:
-          return Promise.resolve(myLocalVirtualFile);
+          return Promises.resolvedPromise(myLocalVirtualFile);
 
         case ERROR_OCCURRED:
         default:
-          return Promise.reject("errorOccured");
+          return rejectedPromise("errorOccurred");
       }
     }
   }
 
   @NotNull
   private static Promise<VirtualFile> createDownloadedCallback(@NotNull final RemoteFileInfo remoteFileInfo) {
-    final AsyncPromise<VirtualFile> promise = new AsyncPromise<VirtualFile>();
+    final AsyncPromise<VirtualFile> promise = new AsyncPromise<>();
     remoteFileInfo.addDownloadingListener(new FileDownloadingAdapter() {
       @Override
-      public void fileDownloaded(VirtualFile localFile) {
+      public void fileDownloaded(@NotNull VirtualFile localFile) {
         try {
           remoteFileInfo.removeDownloadingListener(this);
         }
@@ -331,7 +315,7 @@ public class RemoteFileInfoImpl implements RemoteContentProvider.DownloadingCall
           remoteFileInfo.removeDownloadingListener(this);
         }
         finally {
-          promise.setError(Promise.createError(errorMessage));
+          promise.setError(errorMessage);
         }
       }
 
@@ -341,7 +325,7 @@ public class RemoteFileInfoImpl implements RemoteContentProvider.DownloadingCall
           remoteFileInfo.removeDownloadingListener(this);
         }
         finally {
-          promise.setError(Promise.createError("Cancelled"));
+          promise.setError("Cancelled");
         }
       }
     });

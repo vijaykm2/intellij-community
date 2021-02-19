@@ -1,6 +1,8 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.impl;
 
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.containers.Interner;
 import com.intellij.vcs.log.Hash;
 import com.intellij.vcs.log.VcsRef;
 import com.intellij.vcs.log.VcsRefType;
@@ -10,7 +12,7 @@ import org.jetbrains.annotations.NotNull;
  * @author erokhins
  */
 public final class VcsRefImpl implements VcsRef {
-
+  private static final Interner<String> ourNames = Interner.createWeakInterner();
   @NotNull private final Hash myCommitHash;
   @NotNull private final String myName;
   @NotNull private final VcsRefType myType;
@@ -18,9 +20,11 @@ public final class VcsRefImpl implements VcsRef {
 
   public VcsRefImpl(@NotNull Hash commitHash, @NotNull String name, @NotNull VcsRefType type, @NotNull VirtualFile root) {
     myCommitHash = commitHash;
-    myName = name;
     myType = type;
     myRoot = root;
+    synchronized (ourNames) {
+      myName = ourNames.intern(name);
+    }
   }
 
   @Override
@@ -75,5 +79,4 @@ public final class VcsRefImpl implements VcsRef {
     result = 31 * result + (myType.hashCode());
     return result;
   }
-
 }

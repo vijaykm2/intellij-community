@@ -1,49 +1,38 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.extractMethod;
 
 import com.intellij.codeInsight.codeFragment.CodeFragment;
+import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.refactoring.RefactoringBundle;
+import com.intellij.refactoring.ui.ComboBoxVisibilityPanel;
 import com.intellij.refactoring.ui.MethodSignatureComponent;
+import com.intellij.refactoring.util.AbstractVariableData;
+import com.intellij.refactoring.util.SimpleParameterTablePanel;
 import com.intellij.ui.DocumentAdapter;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Stream;
 
-public class AbstractExtractMethodDialog extends DialogWrapper implements ExtractMethodSettings {
+public class AbstractExtractMethodDialog<T> extends DialogWrapper implements ExtractMethodSettings<T> {
   private JPanel myContentPane;
-  private AbstractParameterTablePanel myParametersPanel;
+  private SimpleParameterTablePanel myParametersPanel;
   private JTextField myMethodNameTextField;
   private MethodSignatureComponent mySignaturePreviewTextArea;
   private JTextArea myOutputVariablesTextArea;
+  private final ComboBoxVisibilityPanel<T> myVisibilityComboBox;
   private final Project myProject;
   private final String myDefaultName;
   private final ExtractMethodValidator myValidator;
-  private final ExtractMethodDecorator myDecorator;
+  private final ExtractMethodDecorator<T> myDecorator;
 
   private AbstractVariableData[] myVariableData;
   private Map<String, AbstractVariableData> myVariablesMap;
@@ -55,8 +44,9 @@ public class AbstractExtractMethodDialog extends DialogWrapper implements Extrac
   public AbstractExtractMethodDialog(final Project project,
                                      final String defaultName,
                                      final CodeFragment fragment,
+                                     final T[] visibilityVariants,
                                      final ExtractMethodValidator validator,
-                                     final ExtractMethodDecorator decorator,
+                                     final ExtractMethodDecorator<T> decorator,
                                      final FileType type) {
     super(project, true);
     myProject = project;
@@ -64,13 +54,24 @@ public class AbstractExtractMethodDialog extends DialogWrapper implements Extrac
     myValidator = validator;
     myDecorator = decorator;
     myFileType = type;
-    myArguments = new ArrayList<String>(fragment.getInputVariables());
+
+    myVisibilityComboBox = new ComboBoxVisibilityPanel<>(visibilityVariants);
+    myVisibilityComboBox.setVisible(visibilityVariants.length > 1);
+    getRememberedVisibility(visibilityVariants).ifPresent(myVisibilityComboBox::setVisibility);
+    myVisibilityComboBox.addListener(event -> rememberCurrentVisibility());
+
+    $$$setupUI$$$();
+
+    myArguments = new ArrayList<>(fragment.getInputVariables());
     Collections.sort(myArguments);
-    myOutputVariables = new ArrayList<String>(fragment.getOutputVariables());
+    myOutputVariables = new ArrayList<>(fragment.getOutputVariables());
     Collections.sort(myOutputVariables);
     setModal(true);
     setTitle(RefactoringBundle.message("extract.method.title"));
     init();
+  }
+
+  private void $$$setupUI$$$() {
   }
 
   @Override
@@ -82,7 +83,7 @@ public class AbstractExtractMethodDialog extends DialogWrapper implements Extrac
     myMethodNameTextField.setSelectionStart(myDefaultName.length());
     myMethodNameTextField.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         updateOutputVariables();
         updateSignature();
         updateOkStatus();
@@ -90,10 +91,9 @@ public class AbstractExtractMethodDialog extends DialogWrapper implements Extrac
     });
 
 
-    myVariableData = createVariableData(myArguments);
+    myVariableData = createVariableDataByNames(myArguments);
     myVariablesMap = createVariableMap(myVariableData);
-    myParametersPanel.setVariableData(myVariableData);
-    myParametersPanel.init();
+    myParametersPanel.init(myVariableData);
 
     updateOutputVariables();
     updateSignature();
@@ -105,7 +105,7 @@ public class AbstractExtractMethodDialog extends DialogWrapper implements Extrac
     return myMethodNameTextField;
   }
 
-  public static AbstractVariableData[] createVariableData(final List<String> args) {
+  public static AbstractVariableData[] createVariableDataByNames(final List<String> args) {
     final AbstractVariableData[] datas = new AbstractVariableData[args.size()];
     for (int i = 0; i < args.size(); i++) {
       final AbstractVariableData data = new AbstractVariableData();
@@ -119,16 +119,15 @@ public class AbstractExtractMethodDialog extends DialogWrapper implements Extrac
   }
 
   public static Map<String, AbstractVariableData> createVariableMap(final AbstractVariableData[] data) {
-    final HashMap<String, AbstractVariableData> map = new HashMap<String, AbstractVariableData>();
+    final HashMap<String, AbstractVariableData> map = new HashMap<>();
     for (AbstractVariableData variableData : data) {
       map.put(variableData.getOriginalName(), variableData);
     }
     return map;
   }
 
-  @NotNull
   @Override
-  protected Action[] createActions() {
+  protected Action @NotNull [] createActions() {
     return new Action[]{getOKAction(), getCancelAction(), getHelpAction()};
   }
 
@@ -158,7 +157,7 @@ public class AbstractExtractMethodDialog extends DialogWrapper implements Extrac
   }
 
   private void createUIComponents() {
-    myParametersPanel = new AbstractParameterTablePanel(myValidator){
+    myParametersPanel = new SimpleParameterTablePanel(myValidator::isValidName) {
       @Override
       protected void doCancelAction() {
         AbstractExtractMethodDialog.this.doCancelAction();
@@ -176,6 +175,20 @@ public class AbstractExtractMethodDialog extends DialogWrapper implements Extrac
       }
     };
     mySignaturePreviewTextArea = new MethodSignatureComponent("", myProject, myFileType);
+  }
+
+  @NotNull
+  private String getPersistenceId() {
+    return "visibility.combobox." + getClass().getName();
+  }
+
+  private void rememberCurrentVisibility() {
+    PropertiesComponent.getInstance().setValue(getPersistenceId(), Optional.ofNullable(getVisibility()).map(Object::toString).orElse(null));
+  }
+
+  private Optional<T> getRememberedVisibility(T[] visibilityVariants) {
+    final String stringValue = PropertiesComponent.getInstance().getValue(getPersistenceId());
+    return Stream.of(visibilityVariants).filter(visibility -> visibility.toString().equals(stringValue)).findAny();
   }
 
   private void updateOutputVariables() {
@@ -197,21 +210,27 @@ public class AbstractExtractMethodDialog extends DialogWrapper implements Extrac
   }
 
   private void updateSignature() {
-    mySignaturePreviewTextArea.setSignature(myDecorator.createMethodPreview(getMethodName(), myVariableData));
+    mySignaturePreviewTextArea.setSignature(myDecorator.createMethodSignature(this));
   }
 
   private void updateOkStatus() {
     setOKActionEnabled(myValidator.isValidName(getMethodName()));
   }
 
+  @NotNull
   @Override
   public String getMethodName() {
     return myMethodNameTextField.getText().trim();
   }
 
   @Override
-  public AbstractVariableData[] getVariableData() {
+  public AbstractVariableData @NotNull [] getAbstractVariableData() {
     return myVariableData;
   }
 
+  @Nullable
+  @Override
+  public T getVisibility() {
+    return myVisibilityComboBox.getVisibility();
+  }
 }

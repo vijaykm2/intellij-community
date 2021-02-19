@@ -16,8 +16,10 @@
 package com.intellij.lang.ant.quickfix;
 
 import com.intellij.codeInsight.daemon.impl.HectorComponent;
+import com.intellij.codeInsight.daemon.impl.HectorComponentFactory;
 import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.lang.ant.AntBundle;
+import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
@@ -27,18 +29,19 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: May 12, 2008
  */
 public class AntChangeContextFix extends BaseIntentionAction {
   public AntChangeContextFix() {
     setText(AntBundle.message("intention.configure.highlighting.text"));
   }
 
+  @Override
   @NotNull
   public final String getFamilyName() {
     return AntBundle.message("intention.configure.highlighting.family.name");
   }
 
+  @Override
   public boolean isAvailable(@NotNull final Project project, final Editor editor, final PsiFile file) {
     //if (!(file instanceof XmlFile)) {
     //  return false;
@@ -54,8 +57,14 @@ public class AntChangeContextFix extends BaseIntentionAction {
     return true;
   }
 
+  @Override
+  public boolean startInWriteAction() {
+    return false;
+  }
+
+  @Override
   public void invoke(@NotNull final Project project, final Editor editor, final PsiFile file) throws IncorrectOperationException {
-    final HectorComponent component = new HectorComponent(file);
+    final HectorComponent component = ServiceManager.getService(project, HectorComponentFactory.class).create(file);
     //final JComponent focusComponent = findComponentToFocus(component);
     component.showComponent(JBPopupFactory.getInstance().guessBestPopupLocation(editor));
     //SwingUtilities.invokeLater(new Runnable() {

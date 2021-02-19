@@ -31,7 +31,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.Set;
 
-public class SubsequentFieldAligner implements ChildAlignmentStrategyProvider {
+public class SubsequentFieldAligner extends ChildAlignmentStrategyProvider {
 
   private final static Set<IElementType> TYPES_TO_ALIGN = ContainerUtil.newHashSet(
     JavaElementType.MODIFIER_LIST,
@@ -44,7 +44,7 @@ public class SubsequentFieldAligner implements ChildAlignmentStrategyProvider {
     TokenSet.create(JavaTokenType.IDENTIFIER),
     JavaJspElementType.WHITE_SPACE_BIT_SET,
     ElementType.JAVA_COMMENT_BIT_SET,
-    TokenSet.create(JavaTokenType.EQ),
+    TokenSet.EMPTY,
     TokenSet.create(JavaElementType.FIELD)
   );
 
@@ -58,7 +58,7 @@ public class SubsequentFieldAligner implements ChildAlignmentStrategyProvider {
     mySettings = settings;
   }
 
-  private AlignmentStrategy newAlignmentStrategy() {
+  private static AlignmentStrategy newAlignmentStrategy() {
     return AlignmentStrategy.createAlignmentPerTypeStrategy(TYPES_TO_ALIGN, JavaElementType.FIELD, true);
   }
 

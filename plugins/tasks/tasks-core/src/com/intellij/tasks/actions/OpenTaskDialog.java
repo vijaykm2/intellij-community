@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *  http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.tasks.actions;
 
@@ -21,67 +7,62 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.options.binding.BindControl;
 import com.intellij.openapi.options.binding.ControlBinder;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.ValidationInfo;
-import com.intellij.openapi.util.Condition;
-import com.intellij.openapi.vcs.AbstractVcs;
-import com.intellij.openapi.vcs.VcsTaskHandler;
 import com.intellij.tasks.*;
+import com.intellij.tasks.impl.LocalTaskImpl;
 import com.intellij.tasks.impl.TaskManagerImpl;
 import com.intellij.tasks.impl.TaskStateCombo;
 import com.intellij.tasks.impl.TaskUtil;
-import com.intellij.ui.ColoredListCellRenderer;
+import com.intellij.tasks.ui.TaskDialogPanel;
+import com.intellij.tasks.ui.TaskDialogPanelProvider;
+import com.intellij.ui.DocumentAdapter;
 import com.intellij.ui.components.JBCheckBox;
-import com.intellij.ui.components.JBLabel;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.ui.components.JBTextField;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.Collection;
+import java.util.List;
 
 /**
  * @author Dmitry Avdeev
  */
 public class OpenTaskDialog extends DialogWrapper {
-  private final static Logger LOG = Logger.getInstance("#com.intellij.tasks.actions.SimpleOpenTaskDialog");
-  private static final String START_FROM_BRANCH = "start.from.branch";
+  private final static Logger LOG = Logger.getInstance(OpenTaskDialog.class);
   private static final String UPDATE_STATE_ENABLED = "tasks.open.task.update.state.enabled";
 
   private JPanel myPanel;
   @BindControl(value = "clearContext", instant = true)
   private JCheckBox myClearContext;
-  private JLabel myTaskNameLabel;
-  private JPanel myVcsPanel;
-  private JTextField myBranchName;
-  private JTextField myChangelistName;
-  private JBCheckBox myCreateBranch;
-  private JBCheckBox myCreateChangelist;
   private JBCheckBox myUpdateState;
-  private JBLabel myFromLabel;
-  private ComboBox myBranchFrom;
   private TaskStateCombo myTaskStateCombo;
+  private JPanel myAdditionalPanel;
+  private JBTextField myNameField;
 
   private final Project myProject;
-  private final Task myTask;
-  private VcsTaskHandler myVcsTaskHandler;
+  private final LocalTaskImpl myTask;
+  private final List<TaskDialogPanel> myPanels;
 
   public OpenTaskDialog(@NotNull final Project project, @NotNull final Task task) {
     super(project, false);
     myProject = project;
-    myTask = task;
-    TaskManagerImpl taskManager = (TaskManagerImpl)TaskManager.getManager(myProject);
-    setTitle("Open Task");
-    myTaskNameLabel.setText(TaskUtil.getTrimmedSummary(task));
-    myTaskNameLabel.setIcon(task.getIcon());
+    myTask = new LocalTaskImpl(task);
+    myTaskStateCombo.setProject(myProject);
+    myTaskStateCombo.setTask(myTask);
 
-    TaskManagerImpl manager = (TaskManagerImpl)TaskManager.getManager(project);
-    ControlBinder binder = new ControlBinder(manager.getState());
+    setTitle(TaskBundle.message("dialog.title.open.task"));
+    myNameField.setText(TaskUtil.getTrimmedSummary(task));
+    myNameField.setEnabled(!task.isIssue());
+
+    TaskManagerImpl taskManager = (TaskManagerImpl)TaskManager.getManager(myProject);
+    ControlBinder binder = new ControlBinder(taskManager.getState());
     binder.bindAnnotations(this);
     binder.reset();
 
@@ -89,14 +70,14 @@ public class OpenTaskDialog extends DialogWrapper {
       myUpdateState.setVisible(false);
       myTaskStateCombo.setVisible(false);
     }
-    final boolean stateUpdatesEnabled = PropertiesComponent.getInstance(project).getBoolean(UPDATE_STATE_ENABLED, true);
+    final boolean stateUpdatesEnabled = PropertiesComponent.getInstance(project).getBoolean(UPDATE_STATE_ENABLED, false);
     myUpdateState.setSelected(stateUpdatesEnabled);
     myUpdateState.addActionListener(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
         final boolean selected = myUpdateState.isSelected();
         PropertiesComponent.getInstance(project).setValue(UPDATE_STATE_ENABLED, String.valueOf(selected));
-        updateFields(false);
+        updateFields();
         if (selected) {
           myTaskStateCombo.scheduleUpdateOnce();
         }
@@ -106,99 +87,32 @@ public class OpenTaskDialog extends DialogWrapper {
     TaskManagerImpl.Config state = taskManager.getState();
     myClearContext.setSelected(state.clearContext);
 
-    AbstractVcs vcs = manager.getActiveVcs();
-    if (vcs == null) {
-      myVcsPanel.setVisible(false);
-    }
-    else {
-      ActionListener listener = new ActionListener() {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-          updateFields(false);
-        }
-      };
-      myCreateChangelist.addActionListener(listener);
-      myCreateBranch.addActionListener(listener);
-      myCreateChangelist.setSelected(manager.getState().createChangelist);
-
-      VcsTaskHandler[] handlers = VcsTaskHandler.getAllHandlers(project);
-      if (handlers.length == 0) {
-        myCreateBranch.setSelected(false);
-        myCreateBranch.setVisible(false);
-        myBranchName.setVisible(false);
-        myFromLabel.setVisible(false);
-        myBranchFrom.setVisible(false);
-      }
-      else {
-        for (VcsTaskHandler handler : handlers) {
-          VcsTaskHandler.TaskInfo[] tasks = handler.getAllExistingTasks();
-          if (tasks.length > 0) {
-            myVcsTaskHandler = handler;
-            //noinspection unchecked
-            myBranchFrom.setModel(new DefaultComboBoxModel(tasks));
-            myBranchFrom.setEnabled(true);
-            final String startFrom = PropertiesComponent.getInstance(project).getValue(START_FROM_BRANCH);
-            VcsTaskHandler.TaskInfo info = null;
-            if (startFrom != null) {
-              info = ContainerUtil.find(tasks, new Condition<VcsTaskHandler.TaskInfo>() {
-                @Override
-                public boolean value(VcsTaskHandler.TaskInfo taskInfo) {
-                  return startFrom.equals(taskInfo.getName());
-                }
-              });
-            }
-            if (info == null) {
-              VcsTaskHandler.TaskInfo[] current = handler.getCurrentTasks();
-              info = current.length > 0 ? current[0] : tasks[0];
-            }
-            myBranchFrom.setSelectedItem(info);
-            myBranchFrom.addActionListener(new ActionListener() {
-              @Override
-              public void actionPerformed(ActionEvent e) {
-                VcsTaskHandler.TaskInfo item = (VcsTaskHandler.TaskInfo)myBranchFrom.getSelectedItem();
-                if (item != null) {
-                  PropertiesComponent.getInstance(project).setValue(START_FROM_BRANCH, item.getName());
-                }
-              }
-            });
-            break;
-          }
-        }
-        myCreateBranch.setSelected(manager.getState().createBranch && myBranchFrom.getItemCount() > 0);
-        myBranchFrom.setRenderer(new ColoredListCellRenderer<VcsTaskHandler.TaskInfo>() {
-          @Override
-          protected void customizeCellRenderer(JList list, VcsTaskHandler.TaskInfo value, int index, boolean selected, boolean hasFocus) {
-            if (value != null) {
-              append(value.getName());
-            }
-          }
-        });
-      }
-
-      myBranchName.setText(taskManager.suggestBranchName(task));
-      myChangelistName.setText(taskManager.getChangelistName(task));
-    }
-    updateFields(true);
-    myTaskStateCombo.registerUpDownAction(myBranchName);
-    myTaskStateCombo.registerUpDownAction(myChangelistName);
+    updateFields();
     if (myUpdateState.isSelected()) {
       myTaskStateCombo.scheduleUpdateOnce();
     }
+
+    myAdditionalPanel.setLayout(new BoxLayout(myAdditionalPanel, BoxLayout.Y_AXIS));
+    myPanels = TaskDialogPanelProvider.getOpenTaskPanels(project, myTask);
+    for (TaskDialogPanel panel : myPanels) {
+      myAdditionalPanel.add(panel.getPanel());
+    }
+    myNameField.getDocument().addDocumentListener(new DocumentAdapter() {
+      @Override
+      protected void textChanged(@NotNull DocumentEvent e) {
+        LocalTaskImpl oldTask = new LocalTaskImpl(myTask);
+        myTask.setSummary(myNameField.getText());
+        for (TaskDialogPanel panel : myPanels) {
+          panel.taskNameChanged(oldTask, myTask);
+        }
+      }
+    });
     init();
   }
 
-  private void updateFields(boolean initial) {
-    if (!initial && myBranchFrom.getItemCount() == 0 && myCreateBranch.isSelected()) {
-      Messages.showWarningDialog(myPanel, "Can't create branch if no commit exists.\nCreate a commit first.", "Cannot Create Branch");
-      myCreateBranch.setSelected(false);
-    }
-    myBranchName.setEnabled(myCreateBranch.isSelected());
-    myFromLabel.setEnabled(myCreateBranch.isSelected());
-    myBranchFrom.setEnabled(myCreateBranch.isSelected());
-    myChangelistName.setEnabled(myCreateChangelist.isSelected());
+  private void updateFields() {
     myTaskStateCombo.setEnabled(myUpdateState.isSelected());
   }
-
 
   @Override
   protected void doOKAction() {
@@ -209,9 +123,6 @@ public class OpenTaskDialog extends DialogWrapper {
   public void createTask() {
     final TaskManagerImpl taskManager = (TaskManagerImpl)TaskManager.getManager(myProject);
 
-    taskManager.getState().createChangelist = myCreateChangelist.isSelected();
-    taskManager.getState().createBranch = myCreateBranch.isSelected();
-
     if (myUpdateState.isSelected()) {
       final CustomTaskState taskState = myTaskStateCombo.getSelectedState();
       final TaskRepository repository = myTask.getRepository();
@@ -221,63 +132,26 @@ public class OpenTaskDialog extends DialogWrapper {
           repository.setPreferredOpenTaskState(taskState);
         }
         catch (Exception ex) {
-          Messages.showErrorDialog(myProject, ex.getMessage(), "Cannot Set State For Issue");
+          Messages.showErrorDialog(myProject, ex.getMessage(), TaskBundle.message("dialog.title.cannot.set.state.for.issue"));
           LOG.warn(ex);
         }
       }
     }
-    final LocalTask activeTask = taskManager.getActiveTask();
-    final LocalTask localTask = taskManager.activateTask(myTask, isClearContext());
-    if (myCreateChangelist.isSelected()) {
-      taskManager.createChangeList(localTask, myChangelistName.getText());
+
+    for (TaskDialogPanel panel : myPanels) {
+      panel.commit();
     }
-    if (myCreateBranch.isSelected()) {
-      VcsTaskHandler.TaskInfo item = (VcsTaskHandler.TaskInfo)myBranchFrom.getSelectedItem();
-      Runnable createBranch = new Runnable() {
-        @Override
-        public void run() {
-          taskManager.createBranch(localTask, activeTask, myBranchName.getText());
-        }
-      };
-      if (item != null) {
-        myVcsTaskHandler.switchToTask(item, createBranch);
-      }
-      else {
-        createBranch.run();
-      }
-    }
+    taskManager.activateTask(myTask, isClearContext(), true);
     if (myTask.getType() == TaskType.EXCEPTION && AnalyzeTaskStacktraceAction.hasTexts(myTask)) {
       AnalyzeTaskStacktraceAction.analyzeStacktrace(myTask, myProject);
     }
-  }
-
-  @Nullable
-  @Override
-  protected ValidationInfo doValidate() {
-    if (myCreateBranch.isSelected()) {
-      String branchName = myBranchName.getText().trim();
-      if (branchName.isEmpty()) {
-        return new ValidationInfo("Branch name should not be empty", myBranchName);
-      }
-      else if (branchName.contains(" ")) {
-        return new ValidationInfo("Branch name should not contain spaces");
-      }
-      else {
-        return null;
-      }
-    }
-    if (myCreateChangelist.isSelected()) {
-      if (myChangelistName.getText().trim().isEmpty()) {
-        return new ValidationInfo("Changelist name should not be empty");
-      }
-    }
-    return null;
   }
 
   private boolean isClearContext() {
     return myClearContext.isSelected();
   }
 
+  @Override
   @NonNls
   protected String getDimensionServiceKey() {
     return "SimpleOpenTaskDialog";
@@ -285,24 +159,42 @@ public class OpenTaskDialog extends DialogWrapper {
 
   @Override
   public JComponent getPreferredFocusedComponent() {
-    if (myCreateBranch.isSelected()) {
-      return myBranchName;
+    if (myNameField.getText().trim().isEmpty()) {
+      return myNameField;
     }
-    else if (myCreateChangelist.isSelected()) {
-      return myChangelistName;
+    for (TaskDialogPanel panel : myPanels) {
+      final JComponent component = panel.getPreferredFocusedComponent();
+      if (component != null) {
+        return component;
+      }
     }
-    else if (myTaskStateCombo.isVisible() && myTaskStateCombo.isEnabled()){
+    if (myTaskStateCombo.isVisible() && myTaskStateCombo.isEnabled()){
       return myTaskStateCombo.getComboBox();
     }
     return null;
   }
 
+  @Nullable
+  @Override
+  protected ValidationInfo doValidate() {
+    String taskName = myNameField.getText().trim();
+    if (taskName.isEmpty()) {
+      return new ValidationInfo(TaskBundle.message("dialog.message.task.name.should.not.be.empty"), myNameField);
+    }
+    for (TaskDialogPanel panel : myPanels) {
+      ValidationInfo validate = panel.validate();
+      if (validate != null) return validate;
+    }
+    return null;
+  }
+
+  @Override
   protected JComponent createCenterPanel() {
     return myPanel;
   }
 
   private void createUIComponents() {
-    myTaskStateCombo = new TaskStateCombo(myProject, myTask) {
+    myTaskStateCombo = new TaskStateCombo() {
       @Nullable
       @Override
       protected CustomTaskState getPreferredState(@NotNull TaskRepository repository, @NotNull Collection<CustomTaskState> available) {

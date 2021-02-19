@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,9 +29,8 @@ public class PsiResourceVariableImpl extends PsiLocalVariableImpl implements Psi
     super(JavaElementType.RESOURCE_VARIABLE);
   }
 
-  @NotNull
   @Override
-  public PsiElement[] getDeclarationScope() {
+  public PsiElement @NotNull [] getDeclarationScope() {
     final PsiResourceList resourceList = (PsiResourceList)getParent();
     final PsiTryStatement tryStatement = (PsiTryStatement)resourceList.getParent();
     final PsiCodeBlock tryBlock = tryStatement.getTryBlock();
@@ -51,13 +50,13 @@ public class PsiResourceVariableImpl extends PsiLocalVariableImpl implements Psi
 
   @Override
   public void delete() throws IncorrectOperationException {
-    final PsiElement next = PsiTreeUtil.skipSiblingsForward(this, PsiWhiteSpace.class, PsiComment.class);
+    final PsiElement next = PsiTreeUtil.skipWhitespacesAndCommentsForward(this);
     if (PsiUtil.isJavaToken(next, JavaTokenType.SEMICOLON)) {
       getParent().deleteChildRange(this, next);
       return;
     }
 
-    final PsiElement prev = PsiTreeUtil.skipSiblingsBackward(this, PsiWhiteSpace.class, PsiComment.class);
+    final PsiElement prev = PsiTreeUtil.skipWhitespacesAndCommentsBackward(this);
     if (PsiUtil.isJavaToken(prev, JavaTokenType.SEMICOLON)) {
       getParent().deleteChildRange(prev, this);
       return;

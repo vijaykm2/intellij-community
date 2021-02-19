@@ -32,7 +32,6 @@ import javax.swing.event.HyperlinkEvent;
 
 /**
  * @author Vladislav.Soroka
- * @since 12/11/2014
  */
 public class OpenExternalSystemSettingsCallback extends NotificationListener.Adapter {
 
@@ -62,12 +61,8 @@ public class OpenExternalSystemSettingsCallback extends NotificationListener.Ada
     }
     final Configurable configurable = ((ExternalSystemConfigurableAware)manager).getConfigurable(myProject);
     if(configurable instanceof AbstractExternalSystemConfigurable) {
-      ShowSettingsUtil.getInstance().editConfigurable(myProject, configurable, new Runnable() {
-        @Override
-        public void run() {
-          ((AbstractExternalSystemConfigurable)configurable).selectProject(myLinkedProjectPath);
-        }
-      });
+      ShowSettingsUtil.getInstance().editConfigurable(myProject, configurable,
+                                                      () -> ((AbstractExternalSystemConfigurable)configurable).selectProject(myLinkedProjectPath));
     }
 
   }

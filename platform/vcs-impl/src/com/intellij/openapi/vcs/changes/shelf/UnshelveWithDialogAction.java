@@ -1,70 +1,137 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.shelf;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.MessageType;
-import com.intellij.openapi.vcs.changes.patch.ApplyPatchDefaultExecutor;
+import com.intellij.openapi.vcs.VcsBundle;
+import com.intellij.openapi.vcs.VcsDataKeys;
+import com.intellij.openapi.vcs.changes.Change;
+import com.intellij.openapi.vcs.changes.ChangeListManager;
+import com.intellij.openapi.vcs.changes.LocalChangeList;
 import com.intellij.openapi.vcs.changes.patch.ApplyPatchDifferentiatedDialog;
-import com.intellij.openapi.vcs.changes.patch.ApplyPatchExecutor;
 import com.intellij.openapi.vcs.changes.patch.ApplyPatchMode;
+import com.intellij.openapi.vcs.changes.patch.UnshelvePatchDefaultExecutor;
+import com.intellij.openapi.vcs.changes.ui.ChangeListChooser;
 import com.intellij.openapi.vcs.ui.VcsBalloonProblemNotifier;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
+import javax.swing.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
 
-/**
- * @author irengrig
- *         Date: 2/25/11
- *         Time: 5:50 PM
- */
+import static com.intellij.openapi.vcs.changes.ChangeListUtil.getChangeListNameForUnshelve;
+import static com.intellij.openapi.vcs.changes.ChangeListUtil.getPredefinedChangeList;
+import static com.intellij.openapi.vcs.changes.shelf.ShelvedChangesViewManager.getBinaryShelveChanges;
+import static com.intellij.openapi.vcs.changes.shelf.ShelvedChangesViewManager.getShelveChanges;
+
 public class UnshelveWithDialogAction extends DumbAwareAction {
   @Override
-  public void actionPerformed(AnActionEvent e) {
-    final Project project = e.getData(CommonDataKeys.PROJECT);
-    final ShelvedChangeList[] changeLists = e.getData(ShelvedChangesViewManager.SHELVED_CHANGELIST_KEY);
-    if (project == null || changeLists == null || changeLists.length != 1) return;
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    final Project project = Objects.requireNonNull(getEventProject(e));
+    DataContext dataContext = e.getDataContext();
+    final List<ShelvedChangeList> changeLists = ShelvedChangesViewManager.getShelvedLists(dataContext);
+    if (changeLists.isEmpty()) return;
 
     FileDocumentManager.getInstance().saveAllDocuments();
 
-    final VirtualFile virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(new File(changeLists[0].PATH));
-    if (virtualFile == null) {
-      VcsBalloonProblemNotifier.showOverChangesView(project, "Can not find path file", MessageType.ERROR);
-      return;
+    if (changeLists.size() > 1) {
+      unshelveMultipleShelveChangeLists(project, changeLists, getBinaryShelveChanges(dataContext), getShelveChanges(dataContext));
     }
-    if (! changeLists[0].getBinaryFiles().isEmpty()) {
-      VcsBalloonProblemNotifier.showOverChangesView(project, "Binary file(s) would be skipped.", MessageType.WARNING);
+    else {
+      ShelvedChangeList changeList = changeLists.get(0);
+      VirtualFile virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(changeList.path);
+      if (virtualFile == null) {
+        VcsBalloonProblemNotifier.showOverChangesView(project, VcsBundle.message("patch.apply.can.t.find.patch.file.warning", changeList.path), MessageType.ERROR);
+        return;
+      }
+      List<ShelvedBinaryFilePatch> binaryShelvedPatches =
+        ContainerUtil.map(changeList.getBinaryFiles(), ShelvedBinaryFilePatch::new);
+      ApplyPatchDifferentiatedDialog dialog =
+        new MyUnshelveDialog(project, virtualFile, changeList, binaryShelvedPatches, e.getData(VcsDataKeys.CHANGES));
+      dialog.setHelpId("reference.dialogs.vcs.unshelve"); //NON-NLS
+      dialog.show();
     }
-    final ApplyPatchDifferentiatedDialog dialog =
-      new ApplyPatchDifferentiatedDialog(project, new ApplyPatchDefaultExecutor(project), Collections.<ApplyPatchExecutor>emptyList(),
-                                         ApplyPatchMode.UNSHELVE, virtualFile);
-    dialog.setHelpId("reference.dialogs.vcs.unshelve");
-    dialog.show();
+  }
+
+  private static void unshelveMultipleShelveChangeLists(@NotNull Project project,
+                                                        @NotNull List<ShelvedChangeList> changeLists,
+                                                        @NotNull List<ShelvedBinaryFile> binaryFiles,
+                                                        @NotNull List<ShelvedChange> changes) {
+    LocalChangeList targetList;
+    if (ChangeListManager.getInstance(project).areChangeListsEnabled()) {
+      String suggestedName = changeLists.get(0).DESCRIPTION;
+      ChangeListChooser chooser = new ChangeListChooser(project, null, null,
+                                                        VcsBundle.message("unshelve.changelist.chooser.title"), suggestedName) {
+        @Override
+        protected JComponent createDoNotAskCheckbox() {
+          return createRemoveFilesStrategyCheckbox(project);
+        }
+      };
+      if (!chooser.showAndGet()) return;
+
+      targetList = chooser.getSelectedList();
+    }
+    else {
+      targetList = null;
+    }
+    ShelveChangesManager.getInstance(project).unshelveSilentlyAsynchronously(project, changeLists, changes, binaryFiles, targetList);
+  }
+
+  private static boolean hasNotAllSelectedChanges(@NotNull ShelvedChangeList list, Change @Nullable [] changes) {
+    return changes != null && (Objects.requireNonNull(list.getChanges()).size() + list.getBinaryFiles().size()) != changes.length;
   }
 
   @Override
-  public void update(AnActionEvent e) {
-    final Project project = e.getData(CommonDataKeys.PROJECT);
-    final ShelvedChangeList[] changes = e.getData(ShelvedChangesViewManager.SHELVED_CHANGELIST_KEY);
-    e.getPresentation().setEnabled(project != null && changes != null && changes.length == 1);
+  public void update(@NotNull AnActionEvent e) {
+    e.getPresentation().setEnabled(getEventProject(e) != null && !ShelvedChangesViewManager.getShelvedLists(e.getDataContext()).isEmpty());
+  }
+
+  private static class MyUnshelveDialog extends ApplyPatchDifferentiatedDialog {
+
+    MyUnshelveDialog(@NotNull Project project,
+                     @NotNull VirtualFile patchFile,
+                     @NotNull ShelvedChangeList changeList,
+                     @NotNull List<ShelvedBinaryFilePatch> binaryShelvedPatches,
+                     Change @Nullable [] preselectedChanges) {
+      super(project, new UnshelvePatchDefaultExecutor(project, changeList), Collections.emptyList(), ApplyPatchMode.UNSHELVE, patchFile,
+            null, getPredefinedChangeList(changeList, ChangeListManager.getInstance(project)), binaryShelvedPatches,
+            hasNotAllSelectedChanges(changeList, preselectedChanges) ? Arrays.asList(preselectedChanges) : null,
+            getChangeListNameForUnshelve(changeList), true);
+      setOKButtonText(VcsBundle.message("unshelve.changes.action"));
+    }
+
+    @Nullable
+    @Override
+    protected JComponent createDoNotAskCheckbox() {
+      return createRemoveFilesStrategyCheckbox(myProject);
+    }
+  }
+
+  @NotNull
+  private static JCheckBox createRemoveFilesStrategyCheckbox(@NotNull Project project) {
+    final JCheckBox removeOptionCheckBox = new JCheckBox(VcsBundle.message("shelve.remove.successfully.applied.files.checkbox"));
+    removeOptionCheckBox.setMnemonic(KeyEvent.VK_R);
+    final ShelveChangesManager shelveChangesManager = ShelveChangesManager.getInstance(project);
+    removeOptionCheckBox.setSelected(shelveChangesManager.isRemoveFilesFromShelf());
+    removeOptionCheckBox.addActionListener(new ActionListener() {
+      @Override
+      public void actionPerformed(ActionEvent e) {
+        shelveChangesManager.setRemoveFilesFromShelf(removeOptionCheckBox.isSelected());
+      }
+    });
+    return removeOptionCheckBox;
   }
 }

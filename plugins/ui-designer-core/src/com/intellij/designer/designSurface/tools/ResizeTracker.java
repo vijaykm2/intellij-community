@@ -22,6 +22,7 @@ import com.intellij.designer.designSurface.OperationContext;
 import com.intellij.designer.model.RadComponent;
 import com.intellij.designer.utils.Cursors;
 import com.intellij.designer.utils.Position;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
@@ -35,12 +36,12 @@ import java.util.List;
  */
 public class ResizeTracker extends InputTool {
   private final int myDirection;
-  private final String myDescription;
+  private final @Nls String myDescription;
   private OperationContext myContext;
   private List<EditOperation> myOperations;
   private boolean myShowFeedback;
 
-  public ResizeTracker(int direction, Object type, @Nullable String description) {
+  public ResizeTracker(int direction, Object type, @Nullable @Nls String description) {
     myDirection = direction;
     myDescription = description;
     myContext = new OperationContext(type);
@@ -128,7 +129,7 @@ public class ResizeTracker extends InputTool {
 
   private void executeCommand() {
     if (myExecuteEnabled) {
-      List<EditOperation> operations = new ArrayList<EditOperation>();
+      List<EditOperation> operations = new ArrayList<>();
       for (EditOperation operation : getOperations()) {
         if (operation.canExecute()) {
           operations.add(operation);
@@ -181,8 +182,8 @@ public class ResizeTracker extends InputTool {
 
   private List<EditOperation> getOperations() {
     if (myOperations == null) {
-      myContext.setComponents(new ArrayList<RadComponent>(myArea.getSelection()));
-      myOperations = new ArrayList<EditOperation>();
+      myContext.setComponents(new ArrayList<>(myArea.getSelection()));
+      myOperations = new ArrayList<>();
 
       for (RadComponent component : myContext.getComponents()) {
         EditOperation operation;

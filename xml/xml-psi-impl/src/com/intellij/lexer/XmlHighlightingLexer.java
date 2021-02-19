@@ -1,26 +1,9 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lexer;
 
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.xml.XmlTokenType;
 
-/**
- * @author mike
- */
 public class XmlHighlightingLexer extends DelegateLexer {
   public XmlHighlightingLexer() {
     super(new XmlLexer());
@@ -30,28 +13,15 @@ public class XmlHighlightingLexer extends DelegateLexer {
   public IElementType getTokenType() {
     IElementType tokenType = getDelegate().getTokenType();
 
-    if (tokenType == null) return tokenType;
+    if (tokenType == null) return null;
 
-    int state = getState() & 0xF;
-
-    tokenType = fixWrongTokenTypes(tokenType, state);
-    if (tokenType != XmlTokenType.XML_COMMENT_CHARACTERS &&
-      tokenType != XmlTokenType.XML_COMMENT_END &&
-      tokenType != XmlTokenType.XML_COMMENT_START &&
-      tokenType != XmlTokenType.XML_ATTRIBUTE_VALUE_START_DELIMITER) {
-
-      // TODO: do not know when this happens!
-      switch (state) {
-        case __XmlLexer.DOCTYPE:
-          tokenType = XmlTokenType.XML_DECL_START;
-          break;
-      }
-    }
+    tokenType = fixWrongTokenTypes(tokenType);
 
     return tokenType;
   }
 
-  static IElementType fixWrongTokenTypes(IElementType tokenType, final int state) {
+  private IElementType fixWrongTokenTypes(IElementType tokenType) {
+    int state = getState() & 0x1f; // __XmlLexer.C_COMMENT_END is last state with value 30
     if (tokenType == XmlTokenType.XML_NAME) {
       if (state == __XmlLexer.TAG || state == __XmlLexer.END_TAG) {
         // translate XML names for tags into XmlTagName

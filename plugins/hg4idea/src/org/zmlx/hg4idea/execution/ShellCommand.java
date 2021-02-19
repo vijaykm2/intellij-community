@@ -14,31 +14,28 @@ package org.zmlx.hg4idea.execution;
 
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
-import com.intellij.execution.process.OSProcessHandler;
-import com.intellij.execution.process.ProcessEvent;
-import com.intellij.execution.process.ProcessListener;
-import com.intellij.execution.process.ProcessOutputTypes;
+import com.intellij.execution.process.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vcs.LineHandlerHelper;
+import com.intellij.vcs.VcsLocaleHelper;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
-import java.io.StringWriter;
 import java.nio.charset.Charset;
-import java.util.Iterator;
 import java.util.List;
 
 public final class ShellCommand {
-
   private final GeneralCommandLine myCommandLine;
-  private int myExitCode;
 
-  public ShellCommand(@Nullable List<String> commandLine, @Nullable String dir, @Nullable Charset charset) {
-    if (commandLine == null || commandLine.isEmpty()) {
+  public ShellCommand(@NotNull List<@NonNls String> commandLine, @Nullable @NonNls String dir, @Nullable Charset charset) {
+    if (commandLine.isEmpty()) {
       throw new IllegalArgumentException("commandLine is empty");
     }
     myCommandLine = new GeneralCommandLine(commandLine);
@@ -52,61 +49,85 @@ public final class ShellCommand {
       //ignore all hg config files except current repository config
       myCommandLine.getEnvironment().put("HGRCPATH", "");
     }
+    myCommandLine.withEnvironment(VcsLocaleHelper.getDefaultLocaleEnvironmentVars("hg"));
   }
 
   @NotNull
-  public HgCommandResult execute(final boolean showTextOnIndicator) throws ShellCommandException, InterruptedException {
-    final StringWriter out = new StringWriter();
-    final StringWriter err = new StringWriter();
-    final ProgressIndicator indicator = ProgressManager.getInstance().getProgressIndicator();
+  public HgCommandResult execute(boolean showTextOnIndicator, boolean isBinary) throws ShellCommandException {
+    CommandResultCollector listener = new CommandResultCollector(isBinary);
+    execute(showTextOnIndicator, isBinary, listener);
+    return listener.getResult();
+  }
+
+  public void execute(boolean showTextOnIndicator, boolean isBinary, @NotNull HgLineProcessListener listener)
+    throws ShellCommandException {
+    ProgressIndicator indicator = ProgressManager.getInstance().getProgressIndicator();
     try {
-      final Process process = myCommandLine.createProcess();
-      final OSProcessHandler processHandler = new OSProcessHandler(process, myCommandLine.toString(), myCommandLine.getCharset());
-
-      processHandler.addProcessListener(new ProcessListener() {
-        public void startNotified(final ProcessEvent event) {
-        }
-
-        public void processTerminated(final ProcessEvent event) {
-          myExitCode = event.getExitCode();
+      OSProcessHandler processHandler = isBinary
+                                        ? new BinaryOSProcessHandler(myCommandLine)
+                                        : new KillableProcessHandler(myCommandLine, Registry.is("hg4idea.execute.with.mediator"));
+      ProcessAdapter outputAdapter = new ProcessAdapter() {
+        @Override
+        public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
+          for (@NlsSafe String line : LineHandlerHelper.splitText(event.getText())) {
+            if (ProcessOutputTypes.STDOUT == outputType && indicator != null && showTextOnIndicator) {
+              indicator.setText2(line);
+            }
+            listener.onLineAvailable(line, outputType);
+          }
         }
 
         @Override
-        public void processWillTerminate(ProcessEvent event, boolean willBeDestroyed) {
+        public void processTerminated(@NotNull ProcessEvent event) {
+          listener.setExitCode(event.getExitCode());
         }
-
-        @Override
-        public void onTextAvailable(ProcessEvent event, Key outputType) {
-          Iterator<String> lines = LineHandlerHelper.splitText(event.getText()).iterator();
-          if (ProcessOutputTypes.STDOUT == outputType) {
-            while (lines.hasNext()) {
-              String line = lines.next();
-              if (indicator != null && showTextOnIndicator) {
-                indicator.setText2(line);
-              }
-              out.write(line);
-            }
-          }
-          else if (ProcessOutputTypes.STDERR == outputType) {
-            while (lines.hasNext()) {
-              err.write(lines.next());
-            }
-          }
-        }
-      });
-
+      };
+      processHandler.addProcessListener(outputAdapter);
       processHandler.startNotify();
       while (!processHandler.waitFor(300)) {
         if (indicator != null && indicator.isCanceled()) {
           processHandler.destroyProcess();
-          myExitCode = 255;
+          listener.setExitCode(255);
           break;
         }
       }
-      return new HgCommandResult(out, err, myExitCode);
+      if (isBinary) {
+        listener.setBinaryOutput(((BinaryOSProcessHandler)processHandler).getOutput());
+      }
     }
     catch (ExecutionException e) {
       throw new ShellCommandException(e);
+    }
+  }
+
+  public static class CommandResultCollector extends HgLineProcessListener {
+    @NotNull private final ProcessOutput myOutput;
+    private final boolean myIsBinary;
+
+    public CommandResultCollector(boolean binary) {
+      myIsBinary = binary;
+      myOutput = new ProcessOutput();
+    }
+
+    @Override
+    protected void processOutputLine(@NotNull String line) {
+      myOutput.appendStdout(line);
+    }
+
+    @Override
+    protected void processErrorLine(@NotNull String line) {
+      super.processErrorLine(line);
+      myOutput.appendStderr(line);
+    }
+
+    @Override
+    public void setExitCode(int exitCode) {
+      super.setExitCode(exitCode);
+      myOutput.setExitCode(exitCode);
+    }
+
+    public HgCommandResult getResult() {
+      return myIsBinary ? new HgCommandResult(myOutput, getBinaryOutput()) : new HgCommandResult(myOutput);
     }
   }
 }

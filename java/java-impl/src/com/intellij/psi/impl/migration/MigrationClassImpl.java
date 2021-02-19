@@ -49,6 +49,7 @@ public class MigrationClassImpl extends LightElement implements PsiClass{
     myName = PsiNameHelper.getShortClassName(myQualifiedName);
   }
 
+  @Override
   public String toString() {
     return "MigrationClass:" + myQualifiedName;
   }
@@ -110,14 +111,12 @@ public class MigrationClassImpl extends LightElement implements PsiClass{
   }
 
   @Override
-  @NotNull
-  public PsiClassType[] getExtendsListTypes() {
+  public PsiClassType @NotNull [] getExtendsListTypes() {
     return PsiClassType.EMPTY_ARRAY;
   }
 
   @Override
-  @NotNull
-  public PsiClassType[] getImplementsListTypes() {
+  public PsiClassType @NotNull [] getImplementsListTypes() {
     return PsiClassType.EMPTY_ARRAY;
   }
 
@@ -128,19 +127,17 @@ public class MigrationClassImpl extends LightElement implements PsiClass{
   }
 
   @Override
-  public PsiClass[] getInterfaces() {
+  public PsiClass @NotNull [] getInterfaces() {
     return PsiClass.EMPTY_ARRAY;
   }
 
   @Override
-  @NotNull
-  public PsiClass[] getSupers() {
+  public PsiClass @NotNull [] getSupers() {
     return PsiClass.EMPTY_ARRAY;
   }
 
   @Override
-  @NotNull
-  public PsiClassType[] getSuperTypes() {
+  public PsiClassType @NotNull [] getSuperTypes() {
     return PsiClassType.EMPTY_ARRAY;
   }
 
@@ -156,56 +153,47 @@ public class MigrationClassImpl extends LightElement implements PsiClass{
   }
 
   @Override
-  @NotNull
-  public PsiField[] getFields() {
+  public PsiField @NotNull [] getFields() {
     return PsiField.EMPTY_ARRAY;
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] getMethods() {
+  public PsiMethod @NotNull [] getMethods() {
     return PsiMethod.EMPTY_ARRAY;
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] getConstructors() {
+  public PsiMethod @NotNull [] getConstructors() {
     return PsiMethod.EMPTY_ARRAY;
   }
 
   @Override
-  @NotNull
-  public PsiClass[] getInnerClasses() {
+  public PsiClass @NotNull [] getInnerClasses() {
     return PsiClass.EMPTY_ARRAY;
   }
 
   @Override
-  @NotNull
-  public PsiClassInitializer[] getInitializers() {
+  public PsiClassInitializer @NotNull [] getInitializers() {
     return PsiClassInitializer.EMPTY_ARRAY;
   }
 
   @Override
-  @NotNull
-  public PsiTypeParameter[] getTypeParameters() {
+  public PsiTypeParameter @NotNull [] getTypeParameters() {
     return PsiTypeParameter.EMPTY_ARRAY;
   }
 
   @Override
-  @NotNull
-  public PsiField[] getAllFields() {
+  public PsiField @NotNull [] getAllFields() {
     return PsiField.EMPTY_ARRAY;
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] getAllMethods() {
+  public PsiMethod @NotNull [] getAllMethods() {
     return PsiMethod.EMPTY_ARRAY;
   }
 
   @Override
-  @NotNull
-  public PsiClass[] getAllInnerClasses() {
+  public PsiClass @NotNull [] getAllInnerClasses() {
     return PsiClass.EMPTY_ARRAY;
   }
 
@@ -220,27 +208,25 @@ public class MigrationClassImpl extends LightElement implements PsiClass{
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] findMethodsBySignature(PsiMethod patternMethod, boolean checkBases) {
+  public PsiMethod @NotNull [] findMethodsBySignature(PsiMethod patternMethod, boolean checkBases) {
     return PsiMethod.EMPTY_ARRAY;
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] findMethodsByName(String name, boolean checkBases) {
+  public PsiMethod @NotNull [] findMethodsByName(String name, boolean checkBases) {
     return PsiMethod.EMPTY_ARRAY;
   }
 
   @Override
   @NotNull
   public List<Pair<PsiMethod, PsiSubstitutor>> findMethodsAndTheirSubstitutorsByName(String name, boolean checkBases) {
-    return new ArrayList<Pair<PsiMethod,PsiSubstitutor>>();
+    return new ArrayList<>();
   }
 
   @Override
   @NotNull
   public List<Pair<PsiMethod, PsiSubstitutor>> getAllMethodsAndTheirSubstitutors() {
-    return new ArrayList<Pair<PsiMethod,PsiSubstitutor>>();
+    return new ArrayList<>();
   }
 
   @Override

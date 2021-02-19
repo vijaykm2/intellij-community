@@ -35,7 +35,7 @@ import org.jetbrains.annotations.NotNull;
  * @author lesya
  */
 public class ImportsFormatter extends XmlRecursiveElementVisitor {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.codeStyle.ImportsFormatter");
+  private static final Logger LOG = Logger.getInstance(ImportsFormatter.class);
   
   private final FormattingDocumentModelImpl myDocumentModel;
   private final CommonCodeStyleSettings.IndentOptions myIndentOptions;
@@ -88,7 +88,7 @@ public class ImportsFormatter extends XmlRecursiveElementVisitor {
   }
 
   private String formatImports(final int startOffset, final String value) {
-    final StringBuffer result = new StringBuffer();
+    final StringBuilder result = new StringBuilder();
     String offset = calcOffset(startOffset);
     final String[] imports = value.split(",");
     if (imports.length >=1) {

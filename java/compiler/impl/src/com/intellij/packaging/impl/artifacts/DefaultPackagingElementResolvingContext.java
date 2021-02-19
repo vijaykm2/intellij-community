@@ -30,9 +30,6 @@ import com.intellij.packaging.elements.PackagingElementResolvingContext;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
-* @author nik
-*/
 public class DefaultPackagingElementResolvingContext implements PackagingElementResolvingContext {
   private final Project myProject;
   private final DefaultModulesProvider myModulesProvider;
@@ -42,26 +39,31 @@ public class DefaultPackagingElementResolvingContext implements PackagingElement
     myModulesProvider = new DefaultModulesProvider(myProject);
   }
 
+  @Override
   @NotNull
   public Project getProject() {
     return myProject;
   }
 
+  @Override
   @NotNull
   public ArtifactModel getArtifactModel() {
     return ArtifactManager.getInstance(myProject);
   }
 
+  @Override
   @NotNull
   public ModulesProvider getModulesProvider() {
     return myModulesProvider;
   }
 
+  @Override
   @NotNull
   public FacetsProvider getFacetsProvider() {
     return DefaultFacetsProvider.INSTANCE;
   }
 
+  @Override
   public Library findLibrary(@NotNull String level, @NotNull String libraryName) {
     return findLibrary(myProject, level, libraryName);
   }

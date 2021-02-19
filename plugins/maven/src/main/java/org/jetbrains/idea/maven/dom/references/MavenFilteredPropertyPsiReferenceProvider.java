@@ -15,6 +15,7 @@
  */
 package org.jetbrains.idea.maven.dom.references;
 
+import com.intellij.lang.properties.references.PropertyReferenceBase;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
@@ -40,6 +41,11 @@ public class MavenFilteredPropertyPsiReferenceProvider extends PsiReferenceProvi
   private static final Key<Pattern> KEY = Key.create("MavenFilteredPropertyPsiReferenceProvider:delimitersKey");
   
   public static final Pattern DEFAULT_DELIMITERS = MavenPropertyResolver.PATTERN;
+
+  @Override
+  public boolean acceptsTarget(@NotNull PsiElement target) {
+    return PropertyReferenceBase.isPropertyPsi(target);
+  }
 
   @NotNull
   public static Pattern getDelimitersPattern(MavenProject mavenProject) {
@@ -112,9 +118,8 @@ public class MavenFilteredPropertyPsiReferenceProvider extends PsiReferenceProvi
     return false; // Don't add references to all element to avoid performance problem.
   }
 
-  @NotNull
   @Override
-  public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
+  public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
     if (!shouldAddReference(element)) {
       // Add reference to element with one child or leaf element only to avoid performance problem.
       return PsiReference.EMPTY_ARRAY;
@@ -151,7 +156,7 @@ public class MavenFilteredPropertyPsiReferenceProvider extends PsiReferenceProvi
       assert propertyName != null;
 
       if (res == null) {
-        res = new ArrayList<PsiReference>();
+        res = new ArrayList<>();
       }
 
       TextRange range = TextRange.from(from, propertyName.length());
@@ -159,6 +164,6 @@ public class MavenFilteredPropertyPsiReferenceProvider extends PsiReferenceProvi
       res.add(new MavenFilteredPropertyPsiReference(mavenProject, element, propertyName, range));
     }
 
-    return res == null ? PsiReference.EMPTY_ARRAY : res.toArray(new PsiReference[res.size()]);
+    return res == null ? PsiReference.EMPTY_ARRAY : res.toArray(PsiReference.EMPTY_ARRAY);
   }
 }

@@ -19,25 +19,23 @@ package com.intellij.ide.hierarchy;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import org.jetbrains.annotations.NotNull;
 
-/**
- * @author cdr
- */
 public final class ViewClassHierarchyAction extends ChangeViewTypeActionBase {
   public ViewClassHierarchyAction() {
-    super(IdeBundle.message("action.view.class.hierarchy"),
-          IdeBundle.message("action.description.view.class.hierarchy"), AllIcons.Hierarchy.Class);
+    super(IdeBundle.messagePointer("action.view.class.hierarchy"),
+          IdeBundle.messagePointer("action.description.view.class.hierarchy"), AllIcons.Hierarchy.Class);
   }
 
   @Override
   protected final String getTypeName() {
-    return TypeHierarchyBrowserBase.TYPE_HIERARCHY_TYPE;
+    return TypeHierarchyBrowserBase.getTypeHierarchyType();
   }
 
   @Override
-  public final void update(final AnActionEvent event) {
+  public final void update(@NotNull final AnActionEvent event) {
     super.update(event);
-    final TypeHierarchyBrowserBase browser = getTypeHierarchyBrowser(event.getDataContext());
+    TypeHierarchyBrowserBase browser = getHierarchyBrowser(event.getDataContext());
     event.getPresentation().setEnabled(browser != null && !browser.isInterface());
   }
 }

@@ -23,19 +23,17 @@ import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.daemon.impl.ShowErrorDescriptionHandler;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.IdeActions;
-import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.psi.PsiFile;
+import com.intellij.util.ui.accessibility.ScreenReader;
 import org.jetbrains.annotations.NotNull;
 
+import java.awt.event.KeyEvent;
+
 public class ShowErrorDescriptionAction extends BaseCodeInsightAction implements DumbAware {
-  private static int width;
-  private static boolean shouldShowDescription = false;
-  private static boolean descriptionShown = true;
+  private boolean myRequestFocus = false;
 
   public ShowErrorDescriptionAction() {
     setEnabledInModalContext(true);
@@ -44,15 +42,15 @@ public class ShowErrorDescriptionAction extends BaseCodeInsightAction implements
   @NotNull
   @Override
   protected CodeInsightActionHandler getHandler() {
-    return new ShowErrorDescriptionHandler(shouldShowDescription ? width : 0);
+    return new ShowErrorDescriptionHandler(myRequestFocus);
   }
 
   @Override
   protected boolean isValidForFile(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file) {
-    return DaemonCodeAnalyzer.getInstance(project).isHighlightingAvailable(file) && isEnabledForFile(project, editor, file);
+    return DaemonCodeAnalyzer.getInstance(project).isHighlightingAvailable(file) && isEnabled(project, editor);
   }
 
-  private static boolean isEnabledForFile(Project project, Editor editor, PsiFile file) {
+  private static boolean isEnabled(Project project, Editor editor) {
     DaemonCodeAnalyzer codeAnalyzer = DaemonCodeAnalyzer.getInstance(project);
     HighlightInfo info =
       ((DaemonCodeAnalyzerImpl)codeAnalyzer).findHighlightByOffset(editor.getDocument(), editor.getCaretModel().getOffset(), false);
@@ -62,21 +60,7 @@ public class ShowErrorDescriptionAction extends BaseCodeInsightAction implements
   @Override
   public void beforeActionPerformedUpdate(@NotNull final AnActionEvent e) {
     super.beforeActionPerformedUpdate(e);
-    changeState();
+    // The tooltip gets the focus if using a screen reader and invocation through a keyboard shortcut.
+    myRequestFocus = ScreenReader.isActive() && (e.getInputEvent() instanceof KeyEvent);
   }
-
-  private static void changeState() {
-    if (Comparing.strEqual(ActionManagerEx.getInstanceEx().getPrevPreformedActionId(), IdeActions.ACTION_SHOW_ERROR_DESCRIPTION)) {
-      shouldShowDescription = descriptionShown;
-    } else {
-      shouldShowDescription = false;
-      descriptionShown = true;
-    }
-  }
-
-  public static void rememberCurrentWidth(int currentWidth) {
-    width = currentWidth;
-    descriptionShown = !shouldShowDescription;
-  }
-
 }

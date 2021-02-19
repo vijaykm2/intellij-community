@@ -16,15 +16,25 @@
 package com.intellij.execution.testframework.sm.runner;
 
 import com.intellij.execution.testframework.sm.runner.events.*;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.Pair;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
 * @author Roman.Chernyatchik
 */
 public class MockGeneralTestEventsProcessorAdapter extends GeneralTestEventsProcessor {
   private final StringBuilder myOutputBuffer = new StringBuilder();
+  private final List<Pair<String, Key>> myOutputChunks = new ArrayList<>();
+
+  public MockGeneralTestEventsProcessorAdapter(Project project, String testFrameworkName) {
+    super(project, testFrameworkName, new SMTestProxy.SMRootTestProxy());
+  }
 
   @Override
   public void onStartTesting() {
@@ -65,6 +75,7 @@ public class MockGeneralTestEventsProcessorAdapter extends GeneralTestEventsProc
   @Override
   public void onUncapturedOutput(@NotNull String text, Key outputType) {
     myOutputBuffer.append("[").append(outputType.toString()).append("]").append(text);
+    myOutputChunks.add(Pair.create(text, outputType));
   }
 
   @Override
@@ -80,6 +91,10 @@ public class MockGeneralTestEventsProcessorAdapter extends GeneralTestEventsProc
   }
 
   @Override
+  public void onCustomProgressTestFinished() {
+  }
+
+  @Override
   public void onCustomProgressTestFailed() {
   }
 
@@ -92,11 +107,7 @@ public class MockGeneralTestEventsProcessorAdapter extends GeneralTestEventsProc
   }
 
   @Override
-  public void addEventsListener(@NotNull SMTRunnerEventsListener viewer) {
-  }
-
-  @Override
-  public void onFinishTesting() {
+  public void addEventsListener(@NotNull SMTRunnerEventsListener listener) {
   }
 
   @Override
@@ -111,5 +122,10 @@ public class MockGeneralTestEventsProcessorAdapter extends GeneralTestEventsProc
 
   public String getOutput() {
     return myOutputBuffer.toString();
+  }
+
+  @NotNull
+  public List<Pair<String, Key>> getUncapturedOutputChunks() {
+    return myOutputChunks;
   }
 }

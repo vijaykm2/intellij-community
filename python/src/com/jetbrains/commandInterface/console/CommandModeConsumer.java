@@ -42,7 +42,7 @@ final class CommandModeConsumer implements Consumer<String> {
   @NotNull
   private static final Pattern EMPTY_SPACE = Pattern.compile("\\s+");
   @NotNull
-  private final Collection<Command> myCommands = new ArrayList<Command>();
+  private final Collection<Command> myCommands;
   @NotNull
   private final Module myModule;
   @NotNull
@@ -54,18 +54,18 @@ final class CommandModeConsumer implements Consumer<String> {
   private final CommandExecutor myDefaultExecutor;
 
   /**
-   * @param commands known commands
-   * @param module module
-   * @param console console where to execute them (if any)
+   * @param commands        known commands (may be null, default executor should always be used then)
+   * @param module          module
+   * @param console         console where to execute them (if any)
    * @param defaultExecutor default executor to execute unknown commands.
    *                        User will get "unknown command" if command is unknown and
    *                        no executor provided.
    */
-  CommandModeConsumer(@NotNull final Collection<Command> commands,
+  CommandModeConsumer(@Nullable final Collection<Command> commands,
                       @NotNull final Module module,
                       @NotNull final LanguageConsoleImpl console,
                       @Nullable final CommandExecutor defaultExecutor) {
-    myCommands.addAll(commands);
+    myCommands = commands != null ? new ArrayList<>(commands) : Collections.emptyList();
     myModule = module;
     myConsole = console;
     myDefaultExecutor = defaultExecutor;
@@ -73,7 +73,7 @@ final class CommandModeConsumer implements Consumer<String> {
 
   @Override
   public void consume(final String t) {
-    /**
+    /*
      * We need to: 1) parse input 2) fetch command 3) split its arguments.
      */
     final PsiFileFactory fileFactory = PsiFileFactory.getInstance(myModule.getProject());
@@ -85,7 +85,7 @@ final class CommandModeConsumer implements Consumer<String> {
     final List<String> commandAndArgs = Arrays.asList(EMPTY_SPACE.split(file.getText().trim()));
     // 1 because we need to remove command which is on the first place
     final List<String> args =
-      (commandAndArgs.size() > 1 ? commandAndArgs.subList(1, commandAndArgs.size()) : Collections.<String>emptyList());
+      (commandAndArgs.size() > 1 ? commandAndArgs.subList(1, commandAndArgs.size()) : Collections.emptyList());
     for (final Command command : myCommands) {
       if (command.getName().equals(commandName)) {
 

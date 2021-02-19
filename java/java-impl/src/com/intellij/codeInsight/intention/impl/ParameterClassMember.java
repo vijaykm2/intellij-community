@@ -23,14 +23,12 @@ import com.intellij.psi.PsiParameter;
 import com.intellij.ui.SimpleColoredComponent;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.speedSearch.SpeedSearchUtil;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
-/**
-* User: anna
-* Date: 8/2/12
-*/
 public class ParameterClassMember implements ClassMember {
+  public static final ParameterClassMember[] EMPTY_ARRAY = new ParameterClassMember[0];
   private final PsiParameter myParameter;
 
   public ParameterClassMember(PsiParameter parameter) {
@@ -49,6 +47,7 @@ public class ParameterClassMember implements ClassMember {
   }
 
   @Override
+  @NotNull
   public String getText() {
     return myParameter.getName();
   }

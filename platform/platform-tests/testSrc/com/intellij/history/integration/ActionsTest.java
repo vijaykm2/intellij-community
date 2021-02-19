@@ -24,7 +24,6 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.vfs.VirtualFile;
 
-import java.io.IOException;
 import java.util.List;
 
 public class ActionsTest extends IntegrationTestCase {
@@ -58,13 +57,10 @@ public class ActionsTest extends IntegrationTestCase {
     setContent(f, "file");
     setDocumentTextFor(f, "doc1");
 
-    CommandProcessor.getInstance().executeCommand(myProject, new Runnable() {
-      @Override
-      public void run() {
-        LocalHistoryAction a = LocalHistory.getInstance().startAction("action");
-        setDocumentTextFor(f, "doc2");
-        a.finish();
-      }
+    CommandProcessor.getInstance().executeCommand(myProject, () -> {
+      LocalHistoryAction a = LocalHistory.getInstance().startAction("action");
+      setDocumentTextFor(f, "doc2");
+      a.finish();
     }, "command", null);
 
     List<Revision> rr = getRevisionsFor(f);
@@ -82,7 +78,7 @@ public class ActionsTest extends IntegrationTestCase {
 
     CommandProcessor.getInstance().executeCommand(myProject, new RunnableAdapter() {
       @Override
-      public void doRun() throws IOException {
+      public void doRun() {
         setContent(f, "file");
         setDocumentTextFor(f, "doc1");
 

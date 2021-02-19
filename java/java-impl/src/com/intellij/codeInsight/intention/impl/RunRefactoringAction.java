@@ -15,7 +15,7 @@
  */
 package com.intellij.codeInsight.intention.impl;
 
-import com.intellij.icons.AllIcons;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
@@ -24,17 +24,11 @@ import com.intellij.refactoring.RefactoringActionHandler;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 
-import javax.swing.*;
-
-/**
- * User: anna
- * Date: 9/5/11
- */
 public class RunRefactoringAction extends BaseRefactoringIntentionAction {
   private final RefactoringActionHandler myHandler;
-  private final String myCommandName;
+  private final @IntentionName String myCommandName;
 
-  public RunRefactoringAction(RefactoringActionHandler handler, String commandName) {
+  public RunRefactoringAction(RefactoringActionHandler handler, @IntentionName String commandName) {
     myHandler = handler;
     myCommandName = commandName;
   }
@@ -64,10 +58,5 @@ public class RunRefactoringAction extends BaseRefactoringIntentionAction {
   @Override
   public boolean startInWriteAction() {
     return false;
-  }
-
-  @Override
-  public Icon getIcon(@IconFlags int flags) {
-    return AllIcons.Actions.RefactoringBulb;
   }
 }

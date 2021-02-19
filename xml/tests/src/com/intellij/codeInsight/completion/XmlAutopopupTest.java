@@ -18,17 +18,18 @@ package com.intellij.codeInsight.completion;
 import com.intellij.ide.highlighter.HtmlFileType;
 import com.intellij.ide.highlighter.XHtmlFileType;
 import com.intellij.openapi.fileTypes.FileType;
+import com.intellij.testFramework.fixtures.CompletionAutoPopupTestCase;
 
 public class XmlAutopopupTest extends CompletionAutoPopupTestCase {
-  public void testDoNotShowPopupInText() throws Exception {
+  public void testDoNotShowPopupInText() {
     doTestNoPopup(HtmlFileType.INSTANCE, "<div><caret></div>", "p");
   }
 
-  public void testAfterTagOpen() throws Exception {
+  public void testAfterTagOpen() {
     doTestPopup(HtmlFileType.INSTANCE, "<div><caret></div>", "<");
   }
 
-  public void testDoNotShowPopupInTextXhtml() throws Exception {
+  public void testDoNotShowPopupInTextXhtml() {
     doTestNoPopup(XHtmlFileType.INSTANCE, "<div><caret></div>", "p");
   }
 

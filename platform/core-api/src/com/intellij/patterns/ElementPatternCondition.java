@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,8 @@
  */
 package com.intellij.patterns;
 
-import com.intellij.util.ProcessingContext;
 import com.intellij.util.SmartList;
-import org.jetbrains.annotations.Nullable;
 
-import java.lang.Object;
 import java.util.Collections;
 import java.util.List;
 
@@ -27,7 +24,7 @@ import java.util.List;
  * @author peter
  */
 @SuppressWarnings("ForLoopReplaceableByForEach")
-public class ElementPatternCondition<T> {
+public final class ElementPatternCondition<T> {
 
   private final InitialPatternCondition<T> myInitialCondition;
   private final List<PatternCondition<? super T>> myConditions;
@@ -37,24 +34,15 @@ public class ElementPatternCondition<T> {
     myConditions = Collections.emptyList();
   }
 
-  protected ElementPatternCondition(final ElementPatternCondition<T> original,
-                                    final PatternCondition<? super T> condition) {
-    myInitialCondition = original.getInitialCondition();
-    myConditions = new SmartList<PatternCondition<? super T>>(original.getConditions());
-    myConditions.add(condition);
+  ElementPatternCondition(InitialPatternCondition<T> initialCondition, List<PatternCondition<? super T>> conditions) {
+    myInitialCondition = initialCondition;
+    myConditions = conditions;
   }
 
-  /**
-   * @deprecated To remove in IDEA 15. Use {@link ElementPattern#accepts(Object, ProcessingContext)} instead.
-   */
-  @Deprecated
-  public boolean accepts(@Nullable Object o, final ProcessingContext context) {
-    if (!myInitialCondition.accepts(o, context)) return false;
-    final int listSize = myConditions.size();
-    for (int i = 0; i < listSize; i++) {
-      if (!myConditions.get(i).accepts((T)o, context)) return false;
-    }
-    return true;
+  private ElementPatternCondition(ElementPatternCondition<T> original, PatternCondition<? super T> condition) {
+    myInitialCondition = original.getInitialCondition();
+    myConditions = new SmartList<>(original.getConditions());
+    myConditions.add(condition);
   }
 
   public final String toString() {
@@ -82,6 +70,6 @@ public class ElementPatternCondition<T> {
   }
 
   public ElementPatternCondition<T> append(PatternCondition<? super T> condition) {
-    return new ElementPatternCondition<T>(this, condition);
+    return new ElementPatternCondition<>(this, condition);
   }
 }

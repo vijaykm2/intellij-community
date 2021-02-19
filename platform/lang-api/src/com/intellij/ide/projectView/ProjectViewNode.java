@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.projectView;
 
 import com.intellij.ide.util.treeView.AbstractTreeNode;
@@ -20,6 +6,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -41,12 +28,12 @@ import java.util.List;
 /**
  * A node in the project view tree.
  *
- * @see TreeStructureProvider#modify(com.intellij.ide.util.treeView.AbstractTreeNode, java.util.Collection, com.intellij.ide.projectView.ViewSettings)
+ * @see TreeStructureProvider#modify(AbstractTreeNode, Collection, ViewSettings)
  */
 
 public abstract class ProjectViewNode <Value> extends AbstractTreeNode<Value> implements RootsProvider, SettingsProvider {
 
-  protected static final Logger LOG = Logger.getInstance("#com.intellij.ide.projectView.ProjectViewNode");
+  protected static final Logger LOG = Logger.getInstance(ProjectViewNode.class);
 
   private final ViewSettings mySettings;
   private boolean myValidating;
@@ -58,8 +45,9 @@ public abstract class ProjectViewNode <Value> extends AbstractTreeNode<Value> im
    * @param value        the object (for example, a PSI element) represented by the project view node
    * @param viewSettings the settings of the project view.
    */
-  protected ProjectViewNode(Project project, Value value, ViewSettings viewSettings) {
+  protected ProjectViewNode(Project project, @NotNull Value value, ViewSettings viewSettings) {
     super(project, value);
+
     mySettings = viewSettings;
   }
 
@@ -87,12 +75,12 @@ public abstract class ProjectViewNode <Value> extends AbstractTreeNode<Value> im
     return mySettings;
   }
 
-  public static List<AbstractTreeNode> wrap(Collection objects,
+  public static List<AbstractTreeNode<?>> wrap(Collection<?> objects,
                                             Project project,
-                                            Class<? extends AbstractTreeNode> nodeClass,
+                                            Class<? extends AbstractTreeNode<?>> nodeClass,
                                             ViewSettings settings) {
     try {
-      ArrayList<AbstractTreeNode> result = new ArrayList<AbstractTreeNode>();
+      ArrayList<AbstractTreeNode<?>> result = new ArrayList<>();
       for (Object object : objects) {
         result.add(createTreeNode(nodeClass, project, object, settings));
       }
@@ -100,28 +88,22 @@ public abstract class ProjectViewNode <Value> extends AbstractTreeNode<Value> im
     }
     catch (Exception e) {
       LOG.error(e);
-      return new ArrayList<AbstractTreeNode>();
+      return new ArrayList<>();
     }
   }
 
-  public static AbstractTreeNode createTreeNode(Class<? extends AbstractTreeNode> nodeClass,
-                                                Project project,
-                                                Object value,
-                                                ViewSettings settings) throws
-                                                                       InstantiationException {
+  @NotNull
+  public static AbstractTreeNode<?> createTreeNode(Class<? extends AbstractTreeNode<?>> nodeClass,
+                                                   Project project,
+                                                   Object value,
+                                                   ViewSettings settings) throws InstantiationException {
     Object[] parameters = {project, value, settings};
-    for (Constructor<? extends AbstractTreeNode> constructor : (Constructor<? extends AbstractTreeNode>[])nodeClass.getConstructors()) {
-      if (constructor.getParameterTypes().length != 3) continue;
+    for (Constructor<? extends AbstractTreeNode<?>> constructor : (Constructor<? extends AbstractTreeNode<?>>[])nodeClass.getConstructors()) {
+      if (constructor.getParameterCount() != 3) continue;
       try {
         return constructor.newInstance(parameters);
       }
-      catch (InstantiationException ignored) {
-      }
-      catch (IllegalAccessException ignored) {
-      }
-      catch (IllegalArgumentException ignored) {
-      }
-      catch (InvocationTargetException ignored) {
+      catch (InstantiationException | InvocationTargetException | IllegalArgumentException | IllegalAccessException ignored) {
       }
     }
     throw new InstantiationException("no constructor found in " + nodeClass);
@@ -157,9 +139,9 @@ public abstract class ProjectViewNode <Value> extends AbstractTreeNode<Value> im
       return false;
     }
 
-    Collection<? extends AbstractTreeNode> kids = getChildren();
-    for (final AbstractTreeNode kid : kids) {
-      ProjectViewNode node = (ProjectViewNode)kid;
+    Collection<? extends AbstractTreeNode<?>> kids = getChildren();
+    for (final AbstractTreeNode<?> kid : kids) {
+      ProjectViewNode<?> node = (ProjectViewNode<?>)kid;
       if (node.contains(file)) return true;
     }
     return false;
@@ -169,37 +151,35 @@ public abstract class ProjectViewNode <Value> extends AbstractTreeNode<Value> im
   @Override
   public Collection<VirtualFile> getRoots() {
     Value value = getValue();
-
     if (value instanceof RootsProvider) {
       return ((RootsProvider)value).getRoots();
-    } else if (value instanceof PsiFile) {
-      PsiFile vFile = ((PsiFile)value).getContainingFile();
-      if (vFile != null && vFile.getVirtualFile() != null) {
-        return Collections.singleton(vFile.getVirtualFile());
-      }
-    } else if (value instanceof VirtualFile) {
-      return Collections.singleton(((VirtualFile)value));
-    } else if (value instanceof PsiFileSystemItem) {
-      return Collections.singleton(((PsiFileSystemItem)value).getVirtualFile());
     }
-
-    return EMPTY_ROOTS;
+    if (value instanceof VirtualFile) {
+      return Collections.singleton((VirtualFile)value);
+    }
+    if (value instanceof PsiFileSystemItem) {
+      PsiFileSystemItem item = (PsiFileSystemItem)value;
+      return getDefaultRootsFor(item.getVirtualFile());
+    }
+    return Collections.emptySet();
   }
 
+  protected static Collection<VirtualFile> getDefaultRootsFor(@Nullable VirtualFile file) {
+    return file != null ? Collections.singleton(file) : Collections.emptySet();
+  }
 
   @Override
   protected boolean hasProblemFileBeneath() {
     if (!Registry.is("projectView.showHierarchyErrors")) return false;
 
-    return WolfTheProblemSolver.getInstance(getProject()).hasProblemFilesBeneath(new Condition<VirtualFile>() {
-      @Override
-      public boolean value(final VirtualFile virtualFile) {
-        Value value;
-        return contains(virtualFile)
-               // in case of flattened packages, when package node a.b.c contains error file, node a.b might not.
-               && ((value = getValue()) instanceof PsiElement && Comparing.equal(PsiUtilCore.getVirtualFile((PsiElement)value), virtualFile) ||
-                   someChildContainsFile(virtualFile));
-      }
+    Project project = getProject();
+    WolfTheProblemSolver wolf = project == null ? null : WolfTheProblemSolver.getInstance(project);
+    return wolf != null && wolf.hasProblemFilesBeneath(virtualFile -> {
+      Value value;
+      return contains(virtualFile)
+             // in case of flattened packages, when package node a.b.c contains error file, node a.b might not.
+             && ((value = getValue()) instanceof PsiElement && Comparing.equal(PsiUtilCore.getVirtualFile((PsiElement)value), virtualFile) ||
+                 someChildContainsFile(virtualFile));
     });
   }
 
@@ -210,17 +190,28 @@ public abstract class ProjectViewNode <Value> extends AbstractTreeNode<Value> im
    *
    * @param condition the condition to check the nodes.
    */
-  public boolean canHaveChildrenMatching(Condition<PsiFile> condition) {
+  public boolean canHaveChildrenMatching(Condition<? super PsiFile> condition) {
     return true;
   }
 
   @Nullable
+  @NlsContexts.PopupTitle
   public String getTitle() {
     return null;
   }
 
   public boolean isSortByFirstChild() {
     return false;
+  }
+
+  /**
+   * This method is intended to separate the sorting of folders and files and
+   * to simplify implementing the {@link #getSortKey} and {@link #getTypeSortKey} methods.
+   *
+   * @return the top-level groups for sorting the tree nodes
+   */
+  public @NotNull NodeSortOrder getSortOrder(@NotNull NodeSortSettings settings) {
+    return settings.isManualOrder() ? NodeSortOrder.MANUAL : NodeSortOrder.UNSPECIFIED;
   }
 
   public int getTypeSortWeight(boolean sortByType) {

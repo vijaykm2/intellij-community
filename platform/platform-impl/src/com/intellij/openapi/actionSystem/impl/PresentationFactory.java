@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,21 +17,29 @@ package com.intellij.openapi.actionSystem.impl;
 
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.Presentation;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.WeakList;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.WeakHashMap;
+import java.util.Collection;
+import java.util.Map;
 
 public class PresentationFactory {
-  private final WeakHashMap<AnAction,Presentation> myAction2Presentation;
+  private final Map<AnAction, Presentation> myAction2Presentation = ContainerUtil.createWeakMap();
+  private boolean myNeedRebuild;
+
+  private static final Collection<PresentationFactory> ourAllFactories = new WeakList<>();
 
   public PresentationFactory() {
-    myAction2Presentation = new WeakHashMap<AnAction, Presentation>();
+    ourAllFactories.add(this);
   }
 
   @NotNull
-  public final Presentation getPresentation(@NotNull AnAction action){
+  public final Presentation getPresentation(@NotNull AnAction action) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
     Presentation presentation = myAction2Presentation.get(action);
-    if (presentation == null || !action.isDefaultIcon()){
+    if (presentation == null || !action.isDefaultIcon()) {
       Presentation templatePresentation = action.getTemplatePresentation();
       if (presentation == null) {
         presentation = templatePresentation.clone();
@@ -46,10 +54,26 @@ public class PresentationFactory {
     return presentation;
   }
 
-  protected void processPresentation(Presentation presentation) {
+  protected void processPresentation(@NotNull Presentation presentation) {
   }
 
   public void reset() {
+    ApplicationManager.getApplication().assertIsDispatchThread();
     myAction2Presentation.clear();
+    myNeedRebuild = true;
+  }
+
+  public boolean isNeedRebuild() {
+    return myNeedRebuild;
+  }
+
+  public void resetNeedRebuild() {
+    myNeedRebuild = false;
+  }
+
+  public static void clearPresentationCaches() {
+    for (PresentationFactory factory : ourAllFactories) {
+      factory.reset();
+    }
   }
 }

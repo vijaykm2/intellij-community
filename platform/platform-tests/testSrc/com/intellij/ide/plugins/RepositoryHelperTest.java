@@ -1,44 +1,26 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.plugins;
 
+import com.intellij.openapi.extensions.PluginId;
+import com.intellij.openapi.util.BuildNumber;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.io.IoTestUtil;
-import org.junit.After;
-import org.junit.Before;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.testFramework.rules.TempDirectory;
+import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 
 public class RepositoryHelperTest {
-  private File myTempFile;
-
-  @Before
-  public void setUp() throws Exception {
-    myTempFile = IoTestUtil.createTestFile("repo.xml");
-  }
-
-  @After
-  public void tearDown() throws Exception {
-    FileUtil.delete(myTempFile);
-  }
+  @Rule public TempDirectory tempDir = new TempDirectory();
 
   @Test(expected = IOException.class)
   public void testEmpty() throws IOException {
@@ -51,6 +33,12 @@ public class RepositoryHelperTest {
     assertEquals(0, list.size());
   }
 
+  @Test(expected = IOException.class)
+  public void testFormatErrors() throws IOException {
+    List<IdeaPluginDescriptor> list = loadPlugins("<?xml version=\"1.0\" encoding=\"UTF-8\"?><id>42</id>");
+    assertEquals(0, list.size());
+  }
+
   @Test
   public void testFullFormat() throws IOException {
     List<IdeaPluginDescriptor> list = loadPlugins(
@@ -60,7 +48,7 @@ public class RepositoryHelperTest {
       "  <category name=\"J2EE\">\n" +
       "    <idea-plugin downloads=\"1\" size=\"1024\" date=\"1119060380000\" url=\"\">\n" +
       "      <name>AWS Manager</name>\n" +
-      "      <id>com.jetbrains.ec2manager</id>\n" +
+      "      <id>com.jetbrains.ec2manager2</id>\n" +
       "      <description>...</description>\n" +
       "      <version>1.0.5</version>\n" +
       "      <vendor email=\"michael.golubev@jetbrains.com\" url=\"http://www.jetbrains.com\">JetBrains</vendor>\n" +
@@ -84,7 +72,33 @@ public class RepositoryHelperTest {
       "    </idea-plugin>" +
       "  </category>\n" +
       "</plugin-repository>");
-    assertEquals(2, list.size());
+    assertEquals("Loaded plugins: " + StringUtil.join(list, IdeaPluginDescriptor::getName, ", "), 2, list.size());
+  }
+
+  @Test
+  public void testBrokenNotInList() throws IOException {
+    String id = "BrokenPlugin";
+    String version = "1.0";
+    Map<PluginId, Set<String>> brokenPluginsMap = Collections.singletonMap(PluginId.getId(id), Collections.singleton(version));
+    PluginManagerCore.updateBrokenPlugins(brokenPluginsMap);
+
+    List<IdeaPluginDescriptor> list = loadPlugins(
+      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+      "<plugin-repository>\n" +
+      "  <category name=\"Whatever\">\n" +
+      "    <idea-plugin>\n" +
+      "      <id>" + id + "</id>\n" +
+      "      <version>" + version + "</version>\n" +
+      "      <download-url>plugin.zip</download-url>\n" +
+      "    </idea-plugin>\n" +
+      "    <idea-plugin>\n" +
+      "      <id>good.plugin</id>\n" +
+      "      <version>1.0</version>\n" +
+      "      <download-url>plugin.zip</download-url>\n" +
+      "    </idea-plugin>" +
+      "  </category>\n" +
+      "</plugin-repository>");
+    assertEquals("Failed on '" + id + ':' + version + "'", 1, list.size());
   }
 
   @Test
@@ -111,9 +125,51 @@ public class RepositoryHelperTest {
     assertEquals(1, list.size());
   }
 
+  @Test
+  public void testEqualityById() throws IOException {
+    IdeaPluginDescriptor node1 = loadPlugins("<plugins>\n<plugin id=\"ID\" url=\"plugin.zip\"><name>A</name></plugin>\n</plugins>").get(0);
+    FileUtil.delete(new File(tempDir.getRoot(), "repo.xml"));
+    IdeaPluginDescriptor node2 = loadPlugins("<plugins>\n<plugin id=\"ID\" url=\"plugin.zip\"><name>B</name></plugin>\n</plugins>").get(0);
+    assertEquals(node1, node2);
+    assertEquals(node1.hashCode(), node2.hashCode());
+    assertNotEquals(node1.getName(), node2.getName());
+  }
+
+  @Test
+  public void testListFiltering() throws IOException {
+    int current = PluginManagerCore.getBuildNumber().getComponents()[0], next = current + 1;
+    List<IdeaPluginDescriptor> list = loadPlugins(
+      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+      "<plugin-repository>\n" +
+      "  <category name=\"Test\">\n" +
+      "    <idea-plugin downloads=\"0\" size=\"1\" date=\"1563793797845\" url=\"\">\n" +
+      "      <name>Test Plugin</name>\n" +
+      "      <id>com.jetbrains.test.plugin</id>\n" +
+      "      <version>0.1</version>\n" +
+      "      <idea-version since-build=\"" + current + ".0\" until-build=\"" + current + ".*\"/>\n" +
+      "      <download-url>plugin.zip</download-url>\n" +
+      "    </idea-plugin>\n" +
+      "    <idea-plugin downloads=\"0\" size=\"1\" date=\"1563793797845\" url=\"\">\n" +
+      "      <name>Test Plugin</name>\n" +
+      "      <id>com.jetbrains.test.plugin</id>\n" +
+      "      <version>0.2</version>\n" +
+      "      <idea-version since-build=\"" + next + ".0\" until-build=\"" + next + ".*\"/>\n" +
+      "      <download-url>plugin.zip</download-url>\n" +
+      "    </idea-plugin>\n" +
+      "  </category>\n" +
+      "</plugin-repository>", BuildNumber.fromString(next + ".100"));
+    assertEquals(1, list.size());
+    assertEquals("0.2", list.get(0).getVersion());
+  }
+
   private List<IdeaPluginDescriptor> loadPlugins(String data) throws IOException {
-    FileUtil.writeToFile(myTempFile, data);
-    String url = myTempFile.toURI().toURL().toString();
-    return RepositoryHelper.loadPlugins(url, null, null);
+    return loadPlugins(data, null);
+  }
+
+  private List<IdeaPluginDescriptor> loadPlugins(String data, BuildNumber build) throws IOException {
+    File tempFile = tempDir.newFile("repo.xml");
+    FileUtil.writeToFile(tempFile, data);
+    String url = tempFile.toURI().toURL().toString();
+    return RepositoryHelper.loadPlugins(url, build, null);
   }
 }

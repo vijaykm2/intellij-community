@@ -17,26 +17,59 @@ package com.intellij.openapi.vcs.actions;
 
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ChangeList;
 import com.intellij.openapi.vcs.ui.Refreshable;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.PlaceProvider;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.List;
+import java.util.stream.Stream;
 
-public interface VcsContext extends PlaceProvider<String> {
+import static java.util.Collections.emptyList;
+
+/**
+ * @see VcsContextFactory
+ * @see com.intellij.openapi.vcs.actions.VcsContextUtil
+ * @deprecated Prefer explicit {@link com.intellij.openapi.actionSystem.DataContext} state caching when needed.
+ */
+@Deprecated
+public interface VcsContext extends PlaceProvider {
   @Nullable Project getProject();
 
   @Nullable
   VirtualFile getSelectedFile();
 
+  VirtualFile @NotNull [] getSelectedFiles();
+
   @NotNull
-  VirtualFile[] getSelectedFiles();
+  default Stream<VirtualFile> getSelectedFilesStream() {
+    return Arrays.stream(getSelectedFiles());
+  }
+
+  /**
+   * @deprecated use {@link #getSelectedUnversionedFilePaths}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  @NotNull
+  default List<VirtualFile> getSelectedUnversionedFiles() {
+    return ContainerUtil.mapNotNull(getSelectedUnversionedFilePaths(), FilePath::getVirtualFile);
+  }
+
+  @NotNull
+  default List<FilePath> getSelectedUnversionedFilePaths() {
+    return emptyList();
+  }
 
   Editor getEditor();
 
@@ -50,17 +83,20 @@ public interface VcsContext extends PlaceProvider<String> {
 
   File getSelectedIOFile();
 
+  FilePath @NotNull [] getSelectedFilePaths();
+
   @NotNull
-  FilePath[] getSelectedFilePaths();
-  
+  default Stream<FilePath> getSelectedFilePathsStream() {
+    return Arrays.stream(getSelectedFilePaths());
+  }
+
   @Nullable
   FilePath getSelectedFilePath();
 
-  @Nullable
-  ChangeList[] getSelectedChangeLists();
+  ChangeList @Nullable [] getSelectedChangeLists();
 
-  @Nullable
-  Change[] getSelectedChanges();
+  Change @Nullable [] getSelectedChanges();
 
+  @NlsActions.ActionText
   String getActionName();
 }

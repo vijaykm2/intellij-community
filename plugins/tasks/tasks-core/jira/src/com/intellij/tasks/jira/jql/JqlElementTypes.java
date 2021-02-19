@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.jira.jql;
 
 import com.intellij.extapi.psi.ASTWrapperPsiElement;
@@ -5,7 +6,6 @@ import com.intellij.lang.ASTNode;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.IFileElementType;
-import com.intellij.psi.tree.TokenSet;
 import com.intellij.tasks.jira.jql.psi.impl.*;
 import org.jetbrains.annotations.NotNull;
 
@@ -96,11 +96,7 @@ public interface JqlElementTypes {
   IElementType EMPTY = new JqlElementType("EMPTY");
   IElementType HISTORY_PREDICATE = new JqlElementType("HISTORY_PREDICATE");
 
-  TokenSet OPERAND_NODES = TokenSet.create(
-    JqlTokenTypes.NUMBER_LITERAL, JqlTokenTypes.STRING_LITERAL, LIST, FUNCTION_CALL, EMPTY
-  );
-
-  class Factory {
+  final class Factory {
     @NotNull
     public static PsiElement createElement(@NotNull ASTNode node) {
       final IElementType type = node.getElementType();

@@ -1,64 +1,64 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.navigationToolbar;
 
 import com.intellij.ide.ui.UISettings;
+import com.intellij.ide.util.treeView.TreeAnchorizer;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.LangDataKeys;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.actionSystem.impl.Utils;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.application.impl.LaterInvocator;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.ModuleType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
-import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.Computable;
-import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
-import com.intellij.util.CommonProcessors;
-import com.intellij.util.ObjectUtils;
-import com.intellij.util.PathUtil;
-import com.intellij.util.Processor;
+import com.intellij.util.*;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+
+import static com.intellij.psi.util.PsiUtilCore.findFileSystemItem;
+import static com.intellij.util.concurrency.SequentialTaskExecutor.createSequentialApplicationPoolExecutor;
 
 /**
  * @author Konstantin Bulenkov
  * @author Anna Kozlova
  */
 public class NavBarModel {
-  private List<Object> myModel = Collections.emptyList();
-  private int mySelectedIndex;
-  private final Project myProject;
-  private final NavBarModelListener myNotificator;
-  private boolean myChanged = true;
-  private boolean updated = false;
-  private boolean isFixedComponent = false;
 
-  public NavBarModel(final Project project) {
+  private static final ExecutorService ourExecutor = createSequentialApplicationPoolExecutor("Navbar model builder");
+
+  private final NavBarModelListener myNotificator;
+  private final NavBarModelBuilder myBuilder;
+  private final Project myProject;
+  
+  private volatile int mySelectedIndex;
+  private volatile List<Object> myModel;
+  
+  private volatile boolean myChanged = true;
+  private volatile boolean updated = false;
+  private volatile boolean isFixedComponent = false;
+
+  public NavBarModel(@NotNull Project project) {
+    this(project, project.getMessageBus().syncPublisher(NavBarModelListener.NAV_BAR), NavBarModelBuilder.getInstance());
+  }
+
+  protected NavBarModel(Project project, NavBarModelListener notificator, NavBarModelBuilder builder) {
     myProject = project;
-    myNotificator = project.getMessageBus().syncPublisher(NavBarModelListener.NAV_BAR);
+    myNotificator = notificator;
+    myBuilder = builder;
+    myModel = Collections.singletonList(myProject);
   }
 
   public int getSelectedIndex() {
@@ -73,7 +73,7 @@ public class NavBarModel {
   @Nullable
   public Object getElement(int index) {
     if (index != -1 && index < myModel.size()) {
-      return myModel.get(index);
+      return get(index);
     }
     return null;
   }
@@ -91,41 +91,88 @@ public class NavBarModel {
     if (index >= myModel.size() && myModel.size() > 0) return index % myModel.size();
     return index;
   }
+  
+  public void updateModelAsync(DataContext dataContext, @Nullable Runnable callback) {
+    if (LaterInvocator.isInModalContext() || 
+        PlatformDataKeys.CONTEXT_COMPONENT.getData(dataContext) instanceof NavBarPanel) return;
+    
+    //rider calls edt-only method getFocusOwner() in the updating
+    if (PlatformUtils.isRider()) {
+      updateModel(dataContext);
+      return;
+    }
+    
+    ReadAction.nonBlocking(() -> createModel(Utils.wrapDataContext(dataContext)))
+      .expireWith(myProject)
+      .finishOnUiThread(ModalityState.current(), model -> {
+        setModelWithUpdate(model);
+        if (callback != null) callback.run();
+      })
+      .submit(ourExecutor);
+  }
 
-  protected void updateModel(DataContext dataContext) {
-    if (LaterInvocator.isInModalContext() || (updated && !isFixedComponent)) return;
+  private void setModelWithUpdate(@Nullable List<Object> model) {
+    if (model != null) setModel(model);
+    
+    setChanged(false);
+    updated = true;
+  }
 
-    if (PlatformDataKeys.CONTEXT_COMPONENT.getData(dataContext) instanceof NavBarPanel) return;
+  public void updateModel(DataContext dataContext) {
+    setModelWithUpdate(createModel(dataContext));
+  }
+  
+  @Nullable
+  private List<Object> createModel(@NotNull DataContext dataContext) {
+    if (updated && !isFixedComponent) return null;
+    
+    NavBarModelExtension ownerExtension = null;
+    PsiElement psiElement = null;
+    for (NavBarModelExtension extension : NavBarModelExtension.EP_NAME.getExtensionList()) {
+      psiElement = extension.getLeafElement(dataContext);
+      if (psiElement != null) {
+        ownerExtension = extension;
+        break;
+      }
+    }
 
-    PsiElement psiElement = CommonDataKeys.PSI_FILE.getData(dataContext);
+    if (psiElement == null) {
+      psiElement = CommonDataKeys.PSI_FILE.getData(dataContext);
+    }
     if (psiElement == null) {
       psiElement = CommonDataKeys.PSI_ELEMENT.getData(dataContext);
+      if (psiElement == null) {
+        psiElement = findFileSystemItem(
+          CommonDataKeys.PROJECT.getData(dataContext),
+          CommonDataKeys.VIRTUAL_FILE.getData(dataContext));
+      }
     }
 
-    psiElement = normalize(psiElement);
-    if (!myModel.isEmpty() && myModel.get(myModel.size() - 1).equals(psiElement) && !myChanged) return;
+    if (ownerExtension == null) {
+      psiElement = normalize(psiElement);
+    }
+    if (!myModel.isEmpty() && Objects.equals(get(myModel.size() - 1), psiElement) && !myChanged) return null;
 
     if (psiElement != null && psiElement.isValid()) {
-      updateModel(psiElement);
+      return createModel(psiElement, ownerExtension);
     }
     else {
-      if (UISettings.getInstance().SHOW_NAVIGATION_BAR && !myModel.isEmpty()) return;
+      if (UISettings.getInstance().getShowNavigationBar() && !myModel.isEmpty()) return null;
 
       Object root = calculateRoot(dataContext);
 
       if (root != null) {
-        setModel(Collections.singletonList(root));
+        return Collections.singletonList(root);
       }
     }
-    setChanged(false);
-
-    updated = true;
+    
+    return null;
   }
 
   private Object calculateRoot(DataContext dataContext) {
     // Narrow down the root element to the first interesting one
-    Object root = LangDataKeys.MODULE.getData(dataContext);
-    if (root != null) return root;
+    Module root = LangDataKeys.MODULE.getData(dataContext);
+    if (root != null && !ModuleType.isInternal(root)) return root;
 
     Project project = CommonDataKeys.PROJECT.getData(dataContext);
     if (project == null) return null;
@@ -133,7 +180,7 @@ public class NavBarModel {
     Object projectChild;
     Object projectGrandChild = null;
 
-    CommonProcessors.FindFirstAndOnlyProcessor<Object> processor = new CommonProcessors.FindFirstAndOnlyProcessor<Object>();
+    CommonProcessors.FindFirstAndOnlyProcessor<Object> processor = new CommonProcessors.FindFirstAndOnlyProcessor<>();
     processChildren(project, processor);
     projectChild = processor.reset();
     if (projectChild != null) {
@@ -143,9 +190,13 @@ public class NavBarModel {
     return ObjectUtils.chooseNotNull(projectGrandChild, ObjectUtils.chooseNotNull(projectChild, project));
   }
 
-  protected void updateModel(final PsiElement psiElement) {
+  protected void updateModel(final PsiElement psiElement, @Nullable NavBarModelExtension ownerExtension) {
+    setModel(createModel(psiElement, ownerExtension));
+  }
 
-    final Set<VirtualFile> roots = new HashSet<VirtualFile>();
+  @NotNull
+  private List<Object> createModel(final PsiElement psiElement, @Nullable NavBarModelExtension ownerExtension) {
+    final Set<VirtualFile> roots = new HashSet<>();
     final ProjectRootManager projectRootManager = ProjectRootManager.getInstance(myProject);
     final ProjectFileIndex projectFileIndex = projectRootManager.getFileIndex();
 
@@ -156,7 +207,7 @@ public class NavBarModel {
       }
     }
 
-    for (final NavBarModelExtension modelExtension : Extensions.getExtensions(NavBarModelExtension.EP_NAME)) {
+    for (final NavBarModelExtension modelExtension : NavBarModelExtension.EP_NAME.getExtensionList()) {
       for (VirtualFile root : modelExtension.additionalRoots(psiElement.getProject())) {
         VirtualFile parent = root.getParent();
         if (parent == null || !projectFileIndex.isInContent(parent)) {
@@ -165,23 +216,17 @@ public class NavBarModel {
       }
     }
 
-    final List<Object> updatedModel = new ArrayList<Object>();
+    List<Object> updatedModel =
+      ReadAction.compute(() -> isValid(psiElement) ? myBuilder.createModel(psiElement, roots, ownerExtension) : Collections.emptyList());
 
-    ApplicationManager.getApplication().runReadAction(new Runnable() {
-      @Override
-      public void run() {
-        traverseToRoot(psiElement, roots, updatedModel);
-      }
-    });
-
-    setModel(updatedModel);
+    return ContainerUtil.reverse(updatedModel);
   }
 
   void revalidate() {
-    final List<Object> objects = new ArrayList<Object>();
+    final List<Object> objects = new ArrayList<>();
     boolean update = false;
     for (Object o : myModel) {
-      if (isValid(o)) {
+      if (isValid(TreeAnchorizer.getService().retrieveElement(o))) {
         objects.add(o);
       } else {
         update = true;
@@ -194,107 +239,42 @@ public class NavBarModel {
   }
 
   protected void setModel(List<Object> model) {
-    if (!model.equals(myModel)) {
-      myModel = model;
+    setModel(model, false);
+  }
+
+  protected void setModel(List<Object> model, boolean force) {
+    if (!model.equals(TreeAnchorizer.retrieveList(myModel))) {
+      myModel = anchorizeList(model);
       myNotificator.modelChanged();
 
       mySelectedIndex = myModel.size() - 1;
       myNotificator.selectionChanged();
     }
+    else if (force) {
+      myModel = anchorizeList(model);
+      myNotificator.modelChanged();
+    }
+  }
+
+  private @NotNull List<Object> anchorizeList(@NotNull List<Object> model) {
+    List<Object> list = TreeAnchorizer.anchorizeList(model);
+    return !list.isEmpty() ? list : Collections.singletonList(myProject);
   }
 
   public void updateModel(final Object object) {
     if (object instanceof PsiElement) {
-      updateModel((PsiElement)object);
+      updateModel((PsiElement)object, null);
     }
     else if (object instanceof Module) {
-      List<Object> l = new ArrayList<Object>();
+      List<Object> l = new ArrayList<>();
       l.add(myProject);
       l.add(object);
       setModel(l);
     }
   }
 
-  private void traverseToRoot(@NotNull PsiElement psiElement, Set<VirtualFile> roots, List<Object> model) {
-    if (!psiElement.isValid()) return;
-    final PsiFile containingFile = psiElement.getContainingFile();
-    if (containingFile != null && containingFile.getVirtualFile() == null) return; //non physical elements
-    psiElement = getOriginalElement(psiElement);
-    PsiElement resultElement = psiElement;
-
-    resultElement = normalize(resultElement);
-    if (resultElement == null) return;
-
-    boolean foundByExtension = false;
-    for (final NavBarModelExtension modelExtension : Extensions.getExtensions(NavBarModelExtension.EP_NAME)) {
-      final PsiElement parent = modelExtension.getParent(resultElement);
-      if (parent != null) {
-        if (parent != resultElement) { // HACK is to return same element to stop traversing
-          traverseToRoot(parent, roots, model);
-        }
-        foundByExtension = true;
-        break;
-      }
-    }
-
-    if (!foundByExtension) {
-      if (containingFile != null) {
-        final PsiDirectory containingDirectory = containingFile.getContainingDirectory();
-        if (containingDirectory != null) {
-            traverseToRoot(containingDirectory, roots, model);
-          }
-      }
-      else if (psiElement instanceof PsiDirectory) {
-        final PsiDirectory psiDirectory = (PsiDirectory)psiElement;
-
-        if (!roots.contains(psiDirectory.getVirtualFile())) {
-          PsiDirectory parentDirectory = psiDirectory.getParentDirectory();
-
-          if (parentDirectory == null) {
-            VirtualFile jar = PathUtil.getLocalFile(psiDirectory.getVirtualFile());
-            if (ProjectRootManager.getInstance(myProject).getFileIndex().isInContent(jar)) {
-              parentDirectory = PsiManager.getInstance(myProject).findDirectory(jar.getParent());
-            }
-          }
-
-
-          if (parentDirectory != null) {
-            traverseToRoot(parentDirectory, roots, model);
-          }
-        }
-      }
-      else if (psiElement instanceof PsiFileSystemItem) {
-        final VirtualFile virtualFile = ((PsiFileSystemItem)psiElement).getVirtualFile();
-        if (virtualFile == null) return;
-        final PsiManager psiManager = PsiManager.getInstance(myProject);
-        if (virtualFile.isDirectory()) {
-          resultElement =  psiManager.findDirectory(virtualFile);
-        }
-        else {
-          resultElement =  psiManager.findFile(virtualFile);
-        }
-        if (resultElement == null) return;
-        final VirtualFile parentVFile = virtualFile.getParent();
-        if (parentVFile != null && !roots.contains(parentVFile)) {
-          final PsiDirectory parentDirectory = psiManager.findDirectory(parentVFile);
-          if (parentDirectory != null) {
-            traverseToRoot(parentDirectory, roots, model);
-          }
-        }
-      }
-    }
-
-    model.add(resultElement);
-  }
-
-  private static PsiElement getOriginalElement(PsiElement psiElement) {
-    final PsiElement originalElement = psiElement.getOriginalElement();
-    return !(psiElement instanceof PsiCompiledElement) && originalElement instanceof PsiCompiledElement ? psiElement : originalElement;
-  }
-
-
   protected boolean hasChildren(Object object) {
-    return !processChildren(object, new CommonProcessors.FindFirstProcessor<Object>());
+    return !processChildren(object, new CommonProcessors.FindFirstProcessor<>());
   }
 
   //to avoid the following situation: element was taken from NavBarPanel via data context and all left children
@@ -303,7 +283,6 @@ public class NavBarModel {
     myChanged = changed;
   }
 
-  @SuppressWarnings({"SimplifiableIfStatement"})
   static boolean isValid(final Object object) {
     if (object instanceof Project) {
       return !((Project)object).isDisposed();
@@ -312,25 +291,18 @@ public class NavBarModel {
       return !((Module)object).isDisposed();
     }
     if (object instanceof PsiElement) {
-      return ApplicationManager.getApplication().runReadAction(
-          new Computable<Boolean>() {
-            @Override
-            public Boolean compute() {
-              return ((PsiElement)object).isValid();
-            }
-          }
-      ).booleanValue();
+      return ReadAction.compute(() -> ((PsiElement)object).isValid()).booleanValue();
     }
     return object != null;
   }
 
   @Nullable
-  private static PsiElement normalize(@Nullable PsiElement child) {
+  public static PsiElement normalize(@Nullable PsiElement child) {
     if (child == null) return null;
 
-    NavBarModelExtension[] extensions = Extensions.getExtensions(NavBarModelExtension.EP_NAME);
-    for (int i = extensions.length - 1; i >= 0; i--) {
-      NavBarModelExtension modelExtension = extensions[i];
+    List<NavBarModelExtension> extensions = NavBarModelExtension.EP_NAME.getExtensionList();
+    for (int i = extensions.size() - 1; i >= 0; i--) {
+      NavBarModelExtension modelExtension = extensions.get(i);
       child = modelExtension.adjustElement(child);
       if (child == null) return null;
     }
@@ -338,40 +310,45 @@ public class NavBarModel {
   }
 
   protected List<Object> getChildren(final Object object) {
-    final List<Object> result = ContainerUtil.newArrayList();
-    Processor<Object> processor = new Processor<Object>() {
-      @Override
-      public boolean process(Object o) {
-        ContainerUtil.addIfNotNull(result, o instanceof PsiElement ? normalize((PsiElement)o) : o);
-        return true;
-      }
+    final List<Object> result = new ArrayList<>();
+    PairProcessor<Object, NavBarModelExtension> processor = (o, ext) -> {
+      ContainerUtil.addIfNotNull(result, o instanceof PsiElement && ext.normalizeChildren() ? normalize((PsiElement)o) : o);
+      return true;
     };
 
-    processChildren(object, processor);
+    processChildrenWithExtensions(object, processor);
 
-    Collections.sort(result, new SiblingsComparator());
+    result.sort(new SiblingsComparator());
     return result;
   }
 
   private boolean processChildren(Object object, @NotNull Processor<Object> processor) {
+    return processChildrenWithExtensions(object, (o, ext) -> processor.process(o));
+  }
+
+  private boolean processChildrenWithExtensions(Object object, @NotNull PairProcessor<Object, ? super NavBarModelExtension> pairProcessor) {
     if (!isValid(object)) return true;
     final Object rootElement = size() > 1 ? getElement(1) : null;
     if (rootElement != null && !isValid(rootElement)) return true;
 
-    for (NavBarModelExtension modelExtension : Extensions.getExtensions(NavBarModelExtension.EP_NAME)) {
-      if (modelExtension instanceof AbstractNavBarModelExtension) {
-        if (!((AbstractNavBarModelExtension)modelExtension).processChildren(object, rootElement, processor)) return false;
-      }
+    for (NavBarModelExtension modelExtension : NavBarModelExtension.EP_NAME.getExtensionList()) {
+      if (!modelExtension.processChildren(object, rootElement, o -> pairProcessor.process(o, modelExtension))) return false;
     }
     return true;
   }
 
   public Object get(final int index) {
-    return myModel.get(index);
+    return TreeAnchorizer.getService().retrieveElement(myModel.get(index));
   }
 
   public int indexOf(Object value) {
-    return myModel.indexOf(value);
+    for (int i = 0; i < myModel.size(); i++) {
+      Object o = myModel.get(i);
+      if (Objects.equals(TreeAnchorizer.getService().retrieveElement(o), value)) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   public void setSelectedIndex(final int selectedIndex) {
@@ -387,35 +364,23 @@ public class NavBarModel {
 
   private static final class SiblingsComparator implements Comparator<Object> {
     @Override
-    public int compare(final Object o1, final Object o2) {
-      final Pair<Integer, String> w1 = getWeightedName(o1);
-      final Pair<Integer, String> w2 = getWeightedName(o2);
-      if (w1 == null) return w2 == null ? 0 : -1;
-      if (w2 == null) return 1;
-      if (!w1.first.equals(w2.first)) {
-        return -w1.first.intValue() + w2.first.intValue();
-      }
-      return Comparing.compare(w1.second, w2.second, String.CASE_INSENSITIVE_ORDER);
+    public int compare(Object o1, Object o2) {
+      int w1 = getWeight(o1);
+      int w2 = getWeight(o2);
+      if (w1 == 0) return w2 == 0 ? 0 : -1;
+      if (w2 == 0) return 1;
+      if (w1 != w2) return -w1 + w2;
+      String s1 = NavBarPresentation.calcPresentableText(o1, false);
+      String s2 = NavBarPresentation.calcPresentableText(o2, false);
+      return StringUtil.naturalCompare(s1, s2);
     }
 
-    @Nullable
-    private static Pair<Integer, String> getWeightedName(Object object) {
-      if (object instanceof Module) {
-        return Pair.create(5, ((Module)object).getName());
-      }
-      if (object instanceof PsiDirectoryContainer) {
-        return Pair.create(4, ((PsiDirectoryContainer)object).getName());
-      }
-      else if (object instanceof PsiDirectory) {
-        return Pair.create(4, ((PsiDirectory)object).getName());
-      }
-      if (object instanceof PsiFile) {
-        return Pair.create(2, ((PsiFile)object).getName());
-      }
-      if (object instanceof PsiNamedElement) {
-        return Pair.create(3, ((PsiNamedElement)object).getName());
-      }
-      return null;
+    private static int getWeight(Object object) {
+      return object instanceof Module ? 5 :
+             object instanceof PsiDirectoryContainer ? 4 :
+             object instanceof PsiDirectory ? 4 :
+             object instanceof PsiFile ? 2 :
+             object instanceof PsiNamedElement ? 3 : 0;
     }
   }
 }

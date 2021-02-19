@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -25,17 +26,12 @@ import com.intellij.psi.*;
 import com.intellij.psi.impl.source.resolve.DefaultParameterTypeInferencePolicy;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * User: anna
- * Date: 2/17/12
- */
 public class AddTypeArgumentsConditionalFix implements IntentionAction {
-  private static final Logger LOG = Logger.getInstance("#" + AddTypeArgumentsConditionalFix.class.getName());
+  private static final Logger LOG = Logger.getInstance(AddTypeArgumentsConditionalFix.class);
 
   private final PsiSubstitutor mySubstitutor;
   private final PsiMethodCallExpression myExpression;
@@ -50,7 +46,7 @@ public class AddTypeArgumentsConditionalFix implements IntentionAction {
   @NotNull
   @Override
   public String getText() {
-    return "Add explicit type arguments";
+    return JavaAnalysisBundle.message("add.explicit.type.arguments");
   }
 
   @NotNull
@@ -70,13 +66,10 @@ public class AddTypeArgumentsConditionalFix implements IntentionAction {
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
     final PsiTypeParameter[] typeParameters = myMethod.getTypeParameters();
-    final String typeArguments = "<" + StringUtil.join(typeParameters, new Function<PsiTypeParameter, String>() {
-      @Override
-      public String fun(PsiTypeParameter parameter) {
-        final PsiType substituteTypeParam = mySubstitutor.substitute(parameter);
-        LOG.assertTrue(substituteTypeParam != null);
-        return GenericsUtil.eliminateWildcards(substituteTypeParam).getCanonicalText();
-      }
+    final String typeArguments = "<" + StringUtil.join(typeParameters, parameter -> {
+      final PsiType substituteTypeParam = mySubstitutor.substitute(parameter);
+      LOG.assertTrue(substituteTypeParam != null);
+      return GenericsUtil.eliminateWildcards(substituteTypeParam).getCanonicalText();
     }, ", ") + ">";
     final PsiExpression expression = myExpression.getMethodExpression().getQualifierExpression();
     String withTypeArgsText;
@@ -90,7 +83,7 @@ public class AddTypeArgumentsConditionalFix implements IntentionAction {
         withTypeArgsText = aClass.getQualifiedName();
       }
       else {
-        withTypeArgsText = "this";
+        withTypeArgsText = PsiKeyword.THIS;
       }
     }
     withTypeArgsText += "." + typeArguments + myExpression.getMethodExpression().getReferenceName();
@@ -136,7 +129,7 @@ public class AddTypeArgumentsConditionalFix implements IntentionAction {
       if (returnType != null && aClass != null && aClass.getQualifiedName() != null) {
         final JavaPsiFacade javaPsiFacade = JavaPsiFacade.getInstance(method.getProject());
         final PsiDeclarationStatement variableDeclarationStatement =
-          javaPsiFacade.getElementFactory().createVariableDeclarationStatement("xxx", lType, thenExpression);
+          javaPsiFacade.getElementFactory().createVariableDeclarationStatement("xxx", lType, thenExpression, thenExpression);
         final PsiExpression initializer =
           ((PsiLocalVariable)variableDeclarationStatement.getDeclaredElements()[0]).getInitializer();
         LOG.assertTrue(initializer != null);

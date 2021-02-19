@@ -18,9 +18,6 @@ package com.intellij.openapi.editor;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author cdr
- */
 public abstract class DocumentRunnable implements Runnable {
   private final Document myDocument;
   private final Project myProject;
@@ -38,9 +35,4 @@ public abstract class DocumentRunnable implements Runnable {
     return myProject;
   }
 
-  public abstract static class IgnoreDocumentRunnable extends DocumentRunnable {
-    public IgnoreDocumentRunnable() {
-      super(null, null);
-    }
-  }
 }

@@ -33,22 +33,16 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlAttributeValue;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.ProcessingContext;
+import org.intellij.plugins.relaxNG.RelaxngBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/*
-* Created by IntelliJ IDEA.
-* User: sweinreuter
-* Date: 24.07.2007
-*/
 public class PrefixReferenceProvider extends PsiReferenceProvider {
-  private static final Logger LOG = Logger.getInstance("#org.intellij.plugins.relaxNG.references.PrefixReferenceProvider");
+  private static final Logger LOG = Logger.getInstance(PrefixReferenceProvider.class);
 
   @Override
-  @NotNull
-  public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
+  public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
     final XmlAttributeValue value = (XmlAttributeValue)element;
 
     final String s = value.getValue();
@@ -63,7 +57,7 @@ public class PrefixReferenceProvider extends PsiReferenceProvider {
   }
 
   private static class PrefixReference extends BasicAttributeValueReference implements EmptyResolveMessageProvider, LocalQuickFixProvider {
-    public PrefixReference(XmlAttributeValue value, int length) {
+    PrefixReference(XmlAttributeValue value, int length) {
       super(value, TextRange.from(1, length));
     }
 
@@ -84,7 +78,7 @@ public class PrefixReferenceProvider extends PsiReferenceProvider {
     }
 
     @Override
-    public boolean isReferenceTo(PsiElement element) {
+    public boolean isReferenceTo(@NotNull PsiElement element) {
       if (element instanceof SchemaPrefix && element.getContainingFile() == myElement.getContainingFile()) {
         final PsiElement e = resolve();
         if (e instanceof SchemaPrefix) {
@@ -95,9 +89,8 @@ public class PrefixReferenceProvider extends PsiReferenceProvider {
       return super.isReferenceTo(element);
     }
 
-    @Nullable
     @Override
-    public LocalQuickFix[] getQuickFixes() {
+    public LocalQuickFix @Nullable [] getQuickFixes() {
       final PsiElement element = getElement();
       final XmlElementFactory factory = XmlElementFactory.getInstance(element.getProject());
       final String value = ((XmlAttributeValue)element).getValue();
@@ -108,12 +101,6 @@ public class PrefixReferenceProvider extends PsiReferenceProvider {
     }
 
     @Override
-    @NotNull
-    public Object[] getVariants() {
-      return ArrayUtil.EMPTY_OBJECT_ARRAY;
-    }
-
-    @Override
     public boolean isSoft() {
       return false;
     }
@@ -121,7 +108,9 @@ public class PrefixReferenceProvider extends PsiReferenceProvider {
     @Override
     @NotNull
     public String getUnresolvedMessagePattern() {
-      return "Undefined namespace prefix ''{0}''";
+      //The format substitution is performed at the call site
+      //noinspection UnresolvedPropertyKey
+      return RelaxngBundle.message("relaxng.annotator.unresolved-namespace-prefix");
     }
   }
 }

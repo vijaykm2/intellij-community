@@ -1,102 +1,95 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.projectRoots;
 
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.util.messages.Topic;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 import java.util.EventListener;
 import java.util.List;
 
+@ApiStatus.NonExtendable
 public abstract class ProjectJdkTable {
   public static ProjectJdkTable getInstance() {
-    return ServiceManager.getService(ProjectJdkTable.class);
+    return ApplicationManager.getApplication().getService(ProjectJdkTable.class);
   }
 
-  @Nullable
-  public abstract Sdk findJdk(String name);
+  public abstract @Nullable Sdk findJdk(@NotNull String name);
 
-  @Nullable
-  public abstract Sdk findJdk(String name, String type);
+  public abstract @Nullable Sdk findJdk(@NotNull String name, @NotNull String type);
 
-  public abstract Sdk[] getAllJdks();
+  public abstract Sdk @NotNull [] getAllJdks();
 
-  public abstract List<Sdk> getSdksOfType(SdkTypeId type);
+  public abstract @NotNull List<Sdk> getSdksOfType(@NotNull SdkTypeId type);
 
-  @Nullable
-  public Sdk findMostRecentSdkOfType(final SdkTypeId type) {
-    return findMostRecentSdk(new Condition<Sdk>() {
-      @Override
-      public boolean value(Sdk sdk) {
-        return sdk.getSdkType() == type;
-      }
-    });
+  public @Nullable Sdk findMostRecentSdkOfType(@NotNull SdkTypeId type) {
+    return getSdksOfType(type).stream().max(type.versionComparator()).orElse(null);
   }
 
-  @Nullable
-  public Sdk findMostRecentSdk(Condition<Sdk> condition) {
+  /** @deprecated comparing version strings across SDK types makes no sense; use {@link #findMostRecentSdkOfType} */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
+  public Sdk findMostRecentSdk(@NotNull Condition<? super Sdk> condition) {
     Sdk found = null;
     for (Sdk each : getAllJdks()) {
-      if (!condition.value(each)) continue;
-      if (found == null) {
+      if (condition.value(each) &&
+          (found == null || Comparing.compare(each.getVersionString(), found.getVersionString()) > 0)) {
         found = each;
-        continue;
       }
-      if (Comparing.compare(each.getVersionString(), found.getVersionString()) > 0) found = each;
     }
     return found;
   }
 
-  public abstract void addJdk(Sdk jdk);
+  public abstract void addJdk(@NotNull Sdk jdk);
 
-  public abstract void removeJdk(Sdk jdk);
+  @TestOnly
+  public void addJdk(@NotNull Sdk jdk, @NotNull Disposable parentDisposable) {
+    addJdk(jdk);
+    Disposer.register(parentDisposable, () -> WriteAction.runAndWait(()-> removeJdk(jdk)));
+  }
 
-  public abstract void updateJdk(Sdk originalJdk, Sdk modifiedJdk);
+  public abstract void removeJdk(@NotNull Sdk jdk);
+
+  public abstract void updateJdk(@NotNull Sdk originalJdk, @NotNull Sdk modifiedJdk);
 
   public interface Listener extends EventListener {
-    void jdkAdded(Sdk jdk);
-    void jdkRemoved(Sdk jdk);
-    void jdkNameChanged(Sdk jdk, String previousName);
+    default void jdkAdded(@NotNull Sdk jdk) {
+    }
+
+    default void jdkRemoved(@NotNull Sdk jdk) {
+    }
+
+    default void jdkNameChanged(@NotNull Sdk jdk, @NotNull String previousName) {
+    }
   }
 
+  /**
+   * @deprecated Use {@link Listener} directly.
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.2")
   public static class Adapter implements Listener {
-    @Override public void jdkAdded(Sdk jdk) { }
-    @Override public void jdkRemoved(Sdk jdk) { }
-    @Override public void jdkNameChanged(Sdk jdk, String previousName) { }
   }
 
-  /**
-   * @deprecated use {@link ProjectJdkTable#JDK_TABLE_TOPIC} instead
-   */
-  public abstract void addListener(Listener listener);
+  public abstract @NotNull SdkTypeId getDefaultSdkType();
+
+  public abstract @NotNull SdkTypeId getSdkTypeByName(@NotNull String name);
+
+  public abstract @NotNull Sdk createSdk(@NotNull String name, @NotNull SdkTypeId sdkType);
 
   /**
-   * @deprecated use {@link ProjectJdkTable#JDK_TABLE_TOPIC} instead
+   * This method may automatically detect Sdk if none are configured.
    */
-  public abstract void removeListener(Listener listener);
+  public void preconfigure() {
+  }
 
-  public abstract SdkTypeId getDefaultSdkType();
-
-  public abstract SdkTypeId getSdkTypeByName(@NotNull String name);
-
-  public abstract Sdk createSdk(final String name, final SdkTypeId sdkType);
-
-  public static final Topic<Listener> JDK_TABLE_TOPIC = Topic.create("Project JDK table", Listener.class);
+  public static final Topic<Listener> JDK_TABLE_TOPIC = new Topic<>(Listener.class, Topic.BroadcastDirection.TO_DIRECT_CHILDREN);
 }

@@ -16,12 +16,12 @@
 
 package com.intellij.openapi.fileEditor.impl.text;
 
-import com.intellij.codeInsight.TargetElementUtilBase;
+import com.intellij.codeInsight.TargetElementUtil;
 import com.intellij.ide.IdeView;
 import com.intellij.ide.util.EditorHelper;
 import com.intellij.injected.editor.EditorWindow;
-import com.intellij.injected.editor.InjectedCaret;
 import com.intellij.lang.Language;
+import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.Editor;
@@ -32,6 +32,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.psi.*;
+import com.intellij.psi.impl.source.tree.injected.InjectedCaret;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import org.jetbrains.annotations.NotNull;
@@ -47,7 +48,7 @@ public class TextEditorPsiDataProvider implements EditorDataProvider {
   @Override
   @Nullable
   public Object getData(@NotNull final String dataId, @NotNull final Editor e, @NotNull final Caret caret) {
-    if (!(e instanceof EditorEx)) {
+    if (e.isDisposed() || !(e instanceof EditorEx)) {
       return null;
     }
     VirtualFile file = ((EditorEx)e).getVirtualFile();
@@ -55,12 +56,13 @@ public class TextEditorPsiDataProvider implements EditorDataProvider {
 
     Project project = e.getProject();
     if (dataId.equals(injectedId(EDITOR.getName()))) {
-      if (project == null || PsiDocumentManager.getInstance(project).isUncommited(e.getDocument())) {
-        return e;
-      }
-      else {
+      if (project != null &&
+          PsiDocumentManager.getInstance(project).isCommitted(e.getDocument()) &&
+          InjectedLanguageManager.getInstance(project).mightHaveInjectedFragmentAtOffset(e.getDocument(), caret.getOffset())) {
+        //noinspection deprecation
         return InjectedLanguageUtil.getEditorForInjectedLanguageNoCommit(e, caret, getPsiFile(e, file));
       }
+      return e;
     }
     if (HOST_EDITOR.is(dataId)) {
       return e instanceof EditorWindow ? ((EditorWindow)e).getDelegate() : e;
@@ -126,9 +128,8 @@ public class TextEditorPsiDataProvider implements EditorDataProvider {
             }
           }
 
-          @NotNull
           @Override
-          public PsiDirectory[] getDirectories() {
+          public PsiDirectory @NotNull [] getDirectories() {
             return new PsiDirectory[]{psiDirectory};
           }
 
@@ -189,7 +190,7 @@ public class TextEditorPsiDataProvider implements EditorDataProvider {
     if (psiFile == null) return null;
 
     try {
-      TargetElementUtilBase util = TargetElementUtilBase.getInstance();
+      TargetElementUtil util = TargetElementUtil.getInstance();
       return util.findTargetElement(editor, util.getReferenceSearchFlags(), caret.getOffset());
     }
     catch (IndexNotReadyException e) {
@@ -211,15 +212,15 @@ public class TextEditorPsiDataProvider implements EditorDataProvider {
   }
 
   private Language[] computeLanguages(@NotNull Editor editor, @NotNull Caret caret) {
-    LinkedHashSet<Language> set = new LinkedHashSet<Language>(4);
+    LinkedHashSet<Language> set = new LinkedHashSet<>(4);
     Language injectedLanguage = (Language)getData(injectedId(LANGUAGE.getName()), editor, caret);
-    addIfNotNull(injectedLanguage, set);
+    addIfNotNull(set, injectedLanguage);
     Language language = (Language)getData(LANGUAGE.getName(), editor, caret);
-    addIfNotNull(language, set);
+    addIfNotNull(set, language);
     PsiFile psiFile = (PsiFile)getData(PSI_FILE.getName(), editor, caret);
     if (psiFile != null) {
-      addIfNotNull(psiFile.getViewProvider().getBaseLanguage(), set);
+      addIfNotNull(set, psiFile.getViewProvider().getBaseLanguage());
     }
-    return set.toArray(new Language[set.size()]);
+    return set.toArray(new Language[0]);
   }
 }

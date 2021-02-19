@@ -38,23 +38,20 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-/**
- * @author nik
- */
 public class OldCustomLibraryDescription extends CustomLibraryDescriptionBase {
   private final DownloadableLibraryDescription myDownloadableDescription;
-  private final List<FrameworkVersion> myVersions;
+  private final List<? extends FrameworkVersion> myVersions;
 
-  public OldCustomLibraryDescription(@NotNull LibraryInfo[] libraryInfos, @NotNull String defaultLibraryName) {
+  public OldCustomLibraryDescription(LibraryInfo @NotNull [] libraryInfos, @NotNull String defaultLibraryName) {
     this(Collections.singletonList(new FrameworkVersion(defaultLibraryName, defaultLibraryName, libraryInfos, true)), defaultLibraryName);
   }
 
-  private OldCustomLibraryDescription(final List<FrameworkVersion> versions, String defaultLibraryName) {
+  private OldCustomLibraryDescription(final List<? extends FrameworkVersion> versions, String defaultLibraryName) {
     super(defaultLibraryName);
     myVersions = versions;
-    final List<FrameworkLibraryVersion> libraryVersions = new ArrayList<FrameworkLibraryVersion>();
+    final List<FrameworkLibraryVersion> libraryVersions = new ArrayList<>();
     for (FrameworkVersion version : versions) {
-      List<DownloadableLibraryFileDescription> downloads = new ArrayList<DownloadableLibraryFileDescription>();
+      List<DownloadableLibraryFileDescription> downloads = new ArrayList<>();
       for (LibraryInfo info : version.getLibraries()) {
         final LibraryDownloadInfo downloadingInfo = info.getDownloadingInfo();
         if (downloadingInfo != null) {
@@ -92,7 +89,7 @@ public class OldCustomLibraryDescription extends CustomLibraryDescriptionBase {
   @Nullable
   public static CustomLibraryDescription createByVersions(List<? extends FrameworkVersion> versions) {
     String defaultLibraryName = null;
-    List<FrameworkVersion> withLibraries = new ArrayList<FrameworkVersion>();
+    List<FrameworkVersion> withLibraries = new ArrayList<>();
     for (FrameworkVersion version : versions) {
       if (version.getLibraries().length > 0) {
         if (version.isDefault()) {

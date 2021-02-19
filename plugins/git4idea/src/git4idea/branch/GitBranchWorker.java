@@ -15,177 +15,167 @@
  */
 package git4idea.branch;
 
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.dvcs.repo.Repository;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Condition;
-import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.vcs.VcsException;
+import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vcs.changes.Change;
-import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.util.containers.ContainerUtil;
-import git4idea.GitCommit;
-import git4idea.GitExecutionException;
 import git4idea.GitLocalBranch;
-import git4idea.GitPlatformFacade;
+import git4idea.GitUtil;
+import git4idea.GitVcs;
 import git4idea.changes.GitChangeUtils;
 import git4idea.commands.Git;
-import git4idea.history.GitHistoryUtils;
+import git4idea.commands.GitCommandResult;
+import git4idea.i18n.GitBundle;
+import git4idea.rebase.GitRebaseUtils;
 import git4idea.repo.GitRepository;
-import git4idea.ui.branch.GitCompareBranchesDialog;
-import git4idea.util.GitCommitCompareInfo;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+
+import static com.intellij.dvcs.DvcsUtil.getShortRepositoryName;
+import static git4idea.GitNotificationIdsHolder.TAG_NOT_CREATED;
 
 /**
  * Executes the logic of git branch operations.
  * All operations are run in the current thread.
  * All UI interaction is done via the {@link GitBranchUiHandler} passed to the constructor.
- *
- * @author Kirill Likhodedov
  */
 public final class GitBranchWorker {
 
   private static final Logger LOG = Logger.getInstance(GitBranchWorker.class);
 
   @NotNull private final Project myProject;
-  @NotNull private final GitPlatformFacade myFacade;
   @NotNull private final Git myGit;
   @NotNull private final GitBranchUiHandler myUiHandler;
+  @NotNull private final GitVcs myVcs;
 
-  public GitBranchWorker(@NotNull Project project, @NotNull GitPlatformFacade facade, @NotNull Git git, @NotNull GitBranchUiHandler uiHandler) {
+  public GitBranchWorker(@NotNull Project project, @NotNull Git git, @NotNull GitBranchUiHandler uiHandler) {
     myProject = project;
-    myFacade = facade;
     myGit = git;
     myUiHandler = uiHandler;
+    myVcs = GitVcs.getInstance(myProject);
   }
   
-  public void checkoutNewBranch(@NotNull final String name, @NotNull List<GitRepository> repositories) {
+  public void checkoutNewBranch(@NotNull final String name, @NotNull List<? extends GitRepository> repositories) {
     updateInfo(repositories);
-    repositories = ContainerUtil.filter(repositories, new Condition<GitRepository>() {
-      @Override
-      public boolean value(GitRepository repository) {
-        GitLocalBranch currentBranch = repository.getCurrentBranch();
-        return currentBranch == null || !currentBranch.getName().equals(name);
-      }
+    repositories = ContainerUtil.filter(repositories, repository -> {
+      GitLocalBranch currentBranch = repository.getCurrentBranch();
+      return currentBranch == null || !currentBranch.getName().equals(name);
     });
     if (!repositories.isEmpty()) {
-      new GitCheckoutNewBranchOperation(myProject, myFacade, myGit, myUiHandler, repositories, name).execute();
+      new GitCheckoutNewBranchOperation(myProject, myGit, myUiHandler, repositories, name).execute();
     }
     else {
       LOG.error("Creating new branch the same as current in all repositories: " + name);
     }
   }
 
-  public void createNewTag(@NotNull final String name, @NotNull final String reference, @NotNull final List<GitRepository> repositories) {
+  public void createBranch(@NotNull String name, @NotNull Map<GitRepository, String> startPoints) {
+    createBranch(name, startPoints, false);
+  }
+
+  public void createBranch(@NotNull String name, @NotNull Map<GitRepository, String> startPoints, boolean force) {
+    updateInfo(startPoints.keySet());
+    new GitCreateBranchOperation(myProject, myGit, myUiHandler, name, startPoints, force).execute();
+  }
+
+  public void createNewTag(@NotNull String name, @NotNull String reference, @NotNull List<? extends GitRepository> repositories) {
     for (GitRepository repository : repositories) {
-      myGit.createNewTag(repository, name, null, reference);
-      VfsUtil.markDirtyAndRefresh(true, true, false, repository.getGitDir());
+      GitCommandResult result = myGit.createNewTag(repository, name, null, reference);
+      repository.getRepositoryFiles().refreshTagsFiles();
+      if (!result.success()) {
+        String error = GitBundle.message("branch.worker.could.not.create.tag",
+                                         name,
+                                         GitUtil.getRepositoryManager(repository.getProject()).getRepositories().size(),
+                                         getShortRepositoryName(repository));
+        VcsNotifier.getInstance(myProject).notifyError(TAG_NOT_CREATED, error, result.getErrorOutputAsHtmlString(), true);
+        break;
+      }
     }
   }
 
   public void checkoutNewBranchStartingFrom(@NotNull String newBranchName, @NotNull String startPoint,
-                                            @NotNull List<GitRepository> repositories) {
-    updateInfo(repositories);
-    new GitCheckoutOperation(myProject, myFacade, myGit, myUiHandler, repositories, startPoint, newBranchName).execute();
+                                            @NotNull List<? extends GitRepository> repositories) {
+    checkoutNewBranchStartingFrom(newBranchName, startPoint, false, repositories);
   }
 
-  public void checkout(@NotNull final String reference, @NotNull List<GitRepository> repositories) {
+  public void checkoutNewBranchStartingFrom(@NotNull String newBranchName, @NotNull String startPoint, boolean overwriteIfNeeded,
+                                            @NotNull List<? extends GitRepository> repositories) {
     updateInfo(repositories);
-    new GitCheckoutOperation(myProject, myFacade, myGit, myUiHandler, repositories, reference, null).execute();
+    new GitCheckoutOperation(myProject, myGit, myUiHandler, repositories, startPoint, false, overwriteIfNeeded, true, newBranchName).execute();
+  }
+
+  public void checkout(@NotNull final String reference, boolean detach, @NotNull List<? extends GitRepository> repositories) {
+    updateInfo(repositories);
+    new GitCheckoutOperation(myProject, myGit, myUiHandler, repositories, reference, detach, false, false, null).execute();
   }
 
 
-  public void deleteBranch(@NotNull final String branchName, @NotNull final List<GitRepository> repositories) {
+  public void deleteBranch(@NotNull final String branchName, @NotNull final List<? extends GitRepository> repositories) {
     updateInfo(repositories);
-    new GitDeleteBranchOperation(myProject, myFacade, myGit, myUiHandler, repositories, branchName).execute();
+    new GitDeleteBranchOperation(myProject, myGit, myUiHandler, repositories, branchName).execute();
   }
 
-  public void deleteRemoteBranch(@NotNull final String branchName, @NotNull final List<GitRepository> repositories) {
+  public void deleteTag(@NotNull final String tagName, @NotNull final List<? extends GitRepository> repositories) {
     updateInfo(repositories);
-    new GitDeleteRemoteBranchOperation(myProject, myFacade, myGit, myUiHandler, repositories, branchName).execute();
+    new GitDeleteTagOperation(myProject, myGit, myUiHandler, repositories, tagName).execute();
+  }
+
+  public void deleteRemoteTag(@NotNull final String tagName, @NotNull final Map<GitRepository, String> repositories) {
+    updateInfo(repositories.keySet());
+    new GitDeleteRemoteTagOperation(myProject, myGit, myUiHandler, repositories, tagName).execute();
+  }
+
+  public void deleteRemoteBranch(@NotNull final String branchName, @NotNull final List<? extends GitRepository> repositories) {
+    deleteRemoteBranches(Collections.singletonList(branchName), repositories);
+  }
+
+  public void deleteRemoteBranches(@NotNull List<String> branchNames, @NotNull List<? extends GitRepository> repositories) {
+    updateInfo(repositories);
+    new GitDeleteRemoteBranchOperation(myProject, myGit, myUiHandler, repositories, branchNames).execute();
   }
 
   public void merge(@NotNull final String branchName, @NotNull final GitBrancher.DeleteOnMergeOption deleteOnMerge,
-                    @NotNull final List<GitRepository> repositories) {
+                    @NotNull final List<? extends GitRepository> repositories) {
     updateInfo(repositories);
-    Map<GitRepository, String> revisions = new HashMap<GitRepository, String>();
-    for (GitRepository repository : repositories) {
-      revisions.put(repository, repository.getCurrentRevision());
-    }
-    new GitMergeOperation(myProject, myFacade, myGit, myUiHandler, repositories, branchName, deleteOnMerge, revisions).execute();
+    new GitMergeOperation(myProject, myGit, myUiHandler, repositories, branchName, deleteOnMerge).execute();
   }
 
-  public void compare(@NotNull final String branchName, @NotNull final List<GitRepository> repositories,
-                      @NotNull final GitRepository selectedRepository) {
-    final GitCommitCompareInfo myCompareInfo = loadCommitsToCompare(repositories, branchName);
-    if (myCompareInfo == null) {
-      LOG.error("The task to get compare info didn't finish. Repositories: \n" + repositories + "\nbranch name: " + branchName);
-      return;
-    }
-    ApplicationManager.getApplication().invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        displayCompareDialog(branchName, GitBranchUtil.getCurrentBranchOrRev(repositories), myCompareInfo, selectedRepository);
-      }
-    });
+  public void rebase(@NotNull List<? extends GitRepository> repositories, @NotNull String branchName) {
+    updateInfo(repositories);
+    GitRebaseUtils.rebase(myProject, repositories, new GitRebaseParams(myVcs.getVersion(), branchName), myUiHandler.getProgressIndicator());
   }
 
-  private GitCommitCompareInfo loadCommitsToCompare(List<GitRepository> repositories, String branchName) {
-    GitCommitCompareInfo compareInfo = new GitCommitCompareInfo();
-    for (GitRepository repository : repositories) {
-      compareInfo.put(repository, loadCommitsToCompare(repository, branchName));
-      compareInfo.put(repository, loadTotalDiff(repository, branchName));
-    }
-    return compareInfo;
+  public void rebaseOnCurrent(@NotNull List<? extends GitRepository> repositories, @NotNull String branchName) {
+    rebase(repositories, "HEAD", branchName); //NON-NLS
+  }
+
+  public void rebase(@NotNull List<? extends GitRepository> repositories, @NotNull String upstream, @NotNull String branchName) {
+    updateInfo(repositories);
+    GitRebaseUtils.rebase(myProject, repositories, new GitRebaseParams(myVcs.getVersion(), branchName, null, upstream, false, false),
+                          myUiHandler.getProgressIndicator());
+  }
+
+  public void renameBranch(@NotNull String currentName, @NotNull String newName, @NotNull List<? extends GitRepository> repositories) {
+    updateInfo(repositories);
+    new GitRenameBranchOperation(myProject, myGit, myUiHandler, currentName, newName, repositories).execute();
   }
 
   @NotNull
-  private static Collection<Change> loadTotalDiff(@NotNull GitRepository repository, @NotNull String branchName) {
-    try {
-      return GitChangeUtils.getDiff(repository.getProject(), repository.getRoot(), null, branchName, null);
-    }
-    catch (VcsException e) {
-      // we treat it as critical and report an error
-      throw new GitExecutionException("Couldn't get [git diff " + branchName + "] on repository [" + repository.getRoot() + "]", e);
-    }
+  public static Collection<Change> loadTotalDiff(@NotNull Repository repository, @NotNull String branchName) throws VcsException {
+    // return git diff between current working directory and branchName: working dir should be displayed as a 'left' one (base)
+    return GitChangeUtils.getDiffWithWorkingDir(repository.getProject(), repository.getRoot(), branchName, null, true);
   }
 
-  @NotNull
-  private Couple<List<GitCommit>> loadCommitsToCompare(@NotNull GitRepository repository, @NotNull final String branchName) {
-    final List<GitCommit> headToBranch;
-    final List<GitCommit> branchToHead;
-    try {
-      headToBranch = GitHistoryUtils.history(myProject, repository.getRoot(), ".." + branchName);
-      branchToHead = GitHistoryUtils.history(myProject, repository.getRoot(), branchName + "..");
-    }
-    catch (VcsException e) {
-      // we treat it as critical and report an error
-      throw new GitExecutionException("Couldn't get [git log .." + branchName + "] on repository [" + repository.getRoot() + "]", e);
-    }
-    return Couple.of(headToBranch, branchToHead);
-  }
-  
-  private void displayCompareDialog(@NotNull String branchName, @NotNull String currentBranch, @NotNull GitCommitCompareInfo compareInfo,
-                                    @NotNull GitRepository selectedRepository) {
-    if (compareInfo.isEmpty()) {
-      Messages.showInfoMessage(myProject, String.format("<html>There are no changes between <code>%s</code> and <code>%s</code></html>",
-                                                        currentBranch, branchName), "No Changes Detected");
-    }
-    else {
-      new GitCompareBranchesDialog(myProject, branchName, currentBranch, compareInfo, selectedRepository).show();
-    }
-  }
-
-  private static void updateInfo(@NotNull Collection<GitRepository> repositories) {
+  private static void updateInfo(@NotNull Collection<? extends GitRepository> repositories) {
     for (GitRepository repository : repositories) {
       repository.update();
     }
   }
-
 }

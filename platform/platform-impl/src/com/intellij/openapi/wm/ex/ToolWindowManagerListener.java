@@ -1,30 +1,67 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.ex;
 
+import com.intellij.openapi.wm.ToolWindow;
+import com.intellij.openapi.wm.ToolWindowManager;
+import com.intellij.util.messages.Topic;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.EventListener;
+import java.util.List;
 
-public interface ToolWindowManagerListener extends EventListener{
+public interface ToolWindowManagerListener extends EventListener {
+  @Topic.ProjectLevel
+  Topic<ToolWindowManagerListener> TOPIC = new Topic<>("tool window events", ToolWindowManagerListener.class, Topic.BroadcastDirection.NONE);
+
   /**
-   * Invoked when tool window with specified <code>id</code> is registered in {@link ToolWindowManagerEx}.
-   * @param id <code>id</code> of registered tool window.
+   * @deprecated Use {@link #toolWindowsRegistered}
    */
-  void toolWindowRegistered(@NotNull String id);
+  @Deprecated
+  default void toolWindowRegistered(@NotNull String id) {
+  }
 
-  void stateChanged();
+  default void toolWindowsRegistered(@NotNull List<String> ids, @NotNull ToolWindowManager toolWindowManager) {
+    for (String id : ids) {
+      toolWindowRegistered(id);
+    }
+  }
+
+  /**
+   * Invoked when tool window with specified {@code id} is unregistered in {@link ToolWindowManager}.
+   */
+  default void toolWindowUnregistered(@NotNull String id, @NotNull ToolWindow toolWindow) {
+  }
+
+  /**
+   * Not fired on tool window registered and unregistered.
+   */
+  default void stateChanged(@NotNull ToolWindowManager toolWindowManager) {
+    stateChanged();
+  }
+
+  /**
+   * Invoked when tool window is shown.
+   *
+   * @param toolWindow shown tool window
+   */
+  default void toolWindowShown(@NotNull ToolWindow toolWindow) {
+    toolWindowShown(toolWindow.getId(), toolWindow);
+  }
+
+  /**
+   * @deprecated use {@link #toolWindowShown(ToolWindow)} instead
+   */
+  @SuppressWarnings("unused")
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.2")
+  @Deprecated
+  default void toolWindowShown(@NotNull String id, @NotNull ToolWindow toolWindow) {
+  }
+
+  /**
+   * @deprecated Use {{@link #stateChanged(ToolWindowManager)}}
+   */
+  @Deprecated
+  default void stateChanged() {
+  }
 }

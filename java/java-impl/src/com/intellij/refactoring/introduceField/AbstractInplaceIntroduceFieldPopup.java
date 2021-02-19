@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,20 +18,19 @@ package com.intellij.refactoring.introduceField;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.refactoring.RefactoringActionHandler;
 import com.intellij.refactoring.introduceParameter.AbstractJavaInplaceIntroducer;
 import com.intellij.refactoring.ui.TypeSelectorManagerImpl;
 import com.intellij.refactoring.util.occurrences.OccurrenceManager;
 
-/**
- * User: anna
- */
 public abstract class AbstractInplaceIntroduceFieldPopup extends AbstractJavaInplaceIntroducer {
-  protected final PsiClass myParentClass;
+  private final SmartPsiElementPointer<PsiClass> myParentClass;
   protected final OccurrenceManager myOccurrenceManager;
 
   private final SmartPsiElementPointer<PsiElement> myAnchorElement;
@@ -39,7 +38,6 @@ public abstract class AbstractInplaceIntroduceFieldPopup extends AbstractJavaInp
   private final SmartPsiElementPointer<PsiElement> myAnchorElementIfAll;
   private int myAnchorIdxIfAll = -1;
 
-  private final SmartPointerManager mySmartPointerManager;
   protected RangeMarker myFieldRangeStart;
 
   public AbstractInplaceIntroduceFieldPopup(Project project,
@@ -48,17 +46,17 @@ public abstract class AbstractInplaceIntroduceFieldPopup extends AbstractJavaInp
                                             PsiVariable localVariable,
                                             PsiExpression[] occurrences,
                                             TypeSelectorManagerImpl typeSelectorManager,
-                                            String title,
+                                            @NlsContexts.Command String title,
                                             PsiClass parentClass,
                                             final PsiElement anchorElement,
                                             final OccurrenceManager occurrenceManager,
                                             final PsiElement anchorElementIfAll) {
     super(project, editor, expr, localVariable, occurrences, typeSelectorManager, title);
-    myParentClass = parentClass;
+    SmartPointerManager smartPointerManager = SmartPointerManager.getInstance(project);
+    myParentClass = smartPointerManager.createSmartPsiElementPointer(parentClass);
     myOccurrenceManager = occurrenceManager;
-    mySmartPointerManager = SmartPointerManager.getInstance(project);
-    myAnchorElement = anchorElement != null ? mySmartPointerManager.createSmartPsiElementPointer(anchorElement) : null;
-    myAnchorElementIfAll = anchorElementIfAll != null ? mySmartPointerManager.createSmartPsiElementPointer(anchorElementIfAll) : null;
+    myAnchorElement = anchorElement != null ? smartPointerManager.createSmartPsiElementPointer(anchorElement) : null;
+    myAnchorElementIfAll = anchorElementIfAll != null ? smartPointerManager.createSmartPsiElementPointer(anchorElementIfAll) : null;
     for (int i = 0, occurrencesLength = occurrences.length; i < occurrencesLength; i++) {
       PsiExpression occurrence = occurrences[i];
       PsiElement parent = occurrence.getParent();
@@ -73,12 +71,20 @@ public abstract class AbstractInplaceIntroduceFieldPopup extends AbstractJavaInp
 
   @Override
   protected PsiElement checkLocalScope() {
-    return myParentClass;
+    return getParentClass();
   }
 
   @Override
   protected SearchScope getReferencesSearchScope(VirtualFile file) {
-    return new LocalSearchScope(myParentClass);
+    return new LocalSearchScope(getParentClass());
+  }
+
+  @Override
+  protected boolean startsOnTheSameElement(RefactoringActionHandler handler, PsiElement element) {
+    return super.startsOnTheSameElement(handler, element) ||
+           getParentClass() != null &&
+           element instanceof PsiLocalVariable &&
+           getParentClass().findFieldByName(((PsiLocalVariable)element).getName(), false) != null;
   }
 
   protected PsiElement getAnchorElement() {
@@ -102,15 +108,20 @@ public abstract class AbstractInplaceIntroduceFieldPopup extends AbstractJavaInp
   @Override
   protected PsiVariable getVariable() {
     if (myFieldRangeStart == null) return null;
-    if (!myParentClass.isValid()) return null;
-    PsiElement element = myParentClass.getContainingFile().findElementAt(myFieldRangeStart.getStartOffset());
+    PsiClass parentClass = getParentClass();
+    if (parentClass == null || !parentClass.isValid()) return null;
+    PsiElement element = parentClass.getContainingFile().findElementAt(myFieldRangeStart.getStartOffset());
     if (element instanceof PsiWhiteSpace) {
-      element = PsiTreeUtil.skipSiblingsForward(element, PsiWhiteSpace.class);
+      element = PsiTreeUtil.skipWhitespacesForward(element);
     }
     if (element instanceof PsiField) return (PsiVariable)element;
     final PsiField field = PsiTreeUtil.getParentOfType(element, PsiField.class, false);
     if (field != null) return field;
-    element = PsiTreeUtil.skipSiblingsBackward(element, PsiWhiteSpace.class);
+    element = PsiTreeUtil.skipWhitespacesBackward(element);
     return PsiTreeUtil.getParentOfType(element, PsiField.class, false);
+  }
+
+  protected PsiClass getParentClass() {
+    return myParentClass.getElement();
   }
 }

@@ -22,9 +22,9 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.util.IncorrectOperationException;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
@@ -39,23 +39,9 @@ import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 public class GroovyListGetCanBeKeyedAccessInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return GPATH;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Call to List.get can be keyed access";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "Call to '#ref' can be keyed access #loc";
+    return GroovyBundle.message("inspection.message.call.to.ref.can.be.keyed.access");
   }
 
   @NotNull
@@ -73,18 +59,17 @@ public class GroovyListGetCanBeKeyedAccessInspection extends BaseInspection {
 
     @Override
     @NotNull
-    public String getName() {
-      return "Replace with keyed access";
+    public String getFamilyName() {
+      return GroovyBundle.message("intention.family.name.replace.with.keyed.access");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
+    public void doFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor)
         throws IncorrectOperationException {
       final PsiElement referenceName = descriptor.getPsiElement();
       final GrReferenceExpression invokedExpression = (GrReferenceExpression) referenceName.getParent();
       final GrMethodCallExpression callExpression = (GrMethodCallExpression) invokedExpression.getParent();
       final GrArgumentList args = callExpression.getArgumentList();
-      assert args != null;
       final GrExpression arg = args.getExpressionArguments()[0];
       replaceExpression(callExpression, invokedExpression.getQualifierExpression().getText() + '[' + arg.getText() + ']');
     }
@@ -92,12 +77,9 @@ public class GroovyListGetCanBeKeyedAccessInspection extends BaseInspection {
 
   private static class Visitor extends BaseInspectionVisitor {
     @Override
-    public void visitMethodCallExpression(GrMethodCallExpression grMethodCallExpression) {
+    public void visitMethodCallExpression(@NotNull GrMethodCallExpression grMethodCallExpression) {
       super.visitMethodCallExpression(grMethodCallExpression);
       final GrArgumentList args = grMethodCallExpression.getArgumentList();
-      if (args == null) {
-        return;
-      }
       if (args.getExpressionArguments().length != 1) {
         return;
       }

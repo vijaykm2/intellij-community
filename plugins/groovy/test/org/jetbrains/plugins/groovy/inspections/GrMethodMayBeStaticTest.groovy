@@ -1,27 +1,20 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.inspections
 
+import com.intellij.testFramework.LightProjectDescriptor
+import groovy.transform.CompileStatic
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors
 import org.jetbrains.plugins.groovy.LightGroovyTestCase
 import org.jetbrains.plugins.groovy.codeInspection.declaration.GrMethodMayBeStaticInspection
+
 /**
  * @author Max Medvedev
  */
-public class GrMethodMayBeStaticTest extends LightGroovyTestCase {
-  final String basePath = null
+@CompileStatic
+class GrMethodMayBeStaticTest extends LightGroovyTestCase {
+
+  final LightProjectDescriptor projectDescriptor = GroovyProjectDescriptors.GROOVY_LATEST
+  final GrMethodMayBeStaticInspection inspection = new GrMethodMayBeStaticInspection()
 
   void testSimple() {
     doTest('''\
@@ -68,10 +61,19 @@ class A {
 ''')
   }
 
+  void 'test abstract method with code block no error'() {
+    doTest '''
+abstract class A {
+  abstract foo() <error descr="Abstract methods must not have body">{
+    1 + 2
+  }</error>
+}
+'''
+  }
+
   private void doTest(final String text) {
     myFixture.configureByText('_.groovy', text)
-
-    myFixture.enableInspections(GrMethodMayBeStaticInspection)
+    myFixture.enableInspections(inspection)
     myFixture.checkHighlighting(true, false, false)
   }
 
@@ -140,5 +142,24 @@ class Bar {
   }
 }
 ''')
+  }
+
+  void 'test trait methods'() {
+    doTest '''\
+trait A {
+  def foo() {1}
+  abstract bar()
+}
+'''
+  }
+
+  void 'test trait methods with'() {
+    inspection.myIgnoreTraitMethods = false
+    doTest '''\
+trait A {
+  def <warning descr="Method may be static">foo</warning>() {1}
+  abstract bar()
+}
+'''
   }
 }

@@ -19,9 +19,6 @@ package com.intellij.psi;
 import com.intellij.openapi.util.TextRange;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author cdr
-*/
 public abstract class LiteralTextEscaper<T extends PsiLanguageInjectionHost> {
   protected final T myHost;
 
@@ -74,7 +71,8 @@ public abstract class LiteralTextEscaper<T extends PsiLanguageInjectionHost> {
    */
   public abstract boolean isOneLine();
 
-  public static <T extends PsiLanguageInjectionHost> LiteralTextEscaper<T> createSimple(T element) {
+  @NotNull
+  public static <T extends PsiLanguageInjectionHost> LiteralTextEscaper<T> createSimple(@NotNull T element) {
     return new LiteralTextEscaper<T>(element) {
       @Override
       public boolean decode(@NotNull TextRange rangeInsideHost, @NotNull StringBuilder outChars) {

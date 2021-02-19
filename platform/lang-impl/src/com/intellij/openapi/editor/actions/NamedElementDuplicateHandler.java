@@ -37,11 +37,10 @@ import org.jetbrains.annotations.Nullable;
 /**
  * @author peter
  */
-public class NamedElementDuplicateHandler extends EditorWriteActionHandler {
+public class NamedElementDuplicateHandler extends EditorWriteActionHandler.ForEachCaret {
   private final EditorActionHandler myOriginal;
 
   public NamedElementDuplicateHandler(EditorActionHandler original) {
-    super(true);
     myOriginal = original;
   }
 
@@ -51,14 +50,14 @@ public class NamedElementDuplicateHandler extends EditorWriteActionHandler {
   }
 
   @Override
-  public void executeWriteAction(Editor editor, DataContext dataContext) {
+  public void executeWriteAction(@NotNull Editor editor, @NotNull Caret caret, DataContext dataContext) {
     Project project = editor.getProject();
     if (project != null && !editor.getSelectionModel().hasSelection()) {
       PsiDocumentManager.getInstance(project).commitDocument(editor.getDocument());
       PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
       if (file != null) {
-        VisualPosition caret = editor.getCaretModel().getVisualPosition();
-        Pair<LogicalPosition, LogicalPosition> lines = EditorUtil.calcSurroundingRange(editor, caret, caret);
+        VisualPosition caretPosition = editor.getCaretModel().getVisualPosition();
+        Pair<LogicalPosition, LogicalPosition> lines = EditorUtil.calcSurroundingRange(editor, caretPosition, caretPosition);
         TextRange toDuplicate = new TextRange(editor.logicalPositionToOffset(lines.first), editor.logicalPositionToOffset(lines.second));
 
         PsiElement name = findNameIdentifier(editor, file, toDuplicate);
@@ -68,7 +67,11 @@ public class NamedElementDuplicateHandler extends EditorWriteActionHandler {
       }
     }
 
-    myOriginal.execute(editor, dataContext);
+    myOriginal.execute(editor, caret, dataContext);
+  }
+
+  public EditorActionHandler getOriginal() {
+    return myOriginal;
   }
 
   @Nullable

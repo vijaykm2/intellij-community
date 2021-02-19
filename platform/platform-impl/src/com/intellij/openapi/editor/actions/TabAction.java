@@ -14,16 +14,9 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: May 13, 2002
- * Time: 9:51:34 PM
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.openapi.editor.actions;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.command.CommandProcessor;
@@ -32,14 +25,11 @@ import com.intellij.openapi.editor.actionSystem.EditorAction;
 import com.intellij.openapi.editor.actionSystem.EditorActionManager;
 import com.intellij.openapi.editor.actionSystem.EditorWriteActionHandler;
 import com.intellij.openapi.editor.ex.EditorEx;
+import com.intellij.openapi.editor.ex.util.EditorUIUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.psi.PsiDocumentManager;
-import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
-import com.intellij.util.ui.MacUIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -49,16 +39,9 @@ public class TabAction extends EditorAction {
     setInjectedContext(true);
   }
 
-  private static class Handler extends EditorWriteActionHandler {
-    public Handler() {
-      super(true);
-    }
-
+  public static class Handler extends EditorWriteActionHandler.ForEachCaret {
     @Override
-    public void executeWriteAction(Editor editor, @Nullable Caret caret, DataContext dataContext) {
-      if (caret == null) {
-        caret = editor.getCaretModel().getPrimaryCaret();
-      }
+    public void executeWriteAction(@NotNull Editor editor, @NotNull Caret caret, DataContext dataContext) {
       CommandProcessor.getInstance().setCurrentCommandGroupId(EditorActionUtil.EDIT_COMMAND_GROUP);
       CommandProcessor.getInstance().setCurrentCommandName(EditorBundle.message("typing.command.name"));
       Project project = CommonDataKeys.PROJECT.getData(dataContext);
@@ -66,13 +49,13 @@ public class TabAction extends EditorAction {
     }
 
     @Override
-    public boolean isEnabled(Editor editor, DataContext dataContext) {
+    public boolean isEnabledForCaret(@NotNull Editor editor, @NotNull Caret caret, DataContext dataContext) {
       return !editor.isOneLineMode() && !((EditorEx)editor).isEmbeddedIntoDialogWrapper() && !editor.isViewer();
     }
   }
 
-  private static void insertTabAtCaret(Editor editor, @NotNull Caret caret, Project project) {
-    MacUIUtil.hideCursor();
+  private static void insertTabAtCaret(Editor editor, @NotNull Caret caret, @Nullable Project project) {
+    EditorUIUtil.hideCursorInEditor(editor);
     int columnNumber;
     if (caret.hasSelection()) {
       columnNumber = editor.visualToLogicalPosition(caret.getSelectionStartPosition()).column;
@@ -81,11 +64,10 @@ public class TabAction extends EditorAction {
       columnNumber = editor.getCaretModel().getLogicalPosition().column;
     }
 
-    CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(project);
+    CodeStyleSettings settings = project != null ? CodeStyle.getSettings(project) : CodeStyle.getDefaultSettings();
 
     final Document doc = editor.getDocument();
-    PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(doc);
-    CommonCodeStyleSettings.IndentOptions indentOptions = settings.getIndentOptionsByFile(file);
+    CommonCodeStyleSettings.IndentOptions indentOptions = settings.getIndentOptionsByDocument(project, doc);
 
     int tabSize = indentOptions.INDENT_SIZE;
     int spacesToAddCount = tabSize - columnNumber % Math.max(1,tabSize);
@@ -106,12 +88,7 @@ public class TabAction extends EditorAction {
 
     doc.startGuardedBlockChecking();
     try {
-      if(useTab) {
-        EditorModificationUtil.typeInStringAtCaretHonorBlockSelection(editor, "\t", false);
-      }
-      else {
-        EditorModificationUtil.typeInStringAtCaretHonorBlockSelection(editor, StringUtil.repeatSymbol(' ', spacesToAddCount), false);
-      }
+      EditorModificationUtil.insertStringAtCaret(editor, useTab ? "\t" : StringUtil.repeatSymbol(' ', spacesToAddCount), false, true);
     }
     catch (ReadOnlyFragmentModificationException e) {
       EditorActionManager.getInstance().getReadonlyFragmentModificationHandler(doc).handle(e);

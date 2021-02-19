@@ -24,7 +24,9 @@ import com.intellij.psi.impl.java.stubs.JavaStubElementTypes;
 import com.intellij.psi.impl.java.stubs.PsiParameterListStub;
 import com.intellij.psi.impl.source.SourceTreeToPsiMap;
 import com.intellij.psi.impl.source.tree.TreeElement;
+import com.intellij.psi.stubs.StubElement;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 public class ClsParameterListImpl extends ClsRepositoryPsiElement<PsiParameterListStub> implements PsiParameterList {
   public ClsParameterListImpl(@NotNull PsiParameterListStub stub) {
@@ -32,20 +34,36 @@ public class ClsParameterListImpl extends ClsRepositoryPsiElement<PsiParameterLi
   }
 
   @Override
-  @NotNull
-  public PsiParameter[] getParameters() {
+  public PsiParameter @NotNull [] getParameters() {
     return getStub().getChildrenByType(JavaStubElementTypes.PARAMETER, PsiParameter.ARRAY_FACTORY);
   }
 
   @Override
-  public int getParameterIndex(PsiParameter parameter) {
+  public int getParameterIndex(@NotNull PsiParameter parameter) {
     assert parameter.getParent() == this;
     return PsiImplUtil.getParameterIndex(parameter, this);
   }
 
   @Override
   public int getParametersCount() {
-    return getParameters().length;
+    // All children of ClsParameterListImpl are actually parameters, so no need to filter additionally
+    return getStub().getChildrenStubs().size();
+  }
+
+  @Nullable
+  @Override
+  public PsiParameter getParameter(int index) {
+    if (index < 0) {
+      throw new IllegalArgumentException("index is negative: " + index);
+    }
+    int count = 0;
+    for (StubElement<?> child : getStub().getChildrenStubs()) {
+      if (child.getStubType() == JavaStubElementTypes.PARAMETER) {
+        if (count == index) return (PsiParameter)child.getPsi();
+        count++;
+      }
+    }
+    return null;
   }
 
   @Override
@@ -57,6 +75,13 @@ public class ClsParameterListImpl extends ClsRepositoryPsiElement<PsiParameterLi
       appendText(parameters[i], indentLevel, buffer);
     }
     buffer.append(')');
+  }
+
+  @Override
+  public String getText() {
+    StringBuilder builder = new StringBuilder();
+    appendMirrorText(0, builder);
+    return builder.toString();
   }
 
   @Override

@@ -15,42 +15,37 @@
  */
 package org.intellij.lang.xpath.completion;
 
-import com.intellij.codeInsight.lookup.LookupValueWithPriority;
-import com.intellij.openapi.util.Iconable;
+import com.intellij.codeInsight.lookup.LookupElementPresentation;
 import com.intellij.psi.PsiElement;
 import com.intellij.util.PlatformIcons;
 
 import javax.swing.*;
 
-public class VariableLookup extends AbstractLookup implements Lookup, Iconable, LookupValueWithPriority, ElementProvider {
-    private final String myType;
-    private final Icon myIcon;
-    private final PsiElement myPsiElement;
+class VariableLookup extends AbstractLookup implements ElementProvider {
+  private final String myType;
+  private final Icon myIcon;
+  private final PsiElement myPsiElement;
 
-    public VariableLookup(String name, Icon icon) {
-        this(name, "", icon, null);
-    }
+  VariableLookup(String name, Icon icon) {
+    this(name, "", icon, null);
+  }
 
-    public VariableLookup(String name, String type, Icon icon, PsiElement psiElement) {
-        super(name, name);
-        myType = type;
-        myIcon = icon;
-        myPsiElement = psiElement;
-    }
+  VariableLookup(String name, String type, Icon icon, PsiElement psiElement) {
+    super(name, name);
+    myType = type;
+    myIcon = icon;
+    myPsiElement = psiElement;
+  }
 
-    public String getTypeHint() {
-        return myType;
-    }
+  @Override
+  public void renderElement(LookupElementPresentation presentation) {
+    super.renderElement(presentation);
+    presentation.setTypeText(myType);
+    presentation.setIcon(myIcon != null ? myIcon : PlatformIcons.VARIABLE_ICON);
+  }
 
-    public Icon getIcon(int flags) {
-        return myIcon != null ? myIcon : PlatformIcons.VARIABLE_ICON;
-    }
-
-    public int getPriority() {
-        return HIGH;
-    }
-
-    public PsiElement getElement() {
-        return myPsiElement;
-    }
+  @Override
+  public PsiElement getElement() {
+    return myPsiElement;
+  }
 }

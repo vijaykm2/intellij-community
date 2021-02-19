@@ -1,26 +1,28 @@
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.impl.matcher.compiler;
 
 import com.intellij.dupLocator.util.NodeFilter;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
+import com.intellij.structuralsearch.MalformedPatternException;
 import com.intellij.structuralsearch.StructuralSearchProfile;
 import com.intellij.structuralsearch.StructuralSearchUtil;
-import com.intellij.structuralsearch.impl.matcher.filters.CompositeFilter;
+import com.intellij.structuralsearch.impl.matcher.CompiledPattern;
+import com.intellij.structuralsearch.impl.matcher.filters.CompositeNodeFilter;
 import com.intellij.structuralsearch.impl.matcher.filters.LexicalNodesFilter;
 import com.intellij.structuralsearch.impl.matcher.handlers.LiteralWithSubstitutionHandler;
 import com.intellij.structuralsearch.impl.matcher.handlers.MatchingHandler;
 import com.intellij.structuralsearch.impl.matcher.handlers.SubstitutionHandler;
 import com.intellij.structuralsearch.impl.matcher.predicates.RegExpPredicate;
+import com.intellij.util.SmartList;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import static com.intellij.structuralsearch.MatchOptions.INSTANCE_MODIFIER_NAME;
-import static com.intellij.structuralsearch.MatchOptions.MODIFIER_ANNOTATION_NAME;
 
 /**
  * @author maxim
@@ -28,28 +30,18 @@ import static com.intellij.structuralsearch.MatchOptions.MODIFIER_ANNOTATION_NAM
 public class GlobalCompilingVisitor {
   @NonNls private static final String SUBSTITUTION_PATTERN_STR = "\\b(__\\$_\\w+)\\b";
   private static final Pattern ourSubstitutionPattern = Pattern.compile(SUBSTITUTION_PATTERN_STR);
-  private static final Set<String> ourReservedWords = new HashSet<String>(Arrays.asList(MODIFIER_ANNOTATION_NAME, INSTANCE_MODIFIER_NAME)) {
-    {
-      for (StructuralSearchProfile profile : Extensions.getExtensions(StructuralSearchProfile.EP_NAME)) {
-        addAll(profile.getReservedWords());
-      }
-    }
-  };
-  private static final Pattern ourAlternativePattern = Pattern.compile("^\\((.+)\\)$");
-  @NonNls private static final String WORD_SEARCH_PATTERN_STR = ".*?\\b(.+?)\\b.*?";
-  private static final Pattern ourWordSearchPattern = Pattern.compile(WORD_SEARCH_PATTERN_STR);
-  private CompileContext context;
-  private final ArrayList<PsiElement> myLexicalNodes = new ArrayList<PsiElement>();
-
-  private int myCodeBlockLevel;
-
   private static final NodeFilter ourFilter = LexicalNodesFilter.getInstance();
 
+  private CompileContext context;
+  private final List<PsiElement> myLexicalNodes = new SmartList<>();
+  private int myCodeBlockLevel;
+
+  @NotNull
   public static NodeFilter getFilter() {
     return ourFilter;
   }
 
-  public void setHandler(PsiElement element, MatchingHandler handler) {
+  public void setHandler(@NotNull PsiElement element, @NotNull MatchingHandler handler) {
     MatchingHandler realHandler = context.getPattern().getHandlerSimple(element);
 
     if (realHandler instanceof SubstitutionHandler) {
@@ -61,23 +53,27 @@ public class GlobalCompilingVisitor {
     }
   }
 
-  public final void handle(PsiElement element) {
+  public final void handle(@NotNull PsiElement element) {
     if ((!ourFilter.accepts(element) ||
          StructuralSearchUtil.isIdentifier(element)) &&
         context.getPattern().isRealTypedVar(element) &&
         context.getPattern().getHandlerSimple(element) == null
       ) {
-      String name = context.getPattern().getTypedVarString(element);
+      final CompiledPattern pattern = context.getPattern();
+      String name = pattern.getTypedVarString(element);
       // name is the same for named element (clazz,methods, etc) and token (name of ... itself)
       // @todo need fix this
 
-      final SubstitutionHandler handler = (SubstitutionHandler)context.getPattern().getHandler(name);
+      final SubstitutionHandler handler = (SubstitutionHandler)pattern.getHandler(name);
       if (handler == null) return;
-      context.getPattern().setHandler(element, handler);
+      pattern.setHandler(element, handler);
 
       if (context.getOptions().getVariableConstraint(handler.getName()).isPartOfSearchResults()) {
         handler.setTarget(true);
-        context.getPattern().setTargetNode(element);
+        final PsiElement targetNode = pattern.getTargetNode();
+        if (targetNode == null || targetNode == element.getParent()) {
+          pattern.setTargetNode(element);
+        }
       }
     }
   }
@@ -94,50 +90,54 @@ public class GlobalCompilingVisitor {
     this.myCodeBlockLevel = codeBlockLevel;
   }
 
-  static void setFilter(MatchingHandler handler, NodeFilter filter) {
-    if (handler.getFilter() != null &&
-        handler.getFilter().getClass() != filter.getClass()
-      ) {
-      // for constructor we will have the same handler for class and method and tokens itselfa
-      handler.setFilter(
-        new CompositeFilter(
-          filter,
-          handler.getFilter()
-        )
-      );
+  public static void setFilter(@NotNull MatchingHandler handler, @NotNull NodeFilter filter) {
+    if (handler.getFilter() != null && handler.getFilter().getClass() != filter.getClass()) {
+      // for constructor we will have the same handler for class and method and tokens itself
+      handler.setFilter(new CompositeNodeFilter(filter, handler.getFilter()));
     }
     else {
       handler.setFilter(filter);
     }
   }
 
-  public ArrayList<PsiElement> getLexicalNodes() {
+  public void setFilterSimple(@NotNull PsiElement element, @NotNull NodeFilter filter) {
+    context.getPattern().getHandler(element).setFilter(filter);
+  }
+
+  @NotNull
+  public List<PsiElement> getLexicalNodes() {
     return myLexicalNodes;
   }
 
-  public void addLexicalNode(PsiElement node) {
+  public void addLexicalNode(@NotNull PsiElement node) {
     myLexicalNodes.add(node);
   }
 
-  void compile(PsiElement[] elements, CompileContext context) {
+  void compile(PsiElement @NotNull [] elements, @NotNull CompileContext context) {
+    if (elements.length == 0) {
+      throw new MalformedPatternException();
+    }
     myCodeBlockLevel = 0;
     this.context = context;
-    final StructuralSearchProfile profile = StructuralSearchUtil.getProfileByFileType(context.getOptions().getFileType());
+    final StructuralSearchProfile profile =
+      StructuralSearchUtil.getProfileByFileType(context.getOptions().getFileType());
     assert profile != null;
     profile.compile(elements, this);
 
-    if (context.getPattern().getStrategy() == null) {
-      System.out.println();
-    }
+    assert context.getPattern().getStrategy() != null;
+  }
+
+  public boolean hasFragments(@NotNull String pattern) {
+    return ourSubstitutionPattern.matcher(pattern).find();
   }
 
   @Nullable
-  public MatchingHandler processPatternStringWithFragments(String pattern, OccurenceKind kind) {
+  public MatchingHandler processPatternStringWithFragments(@NotNull String pattern, @NotNull OccurenceKind kind) {
     return processPatternStringWithFragments(pattern, kind, ourSubstitutionPattern);
   }
 
   @Nullable
-  public MatchingHandler processPatternStringWithFragments(String pattern, OccurenceKind kind, Pattern substitutionPattern) {
+  public MatchingHandler processPatternStringWithFragments(@NotNull String pattern, @NotNull OccurenceKind kind, @NotNull Pattern substitutionPattern) {
     String content;
 
     if (kind == OccurenceKind.LITERAL) {
@@ -147,32 +147,32 @@ public class GlobalCompilingVisitor {
       content = pattern;
     }
     else {
+      assert false;
       return null;
     }
 
     @NonNls StringBuilder buf = new StringBuilder(content.length());
     Matcher matcher = substitutionPattern.matcher(content);
-    List<SubstitutionHandler> handlers = null;
+    List<SubstitutionHandler> handlers = new SmartList<>();
     int start = 0;
     String word;
     boolean hasLiteralContent = false;
 
     SubstitutionHandler handler = null;
     while (matcher.find()) {
-      if (handlers == null) handlers = new ArrayList<SubstitutionHandler>();
-      handler = (SubstitutionHandler)getContext().getPattern().getHandler(matcher.group(1));
-      if (handler != null) handlers.add(handler);
-
       word = content.substring(start, matcher.start());
-
-      if (word.length() > 0) {
-        buf.append(StructuralSearchUtil.shieldSpecialChars(word));
+      if (!word.isEmpty()) {
         hasLiteralContent = true;
+        buf.append(StructuralSearchUtil.makeExtremeSpacesOptional(StructuralSearchUtil.shieldRegExpMetaChars(word)));
 
-        processTokenizedName(word, false, kind);
+        processTokenizedName(word, kind);
       }
 
-      RegExpPredicate predicate = MatchingHandler.getSimpleRegExpPredicate(handler);
+      handler = (SubstitutionHandler)getContext().getPattern().getHandler(matcher.group(1));
+      if (handler == null) throw new MalformedPatternException();
+
+      handlers.add(handler);
+      RegExpPredicate predicate = handler.findRegExpPredicate();
 
       if (predicate == null || !predicate.isWholeWords()) {
         buf.append("(.*?)");
@@ -182,19 +182,19 @@ public class GlobalCompilingVisitor {
       }
 
       if (isSuitablePredicate(predicate, handler)) {
-        processTokenizedName(predicate.getRegExp(), false, kind);
+        processTokenizedName(predicate.getRegExp(), kind);
       }
 
       start = matcher.end();
     }
 
-    word = content.substring(start, content.length());
+    word = content.substring(start);
 
-    if (word.length() > 0) {
+    if (!word.isEmpty()) {
       hasLiteralContent = true;
-      buf.append(StructuralSearchUtil.shieldSpecialChars(word));
+      buf.append(StructuralSearchUtil.makeExtremeSpacesOptional(StructuralSearchUtil.shieldRegExpMetaChars(word)));
 
-      processTokenizedName(word, false, kind);
+      processTokenizedName(word, kind);
     }
 
     if (hasLiteralContent) {
@@ -202,110 +202,60 @@ public class GlobalCompilingVisitor {
         buf.insert(0, "[\"']");
         buf.append("[\"']");
       }
-      buf.append("$");
     }
 
-    if (handlers != null) {
-      return hasLiteralContent ? new LiteralWithSubstitutionHandler(buf.toString(), handlers) : handler;
+    if (!handlers.isEmpty()) {
+      return hasLiteralContent
+             ? new LiteralWithSubstitutionHandler(buf.toString(), handlers, context.getOptions().isCaseSensitiveMatch())
+             : handler;
     }
 
     return null;
   }
 
   @Contract("null,_ -> false")
-  static boolean isSuitablePredicate(RegExpPredicate predicate, SubstitutionHandler handler) {
+  public static boolean isSuitablePredicate(RegExpPredicate predicate, @NotNull SubstitutionHandler handler) {
     return predicate != null && handler.getMinOccurs() != 0 && predicate.couldBeOptimized();
   }
 
-  public static void addFilesToSearchForGivenWord(String refname,
+  public static void addFilesToSearchForGivenWord(@NotNull String word,
                                                   boolean endTransaction,
-                                                  GlobalCompilingVisitor.OccurenceKind kind,
-                                                  CompileContext compileContext) {
+                                                  @NotNull GlobalCompilingVisitor.OccurenceKind kind,
+                                                  @NotNull CompileContext compileContext) {
     if (!compileContext.getSearchHelper().doOptimizing()) {
       return;
     }
-    if (ourReservedWords.contains(refname)) return; // skip our special annotations !!!
-
-    boolean addedSomething = false;
+    final StructuralSearchProfile profile =
+      StructuralSearchUtil.getProfileByFileType(compileContext.getOptions().getFileType());
+    assert profile != null;
+    if (profile.getReservedWords().contains(word)) return; // skip our special annotations !!!
 
     if (kind == GlobalCompilingVisitor.OccurenceKind.CODE) {
-      addedSomething = compileContext.getSearchHelper().addWordToSearchInCode(refname);
+      compileContext.getSearchHelper().addWordToSearchInCode(word);
     }
     else if (kind == GlobalCompilingVisitor.OccurenceKind.COMMENT) {
-      addedSomething = compileContext.getSearchHelper().addWordToSearchInComments(refname);
+      compileContext.getSearchHelper().addWordToSearchInComments(word);
     }
     else if (kind == GlobalCompilingVisitor.OccurenceKind.LITERAL) {
-      addedSomething = compileContext.getSearchHelper().addWordToSearchInLiterals(refname);
+      compileContext.getSearchHelper().addWordToSearchInLiterals(word);
+    }
+    else if (kind == GlobalCompilingVisitor.OccurenceKind.TEXT) {
+      compileContext.getSearchHelper().addWordToSearchInText(word);
     }
 
-    if (addedSomething && endTransaction) {
+    if (endTransaction) {
       compileContext.getSearchHelper().endTransaction();
     }
   }
 
-  public void processTokenizedName(String name, boolean skipComments, GlobalCompilingVisitor.OccurenceKind kind) {
-    WordTokenizer tokenizer = new WordTokenizer(name);
-    for (Iterator<String> i = tokenizer.iterator(); i.hasNext();) {
-      String nextToken = i.next();
-      if (skipComments &&
-          (nextToken.equals("/*") || nextToken.equals("/**") || nextToken.equals("*/") || nextToken.equals("*") || nextToken.equals("//"))
-        ) {
-        continue;
-      }
-
-      Matcher matcher = ourAlternativePattern.matcher(nextToken);
-      if (matcher.matches()) {
-        StringTokenizer alternatives = new StringTokenizer(matcher.group(1), "|");
-        while (alternatives.hasMoreTokens()) {
-          addFilesToSearchForGivenWord(alternatives.nextToken(), !alternatives.hasMoreTokens(), kind, getContext());
-        }
-      }
-      else {
-        addFilesToSearchForGivenWord(nextToken, true, kind, getContext());
-      }
+  public void processTokenizedName(@NotNull String name, @NotNull GlobalCompilingVisitor.OccurenceKind kind) {
+    if (kind == OccurenceKind.LITERAL) name = StringUtil.unescapeStringCharacters(name);
+    for (String word : StringUtil.getWordsInStringLongestFirst(name)) {
+      addFilesToSearchForGivenWord(word, true, kind, getContext());
     }
   }
 
   public enum OccurenceKind {
-    LITERAL, COMMENT, CODE
-  }
-
-  private static class WordTokenizer {
-    private final List<String> myWords = new ArrayList<String>();
-
-    WordTokenizer(String text) {
-      final StringTokenizer tokenizer = new StringTokenizer(text);
-      Matcher matcher = null;
-
-      while (tokenizer.hasMoreTokens()) {
-        String nextToken = tokenizer.nextToken();
-        if (matcher == null) {
-          matcher = ourWordSearchPattern.matcher(nextToken);
-        }
-        else {
-          matcher.reset(nextToken);
-        }
-
-        nextToken = (matcher.matches()) ? matcher.group(1) : nextToken;
-        int lastWordStart = 0;
-        int i;
-        for (i = 0; i < nextToken.length(); ++i) {
-          if (!Character.isJavaIdentifierStart(nextToken.charAt(i))) {
-            if (i != lastWordStart) {
-              myWords.add(nextToken.substring(lastWordStart, i));
-            }
-            lastWordStart = i + 1;
-          }
-        }
-
-        if (i != lastWordStart) {
-          myWords.add(nextToken.substring(lastWordStart, i));
-        }
-      }
-    }
-
-    Iterator<String> iterator() {
-      return myWords.iterator();
-    }
+    LITERAL, COMMENT, CODE, TEXT
   }
 }

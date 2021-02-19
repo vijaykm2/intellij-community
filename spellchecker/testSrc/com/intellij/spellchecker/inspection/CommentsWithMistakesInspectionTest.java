@@ -15,8 +15,10 @@
  */
 package com.intellij.spellchecker.inspection;
 
+import java.util.Locale;
+
 /**
- * @author  Ekaterina Shliakhovetskaja
+ * @author Ekaterina Shliakhovetskaja
  */
 public class CommentsWithMistakesInspectionTest extends SpellcheckerInspectionTestCase {
   @Override
@@ -26,6 +28,17 @@ public class CommentsWithMistakesInspectionTest extends SpellcheckerInspectionTe
 
   public void testJava() {
     doTest("SPITest1.java");
+  }
+
+  public void testJavaWithTurkishLocale() {
+    Locale locale = Locale.getDefault();
+    try {
+      Locale.setDefault(new Locale("tr", "TR"));
+      doTest("SPITest2.java");
+    }
+    finally {
+      Locale.setDefault(locale);
+    }
   }
 
   public void testXml() {

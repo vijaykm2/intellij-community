@@ -1,23 +1,24 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.action;
 
-import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.externalSystem.ExternalSystemManager;
+import com.intellij.openapi.externalSystem.importing.ImportSpecBuilder;
 import com.intellij.openapi.externalSystem.model.ExternalSystemDataKeys;
 import com.intellij.openapi.externalSystem.model.ProjectSystemId;
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskType;
 import com.intellij.openapi.externalSystem.service.internal.ExternalSystemProcessingManager;
+import com.intellij.openapi.externalSystem.statistics.ExternalSystemActionsCollector;
 import com.intellij.openapi.externalSystem.util.ExternalSystemBundle;
 import com.intellij.openapi.externalSystem.util.ExternalSystemUtil;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.Function;
-import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -25,18 +26,16 @@ import java.util.List;
  * (e.g. imports missing libraries).
  *
  * @author Denis Zhdanov
- * @since 1/23/12 3:48 PM
  */
-public class RefreshAllExternalProjectsAction extends AnAction implements DumbAware, AnAction.TransparentUpdate {
-
+public class RefreshAllExternalProjectsAction extends DumbAwareAction {
   public RefreshAllExternalProjectsAction() {
-    getTemplatePresentation().setText(ExternalSystemBundle.message("action.refresh.all.projects.text", "external"));
-    getTemplatePresentation().setDescription(ExternalSystemBundle.message("action.refresh.all.projects.description", "external"));
+    getTemplatePresentation().setText(ExternalSystemBundle.messagePointer("action.refresh.all.projects.text", "External"));
+    getTemplatePresentation().setDescription(ExternalSystemBundle.messagePointer("action.refresh.all.projects.description", "external"));
   }
 
   @Override
-  public void update(AnActionEvent e) {
-    final Project project = CommonDataKeys.PROJECT.getData(e.getDataContext());
+  public void update(@NotNull AnActionEvent e) {
+    final Project project = e.getProject();
     if (project == null) {
       e.getPresentation().setEnabled(false);
       return;
@@ -48,22 +47,18 @@ public class RefreshAllExternalProjectsAction extends AnAction implements DumbAw
       return;
     }
 
-    final String name = StringUtil.join(systemIds, new Function<ProjectSystemId, String>() {
-      @Override
-      public String fun(ProjectSystemId projectSystemId) {
-        return projectSystemId.getReadableName();
-      }
-    }, ",");
-    e.getPresentation().setText(ExternalSystemBundle.message("action.refresh.all.projects.text", name));
-    e.getPresentation().setDescription(ExternalSystemBundle.message("action.refresh.all.projects.description", name));
+    final String name = StringUtil.join(systemIds, projectSystemId -> projectSystemId.getReadableName(), ",");
+    e.getPresentation().setText(ExternalSystemBundle.messagePointer("action.refresh.all.projects.text", name));
+    e.getPresentation().setDescription(ExternalSystemBundle.messagePointer("action.refresh.all.projects.description", name));
 
-    ExternalSystemProcessingManager processingManager = ServiceManager.getService(ExternalSystemProcessingManager.class);
+    ExternalSystemProcessingManager processingManager =
+      ApplicationManager.getApplication().getService(ExternalSystemProcessingManager.class);
     e.getPresentation().setEnabled(!processingManager.hasTaskOfTypeInProgress(ExternalSystemTaskType.RESOLVE_PROJECT, project));
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
-    final Project project = CommonDataKeys.PROJECT.getData(e.getDataContext());
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    final Project project = e.getProject();
     if (project == null) {
       e.getPresentation().setEnabled(false);
       return;
@@ -79,23 +74,21 @@ public class RefreshAllExternalProjectsAction extends AnAction implements DumbAw
     FileDocumentManager.getInstance().saveAllDocuments();
 
     for (ProjectSystemId externalSystemId : systemIds) {
-      ExternalSystemUtil.refreshProjects(project, externalSystemId, true);
+      ExternalSystemActionsCollector.trigger(project, externalSystemId, this, e);
+      ExternalSystemUtil.refreshProjects(new ImportSpecBuilder(project, externalSystemId).forceWhenUptodate(true));
     }
   }
 
-  private static List<ProjectSystemId> getSystemIds(AnActionEvent e) {
-    final List<ProjectSystemId> systemIds = ContainerUtil.newArrayList();
-
-    final ProjectSystemId externalSystemId = ExternalSystemDataKeys.EXTERNAL_SYSTEM_ID.getData(e.getDataContext());
-    if (externalSystemId != null) {
-      systemIds.add(externalSystemId);
+  @NotNull
+  private static List<ProjectSystemId> getSystemIds(@NotNull AnActionEvent e) {
+    List<ProjectSystemId> systemIds = new ArrayList<>();
+    ProjectSystemId externalSystemId = e.getData(ExternalSystemDataKeys.EXTERNAL_SYSTEM_ID);
+    if (externalSystemId == null) {
+      ExternalSystemManager.EP_NAME.forEachExtensionSafe(manager -> systemIds.add(manager.getSystemId()));
     }
     else {
-      for (ExternalSystemManager manager : ExternalSystemManager.EP_NAME.getExtensions()) {
-        systemIds.add(manager.getSystemId());
-      }
+      systemIds.add(externalSystemId);
     }
-
     return systemIds;
   }
 }

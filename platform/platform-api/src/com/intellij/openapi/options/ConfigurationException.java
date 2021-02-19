@@ -15,18 +15,20 @@
  */
 package com.intellij.openapi.options;
 
+import com.intellij.openapi.util.NlsContexts;
+
 /**
  * Thrown to indicate that a configurable component cannot {@link UnnamedConfigurable#apply() apply} entered values.
  */
 public class ConfigurationException extends Exception {
-  public static final String DEFAULT_TITLE = OptionsBundle.message("cannot.save.settings.default.dialog.title");
-  private String myTitle = DEFAULT_TITLE;
+  private @NlsContexts.DialogTitle String myTitle = getDefaultTitle();
   private Runnable myQuickFix;
+  private Configurable myOriginator;
 
   /**
    * @param message the detail message describing the problem
    */
-  public ConfigurationException(String message) {
+  public ConfigurationException(@NlsContexts.DialogMessage String message) {
     super(message);
   }
 
@@ -34,15 +36,29 @@ public class ConfigurationException extends Exception {
    * @param message the detailed message describing the problem
    * @param title   the title describing the problem in short
    */
-  public ConfigurationException(String message, String title) {
+  public ConfigurationException(@NlsContexts.DialogMessage String message,
+                                @NlsContexts.DialogTitle String title) {
     super(message);
     myTitle = title;
+  }
+
+  public ConfigurationException(@NlsContexts.DialogMessage String message,
+                                Throwable cause,
+                                @NlsContexts.DialogTitle String title) {
+    super(message, cause);
+    myTitle = title;
+  }
+
+  @Override
+  public @NlsContexts.DialogMessage String getMessage() {
+    //noinspection HardCodedStringLiteral
+    return super.getMessage();
   }
 
   /**
    * @return the title describing the problem in short
    */
-  public String getTitle() {
+  public @NlsContexts.DialogTitle String getTitle() {
     return myTitle;
   }
 
@@ -60,4 +76,23 @@ public class ConfigurationException extends Exception {
     return myQuickFix;
   }
 
+  public Configurable getOriginator() {
+    return myOriginator;
+  }
+
+  public void setOriginator(Configurable originator) {
+    myOriginator = originator;
+  }
+
+  /**
+   * @return whether this error should be shown when index isn't complete. Override and return false for errors that
+   * might be caused by inability to find some PSI due to index absence.
+   */
+  public boolean shouldShowInDumbMode() {
+    return true;
+  }
+
+  public static @NlsContexts.DialogTitle String getDefaultTitle() {
+    return OptionsBundle.message("cannot.save.settings.default.dialog.title");
+  }
 }

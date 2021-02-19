@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring;
 
 import com.intellij.openapi.module.Module;
@@ -20,6 +6,7 @@ import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.light.LightElement;
@@ -33,7 +20,6 @@ import com.intellij.usageView.UsageInfo;
 import com.intellij.util.VisibilityUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.FilteringIterator;
-import com.intellij.util.containers.HashSet;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -50,29 +36,27 @@ import org.jetbrains.plugins.groovy.lang.psi.api.types.GrCodeReferenceElement;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 
-/**
- * Created by Max Medvedev on 9/28/13
- */
-public class GrRefactoringConflictsUtil {
+public final class GrRefactoringConflictsUtil {
   private GrRefactoringConflictsUtil() { }
 
-  public static void analyzeAccessibilityConflicts(@NotNull Set<GrMember> membersToMove,
+  public static void analyzeAccessibilityConflicts(@NotNull Set<? extends GrMember> membersToMove,
                                                    @NotNull PsiClass targetClass,
                                                    @NotNull MultiMap<PsiElement, String> conflicts,
                                                    @Nullable String newVisibility) {
     analyzeAccessibilityConflicts(membersToMove, targetClass, conflicts, newVisibility, targetClass, null);
   }
 
-  public static void analyzeAccessibilityConflicts(@NotNull Set<GrMember> membersToMove,
+  public static void analyzeAccessibilityConflicts(@NotNull Set<? extends GrMember> membersToMove,
                                                    @Nullable PsiClass targetClass,
                                                    @NotNull MultiMap<PsiElement, String> conflicts,
                                                    @Nullable String newVisibility,
                                                    @NotNull PsiElement context,
-                                                   @Nullable Set<PsiMethod> abstractMethods) {
+                                                   @Nullable Set<? extends PsiMethod> abstractMethods) {
     if (VisibilityUtil.ESCALATE_VISIBILITY.equals(newVisibility)) { //Still need to check for access object
       newVisibility = PsiModifier.PUBLIC;
     }
@@ -85,12 +69,12 @@ public class GrRefactoringConflictsUtil {
 
   public static void checkUsedElements(PsiMember member,
                                        PsiElement scope,
-                                       @NotNull Set<GrMember> membersToMove,
-                                       @Nullable Set<PsiMethod> abstractMethods,
+                                       @NotNull Set<? extends GrMember> membersToMove,
+                                       @Nullable Set<? extends PsiMethod> abstractMethods,
                                        @Nullable PsiClass targetClass,
                                        @NotNull PsiElement context,
                                        MultiMap<PsiElement, String> conflicts) {
-    final Set<PsiMember> moving = new HashSet<PsiMember>(membersToMove);
+    final Set<PsiMember> moving = new HashSet<>(membersToMove);
     if (abstractMethods != null) {
       moving.addAll(abstractMethods);
     }
@@ -152,7 +136,7 @@ public class GrRefactoringConflictsUtil {
 
 
     List<GroovyPsiElement> groovyScopes =
-      ContainerUtil.collect(scopes.iterator(), new FilteringIterator.InstanceOf<GroovyPsiElement>(GroovyPsiElement.class));
+      ContainerUtil.collect(scopes.iterator(), new FilteringIterator.InstanceOf<>(GroovyPsiElement.class));
     analyzeModuleConflicts(project, groovyScopes, usages, vFile, conflicts);
     scopes.removeAll(groovyScopes);
     RefactoringConflictsUtil.analyzeModuleConflicts(project, scopes, usages, vFile, conflicts);
@@ -171,17 +155,17 @@ public class GrRefactoringConflictsUtil {
     final Module targetModule = ModuleUtilCore.findModuleForFile(vFile, project);
     if (targetModule == null) return;
     final GlobalSearchScope resolveScope = GlobalSearchScope.moduleWithDependenciesAndLibrariesScope(targetModule);
-    final HashSet<PsiElement> reported = new HashSet<PsiElement>();
+    final HashSet<PsiElement> reported = new HashSet<>();
     for (final GroovyPsiElement scope : scopes) {
       scope.accept(new GroovyRecursiveElementVisitor() {
         @Override
-        public void visitCodeReferenceElement(GrCodeReferenceElement refElement) {
+        public void visitCodeReferenceElement(@NotNull GrCodeReferenceElement refElement) {
           super.visitCodeReferenceElement(refElement);
           visit(refElement);
         }
 
         @Override
-        public void visitReferenceExpression(GrReferenceExpression reference) {
+        public void visitReferenceExpression(@NotNull GrReferenceExpression reference) {
           super.visitReferenceExpression(reference);
           visit(reference);
         }
@@ -198,7 +182,7 @@ public class GrRefactoringConflictsUtil {
                                                              RefactoringUIUtil.getDescription(resolved, true),
                                                              scopeDescription,
                                                              CommonRefactoringUtil.htmlEmphasize(targetModule.getName()));
-            conflicts.putValue(resolved, CommonRefactoringUtil.capitalize(message));
+            conflicts.putValue(resolved, StringUtil.capitalize(message));
             reported.add(resolved);
           }
         }
@@ -251,7 +235,7 @@ public class GrRefactoringConflictsUtil {
                                                     scopeDescription,
                                                     CommonRefactoringUtil.htmlEmphasize(module.getName()));
               }
-              conflicts.putValue(referencedElement, CommonRefactoringUtil.capitalize(message));
+              conflicts.putValue(referencedElement, StringUtil.capitalize(message));
             }
           }
         }

@@ -1,84 +1,78 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.util;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Clock;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.openapi.vcs.merge.MergeDialogCustomizer;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.text.DateFormatUtil;
-import git4idea.GitPlatformFacade;
-import git4idea.GitUtil;
 import git4idea.commands.Git;
+import git4idea.config.GitSaveChangesPolicy;
+import git4idea.i18n.GitBundle;
 import git4idea.merge.GitConflictResolver;
-import git4idea.repo.GitRepository;
-import git4idea.stash.GitStashChangesSaver;
+import git4idea.stash.GitChangesSaver;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.intellij.openapi.util.text.StringUtil.join;
+import static com.intellij.xml.util.XmlStringUtil.wrapInHtml;
+import static com.intellij.xml.util.XmlStringUtil.wrapInHtmlTag;
+import static git4idea.GitNotificationIdsHolder.COULD_NOT_SAVE_UNCOMMITTED_CHANGES;
 
 /**
  * Executes a Git operation on a number of repositories surrounding it by stash-unstash procedure.
  * I.e. stashes changes, executes the operation and then unstashes it.
- *
- * @author Kirill Likhodedov
  */
 public class GitPreservingProcess {
 
   private static final Logger LOG = Logger.getInstance(GitPreservingProcess.class);
 
   @NotNull private final Project myProject;
-  @NotNull private final GitPlatformFacade myFacade;
   @NotNull private final Git myGit;
-  @NotNull private final Collection<GitRepository> myRepositories;
-  @NotNull private final String myOperationTitle;
-  @NotNull private final String myDestinationName;
+  @NotNull private final Collection<? extends VirtualFile> myRootsToSave;
+  @NotNull private final @Nls String myOperationTitle;
+  @NotNull private final @Nls String myDestinationName;
   @NotNull private final ProgressIndicator myProgressIndicator;
   @NotNull private final Runnable myOperation;
-  @NotNull private final String myStashMessage;
+  @NotNull private final @Nls String myStashMessage;
+  @NotNull private final GitChangesSaver mySaver;
 
-  // suppressed, because only the load() method needs to be synchronized not to load twice
-  @SuppressWarnings("FieldAccessedSynchronizedAndUnsynchronized") private GitStashChangesSaver mySaver;
-  private boolean myLoaded;
-  private final Object LOAD_LOCK = new Object();
+  @NotNull private final AtomicBoolean myLoaded = new AtomicBoolean();
 
-  public GitPreservingProcess(@NotNull Project project, @NotNull GitPlatformFacade facade, @NotNull Git git,
-                              @NotNull Collection<GitRepository> repositories,
-                              @NotNull String operationTitle, @NotNull String destinationName,
-                              @NotNull ProgressIndicator indicator, @NotNull Runnable operation) {
+  public GitPreservingProcess(@NotNull Project project,
+                              @NotNull Git git,
+                              @NotNull Collection<? extends VirtualFile> rootsToSave,
+                              @Nls @NotNull String operationTitle,
+                              @Nls @NotNull String destinationName,
+                              @NotNull GitSaveChangesPolicy saveMethod,
+                              @NotNull ProgressIndicator indicator,
+                              @NotNull Runnable operation) {
     myProject = project;
-    myFacade = facade;
     myGit = git;
-    myRepositories = repositories;
+    myRootsToSave = rootsToSave;
     myOperationTitle = operationTitle;
     myDestinationName = destinationName;
     myProgressIndicator = indicator;
     myOperation = operation;
-    myStashMessage = String.format("%s %s at %s", StringUtil.capitalize(myOperationTitle), myDestinationName,
-                                   DateFormatUtil.formatDateTime(Clock.getTime()));
+    myStashMessage = VcsBundle.message(
+      "stash.changes.message.with.date",
+      StringUtil.capitalize(myOperationTitle),
+      DateFormatUtil.formatDateTime(Clock.getTime())
+    );
+    mySaver = configureSaver(saveMethod);
   }
 
   public void execute() {
@@ -86,61 +80,70 @@ public class GitPreservingProcess {
   }
 
   public void execute(@Nullable final Computable<Boolean> autoLoadDecision) {
-    Runnable operation = new Runnable() {
-      @Override
-      public void run() {
-        LOG.debug("starting");
-        mySaver = configureSaver();
-        boolean savedSuccessfully = save();
-        LOG.debug("save result: " + savedSuccessfully);
-        if (savedSuccessfully) {
-          try {
-            LOG.debug("running operation");
-            myOperation.run();
-            LOG.debug("operation completed.");
+    Runnable operation = () -> {
+      boolean savedSuccessfully = ProgressManager.getInstance().computeInNonCancelableSection(() -> save());
+      LOG.debug("save result: " + savedSuccessfully);
+      if (savedSuccessfully) {
+        try {
+          LOG.debug("running operation");
+          myOperation.run();
+          LOG.debug("operation completed.");
+        }
+        finally {
+          if (autoLoadDecision == null || autoLoadDecision.compute()) {
+            LOG.debug("loading");
+            ProgressManager.getInstance().executeNonCancelableSection(() -> load());
           }
-          finally {
-            if (autoLoadDecision == null || autoLoadDecision.compute()) {
-              LOG.debug("loading");
-              load();
-            }
+          else {
+            mySaver.notifyLocalChangesAreNotRestored();
           }
         }
-        LOG.debug("finished.");
       }
+      LOG.debug("finished.");
     };
 
-    new GitFreezingProcess(myProject, myFacade, myOperationTitle, operation).execute();
+    new GitFreezingProcess(myProject, myOperationTitle, operation).execute();
   }
 
   /**
-   * Configures the saver, actually notifications and texts in the GitConflictResolver used inside.
+   * Configures the saver: i.e. notifications and texts for the GitConflictResolver used inside.
    */
-  private GitStashChangesSaver configureSaver() {
-    GitStashChangesSaver saver = new GitStashChangesSaver(myProject, myFacade, myGit, myProgressIndicator, myStashMessage);
+  @NotNull
+  private GitChangesSaver configureSaver(@NotNull GitSaveChangesPolicy saveMethod) {
+    GitChangesSaver saver = GitChangesSaver.getSaver(myProject, myGit, myProgressIndicator, myStashMessage, saveMethod);
     MergeDialogCustomizer mergeDialogCustomizer = new MergeDialogCustomizer() {
+      @NotNull
       @Override
-      public String getMultipleFileMergeDescription(Collection<VirtualFile> files) {
-        return String.format(
-          "<html>Uncommitted changes that were saved before %s have conflicts with files from <code>%s</code></html>",
-          myOperationTitle, myDestinationName);
+      public String getMultipleFileMergeDescription(@NotNull Collection<VirtualFile> files) {
+        return wrapInHtml(
+          GitBundle.message(
+            "restore.conflict.dialog.description.label.text",
+            myOperationTitle,
+            wrapInHtmlTag(myDestinationName, "code")
+          )
+        );
       }
 
+      @NotNull
       @Override
-      public String getLeftPanelTitle(VirtualFile file) {
-        return "Uncommitted changes from stash";
+      public String getLeftPanelTitle(@NotNull VirtualFile file) {
+        return saveMethod.selectBundleMessage(
+          GitBundle.message("restore.conflict.diff.dialog.left.stash.title"),
+          GitBundle.message("restore.conflict.diff.dialog.left.shelf.title")
+        );
       }
 
+      @NotNull
       @Override
-      public String getRightPanelTitle(VirtualFile file, VcsRevisionNumber lastRevisionNumber) {
-        return String.format("<html>Changes from <b><code>%s</code></b></html>", myDestinationName);
+      public String getRightPanelTitle(@NotNull VirtualFile file, VcsRevisionNumber revisionNumber) {
+        return wrapInHtml(GitBundle.message("restore.conflict.diff.dialog.right.title", wrapInHtmlTag(myDestinationName, "b")));
       }
     };
 
-    GitConflictResolver.Params params = new GitConflictResolver.Params().
+    GitConflictResolver.Params params = new GitConflictResolver.Params(myProject).
       setReverse(true).
       setMergeDialogCustomizer(mergeDialogCustomizer).
-      setErrorNotificationTitle("Local changes were not restored");
+      setErrorNotificationTitle(GitBundle.message("preserving.process.local.changes.not.restored.error.title"));
 
     saver.setConflictResolverParams(params);
     return saver;
@@ -151,34 +154,27 @@ public class GitPreservingProcess {
    */
   private boolean save() {
     try {
-      mySaver.saveLocalChanges(GitUtil.getRootsFromRepositories(myRepositories));
+      mySaver.saveLocalChanges(myRootsToSave);
       return true;
     } catch (VcsException e) {
       LOG.info("Couldn't save local changes", e);
       VcsNotifier.getInstance(myProject).notifyError(
-        "Couldn't save uncommitted changes.",
-        String.format("Tried to save uncommitted changes in stash before %s, but failed with an error.<br/>%s",
-                      myOperationTitle, join(e.getMessages())));
+        COULD_NOT_SAVE_UNCOMMITTED_CHANGES, GitBundle.message("save.notification.failed.title"),
+        mySaver.getSaveMethod().selectBundleMessage(
+          GitBundle.message("save.notification.failed.stash.text", myOperationTitle, join(e.getMessages())),
+          GitBundle.message("save.notification.failed.shelf.text", myOperationTitle, join(e.getMessages()))
+        )
+      );
       return false;
     }
   }
 
   public void load() {
-    synchronized (LOAD_LOCK) {
-      if (myLoaded) {
-        return;
-      }
-      try {
-        mySaver.load();
-        myLoaded = true;
-      }
-      catch (VcsException e) {
-        LOG.info("Couldn't load local changes", e);
-        VcsNotifier.getInstance(myProject).notifyError("Couldn't restore uncommitted changes",
-                                                       String.format("Tried to unstash uncommitted changes, but failed with error.<br/>%s",
-                                                                     join(e.getMessages())));
-      }
+    if (myLoaded.compareAndSet(false, true)) {
+      mySaver.load();
+    }
+    else {
+      LOG.info("The changes were already loaded");
     }
   }
-
 }

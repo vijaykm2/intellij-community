@@ -1,151 +1,66 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.smartPointers;
 
-import com.intellij.injected.editor.DocumentWindow;
-import com.intellij.lang.injection.InjectedLanguageManager;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.editor.RangeMarker;
+import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.impl.FrozenDocument;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.ProperTextRange;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
-import com.intellij.psi.impl.PsiManagerEx;
-import com.intellij.psi.impl.source.tree.MarkersHolderFileViewProvider;
+import com.intellij.psi.impl.PsiDocumentManagerBase;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.reference.SoftReference;
+import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 import java.lang.ref.Reference;
-import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
-import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 
-public class SmartPointerManagerImpl extends SmartPointerManager {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.smartPointers.SmartPointerManagerImpl");
-  private static final Object lock = new Object();
-  private static final ReferenceQueue<SmartPointerEx> ourQueue = new ReferenceQueue<SmartPointerEx>();
-  @SuppressWarnings("unused") private static final LowMemoryWatcher ourWatcher = LowMemoryWatcher.register(new Runnable() {
-    @Override
-    public void run() {
-      processQueue();
-    }
-  });
-
+public final class SmartPointerManagerImpl extends SmartPointerManager implements Disposable {
+  private static final Logger LOG = Logger.getInstance(SmartPointerManagerImpl.class);
   private final Project myProject;
-  private final Key<Set<PointerReference>> POINTERS_KEY;
-  private final Key<Boolean> POINTERS_ARE_FASTENED_KEY;
+  private final PsiDocumentManagerBase myPsiDocManager;
+  private final Key<WeakReference<SmartPointerTracker>> LIGHT_TRACKER_KEY;
+  private final ConcurrentMap<VirtualFile, SmartPointerTracker> myPhysicalTrackers = ContainerUtil.createConcurrentWeakValueMap();
 
-  public SmartPointerManagerImpl(Project project) {
+  public SmartPointerManagerImpl(@NotNull Project project) {
     myProject = project;
-    POINTERS_KEY = Key.create("SMART_POINTERS for "+project);
-    POINTERS_ARE_FASTENED_KEY = Key.create("SMART_POINTERS_ARE_FASTENED for "+project);
+    myPsiDocManager = (PsiDocumentManagerBase)PsiDocumentManager.getInstance(project);
+    LIGHT_TRACKER_KEY = Key.create("SMART_POINTERS " + (project.isDefault() ? "default" : project.hashCode()));
   }
 
-  private static void processQueue() {
-    while (true) {
-      PointerReference reference = (PointerReference)ourQueue.poll();
-      if (reference == null) break;
-      synchronized (lock) {
-        Set<PointerReference> pointers = reference.file.getUserData(reference.key);
-        if (pointers != null) {
-          pointers.remove(reference);
-          if (pointers.isEmpty()) {
-            reference.file.putUserData(reference.key, null);
-          }
-        }
-      }
-    }
-  }
-
-  public void fastenBelts(@NotNull VirtualFile file, int offset, @Nullable RangeMarker[] cachedRangeMarkers) {
-    ApplicationManager.getApplication().assertIsDispatchThread();
-    processQueue();
-    synchronized (lock) {
-      List<SmartPointerEx> pointers = getStrongPointers(file);
-      if (pointers.isEmpty()) return;
-
-      if (getAndFasten(file)) return;
-
-      for (SmartPointerEx pointer : pointers) {
-        pointer.fastenBelt(offset, cachedRangeMarkers);
-      }
-
-      PsiFile psiFile = ((PsiManagerEx)PsiManager.getInstance(myProject)).getFileManager().getCachedPsiFile(file);
-      if (psiFile != null) {
-        PsiDocumentManager psiDocumentManager = PsiDocumentManager.getInstance(myProject);
-        for (DocumentWindow injectedDoc : InjectedLanguageManager.getInstance(myProject).getCachedInjectedDocuments(psiFile)) {
-          PsiFile injectedFile = psiDocumentManager.getPsiFile(injectedDoc);
-          if (injectedFile == null) continue;
-          RangeMarker[] cachedMarkers = getCachedRangeMarkerToInjectedFragment(injectedFile);
-          boolean relevant = false;
-          for (Segment hostSegment : injectedDoc.getHostRanges()) {
-            if (offset <= hostSegment.getEndOffset()) {
-              relevant = true;
-              break;
-            }
-          }
-          if (relevant) {
-            fastenBelts(injectedFile.getViewProvider().getVirtualFile(), 0, cachedMarkers);
-          }
-        }
-      }
-    }
+  @Override
+  public void dispose() {
+    SmartPointerTracker.processQueue();
   }
 
   @NotNull
-  private static RangeMarker[] getCachedRangeMarkerToInjectedFragment(@NotNull PsiFile injectedFile) {
-    MarkersHolderFileViewProvider provider = (MarkersHolderFileViewProvider)injectedFile.getViewProvider();
-    return provider.getCachedMarkers();
+  private static @NonNls String anonymize(@NotNull Project project) {
+    return
+      (project.isDisposed() ? "(Disposed)" : "") +
+      (project.isDefault() ? "(Default)" : "") +
+      project.hashCode();
   }
 
-  public void unfastenBelts(@NotNull VirtualFile file, int offset) {
-    ApplicationManager.getApplication().assertIsDispatchThread();
-    processQueue();
-    synchronized (lock) {
-      List<SmartPointerEx> pointers = getStrongPointers(file);
-      if (pointers.isEmpty()) return;
-
-      if (!getAndUnfasten(file)) return;
-
-      for (SmartPointerEx pointer : pointers) {
-        pointer.unfastenBelt(offset);
-      }
-
-      PsiFile psiFile = ((PsiManagerEx)PsiManager.getInstance(myProject)).getFileManager().getCachedPsiFile(file);
-      if (psiFile != null) {
-        PsiDocumentManager psiDocumentManager = PsiDocumentManager.getInstance(myProject);
-        for (DocumentWindow injectedDoc : InjectedLanguageManager.getInstance(myProject).getCachedInjectedDocuments(psiFile)) {
-          PsiFile injectedFile = psiDocumentManager.getPsiFile(injectedDoc);
-          if (injectedFile == null) continue;
-          unfastenBelts(injectedFile.getViewProvider().getVirtualFile(), 0);
-        }
-      }
-    }
+  public void fastenBelts(@NotNull VirtualFile file) {
+    SmartPointerTracker pointers = getTracker(file);
+    if (pointers != null) pointers.fastenBelts(this);
   }
 
-  private static final Key<Reference<SmartPointerEx>> CACHED_SMART_POINTER_KEY = Key.create("CACHED_SMART_POINTER_KEY");
+  private static final Key<Reference<SmartPsiElementPointerImpl<?>>> CACHED_SMART_POINTER_KEY = Key.create("CACHED_SMART_POINTER_KEY");
   @Override
   @NotNull
   public <E extends PsiElement> SmartPsiElementPointer<E> createSmartPsiElementPointer(@NotNull E element) {
@@ -156,166 +71,171 @@ public class SmartPointerManagerImpl extends SmartPointerManager {
   @Override
   @NotNull
   public <E extends PsiElement> SmartPsiElementPointer<E> createSmartPsiElementPointer(@NotNull E element, PsiFile containingFile) {
-    if (containingFile != null && !containingFile.isValid() || containingFile == null && !element.isValid()) {
-      PsiUtilCore.ensureValid(element);
-      LOG.error("Invalid element:" + element);
-    }
-    processQueue();
-    SmartPointerEx<E> pointer = getCachedPointer(element);
-    if (pointer != null) {
-      containingFile = containingFile == null ? element.getContainingFile() : containingFile;
-      if (containingFile != null && areBeltsFastened(containingFile.getViewProvider().getVirtualFile())) {
-        pointer.fastenBelt(0, null);
-      }
-    }
-    else {
-      pointer = new SmartPsiElementPointerImpl<E>(myProject, element, containingFile);
-      if (containingFile != null) {
-        initPointer(pointer, containingFile.getViewProvider().getVirtualFile());
-      }
-      element.putUserData(CACHED_SMART_POINTER_KEY, new SoftReference<SmartPointerEx>(pointer));
-    }
-    if (pointer instanceof SmartPsiElementPointerImpl) {
-      synchronized (lock) {
-        ((SmartPsiElementPointerImpl)pointer).incrementAndGetReferenceCount(1);
-      }
-    }
-    return pointer;
-
+    return createSmartPsiElementPointer(element, containingFile, false);
   }
 
-  private static <E extends PsiElement> SmartPointerEx<E> getCachedPointer(@NotNull E element) {
-    Reference<SmartPointerEx> data = element.getUserData(CACHED_SMART_POINTER_KEY);
-    SmartPointerEx cachedPointer = SoftReference.dereference(data);
+  @NotNull
+  public <E extends PsiElement> SmartPsiElementPointer<E> createSmartPsiElementPointer(@NotNull E element,
+                                                                                       PsiFile containingFile,
+                                                                                       boolean forInjected) {
+    ensureValid(element, containingFile);
+    SmartPointerTracker.processQueue();
+    ensureMyProject(containingFile != null ? containingFile.getProject() : element.getProject());
+    SmartPsiElementPointerImpl<E> pointer = getCachedPointer(element);
+    if (pointer != null &&
+        (!(pointer.getElementInfo() instanceof SelfElementInfo) || ((SelfElementInfo)pointer.getElementInfo()).isForInjected() == forInjected) &&
+        pointer.incrementAndGetReferenceCount(1) > 0) {
+      return pointer;
+    }
+
+    pointer = new SmartPsiElementPointerImpl<>(this, element, containingFile, forInjected);
+    if (containingFile != null) {
+      trackPointer(pointer, containingFile.getViewProvider().getVirtualFile());
+    }
+    element.putUserData(CACHED_SMART_POINTER_KEY, new SoftReference<>(pointer));
+    return pointer;
+  }
+
+  private void ensureMyProject(@NotNull Project project) {
+    if (project != myProject) {
+      throw new IllegalArgumentException("Element from alien project: "+anonymize(project)+" expected: "+anonymize(myProject));
+    }
+  }
+
+  private static void ensureValid(@NotNull PsiElement element, @Nullable PsiFile containingFile) {
+    boolean valid = containingFile != null ? containingFile.isValid() : element.isValid();
+    if (!valid) {
+      PsiUtilCore.ensureValid(element);
+      if (containingFile != null && !containingFile.isValid()) {
+        throw new PsiInvalidElementAccessException(containingFile, "Element " + element.getClass() + "(" + element.getLanguage() + ")" + " claims to be valid but returns invalid containing file ");
+      }
+    }
+  }
+
+  private static <E extends PsiElement> SmartPsiElementPointerImpl<E> getCachedPointer(@NotNull E element) {
+    Reference<SmartPsiElementPointerImpl<?>> data = element.getUserData(CACHED_SMART_POINTER_KEY);
+    SmartPsiElementPointerImpl<?> cachedPointer = SoftReference.dereference(data);
     if (cachedPointer != null) {
-      PsiElement cachedElement = cachedPointer.getCachedElement();
-      if (cachedElement != null && cachedElement != element) {
+      PsiElement cachedElement = cachedPointer.getElement();
+      if (cachedElement != element) {
         return null;
       }
     }
     //noinspection unchecked
-    return cachedPointer;
+    return (SmartPsiElementPointerImpl<E>)cachedPointer;
   }
 
   @Override
   @NotNull
   public SmartPsiFileRange createSmartPsiFileRangePointer(@NotNull PsiFile file, @NotNull TextRange range) {
-    if (!file.isValid()) {
-      LOG.error("Invalid element:" + file);
-    }
-    processQueue();
-    SmartPsiFileRangePointerImpl pointer = new SmartPsiFileRangePointerImpl(file, ProperTextRange.create(range));
-    initPointer(pointer, file.getViewProvider().getVirtualFile());
+    return createSmartPsiFileRangePointer(file, range, false);
+  }
+
+  @NotNull
+  public SmartPsiFileRange createSmartPsiFileRangePointer(@NotNull PsiFile file,
+                                                          @NotNull TextRange range,
+                                                          boolean forInjected) {
+    PsiUtilCore.ensureValid(file);
+    SmartPointerTracker.processQueue();
+    SmartPsiFileRangePointerImpl pointer = new SmartPsiFileRangePointerImpl(this, file, ProperTextRange.create(range), forInjected);
+    trackPointer(pointer, file.getViewProvider().getVirtualFile());
 
     return pointer;
   }
 
-  private <E extends PsiElement> void initPointer(@NotNull SmartPointerEx<E> pointer, @NotNull VirtualFile containingFile) {
-    synchronized (lock) {
-      Set<PointerReference> pointers = getPointers(containingFile);
-      if (pointers == null) {
-        pointers = ContainerUtil.newTroveSet(); // we synchronise access anyway
-        containingFile.putUserData(POINTERS_KEY, pointers);
-      }
-      pointers.add(new PointerReference(pointer, containingFile, ourQueue, POINTERS_KEY));
+  private <E extends PsiElement> void trackPointer(@NotNull SmartPsiElementPointerImpl<E> pointer, @NotNull VirtualFile containingFile) {
+    SmartPointerElementInfo info = pointer.getElementInfo();
+    if (!(info instanceof SelfElementInfo)) return;
 
-      if (areBeltsFastened(containingFile)) {
-        pointer.fastenBelt(0, null);
-      }
+    SmartPointerTracker tracker = getTracker(containingFile);
+    if (tracker == null) {
+      tracker = getOrCreateTracker(containingFile);
     }
+    tracker.addReference(pointer);
   }
 
   @Override
-  public boolean removePointer(@NotNull SmartPsiElementPointer pointer) {
-    synchronized (lock) {
-      if (pointer instanceof SmartPsiElementPointerImpl) {
-        int refCount = ((SmartPsiElementPointerImpl)pointer).incrementAndGetReferenceCount(-1);
-        if (refCount == 0) {
-          PsiElement element = ((SmartPointerEx)pointer).getCachedElement();
-          if (element != null) {
-            element.putUserData(CACHED_SMART_POINTER_KEY, null);
-          }
-          PsiFile containingFile = pointer.getContainingFile();
-          if (containingFile == null) return false;
+  public void removePointer(@NotNull SmartPsiElementPointer<?> pointer) {
+    if (!(pointer instanceof SmartPsiElementPointerImpl) || myProject.isDisposed()) {
+      return;
+    }
+    ensureMyProject(pointer.getProject());
+    int refCount = ((SmartPsiElementPointerImpl<?>)pointer).incrementAndGetReferenceCount(-1);
+    if (refCount == -1) {
+      LOG.error("Double smart pointer removal");
+      return;
+    }
 
-          VirtualFile vFile = containingFile.getViewProvider().getVirtualFile();
-          Set<PointerReference> pointers = getPointers(vFile);
-          if (pointers == null) return false;
+    if (refCount == 0) {
+      PsiElement element = ((SmartPointerEx<?>)pointer).getCachedElement();
+      if (element != null) {
+        element.putUserData(CACHED_SMART_POINTER_KEY, null);
+      }
 
-          SmartPointerElementInfo info = ((SmartPsiElementPointerImpl)pointer).getElementInfo();
-          info.cleanup();
+      SmartPointerElementInfo info = ((SmartPsiElementPointerImpl<?>)pointer).getElementInfo();
+      info.cleanup();
 
-          for (Iterator<PointerReference> iterator = pointers.iterator(); iterator.hasNext(); ) {
-            if (pointer == iterator.next().get()) {
-              iterator.remove();
-              if (pointers.isEmpty()) {
-                vFile.putUserData(POINTERS_KEY, null);
-              }
-              return true;
-            }
-          }
-          return false;
+      SmartPointerTracker.PointerReference reference = ((SmartPsiElementPointerImpl<?>)pointer).pointerReference;
+      if (reference != null) {
+        if (reference.get() != pointer) {
+          throw new IllegalStateException("Reference points to " + reference.get());
         }
+        reference.tracker.removeReference(reference);
       }
     }
-    return false;
   }
 
   @Nullable
-  private Set<PointerReference> getPointers(@NotNull VirtualFile containingFile) {
-    return containingFile.getUserData(POINTERS_KEY);
+  SmartPointerTracker getTracker(@NotNull VirtualFile file) {
+    return file instanceof LightVirtualFile ? SoftReference.dereference(file.getUserData(LIGHT_TRACKER_KEY)) : myPhysicalTrackers.get(file);
   }
 
   @NotNull
-  private List<SmartPointerEx> getStrongPointers(@NotNull VirtualFile containingFile) {
-    Set<PointerReference> refs = getPointers(containingFile);
-    if (refs == null) return Collections.emptyList();
-
-    List<SmartPointerEx> result = ContainerUtil.newArrayList();
-    for (PointerReference reference : refs) {
-      ContainerUtil.addIfNotNull(result, reference.get());
+  private SmartPointerTracker getOrCreateTracker(@NotNull VirtualFile file) {
+    synchronized (myPhysicalTrackers) {
+      SmartPointerTracker tracker = getTracker(file);
+      if (tracker == null) {
+        tracker = new SmartPointerTracker();
+        if (file instanceof LightVirtualFile) {
+          file.putUserData(LIGHT_TRACKER_KEY, new WeakReference<>(tracker));
+        } else {
+          myPhysicalTrackers.put(file, tracker);
+        }
+      }
+      return tracker;
     }
-    return result;
   }
 
   @TestOnly
   public int getPointersNumber(@NotNull PsiFile containingFile) {
-    synchronized (lock) {
-      return getStrongPointers(containingFile.getViewProvider().getVirtualFile()).size();
-    }
-  }
-
-  private boolean getAndFasten(@NotNull VirtualFile file) {
-    boolean fastened = areBeltsFastened(file);
-    file.putUserData(POINTERS_ARE_FASTENED_KEY, Boolean.TRUE);
-    return fastened;
-  }
-  private boolean getAndUnfasten(@NotNull VirtualFile file) {
-    boolean fastened = areBeltsFastened(file);
-    file.putUserData(POINTERS_ARE_FASTENED_KEY, null);
-    return fastened;
-  }
-  private boolean areBeltsFastened(VirtualFile file) {
-    return file.getUserData(POINTERS_ARE_FASTENED_KEY) == Boolean.TRUE;
+    VirtualFile file = containingFile.getViewProvider().getVirtualFile();
+    SmartPointerTracker pointers = getTracker(file);
+    return pointers == null ? 0 : pointers.getSize();
   }
 
   @Override
-  public boolean pointToTheSameElement(@NotNull SmartPsiElementPointer pointer1, @NotNull SmartPsiElementPointer pointer2) {
+  public boolean pointToTheSameElement(@NotNull SmartPsiElementPointer<?> pointer1, @NotNull SmartPsiElementPointer<?> pointer2) {
     return SmartPsiElementPointerImpl.pointsToTheSameElementAs(pointer1, pointer2);
   }
 
-  private static class PointerReference extends WeakReference<SmartPointerEx> {
-    private final VirtualFile file;
-    private final Key<Set<PointerReference>> key;
-
-    public PointerReference(SmartPointerEx<?> pointer,
-                            VirtualFile containingFile,
-                            ReferenceQueue<SmartPointerEx> queue,
-                            Key<Set<PointerReference>> key) {
-      super(pointer, queue);
-      file = containingFile;
-      this.key = key;
-    }
+  public void updatePointers(@NotNull Document document, @NotNull FrozenDocument frozen, @NotNull List<? extends DocumentEvent> events) {
+    VirtualFile file = FileDocumentManager.getInstance().getFile(document);
+    SmartPointerTracker list = file == null ? null : getTracker(file);
+    if (list != null) list.updateMarkers(frozen, events);
   }
 
+  public void updatePointerTargetsAfterReparse(@NotNull VirtualFile file) {
+    SmartPointerTracker list = getTracker(file);
+    if (list != null) list.updatePointerTargetsAfterReparse();
+  }
+
+  @NotNull
+  Project getProject() {
+    return myProject;
+  }
+
+  @NotNull
+  PsiDocumentManagerBase getPsiDocumentManager() {
+    return myPsiDocManager;
+  }
 }

@@ -26,9 +26,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.util.Set;
 
-/**
- * @author nik
- */
 public abstract class CustomLibraryDescription {
   @Nullable
   public DownloadableLibraryType getDownloadableLibraryType() {
@@ -40,6 +37,15 @@ public abstract class CustomLibraryDescription {
 
   @Nullable
   public abstract NewLibraryConfiguration createNewLibrary(@NotNull JComponent parentComponent, @Nullable VirtualFile contextDirectory);
+
+  /**
+   * Called when the user enables the use of a framework and there is no existing library for that framework. Can be used to create a new
+   * library with default settings without prompting the user.
+   */
+  @Nullable
+  public NewLibraryConfiguration createNewLibraryWithDefaultSettings(@Nullable VirtualFile contextDirectory) {
+    return null;
+  }
 
   @NotNull
   public LibrariesContainer.LibraryLevel getDefaultLevel() {

@@ -30,33 +30,29 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.psi.xml.XmlText;
 import com.intellij.util.IncorrectOperationException;
-import org.intellij.plugins.relaxNG.ApplicationLoader;
+import org.intellij.plugins.relaxNG.RelaxNgMetaDataContributor;
+import org.intellij.plugins.relaxNG.RelaxngBundle;
 import org.intellij.plugins.relaxNG.xml.dom.RngGrammar;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 17.07.2007
- */
 // XXX: the tests rely on this still being an intention action
 class CreatePatternFix implements IntentionAction, LocalQuickFix {
   private final PsiReference myReference;
 
-  public CreatePatternFix(PsiReference reference) {
+  CreatePatternFix(PsiReference reference) {
     myReference = reference;
   }
 
   @Override
   @NotNull
   public String getText() {
-    return "Create Pattern '" + myReference.getCanonicalText() + "'";
+    return RelaxngBundle.message("relaxng.quickfix.create-pattern.name", myReference.getCanonicalText());
   }
 
   @Override
   @NotNull
   public String getFamilyName() {
-    return "Create Pattern";
+    return RelaxngBundle.message("relaxng.quickfix.create-pattern.family");
   }
 
   @Override
@@ -104,7 +100,7 @@ class CreatePatternFix implements IntentionAction, LocalQuickFix {
   private void doFix() throws IncorrectOperationException {
     final XmlTag tag = PsiTreeUtil.getParentOfType(myReference.getElement(), XmlTag.class);
     assert tag != null;
-    final XmlTag defineTag = tag.createChildTag("define", ApplicationLoader.RNG_NAMESPACE, "\n \n", false);
+    final XmlTag defineTag = tag.createChildTag("define", RelaxNgMetaDataContributor.RNG_NAMESPACE, "\n \n", false);
     defineTag.setAttribute("name", myReference.getCanonicalText());
 
     final RngGrammar grammar = ((DefinitionReference)myReference).getScope();

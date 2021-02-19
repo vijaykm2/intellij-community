@@ -1,84 +1,85 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.search;
 
+import com.intellij.lang.LanguageMatcher;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.StubBasedPsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.util.ArrayUtil;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Contract;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
+/**
+ * Restricts search to given {@code PsiElement}(s).
+ */
 public class LocalSearchScope extends SearchScope {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.search.LocalSearchScope");
-
-  @NotNull
-  private final PsiElement[] myScope;
-  private final boolean myIgnoreInjectedPsi;
+  private static final Logger LOG = Logger.getInstance(LocalSearchScope.class);
 
   public static final LocalSearchScope EMPTY = new LocalSearchScope(PsiElement.EMPTY_ARRAY);
-  private String myDisplayName;
+
+  private final @Nls String myDisplayName;
+
+  private final PsiElement[] myScope;
+  private final VirtualFile[] myVirtualFiles;
+  private final boolean myIgnoreInjectedPsi;
 
   public LocalSearchScope(@NotNull PsiElement scope) {
     this(scope, null);
   }
 
-  public LocalSearchScope(@NotNull PsiElement scope, @Nullable String displayName) {
-    this(new PsiElement[]{scope});
-    myDisplayName = displayName;
+  public LocalSearchScope(@NotNull PsiElement scope, @Nullable @Nls String displayName) {
+    this(new PsiElement[]{scope}, displayName);
   }
 
-  public LocalSearchScope(@NotNull PsiElement[] scope) {
+  public LocalSearchScope(PsiElement @NotNull [] scope) {
     this(scope, null);
   }
 
-  public LocalSearchScope(@NotNull PsiElement[] scope, @Nullable String displayName) {
+  public LocalSearchScope(PsiElement @NotNull [] scope, @Nullable @Nls String displayName) {
     this(scope, displayName, false);
   }
 
-  public LocalSearchScope(@NotNull PsiElement[] scope, @Nullable final String displayName, final boolean ignoreInjectedPsi) {
+  public LocalSearchScope(PsiElement @NotNull [] scope, @Nullable @Nls String displayName, boolean ignoreInjectedPsi) {
     myIgnoreInjectedPsi = ignoreInjectedPsi;
     myDisplayName = displayName;
-    Set<PsiElement> localScope = new LinkedHashSet<PsiElement>(scope.length);
-
-    for (final PsiElement element : scope) {
+    Set<PsiElement> localScope = new LinkedHashSet<>(scope.length);
+    Set<VirtualFile> virtualFiles = new HashSet<>(scope.length);
+    for (PsiElement element : scope) {
       LOG.assertTrue(element != null, "null element");
-      LOG.assertTrue(element.getContainingFile() != null, element.getClass().getName());
+      PsiFile containingFile = element.getContainingFile();
+      LOG.assertTrue(containingFile != null, element.getClass().getName());
       if (element instanceof PsiFile) {
         for (PsiFile file : ((PsiFile)element).getViewProvider().getAllFiles()) {
-          if (file == null) throw new IllegalArgumentException("file "+element+" returned null in its getAllFiles()");
+          if (file == null) throw new IllegalArgumentException("file " + element + " returned null in its getAllFiles()");
           localScope.add(file);
         }
       }
-      else if (element instanceof StubBasedPsiElement || element.getTextRange() != null){
+      else if (element instanceof StubBasedPsiElement || element.getTextRange() != null) {
         localScope.add(element);
+      }
+      VirtualFile virtualFile = PsiUtilCore.getVirtualFile(containingFile);
+      if (virtualFile != null) {
+        virtualFiles.add(virtualFile);
       }
     }
     myScope = PsiUtilCore.toPsiElementArray(localScope);
+    myVirtualFiles = VfsUtilCore.toVirtualFileArray(virtualFiles);
   }
 
   public boolean isIgnoreInjectedPsi() {
@@ -91,51 +92,58 @@ public class LocalSearchScope extends SearchScope {
     return myDisplayName == null ? super.getDisplayName() : myDisplayName;
   }
 
-  @NotNull
-  public PsiElement[] getScope() {
+  public PsiElement @NotNull [] getScope() {
     return myScope;
   }
 
+  public VirtualFile @NotNull [] getVirtualFiles() {
+    return myVirtualFiles;
+  }
+
+  @Override
   public boolean equals(Object o) {
     if (this == o) return true;
     if (!(o instanceof LocalSearchScope)) return false;
 
-    final LocalSearchScope localSearchScope = (LocalSearchScope)o;
+    LocalSearchScope other = (LocalSearchScope)o;
 
-    if (localSearchScope.myIgnoreInjectedPsi != myIgnoreInjectedPsi) return false;
-    if (localSearchScope.myScope.length != myScope.length) return false;
-    for (final PsiElement scopeElement : myScope) {
-      final PsiElement[] thatScope = localSearchScope.myScope;
-      for (final PsiElement thatScopeElement : thatScope) {
+    if (other.myIgnoreInjectedPsi != myIgnoreInjectedPsi) return false;
+    if (other.myScope.length != myScope.length) return false;
+    if (!Comparing.strEqual(myDisplayName, other.myDisplayName)) {
+      return false; // scopes like "Current file" and "Changed files" should be different even if empty
+    }
+
+    for (PsiElement scopeElement : myScope) {
+      for (PsiElement thatScopeElement : other.myScope) {
         if (!Comparing.equal(scopeElement, thatScopeElement)) return false;
       }
     }
 
-
     return true;
   }
 
-  public int hashCode() {
+  @Override
+  protected int calcHashCode() {
     int result = 0;
-    result += myIgnoreInjectedPsi? 1 : 0;
-    for (final PsiElement element : myScope) {
+    result += myIgnoreInjectedPsi ? 1 : 0;
+    for (PsiElement element : myScope) {
       result += element.hashCode();
     }
     return result;
   }
 
-  @NotNull public LocalSearchScope intersectWith(@NotNull LocalSearchScope scope2){
+  @NotNull
+  public LocalSearchScope intersectWith(@NotNull LocalSearchScope scope2) {
     if (equals(scope2)) return this;
     return intersection(this, scope2);
   }
 
-  private static LocalSearchScope intersection(LocalSearchScope scope1, LocalSearchScope scope2) {
-    List<PsiElement> result = new ArrayList<PsiElement>();
-    final PsiElement[] elements1 = scope1.myScope;
-    final PsiElement[] elements2 = scope2.myScope;
-    for (final PsiElement element1 : elements1) {
-      for (final PsiElement element2 : elements2) {
-        final PsiElement element = intersectScopeElements(element1, element2);
+  @NotNull
+  private static LocalSearchScope intersection(@NotNull LocalSearchScope scope1, @NotNull LocalSearchScope scope2) {
+    List<PsiElement> result = new ArrayList<>();
+    for (PsiElement element1 : scope1.myScope) {
+      for (PsiElement element2 : scope2.myScope) {
+        PsiElement element = intersectScopeElements(element1, element2);
         if (element != null) {
           result.add(element);
         }
@@ -170,7 +178,7 @@ public class LocalSearchScope extends SearchScope {
   }
 
   @Nullable
-  private static PsiElement intersectScopeElements(PsiElement element1, PsiElement element2) {
+  private static PsiElement intersectScopeElements(@NotNull PsiElement element1, @NotNull PsiElement element2) {
     if (PsiTreeUtil.isContextAncestor(element1, element2, false)) return element2;
     if (PsiTreeUtil.isContextAncestor(element2, element1, false)) return element1;
     if (PsiTreeUtil.isAncestor(element1, element2, false)) return element2;
@@ -178,17 +186,9 @@ public class LocalSearchScope extends SearchScope {
     return null;
   }
 
+  @Override
   public String toString() {
-    StringBuilder result = new StringBuilder();
-    for (int i = 0; i < myScope.length; i++) {
-      final PsiElement element = myScope[i];
-      if (i > 0) {
-        result.append(",");
-      }
-      result.append(element.toString());
-    }
-    //noinspection HardCodedStringLiteral
-    return "LocalSearchScope:" + result;
+    return Arrays.stream(myScope).map(String::valueOf).collect(Collectors.joining(",", "LocalSearchScope:", ""));
   }
 
   @Override
@@ -198,17 +198,23 @@ public class LocalSearchScope extends SearchScope {
     return ((GlobalSearchScope)scope).union(this);
   }
 
-  public SearchScope union(LocalSearchScope scope2) {
+  @Override
+  public boolean contains(@NotNull VirtualFile file) {
+    return isInScope(file);
+  }
+
+  @NotNull
+  public SearchScope union(@NotNull LocalSearchScope scope2) {
     if (equals(scope2)) return this;
     PsiElement[] elements1 = getScope();
     PsiElement[] elements2 = scope2.getScope();
     boolean[] united = new boolean[elements2.length];
-    List<PsiElement> result = new ArrayList<PsiElement>();
+    List<PsiElement> result = new ArrayList<>();
     loop1:
-    for (final PsiElement element1 : elements1) {
+    for (PsiElement element1 : elements1) {
       for (int j = 0; j < elements2.length; j++) {
-        final PsiElement element2 = elements2[j];
-        final PsiElement unionElement = scopeElementsUnion(element1, element2);
+        PsiElement element2 = elements2[j];
+        PsiElement unionElement = scopeElementsUnion(element1, element2);
         if (unionElement != null && unionElement.getContainingFile() != null) {
           result.add(unionElement);
           united[j] = true;
@@ -218,7 +224,7 @@ public class LocalSearchScope extends SearchScope {
       result.add(element1);
     }
     for (int i = 0; i < united.length; i++) {
-      final boolean b = united[i];
+      boolean b = united[i];
       if (!b) {
         result.add(elements2[i]);
       }
@@ -226,7 +232,7 @@ public class LocalSearchScope extends SearchScope {
     return new LocalSearchScope(PsiUtilCore.toPsiElementArray(result));
   }
 
-  private static PsiElement scopeElementsUnion(PsiElement element1, PsiElement element2) {
+  private static PsiElement scopeElementsUnion(@NotNull PsiElement element1, @NotNull PsiElement element2) {
     if (PsiTreeUtil.isAncestor(element1, element2, false)) return element1;
     if (PsiTreeUtil.isAncestor(element2, element1, false)) return element2;
     PsiElement commonParent = PsiTreeUtil.findCommonParent(element1, element2);
@@ -234,21 +240,56 @@ public class LocalSearchScope extends SearchScope {
     return commonParent;
   }
 
-  public boolean isInScope(VirtualFile file) {
-    for (PsiElement element : myScope) {
-      PsiFile containingFile = element.getContainingFile();
-      if (containingFile == null) continue;
-      if (Comparing.equal(containingFile.getVirtualFile(), file)) return true;
-    }
-    return false;
+  public boolean isInScope(@NotNull VirtualFile file) {
+    return ArrayUtil.indexOf(myVirtualFiles, file) != -1;
   }
 
-  public boolean containsRange(PsiFile file, @NotNull TextRange range) {
+  public boolean containsRange(@NotNull PsiFile file, @NotNull TextRange range) {
     for (PsiElement element : getScope()) {
       if (file == element.getContainingFile() && element.getTextRange().contains(range)) {
         return true;
       }
     }
     return false;
+  }
+
+  @NotNull
+  @Contract(pure = true)
+  public static LocalSearchScope getScopeRestrictedByFileTypes(@NotNull LocalSearchScope scope, FileType @NotNull ... fileTypes) {
+    if (fileTypes.length == 0) throw new IllegalArgumentException("empty fileTypes");
+    if (scope == EMPTY) {
+      return EMPTY;
+    }
+    return ReadAction.compute(() -> {
+      PsiElement[] elements = scope.getScope();
+      List<PsiElement> result = new ArrayList<>(elements.length);
+      for (PsiElement element : elements) {
+        PsiFile containingFile = element.getContainingFile();
+        FileType fileType = containingFile.getFileType();
+        if (ArrayUtil.contains(fileType, fileTypes)) {
+          result.add(element);
+        }
+      }
+      return result.isEmpty()
+             ? EMPTY
+             : new LocalSearchScope(PsiUtilCore.toPsiElementArray(result), scope.getDisplayName(), scope.isIgnoreInjectedPsi());
+    });
+  }
+
+  @Contract(pure = true)
+  @NotNull
+  static LocalSearchScope getScopeRestrictedByFileLanguage(@NotNull LocalSearchScope scope, @NotNull LanguageMatcher matcher) {
+    if (scope == EMPTY) {
+      return EMPTY;
+    }
+    return ReadAction.compute(() -> {
+      List<PsiElement> result = ContainerUtil.filter(
+        scope.getScope(),
+        element -> matcher.matchesLanguage(element.getContainingFile().getLanguage())
+      );
+      return result.isEmpty()
+             ? EMPTY
+             : new LocalSearchScope(PsiUtilCore.toPsiElementArray(result), scope.getDisplayName(), scope.isIgnoreInjectedPsi());
+    });
   }
 }

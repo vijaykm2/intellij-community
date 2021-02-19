@@ -1,42 +1,29 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileEditor.impl.http;
 
 import com.intellij.CommonBundle;
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.util.PsiNavigationSupport;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ui.FileAppearanceService;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.ui.popup.PopupChooserBuilder;
+import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.impl.http.HttpVirtualFile;
 import com.intellij.openapi.vfs.impl.http.RemoteFileState;
 import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.ui.ColoredListCellRenderer;
-import com.intellij.ui.components.JBList;
 import com.intellij.util.Url;
 import com.intellij.util.Urls;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 
@@ -44,23 +31,23 @@ class JumpFromRemoteFileToLocalAction extends AnAction {
   private final HttpVirtualFile myFile;
   private final Project myProject;
 
-  public JumpFromRemoteFileToLocalAction(HttpVirtualFile file, Project project) {
-    super("Find Local File", "", AllIcons.General.AutoscrollToSource);
+  JumpFromRemoteFileToLocalAction(HttpVirtualFile file, Project project) {
+    super(LangBundle.message("action.JumpFromRemoteFileToLocalAction.find.local.file.text"), "", AllIcons.General.AutoscrollToSource);
 
     myFile = file;
     myProject = project;
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     e.getPresentation().setEnabled(myFile.getFileInfo().getState() == RemoteFileState.DOWNLOADED);
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     Collection<VirtualFile> files = findLocalFiles(myProject, Urls.newFromVirtualFile(myFile), myFile.getName());
     if (files.isEmpty()) {
-      Messages.showErrorDialog(myProject, "Cannot find local file for '" + myFile.getUrl() + "'", CommonBundle.getErrorTitle());
+      Messages.showErrorDialog(myProject, LangBundle.message("dialog.message.cannot.find.local.file.for", myFile.getUrl()), CommonBundle.getErrorTitle());
       return;
     }
 
@@ -68,24 +55,23 @@ class JumpFromRemoteFileToLocalAction extends AnAction {
       navigateToFile(myProject, ContainerUtil.getFirstItem(files, null));
     }
     else {
-      final JList list = new JBList(files);
-      //noinspection unchecked
-      list.setCellRenderer(new ColoredListCellRenderer() {
-        @Override
-        protected void customizeCellRenderer(JList list, Object value, int index, boolean selected, boolean hasFocus) {
-          FileAppearanceService.getInstance().forVirtualFile((VirtualFile)value).customize(this);
-        }
-      });
-      new PopupChooserBuilder(list)
-       .setTitle("Select Target File")
+      JBPopupFactory.getInstance()
+        .createPopupChooserBuilder(new ArrayList<>(files))
+        .setRenderer(new ColoredListCellRenderer<>() {
+          @Override
+          protected void customizeCellRenderer(@NotNull JList<? extends VirtualFile> list,
+                                               VirtualFile value,
+                                               int index,
+                                               boolean selected,
+                                               boolean hasFocus) {
+            FileAppearanceService.getInstance().forVirtualFile(value).customize(this);
+          }
+        })
+       .setTitle(LangBundle.message("popup.title.select.target.file"))
        .setMovable(true)
-       .setItemChoosenCallback(new Runnable() {
-         @Override
-         public void run() {
-           //noinspection deprecation
-           for (Object value : list.getSelectedValues()) {
-             navigateToFile(myProject, (VirtualFile)value);
-           }
+       .setItemsChosenCallback((selectedValues) -> {
+         for (VirtualFile value : selectedValues) {
+           navigateToFile(myProject, value);
          }
        }).createPopup().showUnderneathOf(e.getInputEvent().getComponent());
     }
@@ -103,6 +89,6 @@ class JumpFromRemoteFileToLocalAction extends AnAction {
   }
 
   private static void navigateToFile(Project project, @NotNull VirtualFile file) {
-    new OpenFileDescriptor(project, file).navigate(true);
+    PsiNavigationSupport.getInstance().createNavigatable(project, file, -1).navigate(true);
   }
 }

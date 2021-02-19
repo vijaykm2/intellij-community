@@ -18,6 +18,7 @@ package org.jetbrains.jps.gradle.model.impl;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.gradle.model.JpsGradleExtensionService;
+import org.jetbrains.jps.gradle.model.JpsGradleModuleExtension;
 import org.jetbrains.jps.model.java.impl.JpsJavaDependenciesEnumerationHandler;
 import org.jetbrains.jps.model.module.JpsDependencyElement;
 import org.jetbrains.jps.model.module.JpsModule;
@@ -26,14 +27,21 @@ import java.util.Collection;
 
 /**
  * @author Vladislav.Soroka
- * @since 7/10/2014
  */
 public class JpsGradleDependenciesEnumerationHandler extends JpsJavaDependenciesEnumerationHandler {
-  private static final JpsGradleDependenciesEnumerationHandler INSTANCE = new JpsGradleDependenciesEnumerationHandler();
+  private static final JpsGradleDependenciesEnumerationHandler SOURCE_SET_TYPE_INSTANCE = new JpsGradleDependenciesEnumerationHandler(true);
+  private static final JpsGradleDependenciesEnumerationHandler NON_SOURCE_SET_TYPE_INSTANCE =
+    new JpsGradleDependenciesEnumerationHandler(false);
+
+  private final boolean myResolveModulePerSourceSet;
+
+  public JpsGradleDependenciesEnumerationHandler(boolean resolveModulePerSourceSet) {
+    myResolveModulePerSourceSet = resolveModulePerSourceSet;
+  }
 
   @Override
   public boolean shouldAddRuntimeDependenciesToTestCompilationClasspath() {
-    return true;
+    return myResolveModulePerSourceSet;
   }
 
   @Override
@@ -41,17 +49,35 @@ public class JpsGradleDependenciesEnumerationHandler extends JpsJavaDependencies
     return JpsGradleExtensionService.getInstance().isProductionOnTestDependency(element);
   }
 
+  @Override
+  public boolean shouldIncludeTestsFromDependentModulesToTestClasspath() {
+    return !myResolveModulePerSourceSet;
+  }
+
+  @Override
+  public boolean shouldProcessDependenciesRecursively() {
+    return !myResolveModulePerSourceSet;
+  }
+
   public static class GradleFactory extends Factory {
     @Nullable
     @Override
     public JpsJavaDependenciesEnumerationHandler createHandler(@NotNull Collection<JpsModule> modules) {
       JpsGradleExtensionService service = JpsGradleExtensionService.getInstance();
+      JpsJavaDependenciesEnumerationHandler handler = null;
       for (JpsModule module : modules) {
-        if (service.getExtension(module) != null) {
-          return INSTANCE;
+        JpsGradleModuleExtension gradleModuleExtension = service.getExtension(module);
+        if (gradleModuleExtension != null) {
+          if (JpsGradleModuleExtension.GRADLE_SOURCE_SET_MODULE_TYPE_KEY.equals(gradleModuleExtension.getModuleType())) {
+            handler = SOURCE_SET_TYPE_INSTANCE;
+            break;
+          }
+          else {
+            handler = NON_SOURCE_SET_TYPE_INSTANCE;
+          }
         }
       }
-      return null;
+      return handler;
     }
   }
 }

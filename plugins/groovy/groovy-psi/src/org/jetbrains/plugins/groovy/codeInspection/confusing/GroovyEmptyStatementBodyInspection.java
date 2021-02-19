@@ -17,6 +17,7 @@ package org.jetbrains.plugins.groovy.codeInspection.confusing;
 
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElement;
@@ -27,29 +28,12 @@ import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 public class GroovyEmptyStatementBodyInspection extends BaseInspection {
 
   @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Statement with empty body";
-  }
-
-  @Override
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONFUSING_CODE_CONSTRUCTS;
-  }
-
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
-  }
-
-  @Override
   public String buildErrorString(Object... args) {
     if (args[0] instanceof GrIfStatement) {
-      return "'#ref' statement has empty branch";
+      return GroovyBundle.message("inspection.message.ref.statement.has.empty.branch");
     }
     else {
-      return "'#ref' statement has empty body";
+      return GroovyBundle.message("inspection.message.ref.statement.has.empty.body");
     }
   }
 

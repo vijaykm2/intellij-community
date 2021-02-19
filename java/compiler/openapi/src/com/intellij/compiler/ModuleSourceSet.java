@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,16 +15,15 @@
  */
 package com.intellij.compiler;
 
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.module.Module;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.Set;
+import java.util.stream.Collectors;
 
-/**
-* @author nik
-*/
 public class ModuleSourceSet {
   public enum Type { PRODUCTION, TEST }
 
@@ -65,16 +64,14 @@ public class ModuleSourceSet {
     return getDisplayName();
   }
 
-  public String getDisplayName() {
-    return (myType == Type.PRODUCTION ? "" : "Tests of ") + "'" + myModule.getName() + "' module";
+  @NotNull
+  public @Nls(capitalization = Nls.Capitalization.Sentence) String getDisplayName() {
+    final int choice = myType == Type.PRODUCTION ? 0 : 1;
+    return JavaCompilerBundle.message("module.sources.set.display.name", choice, myModule.getName());
   }
 
   @NotNull
-  public static Set<Module> getModules(@NotNull Collection<ModuleSourceSet> sourceSets) {
-    Set<Module> modules = new HashSet<Module>();
-    for (ModuleSourceSet set : sourceSets) {
-      modules.add(set.getModule());
-    }
-    return modules;
+  public static Set<Module> getModules(@NotNull Collection<? extends ModuleSourceSet> sourceSets) {
+    return sourceSets.stream().map(ModuleSourceSet::getModule).collect(Collectors.toSet());
   }
 }

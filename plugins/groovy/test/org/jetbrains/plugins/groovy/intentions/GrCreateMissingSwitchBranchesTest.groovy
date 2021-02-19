@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,14 +15,12 @@
  */
 package org.jetbrains.plugins.groovy.intentions
 
-import org.jetbrains.plugins.groovy.util.TestUtils;
+import org.jetbrains.plugins.groovy.util.TestUtils
 
 /**
  * @author Max Medvedev
  */
-public class GrCreateMissingSwitchBranchesTest extends GrIntentionTestCase {
-  private static final String HINT = GroovyIntentionsBundle.message("gr.create.missing.switch.branches.intention.name")
-
+class GrCreateMissingSwitchBranchesTest extends GrIntentionTestCase {
   final String basePath = "${TestUtils.testDataPath}intentions/constructorMatchingSuper/"
 
   void testSimple() {
@@ -36,7 +34,7 @@ E e = E.a
 switch (e) {
 <caret>
 }
-''', HINT, '''\
+''', getHINT(), '''\
 enum E {
     a, b, c
 }
@@ -53,5 +51,9 @@ switch (e) {
         break
 }
 ''')
+  }
+
+  private static String getHINT() {
+    return GroovyIntentionsBundle.message("gr.create.missing.switch.branches.intention.name")
   }
 }

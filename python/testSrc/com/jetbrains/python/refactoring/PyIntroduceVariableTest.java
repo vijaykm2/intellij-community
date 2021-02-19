@@ -1,27 +1,11 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.refactoring;
 
 import com.intellij.psi.PsiElement;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.testFramework.TestDataPath;
 import com.jetbrains.python.PythonFileType;
-import com.jetbrains.python.psi.PyCallExpression;
-import com.jetbrains.python.psi.PyExpression;
-import com.jetbrains.python.psi.PyFunction;
+import com.jetbrains.python.psi.*;
 import com.jetbrains.python.refactoring.introduce.IntroduceHandler;
 import com.jetbrains.python.refactoring.introduce.IntroduceOperation;
 import com.jetbrains.python.refactoring.introduce.variable.PyIntroduceVariableHandler;
@@ -42,7 +26,7 @@ public class PyIntroduceVariableTest extends PyIntroduceTestCase {
   }
 
   public void testSkipLeadingWhitespace() {  // PY-1338
-    doTest();    
+    doTest();
   }
 
   public void testPy2862() {
@@ -68,13 +52,13 @@ public class PyIntroduceVariableTest extends PyIntroduceTestCase {
   public void testSuggestStringConstantValue() { // PY-1276
     doTestSuggestions(PyExpression.class, "foo_bar");
   }
-  
+
   public void testDontSuggestBuiltinTypeNames() {  // PY-4474
     final Collection<String> strings = buildSuggestions(PyExpression.class);
     assertTrue(strings.contains("s"));
     assertFalse(strings.contains("str"));
   }
-  
+
   public void testDontSuggestBuiltinTypeNames2() {  // PY-5626
     final Collection<String> strings = buildSuggestions(PyCallExpression.class);
     assertTrue(strings.contains("d"));
@@ -87,6 +71,12 @@ public class PyIntroduceVariableTest extends PyIntroduceTestCase {
     assertDoesntContain(suggestions, "select");
   }
 
+  // PY-17331
+  public void testDontSuggestReservedName() {
+    final Collection<String> suggestions = buildSuggestions(PyCallExpression.class);
+    assertDoesntContain(suggestions, "class");
+  }
+
   public void testSuggestNamesNotInScope() {  // PY-4605
     final Collection<String> strings = buildSuggestions(PyExpression.class);
     assertTrue(strings.contains("myfunc1"));
@@ -96,11 +86,11 @@ public class PyIntroduceVariableTest extends PyIntroduceTestCase {
   public void testIncorrectSelection() {  // PY-4455
     doTestCannotPerform();
   }
-  
+
   public void testOneSidedSelection() {  // PY-4456
     doTestCannotPerform();
   }
-  
+
   public void testFunctionOccurrences() {  // PY-5062
     doTest();
   }
@@ -280,7 +270,7 @@ public class PyIntroduceVariableTest extends PyIntroduceTestCase {
       doTest();
     }
     catch (CommonRefactoringUtil.RefactoringErrorHintException e) {
-      if (e.getMessage().equals("Cannot perform refactoring using selected element(s)")) {
+      if (e.getMessage().equals("Cannot perform refactoring using the selected element(s)")) {
         thrownExpectedException = true;
       }
     }
@@ -294,8 +284,48 @@ public class PyIntroduceVariableTest extends PyIntroduceTestCase {
                                                        "    return quux[42].spam + 'eggs'");
     final PsiElement element = myFixture.getElementAtCaret();
     assertInstanceOf(element, PyFunction.class);
-    final Collection<String> usedNames = PyRefactoringUtil.collectUsedNames(element);
+    final Collection<String> usedNames = PyUtil.collectUsedNames(element);
     assertSameElements(usedNames, "foo", "baz", "quux");
+  }
+
+  // PY-13133
+  public void testCaretAtExpressionEnd() {
+    doTest();
+  }
+
+  // PY-17360
+  public void testCallExpressionQualifier() {
+    doTest();
+  }
+
+  // PY-25488
+  public void testFormattingOfDictLiteralPreserved() {
+    doTest();
+  }
+
+  // PY-25488
+  public void testFormattingOfParenthesizedTuplePreserved() {
+    doTest();
+  }
+
+  // PY-25488
+  public void testNotParenthesizedTupleInlined() {
+    doTest();
+  }
+
+  // PY-31991
+  public void testNoExtraSpacesAroundFStringFragmentExpression() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-32827 EA-90746
+  public void testInvalidElementAccessAfterPostReformatOfUsageSite() {
+    doTestInplace(null);
+  }
+
+  // PY-37555
+  public void testArgumentToUnnamedParameter() {
+    doTestSuggestions(PyStringLiteralExpression.class, "value");
   }
 
   @Override
@@ -303,6 +333,7 @@ public class PyIntroduceVariableTest extends PyIntroduceTestCase {
     return super.getTestDataPath() + "/refactoring/introduceVariable";
   }
 
+  @Override
   protected IntroduceHandler createHandler() {
     return new PyIntroduceVariableHandler();
   }

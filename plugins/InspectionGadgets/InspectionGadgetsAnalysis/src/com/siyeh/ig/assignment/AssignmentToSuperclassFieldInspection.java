@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,20 +21,12 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Bas Leijdekkers
  */
 public class AssignmentToSuperclassFieldInspection extends  BaseInspection {
-
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("assignment.to.superclass.field.display.name");
-  }
 
   @NotNull
   @Override
@@ -60,25 +52,14 @@ public class AssignmentToSuperclassFieldInspection extends  BaseInspection {
     }
 
     @Override
-    public void visitPrefixExpression(PsiPrefixExpression expression) {
-      super.visitPrefixExpression(expression);
-      final PsiExpression operand = expression.getOperand();
-      checkSuperclassField(operand);
-    }
-
-    @Override
-    public void visitPostfixExpression(PsiPostfixExpression expression) {
-      super.visitPostfixExpression(expression);
+    public void visitUnaryExpression(PsiUnaryExpression expression) {
+      super.visitUnaryExpression(expression);
       final PsiExpression operand = expression.getOperand();
       checkSuperclassField(operand);
     }
 
     private void checkSuperclassField(PsiExpression expression) {
       if (!(expression instanceof PsiReferenceExpression)) {
-        return;
-      }
-      final PsiMethod method = PsiTreeUtil.getParentOfType(expression, PsiMethod.class, true, PsiClass.class, PsiLambdaExpression.class);
-      if (method == null || !method.isConstructor()) {
         return;
       }
       final PsiReferenceExpression referenceExpression = (PsiReferenceExpression)expression;
@@ -94,6 +75,10 @@ public class AssignmentToSuperclassFieldInspection extends  BaseInspection {
       final PsiField field = (PsiField)target;
       final PsiClass fieldClass = field.getContainingClass();
       if (fieldClass == null) {
+        return;
+      }
+      final PsiMethod method = PsiTreeUtil.getParentOfType(expression, PsiMethod.class, true, PsiClass.class, PsiLambdaExpression.class);
+      if (method == null || !method.isConstructor()) {
         return;
       }
       final PsiClass assignmentClass = method.getContainingClass();

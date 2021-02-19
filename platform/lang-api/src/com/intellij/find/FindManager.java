@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.find;
 
 import com.intellij.navigation.NavigationItem;
@@ -20,6 +6,8 @@ import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.search.SearchScope;
@@ -32,7 +20,7 @@ import org.jetbrains.annotations.Nullable;
  * Allows to invoke and control Find, Replace and Find Usages operations.
  */
 public abstract class FindManager {
-  public static final Topic<FindModelListener> FIND_MODEL_TOPIC = new Topic<FindModelListener>("FindManager's model changes", FindModelListener.class);
+  public static final Topic<FindModelListener> FIND_MODEL_TOPIC = new Topic<>("FindManager's model changes", FindModelListener.class);
 
   public abstract FindModel createReplaceInFileModel();
 
@@ -41,7 +29,7 @@ public abstract class FindManager {
 
   public abstract void setPreviousFindModel(FindModel previousFindModel);
 
-  public abstract void showSettingsAndFindUsages(@NotNull NavigationItem[] targets);
+  public abstract void showSettingsAndFindUsages(NavigationItem @NotNull [] targets);
 
   /**
    * Returns the find manager instance for the specified project.
@@ -68,11 +56,11 @@ public abstract class FindManager {
    *
    * @param model the model containing the settings of the replace operation.
    * @param title the title of the dialog to show.
-   * @return the exit code of the dialog, as defined by the {@link com.intellij.find.FindManager.PromptResult}
+   * @return the exit code of the dialog, as defined by the {@link FindManager.PromptResult}
    * interface.
    */
   @PromptResultValue
-  public abstract int showPromptDialog(@NotNull FindModel model, String title);
+  public abstract int showPromptDialog(@NotNull FindModel model, @NlsContexts.DialogTitle String title);
 
   /**
    * Returns the settings of the last performed Find in File operation, or the
@@ -126,20 +114,18 @@ public abstract class FindManager {
    *
    * @param model the model containing the settings of the replace operation.
    * @param title the title of the dialog to show.
-   * @param exception exception from {@link FindManager#getStringToReplace}
+   * @param exception exception from {@link FindManager#getStringToReplace(String, FindModel, int, CharSequence)}
    * @return the exit code of the dialog, as defined by the {@link PromptResult}
    * interface. May be only {@link PromptResult#CANCEL} or {@link PromptResult#SKIP} for bad replace operation
    */
   @PromptResultValue
-  public abstract int showMalformedReplacementPrompt(@NotNull FindModel model, String title, MalformedReplacementStringException exception);
+  public abstract int showMalformedReplacementPrompt(@NotNull FindModel model,
+                                                     @NlsContexts.DialogTitle String title,
+                                                     MalformedReplacementStringException exception);
 
   public static class MalformedReplacementStringException extends Exception {
-    public MalformedReplacementStringException(String s) {
-      super(s);    //To change body of overridden methods use File | Settings | File Templates.
-    }
-
     public MalformedReplacementStringException(String s, Throwable throwable) {
-      super(s, throwable);    //To change body of overridden methods use File | Settings | File Templates.
+      super(s, throwable);
     }
   }
 
@@ -149,18 +135,21 @@ public abstract class FindManager {
    *
    * @param foundString the found string.
    * @param model       the search and replace settings, including the replace string.
+   * @param startOffset offset in the source text at which the string was found (matters for regex searches)
+   * @param documentText source text in which the string was found (matters for regex searches)
    * @return the string to replace the specified found string.
    */
-  public abstract String getStringToReplace(@NotNull String foundString, @NotNull FindModel model) throws MalformedReplacementStringException;
-  public abstract String getStringToReplace(@NotNull String foundString, @NotNull FindModel model,
-                                            int startOffset, @NotNull CharSequence documentText) throws MalformedReplacementStringException;
+  public abstract @NlsSafe String getStringToReplace(
+    @NotNull String foundString, @NotNull FindModel model,
+    int startOffset, @NotNull CharSequence documentText
+  ) throws MalformedReplacementStringException;
 
   /**
    * Gets the flag indicating whether the "Find Next" and "Find Previous" actions are
    * available to continue a previously started search operation. (The operations are
-   * available if at least one search was performed in the current IDEA session.)
+   * available if at least one search was performed in the current IDE session.)
    *
-   * @return true if the actions are available, false if there is no previous search
+   * @return {@code true} if the actions are available, {@code false} if there is no previous search
    *         operation to continue.
    */
   public abstract boolean findWasPerformed();
@@ -219,8 +208,8 @@ public abstract class FindManager {
    * Checks if the Find Usages action is available for the specified element.
    *
    * @param element the element to check the availability for.
-   * @return true if Find Usages is available, false otherwise.
-   * @see com.intellij.lang.findUsages.FindUsagesProvider#canFindUsagesFor(com.intellij.psi.PsiElement)
+   * @return {@code true} if Find Usages is available, {@code false} otherwise.
+   * @see com.intellij.lang.findUsages.FindUsagesProvider#canFindUsagesFor(PsiElement)
    */
   public abstract boolean canFindUsages(@NotNull PsiElement element);
 
@@ -238,7 +227,6 @@ public abstract class FindManager {
    *
    * @param element the element to find the usages for.
    * @param showDialog true if find usages settings dialog needs to be shown.
-   * @since idea 12
    */
   public abstract void findUsages(@NotNull PsiElement element, boolean showDialog);
 
@@ -255,28 +243,26 @@ public abstract class FindManager {
    * "Highlight Usages in File".
    *
    * @param editor the editor in which the find is performed.
-   * @return true if the operation was performed (not necessarily found anything),
-   *         false if an error occurred during the operation.
+   * @return {@code true} if the operation was performed (not necessarily found anything),
+   *         {@code false} if an error occurred during the operation.
    */
-  public abstract boolean findNextUsageInEditor(@NotNull FileEditor editor);
+  public abstract boolean findNextUsageInEditor(@NotNull Editor editor);
 
   /**
    * Performs a "Find Previous" operation after "Find Usages in File" or
    * "Highlight Usages in File".
    *
    * @param editor the editor in which the find is performed.
-   * @return true if the operation was performed (not necessarily found anything),
-   *         false if an error occurred during the operation.
+   * @return {@code true} if the operation was performed (not necessarily found anything),
+   *         {@code false} if an error occurred during the operation.
    */
-  public abstract boolean findPreviousUsageInEditor(@NotNull FileEditor editor);
+  public abstract boolean findPreviousUsageInEditor(@NotNull Editor editor);
 
   @MagicConstant(valuesFromClass = FindManager.PromptResult.class)
   public @interface PromptResultValue {}
 
   /**
    * Possible return values for the {@link FindManager#showPromptDialog(FindModel, String)} method.
-   *
-   * @since 5.0.2
    */
   public interface PromptResult {
     int OK = 0;

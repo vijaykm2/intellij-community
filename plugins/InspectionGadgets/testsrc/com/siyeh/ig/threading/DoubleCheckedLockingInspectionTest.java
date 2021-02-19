@@ -16,12 +16,12 @@
 package com.siyeh.ig.threading;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 
 /**
  * @author Bas Leijdekkers
  */
-public class DoubleCheckedLockingInspectionTest extends LightInspectionTestCase {
+public class DoubleCheckedLockingInspectionTest extends LightJavaInspectionTestCase {
 
   public void testSimple() {
     doTest("class A {" +
@@ -50,6 +50,24 @@ public class DoubleCheckedLockingInspectionTest extends LightInspectionTestCase 
            "            }\n" +
            "        }\n" +
            "    }\n" +
+           "}");
+  }
+
+  public void testVolatile2() {
+    doTest("class Main654 {\n" +
+           "  private volatile int myListenPort = -1;\n" +
+           "  private void ensureListening() {\n" +
+           "    if (myListenPort < 0) {\n" +
+           "      synchronized (this) {\n" +
+           "        if (myListenPort < 0) {\n" +
+           "          myListenPort = startListening();\n" +
+           "        }\n" +
+           "      }\n" +
+           "    }\n" +
+           "  }\n" +
+           "  private int startListening() {\n" +
+           "    return 0;\n" +
+           "  }\n" +
            "}");
   }
 

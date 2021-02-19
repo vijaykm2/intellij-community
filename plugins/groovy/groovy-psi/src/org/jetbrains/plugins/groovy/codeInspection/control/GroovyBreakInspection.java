@@ -15,9 +15,9 @@
  */
 package org.jetbrains.plugins.groovy.codeInspection.control;
 
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrStatement;
@@ -27,23 +27,9 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.branch.GrBreakStatem
 public class GroovyBreakInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONTROL_FLOW;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Break statement";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "#ref statement #loc";
+    return GroovyBundle.message("inspection.message.ref.statement");
 
   }
 
@@ -55,7 +41,7 @@ public class GroovyBreakInspection extends BaseInspection {
 
   private static class Visitor extends BaseInspectionVisitor {
     @Override
-    public void visitBreakStatement(GrBreakStatement breakStatement) {
+    public void visitBreakStatement(@NotNull GrBreakStatement breakStatement) {
 
       super.visitBreakStatement(breakStatement);
       final GrStatement target = breakStatement.findTargetStatement();

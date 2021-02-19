@@ -27,7 +27,7 @@ import com.intellij.openapi.extensions.ExtensionPointName;
  */
 public interface XmlFileNSInfoProvider {
 
-  ExtensionPointName<XmlFileNSInfoProvider> EP_NAME = new ExtensionPointName<XmlFileNSInfoProvider>("com.intellij.xml.fileNSInfoProvider");
+  ExtensionPointName<XmlFileNSInfoProvider> EP_NAME = new ExtensionPointName<>("com.intellij.xml.fileNSInfoProvider");
   /**
    * Provides information (if any) for default mappings of namespace prefix to namespace identifiers.
    * @param file for which ns mapping information is requested.
@@ -35,9 +35,8 @@ public interface XmlFileNSInfoProvider {
    * null if the interface implementation does not know about such mapping.
    * Empty nsPrefix is "", nsPrefix, namespaceId should not be null, invalid mapping table is skipped.
    */
-  @Nullable
   @NonNls
-  String[][] getDefaultNamespaces(@NotNull XmlFile file);
+  String[] @Nullable [] getDefaultNamespaces(@NotNull XmlFile file);
 
   boolean overrideNamespaceFromDocType(@NotNull XmlFile file);
 }

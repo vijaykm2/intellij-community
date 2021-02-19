@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
  */
 package com.intellij.util.xml;
 
+import org.jetbrains.annotations.ApiStatus;
+
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -24,8 +26,10 @@ import java.lang.annotation.Target;
  * Specifies DOM interface implementation. Implementation should be abstract class with only
  * non-DOM methods defined, it should implement the annotated interface.
  *
- * @deprecated use extension point com.intellij.util.xml.impl.DomImplementationClassEP#EP_NAME
+ * @deprecated use extension point {@code com.intellij.dom.implementation} instead
  */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
 @Retention(RetentionPolicy.RUNTIME)
 @Target({ElementType.TYPE})
 public @interface Implementation {

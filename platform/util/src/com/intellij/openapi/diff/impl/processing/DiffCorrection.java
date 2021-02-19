@@ -1,26 +1,12 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.diff.impl.processing;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.diff.impl.string.DiffString;
 import com.intellij.openapi.diff.ex.DiffFragment;
 import com.intellij.openapi.diff.impl.ComparisonPolicy;
 import com.intellij.openapi.diff.impl.highlighting.FragmentSide;
 import com.intellij.openapi.diff.impl.highlighting.Util;
+import com.intellij.openapi.diff.impl.string.DiffString;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.diff.FilesTooBigForDiffException;
 import org.jetbrains.annotations.NotNull;
@@ -31,7 +17,7 @@ public interface DiffCorrection {
   DiffFragment[] correct(DiffFragment[] fragments) throws FilesTooBigForDiffException;
 
   class TrueLineBlocks implements DiffCorrection, FragmentProcessor<FragmentsCollector> {
-    private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.diff.impl.processing.DiffCorrection.TrueLineBlocks");
+    private static final Logger LOG = Logger.getInstance(TrueLineBlocks.class);
     private final DiffPolicy myDiffPolicy;
     @NotNull private final ComparisonPolicy myComparisonPolicy;
 
@@ -127,7 +113,7 @@ public interface DiffCorrection {
   }
 
   class BaseFragmentRunner<ActualRunner extends BaseFragmentRunner> {
-    private final ArrayList<DiffFragment> myItems = new ArrayList<DiffFragment>();
+    private final ArrayList<DiffFragment> myItems = new ArrayList<>();
     private int myIndex = 0;
     private DiffFragment[] myFragments;
 
@@ -141,14 +127,14 @@ public interface DiffCorrection {
     }
 
     public DiffFragment[] toArray() {
-      return myItems.toArray(new DiffFragment[myItems.size()]);
+      return myItems.toArray(new DiffFragment[0]);
     }
 
     protected int getIndex() { return myIndex; }
 
     public DiffFragment[] getFragments() { return myFragments; }
 
-    public void processAll(DiffFragment[] fragments, FragmentProcessor<ActualRunner> processor) throws FilesTooBigForDiffException {
+    public void processAll(DiffFragment[] fragments, FragmentProcessor<? super ActualRunner> processor) throws FilesTooBigForDiffException {
       myFragments = fragments;
       for (;myIndex < myFragments.length; myIndex++) {
         DiffFragment fragment = myFragments[myIndex];
@@ -169,8 +155,8 @@ public interface DiffCorrection {
 
   class FragmentsCollector extends BaseFragmentRunner<FragmentsCollector> {
     public void addAll(DiffFragment[] fragments) {
-      for (int i = 0; i < fragments.length; i++) {
-        add(fragments[i]);
+      for (DiffFragment fragment : fragments) {
+        add(fragment);
       }
     }
   }
@@ -203,7 +189,7 @@ public interface DiffCorrection {
     }
 
     @Override
-    public void processAll(DiffFragment[] fragments, FragmentProcessor<FragmentBuffer> processor) throws FilesTooBigForDiffException {
+    public void processAll(DiffFragment[] fragments, FragmentProcessor<? super FragmentBuffer> processor) throws FilesTooBigForDiffException {
       super.processAll(fragments, processor);
       flushMarked();
     }
@@ -247,7 +233,7 @@ public interface DiffCorrection {
     }
   }
 
-  class Normalize implements DiffCorrection {
+  final class Normalize implements DiffCorrection {
     public static final DiffCorrection INSTANCE = new Normalize();
 
     private Normalize() {}

@@ -1,3 +1,4 @@
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.ui.tree.nodes;
 
 import com.intellij.notification.NotificationType;
@@ -8,7 +9,7 @@ import com.intellij.util.Alarm;
 import com.intellij.util.concurrency.Semaphore;
 import com.intellij.xdebugger.XDebuggerBundle;
 import com.intellij.xdebugger.frame.XFullValueEvaluator;
-import com.intellij.xdebugger.impl.XDebugSessionImpl;
+import com.intellij.xdebugger.impl.XDebuggerManagerImpl;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,12 +31,7 @@ public class HeadlessValueEvaluationCallback implements XFullValueEvaluator.XFul
   public void startFetchingValue(@NotNull XFullValueEvaluator fullValueEvaluator) {
     fullValueEvaluator.startEvaluation(this);
 
-    new Alarm().addRequest(new Runnable() {
-      @Override
-      public void run() {
-        showProgress();
-      }
-    }, 500);
+    new Alarm().addRequest(() -> showProgress(), 500);
   }
 
   @Override
@@ -52,7 +48,7 @@ public class HeadlessValueEvaluationCallback implements XFullValueEvaluator.XFul
   public void errorOccurred(@NotNull String errorMessage) {
     try {
       String message = XDebuggerBundle.message("load.value.task.error", errorMessage);
-      XDebugSessionImpl.NOTIFICATION_GROUP.createNotification(message, NotificationType.ERROR).notify(myNode.getTree().getProject());
+      XDebuggerManagerImpl.getNotificationGroup().createNotification(message, NotificationType.ERROR).notify(myNode.getTree().getProject());
     }
     finally {
       evaluationComplete(errorMessage);
@@ -67,6 +63,10 @@ public class HeadlessValueEvaluationCallback implements XFullValueEvaluator.XFul
     finally {
       evaluationComplete(value, myNode.getTree().getProject());
     }
+  }
+
+  public XValueNodeImpl getNode() {
+    return myNode;
   }
 
   protected void evaluationComplete(@NotNull String value, @NotNull Project project) {

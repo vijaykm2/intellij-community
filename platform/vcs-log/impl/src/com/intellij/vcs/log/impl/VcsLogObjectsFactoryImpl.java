@@ -1,22 +1,19 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.impl;
 
-import com.intellij.openapi.util.ThrowableComputable;
-import com.intellij.openapi.vcs.changes.Change;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.vcs.log.*;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Collection;
 import java.util.List;
 
-public class VcsLogObjectsFactoryImpl implements VcsLogObjectsFactory {
+public final class VcsLogObjectsFactoryImpl implements VcsLogObjectsFactory {
+  @NotNull
+  private final VcsUserRegistry myUserRegistry;
 
-  @NotNull private final VcsUserRegistry myUserRegistry;
-
-  // created as application service
-  @SuppressWarnings("unused")
-  private VcsLogObjectsFactoryImpl(@NotNull VcsUserRegistry userRegistry) {
-    myUserRegistry = userRegistry;
+  private VcsLogObjectsFactoryImpl(@NotNull Project project) {
+    myUserRegistry = project.getService(VcsUserRegistry.class);
   }
 
   @NotNull
@@ -55,18 +52,6 @@ public class VcsLogObjectsFactoryImpl implements VcsLogObjectsFactory {
 
   @NotNull
   @Override
-  public VcsFullCommitDetails createFullDetails(@NotNull Hash hash, @NotNull List<Hash> parents, long commitTime, VirtualFile root,
-                                                @NotNull String subject, @NotNull String authorName, @NotNull String authorEmail,
-                                                @NotNull String message, @NotNull String committerName, @NotNull String committerEmail,
-                                                long authorTime,
-                                                @NotNull ThrowableComputable<Collection<Change>, ? extends Exception> changesGetter) {
-    VcsUser author = createUser(authorName, authorEmail);
-    VcsUser committer = createUser(committerName, committerEmail);
-    return new VcsChangesLazilyParsedDetails(hash, parents, commitTime, root, subject, author, message, committer, authorTime, changesGetter);
-  }
-
-  @NotNull
-  @Override
   public VcsUser createUser(@NotNull String name, @NotNull String email) {
     return myUserRegistry.createUser(name, email);
   }
@@ -76,5 +61,4 @@ public class VcsLogObjectsFactoryImpl implements VcsLogObjectsFactory {
   public VcsRef createRef(@NotNull Hash commitHash, @NotNull String name, @NotNull VcsRefType type, @NotNull VirtualFile root) {
     return new VcsRefImpl(commitHash, name, type, root);
   }
-
 }

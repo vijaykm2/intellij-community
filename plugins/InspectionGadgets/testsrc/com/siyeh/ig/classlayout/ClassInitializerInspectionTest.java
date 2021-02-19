@@ -16,16 +16,29 @@
 package com.siyeh.ig.classlayout;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.intellij.pom.java.LanguageLevel;
+import com.intellij.testFramework.IdeaTestUtil;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 
 /**
  * @author Bas Leijdekkers
  */
-public class ClassInitializerInspectionTest extends LightInspectionTestCase {
+public class ClassInitializerInspectionTest extends LightJavaInspectionTestCase {
 
-  public void testSimple() { doTest(); }
+  public void testSimple() { 
+    doTest();
+    assertEmpty(myFixture.filterAvailableIntentions("Make 'static'"));
+  }
+
   public void testAnonymous() { doTest(); }
 
+  public void testJava16() {
+    IdeaTestUtil.withLevel(getModule(), LanguageLevel.JDK_16, () -> {
+      doTest();
+      assertEquals(1, myFixture.filterAvailableIntentions("Make 'static'").size());
+    });
+  }
+  
   public void testNoConstructor() {
     final ClassInitializerInspection inspection = new ClassInitializerInspection();
     inspection.onlyWarnWhenConstructor = true;

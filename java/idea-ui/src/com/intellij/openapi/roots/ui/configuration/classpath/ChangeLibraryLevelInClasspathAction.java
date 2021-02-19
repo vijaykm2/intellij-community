@@ -16,6 +16,7 @@
 package com.intellij.openapi.roots.ui.configuration.classpath;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.project.ProjectUtil;
 import com.intellij.openapi.roots.LibraryOrderEntry;
 import com.intellij.openapi.roots.OrderEntry;
 import com.intellij.openapi.roots.impl.OrderEntryUtil;
@@ -29,19 +30,16 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
-/**
- * @author nik
- */
 class ChangeLibraryLevelInClasspathAction extends ChangeLibraryLevelActionBase {
   private final ClasspathPanel myPanel;
 
-  public ChangeLibraryLevelInClasspathAction(@NotNull ClasspathPanel panel, final @NotNull String targetTableName, @NotNull String targetTableLevel) {
+  ChangeLibraryLevelInClasspathAction(@NotNull ClasspathPanel panel, final @NotNull String targetTableName, @NotNull String targetTableLevel) {
     super(panel.getProject(), targetTableName, targetTableLevel, targetTableLevel.equals(LibraryTableImplUtil.MODULE_LEVEL));
     myPanel = panel;
   }
 
   @Override
-  public void actionPerformed(AnActionEvent event) {
+  public void actionPerformed(@NotNull AnActionEvent event) {
     final OrderEntry entry = myPanel.getSelectedEntry();
     if (!(entry instanceof LibraryOrderEntry)) return;
     LibraryOrderEntry libraryEntry = (LibraryOrderEntry)entry;
@@ -92,10 +90,7 @@ class ChangeLibraryLevelInClasspathAction extends ChangeLibraryLevelActionBase {
       if (roots.length > 0) {
         return roots[0];
       }
-      final VirtualFile moduleFile = myPanel.getRootModel().getModule().getModuleFile();
-      if (moduleFile != null) {
-        return moduleFile.getParent();
-      }
+      return ProjectUtil.guessModuleDir(myPanel.getRootModel().getModule());
     }
     return super.getBaseDir();
   }

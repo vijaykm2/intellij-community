@@ -15,6 +15,8 @@
  */
 package com.intellij.designer.palette;
 
+import com.intellij.openapi.util.NlsSafe;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,7 +25,7 @@ import java.util.List;
  */
 public class PaletteGroup {
   private final String myName;
-  protected final List<PaletteItem> myItems = new ArrayList<PaletteItem>();
+  protected final List<PaletteItem> myItems = new ArrayList<>();
 
   public PaletteGroup(String name) {
     myName = name;
@@ -37,7 +39,7 @@ public class PaletteGroup {
     return myItems;
   }
 
-  public String getName() {
+  public @NlsSafe String getName() {
     return myName;
   }
 }

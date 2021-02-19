@@ -1,26 +1,12 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger.array;
 
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.ui.EditorTextField;
 import com.intellij.xdebugger.XExpression;
 import com.intellij.xdebugger.XSourcePosition;
@@ -48,12 +34,13 @@ public class ArrayTableCellEditor extends AbstractCellEditor implements TableCel
   private final Project myProject;
   private Object myLastValue;
 
-  private static final Logger LOG = Logger.getInstance("#com.jetbrains.python.debugger.array.ArrayTableCellEditor");
+  private static final Logger LOG = Logger.getInstance(ArrayTableCellEditor.class);
 
   public ArrayTableCellEditor(Project project) {
     myProject = project;
   }
 
+  @Override
   public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected,
                                                final int rowIndex, final int vColIndex) {
     myEditor = new MyTableEditor(myProject, new PyDebuggerEditorsProvider(), "numpy.array.table.view", null,
@@ -63,7 +50,9 @@ public class ArrayTableCellEditor extends AbstractCellEditor implements TableCel
     return myEditor.getComponent();
   }
 
+  @Override
   @Nullable
+  @NlsSafe
   public Object getCellEditorValue() {
     if (myEditor.getEditor() != null) {
       return myEditor.getEditor().getDocument().getText();
@@ -90,13 +79,11 @@ public class ArrayTableCellEditor extends AbstractCellEditor implements TableCel
   }
 
   public void cancelEditing() {
-    new WriteCommandAction(null) {
-      protected void run(@NotNull Result result) throws Throwable {
-        if (myEditor.getEditor() != null) {
-          myEditor.getEditor().getDocument().setText(myLastValue.toString());
-        }
+    WriteCommandAction.writeCommandAction(null).run(() -> {
+      if (myEditor.getEditor() != null) {
+        myEditor.getEditor().getDocument().setText(myLastValue.toString());
       }
-    }.execute();
+    });
     myEditor.getComponent().repaint();
     stopCellEditing();
   }
@@ -121,7 +108,7 @@ public class ArrayTableCellEditor extends AbstractCellEditor implements TableCel
       myExpression = XExpressionImpl.changeMode(text, getMode());
       myEditorTextField = new EditorTextField(createDocument(myExpression), project, debuggerEditorsProvider.getFileType()) {
         @Override
-        protected EditorEx createEditor() {
+        protected @NotNull EditorEx createEditor() {
           final EditorEx editor = super.createEditor();
           editor.setVerticalScrollbarVisible(false);
           editor.setOneLineMode(true);

@@ -1,27 +1,24 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.intentions.style.parameterToEntry;
 
-import com.intellij.openapi.module.Module;
-import com.intellij.openapi.roots.ContentEntry;
-import com.intellij.openapi.roots.ModifiableRootModel;
-import com.intellij.openapi.roots.OrderRootType;
-import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.JarFileSystem;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.source.PostprocessReformattingAspect;
 import com.intellij.testFramework.LightProjectDescriptor;
-import com.intellij.testFramework.fixtures.DefaultLightProjectDescriptor;
 import junit.framework.Assert;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.intentions.base.PsiElementPredicate;
 import org.jetbrains.plugins.groovy.lang.formatter.GroovyFormatterTestCase;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.params.GrParameter;
 import org.jetbrains.plugins.groovy.util.TestUtils;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
 
 /**
  * @author ilyas
@@ -32,21 +29,10 @@ public class ParameterToMapEntryTest extends GroovyFormatterTestCase {
     return TestUtils.getTestDataPath() + "paramToMap/" + getTestName(true) + "/";
   }
 
-  public static final DefaultLightProjectDescriptor GROOVY_17_PROJECT_DESCRIPTOR = new DefaultLightProjectDescriptor() {
-    @Override
-    public void configureModule(Module module, ModifiableRootModel model, ContentEntry contentEntry) {
-      final Library.ModifiableModel modifiableModel = model.getModuleLibraryTable().createLibrary("GROOVY").getModifiableModel();
-      final VirtualFile groovyJar = JarFileSystem.getInstance().refreshAndFindFileByPath(TestUtils.getMockGroovy1_7LibraryName()+"!/");
-      assert groovyJar != null;
-      modifiableModel.addRoot(groovyJar, OrderRootType.CLASSES);
-      modifiableModel.commit();
-    }
-  };
-
   @NotNull
   @Override
   protected LightProjectDescriptor getProjectDescriptor() {
-    return GROOVY_17_PROJECT_DESCRIPTOR;
+    return GroovyProjectDescriptors.GROOVY_1_7;
   }  
 
   /*
@@ -139,9 +125,6 @@ public class ParameterToMapEntryTest extends GroovyFormatterTestCase {
         if (line != null) expected += "\n";
       }
       reader.close();
-    }
-    catch (FileNotFoundException e) {
-      e.printStackTrace();
     }
     catch (IOException e) {
       e.printStackTrace();

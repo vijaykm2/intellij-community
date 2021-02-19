@@ -1,118 +1,64 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.impl;
 
-import com.intellij.ide.ui.UISettings;
+import com.intellij.openapi.editor.impl.view.FontLayoutService;
 import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.registry.Registry;
-import com.intellij.util.ui.UIUtil;
-import gnu.trove.TIntHashSet;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import org.intellij.lang.annotations.JdkConstants;
 import org.jetbrains.annotations.NotNull;
+import sun.font.CompositeGlyphMapper;
+import sun.font.FontDesignMetrics;
 
 import java.awt.*;
 import java.awt.font.FontRenderContext;
-import java.awt.font.GlyphVector;
-import java.awt.image.BufferedImage;
+import java.awt.font.TextAttribute;
+import java.util.Collections;
+import java.util.Map;
 
-/**
- * @author max
- */
-public class FontInfo {
-  private static final boolean USE_ALTERNATIVE_CAN_DISPLAY_PROCEDURE = SystemInfo.isAppleJvm && Registry.is("ide.mac.fix.font.fallback");
-  private static final FontRenderContext DUMMY_CONTEXT = new FontRenderContext(null, false, false);
+public final class FontInfo {
+  public static final FontRenderContext DEFAULT_CONTEXT = new FontRenderContext(null, false, false);
 
-  private final TIntHashSet mySymbolsToBreakDrawingIteration = new TIntHashSet();
+  private static final Font DUMMY_FONT = new Font(null);
+  private static final Map<TextAttribute, Integer> LIGATURES_ATTRIBUTES =
+    Collections.singletonMap(TextAttribute.LIGATURES, TextAttribute.LIGATURES_ON);
 
   private final Font myFont;
   private final int mySize;
-  @JdkConstants.FontStyle private final int myStyle;
-  private final TIntHashSet mySafeCharacters = new TIntHashSet();
+  private final IntSet mySafeCharacters = new IntOpenHashSet();
+  private final FontRenderContext myContext;
   private FontMetrics myFontMetrics = null;
-  private final int[] charWidth = new int[128];
-  private boolean myHasGlyphsToBreakDrawingIteration;
-  private boolean myCheckedForProblemGlyphs;
 
-  public FontInfo(final String familyName, final int size, @JdkConstants.FontStyle int style) {
+  /**
+   * To get valid font metrics from this {@link FontInfo} instance, pass valid {@link FontRenderContext} here as a parameter.
+   */
+  public FontInfo(final String familyName, final int size, @JdkConstants.FontStyle int style, boolean useLigatures,
+                  FontRenderContext fontRenderContext) {
     mySize = size;
-    myStyle = style;
-    myFont = new Font(familyName, style, size);
-  }
-  
-  private void parseProblemGlyphs() {
-    myCheckedForProblemGlyphs = true;
-    BufferedImage buffer = UIUtil.createImage(20, 20, BufferedImage.TYPE_INT_RGB);
-    final Graphics graphics = buffer.getGraphics();
-    if (!(graphics instanceof Graphics2D)) {
-      return;
-    }
-    final FontRenderContext context = ((Graphics2D)graphics).getFontRenderContext();
-    char[] charBuffer = new char[1];
-    for (char c = 0; c < 128; c++) {
-      if (!myFont.canDisplay(c)) {
-        continue;
-      }
-      charBuffer[0] = c;
-      final GlyphVector vector = myFont.createGlyphVector(context, charBuffer);
-      final float y = vector.getGlyphMetrics(0).getAdvanceY();
-      if (Math.round(y) != 0) {
-        mySymbolsToBreakDrawingIteration.add(c);
-      }
-    }
-    myHasGlyphsToBreakDrawingIteration = !mySymbolsToBreakDrawingIteration.isEmpty();
+    Font font = new Font(familyName, style, size);
+    myFont = useLigatures ? font.deriveFont(LIGATURES_ATTRIBUTES) : font;
+    myContext = fontRenderContext;
   }
 
   /**
-   * We've experienced a problem that particular symbols from particular font are represented really weird
-   * by the IJ editor (IDEA-83645).
-   * <p/>
-   * Eventually it was found out that outline font glyphs can have a 'y advance', i.e. instruction on how the subsequent
-   * glyphs location should be adjusted after painting the current glyph. In terms of java that means that such a problem
-   * glyph should be the last symbol at the {@link Graphics#drawChars(char[], int, int, int, int) text drawing iteration}.
-   * <p/>
-   * Hopefully, such glyphs are exceptions from the normal processing, so, this method allows to answer whether a font
-   * {@link #getFont() referenced} by the current object has such a glyph.
-   * 
-   * @return    true if the {@link #getFont() target font} has problem glyphs; <code>false</code> otherwise
+   * To get valid font metrics from this {@link FontInfo} instance, pass valid {@link FontRenderContext} here as a parameter.
    */
-  public boolean hasGlyphsToBreakDrawingIteration() {
-    if (!myCheckedForProblemGlyphs) {
-      parseProblemGlyphs();
+  public FontInfo(Font font, int size, boolean useLigatures, FontRenderContext fontRenderContext) {
+    mySize = size;
+    font = font.deriveFont((float)size);
+    if (useLigatures) {
+      font = font.deriveFont(LIGATURES_ATTRIBUTES);
     }
-    return myHasGlyphsToBreakDrawingIteration;
+    myFont = font;
+    myContext = fontRenderContext;
   }
 
-  /**
-   * @return    unicode symbols which glyphs {@link #hasGlyphsToBreakDrawingIteration() have problems}
-   * at the {@link #getFont() target font}.
-   */
-  @NotNull
-  public TIntHashSet getSymbolsToBreakDrawingIteration() {
-    if (!myCheckedForProblemGlyphs) {
-      parseProblemGlyphs();
-    }
-    return mySymbolsToBreakDrawingIteration;
-  }
-
-  public boolean canDisplay(char c) {
+  public boolean canDisplay(int codePoint) {
     try {
-      if (c < 128) return true;
-      if (mySafeCharacters.contains(c)) return true;
-      if (canDisplayImpl(c)) {
-        mySafeCharacters.add(c);
+      if (codePoint < 128) return true;
+      if (mySafeCharacters.contains(codePoint)) return true;
+      if (canDisplay(myFont, codePoint, false)) {
+        mySafeCharacters.add(codePoint);
         return true;
       }
       return false;
@@ -123,12 +69,14 @@ public class FontInfo {
     }
   }
 
-  private boolean canDisplayImpl(char c) {
-    if (USE_ALTERNATIVE_CAN_DISPLAY_PROCEDURE) {
-      return myFont.createGlyphVector(DUMMY_CONTEXT, new char[]{c}).getGlyphCode(0) > 0;
+  public static boolean canDisplay(@NotNull Font font, int codePoint, boolean disableFontFallback) {
+    if (!Character.isValidCodePoint(codePoint)) return false;
+    if (disableFontFallback && SystemInfo.isMac) {
+      int glyphCode = font.createGlyphVector(DEFAULT_CONTEXT, new String(new int[]{codePoint}, 0, 1)).getGlyphCode(0);
+      return (glyphCode & CompositeGlyphMapper.GLYPHMASK) != 0 && (glyphCode & CompositeGlyphMapper.SLOTMASK) == 0;
     }
     else {
-      return myFont.canDisplay(c);
+      return font.canDisplay(codePoint);
     }
   }
 
@@ -136,37 +84,57 @@ public class FontInfo {
     return myFont;
   }
 
-  public int charWidth(char c) {
+  public int charWidth(int codePoint) {
     final FontMetrics metrics = fontMetrics();
-    if (c < 128) return charWidth[c];
-    return metrics.charWidth(c);
+    return FontLayoutService.getInstance().charWidth(metrics, codePoint);
   }
 
-  private FontMetrics fontMetrics() {
+  public float charWidth2D(int codePoint) {
+    FontMetrics metrics = fontMetrics();
+    return FontLayoutService.getInstance().charWidth2D(metrics, codePoint);
+  }
+
+  public synchronized FontMetrics fontMetrics() {
     if (myFontMetrics == null) {
-      // We need to use antialising-aware font metrics because we've alrady encountered a situation when non-antialiased symbol
-      // width is not equal to the antialiased one (IDEA-81539).
-      final Graphics graphics = UIUtil.createImage(1, 1, BufferedImage.TYPE_INT_RGB).getGraphics();
-      UISettings.setupAntialiasing(graphics);
-      graphics.setFont(myFont);
-      myFontMetrics = graphics.getFontMetrics();
-      for (int i = 0; i < 128; i++) {
-        charWidth[i] = myFontMetrics.charWidth(i);
-      }
+      myFontMetrics = getFontMetrics(myFont, myContext == null ? getFontRenderContext(null) : myContext);
     }
     return myFontMetrics;
   }
 
-  void reset() {
-    myFontMetrics = null;
+  @NotNull
+  public static FontMetrics getFontMetrics(@NotNull Font font, @NotNull FontRenderContext fontRenderContext) {
+    return FontDesignMetrics.getMetrics(font, fontRenderContext);
   }
-  
+
+  public static FontRenderContext getFontRenderContext(Component component) {
+    if (component == null) {
+        return DEFAULT_CONTEXT;
+    }
+    return component.getFontMetrics(DUMMY_FONT).getFontRenderContext();
+  }
+
   public int getSize() {
     return mySize;
   }
 
-  @JdkConstants.FontStyle
-  public int getStyle() {
-    return myStyle;
+  public FontRenderContext getFontRenderContext() {
+    return myContext;
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+
+    FontInfo fontInfo = (FontInfo)o;
+
+    if (!myFont.equals(fontInfo.myFont)) return false;
+
+    return true;
+  }
+
+  @Override
+  public int hashCode() {
+    return myFont.hashCode();
   }
 }

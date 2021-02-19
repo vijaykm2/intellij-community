@@ -23,14 +23,22 @@ import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.util.PsiPrecedenceUtil;
+import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.containers.ContainerUtil;
+import com.siyeh.ig.psiutils.CommentTracker;
+import com.siyeh.ig.psiutils.ExpressionUtils;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.Objects;
 
 public class DeclarationJoinLinesHandler implements JoinLinesHandlerDelegate {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.editorActions.DeclarationJoinLinesHandler");
+  private static final Logger LOG = Logger.getInstance(DeclarationJoinLinesHandler.class);
 
   @Override
-  public int tryJoinLines(final Document document, final PsiFile file, final int start, final int end) {
+  public int tryJoinLines(@NotNull final Document document, @NotNull final PsiFile file, final int start, final int end) {
     PsiElement elementAtStartLineEnd = file.findElementAt(start);
     PsiElement elementAtNextLineStart = file.findElementAt(end);
     if (elementAtStartLineEnd == null || elementAtNextLineStart == null) return -1;
@@ -60,11 +68,13 @@ public class DeclarationJoinLinesHandler implements JoinLinesHandlerDelegate {
     PsiAssignmentExpression assignment = (PsiAssignmentExpression)ref.getParent();
     if (!(assignment.getParent() instanceof PsiExpressionStatement)) return -1;
 
-    if (ReferencesSearch.search(var, new LocalSearchScope(assignment.getRExpression()), false).findFirst() != null) {
+    PsiExpression rExpression = assignment.getRExpression();
+    if (rExpression == null) return -1;
+
+    if (ReferencesSearch.search(var, new LocalSearchScope(rExpression), false).findFirst() != null) {
       return -1;
     }
 
-    final PsiElementFactory factory = JavaPsiFacade.getInstance(psiManager.getProject()).getElementFactory();
     final PsiExpression initializerExpression = getInitializerExpression(var, assignment);
     if (initializerExpression == null) return -1;
 
@@ -72,15 +82,11 @@ public class DeclarationJoinLinesHandler implements JoinLinesHandlerDelegate {
 
     int startOffset = decl.getTextRange().getStartOffset();
     try {
-      PsiDeclarationStatement newDecl = factory.createVariableDeclarationStatement(var.getName(), var.getType(), initializerExpression);
-      PsiVariable newVar = (PsiVariable)newDecl.getDeclaredElements()[0];
-      if (var.getModifierList().getText().length() > 0) {
-        PsiUtil.setModifierProperty(newVar, PsiModifier.FINAL, true);
-      }
-      newVar.getModifierList().replace(var.getModifierList());
-      PsiVariable variable = (PsiVariable)newDecl.getDeclaredElements()[0];
-      final int offsetBeforeEQ = variable.getNameIdentifier().getTextRange().getEndOffset();
-      final int offsetAfterEQ = variable.getInitializer().getTextRange().getStartOffset() + 1;
+      PsiLocalVariable variable = copyVarWithInitializer(var, initializerExpression);
+      if (variable == null) return -1;
+      PsiDeclarationStatement newDecl = (PsiDeclarationStatement)variable.getParent();
+      final int offsetBeforeEQ = Objects.requireNonNull(variable.getNameIdentifier()).getTextRange().getEndOffset();
+      final int offsetAfterEQ = Objects.requireNonNull(variable.getInitializer()).getTextRange().getStartOffset() + 1;
       newDecl = (PsiDeclarationStatement)CodeStyleManager.getInstance(psiManager).reformatRange(newDecl, offsetBeforeEQ, offsetAfterEQ);
 
       PsiElement child = statement.getLastChild();
@@ -91,8 +97,12 @@ public class DeclarationJoinLinesHandler implements JoinLinesHandlerDelegate {
         newDecl.addRangeBefore(child.getNextSibling(), statement.getLastChild(), null);
       }
 
-      decl.replace(newDecl);
+      PsiElement prev = statement.getPrevSibling();
+      if (prev instanceof PsiWhiteSpace) {
+        prev.delete();
+      }
       statement.delete();
+      decl.replace(newDecl);
       return startOffset + newDecl.getTextRange().getEndOffset() - newDecl.getTextRange().getStartOffset();
     }
     catch (IncorrectOperationException e) {
@@ -101,61 +111,84 @@ public class DeclarationJoinLinesHandler implements JoinLinesHandlerDelegate {
     }
   }
 
+  /**
+   * Returns an updated initializer after joining with given assignment
+   * @param var variable which initializer should be updated
+   * @param assignment assignment to merge into the initializer
+   * @return updated initializer or null if operation cannot be performed (e.g. code is incomplete)
+   */
+  @Nullable
   public static PsiExpression getInitializerExpression(PsiLocalVariable var,
                                                        PsiAssignmentExpression assignment) {
-    PsiExpression initializerExpression;
-    final IElementType originalOpSign = assignment.getOperationTokenType();
-    if (originalOpSign == JavaTokenType.EQ) {
-      initializerExpression = assignment.getRExpression();
-    }
-    else {
-      if (var.getInitializer() == null) return null;
-      String opSign = null;
-      if (originalOpSign == JavaTokenType.ANDEQ) {
-        opSign = "&";
-      }
-      else if (originalOpSign == JavaTokenType.ASTERISKEQ) {
-        opSign = "*";
-      }
-      else if (originalOpSign == JavaTokenType.DIVEQ) {
-        opSign = "/";
-      }
-      else if (originalOpSign == JavaTokenType.GTGTEQ) {
-        opSign = ">>";
-      }
-      else if (originalOpSign == JavaTokenType.GTGTGTEQ) {
-        opSign = ">>>";
-      }
-      else if (originalOpSign == JavaTokenType.LTLTEQ) {
-        opSign = "<<";
-      }
-      else if (originalOpSign == JavaTokenType.MINUSEQ) {
-        opSign = "-";
-      }
-      else if (originalOpSign == JavaTokenType.OREQ) {
-        opSign = "|";
-      }
-      else if (originalOpSign == JavaTokenType.PERCEQ) {
-        opSign = "%";
-      }
-      else if (originalOpSign == JavaTokenType.PLUSEQ) {
-        opSign = "+";
-      }
-      else if (originalOpSign == JavaTokenType.XOREQ) {
-        opSign = "^";
-      }
+    return getInitializerExpression(var.getInitializer(), assignment);
+  }
 
-      try {
-        final Project project = var.getProject();
-        final String initializerText = var.getInitializer().getText() + opSign + assignment.getRExpression().getText();
-        initializerExpression = JavaPsiFacade.getElementFactory(project).createExpressionFromText(initializerText, var);
-        initializerExpression = (PsiExpression)CodeStyleManager.getInstance(project).reformat(initializerExpression);
-      }
-      catch (IncorrectOperationException e) {
-        LOG.error(e);
-        return null;
+  @Nullable
+  public static PsiExpression getInitializerExpression(PsiExpression initializer, PsiAssignmentExpression assignment) {
+    PsiExpression initializerExpression;
+    PsiJavaToken sign = assignment.getOperationSign();
+    final IElementType compoundOp = assignment.getOperationTokenType();
+    final PsiExpression rExpression = assignment.getRExpression();
+    if (rExpression == null) return null;
+    if (compoundOp == JavaTokenType.EQ) {
+      return rExpression;
+    }
+    if (initializer == null) return null;
+    String opSign = sign.getText().replace("=", "");
+    IElementType simpleOp = TypeConversionUtil.convertEQtoOperation(compoundOp);
+    if (simpleOp == null) return null;
+    final Project project = assignment.getProject();
+    final String rightText = rExpression.getText();
+    String initializerText;
+    if ("+".equals(opSign) && ExpressionUtils.isZero(initializer) ||
+        "*".equals(opSign) && ExpressionUtils.isOne(initializer)) {
+      initializerText = rightText;
+    } else {
+      boolean parenthesesForLhs = PsiPrecedenceUtil.getPrecedence(initializer) > PsiPrecedenceUtil.getPrecedenceForOperator(simpleOp);
+      boolean parenthesesForRhs = PsiPrecedenceUtil.areParenthesesNeeded(sign, rExpression);
+      initializerText = (parenthesesForLhs ? "(" + initializer.getText() + ")" : initializer.getText()) + opSign +
+                        (parenthesesForRhs ? "(" + rExpression.getText() + ")" : rExpression.getText());
+    }
+    initializerExpression = JavaPsiFacade.getElementFactory(project).createExpressionFromText(initializerText, assignment);
+    return (PsiExpression)CodeStyleManager.getInstance(project).reformat(initializerExpression);
+  }
+
+  @Nullable
+  public static PsiLocalVariable copyVarWithInitializer(PsiLocalVariable origVar, PsiExpression initializer) {
+    // Don't normalize the original declaration: it may declare many variables
+    PsiElement declCopy = origVar.getParent().copy();
+    PsiLocalVariable varCopy = (PsiLocalVariable)ContainerUtil.find(
+      declCopy.getChildren(), e -> e instanceof PsiLocalVariable && Objects.equals(origVar.getName(), ((PsiLocalVariable)e).getName()));
+
+    if (varCopy != null) {
+      varCopy.setInitializer(initializer);
+      varCopy.normalizeDeclaration();
+    }
+    return varCopy;
+  }
+
+  /**
+   * Join declaration and assignment
+   * @param variable variable
+   * @param assignment assignment (assuming its parent is expression statement)
+   * @return new variable
+   */
+  public static PsiLocalVariable joinDeclarationAndAssignment(@NotNull PsiLocalVariable variable, @NotNull PsiAssignmentExpression assignment) {
+    PsiExpression initializer = getInitializerExpression(variable, assignment);
+    PsiElement elementToReplace = assignment.getParent();
+    if (elementToReplace != null) {
+      PsiLocalVariable varCopy = copyVarWithInitializer(variable, initializer);
+      if (varCopy != null) {
+        String text = varCopy.getText();
+
+        CommentTracker tracker = new CommentTracker();
+        tracker.markUnchanged(initializer);
+        tracker.markUnchanged(variable);
+        tracker.delete(variable);
+        PsiDeclarationStatement decl = (PsiDeclarationStatement)tracker.replaceAndRestoreComments(elementToReplace, text);
+        return ((PsiLocalVariable)decl.getDeclaredElements()[0]);
       }
     }
-    return initializerExpression;
+    return variable;
   }
 }

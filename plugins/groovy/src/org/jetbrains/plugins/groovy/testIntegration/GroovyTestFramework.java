@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.testIntegration;
 
+import com.intellij.execution.configurations.ConfigurationType;
 import com.intellij.execution.junit.JUnitUtil;
 import com.intellij.ide.fileTemplates.FileTemplateDescriptor;
 import com.intellij.lang.Language;
@@ -31,11 +18,12 @@ import icons.JetgroovyIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.GroovyLanguage;
 import org.jetbrains.plugins.groovy.actions.GroovyTemplates;
-import org.jetbrains.plugins.groovy.config.GroovyFacetUtil;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
 import org.jetbrains.plugins.groovy.lang.psi.util.GroovyCommonClassNames;
 
 import javax.swing.*;
+
+import static org.jetbrains.plugins.groovy.bundled.BundledGroovy.getBundledGroovyFile;
 
 /**
  * @author Max Medvedev
@@ -105,11 +93,6 @@ public class GroovyTestFramework extends JavaTestFramework {
     return inClass;
   }
 
-  @Override
-  public char getMnemonic() {
-    return 'G';
-  }
-
   @NotNull
   @Override
   public String getName() {
@@ -124,7 +107,7 @@ public class GroovyTestFramework extends JavaTestFramework {
 
   @Override
   public String getLibraryPath() {
-    return GroovyFacetUtil.getBundledGroovyJar().getAbsolutePath();
+    return getBundledGroovyFile().getAbsolutePath();
   }
 
   @Override
@@ -147,14 +130,20 @@ public class GroovyTestFramework extends JavaTestFramework {
     return new FileTemplateDescriptor(GroovyTemplates.GROOVY_JUNIT_TEAR_DOWN_METHOD_GROOVY);
   }
 
+  @NotNull
   @Override
   public FileTemplateDescriptor getTestMethodFileTemplateDescriptor() {
     return new FileTemplateDescriptor(GroovyTemplates.GROOVY_JUNIT_TEST_METHOD_GROOVY);
   }
 
   @Override
-  public boolean isTestMethod(PsiElement element) {
-    return element instanceof PsiMethod && JUnitUtil.getTestMethod(element) != null;
+  public boolean isTestMethod(PsiElement element, boolean checkAbstract) {
+    return element instanceof PsiMethod && JUnitUtil.getTestMethod(element, checkAbstract) != null;
+  }
+
+  @Override
+  public boolean isMyConfigurationType(ConfigurationType type) {
+    return "JUnit".equals(type.getId());
   }
 
   @Override

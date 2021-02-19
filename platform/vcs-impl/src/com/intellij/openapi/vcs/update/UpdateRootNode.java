@@ -18,6 +18,7 @@ package com.intellij.openapi.vcs.update;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.SimpleTextAttributes;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
@@ -27,14 +28,14 @@ public class UpdateRootNode extends GroupTreeNode {
 
   private final Project myProject;
 
-  public UpdateRootNode(UpdatedFiles updatedFiles, Project project, String rootName, ActionInfo actionInfo) {
-    super(rootName, false, SimpleTextAttributes.ERROR_ATTRIBUTES, project, Collections.<String, String>emptyMap(), null);
+  public UpdateRootNode(UpdatedFiles updatedFiles, Project project, @Nls String rootName, ActionInfo actionInfo) {
+    super(rootName, false, SimpleTextAttributes.ERROR_ATTRIBUTES, project, Collections.emptyMap(), null);
     myProject = project;
 
     addGroupsToNode(updatedFiles.getTopLevelGroups(), this, actionInfo);
   }
 
-  private void addGroupsToNode(List<FileGroup> groups, AbstractTreeNode owner, ActionInfo actionInfo) {
+  private void addGroupsToNode(List<? extends FileGroup> groups, AbstractTreeNode owner, ActionInfo actionInfo) {
     for (FileGroup fileGroup : groups) {
       GroupTreeNode node = addFileGroup(fileGroup, owner, actionInfo);
       if (node != null) {

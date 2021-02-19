@@ -1,83 +1,74 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.ui.tree;
 
 import com.intellij.codeInsight.hint.HintManager;
-import com.intellij.ide.DataManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.ui.AppUIUtil;
 import com.intellij.ui.SimpleColoredComponent;
+import com.intellij.util.ui.JBUI;
 import com.intellij.xdebugger.frame.XValueModifier;
 import com.intellij.xdebugger.frame.presentation.XValuePresentation;
-import com.intellij.xdebugger.impl.XDebuggerUtilImpl;
 import com.intellij.xdebugger.impl.breakpoints.XExpressionImpl;
-import com.intellij.xdebugger.impl.ui.XDebugSessionTab;
+import com.intellij.xdebugger.impl.ui.DebuggerUIUtil;
 import com.intellij.xdebugger.impl.ui.XDebuggerUIConstants;
 import com.intellij.xdebugger.impl.ui.tree.nodes.XValueNodeImpl;
 import com.intellij.xdebugger.impl.ui.tree.nodes.XValuePresentationUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.border.Border;
 import java.awt.*;
 
-/**
- * @author nik
- */
-public class SetValueInplaceEditor extends XDebuggerTreeInplaceEditor {
+public final class SetValueInplaceEditor extends XDebuggerTreeInplaceEditor {
   private final JPanel myEditorPanel;
   private final XValueModifier myModifier;
   private final XValueNodeImpl myValueNode;
+  private final int myNameOffset;
 
-  private SetValueInplaceEditor(final XValueNodeImpl node, @NotNull final String nodeName) {
+  private SetValueInplaceEditor(final XValueNodeImpl node, @NotNull final @NlsSafe String nodeName) {
     super(node, "setValue");
     myValueNode = node;
     myModifier = myValueNode.getValueContainer().getModifier();
 
-    myEditorPanel = new JPanel();
-    myEditorPanel.setLayout(new BorderLayout(0, 0));
     SimpleColoredComponent nameLabel = new SimpleColoredComponent();
-    nameLabel.setIcon(getNode().getIcon());
+    nameLabel.getIpad().right = 0;
+    nameLabel.getIpad().left = 0;
+    nameLabel.setIcon(myNode.getIcon());
     nameLabel.append(nodeName, XDebuggerUIConstants.VALUE_NAME_ATTRIBUTES);
     XValuePresentation presentation = node.getValuePresentation();
     if (presentation != null) {
       XValuePresentationUtil.appendSeparator(nameLabel, presentation.getSeparator());
     }
-    myEditorPanel.add(nameLabel, BorderLayout.WEST);
+    Border border = nameLabel.getMyBorder();
+    myNameOffset = nameLabel.getPreferredSize().width  - (border != null ? border.getBorderInsets(nameLabel).right : 0);
+    myEditorPanel = JBUI.Panels.simplePanel(myExpressionEditor.getComponent());
+  }
 
-    myEditorPanel.add(myExpressionEditor.getComponent(), BorderLayout.CENTER);
+  @Nullable
+  @Override
+  protected Rectangle getEditorBounds() {
+    Rectangle bounds = super.getEditorBounds();
+    if (bounds == null) {
+      return null;
+    }
+    bounds.x += myNameOffset;
+    bounds.width -= myNameOffset;
+    return bounds;
   }
 
   public static void show(final XValueNodeImpl node, @NotNull final String nodeName) {
     final SetValueInplaceEditor editor = new SetValueInplaceEditor(node, nodeName);
 
     if (editor.myModifier != null) {
-      editor.myModifier.calculateInitialValueEditorText(new XValueModifier.XInitialValueCallback() {
-        @Override
-        public void setValue(final String initialValue) {
-          AppUIUtil.invokeOnEdt(new Runnable() {
-            @Override
-            public void run() {
-              if (editor.getTree().isShowing()) {
-                editor.show(initialValue);
-              }
-            }
-          });
+      editor.myModifier.calculateInitialValueEditorText(initialValue -> AppUIUtil.invokeOnEdt(() -> {
+        if (editor.getTree().isShowing()) {
+          editor.show(initialValue);
         }
-      });
+      }));
     }
     else {
       editor.show(null);
@@ -100,46 +91,16 @@ public class SetValueInplaceEditor extends XDebuggerTreeInplaceEditor {
   public void doOKAction() {
     if (myModifier == null) return;
 
-    myExpressionEditor.saveTextInHistory();
-    final XDebuggerTreeState treeState = XDebuggerTreeState.saveState(myTree);
-    myValueNode.setValueModificationStarted();
-    myModifier.setValue(myExpressionEditor.getExpression().getExpression(), new XValueModifier.XModificationCallback() {
-      @Override
-      public void valueModified() {
-        if (isDetachedTree(myTree)) {
-          AppUIUtil.invokeOnEdt(new Runnable() {
-            @Override
-            public void run() {
-              myTree.rebuildAndRestore(treeState);
-            }
-          });
-        }
-        XDebuggerUtilImpl.rebuildAllSessionsViews(getProject());
+    DebuggerUIUtil.setTreeNodeValue(myValueNode, getExpression(), (@Nls var errorMessage) -> {
+      Editor editor = getEditor();
+      if (editor != null) {
+        HintManager.getInstance().showErrorHint(editor, errorMessage);
       }
-
-      @Override
-      public void errorOccurred(@NotNull final String errorMessage) {
-        AppUIUtil.invokeOnEdt(new Runnable() {
-          @Override
-          public void run() {
-            myTree.rebuildAndRestore(treeState);
-
-            Editor editor = myExpressionEditor.getEditor();
-            if (editor != null) {
-              HintManager.getInstance().showErrorHint(editor, errorMessage);
-            }
-            else {
-              Messages.showErrorDialog(myTree, errorMessage);
-            }
-          }
-        });
-        XDebuggerUtilImpl.rebuildAllSessionsViews(getProject());
-      }
-
-      boolean isDetachedTree(XDebuggerTree tree) {
-        return XDebugSessionTab.TAB_KEY.getData(DataManager.getInstance().getDataContext(tree)) == null;
+      else {
+        Messages.showErrorDialog(myTree, errorMessage);
       }
     });
+
     super.doOKAction();
   }
 }

@@ -1,28 +1,19 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.customize;
 
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.startup.StartupActionScriptManager;
-import com.intellij.idea.Main;
+import com.intellij.idea.SplashManager;
+import com.intellij.idea.StartupUtil;
 import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.ui.DialogWrapper;
-import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.text.HtmlBuilder;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.JBCardLayout;
-import com.intellij.util.PlatformUtils;
+import com.intellij.ui.components.JBLabel;
 import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -33,83 +24,89 @@ import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.List;
 
-public class CustomizeIDEWizardDialog extends DialogWrapper implements ActionListener {
-  private static final String BUTTONS = "BUTTONS";
-  private static final String NO_BUTTONS = "NO_BUTTONS";
+import static com.intellij.openapi.util.text.HtmlChunk.*;
 
-  private final JButton mySkipButton = new JButton("Skip All and Set Defaults");
-  private final JButton myBackButton = new JButton("Back");
-  private final JButton myNextButton = new JButton("Next");
+public class CustomizeIDEWizardDialog extends DialogWrapper implements CommonCustomizeIDEWizardDialog {
+  protected static final String BUTTONS = "BUTTONS";
+  protected static final String NO_BUTTONS = "NO_BUTTONS";
 
-  private final JBCardLayout myCardLayout = new JBCardLayout();
-  protected final List<AbstractCustomizeWizardStep> mySteps = new ArrayList<AbstractCustomizeWizardStep>();
-  private int myIndex = 0;
-  private final JLabel myNavigationLabel = new JLabel();
-  private final JLabel myHeaderLabel = new JLabel();
-  private final JLabel myFooterLabel = new JLabel();
-  private final CardLayout myButtonWrapperLayout = new CardLayout();
-  private final JPanel myButtonWrapper = new JPanel(myButtonWrapperLayout);
-  private JPanel myContentPanel;
+  protected final JButton mySkipButton = new JButton(IdeBundle.message("button.skip.remaining.and.set.defaults"));
+  protected final JButton myBackButton = new JButton(IdeBundle.message("button.back"));
+  protected final JButton myNextButton = new JButton(IdeBundle.message("button.next"));
 
-  public CustomizeIDEWizardDialog() {
+  protected final JBCardLayout myCardLayout = new JBCardLayout();
+  protected final List<AbstractCustomizeWizardStep> mySteps = new ArrayList<>();
+  protected int myIndex = 0;
+  protected final JBLabel myNavigationLabel = new JBLabel();
+  protected final JBLabel myHeaderLabel = new JBLabel();
+  protected final JBLabel myFooterLabel = new JBLabel();
+  protected final CardLayout myButtonWrapperLayout = new CardLayout();
+  protected final JPanel myButtonWrapper = new JPanel(myButtonWrapperLayout);
+  protected JPanel myContentPanel;
+  protected final boolean myHideSkipButton;
+
+  public CustomizeIDEWizardDialog(@NotNull CustomizeIDEWizardStepsProvider stepsProvider) {
+    this(stepsProvider, null, true, true);
+  }
+
+  public CustomizeIDEWizardDialog(@NotNull CustomizeIDEWizardStepsProvider stepsProvider, @Nullable StartupUtil.AppStarter appStarter,
+                                  boolean beforeSplash, boolean afterSplash) {
     super(null, true, true);
-    setTitle("Customize " + ApplicationNamesInfo.getInstance().getProductName());
+    setTitle(IdeBundle.message("dialog.title.customize.0", ApplicationNamesInfo.getInstance().getFullProductName()));
     getPeer().setAppIcons();
-    initSteps();
+
+    if (beforeSplash) stepsProvider.initSteps(this, mySteps);
+    if (afterSplash) stepsProvider.initStepsAfterSplash(this, mySteps);
+
+    if (appStarter != null) {
+      int newIndex = appStarter.customizeIdeWizardDialog(mySteps);
+      if (newIndex != -1) {
+        myIndex = newIndex;
+      }
+    }
+
+    myHideSkipButton = (mySteps.size() <= 1) || stepsProvider.hideSkipButton();
+
+    if (mySteps.isEmpty()) {
+      close(CANCEL_EXIT_CODE);
+      return;
+    }
+
     mySkipButton.addActionListener(this);
     myBackButton.addActionListener(this);
     myNextButton.addActionListener(this);
-    myNavigationLabel.setEnabled(false);
-    myFooterLabel.setEnabled(false);
+    AbstractCustomizeWizardStep.applyHeaderFooterStyle(myNavigationLabel);
+    AbstractCustomizeWizardStep.applyHeaderFooterStyle(myHeaderLabel);
+    AbstractCustomizeWizardStep.applyHeaderFooterStyle(myFooterLabel);
     init();
     initCurrentStep(true);
     setSize(400, 300);
     System.setProperty(StartupActionScriptManager.STARTUP_WIZARD_MODE, "true");
   }
 
-  public static void showCustomSteps(String stepsProviderName) {
-    final CustomizeIDEWizardStepsProvider provider;
-
-    try {
-      Class<?> providerClass = Class.forName(stepsProviderName);
-      provider = (CustomizeIDEWizardStepsProvider)providerClass.newInstance();
+  @Override
+  public void show() {
+    if (mySteps.isEmpty()) {
+      // use showIfNeeded() instead
+      throw new IllegalStateException("no steps provided");
     }
-    catch (Throwable e) {
-      Main.showMessage("Configuration Wizard Failed", e);
-      return;
-    }
+    CustomizeIDEWizardInteractions.INSTANCE.record(CustomizeIDEWizardInteractionType.WizardDisplayed);
+    SplashManager.executeWithHiddenSplash(getWindow(), () -> super.show());
+  }
 
-    new CustomizeIDEWizardDialog() {
-      @Override
-      protected void initSteps() {
-        provider.initSteps(this, mySteps);
-      }
-    }.show();
+  @Override
+  public final boolean showIfNeeded() {
+    boolean willBeShown = !mySteps.isEmpty() && !isDisposed();
+    if (willBeShown) {
+      show();
+    }
+    return willBeShown;
   }
 
   @Override
   protected void dispose() {
     System.clearProperty(StartupActionScriptManager.STARTUP_WIZARD_MODE);
     super.dispose();
-  }
-
-  protected void initSteps() {
-    mySteps.add(new CustomizeUIThemeStepPanel());
-    if (SystemInfo.isMac) {
-      mySteps.add(new CustomizeKeyboardSchemeStepPanel());
-    }
-    if (CustomizeDesktopEntryStep.isAvailable()) {
-      mySteps.add(new CustomizeDesktopEntryStep("/UbuntuDesktopEntry.png"));
-    }
-
-    PluginGroups pluginGroups = new PluginGroups();
-    mySteps.add(new CustomizePluginsStepPanel(pluginGroups));
-    try {
-      mySteps.add(new CustomizeFeaturedPluginsStepPanel(pluginGroups));
-    }
-    catch (CustomizeFeaturedPluginsStepPanel.OfflineException e) {
-      //skip featured step if we're offline
-    }
   }
 
   @Override
@@ -120,7 +117,9 @@ public class CustomizeIDEWizardDialog extends DialogWrapper implements ActionLis
       myContentPanel.add(step, step.getTitle());
     }
     JPanel topPanel = new JPanel(new BorderLayout(5, 5));
-    topPanel.add(myNavigationLabel, BorderLayout.NORTH);
+    if (mySteps.size() > 1) {
+      topPanel.add(myNavigationLabel, BorderLayout.NORTH);
+    }
     topPanel.add(myHeaderLabel, BorderLayout.CENTER);
     result.add(topPanel, BorderLayout.NORTH);
     result.add(myContentPanel, BorderLayout.CENTER);
@@ -138,10 +137,11 @@ public class CustomizeIDEWizardDialog extends DialogWrapper implements ActionLis
     gbc.fill = GridBagConstraints.BOTH;
     gbc.gridx = 0;
     gbc.gridy = 0;
-    if (!PlatformUtils.isCLion()) {
+
+    if (!myHideSkipButton)
       buttonPanel.add(mySkipButton, gbc);
-      gbc.gridx++;
-    }
+
+    gbc.gridx++;
     buttonPanel.add(myBackButton, gbc);
     gbc.gridx++;
     gbc.weightx = 1;
@@ -163,6 +163,7 @@ public class CustomizeIDEWizardDialog extends DialogWrapper implements ActionLis
   @Override
   public void actionPerformed(@NotNull ActionEvent e) {
     if (e.getSource() == mySkipButton) {
+      CustomizeIDEWizardInteractions.INSTANCE.setSkippedOnPage(myIndex);
       doOKAction();
       return;
     }
@@ -207,37 +208,55 @@ public class CustomizeIDEWizardDialog extends DialogWrapper implements ActionLis
     super.doOKAction();
   }
 
-  private void initCurrentStep(boolean forward) {
+  @Override
+  protected boolean canRecordDialogId() {
+    return false;
+  }
+
+  protected void initCurrentStep(boolean forward) {
     final AbstractCustomizeWizardStep myCurrentStep = mySteps.get(myIndex);
     myCurrentStep.beforeShown(forward);
-    myCardLayout.swipe(myContentPanel, myCurrentStep.getTitle(), JBCardLayout.SwipeDirection.AUTO, new Runnable() {
-      @Override
-      public void run() {
-        Component component = myCurrentStep.getDefaultFocusedComponent();
-        if (component != null) {
-          component.requestFocus();
-        }
+    myCardLayout.swipe(myContentPanel, myCurrentStep.getTitle(), JBCardLayout.SwipeDirection.AUTO, () -> {
+      Component component = myCurrentStep.getDefaultFocusedComponent();
+      if (component != null) {
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(component, true));
       }
     });
 
     myBackButton.setVisible(myIndex > 0);
     if (myIndex > 0) {
-      myBackButton.setText("Back to " + mySteps.get(myIndex - 1).getTitle());
+      myBackButton.setText(IdeBundle.message("button.back.to.0", mySteps.get(myIndex - 1).getTitle()));
     }
-    mySkipButton.setText("Skip " + (myIndex > 0 ? "Remaining" : "All") + " and Set Defaults");
 
     myNextButton.setText(myIndex < mySteps.size() - 1
-                         ? "Next: " + mySteps.get(myIndex + 1).getTitle()
-                         : "Start using " + ApplicationNamesInfo.getInstance().getFullProductName());
-    myHeaderLabel.setText(myCurrentStep.getHTMLHeader());
-    myFooterLabel.setText(myCurrentStep.getHTMLFooter());
-    StringBuilder navHTML = new StringBuilder("<html><body>");
-    for (int i = 0; i < mySteps.size(); i++) {
-      if (i > 0) navHTML.append("&nbsp;&#8594;&nbsp;");
-      if (i == myIndex) navHTML.append("<b>");
-      navHTML.append(mySteps.get(i).getTitle());
-      if (i == myIndex) navHTML.append("</b>");
+                         ? IdeBundle.message("button.next.0", mySteps.get(myIndex + 1).getTitle())
+                         : IdeBundle.message("button.start.using.0", ApplicationNamesInfo.getInstance().getFullProductName()));
+    myHeaderLabel.setText(ensureHTML(myCurrentStep.getHTMLHeader()));
+    myFooterLabel.setText(ensureHTML(myCurrentStep.getHTMLFooter()));
+    if (mySteps.size() <= 1) {
+      return;
     }
-    myNavigationLabel.setText(navHTML.toString());
+
+    Element body = body();
+    String arrow = myNavigationLabel.getFont().canDisplay(0x2192) ? "&#8594;" : "&gt;";
+    for (int i = 0; i < mySteps.size(); i++) {
+      if (i > 0) {
+        body = body.children(nbsp(), raw(arrow), nbsp());
+      }
+      if (i == myIndex) {
+        body = body.children(
+          tag("b").addText(mySteps.get(i).getTitle()));
+      } else {
+        body = body.addText(mySteps.get(i).getTitle());
+      }
+    }
+    String navHtml = new HtmlBuilder().append(html().child(body)).toString();
+
+    myNavigationLabel.setText(navHtml);
+  }
+
+  @Contract(value = "!null->!null" ,pure = true)
+  private static String ensureHTML(@Nullable String s) {
+    return s == null ? null : s.startsWith("<html>") ? s : "<html>" + StringUtil.escapeXmlEntities(s) + "</html>";
   }
 }

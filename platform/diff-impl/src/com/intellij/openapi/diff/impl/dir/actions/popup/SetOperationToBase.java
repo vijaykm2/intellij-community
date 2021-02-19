@@ -17,11 +17,11 @@ package com.intellij.openapi.diff.impl.dir.actions.popup;
 
 import com.intellij.ide.diff.DirDiffElement;
 import com.intellij.ide.diff.DirDiffOperation;
-import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.diff.impl.dir.DirDiffElementImpl;
 import com.intellij.openapi.diff.impl.dir.DirDiffPanel;
 import com.intellij.openapi.diff.impl.dir.DirDiffTableModel;
+import com.intellij.openapi.project.DumbAwareAction;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,17 +30,15 @@ import javax.swing.*;
 /**
  * @author Konstantin Bulenkov
  */
-public abstract class SetOperationToBase extends AnAction {
+public abstract class SetOperationToBase extends DumbAwareAction {
   @Override
-  public void actionPerformed(AnActionEvent e) {
-    DirDiffOperation operation = getOperation();
-    boolean setToDefault = operation == DirDiffOperation.NONE;
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final DirDiffTableModel model = getModel(e);
     final JTable table = getTable(e);
     assert model != null && table != null;
     for (DirDiffElementImpl element : model.getSelectedElements()) {
       if (isEnabledFor(element)) {
-        element.setOperation(setToDefault ? element.getDefaultOperation() : operation);
+        element.setOperation(getOperation(element));
       } else {
         element.setOperation(DirDiffOperation.NONE);
       }
@@ -49,13 +47,13 @@ public abstract class SetOperationToBase extends AnAction {
   }
 
   @NotNull
-  protected abstract DirDiffOperation getOperation();
+  protected abstract DirDiffOperation getOperation(DirDiffElementImpl element);
 
   @Override
-  public final void update(AnActionEvent e) {
+  public final void update(@NotNull AnActionEvent e) {
     final DirDiffTableModel model = getModel(e);
     final JTable table = getTable(e);
-    if (table != null && model != null) {
+    if (table != null && model != null && model.isOperationsEnabled()) {
       for (DirDiffElementImpl element : model.getSelectedElements()) {
         if (isEnabledFor(element)) {
           e.getPresentation().setEnabled(true);

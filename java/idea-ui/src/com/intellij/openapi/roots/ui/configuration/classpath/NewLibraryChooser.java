@@ -33,9 +33,6 @@ import javax.swing.*;
 import java.util.Arrays;
 import java.util.List;
 
-/**
-* @author nik
-*/
 class NewLibraryChooser implements ClasspathElementChooser<Library> {
   private final ModifiableRootModel myRootModel;
   private final StructureConfigurableContext myContext;
@@ -43,7 +40,7 @@ class NewLibraryChooser implements ClasspathElementChooser<Library> {
   private final Project myProject;
   private final LibraryType myLibraryType;
 
-  public NewLibraryChooser(final Project project,
+  NewLibraryChooser(final Project project,
                            final ModifiableRootModel rootModel,
                            LibraryType libraryType, StructureConfigurableContext context, final JComponent parentComponent) {
     myRootModel = rootModel;

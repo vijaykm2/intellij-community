@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,32 +15,20 @@
  */
 package com.intellij.openapi.editor.actions;
 
-import com.intellij.openapi.application.Result;
-import com.intellij.openapi.command.WriteCommandAction;
-import com.intellij.testFramework.EditorTestUtil;
-import com.intellij.testFramework.FileBasedTestCaseHelper;
-import com.intellij.testFramework.LightPlatformCodeInsightTestCase;
-import com.intellij.testFramework.TestDataPath;
-import org.jetbrains.annotations.NotNull;
+import com.intellij.testFramework.*;
 import org.jetbrains.annotations.Nullable;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-@SuppressWarnings("JUnit4AnnotatedMethodInJUnit3TestCase")
 @RunWith(com.intellij.testFramework.Parameterized.class)
 @TestDataPath("/testData/../../../platform/platform-tests/testData/editor/multiCaret/")
 public class EditorMultiCaretActionTest extends LightPlatformCodeInsightTestCase implements FileBasedTestCaseHelper {
   @Test
   public void testAction() {
-    new WriteCommandAction<Void>(null) {
-      @Override
-      protected void run(@NotNull Result<Void> result) throws Throwable {
-        configureByFile(getBeforeFileName());
-        EditorTestUtil.setEditorVisibleSize(myEditor, 120, 20); // some actions require visible area to be defined, like EditorPageUp
-        executeAction(getActionName());
-        checkResultByFile(getAfterFileName());
-      }
-    }.execute();
+    configureByFile(getBeforeFileName());
+    EditorTestUtil.setEditorVisibleSize(getEditor(), 120, 20); // some actions require visible area to be defined, like EditorPageUp
+    executeAction(getActionName());
+    checkResultByFile(getAfterFileName());
   }
 
   @Nullable
@@ -50,7 +38,7 @@ public class EditorMultiCaretActionTest extends LightPlatformCodeInsightTestCase
     if (pos < 0) {
       return null;
     }
-    return pos < 0 ? null : fileName.substring(0, pos) + '(' + fileName.substring(pos + 8) + ')';
+    return fileName.substring(0, pos) + '(' + fileName.substring(pos + 8) + ')';
   }
 
   private String getBeforeFileName() {

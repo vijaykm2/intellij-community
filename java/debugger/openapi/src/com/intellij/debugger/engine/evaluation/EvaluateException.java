@@ -21,7 +21,7 @@ import com.sun.jdi.ObjectReference;
 import org.jetbrains.annotations.Nullable;
 
 public class EvaluateException extends Exception {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.engine.evaluation.EvaluateException");
+  private static final Logger LOG = Logger.getInstance(EvaluateException.class);
   private ObjectReference myTargetException;
 
   public EvaluateException(final String message) {
@@ -44,7 +44,7 @@ public class EvaluateException extends Exception {
       LOG.debug(msg);
     }
   }
-  
+
   @Nullable
   public ObjectReference getExceptionFromTargetVM() {
     return myTargetException;
@@ -54,6 +54,7 @@ public class EvaluateException extends Exception {
     myTargetException = targetException;
   }
 
+  @Override
   public String getMessage() {
     final String errorMessage = super.getMessage();
     if (errorMessage != null) {

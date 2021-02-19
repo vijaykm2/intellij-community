@@ -24,11 +24,6 @@ import java.rmi.Remote;
 import java.rmi.RemoteException;
 import java.util.List;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 24.05.2007
- */
 public interface RemoteDebugger extends Remote {
   boolean ping() throws RemoteException;
 
@@ -52,7 +47,7 @@ public interface RemoteDebugger extends Remote {
 
   Frame getSourceFrame() throws RemoteException;
 
-  Value eval(String expr) throws RemoteException, Debugger.EvaluationException;
+  Value eval(String expr, String accessToken) throws RemoteException, Debugger.EvaluationException;
 
   List<Variable> getGlobalVariables() throws RemoteException;
 
@@ -81,14 +76,14 @@ public interface RemoteDebugger extends Remote {
 
     String getXPath() throws RemoteException;
 
-    Value eval(String expr) throws RemoteException, Debugger.EvaluationException;
+    Value eval(String expr, String accessToken) throws RemoteException, Debugger.EvaluationException;
 
     List<Variable> getVariables() throws RemoteException;
 
     String getInstruction() throws RemoteException;
   }
 
-  public interface Variable extends Remote {
+  interface Variable extends Remote {
     boolean isGlobal() throws RemoteException;
 
     Debugger.Variable.Kind getKind() throws RemoteException;

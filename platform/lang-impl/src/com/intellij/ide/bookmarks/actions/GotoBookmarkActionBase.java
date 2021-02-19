@@ -20,7 +20,7 @@ import com.intellij.ide.bookmarks.Bookmark;
 import com.intellij.ide.bookmarks.BookmarkManager;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
+import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.LogicalPosition;
 import com.intellij.openapi.editor.ScrollType;
@@ -34,12 +34,12 @@ abstract class GotoBookmarkActionBase extends EditorAction {
   protected GotoBookmarkActionBase(final boolean next) {
     super(new EditorActionHandler() {
       @Override
-      public void execute(Editor editor, DataContext dataContext) {
+      public void doExecute(@NotNull Editor editor, @Nullable Caret caret, DataContext dataContext) {
         navigateToBookmark(dataContext, editor);
       }
 
       @Override
-      public boolean isEnabled(Editor editor, DataContext dataContext) {
+      public boolean isEnabledForCaret(@NotNull Editor editor, @NotNull Caret caret, DataContext dataContext) {
         return getBookmarkToGo(dataContext, editor) != null;
       }
 
@@ -59,13 +59,11 @@ abstract class GotoBookmarkActionBase extends EditorAction {
       }
 
       @Nullable
-      private Bookmark getBookmarkToGo(DataContext dataContext, Editor editor) {
+      private Bookmark getBookmarkToGo(DataContext dataContext, @NotNull Editor editor) {
         Project project = CommonDataKeys.PROJECT.getData(dataContext);
         if (project == null) return null;
-        BookmarkManager manager = BookmarkManager.getInstance(project);
-        return next ? manager.getNextBookmark(editor, true) : manager.getPreviousBookmark(editor, true);
+        return BookmarkManager.getInstance(project).findLineBookmark(editor, true, next);
       }
     });
   }
-
 }

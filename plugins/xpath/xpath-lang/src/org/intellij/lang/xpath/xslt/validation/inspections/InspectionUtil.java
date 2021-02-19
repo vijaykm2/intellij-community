@@ -21,8 +21,8 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiWhiteSpace;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.*;
-import com.intellij.xml.util.XmlUtil;
 import org.intellij.lang.xpath.xslt.util.XsltCodeInsightUtil;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -31,7 +31,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class InspectionUtil {
+public final class InspectionUtil {
     static final Pattern SUPPRESSION_PATTERN = Pattern.compile("[ \t]*(?:noinspection|suppress)[ \t]+(\\w+(,[ \t]*\\w+)*)[ \t]*");
 
     @NonNls
@@ -76,20 +76,18 @@ public class InspectionUtil {
             if (prevSibling.getTextLength() > 0 && !"\n".equals(prevSibling.getText())) {
                 return isSuppressedAt(prevSibling.getLastChild(), tool);
             } else {
-                return isSuppressedAt(prevSibling, tool);                
+                return isSuppressedAt(prevSibling, tool);
             }
         }
         if (prevSibling instanceof XmlComment) {
             final XmlComment comment = (XmlComment)prevSibling;
-            final String text = XmlUtil.getCommentText(comment);
-            if (text != null) {
-                final Matcher matcher = SUPPRESSION_PATTERN.matcher(text);
-                if (matcher.matches()) {
-                    final String[] strings = matcher.group(1).split(",");
-                    final String toolId = tool.getID();
-                    for (String s : strings) {
-                        if (s.trim().equals(toolId) || ALL_ID.equals(s.trim())) return true;
-                    }
+            final String text = comment.getCommentText();
+            final Matcher matcher = SUPPRESSION_PATTERN.matcher(text);
+            if (matcher.matches()) {
+                final String[] strings = matcher.group(1).split(",");
+                final String toolId = tool.getID();
+                for (String s : strings) {
+                    if (s.trim().equals(toolId) || ALL_ID.equals(s.trim())) return true;
                 }
             }
         }
@@ -97,28 +95,32 @@ public class InspectionUtil {
     }
 
     public static List<SuppressIntentionAction> getSuppressActions(LocalInspectionTool inspection, final boolean isXPath) {
-        final List<SuppressIntentionAction> actions = new ArrayList<SuppressIntentionAction>(4);
+        final List<SuppressIntentionAction> actions = new ArrayList<>(4);
 
-        actions.add(new SuppressInspectionAction(inspection.getID(), "Suppress for Instruction") {
+        actions.add(new SuppressInspectionAction(inspection.getID(), XPathBundle.message("intention.name.suppress.for.instruction")) {
+            @Override
             protected XmlTag getAnchor(@NotNull PsiElement element) {
                 return PsiTreeUtil.getContextOfType(element, XmlTag.class, isXPath);
             }
         });
 
-        actions.add(new SuppressInspectionAction(inspection.getID(), "Suppress for Template") {
+        actions.add(new SuppressInspectionAction(inspection.getID(), XPathBundle.message("intention.name.suppress.for.template")) {
+            @Override
             protected XmlTag getAnchor(@NotNull PsiElement element) {
                 return XsltCodeInsightUtil.getTemplateTag(element, isXPath);
             }
         });
 
-        actions.add(new SuppressInspectionAction(inspection.getID(), "Suppress for Stylesheet") {
+        actions.add(new SuppressInspectionAction(inspection.getID(), XPathBundle.message("intention.name.suppress.for.stylesheet")) {
+            @Override
             protected XmlTag getAnchor(@NotNull PsiElement element) {
                 final XmlDocument document = PsiTreeUtil.getContextOfType(element, XmlDocument.class, isXPath);
                 return document != null ? document.getRootTag() : null;
             }
         });
 
-        actions.add(new SuppressInspectionAction(ALL_ID, "Suppress all for Stylesheet") {
+        actions.add(new SuppressInspectionAction(ALL_ID, XPathBundle.message("intention.name.suppress.all.for.stylesheet")) {
+            @Override
             protected XmlTag getAnchor(@NotNull PsiElement element) {
                 final XmlDocument document = PsiTreeUtil.getContextOfType(element, XmlDocument.class, isXPath);
                 return document != null ? document.getRootTag() : null;

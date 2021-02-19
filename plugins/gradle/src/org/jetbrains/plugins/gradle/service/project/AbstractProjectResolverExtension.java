@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@ package org.jetbrains.plugins.gradle.service.project;
 
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.SimpleJavaParameters;
-import com.intellij.externalSystem.JavaProjectData;
 import com.intellij.openapi.externalSystem.model.DataNode;
 import com.intellij.openapi.externalSystem.model.ExternalSystemException;
 import com.intellij.openapi.externalSystem.model.project.ModuleData;
@@ -25,24 +24,25 @@ import com.intellij.openapi.externalSystem.model.project.ProjectData;
 import com.intellij.openapi.externalSystem.model.task.TaskData;
 import com.intellij.openapi.externalSystem.util.ExternalSystemConstants;
 import com.intellij.openapi.externalSystem.util.Order;
-import com.intellij.openapi.util.KeyValue;
+import com.intellij.openapi.util.Pair;
 import com.intellij.util.Consumer;
+import org.gradle.tooling.model.build.BuildEnvironment;
 import org.gradle.tooling.model.idea.IdeaModule;
 import org.gradle.tooling.model.idea.IdeaProject;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.gradle.model.ClassSetProjectImportModelProvider;
+import org.jetbrains.plugins.gradle.model.ProjectImportModelProvider;
 
-import java.net.URL;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
 /**
- * {@link org.jetbrains.plugins.gradle.service.project.AbstractProjectResolverExtension} provides dummy implementation of Gradle project resolver.
+ * {@link AbstractProjectResolverExtension} provides dummy implementation of Gradle project resolver.
  *
  * @author Vladislav.Soroka
- * @since 10/14/13
  */
 @Order(ExternalSystemConstants.UNORDERED)
 public abstract class AbstractProjectResolverExtension implements GradleProjectResolverExtension {
@@ -69,27 +69,15 @@ public abstract class AbstractProjectResolverExtension implements GradleProjectR
     return nextResolver;
   }
 
-  @NotNull
-  @Override
-  public ProjectData createProject() {
-    return nextResolver.createProject();
-  }
-
-  @NotNull
-  @Override
-  public JavaProjectData createJavaProjectData() {
-    return nextResolver.createJavaProjectData();
-  }
-
   @Override
   public void populateProjectExtraModels(@NotNull IdeaProject gradleProject, @NotNull DataNode<ProjectData> ideProject) {
     nextResolver.populateProjectExtraModels(gradleProject, ideProject);
   }
 
-  @NotNull
+  @Nullable
   @Override
-  public ModuleData createModule(@NotNull IdeaModule gradleModule, @NotNull ProjectData projectData) {
-    return nextResolver.createModule(gradleModule, projectData);
+  public DataNode<ModuleData> createModule(@NotNull IdeaModule gradleModule, @NotNull DataNode<ProjectData> projectDataNode) {
+    return nextResolver.createModule(gradleModule, projectDataNode);
   }
 
   @Override
@@ -128,19 +116,26 @@ public abstract class AbstractProjectResolverExtension implements GradleProjectR
 
   @NotNull
   @Override
-  public Set<Class> getExtraProjectModelClasses() {
+  public Set<Class<?>> getExtraProjectModelClasses() {
+    return Collections.emptySet();
+  }
+
+  @Nullable
+  @Override
+  public ProjectImportModelProvider getModelProvider() {
+    Set<Class<?>> projectModelClasses = getExtraProjectModelClasses();
+    return projectModelClasses.isEmpty() ? null : new ClassSetProjectImportModelProvider(projectModelClasses);
+  }
+
+  @NotNull
+  @Override
+  public Set<Class<?>> getToolingExtensionsClasses() {
     return Collections.emptySet();
   }
 
   @NotNull
   @Override
-  public Set<Class> getToolingExtensionsClasses() {
-    return Collections.emptySet();
-  }
-
-  @NotNull
-  @Override
-  public List<KeyValue<String, String>> getExtraJvmArgs() {
+  public List<Pair<String, String>> getExtraJvmArgs() {
     return Collections.emptyList();
   }
 
@@ -152,18 +147,15 @@ public abstract class AbstractProjectResolverExtension implements GradleProjectR
 
   @NotNull
   @Override
-  public ExternalSystemException getUserFriendlyError(@NotNull Throwable error,
+  public ExternalSystemException getUserFriendlyError(@Nullable BuildEnvironment buildEnvironment,
+                                                      @NotNull Throwable error,
                                                       @NotNull String projectPath,
                                                       @Nullable String buildFilePath) {
-    return nextResolver.getUserFriendlyError(error, projectPath, buildFilePath);
+    return nextResolver.getUserFriendlyError(buildEnvironment, error, projectPath, buildFilePath);
   }
 
   @Override
   public void enhanceRemoteProcessing(@NotNull SimpleJavaParameters parameters) throws ExecutionException {
-  }
-
-  @Override
-  public void enhanceLocalProcessing(@NotNull List<URL> urls) {
   }
 
   @Override
@@ -172,7 +164,7 @@ public abstract class AbstractProjectResolverExtension implements GradleProjectR
 
   @Override
   public void enhanceTaskProcessing(@NotNull List<String> taskNames,
-                                    @Nullable String debuggerSetup,
+                                    @Nullable String jvmParametersSetup,
                                     @NotNull Consumer<String> initScriptConsumer) {
   }
 }

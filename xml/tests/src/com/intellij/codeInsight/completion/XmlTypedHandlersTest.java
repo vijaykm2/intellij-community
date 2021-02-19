@@ -15,15 +15,19 @@
  */
 package com.intellij.codeInsight.completion;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.application.options.editor.WebEditorOptions;
+import com.intellij.codeInsight.CodeInsightSettings;
+import com.intellij.ide.highlighter.HtmlFileType;
 import com.intellij.ide.highlighter.XmlFileType;
-import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixtureTestCase;
+import com.intellij.psi.codeStyle.CodeStyleSettings;
+import com.intellij.psi.formatter.xml.HtmlCodeStyleSettings;
+import com.intellij.testFramework.fixtures.BasePlatformTestCase;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 30.08.13
  */
-public class XmlTypedHandlersTest extends LightPlatformCodeInsightFixtureTestCase {
+public class XmlTypedHandlersTest extends BasePlatformTestCase {
   public void testClosingTag() {
     doTest("<foo><<caret>", '/', "<foo></foo>");
   }
@@ -45,8 +49,8 @@ public class XmlTypedHandlersTest extends LightPlatformCodeInsightFixtureTestCas
            "<foo><<caret>\n" +
            "<foo><<caret>\n" +
            "</bar>", '/', "<bar>\n" +
-                          "<foo></foo><caret>\n" +
-                          "<foo></foo><caret>\n" +
+                          "    <foo></foo><caret>\n" +
+                          "    <foo></foo><caret>\n" +
                           "</bar>");
   }
 
@@ -65,8 +69,8 @@ public class XmlTypedHandlersTest extends LightPlatformCodeInsightFixtureTestCas
            "<foo><<caret>\n" +
            "<fiz><<caret>\n" +
            "</bar>", '/', "<bar>\n" +
-                          "<foo></foo><caret>\n" +
-                          "<fiz></fiz><caret>\n" +
+                          "    <foo></foo><caret>\n" +
+                          "    <fiz></fiz><caret>\n" +
                           "</bar>");
   }
 
@@ -95,7 +99,33 @@ public class XmlTypedHandlersTest extends LightPlatformCodeInsightFixtureTestCas
     }
   }
 
-  public void testFooBar() throws Exception {
+  public void testSingleQuotes() {
+    final HtmlCodeStyleSettings settings = getHtmlSettings();
+    final CodeStyleSettings.QuoteStyle quote = settings.HTML_QUOTE_STYLE;
+    try {
+      settings.HTML_QUOTE_STYLE = CodeStyleSettings.QuoteStyle.Single;
+      myFixture.configureByText(HtmlFileType.INSTANCE, "<foo bar<caret>");
+      myFixture.type('=');
+      myFixture.checkResult("<foo bar='<caret>'");
+    } finally {
+      settings.HTML_QUOTE_STYLE = quote;
+    }
+  }
+
+  public void testNoneQuotes() {
+    final HtmlCodeStyleSettings settings = getHtmlSettings();
+    final CodeStyleSettings.QuoteStyle quote = settings.HTML_QUOTE_STYLE;
+    try {
+      settings.HTML_QUOTE_STYLE = CodeStyleSettings.QuoteStyle.None;
+      myFixture.configureByText(HtmlFileType.INSTANCE, "<foo bar<caret>>text");
+      myFixture.type('=');
+      myFixture.checkResult("<foo bar=<caret>>text");
+    } finally {
+      settings.HTML_QUOTE_STYLE = quote;
+    }
+  }
+
+  public void testFooBar() {
     doTest("<foo>\n" +
            "  <bar<caret></bar>\n" +
            "</foo>",
@@ -105,7 +135,7 @@ public class XmlTypedHandlersTest extends LightPlatformCodeInsightFixtureTestCas
            "</foo>");
   }
 
-  public void testWeb13982() throws Exception {
+  public void testWeb13982() {
     doTest(
       "<a foo=\"1\"\n" +
       "   bar=\"2\"><caret></a>",
@@ -119,7 +149,7 @@ public class XmlTypedHandlersTest extends LightPlatformCodeInsightFixtureTestCas
     );
   }
 
-  public void testWeb392() throws Exception {
+  public void testWeb392() {
     doTest(
       "<h1>Title</h1>\n" +
       "<p>body text</p><caret>",
@@ -132,9 +162,124 @@ public class XmlTypedHandlersTest extends LightPlatformCodeInsightFixtureTestCas
     );
   }
 
+  public void testPi() {
+    doTest("<<caret>", '?', "<?<caret> ?>");
+    doTest("<caret>", '?', "?");
+    doTest("<<caret> ?>", '?', "<?<caret> ?>");
+  }
+
+  public void testAutoindentEndTag() {
+    doTest(
+      "<div>\n" +
+      "    <p>\n" +
+      "        Some text\n" +
+      "    </p>\n" +
+      "    <<caret>",
+
+      '/',
+
+      "<div>\n" +
+      "    <p>\n" +
+      "        Some text\n" +
+      "    </p>\n" +
+      "</div><caret>"
+    );
+  }
+
+  public void testSelectionBraces() {
+    boolean surround = CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED;
+    try {
+      CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED = true;
+      doTest("<selection><div></div></selection>",
+             '(',
+             "(<div></div>)");
+    } finally {
+      CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED = surround;
+    }
+  }
+
+  public void testSelectionBracesInner() {
+    boolean surround = CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED;
+    try {
+      CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED = true;
+      doTest("<div><selection><div></div></selection></div>",
+             '(',
+             "<div>(<div></div>)</div>");
+    } finally {
+      CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED = surround;
+    }
+  }
+
+  public void testSelectionBracesStart() {
+    boolean surround = CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED;
+    try {
+      CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED = true;
+      doTest("<selection><div></selection></div>",
+             '(',
+             "(<div>)</div>");
+    } finally {
+      CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED = surround;
+    }
+  }
+
+  public void testSelectionBracesEnd() {
+    boolean surround = CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED;
+    try {
+      CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED = true;
+      doTest("<div><selection></div></selection>",
+             '(',
+             "<div>(</div>)");
+    } finally {
+      CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED = surround;
+    }
+  }
+
+  public void testSelectionBracesShort() {
+    boolean surround = CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED;
+    try {
+      CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED = true;
+      doTest("<selection><div/></selection>",
+             '(',
+             "(<div/>)");
+    }
+    finally {
+      CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED = surround;
+    }
+  }
+
+  public void testSelectionBracesShortInner() {
+    boolean surround = CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED;
+    try {
+      CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED = true;
+      doTest("<div><selection><div/></selection></div>",
+             '(',
+             "<div>(<div/>)</div>");
+    }
+    finally {
+      CodeInsightSettings.getInstance().SURROUND_SELECTION_ON_QUOTE_TYPED = surround;
+    }
+  }
+
+  public void testTagClosing() {
+    myFixture.configureByText("test.html", "<div><caret></div>");
+    myFixture.type("</");
+    myFixture.checkResult("<div></></div>");
+  }
+
+  public void testTagClosing2() {
+    myFixture.configureByText("test.html", "<div><caret></div>");
+    myFixture.type("<>aa</");
+    myFixture.checkResult("<div><>aa</></div>");
+  }
+
   private void doTest(String text, char c, String result) {
     myFixture.configureByText(XmlFileType.INSTANCE, text);
     myFixture.type(c);
     myFixture.checkResult(result);
+  }
+
+  private HtmlCodeStyleSettings getHtmlSettings() {
+    return CodeStyle.getSettings(myFixture.getProject())
+                    .getCustomSettings(HtmlCodeStyleSettings.class);
   }
 }

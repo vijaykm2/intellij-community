@@ -1,31 +1,14 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.properties.psi.impl;
 
+import com.intellij.lang.ASTFactory;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.properties.PropertyManipulator;
 import com.intellij.lang.properties.parsing.PropertiesTokenTypes;
-import com.intellij.lang.properties.psi.PropertiesElementFactory;
-import com.intellij.lang.properties.psi.PropertiesFile;
-import com.intellij.lang.properties.psi.Property;
-import com.intellij.lang.properties.psi.PropertyStub;
+import com.intellij.lang.properties.psi.*;
 import com.intellij.navigation.ItemPresentation;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.SearchScope;
@@ -36,12 +19,14 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Pattern;
 
-/**
- * @author max
- */
-public class PropertyImpl extends PropertiesStubElementImpl<PropertyStub> implements Property, PsiLanguageInjectionHost {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.lang.properties.psi.impl.PropertyImpl");
+public class PropertyImpl extends PropertiesStubElementImpl<PropertyStub> implements Property, PsiLanguageInjectionHost, PsiNameIdentifierOwner {
+  private static final Logger LOG = Logger.getInstance(PropertyImpl.class);
+
+  private static final Pattern PROPERTIES_SEPARATOR = Pattern.compile("^\\s*\\n\\s*\\n\\s*$");
 
   public PropertyImpl(@NotNull ASTNode node) {
     super(node);
@@ -51,12 +36,14 @@ public class PropertyImpl extends PropertiesStubElementImpl<PropertyStub> implem
     super(stub, nodeType);
   }
 
+  @Override
   public String toString() {
-    return "Property:" + getKey();
+    return "Property{ key = " + getKey() + ", value = " + getValue() + "}";
   }
 
+  @Override
   public PsiElement setName(@NotNull String name) throws IncorrectOperationException {
-    PropertyImpl property = (PropertyImpl)PropertiesElementFactory.createProperty(getProject(), name, "xxx");
+    PropertyImpl property = (PropertyImpl)PropertiesElementFactory.createProperty(getProject(), name, "xxx", null);
     ASTNode keyNode = getKeyNode();
     ASTNode newKeyNode = property.getKeyNode();
     LOG.assertTrue(newKeyNode != null);
@@ -69,9 +56,15 @@ public class PropertyImpl extends PropertiesStubElementImpl<PropertyStub> implem
     return this;
   }
 
+  @Override
   public void setValue(@NotNull String value) throws IncorrectOperationException {
+    setValue(value, PropertyKeyValueFormat.PRESENTABLE);
+  }
+
+  @Override
+  public void setValue(@NotNull String value, @NotNull PropertyKeyValueFormat format) throws IncorrectOperationException {
     ASTNode node = getValueNode();
-    PropertyImpl property = (PropertyImpl)PropertiesElementFactory.createProperty(getProject(), "xxx", value);
+    PropertyImpl property = (PropertyImpl)PropertiesElementFactory.createProperty(getProject(), "xxx", value, getKeyValueDelimiter(), format);
     ASTNode valueNode = property.getValueNode();
     if (node == null) {
       if (valueNode != null) {
@@ -88,10 +81,12 @@ public class PropertyImpl extends PropertiesStubElementImpl<PropertyStub> implem
     }
   }
 
+  @Override
   public String getName() {
     return getUnescapedKey();
   }
 
+  @Override
   public String getKey() {
     final PropertyStub stub = getStub();
     if (stub != null) {
@@ -115,6 +110,7 @@ public class PropertyImpl extends PropertiesStubElementImpl<PropertyStub> implem
     return getNode().findChildByType(PropertiesTokenTypes.VALUE_CHARACTERS);
   }
 
+  @Override
   public String getValue() {
     final ASTNode node = getValueNode();
     if (node == null) {
@@ -123,9 +119,16 @@ public class PropertyImpl extends PropertiesStubElementImpl<PropertyStub> implem
     return node.getText();
   }
 
+  @Override
   @Nullable
   public String getUnescapedValue() {
     return unescape(getValue());
+  }
+
+  @Override
+  public @Nullable PsiElement getNameIdentifier() {
+    final ASTNode node = getKeyNode();
+    return node == null ? null : node.getPsi();
   }
 
 
@@ -136,7 +139,7 @@ public class PropertyImpl extends PropertiesStubElementImpl<PropertyStub> implem
     return sb.toString();
   }
 
-  public static boolean parseCharacters(String s, StringBuilder outChars, @Nullable int[] sourceOffsets) {
+  public static boolean parseCharacters(String s, StringBuilder outChars, int @Nullable [] sourceOffsets) {
     assert sourceOffsets == null || sourceOffsets.length == s.length() + 1;
     int off = 0;
     int len = s.length();
@@ -190,7 +193,7 @@ public class PropertyImpl extends PropertiesStubElementImpl<PropertyStub> implem
               default:
                 outChars.append("\\u");
                 int start = off - i - 1;
-                int end = start + 4 < s.length() ? start + 4 : s.length();
+                int end = Math.min(start + 4, s.length());
                 outChars.append(s, start, end);
                 i=4;
                 error = true;
@@ -289,7 +292,7 @@ public class PropertyImpl extends PropertiesStubElementImpl<PropertyStub> implem
                 break;
               default:
                 int start = off - i - 1;
-                int end = start + 4 < s.length() ? start + 4 : s.length();
+                int end = Math.min(start + 4, s.length());
                 i=4;
                 error = true;
                 off = end;
@@ -314,26 +317,22 @@ public class PropertyImpl extends PropertiesStubElementImpl<PropertyStub> implem
             off++;
           }
         }
-        else if (aChar == 't') {
-          if (startSpaces == -1) startSpaces = off;
-        }
-        else if (aChar == 'r') {
-          if (startSpaces == -1) startSpaces = off;
-        }
-        else if (aChar == 'n') {
-          if (startSpaces == -1) startSpaces = off;
-        }
-        else if (aChar == 'f') {
+        else if (aChar == 't' || aChar == 'r') {
           if (startSpaces == -1) startSpaces = off;
         }
         else {
-          if (Character.isWhitespace(aChar)) {
-            if (startSpaces == -1) {
-              startSpaces = off-1;
-            }
+          if (aChar == 'n' || aChar == 'f') {
+            if (startSpaces == -1) startSpaces = off;
           }
           else {
-            startSpaces = -1;
+            if (Character.isWhitespace(aChar)) {
+              if (startSpaces == -1) {
+                startSpaces = off-1;
+              }
+            }
+            else {
+              startSpaces = -1;
+            }
           }
         }
       }
@@ -351,15 +350,19 @@ public class PropertyImpl extends PropertiesStubElementImpl<PropertyStub> implem
     return startSpaces == -1 ? null : new TextRange(startSpaces, len);
   }
 
+  @Override
   @Nullable
   public String getUnescapedKey() {
     return unescape(getKey());
   }
 
-  public Icon getIcon(int flags) {
+  @Nullable
+  @Override
+  protected Icon getElementIcon(@IconFlags int flags) {
     return PlatformIcons.PROPERTY_ICON;
   }
 
+  @Override
   public void delete() throws IncorrectOperationException {
     final ASTNode parentNode = getParent().getNode();
     assert parentNode != null;
@@ -374,24 +377,42 @@ public class PropertyImpl extends PropertiesStubElementImpl<PropertyStub> implem
     }
   }
 
+  @Override
   public PropertiesFile getPropertiesFile() {
-    return (PropertiesFile)super.getContainingFile();
+    PsiFile containingFile = super.getContainingFile();
+    if (!(containingFile instanceof PropertiesFile)) {
+      LOG.error("Unexpected file type of: " + containingFile.getName());
+    }
+    return (PropertiesFile)containingFile;
   }
 
+  /**
+   * The method gets the upper edge of a {@link Property} instance which might either be
+   * the property itself or the first {@link PsiComment} node that is related to the property
+   *
+   * @param property the property to get the upper edge for
+   * @return the property itself or the first {@link PsiComment} node that is related to the property
+   */
+  static PsiElement getEdgeOfProperty(@NotNull final Property property) {
+    PsiElement prev = property;
+    for (PsiElement node = property.getPrevSibling(); node != null; node = node.getPrevSibling()) {
+      if (node instanceof Property) break;
+      if (node instanceof PsiWhiteSpace) {
+        if (PROPERTIES_SEPARATOR.matcher(node.getText()).find()) break;
+      }
+      prev = node;
+    }
+    return prev;
+  }
+
+  @Override
   public String getDocCommentText() {
+    final PsiElement edge = getEdgeOfProperty(this);
     StringBuilder text = new StringBuilder();
-    for (PsiElement doc = getPrevSibling(); doc != null; doc = doc.getPrevSibling()) {
-      if (doc instanceof PsiWhiteSpace) {
-        doc = doc.getPrevSibling();
-      }
+    for(PsiElement doc = edge; doc != this; doc = doc.getNextSibling()) {
       if (doc instanceof PsiComment) {
-        if (text.length() != 0) text.insert(0, "\n");
-        String comment = doc.getText();
-        String trimmed = StringUtil.trimStart(StringUtil.trimStart(comment, "#"), "!");
-        text.insert(0, trimmed.trim());
-      }
-      else {
-        break;
+        text.append(doc.getText());
+        text.append("\n");
       }
     }
     if (text.length() == 0) return null;
@@ -404,22 +425,27 @@ public class PropertyImpl extends PropertiesStubElementImpl<PropertyStub> implem
     return this;
   }
 
+  @Override
   @NotNull
   public SearchScope getUseScope() {
     // property ref can occur in any file
     return GlobalSearchScope.allScope(getProject());
   }
 
+  @Override
   public ItemPresentation getPresentation() {
     return new ItemPresentation() {
+      @Override
       public String getPresentableText() {
         return getName();
       }
 
+      @Override
       public String getLocationString() {
         return getPropertiesFile().getName();
       }
 
+      @Override
       public Icon getIcon(final boolean open) {
         return null;
       }
@@ -442,30 +468,51 @@ public class PropertyImpl extends PropertiesStubElementImpl<PropertyStub> implem
     return new PropertyImplEscaper(this);
   }
 
-  @Nullable
-  public Character getKeyValueDelimiter() {
+  public char getKeyValueDelimiter() {
     final PsiElement delimiter = findChildByType(PropertiesTokenTypes.KEY_VALUE_SEPARATOR);
     if (delimiter == null) {
-      return null;
+      return ' ';
     }
-    String separatorText = delimiter.getText();
-    if (separatorText.isEmpty()) {
-      return null;
-    }
-    separatorText = separatorText.trim();
-    if (separatorText.isEmpty()) {
-      separatorText = " ";
-    }
-    LOG.assertTrue(separatorText.length() == 1, "\"" + separatorText + "\"");
-    return separatorText.charAt(0);
+    final String text = delimiter.getText();
+    LOG.assertTrue(text.length() == 1);
+    return text.charAt(0);
   }
 
   public void replaceKeyValueDelimiterWithDefault() {
-    PropertyImpl property = (PropertyImpl)PropertiesElementFactory.createProperty(getProject(), "yyy", "xxx");
-    final ASTNode oldDelimiter = getNode().findChildByType(PropertiesTokenTypes.KEY_VALUE_SEPARATOR);
-    LOG.assertTrue(oldDelimiter != null);
+    PropertyImpl property = (PropertyImpl)PropertiesElementFactory.createProperty(getProject(), "yyy", "xxx", null);
     final ASTNode newDelimiter = property.getNode().findChildByType(PropertiesTokenTypes.KEY_VALUE_SEPARATOR);
-    LOG.assertTrue(newDelimiter != null);
-    getNode().replaceChild(oldDelimiter, newDelimiter);
+    final ASTNode propertyNode = getNode();
+    final ASTNode oldDelimiter = propertyNode.findChildByType(PropertiesTokenTypes.KEY_VALUE_SEPARATOR);
+    if (areDelimitersEqual(newDelimiter, oldDelimiter)) {
+      return;
+    }
+    if (newDelimiter == null) {
+      propertyNode.replaceChild(oldDelimiter, ASTFactory.whitespace(" "));
+    } else {
+      if (oldDelimiter == null) {
+        propertyNode.addChild(newDelimiter, getValueNode());
+        final ASTNode insertedDelimiter = propertyNode.findChildByType(PropertiesTokenTypes.KEY_VALUE_SEPARATOR);
+        LOG.assertTrue(insertedDelimiter != null);
+        ASTNode currentPrev = insertedDelimiter.getTreePrev();
+        final List<ASTNode> toDelete = new ArrayList<>();
+        while (currentPrev != null && currentPrev.getElementType() == PropertiesTokenTypes.WHITE_SPACE) {
+          toDelete.add(currentPrev);
+          currentPrev = currentPrev.getTreePrev();
+        }
+        for (ASTNode node : toDelete) {
+          propertyNode.removeChild(node);
+        }
+      } else {
+        propertyNode.replaceChild(oldDelimiter, newDelimiter);
+      }
+    }
+  }
+
+  private static boolean areDelimitersEqual(@Nullable ASTNode node1, @Nullable ASTNode node2) {
+    if (node1 == null && node2 == null) return true;
+    if (node1 == null || node2 == null) return false;
+    final String text1 = node1.getText();
+    final String text2 = node2.getText();
+    return text1.equals(text2);
   }
 }

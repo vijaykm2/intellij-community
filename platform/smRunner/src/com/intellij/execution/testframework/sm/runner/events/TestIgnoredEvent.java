@@ -15,31 +15,35 @@
  */
 package com.intellij.execution.testframework.sm.runner.events;
 
+import com.intellij.execution.testframework.sm.SmRunnerBundle;
+import com.intellij.openapi.util.text.StringUtil;
 import jetbrains.buildServer.messages.serviceMessages.TestIgnored;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author Sergey Simonchik
- */
 public class TestIgnoredEvent extends TreeNodeEvent {
   private final String myIgnoreComment;
   private final String myStacktrace;
 
   public TestIgnoredEvent(@NotNull String testName, @NotNull String ignoreComment, @Nullable String stacktrace) {
-    super(testName, -1);
+    this(testName, null, ignoreComment, stacktrace);
+  }
+
+  public TestIgnoredEvent(@NotNull TestIgnored testIgnored, @Nullable String stacktrace) {
+    this(testIgnored.getTestName(), TreeNodeEvent.getNodeId(testIgnored), testIgnored.getIgnoreComment(), stacktrace);
+  }
+
+  public TestIgnoredEvent(@Nullable String name, @Nullable String id, @Nullable String ignoreComment, @Nullable String stacktrace) {
+    super(name, id);
     myIgnoreComment = ignoreComment;
     myStacktrace = stacktrace;
   }
 
-  public TestIgnoredEvent(@NotNull TestIgnored testIgnored, @Nullable String stacktrace) {
-    super(testIgnored.getTestName(), TreeNodeEvent.getNodeId(testIgnored));
-    myIgnoreComment = testIgnored.getIgnoreComment();
-    myStacktrace = stacktrace;
-  }
-
-  @Nullable
+  @NotNull
   public String getIgnoreComment() {
+    if (StringUtil.isEmpty(myIgnoreComment)) {
+      return SmRunnerBundle.message("sm.test.runner.states.test.is.ignored");
+    }
     return myIgnoreComment;
   }
 

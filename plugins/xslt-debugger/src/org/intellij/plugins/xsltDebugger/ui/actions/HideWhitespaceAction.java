@@ -15,31 +15,34 @@
  */
 package org.intellij.plugins.xsltDebugger.ui.actions;
 
+import com.intellij.icons.AllIcons;
 import com.intellij.ide.util.treeView.TreeState;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.ToggleAction;
 import com.intellij.ui.treeStructure.Tree;
-import icons.XsltDebuggerIcons;
+import org.intellij.plugins.xsltDebugger.XsltDebuggerBundle;
 import org.intellij.plugins.xsltDebugger.ui.GeneratedStructureModel;
+import org.jetbrains.annotations.NotNull;
 
-@SuppressWarnings({ "ComponentNotRegistered" })
 public class HideWhitespaceAction extends ToggleAction {
   private final Tree myStructureTree;
   private final GeneratedStructureModel myEventModel;
 
   public HideWhitespaceAction(Tree structureTree, GeneratedStructureModel eventModel) {
-    super("Hide Whitespace Nodes");
+    super(XsltDebuggerBundle.message("action.hide.whitespace.nodes.text"));
     myStructureTree = structureTree;
     myEventModel = eventModel;
 
-    getTemplatePresentation().setIcon(XsltDebuggerIcons.Actions.FilterWhitespace);
+    getTemplatePresentation().setIcon(AllIcons.ObjectBrowser.FlattenPackages);
   }
 
-  public boolean isSelected(AnActionEvent e) {
+  @Override
+  public boolean isSelected(@NotNull AnActionEvent e) {
     return myEventModel.isFilterWhitespace();
   }
 
-  public void setSelected(AnActionEvent e, boolean state) {
+  @Override
+  public void setSelected(@NotNull AnActionEvent e, boolean state) {
     final TreeState treeState = TreeState.createOn(myStructureTree);
     myEventModel.setFilterWhitespace(state);
     treeState.applyTo(myStructureTree);

@@ -17,7 +17,7 @@
 package org.intellij.plugins.xsltDebugger.impl;
 
 import com.intellij.psi.xml.XmlElement;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import org.intellij.lang.xpath.context.*;
 import org.intellij.lang.xpath.psi.XPathElement;
 import org.intellij.lang.xpath.xslt.context.XsltContextProvider;
@@ -30,23 +30,20 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 06.06.2007
- */
 public class EvalContextProvider extends ContextProvider {
-  private final List<Debugger.Variable> myVariables;
+  private final List<? extends Debugger.Variable> myVariables;
 
-  public EvalContextProvider(List<Debugger.Variable> model) {
+  public EvalContextProvider(List<? extends Debugger.Variable> model) {
     myVariables = model;
   }
 
+  @Override
   @NotNull
   public ContextType getContextType() {
     return XsltContextProvider.TYPE;
   }
 
+  @Override
   @Nullable
   public XmlElement getContextElement() {
     return null;
@@ -57,30 +54,34 @@ public class EvalContextProvider extends ContextProvider {
     return true;
   }
 
+  @Override
   @Nullable
   public NamespaceContext getNamespaceContext() {
     return null;
   }
 
+  @Override
   public VariableContext getVariableContext() {
     return new SimpleVariableContext() {
-      @NotNull
-      public String[] getVariablesInScope(XPathElement element) {
+      @Override
+      public String @NotNull [] getVariablesInScope(XPathElement element) {
         final int size = myVariables.size();
-        final ArrayList<String> vars = new ArrayList<String>(size);
+        final ArrayList<String> vars = new ArrayList<>(size);
         for (Debugger.Variable myVariable : myVariables) {
           vars.add(myVariable.getName());
         }
-        return ArrayUtil.toStringArray(vars);
+        return ArrayUtilRt.toStringArray(vars);
       }
     };
   }
 
+  @Override
   @Nullable
   public Set<QName> getAttributes(boolean forValidation) {
     return null; // TODO
   }
 
+  @Override
   @Nullable
   public Set<QName> getElements(boolean forValidation) {
     return null; // TODO

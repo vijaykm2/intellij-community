@@ -1,27 +1,19 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight;
 
+import com.intellij.codeInsight.completion.InsertionContext;
 import com.intellij.codeInsight.completion.simple.BracesTailType;
 import com.intellij.codeInsight.completion.simple.ParenthesesTailType;
 import com.intellij.codeInsight.completion.simple.RParenthTailType;
+import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.psi.PsiSwitchBlock;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
+import com.intellij.util.text.CharArrayUtil;
+import com.siyeh.ig.psiutils.SwitchUtils;
+import org.jetbrains.annotations.NotNull;
 
-public class TailTypes {
+public final class TailTypes {
   public static final TailType CALL_RPARENTH = new RParenthTailType(){
     @Override
     protected boolean isSpaceWithinParentheses(final CommonCodeStyleSettings styleSettings, final Editor editor, final int tailOffset) {
@@ -124,11 +116,36 @@ public class TailTypes {
       return styleSettings.SPACE_WITHIN_IF_PARENTHESES;
     }
   };
+  private static final String ARROW = " -> ";
+  public static final TailType CASE_ARROW = new TailType() {
+    @Override
+    public int processTail(Editor editor, int tailOffset) {
+      Document document = editor.getDocument();
+      document.insertString(tailOffset, ARROW);
+      return moveCaret(editor, tailOffset, ARROW.length());
+    }
+
+    @Override
+    public boolean isApplicable(@NotNull InsertionContext context) {
+      Document document = context.getDocument();
+      CharSequence chars = document.getCharsSequence();
+      int offset = CharArrayUtil.shiftForward(chars, context.getTailOffset(), " \n\t");
+      return !CharArrayUtil.regionMatches(chars, offset, "->");
+    }
+
+    @Override
+    public String toString() {
+      return "CASE_ARROW";
+    }
+  };
   private static final TailType BRACES = new BracesTailType();
   public static final TailType FINALLY_LBRACE = BRACES;
   public static final TailType TRY_LBRACE = BRACES;
   public static final TailType DO_LBRACE = BRACES;
 
+  public static TailType forSwitchLabel(@NotNull PsiSwitchBlock block) {
+    return SwitchUtils.isRuleFormatSwitch(block) ? CASE_ARROW : TailType.CASE_COLON;
+  }
 
 
   private TailTypes() {}

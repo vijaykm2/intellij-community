@@ -18,20 +18,22 @@ package com.intellij.codeInspection.nullable;
 import com.intellij.codeInsight.NullableNotNullManager;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiAnnotation;
+import com.intellij.util.ArrayUtil;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-/**
-* User: anna
-* Date: 2/22/13
-*/
+import java.util.List;
+
 class ChangeNullableDefaultsFix implements LocalQuickFix {
   private final NullableNotNullManager myManager;
   private final String myNotNullName;
   private final String myNullableName;
 
-  public ChangeNullableDefaultsFix(PsiAnnotation notNull, PsiAnnotation nullable, NullableNotNullManager manager) {
+  ChangeNullableDefaultsFix(@Nullable PsiAnnotation notNull, @Nullable PsiAnnotation nullable, @NotNull NullableNotNullManager manager) {
     myNotNullName = notNull != null ? notNull.getQualifiedName() : null;
     myNullableName = nullable != null ? nullable.getQualifiedName() : null;
     myManager = manager;
@@ -45,22 +47,29 @@ class ChangeNullableDefaultsFix implements LocalQuickFix {
 
   @NotNull
   @Override
-  public String getName() {
-    return "Make \"" + (myNotNullName != null ? myNotNullName : myNullableName) + "\" default annotation";
+  public String getFamilyName() {
+    return JavaAnalysisBundle.message("make.0.default.annotation", myNotNullName != null ? myNotNullName : myNullableName);
   }
 
-  @NotNull
   @Override
-  public String getFamilyName() {
-    return getName();
+  public boolean startInWriteAction() {
+    return false;
   }
 
   @Override
   public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
     if (myNotNullName != null) {
+      List<String> notNulls = myManager.getNotNulls();
+      if (!notNulls.contains(myNotNullName)) {
+        myManager.setNotNulls(StreamEx.of(notNulls).append(myNotNullName).toArray(ArrayUtil.EMPTY_STRING_ARRAY));
+      }
       myManager.setDefaultNotNull(myNotNullName);
     }
     else {
+      List<String> nullables = myManager.getNullables();
+      if (!nullables.contains(myNullableName)) {
+        myManager.setNullables(StreamEx.of(nullables).append(myNullableName).toArray(ArrayUtil.EMPTY_STRING_ARRAY));
+      }
       myManager.setDefaultNullable(myNullableName);
     }
   }

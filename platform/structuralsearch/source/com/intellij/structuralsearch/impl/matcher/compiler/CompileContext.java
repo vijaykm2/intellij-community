@@ -1,67 +1,53 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.impl.matcher.compiler;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.structuralsearch.MatchOptions;
 import com.intellij.structuralsearch.impl.matcher.CompiledPattern;
+import org.jetbrains.annotations.NotNull;
 
 /**
- * Created by IntelliJ IDEA.
- * User: maxim
- * Date: 17.11.2004
- * Time: 19:26:37
- * To change this template use File | Settings | File Templates.
+ * @author maxim
  */
 public class CompileContext {
-  private OptimizingSearchHelper searchHelper;
+  private final OptimizingSearchHelper mySearchHelper;
   
-  private CompiledPattern pattern;
-  private MatchOptions options;
-  private Project project;
+  private final CompiledPattern myPattern;
+  private final MatchOptions myOptions;
+  private final Project myProject;
+
+  public CompileContext(@NotNull CompiledPattern pattern, @NotNull MatchOptions options, @NotNull Project project) {
+    myPattern = pattern;
+    myOptions = options;
+    myProject = project;
+
+    mySearchHelper = ApplicationManager.getApplication().isUnitTestMode() ?
+                     new TestModeOptimizingSearchHelper() :
+                     new FindInFilesOptimizingSearchHelper(myOptions.getScope(), options.isCaseSensitiveMatch(), project);
+  }
 
   public void clear() {
-    if (searchHelper!=null) searchHelper.clear();
-
-    project = null;
-    pattern = null;
-    options = null;
+    mySearchHelper.clear();
   }
 
-  public void init(final CompiledPattern _result, final MatchOptions _options, final Project _project, final boolean _findMatchingFiles) {
-    options = _options;
-    project = _project;
-    pattern = _result;
-
-    searchHelper = ApplicationManager.getApplication().isUnitTestMode() ?
-                   new TestModeOptimizingSearchHelper(this) :
-                   new FindInFilesOptimizingSearchHelper(this, _findMatchingFiles, _project);
-  }
-
+  @NotNull
   public OptimizingSearchHelper getSearchHelper() {
-    return searchHelper;
+    return mySearchHelper;
   }
 
+  @NotNull
   public CompiledPattern getPattern() {
-    return pattern;
+    return myPattern;
   }
 
-  void setPattern(CompiledPattern pattern) {
-    this.pattern = pattern;
+  @NotNull
+  public MatchOptions getOptions() {
+    return myOptions;
   }
 
-  MatchOptions getOptions() {
-    return options;
-  }
-
-  void setOptions(MatchOptions options) {
-    this.options = options;
-  }
-
-  Project getProject() {
-    return project;
-  }
-
-  void setProject(Project project) {
-    this.project = project;
+  @NotNull
+  public Project getProject() {
+    return myProject;
   }
 }

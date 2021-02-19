@@ -1,4 +1,4 @@
-package org.jetbrains.plugins.javaFX.sceneBuilder;
+package org.jetbrains.plugins.javaFX.sceneBuilder;// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 import javax.swing.*;
 
@@ -8,7 +8,7 @@ import javax.swing.*;
 public interface SceneBuilder {
   JComponent getPanel();
 
-  void reloadFile();
+  boolean reload();
 
   void close();
 }

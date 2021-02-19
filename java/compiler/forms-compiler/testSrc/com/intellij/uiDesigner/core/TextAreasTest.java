@@ -15,17 +15,19 @@
  */
 package com.intellij.uiDesigner.core;
 
+import com.intellij.util.lang.JavaVersion;
 import junit.framework.TestCase;
 
 import javax.swing.*;
 import java.awt.*;
 
-public final class TextAreasTest extends TestCase{
+import static com.intellij.uiDesigner.core.SpansTest.setDefaults;
+
+public final class TextAreasTest extends TestCase {
   /**
    * label   |    label
    * text area (span 2)
-   */ 
-  
+   */
   public void test1() {
     final JPanel panel = new JPanel(new GridLayoutManager(2,2, new Insets(0,0,0,0), 0, 0));
 
@@ -46,10 +48,16 @@ public final class TextAreasTest extends TestCase{
       GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW,
       GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_CAN_GROW, null, null, null, 0));
 
-    assertEquals(100, textArea.getPreferredSize().width);
+    panel.doLayout();
+
+    int textAreaWidth = JavaVersion.current().feature >= 9 ? 101 : 100;
+
+    assertFalse(UIManager.getLookAndFeel().getName().equals("Windows"));
+    // This check fails for Windows LaF due to its default TextArea settings, so it's not expected here. By default it's Metal on Windows.
+    assertEquals(textAreaWidth, textArea.getPreferredSize().width);
 
     final Dimension initialPreferredSize = panel.getPreferredSize();
-    assertEquals(new Dimension(100,20 + textArea.getPreferredSize().height), initialPreferredSize);
+    assertEquals(new Dimension(textAreaWidth, 20 + textArea.getPreferredSize().height), initialPreferredSize);
 
     panel.setSize(initialPreferredSize);
     panel.invalidate();
@@ -68,10 +76,13 @@ public final class TextAreasTest extends TestCase{
     final JPanel panel = new JPanel(new GridLayoutManager(2,2, new Insets(0,0,0,0), 11, 0));
 
     final JTextField field1 = new JTextField();
+    setDefaults(field1);
     field1.setPreferredSize(new Dimension(15,20));
     final JTextField field2 = new JTextField();
+    setDefaults(field2);
     field2.setPreferredSize(new Dimension(15,20));
     final JTextField field3 = new JTextField();
+    setDefaults(field3);
     field3.setPreferredSize(new Dimension(100,20));
 
     panel.add(field1, new GridConstraints(0,0,1,1,GridConstraints.ANCHOR_CENTER,GridConstraints.FILL_HORIZONTAL,
@@ -83,7 +94,9 @@ public final class TextAreasTest extends TestCase{
     panel.add(field3, new GridConstraints(1,0,1,2,GridConstraints.ANCHOR_CENTER,GridConstraints.FILL_BOTH,
       GridConstraints.SIZEPOLICY_CAN_GROW, GridConstraints.SIZEPOLICY_FIXED, null, null, null, 0));
 
+    panel.doLayout();
+
     assertEquals(100, panel.getPreferredSize().width);
   }
-  
+
 }

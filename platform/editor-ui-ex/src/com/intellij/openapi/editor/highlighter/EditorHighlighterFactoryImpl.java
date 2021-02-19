@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.highlighter;
 
 import com.intellij.lang.Language;
+import com.intellij.lang.LanguageUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
@@ -24,7 +11,6 @@ import com.intellij.openapi.fileTypes.*;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.LanguageSubstitutors;
 import com.intellij.testFramework.LightVirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -32,13 +18,15 @@ import org.jetbrains.annotations.Nullable;
 /**
  * @author yole
  */
-public class EditorHighlighterFactoryImpl extends EditorHighlighterFactory {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.editor.highlighter.EditorHighlighterFactoryImpl");
+public final class EditorHighlighterFactoryImpl extends EditorHighlighterFactory {
+  private static final Logger LOG = Logger.getInstance(EditorHighlighterFactoryImpl.class);
 
   @NotNull
   @Override
   public EditorHighlighter createEditorHighlighter(SyntaxHighlighter highlighter, @NotNull final EditorColorsScheme colors) {
-    if (highlighter == null) highlighter = new PlainSyntaxHighlighter();
+    if (highlighter == null) {
+      highlighter = new PlainSyntaxHighlighter();
+    }
     return new LexerEditorHighlighter(highlighter, colors);
   }
 
@@ -64,10 +52,12 @@ public class EditorHighlighterFactoryImpl extends EditorHighlighterFactory {
   public EditorHighlighter createEditorHighlighter(@NotNull VirtualFile vFile, @NotNull EditorColorsScheme settings, @Nullable Project project) {
     FileType fileType = vFile.getFileType();
     if (fileType instanceof LanguageFileType) {
-      LanguageFileType substFileType = substituteFileType(((LanguageFileType)fileType).getLanguage(), vFile, project);
+      Language substLang = project == null ? null : LanguageUtil.getLanguageForPsi(project, vFile, fileType);
+      LanguageFileType substFileType = substLang != null && substLang != ((LanguageFileType)fileType).getLanguage() ?
+                                       substLang.getAssociatedFileType() : null;
       if (substFileType != null) {
         EditorHighlighterProvider provider = FileTypeEditorHighlighterProviders.INSTANCE.forFileType(substFileType);
-        EditorHighlighter editorHighlighter = provider.getEditorHighlighter(project, fileType, vFile, settings);
+        EditorHighlighter editorHighlighter = provider.getEditorHighlighter(project, substFileType, vFile, settings);
         boolean isPlain = editorHighlighter.getClass() == LexerEditorHighlighter.class &&
                           ((LexerEditorHighlighter) editorHighlighter).isPlain();
         if (!isPlain) {
@@ -87,18 +77,6 @@ public class EditorHighlighterFactoryImpl extends EditorHighlighterFactory {
 
     SyntaxHighlighter highlighter = SyntaxHighlighterFactory.getSyntaxHighlighter(fileType, project, vFile);
     return createEditorHighlighter(highlighter, settings);
-  }
-
-  @Nullable
-  private static LanguageFileType substituteFileType(Language language, VirtualFile vFile, Project project) {
-    LanguageFileType fileType = null;
-    if (vFile != null && project != null) {
-      Language substLanguage = LanguageSubstitutors.INSTANCE.substituteLanguage(language, vFile, project);
-      if (substLanguage != language) {
-        fileType = substLanguage.getAssociatedFileType();
-      }
-    }
-    return fileType;
   }
 
   @NotNull

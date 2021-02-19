@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ui;
 
@@ -20,6 +6,8 @@ import com.intellij.find.FindManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsActions;
+import com.intellij.openapi.util.NlsContexts;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -31,22 +19,20 @@ public class ReplacePromptDialog extends DialogWrapper {
   private final boolean myIsMultiple;
   @Nullable private final FindManager.MalformedReplacementStringException myException;
 
-  public ReplacePromptDialog(boolean isMultipleFiles, String title, Project project) {
+  public ReplacePromptDialog(boolean isMultipleFiles, @NlsContexts.DialogTitle String title, Project project) {
     this(isMultipleFiles, title, project, null);
   }
 
-  public ReplacePromptDialog(boolean isMultipleFiles, String title, Project project, @Nullable FindManager.MalformedReplacementStringException exception) {
+  public ReplacePromptDialog(boolean isMultipleFiles, @NlsContexts.DialogTitle String title, Project project, @Nullable FindManager.MalformedReplacementStringException exception) {
     super(project, true);
     myIsMultiple = isMultipleFiles;
     myException = exception;
-    setButtonsAlignment(SwingConstants.CENTER);
     setTitle(title);
     init();
   }
 
-  @NotNull
   @Override
-  protected Action[] createActions(){
+  protected Action @NotNull [] createActions(){
     DoAction replaceAction = new DoAction(UIBundle.message("replace.prompt.replace.button"), FindManager.PromptResult.OK);
     replaceAction.putValue(DEFAULT_ACTION,Boolean.TRUE);
     if (myException == null) {
@@ -95,7 +81,7 @@ public class ReplacePromptDialog extends DialogWrapper {
     return panel;
   }
 
-  protected String getMessage() {
+  protected @NlsContexts.Label String getMessage() {
     return myException == null ? UIBundle.message("replace.prompt.replace.occurrence.label") : myException.getMessage();
   }
 
@@ -112,7 +98,7 @@ public class ReplacePromptDialog extends DialogWrapper {
   private class DoAction extends AbstractAction {
     private final int myExitCode;
 
-    public DoAction(String name,int exitCode) {
+    DoAction(@NlsActions.ActionText String name, int exitCode) {
       putValue(Action.NAME, name);
       myExitCode = exitCode;
     }

@@ -16,6 +16,7 @@
 package com.jetbrains.python;
 
 import com.jetbrains.python.fixtures.PyLexerTestCase;
+import com.jetbrains.python.highlighting.PyHighlighter;
 import com.jetbrains.python.lexer.PythonHighlightingLexer;
 import com.jetbrains.python.psi.LanguageLevel;
 
@@ -74,7 +75,7 @@ public class PythonHighlightingLexerTest extends PyLexerTestCase {
   }
 
   public void testBytes30() {
-    doTest(LanguageLevel.PYTHON30, "s = b\"some string\"",
+    doTest(LanguageLevel.PYTHON34, "s = b\"some string\"",
                             "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", "Py:SINGLE_QUOTED_STRING");
   }
 
@@ -126,8 +127,35 @@ public class PythonHighlightingLexerTest extends PyLexerTestCase {
            "Py:LINE_BREAK", "Py:LINE_BREAK", "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", "Py:SINGLE_QUOTED_STRING");
   }
 
+  public void testFromFuturePrint() {
+    doTest(LanguageLevel.PYTHON27, "from __future__ import print_function\n" +
+                                   "print(1)",
+           "Py:FROM_KEYWORD", "Py:SPACE", "Py:IDENTIFIER", "Py:SPACE", "Py:IMPORT_KEYWORD", "Py:SPACE", "Py:IDENTIFIER", "Py:LINE_BREAK",
+           "Py:IDENTIFIER", "Py:LPAR", "Py:INTEGER_LITERAL", "Py:RPAR");
+  }
+
+  public void testWithoutFromFuturePrint() {
+    doTest(LanguageLevel.PYTHON27, "print(1)", "Py:PRINT_KEYWORD", "Py:LPAR", "Py:INTEGER_LITERAL", "Py:RPAR");
+  }
+
+  public void testFromFuturePrintAndUnicode() {
+    doTest(LanguageLevel.PYTHON27, "from __future__ import unicode_literals, print_function\n" +
+                                   "print(\"some string\")",
+           "Py:FROM_KEYWORD", "Py:SPACE", "Py:IDENTIFIER", "Py:SPACE", "Py:IMPORT_KEYWORD", "Py:SPACE", "Py:IDENTIFIER", "Py:COMMA", "Py:SPACE", "Py:IDENTIFIER", "Py:LINE_BREAK",
+           "Py:IDENTIFIER", "Py:LPAR", "Py:SINGLE_QUOTED_UNICODE", "Py:RPAR");
+  }
+
+  public void testFromFuturePrintNotFirstFail() {
+    doTest(LanguageLevel.PYTHON27, "a = 2\n" +
+                                   "from __future__ import print_function\n" +
+                                   "print(1)",
+           "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE","Py:INTEGER_LITERAL", "Py:LINE_BREAK",
+           "Py:FROM_KEYWORD", "Py:SPACE", "Py:IDENTIFIER", "Py:SPACE", "Py:IMPORT_KEYWORD", "Py:SPACE", "Py:IDENTIFIER", "Py:LINE_BREAK",
+           "Py:PRINT_KEYWORD", "Py:LPAR", "Py:INTEGER_LITERAL", "Py:RPAR");
+  }
+
   public void testUnicode30() {
-    doTest(LanguageLevel.PYTHON30, "s = \"some string\"",
+    doTest(LanguageLevel.PYTHON34, "s = \"some string\"",
                       "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", "Py:SINGLE_QUOTED_UNICODE");
   }
 
@@ -170,7 +198,80 @@ public class PythonHighlightingLexerTest extends PyLexerTestCase {
              "Py:COLON", "Py:SPACE", "Py:SINGLE_QUOTED_STRING", "Py:LINE_BREAK", "Py:SPACE", "Py:RBRACE");
     }
 
+  // PY-29665
+  public void testRawBytesLiteral() {
+    doTest(LanguageLevel.PYTHON27, "expr = br'raw bytes'", "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", "Py:SINGLE_QUOTED_STRING");
+    doTest(LanguageLevel.PYTHON34, "expr = rb'raw bytes'", "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", "Py:SINGLE_QUOTED_STRING");
+    doTest(LanguageLevel.PYTHON34, "expr = br'raw bytes'", "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", "Py:SINGLE_QUOTED_STRING");
+  }
+
+  // PY-31758
+  public void testFStringEscapeSequences() {
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "f'foo\\nbar'",
+                             "Py:FSTRING_START", "Py:FSTRING_TEXT", "VALID_STRING_ESCAPE_TOKEN", "Py:FSTRING_TEXT", "Py:FSTRING_END");
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "f'foo\\\nbar'",
+                             "Py:FSTRING_START", "Py:FSTRING_TEXT", "VALID_STRING_ESCAPE_TOKEN", "Py:FSTRING_TEXT", "Py:FSTRING_END");
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "f'foo\\u0041bar'",
+                             "Py:FSTRING_START", "Py:FSTRING_TEXT", "VALID_STRING_ESCAPE_TOKEN", "Py:FSTRING_TEXT", "Py:FSTRING_END");
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "f'foo\\x41bar'",
+                             "Py:FSTRING_START", "Py:FSTRING_TEXT", "VALID_STRING_ESCAPE_TOKEN", "Py:FSTRING_TEXT", "Py:FSTRING_END");
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "f'foo\\101bar'",
+                             "Py:FSTRING_START", "Py:FSTRING_TEXT", "VALID_STRING_ESCAPE_TOKEN", "Py:FSTRING_TEXT", "Py:FSTRING_END");
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "f'foo\\N{GREEK SMALL LETTER ALPHA}bar'",
+                             "Py:FSTRING_START", "Py:FSTRING_TEXT", "VALID_STRING_ESCAPE_TOKEN", "Py:FSTRING_TEXT", "Py:FSTRING_END");
+
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "f'foo\\",
+                             "Py:FSTRING_START", "Py:FSTRING_TEXT", "INVALID_CHARACTER_ESCAPE_TOKEN");
+
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "f'foo\\u00'",
+                             "Py:FSTRING_START", "Py:FSTRING_TEXT", "INVALID_UNICODE_ESCAPE_TOKEN", "Py:FSTRING_END");
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "f'foo\\uZZZZbar'",
+                             "Py:FSTRING_START", "Py:FSTRING_TEXT", "INVALID_UNICODE_ESCAPE_TOKEN", "Py:FSTRING_TEXT", "Py:FSTRING_END");
+
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "f'foo\\x0'",
+                             "Py:FSTRING_START", "Py:FSTRING_TEXT", "INVALID_UNICODE_ESCAPE_TOKEN", "Py:FSTRING_END");
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "f'foo\\xZZbar'",
+                             "Py:FSTRING_START", "Py:FSTRING_TEXT", "INVALID_UNICODE_ESCAPE_TOKEN", "Py:FSTRING_TEXT", "Py:FSTRING_END");
+
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "f'foo\\10'",
+                             "Py:FSTRING_START", "Py:FSTRING_TEXT", "VALID_STRING_ESCAPE_TOKEN", "Py:FSTRING_END");
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "f'foo\\777'",
+                             "Py:FSTRING_START", "Py:FSTRING_TEXT", "VALID_STRING_ESCAPE_TOKEN", "Py:FSTRING_TEXT", "Py:FSTRING_END");
+
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "f'foo\\N{GREEK SMALL LETTER ALPHA'",
+                             "Py:FSTRING_START", "Py:FSTRING_TEXT", "INVALID_UNICODE_ESCAPE_TOKEN", "Py:FSTRING_END");
+
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "f'{x:\\n}'",
+                             "Py:FSTRING_START", "Py:FSTRING_FRAGMENT_START", "Py:IDENTIFIER", "Py:FSTRING_FRAGMENT_FORMAT_START",
+                             "VALID_STRING_ESCAPE_TOKEN", "Py:FSTRING_FRAGMENT_END", "Py:FSTRING_END");
+  }
+
+  // PY-32123
+  public void testRawFStringEscapeSequences() {
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "rf'foo\\nbar'",
+                             "Py:FSTRING_START", "Py:FSTRING_RAW_TEXT", "Py:FSTRING_RAW_TEXT", "Py:FSTRING_RAW_TEXT", "Py:FSTRING_END");
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "rf'foo\\\nbar'",
+                             "Py:FSTRING_START", "Py:FSTRING_RAW_TEXT", "Py:FSTRING_RAW_TEXT", "Py:FSTRING_RAW_TEXT", "Py:FSTRING_END");
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "rf'foo\\",
+                             "Py:FSTRING_START", "Py:FSTRING_RAW_TEXT", "Py:FSTRING_RAW_TEXT");
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "rf'{x:\\n}'",
+                             "Py:FSTRING_START", "Py:FSTRING_FRAGMENT_START", "Py:IDENTIFIER", "Py:FSTRING_FRAGMENT_FORMAT_START",
+                             "Py:FSTRING_RAW_TEXT", "Py:FSTRING_RAW_TEXT", "Py:FSTRING_FRAGMENT_END", "Py:FSTRING_END");
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "rf'{f\"\\n\"}'",
+                             "Py:FSTRING_START", "Py:FSTRING_FRAGMENT_START",
+                             "Py:FSTRING_START", "VALID_STRING_ESCAPE_TOKEN", "Py:FSTRING_END",
+                             "Py:FSTRING_FRAGMENT_END", "Py:FSTRING_END");
+    doTestStringHighlighting(LanguageLevel.PYTHON36, "f'{rf\"\\n\"}'",
+                             "Py:FSTRING_START", "Py:FSTRING_FRAGMENT_START",
+                             "Py:FSTRING_START", "Py:FSTRING_RAW_TEXT", "Py:FSTRING_RAW_TEXT", "Py:FSTRING_END",
+                             "Py:FSTRING_FRAGMENT_END", "Py:FSTRING_END");
+  }
+
   private static void doTest(LanguageLevel languageLevel, String text, String... expectedTokens) {
     PyLexerTestCase.doLexerTest(text, new PythonHighlightingLexer(languageLevel), expectedTokens);
+  }
+
+  private static void doTestStringHighlighting(LanguageLevel languageLevel, String text, String... expectedTokens) {
+    PyLexerTestCase.doLexerTest(text, new PyHighlighter(languageLevel).getHighlightingLexer(), expectedTokens);
   }
 }

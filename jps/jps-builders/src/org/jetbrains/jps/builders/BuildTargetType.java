@@ -23,14 +23,27 @@ import java.util.List;
 /**
  * The type of a build target. For example, there is a build target type for Java production and another for Java tests.
  *
- * @author nik
  * @see org.jetbrains.jps.incremental.BuilderService#getTargetTypes()
  */
 public abstract class BuildTargetType<T extends BuildTarget<?>> {
   private final String myTypeId;
+  private final boolean myFileBased;
 
+  /**
+   * Creates type of targets which are not {@link #isFileBased() file based}, consider using {@link #BuildTargetType(String, boolean)} instead
+   */
   protected BuildTargetType(String typeId) {
+    this(typeId, false);
+  }
+
+  /**
+   * @param typeId ID of this target type, it must be unique among all instances of {@link BuildTargetType}
+   * @param fileBased {@code true} if targets of this type operate only on files under their source roots
+   * @see #isFileBased()
+   */
+  protected BuildTargetType(String typeId, boolean fileBased) {
     myTypeId = typeId;
+    myFileBased = fileBased;
   }
 
   public final String getTypeId() {
@@ -55,6 +68,19 @@ public abstract class BuildTargetType<T extends BuildTarget<?>> {
   @NotNull
   public abstract List<T> computeAllTargets(@NotNull JpsModel model);
 
+  /**
+   * @return implementation of {@link BuildTargetLoader} class which will be used to deserialize targets of this type from compiler caches
+   */
   @NotNull
   public abstract BuildTargetLoader<T> createLoader(@NotNull JpsModel model);
+
+  /**
+   * Return {@code true} if targets of this type operate only on files under their {@link BuildTarget#computeRootDescriptors source roots}.
+   * In that case the build system may perform some optimizations if where are no roots for a particular {@link BuildTarget} instance of this type.
+   * <p>Most of the target types are file based. A target may be not file based e.g. if it produces output using information from the
+   * project configuration only.</p>
+   */
+  public final boolean isFileBased() {
+    return myFileBased;
+  }
 }

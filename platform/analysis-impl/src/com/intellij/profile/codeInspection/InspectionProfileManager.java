@@ -1,94 +1,57 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.profile.codeInspection;
 
-import com.intellij.openapi.Disposable;
-import com.intellij.openapi.components.ServiceManager;
-import com.intellij.openapi.components.StoragePathMacros;
-import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.profile.ApplicationProfileManager;
-import com.intellij.profile.Profile;
-import com.intellij.profile.ProfileChangeAdapter;
-import com.intellij.profile.ProfileEx;
-import com.intellij.psi.search.scope.packageSet.NamedScope;
-import com.intellij.util.containers.ContainerUtil;
-import org.jdom.JDOMException;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.codeInsight.daemon.impl.SeverityRegistrar;
+import com.intellij.codeInspection.ex.InspectionProfileImpl;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.project.Project;
+import com.intellij.psi.search.scope.packageSet.NamedScopesHolder;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.io.IOException;
-import java.util.List;
+import java.util.Collection;
 
-/**
- * User: anna
- * Date: 29-Nov-2005
- */
-public abstract class InspectionProfileManager extends ApplicationProfileManager implements SeverityProvider {
-  @NonNls public static final String INSPECTION_DIR = "inspection";
-  @NonNls public static final String FILE_SPEC = StoragePathMacros.ROOT_CONFIG + '/' + INSPECTION_DIR;
+public interface InspectionProfileManager {
+  String INSPECTION_DIR = "inspection";
 
-  private final List<ProfileChangeAdapter> myProfileChangeAdapters = ContainerUtil.createLockFreeCopyOnWriteList();
+  @NotNull
+  Collection<InspectionProfileImpl> getProfiles();
 
-  protected static final Logger LOG = Logger.getInstance("#com.intellij.profile.DefaultProfileManager");
-
-  public static InspectionProfileManager getInstance() {
-    return ServiceManager.getService(InspectionProfileManager.class);
+  default @Nullable NamedScopesHolder getScopesManager() {
+    return null;
   }
 
-  public InspectionProfileManager() {
+  static @NotNull InspectionProfileManager getInstance() {
+    return ApplicationManager.getApplication().getService(InspectionProfileManager.class);
   }
 
-  protected abstract void initProfiles();
-
-  public abstract Profile loadProfile(@NotNull String path) throws IOException, JDOMException;
-
-  @Override
-  public void addProfileChangeListener(@NotNull final ProfileChangeAdapter listener) {
-    myProfileChangeAdapters.add(listener);
+  static @NotNull InspectionProfileManager getInstance(@NotNull Project project) {
+    return InspectionProjectProfileManager.getInstance(project);
   }
 
-  @Override
-  public void addProfileChangeListener(@NotNull ProfileChangeAdapter listener, @NotNull Disposable parentDisposable) {
-    ContainerUtil.add(listener, myProfileChangeAdapters, parentDisposable);
-  }
+  void setRootProfile(@Nullable String name);
 
-  @Override
-  public void removeProfileChangeListener(@NotNull final ProfileChangeAdapter listener) {
-    myProfileChangeAdapters.remove(listener);
-  }
+  @NotNull
+  InspectionProfileImpl getCurrentProfile();
 
-  @Override
-  public void fireProfileChanged(final Profile profile) {
-    if (profile instanceof ProfileEx) {
-      ((ProfileEx)profile).profileChanged();
-    }
-    for (ProfileChangeAdapter adapter : myProfileChangeAdapters) {
-      adapter.profileChanged(profile);
-    }
-  }
+  @Contract("_,true -> !null")
+  InspectionProfileImpl getProfile(@NotNull String name, boolean returnRootProfileIfNamedIsAbsent);
 
-  @Override
-  public void fireProfileChanged(final Profile oldProfile, final Profile profile, final NamedScope scope) {
-    for (ProfileChangeAdapter adapter : myProfileChangeAdapters) {
-      adapter.profileActivated(oldProfile, profile);
-    }
-  }
-
-  @Override
-  public Profile getProfile(@NotNull final String name) {
+  default @NotNull InspectionProfileImpl getProfile(@NotNull String name) {
     return getProfile(name, true);
+  }
+
+  @NotNull
+  SeverityRegistrar getSeverityRegistrar();
+
+  /**
+   * @deprecated use {@link #getSeverityRegistrar()}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  default @NotNull SeverityRegistrar getOwnSeverityRegistrar() {
+    return getSeverityRegistrar();
   }
 }

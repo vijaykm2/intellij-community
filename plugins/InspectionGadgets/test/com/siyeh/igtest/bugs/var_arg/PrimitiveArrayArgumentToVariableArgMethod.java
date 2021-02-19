@@ -4,9 +4,11 @@ import java.lang.invoke.MethodHandle;
 
 public class PrimitiveArrayArgumentToVariableArgMethod
 {
+    PrimitiveArrayArgumentToVariableArgMethod(Object... os) {}
+
     public static void main(String[] arg) throws Throwable
     {
-        methodVarArgObject(<warning descr="Confusing primitive array argument to var-arg method">new byte[3]</warning>);
+        methodVarArgObject(<warning descr="Confusing primitive array argument to varargs method">new byte[3]</warning>);
         methodVarArgByteArray(new byte[3]);
         MethodHandle meh = null;
         meh.invokeExact(new int[] { });
@@ -31,7 +33,7 @@ public class PrimitiveArrayArgumentToVariableArgMethod
     }
 
     void m() {
-        String.format("%s", <warning descr="Confusing primitive array argument to var-arg method">new int[]{1, 2, 3}</warning>);
+        String.format("%s", <warning descr="Confusing primitive array argument to varargs method">new int[]{1, 2, 3}</warning>);
     }
 
     static void bar1(java.lang.Object... objects) {
@@ -48,7 +50,15 @@ public class PrimitiveArrayArgumentToVariableArgMethod
 
     public static void invoke() {
         int[] ints = {1, 2, 3};
-        bar1(<warning descr="Confusing primitive array argument to var-arg method">ints</warning>); // warn here
+        bar1(<warning descr="Confusing primitive array argument to varargs method">ints</warning>); // warn here
         bar2(ints); // no warning needed here
+
+        new PrimitiveArrayArgumentToVariableArgMethod(<warning descr="Confusing primitive array argument to varargs method">ints</warning>);
+    }
+
+    enum E {
+        A(<warning descr="Confusing primitive array argument to varargs method">new int[] {}</warning>);
+
+        E(Object... os) {}
     }
 }

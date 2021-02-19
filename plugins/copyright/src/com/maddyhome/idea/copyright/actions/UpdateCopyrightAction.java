@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.maddyhome.idea.copyright.actions;
 
@@ -20,9 +6,10 @@ import com.intellij.analysis.AnalysisScope;
 import com.intellij.analysis.BaseAnalysisAction;
 import com.intellij.analysis.BaseAnalysisActionDialog;
 import com.intellij.codeInsight.FileModificationService;
+import com.intellij.copyright.CopyrightBundle;
+import com.intellij.copyright.CopyrightManager;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.module.Module;
@@ -38,24 +25,24 @@ import com.intellij.psi.*;
 import com.intellij.ui.TitledSeparator;
 import com.intellij.util.SequentialModalProgressTask;
 import com.intellij.util.SequentialTask;
-import com.maddyhome.idea.copyright.CopyrightManager;
-import com.maddyhome.idea.copyright.pattern.FileUtil;
 import com.maddyhome.idea.copyright.util.FileTypeUtil;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.util.*;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
-public class UpdateCopyrightAction extends BaseAnalysisAction {
+public final class UpdateCopyrightAction extends BaseAnalysisAction {
   public static final String UPDATE_EXISTING_COPYRIGHTS = "update.existing.copyrights";
   private JCheckBox myUpdateExistingCopyrightsCb;
 
-  protected UpdateCopyrightAction() {
+  private UpdateCopyrightAction() {
     super(UpdateCopyrightProcessor.TITLE, UpdateCopyrightProcessor.TITLE);
   }
 
-  public void update(AnActionEvent event) {
+  @Override
+  public void update(@NotNull AnActionEvent event) {
     final boolean enabled = isEnabled(event);
     event.getPresentation().setEnabled(enabled);
     if (ActionPlaces.isPopupPlace(event.getPlace())) {
@@ -63,9 +50,9 @@ public class UpdateCopyrightAction extends BaseAnalysisAction {
     }
   }
 
-  private static boolean isEnabled(AnActionEvent event) {
-    final DataContext context = event.getDataContext();
-    final Project project = CommonDataKeys.PROJECT.getData(context);
+  private static boolean isEnabled(AnActionEvent e) {
+    final DataContext context = e.getDataContext();
+    final Project project = e.getProject();
     if (project == null) {
       return false;
     }
@@ -77,24 +64,19 @@ public class UpdateCopyrightAction extends BaseAnalysisAction {
     final Editor editor = CommonDataKeys.EDITOR.getData(context);
     if (editor != null) {
       final PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
-      if (file == null || !FileTypeUtil.isSupportedFile(file)) {
-        return false;
-      }
+      return FileTypeUtil.isSupportedFile(file);
     }
-    else if (files != null && FileUtil.areFiles(files)) {
+    if (files != null && areFiles(files)) {
       boolean copyrightEnabled  = false;
       for (VirtualFile vfile : files) {
-        if (FileTypeUtil.getInstance().isSupportedFile(vfile)) {
+        if (vfile != null && FileTypeUtil.isSupportedFile(vfile)) {
           copyrightEnabled = true;
           break;
         }
       }
-      if (!copyrightEnabled) {
-        return false;
-      }
-
+      return copyrightEnabled;
     }
-    else if ((files == null || files.length != 1) &&
+    if ((files == null || files.length != 1) &&
              LangDataKeys.MODULE_CONTEXT.getData(context) == null &&
              LangDataKeys.MODULE_CONTEXT_ARRAY.getData(context) == null &&
              PlatformDataKeys.PROJECT_CONTEXT.getData(context) == null) {
@@ -104,26 +86,23 @@ public class UpdateCopyrightAction extends BaseAnalysisAction {
         for (PsiElement elem : elems) {
           if (!(elem instanceof PsiDirectory)) {
             final PsiFile file = elem.getContainingFile();
-            if (file == null || !FileTypeUtil.getInstance().isSupportedFile(file.getVirtualFile())) {
+            if (file == null || !FileTypeUtil.isSupportedFile(file.getVirtualFile())) {
               copyrightEnabled = true;
               break;
             }
           }
         }
-        if (!copyrightEnabled){
-          return false;
-        }
+        return copyrightEnabled;
       }
     }
     return true;
   }
 
-  @Nullable
   @Override
-  protected JComponent getAdditionalActionSettings(Project project, BaseAnalysisActionDialog dialog) {
+  protected @NotNull JComponent getAdditionalActionSettings(Project project, BaseAnalysisActionDialog dialog) {
     final JPanel panel = new JPanel(new VerticalFlowLayout());
     panel.add(new TitledSeparator());
-    myUpdateExistingCopyrightsCb = new JCheckBox("Update existing copyrights", 
+    myUpdateExistingCopyrightsCb = new JCheckBox(CopyrightBundle.message("checkbox.text.update.existing.copyrights"),
                                                  PropertiesComponent.getInstance().getBoolean(UPDATE_EXISTING_COPYRIGHTS, true));
     panel.add(myUpdateExistingCopyrightsCb);
     return panel;
@@ -131,14 +110,14 @@ public class UpdateCopyrightAction extends BaseAnalysisAction {
 
   @Override
   protected void analyze(@NotNull final Project project, @NotNull final AnalysisScope scope) {
-    PropertiesComponent.getInstance().setValue(UPDATE_EXISTING_COPYRIGHTS, String.valueOf(myUpdateExistingCopyrightsCb.isSelected()));
-    final Map<PsiFile, Runnable> preparations = new LinkedHashMap<PsiFile, Runnable>();
-    Task.Backgroundable task = new Task.Backgroundable(project, "Prepare Copyright...", true) {
+    PropertiesComponent.getInstance().setValue(UPDATE_EXISTING_COPYRIGHTS, String.valueOf(myUpdateExistingCopyrightsCb.isSelected()), "true");
+    final Map<PsiFile, Runnable> preparations = new LinkedHashMap<>();
+    Task.Backgroundable task = new Task.Backgroundable(project, CopyrightBundle.message("task.title.prepare.copyright"), true) {
       @Override
       public void run(@NotNull final ProgressIndicator indicator) {
         scope.accept(new PsiElementVisitor() {
           @Override
-          public void visitFile(final PsiFile file) {
+          public void visitFile(@NotNull final PsiFile file) {
             if (indicator.isCanceled()) {
               return;
             }
@@ -156,20 +135,12 @@ public class UpdateCopyrightAction extends BaseAnalysisAction {
       public void onSuccess() {
         if (!preparations.isEmpty()) {
           if (!FileModificationService.getInstance().preparePsiElementsForWrite(preparations.keySet())) return;
-          final SequentialModalProgressTask progressTask = new SequentialModalProgressTask(project, UpdateCopyrightProcessor.TITLE, true);
+          final SequentialModalProgressTask progressTask = new SequentialModalProgressTask(project, UpdateCopyrightProcessor.TITLE.get(), true);
           progressTask.setMinIterationTime(200);
           progressTask.setTask(new UpdateCopyrightSequentialTask(preparations, progressTask));
-          CommandProcessor.getInstance().executeCommand(project, new Runnable() {
-            @Override
-            public void run() {
-              CommandProcessor.getInstance().markCurrentCommandAsGlobal(project);
-              ApplicationManager.getApplication().runWriteAction(new Runnable() {
-                @Override
-                public void run() {
-                  ProgressManager.getInstance().run(progressTask);
-                }
-              });
-            }
+          CommandProcessor.getInstance().executeCommand(project, () -> {
+            CommandProcessor.getInstance().markCurrentCommandAsGlobal(project);
+            ProgressManager.getInstance().run(progressTask);
           }, getTemplatePresentation().getText(), null);
         }
       }
@@ -178,20 +149,17 @@ public class UpdateCopyrightAction extends BaseAnalysisAction {
     ProgressManager.getInstance().run(task);
   }
 
-  private static class UpdateCopyrightSequentialTask implements SequentialTask {
+  private static final class UpdateCopyrightSequentialTask implements SequentialTask {
     private final int mySize;
     private final Iterator<Runnable> myRunnables;
     private final SequentialModalProgressTask myProgressTask;
-    private int myIdx = 0;
+    private int myIdx;
 
     private UpdateCopyrightSequentialTask(Map<PsiFile, Runnable> runnables, SequentialModalProgressTask progressTask) {
       myRunnables = runnables.values().iterator();
       myProgressTask = progressTask;
       mySize = runnables.size();
     }
-
-    @Override
-    public void prepare() {}
 
     @Override
     public boolean isDone() {
@@ -213,5 +181,19 @@ public class UpdateCopyrightAction extends BaseAnalysisAction {
     public void stop() {
       myIdx = mySize;
     }
+  }
+
+  private static boolean areFiles(VirtualFile @NotNull [] files) {
+    if (files.length < 2) {
+      return false;
+    }
+
+    for (VirtualFile file : files) {
+      if (file.isDirectory()) {
+        return false;
+      }
+    }
+
+    return true;
   }
 }

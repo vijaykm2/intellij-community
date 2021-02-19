@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2007 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2019 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,24 +15,14 @@
  */
 package com.siyeh.ig.imports;
 
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiImportList;
-import com.intellij.psi.PsiImportStatement;
-import com.intellij.psi.PsiJavaFile;
+import com.intellij.psi.*;
+import com.intellij.psi.util.FileTypeUtils;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
-import com.intellij.psi.util.FileTypeUtils;
 import org.jetbrains.annotations.NotNull;
 
 public class SingleClassImportInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "single.class.import.display.name");
-  }
 
   @Override
   @NotNull
@@ -42,38 +32,22 @@ public class SingleClassImportInspection extends BaseInspection {
   }
 
   @Override
-  public BaseInspectionVisitor buildVisitor() {
-    return new PackageImportVisitor();
+  public boolean shouldInspect(PsiFile file) {
+    return !FileTypeUtils.isInServerPageFile(file);
   }
 
-  private static class PackageImportVisitor extends BaseInspectionVisitor {
+  @Override
+  public BaseInspectionVisitor buildVisitor() {
+    return new SingleClassImportVisitor();
+  }
+
+  private static class SingleClassImportVisitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitClass(@NotNull PsiClass aClass) {
-      // no call to super, so it doesn't drill down
-      if (!(aClass.getParent() instanceof PsiJavaFile)) {
-        return;
-      }
-      if (FileTypeUtils.isInServerPageFile(aClass.getContainingFile())) {
-        return;
-      }
-      final PsiJavaFile file = (PsiJavaFile)aClass.getParent();
-      if (file == null) {
-        return;
-      }
-      if (!file.getClasses()[0].equals(aClass)) {
-        return;
-      }
-      final PsiImportList importList = file.getImportList();
-      if (importList == null) {
-        return;
-      }
-      final PsiImportStatement[] importStatements =
-        importList.getImportStatements();
-      for (final PsiImportStatement importStatement : importStatements) {
-        if (!importStatement.isOnDemand()) {
-          registerError(importStatement);
-        }
+    public void visitImportStatement(PsiImportStatement statement) {
+      super.visitImportStatement(statement);
+      if (!statement.isOnDemand()) {
+        registerError(statement);
       }
     }
   }

@@ -1,27 +1,13 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.palette;
 
 import com.intellij.CommonBundle;
+import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.ide.util.TreeClassChooser;
 import com.intellij.ide.util.TreeClassChooserFactory;
 import com.intellij.ide.util.TreeFileChooser;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.fileTypes.StdFileTypes;
-import com.intellij.openapi.help.HelpManager;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.module.ResourceFileUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComponentWithBrowseButton;
@@ -37,11 +23,13 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.ui.DocumentAdapter;
 import com.intellij.ui.EditorTextField;
 import com.intellij.uiDesigner.FormEditingUtil;
+import com.intellij.uiDesigner.GuiFormFileType;
 import com.intellij.uiDesigner.ImageFileFilter;
 import com.intellij.uiDesigner.UIDesignerBundle;
 import com.intellij.uiDesigner.compiler.Utils;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.lw.LwRootContainer;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -53,7 +41,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
-import java.util.ArrayList;
+import java.util.List;
 
 /**
  * @author Vladimir Kondratyev
@@ -98,9 +86,9 @@ public final class ComponentItemDialog extends DialogWrapper {
     myItemToBeEdited = itemToBeEdited;
     myOneOff = oneOff;
 
-    myEditorTextField = new EditorTextField("", project, StdFileTypes.JAVA);
+    myEditorTextField = new EditorTextField("", project, JavaFileType.INSTANCE);
     myEditorTextField.setFontInheritedFromLAF(true);
-    myTfClassName = new ComponentWithBrowseButton<EditorTextField>(myEditorTextField, new MyChooseClassActionListener(project));
+    myTfClassName = new ComponentWithBrowseButton<>(myEditorTextField, new MyChooseClassActionListener(project));
 
     PsiFile boundForm = itemToBeEdited.getBoundForm();
     if (boundForm != null) {
@@ -113,8 +101,9 @@ public final class ComponentItemDialog extends DialogWrapper {
     }
     updateEnabledTextField();
 
-    myTfClassName.getChildComponent().addDocumentListener(new com.intellij.openapi.editor.event.DocumentAdapter() {
-      public void documentChanged(com.intellij.openapi.editor.event.DocumentEvent e) {
+    myTfClassName.getChildComponent().addDocumentListener(new DocumentListener() {
+      @Override
+      public void documentChanged(@NotNull com.intellij.openapi.editor.event.DocumentEvent e) {
         updateOKAction();
       }
     });
@@ -128,13 +117,15 @@ public final class ComponentItemDialog extends DialogWrapper {
                                                                   UIDesignerBundle.message("add.component.choose.icon")));
 
     myTfNestedForm.addActionListener(new MyChooseFileActionListener(project, new TreeFileChooser.PsiFileFilter() {
+      @Override
       public boolean accept(PsiFile file) {
-        return file.getFileType().equals(StdFileTypes.GUI_DESIGNER_FORM);
+        return file.getFileType().equals(GuiFormFileType.INSTANCE);
       }
     }, myTfNestedForm, UIDesignerBundle.message("add.component.choose.form")));
 
     myTfNestedForm.getTextField().getDocument().addDocumentListener(new DocumentAdapter() {
-      protected void textChanged(DocumentEvent e) {
+      @Override
+      protected void textChanged(@NotNull DocumentEvent e) {
         updateOKAction();
       }
     });
@@ -181,10 +172,11 @@ public final class ComponentItemDialog extends DialogWrapper {
   void showGroupChooser(GroupItem defaultGroup) {
     myGroupLabel.setVisible(true);
     myGroupComboBox.setVisible(true);
-    final ArrayList<GroupItem> groups = Palette.getInstance(myProject).getGroups();
+    List<GroupItem> groups = Palette.getInstance(myProject).getGroups();
     myGroupComboBox.setModel(new DefaultComboBoxModel(groups.toArray()));
     myGroupComboBox.setSelectedItem(defaultGroup);
     myGroupComboBox.addItemListener(new ItemListener() {
+      @Override
       public void itemStateChanged(ItemEvent e) {
         updateOKAction();
       }
@@ -205,22 +197,19 @@ public final class ComponentItemDialog extends DialogWrapper {
     updateOKAction();
   }
 
-  @NotNull
-  protected Action[] createActions() {
-    return new Action[]{getOKAction(), getCancelAction(), getHelpAction()};
+  @Override
+  protected String getHelpId() {
+    return "reference.dialogs.addEditPaletteComponent";
   }
 
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp("reference.dialogs.addEditPaletteComponent");
-  }
-
+  @Override
   protected void doOKAction() {
     // TODO[vova] implement validation
     if (myClassRadioButton.isSelected()) {
       final String className = myDocument.getText().trim();
       PsiClass psiClass = JavaPsiFacade.getInstance(myProject).findClass(className, GlobalSearchScope.allScope(myProject));
       if (psiClass != null) {
-        myItemToBeEdited.setClassName(getClassOrInnerName(psiClass));        
+        myItemToBeEdited.setClassName(getClassOrInnerName(psiClass));
       }
       else {
         myItemToBeEdited.setClassName(className);
@@ -294,6 +283,7 @@ public final class ComponentItemDialog extends DialogWrapper {
     return true;
   }
 
+  @Override
   protected String getDimensionServiceKey() {
     if (myOneOff) {
       return "#com.intellij.uiDesigner.palette.ComponentItemDialog.OneOff";
@@ -301,10 +291,12 @@ public final class ComponentItemDialog extends DialogWrapper {
     return "#com.intellij.uiDesigner.palette.ComponentItemDialog";
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return myTfClassName.getChildComponent();
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return myPanel;
   }
@@ -361,10 +353,11 @@ public final class ComponentItemDialog extends DialogWrapper {
   private class MyChooseClassActionListener implements ActionListener {
     private final Project myProject;
 
-    public MyChooseClassActionListener(final Project project) {
+    MyChooseClassActionListener(final Project project) {
       myProject = project;
     }
 
+    @Override
     public void actionPerformed(final ActionEvent e) {
       final TreeClassChooserFactory factory = TreeClassChooserFactory.getInstance(myProject);
       final TreeClassChooser chooser = factory.createInheritanceClassChooser(UIDesignerBundle.message("title.choose.component.class"),
@@ -382,18 +375,19 @@ public final class ComponentItemDialog extends DialogWrapper {
     private final Project myProject;
     private final TreeFileChooser.PsiFileFilter myFilter;
     private final TextFieldWithBrowseButton myTextField;
-    private final String myTitle;
+    private final @Nls String myTitle;
 
-    public MyChooseFileActionListener(final Project project,
+    MyChooseFileActionListener(final Project project,
                                       final TreeFileChooser.PsiFileFilter filter,
                                       final TextFieldWithBrowseButton textField,
-                                      final String title) {
+                                      final @Nls String title) {
       myProject = project;
       myFilter = filter;
       myTextField = textField;
       myTitle = title;
     }
 
+    @Override
     public void actionPerformed(ActionEvent e) {
       final TreeClassChooserFactory factory = TreeClassChooserFactory.getInstance(myProject);
       PsiFile formFile = null;
@@ -413,6 +407,7 @@ public final class ComponentItemDialog extends DialogWrapper {
   }
 
   private class MyRadioChangeListener implements ChangeListener {
+    @Override
     public void stateChanged(ChangeEvent e) {
       updateEnabledTextField();
     }

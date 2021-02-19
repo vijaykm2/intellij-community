@@ -36,9 +36,9 @@ class ExtendsList {
   }
 
   {
-    I<?, ? extends String> n = <error descr="Cannot infer functional interface type">() -> null</error>;
-    I<?, ?> n1 = <error descr="Cannot infer functional interface type">() -> null</error>;
-    I<?, String> n2 = <error descr="Cannot infer functional interface type">() -> null</error>;
+    I<?, ? extends String> n = () -> null;
+    I<?, ?> n1 = () -> null;
+    I<?, String> n2 = () -> null;
 
 
     I<? extends List<?>, String> e1 = <error descr="Cannot infer functional interface type">() -> null</error>;
@@ -59,7 +59,7 @@ class MultipleBounds {
   interface LC<K> extends List<K>, Comparable<K> {}
 
   {
-    I<?, String> n = <error descr="Cannot infer functional interface type">() -> null</error>;
+    I<?, String> n = () -> null;
 
     I<? extends List<String>, ? extends String> e1 = <error descr="Cannot infer functional interface type">() -> null</error>;
     I<? extends Comparable<String>, ? extends String> e2 = <error descr="Cannot infer functional interface type">() -> null</error>;
@@ -77,10 +77,10 @@ class FirstIndependentBound {
   interface LC<K> extends List<String>, Comparable<K> {}
 
   {
-    I<?, String> n = <error descr="Cannot infer functional interface type">() -> null</error>;
+    I<?, String> n = () -> null;
 
     I<? extends List<String>, ? extends String> e1 = <error descr="Cannot infer functional interface type">() -> null</error>;
-    I<? extends Comparable<String>, ? extends String> e2 = () -> null;
+    I<? extends Comparable<String>, ? extends String> e2 = <error descr="Cannot infer functional interface type">() -> null</error>;
     I<? extends LC<String>, ? extends String> e3 = () -> null;
     I<? extends LC<String>, String> e4 = () -> null;
     I<? extends LC<? extends String>, String> e5 = <error descr="Cannot infer functional interface type">() -> null</error>;
@@ -96,9 +96,9 @@ class SecondIndependentBound {
   interface LC<K> extends List<String>, Comparable<K> {}
 
   {
-    I<?, String> n = <error descr="Cannot infer functional interface type">() -> null</error>;
+    I<?, String> n = () -> null;
 
-    I<? extends List<String>, ? extends String> e1 = () -> null;
+    I<? extends List<String>, ? extends String> e1 = <error descr="Cannot infer functional interface type">() -> null</error>;
     I<? extends Comparable<String>, ? extends String> e2 = <error descr="Cannot infer functional interface type">() -> null</error>;
     I<? extends LC<String>, ? extends String> e3 = () -> null;
     I<? extends LC<String>, String> e4 = () -> null;

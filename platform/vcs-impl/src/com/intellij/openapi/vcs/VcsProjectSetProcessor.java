@@ -47,14 +47,14 @@ public class VcsProjectSetProcessor extends ProjectSetProcessor {
   }
 
   @Override
-  public void processEntries(@NotNull final List<Pair<String, String>> entries,
+  public void processEntries(@NotNull final List<? extends Pair<String, String>> entries,
                              @NotNull final Context context,
                              @NotNull final Runnable runNext) {
 
     if (!getDirectory(context)) return;
     if (!getDirectoryName(context)) return;
 
-    ProgressManager.getInstance().run(new Task.Backgroundable(null, "Hey", true) {
+    ProgressManager.getInstance().run(new Task.Backgroundable(null, VcsBundle.message("progress.title.hey"), true) {
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
         for (Pair<String, String> pair : entries) {
@@ -67,7 +67,7 @@ public class VcsProjectSetProcessor extends ProjectSetProcessor {
 
           JsonElement element = new JsonParser().parse(pair.getSecond());
 
-          HashMap<String, String> parameters = new HashMap<String, String>();
+          HashMap<String, String> parameters = new HashMap<>();
           for (Map.Entry<String, JsonElement> entry : element.getAsJsonObject().entrySet()) {
             JsonElement value = entry.getValue();
             parameters.put(entry.getKey(), value instanceof JsonPrimitive ? value.getAsString() : value.toString());
@@ -90,16 +90,15 @@ public class VcsProjectSetProcessor extends ProjectSetProcessor {
       return true;
     }
     context.directoryName = Messages.showInputDialog((Project)null,
-                                        "Enter directory name for created project. Leave blank to checkout directly into \"" +
-                                        context.directory.getName() + "\".",
-                                        "Project Directory Name", null, context.directoryName, null);
+                                                     VcsBundle.message("dialog.message.enter.directory.name", context.directory.getName()),
+                                                     VcsBundle.message("dialog.title.project.directory.name"), null, context.directoryName, null);
     return context.directoryName != null;
   }
 
   private static boolean getDirectory(@NotNull Context context) {
     if (context.directory != null) return true;
     FileChooserDescriptor descriptor = new FileChooserDescriptor(false, true, false, false, false, false);
-    descriptor.setTitle("Select Destination Folder");
+    descriptor.setTitle(VcsBundle.message("dialog.title.select.destination.folder"));
     descriptor.setDescription("");
     VirtualFile[] files = FileChooser.chooseFiles(descriptor, null, null);
     context.directory = files.length == 0 ? null : files[0];

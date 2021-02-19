@@ -16,36 +16,43 @@
 package git4idea.repo;
 
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.VirtualFileManager;
-import com.intellij.openapi.vfs.newvfs.BulkFileListener;
-import com.intellij.openapi.vfs.newvfs.events.*;
-import com.intellij.util.messages.MessageBusConnection;
-import git4idea.GitUtil;
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.vcsUtil.VcsUtil;
+import com.intellij.vfs.AsyncVfsEventsListener;
+import com.intellij.vfs.AsyncVfsEventsPostProcessor;
+import git4idea.GitLocalBranch;
 import git4idea.commands.Git;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
+import static com.intellij.dvcs.ignore.VcsRepositoryIgnoredFilesHolderBase.getAffectedFilePaths;
+import static com.intellij.vcsUtil.VcsFileUtilKt.isUnder;
+
 /**
  * <p>
  *   Stores files which are untracked by the Git repository.
- *   Should be updated by calling {@link #add(com.intellij.openapi.vfs.VirtualFile)} and {@link #remove(java.util.Collection)}
+ *   Should be updated by calling {@link #add(FilePath)} and {@link #remove(Collection)}
  *   whenever the list of unversioned files changes.
  *   Able to get the list of unversioned files from Git.
  * </p>
- * 
+ *
  * <p>
- *   This class is used by {@link git4idea.status.GitNewChangesCollector}.
+ *   This class is used by {@link git4idea.status.GitChangesCollector}.
  *   By keeping track of unversioned files in the Git repository we may invoke
- *   <code>'git status --porcelain --untracked-files=no'</code> which gives a significant speed boost: the command gets more than twice
+ *   {@code 'git status --porcelain --untracked-files=no'} which gives a significant speed boost: the command gets more than twice
  *   faster, because it doesn't need to seek for untracked files.
  * </p>
  *
@@ -71,57 +78,48 @@ import java.util.*;
  *   Also, if .git/index changes, then a full refresh is initiated. The reason is not only untracked files tracking, but also handling
  *   committing outside IDEA, etc.
  * </p>
- * <p>
- *   Synchronization policy used in this class:<br/>
- *   myDefinitelyUntrackedFiles is accessed under the myDefinitelyUntrackedFiles lock.<br/>
- *   myPossiblyUntrackedFiles and myReady is accessed under the LOCK lock.<br/>
- *   This is done so, because the latter two variables are accessed from the AWT in after() and we don't want to lock the AWT long,
- *   while myDefinitelyUntrackedFiles is modified along with native request to Git.
- * </p>
- *
- * @author Kirill Likhodedov
  */
-public class GitUntrackedFilesHolder implements Disposable, BulkFileListener {
-
+public class GitUntrackedFilesHolder implements Disposable, AsyncVfsEventsListener {
   private static final Logger LOG = Logger.getInstance(GitUntrackedFilesHolder.class);
 
   private final Project myProject;
   private final VirtualFile myRoot;
+  private final FilePath myRootPath;
+  private final GitRepository myRepository;
   private final ChangeListManager myChangeListManager;
   private final VcsDirtyScopeManager myDirtyScopeManager;
-  private final GitRepositoryFiles myRepositoryFiles;
+  private final ProjectLevelVcsManager myVcsManager;
   private final Git myGit;
 
-  private final Set<VirtualFile> myDefinitelyUntrackedFiles = new HashSet<VirtualFile>();
-  private final Set<VirtualFile> myPossiblyUntrackedFiles = new HashSet<VirtualFile>();
+  private final Set<FilePath> myDefinitelyUntrackedFiles = new HashSet<>();
+  private final Set<FilePath> myPossiblyUntrackedFiles = new HashSet<>();
   private boolean myReady;   // if false, total refresh is needed
   private final Object LOCK = new Object();
-  private final GitRepositoryManager myRepositoryManager;
+  private final Object RESCAN_LOCK = new Object();
 
   GitUntrackedFilesHolder(@NotNull GitRepository repository) {
     myProject = repository.getProject();
+    myRepository = repository;
     myRoot = repository.getRoot();
+    myRootPath = VcsUtil.getFilePath(myRoot);
     myChangeListManager = ChangeListManager.getInstance(myProject);
     myDirtyScopeManager = VcsDirtyScopeManager.getInstance(myProject);
-    myGit = ServiceManager.getService(Git.class);
-
-    myRepositoryManager = GitUtil.getRepositoryManager(myProject);
-    myRepositoryFiles = GitRepositoryFiles.getInstance(repository.getGitDir());
+    myGit = Git.getInstance();
+    myVcsManager = ProjectLevelVcsManager.getInstance(myProject);
   }
 
   void setupVfsListener(@NotNull Project project) {
-    if (!project.isDisposed()) {
-      MessageBusConnection connection = project.getMessageBus().connect(this);
-      connection.subscribe(VirtualFileManager.VFS_CHANGES, this);
-    }
+    ApplicationManager.getApplication().runReadAction(() -> {
+      if (!project.isDisposed()) {
+        AsyncVfsEventsPostProcessor.getInstance().addListener(this, this);
+      }
+    });
   }
 
   @Override
   public void dispose() {
-    synchronized (myDefinitelyUntrackedFiles) {
-      myDefinitelyUntrackedFiles.clear();
-    }
     synchronized (LOCK) {
+      myDefinitelyUntrackedFiles.clear();
       myPossiblyUntrackedFiles.clear();
     }
   }
@@ -129,27 +127,40 @@ public class GitUntrackedFilesHolder implements Disposable, BulkFileListener {
   /**
    * Adds the file to the list of untracked.
    */
-  public void add(@NotNull VirtualFile file) {
-    synchronized (myDefinitelyUntrackedFiles) {
+  public void add(@NotNull FilePath file) {
+    synchronized (LOCK) {
       myDefinitelyUntrackedFiles.add(file);
+      myPossiblyUntrackedFiles.add(file);
     }
   }
 
   /**
    * Adds several files to the list of untracked.
    */
-  public void add(@NotNull Collection<VirtualFile> files) {
-    synchronized (myDefinitelyUntrackedFiles) {
+  public void add(@NotNull Collection<? extends FilePath> files) {
+    synchronized (LOCK) {
       myDefinitelyUntrackedFiles.addAll(files);
+      myPossiblyUntrackedFiles.addAll(files);
     }
   }
 
   /**
    * Removes several files from untracked.
    */
-  public void remove(@NotNull Collection<VirtualFile> files) {
-    synchronized (myDefinitelyUntrackedFiles) {
-      myDefinitelyUntrackedFiles.removeAll(files);
+  public void remove(@NotNull Collection<? extends FilePath> files) {
+    synchronized (LOCK) {
+      files.forEach(myDefinitelyUntrackedFiles::remove);
+      myPossiblyUntrackedFiles.addAll(files);
+    }
+  }
+
+  /**
+   * Marks files as possibly untracked to be checked on the next {@link #retrieveUntrackedFilePaths} call.
+   * @param files files that are possibly untracked.
+   */
+  public void markPossiblyUntracked(@NotNull Collection<? extends FilePath> files) {
+    synchronized (LOCK) {
+      myPossiblyUntrackedFiles.addAll(files);
     }
   }
 
@@ -158,17 +169,13 @@ public class GitUntrackedFilesHolder implements Disposable, BulkFileListener {
    * This method may be slow, if the full-refresh of untracked files is needed.
    * @return untracked files.
    * @throws VcsException if there is an unexpected error during Git execution.
+   * @deprecated use {@link #retrieveUntrackedFilePaths} instead
    */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   @NotNull
   public Collection<VirtualFile> retrieveUntrackedFiles() throws VcsException {
-    if (isReady()) {
-      verifyPossiblyUntrackedFiles();
-    } else {
-      rescanAll();
-    }
-    synchronized (myDefinitelyUntrackedFiles) {
-      return new ArrayList<VirtualFile>(myDefinitelyUntrackedFiles);
-    }
+   return ContainerUtil.mapNotNull(retrieveUntrackedFilePaths(), FilePath::getVirtualFile);
   }
 
   public void invalidate() {
@@ -177,81 +184,107 @@ public class GitUntrackedFilesHolder implements Disposable, BulkFileListener {
     }
   }
 
-  /**
-   * Resets the list of untracked files after retrieving the full list of them from Git.
-   */
-  public void rescanAll() throws VcsException {
-    Set<VirtualFile> untrackedFiles = myGit.untrackedFiles(myProject, myRoot, null);
-    synchronized (myDefinitelyUntrackedFiles) {
-      myDefinitelyUntrackedFiles.clear();
-      myDefinitelyUntrackedFiles.addAll(untrackedFiles);
-    }
+  @NotNull
+  public Collection<FilePath> getUntrackedFilePaths() {
     synchronized (LOCK) {
-      myPossiblyUntrackedFiles.clear();
-      myReady = true;
+      return new ArrayList<>(myDefinitelyUntrackedFiles);
     }
   }
 
-  /**
-   * @return <code>true</code> if untracked files list is initialized and being kept up-to-date, <code>false</code> if full refresh is needed.
-   */
-  private boolean isReady() {
+  public boolean containsFile(@NotNull FilePath filePath) {
     synchronized (LOCK) {
-      return myReady;
+      return myDefinitelyUntrackedFiles.contains(filePath);
     }
+  }
+
+  @NotNull
+  public Collection<FilePath> retrieveUntrackedFilePaths() throws VcsException {
+    synchronized (RESCAN_LOCK) {
+      rescan();
+    }
+
+    return getUntrackedFilePaths();
   }
 
   /**
    * Queries Git to check the status of {@code myPossiblyUntrackedFiles} and moves them to {@code myDefinitelyUntrackedFiles}.
    */
-  private void verifyPossiblyUntrackedFiles() throws VcsException {
-    Set<VirtualFile> suspiciousFiles = new HashSet<VirtualFile>();
+  private void rescan() throws VcsException {
+    @Nullable Set<FilePath> suspiciousFiles;
     synchronized (LOCK) {
-      suspiciousFiles.addAll(myPossiblyUntrackedFiles);
+      suspiciousFiles = myReady ? new HashSet<>(myPossiblyUntrackedFiles) : null;
       myPossiblyUntrackedFiles.clear();
     }
 
-    synchronized (myDefinitelyUntrackedFiles) {
-      Set<VirtualFile> untrackedFiles = myGit.untrackedFiles(myProject, myRoot, suspiciousFiles);
-      suspiciousFiles.removeAll(untrackedFiles);
-      // files that were suspicious (and thus passed to 'git ls-files'), but are not untracked, are definitely tracked.
-      @SuppressWarnings("UnnecessaryLocalVariable")
-      Set<VirtualFile> trackedFiles  = suspiciousFiles;
+    Set<FilePath> untrackedFiles = myGit.untrackedFilePaths(myProject, myRoot, suspiciousFiles);
 
-      myDefinitelyUntrackedFiles.addAll(untrackedFiles);
-      myDefinitelyUntrackedFiles.removeAll(trackedFiles);
+    removePathsUnderOtherRoots(untrackedFiles);
+
+    synchronized (LOCK) {
+      if (suspiciousFiles != null) {
+        // files that were suspicious (and thus passed to 'git ls-files'), but are not untracked, are definitely tracked.
+        myDefinitelyUntrackedFiles.removeIf((definitelyUntrackedFile) -> isUnder(myRootPath, suspiciousFiles, definitelyUntrackedFile));
+        myDefinitelyUntrackedFiles.addAll(untrackedFiles);
+      }
+      else {
+        myDefinitelyUntrackedFiles.clear();
+        myDefinitelyUntrackedFiles.addAll(untrackedFiles);
+        myReady = true;
+      }
+    }
+  }
+
+  private void removePathsUnderOtherRoots(@NotNull Collection<FilePath> untrackedFiles) {
+    int removedFiles = 0;
+    int maxFilesToReport = 10;
+
+    Iterator<FilePath> it = untrackedFiles.iterator();
+    while (it.hasNext()) {
+      FilePath filePath = it.next();
+      VirtualFile root = myVcsManager.getVcsRootFor(filePath);
+      if (myRoot.equals(root)) continue;
+
+      it.remove();
+      removedFiles++;
+      if (removedFiles < maxFilesToReport) {
+        LOG.warn(String.format("Ignoring untracked file under another root: %s; root: %s; mapped root: %s",
+                               filePath.getPresentableUrl(), myRoot.getPresentableUrl(), root != null ? root.getPresentableUrl() : "null"));
+      }
+    }
+    if (removedFiles >= maxFilesToReport) {
+      LOG.warn(String.format("Ignoring untracked file under another root: %s files total", removedFiles));
     }
   }
 
   @Override
-  public void before(@NotNull List<? extends VFileEvent> events) {
-  }
-
-  @Override
-  public void after(@NotNull List<? extends VFileEvent> events) {
+  public void filesChanged(@NotNull List<? extends VFileEvent> events) {
     boolean allChanged = false;
-    Set<VirtualFile> filesToRefresh = new HashSet<VirtualFile>();
+    Set<FilePath> filesToRefresh = new HashSet<>();
 
     for (VFileEvent event : events) {
       if (allChanged) {
         break;
       }
       String path = event.getPath();
-      if (totalRefreshNeeded(path)) {
+      if (totalRefreshNeeded(myRepository, path)) {
         allChanged = true;
       }
       else {
-        VirtualFile affectedFile = getAffectedFile(event);
-        if (notIgnored(affectedFile)) {
-          filesToRefresh.add(affectedFile);
+        Set<FilePath> affectedPaths = getAffectedFilePaths(event);
+        for (FilePath affectedFilePath : affectedPaths) {
+          if (notIgnored(affectedFilePath)) {
+            filesToRefresh.add(affectedFilePath);
+          }
         }
       }
     }
 
     // if index has changed, no need to refresh specific files - we get the full status of all files
     if (allChanged) {
-      LOG.debug(String.format("GitUntrackedFilesHolder: Index has changed, marking %s recursively dirty", myRoot));
-      myDirtyScopeManager.dirDirtyRecursively(myRoot);
+      rescanIgnoredFiles(() -> {
+        LOG.debug(String.format("GitUntrackedFilesHolder: total refresh is needed, marking %s recursively dirty", myRoot));
+        myDirtyScopeManager.dirDirtyRecursively(myRoot);
+      });
       synchronized (LOCK) {
         myReady = false;
       }
@@ -262,42 +295,46 @@ public class GitUntrackedFilesHolder implements Disposable, BulkFileListener {
     }
   }
 
-  private boolean totalRefreshNeeded(@NotNull String path) {
-    return indexChanged(path) || externallyCommitted(path) || gitignoreChanged(path);
+  private static boolean totalRefreshNeeded(@NotNull GitRepository repository, @NotNull String path) {
+    return indexChanged(repository, path) || externallyCommitted(repository, path) || headMoved(repository, path) ||
+           headChanged(repository, path) || currentBranchChanged(repository, path) || gitignoreChanged(repository, path);
   }
 
-  private boolean indexChanged(@NotNull String path) {
-    return myRepositoryFiles.isIndexFile(path);
+  private static boolean headChanged(@NotNull GitRepository repository, @NotNull String path) {
+    return repository.getRepositoryFiles().isHeadFile(path);
   }
 
-  private boolean externallyCommitted(@NotNull String path) {
-    return myRepositoryFiles.isCommitMessageFile(path);
+  private static boolean currentBranchChanged(@NotNull GitRepository repository, @NotNull String path) {
+    GitLocalBranch currentBranch = repository.getCurrentBranch();
+    return currentBranch != null && repository.getRepositoryFiles().isBranchFile(path, currentBranch.getFullName());
   }
 
-  private boolean gitignoreChanged(@NotNull String path) {
+  private static boolean headMoved(@NotNull GitRepository repository, @NotNull String path) {
+    return repository.getRepositoryFiles().isOrigHeadFile(path);
+  }
+
+  public static boolean indexChanged(@NotNull GitRepository repository, @NotNull String path) {
+    return repository.getRepositoryFiles().isIndexFile(path);
+  }
+
+  private static boolean externallyCommitted(@NotNull GitRepository repository, @NotNull String path) {
+    return repository.getRepositoryFiles().isCommitMessageFile(path);
+  }
+
+  private static boolean gitignoreChanged(@NotNull GitRepository repository, @NotNull String path) {
     // TODO watch file stored in core.excludesfile
-    return path.endsWith(".gitignore") || myRepositoryFiles.isExclude(path);
+    return path.endsWith(GitRepositoryFiles.GITIGNORE) || repository.getRepositoryFiles().isExclude(path);
   }
 
-  @Nullable
-  private static VirtualFile getAffectedFile(@NotNull VFileEvent event) {
-    if (event instanceof VFileCreateEvent || event instanceof VFileDeleteEvent || event instanceof VFileMoveEvent) {
-      return event.getFile();
-    } else if (event instanceof VFileCopyEvent) {
-      VFileCopyEvent copyEvent = (VFileCopyEvent) event;
-      return copyEvent.getNewParent().findChild(copyEvent.getNewChildName());
-    }
-    return null;
+  private void rescanIgnoredFiles(@NotNull Runnable doAfterRescan) { //TODO move to ignore manager
+    myRepository.getIgnoredFilesHolder().startRescan(doAfterRescan);
   }
 
-
-  private boolean notIgnored(@Nullable VirtualFile file) {
+  private boolean notIgnored(@Nullable FilePath file) {
     return file != null && belongsToThisRepository(file) && !myChangeListManager.isIgnoredFile(file);
   }
 
-  private boolean belongsToThisRepository(VirtualFile file) {
-    final GitRepository repository = myRepositoryManager.getRepositoryForFile(file);
-    return repository != null && repository.getRoot().equals(myRoot);
+  private boolean belongsToThisRepository(FilePath file) {
+    return myRoot.equals(myVcsManager.getVcsRootFor(file));
   }
-  
 }

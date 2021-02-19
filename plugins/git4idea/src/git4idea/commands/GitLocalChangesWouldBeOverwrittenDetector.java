@@ -48,9 +48,8 @@ public class GitLocalChangesWouldBeOverwrittenDetector extends GitMessageWithFil
   )};
 
   // common for checkout and merge
-  public static final Event NEW_PATTERN = new Event(
-    "Your local changes to the following files would be overwritten by",
-    "commit your changes or stash them before");
+  public static final Event NEW_PATTERN = new Event("LocalChangesDetector",
+    "Your local changes to the following files would be overwritten by", "commit your changes or stash them before");
 
   @NotNull private final Operation myOperation;
 
@@ -59,14 +58,13 @@ public class GitLocalChangesWouldBeOverwrittenDetector extends GitMessageWithFil
     MERGE(OLD_MERGE_PATTERN),
     RESET(RESET_PATTERNS);
 
-    @NotNull private final Pattern[] myPatterns;
+    private final Pattern @NotNull [] myPatterns;
 
-    Operation(@NotNull Pattern... patterns) {
+    Operation(Pattern @NotNull ... patterns) {
       myPatterns = patterns;
     }
 
-    @NotNull
-    Pattern[] getPatterns() {
+    Pattern @NotNull [] getPatterns() {
       return myPatterns;
     }
   }

@@ -18,34 +18,46 @@ package com.jetbrains.python.packaging.ui;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import com.intellij.execution.ExecutionException;
+import com.intellij.icons.AllIcons;
+import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.util.Consumer;
+import com.intellij.openapi.util.text.HtmlBuilder;
+import com.intellij.ui.ToggleActionButton;
 import com.intellij.webcore.packaging.InstalledPackage;
 import com.intellij.webcore.packaging.InstalledPackagesPanel;
 import com.intellij.webcore.packaging.PackageManagementService;
 import com.intellij.webcore.packaging.PackagesNotificationPanel;
+import com.jetbrains.python.PyBundle;
+import com.jetbrains.python.PySdkBundle;
 import com.jetbrains.python.packaging.*;
-import com.jetbrains.python.sdk.PySdkUtil;
-import com.jetbrains.python.sdk.PythonSdkType;
+import com.jetbrains.python.sdk.PythonSdkUtil;
+import icons.PythonIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * @author yole
  */
 public class PyInstalledPackagesPanel extends InstalledPackagesPanel {
-  private boolean myHasManagement = false;
+  private volatile boolean myHasManagement = false;
 
-  public PyInstalledPackagesPanel(Project project, PackagesNotificationPanel area) {
+  public PyInstalledPackagesPanel(@NotNull Project project, @NotNull PackagesNotificationPanel area) {
     super(project, area);
+  }
+
+  public void setShowGrid(boolean v) {
+    myPackagesTable.setShowGrid(v);
   }
 
   private Sdk getSelectedSdk() {
@@ -57,7 +69,7 @@ public class PyInstalledPackagesPanel extends InstalledPackagesPanel {
     @NotNull
     @Override
     public String getName() {
-      return "Install packaging tools";
+      return PyBundle.message("python.packaging.install.packaging.tools");
     }
 
     @Override
@@ -74,13 +86,10 @@ public class PyInstalledPackagesPanel extends InstalledPackagesPanel {
           PyPackageManager packageManager = PyPackageManager.getInstance(sdk);
           final PackageManagementService.ErrorDescription description = PyPackageManagementService.toErrorDescription(exceptions, sdk);
           if (description != null) {
-            PackagesNotificationPanel.showError("Failed to install Python packaging tools", description);
+            PackagesNotificationPanel.showError(PyBundle.message("python.packaging.failed.to.install.packaging.tools.title"), description);
           }
           packageManager.refresh();
-          updatePackages(new PyPackageManagementService(myProject, sdk));
-          for (Consumer<Sdk> listener : myPathChangedListeners) {
-            listener.consume(sdk);
-          }
+          updatePackages(PyPackageManagers.getInstance().getManagementService(myProject, sdk));
           updateNotifications(sdk);
         }
       });
@@ -94,60 +103,51 @@ public class PyInstalledPackagesPanel extends InstalledPackagesPanel {
       return;
     }
     final Application application = ApplicationManager.getApplication();
-    application.executeOnPooledThread(new Runnable() {
-      @Override
-      public void run() {
-        PyExecutionException exception = null;
-        try {
-          myHasManagement = PyPackageManager.getInstance(selectedSdk).hasManagement(false);
-          if (!myHasManagement) {
-            throw new PyExecutionException("Python packaging tools not found", "pip", Collections.<String>emptyList(), "", "", 0,
-                                           ImmutableList.of(new PyInstallPackageManagementFix()));
-          }
+    application.executeOnPooledThread(() -> {
+      PyExecutionException exception = null;
+      try {
+        myHasManagement = PyPackageManager.getInstance(selectedSdk).hasManagement();
+        application.invokeLater(() -> updateUninstallUpgrade(), ModalityState.any());
+        if (!myHasManagement) {
+          throw new PyExecutionException(PySdkBundle.message("python.sdk.packaging.tools.not.found"), "pip", Collections.emptyList(), "", "", 0,
+                                         ImmutableList.of(new PyInstallPackageManagementFix()));
         }
-        catch (PyExecutionException e) {
-          exception = e;
-        }
-        catch (ExecutionException e) {
-          return;
-        }
-        final PyExecutionException problem = exception;
-        application.invokeLater(new Runnable() {
-          @Override
-          public void run() {
-            if (selectedSdk == getSelectedSdk()) {
-              myNotificationArea.hide();
-              if (problem != null) {
-                final boolean invalid = PythonSdkType.isInvalid(selectedSdk);
-                if (!invalid) {
-                  final StringBuilder builder = new StringBuilder(problem.getMessage());
-                  builder.append(". ");
-                  for (final PyExecutionFix fix : problem.getFixes()) {
-                    final String key = "id" + fix.hashCode();
-                    final String link = "<a href=\"" + key + "\">" + fix.getName() + "</a>";
-                    builder.append(link);
-                    builder.append(" ");
-                    myNotificationArea.addLinkHandler(key, new Runnable() {
-                      @Override
-                      public void run() {
-                        final Sdk sdk = getSelectedSdk();
-                        if (sdk != null) {
-                          fix.run(sdk);
-                          myNotificationArea.removeLinkHandler(key);
-                          updatePackages(new PyPackageManagementService(myProject, sdk));
-                          updateNotifications(sdk);
-                        }
-                      }
-                    });
-                  }
-                  myNotificationArea.showWarning(builder.toString());
-                }
-                myInstallButton.setEnabled(!invalid && myHasManagement);
-              }
-            }
-          }
-        }, ModalityState.any());
       }
+      catch (PyExecutionException e) {
+        exception = e;
+      }
+      catch (ExecutionException e) {
+        return;
+      }
+      final PyExecutionException problem = exception;
+      application.invokeLater(() -> {
+        if (selectedSdk == getSelectedSdk()) {
+          myNotificationArea.hide();
+          if (problem != null) {
+            final boolean invalid = PythonSdkUtil.isInvalid(selectedSdk);
+            if (!invalid) {
+              HtmlBuilder builder = new HtmlBuilder();
+              builder.append(problem.getMessage()).append(". ");
+              for (final PyExecutionFix fix : problem.getFixes()) {
+                String key = "id" + fix.hashCode();
+                builder.appendLink(key, fix.getName());
+                builder.append(" ");
+                myNotificationArea.addLinkHandler(key, () -> {
+                  final Sdk sdk = getSelectedSdk();
+                  if (sdk != null) {
+                    fix.run(sdk);
+                    myNotificationArea.removeLinkHandler(key);
+                    updatePackages(PyPackageManagers.getInstance().getManagementService(myProject, sdk));
+                    updateNotifications(sdk);
+                  }
+                });
+              }
+              myNotificationArea.showWarning(builder.toString());
+            }
+            myInstallButton.setEnabled(!invalid && installEnabled());
+          }
+        }
+      }, ModalityState.any());
     });
   }
 
@@ -159,16 +159,22 @@ public class PyInstalledPackagesPanel extends InstalledPackagesPanel {
   @Override
   protected boolean canUninstallPackage(InstalledPackage pkg) {
     if (!myHasManagement) return false;
-    if (PythonSdkType.isVirtualEnv(getSelectedSdk()) && pkg instanceof PyPackage) {
+
+    final Sdk sdk = getSelectedSdk();
+    if (sdk == null) return false;
+    if (!PyPackageUtil.packageManagementEnabled(sdk)) return false;
+
+    if (PythonSdkUtil.isVirtualEnv(sdk) && pkg instanceof PyPackage) {
       final String location = ((PyPackage)pkg).getLocation();
-      if (location != null && location.startsWith(PySdkUtil.getUserSite())) {
+      if (location != null && location.startsWith(PythonSdkUtil.getUserSite())) {
         return false;
       }
     }
     final String name = pkg.getName();
-    if (PyPackageManager.PIP.equals(name) ||
-        PyPackageManager.SETUPTOOLS.equals(name) ||
-        PyPackageManager.DISTRIBUTE.equals(name)) {
+    if (PyPackageUtil.PIP.equals(name) ||
+        PyPackageUtil.SETUPTOOLS.equals(name) ||
+        PyPackageUtil.DISTRIBUTE.equals(name) ||
+        PyCondaPackageManagerImpl.PYTHON.equals(name)) {
       return false;
     }
     return true;
@@ -176,11 +182,71 @@ public class PyInstalledPackagesPanel extends InstalledPackagesPanel {
 
   @Override
   protected boolean canInstallPackage(@NotNull final InstalledPackage pyPackage) {
+    return installEnabled();
+  }
+
+  @Override
+  protected boolean installEnabled() {
+    if (!PyPackageUtil.packageManagementEnabled(getSelectedSdk())) return false;
+
     return myHasManagement;
   }
 
   @Override
   protected boolean canUpgradePackage(InstalledPackage pyPackage) {
-    return myHasManagement;
+    if (!PyPackageUtil.packageManagementEnabled(getSelectedSdk())) return false;
+
+    return myHasManagement && !PyCondaPackageManagerImpl.PYTHON.equals(pyPackage.getName());
+  }
+
+  @Override
+  protected ToggleActionButton @NotNull [] getExtraActions() {
+    final ToggleActionButton useCondaButton = new DumbAwareToggleActionButton(PyBundle.messagePointer("action.AnActionButton.text.use.conda.package.manager"), PythonIcons.Python.Anaconda) {
+      @Override
+      public boolean isSelected(AnActionEvent e) {
+        final Sdk sdk = getSelectedSdk();
+        return sdk != null && PyPackageManager.getInstance(sdk) instanceof PyCondaPackageManagerImpl &&
+               ((PyCondaPackageManagerImpl)PyPackageManager.getInstance(sdk)).useConda();
+      }
+
+      @Override
+      public void setSelected(AnActionEvent e, boolean state) {
+        final Sdk sdk = getSelectedSdk();
+        if (sdk == null) return;
+        final PyPackageManager manager = PyPackageManager.getInstance(sdk);
+        if (manager instanceof PyCondaPackageManagerImpl) {
+          ((PyCondaPackageManagerImpl)manager).useConda(state);
+        }
+        updatePackages(myPackageManagementService);
+      }
+
+      @Override
+      public boolean isVisible() {
+        final Sdk sdk = getSelectedSdk();
+        return sdk != null && PythonSdkUtil.isConda(sdk);
+      }
+    };
+
+    final ToggleActionButton showEarlyReleasesButton =
+      new DumbAwareToggleActionButton(PyBundle.messagePointer("action.AnActionButton.text.show.early.releases"), AllIcons.Actions.Show) {
+        @Override
+        public boolean isSelected(AnActionEvent e) {
+          return PyPackagingSettings.getInstance(myProject).earlyReleasesAsUpgrades;
+        }
+
+        @Override
+        public void setSelected(AnActionEvent e, boolean state) {
+          PyPackagingSettings.getInstance(myProject).earlyReleasesAsUpgrades = state;
+          updatePackages(myPackageManagementService);
+        }
+      };
+
+    return new ToggleActionButton[]{useCondaButton, showEarlyReleasesButton};
+  }
+
+  private abstract static class DumbAwareToggleActionButton extends ToggleActionButton implements DumbAware {
+    private DumbAwareToggleActionButton(@NotNull Supplier<String> text, Icon icon) {
+      super(text, icon);
+    }
   }
 }

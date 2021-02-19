@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,6 @@
  */
 package org.jetbrains.plugins.groovy.util;
 
-import com.intellij.openapi.util.NullableComputable;
-import com.intellij.openapi.util.RecursionGuard;
 import com.intellij.openapi.util.RecursionManager;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiType;
@@ -31,11 +29,6 @@ import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
  * @author Sergey Evdokimov
  */
 public class GroovyStdTypeCalculators {
-
-  private static final RecursionGuard ourGuard = RecursionManager.createGuard("GrDescriptorReturnTypeCalculator getClosureReturnType");
-
-  private GroovyStdTypeCalculators() {
-  }
 
   public static class ClosureTypeExtractor implements PairFunction<GrMethodCall, PsiMethod, PsiType> {
     @Override
@@ -54,13 +47,10 @@ public class GroovyStdTypeCalculators {
 
       final GrClosableBlock finalClosure = closure;
 
-      return ourGuard.doPreventingRecursion(methodCall, true, new NullableComputable<PsiType>() {
-        @Override
-        public PsiType compute() {
-          PsiType returnType = finalClosure.getReturnType();
-          if (returnType == PsiType.VOID) return null;
-          return returnType;
-        }
+      return RecursionManager.doPreventingRecursion(methodCall, true, () -> {
+        PsiType returnType = finalClosure.getReturnType();
+        if (PsiType.VOID.equals(returnType)) return null;
+        return returnType;
       });
     }
   }
@@ -70,8 +60,6 @@ public class GroovyStdTypeCalculators {
     @Override
     public PsiType fun(GrMethodCall methodCall, PsiMethod method) {
       GrArgumentList argumentList = methodCall.getArgumentList();
-      if (argumentList == null) return null;
-
       GrExpression[] arguments = argumentList.getExpressionArguments();
       if (arguments.length == 0) return null;
 

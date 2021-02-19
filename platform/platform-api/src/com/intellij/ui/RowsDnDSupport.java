@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.ide.dnd.*;
 import com.intellij.ui.awt.RelativeRectangle;
-import com.intellij.util.Function;
 import com.intellij.util.ui.EditableModel;
 import org.jetbrains.annotations.NotNull;
 
@@ -29,7 +14,7 @@ import static com.intellij.ui.RowsDnDSupport.RefinedDropSupport.Position.*;
 /**
  * @author Konstantin Bulenkov
  */
-public class RowsDnDSupport {
+public final class RowsDnDSupport {
   private RowsDnDSupport() {
   }
 
@@ -51,18 +36,19 @@ public class RowsDnDSupport {
   private static void installImpl(@NotNull final JComponent component, @NotNull final EditableModel model) {
     component.setTransferHandler(new TransferHandler(null));
     DnDSupport.createBuilder(component)
-      .setBeanProvider(new Function<DnDActionInfo, DnDDragStartBean>() {
-        @Override
-        public DnDDragStartBean fun(DnDActionInfo info) {
-          final Point p = info.getPoint();
-          return new DnDDragStartBean(new RowDragInfo(component, Integer.valueOf(getRow(component, p))));
-        }
+      .setBeanProvider(info -> {
+        final Point p = info.getPoint();
+        return new DnDDragStartBean(new RowDragInfo(component, Integer.valueOf(getRow(component, p))));
       })
       .setTargetChecker(new DnDTargetChecker() {
         @Override
         public boolean update(DnDEvent event) {
           final Object o = event.getAttachedObject();
-          event.setDropPossible(o instanceof RowDragInfo && ((RowDragInfo)o).component == component);
+          if (! (o instanceof RowDragInfo) || ((RowDragInfo)o).component != component) {
+            event.setDropPossible(false, "");
+            return true;
+          }
+          event.setDropPossible(true);
           int oldIndex = ((RowDragInfo)o).row;
           int newIndex = getRow(component, event.getPoint());
 
@@ -95,19 +81,13 @@ public class RowsDnDSupport {
                   event.setHighlighting(rectangle, DnDEvent.DropTargetHighlightingType.FILLED_RECTANGLE);
                   break;
               }
-              return true;
             }
             else {
               event.hideHighlighter();
-              return true;
             }
           }
-          else {
-
-            if (oldIndex == newIndex) {  // Drag&Drop always starts with new==old and we shouldn't display 'rejecting' cursor in this case
-              return true;
-            }
-
+          else if (oldIndex != newIndex) {
+            // Drag&Drop always starts with new==old and we shouldn't display 'rejecting' cursor if they are equal
             boolean canExchange = model.canExchangeRows(oldIndex, newIndex);
             if (canExchange) {
               if (oldIndex < newIndex) {
@@ -121,8 +101,8 @@ public class RowsDnDSupport {
             else {
               event.setDropPossible(false);
             }
-            return true;
           }
+          return true;
         }
       })
       .setDropHandler(new DnDDropHandler() {

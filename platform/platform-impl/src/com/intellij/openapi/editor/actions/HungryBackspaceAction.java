@@ -33,7 +33,6 @@ import org.jetbrains.annotations.NotNull;
  * (white spaces, tabulations, line feeds) are removed then.
  * 
  * @author Denis Zhdanov
- * @since 6/27/12 4:10 PM
  */
 public class HungryBackspaceAction extends TextComponentEditorAction {
 
@@ -41,13 +40,9 @@ public class HungryBackspaceAction extends TextComponentEditorAction {
     super(new Handler());
   }
   
-  private static class Handler extends EditorWriteActionHandler {
-    public Handler() {
-      super(true);
-    }
-
+  private static class Handler extends EditorWriteActionHandler.ForEachCaret {
     @Override
-    public void executeWriteAction(@NotNull Editor editor, Caret caret, DataContext dataContext) {
+    public void executeWriteAction(@NotNull Editor editor, @NotNull Caret caret, DataContext dataContext) {
       final Document document = editor.getDocument();
       final int caretOffset = editor.getCaretModel().getOffset();
       if (caretOffset < 1) {

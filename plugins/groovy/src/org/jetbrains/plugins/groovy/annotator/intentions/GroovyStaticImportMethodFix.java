@@ -1,42 +1,27 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.annotator.intentions;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.completion.JavaCompletionUtil;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.ide.util.MethodCellRenderer;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.popup.PopupChooserBuilder;
+import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.util.PsiFormatUtil;
 import com.intellij.psi.util.PsiFormatUtilBase;
 import com.intellij.psi.util.proximity.PsiProximityComparator;
-import com.intellij.ui.components.JBList;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.intentions.base.Intention;
 import org.jetbrains.plugins.groovy.intentions.base.PsiElementPredicate;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.arguments.GrArgumentList;
@@ -45,16 +30,14 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrMethod
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
-import javax.swing.*;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 /**
  * @author Maxim.Medvedev
  */
 public class GroovyStaticImportMethodFix extends Intention {
-  private static final Logger LOG = Logger.getInstance("#org.jetbrains.plugins.groovy.annotator.intentions.GroovyStaticImportMethodFix");
+  private static final Logger LOG = Logger.getInstance(GroovyStaticImportMethodFix.class);
   private final SmartPsiElementPointer<GrMethodCall> myMethodCall;
   private List<PsiMethod> myCandidates = null;
 
@@ -64,16 +47,15 @@ public class GroovyStaticImportMethodFix extends Intention {
 
   @Override
   @NotNull
-  public String getText() {
-    String text = "Static import method";
+  public @IntentionName String getText() {
     if (getCandidates().size() == 1) {
       final int options = PsiFormatUtilBase.SHOW_NAME | PsiFormatUtilBase.SHOW_CONTAINING_CLASS | PsiFormatUtilBase.SHOW_FQ_NAME;
-      text += " '" + PsiFormatUtil.formatMethod(getCandidates().get(0), PsiSubstitutor.EMPTY, options, 0) + "'";
+      String methodText = PsiFormatUtil.formatMethod(getCandidates().get(0), PsiSubstitutor.EMPTY, options, 0);
+      return GroovyBundle.message("static.import.method.0.fix", methodText);
     }
     else {
-      text += "...";
+      return GroovyBundle.message("static.import.method.fix");
     }
-    return text;
   }
 
   @Override
@@ -83,7 +65,14 @@ public class GroovyStaticImportMethodFix extends Intention {
   }
 
   @Nullable
-  private static GrReferenceExpression getMethodExpression(GrMethodCall call) {
+  private GrReferenceExpression getMethodExpression() {
+    GrMethodCall methodCall = myMethodCall.getElement();
+    if (methodCall == null) return null;
+    return getMethodExpression(methodCall);
+  }
+
+  @Nullable
+  private static GrReferenceExpression getMethodExpression(@NotNull GrMethodCall call) {
     GrExpression result = call.getInvokedExpression();
     return result instanceof GrReferenceExpression ? (GrReferenceExpression)result : null;
   }
@@ -91,12 +80,13 @@ public class GroovyStaticImportMethodFix extends Intention {
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
     myCandidates = null;
-    return myMethodCall.getElement() != null &&
-           myMethodCall.getElement().isValid() &&
-           getMethodExpression(myMethodCall.getElement()) != null &&
-           getMethodExpression(myMethodCall.getElement()).getQualifierExpression() == null &&
-           file.getManager().isInProject(file) &&
-           !getCandidates().isEmpty();
+
+    if (!file.getManager().isInProject(file)) return false;
+
+    GrReferenceExpression invokedExpression = getMethodExpression();
+    if (invokedExpression == null || invokedExpression.getQualifierExpression() != null) return false;
+
+    return !getCandidates().isEmpty();
   }
 
   @NotNull
@@ -110,11 +100,11 @@ public class GroovyStaticImportMethodFix extends Intention {
     GrArgumentList argumentList = element.getArgumentList();
     String name = reference.getReferenceName();
 
-    ArrayList<PsiMethod> list = new ArrayList<PsiMethod>();
+    ArrayList<PsiMethod> list = new ArrayList<>();
     if (name == null) return list;
     GlobalSearchScope scope = element.getResolveScope();
     PsiMethod[] methods = cache.getMethodsByNameIfNotMoreThan(name, scope, 20);
-    List<PsiMethod> applicableList = new ArrayList<PsiMethod>();
+    List<PsiMethod> applicableList = new ArrayList<>();
     for (PsiMethod method : methods) {
       ProgressManager.checkCanceled();
       if (JavaCompletionUtil.isInExcludedPackage(method, false)) continue;
@@ -130,14 +120,12 @@ public class GroovyStaticImportMethodFix extends Intention {
       }
     }
     List<PsiMethod> result = applicableList.isEmpty() ? list : applicableList;
-    Collections.sort(result, new PsiProximityComparator(argumentList));
+    result.sort(new PsiProximityComparator(argumentList));
     return result;
   }
 
   @Override
-  protected void processIntention(@NotNull PsiElement element, Project project, Editor editor) throws IncorrectOperationException {
-    final PsiFile file = element.getContainingFile();
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
+  protected void processIntention(@NotNull PsiElement element, @NotNull Project project, Editor editor) throws IncorrectOperationException {
     if (getCandidates().size() == 1) {
       final PsiMethod toImport = getCandidates().get(0);
       doImport(toImport);
@@ -152,64 +140,47 @@ public class GroovyStaticImportMethodFix extends Intention {
   protected PsiElementPredicate getElementPredicate() {
     return new PsiElementPredicate() {
       @Override
-      public boolean satisfiedBy(PsiElement element) {
+      public boolean satisfiedBy(@NotNull PsiElement element) {
         return true;
       }
     };
   }
 
   private void doImport(final PsiMethod toImport) {
-    CommandProcessor.getInstance().executeCommand(toImport.getProject(), new Runnable() {
-      @Override
-      public void run() {
-        AccessToken accessToken = WriteAction.start();
-
-        try {
-          try {
-            GrMethodCall element = myMethodCall.getElement();
-            if (element != null) {
-              getMethodExpression(element).bindToElementViaStaticImport(toImport);
-            }
-          }
-          catch (IncorrectOperationException e) {
-            LOG.error(e);
-          }
-        }
-        finally {
-          accessToken.finish();
+    CommandProcessor.getInstance().executeCommand(toImport.getProject(), () -> WriteAction.run(() -> {
+      try {
+        GrReferenceExpression expression = getMethodExpression();
+        if (expression != null) {
+          expression.bindToElementViaStaticImport(toImport);
         }
       }
-    }, getText(), this);
-
+      catch (IncorrectOperationException e) {
+        LOG.error(e);
+      }
+    }), getText(), this);
   }
 
   private void chooseAndImport(Editor editor) {
-    final JList list = new JBList(getCandidates().toArray(new PsiMethod[getCandidates().size()]));
-    list.setCellRenderer(new MethodCellRenderer(true));
-    new PopupChooserBuilder(list).
-      setTitle(QuickFixBundle.message("static.import.method.choose.method.to.import")).
-      setMovable(true).
-      setItemChoosenCallback(new Runnable() {
-        @Override
-        public void run() {
-          PsiMethod selectedValue = (PsiMethod)list.getSelectedValue();
-          if (selectedValue == null) return;
-          LOG.assertTrue(selectedValue.isValid());
-          doImport(selectedValue);
-        }
-      }).createPopup().
-      showInBestPositionFor(editor);
+    JBPopupFactory.getInstance()
+      .createPopupChooserBuilder(getCandidates())
+      .setRenderer(new MethodCellRenderer(true))
+      .setTitle(QuickFixBundle.message("static.import.method.choose.method.to.import"))
+      .setMovable(true)
+      .setItemChosenCallback((selectedValue) -> {
+        LOG.assertTrue(selectedValue.isValid());
+        doImport(selectedValue);
+      })
+      .createPopup()
+      .showInBestPositionFor(editor);
   }
 
-  @Override
-  public boolean startInWriteAction() {
-    return true;
-  }
-
+  @NotNull
   private List<PsiMethod> getCandidates() {
-    if (myCandidates == null) {
-      myCandidates = getMethodsToImport();
+    List<PsiMethod> result = myCandidates;
+    if (result == null) {
+      result = getMethodsToImport();
+      myCandidates = result;
     }
-    return myCandidates;
+    return result;
   }
 }

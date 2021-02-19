@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.ui;
 
 import com.intellij.ide.ui.UISettings;
@@ -41,7 +27,7 @@ import java.util.*;
 /**
  * @author Maxim.Medvedev
  */
-public class GrTypeComboBox extends ComboBox {
+public final class GrTypeComboBox extends ComboBox {
 
   private static final Logger LOG = Logger.getInstance(GrTypeComboBox.class);
 
@@ -59,7 +45,7 @@ public class GrTypeComboBox extends ComboBox {
     if (expression instanceof GrReferenceExpression) {
       PsiElement resolved = ((GrReferenceExpression)expression).resolve();
       if (resolved instanceof PsiClass) {
-        type = TypesUtil.createJavaLangClassType(type, expression.getProject(), expression.getResolveScope());
+        type = TypesUtil.createJavaLangClassType(type, expression);
       }
     }
     if (GroovyRefactoringUtil.isDiamondNewOperator(expression)) {
@@ -149,10 +135,10 @@ public class GrTypeComboBox extends ComboBox {
       min = null;
     }
 
-    Map<String, PsiType> map = new LinkedHashMap<String, PsiType>();
+    Map<String, PsiType> map = new LinkedHashMap<>();
     final PsiPrimitiveType unboxed = PsiPrimitiveType.getUnboxedType(type);
     if (unboxed != null) type = unboxed;
-    final Set<PsiType> set = new LinkedHashSet<PsiType>();
+    final Set<PsiType> set = new LinkedHashSet<>();
     set.add(type);
     while (!set.isEmpty()) {
       PsiType cur = set.iterator().next();
@@ -190,7 +176,7 @@ public class GrTypeComboBox extends ComboBox {
   public static void registerUpDownHint(JComponent component, final GrTypeComboBox combo) {
     final AnAction arrow = new AnAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         if (e.getInputEvent() instanceof KeyEvent) {
           final int code = ((KeyEvent)e.getInputEvent()).getKeyCode();
           scrollBy(code == KeyEvent.VK_DOWN ? 1 : code == KeyEvent.VK_UP ? -1 : 0, combo);
@@ -207,7 +193,7 @@ public class GrTypeComboBox extends ComboBox {
     final int size = combo.getModel().getSize();
     int next = combo.getSelectedIndex() + delta;
     if (next < 0 || next >= size) {
-      if (!UISettings.getInstance().CYCLE_SCROLLING) {
+      if (!UISettings.getInstance().getCycleScrolling()) {
         return;
       }
       next = (next + size) % size;
@@ -215,7 +201,7 @@ public class GrTypeComboBox extends ComboBox {
     combo.setSelectedIndex(next);
   }
 
-  private static class PsiTypeItem {
+  private static final class PsiTypeItem {
     @Nullable
     private final PsiType myType;
 
@@ -225,7 +211,7 @@ public class GrTypeComboBox extends ComboBox {
       this(type, false);
     }
 
-    private PsiTypeItem(final PsiType type, boolean closure) {
+    private PsiTypeItem(@Nullable final PsiType type, boolean closure) {
       myType = type;
       isClosure = closure;
     }

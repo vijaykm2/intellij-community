@@ -28,25 +28,24 @@ import com.intellij.psi.xml.XmlTag;
 import com.intellij.psi.xml.XmlText;
 import com.intellij.util.IncorrectOperationException;
 import org.intellij.lang.xpath.xslt.XsltSupport;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 20.06.2007
- */
 public class InlineXslAttribute implements IntentionAction {
+    @Override
     @NotNull
     public String getText() {
-        return "Replace with Attribute Value Template";
+        return getFamilyName();
     }
 
+    @Override
     @NotNull
     public String getFamilyName() {
-        return "Inline xsl:attribute";
+        return XPathBundle.message("intention.family.name.inline.xsl.attribute");
     }
 
+    @Override
     public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
         if (!XsltSupport.isXsltFile(file)) return false;
 
@@ -106,6 +105,7 @@ public class InlineXslAttribute implements IntentionAction {
         return true;
     }
 
+    @Override
     public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
         final int offset = editor.getCaretModel().getOffset();
         final PsiElement element = file.findElementAt(offset);
@@ -154,6 +154,7 @@ public class InlineXslAttribute implements IntentionAction {
         return !XsltSupport.isXsltTag(p) || "element".equals(p.getLocalName()) ? p : null;
     }
 
+    @Override
     public boolean startInWriteAction() {
         return true;
     }

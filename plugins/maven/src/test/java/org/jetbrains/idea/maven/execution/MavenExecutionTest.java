@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,14 +19,13 @@ import com.intellij.execution.process.ProcessAdapter;
 import com.intellij.execution.process.ProcessEvent;
 import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.execution.ui.RunContentDescriptor;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.util.concurrency.Semaphore;
-import com.intellij.util.ui.UIUtil;
-import org.jetbrains.idea.maven.MavenImportingTestCase;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.io.File;
@@ -34,11 +33,7 @@ import java.util.Arrays;
 import java.util.Collections;
 
 @SuppressWarnings({"ConstantConditions"})
-public class MavenExecutionTest extends MavenImportingTestCase {
-  @Override
-  protected boolean runInWriteAction() {
-    return false;
-  }
+public class MavenExecutionTest extends MavenExecutionTestCase {
 
   @Override
   protected boolean runInDispatchThread() {
@@ -48,21 +43,20 @@ public class MavenExecutionTest extends MavenImportingTestCase {
   public void testExternalExecutor() throws Exception {
     if (!hasMavenInstallation()) return;
 
-    VfsUtil.saveText(createProjectSubFile("src/main/java/A.java"), "public class A {}");
-    PsiDocumentManager.getInstance(myProject).commitAllDocuments();
+    edt(() -> {
+      WriteAction.runAndWait(() -> VfsUtil.saveText(createProjectSubFile("src/main/java/A.java"), "public class A {}"));
+      PsiDocumentManager.getInstance(myProject).commitAllDocuments();
+    });
 
-    new WriteAction<Object>() {
-      @Override
-      protected void run(Result<Object> objectResult) throws Throwable {
+    WriteAction.computeAndWait(()->
         createProjectPom("<groupId>test</groupId>" +
                          "<artifactId>project</artifactId>" +
-                         "<version>1</version>");
-      }
-    }.execute();
+                         "<version>1</version>")
+    );
 
     assertFalse(new File(getProjectPath(), "target").exists());
 
-    execute(new MavenRunnerParameters(true, getProjectPath(), Arrays.asList("compile"), Collections.<String>emptyList()));
+    execute(new MavenRunnerParameters(true, getProjectPath(), (String)null, Arrays.asList("compile"), Collections.emptyList()));
 
     assertTrue(new File(getProjectPath(), "target").exists());
   }
@@ -70,72 +64,56 @@ public class MavenExecutionTest extends MavenImportingTestCase {
   public void testUpdatingExcludedFoldersAfterExecution() throws Exception {
     if (!hasMavenInstallation()) return;
 
-    new WriteAction<Object>() {
-      @Override
-      protected void run(Result<Object> objectResult) throws Throwable {
-        createStdProjectFolders();
+    WriteAction.runAndWait(() -> {
+      createStdProjectFolders();
 
-        importProject("<groupId>test</groupId>" +
-                      "<artifactId>project</artifactId>" +
-                      "<version>1</version>");
+      importProject("<groupId>test</groupId>" +
+                    "<artifactId>project</artifactId>" +
+                    "<version>1</version>");
 
-        createProjectSubDirs("target/generated-sources/foo",
-                             "target/bar");
-      }
-    }.execute();
+      createProjectSubDirs("target/generated-sources/foo",
+                           "target/bar");
+    });
 
     assertModules("project");
     assertExcludes("project", "target");
 
-    MavenRunnerParameters params = new MavenRunnerParameters(true, getProjectPath(), Arrays.asList("compile"), Collections.<String>emptyList());
+    MavenRunnerParameters params = new MavenRunnerParameters(true, getProjectPath(), (String)null, Arrays.asList("compile"), Collections.emptyList());
     execute(params);
 
-    SwingUtilities.invokeAndWait(new Runnable() {
-      @Override
-      public void run() {
-      }
+    SwingUtilities.invokeAndWait(() -> {
     });
 
-    assertSources("project",
-                  "src/main/java",
-                  "target/generated-sources/foo");
-    assertResources("project",
-                    "src/main/resources");
+    assertSources("project", "src/main/java");
+    assertResources("project", "src/main/resources");
 
-    assertExcludes("project",
-                   "target/bar",
-                   "target/classes",
-                   "target/classes"); // output dirs are collected twice for exclusion and for compiler output
+    assertExcludes("project", "target");
   }
 
   private void execute(final MavenRunnerParameters params) {
     final Semaphore sema = new Semaphore();
     sema.down();
-    UIUtil.invokeLaterIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        MavenRunConfigurationType.runConfiguration(
-          myProject, params, getMavenGeneralSettings(),
-          new MavenRunnerSettings(),
-          new ProgramRunner.Callback() {
+    edt(() -> MavenRunConfigurationType.runConfiguration(
+      myProject, params, getMavenGeneralSettings(),
+      new MavenRunnerSettings(),
+      new ProgramRunner.Callback() {
+        @Override
+        public void processStarted(final RunContentDescriptor descriptor) {
+          descriptor.getProcessHandler().addProcessListener(new ProcessAdapter() {
+
             @Override
-            public void processStarted(final RunContentDescriptor descriptor) {
-              descriptor.getProcessHandler().addProcessListener(new ProcessAdapter() {
-                @Override
-                public void processTerminated(ProcessEvent event) {
-                  sema.up();
-                  UIUtil.invokeLaterIfNeeded(new Runnable() {
-                    @Override
-                    public void run() {
-                      Disposer.dispose(descriptor);
-                    }
-                  });
-                }
-              });
+            public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
+              System.out.println(event.getText());
+            }
+
+            @Override
+            public void processTerminated(@NotNull ProcessEvent event) {
+              sema.up();
+              edt(() -> Disposer.dispose(descriptor));
             }
           });
-      }
-    });
+        }
+      }, false));
     sema.waitFor();
   }
 }

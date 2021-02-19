@@ -15,6 +15,7 @@
  */
 package com.siyeh.ig.classlayout;
 
+import com.intellij.codeInsight.daemon.impl.analysis.HighlightUtil;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiModifier;
 import com.siyeh.InspectionGadgetsBundle;
@@ -25,13 +26,6 @@ import com.siyeh.ig.fixes.RemoveModifierFix;
 import org.jetbrains.annotations.NotNull;
 
 public class FinalStaticMethodInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "final.static.method.display.name");
-  }
 
   @Override
   @NotNull
@@ -63,6 +57,9 @@ public class FinalStaticMethodInspection extends BaseInspection {
       //no call to super, so we don't drill into anonymous classes
       if (!method.hasModifierProperty(PsiModifier.FINAL)
           || !method.hasModifierProperty(PsiModifier.STATIC)) {
+        return;
+      }
+      if (HighlightUtil.isIllegalModifierCombination(method.getModifierList())) {
         return;
       }
       registerModifierError(PsiModifier.FINAL, method, PsiModifier.FINAL);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,14 +16,14 @@
 
 package com.intellij.codeInspection.actions;
 
+import com.intellij.analysis.AnalysisBundle;
 import com.intellij.analysis.AnalysisScope;
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.intention.LowPriorityAction;
 import com.intellij.codeInspection.InspectionManager;
-import com.intellij.codeInspection.InspectionProfile;
-import com.intellij.codeInspection.InspectionsBundle;
 import com.intellij.codeInspection.ex.GlobalInspectionContextBase;
+import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
@@ -45,18 +45,17 @@ public abstract class CleanupIntention implements IntentionAction, LowPriorityAc
   @Override
   @NotNull
   public String getFamilyName() {
-    return InspectionsBundle.message("cleanup.in.scope");
+    return AnalysisBundle.message("cleanup.in.scope");
   }
 
   @Override
   public void invoke(@NotNull final Project project, final Editor editor, final PsiFile file) throws IncorrectOperationException {
     if (!FileModificationService.getInstance().preparePsiElementForWrite(file)) return;
     final InspectionManager managerEx = InspectionManager.getInstance(project);
-    final GlobalInspectionContextBase globalContext = (GlobalInspectionContextBase)managerEx.createNewGlobalContext(false);
-    final AnalysisScope scope = getScope(project, file);
+    final GlobalInspectionContextBase globalContext = (GlobalInspectionContextBase)managerEx.createNewGlobalContext();
+    final AnalysisScope scope = getScope(project, InjectedLanguageManager.getInstance(project).getTopLevelFile(file));
     if (scope != null) {
-      final InspectionProfile profile = InspectionProjectProfileManager.getInstance(project).getInspectionProfile();
-      globalContext.codeCleanup(project, scope, profile, getText(), null, false);
+      globalContext.codeCleanup(scope, InspectionProjectProfileManager.getInstance(project).getCurrentProfile(), getText(), null, false);
     }
   }
 

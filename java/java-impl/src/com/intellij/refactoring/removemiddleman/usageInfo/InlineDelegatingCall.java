@@ -37,8 +37,9 @@ public class InlineDelegatingCall extends FixableUsageInfo {
     this.delegatingName = delegatingName;
   }
 
+  @Override
   public void fixUsage() throws IncorrectOperationException {
-    final StringBuffer replacementText = new StringBuffer();
+    final StringBuilder replacementText = new StringBuilder();
     final PsiReferenceExpression methodExpression = expression.getMethodExpression();
     final PsiElement qualifier = methodExpression.getQualifier();
     if (qualifier != null) {
@@ -48,7 +49,6 @@ public class InlineDelegatingCall extends FixableUsageInfo {
     replacementText.append(myAccess).append(".");
     replacementText.append(delegatingName).append('(');
     final PsiExpressionList argumentList = expression.getArgumentList();
-    assert argumentList != null;
     final PsiExpression[] args = argumentList.getExpressions();
     boolean first = true;
     for (int i : paramaterPermutation) {

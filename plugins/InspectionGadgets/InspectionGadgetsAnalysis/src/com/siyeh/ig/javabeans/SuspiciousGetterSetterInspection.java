@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 package com.siyeh.ig.javabeans;
 
 import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiMethod;
@@ -25,7 +26,6 @@ import com.intellij.psi.util.PropertyUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -39,13 +39,6 @@ public class SuspiciousGetterSetterInspection extends BaseInspection {
   @SuppressWarnings("PublicField")
   public boolean onlyWarnWhenFieldPresent = false;
 
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("suspicious.getter.setter.display.name");
-  }
-
   @NotNull
   @Override
   protected String buildErrorString(Object... infos) {
@@ -57,7 +50,7 @@ public class SuspiciousGetterSetterInspection extends BaseInspection {
   @Nullable
   @Override
   public JComponent createOptionsPanel() {
-    return new SingleCheckboxOptionsPanel("Only warn when field matching getter/setter name is present", this, "onlyWarnWhenFieldPresent");
+    return new SingleCheckboxOptionsPanel(JavaAnalysisBundle.message("inspection.suspicious.getter.setter.field.option"), this, "onlyWarnWhenFieldPresent");
   }
 
   @Override
@@ -105,8 +98,9 @@ public class SuspiciousGetterSetterInspection extends BaseInspection {
         return;
       }
       final JavaCodeStyleManager codeStyleManager = JavaCodeStyleManager.getInstance(method.getProject());
-      final String computedFieldName = codeStyleManager.propertyNameToVariableName(decapitalize(extractedFieldName), VariableKind.FIELD);
-      if (fieldName.equalsIgnoreCase(computedFieldName)) {
+      final String computedFieldName = codeStyleManager.propertyNameToVariableName(extractedFieldName, VariableKind.FIELD);
+      final String computedStaticFieldName = codeStyleManager.propertyNameToVariableName(extractedFieldName, VariableKind.STATIC_FINAL_FIELD);
+      if (fieldName.equalsIgnoreCase(computedFieldName) || fieldName.equalsIgnoreCase(computedStaticFieldName)) {
         return;
       }
       if (onlyWarnWhenFieldPresent) {
@@ -114,7 +108,8 @@ public class SuspiciousGetterSetterInspection extends BaseInspection {
         if (aClass == null) {
           return;
         }
-        if (aClass.findFieldByName(computedFieldName, true) == null) {
+        if (aClass.findFieldByName(computedFieldName, true) == null &&
+            aClass.findFieldByName(computedStaticFieldName, true) == null) {
           return;
         }
       }
@@ -124,20 +119,5 @@ public class SuspiciousGetterSetterInspection extends BaseInspection {
 
   private static boolean nameStartsWith(String name, String prefix) {
     return name.startsWith(prefix) && name.length() != prefix.length() && Character.isUpperCase(name.charAt(prefix.length()));
-  }
-
-  private static String decapitalize(String name) {
-    final StringBuilder result = new StringBuilder();
-    for (int i = 0, length = name.length(); i < length; i++) {
-      final char c = name.charAt(i);
-      if (Character.isUpperCase(c)) {
-        result.append(Character.toLowerCase(c));
-      }
-      else {
-        result.append(name.substring(i));
-        return result.toString();
-      }
-    }
-    return result.toString();
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,12 +16,12 @@
 package com.siyeh.ig.classlayout;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 
 /**
  * @author Bas Leijdekkers
  */
-public class ClassMayBeInterfaceInspectionTest extends LightInspectionTestCase {
+public class ClassMayBeInterfaceInspectionTest extends LightJavaInspectionTestCase {
 
   public void testOne() {
     doTest("abstract class /*Abstract class 'ConvertMe' may be interface*/ConvertMe/**/ {\n" +
@@ -46,8 +46,29 @@ public class ClassMayBeInterfaceInspectionTest extends LightInspectionTestCase {
            "    public class A {}\n" +
            "}");
   }
+
+  public void testMethodCantBeDefault() {
+    doTest("class Issue {\n" +
+           "    public abstract class Inner {\n" +
+           "        public Issue getParent() {\n" +
+           "            return Issue.this;\n" +
+           "        }\n" +
+           "    }\n" +
+           "}");
+  }
+
+  public void testObjectMethods() {
+    doTest("abstract class X {\n" +
+           "  public boolean equals(Object o) { return false; }\n" +
+           "  public int hashCode() { return 1; }\n" +
+           "  public String toString() { return null; }\n" +
+           "}");
+  }
+
   @Override
   protected InspectionProfileEntry getInspection() {
-    return new ClassMayBeInterfaceInspection();
+    final ClassMayBeInterfaceInspection inspection = new ClassMayBeInterfaceInspection();
+    inspection.reportClassesWithNonAbstractMethods = true;
+    return inspection;
   }
 }

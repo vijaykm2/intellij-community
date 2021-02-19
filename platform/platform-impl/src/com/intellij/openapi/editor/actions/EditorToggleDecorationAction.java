@@ -14,26 +14,20 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: May 14, 2002
- * Time: 7:40:40 PM
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.openapi.editor.actions;
 
+import com.intellij.ide.lightEdit.LightEditCompatible;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.ToggleAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.DumbAware;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public abstract class EditorToggleDecorationAction extends ToggleAction implements DumbAware {
+public abstract class EditorToggleDecorationAction extends ToggleAction implements DumbAware, LightEditCompatible {
   @Override
-  public final void setSelected(AnActionEvent e, boolean state) {
+  public final void setSelected(@NotNull AnActionEvent e, boolean state) {
     final Editor editor = getEditor(e);
     assert editor != null;
     setOption(editor, state);
@@ -41,18 +35,18 @@ public abstract class EditorToggleDecorationAction extends ToggleAction implemen
   }
 
   @Override
-  public final boolean isSelected(AnActionEvent e) {
+  public final boolean isSelected(@NotNull AnActionEvent e) {
     Editor editor = getEditor(e);
     return editor != null && getOption(editor);
   }
 
   @Nullable
-  private static Editor getEditor(AnActionEvent e) {
+  private static Editor getEditor(@NotNull AnActionEvent e) {
     return e.getData(CommonDataKeys.EDITOR_EVEN_IF_INACTIVE);
   }
 
   @Override
-  public final void update(AnActionEvent e) {
+  public final void update(@NotNull AnActionEvent e) {
     super.update(e);
     e.getPresentation().setEnabled(getEditor(e) != null);
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2006-2011 Dave Griffith, Bas Leijdekkers
+ * Copyright 2006-2015 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,16 +36,8 @@ public class PackageWithTooFewClassesInspection extends BaseGlobalInspection {
   @SuppressWarnings({"PublicField"})
   public int limit = 3;
 
-  @NotNull
   @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "package.with.too.few.classes.display.name");
-  }
-
-  @Override
-  @Nullable
-  public CommonProblemDescriptor[] checkElement(
+  public CommonProblemDescriptor @Nullable [] checkElement(
     @NotNull RefEntity refEntity,
     @NotNull AnalysisScope analysisScope,
     @NotNull InspectionManager inspectionManager,
@@ -54,16 +46,17 @@ public class PackageWithTooFewClassesInspection extends BaseGlobalInspection {
       return null;
     }
     final List<RefEntity> children = refEntity.getChildren();
-    if (children == null) {
-      return null;
-    }
     int numClasses = 0;
+    boolean subpackage = false;
     for (RefEntity child : children) {
       if (child instanceof RefClass) {
         numClasses++;
       }
+      else if (child instanceof RefPackage) {
+        subpackage = true;
+      }
     }
-    if (numClasses >= limit || numClasses == 0) {
+    if (numClasses >= limit || (numClasses == 0 && subpackage)) {
       return null;
     }
     final String errorString = InspectionGadgetsBundle.message(

@@ -1,42 +1,24 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.ex;
 
+import com.intellij.codeHighlighting.HighlightDisplayLevel;
 import com.intellij.codeInsight.daemon.HighlightDisplayKey;
 import com.intellij.codeInspection.InspectionProfile;
 import com.intellij.codeInspection.InspectionProfileEntry;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
+import com.intellij.profile.codeInspection.InspectionProfileManager;
 import com.intellij.psi.PsiElement;
-import com.intellij.util.Function;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Function;
 
-/**
- * User: anna
- * Date: 15-Feb-2006
- */
 public class InspectionProfileWrapper {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInspection.ex.InspectionProfileWrapper");
+  private static final Logger LOG = Logger.getInstance(InspectionProfileWrapper.class);
 
   /**
    * Key that is assumed to hold strategy that customizes {@link InspectionProfileWrapper} object to use.
@@ -44,60 +26,57 @@ public class InspectionProfileWrapper {
    * I.e. given strategy (if any) receives {@link InspectionProfileWrapper} object that is going to be used so far and returns
    * {@link InspectionProfileWrapper} object that should be used later.
    */
-  public static final Key<Function<InspectionProfileWrapper, InspectionProfileWrapper>> CUSTOMIZATION_KEY
-    = Key.create("Inspection Profile Wrapper Customization");
-  protected final InspectionProfile myProfile;
-
-  public InspectionProfileWrapper(@NotNull InspectionProfile profile) {
-    myProfile = profile;
-  }
-
-  @NotNull
-  public InspectionToolWrapper[] getInspectionTools(PsiElement element){
-     return myProfile.getInspectionTools(element);
-  }
+  public static final Key<Function<InspectionProfileImpl, InspectionProfileWrapper>> CUSTOMIZATION_KEY = Key.create("Inspection Profile Wrapper Customization");
 
   // check whether some inspection got registered twice by accident. 've bit once.
   private static boolean alreadyChecked;
-  public static void checkInspectionsDuplicates(@NotNull InspectionToolWrapper[] toolWrappers) {
-    if (alreadyChecked) return;
+
+  protected final InspectionProfile myProfile;
+  protected final InspectionProfileManager myProfileManager;
+
+  public InspectionProfileWrapper(@NotNull InspectionProfileImpl profile) {
+    myProfile = profile;
+    myProfileManager = profile.getProfileManager();
+  }
+
+  public InspectionProfileWrapper(@NotNull InspectionProfile profile,
+                                  @NotNull InspectionProfileManager profileManager) {
+    myProfile = profile;
+    myProfileManager = profileManager;
+  }
+
+  public InspectionProfileManager getProfileManager() {
+    return myProfileManager;
+  }
+
+  public static void checkInspectionsDuplicates(@NotNull List<? extends InspectionToolWrapper<?, ?>> toolWrappers) {
+    if (alreadyChecked) {
+      return;
+    }
+
     alreadyChecked = true;
-    Set<InspectionProfileEntry> uniqTools = new THashSet<InspectionProfileEntry>(toolWrappers.length);
-    for (InspectionToolWrapper toolWrapper : toolWrappers) {
+    Set<InspectionProfileEntry> uniqueTools = new HashSet<>(toolWrappers.size());
+    for (InspectionToolWrapper<?, ?> toolWrapper : toolWrappers) {
       ProgressManager.checkCanceled();
-      if (!uniqTools.add(toolWrapper.getTool())) {
+      if (!uniqueTools.add(toolWrapper.getTool())) {
         LOG.error("Inspection " + toolWrapper.getDisplayName() + " (" + toolWrapper.getTool().getClass() + ") already registered");
       }
     }
-  }
-
-  public String getName() {
-    return myProfile.getName();
   }
 
   public boolean isToolEnabled(final HighlightDisplayKey key, PsiElement element) {
     return myProfile.isToolEnabled(key, element);
   }
 
-  public InspectionToolWrapper getInspectionTool(final String shortName, PsiElement element) {
+  public @NotNull HighlightDisplayLevel getErrorLevel(@NotNull HighlightDisplayKey inspectionToolKey, PsiElement element) {
+    return myProfile.getErrorLevel(inspectionToolKey, element);
+  }
+
+  public InspectionToolWrapper<?, ?> getInspectionTool(final String shortName, PsiElement element) {
     return myProfile.getInspectionTool(shortName, element);
   }
 
-  public void init(@NotNull Project project) {
-    final List<Tools> profileEntries = myProfile.getAllEnabledInspectionTools(project);
-    for (Tools profileEntry : profileEntries) {
-      for (ScopeToolState toolState : profileEntry.getTools()) {
-        toolState.getTool().projectOpened(project);
-      }
-    }
-  }
-
-  public void cleanup(@NotNull Project project){
-    myProfile.cleanup(project);
-  }
-
-  @NotNull
-  public InspectionProfile getInspectionProfile() {
+  public @NotNull InspectionProfile getInspectionProfile() {
     return myProfile;
   }
 }

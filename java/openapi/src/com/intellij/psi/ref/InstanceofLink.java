@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.ref;
 
 import com.intellij.psi.PsiChildLink;
@@ -24,7 +10,7 @@ import org.jetbrains.annotations.NotNull;
 /**
  * @author peter
  */
-public class InstanceofLink<Parent extends PsiElement, Child extends PsiElement, CastTo extends Child> extends PsiChildLink<Parent, CastTo> {
+public final class InstanceofLink<Parent extends PsiElement, Child extends PsiElement, CastTo extends Child> extends PsiChildLink<Parent, CastTo> {
   private final PsiChildLink<Parent, Child> myDelegate;
   private final Class<CastTo> myCastTo;
 
@@ -47,6 +33,6 @@ public class InstanceofLink<Parent extends PsiElement, Child extends PsiElement,
 
   public static <Parent extends PsiElement, Child extends PsiElement, CastTo extends Child> InstanceofLink<Parent, Child, CastTo> create(
     PsiChildLink<Parent, Child> delegate, Class<CastTo> castTo) {
-    return new InstanceofLink<Parent, Child, CastTo>(delegate, castTo);
+    return new InstanceofLink<>(delegate, castTo);
   }
 }

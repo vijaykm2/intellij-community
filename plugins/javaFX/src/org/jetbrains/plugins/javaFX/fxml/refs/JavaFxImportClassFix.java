@@ -20,16 +20,14 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.xml.XmlElementDescriptor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.javaFX.fxml.JavaFxPsiUtil;
 
-/**
-* User: anna
-*/
 abstract class JavaFxImportClassFix extends ImportClassFixBase<XmlTag, JavaFxTagNameReference> {
 
-  public JavaFxImportClassFix(@NotNull JavaFxTagNameReference ref, @NotNull XmlTag element) {
+  JavaFxImportClassFix(@NotNull JavaFxTagNameReference ref, @NotNull XmlTag element) {
     super(element, ref);
   }
 
@@ -49,7 +47,7 @@ abstract class JavaFxImportClassFix extends ImportClassFixBase<XmlTag, JavaFxTag
   }
 
   @Override
-  protected void bindReference(PsiReference reference, PsiClass targetClass) {
+  protected void bindReference(@NotNull PsiReference reference, @NotNull PsiClass targetClass) {
     final PsiFile file = reference.getElement().getContainingFile();
     super.bindReference(reference, targetClass);
     final String qualifiedName = targetClass.getQualifiedName();
@@ -65,17 +63,18 @@ abstract class JavaFxImportClassFix extends ImportClassFixBase<XmlTag, JavaFxTag
   }
 
   @Override
-  protected boolean isAccessible(PsiMember member, XmlTag reference) {
-    return member instanceof PsiClass && JavaFxPsiUtil.isClassAcceptable(reference.getParentTag(), (PsiClass)member) == null;
+  protected boolean isAccessible(@NotNull PsiMember member, @NotNull XmlTag reference) {
+    return member instanceof PsiClass && JavaFxPsiUtil.isClassAcceptable(reference.getParentTag(), (PsiClass)member);
   }
 
   @Override
-  protected String getQualifiedName(XmlTag tag) {
-    return tag.getDescriptor().getQualifiedName();
+  protected String getQualifiedName(@NotNull XmlTag tag) {
+    final XmlElementDescriptor descriptor = tag.getDescriptor();
+    return descriptor != null ? descriptor.getQualifiedName() : tag.getName();
   }
 
   @Override
-  protected boolean isQualified(JavaFxTagNameReference reference) {
+  protected boolean isQualified(@NotNull JavaFxTagNameReference reference) {
     return false;
   }
 
@@ -85,12 +84,12 @@ abstract class JavaFxImportClassFix extends ImportClassFixBase<XmlTag, JavaFxTag
   }
 
   @Override
-  protected int getStartOffset(XmlTag element, JavaFxTagNameReference ref) {
+  protected int getStartOffset(@NotNull XmlTag element, @NotNull JavaFxTagNameReference ref) {
     return element.getTextOffset() + ref.getRangeInElement().getStartOffset();
   }
 
   @Override
-  protected int getEndOffset(XmlTag element, JavaFxTagNameReference ref) {
+  protected int getEndOffset(@NotNull XmlTag element, @NotNull JavaFxTagNameReference ref) {
     return element.getTextOffset() + ref.getRangeInElement().getEndOffset();
   }
 }

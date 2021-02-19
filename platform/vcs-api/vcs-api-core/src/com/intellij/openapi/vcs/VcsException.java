@@ -1,47 +1,43 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs;
 
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.ObjectUtils;
+import com.intellij.util.ArrayUtilRt;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
-import java.util.Collections;
+
+import static com.intellij.openapi.util.text.StringUtil.join;
+import static com.intellij.openapi.vcs.VcsBundle.message;
+import static com.intellij.util.containers.ContainerUtil.map;
+import static java.util.Collections.singleton;
 
 public class VcsException extends Exception {
   public static final VcsException[] EMPTY_ARRAY = new VcsException[0];
 
   private VirtualFile myVirtualFile;
-  private Collection<String> myMessages;
+  private Collection<@Nls String> myMessages;
   private boolean isWarning = false;
 
-  public VcsException(String message) {
+  public VcsException(@Nls String message) {
     super(message);
     initMessage(message);
   }
 
-  private void initMessage(final String message) {
-    String shownMessage = message == null ? VcsBundle.message("exception.text.unknown.error") : message;
-    myMessages = Collections.singleton(shownMessage);
+  private void initMessage(@Nullable @Nls String message) {
+    myMessages = singleton(prepareMessage(message));
   }
 
-  public VcsException(Throwable throwable, final boolean isWarning) {
+  @Nls
+  @NotNull
+  private static String prepareMessage(@Nullable @Nls String message) {
+    return message != null ? message : message("exception.text.unknown.error");
+  }
+
+  public VcsException(Throwable throwable, boolean isWarning) {
     this(getMessage(throwable), throwable);
     this.isWarning = isWarning;
   }
@@ -50,18 +46,18 @@ public class VcsException extends Exception {
     this(throwable, false);
   }
 
-  public VcsException(final String message, final Throwable cause) {
+  public VcsException(@Nls String message, Throwable cause) {
     super(message, cause);
     initMessage(message);
   }
 
-  public VcsException(final String message, final boolean isWarning) {
+  public VcsException(@Nls String message, boolean isWarning) {
     this(message);
     this.isWarning = isWarning;
   }
 
-  public VcsException(Collection<String> messages) {
-    myMessages = messages;
+  public VcsException(@NotNull Collection<@Nls String> messages) {
+    myMessages = map(messages, VcsException::prepareMessage);
   }
 
   //todo: should be in constructor?
@@ -73,8 +69,8 @@ public class VcsException extends Exception {
     return myVirtualFile;
   }
 
-  public String[] getMessages() {
-    return ArrayUtil.toStringArray(myMessages);
+  public @Nls String @NotNull [] getMessages() {
+    return ArrayUtilRt.toStringArray(myMessages);
   }
 
   public VcsException setIsWarning(boolean warning) {
@@ -86,13 +82,19 @@ public class VcsException extends Exception {
     return isWarning;
   }
 
+  @Nls
   @Override
+  @NotNull
   public String getMessage() {
-    return StringUtil.join(myMessages, ", ");
+    return join(myMessages, ", ");
   }
 
+  @NlsSafe
   @Nullable
   public static String getMessage(@Nullable Throwable throwable) {
-    return throwable != null ? ObjectUtils.chooseNotNull(throwable.getMessage(), throwable.getLocalizedMessage()) : null;
+    if (throwable == null) return null;
+    String message = throwable.getMessage();
+    if (message != null) return message;
+    return throwable.getLocalizedMessage();
   }
 }

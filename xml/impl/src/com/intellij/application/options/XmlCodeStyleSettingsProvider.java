@@ -15,25 +15,26 @@
  */
 package com.intellij.application.options;
 
-import com.intellij.openapi.application.ApplicationBundle;
 import com.intellij.openapi.options.Configurable;
+import com.intellij.openapi.util.NlsContexts.ConfigurableName;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CodeStyleSettingsProvider;
 import com.intellij.psi.codeStyle.CustomCodeStyleSettings;
 import com.intellij.psi.formatter.xml.XmlCodeStyleSettings;
+import com.intellij.xml.XmlBundle;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * @author yole
+ * @deprecated Methods moved to {@link XmlLanguageCodeStyleSettingsProvider}
  */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.2")
 public class XmlCodeStyleSettingsProvider extends CodeStyleSettingsProvider {
-
-  public static final String CONFIGURABLE_DISPLAY_NAME = ApplicationBundle.message("title.xml");
-
   @Override
   @NotNull
   public Configurable createSettingsPage(final CodeStyleSettings settings, final CodeStyleSettings originalSettings) {
-    return new CodeStyleAbstractConfigurable(settings, originalSettings, ApplicationBundle.message("title.xml")){
+    return new CodeStyleAbstractConfigurable(settings, originalSettings, XmlBundle.message("title.xml")){
       @Override
       protected CodeStyleAbstractPanel createPanel(final CodeStyleSettings settings) {
         return new XmlCodeStyleMainPanel(getCurrentSettings(), settings);
@@ -48,11 +49,15 @@ public class XmlCodeStyleSettingsProvider extends CodeStyleSettingsProvider {
 
   @Override
   public String getConfigurableDisplayName() {
-    return CONFIGURABLE_DISPLAY_NAME;
+    return getConfigurableDisplayNameText();
   }
 
   @Override
   public CustomCodeStyleSettings createCustomSettings(CodeStyleSettings settings) {
     return new XmlCodeStyleSettings(settings);
+  }
+
+  public static @ConfigurableName String getConfigurableDisplayNameText() {
+    return XmlBundle.message("title.xml");
   }
 }

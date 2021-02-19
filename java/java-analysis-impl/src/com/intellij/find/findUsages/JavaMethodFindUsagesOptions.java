@@ -1,53 +1,74 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.find.findUsages;
 
-import com.intellij.find.FindBundle;
+import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.openapi.project.Project;
+import com.intellij.psi.search.SearchScope;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.LinkedHashSet;
+import java.util.Set;
 
 /**
  * @author peter
  */
 public class JavaMethodFindUsagesOptions extends JavaFindUsagesOptions {
-  public boolean isOverridingMethods = false;
-  public boolean isImplementingMethods = false;
+  public boolean isOverridingMethods;
+  public boolean isImplementingMethods;
   public boolean isCheckDeepInheritance = true;
-  public boolean isIncludeInherited = false;
-  public boolean isIncludeOverloadUsages = false;
+  public boolean isIncludeInherited;
+  public boolean isIncludeOverloadUsages;
+  public boolean isImplicitToString = true;
 
   public JavaMethodFindUsagesOptions(@NotNull Project project) {
     super(project);
     isSearchForTextOccurrences = false;
   }
 
-  public boolean equals(final Object o) {
-    if (this == o) return true;
-    if (!super.equals(this)) return false;
-    if (o == null || getClass() != o.getClass()) return false;
+  public JavaMethodFindUsagesOptions(@NotNull SearchScope searchScope) {
+    super(searchScope);
+    isSearchForTextOccurrences = false;
+  }
 
-    final JavaMethodFindUsagesOptions that = (JavaMethodFindUsagesOptions)o;
+  @Override
+  protected void setDefaults(@NotNull PropertiesComponent properties, @NotNull String prefix) {
+    // overrides default values from superclass
+    isSearchForTextOccurrences = properties.getBoolean(prefix + "isSearchForTextOccurrences");
+    isUsages = properties.getBoolean(prefix + "isUsages", true);
+    isOverridingMethods = properties.getBoolean(prefix + "isOverridingMethods");
+    isImplementingMethods = properties.getBoolean(prefix + "isImplementingMethods");
+    isCheckDeepInheritance = properties.getBoolean(prefix + "isCheckDeepInheritance", true);
+    isIncludeInherited = properties.getBoolean(prefix + "isIncludeInherited");
+    isIncludeOverloadUsages = properties.getBoolean(prefix + "isIncludeOverloadUsages");
+    isImplicitToString = properties.getBoolean(prefix + "isImplicitToString", true);
+  }
+
+  @Override
+  protected void storeDefaults(@NotNull PropertiesComponent properties, @NotNull String prefix) {
+    // overrides default values from superclass
+    properties.setValue(prefix + "isSearchForTextOccurrences", isSearchForTextOccurrences);
+    properties.setValue(prefix + "isUsages", isUsages, true);
+    properties.setValue(prefix + "isOverridingMethods", isOverridingMethods);
+    properties.setValue(prefix + "isImplementingMethods", isImplementingMethods);
+    properties.setValue(prefix + "isCheckDeepInheritance", isCheckDeepInheritance, true);
+    properties.setValue(prefix + "isIncludeInherited", isIncludeInherited);
+    properties.setValue(prefix + "isIncludeOverloadUsages", isIncludeOverloadUsages);
+    properties.setValue(prefix + "isImplicitToString", isImplicitToString, true);
+  }
+
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (!super.equals(o)) return false;
+    if (getClass() != o.getClass()) return false;
+
+    JavaMethodFindUsagesOptions that = (JavaMethodFindUsagesOptions)o;
 
     if (isCheckDeepInheritance != that.isCheckDeepInheritance) return false;
     if (isImplementingMethods != that.isImplementingMethods) return false;
     if (isIncludeInherited != that.isIncludeInherited) return false;
     if (isIncludeOverloadUsages != that.isIncludeOverloadUsages) return false;
     if (isOverridingMethods != that.isOverridingMethods) return false;
+    if (isImplicitToString != that.isImplicitToString) return false;
 
     return true;
   }
@@ -59,21 +80,21 @@ public class JavaMethodFindUsagesOptions extends JavaFindUsagesOptions {
     result = 31 * result + (isCheckDeepInheritance ? 1 : 0);
     result = 31 * result + (isIncludeInherited ? 1 : 0);
     result = 31 * result + (isIncludeOverloadUsages ? 1 : 0);
+    result = 31 * result + (isImplicitToString ? 1 : 0);
     return result;
   }
 
   @Override
-  protected void addUsageTypes(@NotNull LinkedHashSet<String> strings) {
+  protected void addUsageTypes(@NotNull Set<? super String> strings) {
     super.addUsageTypes(strings);
     if (isIncludeOverloadUsages) {
-      strings.add(FindBundle.message("find.usages.panel.title.overloaded.methods.usages"));
+      strings.add(JavaAnalysisBundle.message("find.usages.panel.title.overloaded.methods.usages"));
     }
     if (isImplementingMethods) {
-      strings.add(FindBundle.message("find.usages.panel.title.implementing.methods"));
+      strings.add(JavaAnalysisBundle.message("find.usages.panel.title.implementing.methods"));
     }
     if (isOverridingMethods) {
-      strings.add(FindBundle.message("find.usages.panel.title.overriding.methods"));
+      strings.add(JavaAnalysisBundle.message("find.usages.panel.title.overriding.methods"));
     }
-
   }
 }

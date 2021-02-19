@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.paths;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
 import com.intellij.codeInsight.intention.IntentionAction;
-import com.intellij.lang.annotation.Annotation;
+import com.intellij.codeInspection.util.InspectionMessage;
+import com.intellij.lang.annotation.AnnotationBuilder;
 import com.intellij.lang.annotation.AnnotationHolder;
 import com.intellij.lang.annotation.ExternalAnnotator;
 import com.intellij.openapi.diagnostic.Logger;
@@ -26,11 +13,7 @@ import com.intellij.psi.PsiAnchor;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiReference;
-import com.intellij.util.containers.HashMap;
-import org.apache.commons.httpclient.HttpClient;
-import org.apache.commons.httpclient.HttpStatus;
-import org.apache.commons.httpclient.cookie.CookiePolicy;
-import org.apache.commons.httpclient.methods.GetMethod;
+import com.intellij.util.io.HttpRequests;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -38,22 +21,22 @@ import java.io.IOException;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
  * @author Eugene.Kudelevsky
  */
 public abstract class WebReferencesAnnotatorBase extends ExternalAnnotator<WebReferencesAnnotatorBase.MyInfo[], WebReferencesAnnotatorBase.MyInfo[]> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.paths.WebReferencesAnnotatorBase");
+  private static final Logger LOG = Logger.getInstance(WebReferencesAnnotatorBase.class);
 
-  private final Map<String, MyFetchCacheEntry> myFetchCache = new HashMap<String, MyFetchCacheEntry>();
+  private final Map<String, MyFetchCacheEntry> myFetchCache = new HashMap<>();
   private final Object myFetchCacheLock = new Object();
   private static final long FETCH_CACHE_TIMEOUT = 10000;
 
   protected static final WebReference[] EMPTY_ARRAY = new WebReference[0];
 
-  @NotNull
-  protected abstract WebReference[] collectWebReferences(@NotNull PsiFile file);
+  protected abstract WebReference @NotNull [] collectWebReferences(@NotNull PsiFile file);
 
   @Nullable
   protected static WebReference lookForWebReference(@NotNull PsiElement element) {
@@ -62,7 +45,7 @@ public abstract class WebReferencesAnnotatorBase extends ExternalAnnotator<WebRe
 
   @SuppressWarnings("unchecked")
   @Nullable
-  private static WebReference lookForWebReference(Collection<PsiReference> references) {
+  private static WebReference lookForWebReference(Collection<? extends PsiReference> references) {
     for (PsiReference reference : references) {
       if (reference instanceof WebReference) {
         return (WebReference)reference;
@@ -97,10 +80,11 @@ public abstract class WebReferencesAnnotatorBase extends ExternalAnnotator<WebRe
     }
 
     boolean containsAvailableHosts = false;
-    
+
     for (MyFetchResult fetchResult : fetchResults) {
       if (fetchResult != MyFetchResult.UNKNOWN_HOST) {
         containsAvailableHosts = true;
+        break;
       }
     }
 
@@ -118,7 +102,7 @@ public abstract class WebReferencesAnnotatorBase extends ExternalAnnotator<WebRe
 
   @Override
   public void apply(@NotNull PsiFile file, MyInfo[] infos, @NotNull AnnotationHolder holder) {
-    if (infos.length == 0) {
+    if (infos == null || infos.length == 0) {
       return;
     }
 
@@ -133,37 +117,24 @@ public abstract class WebReferencesAnnotatorBase extends ExternalAnnotator<WebRe
                                                 start + info.myRangeInElement.getEndOffset());
           final String message = getErrorMessage(info.myUrl);
 
-          final Annotation annotation;
-
-          if (displayLevel == HighlightDisplayLevel.ERROR) {
-            annotation = holder.createErrorAnnotation(range, message);
-          }
-          else if (displayLevel == HighlightDisplayLevel.WARNING) {
-            annotation = holder.createWarningAnnotation(range, message);
-          }
-          else if (displayLevel == HighlightDisplayLevel.WEAK_WARNING) {
-            annotation = holder.createInfoAnnotation(range, message);
-          }
-          else {
-            annotation = holder.createWarningAnnotation(range, message);
-          }
+          AnnotationBuilder builder = holder.newAnnotation(displayLevel.getSeverity(), message).range(range);
 
           for (IntentionAction action : getQuickFixes()) {
-            annotation.registerFix(action);
+            builder = builder.withFix(action);
           }
+          builder.create();
         }
       }
     }
   }
-  
-  @NotNull
-  protected abstract String getErrorMessage(@NotNull String url);
 
   @NotNull
-  protected IntentionAction[] getQuickFixes() {
+  protected abstract @InspectionMessage String getErrorMessage(@NotNull String url);
+
+  protected IntentionAction @NotNull [] getQuickFixes() {
     return IntentionAction.EMPTY_ARRAY;
   }
-  
+
   @NotNull
   protected abstract HighlightDisplayLevel getHighlightDisplayLevel(@NotNull PsiElement context);
 
@@ -183,35 +154,32 @@ public abstract class WebReferencesAnnotatorBase extends ExternalAnnotator<WebRe
     }
   }
 
-  private static MyFetchResult doCheckUrl(String url) {
-    final HttpClient client = new HttpClient();
-    client.setTimeout(3000);
-    client.setConnectionTimeout(3000);
-    // see http://hc.apache.org/httpclient-3.x/cookies.html
-    client.getParams().setCookiePolicy(CookiePolicy.BROWSER_COMPATIBILITY);
-    try {
-      final GetMethod method = new GetMethod(url);
-      final int code = client.executeMethod(method);
+  private static MyFetchResult doCheckUrl(@NotNull String url) {
+    if (url.startsWith("mailto")) {
+      return MyFetchResult.OK;
+    }
 
-      return code == HttpStatus.SC_OK || code == HttpStatus.SC_REQUEST_TIMEOUT
-             ? MyFetchResult.OK 
-             : MyFetchResult.NONEXISTENCE;
+    try {
+      HttpRequests.request(url).connectTimeout(3000).readTimeout(3000).tryConnect();
     }
     catch (UnknownHostException e) {
       LOG.info(e);
       return MyFetchResult.UNKNOWN_HOST;
     }
+    catch (HttpRequests.HttpStatusException e) {
+      LOG.info(e);
+      return MyFetchResult.NONEXISTENCE;
+    }
     catch (IOException e) {
       LOG.info(e);
-      return MyFetchResult.OK;
     }
     catch (IllegalArgumentException e) {
       LOG.debug(e);
-      return MyFetchResult.OK;
     }
+    return MyFetchResult.OK;
   }
 
-  private static class MyFetchCacheEntry {
+  private static final class MyFetchCacheEntry {
     private final long myTime;
     private final MyFetchResult myFetchResult;
 
@@ -229,12 +197,12 @@ public abstract class WebReferencesAnnotatorBase extends ExternalAnnotator<WebRe
       return myFetchResult;
     }
   }
-  
-  private static enum MyFetchResult {
+
+  private enum MyFetchResult {
     OK, UNKNOWN_HOST, NONEXISTENCE
   }
 
-  protected static class MyInfo {
+  protected static final class MyInfo {
     final PsiAnchor myAnchor;
     final String myUrl;
     final TextRange myRangeInElement;

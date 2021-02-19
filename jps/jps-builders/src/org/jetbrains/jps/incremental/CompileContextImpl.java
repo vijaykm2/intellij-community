@@ -15,12 +15,15 @@
  */
 package org.jetbrains.jps.incremental;
 
-import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.util.EventDispatcher;
+import gnu.trove.TObjectLongHashMap;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 import org.jetbrains.jps.ModuleChunk;
 import org.jetbrains.jps.api.CanceledStatus;
+import org.jetbrains.jps.builders.BuildTarget;
+import org.jetbrains.jps.builders.JpsBuildBundle;
 import org.jetbrains.jps.builders.java.JavaBuilderUtil;
 import org.jetbrains.jps.builders.java.JavaModuleBuildTargetType;
 import org.jetbrains.jps.builders.logging.BuildLoggingManager;
@@ -34,45 +37,52 @@ import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 9/17/11
  */
 public class CompileContextImpl extends UserDataHolderBase implements CompileContext {
-  private static final String CANCELED_MESSAGE = "The build has been canceled";
   private final CompileScope myScope;
   private final MessageHandler myDelegateMessageHandler;
-  private final Set<ModuleBuildTarget> myNonIncrementalModules = new HashSet<ModuleBuildTarget>();
+  private final Set<ModuleBuildTarget> myNonIncrementalModules = new HashSet<>();
 
-  private volatile long myCompilationStartStamp;
+  private final TObjectLongHashMap<BuildTarget<?>> myCompilationStartStamp = new TObjectLongHashMap<>();
   private final ProjectDescriptor myProjectDescriptor;
   private final Map<String, String> myBuilderParams;
   private final CanceledStatus myCancelStatus;
   private volatile float myDone = -1.0f;
-  private EventDispatcher<BuildListener> myListeners = EventDispatcher.create(BuildListener.class);
+  private final EventDispatcher<BuildListener> myListeners = EventDispatcher.create(BuildListener.class);
 
-  public CompileContextImpl(CompileScope scope,
-                            ProjectDescriptor pd,
-                            MessageHandler delegateMessageHandler,
-                            Map<String, String> builderParams,
-                            CanceledStatus cancelStatus) throws ProjectBuildException {
+  CompileContextImpl(CompileScope scope,
+                     ProjectDescriptor pd,
+                     MessageHandler delegateMessageHandler,
+                     Map<String, String> builderParams,
+                     CanceledStatus cancelStatus) {
     myProjectDescriptor = pd;
     myBuilderParams = Collections.unmodifiableMap(builderParams);
     myCancelStatus = cancelStatus;
-    myCompilationStartStamp = System.currentTimeMillis();
     myScope = scope;
     myDelegateMessageHandler = delegateMessageHandler;
   }
 
-  @Override
-  public long getCompilationStartStamp() {
-    return myCompilationStartStamp;
+  @TestOnly
+  public static CompileContext createContextForTests(CompileScope scope, ProjectDescriptor descriptor) {
+    return new CompileContextImpl(scope, descriptor, DEAF, Collections.emptyMap(), CanceledStatus.NULL);
   }
 
   @Override
-  public void updateCompilationStartStamp() {
-    myCompilationStartStamp = System.currentTimeMillis();
+  public long getCompilationStartStamp(BuildTarget<?> target) {
+    synchronized (myCompilationStartStamp) {
+      return myCompilationStartStamp.get(target);
+    }
   }
 
   @Override
+  public void setCompilationStartStamp(Collection<? extends BuildTarget<?>> targets, long stamp) {
+    synchronized (myCompilationStartStamp) {
+      for (BuildTarget<?> target : targets) {
+        myCompilationStartStamp.put(target, stamp);
+      }
+    }
+  }
+
   public boolean isMake() {
     return JavaBuilderUtil.isCompileJavaIncrementally(this);
   }
@@ -132,7 +142,7 @@ public class CompileContextImpl extends UserDataHolderBase implements CompileCon
   @Override
   public final void checkCanceled() throws ProjectBuildException {
     if (getCancelStatus().isCanceled()) {
-      throw new StopBuildException(CANCELED_MESSAGE);
+      throw new StopBuildException(JpsBuildBundle.message("build.message.the.build.has.been.canceled"));
     }
   }
 
@@ -146,6 +156,7 @@ public class CompileContextImpl extends UserDataHolderBase implements CompileCon
     return myScope;
   }
 
+  @Override
   public void processMessage(BuildMessage msg) {
     if (msg.getKind() == BuildMessage.Kind.ERROR) {
       Utils.ERRORS_DETECTED_KEY.set(this, Boolean.TRUE);
@@ -155,14 +166,10 @@ public class CompileContextImpl extends UserDataHolderBase implements CompileCon
     }
     myDelegateMessageHandler.processMessage(msg);
     if (msg instanceof FileGeneratedEvent) {
-      final Collection<Pair<String, String>> paths = ((FileGeneratedEvent)msg).getPaths();
-      if (!paths.isEmpty()) {
-        myListeners.getMulticaster().filesGenerated(paths);
-      }
+      myListeners.getMulticaster().filesGenerated((FileGeneratedEvent)msg);
     }
     else if (msg instanceof FileDeletedEvent) {
-      Collection<String> paths = ((FileDeletedEvent)msg).getFilePaths();
-      myListeners.getMulticaster().filesDeleted(paths);
+      myListeners.getMulticaster().filesDeleted((FileDeletedEvent)msg);
     }
   }
 

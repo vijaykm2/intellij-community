@@ -1,5 +1,5 @@
 /*
- * Copyright 2008-2012 Bas Leijdekkers
+ * Copyright 2008-2017 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,16 @@
  */
 package com.siyeh.ig.logging;
 
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
+import com.siyeh.ig.psiutils.TypeUtils;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -28,28 +32,19 @@ import java.util.*;
 
 public class LoggingConditionDisagreesWithLogStatementInspection extends BaseInspection {
 
-  private static final Set<String> loggingLevels = new HashSet(Arrays.asList(
-    "debug", "error", "fatal", "info", "trace", "warn", "severe", "warning", "info", "config", "fine", "finer", "finest"));
+  private static final @NonNls Set<String> loggingLevels = ContainerUtil.set(
+    "debug", "error", "fatal", "info", "trace", "warn", "severe", "warning", "info", "config", "fine", "finer", "finest"
+  );
 
-  private static final Map<String, LoggingProblemChecker> problemCheckers = new HashMap();
+  private static final Map<String, LoggingProblemChecker> problemCheckers = new HashMap<>();
 
   static {
-    register(new Log4jProblemChecker());
-    register(new CommonsLoggingProblemChecker());
-    register(new JavaUtilLoggingProblemChecker());
-    register(new Slf4jProblemChecker());
-  }
-
-  private static void register(LoggingProblemChecker problemChecker) {
-    for (String name : problemChecker.getClassNames()) {
-      problemCheckers.put(name, problemChecker);
-    }
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("logging.condition.disagrees.with.log.statement.display.name");
+    final Log4jLikeProblemChecker checker = new Log4jLikeProblemChecker();
+    problemCheckers.put("org.apache.log4j.Category", checker);
+    problemCheckers.put("org.apache.logging.log4j.Logger", checker);
+    problemCheckers.put("org.apache.commons.logging.Log", checker);
+    problemCheckers.put("org.slf4j.Logger", checker);
+    problemCheckers.put("java.util.logging.Logger", new JavaUtilLoggingProblemChecker());
   }
 
   @Override
@@ -167,8 +162,13 @@ public class LoggingConditionDisagreesWithLogStatementInspection extends BaseIns
       if (!target.equals(conditionTarget)) {
         return;
       }
-      final String qualifiedName = containingClass.getQualifiedName();
-      final LoggingProblemChecker problemChecker = problemCheckers.get(qualifiedName);
+      LoggingProblemChecker problemChecker = null;
+      for (String superClassName : problemCheckers.keySet()) {
+        if (InheritanceUtil.isInheritor(containingClass, superClassName)) {
+          problemChecker = problemCheckers.get(superClassName);
+          break;
+        }
+      }
       if (problemChecker == null || !problemChecker.hasLoggingProblem(loggingLevel, methodCallExpression)) {
         return;
       }
@@ -178,17 +178,10 @@ public class LoggingConditionDisagreesWithLogStatementInspection extends BaseIns
 
   interface LoggingProblemChecker {
 
-    String[] getClassNames();
-
     boolean hasLoggingProblem(String priority, PsiMethodCallExpression methodCallExpression);
   }
 
   private static class JavaUtilLoggingProblemChecker implements LoggingProblemChecker {
-
-    @Override
-    public String[] getClassNames() {
-      return new String[]{"java.util.logging.Logger"};
-    }
 
     @Override
     public boolean hasLoggingProblem(String priority, PsiMethodCallExpression methodCallExpression) {
@@ -216,17 +209,7 @@ public class LoggingConditionDisagreesWithLogStatementInspection extends BaseIns
         return null;
       }
       final PsiReferenceExpression argumentReference = (PsiReferenceExpression)argument;
-      final PsiType type = argument.getType();
-      if (!(type instanceof PsiClassType)) {
-        return null;
-      }
-      final PsiClassType classType = (PsiClassType)type;
-      final PsiClass aClass = classType.resolve();
-      if (aClass == null) {
-        return null;
-      }
-      final String qName = aClass.getQualifiedName();
-      if (!"java.util.logging.Level".equals(qName)) {
+      if (!"java.util.logging.Level".equals(TypeUtils.resolvedClassName(argument.getType()))) {
         return null;
       }
       final PsiElement argumentTarget = argumentReference.resolve();
@@ -234,61 +217,24 @@ public class LoggingConditionDisagreesWithLogStatementInspection extends BaseIns
         return null;
       }
       final PsiField field = (PsiField)argumentTarget;
-      return field.getName().toLowerCase();
+      return StringUtil.toLowerCase(field.getName());
     }
   }
 
-  private static class CommonsLoggingProblemChecker implements LoggingProblemChecker {
+  private static class Log4jLikeProblemChecker implements LoggingProblemChecker {
 
     @Override
-    public String[] getClassNames() {
-      return new String[]{"org.apache.commons.logging.Log"};
-    }
-
-    @Override
-    public boolean hasLoggingProblem(String priority, PsiMethodCallExpression methodCallExpression) {
+    public boolean hasLoggingProblem(@NonNls String priority, PsiMethodCallExpression methodCallExpression) {
       final PsiReferenceExpression methodExpression = methodCallExpression.getMethodExpression();
       final String methodName = methodExpression.getReferenceName();
-      if ("isTraceEnabled".equals(methodName)) {
-        return !priority.equals("trace");
-      }
-      else if ("isDebugEnabled".equals(methodName)) {
-        return !priority.equals("debug");
-      }
-      else if ("isInfoEnabled".equals(methodName)) {
-        return !priority.equals("info");
-      }
-      else if ("isWarnEnabled".equals(methodName)) {
-        return !priority.equals("warn");
-      }
-      else if ("isErrorEnabled".equals(methodName)) {
-        return !priority.equals("error");
-      }
-      else if ("isFatalEnabled".equals(methodName)) {
-        return !priority.equals("fatal");
-      }
-      return false;
-    }
-  }
-
-  private static class Slf4jProblemChecker implements LoggingProblemChecker {
-    @Override
-    public String[] getClassNames() {
-      return new String[]{"org.slf4j.Logger"};
-    }
-
-    @Override
-    public boolean hasLoggingProblem(String priority, PsiMethodCallExpression methodCallExpression) {
-      final PsiReferenceExpression methodExpression = methodCallExpression.getMethodExpression();
-      final String methodName = methodExpression.getReferenceName();
-      if ("isTraceEnabled".equals(methodName)) {
-        return !"trace".equals(priority);
-      }
-      else if ("isDebugEnabled".equals(methodName)) {
+      if ("isDebugEnabled".equals(methodName)) {
         return !"debug".equals(priority);
       }
       else if ("isInfoEnabled".equals(methodName)) {
         return !"info".equals(priority);
+      }
+      else if ("isTraceEnabled".equals(methodName)) {
+        return !"trace".equals(priority);
       }
       else if ("isWarnEnabled".equals(methodName)) {
         return !"warn".equals(priority);
@@ -296,30 +242,27 @@ public class LoggingConditionDisagreesWithLogStatementInspection extends BaseIns
       else if ("isErrorEnabled".equals(methodName)) {
         return !"error".equals(priority);
       }
-      return false;
-    }
-  }
-
-  private static class Log4jProblemChecker implements LoggingProblemChecker {
-
-    @Override
-    public String[] getClassNames() {
-      return new String[]{"org.apache.log4j.Logger", "org.apache.log4j.Category"};
-    }
-
-    @Override
-    public boolean hasLoggingProblem(String priority, PsiMethodCallExpression methodCallExpression) {
-      final PsiReferenceExpression methodExpression = methodCallExpression.getMethodExpression();
-      final String methodName = methodExpression.getReferenceName();
-      String enabledFor = null;
-      if ("isDebugEnabled".equals(methodName)) {
-        enabledFor = "debug";
+      else if ("isFatalEnabled".equals(methodName)) {
+        return !"fatal".equals(priority);
       }
-      else if ("isInfoEnabled".equals(methodName)) {
-        enabledFor = "info";
-      }
-      else if ("isTraceEnabled".equals(methodName)) {
-        enabledFor = "trace";
+      else if ("isEnabled".equals(methodName)) {
+        final PsiExpressionList argumentList = methodCallExpression.getArgumentList();
+        final PsiExpression[] arguments = argumentList.getExpressions();
+        final PsiExpression argument = arguments[0];
+        if (!(argument instanceof PsiReferenceExpression)) {
+          return false;
+        }
+        if (!InheritanceUtil.isInheritor(argument.getType(), "org.apache.logging.log4j.Level")) {
+          return false;
+        }
+        final PsiReferenceExpression referenceExpression = (PsiReferenceExpression)argument;
+        final PsiElement target = referenceExpression.resolve();
+        if (!(target instanceof PsiField)) {
+          return false;
+        }
+        final PsiField field = (PsiField)target;
+        final String fieldName = field.getName();
+        return !StringUtil.toLowerCase(fieldName).equals(priority);
       }
       else if ("isEnabledFor".equals(methodName)) {
         final PsiExpressionList argumentList = methodCallExpression.getArgumentList();
@@ -343,13 +286,11 @@ public class LoggingConditionDisagreesWithLogStatementInspection extends BaseIns
             continue;
           }
           final PsiField field = (PsiField)argumentTarget;
-          enabledFor = field.getName().toLowerCase();
-        }
-        if (enabledFor == null) {
-          return false;
+          final String fieldName = field.getName();
+          return !StringUtil.toLowerCase(fieldName).equals(priority);
         }
       }
-      return !priority.equals(enabledFor);
+      return false;
     }
   }
 }

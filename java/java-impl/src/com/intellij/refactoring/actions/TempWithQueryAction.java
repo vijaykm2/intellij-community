@@ -25,20 +25,24 @@ import com.intellij.refactoring.RefactoringActionHandler;
 import com.intellij.refactoring.tempWithQuery.TempWithQueryHandler;
 import org.jetbrains.annotations.NotNull;
 
-public class TempWithQueryAction extends BaseRefactoringAction{
+public class TempWithQueryAction extends BaseJavaRefactoringAction{
+  @Override
   public boolean isAvailableInEditorOnly() {
     return true;
   }
 
-  public boolean isEnabledOnElements(@NotNull PsiElement[] elements) {
+  @Override
+  public boolean isEnabledOnElements(PsiElement @NotNull [] elements) {
     return false;
   }
 
+  @Override
   public RefactoringActionHandler getHandler(@NotNull DataContext dataContext) {
     return new TempWithQueryHandler();
   }
 
+  @Override
   protected boolean isAvailableOnElementInEditorAndFile(@NotNull final PsiElement element, @NotNull final Editor editor, @NotNull PsiFile file, @NotNull DataContext context) {
-    return element instanceof PsiLocalVariable && ((PsiLocalVariable) element).getInitializer() != null; 
+    return element instanceof PsiLocalVariable && ((PsiLocalVariable) element).getInitializer() != null;
   }
 }

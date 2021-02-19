@@ -16,7 +16,6 @@
 
 package com.intellij.codeInsight.folding.impl.actions;
 
-import com.intellij.codeInsight.folding.CodeFoldingManager;
 import com.intellij.codeInsight.folding.impl.FoldingUtil;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.editor.Caret;
@@ -31,38 +30,32 @@ public class ExpandRegionAction extends EditorAction {
   public ExpandRegionAction() {
     super(new BaseFoldingHandler() {
       @Override
-      public void doExecute(Editor editor, @Nullable Caret caret, DataContext dataContext) {
+      public void doExecute(@NotNull Editor editor, @Nullable Caret caret, DataContext dataContext) {
         expandRegionAtCaret(editor.getProject(), editor);
       }
     });
   }
 
-  public static void expandRegionAtCaret(final Project project, @Nullable final Editor editor) {
+  private static void expandRegionAtCaret(final Project project, @Nullable final Editor editor) {
     if (editor == null) return;
 
     expandRegionAtOffset(project, editor, editor.getCaretModel().getOffset());
   }
 
   public static void expandRegionAtOffset(@NotNull Project project, @NotNull final Editor editor, final int offset) {
-    CodeFoldingManager foldingManager = CodeFoldingManager.getInstance(project);
-    foldingManager.updateFoldRegions(editor);
-
     final int line = editor.getDocument().getLineNumber(offset);
-    Runnable processor = new Runnable() {
-      @Override
-      public void run() {
-        FoldRegion region = FoldingUtil.findFoldRegionStartingAtLine(editor, line);
-        if (region != null && !region.isExpanded()){
-          region.setExpanded(true);
-        }
-        else{
-          FoldRegion[] regions = FoldingUtil.getFoldRegionsAtOffset(editor, offset);
-          for(int i = regions.length - 1; i >= 0; i--){
-            region = regions[i];
-            if (!region.isExpanded()){
-              region.setExpanded(true);
-              break;
-            }
+    Runnable processor = () -> {
+      FoldRegion region = FoldingUtil.findFoldRegionStartingAtLine(editor, line);
+      if (region != null && !region.isExpanded()){
+        region.setExpanded(true);
+      }
+      else{
+        FoldRegion[] regions = FoldingUtil.getFoldRegionsAtOffset(editor, offset);
+        for(int i = regions.length - 1; i >= 0; i--){
+          region = regions[i];
+          if (!region.isExpanded()){
+            region.setExpanded(true);
+            break;
           }
         }
       }

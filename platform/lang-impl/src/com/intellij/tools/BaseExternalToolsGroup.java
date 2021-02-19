@@ -1,24 +1,12 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tools;
 
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
+import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
@@ -27,18 +15,25 @@ import java.util.List;
  * @author Eugene Belyaev
  */
 public abstract class BaseExternalToolsGroup<T extends Tool> extends SimpleActionGroup implements DumbAware {
+  protected BaseExternalToolsGroup() {
+    updateGroups(true);
+  }
+
   @Override
-  public void update(AnActionEvent event) {
+  public void update(@NotNull AnActionEvent event) {
     Presentation presentation = event.getPresentation();
     removeAll();
-    String context = event.getPlace();
     Project project = event.getData(CommonDataKeys.PROJECT);
     if (project == null) {
-      presentation.setVisible(false);
-      presentation.setEnabled(false);
+      presentation.setEnabledAndVisible(false);
       return;
     }
+    updateGroups(false);
     presentation.setEnabled(true);
+    presentation.setVisible(getChildrenCount() > 0);
+  }
+
+  protected void updateGroups(boolean registerActions) {
     List<ToolsGroup<T>> groups = getToolsGroups();
     for (ToolsGroup group : groups) {
       String groupName = group.getName();
@@ -46,68 +41,49 @@ public abstract class BaseExternalToolsGroup<T extends Tool> extends SimpleActio
         SimpleActionGroup subgroup = new SimpleActionGroup();
         subgroup.getTemplatePresentation().setText(groupName, false);
         subgroup.setPopup(true);
-        fillGroup(context, groupName, subgroup);
+        fillGroup(groupName, subgroup);
         if (subgroup.getChildrenCount() > 0) {
           add(subgroup);
+          if (registerActions) {
+            ActionManager.getInstance().registerAction(getGroupIdPrefix() + groupName, subgroup);
+          }
         }
       }
       else {
-        fillGroup(context, null, this);
+        fillGroup(null, this);
       }
     }
-    presentation.setVisible(getChildrenCount() > 0);
   }
+
+  @NonNls
+  @NotNull
+  protected abstract String getGroupIdPrefix();
 
   protected abstract List<ToolsGroup<T>> getToolsGroups();
 
-  private void fillGroup(String context, @Nullable String groupName, SimpleActionGroup group) {
+  private void fillGroup(@Nullable String groupName, SimpleActionGroup group) {
     List<T> tools = getToolsByGroupName(groupName);
     for (T tool : tools) {
-      if (isToolVisible(tool, context)) {
+      // We used to have a bunch of IFs checking whether we want to show the given tool in the given event.getPlace().
+      // But now from the UX point of view we believe we'd better remove a bunch of checkboxes from the Edit External Tool dialog.
+      // See IDEA-190856 for discussion.
+      if (tool.isEnabled()) {
         addToolToGroup(tool, group);
       }
     }
   }
-
-  protected abstract List<T> getToolsByGroupName(String groupName);
 
   private void addToolToGroup(T tool, SimpleActionGroup group) {
     String id = tool.getActionId();
     AnAction action = ActionManager.getInstance().getAction(id);
     if (action == null) {
       action = createToolAction(tool);
+      ActionManager.getInstance().registerAction(id, action);
     }
-
     group.add(action);
   }
 
-  protected abstract ToolAction createToolAction(T tool);
+  protected abstract List<T> getToolsByGroupName(String groupName);
 
-  private boolean isToolVisible(T tool, String context) {
-    if (!tool.isEnabled()) return false;
-    if (ActionPlaces.EDITOR_POPUP.equals(context) ||
-        ActionPlaces.EDITOR_TAB_POPUP.equals(context)) {
-      return tool.isShownInEditor();
-    }
-    else if (
-      ActionPlaces.PROJECT_VIEW_POPUP.equals(context) ||
-      ActionPlaces.COMMANDER_POPUP.equals(context) ||
-      ActionPlaces.J2EE_VIEW_POPUP.equals(context) ||
-      ActionPlaces.TYPE_HIERARCHY_VIEW_POPUP.equals(context) ||
-      ActionPlaces.CALL_HIERARCHY_VIEW_POPUP.equals(context) ||
-      ActionPlaces.METHOD_HIERARCHY_VIEW_POPUP.equals(context) ||
-      ActionPlaces.FAVORITES_VIEW_POPUP.equals(context) ||
-      ActionPlaces.SCOPE_VIEW_POPUP.equals(context) ||
-      ActionPlaces.NAVIGATION_BAR_POPUP.equals(context)
-      ) {
-      return tool.isShownInProjectViews();
-    }
-    else if (ActionPlaces.isMainMenuOrActionSearch(context)) {
-      return tool.isShownInMainMenu();
-    }
-    else if (ActionPlaces.USAGE_VIEW_POPUP.equals(context)) {
-      return tool.isShownInSearchResultsPopup();
-    }
-    return false;
-  }
+  protected abstract ToolAction createToolAction(T tool);
 }

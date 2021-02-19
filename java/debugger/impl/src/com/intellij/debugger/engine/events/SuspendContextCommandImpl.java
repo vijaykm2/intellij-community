@@ -1,25 +1,11 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine.events;
 
-import com.intellij.debugger.engine.DebuggerManagerThreadImpl;
 import com.intellij.debugger.engine.SuspendContextImpl;
 import com.intellij.debugger.engine.managerThread.SuspendContextCommand;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.util.containers.Stack;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -34,7 +20,19 @@ public abstract class SuspendContextCommandImpl extends DebuggerCommandImpl {
     mySuspendContext = suspendContext;
   }
 
-  public abstract void contextAction() throws Exception;
+  /**
+   * @deprecated override {@link #contextAction(SuspendContextImpl)}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public void contextAction() throws Exception {
+    throw new AbstractMethodError();
+  }
+
+  public void contextAction(@NotNull SuspendContextImpl suspendContext) throws Exception {
+    //noinspection deprecation
+    contextAction();
+  }
 
   @Override
   public final void action() throws Exception {
@@ -58,7 +56,7 @@ public abstract class SuspendContextCommandImpl extends DebuggerCommandImpl {
       try {
         if (!suspendContext.isResumed()) {
           suspendContext.myInProgress = true;
-          contextAction();
+          contextAction(suspendContext);
         }
         else {
           notifyCancelled();
@@ -74,15 +72,7 @@ public abstract class SuspendContextCommandImpl extends DebuggerCommandImpl {
         else {
           SuspendContextCommandImpl postponed = suspendContext.pollPostponedCommand();
           if (postponed != null) {
-            final Stack<SuspendContextCommandImpl> stack = new Stack<SuspendContextCommandImpl>();
-            while (postponed != null) {
-              stack.push(postponed);
-              postponed = suspendContext.pollPostponedCommand();
-            }
-            final DebuggerManagerThreadImpl managerThread = suspendContext.getDebugProcess().getManagerThread();
-            while (!stack.isEmpty()) {
-              managerThread.pushBack(stack.pop());
-            }
+            suspendContext.getDebugProcess().getManagerThread().pushBack(postponed);
           }
         }
       }

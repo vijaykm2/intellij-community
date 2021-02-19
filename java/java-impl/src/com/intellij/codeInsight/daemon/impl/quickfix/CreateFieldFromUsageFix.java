@@ -1,39 +1,25 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.ExpectedTypeInfo;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.template.Template;
 import com.intellij.codeInsight.template.TemplateEditingAdapter;
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
+import com.intellij.psi.util.JavaElementKind;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author Mike
- */
 public class CreateFieldFromUsageFix extends CreateVarFromUsageFix {
   public CreateFieldFromUsageFix(@NotNull PsiReferenceExpression referenceElement) {
     super(referenceElement);
@@ -41,7 +27,7 @@ public class CreateFieldFromUsageFix extends CreateVarFromUsageFix {
 
   @Override
   protected String getText(String varName) {
-    return QuickFixBundle.message("create.field.from.usage.text", varName);
+    return CommonQuickFixBundle.message("fix.create.title.x", JavaElementKind.FIELD.object(), varName);
   }
 
   protected boolean createConstantField() {
@@ -51,10 +37,11 @@ public class CreateFieldFromUsageFix extends CreateVarFromUsageFix {
   @NotNull
   @Override
   protected List<PsiClass> getTargetClasses(PsiElement element) {
-    final List<PsiClass> targetClasses = new ArrayList<PsiClass>();
+    final List<PsiClass> targetClasses = new ArrayList<>();
     for (PsiClass psiClass : super.getTargetClasses(element)) {
-      if (psiClass.getManager().isInProject(psiClass) && 
-          (!psiClass.isInterface() && !psiClass.isAnnotationType() || shouldCreateStaticMember(myReferenceExpression, psiClass))) {
+      if (canModify(psiClass) &&
+          (!psiClass.isInterface() && !psiClass.isAnnotationType() && !psiClass.isRecord()
+           || shouldCreateStaticMember(myReferenceExpression, psiClass))) {
         targetClasses.add(psiClass);
       }
     }
@@ -63,11 +50,15 @@ public class CreateFieldFromUsageFix extends CreateVarFromUsageFix {
 
   @Override
   protected boolean canBeTargetClass(PsiClass psiClass) {
-    return psiClass.getManager().isInProject(psiClass) && !psiClass.isInterface() && !psiClass.isAnnotationType();
+    return canModify(psiClass) && !psiClass.isInterface() && !psiClass.isAnnotationType() && !psiClass.isRecord();
   }
 
   @Override
-  protected void invokeImpl(final PsiClass targetClass) {
+  public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
+    chooseTargetClass(project, editor, this::invokeImpl);
+  }
+
+  private void invokeImpl(@NotNull PsiClass targetClass) {
     final Project project = myReferenceExpression.getProject();
     JVMElementFactory factory = JVMElementFactories.getFactory(targetClass.getLanguage(), project);
     if (factory == null) factory = JavaPsiFacade.getElementFactory(project);
@@ -112,7 +103,7 @@ public class CreateFieldFromUsageFix extends CreateVarFromUsageFix {
 
   public static void createFieldFromUsageTemplate(final PsiClass targetClass,
                                                   final Project project,
-                                                  final ExpectedTypeInfo[] expectedTypes,
+                                                  final Object expectedTypes,
                                                   final PsiField field,
                                                   final boolean createConstantField,
                                                   final PsiElement context) {
@@ -124,16 +115,13 @@ public class CreateFieldFromUsageFix extends CreateVarFromUsageFix {
 
     startTemplate(newEditor, template, project, new TemplateEditingAdapter() {
       @Override
-      public void templateFinished(Template template, boolean brokenOff) {
+      public void templateFinished(@NotNull Template template, boolean brokenOff) {
         PsiDocumentManager.getInstance(project).commitDocument(newEditor.getDocument());
         final int offset = newEditor.getCaretModel().getOffset();
         final PsiField psiField = PsiTreeUtil.findElementOfClassAtOffset(targetFile, offset, PsiField.class, false);
         if (psiField != null) {
-          ApplicationManager.getApplication().runWriteAction(new Runnable() {
-            @Override
-            public void run() {
-              CodeStyleManager.getInstance(project).reformat(psiField);
-            }
+          ApplicationManager.getApplication().runWriteAction(() -> {
+            CodeStyleManager.getInstance(project).reformat(psiField);
           });
           newEditor.getCaretModel().moveToOffset(psiField.getTextRange().getEndOffset() - 1);
         }
@@ -141,11 +129,11 @@ public class CreateFieldFromUsageFix extends CreateVarFromUsageFix {
     });
   }
 
-  private static boolean shouldCreateFinalMember(@NotNull PsiReferenceExpression ref, @NotNull PsiClass targetClass) {
+  public static boolean shouldCreateFinalMember(@NotNull PsiReferenceExpression ref, @NotNull PsiClass targetClass) {
     if (!PsiTreeUtil.isAncestor(targetClass, ref, true)) {
       return false;
     }
-    final PsiElement element = PsiTreeUtil.getParentOfType(ref, PsiClassInitializer.class, PsiMethod.class);
+    final PsiElement element = PsiTreeUtil.getParentOfType(ref, PsiClassInitializer.class, PsiMethod.class, PsiField.class);
     if (element instanceof PsiClassInitializer) {
       return true;
     }

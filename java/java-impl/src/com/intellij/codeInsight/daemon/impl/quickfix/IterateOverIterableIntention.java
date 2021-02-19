@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,13 @@
  */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
+import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.template.impl.InvokeTemplateAction;
 import com.intellij.codeInsight.template.impl.TemplateImpl;
 import com.intellij.codeInsight.template.impl.TemplateManagerImpl;
 import com.intellij.codeInsight.template.impl.TemplateSettings;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.SelectionModel;
@@ -28,21 +30,20 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
+import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.HashSet;
 
-/**
- * User: anna
- */
 public class IterateOverIterableIntention implements IntentionAction {
-  private static final Logger LOG = Logger.getInstance("#" + IterateOverIterableIntention.class.getName());
+  private static final Logger LOG = Logger.getInstance(IterateOverIterableIntention.class);
 
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
-    final TemplateImpl template = getTemplate();
+    final TemplateImpl template = file instanceof PsiJavaFile ? getTemplate() : null;
     if (template != null) {
       int offset = editor.getCaretModel().getOffset();
       int startOffset = offset;
@@ -70,16 +71,16 @@ public class IterateOverIterableIntention implements IntentionAction {
 
   @Nullable
   private static TemplateImpl getTemplate() {
-    return TemplateSettings.getInstance().getTemplate("I", "surround");
+    return TemplateSettings.getInstance().getTemplate("I", "Java");
   }
 
 
   @NotNull
   @Override
   public String getText() {
-    return "Iterate";
+    return QuickFixBundle.message("iterate.iterable");
   }
-  
+
   @Nullable
   private static PsiExpression getIterableExpression(Editor editor, PsiFile file) {
     final SelectionModel selectionModel = editor.getSelectionModel();
@@ -87,11 +88,11 @@ public class IterateOverIterableIntention implements IntentionAction {
       PsiElement elementAtStart = file.findElementAt(selectionModel.getSelectionStart());
       PsiElement elementAtEnd = file.findElementAt(selectionModel.getSelectionEnd() - 1);
       if (elementAtStart == null || elementAtStart instanceof PsiWhiteSpace || elementAtStart instanceof PsiComment) {
-        elementAtStart = PsiTreeUtil.skipSiblingsForward(elementAtStart, PsiWhiteSpace.class, PsiComment.class);
+        elementAtStart = PsiTreeUtil.skipWhitespacesAndCommentsForward(elementAtStart);
         if (elementAtStart == null) return null;
       }
       if (elementAtEnd == null || elementAtEnd instanceof PsiWhiteSpace || elementAtEnd instanceof PsiComment) {
-        elementAtEnd = PsiTreeUtil.skipSiblingsBackward(elementAtEnd, PsiWhiteSpace.class, PsiComment.class);
+        elementAtEnd = PsiTreeUtil.skipWhitespacesAndCommentsBackward(elementAtEnd);
         if (elementAtEnd == null) return null;
       }
       PsiElement parent = PsiTreeUtil.findCommonParent(elementAtStart, elementAtEnd);
@@ -123,15 +124,22 @@ public class IterateOverIterableIntention implements IntentionAction {
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
+    if (!CommonRefactoringUtil.checkReadOnlyStatus(file)) {
+      return;
+    }
     final TemplateImpl template = getTemplate();
     SelectionModel selectionModel = editor.getSelectionModel();
     if (!selectionModel.hasSelection()) {
       final PsiExpression iterableExpression = getIterableExpression(editor, file);
       LOG.assertTrue(iterableExpression != null);
+      PsiElement element = PsiTreeUtil.skipSiblingsForward(iterableExpression, PsiWhiteSpace.class, PsiComment.class);
+      if (PsiUtil.isJavaToken(element, JavaTokenType.SEMICOLON)) {
+        WriteAction.run(() -> element.delete());
+      }
       TextRange textRange = iterableExpression.getTextRange();
       selectionModel.setSelection(textRange.getStartOffset(), textRange.getEndOffset());
     }
-    new InvokeTemplateAction(template, editor, project, new HashSet<Character>()).perform();
+    new InvokeTemplateAction(template, editor, project, new HashSet<>()).perform();
   }
 
   @Override

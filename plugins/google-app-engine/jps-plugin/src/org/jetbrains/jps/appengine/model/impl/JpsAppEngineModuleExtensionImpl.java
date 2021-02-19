@@ -28,14 +28,11 @@ import org.jetbrains.jps.model.module.JpsModule;
 
 import java.util.List;
 
-/**
- * @author nik
- */
 public class JpsAppEngineModuleExtensionImpl extends JpsElementBase<JpsAppEngineModuleExtensionImpl> implements
                                                                                                      JpsAppEngineModuleExtension {
   public static final JpsElementChildRole<JpsAppEngineModuleExtension> ROLE = JpsElementChildRoleBase.create("AppEngine");
   public static final String LIB_APPENGINE_TOOLS_API_JAR = "/lib/appengine-tools-api.jar";
-  private AppEngineModuleExtensionProperties myProperties;
+  private final AppEngineModuleExtensionProperties myProperties;
 
   public JpsAppEngineModuleExtensionImpl(AppEngineModuleExtensionProperties properties) {
     myProperties = properties;

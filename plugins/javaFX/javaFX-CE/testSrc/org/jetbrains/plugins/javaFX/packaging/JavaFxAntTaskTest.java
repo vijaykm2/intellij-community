@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.javaFX.packaging;
 
-import com.intellij.openapi.util.Pair;
 import com.intellij.testFramework.UsefulTestCase;
+import com.intellij.util.containers.ContainerUtil;
+import junit.framework.TestCase;
 
 import java.io.File;
 import java.util.Collections;
@@ -24,18 +11,20 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * User: anna
- * Date: 3/28/13
- */
-public class JavaFxAntTaskTest extends UsefulTestCase{
+public class JavaFxAntTaskTest extends TestCase {
 
   private static final String PRELOADER_CLASS = "preloaderClass";
   private static final String TITLE = "title";
+  private static final String VERSION = "version";
+  private static final String ICONS = "icons";
+  private static final String BASE_DIR_PATH = "baseDirPath";
+  private static final String TEMPLATE = "template";
+  private static final String PLACEHOLDER = "placeholder";
   private static final String PRELOADER_JAR = "preloaderJar";
   private static final String SIGNED = "signed";
+  private static final String VERBOSE = "verbose";
 
-  public void testJarDeployNoInfo() throws Exception {
+  public void testJarDeployNoInfo() {
     doTest("<fx:fileset id=\"all_but_jarDeployNoInfo\" dir=\"temp\" includes=\"**/*.jar\">\n" +
            "<exclude name=\"jarDeployNoInfo.jar\">\n" +
            "</exclude>\n" +
@@ -61,10 +50,10 @@ public class JavaFxAntTaskTest extends UsefulTestCase{
            "<fx:fileset refid=\"all_jarDeployNoInfo\">\n" +
            "</fx:fileset>\n" +
            "</fx:resources>\n" +
-           "</fx:deploy>\n", Collections.<String, String>emptyMap());
+           "</fx:deploy>\n", Collections.emptyMap());
   }
 
-  public void testJarDeployTitle() throws Exception {
+  public void testJarDeployTitle() {
     doTest("<fx:fileset id=\"all_but_jarDeployTitle\" dir=\"temp\" includes=\"**/*.jar\">\n" +
            "<exclude name=\"jarDeployTitle.jar\">\n" +
            "</exclude>\n" +
@@ -82,6 +71,10 @@ public class JavaFxAntTaskTest extends UsefulTestCase{
            "<fx:fileset refid=\"all_but_jarDeployTitle\">\n" +
            "</fx:fileset>\n" +
            "</fx:resources>\n" +
+           "<manifest>\n" +
+           "<attribute name=\"Implementation-Title\" value=\"My App\">\n" +
+           "</attribute>\n" +
+           "</manifest>\n" +
            "</fx:jar>\n" +
            "<fx:deploy width=\"800\" height=\"400\" updatemode=\"background\" outdir=\"temp/deploy\" outfile=\"jarDeployTitle\">\n" +
            "<fx:application refid=\"jarDeployTitle_id\">\n" +
@@ -95,7 +88,181 @@ public class JavaFxAntTaskTest extends UsefulTestCase{
            "</fx:deploy>\n", Collections.singletonMap(TITLE, "My App"));
   }
 
-  public void testJarDeploySigned() throws Exception {
+  public void testJarDeployIcon() {
+    doTest("<fx:fileset id=\"all_but_jarDeployIcon\" dir=\"temp\" includes=\"**/*.jar\">\n" +
+           "<exclude name=\"jarDeployIcon.jar\">\n" +
+           "</exclude>\n" +
+           "</fx:fileset>\n" +
+           "<fx:fileset id=\"all_jarDeployIcon\" dir=\"temp\" includes=\"**/*.jar\">\n" +
+           "</fx:fileset>\n" +
+           "<fx:application id=\"jarDeployIcon_id\" name=\"jarDeployIcon\" mainClass=\"Main\">\n" +
+           "</fx:application>\n" +
+           "<fx:jar destfile=\"temp/jarDeployIcon.jar\">\n" +
+           "<fx:application refid=\"jarDeployIcon_id\">\n" +
+           "</fx:application>\n" +
+           "<fileset dir=\"temp\" excludes=\"**/*.jar\">\n" +
+           "</fileset>\n" +
+           "<fx:resources>\n" +
+           "<fx:fileset refid=\"all_but_jarDeployIcon\">\n" +
+           "</fx:fileset>\n" +
+           "</fx:resources>\n" +
+           "</fx:jar>\n" +
+           "<condition property=\"app.icon.path\" value=\"${basedir}/app_icon.png\">\n" +
+           "<and>\n" +
+           "<os family=\"unix\">\n" +
+           "</os>\n" +
+           "<not>\n" +
+           "<os family=\"mac\">\n" +
+           "</os>\n" +
+           "</not>\n" +
+           "</and>\n" +
+           "</condition>\n" +
+           "<condition property=\"app.icon.path\" value=\"${basedir}/app_icon.icns\">\n" +
+           "<os family=\"mac\">\n" +
+           "</os>\n" +
+           "</condition>\n" +
+           "<condition property=\"app.icon.path\" value=\"${basedir}/app_icon.ico\">\n" +
+           "<os family=\"windows\">\n" +
+           "</os>\n" +
+           "</condition>\n" +
+           "<fx:deploy width=\"800\" height=\"400\" updatemode=\"background\" outdir=\"temp/deploy\" outfile=\"jarDeployIcon\" nativeBundles=\"all\">\n" +
+           "<fx:application refid=\"jarDeployIcon_id\">\n" +
+           "</fx:application>\n" +
+           "<fx:info>\n" +
+           "<fx:icon href=\"${app.icon.path}\">\n" +
+           "</fx:icon>\n" +
+           "</fx:info>\n" +
+           "<fx:resources>\n" +
+           "<fx:fileset refid=\"all_jarDeployIcon\">\n" +
+           "</fx:fileset>\n" +
+           "</fx:resources>\n" +
+           "</fx:deploy>\n", new ContainerUtil.ImmutableMapBuilder<String, String>()
+             .put(ICONS, "/project_dir/app_icon.png,/project_dir/app_icon.icns,/project_dir/app_icon.ico")
+             .put(BASE_DIR_PATH, "/project_dir")
+             .build());
+  }
+
+  public void testJarDeployIconAbsolute() {
+    doTest("<fx:fileset id=\"all_but_jarDeployIconAbsolute\" dir=\"temp\" includes=\"**/*.jar\">\n" +
+           "<exclude name=\"jarDeployIconAbsolute.jar\">\n" +
+           "</exclude>\n" +
+           "</fx:fileset>\n" +
+           "<fx:fileset id=\"all_jarDeployIconAbsolute\" dir=\"temp\" includes=\"**/*.jar\">\n" +
+           "</fx:fileset>\n" +
+           "<fx:application id=\"jarDeployIconAbsolute_id\" name=\"jarDeployIconAbsolute\" mainClass=\"Main\">\n" +
+           "</fx:application>\n" +
+           "<fx:jar destfile=\"temp/jarDeployIconAbsolute.jar\">\n" +
+           "<fx:application refid=\"jarDeployIconAbsolute_id\">\n" +
+           "</fx:application>\n" +
+           "<fileset dir=\"temp\" excludes=\"**/*.jar\">\n" +
+           "</fileset>\n" +
+           "<fx:resources>\n" +
+           "<fx:fileset refid=\"all_but_jarDeployIconAbsolute\">\n" +
+           "</fx:fileset>\n" +
+           "</fx:resources>\n" +
+           "</fx:jar>\n" +
+           "<condition property=\"app.icon.path\" value=\"/project_dir/app_icon.png\">\n" +
+           "<and>\n" +
+           "<os family=\"unix\">\n" +
+           "</os>\n" +
+           "<not>\n" +
+           "<os family=\"mac\">\n" +
+           "</os>\n" +
+           "</not>\n" +
+           "</and>\n" +
+           "</condition>\n" +
+           "<condition property=\"app.icon.path\" value=\"/project_dir/app_icon.icns\">\n" +
+           "<os family=\"mac\">\n" +
+           "</os>\n" +
+           "</condition>\n" +
+           "<condition property=\"app.icon.path\" value=\"/project_dir/app_icon.ico\">\n" +
+           "<os family=\"windows\">\n" +
+           "</os>\n" +
+           "</condition>\n" +
+           "<fx:deploy width=\"800\" height=\"400\" updatemode=\"background\" outdir=\"temp/deploy\" outfile=\"jarDeployIconAbsolute\" nativeBundles=\"all\">\n" +
+           "<fx:application refid=\"jarDeployIconAbsolute_id\">\n" +
+           "</fx:application>\n" +
+           "<fx:info>\n" +
+           "<fx:icon href=\"${app.icon.path}\">\n" +
+           "</fx:icon>\n" +
+           "</fx:info>\n" +
+           "<fx:resources>\n" +
+           "<fx:fileset refid=\"all_jarDeployIconAbsolute\">\n" +
+           "</fx:fileset>\n" +
+           "</fx:resources>\n" +
+           "</fx:deploy>\n",
+           Collections.singletonMap(ICONS, "/project_dir/app_icon.png,/project_dir/app_icon.icns,/project_dir/app_icon.ico"));
+  }
+
+  public void testJarDeployVersion() {
+    doTest("<fx:fileset id=\"all_but_jarDeployVersion\" dir=\"temp\" includes=\"**/*.jar\">\n" +
+           "<exclude name=\"jarDeployVersion.jar\">\n" +
+           "</exclude>\n" +
+           "</fx:fileset>\n" +
+           "<fx:fileset id=\"all_jarDeployVersion\" dir=\"temp\" includes=\"**/*.jar\">\n" +
+           "</fx:fileset>\n" +
+           "<fx:application id=\"jarDeployVersion_id\" name=\"jarDeployVersion\" mainClass=\"Main\" version=\"4.2\">\n" +
+           "</fx:application>\n" +
+           "<fx:jar destfile=\"temp/jarDeployVersion.jar\">\n" +
+           "<fx:application refid=\"jarDeployVersion_id\">\n" +
+           "</fx:application>\n" +
+           "<fileset dir=\"temp\" excludes=\"**/*.jar\">\n" +
+           "</fileset>\n" +
+           "<fx:resources>\n" +
+           "<fx:fileset refid=\"all_but_jarDeployVersion\">\n" +
+           "</fx:fileset>\n" +
+           "</fx:resources>\n" +
+           "<manifest>\n" +
+           "<attribute name=\"Implementation-Version\" value=\"4.2\">\n" +
+           "</attribute>\n" +
+           "</manifest>\n" +
+           "</fx:jar>\n" +
+           "<fx:deploy width=\"800\" height=\"400\" updatemode=\"background\" outdir=\"temp/deploy\" outfile=\"jarDeployVersion\">\n" +
+           "<fx:application refid=\"jarDeployVersion_id\">\n" +
+           "</fx:application>\n" +
+           "<fx:resources>\n" +
+           "<fx:fileset refid=\"all_jarDeployVersion\">\n" +
+           "</fx:fileset>\n" +
+           "</fx:resources>\n" +
+           "</fx:deploy>\n", Collections.singletonMap(VERSION, "4.2"));
+  }
+
+  public void testJarDeployTemplate() {
+    doTest("<fx:fileset id=\"all_but_jarDeployTemplate\" dir=\"temp\" includes=\"**/*.jar\">\n" +
+           "<exclude name=\"jarDeployTemplate.jar\">\n" +
+           "</exclude>\n" +
+           "</fx:fileset>\n" +
+           "<fx:fileset id=\"all_jarDeployTemplate\" dir=\"temp\" includes=\"**/*.jar\">\n" +
+           "</fx:fileset>\n" +
+           "<fx:application id=\"jarDeployTemplate_id\" name=\"jarDeployTemplate\" mainClass=\"Main\">\n" +
+           "</fx:application>\n" +
+           "<fx:jar destfile=\"temp/jarDeployTemplate.jar\">\n" +
+           "<fx:application refid=\"jarDeployTemplate_id\">\n" +
+           "</fx:application>\n" +
+           "<fileset dir=\"temp\" excludes=\"**/*.jar\">\n" +
+           "</fileset>\n" +
+           "<fx:resources>\n" +
+           "<fx:fileset refid=\"all_but_jarDeployTemplate\">\n" +
+           "</fx:fileset>\n" +
+           "</fx:resources>\n" +
+           "</fx:jar>\n" +
+           "<fx:deploy width=\"800\" height=\"400\" updatemode=\"background\" outdir=\"temp/deploy\" outfile=\"jarDeployTemplate\" placeholderId=\"app-placeholder-id\">\n" +
+           "<fx:application refid=\"jarDeployTemplate_id\">\n" +
+           "</fx:application>\n" +
+           "<fx:resources>\n" +
+           "<fx:fileset refid=\"all_jarDeployTemplate\">\n" +
+           "</fx:fileset>\n" +
+           "</fx:resources>\n" +
+           "<fx:template file=\"${basedir}/app_template.html\" tofile=\"temp/deploy/app_template.html\">\n" +
+           "</fx:template>\n" +
+           "</fx:deploy>\n", new ContainerUtil.ImmutableMapBuilder<String, String>()
+             .put(TEMPLATE, "/project_dir/app_template.html")
+             .put(PLACEHOLDER, "app-placeholder-id")
+             .put(BASE_DIR_PATH, "/project_dir")
+             .build());
+  }
+
+  public void testJarDeploySigned() {
     doTest("<fx:fileset id=\"all_but_jarDeploySigned\" dir=\"temp\" includes=\"**/*.jar\">\n" +
            "<exclude name=\"jarDeploySigned.jar\">\n" +
            "</exclude>\n" +
@@ -104,7 +271,7 @@ public class JavaFxAntTaskTest extends UsefulTestCase{
            "</fx:fileset>\n" +
            "<fx:application id=\"jarDeploySigned_id\" name=\"jarDeploySigned\" mainClass=\"Main\">\n" +
            "</fx:application>\n" +
-           "<fx:jar destfile=\"temp" + File.separator + "jarDeploySigned.jar\">\n" +
+           "<fx:jar destfile=\"temp" + "/" + "jarDeploySigned.jar\">\n" +
            "<fx:application refid=\"jarDeploySigned_id\">\n" +
            "</fx:application>\n" +
            "<fileset dir=\"temp\" excludes=\"**/*.jar\">\n" +
@@ -114,7 +281,7 @@ public class JavaFxAntTaskTest extends UsefulTestCase{
            "</fx:fileset>\n" +
            "</fx:resources>\n" +
            "</fx:jar>\n" +
-           "<fx:deploy width=\"800\" height=\"400\" updatemode=\"background\" outdir=\"temp" + File.separator + "deploy\" outfile=\"jarDeploySigned\">\n" +
+           "<fx:deploy width=\"800\" height=\"400\" updatemode=\"background\" outdir=\"temp" + "/" + "deploy\" outfile=\"jarDeploySigned\">\n" +
            "<fx:permissions elevated=\"true\">\n" +
            "</fx:permissions>\n" +
            "<fx:application refid=\"jarDeploySigned_id\">\n" +
@@ -126,8 +293,8 @@ public class JavaFxAntTaskTest extends UsefulTestCase{
            "</fx:deploy>\n", Collections.singletonMap(SIGNED, "true"));
   }
 
-  public void testJarDeployPreloader() throws Exception {
-    final HashMap<String, String> options = new HashMap<String, String>();
+  public void testJarDeployPreloader() {
+    final HashMap<String, String> options = new HashMap<>();
     options.put(PRELOADER_CLASS, "MyPreloader");
     options.put(PRELOADER_JAR, "preloader.jar");
     doTest("<fx:fileset id=\"jarDeployPreloader_preloader_files\" requiredFor=\"preloader\" dir=\"temp\" includes=\"preloader.jar\">\n" +
@@ -168,14 +335,69 @@ public class JavaFxAntTaskTest extends UsefulTestCase{
            "</fx:deploy>\n", options);
   }
 
+  public void testJarDeployVerbose() {
+    doTest("<fx:fileset id=\"all_but_jarDeployVerbose\" dir=\"temp\" includes=\"**/*.jar\">\n" +
+           "<exclude name=\"jarDeployVerbose.jar\">\n" +
+           "</exclude>\n" +
+           "</fx:fileset>\n" +
+           "<fx:fileset id=\"all_jarDeployVerbose\" dir=\"temp\" includes=\"**/*.jar\">\n" +
+           "</fx:fileset>\n" +
+           "<fx:application id=\"jarDeployVerbose_id\" name=\"jarDeployVerbose\" mainClass=\"Main\">\n" +
+           "</fx:application>\n" +
+           "<fx:jar destfile=\"temp/jarDeployVerbose.jar\" verbose=\"true\">\n" +
+           "<fx:application refid=\"jarDeployVerbose_id\">\n" +
+           "</fx:application>\n" +
+           "<fileset dir=\"temp\" excludes=\"**/*.jar\">\n" +
+           "</fileset>\n" +
+           "<fx:resources>\n" +
+           "<fx:fileset refid=\"all_but_jarDeployVerbose\">\n" +
+           "</fx:fileset>\n" +
+           "</fx:resources>\n" +
+           "</fx:jar>\n" +
+           "<fx:deploy width=\"800\" height=\"400\" updatemode=\"background\" outdir=\"temp/deploy\" outfile=\"jarDeployVerbose\" verbose=\"true\">\n" +
+           "<fx:application refid=\"jarDeployVerbose_id\">\n" +
+           "</fx:application>\n" +
+           "<fx:resources>\n" +
+           "<fx:fileset refid=\"all_jarDeployVerbose\">\n" +
+           "</fx:fileset>\n" +
+           "</fx:resources>\n" +
+           "</fx:deploy>\n", Collections.singletonMap(VERBOSE, "true"));
+  }
+
   private void doTest(final String expected, Map<String, String> options) {
-    final String artifactName = getTestName(true);
+    final String artifactName = UsefulTestCase.getTestName(getName(), true);
     final String artifactFileName = artifactName + ".jar";
-    final MockJavaFxPackager packager = new MockJavaFxPackager(artifactName + File.separator + artifactFileName);
+    final MockJavaFxPackager packager = new MockJavaFxPackager(artifactName + "/" + artifactFileName);
 
     final String title = options.get(TITLE);
     if (title != null) {
       packager.setTitle(title);
+    }
+
+    final String version = options.get(VERSION);
+    if (version != null) {
+      packager.setVersion(version);
+    }
+
+    String relativeToBaseDirPath = options.get(BASE_DIR_PATH);
+    final String icon = options.get(ICONS);
+    if (icon != null) {
+      final String[] icons = icon.split(",");
+      final JavaFxApplicationIcons appIcons = new JavaFxApplicationIcons();
+      appIcons.setLinuxIcon(icons[0]);
+      appIcons.setMacIcon(icons[1]);
+      appIcons.setWindowsIcon(icons[2]);
+      packager.setIcons(appIcons);
+      packager.setNativeBundle(JavaFxPackagerConstants.NativeBundles.all);
+    }
+
+    final String template = options.get(TEMPLATE);
+    if (template != null) {
+      packager.setHtmlTemplate(template);
+    }
+    final String placeholder = options.get(PLACEHOLDER);
+    if (placeholder != null) {
+      packager.setHtmlPlaceholderId(placeholder);
     }
 
     final String preloaderClass = options.get(PRELOADER_CLASS);
@@ -192,24 +414,28 @@ public class JavaFxAntTaskTest extends UsefulTestCase{
       packager.setSigned(true);
     }
 
+    if (options.containsKey(VERBOSE)) {
+      packager.setMsgOutputLevel(JavaFxPackagerConstants.MsgOutputLevel.Verbose);
+    }
+
     final List<JavaFxAntGenerator.SimpleTag> temp = JavaFxAntGenerator
-      .createJarAndDeployTasks(packager, artifactFileName, artifactName, "temp");
+      .createJarAndDeployTasks(packager, artifactFileName, artifactName, "temp", "temp" + "/" + "deploy", relativeToBaseDirPath);
     final StringBuilder buf = new StringBuilder();
     for (JavaFxAntGenerator.SimpleTag tag : temp) {
       tag.generate(buf);
     }
-    assertEquals(expected
-                   .replaceAll("temp/deploy", "temp\\" + File.separator + "deploy")
-                   .replaceAll("temp/" + artifactFileName, "temp\\" + File.separator + artifactFileName),
-                 buf.toString());
+    assertEquals(expected, buf.toString());
   }
 
-  private static class MockJavaFxPackager extends AbstractJavaFxPackager {
+  private static final class MockJavaFxPackager extends AbstractJavaFxPackager {
 
-    private String myOutputPath;
+    private final String myOutputPath;
     private String myTitle;
     private String myVendor;
     private String myDescription;
+    private String myVersion;
+    private String myHtmlTemplate;
+    private String myHtmlPlaceholderId;
     private String myHtmlParams;
     private String myParams;
     private String myPreloaderClass;
@@ -217,6 +443,9 @@ public class JavaFxAntTaskTest extends UsefulTestCase{
     private boolean myConvertCss2Bin;
     private boolean mySigned;
     private List<JavaFxManifestAttribute> myCustomManifestAttributes;
+    private JavaFxApplicationIcons myIcons;
+    private JavaFxPackagerConstants.NativeBundles myNativeBundle = JavaFxPackagerConstants.NativeBundles.none;
+    private JavaFxPackagerConstants.MsgOutputLevel myMsgOutputLevel = JavaFxPackagerConstants.MsgOutputLevel.Default;
 
     private MockJavaFxPackager(String outputPath) {
       myOutputPath = outputPath;
@@ -232,6 +461,18 @@ public class JavaFxAntTaskTest extends UsefulTestCase{
 
     private void setDescription(String description) {
       myDescription = description;
+    }
+
+    private void setVersion(String version) {
+      myVersion = version;
+    }
+
+    private void setHtmlTemplate(String htmlTemplate) {
+      myHtmlTemplate = htmlTemplate;
+    }
+
+    private void setHtmlPlaceholderId(String htmlPlaceholderId) {
+      myHtmlPlaceholderId = htmlPlaceholderId;
     }
 
     private void setHtmlParams(String htmlParams) {
@@ -252,6 +493,18 @@ public class JavaFxAntTaskTest extends UsefulTestCase{
 
     public void setSigned(boolean signed) {
       mySigned = signed;
+    }
+
+    public void setIcons(JavaFxApplicationIcons icons) {
+      myIcons = icons;
+    }
+
+    public void setNativeBundle(JavaFxPackagerConstants.NativeBundles nativeBundle) {
+      myNativeBundle = nativeBundle;
+    }
+
+    public void setMsgOutputLevel(JavaFxPackagerConstants.MsgOutputLevel msgOutputLevel) {
+      myMsgOutputLevel = msgOutputLevel;
     }
 
     @Override
@@ -290,6 +543,11 @@ public class JavaFxAntTaskTest extends UsefulTestCase{
     }
 
     @Override
+    public String getVersion() {
+      return myVersion;
+    }
+
+    @Override
     protected String getWidth() {
       return "800";
     }
@@ -297,6 +555,16 @@ public class JavaFxAntTaskTest extends UsefulTestCase{
     @Override
     protected String getHeight() {
       return "400";
+    }
+
+    @Override
+    public String getHtmlTemplateFile() {
+      return myHtmlTemplate;
+    }
+
+    @Override
+    public String getHtmlPlaceholderId() {
+      return myHtmlPlaceholderId;
     }
 
     @Override
@@ -316,11 +584,15 @@ public class JavaFxAntTaskTest extends UsefulTestCase{
 
     @Override
     protected JavaFxPackagerConstants.NativeBundles getNativeBundle() {
-      return JavaFxPackagerConstants.NativeBundles.none;
+      return myNativeBundle;
     }
 
     @Override
     protected void registerJavaFxPackagerError(String message) {
+    }
+
+    @Override
+    protected void registerJavaFxPackagerInfo(String message) {
     }
 
     @Override
@@ -371,6 +643,16 @@ public class JavaFxAntTaskTest extends UsefulTestCase{
     @Override
     public List<JavaFxManifestAttribute> getCustomManifestAttributes() {
       return myCustomManifestAttributes;
+    }
+
+    @Override
+    public JavaFxApplicationIcons getIcons() {
+      return myIcons;
+    }
+
+    @Override
+    public JavaFxPackagerConstants.MsgOutputLevel getMsgOutputLevel() {
+      return myMsgOutputLevel;
     }
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,14 +20,15 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.psi.util.PropertyUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.VisibilityUtil;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
 
 /**
  * @author Max Medvedev
@@ -35,6 +36,7 @@ import org.jetbrains.annotations.Nullable;
 public class JavaEncapsulateFieldHelper extends EncapsulateFieldHelper {
   private static final Logger LOG = Logger.getInstance(JavaEncapsulateFieldHelper.class);
 
+  @Override
   @Nullable
   public EncapsulateFieldUsageInfo createUsage(@NotNull EncapsulateFieldsDescriptor descriptor,
                                                @NotNull FieldDescriptor fieldDescriptor,
@@ -71,7 +73,7 @@ public class JavaEncapsulateFieldHelper extends EncapsulateFieldHelper {
 
   public static PsiModifierList createNewModifierList(EncapsulateFieldsDescriptor descriptor) {
     PsiModifierList newModifierList = null;
-    PsiElementFactory factory = JavaPsiFacade.getInstance(descriptor.getTargetClass().getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(descriptor.getTargetClass().getProject());
     try {
       PsiField field = factory.createField("a", PsiType.INT);
       EncapsulateFieldsProcessor.setNewFieldVisibility(field, descriptor);
@@ -95,6 +97,7 @@ public class JavaEncapsulateFieldHelper extends EncapsulateFieldHelper {
     return false;
   }
 
+  @Override
   public boolean processUsage(@NotNull EncapsulateFieldUsageInfo usage,
                               @NotNull EncapsulateFieldsDescriptor descriptor,
                               PsiMethod setter,
@@ -107,7 +110,7 @@ public class JavaEncapsulateFieldHelper extends EncapsulateFieldHelper {
     boolean processGet = descriptor.isToEncapsulateGet();
     boolean processSet = descriptor.isToEncapsulateSet() && !field.hasModifierProperty(PsiModifier.FINAL);
     if (!processGet && !processSet) return true;
-    PsiElementFactory factory = JavaPsiFacade.getInstance(descriptor.getTargetClass().getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(descriptor.getTargetClass().getProject());
 
     try{
       final PsiReferenceExpression expr = (PsiReferenceExpression)element;
@@ -176,14 +179,8 @@ public class JavaEncapsulateFieldHelper extends EncapsulateFieldHelper {
           }
         }
       }
-      else if (RefactoringUtil.isPlusPlusOrMinusMinus(parent)){
-        IElementType sign;
-        if (parent instanceof PsiPrefixExpression){
-          sign = ((PsiPrefixExpression)parent).getOperationTokenType();
-        }
-        else{
-          sign = ((PsiPostfixExpression)parent).getOperationTokenType();
-        }
+      else if (PsiUtil.isIncrementDecrementOperation(parent)){
+        IElementType sign = ((PsiUnaryExpression)parent).getOperationTokenType();
 
         PsiExpression getExpr = expr;
         if (processGet){
@@ -270,7 +267,7 @@ public class JavaEncapsulateFieldHelper extends EncapsulateFieldHelper {
         text = expr.getText().substring(0, referenceNameElement.getStartOffsetInParent()) + text;
       }
     }
-    final PsiElementFactory factory = JavaPsiFacade.getInstance(expr.getProject()).getElementFactory();
+    final PsiElementFactory factory = JavaPsiFacade.getElementFactory(expr.getProject());
     return (PsiMethodCallExpression)factory.createExpressionFromText(text, expr);
   }
 
@@ -279,7 +276,7 @@ public class JavaEncapsulateFieldHelper extends EncapsulateFieldHelper {
                                                                PsiMethod targetMethod,
                                                                PsiReferenceExpression context,
                                                                PsiClass aClass) throws IncorrectOperationException {
-    PsiElementFactory factory = JavaPsiFacade.getInstance(targetMethod.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(targetMethod.getProject());
     final PsiElement resolved = methodCall.getMethodExpression().resolve();
     if (resolved != targetMethod) {
       PsiClass containingClass;
@@ -304,10 +301,10 @@ public class JavaEncapsulateFieldHelper extends EncapsulateFieldHelper {
     return methodCall;
   }
 
-  @NotNull
   @Override
-  public PsiField[] getApplicableFields(@NotNull PsiClass aClass) {
-    return aClass.getFields();
+  public PsiField @NotNull [] getApplicableFields(@NotNull PsiClass aClass) {
+    final List<PsiField> fields = ContainerUtil.filter(aClass.getFields(), field -> !(field instanceof PsiEnumConstant));
+    return fields.toArray(PsiField.EMPTY_ARRAY);
   }
 
   @Override

@@ -1,118 +1,189 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl;
 
-import com.intellij.openapi.components.PersistentStateComponent;
-import com.intellij.util.Function;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.EditorFactory;
+import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.DocumentListener;
+import com.intellij.openapi.editor.event.EditorEventMulticaster;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.xmlb.annotations.AbstractCollection;
-import com.intellij.util.xmlb.annotations.Attribute;
-import com.intellij.util.xmlb.annotations.Property;
-import com.intellij.util.xmlb.annotations.Tag;
-import com.intellij.xdebugger.XExpression;
+import com.intellij.util.ui.update.MergingUpdateQueue;
+import com.intellij.util.ui.update.Update;
+import com.intellij.xdebugger.*;
 import com.intellij.xdebugger.impl.breakpoints.XExpressionState;
+import com.intellij.xdebugger.impl.inline.InlineWatch;
+import com.intellij.xdebugger.impl.inline.InlineWatchInplaceEditor;
+import com.intellij.xdebugger.impl.inline.XInlineWatchesView;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-/**
- * @author egor
- */
-public class XDebuggerWatchesManager implements PersistentStateComponent<XDebuggerWatchesManager.WatchesManagerState> {
-  private final Map<String, XExpression[]> watches = ContainerUtil.newConcurrentMap();
+public final class XDebuggerWatchesManager {
+  private final Map<String, List<XExpression>> watches = new ConcurrentHashMap<>();
+  private final Map<String, Set<InlineWatch>> inlineWatches = new ConcurrentHashMap<>();
+  private final MergingUpdateQueue myInlinesUpdateQueue;
+  private Project myProject;
 
-  @NotNull
-  public XExpression[] getWatches(String confName) {
-    XExpression[] expressions = watches.get(confName);
-    if (expressions == null) {
-      return new XExpression[0];
-    }
-    return expressions;
+  public XDebuggerWatchesManager(@NotNull Project project) {
+    myProject = project;
+    EditorEventMulticaster editorEventMulticaster = EditorFactory.getInstance().getEventMulticaster();
+    editorEventMulticaster.addDocumentListener(new MyDocumentListener(), project);
+    myInlinesUpdateQueue = new MergingUpdateQueue("XInlineWatches", 300, true, null, project);
   }
 
-  public void setWatches(String configurationName, XExpression[] expressions) {
-    if (expressions != null && expressions.length > 0) {
-      watches.put(configurationName, expressions);
-    }
-    else {
+  public @NotNull List<XExpression> getWatches(String confName) {
+    return ContainerUtil.notNullize(watches.get(confName));
+  }
+
+  public void setWatches(@NotNull String configurationName, @NotNull List<XExpression> expressions) {
+    if (expressions.isEmpty()) {
       watches.remove(configurationName);
     }
+    else {
+      watches.put(configurationName, expressions);
+    }
   }
 
-  @Override
-  public WatchesManagerState getState() {
-    WatchesManagerState state = new WatchesManagerState();
-    for (Map.Entry<String, XExpression[]> entry : watches.entrySet()) {
-      state.expressions.add(new ConfigurationState(entry.getKey(), entry.getValue()));
-    }
+  public List<InlineWatch> getInlineWatches() {
+    return inlineWatches.values().stream().flatMap(l -> l.stream()).collect(Collectors.toList());
+  }
+
+  public @NotNull WatchesManagerState saveState(@NotNull WatchesManagerState state) {
+    List<ConfigurationState> expressions = state.getExpressions();
+    expressions.clear();
+    watches.forEach((key, value) -> expressions.add(new ConfigurationState(key, value)));
+    List<InlineWatchState> inlineExpressionStates = state.getInlineExpressionStates();
+    inlineExpressionStates.clear();
+    inlineWatches.values().stream()
+      .flatMap(l -> l.stream())
+      .forEach((value) -> {
+        inlineExpressionStates.add(new InlineWatchState(value.getExpression(), value.getLine(), value.getPosition().getFile().getUrl()));
+      });
     return state;
   }
 
-  @Override
-  public void loadState(WatchesManagerState state) {
+  public void clearContext() {
     watches.clear();
-    if (state != null) {
-      for (ConfigurationState expressionState : state.expressions) {
-        XExpression[] expressions = ContainerUtil.mapNotNull(expressionState.myExpressionStates,
-          new Function<WatchState, XExpression>() {
-            @Override
-            public XExpression fun(WatchState state) {
-              return state.toXExpression();
-            }
-          }, new XExpression[0]);
-        watches.put(expressionState.myName, expressions);
+    inlineWatches.clear();
+  }
+
+  public void loadState(@NotNull WatchesManagerState state) {
+    clearContext();
+
+    for (ConfigurationState configurationState : state.getExpressions()) {
+      List<WatchState> expressionStates = configurationState.getExpressionStates();
+      if (!ContainerUtil.isEmpty(expressionStates)) {
+        watches.put(configurationState.getName(), ContainerUtil.mapNotNull(expressionStates, XExpressionState::toXExpression));
+      }
+    }
+
+    VirtualFileManager fileManager = VirtualFileManager.getInstance();
+    XDebuggerUtil debuggerUtil = XDebuggerUtil.getInstance();
+    for (InlineWatchState inlineWatchState : state.getInlineExpressionStates()) {
+      if (inlineWatchState == null || inlineWatchState.getFileUrl() == null || inlineWatchState.getWatchState() == null) continue;
+
+      VirtualFile file = fileManager.findFileByUrl(inlineWatchState.getFileUrl());
+      XSourcePosition position = debuggerUtil.createPosition(file, inlineWatchState.getLine());
+      XExpression expression = inlineWatchState.getWatchState().toXExpression();
+      InlineWatch watch = new InlineWatch(expression, position);
+      inlineWatches.computeIfAbsent(inlineWatchState.getFileUrl(), (k) -> new HashSet<>()).add(watch);
+    }
+
+    ApplicationManager.getApplication().invokeLater(() -> {
+      inlineWatches.values().stream().flatMap(set -> set.stream()).forEach(InlineWatch::setMarker);
+    }, ModalityState.NON_MODAL, myProject.getDisposed());
+  }
+
+  public void showInplaceEditor(@NotNull XSourcePosition presentationPosition,
+                                @NotNull Editor mainEditor,
+                                @NotNull XDebugSession session,
+                                @Nullable XExpression expression) {
+    InlineWatchInplaceEditor inplaceEditor = new InlineWatchInplaceEditor(presentationPosition, session, mainEditor, expression);
+    inplaceEditor.show();
+  }
+
+  public void inlineWatchesRemoved(List<InlineWatch> removed, XInlineWatchesView watchesView) {
+    inlineWatches.values().forEach(set -> set.removeAll(removed));
+    getWatchesViews().filter(v -> v != watchesView).forEach(view -> view.removeInlineWatches(removed));
+  }
+
+  private class MyDocumentListener implements DocumentListener {
+    @Override
+    public void documentChanged(@NotNull final DocumentEvent e) {
+      final Document document = e.getDocument();
+      Collection<InlineWatch> inlines = getDocumentInlines(document);
+      if (!inlines.isEmpty()) {
+        myInlinesUpdateQueue.queue(new Update(document) {
+          @Override
+          public void run() {
+            updateInlines(document);
+          }
+        });
       }
     }
   }
 
-  @Tag("watches-manager")
-  public static class WatchesManagerState {
-    @Property(surroundWithTag = false)
-    @AbstractCollection(surroundWithTag = false)
-    public List<ConfigurationState> expressions = new ArrayList<ConfigurationState>();
+  public void addInlineWatchExpression(@NotNull XExpression expression, int index, XSourcePosition position, boolean navigateToWatchNode) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+
+    InlineWatch watch = new InlineWatch(expression, position);
+    watch.setMarker();
+    String fileUrl = position.getFile().getUrl();
+    inlineWatches.computeIfAbsent(fileUrl, (k) -> new HashSet<>()).add(watch);
+
+    getWatchesViews().forEach(view -> view.addInlineWatchExpression(watch, index, navigateToWatchNode));
   }
 
-  @Tag("configuration")
-  public static class ConfigurationState {
-    @Attribute("name")
-    public String myName;
 
-    @Property(surroundWithTag = false)
-    @AbstractCollection(surroundWithTag = false)
-    public WatchState[] myExpressionStates;
+  private void updateInlines(@NotNull Document document) {
+    @NotNull Collection<InlineWatch> inlines = getDocumentInlines(document);
+    if (inlines.isEmpty()) return;
 
-    public ConfigurationState() {
-    }
-
-    public ConfigurationState(String name, XExpression[] expressions) {
-      this.myName = name;
-      myExpressionStates = new WatchState[expressions.length];
-      for (int i = 0; i < expressions.length; i++) {
-        myExpressionStates[i] = new WatchState(expressions[i]);
+    Set<InlineWatch> toRemove = new HashSet<>();
+    for (InlineWatch inlineWatch : inlines) {
+      inlineWatch.updatePosition();
+      if (!inlineWatch.isValid()) {
+        toRemove.add(inlineWatch);
       }
     }
+    removeInlines(toRemove);
   }
-  @Tag("watch")
-  public static class WatchState extends XExpressionState {
-    public WatchState() {}
 
-    public WatchState(XExpression expression) {
-      super(expression);
+  private void removeInlines(Collection<InlineWatch> remove) {
+    for (InlineWatch watch : remove) {
+      inlineWatches.get(watch.getPosition().getFile().getUrl()).remove(watch);
     }
+
+    getWatchesViews().forEach(view -> view.removeInlineWatches(remove));
+  }
+
+  private Stream<XInlineWatchesView> getWatchesViews() {
+    return Arrays.stream(XDebuggerManager.getInstance(myProject).getDebugSessions())
+      .map(s -> ((XDebugSessionImpl)s).getSessionTab())
+      .filter(t -> t != null && t.getWatchesView() instanceof XInlineWatchesView)
+      .map(t -> (XInlineWatchesView)t.getWatchesView());
+  }
+
+  @NotNull
+  public Collection<InlineWatch> getDocumentInlines(Document document) {
+    VirtualFile file = FileDocumentManager.getInstance().getFile(document);
+    if (file != null) {
+      Set<InlineWatch> inlineWatches = this.inlineWatches.get(file.getUrl());
+      if (inlineWatches != null) {
+        return new ArrayList<>(inlineWatches);
+      }
+    }
+    return Collections.emptyList();
   }
 }

@@ -1,75 +1,89 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.mock;
 
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.components.BaseComponent;
 import com.intellij.openapi.components.ComponentManager;
-import com.intellij.openapi.extensions.ExtensionPointName;
+import com.intellij.openapi.extensions.PluginDescriptor;
+import com.intellij.openapi.extensions.PluginId;
+import com.intellij.openapi.extensions.impl.ExtensionsAreaImpl;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Conditions;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.UserDataHolderBase;
+import com.intellij.util.ExceptionUtilRt;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.messages.ListenerDescriptor;
 import com.intellij.util.messages.MessageBus;
-import com.intellij.util.messages.MessageBusFactory;
+import com.intellij.util.messages.MessageBusOwner;
+import com.intellij.util.messages.impl.MessageBusFactoryImpl;
 import com.intellij.util.pico.DefaultPicoContainer;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.picocontainer.MutablePicoContainer;
 import org.picocontainer.PicoContainer;
 
-import java.lang.reflect.Array;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class MockComponentManager extends UserDataHolderBase implements ComponentManager {
-  private final MessageBus myMessageBus = MessageBusFactory.newMessageBus(this);
-  private final MutablePicoContainer myPicoContainer;
+public class MockComponentManager extends UserDataHolderBase implements ComponentManager, MessageBusOwner {
+  private final MessageBus myMessageBus = MessageBusFactoryImpl.createRootBus(this);
+  private final DefaultPicoContainer myPicoContainer;
+  private final ExtensionsAreaImpl myExtensionArea;
 
-  private final Map<Class, Object> myComponents = new HashMap<Class, Object>();
+  private final Map<Class<?>, Object> myComponents = new HashMap<>();
   private final Set<Object> myDisposableComponents = ContainerUtil.newConcurrentSet();
+  private boolean myDisposed;
 
   public MockComponentManager(@Nullable PicoContainer parent, @NotNull Disposable parentDisposable) {
-    myPicoContainer = new DefaultPicoContainer(parent) {
+    myPicoContainer = new DefaultPicoContainer((DefaultPicoContainer)parent) {
       @Override
       @Nullable
-      public Object getComponentInstance(final Object componentKey) {
-        final Object o = super.getComponentInstance(componentKey);
+      public Object getComponentInstance(@NotNull Object componentKey) {
+        if (myDisposed) {
+          throw new IllegalStateException("Cannot get " + componentKey + " from already disposed " + this);
+        }
+
+        Object o = super.getComponentInstance(componentKey);
         registerComponentInDisposer(o);
         return o;
       }
     };
 
     myPicoContainer.registerComponentInstance(this);
+    myExtensionArea = new ExtensionsAreaImpl(this);
     Disposer.register(parentDisposable, this);
   }
 
-  private void registerComponentInDisposer(@Nullable Object o) {
-    if (o instanceof Disposable && o != MockComponentManager.this) {
-      if (myDisposableComponents.add(o))
-        Disposer.register(MockComponentManager.this, (Disposable)o);
-    }
+  @NotNull
+  @Override
+  public ExtensionsAreaImpl getExtensionArea() {
+    return myExtensionArea;
   }
 
   @Override
-  public BaseComponent getComponent(@NotNull String name) {
-    return null;
+  public @NotNull RuntimeException createError(@NotNull Throwable error, @NotNull PluginId pluginId) {
+    ExceptionUtilRt.rethrowUnchecked(error);
+    return new RuntimeException(error);
+  }
+
+  @Override
+  public @NotNull RuntimeException createError(@NotNull @NonNls String message, @NotNull PluginId pluginId) {
+    return new RuntimeException(message);
+  }
+
+  @Override
+  public @NotNull RuntimeException createError(@NotNull @NonNls String message,
+                                               @NotNull PluginId pluginId,
+                                               @Nullable Map<String, String> attachments) {
+    return new RuntimeException(message);
+  }
+
+  protected void registerComponentInDisposer(@Nullable Object o) {
+    if (o instanceof Disposable && o != this && !(o instanceof MessageBus) && myDisposableComponents.add(o)) {
+      Disposer.register(this, (Disposable)o);
+    }
   }
 
   public <T> void registerService(@NotNull Class<T> serviceInterface, @NotNull Class<? extends T> serviceImplementation) {
@@ -86,37 +100,35 @@ public class MockComponentManager extends UserDataHolderBase implements Componen
     registerComponentInDisposer(serviceImplementation);
   }
 
+  public <T> void registerService(@NotNull Class<T> serviceInterface, @NotNull T serviceImplementation, @NotNull Disposable parentDisposable) {
+    String key = serviceInterface.getName();
+    registerService(serviceInterface, serviceImplementation);
+    Disposer.register(parentDisposable, () -> myPicoContainer.unregisterComponent(key));
+  }
+
   public <T> void addComponent(@NotNull Class<T> interfaceClass, @NotNull T instance) {
     myComponents.put(interfaceClass, instance);
     registerComponentInDisposer(instance);
   }
 
+  @Nullable
   @Override
   public <T> T getComponent(@NotNull Class<T> interfaceClass) {
     final Object o = myPicoContainer.getComponentInstance(interfaceClass);
+    //noinspection unchecked
     return (T)(o != null ? o : myComponents.get(interfaceClass));
   }
 
   @Override
-  public <T> T getComponent(@NotNull Class<T> interfaceClass, T defaultImplementation) {
-    return getComponent(interfaceClass);
-  }
-
-  @Override
-  public boolean hasComponent(@NotNull Class interfaceClass) {
-    return false;
-  }
-
-  @Override
-  @NotNull
-  public <T> T[] getComponents(@NotNull Class<T> baseClass) {
-    final List<?> list = myPicoContainer.getComponentInstancesOfType(baseClass);
-    return list.toArray((T[])Array.newInstance(baseClass, 0));
+  public <T> T getService(@NotNull Class<T> serviceClass) {
+    T result = myPicoContainer.getService(serviceClass);
+    registerComponentInDisposer(result);
+    return result;
   }
 
   @Override
   @NotNull
-  public MutablePicoContainer getPicoContainer() {
+  public final MutablePicoContainer getPicoContainer() {
     return myPicoContainer;
   }
 
@@ -128,22 +140,29 @@ public class MockComponentManager extends UserDataHolderBase implements Componen
 
   @Override
   public boolean isDisposed() {
-    return false;
+    return myDisposed;
   }
 
   @Override
   public void dispose() {
+    Disposer.dispose(myMessageBus);
+    myDisposed = true;
   }
 
   @NotNull
   @Override
-  public <T> T[] getExtensions(@NotNull final ExtensionPointName<T> extensionPointName) {
-    throw new UnsupportedOperationException("getExtensions()");
-  }
-
-  @NotNull
-  @Override
-  public Condition getDisposed() {
+  public Condition<?> getDisposed() {
     return Conditions.alwaysFalse();
+  }
+
+  @Override
+  public @NotNull Object createListener(@NotNull ListenerDescriptor descriptor) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public <T> @NotNull Class<T> loadClass(@NotNull String className, @NotNull PluginDescriptor pluginDescriptor) throws ClassNotFoundException {
+    //noinspection unchecked
+    return (Class<T>)Class.forName(className);
   }
 }

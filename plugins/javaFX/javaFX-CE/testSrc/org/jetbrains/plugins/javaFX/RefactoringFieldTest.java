@@ -16,38 +16,42 @@
 
 package org.jetbrains.plugins.javaFX;
 
-import com.intellij.codeInsight.TargetElementUtilBase;
+import com.intellij.codeInsight.TargetElementUtil;
 import com.intellij.openapi.application.PluginPathManager;
 import com.intellij.psi.PsiElement;
-import com.intellij.refactoring.rename.RenameProcessor;
+import com.intellij.refactoring.RefactoringFactory;
+import com.intellij.refactoring.RenameRefactoring;
 import com.intellij.refactoring.safeDelete.SafeDeleteHandler;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.javaFX.fxml.AbstractJavaFXTestCase;
 
 public class RefactoringFieldTest extends AbstractJavaFXTestCase {
 
-  public void testPropertyRename() throws Exception {
+  public void testPropertyRename() {
     myFixture.configureByFile(getTestName(false) + ".java");
     performRename("newName");
     myFixture.checkResultByFile(getTestName(false) + "_after.java");
   }
 
-  public void testPropertyDelete() throws Exception {
+  public void testPropertyDelete() {
     myFixture.configureByFile(getTestName(false) + ".java");
     performDelete();
     myFixture.checkResultByFile(getTestName(false) + "_after.java");
   }
 
   protected void performRename(String newName) {
-    PsiElement element = TargetElementUtilBase.findTargetElement(myFixture.getEditor(), TargetElementUtilBase
-      .ELEMENT_NAME_ACCEPTED | TargetElementUtilBase.REFERENCED_ELEMENT_ACCEPTED);
+    PsiElement element = TargetElementUtil.findTargetElement(myFixture.getEditor(), TargetElementUtil
+                                                                                      .ELEMENT_NAME_ACCEPTED |
+                                                                                    TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED);
 
-    new RenameProcessor(getProject(), element, newName, false, false).run();
+    RenameRefactoring refactoring = RefactoringFactory.getInstance(getProject()).createRename(element, newName, false, false);
+    refactoring.respectAllAutomaticRenames();
+    refactoring.run();
   }
 
    private void performDelete() {
-    final PsiElement psiElement = TargetElementUtilBase
-      .findTargetElement(myFixture.getEditor(), TargetElementUtilBase.ELEMENT_NAME_ACCEPTED | TargetElementUtilBase.REFERENCED_ELEMENT_ACCEPTED);
+    final PsiElement psiElement = TargetElementUtil
+      .findTargetElement(myFixture.getEditor(), TargetElementUtil.ELEMENT_NAME_ACCEPTED | TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED);
     assertNotNull("No element found in text:\n" + myFixture.getFile().getText(), psiElement);
     SafeDeleteHandler.invoke(getProject(), new PsiElement[]{psiElement}, true);
   }

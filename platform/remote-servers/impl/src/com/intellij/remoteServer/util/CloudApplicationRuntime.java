@@ -18,7 +18,6 @@ package com.intellij.remoteServer.util;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.MessageType;
-import com.intellij.openapi.util.Computable;
 import com.intellij.remoteServer.ServerType;
 import com.intellij.remoteServer.agent.util.CloudAgentLoggingHandler;
 import com.intellij.remoteServer.runtime.Deployment;
@@ -30,7 +29,7 @@ import org.jetbrains.annotations.Nullable;
 
 public abstract class CloudApplicationRuntime extends DeploymentRuntime {
 
-  private static final Logger LOG = Logger.getInstance("#" + CloudApplicationRuntime.class.getName());
+  private static final Logger LOG = Logger.getInstance(CloudApplicationRuntime.class);
 
 
   private final String myApplicationName;
@@ -75,35 +74,27 @@ public abstract class CloudApplicationRuntime extends DeploymentRuntime {
   protected abstract class LoggingTask {
 
     public void perform(final Project project, final Runnable onDone) {
-      getTaskExecutor().submit(new Runnable() {
+      getTaskExecutor().submit(() -> {
+        try {
+          getAgentTaskExecutor().execute(() -> {
+            Deployment deployment = getDeploymentModel();
+            CloudAgentLoggingHandler loggingHandler
+              = deployment == null
+                ? null
+                : new CloudLoggingHandlerImpl(deployment.getOrCreateLogManager(project)) {
 
-        @Override
-        public void run() {
-          try {
-            getAgentTaskExecutor().execute(new Computable<Object>() {
-
-              @Override
-              public Object compute() {
-                Deployment deployment = getDeploymentModel();
-                CloudAgentLoggingHandler loggingHandler
-                  = deployment == null
-                    ? null
-                    : new CloudLoggingHandlerImpl(deployment.getOrCreateLogManager(project)) {
-
-                      @Override
-                      public void println(String message) {
-                        LOG.info(message);
-                      }
-                    };
-                LoggingTask.this.run(loggingHandler);
-                return null;
-              }
-            });
-            onDone.run();
-          }
-          catch (ServerRuntimeException e) {
-            getCloudNotifier().showMessage(e.getMessage(), MessageType.ERROR);
-          }
+                @Override
+                public void println(String message) {
+                  LOG.info(message);
+                }
+              };
+            this.run(loggingHandler);
+            return null;
+          });
+          onDone.run();
+        }
+        catch (ServerRuntimeException e) {
+          getCloudNotifier().showMessage(e.getMessage(), MessageType.ERROR);
         }
       });
     }

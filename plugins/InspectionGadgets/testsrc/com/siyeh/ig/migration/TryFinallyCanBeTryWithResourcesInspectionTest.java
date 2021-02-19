@@ -16,10 +16,12 @@
 package com.siyeh.ig.migration;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.intellij.testFramework.LightProjectDescriptor;
+import com.siyeh.ig.LightJavaInspectionTestCase;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class TryFinallyCanBeTryWithResourcesInspectionTest extends LightInspectionTestCase {
+public class TryFinallyCanBeTryWithResourcesInspectionTest extends LightJavaInspectionTestCase {
 
   public void testTryFinallyCanBeTryWithResources() {
     doTest();
@@ -29,5 +31,11 @@ public class TryFinallyCanBeTryWithResourcesInspectionTest extends LightInspecti
   @Override
   protected InspectionProfileEntry getInspection() {
     return new TryFinallyCanBeTryWithResourcesInspection();
+  }
+
+  @NotNull
+  @Override
+  protected LightProjectDescriptor getProjectDescriptor() {
+    return JAVA_9;
   }
 }

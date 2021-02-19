@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.util.dynamicMembers;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.light.LightElement;
 import com.intellij.psi.util.MethodSignature;
@@ -67,7 +54,7 @@ public class GrDynamicMethodImpl extends LightElement implements GrMethod {
   }
 
   @Override
-  public GrParameter[] getParameters() {
+  public GrParameter @NotNull [] getParameters() {
     return myMethod.getParameters();
   }
 
@@ -82,20 +69,17 @@ public class GrDynamicMethodImpl extends LightElement implements GrMethod {
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] findSuperMethods() {
+  public PsiMethod @NotNull [] findSuperMethods() {
     return PsiMethod.EMPTY_ARRAY;
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] findSuperMethods(boolean checkAccess) {
+  public PsiMethod @NotNull [] findSuperMethods(boolean checkAccess) {
     return PsiMethod.EMPTY_ARRAY;
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] findSuperMethods(PsiClass parentClass) {
+  public PsiMethod @NotNull [] findSuperMethods(PsiClass parentClass) {
     return PsiMethod.EMPTY_ARRAY;
   }
 
@@ -111,9 +95,8 @@ public class GrDynamicMethodImpl extends LightElement implements GrMethod {
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] findDeepestSuperMethods() {
-    return new PsiMethod[0];
+  public PsiMethod @NotNull [] findDeepestSuperMethods() {
+    return PsiMethod.EMPTY_ARRAY;
   }
 
   @Override
@@ -123,7 +106,7 @@ public class GrDynamicMethodImpl extends LightElement implements GrMethod {
 
   @Override
   public GrMember[] getMembers() {
-    return new GrMember[0];
+    return GrMember.EMPTY_ARRAY;
   }
 
   @Override
@@ -143,9 +126,8 @@ public class GrDynamicMethodImpl extends LightElement implements GrMethod {
     return myMethod.getNamedParameters();
   }
 
-  @NotNull
   @Override
-  public GrReflectedMethod[] getReflectedMethods() {
+  public GrReflectedMethod @NotNull [] getReflectedMethods() {
     return GrReflectedMethod.EMPTY_ARRAY;
   }
 
@@ -170,8 +152,7 @@ public class GrDynamicMethodImpl extends LightElement implements GrMethod {
   }
 
   @Override
-  @NotNull
-  public String getName() {
+  public @NlsSafe @NotNull  String getName() {
     return myMethod.getName();
   }
 
@@ -215,11 +196,11 @@ public class GrDynamicMethodImpl extends LightElement implements GrMethod {
   }
 
   @Override
-  public void accept(GroovyElementVisitor visitor) {
+  public void accept(@NotNull GroovyElementVisitor visitor) {
   }
 
   @Override
-  public void acceptChildren(GroovyElementVisitor visitor) {
+  public void acceptChildren(@NotNull GroovyElementVisitor visitor) {
   }
 
   @Override
@@ -243,8 +224,7 @@ public class GrDynamicMethodImpl extends LightElement implements GrMethod {
   }
 
   @Override
-  @NotNull
-  public PsiTypeParameter[] getTypeParameters() {
+  public PsiTypeParameter @NotNull [] getTypeParameters() {
     return myMethod.getTypeParameters();
   }
 

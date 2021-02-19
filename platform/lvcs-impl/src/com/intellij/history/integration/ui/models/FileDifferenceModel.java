@@ -16,13 +16,14 @@
 
 package com.intellij.history.integration.ui.models;
 
+import com.intellij.diff.DiffContentFactory;
+import com.intellij.diff.contents.DiffContent;
 import com.intellij.history.core.tree.Entry;
 import com.intellij.history.integration.IdeaGateway;
 import com.intellij.history.integration.LocalHistoryBundle;
-import com.intellij.openapi.diff.DiffContent;
-import com.intellij.openapi.diff.SimpleContent;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.text.DateFormatUtil;
 
@@ -37,19 +38,23 @@ public abstract class FileDifferenceModel {
     isRightContentCurrent = currentRightContent;
   }
 
+  @NlsContexts.DialogTitle
   public String getTitle() {
     Entry e = getRightEntry();
     if (e == null) e = getLeftEntry();
+    if (e == null) return null;
     return FileUtil.toSystemDependentName(e.getPath());
   }
 
+  @NlsContexts.Label
   public String getLeftTitle(RevisionProcessingProgress p) {
     if (!hasLeftEntry()) return LocalHistoryBundle.message("file.does.not.exist");
     return formatTitle(getLeftEntry(), isLeftContentAvailable(p));
   }
 
+  @NlsContexts.Label
   public String getRightTitle(RevisionProcessingProgress p) {
-    if (!hasRightEntry()) return LocalHistoryBundle.message("file.does.not.exist"); 
+    if (!hasRightEntry()) return LocalHistoryBundle.message("file.does.not.exist");
     if (!isRightContentAvailable(p)) {
       return formatTitle(getRightEntry(), false);
     }
@@ -57,8 +62,9 @@ public abstract class FileDifferenceModel {
     return formatTitle(getRightEntry(), true);
   }
 
-  private String formatTitle(Entry e, boolean isAvailable) {
-    String result = DateFormatUtil.formatPrettyDateTime(e.getTimestamp()) + " - " + e.getName();
+  @NlsContexts.Label
+  private static String formatTitle(Entry e, boolean isAvailable) {
+    String result = DateFormatUtil.formatDateTime(e.getTimestamp()) + " - " + e.getName();
     if (!isAvailable) {
       result += " - " + LocalHistoryBundle.message("content.not.available");
     }
@@ -70,24 +76,16 @@ public abstract class FileDifferenceModel {
   protected abstract Entry getRightEntry();
 
   public DiffContent getLeftDiffContent(RevisionProcessingProgress p) {
-    if (!canShowLeftEntry(p)) return new SimpleContent("");
+    if (!hasLeftEntry()) return DiffContentFactory.getInstance().createEmpty();
+    if (!isLeftContentAvailable(p)) return DiffContentFactory.getInstance().create(LocalHistoryBundle.message("content.not.available"));
     return doGetLeftDiffContent(p);
   }
 
-  protected abstract DiffContent doGetLeftDiffContent(RevisionProcessingProgress p);
-
   public DiffContent getRightDiffContent(RevisionProcessingProgress p) {
-    if (!canShowRightEntry(p)) return new SimpleContent("");
+    if (!hasRightEntry()) return DiffContentFactory.getInstance().createEmpty();
+    if (!isRightContentAvailable(p)) return DiffContentFactory.getInstance().create(LocalHistoryBundle.message("content.not.available"));
     if (isRightContentCurrent) return getEditableRightDiffContent(p);
     return getReadOnlyRightDiffContent(p);
-  }
-
-  private boolean canShowLeftEntry(RevisionProcessingProgress p) {
-    return hasLeftEntry() && isLeftContentAvailable(p);
-  }
-
-  private boolean canShowRightEntry(RevisionProcessingProgress p) {
-    return hasRightEntry() && isRightContentAvailable(p);
   }
 
   private boolean hasLeftEntry() {
@@ -102,13 +100,11 @@ public abstract class FileDifferenceModel {
 
   protected abstract boolean isRightContentAvailable(RevisionProcessingProgress p);
 
+  protected abstract DiffContent doGetLeftDiffContent(RevisionProcessingProgress p);
+
   protected abstract DiffContent getReadOnlyRightDiffContent(RevisionProcessingProgress p);
 
   protected abstract DiffContent getEditableRightDiffContent(RevisionProcessingProgress p);
-
-  protected SimpleContent createSimpleDiffContent(String content, Entry e) {
-    return new SimpleContent(content, myGateway.getFileType(e.getName()));
-  }
 
   protected Document getDocument() {
     return myGateway.getDocument(getRightEntry().getPath());

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.framework.detection;
 
 import com.intellij.framework.FrameworkType;
@@ -43,11 +29,9 @@ import java.util.List;
  * &nbsp;&nbsp;&lt;framework.detector implementation="qualified-class-name"/&gt;
  * &lt;/extensions&gt;
  * </pre>
- *
- * @author nik
  */
 public abstract class FrameworkDetector {
-  public static final ExtensionPointName<FrameworkDetector> EP_NAME = ExtensionPointName.create("com.intellij.framework.detector");
+  public static final ExtensionPointName<FrameworkDetector> EP_NAME = new ExtensionPointName<>("com.intellij.framework.detector");
   private final String myDetectorId;
   private final int myDetectorVersion;
 
@@ -89,7 +73,7 @@ public abstract class FrameworkDetector {
   /**
    * @return {@link FrameworkType} instance which will be used to present the framework in 'Frameworks Detected' dialog and 'Disable Detection' settings
    */
-  public abstract FrameworkType getFrameworkType();
+  public abstract @NotNull FrameworkType getFrameworkType();
 
   /**
    * @return {@link FrameworkType} instance describing framework which is required for this framework.

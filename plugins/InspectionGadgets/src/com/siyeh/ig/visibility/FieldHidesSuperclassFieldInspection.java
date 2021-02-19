@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2007 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2019 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,108 @@
  */
 package com.siyeh.ig.visibility;
 
+import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
+import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiField;
+import com.intellij.psi.PsiModifier;
+import com.siyeh.HardcodedMethodConstants;
+import com.siyeh.InspectionGadgetsBundle;
+import com.siyeh.ig.BaseInspection;
+import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.fixes.RenameFix;
+import com.siyeh.ig.psiutils.ClassUtils;
+import org.intellij.lang.annotations.Pattern;
+import org.jdom.Element;
+import org.jetbrains.annotations.NotNull;
 
-public class FieldHidesSuperclassFieldInspection extends FieldHidesSuperclassFieldInspectionBase {
+import javax.swing.*;
+import java.util.HashSet;
+import java.util.Set;
+
+public class FieldHidesSuperclassFieldInspection extends BaseInspection {
+  @SuppressWarnings("PublicField")
+  public boolean m_ignoreInvisibleFields = true;
+  @SuppressWarnings("PublicField")
+  public boolean ignoreStaticFields = true;
+
   @Override
   protected InspectionGadgetsFix buildFix(Object... infos) {
     return new RenameFix();
+  }
+
+  @Override
+  public void writeSettings(@NotNull Element node) throws WriteExternalException {
+    defaultWriteSettings(node, "ignoreStaticFields");
+    writeBooleanOption(node, "ignoreStaticFields", true);
+  }
+
+  @Pattern(VALID_ID_PATTERN)
+  @Override
+  @NotNull
+  public String getID() {
+    return "FieldNameHidesFieldInSuperclass";
+  }
+
+  @Override
+  protected boolean buildQuickFixesOnlyForOnTheFlyErrors() {
+    return true;
+  }
+
+  @Override
+  @NotNull
+  public String buildErrorString(Object... infos) {
+    return InspectionGadgetsBundle.message(
+      "field.name.hides.in.superclass.problem.descriptor");
+  }
+
+  @Override
+  public JComponent createOptionsPanel() {
+    final MultipleCheckboxOptionsPanel panel = new MultipleCheckboxOptionsPanel(this);
+    panel.addCheckbox(InspectionGadgetsBundle.message("field.name.hides.in.superclass.ignore.option"), "m_ignoreInvisibleFields");
+    panel.addCheckbox(InspectionGadgetsBundle.message("field.name.hides.in.superclass.ignore.static.field.option"), "ignoreStaticFields");
+    return panel;
+  }
+
+  @Override
+  public BaseInspectionVisitor buildVisitor() {
+    return new FieldHidesSuperclassFieldVisitor();
+  }
+
+  private class FieldHidesSuperclassFieldVisitor extends BaseInspectionVisitor {
+
+    @Override
+    public void visitField(@NotNull PsiField field) {
+      final PsiClass aClass = field.getContainingClass();
+      if (aClass == null) {
+        return;
+      }
+      final String fieldName = field.getName();
+      if (HardcodedMethodConstants.SERIAL_VERSION_UID.equals(fieldName)) {
+        return;    //special case
+      }
+      PsiClass ancestorClass = aClass.getSuperClass();
+      final Set<PsiClass> visitedClasses = new HashSet<>();
+      while (ancestorClass != null) {
+        if (!visitedClasses.add(ancestorClass)) {
+          return;
+        }
+        final PsiField ancestorField = ancestorClass.findFieldByName(fieldName, false);
+        ancestorClass = ancestorClass.getSuperClass();
+        if (ancestorField == null) {
+          continue;
+        }
+        if (m_ignoreInvisibleFields && !ClassUtils.isFieldVisible(ancestorField, aClass)) {
+          continue;
+        }
+        if (ignoreStaticFields && field.hasModifierProperty(PsiModifier.STATIC) &&
+            ancestorField.hasModifierProperty(PsiModifier.STATIC)) {
+          continue;
+        }
+        registerFieldError(field);
+        return;
+      }
+    }
   }
 }

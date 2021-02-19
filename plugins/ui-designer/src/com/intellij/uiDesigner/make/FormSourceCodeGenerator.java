@@ -1,28 +1,16 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.make;
 
+import com.intellij.DynamicBundle;
 import com.intellij.lang.java.JavaParserDefinition;
 import com.intellij.lexer.Lexer;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleUtil;
+import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
@@ -44,8 +32,11 @@ import com.intellij.uiDesigner.core.SupportCode;
 import com.intellij.uiDesigner.lw.*;
 import com.intellij.uiDesigner.shared.BorderType;
 import com.intellij.util.IncorrectOperationException;
-import gnu.trove.TIntObjectHashMap;
-import gnu.trove.TObjectIntHashMap;
+import com.intellij.util.containers.BooleanStack;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -55,20 +46,22 @@ import java.awt.*;
 import java.util.*;
 
 public final class FormSourceCodeGenerator {
-  private static final Logger LOG = Logger.getInstance("com.intellij.uiDesigner.make.FormSourceCodeGenerator");
+  private static final Logger LOG = Logger.getInstance(FormSourceCodeGenerator.class);
 
   @NonNls private StringBuffer myBuffer;
-  private Stack<Boolean> myIsFirstParameterStack;
+  private BooleanStack myIsFirstParameterStack;
   private final Project myProject;
   private final ArrayList<FormErrorInfo> myErrors;
   private boolean myNeedLoadLabelText;
   private boolean myNeedLoadButtonText;
 
-  private static final Map<Class, LayoutSourceGenerator> ourComponentLayoutCodeGenerators = new HashMap<Class, LayoutSourceGenerator>();
-  private static final Map<String, LayoutSourceGenerator> ourContainerLayoutCodeGenerators = new HashMap<String, LayoutSourceGenerator>();
-  @NonNls private static final TIntObjectHashMap<String> ourFontStyleMap = new TIntObjectHashMap<String>();
-  @NonNls private static final TIntObjectHashMap<String> ourTitleJustificationMap = new TIntObjectHashMap<String>();
-  @NonNls private static final TIntObjectHashMap<String> ourTitlePositionMap = new TIntObjectHashMap<String>();
+  private static final Map<Class, LayoutSourceGenerator> ourComponentLayoutCodeGenerators = new HashMap<>();
+  private static final Map<String, LayoutSourceGenerator> ourContainerLayoutCodeGenerators = new HashMap<>();
+  @NonNls private static final Int2ObjectMap<String> ourFontStyleMap = new Int2ObjectOpenHashMap<>();
+  @NonNls private static final Int2ObjectMap<String> ourTitleJustificationMap = new Int2ObjectOpenHashMap<>();
+  @NonNls private static final Int2ObjectMap<String> ourTitlePositionMap = new Int2ObjectOpenHashMap<>();
+
+  private boolean myNeedGetMessageFromBundle;
 
   private static final ElementPattern ourSuperCallPattern = PsiJavaPatterns.psiExpressionStatement().withFirstChild(PlatformPatterns.psiElement(PsiMethodCallExpression.class).withFirstChild(
     PlatformPatterns.psiElement().withText(PsiKeyword.SUPER)));
@@ -102,14 +95,16 @@ public final class FormSourceCodeGenerator {
 
   public FormSourceCodeGenerator(@NotNull final Project project){
     myProject = project;
-    myErrors = new ArrayList<FormErrorInfo>();
+    myErrors = new ArrayList<>();
   }
 
   public void generate(final VirtualFile formFile) {
     myNeedLoadLabelText = false;
     myNeedLoadButtonText = false;
+    myNeedGetMessageFromBundle = false;
+    myGetFontMethod = null;
 
-    final Module module = ModuleUtil.findModuleForFile(formFile, myProject);
+    final Module module = ModuleUtilCore.findModuleForFile(formFile, myProject);
     if (module == null) {
       return;
     }
@@ -149,6 +144,7 @@ public final class FormSourceCodeGenerator {
     FormEditingUtil.iterate(
       rootContainer,
       new FormEditingUtil.ComponentVisitor<LwComponent>() {
+        @Override
         public boolean visit(final LwComponent iComponent) {
           final ErrorInfo errorInfo = ErrorAnalyzer.getErrorForComponent(iComponent);
           if (errorInfo != null) {
@@ -190,11 +186,11 @@ public final class FormSourceCodeGenerator {
 
   private void _generate(final LwRootContainer rootContainer, final Module module) throws CodeGenerationException, IncorrectOperationException{
     myBuffer = new StringBuffer();
-    myIsFirstParameterStack = new Stack<Boolean>();
+    myIsFirstParameterStack = new BooleanStack();
 
-    final HashMap<LwComponent,String> component2variable = new HashMap<LwComponent,String>();
-    final TObjectIntHashMap<String> class2variableIndex = new TObjectIntHashMap<String>();
-    final HashMap<String,LwComponent> id2component = new HashMap<String, LwComponent>();
+    final HashMap<LwComponent,String> component2variable = new HashMap<>();
+    final Object2IntMap<String> class2variableIndex = new Object2IntOpenHashMap<>();
+    final HashMap<String,LwComponent> id2component = new HashMap<>();
 
     if (rootContainer.getComponentCount() != 1) {
       throw new CodeGenerationException(null, UIDesignerBundle.message("error.one.toplevel.component.required"));
@@ -232,9 +228,33 @@ public final class FormSourceCodeGenerator {
 
     PsiClass newClass = (PsiClass) classToBind.copy();
 
+    PsiElement initializerComment = null;
+    PsiElement firstMethodMarker = null;
+    PsiMethod[] methods = newClass.findMethodsByName(AsmCodeGenerator.SETUP_METHOD_NAME, false);
+    PsiClassInitializer[] initializers = newClass.getInitializers();
+
+    for (PsiMethod method: methods) {
+      if (method.hasParameters()) {
+        continue;
+      }
+      for (PsiClassInitializer initializer : initializers) {
+        if (containsMethodIdentifier(initializer, method)) {
+          PsiElement child = initializer.getFirstChild();
+          // very smart java PSI move comment node before class initializer to initializer children
+          if (child instanceof PsiComment && child.getTextOffset() == initializer.getTextOffset()) {
+            initializerComment = child.copy();
+            break;
+          }
+        }
+      }
+      firstMethodMarker = newClass
+        .addBefore(elementFactory.createFieldFromText("private int ____temp_field__" + System.currentTimeMillis() + ";", null), method);
+      break;
+    }
+
     cleanup(newClass);
 
-    // [anton] the comments are written according to the SCR 26896  
+    // [anton] the comments are written according to the SCR 26896
     final PsiClass fakeClass = elementFactory.createClassFromText(
       "{\n" +
       "// GUI initializer generated by " + ApplicationNamesInfo.getInstance().getFullProductName() + " GUI Designer\n" +
@@ -258,7 +278,12 @@ public final class FormSourceCodeGenerator {
     final CodeStyleManager formatter = CodeStyleManager.getInstance(module.getProject());
     final JavaCodeStyleManager styler = JavaCodeStyleManager.getInstance(module.getProject());
 
-    PsiMethod method = (PsiMethod) newClass.add(fakeClass.getMethods()[0]);
+    PsiMethod method = (PsiMethod)(firstMethodMarker == null
+                                   ? newClass.add(fakeClass.getMethods()[0])
+                                   : newClass.addAfter(fakeClass.getMethods()[0], firstMethodMarker));
+    if (firstMethodMarker != null) {
+      firstMethodMarker.delete();
+    }
 
     // don't generate initializer block if $$$setupUI$$$() is called explicitly from one of the constructors
     boolean needInitializer = true;
@@ -280,7 +305,10 @@ public final class FormSourceCodeGenerator {
     }
 
     if (needInitializer) {
-      newClass.addBefore(fakeClass.getInitializers()[0], method);
+      PsiElement initializer = newClass.addBefore(fakeClass.getInitializers()[0], method);
+      if (initializerComment != null) {
+        newClass.addBefore(initializerComment, initializer);
+      }
     }
 
     @NonNls final String grcMethodText = "/** @noinspection ALL */ public javax.swing.JComponent " +
@@ -292,6 +320,31 @@ public final class FormSourceCodeGenerator {
     generateMethodIfRequired(newClass, method, AsmCodeGenerator.LOAD_BUTTON_TEXT_METHOD, loadButtonTextMethodText, myNeedLoadButtonText);
     final String loadLabelTextMethodText = getLoadMethodText(AsmCodeGenerator.LOAD_LABEL_TEXT_METHOD, JLabel.class, module);
     generateMethodIfRequired(newClass, method, AsmCodeGenerator.LOAD_LABEL_TEXT_METHOD, loadLabelTextMethodText, myNeedLoadLabelText);
+
+    generateGetMessageFromBundle(newClass, method, elementFactory, myNeedGetMessageFromBundle);
+
+    if (myGetFontMethod != null) {
+      String getFontMethod =
+        "/** @noinspection ALL */ " +
+        "private java.awt.Font " + myGetFontMethod +
+        "(java.lang.String fontName, int style, int size, java.awt.Font currentFont) {" +
+        "if (currentFont == null) return null;" +
+        "java.lang.String resultName;" +
+        "if (fontName == null) {resultName = currentFont.getName();}" +
+        "else {" +
+        "  java.awt.Font testFont = new java.awt.Font(fontName, java.awt.Font.PLAIN, 10);" +
+        "  if (testFont.canDisplay('a') && testFont.canDisplay('1')) {resultName = fontName;}" +
+        "  else {resultName = currentFont.getName();}" +
+        "}" +
+        "java.awt.Font font = new java.awt.Font(resultName, style >= 0 ? style : currentFont.getStyle(), size >= 0 ? size : currentFont.getSize());" +
+        "boolean isMac = java.lang.System.getProperty(\"os.name\", \"\").toLowerCase(java.util.Locale.ENGLISH).startsWith(\"mac\");" +
+        "java.awt.Font fontWithFallback = isMac" +
+        "? new java.awt.Font(font.getFamily(), font.getStyle(), font.getSize())" +
+        ": new javax.swing.text.StyleContext().getFont(font.getFamily(), font.getStyle(), font.getSize());" +
+        "return fontWithFallback instanceof javax.swing.plaf.FontUIResource ? fontWithFallback : new javax.swing.plaf.FontUIResource(fontWithFallback);}";
+
+      generateMethodIfRequired(newClass, method, myGetFontMethod, getFontMethod, true);
+    }
 
     newClass = (PsiClass) styler.shortenClassReferences(newClass);
     newClass = (PsiClass) formatter.reformat(newClass);
@@ -309,7 +362,7 @@ public final class FormSourceCodeGenerator {
     final PsiClass classToBind = constructor.getContainingClass();
     final PsiStatement[] statements = psiCodeBlock.getStatements();
     PsiElement anchor = psiCodeBlock.getRBrace();
-    Ref<Boolean> callsThisConstructor = new Ref<Boolean>(Boolean.FALSE);
+    Ref<Boolean> callsThisConstructor = new Ref<>(Boolean.FALSE);
     for(PsiStatement statement: statements) {
       if (containsMethodIdentifier(statement, setupUIMethod)) {
         return;
@@ -335,8 +388,8 @@ public final class FormSourceCodeGenerator {
   private static boolean hasCustomComponentAffectingReferences(final PsiElement element,
                                                                final PsiClass classToBind,
                                                                final LwRootContainer rootContainer,
-                                                               @Nullable final Ref<Boolean> callsThisConstructor) {
-    final Ref<Boolean> result = new Ref<Boolean>(Boolean.FALSE);
+                                                               @Nullable final Ref<? super Boolean> callsThisConstructor) {
+    final Ref<Boolean> result = new Ref<>(Boolean.FALSE);
     element.accept(new JavaRecursiveElementWalkingVisitor() {
       @Override public void visitReferenceExpression(final PsiReferenceExpression expression) {
         super.visitReferenceElement(expression);
@@ -436,15 +489,80 @@ public final class FormSourceCodeGenerator {
       "  component.setText(result.toString()); " +
       "  if (haveMnemonic) {" +
       (componentClass.equals(AbstractButton.class)
-        ? "        component.setMnemonic(mnemonic);"
-        : "        component.setDisplayedMnemonic(mnemonic);") +
+       ? "        component.setMnemonic(mnemonic);"
+       : "        component.setDisplayedMnemonic(mnemonic);") +
       (needIndex ? "component.setDisplayedMnemonicIndex(mnemonicIndex);" : "") +
       "} }";
   }
 
+  /* Generates
+
+  private static Method $$$cachedGetBundleMethod$$$ = null;
+
+  private String $$$getMessageFromBundle$$$(String path, String key) {
+    java.util.ResourceBundle bundle;
+
+    try {
+      Class<?> thisClass = this.getClass();
+      if ($$$cachedGetBundleMethod$$$ == null) {
+        Class<?> dynamicBundleClass = thisClass.getClassLoader().loadClass("com.intellij.DynamicBundle");
+        $$$cachedGetBundleMethod$$$ = dynamicBundleClass.getMethod("getBundle", String.class, Class.class);
+      }
+      bundle = (java.util.ResourceBundle) $$$cachedGetBundleMethod$$$.invoke(null, path, thisClass);
+    } catch (Exception e) {
+      bundle =  java.util.ResourceBundle.getBundle(path);
+    }
+
+    return bundle.getString(key);
+  }
+  */
+  private void generateGetMessageFromBundle(PsiClass aClass, PsiMethod anchor, PsiElementFactory elementFactory, boolean condition) {
+    String dynamicBundleClassName = DynamicBundle.class.getName();
+
+    String methodName = AsmCodeGenerator.GET_MESSAGE_FROM_BUNDLE;
+    for (PsiMethod oldMethod : aClass.findMethodsByName(methodName, false)) {
+      oldMethod.delete();
+    }
+
+    String fieldName = AsmCodeGenerator.CACHED_GET_BUNDLE_METHOD;
+    PsiField oldField = aClass.findFieldByName(fieldName, false);
+    if (oldField != null) {
+      oldField.delete();
+    }
+
+    if (!condition) {
+      return;
+    }
+
+    PsiField cachedMethodField =
+      elementFactory.createFieldFromText(
+        "private static java.lang.reflect.Method " + fieldName + " = null;",
+        null);
+
+    String methodText =
+      "private String " + methodName + "(String path, String key) {\n" +
+      " ResourceBundle bundle;\n" +
+      "try {\n" +
+      "    Class<?> thisClass = this.getClass();\n" +
+      "    if (" + fieldName + " == null) {\n" +
+      "        Class<?> dynamicBundleClass = thisClass.getClassLoader().loadClass(\"" + dynamicBundleClassName + "\");\n" +
+      "        " + fieldName + " = dynamicBundleClass.getMethod(\"getBundle\", String.class, Class.class);\n" +
+      "    }\n" +
+      "    bundle = (ResourceBundle)" + fieldName + ".invoke(null, path, thisClass);\n" +
+      "} catch (Exception e) {\n" +
+      "    bundle = ResourceBundle.getBundle(path);\n" +
+      "}\n" +
+      "return bundle.getString(key);\n" +
+      "}";
+
+    PsiMethod method = elementFactory.createMethodFromText(methodText, aClass);
+
+    aClass.addAfter(method, anchor);
+    aClass.addAfter(cachedMethodField, anchor);
+  }
+
   private void generateMethodIfRequired(PsiClass aClass, PsiMethod anchor, final String methodName, String methodText, boolean condition) throws IncorrectOperationException {
     PsiElementFactory elementFactory = JavaPsiFacade.getInstance(myProject).getElementFactory();
-    PsiMethod newMethod = null;
     PsiMethod[] oldMethods = aClass.findMethodsByName(methodName, false);
     if (!condition) {
       for(PsiMethod oldMethod: oldMethods) {
@@ -452,17 +570,17 @@ public final class FormSourceCodeGenerator {
       }
     }
     else {
-      newMethod = elementFactory.createMethodFromText(methodText, aClass);
+      PsiMethod newMethod = elementFactory.createMethodFromText(methodText, aClass);
       if (oldMethods.length > 0) {
-        newMethod = (PsiMethod) oldMethods [0].replace(newMethod);
+        oldMethods[0].replace(newMethod);
       }
       else {
-        newMethod = (PsiMethod) aClass.addAfter(newMethod, anchor);
+        aClass.addAfter(newMethod, anchor);
       }
     }
   }
 
-  public static void cleanup(final PsiClass aClass) throws IncorrectOperationException{
+  public static void cleanup(final PsiClass aClass) throws IncorrectOperationException {
     final PsiMethod[] methods = aClass.findMethodsByName(AsmCodeGenerator.SETUP_METHOD_NAME, false);
     for (final PsiMethod method: methods) {
       final PsiClassInitializer[] initializers = aClass.getInitializers();
@@ -478,6 +596,7 @@ public final class FormSourceCodeGenerator {
     deleteMethods(aClass, AsmCodeGenerator.GET_ROOT_COMPONENT_METHOD_NAME);
     deleteMethods(aClass, AsmCodeGenerator.LOAD_BUTTON_TEXT_METHOD);
     deleteMethods(aClass, AsmCodeGenerator.LOAD_LABEL_TEXT_METHOD);
+    deleteMethods(aClass, AsmCodeGenerator.GET_FONT_METHOD_NAME);
   }
 
   private static void deleteMethods(final PsiClass aClass, final String methodName) throws IncorrectOperationException {
@@ -506,7 +625,7 @@ public final class FormSourceCodeGenerator {
 
   private void generateSetupCodeForComponent(final LwComponent component,
                                              final HashMap<LwComponent, String> component2TempVariable,
-                                             final TObjectIntHashMap<String> class2variableIndex,
+                                             final Object2IntMap<String> class2variableIndex,
                                              final HashMap<String, LwComponent> id2component,
                                              final Module module,
                                              final PsiClass aClass) throws CodeGenerationException{
@@ -551,11 +670,7 @@ public final class FormSourceCodeGenerator {
     final LwIntrospectedProperty[] introspectedProperties = component.getAssignedIntrospectedProperties();
 
     // see SCR #35990
-    Arrays.sort(introspectedProperties, new Comparator<LwIntrospectedProperty>() {
-      public int compare(LwIntrospectedProperty p1, LwIntrospectedProperty p2) {
-        return p1.getName().compareTo(p2.getName());
-      }
-    });
+    Arrays.sort(introspectedProperties, Comparator.comparing(p -> p.getName()));
 
     for (final LwIntrospectedProperty property : introspectedProperties) {
       if (property instanceof LwIntroComponentProperty) {
@@ -565,7 +680,6 @@ public final class FormSourceCodeGenerator {
 
       Object value = component.getPropertyValue(property);
 
-      //noinspection HardCodedStringLiteral
       final boolean isTextWithMnemonicProperty =
         "text".equals(property.getName()) &&
         (isAssignableFrom(AbstractButton.class.getName(), componentClass, globalSearchScope) ||
@@ -621,6 +735,11 @@ public final class FormSourceCodeGenerator {
         if (!descriptor.isColorSet()) continue;
       }
 
+      if (propertyClass.equals(Font.class.getName())) {
+        pushFontProperty(variable, (FontDescriptor) value, property.getReadMethodName(), property.getWriteMethodName());
+        continue;
+      }
+
       startMethodCall(variable, property.getWriteMethodName());
 
       if (propertyClass.equals(Dimension.class.getName())) {
@@ -661,9 +780,6 @@ public final class FormSourceCodeGenerator {
       }
       else if (propertyClass.equals(Color.class.getName())) {
         pushColor((ColorDescriptor) value);
-      }
-      else if (propertyClass.equals(Font.class.getName())) {
-        pushFont(variable, (FontDescriptor) value, property.getReadMethodName());
       }
       else if (propertyClass.equals(Icon.class.getName())) {
         pushIcon((IconDescriptor) value);
@@ -711,7 +827,7 @@ public final class FormSourceCodeGenerator {
     if (component instanceof LwContainer) {
       final LwContainer container = (LwContainer)component;
 
-      generateBorder(container, variable);
+      generateBorder(container, variable, globalSearchScope);
 
       for (int i = 0; i < container.getComponentCount(); i++) {
         generateSetupCodeForComponent((LwComponent)container.getComponent(i), component2TempVariable, class2variableIndex, id2component,
@@ -739,8 +855,11 @@ public final class FormSourceCodeGenerator {
     return aClass != null && aClass.findMethodsByName("setDisplayedMnemonicIndex", true).length > 0;
   }
 
-  private void generateListModelProperty(final LwIntrospectedProperty property, final TObjectIntHashMap<String> class2variableIndex,
-                                         final PsiClass aClass, final Object value, final String variable) {
+  private void generateListModelProperty(final LwIntrospectedProperty property,
+                                         final Object2IntMap<String> class2variableIndex,
+                                         final PsiClass aClass,
+                                         final Object value,
+                                         final String variable) {
     String valueClassName;
     if (property.getPropertyClassName().equals(ComboBoxModel.class.getName())) {
       valueClassName = DefaultComboBoxModel.class.getName();
@@ -766,7 +885,9 @@ public final class FormSourceCodeGenerator {
     endMethod();
   }
 
-  private void generateBorder(final LwContainer container, final String variable) {
+  private void generateBorder(final LwContainer container,
+                              final String variable,
+                              final GlobalSearchScope scope) {
     final BorderType borderType = container.getBorderType();
     final StringDescriptor borderTitle = container.getBorderTitle();
     final Insets borderSize = container.getBorderSize();
@@ -776,53 +897,94 @@ public final class FormSourceCodeGenerator {
     if (!borderNone || borderTitle != null) {
       startMethodCall(variable, "setBorder");
 
+      String borderFactoryName = borderFactoryClassName(container, borderTitle, scope);
 
-      startStaticMethodCall(BorderFactory.class, "createTitledBorder");
+      startStaticMethodCall(borderFactoryName, "createTitledBorder");
 
       if (!borderNone) {
-        startStaticMethodCall(BorderFactory.class, borderFactoryMethodName);
-        if (borderType.equals(BorderType.LINE)) {
-          if (container.getBorderColor() == null) {
-            pushVar("java.awt.Color.black");
-          }
-          else {
-            pushColor(container.getBorderColor());
-          }
-        }
-        else if (borderType.equals(BorderType.EMPTY) && borderSize != null) {
-          push(borderSize.top);
-          push(borderSize.left);
-          push(borderSize.bottom);
-          push(borderSize.right);
-        }
-        endMethod();
+        pushBorderFactoryMethod(container, borderType, borderSize, borderFactoryMethodName);
       }
-      else if (isCustomBorder(container)) {
+      else {
         push((String) null);
       }
-
-      push(borderTitle);
-
-      if (isCustomBorder(container)) {
-        push(container.getBorderTitleJustification(), ourTitleJustificationMap);
-        push(container.getBorderTitlePosition(), ourTitlePositionMap);
-        if (container.getBorderTitleFont() != null || container.getBorderTitleColor() != null) {
-          if (container.getBorderTitleFont() == null) {
-            push((String) null);
-          }
-          else {
-            pushFont(variable, container.getBorderTitleFont(), "getFont");
-          }
-          if (container.getBorderTitleColor() != null) {
-            pushColor(container.getBorderTitleColor());
-          }
-        }
-      }
+      pushBorderProperties(container, variable, borderTitle);
 
       endMethod(); // createTitledBorder
-
       endMethod(); // setBorder
     }
+  }
+
+  @NotNull
+  private String borderFactoryClassName(LwContainer container, StringDescriptor borderTitle, GlobalSearchScope scope) {
+    StringDescriptor titledBorderFactoryDescriptor =
+      (StringDescriptor)container.getDelegeeClientProperties().get(AsmCodeGenerator.ourBorderFactoryClientProperty);
+
+    boolean useIdeBorderFactory =
+      borderTitle != null && Boolean.valueOf(System.getProperty("idea.is.internal")).booleanValue();
+
+    if (titledBorderFactoryDescriptor == null && useIdeBorderFactory) {
+      titledBorderFactoryDescriptor  = findIdeBorderFactoryClass(scope);
+      container.getDelegeeClientProperties().put(AsmCodeGenerator.ourBorderFactoryClientProperty, titledBorderFactoryDescriptor);
+    }
+    boolean isCustomFactory = titledBorderFactoryDescriptor != null && !titledBorderFactoryDescriptor.getValue().isEmpty();
+
+    return isCustomFactory ?
+           titledBorderFactoryDescriptor.getValue().replace('$', '.') :
+           BorderFactory.class.getName();
+  }
+
+  private @Nullable StringDescriptor findIdeBorderFactoryClass(GlobalSearchScope scope) {
+    String ideBorderFactoryName = "com.intellij.ui.IdeBorderFactory";
+    PsiClass ideBorderFactoryClass = JavaPsiFacade.getInstance(myProject).findClass(ideBorderFactoryName, scope);
+    if (ideBorderFactoryClass != null || ApplicationManager.getApplication().isUnitTestMode()) {
+      return StringDescriptor.create(ideBorderFactoryName + "$PlainSmallWithIndent");
+    }
+    return null;
+  }
+
+  private void pushBorderProperties(LwContainer container, String variable, StringDescriptor borderTitle) {
+    push(borderTitle);
+    push(container.getBorderTitleJustification(), ourTitleJustificationMap);
+    push(container.getBorderTitlePosition(), ourTitlePositionMap);
+    pushFont(container, variable);
+    pushColor(container);
+  }
+
+  private void pushColor(LwContainer container) {
+    if (container.getBorderTitleColor() == null) {
+      push((String) null);
+    }
+    else {
+      pushColor(container.getBorderTitleColor());
+    }
+  }
+
+  private void pushFont(LwContainer container, String variable) {
+    if (container.getBorderTitleFont() == null) {
+      push((String) null);
+    }
+    else {
+      pushFont(variable, container.getBorderTitleFont(), "getFont");
+    }
+  }
+
+  private void pushBorderFactoryMethod(LwContainer container, BorderType borderType, Insets borderSize, String borderFactoryMethodName) {
+    startStaticMethodCall(BorderFactory.class, borderFactoryMethodName);
+    if (borderType.equals(BorderType.LINE)) {
+      if (container.getBorderColor() == null) {
+        pushVar("java.awt.Color.black");
+      }
+      else {
+        pushColor(container.getBorderColor());
+      }
+    }
+    else if (borderType.equals(BorderType.EMPTY) && borderSize != null) {
+      push(borderSize.top);
+      push(borderSize.left);
+      push(borderSize.bottom);
+      push(borderSize.right);
+    }
+    endMethod();
   }
 
   private static boolean isCustomBorder(final LwContainer container) {
@@ -880,7 +1042,7 @@ public final class FormSourceCodeGenerator {
 
   private void generateComponentReferenceProperties(final LwComponent component,
                                                     final HashMap<LwComponent, String> component2variable,
-                                                    final TObjectIntHashMap<String> class2variableIndex,
+                                                    final Object2IntMap<String> class2variableIndex,
                                                     final HashMap<String, LwComponent> id2component,
                                                     final PsiClass aClass) {
     String variable = getVariable(component, component2variable, class2variableIndex, aClass);
@@ -911,7 +1073,7 @@ public final class FormSourceCodeGenerator {
 
   private void generateButtonGroups(final LwRootContainer rootContainer,
                                     final HashMap<LwComponent, String> component2variable,
-                                    final TObjectIntHashMap<String> class2variableIndex,
+                                    final Object2IntMap<String> class2variableIndex,
                                     final HashMap<String, LwComponent> id2component,
                                     final PsiClass aClass) {
     IButtonGroup[] groups = rootContainer.getButtonGroups();
@@ -972,7 +1134,9 @@ public final class FormSourceCodeGenerator {
       push(descriptor.getValue());
     }
     else {
-      startMethodCall("java.util.ResourceBundle.getBundle(\"" + descriptor.getBundleName() + "\")", "getString");
+      myNeedGetMessageFromBundle = true;
+      startMethodCall("this", AsmCodeGenerator.GET_MESSAGE_FROM_BUNDLE);
+      push(descriptor.getBundleName());
       push(descriptor.getKey());
       endMethod();
     }
@@ -1000,6 +1164,16 @@ public final class FormSourceCodeGenerator {
     }
   }
 
+  private String myGetFontMethod;
+
+  private void pushFontProperty(String variable, FontDescriptor fontDescriptor, String getterName, String setterName) {
+    myBuffer.append("java.awt.Font ").append(variable).append("Font = ");
+    pushFont(variable, fontDescriptor, getterName);
+
+    myBuffer.append("if (").append(variable).append("Font != null) ").append(variable).append(".").append(setterName).append("(")
+            .append(variable).append("Font);\n");
+  }
+
   private void pushFont(final String variable, final FontDescriptor fontDescriptor, @NonNls final String getterName) {
     if (fontDescriptor.getSwingFont() != null) {
       startStaticMethodCall(UIManager.class, "getFont");
@@ -1007,25 +1181,15 @@ public final class FormSourceCodeGenerator {
       endMethod();
     }
     else {
-      startConstructor(Font.class.getName());
-      if (fontDescriptor.getFontName() != null) {
-        push(fontDescriptor.getFontName());
+      if (myGetFontMethod == null) {
+        myGetFontMethod = AsmCodeGenerator.GET_FONT_METHOD_NAME;
       }
-      else {
-        pushVar(variable + "." + getterName + "().getName()");
-      }
-      if (fontDescriptor.getFontStyle() >= 0) {
-        push(fontDescriptor.getFontStyle(), ourFontStyleMap);
-      }
-      else {
-        pushVar(variable + "." + getterName + "().getStyle()");
-      }
-      if (fontDescriptor.getFontSize() >= 0) {
-        push(fontDescriptor.getFontSize());
-      }
-      else {
-        pushVar(variable + "." + getterName + "().getSize()");
-      }
+
+      startMethodCall("this", myGetFontMethod);
+      push(fontDescriptor.getFontName());
+      push(fontDescriptor.getFontStyle(), ourFontStyleMap);
+      push(fontDescriptor.getFontSize());
+      pushVar(variable + "." + getterName + "()");
       endMethod();
     }
   }
@@ -1052,7 +1216,7 @@ public final class FormSourceCodeGenerator {
    */
   private static String getVariable(final LwComponent component,
                                     final HashMap<LwComponent, String> component2variable,
-                                    final TObjectIntHashMap<String> class2variableIndex,
+                                    final Object2IntMap<String> class2variableIndex,
                                     final PsiClass aClass) {
     if (component2variable.containsKey(component)) {
       return component2variable.get(component);
@@ -1070,7 +1234,8 @@ public final class FormSourceCodeGenerator {
     return result;
   }
 
-  private static String generateUniqueVariableName(@NonNls final String className, final TObjectIntHashMap<String> class2variableIndex,
+  private static String generateUniqueVariableName(@NonNls final String className,
+                                                   final Object2IntMap<String> class2variableIndex,
                                                    final PsiClass aClass) {
     final String shortName;
     if (className.startsWith("javax.swing.J")) {
@@ -1086,11 +1251,13 @@ public final class FormSourceCodeGenerator {
       }
     }
 
-    if (!class2variableIndex.containsKey(className)) class2variableIndex.put(className, 0);
+    if (!class2variableIndex.containsKey(className)) {
+      class2variableIndex.put(className, 0);
+    }
     String result;
     do {
-      class2variableIndex.increment(className);
-      int newIndex = class2variableIndex.get(className);
+      class2variableIndex.mergeInt(className, 1, Math::addExact);
+      int newIndex = class2variableIndex.getInt(className);
 
       result = Character.toLowerCase(shortName.charAt(0)) + shortName.substring(1) + newIndex;
     } while(aClass.findFieldByName(result, true) != null);
@@ -1141,18 +1308,22 @@ public final class FormSourceCodeGenerator {
     myBuffer.append(methodName);
     myBuffer.append('(');
 
-    myIsFirstParameterStack.push(Boolean.TRUE);
+    myIsFirstParameterStack.push(true);
   }
 
-  private void startStaticMethodCall(final Class aClass, @NonNls final String methodName) {
+  private void startStaticMethodCall(final String fullClassName, @NonNls final String methodName) {
     checkParameter();
 
-    myBuffer.append(aClass.getName());
+    myBuffer.append(fullClassName);
     myBuffer.append('.');
     myBuffer.append(methodName);
     myBuffer.append('(');
 
-    myIsFirstParameterStack.push(Boolean.TRUE);
+    myIsFirstParameterStack.push(true);
+  }
+
+  private void startStaticMethodCall(final Class aClass, @NonNls final String methodName) {
+    startStaticMethodCall(aClass.getCanonicalName(), methodName);
   }
 
   void endMethod() {
@@ -1160,7 +1331,7 @@ public final class FormSourceCodeGenerator {
 
     myIsFirstParameterStack.pop();
 
-    if (myIsFirstParameterStack.empty()) {
+    if (myIsFirstParameterStack.isEmpty()) {
       myBuffer.append(";\n");
     }
   }
@@ -1172,7 +1343,7 @@ public final class FormSourceCodeGenerator {
     myBuffer.append(className);
     myBuffer.append('(');
 
-    myIsFirstParameterStack.push(Boolean.TRUE);
+    myIsFirstParameterStack.push(true);
   }
 
   void endConstructor() {
@@ -1195,7 +1366,7 @@ public final class FormSourceCodeGenerator {
   }
 
   void append(short value) {
-    myBuffer.append("(short) ");  
+    myBuffer.append("(short) ");
     myBuffer.append(value);
   }
 
@@ -1208,7 +1379,7 @@ public final class FormSourceCodeGenerator {
     myBuffer.append(value);
   }
 
-  void push(final int value, final TIntObjectHashMap map){
+  void push(final int value, final Int2ObjectMap map){
     final String stringRepresentation = (String)map.get(value);
     if (stringRepresentation != null) {
       checkParameter();
@@ -1282,12 +1453,12 @@ public final class FormSourceCodeGenerator {
   }
 
   void checkParameter() {
-    if (!myIsFirstParameterStack.empty()) {
-      final Boolean b = myIsFirstParameterStack.pop();
-      if (b.equals(Boolean.FALSE)) {
+    if (!myIsFirstParameterStack.isEmpty()) {
+      final boolean b = myIsFirstParameterStack.pop();
+      if (!b) {
         myBuffer.append(',');
       }
-      myIsFirstParameterStack.push(Boolean.FALSE);
+      myIsFirstParameterStack.push(false);
     }
   }
 }

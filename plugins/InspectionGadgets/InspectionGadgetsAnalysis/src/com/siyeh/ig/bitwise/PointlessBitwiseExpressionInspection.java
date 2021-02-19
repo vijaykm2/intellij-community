@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2014 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,59 +17,40 @@ package com.siyeh.ig.bitwise;
 
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
+import com.intellij.lang.java.parser.ExpressionParser;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.tree.TokenSet;
 import com.intellij.psi.util.ConstantExpressionUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.PsiUtilCore;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
-import com.siyeh.ig.PsiReplacementUtil;
-import com.siyeh.ig.psiutils.EquivalenceChecker;
-import com.siyeh.ig.psiutils.ExpressionUtils;
+import com.siyeh.ig.psiutils.*;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import java.util.HashSet;
-import java.util.Set;
+
+import static com.intellij.psi.JavaTokenType.*;
 
 public class PointlessBitwiseExpressionInspection extends BaseInspection {
 
   /**
    * @noinspection PublicField
    */
-  public boolean m_ignoreExpressionsContainingConstants = false;
+  public boolean m_ignoreExpressionsContainingConstants = true;
 
-  static final Set<IElementType> bitwiseTokens =
-    new HashSet<IElementType>(6);
-
-  static {
-    bitwiseTokens.add(JavaTokenType.AND);
-    bitwiseTokens.add(JavaTokenType.OR);
-    bitwiseTokens.add(JavaTokenType.XOR);
-    bitwiseTokens.add(JavaTokenType.LTLT);
-    bitwiseTokens.add(JavaTokenType.GTGT);
-    bitwiseTokens.add(JavaTokenType.GTGTGT);
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "pointless.bitwise.expression.display.name");
-  }
+  static final @NotNull TokenSet bitwiseTokens = TokenSet.create(AND, OR, XOR, LTLT, GTGT, GTGTGT);
 
   @Override
   @NotNull
   public String buildErrorString(Object... infos) {
-    final PsiPolyadicExpression polyadicExpression =
-      (PsiPolyadicExpression)infos[0];
-    final String replacementExpression =
-      calculateReplacementExpression(polyadicExpression);
+    final PsiExpression expression = (PsiExpression)infos[0];
+    final String replacementExpression = calculateReplacementExpression(expression, new CommentTracker());
     return InspectionGadgetsBundle.message(
       "expression.can.be.replaced.problem.descriptor",
       replacementExpression);
@@ -86,48 +67,74 @@ public class PointlessBitwiseExpressionInspection extends BaseInspection {
       this, "m_ignoreExpressionsContainingConstants");
   }
 
+  String calculateReplacementExpression(PsiExpression expression, CommentTracker ct) {
+    if (expression instanceof PsiPolyadicExpression) {
+      return calculateReplacementExpression((PsiPolyadicExpression)expression, ct);
+    }
+    PsiExpression complemented = unwrapComplement(expression);
+    if (complemented != null) {
+      PsiExpression decremented = extractDecrementedValue(complemented);
+      if (decremented != null) {
+        return "-" + ct.text(decremented, ParenthesesUtils.PREFIX_PRECEDENCE);
+      }
+      PsiExpression twiceComplemented = unwrapComplement(complemented);
+      if (twiceComplemented != null) {
+        return ct.text(twiceComplemented);
+      }
+    }
+    return "";
+  }
+
   @NonNls
-  String calculateReplacementExpression(PsiPolyadicExpression expression) {
+  String calculateReplacementExpression(PsiPolyadicExpression expression, CommentTracker ct) {
     final IElementType tokenType = expression.getOperationTokenType();
     final PsiExpression[] operands = expression.getOperands();
     PsiExpression previousOperand = null;
     for (int i = 0, length = operands.length; i < length; i++) {
       final PsiExpression operand = operands[i];
       if (isZero(operand)) {
-        if (tokenType.equals(JavaTokenType.AND) ||
-            (tokenType.equals(JavaTokenType.LTLT) || tokenType.equals(JavaTokenType.GTGT) || tokenType.equals(JavaTokenType.GTGTGT)) &&
-            previousOperand == null) {
-          return getText(expression, operands[0], operands[length - 1], PsiType.LONG.equals(expression.getType()) ? "0L" : "0");
+        if (tokenType.equals(AND) || ExpressionParser.SHIFT_OPS.contains(tokenType) && previousOperand == null) {
+          return getText(expression, operands[0], operands[length - 1], PsiType.LONG.equals(expression.getType()) ? "0L" : "0", ct);
         }
-        else if (tokenType.equals(JavaTokenType.OR) || tokenType.equals(JavaTokenType.XOR) ||
-          (tokenType.equals(JavaTokenType.LTLT) || tokenType.equals(JavaTokenType.GTGT) || tokenType.equals(JavaTokenType.GTGTGT)) &&
-          previousOperand != null) {
-          return getText(expression, i == length - 1 ? expression.getTokenBeforeOperand(operand) : operand);
+        else if (tokenType.equals(OR) || tokenType.equals(XOR) ||
+                 ExpressionParser.SHIFT_OPS.contains(tokenType) && previousOperand != null) {
+          return getText(expression, i == length - 1 ? expression.getTokenBeforeOperand(operand) : operand, ct);
         }
       }
       else if (isAllOnes(operand)) {
-        if (tokenType.equals(JavaTokenType.AND)) {
-          return getText(expression, i == length - 1 ? expression.getTokenBeforeOperand(operand) : operand);
+        if (tokenType.equals(AND)) {
+          return getText(expression, i == length - 1 ? expression.getTokenBeforeOperand(operand) : operand, ct);
         }
-        if (tokenType.equals(JavaTokenType.OR)) {
-          return operand.getText();
+        if (tokenType.equals(OR)) {
+          return ct.text(operand);
         }
-        else if (tokenType.equals(JavaTokenType.XOR)) {
+        else if (tokenType.equals(XOR)) {
           if (previousOperand != null) {
-            return getText(expression, previousOperand, operand, "~" + previousOperand.getText());
+            return getText(expression, previousOperand, operand, getTildeReplacement(previousOperand, ct), ct);
           }
           else {
             final PsiExpression nextOperand = operands[i + 1];
-            return getText(expression, operand, nextOperand, "~" + nextOperand.getText());
+            return getText(expression, operand, nextOperand, getTildeReplacement(nextOperand, ct), ct);
           }
         }
       }
-      else if (EquivalenceChecker.expressionsAreEquivalent(previousOperand, operand)) {
-        if (tokenType.equals(JavaTokenType.OR) || tokenType.equals(JavaTokenType.AND)) {
-          return getText(expression, previousOperand, operand, operand.getText());
+      else if (EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(previousOperand, operand)) {
+        if (tokenType.equals(OR) || tokenType.equals(AND)) {
+          return getText(expression, previousOperand, operand, ct.text(operand), ct);
         }
-        else if (tokenType.equals(JavaTokenType.XOR)) {
-          return getText(expression, previousOperand, operand, PsiType.LONG.equals(expression.getType()) ? "0L" : "0");
+        else if (tokenType.equals(XOR)) {
+          return getText(expression, previousOperand, operand, PsiType.LONG.equals(expression.getType()) ? "0L" : "0", ct);
+        }
+      }
+      else {
+        PsiExpression left = optionallyUnwrapComplement(previousOperand);
+        PsiExpression right = optionallyUnwrapComplement(operand);
+        if (EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(left, right)) {
+          if (tokenType.equals(AND)) {
+            return getText(expression, previousOperand, operand, PsiType.LONG.equals(expression.getType()) ? "0L" : "0", ct);
+          } else if (tokenType.equals(OR) || tokenType.equals(XOR)) {
+            return getText(expression, previousOperand, operand, PsiType.LONG.equals(expression.getType()) ? "-1L" : "-1", ct);
+          }
         }
       }
       previousOperand = operand;
@@ -135,11 +142,33 @@ public class PointlessBitwiseExpressionInspection extends BaseInspection {
     return "";
   }
 
-  public static String getText(PsiPolyadicExpression expression, PsiElement fromTarget, PsiElement untilTarget,
-                               @NotNull @NonNls String replacement) {
+  private static String getTildeReplacement(PsiExpression operand, CommentTracker ct) {
+    PsiExpression decrementedValue = extractDecrementedValue(operand);
+    if (decrementedValue != null) {
+      return "-" + ct.text(decrementedValue, ParenthesesUtils.PREFIX_PRECEDENCE);
+    }
+    return "~" + ct.text(operand, ParenthesesUtils.PREFIX_PRECEDENCE);
+  }
+
+  private static PsiExpression extractDecrementedValue(PsiExpression expression) {
+    expression = PsiUtil.skipParenthesizedExprDown(expression);
+    if (expression instanceof PsiBinaryExpression) {
+      PsiBinaryExpression binOp = (PsiBinaryExpression)expression;
+      if (binOp.getOperationTokenType().equals(MINUS)) {
+        Number right = JavaPsiMathUtil.getNumberFromLiteral(binOp.getROperand());
+        if ((right instanceof Integer || right instanceof Long) && right.longValue() == 1L) {
+          return binOp.getLOperand();
+        }
+      }
+    }
+    return null;
+  }
+
+  private static String getText(PsiPolyadicExpression expression, PsiElement fromTarget, PsiElement untilTarget,
+                                @NotNull @NonNls String replacement, CommentTracker ct) {
     final StringBuilder result = new StringBuilder();
     boolean stop = false;
-    for (PsiElement child : expression.getChildren()) {
+    for (PsiElement child = expression.getFirstChild(); child != null; child = child.getNextSibling()) {
       if (child == fromTarget) {
         stop = true;
         result.append(replacement);
@@ -148,7 +177,7 @@ public class PointlessBitwiseExpressionInspection extends BaseInspection {
         stop = false;
       }
       else if (child instanceof PsiComment || !stop) {
-        result.append(child.getText());
+        result.append(ct.text(child));
       }
       else if (child instanceof PsiJavaToken && untilTarget == null) {
         stop = false;
@@ -157,8 +186,8 @@ public class PointlessBitwiseExpressionInspection extends BaseInspection {
     return result.toString();
   }
 
-  private static String getText(PsiPolyadicExpression expression, PsiElement exclude) {
-    return getText(expression, exclude, null, "").trim();
+  private static String getText(PsiPolyadicExpression expression, PsiElement exclude, CommentTracker ct) {
+    return getText(expression, exclude, null, "", ct).trim();
   }
 
   @Override
@@ -175,28 +204,39 @@ public class PointlessBitwiseExpressionInspection extends BaseInspection {
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "pointless.bitwise.expression.simplify.quickfix");
     }
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
-      final PsiPolyadicExpression expression = (PsiPolyadicExpression)
-        descriptor.getPsiElement();
-      final String newExpression =
-        calculateReplacementExpression(expression);
-      PsiReplacementUtil.replaceExpression(expression, newExpression);
+    public void doFix(Project project, ProblemDescriptor descriptor) {
+      final PsiExpression expression = (PsiExpression)descriptor.getPsiElement();
+      CommentTracker ct = new CommentTracker();
+      final String newExpression = calculateReplacementExpression(expression, ct);
+      if(!newExpression.isEmpty()) {
+        ct.replaceAndRestoreComments(expression, newExpression);
+      }
     }
   }
 
   private class PointlessBitwiseVisitor extends BaseInspectionVisitor {
+
+    @Override
+    public void visitPrefixExpression(PsiPrefixExpression expression) {
+      super.visitPrefixExpression(expression);
+      PsiExpression complemented = unwrapComplement(expression);
+      if (complemented == null) return;
+      if (extractDecrementedValue(complemented) != null) {
+        registerError(expression, expression);
+      } else {
+        PsiExpression twiceComplemented = unwrapComplement(complemented);
+        if (twiceComplemented != null && unwrapComplement(twiceComplemented) == null) {
+          // In case of triple or more complements report innermost only to avoid overlapping reports
+          registerError(expression, expression);
+        }
+      }
+    }
 
     @Override
     public void visitPolyadicExpression(@NotNull PsiPolyadicExpression expression) {
@@ -220,13 +260,10 @@ public class PointlessBitwiseExpressionInspection extends BaseInspection {
         }
       }
       final boolean isPointless;
-      if (sign.equals(JavaTokenType.AND) || sign.equals(JavaTokenType.OR) ||
-          sign.equals(JavaTokenType.XOR)) {
+      if (sign.equals(AND) || sign.equals(OR) || sign.equals(XOR)) {
         isPointless = booleanExpressionIsPointless(operands);
       }
-      else if (sign.equals(JavaTokenType.LTLT) ||
-               sign.equals(JavaTokenType.GTGT) ||
-               sign.equals(JavaTokenType.GTGTGT)) {
+      else if (ExpressionParser.SHIFT_OPS.contains(sign)) {
         isPointless = shiftExpressionIsPointless(operands);
       }
       else {
@@ -241,12 +278,18 @@ public class PointlessBitwiseExpressionInspection extends BaseInspection {
     private boolean booleanExpressionIsPointless(PsiExpression[] operands) {
       PsiExpression previousExpression = null;
       for (PsiExpression operand : operands) {
-        if (isZero(operand) || isAllOnes(operand) || EquivalenceChecker.expressionsAreEquivalent(previousExpression, operand)) {
+        if (isZero(operand) || isAllOnes(operand) ||
+            (areEquivalentModuloComplement(previousExpression, operand) && !SideEffectChecker.mayHaveSideEffects(operand))) {
           return true;
         }
         previousExpression = operand;
       }
       return false;
+    }
+
+    private boolean areEquivalentModuloComplement(PsiExpression op1, PsiExpression op2) {
+      return EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(
+        optionallyUnwrapComplement(op1), optionallyUnwrapComplement(op2));
     }
 
     private boolean shiftExpressionIsPointless(PsiExpression[] operands) {
@@ -259,6 +302,19 @@ public class PointlessBitwiseExpressionInspection extends BaseInspection {
     }
   }
 
+  private static PsiExpression optionallyUnwrapComplement(PsiExpression op) {
+    PsiExpression unwrapped = unwrapComplement(op);
+    return unwrapped == null ? op : unwrapped;
+  }
+
+  private static PsiExpression unwrapComplement(PsiExpression op) {
+    op = PsiUtil.skipParenthesizedExprDown(op);
+    if (op instanceof PsiPrefixExpression && ((PsiPrefixExpression)op).getOperationTokenType().equals(TILDE)) {
+      return ((PsiPrefixExpression)op).getOperand();
+    }
+    return null;
+  }
+
   private boolean isZero(PsiExpression expression) {
     if (m_ignoreExpressionsContainingConstants
         && !(expression instanceof PsiLiteralExpression)) {
@@ -268,34 +324,15 @@ public class PointlessBitwiseExpressionInspection extends BaseInspection {
   }
 
   private boolean isAllOnes(PsiExpression expression) {
-    if (m_ignoreExpressionsContainingConstants
-        && !(expression instanceof PsiLiteralExpression)) {
-      return false;
-    }
     final PsiType expressionType = expression.getType();
-    final Object value =
-      ConstantExpressionUtil.computeCastTo(expression,
-                                           expressionType);
-    if (value == null) {
-      return false;
+    final Object value;
+    if (m_ignoreExpressionsContainingConstants) {
+      value = JavaPsiMathUtil.getNumberFromLiteral(expression);
     }
-    if (value instanceof Integer &&
-        ((Integer)value).intValue() == 0xffffffff) {
-      return true;
+    else {
+      value = ConstantExpressionUtil.computeCastTo(expression, expressionType);
     }
-    if (value instanceof Long &&
-        ((Long)value).longValue() == 0xffffffffffffffffL) {
-      return true;
-    }
-    if (value instanceof Short &&
-        ((Short)value).shortValue() == (short)0xffff) {
-      return true;
-    }
-    if (value instanceof Character &&
-        ((Character)value).charValue() == (char)0xffff) {
-      return true;
-    }
-    return value instanceof Byte &&
-           ((Byte)value).byteValue() == (byte)0xff;
+    return (value instanceof Integer || value instanceof Short || value instanceof Byte) && ((Number)value).intValue() == -1 ||
+           value instanceof Long && ((Long)value).longValue() == 0xffffffffffffffffL;
   }
 }

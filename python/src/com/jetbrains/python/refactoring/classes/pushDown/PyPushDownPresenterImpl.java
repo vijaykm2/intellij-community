@@ -21,7 +21,7 @@ import com.intellij.refactoring.classMembers.MemberInfoModel;
 import com.intellij.refactoring.classMembers.UsedByDependencyMemberInfoModel;
 import com.jetbrains.python.psi.PyClass;
 import com.jetbrains.python.psi.PyElement;
-import com.jetbrains.python.psi.PyUtil;
+import com.jetbrains.python.refactoring.PyRefactoringUtil;
 import com.jetbrains.python.refactoring.classes.PyMemberInfoStorage;
 import com.jetbrains.python.refactoring.classes.membersManager.PyMemberInfo;
 import com.jetbrains.python.refactoring.classes.membersManager.vp.MembersBasedPresenterWithPreviewImpl;
@@ -39,7 +39,7 @@ public class PyPushDownPresenterImpl extends MembersBasedPresenterWithPreviewImp
                                  @NotNull final PyPushDownView view,
                                  @NotNull final PyClass classUnderRefactoring,
                                  @NotNull final PyMemberInfoStorage infoStorage) {
-    super(view, classUnderRefactoring, infoStorage,  new UsedByDependencyMemberInfoModel<PyElement, PyClass, PyMemberInfo<PyElement>>(classUnderRefactoring));
+    super(view, classUnderRefactoring, infoStorage, new UsedByDependencyMemberInfoModel<>(classUnderRefactoring));
     myProject = project;
   }
 
@@ -58,7 +58,8 @@ public class PyPushDownPresenterImpl extends MembersBasedPresenterWithPreviewImp
   @Override
   public void launch() {
     myView
-      .configure(new MembersViewInitializationInfo(myModel, PyUtil.filterOutObject(myStorage.getClassMemberInfos(myClassUnderRefactoring))));
+      .configure(new MembersViewInitializationInfo(myModel, PyRefactoringUtil
+        .filterOutObject(myStorage.getClassMemberInfos(myClassUnderRefactoring))));
     myView.initAndShow();
   }
 }

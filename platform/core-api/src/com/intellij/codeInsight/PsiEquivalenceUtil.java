@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Couple;
 import com.intellij.psi.PsiComment;
 import com.intellij.psi.PsiElement;
@@ -34,31 +19,32 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * @author ven
  */
-public class PsiEquivalenceUtil {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.PsiEquivalenceUtil");
+public final class PsiEquivalenceUtil {
+  private static final Logger LOG = Logger.getInstance(PsiEquivalenceUtil.class);
 
   public static boolean areElementsEquivalent(@NotNull PsiElement element1,
                                               @NotNull PsiElement element2,
-                                              @Nullable Comparator<PsiElement> resolvedElementsComparator,
+                                              @Nullable Comparator<? super PsiElement> resolvedElementsComparator,
                                               boolean areCommentsSignificant) {
     return areElementsEquivalent(element1, element2, new ReferenceComparator(resolvedElementsComparator), null, null, areCommentsSignificant);
   }
 
   public static boolean areElementsEquivalent(@NotNull PsiElement element1,
                                               @NotNull PsiElement element2,
-                                              @Nullable Comparator<PsiElement> resolvedElementsComparator,
-                                              @Nullable Comparator<PsiElement> leafElementsComparator) {
+                                              @Nullable Comparator<? super PsiElement> resolvedElementsComparator,
+                                              @Nullable Comparator<? super PsiElement> leafElementsComparator) {
     return areElementsEquivalent(element1, element2, new ReferenceComparator(resolvedElementsComparator), leafElementsComparator, null, false);
   }
 
   private static class ReferenceComparator implements Comparator<PsiReference> {
-    private @Nullable final Comparator<PsiElement> myResolvedElementsComparator;
+    private @Nullable final Comparator<? super PsiElement> myResolvedElementsComparator;
 
-    ReferenceComparator(@Nullable Comparator<PsiElement> resolvedElementsComparator) {
+    ReferenceComparator(@Nullable Comparator<? super PsiElement> resolvedElementsComparator) {
       myResolvedElementsComparator = resolvedElementsComparator;
     }
 
@@ -73,9 +59,9 @@ public class PsiEquivalenceUtil {
 
   public static boolean areElementsEquivalent(@NotNull PsiElement element1,
                                               @NotNull PsiElement element2,
-                                              @NotNull Comparator<PsiReference> referenceComparator,
-                                              @Nullable Comparator<PsiElement> leafElementsComparator,
-                                              @Nullable Condition<PsiElement> isElementSignificantCondition,
+                                              @NotNull Comparator<? super PsiReference> referenceComparator,
+                                              @Nullable Comparator<? super PsiElement> leafElementsComparator,
+                                              @Nullable Predicate<? super PsiElement> isElementSignificantCondition,
                                               boolean areCommentsSignificant) {
     if(element1 == element2) return true;
     ASTNode node1 = element1.getNode();
@@ -116,15 +102,15 @@ public class PsiEquivalenceUtil {
     return areElementsEquivalent(element1, element2, null, false);
   }
 
-  public static PsiElement[] getFilteredChildren(@NotNull final PsiElement element,
-                                                 @Nullable Condition<PsiElement> isElementSignificantCondition,
-                                                 boolean areCommentsSignificant) {
+  public static PsiElement @NotNull [] getFilteredChildren(@NotNull final PsiElement element,
+                                                           @Nullable Predicate<? super PsiElement> isElementSignificantCondition,
+                                                           boolean areCommentsSignificant) {
     ASTNode[] children1 = element.getNode().getChildren(null);
-    ArrayList<PsiElement> array = new ArrayList<PsiElement>();
+    ArrayList<PsiElement> array = new ArrayList<>();
     for (ASTNode node : children1) {
       final PsiElement child = node.getPsi();
       if (!(child instanceof PsiWhiteSpace) && (areCommentsSignificant || !(child instanceof PsiComment)) &&
-          (isElementSignificantCondition == null || isElementSignificantCondition.value(child))) {
+          (isElementSignificantCondition == null || isElementSignificantCondition.test(child))) {
         array.add(child);
       }
     }
@@ -132,18 +118,13 @@ public class PsiEquivalenceUtil {
   }
 
   public static void findChildRangeDuplicates(PsiElement first, PsiElement last,
-                                              final List<Couple<PsiElement>> result,
+                                              final List<? super Couple<PsiElement>> result,
                                               PsiElement scope) {
-    findChildRangeDuplicates(first, last, scope, new PairConsumer<PsiElement, PsiElement>() {
-      @Override
-      public void consume(final PsiElement start, final PsiElement end) {
-        result.add(Couple.of(start, end));
-      }
-    });
+    findChildRangeDuplicates(first, last, scope, (start, end) -> result.add(Couple.of(start, end)));
   }
 
   public static void findChildRangeDuplicates(PsiElement first, PsiElement last, PsiElement scope,
-                                              PairConsumer<PsiElement, PsiElement> consumer) {
+                                              PairConsumer<? super PsiElement, ? super PsiElement> consumer) {
     LOG.assertTrue(first.getParent() == last.getParent());
     LOG.assertTrue(!(first instanceof PsiWhiteSpace) && !(last instanceof PsiWhiteSpace));
     addRangeDuplicates(scope, first, last, consumer);
@@ -152,7 +133,7 @@ public class PsiEquivalenceUtil {
   private static void addRangeDuplicates(final PsiElement scope,
                                          final PsiElement first,
                                          final PsiElement last,
-                                         final PairConsumer<PsiElement, PsiElement> result) {
+                                         final PairConsumer<? super PsiElement, ? super PsiElement> result) {
     final PsiElement[] children = getFilteredChildren(scope, null, true);
     NextChild:
     for (int i = 0; i < children.length;) {
@@ -160,17 +141,15 @@ public class PsiEquivalenceUtil {
       if (child != first) {
         int j = i;
         PsiElement next = first;
-        do {
-          if (!areElementsEquivalent(children[j], next)) break;
+        while (areElementsEquivalent(children[j], next)) {
           j++;
           if (next == last) {
             result.consume(child, children[j - 1]);
             i = j + 1;
             continue NextChild;
           }
-          next = PsiTreeUtil.skipSiblingsForward(next, PsiWhiteSpace.class);
+          next = PsiTreeUtil.skipWhitespacesForward(next);
         }
-        while (true);
 
         if (i == j) {
           addRangeDuplicates(child, first, last, result);

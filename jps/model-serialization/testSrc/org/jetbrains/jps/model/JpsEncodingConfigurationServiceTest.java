@@ -19,9 +19,6 @@ import org.jetbrains.jps.model.serialization.JpsSerializationTestCase;
 
 import java.io.File;
 
-/**
- * @author nik
- */
 public class JpsEncodingConfigurationServiceTest extends JpsSerializationTestCase {
   public void test() {
     loadProject("/jps/model-serialization/testData/fileEncoding/fileEncoding.ipr");
@@ -33,7 +30,7 @@ public class JpsEncodingConfigurationServiceTest extends JpsSerializationTestCas
     assertEncoding("windows-1251", "dir/non-existent.xml", configuration);
   }
 
-  private void assertEncoding(final String encoding, final String path, JpsEncodingProjectConfiguration configuration) {
+  protected void assertEncoding(final String encoding, final String path, JpsEncodingProjectConfiguration configuration) {
     assertEquals(encoding, configuration.getEncoding(new File(getAbsolutePath(path))));
   }
 }

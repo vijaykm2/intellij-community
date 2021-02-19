@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.graph.utils.impl;
 
 import com.intellij.vcs.log.graph.utils.IntList;
@@ -20,7 +6,7 @@ import org.jetbrains.annotations.NotNull;
 
 import static com.intellij.vcs.log.graph.utils.impl.ByteArrayUtils.*;
 
-public class SmartDeltaCompressor implements IntList {
+public final class SmartDeltaCompressor implements IntList {
 
   @NotNull
   public static SmartDeltaCompressor newInstance(@NotNull IntList deltaList) {
@@ -46,12 +32,12 @@ public class SmartDeltaCompressor implements IntList {
         int sizeOf = sizeOf(deltaList.get(index));
         writeDelta(offset, deltaList.get(index), sizeOf, deltas);
 
-        long mask = 1l << rem;
-        /**
-         * 4 -> 11
-         * 3 -> 10
-         * 2 -> 01
-         * 1 -> 00
+        long mask = 1L << rem;
+        /*
+          4 -> 11
+          3 -> 10
+          2 -> 01
+          1 -> 00
          */
         if (sizeOf == 3 || sizeOf == 4) majorBits[main] |= mask;
         if (sizeOf == 2 || sizeOf == 4) minorBits[main] |= mask;

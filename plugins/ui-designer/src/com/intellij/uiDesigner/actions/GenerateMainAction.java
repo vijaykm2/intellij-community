@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.uiDesigner.actions;
 
@@ -21,6 +7,7 @@ import com.intellij.codeInsight.generation.PsiGenerationInfo;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
@@ -41,6 +28,7 @@ import com.intellij.uiDesigner.compiler.Utils;
 import com.intellij.uiDesigner.lw.LwRootContainer;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.util.Collections;
@@ -50,9 +38,10 @@ import java.util.List;
  * @author yole
  */
 public class GenerateMainAction extends AnAction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.uiDesigner.actions.GenerateMainAction");
+  private static final Logger LOG = Logger.getInstance(GenerateMainAction.class);
 
-  public void actionPerformed(AnActionEvent e) {
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     assert project != null;
     final Editor editor = e.getData(CommonDataKeys.EDITOR);
@@ -73,7 +62,7 @@ public class GenerateMainAction extends AnAction {
       rootContainer = Utils.getRootContainer(boundForms.get(0).getText(), null);
     }
     catch (AlienFormFileException ex) {
-      Messages.showMessageDialog(project, "The form bound to the class is not a valid IntelliJ IDEA form",
+      Messages.showMessageDialog(project, UIDesignerBundle.message("generate.main.not.valid.form"),
                                  UIDesignerBundle.message("generate.main.title"), Messages.getErrorIcon());
       return;
     }
@@ -107,29 +96,25 @@ public class GenerateMainAction extends AnAction {
 
     mainBuilder.append("}\n");
 
-    CommandProcessor.getInstance().executeCommand(project, new Runnable() {
-      public void run() {
-        ApplicationManager.getApplication().runWriteAction(new Runnable() {
-          public void run() {
-            try {
-              PsiMethod method =
-                JavaPsiFacade.getInstance(file.getProject()).getElementFactory().createMethodFromText(mainBuilder.toString(), file);
-              List<PsiGenerationInfo<PsiMethod>> infos = Collections.singletonList(new PsiGenerationInfo<PsiMethod>(method));
-              List<PsiGenerationInfo<PsiMethod>> resultMembers = GenerateMembersUtil.insertMembersAtOffset(file, offset, infos);
-              resultMembers.get(0).positionCaret(editor, false);
-            }
-            catch (IncorrectOperationException e1) {
-              LOG.error(e1);
-            }
-          }
-        });
+    CommandProcessor.getInstance().executeCommand(project, () -> ApplicationManager.getApplication().runWriteAction(() -> {
+      try {
+        PsiMethod method =
+          JavaPsiFacade.getInstance(file.getProject()).getElementFactory().createMethodFromText(mainBuilder.toString(), file);
+        List<PsiGenerationInfo<PsiMethod>> infos = Collections.singletonList(new PsiGenerationInfo<>(method));
+        List<PsiGenerationInfo<PsiMethod>> resultMembers = GenerateMembersUtil.insertMembersAtOffset(file, offset, infos);
+        resultMembers.get(0).positionCaret(editor, false);
       }
-    }, null, null);
+      catch (IncorrectOperationException e1) {
+        LOG.error(e1);
+      }
+    }), null, null);
   }
 
   @Override
-  public void update(AnActionEvent e) {
-    e.getPresentation().setVisible(isActionEnabled(e));
+  public void update(@NotNull AnActionEvent e) {
+    boolean enabled = isActionEnabled(e);
+    Presentation presentation = e.getPresentation();
+    presentation.setEnabledAndVisible(enabled);
   }
 
   private static boolean isActionEnabled(final AnActionEvent e) {

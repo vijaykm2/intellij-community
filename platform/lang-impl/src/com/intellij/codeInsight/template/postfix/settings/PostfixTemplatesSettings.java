@@ -1,94 +1,56 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.template.postfix.settings;
 
 import com.intellij.codeInsight.template.impl.TemplateSettings;
+import com.intellij.codeInsight.template.postfix.templates.LanguagePostfixTemplate;
 import com.intellij.codeInsight.template.postfix.templates.PostfixTemplate;
 import com.intellij.codeInsight.template.postfix.templates.PostfixTemplateProvider;
-import com.intellij.codeInsight.template.postfix.templates.PostfixTemplatesUtils;
-import com.intellij.openapi.application.PathManager;
-import com.intellij.openapi.components.*;
+import com.intellij.configurationStore.XmlSerializer;
+import com.intellij.lang.Language;
+import com.intellij.lang.LanguageExtensionPoint;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.util.Factory;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.xmlb.SkipDefaultValuesSerializationFilters;
-import com.intellij.util.xmlb.XmlSerializer;
+import com.intellij.util.containers.MultiMap;
 import com.intellij.util.xmlb.annotations.MapAnnotation;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-@State(
-  name = "PostfixTemplatesSettings",
-  storages = {
-    @Storage(file = StoragePathMacros.APP_CONFIG + "/postfixTemplates.xml")
-  }
-)
-public class PostfixTemplatesSettings implements PersistentStateComponent<Element>, ExportableComponent {
-
-  public static final Factory<Set<String>> SET_FACTORY = new Factory<Set<String>>() {
-    @Override
-    public Set<String> create() {
-      return ContainerUtil.newHashSet();
-    }
-  };
-  private Map<String, Set<String>> myLangToDisabledTemplates = ContainerUtil.newHashMap();
+@State(name = "PostfixTemplatesSettings", storages = @Storage("postfixTemplates.xml"))
+public class PostfixTemplatesSettings implements PersistentStateComponent<Element> {
+  public static final Factory<Set<String>> SET_FACTORY = () -> new HashSet<>();
+  private Map<String, Set<String>> myProviderToDisabledTemplates = new HashMap<>();
+  /**
+   * @deprecated use myProviderToDisabledTemplates
+   */
+  @Deprecated
+  private Map<String, Set<String>> myLangToDisabledTemplates = new HashMap<>();
 
   private boolean postfixTemplatesEnabled = true;
   private boolean templatesCompletionEnabled = true;
   private int myShortcut = TemplateSettings.TAB_CHAR;
 
-  @Deprecated
-  @NotNull
-  private Map<String, Boolean> myTemplatesState = ContainerUtil.newHashMap();
-
-  @SuppressWarnings("UnusedDeclaration")
-  @Deprecated
-  @NotNull
-  public Map<String, Boolean> getTemplatesState() {
-    return myTemplatesState;
-  }
-
-  @SuppressWarnings("UnusedDeclaration")
-  @Deprecated
-  public void setTemplatesState(@NotNull Map<String, Boolean> templatesState) {
-    myTemplatesState = templatesState;
-  }
-
   public boolean isTemplateEnabled(@NotNull PostfixTemplate template, @NotNull PostfixTemplateProvider provider) {
-    String langForProvider = PostfixTemplatesUtils.getLangForProvider(provider);
-    return isTemplateEnabled(template, langForProvider);
-  }
-
-  public boolean isTemplateEnabled(PostfixTemplate template, @NotNull String strictLangForProvider) {
-    Set<String> result = myLangToDisabledTemplates.get(strictLangForProvider);
-    return result == null || !result.contains(template.getKey());
+    Set<String> result = myProviderToDisabledTemplates.get(provider.getId());
+    return result == null || !result.contains(template.getId());
   }
 
   public void disableTemplate(@NotNull PostfixTemplate template, @NotNull PostfixTemplateProvider provider) {
-    String langForProvider = PostfixTemplatesUtils.getLangForProvider(provider);
-    disableTemplate(template, langForProvider);
+    disableTemplate(template, provider.getId());
   }
 
-  public void disableTemplate(PostfixTemplate template, String langForProvider) {
-    Set<String> state = ContainerUtil.getOrCreate(myLangToDisabledTemplates, langForProvider, SET_FACTORY);
-    state.add(template.getKey());
+  public void disableTemplate(@NotNull PostfixTemplate template, @NotNull String providerId) {
+    Set<String> state = ContainerUtil.getOrCreate(myProviderToDisabledTemplates, providerId, SET_FACTORY);
+    state.add(template.getId());
   }
 
   public boolean isPostfixTemplatesEnabled() {
@@ -107,14 +69,32 @@ public class PostfixTemplatesSettings implements PersistentStateComponent<Elemen
     this.templatesCompletionEnabled = templatesCompletionEnabled;
   }
 
+  /**
+   * @deprecated use getProviderToDisabledTemplates
+   */
+  @Deprecated
   @NotNull
   @MapAnnotation(entryTagName = "disabled-postfix-templates", keyAttributeName = "lang", surroundWithTag = false)
   public Map<String, Set<String>> getLangDisabledTemplates() {
     return myLangToDisabledTemplates;
   }
 
+  /**
+   * @deprecated use setProviderToDisabledTemplates
+   */
+  @Deprecated
   public void setLangDisabledTemplates(@NotNull Map<String, Set<String>> templatesState) {
     myLangToDisabledTemplates = templatesState;
+  }
+
+  @NotNull
+  @MapAnnotation(entryTagName = "disabled-templates", keyAttributeName = "provider", surroundWithTag = false)
+  public Map<String, Set<String>> getProviderToDisabledTemplates() {
+    return myProviderToDisabledTemplates;
+  }
+
+  public void setProviderToDisabledTemplates(@NotNull Map<String, Set<String>> templatesState) {
+    myProviderToDisabledTemplates = templatesState;
   }
 
   public int getShortcut() {
@@ -125,39 +105,52 @@ public class PostfixTemplatesSettings implements PersistentStateComponent<Elemen
     myShortcut = shortcut;
   }
 
-  @Nullable
+  @NotNull
   public static PostfixTemplatesSettings getInstance() {
-    return ServiceManager.getService(PostfixTemplatesSettings.class);
+    return ApplicationManager.getApplication().getService(PostfixTemplatesSettings.class);
   }
 
   @Nullable
   @Override
   public Element getState() {
-    return XmlSerializer.serialize(this, new SkipDefaultValuesSerializationFilters());
+    Element result = new Element("state");
+    XmlSerializer.serializeObjectInto(this, result);
+    return result;
   }
 
   @Override
-  public void loadState(Element settings) {
-    XmlSerializer.deserializeInto(this, settings);
+  public void loadState(@NotNull Element settings) {
+    myLangToDisabledTemplates.clear();
 
-    //Backward compatibility for java
-    //old settings were stored in "templatesState" field without language
-    //todo remove. for backward compatibility
-    if (!myTemplatesState.isEmpty()) {
-      myLangToDisabledTemplates.put("JAVA", ContainerUtil.newHashSet(myTemplatesState.keySet()));
-      myTemplatesState.clear();
+    XmlSerializer.deserializeInto(settings, this);
+
+    if (!myLangToDisabledTemplates.isEmpty()) {
+      MultiMap<String, Language> importedLanguages = getLanguagesToImport();
+      for (Map.Entry<String, Set<String>> entry : myLangToDisabledTemplates.entrySet()) {
+        for (Language language : importedLanguages.get(entry.getKey())) {
+          for (PostfixTemplateProvider provider : LanguagePostfixTemplate.LANG_EP.allForLanguage(language)) {
+            for (PostfixTemplate template : provider.getTemplates()) {
+              if (entry.getValue().contains(template.getKey())) {
+                disableTemplate(template, provider);
+              }
+            }
+          }
+        }
+      }
+      for (String language : importedLanguages.keySet()) {
+        myLangToDisabledTemplates.remove(language);
+      }
     }
   }
 
   @NotNull
-  @Override
-  public File[] getExportFiles() {
-    return new File[]{PathManager.getOptionsFile("postfixCompletion.xml")};
-  }
-
-  @NotNull
-  @Override
-  public String getPresentableName() {
-    return "Postfix Completion";
+  private static MultiMap<String, Language> getLanguagesToImport() {
+    MultiMap<String, Language> importedLanguages = MultiMap.create();
+    for (LanguageExtensionPoint extension : LanguagePostfixTemplate.EP_NAME.getExtensionList()) {
+      Language language = Language.findLanguageByID(extension.getKey());
+      if (language == null) continue;
+      importedLanguages.putValue(language.getDisplayName(), language);
+    }
+    return importedLanguages;
   }
 }

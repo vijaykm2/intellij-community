@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,20 +15,21 @@
  */
 package com.intellij.compiler.impl.javaCompiler.javac;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.compiler.OutputParser;
+import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.compiler.CompilerBundle;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.compiler.CompilerMessageCategory;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFileManager;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.rt.compiler.JavacResourcesReader;
-import com.intellij.util.StringBuilderSpinAllocator;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
@@ -42,7 +43,7 @@ public class JavacOutputParser extends OutputParser {
   @NonNls private String WARNING_PREFIX = "warning:"; // default value
 
   public JavacOutputParser(Project project) {
-    myTabSize = CodeStyleSettingsManager.getSettings(project).getTabSize(StdFileTypes.JAVA);
+    myTabSize = CodeStyle.getSettings(project).getTabSize(JavaFileType.INSTANCE);
     if (ApplicationManager.getApplication().isUnitTestMode()) {
       // emulate patterns setup if 'embedded' javac is used (javac is started not via JavacRunner)
       addJavacPattern(JavacResourcesReader.MSG_PARSING_STARTED + JavacResourcesReader.CATEGORY_VALUE_DIVIDER + "[parsing started {0}]");
@@ -53,10 +54,11 @@ public class JavacOutputParser extends OutputParser {
     }
   }
 
+  @Override
   public boolean processMessageLine(Callback callback) {
     if (super.processMessageLine(callback)) {
       return true;
-    }                                              
+    }
     final String line = callback.getCurrentLine();
     if (line == null) {
       return false;
@@ -96,11 +98,8 @@ public class JavacOutputParser extends OutputParser {
       final int colonIndex2 = line.indexOf(':', colonIndex1 + 1);
       if (colonIndex2 >= 0){
         final String filePath = part1.replace(File.separatorChar, '/');
-        final Boolean fileExists = ApplicationManager.getApplication().runReadAction(new Computable<Boolean>(){
-          public Boolean compute(){
-            return LocalFileSystem.getInstance().findFileByPath(filePath) != null? Boolean.TRUE : Boolean.FALSE;
-          }
-        });
+        final Boolean fileExists =
+          ReadAction.compute(() -> LocalFileSystem.getInstance().findFileByPath(filePath) != null);
         if (!fileExists.booleanValue()) {
           // the part one turned out to be something else than a file path
           return true;
@@ -114,7 +113,7 @@ public class JavacOutputParser extends OutputParser {
             category = CompilerMessageCategory.WARNING;
           }
 
-          List<String> messages = new ArrayList<String>();
+          List<String> messages = new ArrayList<>();
           messages.add(message);
           int colNum;
           String prevLine = null;
@@ -145,20 +144,9 @@ public class JavacOutputParser extends OutputParser {
           while(true);
 
           if (colNum >= 0){
-            messages = convertMessages(messages);
-            final StringBuilder buf = StringBuilderSpinAllocator.alloc();
-            try {
-              for (final String m : messages) {
-                if (buf.length() > 0) {
-                  buf.append("\n");
-                }
-                buf.append(m);
-              }
-              addMessage(callback, category, buf.toString(), VirtualFileManager.constructUrl(LocalFileSystem.PROTOCOL, filePath), lineNum, colNum + 1);
-            }
-            finally {
-              StringBuilderSpinAllocator.dispose(buf);
-            }
+            convertMessages(messages);
+            String text = StringUtil.join(messages, "\n");
+            addMessage(callback, category, text, VirtualFileManager.constructUrl(LocalFileSystem.PROTOCOL, filePath), lineNum, colNum + 1);
             return true;
           }
         }
@@ -168,7 +156,7 @@ public class JavacOutputParser extends OutputParser {
     }
 
     if(line.endsWith("java.lang.OutOfMemoryError")) {
-      addMessage(callback, CompilerMessageCategory.ERROR, CompilerBundle.message("error.javac.out.of.memory"));
+      addMessage(callback, CompilerMessageCategory.ERROR, JavaCompilerBundle.message("error.javac.out.of.memory"));
       return true;
     }
 
@@ -181,9 +169,9 @@ public class JavacOutputParser extends OutputParser {
   }
 
 
-  private static List<String> convertMessages(List<String> messages) {
+  private static void convertMessages(@NotNull List<String> messages) {
     if(messages.size() <= 1) {
-      return messages;
+      return;
     }
     final String line0 = messages.get(0);
     final String line1 = messages.get(1);
@@ -200,7 +188,6 @@ public class JavacOutputParser extends OutputParser {
         messages.set(0, line0 + " " + symbol);
       }
     }
-    return messages;
   }
 
   private void addJavacPattern(@NonNls final String line) {
@@ -219,26 +206,27 @@ public class JavacOutputParser extends OutputParser {
     }
     else if (JavacResourcesReader.MSG_CHECKING.equals(category)) {
       myParserActions.add(new JavacParserAction(createMatcher(resourceBundleValue)) {
+        @Override
         protected void doExecute(final String line, String parsedData, final Callback callback) {
-          callback.setProgressText(CompilerBundle.message("progress.compiling.class", parsedData));
+          callback.setProgressText(JavaCompilerBundle.message("progress.compiling.class", parsedData));
         }
       });
     }
     else if (JavacResourcesReader.MSG_LOADING.equals(category)) {
       myParserActions.add(new JavacParserAction(createMatcher(resourceBundleValue)) {
+        @Override
         protected void doExecute(final String line, @Nullable String parsedData, final Callback callback) {
-          callback.setProgressText(CompilerBundle.message("progress.loading.classes"));
+          callback.setProgressText(JavaCompilerBundle.message("progress.loading.classes"));
         }
       });
     }
     else if (JavacResourcesReader.MSG_NOTE.equals(category)) {
       myParserActions.add(new JavacParserAction(createMatcher(resourceBundleValue)) {
+        @Override
         protected void doExecute(final String line, @Nullable final String filePath, final Callback callback) {
-          final boolean fileExists = filePath != null && ApplicationManager.getApplication().runReadAction(new Computable<Boolean>(){
-            public Boolean compute(){
-              return LocalFileSystem.getInstance().findFileByPath(filePath) != null? Boolean.TRUE : Boolean.FALSE;
-            }
-          });
+          final boolean fileExists = filePath != null &&
+                                     ReadAction
+                                       .compute(() -> LocalFileSystem.getInstance().findFileByPath(filePath) != null);
           if (fileExists) {
             addMessage(callback, CompilerMessageCategory.WARNING, line, VirtualFileManager.constructUrl(LocalFileSystem.PROTOCOL, filePath), -1, -1);
           }
@@ -251,17 +239,11 @@ public class JavacOutputParser extends OutputParser {
     else if (JavacResourcesReader.MSG_WARNING.equals(category)) {
       WARNING_PREFIX = resourceBundleValue;
     }
-    else if (JavacResourcesReader.MSG_STATISTICS.equals(category)) {
+    else if (JavacResourcesReader.MSG_STATISTICS.equals(category) || JavacResourcesReader.MSG_IGNORED.equals(category)) {
       myParserActions.add(new JavacParserAction(createMatcher(resourceBundleValue)) {
+        @Override
         protected void doExecute(final String line, @Nullable String parsedData, final Callback callback) {
           // empty
-        }
-      });
-    }
-    else if (JavacResourcesReader.MSG_IGNORED.equals(category)) {
-      myParserActions.add(new JavacParserAction(createMatcher(resourceBundleValue)) {
-        protected void doExecute(final String line, @Nullable String parsedData, final Callback callback) {
-          // ignored
         }
       });
     }

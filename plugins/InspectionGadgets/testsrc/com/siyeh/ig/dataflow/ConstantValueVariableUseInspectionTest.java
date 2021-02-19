@@ -1,11 +1,18 @@
 package com.siyeh.ig.dataflow;
 
-import com.siyeh.ig.IGInspectionTestCase;
+import com.intellij.codeInspection.InspectionProfileEntry;
+import com.siyeh.ig.LightJavaInspectionTestCase;
+import org.jetbrains.annotations.Nullable;
 
-public class ConstantValueVariableUseInspectionTest extends IGInspectionTestCase {
+public class ConstantValueVariableUseInspectionTest extends LightJavaInspectionTestCase {
 
-  public void test() throws Exception {
-    doTest("com/siyeh/igtest/dataflow/constant_value_variable_use",
-           new ConstantValueVariableUseInspection());
+  public void testConstantValueVariableUse() {
+    doTest();
+  }
+
+  @Nullable
+  @Override
+  protected InspectionProfileEntry getInspection() {
+    return new ConstantValueVariableUseInspection();
   }
 }

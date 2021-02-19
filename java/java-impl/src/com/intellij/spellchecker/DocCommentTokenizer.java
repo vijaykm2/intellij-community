@@ -32,13 +32,13 @@ import java.util.Set;
  * @author shkate@jetbrains.com
  */
 public class DocCommentTokenizer extends Tokenizer<PsiDocComment> {
-  private static final Set<String> excludedTags = ContainerUtil.immutableSet("author", "see", "by", "link");
+  private static final Set<String> excludedTags = Set.of("author", "see", "by", "link");
 
   @Override
   public void tokenize(@NotNull PsiDocComment comment, TokenConsumer consumer) {
     final CommentSplitter splitter = CommentSplitter.getInstance();
 
-    for (PsiElement el : comment.getChildren()) {
+    for (PsiElement el = comment.getFirstChild(); el != null; el = el.getNextSibling()) {
       if (el instanceof PsiDocTag) {
         PsiDocTag tag = (PsiDocTag)el;
         if (!excludedTags.contains(tag.getName())) {

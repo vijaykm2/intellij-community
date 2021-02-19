@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.navigator;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.Navigatable;
@@ -39,11 +24,12 @@ import org.jetbrains.idea.maven.project.MavenProjectsManager;
 import org.jetbrains.idea.maven.utils.MavenArtifactUtil;
 
 import java.io.File;
+import java.util.Objects;
 
 /**
  * @author Konstantin Bulenkov
  */
-public class MavenNavigationUtil {
+public final class MavenNavigationUtil {
   private static final String ARTIFACT_ID = "artifactId";
 
   private MavenNavigationUtil() { }
@@ -53,6 +39,7 @@ public class MavenNavigationUtil {
     if (file == null || !file.isValid()) return null;
     final PsiFile result = PsiManager.getInstance(project).findFile(file);
     return result == null ? null : new NavigatableAdapter() {
+      @Override
       public void navigate(boolean requestFocus) {
         int offset = 0;
         if (result instanceof XmlFile) {
@@ -75,6 +62,7 @@ public class MavenNavigationUtil {
   @Nullable
   public static Navigatable createNavigatableForDependency(final Project project, final VirtualFile file, final MavenArtifact artifact) {
     return new NavigatableAdapter() {
+      @Override
       public void navigate(boolean requestFocus) {
         if (!file.isValid()) return;
 
@@ -100,20 +88,21 @@ public class MavenNavigationUtil {
 
   @Nullable
   public static MavenDomDependency findDependency(@NotNull MavenDomProjectModel projectDom, final String groupId, final String artifactId) {
-    MavenDomProjectProcessorUtils.SearchProcessor<MavenDomDependency, MavenDomDependencies> processor = new MavenDomProjectProcessorUtils.SearchProcessor<MavenDomDependency, MavenDomDependencies>() {
-      @Nullable
-      @Override
-      protected MavenDomDependency find(MavenDomDependencies element) {
-        for (MavenDomDependency dependency : element.getDependencies()) {
-          if (Comparing.equal(groupId, dependency.getGroupId().getStringValue()) &&
-              Comparing.equal(artifactId, dependency.getArtifactId().getStringValue())) {
-            return dependency;
+    MavenDomProjectProcessorUtils.SearchProcessor<MavenDomDependency, MavenDomDependencies> processor =
+      new MavenDomProjectProcessorUtils.SearchProcessor<>() {
+        @Nullable
+        @Override
+        protected MavenDomDependency find(MavenDomDependencies element) {
+          for (MavenDomDependency dependency : element.getDependencies()) {
+            if (Objects.equals(groupId, dependency.getGroupId().getStringValue()) &&
+                Objects.equals(artifactId, dependency.getArtifactId().getStringValue())) {
+              return dependency;
+            }
           }
-        }
 
-        return null;
-      }
-    };
+          return null;
+        }
+      };
 
     MavenDomProjectProcessorUtils.processDependencies(projectDom, processor);
 

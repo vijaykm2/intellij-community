@@ -1,33 +1,19 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.history;
 
-import com.intellij.diff.DiffContentFactoryImpl;
+import com.intellij.diff.DiffContentFactoryEx;
 import com.intellij.diff.DiffManager;
 import com.intellij.diff.DiffRequestFactoryImpl;
+import com.intellij.diff.DiffVcsDataKeys;
 import com.intellij.diff.contents.DiffContent;
 import com.intellij.diff.requests.DiffRequest;
 import com.intellij.diff.requests.SimpleDiffRequest;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Couple;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsBundle;
@@ -42,8 +28,9 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 
-public class VcsHistoryUtil {
+import static com.intellij.diff.DiffRequestFactoryImpl.DIFF_TITLE_RENAME_SEPARATOR;
 
+public final class VcsHistoryUtil {
   private static final Logger LOG = Logger.getInstance(VcsHistoryUtil.class);
 
   private VcsHistoryUtil() {
@@ -84,32 +71,54 @@ public class VcsHistoryUtil {
    */
   public static void showDiff(@NotNull final Project project, @NotNull FilePath path,
                               @NotNull VcsFileRevision revision1, @NotNull VcsFileRevision revision2,
-                              @NotNull String title1, @NotNull String title2) throws VcsException, IOException {
-    final byte[] content1 = loadRevisionContent(revision1);
-    final byte[] content2 = loadRevisionContent(revision2);
+                              @NotNull @NlsContexts.Label String title1, @NotNull @NlsContexts.Label String title2) throws VcsException, IOException {
+    FilePath path1 = getRevisionPath(revision1);
+    FilePath path2 = getRevisionPath(revision2);
 
-    String title = DiffRequestFactoryImpl.getContentTitle(path);
+    String title;
+    if (path1 != null && path2 != null) {
+      title = DiffRequestFactoryImpl.getTitle(path1, path2, DIFF_TITLE_RENAME_SEPARATOR);
+    }
+    else {
+      title = DiffRequestFactoryImpl.getContentTitle(path);
+    }
 
-    DiffContent diffContent1 = createContent(project, content1, revision1, path);
-    DiffContent diffContent2 = createContent(project, content2, revision2, path);
+    DiffContent diffContent1 = loadContentForDiff(project, path, revision1);
+    DiffContent diffContent2 = loadContentForDiff(project, path, revision2);
 
     final DiffRequest request = new SimpleDiffRequest(title, diffContent1, diffContent2, title1, title2);
 
-    WaitForProgressToShow.runOrInvokeLaterAboveProgress(new Runnable() {
-      public void run() {
-        DiffManager.getInstance().showDiff(project, request);
-      }
-    }, null, project);
+    diffContent1.putUserData(DiffVcsDataKeys.REVISION_INFO, getRevisionInfo(revision1));
+    diffContent2.putUserData(DiffVcsDataKeys.REVISION_INFO, getRevisionInfo(revision2));
+
+    WaitForProgressToShow.runOrInvokeLaterAboveProgress(() -> DiffManager.getInstance().showDiff(project, request), null, project);
   }
 
   @NotNull
-  public static byte[] loadRevisionContent(@NotNull VcsFileRevision revision) throws VcsException, IOException {
-    byte[] content = revision.getContent();
-    if (content == null) {
-      revision.loadContent();
-      content = revision.getContent();
+  public static DiffContent loadContentForDiff(@NotNull Project project, @NotNull FilePath path, @NotNull VcsFileRevision revision) throws IOException, VcsException {
+    return createContent(project, loadRevisionContent(revision), revision, path);
+  }
+
+  @Nullable
+  private static Pair<FilePath, VcsRevisionNumber> getRevisionInfo(@NotNull VcsFileRevision revision) {
+    if (revision instanceof VcsFileRevisionEx) {
+      return Pair.create(((VcsFileRevisionEx)revision).getPath(), revision.getRevisionNumber());
     }
-    if (content == null) throw new VcsException("Failed to load content for revision " + revision.getRevisionNumber().asString());
+    return null;
+  }
+
+  @Nullable
+  private static FilePath getRevisionPath(@NotNull VcsFileRevision revision) {
+    if (revision instanceof VcsFileRevisionEx) {
+      return ((VcsFileRevisionEx)revision).getPath();
+    }
+    return null;
+  }
+
+  public static byte @NotNull [] loadRevisionContent(@NotNull VcsFileRevision revision) throws VcsException, IOException {
+    byte[] content = revision.loadContent();
+    if (content == null) throw new VcsException(
+      VcsBundle.message("history.failed.to.load.content.for.revision.0", revision.getRevisionNumber().asString()));
     return content;
   }
 
@@ -128,9 +137,9 @@ public class VcsHistoryUtil {
   }
 
   @NotNull
-  private static DiffContent createContent(@NotNull Project project, @NotNull byte[] content, @NotNull VcsFileRevision revision,
+  private static DiffContent createContent(@NotNull Project project, byte @NotNull [] content, @NotNull VcsFileRevision revision,
                                            @NotNull FilePath filePath) throws IOException {
-    DiffContentFactoryImpl contentFactory = DiffContentFactoryImpl.getInstanceImpl();
+    DiffContentFactoryEx contentFactory = DiffContentFactoryEx.getInstanceEx();
     if (isCurrent(revision)) {
       VirtualFile file = filePath.getVirtualFile();
       if (file != null) return contentFactory.create(project, file);
@@ -138,80 +147,49 @@ public class VcsHistoryUtil {
     if (isEmpty(revision)) {
       return contentFactory.createEmpty();
     }
-    return contentFactory.createFromBytes(project, filePath, content);
+    return contentFactory.createFromBytes(project, content, filePath, revision.getDefaultCharset());
   }
 
   private static boolean isCurrent(VcsFileRevision revision) {
     return revision instanceof CurrentRevision;
   }
 
-  private static boolean isEmpty(VcsFileRevision revision) {
+  public static boolean isEmpty(VcsFileRevision revision) {
     return revision == null || VcsFileRevision.NULL.equals(revision);
   }
 
   /**
    * Shows difference between two revisions of a file in a diff tool.
    * The content of revisions is queried in a background thread.
-   * If {@code findOlderNewer} is set to {@code true}, revisions may be specified in any order:
-   * this method will sort them so that the older revision is at the left, and the newer one is at the right.
-   * @param findOlderNewer specify {@code true} to let method compare revisions, and put the older revision at the left, and newer revision
-   *                       at the right.<br/>
-   *                       Specify {@code false} to put {@code revision1} at the left, and {@code revision2} at the right.
+   *
    * @see #showDiff(Project, FilePath, VcsFileRevision, VcsFileRevision, String, String)
    */
-  public static void showDifferencesInBackground(@NotNull final Project project, @NotNull final FilePath filePath,
-                                                 @NotNull final VcsFileRevision revision1, @NotNull final VcsFileRevision revision2,
-                                                 final boolean findOlderNewer) {
-    new Task.Backgroundable(project, "Loading revisions to compare") {
+  public static void showDifferencesInBackground(@NotNull final Project project,
+                                                 @NotNull final FilePath filePath,
+                                                 @NotNull final VcsFileRevision older,
+                                                 @NotNull final VcsFileRevision newer) {
+    new Task.Backgroundable(project, VcsBundle.message("file.history.diff.revisions.process")) {
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
-        VcsFileRevision left = revision1;
-        VcsFileRevision right = revision2;
-        if (findOlderNewer) {
-          Pair<VcsFileRevision, VcsFileRevision> pair = sortRevisions(revision1, revision2);
-          left = pair.first;
-          right = pair.second;
-        }
-
         try {
-          final String leftTitle = left.getRevisionNumber().asString() +
-                                   (left instanceof CurrentRevision ? " (" + VcsBundle.message("diff.title.local") + ")" : "");
-          final String rightTitle = right.getRevisionNumber().asString() +
-                                    (right instanceof CurrentRevision ? " (" + VcsBundle.message("diff.title.local") + ")" : "");
-          showDiff(project, filePath, left, right, leftTitle, rightTitle);
+          showDiff(project, filePath, older, newer, makeTitle(older), makeTitle(newer));
         }
         catch (final VcsException e) {
           LOG.info(e);
-          WaitForProgressToShow.runOrInvokeLaterAboveProgress(new Runnable() {
-            public void run() {
-              Messages.showErrorDialog(VcsBundle.message("message.text.cannot.show.differences", e.getLocalizedMessage()),
-                                       VcsBundle.message("message.title.show.differences"));
-            }
-          }, null, project);
+          WaitForProgressToShow.runOrInvokeLaterAboveProgress(
+            () -> Messages.showErrorDialog(VcsBundle.message("message.text.cannot.show.differences", e.getLocalizedMessage()),
+                                         VcsBundle.message("message.title.show.differences")), null, project);
         }
         catch (IOException e) {
           LOG.info(e);
         }
-        catch (ProcessCanceledException ex) {
-          LOG.info(ex);
-        }
+      }
+
+      @NotNull
+      private @NlsContexts.Label String makeTitle(@NotNull VcsFileRevision revision) {
+        return revision.getRevisionNumber().asString() +
+               (revision instanceof CurrentRevision ? " (" + VcsBundle.message("diff.title.local") + ")" : "");
       }
     }.queue();
   }
-
-  /**
-   * Compares the given revisions and returns a pair of them, where the first one is older, and second is newer.
-   */
-  @NotNull
-  public static Couple<VcsFileRevision> sortRevisions(@NotNull VcsFileRevision revision1,
-                                                      @NotNull VcsFileRevision revision2) {
-    VcsFileRevision left = revision1;
-    VcsFileRevision right = revision2;
-    if (compare(revision1, revision2) > 0) {
-      left = revision2;
-      right = revision1;
-    }
-    return Couple.of(left, right);
-  }
-
 }

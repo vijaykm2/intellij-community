@@ -1,31 +1,46 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.actions.diff;
 
 import com.intellij.diff.actions.impl.GoToChangePopupBuilder;
 import com.intellij.diff.chains.DiffRequestChain;
+import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
+import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Ref;
-import com.intellij.openapi.vcs.changes.Change;
-import com.intellij.openapi.vcs.changes.ui.ChangesBrowser;
+import com.intellij.openapi.vcs.changes.ui.ChangesBrowserBase;
+import com.intellij.openapi.vcs.changes.ui.ChangesBrowserNode;
+import com.intellij.openapi.vcs.changes.ui.ChangesGroupingPolicyFactory;
+import com.intellij.openapi.vcs.changes.ui.VcsTreeModelData;
 import com.intellij.openapi.wm.IdeFocusManager;
-import com.intellij.util.Consumer;
+import com.intellij.util.ui.tree.TreeUtil;
 import com.intellij.util.ui.update.UiNotifyConnector;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
+import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeModel;
+import javax.swing.tree.TreeSelectionModel;
 import java.util.Collections;
 import java.util.List;
 
 public abstract class ChangeGoToChangePopupAction<Chain extends DiffRequestChain>
-  extends GoToChangePopupBuilder.BaseGoToChangePopupAction<Chain>{
-  public ChangeGoToChangePopupAction(@NotNull Chain chain, @NotNull Consumer onSelected) {
-    super(chain, onSelected);
+  extends GoToChangePopupBuilder.BaseGoToChangePopupAction<Chain> {
+
+  public ChangeGoToChangePopupAction(@NotNull Chain chain) {
+    super(chain);
   }
+
+  @NotNull
+  protected abstract DefaultTreeModel buildTreeModel(@NotNull Project project, @NotNull ChangesGroupingPolicyFactory grouping);
+
+  protected abstract void onSelected(@Nullable ChangesBrowserNode object);
+
+  @Nullable
+  protected abstract Condition<? super DefaultMutableTreeNode> initialSelection();
 
   @NotNull
   @Override
@@ -33,8 +48,8 @@ public abstract class ChangeGoToChangePopupAction<Chain extends DiffRequestChain
     Project project = e.getProject();
     if (project == null) project = ProjectManager.getInstance().getDefaultProject();
 
-    Ref<JBPopup> popup = new Ref<JBPopup>();
-    ChangesBrowser cb = new MyChangesBrowser(project, getChanges(), getCurrentSelection(), popup);
+    Ref<JBPopup> popup = new Ref<>();
+    MyChangesBrowser cb = new MyChangesBrowser(project, popup);
 
     popup.set(JBPopupFactory.getInstance()
                 .createComponentPopupBuilder(cb, cb.getPreferredFocusedComponent())
@@ -47,71 +62,62 @@ public abstract class ChangeGoToChangePopupAction<Chain extends DiffRequestChain
                 .setMovable(true)
                 .setCancelKeyEnabled(true)
                 .setCancelOnClickOutside(true)
+                .setDimensionServiceKey(project, "Diff.GoToChangePopup", false)
                 .createPopup());
 
     return popup.get();
   }
 
   //
-  // Abstract
-  //
-
-  protected abstract int findSelectedStep(@Nullable Change change);
-
-  @NotNull
-  protected abstract List<Change> getChanges();
-
-  @Nullable
-  protected abstract Change getCurrentSelection();
-
-  //
   // Helpers
   //
 
-  private class MyChangesBrowser extends ChangesBrowser implements Runnable {
-    @NotNull private final Ref<JBPopup> myPopup;
+  private class MyChangesBrowser extends ChangesBrowserBase {
+    @NotNull private final Ref<? extends JBPopup> myRef;
 
-    public MyChangesBrowser(@NotNull Project project,
-                            @NotNull List<Change> changes,
-                            @Nullable final Change currentChange,
-                            @NotNull Ref<JBPopup> popup) {
-      super(project, null, changes, null, false, false, null, MyUseCase.LOCAL_CHANGES, null);
-      setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-      setChangesToDisplay(changes);
+    MyChangesBrowser(@NotNull Project project, @NotNull Ref<? extends JBPopup> popupRef) {
+      super(project, false, false);
+      myRef = popupRef;
+      myViewer.setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
+      init();
 
-      UiNotifyConnector.doWhenFirstShown(this, new Runnable() {
-        @Override
-        public void run() {
-          if (currentChange != null) select(Collections.singletonList(currentChange));
-        }
-      });
+      myViewer.rebuildTree();
 
-      myPopup = popup;
-    }
-
-    @Override
-    protected void buildToolBar(DefaultActionGroup toolBarGroup) {
-      // remove diff action
+      Condition<? super DefaultMutableTreeNode> selectionCondition = initialSelection();
+      if (selectionCondition != null) {
+        UiNotifyConnector.doWhenFirstShown(this, () -> {
+          DefaultMutableTreeNode node = TreeUtil.findNode(myViewer.getRoot(), selectionCondition);
+          if (node != null) {
+            TreeUtil.selectNode(myViewer, node);
+          }
+        });
+      }
     }
 
     @NotNull
     @Override
-    protected Runnable getDoubleClickHandler() {
-      return this;
+    protected DefaultTreeModel buildTreeModel() {
+      return ChangeGoToChangePopupAction.this.buildTreeModel(myProject, getGrouping());
+    }
+
+    @NotNull
+    @Override
+    protected List<AnAction> createToolbarActions() {
+      return Collections.emptyList(); // remove diff action
+    }
+
+    @NotNull
+    @Override
+    protected List<AnAction> createPopupMenuActions() {
+      return Collections.emptyList(); // remove diff action
     }
 
     @Override
-    public void run() {
-      Change change = getSelectedChanges().get(0);
-      final int index = findSelectedStep(change);
-      myPopup.get().cancel();
-      IdeFocusManager.getInstance(myProject).doWhenFocusSettlesDown(new Runnable() {
-        @Override
-        public void run() {
-          //noinspection unchecked
-          myOnSelected.consume(index);
-        }
-      });
+    protected void onDoubleClick() {
+      myRef.get().cancel();
+
+      ChangesBrowserNode selection = VcsTreeModelData.selected(myViewer).nodesStream().findFirst().orElse(null);
+      IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> onSelected(selection));
     }
   }
 }

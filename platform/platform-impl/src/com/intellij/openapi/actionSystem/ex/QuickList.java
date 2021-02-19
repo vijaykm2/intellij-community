@@ -1,73 +1,44 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.actionSystem.ex;
 
-import com.intellij.openapi.options.ExternalInfo;
-import com.intellij.openapi.options.ExternalizableScheme;
+import com.intellij.configurationStore.SerializableScheme;
+import com.intellij.openapi.options.ExternalizableSchemeAdapter;
+import com.intellij.openapi.options.SchemeState;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.ArrayUtilRt;
 import org.jdom.Element;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.List;
 
-public class QuickList implements ExternalizableScheme {
+public class QuickList extends ExternalizableSchemeAdapter implements SerializableScheme {
   public static final String QUICK_LIST_PREFIX = "QuickList.";
-  public static final String SEPARATOR_ID = QUICK_LIST_PREFIX + "$Separator$";
+  @NonNls public static final String SEPARATOR_ID = QUICK_LIST_PREFIX + "$Separator$";
 
   private static final String ID_TAG = "id";
-  private static final String READONLY_TAG = "readonly";
   private static final String ACTION_TAG = "action";
-  private static final String DISPLAY_NAME_TAG = "display";
+  static final String DISPLAY_NAME_TAG = "display";
   private static final String DESCRIPTION_TAG = "description";
 
-  private String myName;
   private String myDescription;
-  private String[] myActionIds;
-  private boolean myReadonly;
-  private final ExternalInfo myExternalInfo = new ExternalInfo();
+  private String[] myActionIds = ArrayUtilRt.EMPTY_STRING_ARRAY;
+  private SchemeState schemeState;
 
   /**
    * With read external to be called immediately after in mind
    */
   QuickList() {
+    setName("");
   }
 
-  public QuickList(@NotNull String displayName, @Nullable String description, String[] actionIds, boolean isReadonly) {
-    myName = displayName;
+  public QuickList(@NotNull String name, @Nullable String description, String[] actionIds) {
+    setName(name);
     myDescription = StringUtil.nullize(description);
     myActionIds = actionIds;
-    myReadonly = isReadonly;
-  }
-
-  @Deprecated
-  public String getDisplayName() {
-    return myName;
-  }
-
-  @Override
-  @NotNull
-  public String getName() {
-    return myName;
-  }
-
-  public boolean isReadonly() {
-    return myReadonly;
   }
 
   @Nullable
@@ -75,10 +46,21 @@ public class QuickList implements ExternalizableScheme {
     return myDescription;
   }
 
+  public void setDescription(@Nullable String value) {
+    myDescription = StringUtil.nullize(value);
+    schemeState = SchemeState.POSSIBLY_CHANGED;
+  }
+
   public String[] getActionIds() {
     return myActionIds;
   }
 
+  public void setActionIds(String @NotNull [] value) {
+    myActionIds = value;
+    schemeState = SchemeState.POSSIBLY_CHANGED;
+  }
+
+  @Override
   public boolean equals(Object o) {
     if (this == o) {
       return true;
@@ -88,11 +70,18 @@ public class QuickList implements ExternalizableScheme {
     }
 
     QuickList quickList = (QuickList)o;
-    return Arrays.equals(myActionIds, quickList.myActionIds) && Comparing.strEqual(myDescription, quickList.myDescription) && myName.equals(quickList.myName);
+    return Arrays.equals(myActionIds, quickList.myActionIds) && Comparing.strEqual(myDescription, quickList.myDescription) && getName().equals(quickList.getName());
   }
 
+  @Override
   public int hashCode() {
-    return 29 * myName.hashCode() + Comparing.hashcode(myDescription);
+    return 29 * getName().hashCode() + Comparing.hashcode(myDescription);
+  }
+
+  @NotNull
+  @Override
+  public String toString() {
+    return getName() + " " + getDescription();
   }
 
   @NotNull
@@ -100,24 +89,9 @@ public class QuickList implements ExternalizableScheme {
     return QUICK_LIST_PREFIX + getName();
   }
 
-  public void writeExternal(@NotNull Element groupElement) {
-    groupElement.setAttribute(DISPLAY_NAME_TAG, myName);
-    if (myDescription != null) {
-      groupElement.setAttribute(DESCRIPTION_TAG, myDescription);
-    }
-    if (myReadonly) {
-      groupElement.setAttribute(READONLY_TAG, "true");
-    }
-
-    for (String actionId : getActionIds()) {
-      groupElement.addContent(new Element(ACTION_TAG).setAttribute(ID_TAG, actionId));
-    }
-  }
-
   public void readExternal(@NotNull Element element) {
-    myName = element.getAttributeValue(DISPLAY_NAME_TAG);
+    setName(element.getAttributeValue(DISPLAY_NAME_TAG));
     myDescription = StringUtil.nullize(element.getAttributeValue(DESCRIPTION_TAG));
-    myReadonly = Boolean.valueOf(element.getAttributeValue(READONLY_TAG, "false")).booleanValue();
 
     List<Element> actionElements = element.getChildren(ACTION_TAG);
     myActionIds = new String[actionElements.size()];
@@ -126,14 +100,26 @@ public class QuickList implements ExternalizableScheme {
     }
   }
 
-  @Override
   @NotNull
-  public ExternalInfo getExternalInfo() {
-    return myExternalInfo;
+  @Override
+  public Element writeScheme() {
+    Element element = new Element("list");
+    element.setAttribute(DISPLAY_NAME_TAG, getName());
+    if (myDescription != null) {
+      element.setAttribute(DESCRIPTION_TAG, myDescription);
+    }
+
+    for (String actionId : getActionIds()) {
+      element.addContent(new Element(ACTION_TAG).setAttribute(ID_TAG, actionId));
+    }
+
+    schemeState = SchemeState.UNCHANGED;
+    return element;
   }
 
+  @Nullable
   @Override
-  public void setName(@NotNull String newName) {
-    myName = newName;
+  public SchemeState getSchemeState() {
+    return schemeState;
   }
 }

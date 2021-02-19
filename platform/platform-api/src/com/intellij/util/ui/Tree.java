@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,16 @@
  */
 package com.intellij.util.ui;
 
+import org.jetbrains.annotations.ApiStatus;
+
 import javax.swing.tree.TreeModel;
 import javax.swing.tree.TreeNode;
 
 /**
- * @deprecated
- * @see com.intellij.ui.treeStructure.Tree  
+ * @deprecated use {@link com.intellij.ui.treeStructure.Tree}
  */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
 public class Tree extends com.intellij.ui.treeStructure.Tree {
 
   public Tree() {

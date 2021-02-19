@@ -1,130 +1,153 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service.project.manage;
 
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.externalSystem.model.DataNode;
-import com.intellij.openapi.externalSystem.model.project.AbstractDependencyData;
-import com.intellij.openapi.externalSystem.service.project.PlatformFacade;
-import com.intellij.openapi.externalSystem.util.DisposeAwareProjectChange;
+import com.intellij.openapi.externalSystem.model.project.*;
+import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider;
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.externalSystem.util.ExternalSystemConstants;
 import com.intellij.openapi.externalSystem.util.Order;
+import com.intellij.openapi.module.ModifiableModuleModel;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.*;
-import com.intellij.util.Consumer;
-import com.intellij.util.containers.ContainerUtilRt;
+import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.projectModel.ProjectModelBundle;
+import com.intellij.util.PathUtil;
+import com.intellij.util.SmartList;
+import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.Collection;
-import java.util.Map;
+import java.util.*;
 
 /**
  * @author Denis Zhdanov
- * @since 4/14/13 11:21 PM
  */
 @Order(ExternalSystemConstants.BUILTIN_SERVICE_ORDER)
 public abstract class AbstractDependencyDataService<E extends AbstractDependencyData<?>, I extends ExportableOrderEntry>
-  implements ProjectDataServiceEx<E, I>
-{
+  extends AbstractProjectDataService<E, I> {
 
-  public void importData(@NotNull final Collection<DataNode<E>> toImport,
-                         @NotNull final Project project,
-                         final boolean synchronous) {
-    final PlatformFacade platformFacade = ServiceManager.getService(PlatformFacade.class);
-    importData(toImport, project, platformFacade, synchronous);
-  }
+  private static final Logger LOG = Logger.getInstance(AbstractDependencyDataService.class.getName());
 
-  public void setScope(@NotNull final DependencyScope scope, @NotNull final ExportableOrderEntry dependency, boolean synchronous) {
-    ExternalSystemApiUtil.executeProjectChangeAction(synchronous, new DisposeAwareProjectChange(dependency.getOwnerModule()) {
-      @Override
-      public void execute() {
-        doForDependency(dependency, new Consumer<ExportableOrderEntry>() {
-          @Override
-          public void consume(ExportableOrderEntry entry) {
-            entry.setScope(scope);
-          }
-        });
-      }
-    });
-  }
-
-  public void setExported(final boolean exported, @NotNull final ExportableOrderEntry dependency, boolean synchronous) {
-    ExternalSystemApiUtil.executeProjectChangeAction(synchronous, new DisposeAwareProjectChange(dependency.getOwnerModule()) {
-      @Override
-      public void execute() {
-        doForDependency(dependency, new Consumer<ExportableOrderEntry>() {
-          @Override
-          public void consume(ExportableOrderEntry entry) {
-            entry.setExported(exported);
-          }
-        });
-      }
-    });
-  }
-  
-  private static void doForDependency(@NotNull ExportableOrderEntry entry, @NotNull Consumer<ExportableOrderEntry> consumer) {
-    // We need to get an up-to-date modifiable model to work with.
-    final ModifiableRootModel moduleRootModel =
-      ModifiableModelsProvider.SERVICE.getInstance().getModuleModifiableModel(entry.getOwnerModule());
-    try {
-      // The thing is that intellij created order entry objects every time new modifiable model is created,
-      // that's why we can't use target dependency object as is but need to get a reference to the current
-      // entry object from the model instead.
-      for (OrderEntry e : moduleRootModel.getOrderEntries()) {
-        if (e instanceof ExportableOrderEntry && e.getPresentableName().equals(entry.getPresentableName())) {
-          consumer.consume((ExportableOrderEntry)e);
-          break;
-        }
-      }
-    }
-    finally {
-      moduleRootModel.commit();
-    }
-  }
 
   @Override
-  public void removeData(@NotNull Collection<? extends I> toRemove, @NotNull Project project, boolean synchronous) {
-    final PlatformFacade platformFacade = ServiceManager.getService(PlatformFacade.class);
-    removeData(toRemove, project, platformFacade, synchronous);
-  }
-
-  @Override
-  public void removeData(@NotNull Collection<? extends I> toRemove,
+  public void importData(@NotNull Collection<? extends DataNode<E>> toImport,
+                         @Nullable ProjectData projectData,
                          @NotNull Project project,
-                         @NotNull final PlatformFacade platformFacade,
-                         boolean synchronous) {
-    if (toRemove.isEmpty()) {
+                         @NotNull IdeModifiableModelsProvider modelsProvider) {
+    if (toImport.isEmpty()) {
       return;
     }
 
-    Map<Module, Collection<ExportableOrderEntry>> byModule = groupByModule(toRemove);
+    MultiMap<DataNode<ModuleData>, DataNode<E>> byModule = ExternalSystemApiUtil.groupBy(toImport, ModuleData.class);
+    for (Map.Entry<DataNode<ModuleData>, Collection<DataNode<E>>> entry : byModule.entrySet()) {
+      final DataNode<ModuleData> moduleDataNode = entry.getKey();
+      Module module = modelsProvider.findIdeModule(moduleDataNode.getData());
+      if (module == null) {
+        LOG.warn(String.format(
+          "Can't import dependencies %s. Reason: target module (%s) is not found at the ide and can't be imported",
+          entry.getValue(), moduleDataNode
+        ));
+        continue;
+      }
+
+      final Map<OrderEntry, OrderAware> moduleDependenciesOrder = importData(entry.getValue(), module, modelsProvider);
+      final Map<OrderEntry, OrderAware> orderEntryDataMap = moduleDataNode.getUserData(AbstractModuleDataService.ORDERED_DATA_MAP_KEY);
+      if(orderEntryDataMap != null) {
+        orderEntryDataMap.putAll(moduleDependenciesOrder);
+      } else {
+        moduleDataNode.putUserData(AbstractModuleDataService.ORDERED_DATA_MAP_KEY, moduleDependenciesOrder);
+      }
+    }
+  }
+
+  protected abstract Map<OrderEntry, OrderAware> importData(@NotNull Collection<? extends DataNode<E>> nodesToImport,
+                                                            @NotNull Module module,
+                                                            @NotNull IdeModifiableModelsProvider modelsProvider);
+
+  @NotNull
+  @Override
+  public Computable<Collection<I>> computeOrphanData(final @NotNull Collection<? extends DataNode<E>> toImport,
+                                                     @NotNull final ProjectData projectData,
+                                                     @NotNull final Project project,
+                                                     @NotNull final IdeModifiableModelsProvider modelsProvider) {
+    return () -> {
+      MultiMap<String /*module name*/, String /*dep name*/> byModuleName = MultiMap.create();
+      for (DataNode<E> node : toImport) {
+        final E data = node.getData();
+        Module ownerModule = modelsProvider.findIdeModule(data.getOwnerModule());
+        if (ownerModule == null && modelsProvider.getUnloadedModuleDescription(data.getOwnerModule()) != null) {
+          continue;
+        }
+        assert ownerModule != null;
+        String depName;
+        if(data instanceof ModuleDependencyData) {
+          Module targetModule = modelsProvider.findIdeModule(((ModuleDependencyData)data).getTarget());
+          if (targetModule == null && modelsProvider.getUnloadedModuleDescription(((ModuleDependencyData)data).getTarget()) != null) {
+            continue;
+          }
+          assert targetModule != null;
+          depName = targetModule.getName();
+        } else {
+          depName = getInternalName(data);
+        }
+        byModuleName.putValue(ownerModule.getName(), depName);
+      }
+
+      final ModifiableModuleModel modifiableModuleModel = modelsProvider.getModifiableModuleModel();
+      List<I> orphanEntries = new SmartList<>();
+      for (Module module : modelsProvider.getModules(projectData)) {
+        for (OrderEntry entry : modelsProvider.getOrderEntries(module)) {
+          // do not remove recently created library w/o name
+          if (entry instanceof LibraryOrderEntry &&
+              ((LibraryOrderEntry)entry).getLibraryName() == null &&
+              entry.getUrls(OrderRootType.CLASSES).length == 0) {
+            continue;
+          }
+          if (getOrderEntryType().isInstance(entry)) {
+            final String moduleName = modifiableModuleModel.getActualName(entry.getOwnerModule());
+            //noinspection unchecked
+            if (!byModuleName.get(moduleName).contains(getOrderEntryName(modelsProvider, (I)entry))) {
+              //noinspection unchecked
+              orphanEntries.add((I)entry);
+            }
+          }
+        }
+      }
+
+      return orphanEntries;
+    };
+  }
+
+  @NotNull
+  protected abstract Class<I> getOrderEntryType();
+
+  protected String getOrderEntryName(@NotNull IdeModifiableModelsProvider modelsProvider, @NotNull I orderEntry) {
+    return orderEntry.getPresentableName();
+  }
+
+  @Override
+  public void removeData(Computable<? extends Collection<? extends I>> toRemoveComputable,
+                         @NotNull Collection<? extends DataNode<E>> toIgnore,
+                         @NotNull ProjectData projectData,
+                         @NotNull Project project,
+                         @NotNull IdeModifiableModelsProvider modelsProvider) {
+    Map<Module, Collection<ExportableOrderEntry>> byModule = groupByModule(toRemoveComputable.compute());
     for (Map.Entry<Module, Collection<ExportableOrderEntry>> entry : byModule.entrySet()) {
-      removeData(entry.getValue(), entry.getKey(), platformFacade, synchronous);
+      removeData(entry.getValue(), entry.getKey(), modelsProvider);
     }
   }
 
   @NotNull
   private static Map<Module, Collection<ExportableOrderEntry>> groupByModule(@NotNull Collection<? extends ExportableOrderEntry> data) {
-    Map<Module, Collection<ExportableOrderEntry>> result = ContainerUtilRt.newHashMap();
+    Map<Module, Collection<ExportableOrderEntry>> result = new HashMap<>();
     for (ExportableOrderEntry entry : data) {
       Collection<ExportableOrderEntry> entries = result.get(entry.getOwnerModule());
       if (entries == null) {
-        result.put(entry.getOwnerModule(), entries = ContainerUtilRt.newArrayList());
+        result.put(entry.getOwnerModule(), entries = new ArrayList<>());
       }
       entries.add(entry);
     }
@@ -132,41 +155,34 @@ public abstract class AbstractDependencyDataService<E extends AbstractDependency
   }
 
   protected void removeData(@NotNull Collection<? extends ExportableOrderEntry> toRemove,
-                         @NotNull final Module module,
-                         @NotNull final PlatformFacade platformFacade,
-                         boolean synchronous) {
+                            @NotNull Module module,
+                            @NotNull IdeModifiableModelsProvider modelsProvider) {
     if (toRemove.isEmpty()) {
       return;
     }
+    final ModifiableRootModel modifiableRootModel = modelsProvider.getModifiableRootModel(module);
     for (final ExportableOrderEntry dependency : toRemove) {
-      ExternalSystemApiUtil.executeProjectChangeAction(synchronous, new DisposeAwareProjectChange(dependency.getOwnerModule()) {
-        @Override
-        public void execute() {
-          final ModifiableRootModel moduleRootModel = platformFacade.getModuleModifiableModel(module);
-          try {
-            // The thing is that intellij created order entry objects every time new modifiable model is created,
-            // that's why we can't use target dependency object as is but need to get a reference to the current
-            // entry object from the model instead.
-            for (OrderEntry entry : moduleRootModel.getOrderEntries()) {
-              if (entry instanceof ExportableOrderEntry) {
-                ExportableOrderEntry orderEntry = (ExportableOrderEntry)entry;
-                if (orderEntry.getPresentableName().equals(dependency.getPresentableName()) &&
-                    orderEntry.getScope().equals(dependency.getScope())) {
-                  moduleRootModel.removeOrderEntry(entry);
-                  break;
-                }
-              }
-              else if (entry.getPresentableName().equals(dependency.getPresentableName())) {
-                moduleRootModel.removeOrderEntry(entry);
-                break;
-              }
-            }
-          }
-          finally {
-            moduleRootModel.commit();
-          }
-        }
-      });
+      modifiableRootModel.removeOrderEntry(dependency);
     }
+  }
+
+  private static String getInternalName(final AbstractDependencyData<?> data) {
+    if (data instanceof LibraryDependencyData) {
+      final String name = data.getInternalName();
+      if (StringUtil.isNotEmpty(name)) {
+        return name;
+      }
+      else {
+        Set<String> paths = ((LibraryDependencyData)data).getTarget().getPaths(LibraryPathType.BINARY);
+        if (!paths.isEmpty()) {
+          String url = paths.iterator().next();
+          return PathUtil.toPresentableUrl(url);
+        }
+        else {
+          return ProjectModelBundle.message("empty.library.title");
+        }
+      }
+    }
+    return data.getInternalName();
   }
 }

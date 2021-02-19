@@ -15,7 +15,6 @@
  */
 package git4idea;
 
-import com.intellij.vcs.log.Hash;
 import git4idea.branch.GitBranchUtil;
 import git4idea.repo.GitRemote;
 import org.jetbrains.annotations.NotNull;
@@ -25,8 +24,8 @@ public class GitStandardRemoteBranch extends GitRemoteBranch {
   @NotNull private final GitRemote myRemote;
   @NotNull private final String myNameAtRemote;
 
-  public GitStandardRemoteBranch(@NotNull GitRemote remote, @NotNull String nameAtRemote, @NotNull Hash hash) {
-    super(formStandardName(remote, GitBranchUtil.stripRefsPrefix(nameAtRemote)), hash);
+  public GitStandardRemoteBranch(@NotNull GitRemote remote, @NotNull String nameAtRemote) {
+    super(formStandardName(remote, GitBranchUtil.stripRefsPrefix(nameAtRemote)));
     myRemote = remote;
     myNameAtRemote = GitBranchUtil.stripRefsPrefix(nameAtRemote);
   }
@@ -34,11 +33,6 @@ public class GitStandardRemoteBranch extends GitRemoteBranch {
   @NotNull
   private static String formStandardName(@NotNull GitRemote remote, @NotNull String nameAtRemote) {
     return remote.getName() + "/" + nameAtRemote;
-  }
-
-  @Override
-  public boolean isRemote() {
-    return true;
   }
 
   @Override
@@ -67,11 +61,6 @@ public class GitStandardRemoteBranch extends GitRemoteBranch {
     result = 31 * result + myRemote.hashCode();
     result = 31 * result + myNameAtRemote.hashCode();
     return result;
-  }
-
-  @Override
-  public String toString() {
-    return super.toString();
   }
 
   @NotNull

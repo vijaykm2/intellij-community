@@ -16,23 +16,24 @@
 package org.zmlx.hg4idea.execution;
 
 import com.intellij.execution.ui.ConsoleViewContentType;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.vcsUtil.VcsImplUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.zmlx.hg4idea.HgGlobalSettings;
+import org.zmlx.hg4idea.HgBundle;
+import org.zmlx.hg4idea.HgExecutableManager;
 import org.zmlx.hg4idea.HgVcs;
-import org.zmlx.hg4idea.HgVcsMessages;
 import org.zmlx.hg4idea.util.HgEncodingUtil;
 import org.zmlx.hg4idea.util.HgErrorUtil;
 import org.zmlx.hg4idea.util.HgUtil;
 
 import java.io.File;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
@@ -50,7 +51,9 @@ import java.util.List;
 
 public class HgCommandExecutor {
   protected static final Logger LOG = Logger.getInstance(HgCommandExecutor.class.getName());
-  private static final List<String> DEFAULT_OPTIONS = Arrays.asList("--config", "ui.merge=internal:merge");
+
+  // Other parts of the plugin count on the availability of the MQ extension, so make sure it is enabled
+  private static final List<String> DEFAULT_OPTIONS = Arrays.asList("--config", "extensions.mq=", "--config", "ui.merge=internal:merge");
 
   protected final Project myProject;
   protected final HgVcs myVcs;
@@ -59,6 +62,7 @@ public class HgCommandExecutor {
   @NotNull private Charset myCharset;
   private boolean myIsSilent = false;
   private boolean myShowOutput = false;
+  private boolean myIsBinary = false;
 
   private boolean myOutputAlwaysSuppressed = false;    //for command with enormous output, like log or cat
 
@@ -87,57 +91,92 @@ public class HgCommandExecutor {
     myShowOutput = showOutput;
   }
 
+  public void setBinary(boolean isBinary) {
+    myIsBinary = isBinary;
+  }
+
   public void setOutputAlwaysSuppressed(boolean outputAlwaysSuppressed) {
     myOutputAlwaysSuppressed = outputAlwaysSuppressed;
   }
 
-  public void execute(@Nullable final VirtualFile repo, @NotNull final String operation, @Nullable final List<String> arguments,
-                      @Nullable final HgCommandResultHandler handler) {
-    HgUtil.executeOnPooledThreadIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        HgCommandResult result = executeInCurrentThread(repo, operation, arguments);
-        if (handler != null) {
-          handler.process(result);
-        }
-      }
-    });
-  }
-
+  @Nullable
   public HgCommandResult executeInCurrentThread(@Nullable final VirtualFile repo,
-                                                @NotNull final String operation,
-                                                @Nullable final List<String> arguments) {
-    HgCommandResult result = executeInCurrentThreadAndLog(repo, operation, arguments);
-    if (HgErrorUtil.isUnknownEncodingError(result)) {
-      setCharset(Charset.forName("utf8"));
-      result = executeInCurrentThreadAndLog(repo, operation, arguments);
-    }
-    return result;
+                                                @NotNull final @NonNls String operation,
+                                                @Nullable final List<@NonNls String> arguments) {
+    return executeInCurrentThread(repo, operation, arguments, false);
   }
 
   @Nullable
-  private HgCommandResult executeInCurrentThreadAndLog(@Nullable final VirtualFile repo,
-                                                       @NotNull final String operation,
-                                                       @Nullable final List<String> arguments) {
-    //LOG.assertTrue(!ApplicationManager.getApplication().isDispatchThread()); disabled for release
-    if (myProject == null || myProject.isDisposed() || myVcs == null) {
-      return null;
+  public HgCommandResult executeInCurrentThread(@Nullable VirtualFile repo,
+                                                @NotNull @NonNls String operation,
+                                                @Nullable List<@NonNls String> arguments,
+                                                boolean ignoreDefaultOptions) {
+    ShellCommand.CommandResultCollector collector = new ShellCommand.CommandResultCollector(myIsBinary);
+    boolean success = executeInCurrentThread(repo, operation, arguments, ignoreDefaultOptions, collector);
+    return success ? collector.getResult() : null;
+  }
+
+  public boolean executeInCurrentThread(@Nullable VirtualFile repo,
+                                        @NotNull @NonNls String operation,
+                                        @Nullable List<@NonNls String> arguments,
+                                        boolean ignoreDefaultOptions,
+                                        @NotNull HgLineProcessListener listener) {
+    boolean success = executeInCurrentThreadAndLog(repo, operation, arguments, ignoreDefaultOptions, listener);
+    List<String> errors = StringUtil.split(listener.getErrorOutput().toString(), System.lineSeparator());
+    if (success && HgErrorUtil.isUnknownEncodingError(errors)) {
+      setCharset(StandardCharsets.UTF_8);
+      return executeInCurrentThreadAndLog(repo, operation, arguments, ignoreDefaultOptions, listener);
     }
+    return success;
+  }
+
+  private boolean executeInCurrentThreadAndLog(@Nullable VirtualFile repo,
+                                               @NotNull @NonNls String operation,
+                                               @Nullable List<@NonNls String> arguments,
+                                               boolean ignoreDefaultOptions,
+                                               @NotNull HgLineProcessListener listener) {
+    if (myProject == null || myProject.isDisposed() || myVcs == null) return false;
+
+    ShellCommand shellCommand = createShellCommandWithArgs(repo, operation, arguments, ignoreDefaultOptions);
+    try {
+      long startTime = System.currentTimeMillis();
+      LOG.debug(String.format("hg %s started", operation));
+      shellCommand.execute(myShowOutput, myIsBinary, listener);
+      LOG.debug(String.format("hg %s finished. Took %s ms", operation, System.currentTimeMillis() - startTime));
+      return true;
+    }
+    catch (ShellCommandException e) {
+      processError(e);
+      return false;
+    }
+  }
+
+  private void processError(@NotNull ShellCommandException e) {
+    if (myVcs.getExecutableValidator().checkExecutableAndNotifyIfNeeded()) {
+      // if the problem was not with invalid executable - show error.
+      showError(e);
+      LOG.info(e.getMessage(), e);
+    }
+  }
+
+  @NotNull
+  private ShellCommand createShellCommandWithArgs(@Nullable VirtualFile repo,
+                                                  @NotNull @NonNls String operation,
+                                                  @Nullable List<@NonNls String> arguments,
+                                                  boolean ignoreDefaultOptions) {
 
     logCommand(operation, arguments);
 
-    final List<String> cmdLine = new LinkedList<String>();
-    cmdLine.add(myVcs.getGlobalSettings().getHgExecutable());
+    final List<String> cmdLine = new LinkedList<>();
+    cmdLine.add(HgExecutableManager.getInstance().getHgExecutable(myProject));
     if (repo != null) {
       cmdLine.add("--repository");
       cmdLine.add(repo.getPath());
     }
 
-    // Other parts of the plugin count on the availability of the MQ extension, so make sure it is enabled
-    cmdLine.add("--config");
-    cmdLine.add("extensions.mq=");
-
-    cmdLine.addAll(DEFAULT_OPTIONS);
+    if (!ignoreDefaultOptions) {
+      cmdLine.addAll(DEFAULT_OPTIONS);
+    }
     cmdLine.add(operation);
     if (arguments != null && arguments.size() != 0) {
       cmdLine.addAll(arguments);
@@ -147,110 +186,38 @@ public class HgCommandExecutor {
       cmdLine.add(HgEncodingUtil.getNameFor(myCharset));
     }
 
-    try {
-      String workingDir = repo != null ? repo.getPath() : null;
-      ShellCommand shellCommand = new ShellCommand(cmdLine, workingDir, myCharset);
-      long startTime = System.currentTimeMillis();
-      LOG.debug(String.format("hg %s started", operation));
-      HgCommandResult result = shellCommand.execute(myShowOutput);
-      LOG.debug(String.format("hg %s finished. Took %s ms", operation, System.currentTimeMillis() - startTime));
-      logResult(result);
-      return result;
-    }
-    catch (ShellCommandException e) {
-      if (myVcs.getExecutableValidator().checkExecutableAndNotifyIfNeeded()) {
-        // if the problem was not with invalid executable - show error.
-        showError(e);
-        LOG.info(e.getMessage(), e);
-      }
-      return null;
-    }
-    catch (InterruptedException e) { // this may happen during project closing, no need to notify the user.
-      LOG.info(e.getMessage(), e);
-      return null;
-    }
+    String workingDir = repo != null ? repo.getPath() : null;
+    return new ShellCommand(cmdLine, workingDir, myCharset);
   }
 
   // logging to the Version Control console (without extensions and configs)
-  @SuppressWarnings("UseOfSystemOutOrSystemErr")
   protected void logCommand(@NotNull String operation, @Nullable List<String> arguments) {
     if (myProject.isDisposed()) {
       return;
     }
-    final HgGlobalSettings settings = myVcs.getGlobalSettings();
-    String exeName;
-    final int lastSlashIndex = settings.getHgExecutable().lastIndexOf(File.separator);
-    exeName = settings.getHgExecutable().substring(lastSlashIndex + 1);
+    String exeName = HgExecutableManager.getInstance().getHgExecutable(myProject);
+    final int lastSlashIndex = exeName.lastIndexOf(File.separator);
+    exeName = exeName.substring(lastSlashIndex + 1);
 
-    String str = String.format("%s %s %s", exeName, operation, arguments == null ? "" : StringUtil.join(arguments, " "));
+    @NonNls String str = String.format("%s %s %s", exeName, operation,
+                                       arguments == null ? "" : StringUtil.escapeStringCharacters(StringUtil.join(arguments, " ")));
     //remove password from path before log
     final String cmdString = myDestination != null ? HgUtil.removePasswordIfNeeded(str) : str;
-    final boolean isUnitTestMode = ApplicationManager.getApplication().isUnitTestMode();
     // log command
-    if (isUnitTestMode) {
-      System.out.print(cmdString + "\n");
-    }
     if (!myIsSilent) {
       LOG.info(cmdString);
-      myVcs.showMessageInConsole(cmdString, ConsoleViewContentType.NORMAL_OUTPUT.getAttributes());
+      myVcs.showMessageInConsole(cmdString, ConsoleViewContentType.NORMAL_OUTPUT);
     }
     else {
       LOG.debug(cmdString);
     }
   }
 
-  @SuppressWarnings("UseOfSystemOutOrSystemErr")
-  protected void logResult(@NotNull HgCommandResult result) {
-    final boolean unitTestMode = ApplicationManager.getApplication().isUnitTestMode();
-
-    // log output if needed
-    if (!result.getRawOutput().isEmpty()) {
-      if (unitTestMode) {
-        System.out.print(result.getRawOutput() + "\n");
-      }
-      else if (!myOutputAlwaysSuppressed) {
-        if (!myIsSilent && myShowOutput) {
-          LOG.info(result.getRawOutput());
-          myVcs.showMessageInConsole(result.getRawOutput(), ConsoleViewContentType.SYSTEM_OUTPUT.getAttributes());
-        }
-        else {
-          LOG.debug(result.getRawOutput());
-        }
-      }
-    }
-
-    // log error
-    if (!result.getRawError().isEmpty()) {
-      if (unitTestMode) {
-        System.out.print(result.getRawError() + "\n");
-      }
-      if (!myIsSilent) {
-        LOG.info(result.getRawError());
-        myVcs.showMessageInConsole(result.getRawError(), ConsoleViewContentType.ERROR_OUTPUT.getAttributes());
-      }
-      else {
-        LOG.debug(result.getRawError());
-      }
-    }
-  }
-
   protected void showError(Exception e) {
     final HgVcs vcs = HgVcs.getInstance(myProject);
-    if (vcs == null) {
-      return;
-    }
-
-    StringBuilder message = new StringBuilder();
-    message.append(HgVcsMessages.message("hg4idea.command.executable.error",
-                                         vcs.getGlobalSettings().getHgExecutable()))
-      .append("\n")
-      .append("Original Error:\n")
-      .append(e.getMessage());
-
-    VcsImplUtil.showErrorMessage(
-      myProject,
-      message.toString(),
-      HgVcsMessages.message("hg4idea.error")
-    );
+    if (vcs == null) return;
+    String message = HgBundle.message("hg4idea.command.executor.error", HgExecutableManager.getInstance().getHgExecutable(myProject),
+                                      e.getMessage());
+    VcsImplUtil.showErrorMessage(myProject, message, HgBundle.message("hg4idea.error"));
   }
 }

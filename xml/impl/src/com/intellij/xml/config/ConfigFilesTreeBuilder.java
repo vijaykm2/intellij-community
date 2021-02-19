@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.config;
 
 import com.intellij.ide.presentation.VirtualFilePresentation;
@@ -27,14 +13,14 @@ import com.intellij.psi.PsiFile;
 import com.intellij.ui.ColoredTreeCellRenderer;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.TreeSpeedSearch;
-import com.intellij.util.containers.Convertor;
 import com.intellij.util.containers.MultiMap;
+import com.intellij.xml.XmlBundle;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
-import javax.swing.tree.TreePath;
 import java.util.*;
 
 public class ConfigFilesTreeBuilder {
@@ -47,11 +33,10 @@ public class ConfigFilesTreeBuilder {
   }
 
   public Set<PsiFile> buildTree(DefaultMutableTreeNode root, ConfigFileSearcher... searchers) {
-    final Set<PsiFile> psiFiles = new com.intellij.util.containers.HashSet<PsiFile>();
 
-    final MultiMap<Module, PsiFile> files = new MultiMap<Module, PsiFile>();
-    final MultiMap<VirtualFile, PsiFile> jars = new MultiMap<VirtualFile, PsiFile>();
-    final MultiMap<VirtualFile, PsiFile> virtualFiles = new MultiMap<VirtualFile, PsiFile>();
+    final MultiMap<Module, PsiFile> files = new MultiMap<>();
+    final MultiMap<VirtualFile, PsiFile> jars = new MultiMap<>();
+    final MultiMap<VirtualFile, PsiFile> virtualFiles = new MultiMap<>();
 
     for (ConfigFileSearcher searcher : searchers) {
       files.putAllValues(searcher.getFilesByModules());
@@ -59,12 +44,12 @@ public class ConfigFilesTreeBuilder {
       virtualFiles.putAllValues(searcher.getVirtualFiles());
     }
 
-    psiFiles.addAll(buildModuleNodes(files, jars, root));
+    final Set<PsiFile> psiFiles = new HashSet<>(buildModuleNodes(files, jars, root));
 
     for (Map.Entry<VirtualFile, Collection<PsiFile>> entry : virtualFiles.entrySet()) {
       DefaultMutableTreeNode node = createFileNode(entry.getKey());
-      List<PsiFile> list = new ArrayList<PsiFile>(entry.getValue());
-      Collections.sort(list, FILE_COMPARATOR);
+      List<PsiFile> list = new ArrayList<>(entry.getValue());
+      list.sort(FILE_COMPARATOR);
       for (PsiFile file : list) {
         node.add(createFileNode(file));
       }
@@ -89,16 +74,16 @@ public class ConfigFilesTreeBuilder {
                                        final MultiMap<VirtualFile, PsiFile> jars,
                                        DefaultMutableTreeNode root) {
 
-    final HashSet<PsiFile> psiFiles = new HashSet<PsiFile>();
-    final List<Module> modules = new ArrayList<Module>(files.keySet());
-    Collections.sort(modules, ModulesAlphaComparator.INSTANCE);
+    final HashSet<PsiFile> psiFiles = new HashSet<>();
+    final List<Module> modules = new ArrayList<>(files.keySet());
+    modules.sort(ModulesAlphaComparator.INSTANCE);
     for (Module module : modules) {
       DefaultMutableTreeNode moduleNode = createFileNode(module);
       root.add(moduleNode);
       if (files.containsKey(module)) {
-        List<PsiFile> moduleFiles = new ArrayList<PsiFile>(files.get(module));
+        List<PsiFile> moduleFiles = new ArrayList<>(files.get(module));
 
-        MultiMap<FileType, PsiFile> filesByType = new MultiMap<FileType, PsiFile>();
+        MultiMap<FileType, PsiFile> filesByType = new MultiMap<>();
         for (PsiFile file : moduleFiles) {
           filesByType.putValue(file.getFileType(), file);
         }
@@ -106,20 +91,25 @@ public class ConfigFilesTreeBuilder {
           for (Map.Entry<FileType, Collection<PsiFile>> entry : filesByType.entrySet()) {
             DefaultMutableTreeNode fileTypeNode = createFileNode(entry.getKey());
             moduleNode.add(fileTypeNode);
-            addChildrenFiles(psiFiles, fileTypeNode, new ArrayList<PsiFile>(entry.getValue()));
+            addChildrenFiles(psiFiles, fileTypeNode, new ArrayList<>(entry.getValue()));
           }
-        }  else {
+        }
+        else {
           addChildrenFiles(psiFiles, moduleNode, moduleFiles);
         }
       }
     }
-    for (VirtualFile file : jars.keySet()) {
-      final List<PsiFile> list = new ArrayList<PsiFile>(jars.get(file));
+
+    List<VirtualFile> sortedJars = new ArrayList<>(jars.keySet());
+    sortedJars.sort((o1, o2) -> StringUtil.naturalCompare(o1.getName(), o2.getName()));
+    for (VirtualFile file : sortedJars) {
+      if (!file.isValid()) continue;
+      final List<PsiFile> list = new ArrayList<>(jars.get(file));
       final PsiFile jar = list.get(0).getManager().findFile(file);
       if (jar != null) {
         final DefaultMutableTreeNode jarNode = createFileNode(jar);
         root.add(jarNode);
-        Collections.sort(list, FILE_COMPARATOR);
+        list.sort(FILE_COMPARATOR);
         for (PsiFile psiFile : list) {
           jarNode.add(createFileNode(psiFile));
           psiFiles.add(psiFile);
@@ -129,21 +119,19 @@ public class ConfigFilesTreeBuilder {
     return psiFiles;
   }
 
+  @Nls
   private static String getFileTypeNodeName(FileType fileType) {
-    return fileType.getName() + " context files" ;
+    return XmlBundle.message("xml.tree.config.files.type", fileType.getName());
   }
 
-  private boolean hasNonEmptyGroups(MultiMap<FileType, PsiFile> filesByType) {
-    byte nonEmptyGroups = 0;
-    for (Map.Entry<FileType, Collection<PsiFile>> entry : filesByType.entrySet()) {
-      Collection<PsiFile> files = entry.getValue();
-      if (files != null && files.size() > 0) nonEmptyGroups++;
-    }
+  private static boolean hasNonEmptyGroups(MultiMap<FileType, PsiFile> filesByType) {
+    long nonEmptyGroups = filesByType.entrySet().stream().map(Map.Entry::getValue)
+      .filter(files -> files != null && !files.isEmpty()).limit(2).count();
     return nonEmptyGroups > 1;
   }
 
-  private void addChildrenFiles(@NotNull Set<PsiFile> psiFiles, DefaultMutableTreeNode parentNode, @NotNull List<PsiFile> moduleFiles) {
-    Collections.sort(moduleFiles, FILE_COMPARATOR);
+  private void addChildrenFiles(@NotNull Set<? super PsiFile> psiFiles, DefaultMutableTreeNode parentNode, @NotNull List<? extends PsiFile> moduleFiles) {
+    moduleFiles.sort(FILE_COMPARATOR);
     for (PsiFile file : moduleFiles) {
       final DefaultMutableTreeNode fileNode = createFileNode(file);
       parentNode.add(fileNode);
@@ -155,12 +143,7 @@ public class ConfigFilesTreeBuilder {
     return new DefaultMutableTreeNode(file);
   }
 
-  private static final Comparator<PsiFile> FILE_COMPARATOR = new Comparator<PsiFile>() {
-    @Override
-    public int compare(final PsiFile o1, final PsiFile o2) {
-      return StringUtil.naturalCompare(o1.getName(), o2.getName());
-    }
-  };
+  private static final Comparator<PsiFile> FILE_COMPARATOR = (o1, o2) -> StringUtil.naturalCompare(o1.getName(), o2.getName());
 
   public static void renderNode(Object value, boolean expanded, ColoredTreeCellRenderer renderer) {
     if (!(value instanceof DefaultMutableTreeNode)) return;
@@ -186,44 +169,41 @@ public class ConfigFilesTreeBuilder {
       renderer.append(fileName, SimpleTextAttributes.REGULAR_ATTRIBUTES);
       final VirtualFile virtualFile = psiFile.getVirtualFile();
       if (virtualFile != null) {
-        String path = virtualFile.getPath();
-        final int i = path.indexOf(JarFileSystem.JAR_SEPARATOR);
-        if (i >= 0) {
-          path = path.substring(i + JarFileSystem.JAR_SEPARATOR.length());
-        }
-        renderer.append(" (" + path + ")", SimpleTextAttributes.GRAYED_ATTRIBUTES);
+        renderPath(renderer, virtualFile);
       }
     }
     else if (object instanceof VirtualFile) {
       VirtualFile file = (VirtualFile)object;
       renderer.setIcon(VirtualFilePresentation.getIcon(file));
       renderer.append(file.getName(), SimpleTextAttributes.REGULAR_ATTRIBUTES);
-      String path = file.getPath();
-      final int i = path.indexOf(JarFileSystem.JAR_SEPARATOR);
-      if (i >= 0) {
-        path = path.substring(i + JarFileSystem.JAR_SEPARATOR.length());
-      }
-      renderer.append(" (" + path + ")", SimpleTextAttributes.GRAYED_ATTRIBUTES);
+      renderPath(renderer, file);
     }
   }
 
+  private static void renderPath(ColoredTreeCellRenderer renderer, VirtualFile virtualFile) {
+    String path = virtualFile.getPath(); //NON-NLS
+    final int i = path.indexOf(JarFileSystem.JAR_SEPARATOR);
+    if (i >= 0) {
+      path = path.substring(i + JarFileSystem.JAR_SEPARATOR.length());
+    }
+    renderer.append(" (" + StringUtil.trimEnd(StringUtil.trimEnd(path, virtualFile.getName()), "/") + ")",
+                    SimpleTextAttributes.GRAYED_ATTRIBUTES);
+  }
+
   public static void installSearch(JTree tree) {
-    new TreeSpeedSearch(tree, new Convertor<TreePath, String>() {
-      @Override
-      public String convert(final TreePath treePath) {
-        final Object object = ((DefaultMutableTreeNode)treePath.getLastPathComponent()).getUserObject();
-        if (object instanceof Module) {
-          return ((Module)object).getName();
-        }
-        else if (object instanceof PsiFile) {
-          return ((PsiFile)object).getName();
-        }
-        else if (object instanceof VirtualFile) {
-          return ((VirtualFile)object).getName();
-        }
-        else {
-          return "";
-        }
+    new TreeSpeedSearch(tree, treePath -> {
+      final Object object = ((DefaultMutableTreeNode)treePath.getLastPathComponent()).getUserObject();
+      if (object instanceof Module) {
+        return ((Module)object).getName();
+      }
+      else if (object instanceof PsiFile) {
+        return ((PsiFile)object).getName();
+      }
+      else if (object instanceof VirtualFile) {
+        return ((VirtualFile)object).getName();
+      }
+      else {
+        return "";
       }
     });
   }

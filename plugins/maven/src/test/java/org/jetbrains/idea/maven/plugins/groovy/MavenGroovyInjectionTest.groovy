@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,15 +15,15 @@
  */
 package org.jetbrains.idea.maven.plugins.groovy
 
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable
 
 /**
  * @author Sergey Evdokimov
  */
-class MavenGroovyInjectionTest extends LightCodeInsightFixtureTestCase {
+class MavenGroovyInjectionTest extends LightJavaCodeInsightFixtureTestCase {
 
-  public void testCompletion() {
+  void testCompletion() {
     myFixture.configureByText("pom.xml", """
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
@@ -77,7 +77,7 @@ class MavenGroovyInjectionTest extends LightCodeInsightFixtureTestCase {
     assert lookups.containsAll(["String", "StringBuffer", "StringBuilder"])
   }
 
-  public void testCompletion2() {
+  void testCompletion2() {
     myFixture.configureByText("pom.xml", """
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
@@ -116,7 +116,7 @@ class MavenGroovyInjectionTest extends LightCodeInsightFixtureTestCase {
     assert lookups.containsAll(["String", "StringBuffer", "StringBuilder"])
   }
 
-  public void testCompletion3() {
+  void testCompletion3() {
     myFixture.configureByText("pom.xml", """
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
@@ -155,7 +155,7 @@ class MavenGroovyInjectionTest extends LightCodeInsightFixtureTestCase {
     assert lookups.containsAll(["String", "StringBuffer", "StringBuilder"])
   }
 
-  public void testInjectionVariables() {
+  void testInjectionVariables() {
     myFixture.configureByText("pom.xml", """
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
@@ -194,7 +194,7 @@ class MavenGroovyInjectionTest extends LightCodeInsightFixtureTestCase {
     assert element.getDeclaredType().getPresentableText() == "MavenProject"
   }
 
-  public void testHighlighting() {
+  void testHighlighting() {
     myFixture.configureByText("pom.xml", """<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"

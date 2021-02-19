@@ -23,12 +23,12 @@ import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.roots.ui.configuration.ContentEntryEditor;
 import com.intellij.openapi.roots.ui.configuration.ContentEntryTreeEditor;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
 /**
  * @author Eugene Zhuravlev
- * @since Oct 14, 2003
  */
 public class ToggleExcludedStateAction extends ContentEntryEditingAction {
   private final ContentEntryTreeEditor myEntryTreeEditor;
@@ -37,13 +37,13 @@ public class ToggleExcludedStateAction extends ContentEntryEditingAction {
     super(tree);
     myEntryTreeEditor = entryEditor;
     final Presentation templatePresentation = getTemplatePresentation();
-    templatePresentation.setText(ProjectBundle.message("module.toggle.excluded.action"));
-    templatePresentation.setDescription(ProjectBundle.message("module.toggle.excluded.action.description"));
+    templatePresentation.setText(ProjectBundle.messagePointer("module.toggle.excluded.action"));
+    templatePresentation.setDescription(ProjectBundle.messagePointer("module.toggle.excluded.action.description"));
     templatePresentation.setIcon(AllIcons.Modules.ExcludeRoot);
   }
 
   @Override
-  public boolean isSelected(final AnActionEvent e) {
+  public boolean isSelected(@NotNull final AnActionEvent e) {
     final VirtualFile[] selectedFiles = getSelectedFiles();
     if (selectedFiles.length == 0) return false;
 
@@ -51,7 +51,7 @@ public class ToggleExcludedStateAction extends ContentEntryEditingAction {
   }
 
   @Override
-  public void setSelected(final AnActionEvent e, final boolean isSelected) {
+  public void setSelected(@NotNull final AnActionEvent e, final boolean isSelected) {
     final VirtualFile[] selectedFiles = getSelectedFiles();
     assert selectedFiles.length != 0;
 
@@ -69,9 +69,9 @@ public class ToggleExcludedStateAction extends ContentEntryEditingAction {
   }
 
   @Override
-  public void update(final AnActionEvent e) {
+  public void update(@NotNull final AnActionEvent e) {
     super.update(e);
     final Presentation presentation = e.getPresentation();
-    presentation.setText(ProjectBundle.message("module.toggle.excluded.action"));
+    presentation.setText(ProjectBundle.messagePointer("module.toggle.excluded.action"));
   }
 }

@@ -18,7 +18,8 @@ package org.jetbrains.jps.model.artifact.elements;
 import java.util.List;
 
 /**
- * @author nik
+ * Represents a synthetic node which is substituted by a collection of other elements when the artifact is being built. E.g. a node which
+ * represents a Java library is substituted by {@link JpsFileCopyPackagingElement} for its JAR files.
  */
 public interface JpsComplexPackagingElement extends JpsPackagingElement {
   List<JpsPackagingElement> getSubstitution();

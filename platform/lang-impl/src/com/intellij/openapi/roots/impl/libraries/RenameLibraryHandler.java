@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.impl.libraries;
 
 import com.intellij.ide.IdeBundle;
@@ -24,7 +10,6 @@ import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.undo.BasicUndoableAction;
 import com.intellij.openapi.command.undo.UndoManager;
 import com.intellij.openapi.command.undo.UndoableAction;
-import com.intellij.openapi.command.undo.UnexpectedUndoException;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -36,23 +21,17 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.refactoring.rename.RenameHandler;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Konstantin Bulenkov
  */
 public class RenameLibraryHandler implements RenameHandler, TitledHandler {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.projectView.actions.RenameModuleHandler");
+  private static final Logger LOG = Logger.getInstance(RenameLibraryHandler.class);
 
   @Override
-  public boolean isAvailableOnDataContext(DataContext dataContext) {
+  public boolean isAvailableOnDataContext(@NotNull DataContext dataContext) {
     Library library = LangDataKeys.LIBRARY.getData(dataContext);
     return library != null;
-  }
-
-  @Override
-  public boolean isRenaming(DataContext dataContext) {
-    return isAvailableOnDataContext(dataContext);
   }
 
   @Override
@@ -61,7 +40,7 @@ public class RenameLibraryHandler implements RenameHandler, TitledHandler {
   }
 
   @Override
-  public void invoke(@NotNull final Project project, @NotNull PsiElement[] elements, @NotNull DataContext dataContext) {
+  public void invoke(@NotNull final Project project, PsiElement @NotNull [] elements, @NotNull DataContext dataContext) {
     final Library library = LangDataKeys.LIBRARY.getData(dataContext);
     LOG.assertTrue(library != null);
     Messages.showInputDialog(project,
@@ -78,9 +57,11 @@ public class RenameLibraryHandler implements RenameHandler, TitledHandler {
   }
 
   private static class MyInputValidator implements InputValidator {
+    @NotNull
     private final Project myProject;
+    @NotNull
     private final Library myLibrary;
-    public MyInputValidator(Project project, Library library) {
+    MyInputValidator(@NotNull Project project, @NotNull Library library) {
       myProject = project;
       myLibrary = library;
     }
@@ -94,41 +75,28 @@ public class RenameLibraryHandler implements RenameHandler, TitledHandler {
     public boolean canClose(final String inputString) {
       final String oldName = myLibrary.getName();
       final Library.ModifiableModel modifiableModel = renameLibrary(inputString);
-      if (modifiableModel == null) return false;
       final Ref<Boolean> success = Ref.create(Boolean.TRUE);
-      CommandProcessor.getInstance().executeCommand(myProject, new Runnable() {
-        @Override
-        public void run() {
-          UndoableAction action = new BasicUndoableAction() {
-            @Override
-            public void undo() throws UnexpectedUndoException {
-              final Library.ModifiableModel modifiableModel = renameLibrary(oldName);
-              if (modifiableModel != null) {
-                modifiableModel.commit();
-              }
-            }
+      CommandProcessor.getInstance().executeCommand(myProject, () -> {
+        UndoableAction action = new BasicUndoableAction() {
+          @Override
+          public void undo() {
+            final Library.ModifiableModel modifiableModel1 = renameLibrary(oldName);
+            modifiableModel1.commit();
+          }
 
-            @Override
-            public void redo() throws UnexpectedUndoException {
-              final Library.ModifiableModel modifiableModel = renameLibrary(inputString);
-              if (modifiableModel != null) {
-                modifiableModel.commit();
-              }
-            }
-          };
-          UndoManager.getInstance(myProject).undoableActionPerformed(action);
-          ApplicationManager.getApplication().runWriteAction(new Runnable() {
-            @Override
-            public void run() {
-              modifiableModel.commit();
-            }
-          });
-        }
+          @Override
+          public void redo() {
+            final Library.ModifiableModel modifiableModel1 = renameLibrary(inputString);
+            modifiableModel1.commit();
+          }
+        };
+        UndoManager.getInstance(myProject).undoableActionPerformed(action);
+        ApplicationManager.getApplication().runWriteAction(() -> modifiableModel.commit());
       }, IdeBundle.message("command.renaming.module", oldName), null);
       return success.get().booleanValue();
     }
 
-    @Nullable
+    @NotNull
     private Library.ModifiableModel renameLibrary(String inputString) {
       final Library.ModifiableModel modifiableModel = myLibrary.getModifiableModel();
       modifiableModel.setName(inputString);

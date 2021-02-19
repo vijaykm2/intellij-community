@@ -1,31 +1,19 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.introduce.constant;
 
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts.DialogMessage;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.refactoring.util.RefactoringMessageUtil;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.VisibilityUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.GroovyLanguage;
 import org.jetbrains.plugins.groovy.codeStyle.GrReferenceAdjuster;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
@@ -133,7 +121,7 @@ public class GrIntroduceConstantProcessor {
     if (errorString != null) {
       String message = RefactoringBundle.getCannotRefactorMessage(errorString);
       CommonRefactoringUtil
-        .showErrorMessage(GrIntroduceConstantHandler.REFACTORING_NAME, message, HelpID.INTRODUCE_CONSTANT, context.getProject());
+        .showErrorMessage(GroovyBundle.message("introduce.constant.title"), message, HelpID.INTRODUCE_CONSTANT, context.getProject());
       return true;
     }
 
@@ -141,7 +129,7 @@ public class GrIntroduceConstantProcessor {
     if (oldField != null) {
       String message = RefactoringBundle.message("field.exists", fieldName, oldField.getContainingClass().getQualifiedName());
       int answer = Messages
-        .showYesNoDialog(context.getProject(), message, GrIntroduceConstantHandler.REFACTORING_NAME, Messages.getWarningIcon());
+        .showYesNoDialog(context.getProject(), message, GroovyBundle.message("introduce.constant.title"), Messages.getWarningIcon());
       if (answer != Messages.YES) {
         return true;
       }
@@ -150,7 +138,7 @@ public class GrIntroduceConstantProcessor {
   }
 
   @Nullable
-  private  String check(@NotNull PsiClass targetClass, @Nullable final String fieldName) {
+  private @DialogMessage String check(@NotNull PsiClass targetClass, @Nullable final String fieldName) {
     if (!GroovyLanguage.INSTANCE.equals(targetClass.getLanguage())) {
       return GroovyRefactoringBundle.message("class.language.is.not.groovy");
     }
@@ -226,10 +214,9 @@ public class GrIntroduceConstantProcessor {
     }
   }
 
-  @NotNull
-  private String[] collectModifiers(PsiClass targetClass) {
+  private String @NotNull [] collectModifiers(PsiClass targetClass) {
     String modifier = isEscalateVisibility() ? PsiModifier.PRIVATE : settings.getVisibilityModifier();
-    ArrayList<String> modifiers = new ArrayList<String>();
+    ArrayList<String> modifiers = new ArrayList<>();
     if (modifier!= null && !PsiModifier.PACKAGE_LOCAL.equals(modifier)) {
       modifiers.add(modifier);
     }
@@ -237,7 +224,7 @@ public class GrIntroduceConstantProcessor {
       modifiers.add(PsiModifier.STATIC);
       modifiers.add(PsiModifier.FINAL);
     }
-    return ArrayUtil.toStringArray(modifiers);
+    return ArrayUtilRt.toStringArray(modifiers);
   }
 
   private boolean isEscalateVisibility() {

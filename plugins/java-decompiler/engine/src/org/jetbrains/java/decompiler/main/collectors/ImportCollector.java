@@ -1,157 +1,177 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.decompiler.main.collectors;
 
-import org.jetbrains.java.decompiler.main.ClassesProcessor;
 import org.jetbrains.java.decompiler.main.ClassesProcessor.ClassNode;
 import org.jetbrains.java.decompiler.main.DecompilerContext;
-import org.jetbrains.java.decompiler.main.TextBuffer;
+import org.jetbrains.java.decompiler.struct.attr.StructGeneralAttribute;
+import org.jetbrains.java.decompiler.struct.attr.StructInnerClassesAttribute;
+import org.jetbrains.java.decompiler.util.TextBuffer;
+import org.jetbrains.java.decompiler.struct.StructClass;
 import org.jetbrains.java.decompiler.struct.StructContext;
+import org.jetbrains.java.decompiler.struct.StructField;
 
 import java.util.*;
-import java.util.Map.Entry;
-
+import java.util.stream.Collectors;
 
 public class ImportCollector {
-
   private static final String JAVA_LANG_PACKAGE = "java.lang";
 
-  private final Map<String, String> mapSimpleNames = new HashMap<String, String>();
-  private final Set<String> setNotImportedNames = new HashSet<String>();
-  private String currentPackageSlash = "";
-  private String currentPackagePoint = "";
+  private final Map<String, String> mapSimpleNames = new HashMap<>();
+  private final Set<String> setNotImportedNames = new HashSet<>();
+  // set of field names in this class and all its predecessors.
+  private final Set<String> setFieldNames = new HashSet<>();
+  private final Set<String> setInnerClassNames = new HashSet<>();
+  private final String currentPackageSlash;
+  private final String currentPackagePoint;
 
   public ImportCollector(ClassNode root) {
-
-    String clname = root.classStruct.qualifiedName;
-    int index = clname.lastIndexOf("/");
+    String clName = root.classStruct.qualifiedName;
+    int index = clName.lastIndexOf('/');
     if (index >= 0) {
-      currentPackageSlash = clname.substring(0, index);
-      currentPackagePoint = currentPackageSlash.replace('/', '.');
-      currentPackageSlash += "/";
+      String packageName = clName.substring(0, index);
+      currentPackageSlash = packageName + '/';
+      currentPackagePoint = packageName.replace('/', '.');
+    }
+    else {
+      currentPackageSlash = "";
+      currentPackagePoint = "";
+    }
+
+    Map<String, StructClass> classes = DecompilerContext.getStructContext().getClasses();
+    LinkedList<String> queue = new LinkedList<>();
+    StructClass currentClass = root.classStruct;
+    while (currentClass != null) {
+      if (currentClass.superClass != null) {
+        queue.add(currentClass.superClass.getString());
+      }
+
+      Collections.addAll(queue, currentClass.getInterfaceNames());
+
+      // all field names for the current class ..
+      for (StructField f : currentClass.getFields()) {
+        setFieldNames.add(f.getName());
+      }
+
+      // .. all inner classes for the current class ..
+      StructInnerClassesAttribute attribute = currentClass.getAttribute(StructGeneralAttribute.ATTRIBUTE_INNER_CLASSES);
+      if (attribute != null) {
+        for (StructInnerClassesAttribute.Entry entry : attribute.getEntries()) {
+          if (entry.enclosingName != null && entry.enclosingName.equals(currentClass.qualifiedName)) {
+            setInnerClassNames.add(entry.simpleName);
+          }
+        }
+      }
+
+      // .. and traverse through parent.
+      currentClass = !queue.isEmpty() ? classes.get(queue.removeFirst()) : null;
+      while (currentClass == null && !queue.isEmpty()) {
+        currentClass = classes.get(queue.removeFirst());
+      }
     }
   }
 
-  public String getShortName(String fullname) {
-    return getShortName(fullname, true);
+  /**
+   * Check whether the package-less name ClassName is shaded by variable in a context of
+   * the decompiled class
+   * @param classToName - pkg.name.ClassName - class to find shortname for
+   * @return ClassName if the name is not shaded by local field, pkg.name.ClassName otherwise
+   */
+  public String getShortNameInClassContext(String classToName) {
+    String shortName = getShortName(classToName);
+    if (setFieldNames.contains(shortName)) {
+      return classToName;
+    }
+    else {
+      return shortName;
+    }
   }
 
-  public String getShortName(String fullname, boolean imported) {
+  public String getShortName(String fullName) {
+    return getShortName(fullName, true);
+  }
 
-    ClassesProcessor clproc = DecompilerContext.getClassProcessor();
-    ClassNode node = clproc.getMapRootClasses().get(fullname.replace('.', '/'));
+  public String getShortName(String fullName, boolean imported) {
+    ClassNode node = DecompilerContext.getClassProcessor().getMapRootClasses().get(fullName.replace('.', '/')); //todo[r.sh] anonymous classes?
 
-    String retname = null;
-
+    String result = null;
     if (node != null && node.classStruct.isOwn()) {
-
-      retname = node.simpleName;
+      result = node.simpleName;
 
       while (node.parent != null && node.type == ClassNode.CLASS_MEMBER) {
-        retname = node.parent.simpleName + "." + retname;
+        //noinspection StringConcatenationInLoop
+        result = node.parent.simpleName + '.' + result;
         node = node.parent;
       }
 
       if (node.type == ClassNode.CLASS_ROOT) {
-        fullname = node.classStruct.qualifiedName;
-        fullname = fullname.replace('/', '.');
+        fullName = node.classStruct.qualifiedName;
+        fullName = fullName.replace('/', '.');
       }
       else {
-        return retname;
+        return result;
       }
     }
     else {
-      fullname = fullname.replace('$', '.');
+      fullName = fullName.replace('$', '.');
     }
 
-    String nshort = fullname;
-    String npackage = "";
+    String shortName = fullName;
+    String packageName = "";
 
-    int lastpoint = fullname.lastIndexOf(".");
-
-    if (lastpoint >= 0) {
-      nshort = fullname.substring(lastpoint + 1);
-      npackage = fullname.substring(0, lastpoint);
+    int lastDot = fullName.lastIndexOf('.');
+    if (lastDot >= 0) {
+      shortName = fullName.substring(lastDot + 1);
+      packageName = fullName.substring(0, lastDot);
     }
 
     StructContext context = DecompilerContext.getStructContext();
 
-    // check for another class which could 'shadow' this one. Two cases:
+    // check for another class which could 'shadow' this one. Three cases:
     // 1) class with the same short name in the current package
     // 2) class with the same short name in the default package
-    boolean existsDefaultClass = (context.getClass(currentPackageSlash + nshort) != null
-                                  && !npackage.equals(currentPackagePoint)) // current package
-                                 || (context.getClass(nshort) != null 
-                                  && !currentPackagePoint.isEmpty());  // default package
+    // 3) inner class with the same short name in the current class, a super class, or an implemented interface
+    boolean existsDefaultClass =
+      (context.getClass(currentPackageSlash + shortName) != null && !packageName.equals(currentPackagePoint)) || // current package
+      (context.getClass(shortName) != null && !currentPackagePoint.isEmpty()) || // default package
+      setInnerClassNames.contains(shortName); // inner class
 
     if (existsDefaultClass ||
-        (mapSimpleNames.containsKey(nshort) && !npackage.equals(mapSimpleNames.get(nshort)))) {
-      return fullname;
+        (mapSimpleNames.containsKey(shortName) && !packageName.equals(mapSimpleNames.get(shortName)))) {
+      //  don't return full name because if the class is a inner class, full name refers to the parent full name, not the child full name
+      return result == null ? fullName : (packageName + "." + result);
     }
-    else if (!mapSimpleNames.containsKey(nshort)) {
-      mapSimpleNames.put(nshort, npackage);
-
+    else if (!mapSimpleNames.containsKey(shortName)) {
+      mapSimpleNames.put(shortName, packageName);
       if (!imported) {
-        setNotImportedNames.add(nshort);
+        setNotImportedNames.add(shortName);
       }
     }
 
-    return retname == null ? nshort : retname;
+    return result == null ? shortName : result;
   }
 
-  public int writeImports(TextBuffer buffer) {
-    int importlines_written = 0;
-
+  public void writeImports(TextBuffer buffer, boolean addSeparator) {
     List<String> imports = packImports();
-
-    for (String s : imports) {
-      buffer.append("import ");
-      buffer.append(s);
-      buffer.append(";");
-      buffer.appendLineSeparator();
-
-      importlines_written++;
+    for (String line : imports) {
+      buffer.append("import ").append(line).append(';').appendLineSeparator();
     }
-
-    return importlines_written;
+    if (addSeparator && !imports.isEmpty()) {
+      buffer.appendLineSeparator();
+    }
   }
 
   private List<String> packImports() {
-    List<Entry<String, String>> lst = new ArrayList<Entry<String, String>>(mapSimpleNames.entrySet());
-
-    Collections.sort(lst, new Comparator<Entry<String, String>>() {
-      public int compare(Entry<String, String> par0, Entry<String, String> par1) {
-        int res = par0.getValue().compareTo(par1.getValue());
-        if (res == 0) {
-          res = par0.getKey().compareTo(par1.getKey());
-        }
-        return res;
-      }
-    });
-
-    List<String> res = new ArrayList<String>();
-    for (Entry<String, String> ent : lst) {
-      // exclude a current class or one of the nested ones, java.lang and empty packages
-      if (!setNotImportedNames.contains(ent.getKey()) &&
-          !JAVA_LANG_PACKAGE.equals(ent.getValue()) &&
-          !ent.getValue().isEmpty()) {
-        res.add(ent.getValue() + "." + ent.getKey());
-      }
-    }
-
-    return res;
+    return mapSimpleNames.entrySet().stream()
+      .filter(ent ->
+                // exclude the current class or one of the nested ones
+                // empty, java.lang and the current packages
+                !setNotImportedNames.contains(ent.getKey()) &&
+                !ent.getValue().isEmpty() &&
+                !JAVA_LANG_PACKAGE.equals(ent.getValue()) &&
+                !ent.getValue().equals(currentPackagePoint)
+      )
+      .sorted(Map.Entry.<String, String>comparingByValue().thenComparing(Map.Entry.comparingByKey()))
+      .map(ent -> ent.getValue() + "." + ent.getKey())
+      .collect(Collectors.toList());
   }
 }

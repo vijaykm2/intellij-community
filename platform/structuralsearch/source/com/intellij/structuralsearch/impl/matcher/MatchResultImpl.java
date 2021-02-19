@@ -1,39 +1,37 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.impl.matcher;
 
 import com.intellij.psi.PsiElement;
 import com.intellij.structuralsearch.MatchResult;
 import com.intellij.structuralsearch.plugin.util.SmartPsiPointer;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.util.SmartList;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.Iterator;
+import java.util.Collections;
 import java.util.List;
 
-/**
- * Class describing the match result
- */
 public final class MatchResultImpl extends MatchResult {
   private String name;
   private SmartPsiPointer matchRef;
   private int start;
   private int end = -1;
   private String matchImage;
-  private List<MatchResult> matches;
+  private final List<MatchResult> myChildren = new SmartList<>();
   private boolean target;
 
   private boolean myScopeMatch;
   private boolean myMultipleMatch;
-  @NonNls private static final String NULL = "null";
-  private MatchResultImpl myContext;
+  private MatchResultImpl parent;
 
   MatchResultImpl() {
   }
 
-  public MatchResultImpl(String name, String image, SmartPsiPointer ref, boolean target) {
-    this(name,image,ref,0,-1,target);
+  public MatchResultImpl(@NotNull String name, @Nullable String image, @NotNull SmartPsiPointer ref, boolean target) {
+    this(name, image, ref, 0, -1, target);
   }
 
-  public MatchResultImpl(String name, String image, SmartPsiPointer ref, int start, int end, boolean target) {
+  public MatchResultImpl(@NotNull String name, @Nullable String image, @NotNull SmartPsiPointer ref, int start, int end, boolean target) {
     matchRef = ref;
     this.name = name;
     matchImage = image;
@@ -42,76 +40,70 @@ public final class MatchResultImpl extends MatchResult {
     this.end = end;
   }
 
+  @Override
   public String getMatchImage() {
-    if (matchImage==null) {
-      matchImage = NULL;
-    }
     return matchImage;
   }
 
-  public void setParent(MatchResult parent) {
-  }
-
+  @Override
   public SmartPsiPointer getMatchRef() {
     return matchRef;
   }
 
+  @Override
   public PsiElement getMatch() {
+    if (matchRef == null) {
+      return null;
+    }
     return matchRef.getElement();
   }
 
-  public void setMatchRef(SmartPsiPointer matchStart) {
+  public void setMatchRef(@NotNull SmartPsiPointer matchStart) {
     matchRef = matchStart;
   }
 
+  @Override
   public String getName() {
     return name;
   }
 
-  public void setName(String name) {
+  public void setName(@NotNull String name) {
     this.name = name;
   }
 
-  public List<MatchResult> getMatches() {
-    if (matches==null) matches = new ArrayList<MatchResult>();
-    return matches;
+  @Override
+  public @NotNull List<MatchResult> getChildren() {
+    return Collections.unmodifiableList(myChildren);
   }
 
-  public List<MatchResult> getAllSons() {
-    return getMatches();
+  @Override
+  public int size() {
+    if (!myMultipleMatch) return (getMatch() != null) ? 1 : 0;
+    return myChildren.size();
   }
 
-  public boolean hasSons() {
-    return matches!=null;
-  }
-
+  @Override
   public boolean isScopeMatch() {
     return myScopeMatch;
   }
 
+  @Override
   public boolean isMultipleMatch() {
     return myMultipleMatch;
   }
 
-  public void clear() {
-    if (matchRef != null) {
-      matchRef.clear();
-      matchRef = null;
-    }
-
-    if (matches != null) {
-      for (final MatchResult match : matches) {
-        ((MatchResultImpl)match).clear();
-      }
-      matches = null;
-    }
-
-    name = null;
-    matchImage = null;
+  @Override
+  public boolean hasChildren() {
+    return !myChildren.isEmpty();
   }
 
-  public void clearMatches() {
-    matches = null;
+  public void removeChildren() {
+    myChildren.clear();
+  }
+
+  @NotNull
+  public MatchResult removeLastChild() {
+    return myChildren.remove(myChildren.size() - 1);
   }
 
   public void setScopeMatch(final boolean scopeMatch) {
@@ -122,43 +114,66 @@ public final class MatchResultImpl extends MatchResult {
     myMultipleMatch = multipleMatch;
   }
 
-  public MatchResultImpl findSon(String name) {
-    if (matches!=null) {
-      // @todo this could be performance bottleneck, replace with hash lookup!
-      for (final MatchResult match : matches) {
-        final MatchResultImpl res = (MatchResultImpl)match;
-
-        if (name.equals(res.getName())) {
-          return res;
-        }
-      }
-    }
-    return null;
-  }
-
-  public MatchResultImpl removeSon(String typedVar) {
-    if (matches == null) return null;
-
+  public MatchResultImpl getChild(@NotNull String name) {
     // @todo this could be performance bottleneck, replace with hash lookup!
-    for(Iterator<MatchResult> i=matches.iterator();i.hasNext();) {
-      final MatchResultImpl res = (MatchResultImpl)i.next();
-      if (typedVar.equals(res.getName())) {
-        i.remove();
+    for (final MatchResult match : myChildren) {
+      final MatchResultImpl res = (MatchResultImpl)match;
+
+      if (name.equals(res.getName())) {
         return res;
       }
     }
+    return null;
+  }
+
+  public MatchResult findChild(@NotNull String name) {
+    for (MatchResult child : myChildren) {
+      if (name.equals(child.getName())) {
+        return child;
+      }
+      final MatchResult deep = ((MatchResultImpl)child).findChild(name);
+      if (deep != null) {
+        return deep;
+      }
+    }
+    return null;
+  }
+
+  public MatchResult removeChild(@NotNull String typedVar) {
+    // @todo this could be performance bottleneck, replace with hash lookup!
+    for (int i = 0, size = myChildren.size(); i < size; i++) {
+      final MatchResult child = myChildren.get(i);
+      if (typedVar.equals(child.getName())) {
+        myChildren.remove(i);
+        return child;
+      }
+    }
 
     return null;
   }
 
-  public void addSon(MatchResultImpl result) {
-    getMatches().add(result);
+  public void addChild(@NotNull MatchResult result) {
+    if (result instanceof MatchResultImpl) {
+      ((MatchResultImpl)result).parent = this;
+    }
+    myChildren.add(result);
   }
 
-  public void setMatchImage(String matchImage) {
+  @Override
+  public @NotNull MatchResult getRoot() {
+    if (parent == null) return this;
+    MatchResultImpl root = parent;
+    while (root.parent != null) {
+      root = root.parent;
+    }
+    return root;
+  }
+
+  public void setMatchImage(@NotNull String matchImage) {
     this.matchImage = matchImage;
   }
 
+  @Override
   public boolean isTarget() {
     return target;
   }
@@ -167,10 +182,7 @@ public final class MatchResultImpl extends MatchResult {
     this.target = target;
   }
 
-  public boolean isMatchImageNull() {
-    return matchImage==null;
-  }
-
+  @Override
   public int getStart() {
     return start;
   }
@@ -179,20 +191,13 @@ public final class MatchResultImpl extends MatchResult {
     this.start = start;
   }
 
+  @Override
   public int getEnd() {
     return end;
   }
 
   public void setEnd(int end) {
     this.end = end;
-  }
-
-  public void setContext(final MatchResultImpl context) {
-    myContext = context;
-  }
-
-  public MatchResultImpl getContext() {
-    return myContext;
   }
 
   @Override

@@ -1,71 +1,65 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes;
 
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author max
- */
-public class CurrentContentRevision implements ContentRevision {
+import java.io.IOException;
+
+public class CurrentContentRevision implements ByteBackedContentRevision {
   protected FilePath myFile;
 
-  public CurrentContentRevision(final FilePath file) {
+  public CurrentContentRevision(FilePath file) {
     myFile = file;
   }
 
+  @Override
   @Nullable
+  @NonNls
   public String getContent() {
-    VirtualFile vFile = getVirtualFile();
+    final VirtualFile vFile = getVirtualFile();
     if (vFile == null) {
-      myFile.refresh();
-      vFile = getVirtualFile();
-      if (vFile == null) return null;
+      return null;
     }
-    final VirtualFile finalVFile = vFile;
-    final Document doc = ApplicationManager.getApplication().runReadAction(new Computable<Document>() {
-      public Document compute() {
-        return FileDocumentManager.getInstance().getDocument(finalVFile);
-    }});
-    if (doc == null) return null;
-    return doc.getText();
+    Document doc = ReadAction.compute(() -> FileDocumentManager.getInstance().getDocument(vFile));
+    return doc == null ? null : doc.getText();
+  }
+
+  @Override
+  public byte @Nullable [] getContentAsBytes() throws VcsException {
+    final VirtualFile vFile = getVirtualFile();
+    if (vFile == null) {
+      return null;
+    }
+    try {
+      return vFile.contentsToByteArray();
+    }
+    catch (IOException e) {
+      throw new VcsException(e);
+    }
   }
 
   @Nullable
   public VirtualFile getVirtualFile() {
-    final VirtualFile vFile = myFile.getVirtualFile();
-    if (vFile == null || !vFile.isValid()) return null;
-    return vFile;
+    VirtualFile vFile = myFile.getVirtualFile();
+    return vFile == null || !vFile.isValid() ? null : vFile;
   }
 
+  @Override
   @NotNull
   public FilePath getFile() {
     return myFile;
   }
 
+  @Override
   @NotNull
   public VcsRevisionNumber getRevisionNumber() {
     return VcsRevisionNumber.NULL;

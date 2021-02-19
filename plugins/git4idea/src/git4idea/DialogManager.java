@@ -1,12 +1,18 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea;
 
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+
+import static com.intellij.openapi.util.NlsContexts.Button;
+import static com.intellij.openapi.util.NlsContexts.DialogMessage;
+import static com.intellij.openapi.util.NlsContexts.DialogTitle;
 
 /**
  * Use {@link DialogManager#show(DialogWrapper) DialogManager.show(DialogWrapper)} instead of {@link DialogWrapper#show()}
@@ -19,31 +25,74 @@ import javax.swing.*;
 public class DialogManager {
 
   public static void show(@NotNull DialogWrapper dialog) {
-    ServiceManager.getService(DialogManager.class).showDialog(dialog);
+    dialogManager().showDialog(dialog);
   }
 
-  public static int showMessage(@NotNull String description,
-                                @NotNull String title,
-                                @NotNull String[] options,
-                                int defaultButtonIndex,
-                                int focusedButtonIndex,
-                                @Nullable Icon icon,
-                                @Nullable DialogWrapper.DoNotAskOption dontAskOption) {
-    return ServiceManager.getService(DialogManager.class).showMessageDialog(description, title, options,
-                                                                            defaultButtonIndex, focusedButtonIndex, icon, dontAskOption);
+  public static int showMessage(@NotNull @DialogMessage final String message,
+                                @NotNull @DialogTitle final String title,
+                                final String @NotNull @Button [] options,
+                                final int defaultButtonIndex,
+                                final int focusedButtonIndex,
+                                @Nullable final Icon icon,
+                                @Nullable final DialogWrapper.DoNotAskOption dontAskOption) {
+    return dialogManager().showMessageDialog(message, title, options, defaultButtonIndex, focusedButtonIndex, icon, dontAskOption);
+  }
+
+  public static int showOkCancelDialog(@NotNull Project project,
+                                       @NotNull @DialogMessage String message,
+                                       @NotNull @DialogTitle String title,
+                                       @NotNull @Button String okButtonText,
+                                       @NotNull @Button String cancelButtonText,
+                                       @Nullable Icon icon) {
+    return dialogManager().showMessageDialog(project, message, title, new String[]{okButtonText, cancelButtonText}, 0, icon);
+  }
+
+  public static int showYesNoCancelDialog(@NotNull Project project,
+                                          @NotNull @DialogMessage String message,
+                                          @NotNull @DialogTitle String title,
+                                          @NotNull @Button String yesButtonText,
+                                          @NotNull @Button String noButtonText,
+                                          @NotNull @Button String cancelButtonText,
+                                          @Nullable Icon icon) {
+    return dialogManager()
+      .showMessageDialog(project, message, title, new String[]{yesButtonText, noButtonText, cancelButtonText}, 0, 1, icon);
   }
 
   protected void showDialog(@NotNull DialogWrapper dialog) {
     dialog.show();
   }
 
-  protected int showMessageDialog(@NotNull String description,
-                                  @NotNull String title,
-                                  @NotNull String[] options,
+  protected int showMessageDialog(@NotNull Project project,
+                                  @NotNull @DialogMessage String message,
+                                  @NotNull @DialogTitle String title,
+                                  String @NotNull @Button [] options,
+                                  int defaultButtonIndex,
+                                  @Nullable Icon icon) {
+    return Messages.showDialog(project, message, title, options, defaultButtonIndex, icon);
+  }
+
+  protected int showMessageDialog(@NotNull Project project,
+                                  @NotNull @DialogMessage String message,
+                                  @NotNull @DialogTitle String title,
+                                  String @NotNull @Button [] options,
+                                  int defaultButtonIndex,
+                                  int focusedButtonIndex,
+                                  @Nullable Icon icon) {
+    return Messages.showDialog(project, message, title, null, options, defaultButtonIndex, focusedButtonIndex, icon);
+  }
+
+  protected int showMessageDialog(@NotNull @DialogMessage String message,
+                                  @NotNull @DialogTitle String title,
+                                  String @NotNull @Button [] options,
                                   int defaultButtonIndex,
                                   int focusedButtonIndex,
                                   @Nullable Icon icon,
                                   @Nullable DialogWrapper.DoNotAskOption dontAskOption) {
-    return Messages.showDialog(description, title, options, defaultButtonIndex, focusedButtonIndex, icon, dontAskOption);
+    return Messages.showDialog(message, title, options, defaultButtonIndex, focusedButtonIndex, icon, dontAskOption);
+  }
+
+  @NotNull
+  private static DialogManager dialogManager() {
+    return ApplicationManager.getApplication().getService(DialogManager.class);
   }
 }

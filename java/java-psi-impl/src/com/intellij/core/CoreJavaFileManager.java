@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,10 +33,9 @@ import java.util.*;
  * @author yole
  */
 public class CoreJavaFileManager implements JavaFileManager {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.core.CoreJavaFileManager");
+  private static final Logger LOG = Logger.getInstance(CoreJavaFileManager.class);
 
-  private final List<VirtualFile> myClasspath = new ArrayList<VirtualFile>();
-
+  private final List<VirtualFile> myClasspath = new ArrayList<>();
   private final PsiManager myPsiManager;
 
   public CoreJavaFileManager(PsiManager psiManager) {
@@ -57,7 +56,7 @@ public class CoreJavaFileManager implements JavaFileManager {
   }
 
   private List<VirtualFile> findDirectoriesByPackageName(String packageName) {
-    List<VirtualFile> result = new ArrayList<VirtualFile>();
+    List<VirtualFile> result = new ArrayList<>();
     String dirName = packageName.replace(".", "/");
     for (VirtualFile root : roots()) {
       VirtualFile classDir = root.findFileByRelativePath(dirName);
@@ -181,23 +180,28 @@ public class CoreJavaFileManager implements JavaFileManager {
     return curClass;
   }
 
-  @NotNull
   @Override
-  public PsiClass[] findClasses(@NotNull String qName, @NotNull GlobalSearchScope scope) {
-    List<PsiClass> result = new ArrayList<PsiClass>();
+  public PsiClass @NotNull [] findClasses(@NotNull String qName, @NotNull GlobalSearchScope scope) {
+    List<PsiClass> result = new ArrayList<>();
     for (VirtualFile file : roots()) {
       final PsiClass psiClass = findClassInClasspathRoot(qName, file, myPsiManager, scope);
       if (psiClass != null) {
         result.add(psiClass);
       }
     }
-    return result.toArray(new PsiClass[result.size()]);
+    return result.toArray(PsiClass.EMPTY_ARRAY);
   }
 
   @NotNull
   @Override
   public Collection<String> getNonTrivialPackagePrefixes() {
     return Collections.emptyList();
+  }
+
+  @NotNull
+  @Override
+  public Collection<PsiJavaModule> findModules(@NotNull String moduleName, @NotNull GlobalSearchScope scope) {
+    return Collections.emptySet();
   }
 
   public void addToClasspath(VirtualFile root) {

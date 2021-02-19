@@ -1,58 +1,100 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diagnostic;
 
+import com.intellij.openapi.diagnostic.Attachment;
+import com.intellij.openapi.diagnostic.ExceptionWithAttachments;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.PluginId;
+import com.intellij.openapi.util.text.Strings;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.Collections;
+import java.util.List;
 
 /**
- * @author stathik
- * @since Jan 8, 2004
+ * Represents an internal error caused by a plugin. It may happen if the plugin's code fails with an exception, or if the plugin violates
+ * some contract of IntelliJ Platform. If such exceptions are thrown or logged via {@link Logger#error(Throwable)}
+ * method and reported to JetBrains by user, they may be automatically attributed to corresponding plugins.
+ *
+ * <p> If the problem is caused by a class, use {@link #createByClass} to create
+ * an instance. If the problem is caused by an extension, implement {@link com.intellij.openapi.extensions.PluginAware} in its extension class
+ * to get the plugin ID.
  */
-public class PluginException extends RuntimeException {
+public class PluginException extends RuntimeException implements ExceptionWithAttachments {
   private final PluginId myPluginId;
+  private final List<Attachment> attachments;
 
-  public PluginException(String message, Throwable cause, PluginId pluginId) {
+  public PluginException(@NotNull @NonNls String message, Throwable cause, @Nullable PluginId pluginId) {
     super(message, cause);
     myPluginId = pluginId;
+    attachments = Collections.emptyList();
   }
 
-  public PluginException(Throwable e, PluginId pluginId) {
+  public PluginException(@NotNull Throwable e, @Nullable PluginId pluginId) {
     super (e.getMessage(), e);
     myPluginId = pluginId;
+    attachments = Collections.emptyList();
   }
 
-  public PluginException(final String message, final PluginId pluginId) {
+  public PluginException(@NotNull @NonNls String message, @Nullable PluginId pluginId) {
     super(message);
     myPluginId = pluginId;
+    attachments = Collections.emptyList();
   }
 
-  public PluginId getPluginId() {
+  public PluginException(@NotNull @NonNls String message, @Nullable PluginId pluginId, @NotNull List<Attachment> attachments) {
+    super(message);
+    myPluginId = pluginId;
+    this.attachments = attachments;
+  }
+
+  public final @Nullable PluginId getPluginId() {
     return myPluginId;
   }
 
   @Override
-  public String getMessage() {
-    @NonNls String message = super.getMessage();
-
-    if (message == null) {
-      message = "";
+  @NotNull
+  public @NonNls String getMessage() {
+    String message = super.getMessage();
+    // do not add suffix with plugin id if plugin info is already in message
+    if (myPluginId == null || (message != null && message.contains("PluginDescriptor("))) {
+      return message;
     }
+    else {
+      return Strings.notNullize(message) + " [Plugin: " + myPluginId + "]";
+    }
+  }
 
-    message += " [Plugin: " + myPluginId.toString() + "]";
-    return message;
+  @Override
+  public final Attachment @NotNull [] getAttachments() {
+    return attachments.toArray(Attachment.EMPTY_ARRAY);
+  }
+
+  /**
+   * Creates an exception caused by a problem in a plugin's code.
+   * @param pluginClass a problematic class which caused the error
+   */
+  @NotNull
+  public static PluginException createByClass(@NotNull @NonNls String errorMessage, @Nullable Throwable cause, @NotNull Class<?> pluginClass) {
+    return PluginProblemReporter.getInstance().createPluginExceptionByClass(errorMessage, cause, pluginClass);
+  }
+
+  /**
+   * Creates an exception caused by a problem in a plugin's code, takes error message from the cause exception.
+   * @param pluginClass a problematic class which caused the error
+   */
+  @NotNull
+  public static PluginException createByClass(@NotNull Throwable cause, @NotNull Class<?> pluginClass) {
+    return PluginProblemReporter.getInstance().createPluginExceptionByClass(Strings.notNullize(cause.getMessage()), cause, pluginClass);
+  }
+
+  /**
+   * Log an error caused by a problem in a plugin's code.
+   * @param pluginClass a problematic class which caused the error
+   */
+  public static void logPluginError(@NotNull Logger logger, @NotNull @NonNls String errorMessage, @Nullable Throwable cause, @NotNull Class<?> pluginClass) {
+    logger.error(createByClass(errorMessage, cause, pluginClass));
   }
 }

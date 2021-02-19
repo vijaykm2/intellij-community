@@ -49,8 +49,6 @@ import com.intellij.psi.xml.*;
 %implements FlexLexer
 %function advance
 %type IElementType
-%eof{  return;
-%eof}
 
 %state TAG
 %state PROCESSING_INSTRUCTION
@@ -66,15 +64,16 @@ import com.intellij.psi.xml.*;
 %state DOCTYPE
 %xstate CDATA
 %state C_COMMENT_START
+/* this state should be last, number of states should be less than 16 */
 %state C_COMMENT_END
 
 ALPHA=[:letter:]
 DIGIT=[0-9]
-WS=[\ \n\r\t\f]
+WS=[\ \n\r\t\f\u2028\u2029\u0085]
 S={WS}+
 
 EL_EMBEDMENT_START="${" | "#{"
-NAME=({ALPHA}|"_")({ALPHA}|{DIGIT}|"_"|"."|"-")*(":"({ALPHA}|"_")?({ALPHA}|{DIGIT}|"_"|"."|"-")*)?
+NAME=({ALPHA}|"_"|":")({ALPHA}|{DIGIT}|"_"|"."|"-")*(":"({ALPHA}|"_")?({ALPHA}|{DIGIT}|"_"|"."|"-")*)?
 
 END_COMMENT="-->"
 CONDITIONAL_COMMENT_CONDITION=({ALPHA})({ALPHA}|{S}|{DIGIT}|"."|"("|")"|"|"|"!"|"&")*

@@ -21,24 +21,21 @@ import org.jetbrains.jps.model.module.JpsModule;
 
 import static com.intellij.util.io.TestFileSystemBuilder.fs;
 
-/**
- * @author nik
- */
 public class ClassMoveTest extends JpsBuildTestCase {
   public void testMoveClassAndDelete() {
     String a1 = createFile("src1/A.java", "class A{}");
     String b = createFile("src2/B.java", "class B{}");
     JpsModule m = addModule("m", PathUtil.getParentPath(a1), PathUtil.getParentPath(b));
-    makeAll();
+    buildAllModules();
     assertOutput(m, fs().file("A.class").file("B.class"));
 
     delete(a1);
     String a2 = createFile("src2/A.java", "class A{}");
-    makeAll();
+    buildAllModules();
     assertOutput(m, fs().file("A.class").file("B.class"));
 
     delete(a2);
-    makeAll();
+    buildAllModules();
     assertOutput(m, fs().file("B.class"));
   }
 }

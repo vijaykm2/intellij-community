@@ -19,15 +19,16 @@ import com.intellij.openapi.util.ActionCallback;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author nik
- */
 public abstract class PlaceInProjectStructure {
   @NotNull
   public abstract ProjectStructureElement getContainingElement();
 
   @Nullable
   public abstract String getPlacePath();
+
+  public boolean canNavigate() {
+    return true;
+  }
 
   @NotNull
   public abstract ActionCallback navigate();

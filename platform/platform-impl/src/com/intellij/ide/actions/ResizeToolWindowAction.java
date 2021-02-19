@@ -1,39 +1,32 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
+import com.intellij.internal.statistic.eventLog.events.EventPair;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.impl.FusAwareAction;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
-import com.intellij.openapi.project.ProjectManagerAdapter;
+import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.ui.ShadowAction;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.*;
 import com.intellij.openapi.wm.ex.ToolWindowEx;
+import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.Collections;
+import java.util.List;
 
-public abstract class ResizeToolWindowAction extends AnAction implements DumbAware {
-
+public abstract class ResizeToolWindowAction extends AnAction implements DumbAware, FusAwareAction {
   private ToolWindow myLastWindow;
   private ToolWindowManager myLastManager;
 
@@ -46,32 +39,32 @@ public abstract class ResizeToolWindowAction extends AnAction implements DumbAwa
   protected ResizeToolWindowAction() {
   }
 
-  protected ResizeToolWindowAction(String text) {
+  protected ResizeToolWindowAction(@NlsActions.ActionText String text) {
     super(text);
   }
 
-  protected ResizeToolWindowAction(String text, String description, Icon icon) {
+  protected ResizeToolWindowAction(@NlsActions.ActionText String text, @NlsActions.ActionDescription String description, Icon icon) {
     super(text, description, icon);
   }
 
-  protected ResizeToolWindowAction(ToolWindow toolWindow, String originalAction, JComponent c) {
+  protected ResizeToolWindowAction(@NotNull ToolWindow toolWindow, @NonNls String originalAction, JComponent component) {
     myToolWindow = toolWindow;
-    new ShadowAction(this, ActionManager.getInstance().getAction(originalAction), c);
+    new ShadowAction(this, ActionManager.getInstance().getAction(originalAction), component, toolWindow.getDisposable());
   }
 
   @Override
-  public final void update(AnActionEvent e) {
-    Project project = CommonDataKeys.PROJECT.getData(e.getDataContext());
-    if (project == null) {
+  public final void update(@NotNull AnActionEvent e) {
+    Project project = e.getProject();
+    if (project == null || e.getData(CommonDataKeys.HOST_EDITOR) != null) {
       setDisabled(e);
       return;
     }
 
     if (!myListenerInstalled) {
       myListenerInstalled = true;
-      ProjectManager.getInstance().addProjectManagerListener(new ProjectManagerAdapter() {
+      ApplicationManager.getApplication().getMessageBus().connect().subscribe(ProjectManager.TOPIC, new ProjectManagerListener() {
         @Override
-        public void projectClosed(Project project) {
+        public void projectClosed(@NotNull Project project) {
           setDisabled(null);
         }
       });
@@ -83,7 +76,8 @@ public abstract class ResizeToolWindowAction extends AnAction implements DumbAwa
       return;
     }
 
-    final Window windowAncestor = SwingUtilities.getWindowAncestor(owner);
+    Window windowAncestor = SwingUtilities.getWindowAncestor(owner);
+    if (windowAncestor instanceof JWindow) windowAncestor = windowAncestor.getOwner();//SearchEverywhere popup case
     if (!(windowAncestor instanceof IdeFrame) || windowAncestor instanceof IdeFrame.Child) {
       setDisabled(e);
       return;
@@ -92,14 +86,10 @@ public abstract class ResizeToolWindowAction extends AnAction implements DumbAwa
 
     ToolWindowManager mgr = ToolWindowManager.getInstance(project);
 
-    ToolWindow window = myToolWindow;
+    ToolWindow window = getToolWindow(project);
 
-    if (window != null || mgr.getActiveToolWindowId() != null) {
-      if (window == null) {
-        window = mgr.getToolWindow(mgr.getActiveToolWindowId());
-      }
-
-      if (window == null || !window.isAvailable() || !window.isVisible() || window.getType() == ToolWindowType.FLOATING || window.getType() == ToolWindowType.WINDOWED || !window.isActive()) {
+    if (window != null) {
+      if (!window.isAvailable() || !window.isVisible() || window.getType() == ToolWindowType.FLOATING || window.getType() == ToolWindowType.WINDOWED) {
         setDisabled(e);
         return;
       }
@@ -118,9 +108,22 @@ public abstract class ResizeToolWindowAction extends AnAction implements DumbAwa
     }
   }
 
+  @Nullable
+  private ToolWindow getToolWindow(@NotNull Project project) {
+    if (myToolWindow != null) {
+      return myToolWindow;
+    }
+    ToolWindowManager manager = ToolWindowManager.getInstance(project);
+    String id = manager.getLastActiveToolWindowId();
+    if (id != null) {
+      return manager.getToolWindow(id);
+    }
+    return null;
+  }
+
   private void setDisabled(@Nullable AnActionEvent e) {
     if (e != null) {
-      e.getPresentation().setEnabled(false);
+      e.getPresentation().setEnabledAndVisible(false);
     }
 
     myLastWindow = null;
@@ -131,18 +134,30 @@ public abstract class ResizeToolWindowAction extends AnAction implements DumbAwa
   protected abstract void update(AnActionEvent event, ToolWindow window, ToolWindowManager mgr);
 
   @Override
-  public final void actionPerformed(AnActionEvent e) {
+  public final void actionPerformed(@NotNull AnActionEvent e) {
     actionPerformed(e, myLastWindow, myLastManager);
   }
 
-  @Nullable
-  private ToolWindowScrollable getScrollable(ToolWindow wnd, boolean isHorizontalStretchingOffered) {
-    KeyboardFocusManager mgr = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+  @Override
+  public @NotNull List<EventPair<?>> getAdditionalUsageData(@NotNull AnActionEvent event) {
+    Project project = event.getProject();
+    if (project != null) {
+      ToolWindow toolWindow = getToolWindow(project);
+      if (toolWindow != null) {
+        return Collections.singletonList(ToolwindowFusEventFields.TOOLWINDOW.with(toolWindow.getId()));
+      }
+    }
+    return Collections.emptyList();
+  }
 
-    Component eachComponent = mgr.getFocusOwner();
+  @Nullable
+  private ToolWindowScrollable getScrollable(ToolWindow toolWindow, boolean isHorizontalStretchingOffered) {
+    Component eachComponent = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
     ToolWindowScrollable scrollable = null;
     while (eachComponent != null) {
-      if (!SwingUtilities.isDescendingFrom(eachComponent, wnd.getComponent())) break;
+      if (!SwingUtilities.isDescendingFrom(eachComponent, toolWindow.getComponent())) {
+        break;
+      }
 
       if (eachComponent instanceof ToolWindowScrollable) {
         ToolWindowScrollable eachScrollable = (ToolWindowScrollable)eachComponent;
@@ -151,7 +166,8 @@ public abstract class ResizeToolWindowAction extends AnAction implements DumbAwa
             scrollable = eachScrollable;
             break;
           }
-        } else {
+        }
+        else {
           if (eachScrollable.isVerticalScrollingNeeded()) {
             scrollable = eachScrollable;
             break;
@@ -166,13 +182,15 @@ public abstract class ResizeToolWindowAction extends AnAction implements DumbAwa
       scrollable = new DefaultToolWindowScrollable();
     }
 
-    if (isHorizontalStretchingOffered && scrollable.isHorizontalScrollingNeeded()) return scrollable;
-    if (!isHorizontalStretchingOffered && scrollable.isVerticalScrollingNeeded()) return scrollable;
+    if (isHorizontalStretchingOffered && scrollable.isHorizontalScrollingNeeded() ||
+        !isHorizontalStretchingOffered && scrollable.isVerticalScrollingNeeded()) {
+      return scrollable;
+    }
 
     return null;
   }
 
-  protected abstract void actionPerformed(AnActionEvent e, ToolWindow wnd, ToolWindowManager mgr);
+  protected abstract void actionPerformed(AnActionEvent e, ToolWindow toolWindow, ToolWindowManager toolWindowManager);
 
   protected void stretch(ToolWindow wnd, boolean isHorizontalStretching, boolean isIncrementAction) {
     ToolWindowScrollable scrollable = getScrollable(wnd, isHorizontalStretching);
@@ -182,7 +200,7 @@ public abstract class ResizeToolWindowAction extends AnAction implements DumbAwa
     if (isHorizontalStretching && !anchor.isHorizontal()) {
       incWidth(wnd, scrollable.getNextHorizontalScroll(), (anchor == ToolWindowAnchor.LEFT) == isIncrementAction);
     } else if (!isHorizontalStretching && anchor.isHorizontal()) {
-      incHeight(wnd, scrollable.getNextVerticalScroll(), (anchor == ToolWindowAnchor.TOP) != isIncrementAction);  
+      incHeight(wnd, scrollable.getNextVerticalScroll(), (anchor == ToolWindowAnchor.TOP) != isIncrementAction);
     }
   }
 
@@ -195,19 +213,18 @@ public abstract class ResizeToolWindowAction extends AnAction implements DumbAwa
   }
 
   public static class Left extends ResizeToolWindowAction {
-
     public Left() {
     }
 
-    public Left(String text) {
+    public Left(@NlsActions.ActionText String text) {
       super(text);
     }
 
-    public Left(String text, String description, Icon icon) {
+    public Left(@NlsActions.ActionText String text, @NlsActions.ActionDescription String description, Icon icon) {
       super(text, description, icon);
     }
 
-    public Left(ToolWindow toolWindow, JComponent c) {
+    public Left(@NotNull ToolWindow toolWindow, JComponent c) {
       super(toolWindow, "ResizeToolWindowLeft", c);
     }
 
@@ -217,21 +234,20 @@ public abstract class ResizeToolWindowAction extends AnAction implements DumbAwa
     }
 
     @Override
-    protected void actionPerformed(AnActionEvent e, ToolWindow wnd, ToolWindowManager mgr) {
-      stretch(wnd, true, false);
+    protected void actionPerformed(AnActionEvent e, ToolWindow toolWindow, ToolWindowManager toolWindowManager) {
+      stretch(toolWindow, true, false);
     }
   }
 
   public static class Right extends ResizeToolWindowAction {
-
     public Right() {
     }
 
-    public Right(String text) {
+    public Right(@NlsActions.ActionText String text) {
       super(text);
     }
 
-    public Right(String text, String description, Icon icon) {
+    public Right(@NlsActions.ActionText String text, @NlsActions.ActionDescription String description, Icon icon) {
       super(text, description, icon);
     }
 
@@ -245,8 +261,8 @@ public abstract class ResizeToolWindowAction extends AnAction implements DumbAwa
     }
 
     @Override
-    protected void actionPerformed(AnActionEvent e, ToolWindow wnd, ToolWindowManager mgr) {
-      stretch(wnd, true, true);
+    protected void actionPerformed(AnActionEvent e, ToolWindow toolWindow, ToolWindowManager toolWindowManager) {
+      stretch(toolWindow, true, true);
     }
   }
 
@@ -255,11 +271,11 @@ public abstract class ResizeToolWindowAction extends AnAction implements DumbAwa
     public Up() {
     }
 
-    public Up(String text) {
+    public Up(@NlsActions.ActionText String text) {
       super(text);
     }
 
-    public Up(String text, String description, Icon icon) {
+    public Up(@NlsActions.ActionText String text, @NlsActions.ActionDescription String description, Icon icon) {
       super(text, description, icon);
     }
 
@@ -273,8 +289,8 @@ public abstract class ResizeToolWindowAction extends AnAction implements DumbAwa
     }
 
     @Override
-    protected void actionPerformed(AnActionEvent e, ToolWindow wnd, ToolWindowManager mgr) {
-      stretch(wnd, false, true);
+    protected void actionPerformed(AnActionEvent e, ToolWindow toolWindow, ToolWindowManager toolWindowManager) {
+      stretch(toolWindow, false, true);
     }
   }
 
@@ -283,11 +299,11 @@ public abstract class ResizeToolWindowAction extends AnAction implements DumbAwa
     public Down() {
     }
 
-    public Down(String text) {
+    public Down(@NlsActions.ActionText String text) {
       super(text);
     }
 
-    public Down(String text, String description, Icon icon) {
+    public Down(@NlsActions.ActionText String text, @NlsActions.ActionDescription String description, Icon icon) {
       super(text, description, icon);
     }
 
@@ -301,25 +317,29 @@ public abstract class ResizeToolWindowAction extends AnAction implements DumbAwa
     }
 
     @Override
-    protected void actionPerformed(AnActionEvent e, ToolWindow wnd, ToolWindowManager mgr) {
-      stretch(wnd, false, false);
+    protected void actionPerformed(AnActionEvent e, ToolWindow toolWindow, ToolWindowManager toolWindowManager) {
+      stretch(toolWindow, false, false);
     }
   }
 
   private class DefaultToolWindowScrollable implements ToolWindowScrollable {
 
+    @Override
     public boolean isHorizontalScrollingNeeded() {
       return true;
     }
 
+    @Override
     public int getNextHorizontalScroll() {
       return getReferenceSize().width * Registry.intValue("ide.windowSystem.hScrollChars");
     }
 
+    @Override
     public boolean isVerticalScrollingNeeded() {
       return true;
     }
 
+    @Override
     public int getNextVerticalScroll() {
       return getReferenceSize().height * Registry.intValue("ide.windowSystem.vScrollChars");
     }
@@ -328,7 +348,7 @@ public abstract class ResizeToolWindowAction extends AnAction implements DumbAwa
   private Dimension getReferenceSize() {
     if (myScrollHelper == null) {
       if (SwingUtilities.isEventDispatchThread()) {
-        myScrollHelper = new JLabel("W");
+        myScrollHelper = new JLabel("W"); //NON-NLS
       } else {
         return new Dimension(1, 1);
       }

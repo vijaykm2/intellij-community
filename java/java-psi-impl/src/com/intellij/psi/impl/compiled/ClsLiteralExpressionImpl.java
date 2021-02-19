@@ -59,8 +59,7 @@ class ClsLiteralExpressionImpl extends ClsElementImpl implements PsiLiteralExpre
   }
 
   @Override
-  @NotNull
-  public PsiElement[] getChildren() {
+  public PsiElement @NotNull [] getChildren() {
     return PsiElement.EMPTY_ARRAY;
   }
 
@@ -69,6 +68,7 @@ class ClsLiteralExpressionImpl extends ClsElementImpl implements PsiLiteralExpre
     return myParent;
   }
 
+  @Override
   public String toString() {
     return "PsiLiteralExpression:" + getText();
   }

@@ -34,16 +34,8 @@ import java.util.Set;
 
 public class PackageInMultipleModulesInspection extends BaseGlobalInspection {
 
-  @NotNull
   @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "package.in.multiple.modules.display.name");
-  }
-
-  @Override
-  @Nullable
-  public CommonProblemDescriptor[] checkElement(
+  public CommonProblemDescriptor @Nullable [] checkElement(
     @NotNull RefEntity refEntity, @NotNull AnalysisScope analysisScope,
     @NotNull InspectionManager inspectionManager,
     @NotNull GlobalInspectionContext globalInspectionContext) {
@@ -51,10 +43,7 @@ public class PackageInMultipleModulesInspection extends BaseGlobalInspection {
       return null;
     }
     final List<RefEntity> children = refEntity.getChildren();
-    if (children == null) {
-      return null;
-    }
-    final Set<RefModule> modules = new HashSet<RefModule>();
+    final Set<RefModule> modules = new HashSet<>();
     for (RefEntity child : children) {
       if (!(child instanceof RefClass)) {
         continue;

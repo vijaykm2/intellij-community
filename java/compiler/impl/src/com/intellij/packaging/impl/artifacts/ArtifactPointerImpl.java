@@ -20,9 +20,6 @@ import com.intellij.packaging.artifacts.ArtifactModel;
 import com.intellij.packaging.artifacts.ArtifactPointer;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author nik
- */
 public class ArtifactPointerImpl implements ArtifactPointer {
   private String myName;
   private Artifact myArtifact;
@@ -36,15 +33,18 @@ public class ArtifactPointerImpl implements ArtifactPointer {
     myName = artifact.getName();
   }
 
+  @Override
   @NotNull
   public String getArtifactName() {
     return myName;
   }
 
+  @Override
   public Artifact getArtifact() {
     return myArtifact;
   }
 
+  @Override
   @NotNull
   public String getArtifactName(@NotNull ArtifactModel artifactModel) {
     if (myArtifact != null) {
@@ -53,6 +53,7 @@ public class ArtifactPointerImpl implements ArtifactPointer {
     return myName;
   }
 
+  @Override
   public Artifact findArtifact(@NotNull ArtifactModel artifactModel) {
     if (myArtifact != null) {
       return artifactModel.getArtifactByOriginal(myArtifact);

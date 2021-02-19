@@ -20,36 +20,40 @@ import com.intellij.psi.PsiElement;
 import com.intellij.spellchecker.LiteralExpressionTokenizer;
 import com.intellij.spellchecker.inspections.Splitter;
 import com.intellij.spellchecker.tokenizer.TokenConsumer;
-import org.junit.Test;
+import com.intellij.testFramework.fixtures.BasePlatformTestCase;
+import com.intellij.util.Consumer;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import static com.intellij.testFramework.UsefulTestCase.assertOrderedEquals;
-
 /**
  * @author yole
  */
-public class LiteralExpressionTokenizerTest {
-  private static class TokenCollector extends TokenConsumer {
-    private final List<String> myTokenTexts = new ArrayList<String>();
+public class LiteralExpressionTokenizerTest extends BasePlatformTestCase {
+  private static class TokenCollector extends TokenConsumer implements Consumer<TextRange> {
+    private final List<String> myTokenTexts = new ArrayList<>();
+    private String myText;
 
     @Override
     public void consumeToken(PsiElement element, String text, boolean useRename, int offset, TextRange rangeToCheck, Splitter splitter) {
-      myTokenTexts.add(text);
+      myText = text;
+      splitter.split(myText, rangeToCheck, this);
     }
 
     public List<String> getTokenTexts() {
       return myTokenTexts;
     }
+
+    @Override
+    public void consume(TextRange range) {
+      myTokenTexts.add(range.substring(myText));
+    }
   }
 
-  @Test
   public void testEscapeSequences() {
     doTest("hello\\nworld", "hello", "world");
   }
 
-  @Test
   public void testEscapeSequences2() {
     doTest("\\nhello\\nworld\\n", "hello", "world");
   }

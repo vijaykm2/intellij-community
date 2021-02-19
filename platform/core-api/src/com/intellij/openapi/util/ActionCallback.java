@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,10 +40,16 @@ public class ActionCallback implements Disposable {
     this(null);
   }
 
-  public ActionCallback(String name) {
+  public ActionCallback(@NonNls String name) {
     myName = name;
     myDone = new ExecutionCallback();
     myRejected = new ExecutionCallback();
+  }
+
+  private ActionCallback(@NotNull ExecutionCallback done, @NotNull ExecutionCallback rejected) {
+    myDone = done;
+    myRejected = rejected;
+    myName = null;
   }
 
   public ActionCallback(int countToDone) {
@@ -54,10 +60,7 @@ public class ActionCallback implements Disposable {
     myName = name;
 
     assert countToDone >= 0 : "count=" + countToDone;
-
-    int count = countToDone >= 1 ? countToDone : 1;
-
-    myDone = new ExecutionCallback(count);
+    myDone = new ExecutionCallback(Math.max(countToDone, 1));
     myRejected = new ExecutionCallback();
 
     if (countToDone < 1) {
@@ -92,7 +95,7 @@ public class ActionCallback implements Disposable {
   }
 
   @NotNull
-  public ActionCallback reject(String error) {
+  public ActionCallback reject(@NonNls String error) {
     myError = error;
     setRejected();
     return this;
@@ -116,13 +119,8 @@ public class ActionCallback implements Disposable {
   }
 
   @NotNull
-  public final ActionCallback doWhenRejected(@NotNull final Consumer<String> consumer) {
-    myRejected.doWhenExecuted(new Runnable() {
-      @Override
-      public void run() {
-        consumer.consume(myError);
-      }
-    });
+  public final ActionCallback doWhenRejected(@NotNull final Consumer<? super String> consumer) {
+    myRejected.doWhenExecuted(() -> consumer.consume(myError));
     return this;
   }
 
@@ -140,12 +138,7 @@ public class ActionCallback implements Disposable {
 
   @NotNull
   public final ActionCallback notifyWhenRejected(@NotNull final ActionCallback child) {
-    return doWhenRejected(new Runnable() {
-      @Override
-      public void run() {
-        child.reject(myError);
-      }
-    });
+    return doWhenRejected(() -> child.reject(myError));
   }
 
   @NotNull
@@ -164,13 +157,52 @@ public class ActionCallback implements Disposable {
 
   public static class Done extends ActionCallback {
     public Done() {
-      setDone();
+      super(new ExecutedExecutionCallback(), new IgnoreExecutionCallback());
     }
   }
 
   public static class Rejected extends ActionCallback {
     public Rejected() {
-      setRejected();
+      super(new IgnoreExecutionCallback(), new ExecutedExecutionCallback());
+    }
+  }
+
+  private static class ExecutedExecutionCallback extends ExecutionCallback {
+    ExecutedExecutionCallback() {
+      super(0);
+    }
+
+    @Override
+    void doWhenExecuted(@NotNull Runnable runnable) {
+      runnable.run();
+    }
+
+    @Override
+    boolean setExecuted() {
+      throw new IllegalStateException("Forbidden");
+    }
+
+    @SuppressWarnings("NonSynchronizedMethodOverridesSynchronizedMethod")
+    @Override
+    boolean isExecuted() {
+      return true;
+    }
+  }
+
+  private static class IgnoreExecutionCallback extends ExecutionCallback {
+    @Override
+    void doWhenExecuted(@NotNull Runnable runnable) {
+    }
+
+    @Override
+    boolean setExecuted() {
+      throw new IllegalStateException("Forbidden");
+    }
+
+    @SuppressWarnings("NonSynchronizedMethodOverridesSynchronizedMethod")
+    @Override
+    boolean isExecuted() {
+      return false;
     }
   }
 
@@ -182,7 +214,7 @@ public class ActionCallback implements Disposable {
   }
 
   public static class Chunk {
-    private final Set<ActionCallback> myCallbacks = new OrderedSet<ActionCallback>();
+    private final Set<ActionCallback> myCallbacks = new OrderedSet<>();
 
     public void add(@NotNull ActionCallback callback) {
       myCallbacks.add(callback);
@@ -212,6 +244,8 @@ public class ActionCallback implements Disposable {
 
     @NotNull
     public ActionCallback getWhenProcessed() {
+      if (myCallbacks.isEmpty()) return DONE;
+      
       final ActionCallback result = new ActionCallback(myCallbacks.size());
       Runnable setDoneRunnable = result.createSetDoneRunnable();
       for (ActionCallback each : myCallbacks) {
@@ -227,27 +261,7 @@ public class ActionCallback implements Disposable {
 
   @NotNull
   public Runnable createSetDoneRunnable() {
-    return new Runnable() {
-      @Override
-      public void run() {
-        setDone();
-      }
-    };
-  }
-
-  @SuppressWarnings("UnusedDeclaration")
-  @NotNull
-  @Deprecated
-  /**
-   * @deprecated use {@link #notifyWhenRejected(ActionCallback)}
-   */
-  public Runnable createSetRejectedRunnable() {
-    return new Runnable() {
-      @Override
-      public void run() {
-        setRejected();
-      }
-    };
+    return () -> setDone();
   }
 
   public boolean waitFor(long msTimeout) {
@@ -257,12 +271,7 @@ public class ActionCallback implements Disposable {
 
     final Semaphore semaphore = new Semaphore();
     semaphore.down();
-    doWhenProcessed(new Runnable() {
-      @Override
-      public void run() {
-        semaphore.up();
-      }
-    });
+    doWhenProcessed(() -> semaphore.up());
 
     try {
       if (msTimeout == -1) {

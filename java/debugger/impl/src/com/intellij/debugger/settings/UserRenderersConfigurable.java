@@ -1,25 +1,13 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.settings;
 
-import com.intellij.debugger.DebuggerBundle;
-import com.intellij.debugger.ui.tree.render.CompoundNodeRenderer;
+import com.intellij.debugger.JavaDebuggerBundle;
+import com.intellij.debugger.ui.tree.render.CompoundReferenceRenderer;
 import com.intellij.debugger.ui.tree.render.NodeRenderer;
 import com.intellij.ide.util.ElementsChooser;
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.ActionToolbarPosition;
+import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.options.ConfigurableUi;
 import com.intellij.openapi.ui.Splitter;
 import com.intellij.ui.AnActionButton;
@@ -27,28 +15,25 @@ import com.intellij.ui.AnActionButtonRunnable;
 import com.intellij.ui.DocumentAdapter;
 import com.intellij.ui.ToolbarDecorator;
 import com.intellij.util.PlatformIcons;
-import com.intellij.util.containers.InternalIterator;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
-import javax.swing.event.ListSelectionEvent;
-import javax.swing.event.ListSelectionListener;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 
-public final class UserRenderersConfigurable extends JPanel implements ConfigurableUi<NodeRendererSettings> {
+public final class UserRenderersConfigurable extends JPanel implements ConfigurableUi<NodeRendererSettings>, Disposable {
   private final JPanel myNameFieldPanel;
   private final JTextField myNameField;
   private final ElementsChooser<NodeRenderer> myRendererChooser;
   private NodeRenderer myCurrentRenderer = null;
-  private final CompoundRendererConfigurable myRendererDataConfigurable = new CompoundRendererConfigurable();
+  private final CompoundRendererConfigurable myRendererDataConfigurable = new CompoundRendererConfigurable(this);
 
   public UserRenderersConfigurable() {
     super(new BorderLayout(4, 0));
 
-    myRendererChooser = new ElementsChooser<NodeRenderer>(true);
+    myRendererChooser = new ElementsChooser<>(true);
     setupRenderersList();
 
     ToolbarDecorator decorator = ToolbarDecorator.createDecorator((JTable)myRendererChooser.getComponent());
@@ -61,7 +46,7 @@ public final class UserRenderersConfigurable extends JPanel implements Configura
 
     myNameField = new JTextField();
     myNameFieldPanel = new JPanel(new BorderLayout());
-    myNameFieldPanel.add(new JLabel(DebuggerBundle.message("label.user.renderers.configurable.renderer.name")), BorderLayout.WEST);
+    myNameFieldPanel.add(new JLabel(JavaDebuggerBundle.message("label.user.renderers.configurable.renderer.name")), BorderLayout.WEST);
     myNameFieldPanel.add(myNameField, BorderLayout.CENTER);
     myNameFieldPanel.setVisible(false);
 
@@ -71,7 +56,7 @@ public final class UserRenderersConfigurable extends JPanel implements Configura
 
     myNameField.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         if (myCurrentRenderer != null) {
           myCurrentRenderer.setName(myNameField.getText());
           myRendererChooser.refresh(myCurrentRenderer);
@@ -87,26 +72,22 @@ public final class UserRenderersConfigurable extends JPanel implements Configura
   }
 
   @Override
+  public void dispose() {
+  }
+
+  @Override
   @NotNull
   public JComponent getComponent() {
     return this;
   }
 
   private void setupRenderersList() {
-    myRendererChooser.getEmptyText().setText(DebuggerBundle.message("text.user.renderers.configurable.no.renderers"));
+    myRendererChooser.getEmptyText().setText(JavaDebuggerBundle.message("text.user.renderers.configurable.no.renderers"));
 
-    myRendererChooser.addElementsMarkListener(new ElementsChooser.ElementsMarkListener<NodeRenderer>() {
-      @Override
-      public void elementMarkChanged(final NodeRenderer element, final boolean isMarked) {
-        element.setEnabled(isMarked);
-      }
-    });
-    myRendererChooser.addListSelectionListener(new ListSelectionListener() {
-      @Override
-      public void valueChanged(@NotNull ListSelectionEvent e) {
-        if (!e.getValueIsAdjusting()) {
-          updateCurrentRenderer(myRendererChooser.getSelectedElements());
-        }
+    myRendererChooser.addElementsMarkListener((ElementsChooser.ElementsMarkListener<NodeRenderer>)NodeRenderer::setEnabled);
+    myRendererChooser.addListSelectionListener(e -> {
+      if (!e.getValueIsAdjusting()) {
+        updateCurrentRenderer(myRendererChooser.getSelectedElements());
       }
     });
   }
@@ -150,7 +131,7 @@ public final class UserRenderersConfigurable extends JPanel implements Configura
 
   private void flushTo(final RendererConfiguration rendererConfiguration) {
     final int count = myRendererChooser.getElementCount();
-    final List<NodeRenderer> renderers = new ArrayList<NodeRenderer>(count);
+    final List<NodeRenderer> renderers = new ArrayList<>(count);
     for (int idx = 0; idx < count; idx++) {
       renderers.add(myRendererChooser.getElementAt(idx));
     }
@@ -175,63 +156,49 @@ public final class UserRenderersConfigurable extends JPanel implements Configura
   public void reset(@NotNull NodeRendererSettings settings) {
     myRendererChooser.removeAllElements();
     final RendererConfiguration rendererConfiguration = settings.getCustomRenderers();
-    final ArrayList<NodeRenderer> elementsToSelect = new ArrayList<NodeRenderer>(1);
-    rendererConfiguration.iterateRenderers(new InternalIterator<NodeRenderer>() {
-      @Override
-      public boolean visit(final NodeRenderer renderer) {
-        final NodeRenderer clonedRenderer = (NodeRenderer)renderer.clone();
-        myRendererChooser.addElement(clonedRenderer, clonedRenderer.isEnabled());
-        if (elementsToSelect.size() == 0) {
-          elementsToSelect.add(clonedRenderer);
-        }
-        return true;
-      }
+    final ArrayList<NodeRenderer> elementsToSelect = new ArrayList<>(1);
+    rendererConfiguration.iterateRenderers(renderer -> {
+      final NodeRenderer clonedRenderer = (NodeRenderer)renderer.clone();
+    myRendererChooser.addElement(clonedRenderer, clonedRenderer.isEnabled());
+    if (elementsToSelect.size() == 0) {
+      elementsToSelect.add(clonedRenderer);
+    }
+    return true;
     });
     myRendererChooser.selectElements(elementsToSelect);
     updateCurrentRenderer(elementsToSelect);
     myRendererDataConfigurable.reset();
   }
 
-  private class AddAction implements AnActionButtonRunnable {
-    //public AddAction() {
-    //  super(DebuggerBundle.message("button.add"), DebuggerBundle.message("user.renderers.configurable.button.description.add"), ADD_ICON);
-    //}
+  public void addRenderer(NodeRenderer renderer) {
+    myRendererChooser.addElement(renderer, renderer.isEnabled());
+    myRendererChooser.moveElement(renderer, 0);
+  }
 
+  private class AddAction implements AnActionButtonRunnable {
     @Override
     public void run(AnActionButton button) {
-      final NodeRenderer renderer = (NodeRenderer)NodeRendererSettings.getInstance().createRenderer(CompoundNodeRenderer.UNIQUE_ID);
+      NodeRenderer renderer = (NodeRenderer)NodeRendererSettings.getInstance().createRenderer(CompoundReferenceRenderer.UNIQUE_ID);
       renderer.setEnabled(true);
-      myRendererChooser.addElement(renderer, renderer.isEnabled());
-      SwingUtilities.invokeLater(new Runnable() {
-        @Override
-        public void run() {
-          myNameField.requestFocus();
-        }
-      });
+      addRenderer(renderer);
     }
   }
 
   private class RemoveAction implements AnActionButtonRunnable {
-    //public RemoveAction() {
-    //  super(DebuggerBundle.message("button.remove"), DebuggerBundle.message("user.renderers.configurable.button.description.remove"), REMOVE_ICON);
-    //}
-
-
     @Override
     public void run(AnActionButton button) {
-      for (NodeRenderer selectedElement : myRendererChooser.getSelectedElements()) {
-        myRendererChooser.removeElement(selectedElement);
-      }
+      myRendererChooser.getSelectedElements().forEach(myRendererChooser::removeElement);
     }
   }
 
   private class CopyAction extends AnActionButton {
-    public CopyAction() {
-      super(DebuggerBundle.message("button.copy"), DebuggerBundle.message("user.renderers.configurable.button.description.copy"), PlatformIcons.COPY_ICON);
+    CopyAction() {
+      super(JavaDebuggerBundle.messagePointer("button.copy"), JavaDebuggerBundle
+        .messagePointer("user.renderers.configurable.button.description.copy"), PlatformIcons.COPY_ICON);
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       final NodeRenderer selectedElement = myRendererChooser.getSelectedElement();
       if (selectedElement != null) {
         myRendererChooser.addElement((NodeRenderer)selectedElement.clone(), true);
@@ -239,7 +206,7 @@ public final class UserRenderersConfigurable extends JPanel implements Configura
     }
 
     @Override
-    public void updateButton(AnActionEvent e) {
+    public void updateButton(@NotNull AnActionEvent e) {
       super.updateButton(e);
       e.getPresentation().setEnabled(myRendererChooser.getSelectedElement() != null);
     }
@@ -248,10 +215,7 @@ public final class UserRenderersConfigurable extends JPanel implements Configura
   private class MoveAction implements AnActionButtonRunnable {
     private final boolean myMoveUp;
 
-    public MoveAction(boolean up) {
-      //super(up? DebuggerBundle.message("button.move.up") : DebuggerBundle.message("button.move.down"),
-      //      up? DebuggerBundle.message("user.renderers.configurable.button.description.move.up") : DebuggerBundle.message("user.renderers.configurable.button.description.move.down"),
-      //      up? UP_ICON : DOWN_ICON );
+    MoveAction(boolean up) {
       myMoveUp = up;
     }
 

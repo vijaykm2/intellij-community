@@ -16,20 +16,18 @@
 
 /*
  * @author: Eugene Zhuravlev
- * Date: Sep 11, 2002
- * Time: 5:23:47 PM
  */
 package com.intellij.ui.classFilter;
 
 import com.intellij.ide.util.TreeClassChooser;
 import com.intellij.ide.util.TreeClassChooserFactory;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.ui.UIBundle;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -43,29 +41,31 @@ class ClassFilterEditorAddDialog extends DialogWrapper {
   @Nullable
   private final String myHelpId;
 
-  public ClassFilterEditorAddDialog(Project project, @Nullable String helpId) {
+  ClassFilterEditorAddDialog(Project project, @Nullable String helpId) {
     super(project, true);
     myProject = project;
     myHelpId = helpId;
-    setTitle(UIBundle.message("class.filter.editor.add.dialog.title"));
+    setTitle(JavaBundle.message("class.filter.editor.add.dialog.title"));
     init();
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     final JPanel panel = new JPanel(new GridBagLayout());
-    final JLabel header = new JLabel(UIBundle.message("label.class.filter.editor.add.dialog.filter.pattern"));
+    final JLabel header = new JLabel(JavaBundle.message("label.class.filter.editor.add.dialog.filter.pattern"));
     myClassName = new TextFieldWithBrowseButton(new JTextField(35));
     final JLabel iconLabel = new JLabel(Messages.getQuestionIcon());
-    
+
     panel.add(header, new GridBagConstraints(1, 0, 1, 1, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(5, 10, 0, 0), 0, 0));
     panel.add(myClassName, new GridBagConstraints(1, 1, 1, 1, 1.0, 1.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(5, 10, 0, 0), 0, 0));
     panel.add(iconLabel, new GridBagConstraints(0, 0, 1, 2, 0.0, 1.0, GridBagConstraints.NORTHWEST, GridBagConstraints.NONE, new Insets(15, 0, 0, 0), 0, 0));
 
     myClassName.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         PsiClass currentClass = getSelectedClass();
         TreeClassChooser chooser = TreeClassChooserFactory.getInstance(myProject).createNoInnerClassesScopeChooser(
-          UIBundle.message("class.filter.editor.choose.class.title"), GlobalSearchScope.allScope(myProject), null, null);
+          JavaBundle.message("class.filter.editor.choose.class.title"), GlobalSearchScope.allScope(myProject), null, null);
         if (currentClass != null) {
           PsiFile containingFile = currentClass.getContainingFile();
           if (containingFile != null) {
@@ -97,6 +97,7 @@ class ClassFilterEditorAddDialog extends DialogWrapper {
     return JavaPsiFacade.getInstance(psiManager.getProject()).findClass(classQName, GlobalSearchScope.allScope(myProject));
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return myClassName.getTextField();
   }
@@ -105,6 +106,7 @@ class ClassFilterEditorAddDialog extends DialogWrapper {
     return myClassName.getText();
   }
 
+  @Override
   protected String getDimensionServiceKey(){
     return "#com.intellij.debugger.ui.breakpoints.BreakpointsConfigurationDialogFactory.BreakpointsConfigurationDialog.AddFieldBreakpointDialog";
   }

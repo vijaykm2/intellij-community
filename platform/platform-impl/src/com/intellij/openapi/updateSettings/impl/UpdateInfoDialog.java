@@ -1,140 +1,213 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.updateSettings.impl;
 
-import com.intellij.CommonBundle;
+import com.intellij.execution.CommandLineUtil;
 import com.intellij.ide.BrowserUtil;
 import com.intellij.ide.IdeBundle;
+import com.intellij.ide.actions.WhatsNewAction;
 import com.intellij.ide.plugins.IdeaPluginDescriptor;
-import com.intellij.openapi.application.ApplicationInfo;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ApplicationNamesInfo;
-import com.intellij.openapi.application.PathManager;
-import com.intellij.openapi.application.ex.ApplicationInfoEx;
+import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.notification.Notification;
+import com.intellij.notification.NotificationListener;
+import com.intellij.notification.NotificationType;
+import com.intellij.openapi.application.*;
+import com.intellij.openapi.application.ex.ApplicationEx;
+import com.intellij.openapi.application.impl.ApplicationImpl;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.PerformInBackgroundOption;
+import com.intellij.openapi.progress.ProcessCanceledException;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.Task;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.ActionCallback;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.ui.BrowserHyperlinkListener;
-import com.intellij.ui.JBColor;
-import com.intellij.ui.components.JBLabel;
-import com.intellij.util.Function;
+import com.intellij.ui.LicensingFacade;
+import com.intellij.util.SystemProperties;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.text.DateFormatUtil;
+import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.event.HyperlinkEvent;
 import java.awt.event.ActionEvent;
 import java.io.File;
-import java.io.IOException;
-import java.util.Collection;
-import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.*;
+
+import static com.intellij.openapi.updateSettings.impl.UpdateCheckerComponent.SELF_UPDATE_STARTED_FOR_BUILD_PROPERTY;
+import static com.intellij.openapi.util.Pair.pair;
 
 /**
  * @author pti
  */
-class UpdateInfoDialog extends AbstractUpdateDialog {
+public final class UpdateInfoDialog extends AbstractUpdateDialog {
+  private final Project myProject;
   private final UpdateChannel myUpdatedChannel;
-  private final boolean myForceHttps;
   private final Collection<PluginDownloader> myUpdatedPlugins;
-  private final BuildInfo myLatestBuild;
-  private final PatchInfo myPatch;
+  private final BuildInfo myNewBuild;
+  private final UpdateChain myPatches;
   private final boolean myWriteProtected;
+  private final @Nullable Pair<@NlsContexts.Label String, Boolean> myLicenseInfo;
+  private final File myTestPatch;
+  private final AbstractAction myWhatsNewAction;
 
-  protected UpdateInfoDialog(@NotNull UpdateChannel channel,
-                             boolean enableLink,
-                             boolean forceHttps,
-                             Collection<PluginDownloader> updatedPlugins,
-                             Collection<IdeaPluginDescriptor> incompatiblePlugins) {
+  public UpdateInfoDialog(@Nullable Project project,
+                          @NotNull UpdateChannel channel,
+                          @NotNull BuildInfo newBuild,
+                          @Nullable UpdateChain patches,
+                          boolean enableLink,
+                          @Nullable Collection<PluginDownloader> updatedPlugins,
+                          @Nullable Collection<? extends IdeaPluginDescriptor> incompatiblePlugins) {
     super(enableLink);
+    myProject = project;
     myUpdatedChannel = channel;
-    myForceHttps = forceHttps;
     myUpdatedPlugins = updatedPlugins;
-    myLatestBuild = channel.getLatestBuild();
-    myPatch = myLatestBuild != null ? myLatestBuild.findPatchForCurrentBuild() : null;
-    myWriteProtected = myPatch != null && !new File(PathManager.getHomePath()).canWrite();
-    getCancelAction().putValue(DEFAULT_ACTION, Boolean.TRUE);
-    if (myLatestBuild != null) {
-      initLicensingInfo(myUpdatedChannel, myLatestBuild);
-    }
+    myNewBuild = newBuild;
+    myPatches = patches;
+    myWriteProtected = myPatches != null && !SystemInfo.isWindows && !Files.isWritable(Paths.get(PathManager.getHomePath()));
+    myLicenseInfo = getLicensingInfo(myUpdatedChannel, myNewBuild);
+    myTestPatch = null;
+    myWhatsNewAction = null;
     init();
-
-    if (incompatiblePlugins != null && !incompatiblePlugins.isEmpty()) {
-      String list = StringUtil.join(incompatiblePlugins, new Function<IdeaPluginDescriptor, String>() {
-        @Override
-        public String fun(IdeaPluginDescriptor downloader) {
-          return downloader.getName();
-        }
-      }, "<br/>");
+    if (!ContainerUtil.isEmpty(incompatiblePlugins)) {
+      String list = StringUtil.join(incompatiblePlugins, IdeaPluginDescriptor::getName, "<br/>");
       setErrorText(IdeBundle.message("updates.incompatible.plugins.found", incompatiblePlugins.size(), list));
+    }
+    IdeUpdateUsageTriggerCollector.triggerUpdateDialog(myPatches, ApplicationManager.getApplication().isRestartCapable());
+  }
+
+  @SuppressWarnings("HardCodedStringLiteral")
+  UpdateInfoDialog(@Nullable Project project, UpdateChannel channel, BuildInfo newBuild, UpdateChain patches, @Nullable File patchFile) {
+    super(true);
+    myProject = project;
+    myUpdatedChannel = channel;
+    myUpdatedPlugins = null;
+    myNewBuild = newBuild;
+    myPatches = patches;
+    myWriteProtected = false;
+    myLicenseInfo = getLicensingInfo(myUpdatedChannel, myNewBuild);
+    myTestPatch = patchFile;
+    myWhatsNewAction = project == null ? null : new AbstractAction("[T] What's New") {
+      @Override
+      public void actionPerformed(ActionEvent e) {
+        WhatsNewAction.openWhatsNewFile(project, myNewBuild.getBlogPost(), myNewBuild.getMessage());
+        close(OK_EXIT_CODE);
+      }
+    };
+    init();
+    setTitle("[TEST] " + getTitle());
+  }
+
+  private static @Nullable Pair<String, Boolean> getLicensingInfo(UpdateChannel channel, BuildInfo build) {
+    LicensingFacade la = LicensingFacade.getInstance();
+    if (la == null) return null;
+
+    if (channel.getLicensing() == UpdateChannel.Licensing.EAP) {
+      return pair(IdeBundle.message("updates.channel.bundled.key"), Boolean.FALSE);
+    }
+
+    Date releaseDate = build.getReleaseDate();
+    if (releaseDate == null) return null;
+
+    if (!la.isApplicableForProduct(releaseDate)) {
+      return pair(IdeBundle.message("updates.paid.upgrade", channel.getEvalDays()), Boolean.TRUE);
+    }
+    if (la.isPerpetualForProduct(releaseDate)) {
+      return pair(IdeBundle.message("updates.fallback.build"), Boolean.FALSE);
+    }
+
+    Date expiration = la.getLicenseExpirationDate();
+    if (expiration != null) {
+      return pair(IdeBundle.message("updates.interim.build", DateFormatUtil.formatAboutDialogDate(expiration)), Boolean.FALSE);
+    }
+    else {
+      return null;
     }
   }
 
   @Override
   protected JComponent createCenterPanel() {
-    return new UpdateInfoPanel().myPanel;
+    String licenseInfo = myLicenseInfo != null ? myLicenseInfo.first : null;
+    boolean licenseWarn = myLicenseInfo != null && myLicenseInfo.second;
+    return UpdateInfoPanel.create(myNewBuild, myPatches, myTestPatch, myWriteProtected, licenseInfo, licenseWarn, myEnableLink, myUpdatedChannel);
   }
 
-  @NotNull
   @Override
-  protected Action[] createActions() {
-    List<Action> actions = ContainerUtil.newArrayList();
+  protected @NotNull DialogStyle getStyle() {
+    return DialogStyle.COMPACT;
+  }
 
-    if (myPatch != null) {
-      boolean canRestart = ApplicationManager.getApplication().isRestartCapable();
-      String button = IdeBundle.message(canRestart ? "updates.download.and.restart.button" : "updates.download.and.install.button");
-      actions.add(new AbstractAction(button) {
-        {
-          setEnabled(!myWriteProtected);
-        }
+  @Override
+  protected JComponent createSouthPanel() {
+    JComponent component = super.createSouthPanel();
+    component.setBorder(JBUI.Borders.empty(8));
+    return component;
+  }
 
+  @Override
+  protected Action @NotNull [] createLeftSideActions() {
+    return new Action[]{
+      new AbstractAction(IdeBundle.message("updates.ignore.update.button")) {
         @Override
         public void actionPerformed(ActionEvent e) {
-          downloadPatchAndRestart();
-        }
-      });
-    }
-
-    List<ButtonInfo> buttons = myLatestBuild.getButtons();
-    if (buttons.isEmpty()) {
-      actions.add(new AbstractAction(IdeBundle.message("updates.more.info.button")) {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-          openDownloadPage();
-        }
-      });
-    }
-    else {
-      for (ButtonInfo info : buttons) {
-        if (!info.isDownload() || myPatch == null) {
-          actions.add(new ButtonAction(info));
+          String build = myNewBuild.getNumber().asStringWithoutProductCode();
+          UpdateSettings.getInstance().getIgnoredBuildNumbers().add(build);
+          doCancelAction();
         }
       }
-    }
+    };
+  }
 
-    actions.add(new AbstractAction(IdeBundle.message("updates.ignore.update.button")) {
-      @Override
-      public void actionPerformed(ActionEvent e) {
-        String build = myLatestBuild.getNumber().asStringWithoutProductCode();
-        UpdateSettings.getInstance().getIgnoredBuildNumbers().add(build);
-        doCancelAction();
-      }
-    });
-
+  @Override
+  protected Action @NotNull [] createActions() {
+    List<Action> actions = new ArrayList<>();
     actions.add(getCancelAction());
 
-    return actions.toArray(new Action[actions.size()]);
+    AbstractAction updateButton = null;
+    if (myPatches != null || myTestPatch != null) {
+      boolean canRestart = ApplicationManager.getApplication().isRestartCapable();
+      String name = canRestart ? IdeBundle.message("updates.download.and.restart.button") : IdeBundle.message("updates.apply.manually.button");
+      updateButton = new AbstractAction(name) {
+        @Override
+        public void actionPerformed(ActionEvent e) {
+          close(OK_EXIT_CODE);
+          downloadPatchAndRestart();
+        }
+      };
+      updateButton.setEnabled(!myWriteProtected);
+    }
+    else {
+      String downloadUrl = myNewBuild.getDownloadUrl();
+      if (downloadUrl != null) {
+        updateButton = new AbstractAction(IdeBundle.message("updates.download.button")) {
+          @Override
+          public void actionPerformed(ActionEvent e) {
+            close(OK_EXIT_CODE);
+            BrowserUtil.browse(IdeUrlTrackingParametersProvider.getInstance().augmentUrl(downloadUrl));
+          }
+        };
+      }
+    }
+
+    if (updateButton != null) {
+      updateButton.putValue(DEFAULT_ACTION, Boolean.TRUE);
+      actions.add(updateButton);
+    }
+
+    if (myWhatsNewAction != null) {
+      actions.add(myWhatsNewAction);
+    }
+
+    return actions.toArray(new Action[0]);
   }
 
   @Override
@@ -143,110 +216,110 @@ class UpdateInfoDialog extends AbstractUpdateDialog {
   }
 
   private void downloadPatchAndRestart() {
-    try {
-      UpdateChecker.installPlatformUpdate(myPatch, myLatestBuild.getNumber(), myForceHttps);
-
-      if (myUpdatedPlugins != null && !myUpdatedPlugins.isEmpty()) {
-        new PluginUpdateInfoDialog(getContentPanel(), myUpdatedPlugins).show();
-      }
-
-      restart();
+    if (!ContainerUtil.isEmpty(myUpdatedPlugins) && !new PluginUpdateDialog(myProject, myUpdatedPlugins, null).showAndGet()) {
+      return;  // update cancelled
     }
-    catch (IOException e) {
-      Logger.getInstance(UpdateChecker.class).warn(e);
-      if (Messages.showOkCancelDialog(IdeBundle.message("update.downloading.patch.error", e.getMessage()),
-                                      IdeBundle.message("updates.error.connection.title"),
-                                      IdeBundle.message("updates.download.page.button"), CommonBundle.message("button.cancel"),
-                                      Messages.getErrorIcon()) == Messages.OK) {
-        openDownloadPage();
-      }
-    }
+    downloadPatchAndRestart(myNewBuild, myUpdatedChannel, myPatches, myTestPatch, myUpdatedPlugins, null);
   }
 
-  private void openDownloadPage() {
-    BrowserUtil.browse(myUpdatedChannel.getHomePageUrl());
-  }
+  public static void downloadPatchAndRestart(@NotNull BuildInfo newBuild,
+                                             @NotNull UpdateChannel updatedChannel,
+                                             @NotNull UpdateChain patches,
+                                             @Nullable File testPatch,
+                                             @Nullable Collection<PluginDownloader> updatedPlugins,
+                                             @Nullable ActionCallback callback) {
+    new Task.Backgroundable(null, IdeBundle.message("update.preparing"), true, PerformInBackgroundOption.DEAF) {
+      @Override
+      public void run(@NotNull ProgressIndicator indicator) {
+        String[] command;
+        try {
+          if (testPatch != null) {
+            command = UpdateInstaller.preparePatchCommand(testPatch, indicator);
+          }
+          else {
+            List<File> files = UpdateInstaller.downloadPatchChain(patches.getChain(), indicator);
+            command = UpdateInstaller.preparePatchCommand(files, indicator);
+          }
+        }
+        catch (ProcessCanceledException e) {
+          if (callback != null) {
+            callback.setRejected();
+          }
+          throw e;
+        }
+        catch (Exception e) {
+          Logger.getInstance(UpdateInstaller.class).warn(e);
 
-  private static class ButtonAction extends AbstractAction {
-    private final String myUrl;
+          if (callback != null) {
+            callback.setRejected();
+          }
 
-    private ButtonAction(ButtonInfo info) {
-      super(info.getName());
-      myUrl = info.getUrl();
-    }
+          String title = IdeBundle.message("updates.notification.title", ApplicationNamesInfo.getInstance().getFullProductName());
+          String downloadUrl = UpdateInfoPanel.downloadUrl(newBuild, updatedChannel);
+          String message = IdeBundle.message("update.downloading.patch.error", e.getMessage(), downloadUrl);
+          UpdateChecker.getNotificationGroup().createNotification(
+            title, message, NotificationType.ERROR, NotificationListener.URL_OPENING_LISTENER, "ide.patch.download.failed").notify(null);
 
-    @Override
-    public void actionPerformed(ActionEvent e) {
-      BrowserUtil.browse(myUrl);
-    }
-  }
+          return;
+        }
 
-  private class UpdateInfoPanel {
-    private JPanel myPanel;
-    private JEditorPane myUpdateMessage;
-    private JBLabel myCurrentVersion;
-    private JBLabel myNewVersion;
-    private JBLabel myPatchLabel;
-    private JBLabel myPatchInfo;
-    private JEditorPane myMessageArea;
-    private JEditorPane myLicenseArea;
+        if (!ContainerUtil.isEmpty(updatedPlugins)) {
+          UpdateInstaller.installPluginUpdates(updatedPlugins, indicator);
+        }
 
-    public UpdateInfoPanel() {
-      ApplicationInfo appInfo = ApplicationInfo.getInstance();
-      ApplicationNamesInfo appNames = ApplicationNamesInfo.getInstance();
+        if (callback != null) {
+          callback.setDone();
+        }
 
-      String message = myLatestBuild.getMessage();
-      final String fullProductName = appNames.getFullProductName();
-      if (message == null) {
-        message = IdeBundle.message("updates.new.version.available", fullProductName);
-      }
-      final String homePageUrl = myUpdatedChannel.getHomePageUrl();
-      if (!StringUtil.isEmptyOrSpaces(homePageUrl)) {
-        final int idx = message.indexOf(fullProductName);
-        if (idx >= 0) {
-          message = message.substring(0, idx) + 
-                    "<a href=\'" + homePageUrl + "\'>" + fullProductName + "</a>" + message.substring(idx + fullProductName.length());
+        if (ApplicationManager.getApplication().isRestartCapable()) {
+          if (indicator.isShowing()) {
+            restartLaterAndRunCommand(command);
+          }
+          else {
+            String title = IdeBundle.message("updates.notification.title", ApplicationNamesInfo.getInstance().getFullProductName());
+            String message = IdeBundle.message("update.ready.message");
+            NotificationListener.Adapter listener = new NotificationListener.Adapter() {
+              @Override
+              protected void hyperlinkActivated(@NotNull Notification notification, @NotNull HyperlinkEvent e) {
+                restartLaterAndRunCommand(command);
+              }
+            };
+            UpdateChecker.getNotificationGroup().createNotification(
+              title, message, NotificationType.INFORMATION, listener, "ide.update.suggest.restart").notify(null);
+          }
+        }
+        else {
+          showPatchInstructions(command);
         }
       }
-      configureMessageArea(myUpdateMessage, message, null, BrowserHyperlinkListener.INSTANCE);
+    }.queue();
+  }
 
-      myCurrentVersion.setText(
-        formatVersion(
-          appInfo.getFullVersion() + (appInfo instanceof ApplicationInfoEx && ((ApplicationInfoEx)appInfo).isEAP() ? " EAP": ""),
-          appInfo.getBuild().asStringWithoutProductCode()
-        )
-      );
-      myNewVersion.setText(formatVersion(myLatestBuild.getVersion(), myLatestBuild.getNumber().asStringWithoutProductCode()));
+  private static void restartLaterAndRunCommand(String[] command) {
+    IdeUpdateUsageTriggerCollector.trigger("dialog.update.started");
+    PropertiesComponent.getInstance().setValue(SELF_UPDATE_STARTED_FOR_BUILD_PROPERTY, ApplicationInfo.getInstance().getBuild().asString());
+    ApplicationImpl application = (ApplicationImpl)ApplicationManager.getApplication();
+    application.invokeLater(() -> application.restart(ApplicationEx.EXIT_CONFIRMED | ApplicationEx.SAVE, command));
+  }
 
-      if (myPatch != null) {
-        myPatchInfo.setText(myPatch.getSize() + " MB");
-      }
-      else {
-        myPatchLabel.setVisible(false);
-        myPatchInfo.setVisible(false);
-      }
-
-      if (myWriteProtected) {
-        message = IdeBundle.message("updates.write.protected", appNames.getProductName(), PathManager.getHomePath());
-        configureMessageArea(myMessageArea, message, JBColor.RED, null);
-      }
-      else {
-        configureMessageArea(myMessageArea);
-      }
-
-      if (myLicenseInfo != null) {
-        configureMessageArea(myLicenseArea, myLicenseInfo, myPaidUpgrade ? JBColor.RED : null, null);
-      }
+  private static void showPatchInstructions(String[] command) {
+    String product = StringUtil.toLowerCase(ApplicationNamesInfo.getInstance().getFullProductName().replace(' ', '-'));
+    String version = ApplicationInfo.getInstance().getFullVersion();
+    File file = new File(SystemProperties.getUserHome(), product + "-" + version + "-patch." + (SystemInfo.isWindows ? "cmd" : "sh"));
+    try {
+      String cmdLine = StringUtil.join(CommandLineUtil.toCommandLine(Arrays.asList(command)), " ");
+      @NonNls String text = (SystemInfo.isWindows ? "@echo off\n\n" : "#!/bin/sh\n\n") + cmdLine;
+      FileUtil.writeToFile(file, text);
+      FileUtil.setExecutable(file);
+    }
+    catch (Exception e) {
+      Logger.getInstance(UpdateInstaller.class).error(e);
+      return;
     }
 
-    private String formatVersion(String version, String build) {
-      String[] parts = version.split("\\.", 3);
-      String major = parts.length > 0 ? parts[0] : "0";
-      String minor = parts.length > 1 ? parts[1] : "0";
-      String patch = parts.length > 2 ? parts[2] : "0";
-      version = major + '.' + minor + '.' + patch;
-
-      return IdeBundle.message("updates.version.info", version, build);
-    }
+    String title = IdeBundle.message("updates.dialog.title", ApplicationNamesInfo.getInstance().getFullProductName());
+    String message = IdeBundle.message("update.apply.manually.message", file);
+    IdeUpdateUsageTriggerCollector.trigger("dialog.manual.patch.prepared");
+    ApplicationManager.getApplication().invokeLater(() -> Messages.showInfoMessage(message, title));
   }
 }

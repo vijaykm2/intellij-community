@@ -1,67 +1,47 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.xml;
 
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.roots.ProjectFileIndex;
-import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.roots.TestSourcesFilter;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.util.ClassUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author peter
  */
-public class DomJavaUtil {
+public final class DomJavaUtil {
   private DomJavaUtil() {
   }
 
   @Nullable
-  public static PsiClass findClass(@Nullable String name, @NotNull PsiFile file, @Nullable final Module module, @Nullable final GlobalSearchScope searchScope) {
+  public static PsiClass findClass(@Nullable String name,
+                                   @NotNull PsiFile file,
+                                   @Nullable final Module module,
+                                   @Nullable final GlobalSearchScope searchScope) {
+    return findClass(name, file, module, searchScope, false);
+  }
+
+  @Nullable
+  public static PsiClass findClass(@Nullable String name,
+                                   @NotNull PsiFile file,
+                                   @Nullable final Module module,
+                                   @Nullable GlobalSearchScope searchScope, boolean searchAnonymous) {
     if (name == null) return null;
-    if (name.indexOf('$')>=0) name = name.replace('$', '.');
-
-    final GlobalSearchScope scope;
-    if (searchScope == null) {
-
-      if (module != null) {
-        file = file.getOriginalFile();
-        VirtualFile virtualFile = file.getVirtualFile();
-        if (virtualFile == null) {
-          scope = GlobalSearchScope.moduleRuntimeScope(module, true);
-        }
-        else {
-          ProjectFileIndex fileIndex = ProjectRootManager.getInstance(file.getProject()).getFileIndex();
-          boolean tests = fileIndex.isInTestSourceContent(virtualFile);
-          scope = module.getModuleRuntimeScope(tests);
-        }
-      }
-      else {
-        scope = file.getResolveScope();
-      }
+    searchScope = searchScope != null ? searchScope : calcScope(file, module);
+    final PsiClass aClass;
+    if (searchAnonymous) {
+      aClass = ClassUtil.findPsiClass(file.getManager(), name, null, false, searchScope);
     }
     else {
-      scope = searchScope;
+      String fqn = name.indexOf('$') >= 0 ? name.replace('$', '.') : name;
+      aClass = JavaPsiFacade.getInstance(file.getProject()).findClass(fqn, searchScope);
     }
-
-    final PsiClass aClass = JavaPsiFacade.getInstance(file.getProject()).findClass(name, scope);
     if (aClass != null) {
       assert aClass.isValid() : name;
     }
@@ -70,10 +50,30 @@ public class DomJavaUtil {
 
   @Nullable
   public static PsiClass findClass(@Nullable String name, @NotNull DomElement element) {
+    return findClass(name, element, false);
+  }
+
+  @Nullable
+  public static PsiClass findClass(@Nullable String name, @NotNull DomElement element, boolean searchAnonymous) {
     assert element.isValid();
     if (DomUtil.hasXml(element)) {
-      return findClass(name, DomUtil.getFile(element), element.getModule(), element.getResolveScope());
+      return findClass(name, DomUtil.getFile(element), element.getModule(), element.getResolveScope(), searchAnonymous);
     }
     return null;
+  }
+
+  @NotNull
+  private static GlobalSearchScope calcScope(@NotNull PsiFile file, @Nullable Module module) {
+    if (module == null) {
+      return file.getResolveScope();
+    }
+
+    file = file.getOriginalFile();
+    VirtualFile virtualFile = file.getVirtualFile();
+    if (virtualFile == null) {
+      return GlobalSearchScope.moduleRuntimeScope(module, true);
+    }
+
+    return module.getModuleRuntimeScope(TestSourcesFilter.isTestSources(virtualFile, file.getProject()));
   }
 }

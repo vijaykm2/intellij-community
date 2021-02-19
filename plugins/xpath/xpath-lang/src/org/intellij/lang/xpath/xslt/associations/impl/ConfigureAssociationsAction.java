@@ -18,21 +18,22 @@ package org.intellij.lang.xpath.xslt.associations.impl;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.actionSystem.LangDataKeys;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiFile;
+import org.intellij.plugins.xpathView.XPathBundle;
+import org.jetbrains.annotations.NotNull;
 
 class ConfigureAssociationsAction extends AnAction {
-    public ConfigureAssociationsAction() {
-        super("Configure...");
+    ConfigureAssociationsAction() {
+        super(XPathBundle.message("action.configure.associations.text"));
     }
 
-    public void actionPerformed(final AnActionEvent e) {
-        final Project project = CommonDataKeys.PROJECT.getData(e.getDataContext());
+    @Override
+    public void actionPerformed(@NotNull final AnActionEvent e) {
+        final Project project = e.getProject();
         if (project == null) return;
 
-        final PsiFile file = CommonDataKeys.PSI_FILE.getData(e.getDataContext());
+        final PsiFile file = e.getData(CommonDataKeys.PSI_FILE);
         FileAssociationsConfigurable.editAssociations(project, file);
     }
 }

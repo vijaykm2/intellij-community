@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.typeCook.deductive.resolver;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -28,29 +14,27 @@ import com.intellij.refactoring.typeCook.deductive.PsiExtendedTypeVisitor;
 import com.intellij.refactoring.typeCook.deductive.builder.Constraint;
 import com.intellij.refactoring.typeCook.deductive.builder.ReductionSystem;
 import com.intellij.refactoring.typeCook.deductive.builder.Subtype;
-import com.intellij.util.containers.EmptyIterator;
 import com.intellij.util.graph.DFSTBuilder;
 import com.intellij.util.graph.Graph;
-import gnu.trove.TIntArrayList;
-import gnu.trove.TIntProcedure;
-import gnu.trove.TObjectIntHashMap;
+import it.unimi.dsi.fastutil.ints.IntList;
+import it.unimi.dsi.fastutil.ints.IntListIterator;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
-/**
- * @author db
- */
-public class ResolverTree {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.typeCook.deductive.resolver.ResolverTree");
+public final class ResolverTree {
+  private static final Logger LOG = Logger.getInstance(ResolverTree.class);
 
   private ResolverTree[] mySons = new ResolverTree[0];
   private final BindingFactory myBindingFactory;
   private Binding myCurrentBinding;
   private final SolutionHolder mySolutions;
   private final Project myProject;
-  private final TObjectIntHashMap<PsiTypeVariable> myBindingDegree; //How many times this type variable is bound in the system
+  private final Object2IntMap<PsiTypeVariable> myBindingDegree; //How many times this type variable is bound in the system
   private final Settings mySettings;
-  private boolean mySolutionFound = false;
+  private boolean mySolutionFound;
 
   private Set<Constraint> myConstraints;
 
@@ -77,10 +61,10 @@ public class ResolverTree {
   }
 
   private static class PsiTypeVarCollector extends PsiExtendedTypeVisitor {
-    final Set<PsiTypeVariable> mySet = new HashSet<PsiTypeVariable>();
+    final Set<PsiTypeVariable> mySet = new HashSet<>();
 
     @Override
-    public Object visitTypeVariable(final PsiTypeVariable var) {
+    public Object visitTypeVariable(@NotNull final PsiTypeVariable var) {
       mySet.add(var);
 
       return null;
@@ -93,7 +77,7 @@ public class ResolverTree {
   }
 
   private boolean isBoundElseWhere(final PsiTypeVariable var) {
-    return myBindingDegree.get(var) != 1;
+    return myBindingDegree.getInt(var) != 1;
   }
 
   private boolean canBePruned(final Binding b) {
@@ -109,26 +93,24 @@ public class ResolverTree {
     return true;
   }
 
-  private TObjectIntHashMap<PsiTypeVariable> calculateDegree() {
-    final TObjectIntHashMap<PsiTypeVariable> result = new TObjectIntHashMap<PsiTypeVariable>();
-
-    for (final Constraint constr : myConstraints) {
-      final PsiTypeVarCollector collector = new PsiTypeVarCollector();
-
+  private Object2IntMap<PsiTypeVariable> calculateDegree() {
+    Object2IntMap<PsiTypeVariable> result=new Object2IntOpenHashMap<>();
+    for (Constraint constr : myConstraints) {
+      PsiTypeVarCollector collector = new PsiTypeVarCollector();
       setDegree(collector.getSet(constr.getRight()), result);
     }
-
     return result;
   }
 
-  private void setDegree(final Set<PsiTypeVariable> set, TObjectIntHashMap<PsiTypeVariable> result) {
-    for (final PsiTypeVariable var : set) {
-      result.increment(var);
+  private static void setDegree(final Set<PsiTypeVariable> set,
+                                Object2IntMap<PsiTypeVariable> result) {
+    for (PsiTypeVariable var : set) {
+      result.mergeInt(var, 1, Math::addExact);
     }
   }
 
   private Set<Constraint> apply(final Binding b) {
-    final Set<Constraint> result = new HashSet<Constraint>();
+    final Set<Constraint> result = new HashSet<>();
 
     for (final Constraint constr : myConstraints) {
       result.add(constr.apply(b));
@@ -138,7 +120,7 @@ public class ResolverTree {
   }
 
   private Set<Constraint> apply(final Binding b, final Set<Constraint> additional) {
-    final Set<Constraint> result = new HashSet<Constraint>();
+    final Set<Constraint> result = new HashSet<>();
 
     for (final Constraint constr : myConstraints) {
       result.add(constr.apply(b));
@@ -164,11 +146,11 @@ public class ResolverTree {
   }
 
   private void reduceCyclicVariables() {
-    final Set<PsiTypeVariable> nodes = new HashSet<PsiTypeVariable>();
-    final Set<Constraint> candidates = new HashSet<Constraint>();
+    final Set<PsiTypeVariable> nodes = new HashSet<>();
+    final Set<Constraint> candidates = new HashSet<>();
 
-    final Map<PsiTypeVariable, Set<PsiTypeVariable>> ins = new HashMap<PsiTypeVariable, Set<PsiTypeVariable>>();
-    final Map<PsiTypeVariable, Set<PsiTypeVariable>> outs = new HashMap<PsiTypeVariable, Set<PsiTypeVariable>>();
+    final Map<PsiTypeVariable, Set<PsiTypeVariable>> ins = new HashMap<>();
+    final Map<PsiTypeVariable, Set<PsiTypeVariable>> outs = new HashMap<>();
 
     for (final Constraint constraint : myConstraints) {
       final PsiType left = constraint.getLeft();
@@ -187,7 +169,7 @@ public class ResolverTree {
         Set<PsiTypeVariable> out = outs.get(rightVar);
 
         if (in == null) {
-          final Set<PsiTypeVariable> newIn = new HashSet<PsiTypeVariable>();
+          final Set<PsiTypeVariable> newIn = new HashSet<>();
 
           newIn.add(rightVar);
 
@@ -198,7 +180,7 @@ public class ResolverTree {
         }
 
         if (out == null) {
-          final Set<PsiTypeVariable> newOut = new HashSet<PsiTypeVariable>();
+          final Set<PsiTypeVariable> newOut = new HashSet<>();
 
           newOut.add(leftVar);
 
@@ -210,63 +192,59 @@ public class ResolverTree {
       }
     }
 
-    final DFSTBuilder<PsiTypeVariable> dfstBuilder = new DFSTBuilder<PsiTypeVariable>(new Graph<PsiTypeVariable>() {
+    final DFSTBuilder<PsiTypeVariable> dfstBuilder = new DFSTBuilder<>(new Graph<>() {
+      @NotNull
       @Override
       public Collection<PsiTypeVariable> getNodes() {
         return nodes;
       }
 
+      @NotNull
       @Override
       public Iterator<PsiTypeVariable> getIn(final PsiTypeVariable n) {
         final Set<PsiTypeVariable> in = ins.get(n);
 
         if (in == null) {
-          return EmptyIterator.getInstance();
+          return Collections.emptyIterator();
         }
 
         return in.iterator();
       }
 
+      @NotNull
       @Override
       public Iterator<PsiTypeVariable> getOut(final PsiTypeVariable n) {
         final Set<PsiTypeVariable> out = outs.get(n);
 
         if (out == null) {
-          return EmptyIterator.getInstance();
+          return Collections.emptyIterator();
         }
 
         return out.iterator();
       }
-
     });
 
-    final TIntArrayList sccs = dfstBuilder.getSCCs();
-    final Map<PsiTypeVariable, Integer> index = new HashMap<PsiTypeVariable, Integer>();
-
-    sccs.forEach(new TIntProcedure() {
-      int myTNumber = 0;
-
-      @Override
-      public boolean execute(int size) {
-        for (int j = 0; j < size; j++) {
-          index.put(dfstBuilder.getNodeByTNumber(myTNumber + j), myTNumber);
-        }
-        myTNumber += size;
-        return true;
+    IntList sccs = dfstBuilder.getSCCs();
+    Object2IntMap<PsiTypeVariable> index = new Object2IntOpenHashMap<>();
+    int tNumber = 0;
+    for (IntListIterator iterator = sccs.iterator(); iterator.hasNext(); ) {
+      int size = iterator.nextInt();
+      for (int j = 0; j < size; j++) {
+        index.put(dfstBuilder.getNodeByTNumber(tNumber + j), tNumber);
       }
-    });
+      tNumber += size;
+    }
 
-    for (final Constraint constraint : candidates) {
-      if (index.get(constraint.getLeft()).equals(index.get(constraint.getRight()))) {
+    for (Constraint constraint : candidates) {
+      if (index.getInt(constraint.getLeft()) == index.getInt(constraint.getRight())) {
         myConstraints.remove(constraint);
       }
     }
 
     Binding binding = myBindingFactory.create();
 
-    for (final PsiTypeVariable fromVar : index.keySet()) {
-      final PsiTypeVariable toVar = dfstBuilder.getNodeByNNumber(index.get(fromVar).intValue());
-
+    for (PsiTypeVariable fromVar : index.keySet()) {
+      PsiTypeVariable toVar = dfstBuilder.getNodeByNNumber(index.getInt(fromVar));
       if (!fromVar.equals(toVar)) {
         binding = binding.compose(myBindingFactory.create(fromVar, toVar));
 
@@ -285,9 +263,9 @@ public class ResolverTree {
   private void reduceTypeType(final Constraint constr) {
     final PsiType left = constr.getLeft();
     final PsiType right = constr.getRight();
-    final Set<Constraint> addendumRise = new HashSet<Constraint>();
-    final Set<Constraint> addendumSink = new HashSet<Constraint>();
-    final Set<Constraint> addendumWcrd = new HashSet<Constraint>();
+    final Set<Constraint> addendumRise = new HashSet<>();
+    final Set<Constraint> addendumSink = new HashSet<>();
+    final Set<Constraint> addendumWcrd = new HashSet<>();
 
     int numSons = 0;
     Binding riseBinding = myBindingFactory.rise(left, right, addendumRise);
@@ -368,7 +346,7 @@ public class ResolverTree {
       if (lowerClass != null && upperClass != null && !lowerClass.equals(upperClass)) {
         final PsiSubstitutor upperSubst = resultUpper.getSubstitutor();
         final PsiClass[] parents = upperClass.getSupers();
-        final PsiElementFactory factory = JavaPsiFacade.getInstance(myProject).getElementFactory();
+        final PsiElementFactory factory = JavaPsiFacade.getElementFactory(myProject);
 
         for (final PsiClass parent : parents) {
           final PsiSubstitutor superSubstitutor = TypeConversionUtil.getClassSubstitutor(parent, upperClass, upperSubst);
@@ -386,7 +364,7 @@ public class ResolverTree {
   }
 
   private PsiType[] getTypeRange(final PsiType lowerBound, final PsiType upperBound) {
-    Set<PsiType> range = new HashSet<PsiType>();
+    Set<PsiType> range = new HashSet<>();
 
     range.add(lowerBound);
     range.add(upperBound);
@@ -465,8 +443,8 @@ public class ResolverTree {
       reduceCyclicVariables();
     }
 
-    final Map<PsiTypeVariable, Constraint> myTypeVarConstraints = new HashMap<PsiTypeVariable, Constraint>();
-    final Map<PsiTypeVariable, Constraint> myVarTypeConstraints = new HashMap<PsiTypeVariable, Constraint>();
+    final Map<PsiTypeVariable, Constraint> myTypeVarConstraints = new HashMap<>();
+    final Map<PsiTypeVariable, Constraint> myVarTypeConstraints = new HashMap<>();
 
     for (final Constraint constr : myConstraints) {
       final PsiType left = constr.getLeft();
@@ -562,10 +540,10 @@ public class ResolverTree {
 
     //T1 < a < b < ...
     {
-      Set<PsiTypeVariable> haveLeftBound = new HashSet<PsiTypeVariable>();
+      Set<PsiTypeVariable> haveLeftBound = new HashSet<>();
 
       Constraint target = null;
-      Set<PsiTypeVariable> boundVariables = new HashSet<PsiTypeVariable>();
+      Set<PsiTypeVariable> boundVariables = new HashSet<>();
 
       for (final Constraint constr : myConstraints) {
         final PsiType leftType = constr.getLeft();

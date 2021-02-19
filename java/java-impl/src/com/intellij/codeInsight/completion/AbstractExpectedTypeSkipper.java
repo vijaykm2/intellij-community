@@ -16,8 +16,9 @@
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.ExpectedTypeInfo;
-import com.intellij.codeInsight.generation.OverrideImplementUtil;
+import com.intellij.codeInsight.generation.OverrideImplementExploreUtil;
 import com.intellij.codeInsight.lookup.LookupElement;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.psi.*;
 import com.intellij.psi.statistics.StatisticsManager;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -45,9 +46,11 @@ public class AbstractExpectedTypeSkipper extends CompletionPreselectSkipper {
   }
 
   private static Result getSkippingStatus(final LookupElement item, final CompletionLocation location) {
-    if (location.getCompletionType() != CompletionType.SMART) return Result.ACCEPT;
+    if (location.getCompletionType() != CompletionType.SMART && !hasEmptyPrefix(location)) return Result.ACCEPT;
+    if (DumbService.getInstance(location.getProject()).isDumb()) return Result.ACCEPT;
 
-    final PsiExpression expression = PsiTreeUtil.getParentOfType(location.getCompletionParameters().getPosition(), PsiExpression.class);
+    CompletionParameters parameters = location.getCompletionParameters();
+    PsiExpression expression = PsiTreeUtil.getParentOfType(parameters.getPosition(), PsiExpression.class);
     if (!(expression instanceof PsiNewExpression)) return Result.ACCEPT;
 
     final Object object = item.getObject();
@@ -65,13 +68,17 @@ public class AbstractExpectedTypeSkipper extends CompletionPreselectSkipper {
       }
     }
 
-    toImplement += OverrideImplementUtil.getMethodSignaturesToImplement(psiClass).size();
+    toImplement += OverrideImplementExploreUtil.getMapToOverrideImplement(psiClass, true)
+                                               .values()
+                                               .stream()
+                                               .filter(c -> ((PsiMethod)c.getElement()).hasModifierProperty(PsiModifier.ABSTRACT))
+                                               .count();
     if (toImplement > 2) return Result.ABSTRACT;
 
     final ExpectedTypeInfo[] infos = JavaCompletionUtil.EXPECTED_TYPES.getValue(location);
     boolean isDefaultType = false;
     if (infos != null) {
-      final PsiType type = JavaPsiFacade.getInstance(psiClass.getProject()).getElementFactory().createType(psiClass);
+      final PsiType type = JavaPsiFacade.getElementFactory(psiClass.getProject()).createType(psiClass);
       for (final ExpectedTypeInfo info : infos) {
         final PsiType infoType = TypeConversionUtil.erasure(info.getType().getDeepComponentType());
         final PsiType defaultType = TypeConversionUtil.erasure(info.getDefaultType().getDeepComponentType());
@@ -84,11 +91,17 @@ public class AbstractExpectedTypeSkipper extends CompletionPreselectSkipper {
 
     if (toImplement > 0) return Result.ACCEPT;
 
-    if (psiClass.hasModifierProperty(PsiModifier.ABSTRACT)) return Result.ABSTRACT;
+    if (psiClass.hasModifierProperty(PsiModifier.ABSTRACT)) {
+      if (toImplement == 0 && parameters.getCompletionType() == CompletionType.BASIC) return Result.ACCEPT;
+      return Result.ABSTRACT;
+    }
     if (!isDefaultType && CommonClassNames.JAVA_LANG_STRING.equals(psiClass.getQualifiedName())) return Result.STRING;
     if (CommonClassNames.JAVA_LANG_OBJECT.equals(psiClass.getQualifiedName())) return Result.NON_DEFAULT;
 
     return Result.ACCEPT;
   }
 
+  private static boolean hasEmptyPrefix(CompletionLocation location) {
+    return location.getCompletionParameters().getPosition().getTextRange().getStartOffset() == location.getCompletionParameters().getOffset();
+  }
 }

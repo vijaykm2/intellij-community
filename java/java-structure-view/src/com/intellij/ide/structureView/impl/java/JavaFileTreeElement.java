@@ -24,7 +24,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
+import java.util.Collections;
 
 public class JavaFileTreeElement extends PsiTreeElementBase<PsiClassOwner> implements ItemPresentation {
   public JavaFileTreeElement(PsiClassOwner file) {
@@ -33,16 +33,19 @@ public class JavaFileTreeElement extends PsiTreeElementBase<PsiClassOwner> imple
 
   @Override
   public String getPresentableText() {
-    return getElement().getName();
+    PsiClassOwner element = getElement();
+    return element == null ? "" : element.getName();
   }
 
   @Override
   @NotNull
   public Collection<StructureViewTreeElement> getChildrenBase() {
-    PsiClass[] classes = getElement().getClasses();
-    ArrayList<StructureViewTreeElement> result = new ArrayList<StructureViewTreeElement>();
+    PsiClassOwner element = getElement();
+    if (element == null) return Collections.emptyList();
+    PsiClass[] classes = element.getClasses();
+    ArrayList<StructureViewTreeElement> result = new ArrayList<>();
     for (PsiClass aClass : classes) {
-      result.add(new JavaClassTreeElement(aClass, false, new HashSet<PsiClass>()));
+      result.add(new JavaClassTreeElement(aClass, false));
     }
     return result;
 

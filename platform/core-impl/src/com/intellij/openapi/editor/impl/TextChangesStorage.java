@@ -16,8 +16,8 @@
 package com.intellij.openapi.editor.impl;
 
 import com.intellij.openapi.editor.TextChange;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.text.CharArrayUtil;
-import com.intellij.util.text.StringFactory;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -33,10 +33,9 @@ import java.util.List;
  * Not thread-safe.
  * 
  * @author Denis Zhdanov
- * @since 3/2/11 11:55 AM
  */
 public class TextChangesStorage {
-  private final List<ChangeEntry> myChanges = new ArrayList<ChangeEntry>();
+  private final List<ChangeEntry> myChanges = new ArrayList<>();
 
   /**
    * @return    list of changes stored previously via {@link #store(TextChange)}. Note that the changes offsets relate to initial
@@ -46,7 +45,7 @@ public class TextChangesStorage {
   @NotNull
   public List<TextChangeImpl> getChanges() {
     if (myChanges.isEmpty()) return Collections.emptyList();
-    List<TextChangeImpl> result = new ArrayList<TextChangeImpl>(myChanges.size());
+    List<TextChangeImpl> result = new ArrayList<>(myChanges.size());
 
     for (ChangeEntry changeEntry : myChanges) {
       result.add(changeEntry.change);
@@ -87,11 +86,11 @@ public class TextChangesStorage {
         break;
       }
       if (result == null) {
-        result = new ArrayList<TextChange>();
+        result = new ArrayList<>();
       }
       result.add(myChanges.get(i).change);
     }
-    return result == null ? Collections.<TextChange>emptyList() : result;
+    return result == null ? Collections.emptyList() : result;
   }
   
   public boolean isEmpty() {
@@ -109,18 +108,18 @@ public class TextChangesStorage {
   /**
    * Store given change merging it with previously stored ones if necessary.
    * <p/>
-   * <b>Note:</b> it's assumed that given change offsets are related to the current state of the text (<code>'client text'</code>),
+   * <b>Note:</b> it's assumed that given change offsets are related to the current state of the text ({@code 'client text'}),
    * i.e. with all stored changes applied to it. Example:
    * <ol>
-   *   <li>Say, we have initial text <code>'12345'</code>;</li>
+   *   <li>Say, we have initial text {@code '12345'};</li>
    *   <li>
-   *     Suppose the change <code>'replace text at [2; 3) range with 'ABC''</code> is applied to it (stored at the current object).
-   *     End-users see the text <code>'12ABC45'</code> now;
+   *     Suppose the change {@code 'replace text at [2; 3) range with 'ABC''} is applied to it (stored at the current object).
+   *     End-users see the text {@code '12ABC45'} now;
    *   </li>
    *   <li>
-   *     This method is called with change like <code>'replace text at [1; 6) range with 'XY''</code>. Change range is assumed to
-   *     be related to the text visible to end-user, not initial one (<code>'12ABC45'</code>, not <code>'12345'</code>).
-   *     I.e. the user will see text <code>'1XY5'</code> now;
+   *     This method is called with change like {@code 'replace text at [1; 6) range with 'XY''}. Change range is assumed to
+   *     be related to the text visible to end-user, not initial one ({@code '12ABC45'}, not {@code '12345'}).
+   *     I.e. the user will see text {@code '1XY5'} now;
    *   </li>
    * </ol>
    *
@@ -181,7 +180,7 @@ public class TextChangesStorage {
         ));
         return insertionIndex;
       }
-      else if (insertionIndex > 0 && !myChanges.isEmpty()) {
+      else if (insertionIndex > 0) {
         ChangeEntry changeEntry = myChanges.get(insertionIndex - 1);
         clientShift = changeEntry.clientStartOffset - changeEntry.change.getStart() + changeEntry.change.getDiff();
       }
@@ -266,7 +265,7 @@ public class TextChangesStorage {
       }
 
       // Check if given change intersects stored change range from the right.
-      if (newChangeStart < storedClientEnd && newChangeEnd >= storedClientEnd) {
+      if (newChangeEnd >= storedClientEnd) {
         CharSequence adjustedText = storedText.subSequence(0, newChangeStart - storedClientStart);
         TextChangeImpl adjusted = new TextChangeImpl(adjustedText, changeEntry.change.getStart(), changeEntry.change.getEnd());
         changeEntry.change = adjusted;
@@ -277,9 +276,7 @@ public class TextChangesStorage {
       }
 
       // Check if given change is left-adjacent to the stored change.
-      if (newChangeEnd == storedClientStart) {
-        changeEntry.clientStartOffset += changeDiff;
-      }
+      changeEntry.clientStartOffset += changeDiff;
     }
 
     if (insertionIndex >= 0) {
@@ -329,12 +326,12 @@ public class TextChangesStorage {
    * Example:
    * <pre>
    * <ul>
-   *   <li>Consider that original text is <code>'01234'</code>;</li>
+   *   <li>Consider that original text is {@code '01234'};</li>
    *   <li>
-   *     Consider that two changes are registered: <code>'insert text 'a' at index 1'</code> and
-   *     <code>'insert text 'bc' at index 3'</code>;
+   *     Consider that two changes are registered: {@code 'insert text 'a' at index 1'} and
+   *     {@code 'insert text 'bc' at index 3'};
    *   </li>
-   *   <li><code>'client text'</code> now is <code>'0a12bc34'</code>;</li>
+   *   <li>{@code 'client text'} now is {@code '0a12bc34'};</li>
    *   <li>This method is called with index '5' - symbol 'c' is returned;</li>
    * </ul>
    * </pre>
@@ -343,7 +340,7 @@ public class TextChangesStorage {
    * @param index             target symbol index (is assumed to be 'client text' index)
    * @return                  'client text' symbol at the given index
    */
-  public char charAt(@NotNull char[] originalData, int index) {
+  public char charAt(char @NotNull [] originalData, int index) {
     int changeIndex = getChangeIndex(index);
     if (changeIndex >= 0) {
       // Target char is contained at the stored change text
@@ -375,7 +372,7 @@ public class TextChangesStorage {
    * @param end               target substring end offset (against the 'client text'; exclusive)
    * @return                  substring for the given text range
    */
-  public CharSequence substring(@NotNull char[] originalData, int start, int end) {
+  public CharSequence substring(char @NotNull [] originalData, int start, int end) {
     if (myChanges.isEmpty()) {
       return new String(originalData, start, end - start);
     }
@@ -386,7 +383,7 @@ public class TextChangesStorage {
     int startChangeIndex = getChangeIndex(start);
     int endChangeIndex = getChangeIndex(end);
     
-    boolean substringAffectedByChanges = startChangeIndex >= 0 || endChangeIndex >= 0 || startChangeIndex != endChangeIndex;
+    boolean substringAffectedByChanges = startChangeIndex != endChangeIndex || startChangeIndex >= 0;
     int clientShift = 0;
     int originalStart = 0;
     if (startChangeIndex < 0) {
@@ -429,7 +426,7 @@ public class TextChangesStorage {
             break;
           }
         }
-        if (end >= clientStart && clientStart < clientEnd) {
+        if (clientStart < clientEnd) {
           int changeTextStartOffset = start <= clientStart ? 0 : start - clientStart;
           int length = Math.min(clientEnd, end) - Math.max(clientStart, start);
           CharArrayUtil.getChars(changeEntry.change.getText(), data, changeTextStartOffset, outputOffset, length);
@@ -442,42 +439,25 @@ public class TextChangesStorage {
     if (outputOffset < data.length) {
       System.arraycopy(originalData, originalStart, data, outputOffset, data.length - outputOffset);
     }
-    return StringFactory.createShared(data);
+    return new String(data);
   }
   
   /**
-   * Allows to find index of the change that contains given offset (assuming that it is used against <code>'client text'</code>)
+   * Allows to find index of the change that contains given offset (assuming that it is used against {@code 'client text'})
    * or index of the first change that lays after the given offset.
    * 
-   * @param clientOffset      target offset against the <code>'client text'</code>
+   * @param clientOffset      target offset against the {@code 'client text'}
    * @return                  non-negative value that defines index of the stored change that contains given client offset;
    *                          negative value that indicates index of the first change that lays beyond the given offset and
-   *                          is calculated by by <code>'-returned_index - 1'</code> formula
+   *                          is calculated by by {@code '-returned_index - 1'} formula
    */
   private int getChangeIndex(int clientOffset) {
-    if (myChanges.isEmpty()) {
-      return -1;
-    }
-    
-    int start = 0;
-    int end = myChanges.size() - 1;
-
-    // We inline binary search here because profiling indicates that it becomes bottleneck to use Collections.binarySearch().
-    while (start <= end) {
-      int i = (end + start) >>> 1;
+    return ObjectUtils.binarySearch(0, myChanges.size(), i->{
       ChangeEntry changeEntry = myChanges.get(i);
-      if (changeEntry.clientStartOffset > clientOffset) {
-        end = i - 1;
-        continue;
-      }
-      if (changeEntry.clientStartOffset + changeEntry.change.getText().length() < clientOffset) {
-        start = i + 1;
-        continue;
-      }
-      return i;
-    }
-
-    return -(start + 1);
+      if (changeEntry.clientStartOffset > clientOffset) return 1;
+      if (changeEntry.clientStartOffset + changeEntry.change.getText().length() < clientOffset) return -1;
+      return 0;
+    });
   }
 
   @Override

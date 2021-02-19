@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package hg4idea.test.merge;
 
 import com.intellij.openapi.util.Pair;
@@ -20,23 +6,22 @@ import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.merge.MergeData;
 import com.intellij.openapi.vcs.merge.MergeProvider;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.testFramework.EdtTestUtil;
 import hg4idea.test.HgPlatformTest;
 import hg4idea.test.HgTestUtil;
-import org.testng.Assert;
+import org.junit.Assert;
 import org.zmlx.hg4idea.HgVcs;
 
-import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
-import static com.intellij.openapi.vcs.Executor.cd;
-import static com.intellij.openapi.vcs.Executor.echo;
-import static com.intellij.openapi.vcs.Executor.touch;
+import static com.intellij.openapi.vcs.Executor.*;
 import static hg4idea.test.HgExecutor.*;
 
 public class HgMergeProviderTest extends HgPlatformTest {
   protected MergeProvider myMergeProvider;
 
   @Override
-  protected void setUp() throws Exception {
+  public void setUp() throws Exception {
     super.setUp();
 
     HgVcs vcs = HgVcs.getInstance(myProject);
@@ -45,7 +30,7 @@ public class HgMergeProviderTest extends HgPlatformTest {
     assertNotNull(myMergeProvider);
   }
 
-  public void testMerge2BranchesIfFileCreatedSeparatelyInBoth() throws VcsException {
+  public void testMerge2BranchesIfFileCreatedSeparatelyInBoth() throws Exception {
     cd(myRepository);
     hg("branch branchA");
     hg("commit -m 'create branchA' ");
@@ -62,7 +47,7 @@ public class HgMergeProviderTest extends HgPlatformTest {
     verifyMergeData(myRepository.findChild(aFile), "", "default", "a");
   }
 
-  public void testMerge2Branches() throws VcsException {
+  public void testMerge2Branches() throws Exception {
     cd(myRepository);
     String aFile = "A.txt";
     touch(aFile, "base");
@@ -95,7 +80,7 @@ public class HgMergeProviderTest extends HgPlatformTest {
     hg("commit -m " + COMMIT_MESSAGE);
     updateProject();
     //committing conflicting change
-    verifyMergeData(myChildRepo.findChild(childFile.getName()), "basic", "local", "server");
+    verifyMergeData(childFile, "basic", "local", "server");
   }
 
   public void testMergeWithUncommittedLocalChange() throws Exception {
@@ -113,7 +98,7 @@ public class HgMergeProviderTest extends HgPlatformTest {
     HgTestUtil.printToFile(childFile, "local");
     updateProject();
     //uncommitted conflicting change
-    verifyMergeData(myChildRepo.findChild(childFile.getName()), "basic", "local", "server");
+    verifyMergeData(childFile, "basic", "local", "server");
   }
 
   public void testFileAddedAndCommitted() throws Exception {
@@ -130,6 +115,7 @@ public class HgMergeProviderTest extends HgPlatformTest {
     //Add a file with the same name, but different content in child repository, commit.
     cd(myChildRepo);
     touch(bFile, "local");
+    myChildRepo.refresh(false, true);
     hg("add " + bFile);
     hg("commit -m " + COMMIT_MESSAGE);
 
@@ -165,7 +151,7 @@ public class HgMergeProviderTest extends HgPlatformTest {
    *
    * @return References to the files in parent and child repositories respectively.
    */
-  private Pair<VirtualFile, VirtualFile> prepareFileInBothRepositories() throws IOException {
+  private Pair<VirtualFile, VirtualFile> prepareFileInBothRepositories() {
     cd(myRepository);
     String aFile = "A.txt";
     touch(aFile, "basic");
@@ -183,15 +169,17 @@ public class HgMergeProviderTest extends HgPlatformTest {
     return Pair.create(parentFile, childFile);
   }
 
-  private void verifyMergeData(final VirtualFile file, String expectedBase, String expectedLocal, String expectedServer)
-    throws VcsException {
-    final MergeData mergeData = myMergeProvider.loadRevisions(file);
-    assertEquals(expectedBase, mergeData.ORIGINAL);
-    assertEquals(expectedServer, mergeData.LAST);
-    assertEquals(expectedLocal, mergeData.CURRENT);
+  private void verifyMergeData(final VirtualFile file,
+                               String expectedBase, String expectedLocal, String expectedServer) throws VcsException {
+    EdtTestUtil.runInEdtAndWait(() -> {
+      MergeData mergeData = myMergeProvider.loadRevisions(file);
+      assertEquals(expectedBase, mergeData.ORIGINAL);
+      assertEquals(expectedServer, mergeData.LAST);
+      assertEquals(expectedLocal, mergeData.CURRENT);
+    });
   }
 
   private static void assertEquals(String s, byte[] bytes) {
-    Assert.assertEquals(s, new String(bytes));
+    Assert.assertEquals(new String(bytes, StandardCharsets.UTF_8), s);
   }
 }

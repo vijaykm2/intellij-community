@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger.attach;
 
 import com.intellij.execution.ExecutionException;
@@ -23,6 +9,7 @@ import com.intellij.xdebugger.XDebugProcess;
 import com.intellij.xdebugger.XDebugProcessStarter;
 import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XDebuggerManager;
+import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.debugger.PyDebugRunner;
 import com.jetbrains.python.debugger.PyLocalPositionConverter;
 import com.jetbrains.python.debugger.PyRemoteDebugProcess;
@@ -31,13 +18,11 @@ import org.jetbrains.annotations.NotNull;
 import java.io.IOException;
 import java.net.ServerSocket;
 
-/**
- * @author traff
- */
 public class PyAttachToProcessDebugRunner extends PyDebugRunner {
-  private Project myProject;
+  private final Project myProject;
   private final int myPid;
-  private String mySdkPath;
+  private final String mySdkPath;
+  private static final int CONNECTION_TIMEOUT = 20000;
 
 
   public PyAttachToProcessDebugRunner(@NotNull Project project, int pid, String sdkPath) {
@@ -46,20 +31,20 @@ public class PyAttachToProcessDebugRunner extends PyDebugRunner {
     mySdkPath = sdkPath;
   }
 
-  public void launch() throws ExecutionException {
+  public XDebugSession launch() throws ExecutionException {
     FileDocumentManager.getInstance().saveAllDocuments();
 
-    int port = launchRemoteDebugServer();
+    return launchRemoteDebugServer();
   }
 
-  private int launchRemoteDebugServer() throws ExecutionException {
+  private XDebugSession launchRemoteDebugServer() throws ExecutionException {
     final ServerSocket serverSocket;
     try {
       //noinspection SocketOpenedButNotSafelyClosed
       serverSocket = new ServerSocket(0);
     }
     catch (IOException e) {
-      throw new ExecutionException("Failed to find free socket port", e);
+      throw new ExecutionException(PyBundle.message("debugger.attach.to.process.failed.to.find.free.socket.port"), e);
     }
 
 
@@ -68,9 +53,10 @@ public class PyAttachToProcessDebugRunner extends PyDebugRunner {
     final ExecutionResult result = state.execute(state.getEnvironment().getExecutor(), this);
 
     //start remote debug server
-    final XDebugSession session = XDebuggerManager.getInstance(myProject).
+    return XDebuggerManager.getInstance(myProject).
       startSessionAndShowTab(String.valueOf(myPid), null, new XDebugProcessStarter() {
-        @org.jetbrains.annotations.NotNull
+        @Override
+        @NotNull
         public XDebugProcess start(@NotNull final XDebugSession session) {
           PyRemoteDebugProcess pyDebugProcess =
             new PyRemoteDebugProcess(session, serverSocket, result.getExecutionConsole(),
@@ -80,13 +66,23 @@ public class PyAttachToProcessDebugRunner extends PyDebugRunner {
               }
 
               @Override
+              public int getConnectTimeout() {
+                return CONNECTION_TIMEOUT;
+              }
+
+              @Override
+              protected void detachDebuggedProcess() {
+                handleStop();
+              }
+
+              @Override
               protected String getConnectionMessage() {
-                return "Attaching to a process with PID=" + myPid;
+                return PyBundle.message("python.debugger.attaching.to.process.with.pid", myPid);
               }
 
               @Override
               protected String getConnectionTitle() {
-                return "Attaching Debugger";
+                return PyBundle.message("python.debugger.attaching");
               }
             };
           pyDebugProcess.setPositionConverter(new PyLocalPositionConverter());
@@ -97,7 +93,5 @@ public class PyAttachToProcessDebugRunner extends PyDebugRunner {
           return pyDebugProcess;
         }
       });
-
-    return serverSocket.getLocalPort();
   }
 }

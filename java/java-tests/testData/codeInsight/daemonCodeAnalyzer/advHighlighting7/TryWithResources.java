@@ -20,6 +20,8 @@ class C {
     }
   }
 
+  interface GenRT extends Gen<RuntimeException> { }
+
   void m1() {
     try (MyResource r = new MyResource()) { r.doSomething(); }
     catch (E1 | E2 | E3 ignore) { }
@@ -30,10 +32,10 @@ class C {
     try (<error descr="Unhandled exception from auto-closeable resource: C.E3">MyResource r = new MyResource()</error>) { }
     catch (E1 e) { }
 
-    try (MyResource r = <error descr="Unhandled exception: C.E1">new MyResource()</error>) { }
+    try (MyResource r = new <error descr="Unhandled exception: C.E1">MyResource</error>()) { }
     catch (E3 e) { }
 
-    try (MyResource r = <error descr="Unhandled exception: C.E1">new MyResource()</error>) { }
+    try (MyResource r = new <error descr="Unhandled exception: C.E1">MyResource</error>()) { }
 
     try (<error descr="Unhandled exception from auto-closeable resource: java.lang.Exception">I r = null</error>) { System.out.println(r); }
   }
@@ -86,5 +88,9 @@ class C {
 
   void m5() {
     try (<error descr="Unhandled exception from auto-closeable resource: C.E2">Gen<E2> gen = new Gen.Impl()</error>) { }
+  }
+
+  void m6() {
+    try (GenRT gen = null) { }
   }
 }

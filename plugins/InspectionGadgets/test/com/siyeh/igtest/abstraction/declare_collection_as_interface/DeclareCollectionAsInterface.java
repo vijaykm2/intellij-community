@@ -52,7 +52,7 @@ public class DeclareCollectionAsInterface
       <warning descr="Declaration of 'ArrayList' should probably be weakened to 'java.util.List'">ArrayList</warning> list22 = new ArrayList();
       System.out.println(list22.get(0));
 
-      <warning descr="Declaration of 'ArrayList' should probably be weakened to 'java.util.List'">ArrayList</warning><String> list33 = new ArrayList();
+      ArrayList<String> list33 = new ArrayList();
       System.out.println(list33.get(0));
     }
 
@@ -69,5 +69,22 @@ public class DeclareCollectionAsInterface
     stringToProperties("");
     <error descr="Incompatible types. Found: 'java.util.Properties', required: 'java.lang.String'">String s = stringToProperties2("");</error>
     <error descr="Incompatible types. Found: 'java.util.Properties', required: 'java.lang.String'">s = stringToProperties3("")</error>;
+  }
+
+  private Properties properties;
+  public void setProperties(Properties properties) {
+    if (properties == null) {
+      this.properties = new Properties();
+    } else {
+      this.properties = (Properties) properties.clone();
+    }
+  }
+}
+
+class Labeling<T> {
+  private Map<T, HashSet<Integer>> myLabels;
+
+  void addLabel(T node, HashSet<Integer> label){ // no warning on 'HashSet'
+    myLabels.put<error descr="'put(T, java.util.HashSet<java.lang.Integer>)' in 'java.util.Map' cannot be applied to '(java.util.HashSet<java.lang.Integer>, T)'">(label, node)</error>;
   }
 }

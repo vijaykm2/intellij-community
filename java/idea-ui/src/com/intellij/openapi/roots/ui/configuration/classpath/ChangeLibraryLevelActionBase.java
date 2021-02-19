@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.ui.configuration.classpath;
 
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.Presentation;
-import com.intellij.openapi.application.AccessToken;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -27,7 +12,6 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.OrderRootType;
 import com.intellij.openapi.roots.impl.libraries.LibraryEx;
-import com.intellij.openapi.roots.impl.libraries.LibraryTableBase;
 import com.intellij.openapi.roots.impl.libraries.LibraryTableImplUtil;
 import com.intellij.openapi.roots.impl.libraries.LibraryTypeServiceImpl;
 import com.intellij.openapi.roots.libraries.Library;
@@ -41,8 +25,9 @@ import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.PathUtil;
+import com.intellij.openapi.vfs.newvfs.ArchiveFileSystem;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -54,11 +39,8 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * @author nik
- */
 public abstract class ChangeLibraryLevelActionBase extends AnAction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.roots.ui.configuration.classpath.ChangeLibraryLevelActionBase");
+  private static final Logger LOG = Logger.getInstance(ChangeLibraryLevelActionBase.class);
   protected final Project myProject;
   protected final String myTargetTableLevel;
   protected final boolean myCopy;
@@ -67,7 +49,7 @@ public abstract class ChangeLibraryLevelActionBase extends AnAction {
     myProject = project;
     myTargetTableLevel = targetTableLevel;
     myCopy = copy;
-    getTemplatePresentation().setText(getActionName() + " to " + targetTableName + "...");
+    getTemplatePresentation().setText(JavaUiBundle.message(myCopy ? "action.text.library.0.to.1.copy" : "action.text.library.0.to.1.move", targetTableName));
   }
 
   protected abstract LibraryTableModifiableModelProvider getModifiableTableModelProvider();
@@ -89,13 +71,15 @@ public abstract class ChangeLibraryLevelActionBase extends AnAction {
       return null;
     }
 
-    final Set<File> fileToCopy = new LinkedHashSet<File>();
-    final Map<String, String> copiedFiles = new HashMap<String, String>();
+    final Set<File> fileToCopy = new LinkedHashSet<>();
+    final Map<String, String> copiedFiles = new HashMap<>();
     final String targetDirectoryPath = dialog.getDirectoryForFilesPath();
     if (targetDirectoryPath != null) {
       for (OrderRootType type : OrderRootType.getAllTypes()) {
         for (VirtualFile root : library.getFiles(type)) {
-          fileToCopy.add(VfsUtil.virtualToIoFile(PathUtil.getLocalFile(root)));
+          if (root.isInLocalFileSystem() || root.getFileSystem() instanceof ArchiveFileSystem) {
+            fileToCopy.add(VfsUtilCore.virtualToIoFile(VfsUtil.getLocalFile(root)));
+          }
         }
       }
       if (!copyOrMoveFiles(fileToCopy, targetDirectoryPath, copiedFiles)) {
@@ -103,18 +87,10 @@ public abstract class ChangeLibraryLevelActionBase extends AnAction {
       }
     }
 
-    final Library copied = ((LibraryTableBase.ModifiableModelEx)provider.getModifiableModel())
-      .createLibrary(StringUtil.nullize(dialog.getLibraryName()), library.getKind());
+    final Library copied = provider.getModifiableModel().createLibrary(StringUtil.nullize(dialog.getLibraryName()), library.getKind());
     final LibraryEx.ModifiableModelEx model = (LibraryEx.ModifiableModelEx)copied.getModifiableModel();
     LibraryEditingUtil.copyLibrary(library, copiedFiles, model);
-
-    AccessToken token = WriteAction.start();
-    try {
-      model.commit();
-    }
-    finally {
-      token.finish();
-    }
+    WriteAction.run(() -> model.commit());
     return copied;
   }
 
@@ -122,13 +98,13 @@ public abstract class ChangeLibraryLevelActionBase extends AnAction {
                                     @NotNull final String targetDirPath,
                                     final Map<String, String> copiedFiles) {
     final Ref<Boolean> finished = Ref.create(false);
-    new Task.Modal(myProject, (myCopy ? "Copying" : "Moving") + " Library Files", true) {
+    new Task.Modal(myProject, JavaUiBundle.message("progress.title.0.library.files", myCopy ? "Copying" : "Moving"), true) {
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
         final File targetDir = new File(FileUtil.toSystemDependentName(targetDirPath));
         for (final File from : filesToProcess) {
           indicator.checkCanceled();
-          final File to = FileUtil.findSequentNonexistentFile(targetDir, FileUtil.getNameWithoutExtension(from),
+          final File to = FileUtil.findSequentNonexistentFile(targetDir, FileUtilRt.getNameWithoutExtension(from.getName()),
                                                               FileUtilRt.getExtension(from.getName()));
           try {
             if (from.isDirectory()) {
@@ -149,9 +125,11 @@ public abstract class ChangeLibraryLevelActionBase extends AnAction {
             }
           }
           catch (IOException e) {
-            final String actionName = getActionName();
-            final String message = "Cannot " + actionName.toLowerCase() + " file " + from.getAbsolutePath() + ": " + e.getMessage();
-            Messages.showErrorDialog(ChangeLibraryLevelActionBase.this.myProject, message, "Cannot " + actionName);
+            String message = JavaUiBundle.message(myCopy ? "dialog.message.cannot.file.copy" : "dialog.message.cannot.file.move",
+                                                  from.getAbsolutePath(), e.getMessage());
+            String title = JavaUiBundle.message(
+              myCopy ? "dialog.title.cannot.change.library.0.copy" : "dialog.title.cannot.change.library.0.move");
+            Messages.showErrorDialog(ChangeLibraryLevelActionBase.this.myProject, message, title);
             LOG.info(e);
             return;
           }
@@ -165,35 +143,27 @@ public abstract class ChangeLibraryLevelActionBase extends AnAction {
       return false;
     }
 
-    new WriteAction() {
-      @Override
-      protected void run(Result result) throws Throwable {
-        for (Map.Entry<String, String> entry : copiedFiles.entrySet()) {
-          String fromPath = entry.getKey();
-          String toPath = entry.getValue();
-          LocalFileSystem.getInstance().refreshAndFindFileByPath(toPath);
-          if (!myCopy) {
-            final VirtualFile parent = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(new File(fromPath).getParentFile());
-            if (parent != null) {
-              parent.refresh(false, false);
-            }
+    WriteAction.run(() -> {
+      for (Map.Entry<String, String> entry : copiedFiles.entrySet()) {
+        String fromPath = entry.getKey();
+        String toPath = entry.getValue();
+        LocalFileSystem.getInstance().refreshAndFindFileByPath(toPath);
+        if (!myCopy) {
+          final VirtualFile parent = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(new File(fromPath).getParentFile());
+          if (parent != null) {
+            parent.refresh(false, false);
           }
         }
       }
-    }.execute();
+    });
     return true;
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final Presentation presentation = e.getPresentation();
     boolean enabled = isEnabled();
-    presentation.setVisible(enabled);
-    presentation.setEnabled(enabled);
-  }
-
-  private String getActionName() {
-    return myCopy ? "Copy" : "Move";
+    presentation.setEnabledAndVisible(enabled);
   }
 
   @Nullable

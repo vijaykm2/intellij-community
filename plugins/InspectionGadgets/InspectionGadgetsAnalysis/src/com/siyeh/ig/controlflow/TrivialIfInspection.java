@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2008 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,39 +17,44 @@ package com.siyeh.ig.controlflow;
 
 import com.intellij.codeInspection.CleanupLocalInspectionTool;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.ProblemHighlightType;
+import com.intellij.codeInspection.SetInspectionOptionFix;
+import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
+import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.*;
-import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtilCore;
-import com.intellij.util.Function;
-import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
+import com.siyeh.ig.DelegatingFix;
 import com.siyeh.ig.InspectionGadgetsFix;
-import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.BoolUtils;
+import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ControlFlowUtils;
-import com.siyeh.ig.psiutils.EquivalenceChecker;
-import org.jetbrains.annotations.NonNls;
+import com.siyeh.ig.style.ConditionalExpressionGenerator;
+import com.siyeh.ig.style.IfConditionalModel;
+import org.intellij.lang.annotations.Pattern;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.Collection;
+import javax.swing.*;
+import java.util.Objects;
 
 public class TrivialIfInspection extends BaseInspection implements CleanupLocalInspectionTool {
 
+  public boolean ignoreChainedIf = false;
+
+  @Pattern(VALID_ID_PATTERN)
   @Override
-  @NotNull
-  public String getID() {
+  public @NotNull String getID() {
     return "RedundantIfStatement";
   }
 
   @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("trivial.if.display.name");
+  public @Nullable JComponent createOptionsPanel() {
+    return new SingleCheckboxOptionsPanel(InspectionGadgetsBundle.message("trivial.if.option.ignore.chained"), this, "ignoreChainedIf");
   }
 
   @Override
@@ -58,28 +63,28 @@ public class TrivialIfInspection extends BaseInspection implements CleanupLocalI
   }
 
   @Override
-  @NotNull
-  protected String buildErrorString(Object... infos) {
+  protected @NotNull String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message("trivial.if.problem.descriptor");
   }
 
   @Override
-  public InspectionGadgetsFix buildFix(Object... infos) {
-    return new TrivialIfFix();
+  protected InspectionGadgetsFix @NotNull [] buildFixes(Object... infos) {
+    boolean chainedIf = (boolean)infos[0];
+    if (chainedIf) {
+      return new InspectionGadgetsFix[]{
+        new TrivialIfFix(),
+        new DelegatingFix(new SetInspectionOptionFix(
+          this, "ignoreChainedIf", InspectionGadgetsBundle.message("trivial.if.option.ignore.chained"), true))
+      };
+    }
+    return new InspectionGadgetsFix[]{new TrivialIfFix()};
   }
 
   private static class TrivialIfFix extends InspectionGadgetsFix {
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @Override
-    @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message(
-        "constant.conditional.expression.simplify.quickfix");
+    public @NotNull String getFamilyName() {
+      return InspectionGadgetsBundle.message("trivial.if.fix.family.name");
     }
 
     @Override
@@ -90,420 +95,109 @@ public class TrivialIfInspection extends BaseInspection implements CleanupLocalI
     }
   }
 
-  public static void simplify(PsiIfStatement statement) {
-    if (isSimplifiableAssignment(statement)) {
-      replaceSimplifiableAssignment(statement);
+  private static void simplify(PsiIfStatement statement) {
+    IfConditionalModel model = IfConditionalModel.from(statement, true);
+    if (model != null) {
+      ConditionalExpressionGenerator generator = ConditionalExpressionGenerator.from(model);
+      if (generator != null) {
+        CommentTracker ct = new CommentTracker();
+        String text = generator.generate(ct);
+        if (model.getElseExpression().textMatches(text) && !PsiTreeUtil.isAncestor(statement, model.getElseBranch(), false)) {
+          ct.deleteAndRestoreComments(statement);
+        } else if (model.getElseBranch() instanceof PsiDeclarationStatement){
+          ct.replace(model.getElseExpression(), text);
+          ct.deleteAndRestoreComments(statement);
+        } else {
+          ct.replace(model.getThenExpression(), text);
+          ct.replaceAndRestoreComments(statement, model.getThenBranch());
+          PsiStatement elseBranch = model.getElseBranch();
+          if (elseBranch.isValid() && (elseBranch instanceof PsiExpressionStatement || !ControlFlowUtils.isReachable(elseBranch))) {
+            PsiElement sibling = elseBranch.getPrevSibling();
+            if (sibling instanceof PsiWhiteSpace) {
+              sibling.delete();
+            }
+            new CommentTracker().deleteAndRestoreComments(elseBranch);
+          }
+        }
+      }
     }
-    else if (isSimplifiableReturn(statement)) {
-      repaceSimplifiableReturn(statement);
-    }
-    else if (isSimplifiableImplicitReturn(statement)) {
-      replaceSimplifiableImplicitReturn(statement);
-    }
-    else if (isSimplifiableAssignmentNegated(statement)) {
-      replaceSimplifiableAssignmentNegated(statement);
-    }
-    else if (isSimplifiableReturnNegated(statement)) {
-      repaceSimplifiableReturnNegated(statement);
-    }
-    else if (isSimplifiableImplicitReturnNegated(statement)) {
-      replaceSimplifiableImplicitReturnNegated(statement);
-    }
-    else if (isSimplifiableImplicitAssignment(statement)) {
-      replaceSimplifiableImplicitAssignment(statement);
-    }
-    else if (isSimplifiableImplicitAssignmentNegated(statement)) {
-      replaceSimplifiableImplicitAssignmentNegated(statement);
+    if (isSimplifiableAssert(statement)) {
+      replaceSimplifiableAssert(statement);
     }
   }
 
-  private static void replaceSimplifiableImplicitReturn(
-    PsiIfStatement statement) throws IncorrectOperationException {
-    final PsiExpression condition = statement.getCondition();
-    if (condition == null) {
-      return;
-    }
-    final String conditionText = condition.getText();
-    final PsiElement nextStatement = PsiTreeUtil.skipSiblingsForward(statement, PsiWhiteSpace.class);
-    @NonNls final String newStatement = "return " + conditionText + ';';
-    PsiReplacementUtil.replaceStatement(statement, newStatement);
-    assert nextStatement != null;
-    nextStatement.delete();
-  }
-
-  private static void repaceSimplifiableReturn(PsiIfStatement statement)
-    throws IncorrectOperationException {
-    final PsiExpression condition = statement.getCondition();
-    if (condition == null) {
-      return;
-    }
-    final String conditionText = condition.getText();
-    @NonNls final String newStatement = "return " + conditionText + ';';
-    final Collection<PsiComment> comments = PsiTreeUtil.findChildrenOfType(statement, PsiComment.class);
-    final PsiElement parent = statement.getParent();
-    for (PsiComment comment : comments) {
-      parent.addBefore(comment.copy(), statement);
-    }
-    PsiReplacementUtil.replaceStatement(statement, newStatement);
-  }
-
-  private static void replaceSimplifiableAssignment(PsiIfStatement statement)
-    throws IncorrectOperationException {
-    final PsiExpression condition = statement.getCondition();
-    if (condition == null) {
-      return;
-    }
-    final Collection<PsiComment> comments = ContainerUtil.map(PsiTreeUtil.findChildrenOfType(statement, PsiComment.class),
-                                                              new Function<PsiComment, PsiComment>() {
-                                                                @Override
-                                                                public PsiComment fun(PsiComment comment) {
-                                                                  return (PsiComment)comment.copy();
-                                                                }
-                                                              });
-    final String conditionText = condition.getText();
-    final PsiStatement thenBranch = statement.getThenBranch();
-    final PsiExpressionStatement assignmentStatement = (PsiExpressionStatement)ControlFlowUtils.stripBraces(thenBranch);
-    final PsiAssignmentExpression assignmentExpression = (PsiAssignmentExpression)assignmentStatement.getExpression();
-    final PsiJavaToken operator = assignmentExpression.getOperationSign();
-    final String operand = operator.getText();
-    final PsiExpression lhs = assignmentExpression.getLExpression();
-    final String lhsText = lhs.getText();
-    final PsiElement parent = statement.getParent();
-    for (PsiComment comment : comments) {
-      parent.addBefore(comment, statement);
-    }
-    PsiReplacementUtil.replaceStatement(statement, lhsText + operand + conditionText + ';');
-  }
-
-  private static void replaceSimplifiableImplicitAssignment(PsiIfStatement statement) throws IncorrectOperationException {
-    final PsiElement prevStatement = PsiTreeUtil.skipSiblingsBackward(statement, PsiWhiteSpace.class);
-    if (prevStatement == null) {
-      return;
-    }
-    final PsiExpression condition = statement.getCondition();
-    if (condition == null) {
-      return;
-    }
-    final String conditionText = condition.getText();
-    final PsiStatement thenBranch = statement.getThenBranch();
-    final PsiExpressionStatement assignmentStatement =
-      (PsiExpressionStatement)
-        ControlFlowUtils.stripBraces(thenBranch);
-    final PsiAssignmentExpression assignmentExpression =
-      (PsiAssignmentExpression)assignmentStatement.getExpression();
-    final PsiJavaToken operator =
-      assignmentExpression.getOperationSign();
-    final String operand = operator.getText();
-    final PsiExpression lhs = assignmentExpression.getLExpression();
-    final String lhsText = lhs.getText();
-    PsiReplacementUtil.replaceStatement(statement, lhsText + operand + conditionText + ';');
-    prevStatement.delete();
-  }
-
-  private static void replaceSimplifiableImplicitAssignmentNegated(PsiIfStatement statement) {
-    final PsiElement prevStatement = PsiTreeUtil.skipSiblingsBackward(statement, PsiWhiteSpace.class);
+  private static void replaceSimplifiableAssert(PsiIfStatement statement) {
     final PsiExpression condition = statement.getCondition();
     if (condition == null) {
       return;
     }
     final String conditionText = BoolUtils.getNegatedExpressionText(condition);
-    final PsiStatement thenBranch = statement.getThenBranch();
-    final PsiExpressionStatement assignmentStatement = (PsiExpressionStatement)ControlFlowUtils.stripBraces(thenBranch);
-    final PsiAssignmentExpression assignmentExpression = (PsiAssignmentExpression) assignmentStatement.getExpression();
-    final PsiJavaToken operator =
-      assignmentExpression.getOperationSign();
-    final String operand = operator.getText();
-    final PsiExpression lhs = assignmentExpression.getLExpression();
-    final String lhsText = lhs.getText();
-    PsiReplacementUtil.replaceStatement(statement, lhsText + operand + conditionText + ';');
-    assert prevStatement != null;
-    prevStatement.delete();
-  }
-
-  private static void replaceSimplifiableImplicitReturnNegated(PsiIfStatement statement) {
-    final PsiExpression condition = statement.getCondition();
-    if (condition == null) {
+    if (statement.getElseBranch() != null) {
       return;
     }
-    final String conditionText = BoolUtils.getNegatedExpressionText(condition);
-    final PsiElement nextStatement = PsiTreeUtil.skipSiblingsForward(statement, PsiWhiteSpace.class);
-    if (nextStatement == null) {
+    final PsiStatement thenBranch = ControlFlowUtils.stripBraces(statement.getThenBranch());
+    if (!(thenBranch instanceof PsiAssertStatement)) {
       return;
     }
-    @NonNls final String newStatement = "return " + conditionText + ';';
-    PsiReplacementUtil.replaceStatement(statement, newStatement);
-    nextStatement.delete();
-  }
-
-  private static void repaceSimplifiableReturnNegated(PsiIfStatement statement) {
-    final PsiExpression condition = statement.getCondition();
-    if (condition == null) {
+    final PsiAssertStatement assertStatement = (PsiAssertStatement)thenBranch;
+    final PsiExpression assertCondition = assertStatement.getAssertCondition();
+    if (assertCondition == null) {
       return;
     }
-    final String conditionText = BoolUtils.getNegatedExpressionText(condition);
-    @NonNls final String newStatement = "return " + conditionText + ';';
-    PsiReplacementUtil.replaceStatement(statement, newStatement);
-  }
-
-  private static void replaceSimplifiableAssignmentNegated(PsiIfStatement statement) {
-    final PsiExpression condition = statement.getCondition();
-    if (condition == null) {
-      return;
-    }
-    final String conditionText = BoolUtils.getNegatedExpressionText(condition);
-    final PsiStatement thenBranch = statement.getThenBranch();
-    final PsiExpressionStatement assignmentStatement = (PsiExpressionStatement)ControlFlowUtils.stripBraces(thenBranch);
-    final PsiAssignmentExpression assignmentExpression = (PsiAssignmentExpression)assignmentStatement.getExpression();
-    final PsiJavaToken operator =
-      assignmentExpression.getOperationSign();
-    final String operand = operator.getText();
-    final PsiExpression lhs = assignmentExpression.getLExpression();
-    final String lhsText = lhs.getText();
-    PsiReplacementUtil.replaceStatement(statement, lhsText + operand + conditionText + ';');
+    final PsiExpression replacementCondition = JavaPsiFacade.getElementFactory(statement.getProject()).createExpressionFromText(
+      BoolUtils.isFalse(assertCondition) ? conditionText : conditionText + "||" + assertCondition.getText(), statement);
+    assertCondition.replace(replacementCondition);
+    statement.replace(assertStatement);
   }
 
   @Override
   public BaseInspectionVisitor buildVisitor() {
-    return new TrivialIfVisitor();
+    return new BaseInspectionVisitor() {
+      @Override
+      public void visitIfStatement(@NotNull PsiIfStatement ifStatement) {
+        super.visitIfStatement(ifStatement);
+        boolean chainedIf = PsiTreeUtil.skipWhitespacesAndCommentsBackward(ifStatement) instanceof PsiIfStatement ||
+                            (ifStatement.getParent() instanceof PsiIfStatement &&
+                             ((PsiIfStatement)ifStatement.getParent()).getElseBranch() == ifStatement);
+        if (ignoreChainedIf && chainedIf && !isOnTheFly()) return;
+        final PsiExpression condition = ifStatement.getCondition();
+        if (condition == null) {
+          return;
+        }
+        if (isTrivial(ifStatement)) {
+          PsiElement anchor = Objects.requireNonNull(ifStatement.getFirstChild());
+          ProblemHighlightType level =
+            ignoreChainedIf && chainedIf ? ProblemHighlightType.INFORMATION : ProblemHighlightType.GENERIC_ERROR_OR_WARNING;
+          boolean addIgnoreFix = chainedIf && !ignoreChainedIf &&
+                                 !InspectionProjectProfileManager.isInformationLevel(getShortName(), ifStatement);
+          registerError(anchor, level, addIgnoreFix);
+        }
+      }
+    };
   }
 
-  private static class TrivialIfVisitor extends BaseInspectionVisitor {
-
-    @Override
-    public void visitIfStatement(@NotNull PsiIfStatement ifStatement) {
-      super.visitIfStatement(ifStatement);
-      final PsiExpression condition = ifStatement.getCondition();
-      if (condition == null) {
-        return;
-      }
-      if (isTrivial(ifStatement)) {
-        registerStatementError(ifStatement);
-      }
-    }
-  }
-
-  public static boolean isTrivial(PsiIfStatement ifStatement) {
+  private static boolean isTrivial(PsiIfStatement ifStatement) {
     if (PsiUtilCore.hasErrorElementChild(ifStatement)) {
       return false;
     }
-    if (isSimplifiableAssignment(ifStatement)) {
-      return true;
+    IfConditionalModel model = IfConditionalModel.from(ifStatement, true);
+    if (model != null) {
+      ConditionalExpressionGenerator generator = ConditionalExpressionGenerator.from(model);
+      if (generator != null && generator.getTokenType().isEmpty()) return true;
     }
-    if (isSimplifiableReturn(ifStatement)) {
-      return true;
-    }
-    if (isSimplifiableImplicitReturn(ifStatement)) {
-      return true;
-    }
-    if (isSimplifiableAssignmentNegated(ifStatement)) {
-      return true;
-    }
-    if (isSimplifiableReturnNegated(ifStatement)) {
-      return true;
-    }
-    if (isSimplifiableImplicitReturnNegated(ifStatement)) {
-      return true;
-    }
-    if (isSimplifiableImplicitAssignment(ifStatement)) {
-      return true;
-    }
-    if (isSimplifiableImplicitAssignmentNegated(ifStatement)) {
-      return true;
-    }
-    return false;
+
+    return isSimplifiableAssert(ifStatement);
   }
 
-  public static boolean isSimplifiableImplicitReturn(PsiIfStatement ifStatement) {
+  private static boolean isSimplifiableAssert(PsiIfStatement ifStatement) {
     if (ifStatement.getElseBranch() != null) {
       return false;
     }
-    PsiStatement thenBranch = ifStatement.getThenBranch();
-    thenBranch = ControlFlowUtils.stripBraces(thenBranch);
-    final PsiElement nextStatement = PsiTreeUtil.skipSiblingsForward(ifStatement, PsiWhiteSpace.class);
-    if (!(nextStatement instanceof PsiStatement)) {
+    final PsiStatement thenBranch = ControlFlowUtils.stripBraces(ifStatement.getThenBranch());
+    if (!(thenBranch instanceof PsiAssertStatement)) {
       return false;
     }
-
-    final PsiStatement elseBranch = (PsiStatement)nextStatement;
-    return ConditionalUtils.isReturn(thenBranch, PsiKeyword.TRUE)
-           && ConditionalUtils.isReturn(elseBranch, PsiKeyword.FALSE);
-  }
-
-  public static boolean isSimplifiableImplicitReturnNegated(PsiIfStatement ifStatement) {
-    if (ifStatement.getElseBranch() != null) {
-      return false;
-    }
-    PsiStatement thenBranch = ifStatement.getThenBranch();
-    thenBranch = ControlFlowUtils.stripBraces(thenBranch);
-
-    final PsiElement nextStatement =
-      PsiTreeUtil.skipSiblingsForward(ifStatement,
-                                      PsiWhiteSpace.class);
-    if (!(nextStatement instanceof PsiStatement)) {
-      return false;
-    }
-    final PsiStatement elseBranch = (PsiStatement)nextStatement;
-    return ConditionalUtils.isReturn(thenBranch, PsiKeyword.FALSE)
-           && ConditionalUtils.isReturn(elseBranch, PsiKeyword.TRUE);
-  }
-
-  public static boolean isSimplifiableReturn(PsiIfStatement ifStatement) {
-    PsiStatement thenBranch = ifStatement.getThenBranch();
-    thenBranch = ControlFlowUtils.stripBraces(thenBranch);
-    PsiStatement elseBranch = ifStatement.getElseBranch();
-    elseBranch = ControlFlowUtils.stripBraces(elseBranch);
-    return ConditionalUtils.isReturn(thenBranch, PsiKeyword.TRUE)
-           && ConditionalUtils.isReturn(elseBranch, PsiKeyword.FALSE);
-  }
-
-  public static boolean isSimplifiableReturnNegated(PsiIfStatement ifStatement) {
-    PsiStatement thenBranch = ifStatement.getThenBranch();
-    thenBranch = ControlFlowUtils.stripBraces(thenBranch);
-    PsiStatement elseBranch = ifStatement.getElseBranch();
-    elseBranch = ControlFlowUtils.stripBraces(elseBranch);
-    return ConditionalUtils.isReturn(thenBranch, PsiKeyword.FALSE)
-           && ConditionalUtils.isReturn(elseBranch, PsiKeyword.TRUE);
-  }
-
-  public static boolean isSimplifiableAssignment(PsiIfStatement ifStatement) {
-    PsiStatement thenBranch = ifStatement.getThenBranch();
-    thenBranch = ControlFlowUtils.stripBraces(thenBranch);
-    PsiStatement elseBranch = ifStatement.getElseBranch();
-    elseBranch = ControlFlowUtils.stripBraces(elseBranch);
-    if (ConditionalUtils.isAssignment(thenBranch, PsiKeyword.TRUE) &&
-        ConditionalUtils.isAssignment(elseBranch, PsiKeyword.FALSE)) {
-      final PsiExpressionStatement thenExpressionStatement =
-        (PsiExpressionStatement)thenBranch;
-      final PsiAssignmentExpression thenExpression =
-        (PsiAssignmentExpression)
-          thenExpressionStatement.getExpression();
-      final PsiExpressionStatement elseExpressionStatement =
-        (PsiExpressionStatement)elseBranch;
-      final PsiAssignmentExpression elseExpression =
-        (PsiAssignmentExpression)
-          elseExpressionStatement.getExpression();
-      final IElementType thenTokenType = thenExpression.getOperationTokenType();
-      if (!thenTokenType.equals(elseExpression.getOperationTokenType())) {
-        return false;
-      }
-      final PsiExpression thenLhs = thenExpression.getLExpression();
-      final PsiExpression elseLhs = elseExpression.getLExpression();
-      return EquivalenceChecker.expressionsAreEquivalent(thenLhs,
-                                                         elseLhs);
-    }
-    else {
-      return false;
-    }
-  }
-
-  public static boolean isSimplifiableAssignmentNegated(PsiIfStatement ifStatement) {
-    PsiStatement thenBranch = ifStatement.getThenBranch();
-    thenBranch = ControlFlowUtils.stripBraces(thenBranch);
-    PsiStatement elseBranch = ifStatement.getElseBranch();
-    elseBranch = ControlFlowUtils.stripBraces(elseBranch);
-    if (ConditionalUtils.isAssignment(thenBranch, PsiKeyword.FALSE) &&
-        ConditionalUtils.isAssignment(elseBranch, PsiKeyword.TRUE)) {
-      final PsiExpressionStatement thenExpressionStatement =
-        (PsiExpressionStatement)thenBranch;
-      final PsiAssignmentExpression thenExpression =
-        (PsiAssignmentExpression)
-          thenExpressionStatement.getExpression();
-      final PsiExpressionStatement elseExpressionStatement =
-        (PsiExpressionStatement)elseBranch;
-      final PsiAssignmentExpression elseExpression =
-        (PsiAssignmentExpression)
-          elseExpressionStatement.getExpression();
-      final IElementType thenTokenType = thenExpression.getOperationTokenType();
-      if (!thenTokenType.equals(elseExpression.getOperationTokenType())) {
-        return false;
-      }
-      final PsiExpression thenLhs = thenExpression.getLExpression();
-      final PsiExpression elseLhs = elseExpression.getLExpression();
-      return EquivalenceChecker.expressionsAreEquivalent(thenLhs,
-                                                         elseLhs);
-    }
-    else {
-      return false;
-    }
-  }
-
-  public static boolean isSimplifiableImplicitAssignment(PsiIfStatement ifStatement) {
-    if (ifStatement.getElseBranch() != null) {
-      return false;
-    }
-    PsiStatement thenBranch = ifStatement.getThenBranch();
-    thenBranch = ControlFlowUtils.stripBraces(thenBranch);
-    final PsiElement nextStatement =
-      PsiTreeUtil.skipSiblingsBackward(ifStatement,
-                                       PsiWhiteSpace.class);
-    if (!(nextStatement instanceof PsiStatement)) {
-      return false;
-    }
-    PsiStatement elseBranch = (PsiStatement)nextStatement;
-    elseBranch = ControlFlowUtils.stripBraces(elseBranch);
-    if (ConditionalUtils.isAssignment(thenBranch, PsiKeyword.TRUE) &&
-        ConditionalUtils.isAssignment(elseBranch, PsiKeyword.FALSE)) {
-      final PsiExpressionStatement thenExpressionStatement =
-        (PsiExpressionStatement)thenBranch;
-      final PsiAssignmentExpression thenExpression =
-        (PsiAssignmentExpression)
-          thenExpressionStatement.getExpression();
-      final PsiExpressionStatement elseExpressionStatement =
-        (PsiExpressionStatement)elseBranch;
-      final PsiAssignmentExpression elseExpression =
-        (PsiAssignmentExpression)
-          elseExpressionStatement.getExpression();
-      final IElementType thenTokenType = thenExpression.getOperationTokenType();
-      if (!thenTokenType.equals(elseExpression.getOperationTokenType())) {
-        return false;
-      }
-      final PsiExpression thenLhs = thenExpression.getLExpression();
-      final PsiExpression elseLhs = elseExpression.getLExpression();
-      return EquivalenceChecker.expressionsAreEquivalent(thenLhs,
-                                                         elseLhs);
-    }
-    else {
-      return false;
-    }
-  }
-
-  public static boolean isSimplifiableImplicitAssignmentNegated(PsiIfStatement ifStatement) {
-    if (ifStatement.getElseBranch() != null) {
-      return false;
-    }
-    PsiStatement thenBranch = ifStatement.getThenBranch();
-    thenBranch = ControlFlowUtils.stripBraces(thenBranch);
-    final PsiElement nextStatement =
-      PsiTreeUtil.skipSiblingsBackward(ifStatement,
-                                       PsiWhiteSpace.class);
-    if (!(nextStatement instanceof PsiStatement)) {
-      return false;
-    }
-    PsiStatement elseBranch = (PsiStatement)nextStatement;
-    elseBranch = ControlFlowUtils.stripBraces(elseBranch);
-    if (ConditionalUtils.isAssignment(thenBranch, PsiKeyword.FALSE) &&
-        ConditionalUtils.isAssignment(elseBranch, PsiKeyword.TRUE)) {
-      final PsiExpressionStatement thenExpressionStatement =
-        (PsiExpressionStatement)thenBranch;
-      final PsiAssignmentExpression thenExpression =
-        (PsiAssignmentExpression)
-          thenExpressionStatement.getExpression();
-      final PsiExpressionStatement elseExpressionStatement =
-        (PsiExpressionStatement)elseBranch;
-      final PsiAssignmentExpression elseExpression =
-        (PsiAssignmentExpression)
-          elseExpressionStatement.getExpression();
-      final IElementType thenTokenType = thenExpression.getOperationTokenType();
-      if (!thenTokenType.equals(elseExpression.getOperationTokenType())) {
-        return false;
-      }
-      final PsiExpression thenLhs = thenExpression.getLExpression();
-      final PsiExpression elseLhs = elseExpression.getLExpression();
-      return EquivalenceChecker.expressionsAreEquivalent(thenLhs,
-                                                         elseLhs);
-    }
-    else {
-      return false;
-    }
+    final PsiAssertStatement assertStatement = (PsiAssertStatement)thenBranch;
+    return assertStatement.getAssertCondition() != null;
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,12 +14,10 @@
  * limitations under the License.
  */
 
-/**
- * @author cdr
- */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.daemon.QuickFixBundle;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiClassType;
 import com.intellij.psi.PsiKeyword;
@@ -29,15 +27,17 @@ import org.jetbrains.annotations.NotNull;
  * changes 'class a extends b' to 'class a implements b' or vice versa
  */
 public class ChangeExtendsToImplementsFix extends ExtendsListFix {
-  private final String myName;
+  private final @IntentionName String myName;
 
   public ChangeExtendsToImplementsFix(@NotNull PsiClass aClass, @NotNull PsiClassType classToExtendFrom) {
     super(aClass, classToExtendFrom, true);
-    myName = myClassToExtendFrom == null ? getFamilyName() :
+    PsiClass classToExtendFromPointer = myClassToExtendFromPointer != null ? myClassToExtendFromPointer.getElement() : null;
+
+    myName = classToExtendFromPointer == null ? getFamilyName() :
              QuickFixBundle.message("exchange.extends.implements.keyword",
-                                    aClass.isInterface() == myClassToExtendFrom.isInterface() ? PsiKeyword.IMPLEMENTS : PsiKeyword.EXTENDS,
-                                    aClass.isInterface() == myClassToExtendFrom.isInterface() ? PsiKeyword.EXTENDS : PsiKeyword.IMPLEMENTS,
-                                    myClassToExtendFrom.getName());
+                                    aClass.isInterface() == classToExtendFromPointer.isInterface() ? PsiKeyword.IMPLEMENTS : PsiKeyword.EXTENDS,
+                                    aClass.isInterface() == classToExtendFromPointer.isInterface() ? PsiKeyword.EXTENDS : PsiKeyword.IMPLEMENTS,
+                                    classToExtendFromPointer.getName());
   }
 
   @Override

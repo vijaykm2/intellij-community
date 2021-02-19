@@ -1,38 +1,35 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.hierarchy;
 
 import com.intellij.ide.util.treeView.AbstractTreeStructure;
+import com.intellij.ide.util.treeView.AbstractTreeUi;
 import com.intellij.ide.util.treeView.NodeDescriptor;
+import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.ModuleUtilCore;
+import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.roots.TestSourcesFilter;
 import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.ElementDescriptionUtil;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.search.*;
+import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.search.GlobalSearchScopesCore;
+import com.intellij.psi.search.LocalSearchScope;
+import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.search.scope.packageSet.NamedScope;
 import com.intellij.psi.search.scope.packageSet.NamedScopeManager;
 import com.intellij.psi.search.scope.packageSet.NamedScopesHolder;
 import com.intellij.psi.search.scope.packageSet.PackageSet;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.ui.JBColor;
-import com.intellij.util.ArrayUtil;
+import com.intellij.ui.tree.LeafState;
+import com.intellij.usageView.UsageViewLongNameLocation;
+import com.intellij.usageView.UsageViewTypeLocation;
+import com.intellij.util.ArrayUtilRt;
 import org.jetbrains.annotations.NotNull;
 
 public abstract class HierarchyTreeStructure extends AbstractTreeStructure {
@@ -61,7 +58,7 @@ public abstract class HierarchyTreeStructure extends AbstractTreeStructure {
 
   @Override
   @NotNull
-  public final NodeDescriptor createDescriptor(final Object element, final NodeDescriptor parentDescriptor) {
+  public final NodeDescriptor createDescriptor(@NotNull final Object element, final NodeDescriptor parentDescriptor) {
     if (element instanceof HierarchyNodeDescriptor) {
       return (HierarchyNodeDescriptor)element;
     }
@@ -72,37 +69,41 @@ public abstract class HierarchyTreeStructure extends AbstractTreeStructure {
   }
 
   @Override
-  public final boolean isToBuildChildrenInBackground(final Object element) {
+  public final boolean isToBuildChildrenInBackground(@NotNull final Object element) {
     if (element instanceof HierarchyNodeDescriptor){
       final HierarchyNodeDescriptor descriptor = (HierarchyNodeDescriptor)element;
       final Object[] cachedChildren = descriptor.getCachedChildren();
-      if (cachedChildren == null && descriptor.isValid()){
-        return true;
-      }
+      return cachedChildren == null && descriptor.isValid();
     }
     return false;
   }
 
   @Override
-  public final Object[] getChildElements(final Object element) {
+  public final Object @NotNull [] getChildElements(@NotNull final Object element) {
     if (element instanceof HierarchyNodeDescriptor) {
       final HierarchyNodeDescriptor descriptor = (HierarchyNodeDescriptor)element;
-      final Object[] cachedChildren = descriptor.getCachedChildren();
+      Object[] cachedChildren = descriptor.getCachedChildren();
       if (cachedChildren == null) {
         if (descriptor.isValid()) {
-          descriptor.setCachedChildren(buildChildren(descriptor));
+          try {
+            cachedChildren = AbstractTreeUi.calculateYieldingToWriteAction(() -> buildChildren(descriptor));
+          }
+          catch (IndexNotReadyException e) {
+            return ArrayUtilRt.EMPTY_OBJECT_ARRAY;
+          }
         }
         else {
-          descriptor.setCachedChildren(ArrayUtil.EMPTY_OBJECT_ARRAY);
+          cachedChildren = ArrayUtilRt.EMPTY_OBJECT_ARRAY;
         }
+        descriptor.setCachedChildren(cachedChildren);
       }
-      return descriptor.getCachedChildren();
+      return cachedChildren;
     }
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
+    return ArrayUtilRt.EMPTY_OBJECT_ARRAY;
   }
 
   @Override
-  public final Object getParentElement(final Object element) {
+  public final Object getParentElement(@NotNull final Object element) {
     if (element instanceof HierarchyNodeDescriptor) {
       return ((HierarchyNodeDescriptor)element).getParentDescriptor();
     }
@@ -125,9 +126,9 @@ public abstract class HierarchyTreeStructure extends AbstractTreeStructure {
     return asyncCommitDocuments(myProject);
   }
 
-  @NotNull
-  protected abstract Object[] buildChildren(@NotNull HierarchyNodeDescriptor descriptor);
+  protected abstract Object @NotNull [] buildChildren(@NotNull HierarchyNodeDescriptor descriptor);
 
+  @NotNull
   @Override
   public final Object getRootElement() {
     return myRoot;
@@ -137,6 +138,10 @@ public abstract class HierarchyTreeStructure extends AbstractTreeStructure {
     SearchScope searchScope = GlobalSearchScope.allScope(myProject);
     if (HierarchyBrowserBaseEx.SCOPE_CLASS.equals(scopeType)) {
       searchScope = new LocalSearchScope(thisClass);
+    }
+    else if (HierarchyBrowserBaseEx.SCOPE_MODULE.equals(scopeType)) {
+      Module module = ModuleUtilCore.findModuleForPsiElement(thisClass);
+      searchScope = module == null ? new LocalSearchScope(thisClass) : module.getModuleScope(true);
     }
     else if (HierarchyBrowserBaseEx.SCOPE_PROJECT.equals(scopeType)) {
       searchScope = GlobalSearchScopesCore.projectProductionScope(myProject);
@@ -152,43 +157,44 @@ public abstract class HierarchyTreeStructure extends AbstractTreeStructure {
     return searchScope;
   }
 
-  protected boolean isInScope(final PsiElement baseClass, final PsiElement srcElement, final String scopeType) {
+  protected boolean isInScope(final PsiElement baseClass, @NotNull PsiElement srcElement, final String scopeType) {
     if (HierarchyBrowserBaseEx.SCOPE_CLASS.equals(scopeType)) {
-      if (!PsiTreeUtil.isAncestor(baseClass, srcElement, true)) {
-        return false;
-      }
+      return PsiTreeUtil.isAncestor(baseClass, srcElement, true);
     }
-    else if (HierarchyBrowserBaseEx.SCOPE_PROJECT.equals(scopeType)) {
+    if (HierarchyBrowserBaseEx.SCOPE_MODULE.equals(scopeType)) {
+      Module module = ModuleUtilCore.findModuleForPsiElement(baseClass);
+      VirtualFile virtualFile = srcElement.getContainingFile().getVirtualFile();
+      return module != null && module.getModuleScope().contains(virtualFile);
+    }
+    if (HierarchyBrowserBaseEx.SCOPE_PROJECT.equals(scopeType)) {
       final VirtualFile virtualFile = srcElement.getContainingFile().getVirtualFile();
-      if (virtualFile != null && ProjectRootManager.getInstance(myProject).getFileIndex().isInTestSourceContent(virtualFile)) {
-        return false;
-      }
+      return virtualFile == null || !TestSourcesFilter.isTestSources(virtualFile, myProject);
     }
-    else if (HierarchyBrowserBaseEx.SCOPE_TEST.equals(scopeType)) {
-
+    if (HierarchyBrowserBaseEx.SCOPE_TEST.equals(scopeType)) {
       final VirtualFile virtualFile = srcElement.getContainingFile().getVirtualFile();
-      if (virtualFile != null && !ProjectRootManager.getInstance(myProject).getFileIndex().isInTestSourceContent(virtualFile)) {
-        return false;
-      }
-    } else if (!HierarchyBrowserBaseEx.SCOPE_ALL.equals(scopeType)) {
-      final NamedScope namedScope = NamedScopesHolder.getScope(myProject, scopeType);
-      if (namedScope == null) {
-        return false;
-      }
-      final PackageSet namedScopePattern = namedScope.getValue();
-      if (namedScopePattern == null) {
-        return false;
-      }
-      final PsiFile psiFile = srcElement.getContainingFile();
-      if (psiFile != null && !namedScopePattern.contains(psiFile, NamedScopesHolder.getHolder(myProject, scopeType, NamedScopeManager.getInstance(myProject)))) {
-        return false;
-      }
+      return virtualFile == null || TestSourcesFilter.isTestSources(virtualFile, myProject);
     }
-    return true;
+    if (HierarchyBrowserBaseEx.SCOPE_ALL.equals(scopeType)) {
+      return true;
+    }
+    final NamedScope namedScope = NamedScopesHolder.getScope(myProject, scopeType);
+    if (namedScope == null) {
+      return false;
+    }
+    final PackageSet namedScopePattern = namedScope.getValue();
+    if (namedScopePattern == null) {
+      return false;
+    }
+    PsiFile psiFile = srcElement.getContainingFile();
+    if (psiFile == null) {
+      return true;
+    }
+    NamedScopesHolder holder = NamedScopesHolder.getHolder(myProject, scopeType, NamedScopeManager.getInstance(myProject));
+    return namedScopePattern.contains(psiFile, holder);
   }
 
   private static final class TextInfoNodeDescriptor extends NodeDescriptor {
-    public TextInfoNodeDescriptor(final NodeDescriptor parentDescriptor, final String text, final Project project) {
+    TextInfoNodeDescriptor(final NodeDescriptor parentDescriptor, final String text, final Project project) {
       super(project, parentDescriptor);
       myName = text;
       myColor = JBColor.RED;
@@ -205,7 +211,25 @@ public abstract class HierarchyTreeStructure extends AbstractTreeStructure {
     }
   }
 
+  @NotNull
+  @Override
+  public LeafState getLeafState(@NotNull Object element) {
+    if (isAlwaysShowPlus()) return LeafState.NEVER;
+    LeafState state = super.getLeafState(element);
+    return state != LeafState.DEFAULT ? state : LeafState.ASYNC;
+  }
+
   public boolean isAlwaysShowPlus() {
     return false;
+  }
+
+  @NotNull
+  protected String formatBaseElementText() {
+    HierarchyNodeDescriptor descriptor = getBaseDescriptor();
+    if (descriptor == null) return toString();
+    PsiElement element = descriptor.getPsiElement();
+    if (element == null) return descriptor.toString();
+    return ElementDescriptionUtil.getElementDescription(element, UsageViewTypeLocation.INSTANCE) + " " +
+           ElementDescriptionUtil.getElementDescription(element, UsageViewLongNameLocation.INSTANCE);
   }
 }

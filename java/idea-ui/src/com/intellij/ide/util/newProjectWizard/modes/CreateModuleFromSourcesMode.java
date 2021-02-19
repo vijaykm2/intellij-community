@@ -15,24 +15,22 @@
  */
 package com.intellij.ide.util.newProjectWizard.modes;
 
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.util.projectWizard.ProjectBuilder;
 import com.intellij.ide.util.projectWizard.WizardContext;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
-import com.intellij.openapi.util.IconLoader;
 import com.intellij.util.ui.UIUtil;
 
 import javax.swing.*;
 import java.io.File;
 
-/**
- * @author nik
- */
 public class CreateModuleFromSourcesMode extends CreateFromSourcesMode {
   private TextFieldWithBrowseButton myPathPanel;
 
+  @Override
   public boolean isAvailable(WizardContext context) {
     return !context.isCreatingNewProject();
   }
@@ -47,7 +45,7 @@ public class CreateModuleFromSourcesMode extends CreateFromSourcesMode {
   public JComponent getAdditionalSettings(WizardContext wizardContext) {
     myPathPanel = new TextFieldWithBrowseButton();
     final FileChooserDescriptor descriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor();
-    myPathPanel.addBrowseFolderListener("Select Directory Containing Module Files", null, wizardContext.getProject(), descriptor);
+    myPathPanel.addBrowseFolderListener(JavaUiBundle.message("chooser.title.select.directory.containing.module.files"), null, wizardContext.getProject(), descriptor);
     onChosen(false);
     return myPathPanel;
   }
@@ -57,14 +55,15 @@ public class CreateModuleFromSourcesMode extends CreateFromSourcesMode {
     final String path = myPathPanel.getText().trim();
     final File file = new File(path);
     if (!file.exists()) {
-      throw new ConfigurationException("File \'" + path + "\' doesn't exist");
+      throw new ConfigurationException(JavaUiBundle.message("create.module.from.sources.dialog.message.file.not.exist", path));
     }
     if (!file.isDirectory()) {
-      throw new ConfigurationException("\'" + path + "\' is not a directory");
+      throw new ConfigurationException(JavaUiBundle.message("create.module.from.sources.dialog.message.not.directory", path));
     }
     return super.validate();
   }
 
+  @Override
   public void onChosen(final boolean enabled) {
     UIUtil.setEnabled(myPathPanel, enabled, true);
     if (enabled) {
@@ -72,6 +71,7 @@ public class CreateModuleFromSourcesMode extends CreateFromSourcesMode {
     }
   }
 
+  @Override
   public void dispose() {
     myPathPanel = null;
     super.dispose();

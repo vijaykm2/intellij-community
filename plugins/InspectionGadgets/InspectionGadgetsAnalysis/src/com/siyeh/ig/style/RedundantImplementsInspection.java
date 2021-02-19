@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,10 +17,10 @@ package com.siyeh.ig.style;
 
 import com.intellij.codeInspection.CleanupLocalInspectionTool;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -31,22 +31,15 @@ import javax.swing.*;
 
 public class RedundantImplementsInspection extends BaseInspection implements CleanupLocalInspectionTool{
 
-  @SuppressWarnings({"PublicField"})
+  @SuppressWarnings("PublicField")
   public boolean ignoreSerializable = false;
-  @SuppressWarnings({"PublicField"})
+  @SuppressWarnings("PublicField")
   public boolean ignoreCloneable = false;
 
   @Override
   @NotNull
   public String getID() {
     return "RedundantInterfaceDeclaration";
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "redundant.implements.display.name");
   }
 
   @Override
@@ -73,22 +66,16 @@ public class RedundantImplementsInspection extends BaseInspection implements Cle
   }
 
   private static class RedundantImplementsFix extends InspectionGadgetsFix {
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "redundant.implements.remove.quickfix");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement implementReference = descriptor.getPsiElement();
       deleteElement(implementReference);
     }
@@ -181,12 +168,11 @@ public class RedundantImplementsInspection extends BaseInspection implements Cle
         }
         final PsiClass extendedClass = (PsiClass)extendsReferent;
         if (extendedClass.isInheritor(implementedClass, true)) {
-          registerError(implementsElement);
+          register(implementsElement);
           return;
         }
       }
-      for (final PsiJavaCodeReferenceElement testImplementElement :
-        implementsElements) {
+      for (final PsiJavaCodeReferenceElement testImplementElement : implementsElements) {
         if (testImplementElement.equals(implementsElement)) {
           continue;
         }
@@ -198,10 +184,14 @@ public class RedundantImplementsInspection extends BaseInspection implements Cle
         final PsiClass testImplementedClass =
           (PsiClass)implementsReferent;
         if (testImplementedClass.isInheritor(implementedClass, true)) {
-          registerError(implementsElement);
+          register(implementsElement);
           return;
         }
       }
+    }
+
+    private void register(PsiJavaCodeReferenceElement implementsElement) {
+      registerError(implementsElement, ProblemHighlightType.LIKE_UNUSED_SYMBOL);
     }
 
     private void checkExtendedInterface(PsiJavaCodeReferenceElement extendsElement, PsiJavaCodeReferenceElement[] extendsElements) {
@@ -213,8 +203,7 @@ public class RedundantImplementsInspection extends BaseInspection implements Cle
       if (!extendedInterface.isInterface()) {
         return;
       }
-      for (final PsiJavaCodeReferenceElement testExtendsElement :
-        extendsElements) {
+      for (final PsiJavaCodeReferenceElement testExtendsElement : extendsElements) {
         if (testExtendsElement.equals(extendsElement)) {
           continue;
         }
@@ -226,7 +215,7 @@ public class RedundantImplementsInspection extends BaseInspection implements Cle
         final PsiClass testExtendedInterface =
           (PsiClass)implementsReferent;
         if (testExtendedInterface.isInheritor(extendedInterface, true)) {
-          registerError(extendsElement);
+          register(extendsElement);
           return;
         }
       }

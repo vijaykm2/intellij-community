@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.palette.impl;
 
 import com.intellij.designer.LightToolWindowContent;
@@ -21,16 +7,16 @@ import com.intellij.ide.palette.PaletteItem;
 import com.intellij.ide.palette.PaletteItemProvider;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.PopupHandler;
 import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.components.JBTabbedPane;
 import com.intellij.uiDesigner.designSurface.GuiEditor;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.containers.HashSet;
+import com.intellij.util.ArrayUtilRt;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -51,10 +37,10 @@ import java.util.*;
  */
 public class PaletteWindow extends JPanel implements LightToolWindowContent, DataProvider {
   private final Project myProject;
-  private final ArrayList<PaletteGroupHeader> myGroupHeaders = new ArrayList<PaletteGroupHeader>();
+  private final ArrayList<PaletteGroupHeader> myGroupHeaders = new ArrayList<>();
   private final PaletteItemProvider[] myProviders;
   private final MyPropertyChangeListener myPropertyChangeListener = new MyPropertyChangeListener();
-  private final Set<PaletteGroup> myGroups = new HashSet<PaletteGroup>();
+  private final Set<PaletteGroup> myGroups = new HashSet<>();
   private final JTabbedPane myTabbedPane = new JBTabbedPane();
   private final JScrollPane myScrollPane = ScrollPaneFactory.createScrollPane();
   private final MyListSelectionListener myListSelectionListener = new MyListSelectionListener();
@@ -78,7 +64,7 @@ public class PaletteWindow extends JPanel implements LightToolWindowContent, Dat
 
   public PaletteWindow(Project project) {
     myProject = project;
-    myProviders = Extensions.getExtensions(PaletteItemProvider.EP_NAME, project);
+    myProviders = PaletteItemProvider.EP_NAME.getExtensions(project);
 
     setLayout(new GridLayout(1, 1));
     myScrollPane.addMouseListener(new MyScrollPanePopupHandler());
@@ -91,6 +77,7 @@ public class PaletteWindow extends JPanel implements LightToolWindowContent, Dat
     }
   }
 
+  @Override
   public void dispose() {
     removePaletteProviderListener();
 
@@ -119,7 +106,7 @@ public class PaletteWindow extends JPanel implements LightToolWindowContent, Dat
     }
 
     VirtualFile file = designer == null ? null : designer.getFile();
-    Set<PaletteGroup> currentGroups = new HashSet<PaletteGroup>(collectCurrentGroups(file));
+    Set<PaletteGroup> currentGroups = new HashSet<>(collectCurrentGroups(file));
     if (!currentGroups.equals(myGroups)) {
       refreshPalette(file);
     }
@@ -153,7 +140,7 @@ public class PaletteWindow extends JPanel implements LightToolWindowContent, Dat
       if (view != null) {
         view.revalidate();
         for (Component component : view.getComponents()) {
-          ((JComponent)component).revalidate();
+          component.revalidate();
         }
       }
     }
@@ -162,7 +149,7 @@ public class PaletteWindow extends JPanel implements LightToolWindowContent, Dat
         remove(myScrollPane);
         add(myTabbedPane);
       }
-      for (String tabName : tabNames) {
+      for (@NlsSafe String tabName : tabNames) {
         PaletteContentWindow contentWindow = new PaletteContentWindow();
         JScrollPane scrollPane = ScrollPaneFactory.createScrollPane(contentWindow);
         scrollPane.addMouseListener(new MyScrollPanePopupHandler());
@@ -189,15 +176,15 @@ public class PaletteWindow extends JPanel implements LightToolWindowContent, Dat
   }
 
   private static String[] collectTabNames(final Collection<PaletteGroup> groups) {
-    Set<String> result = new TreeSet<String>();
+    Set<String> result = new TreeSet<>();
     for (PaletteGroup group : groups) {
       result.add(group.getTabName());
     }
-    return ArrayUtil.toStringArray(result);
+    return ArrayUtilRt.toStringArray(result);
   }
 
   private ArrayList<PaletteGroup> collectCurrentGroups(@Nullable VirtualFile selectedFile) {
-    ArrayList<PaletteGroup> result = new ArrayList<PaletteGroup>();
+    ArrayList<PaletteGroup> result = new ArrayList<>();
     if (selectedFile != null) {
       for (PaletteItemProvider provider : myProviders) {
         PaletteGroup[] groups = provider.getActiveGroups(selectedFile);
@@ -236,8 +223,9 @@ public class PaletteWindow extends JPanel implements LightToolWindowContent, Dat
     return null;
   }
 
+  @Override
   @Nullable
-  public Object getData(String dataId) {
+  public Object getData(@NotNull String dataId) {
     if (PlatformDataKeys.HELP_ID.is(dataId)) {
       return ourHelpID;
     }
@@ -307,6 +295,7 @@ public class PaletteWindow extends JPanel implements LightToolWindowContent, Dat
   }
 
   private class MyListSelectionListener implements ListSelectionListener {
+    @Override
     public void valueChanged(ListSelectionEvent e) {
       PaletteComponentList sourceList = (PaletteComponentList)e.getSource();
       for (int i = e.getFirstIndex(); i <= e.getLastIndex(); i++) {
@@ -325,12 +314,14 @@ public class PaletteWindow extends JPanel implements LightToolWindowContent, Dat
   }
 
   private class MyPropertyChangeListener implements PropertyChangeListener {
+    @Override
     public void propertyChange(PropertyChangeEvent evt) {
       refreshPalette(myDesigner.getFile());
     }
   }
 
   private static class MyScrollPanePopupHandler extends PopupHandler {
+    @Override
     public void invokePopup(Component comp, int x, int y) {
       JScrollPane scrollPane = (JScrollPane)comp;
       PaletteContentWindow contentWindow = (PaletteContentWindow)scrollPane.getViewport().getView();
@@ -344,7 +335,8 @@ public class PaletteWindow extends JPanel implements LightToolWindowContent, Dat
   }
 
   private class ClearActiveItemAction extends AnAction {
-    public void actionPerformed(AnActionEvent e) {
+    @Override
+    public void actionPerformed(@NotNull AnActionEvent e) {
       clearActiveItem();
     }
   }

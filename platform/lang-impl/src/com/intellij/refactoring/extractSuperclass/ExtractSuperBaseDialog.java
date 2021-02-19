@@ -1,24 +1,10 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.extractSuperclass;
 
 import com.intellij.openapi.command.CommandProcessor;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComponentWithBrowseButton;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
@@ -30,6 +16,7 @@ import com.intellij.refactoring.ui.RefactoringDialog;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.ui.RecentsManager;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -44,7 +31,7 @@ import java.util.List;
  * @author dsl
  */
 public abstract class ExtractSuperBaseDialog<ClassType extends PsiElement, MemberInfoType extends MemberInfoBase> extends RefactoringDialog {
-  private final String myRefactoringName;
+  private final @NlsContexts.DialogTitle String myRefactoringName;
   protected final ClassType mySourceClass;
   protected PsiDirectory myTargetDirectory;
   protected final List<MemberInfoType> myMemberInfos;
@@ -68,7 +55,7 @@ public abstract class ExtractSuperBaseDialog<ClassType extends PsiElement, Membe
 
   protected abstract JTextField createSourceClassField();
 
-  protected abstract String getDocCommentPanelName();
+  protected abstract @NlsContexts.BorderTitle String getDocCommentPanelName();
 
   protected abstract String getExtractedSuperNameNotSpecifiedMessage();
 
@@ -78,25 +65,28 @@ public abstract class ExtractSuperBaseDialog<ClassType extends PsiElement, Membe
 
   protected abstract void setDocCommentPolicySetting(int policy);
 
-  @Override
-  protected abstract String getHelpId();
-
   @Nullable
   protected abstract String validateName(String name);
+  
+  @Nullable
+  protected @NlsContexts.DialogMessage String validateQualifiedName(String packageName, @NotNull String extractedSuperName) {
+    return null;
+  }
 
-  protected abstract String getTopLabelText();
+  protected abstract @NlsContexts.Label String getTopLabelText();
 
-  protected abstract String getClassNameLabelText();
+  protected abstract @NlsContexts.Label String getClassNameLabelText();
 
-  protected abstract String getPackageNameLabelText();
+  protected abstract @NlsContexts.Label String getPackageNameLabelText();
 
+  @NotNull
   protected abstract String getEntityName();
 
   protected abstract void preparePackage() throws OperationFailedException;
 
   protected abstract String getDestinationPackageRecentKey();
 
-  public ExtractSuperBaseDialog(Project project, ClassType sourceClass, List<MemberInfoType> members, String refactoringName) {
+  public ExtractSuperBaseDialog(Project project, ClassType sourceClass, List<MemberInfoType> members, @NlsContexts.DialogTitle String refactoringName) {
     super(project, true);
     myRefactoringName = refactoringName;
 
@@ -132,6 +122,7 @@ public abstract class ExtractSuperBaseDialog<ClassType extends PsiElement, Membe
     myRbExtractSuperclass.setText(RefactoringBundle.message("extractSuper.extract", s));
     myRbExtractSubclass = new JRadioButton();
     myRbExtractSubclass.setText(RefactoringBundle.message("extractSuper.rename.original.class", s));
+    myRbExtractSubclass.setEnabled(isPossibleToRenameOriginal());
     box.add(myRbExtractSuperclass);
     box.add(myRbExtractSubclass);
     box.add(Box.createHorizontalGlue());
@@ -150,6 +141,10 @@ public abstract class ExtractSuperBaseDialog<ClassType extends PsiElement, Membe
     myRbExtractSuperclass.addItemListener(listener);
     myRbExtractSubclass.addItemListener(listener);
     return box;
+  }
+
+  protected boolean isPossibleToRenameOriginal() {
+    return true;
   }
 
   protected void customizeRadiobuttons(Box box, ButtonGroup buttonGroup) {
@@ -205,6 +200,7 @@ public abstract class ExtractSuperBaseDialog<ClassType extends PsiElement, Membe
     getPreviewAction().setEnabled(!isExtractSuperclass());
   }
 
+  @NotNull
   public String getExtractedSuperName() {
     return myExtractedSuperNameField.getText().trim();
   }
@@ -230,32 +226,28 @@ public abstract class ExtractSuperBaseDialog<ClassType extends PsiElement, Membe
     final String packageName = getTargetPackageName();
     RecentsManager.getInstance(myProject).registerRecentEntry(getDestinationPackageRecentKey(), packageName);
 
-    if ("".equals(extractedSuperName)) {
+    if (extractedSuperName.isEmpty()) {
       // TODO just disable OK button
       errorString[0] = getExtractedSuperNameNotSpecifiedMessage();
       myExtractedSuperNameField.requestFocusInWindow();
     }
     else {
       String nameError = validateName(extractedSuperName);
+      if (nameError == null) {
+        nameError = validateQualifiedName(packageName, extractedSuperName);
+      }
       if (nameError != null) {
         errorString[0] = nameError;
         myExtractedSuperNameField.requestFocusInWindow();
       }
       else {
-        CommandProcessor.getInstance().executeCommand(myProject, new Runnable() {
-          @Override
-          public void run() {
-            try {
-              preparePackage();
-            }
-            catch (IncorrectOperationException e) {
-              errorString[0] = e.getMessage();
-              myPackageNameField.requestFocusInWindow();
-            }
-            catch (OperationFailedException e) {
-              errorString[0] = e.getMessage();
-              myPackageNameField.requestFocusInWindow();
-            }
+        CommandProcessor.getInstance().executeCommand(myProject, () -> {
+          try {
+            preparePackage();
+          }
+          catch (IncorrectOperationException | OperationFailedException e) {
+            errorString[0] = e.getMessage();
+            myPackageNameField.requestFocusInWindow();
           }
         }, RefactoringBundle.message("create.directory"), null);
       }
@@ -280,23 +272,18 @@ public abstract class ExtractSuperBaseDialog<ClassType extends PsiElement, Membe
     }
   }
 
-  @Override
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(getHelpId());
-  }
-
   protected boolean checkConflicts() {
     return true;
   }
 
   protected static class OperationFailedException extends Exception {
-    public OperationFailedException(String message) {
+    public OperationFailedException(@NlsContexts.DialogMessage String message) {
       super(message);
     }
   }
 
   public Collection<MemberInfoType> getSelectedMemberInfos() {
-    ArrayList<MemberInfoType> result = new ArrayList<MemberInfoType>(myMemberInfos.size());
+    ArrayList<MemberInfoType> result = new ArrayList<>(myMemberInfos.size());
     for (MemberInfoType info : myMemberInfos) {
       if (info.isChecked()) {
         result.add(info);
@@ -304,6 +291,4 @@ public abstract class ExtractSuperBaseDialog<ClassType extends PsiElement, Membe
     }
     return result;
   }
-
-
 }

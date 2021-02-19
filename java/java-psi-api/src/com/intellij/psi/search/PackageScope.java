@@ -22,8 +22,6 @@ package com.intellij.psi.search;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.PackageIndex;
-import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiClassOwner;
@@ -31,16 +29,17 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiPackage;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Collection;
+import java.util.HashSet;
+import java.util.Set;
 
 public class PackageScope extends GlobalSearchScope {
-  private final Collection<VirtualFile> myDirs;
+  private final Set<VirtualFile> myDirs;
   private final PsiPackage myPackage;
   private final boolean myIncludeSubpackages;
   private final boolean myIncludeLibraries;
-  protected final boolean myPartOfPackagePrefix;
-  protected final String myPackageQualifiedName;
-  protected final String myPackageQNamePrefix;
+  private final boolean myPartOfPackagePrefix;
+  private final String myPackageQualifiedName;
+  private final String myPackageQNamePrefix;
 
   public PackageScope(@NotNull PsiPackage aPackage, boolean includeSubpackages, final boolean includeLibraries) {
     super(aPackage.getProject());
@@ -49,7 +48,7 @@ public class PackageScope extends GlobalSearchScope {
 
     Project project = myPackage.getProject();
     myPackageQualifiedName = myPackage.getQualifiedName();
-    myDirs = PackageIndex.getInstance(project).getDirsByPackageName(myPackageQualifiedName, true).findAll();
+    myDirs = new HashSet<>(PackageIndex.getInstance(project).getDirsByPackageName(myPackageQualifiedName, true).findAll());
     myIncludeLibraries = includeLibraries;
 
     myPartOfPackagePrefix = JavaPsiFacade.getInstance(getProject()).isPartOfPackagePrefix(myPackageQualifiedName);
@@ -58,12 +57,16 @@ public class PackageScope extends GlobalSearchScope {
 
   @Override
   public boolean contains(@NotNull VirtualFile file) {
-    for (VirtualFile scopeDir : myDirs) {
-      boolean inDir = myIncludeSubpackages
-                      ? VfsUtilCore.isAncestor(scopeDir, file, false)
-                      : Comparing.equal(file.getParent(), scopeDir);
-      if (inDir) return true;
+    VirtualFile dir = file.isDirectory() ? file : file.getParent();
+    if (!myIncludeSubpackages) {
+      if (myDirs.contains(dir)) return true;
+    } else {
+      while (dir != null) {
+        if (myDirs.contains(dir)) return true;
+        dir = dir.getParent();
+      }
     }
+
     if (myPartOfPackagePrefix && myIncludeSubpackages) {
       final PsiFile psiFile = myPackage.getManager().findFile(file);
       if (psiFile instanceof PsiClassOwner) {
@@ -76,11 +79,6 @@ public class PackageScope extends GlobalSearchScope {
   }
 
   @Override
-  public int compare(@NotNull VirtualFile file1, @NotNull VirtualFile file2) {
-    return 0;
-  }
-
-  @Override
   public boolean isSearchInModuleContent(@NotNull Module aModule) {
     return true;
   }
@@ -90,6 +88,7 @@ public class PackageScope extends GlobalSearchScope {
     return myIncludeLibraries;
   }
 
+  @Override
   public String toString() {
     //noinspection HardCodedStringLiteral
     return "package scope: " + myPackage +

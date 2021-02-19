@@ -48,14 +48,14 @@ public final class KnownArgumentsInfo implements ArgumentsInfo {
    * List of real arguments.
    */
   @NotNull
-  private final List<Argument> myArguments = new ArrayList<Argument>();
+  private final List<Argument> myArguments = new ArrayList<>();
   /**
    * Minimum number of arguments this command requires (actually, number of required arguments)
    */
   private final int myMinArguments;
   /**
    * Maximum number of arguments this command accepts
-   * (number of required arguments + num of optional arguments or {@link java.lang.Integer#MAX_VALUE} if last argument may have infinite
+   * (number of required arguments + num of optional arguments or {@link Integer#MAX_VALUE} if last argument may have infinite
    * number of values)
    */
   private final int myMaxArguments;
@@ -75,7 +75,7 @@ public final class KnownArgumentsInfo implements ArgumentsInfo {
    * @param maxArguments maximum argument allowed
    * @param arguments arguments
    */
-  public KnownArgumentsInfo(final int minArguments, final int maxArguments, @NotNull final Argument... arguments) {
+  public KnownArgumentsInfo(final int minArguments, final int maxArguments, final Argument @NotNull ... arguments) {
     this(Arrays.asList(arguments), minArguments, maxArguments);
   }
 

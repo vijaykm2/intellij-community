@@ -15,15 +15,15 @@
  */
 package com.siyeh.ig.errorhandling;
 
-import com.intellij.psi.PsiCodeBlock;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiKeyword;
-import com.intellij.psi.PsiTryStatement;
+import com.intellij.psi.*;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.psiutils.ControlFlowUtils;
 import org.jetbrains.annotations.NotNull;
+
+import static com.intellij.util.ObjectUtils.tryCast;
 
 public class FinallyBlockCannotCompleteNormallyInspection
   extends BaseInspection {
@@ -32,13 +32,6 @@ public class FinallyBlockCannotCompleteNormallyInspection
   @NotNull
   public String getID() {
     return "finally";
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "finally.block.cannot.complete.normally.display.name");
   }
 
   @Override
@@ -68,6 +61,7 @@ public class FinallyBlockCannotCompleteNormallyInspection
       if (finallyBlock == null) {
         return;
       }
+      if (isInMainMethod(statement)) return;
       if (ControlFlowUtils.codeBlockMayCompleteNormally(finallyBlock)) {
         return;
       }
@@ -80,5 +74,23 @@ public class FinallyBlockCannotCompleteNormallyInspection
         }
       }
     }
+  }
+
+  private static boolean isInMainMethod(@NotNull PsiStatement statement) {
+    PsiMethod method = PsiTreeUtil.getParentOfType(statement, PsiMethod.class);
+    if (method == null) return false;
+    if (!"main".equals(method.getName())) return false;
+    PsiModifierList modifierList = method.getModifierList();
+    if (!modifierList.hasExplicitModifier(PsiModifier.STATIC) ||
+        !modifierList.hasExplicitModifier(PsiModifier.PUBLIC) ||
+        method.getParameterList().getParametersCount() != 1) {
+      return false;
+    }
+    PsiParameter[] parameters = method.getParameterList().getParameters();
+    PsiParameter parameter = parameters[0];
+    PsiArrayType arrayType = tryCast(parameter.getType(), PsiArrayType.class);
+    if (arrayType == null) return false;
+    PsiType componentType = arrayType.getDeepComponentType();
+    return CommonClassNames.JAVA_LANG_STRING.equals(componentType.getCanonicalText());
   }
 }

@@ -15,11 +15,16 @@
  */
 package com.intellij.html.impl;
 
+import com.intellij.codeInsight.completion.CompletionUtilCore;
 import com.intellij.html.index.Html5CustomAttributesIndex;
-import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.project.Project;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.util.CachedValueProvider;
+import com.intellij.psi.util.CachedValuesManager;
+import com.intellij.psi.util.PsiModificationTracker;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.indexing.FileBasedIndex;
 import com.intellij.xml.XmlAttributeDescriptor;
 import com.intellij.xml.XmlAttributeDescriptorsProvider;
@@ -39,40 +44,45 @@ public class Html5CustomAttributeDescriptorsProvider implements XmlAttributeDesc
     if (tag == null || !HtmlUtil.isHtml5Context(tag)) {
       return XmlAttributeDescriptor.EMPTY;
     }
-    final List<String> currentAttrs = new ArrayList<String>();
+    final List<String> currentAttrs = new ArrayList<>();
     for (XmlAttribute attribute : tag.getAttributes()) {
       currentAttrs.add(attribute.getName());
     }
-    final List<XmlAttributeDescriptor> result = new ArrayList<XmlAttributeDescriptor>();
-    final GlobalSearchScope scope = GlobalSearchScope.allScope(tag.getProject());
-    final Collection<String> keys = FileBasedIndex.getInstance().getAllKeys(Html5CustomAttributesIndex.INDEX_ID, tag.getProject());
-    for (String key : keys) {
-      final boolean canProcessKey = !FileBasedIndex.getInstance().processValues(Html5CustomAttributesIndex.INDEX_ID, key,
-                                                                                null, new FileBasedIndex.ValueProcessor<Void>() {
-          @Override
-          public boolean process(VirtualFile file, Void value) {
-            return false;
-          }
-        }, scope);
-      if (!canProcessKey) continue;
+    final Project project = tag.getProject();
+    final Collection<String> keys = CachedValuesManager.getManager(project).getCachedValue(project, () -> {
+      final Collection<String> keys1 = FileBasedIndex.getInstance().getAllKeys(Html5CustomAttributesIndex.INDEX_ID, project);
+      final GlobalSearchScope scope = GlobalSearchScope.allScope(project);
+      return CachedValueProvider.Result.<Collection<String>>create(ContainerUtil.filter(keys1,
+                                                                       key -> !FileBasedIndex.getInstance().processValues(
+                                                                         Html5CustomAttributesIndex.INDEX_ID, key,
+                                                                         null,
+                                                                         (file, value) -> false, scope)),
+                                                  PsiModificationTracker.MODIFICATION_COUNT);
+    });
+    if (keys.isEmpty()) return XmlAttributeDescriptor.EMPTY;
 
+    boolean inCompletion = tag.getContainingFile().getVirtualFile() == null;
+    final List<XmlAttributeDescriptor> result = new ArrayList<>();
+    for (String key : keys) {
       boolean add = true;
-      for (String attr : currentAttrs) {
-        if (attr.startsWith(key)) {
-          add = false;
+      if (inCompletion) {
+        for (String attr : currentAttrs) {
+          if (attr.equals(key + CompletionUtilCore.DUMMY_IDENTIFIER_TRIMMED)) {
+            add = false;
+            break;
+          }
         }
       }
-      if (add) {
-        result.add(new AnyXmlAttributeDescriptor(key));
-      }
+      if (add) result.add(new AnyXmlAttributeDescriptor(key));
     }
 
-    return result.toArray(new XmlAttributeDescriptor[result.size()]);
+    return result.toArray(XmlAttributeDescriptor.EMPTY);
   }
 
   @Override
   public XmlAttributeDescriptor getAttributeDescriptor(String attributeName, XmlTag context) {
-    if (context != null && HtmlUtil.isHtml5Context(context) && HtmlUtil.isCustomHtml5Attribute(attributeName)) {
+    if (context != null && HtmlUtil.isCustomHtml5Attribute(attributeName) &&
+        (HtmlUtil.isHtml5Context(context) || HtmlUtil.tagHasHtml5Schema(context))) {
       return new AnyXmlAttributeDescriptor(attributeName);
     }
     return null;

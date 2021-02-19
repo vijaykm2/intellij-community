@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.decompiler.modules.decompiler.vars;
 
 import org.jetbrains.java.decompiler.code.CodeConstants;
@@ -34,21 +20,34 @@ import java.util.List;
 import java.util.Map;
 
 public class VarTypeProcessor {
-
   public static final int VAR_NON_FINAL = 1;
   public static final int VAR_EXPLICIT_FINAL = 2;
   public static final int VAR_FINAL = 3;
 
-  private final Map<VarVersionPair, VarType> mapExprentMinTypes = new HashMap<VarVersionPair, VarType>();
-  private final Map<VarVersionPair, VarType> mapExprentMaxTypes = new HashMap<VarVersionPair, VarType>();
-  private final Map<VarVersionPair, Integer> mapFinalVars = new HashMap<VarVersionPair, Integer>();
+  private final StructMethod method;
+  private final MethodDescriptor methodDescriptor;
+  private final Map<VarVersionPair, VarType> mapExprentMinTypes = new HashMap<>();
+  private final Map<VarVersionPair, VarType> mapExprentMaxTypes = new HashMap<>();
+  private final Map<VarVersionPair, Integer> mapFinalVars = new HashMap<>();
+
+  public VarTypeProcessor(StructMethod mt, MethodDescriptor md) {
+    method = mt;
+    methodDescriptor = md;
+  }
+
+  public void calculateVarTypes(RootStatement root, DirectGraph graph) {
+    setInitVars(root);
+
+    resetExprentTypes(graph);
+
+    //noinspection StatementWithEmptyBody
+    while (!processVarTypes(graph)) ;
+  }
 
   private void setInitVars(RootStatement root) {
-    StructMethod mt = (StructMethod)DecompilerContext.getProperty(DecompilerContext.CURRENT_METHOD);
+    boolean thisVar = !method.hasModifier(CodeConstants.ACC_STATIC);
 
-    boolean thisVar = !mt.hasModifier(CodeConstants.ACC_STATIC);
-
-    MethodDescriptor md = (MethodDescriptor)DecompilerContext.getProperty(DecompilerContext.CURRENT_METHOD_DESCRIPTOR);
+    MethodDescriptor md = methodDescriptor;
 
     if (thisVar) {
       StructClass cl = (StructClass)DecompilerContext.getProperty(DecompilerContext.CURRENT_CLASS);
@@ -65,7 +64,7 @@ public class VarTypeProcessor {
     }
 
     // catch variables
-    LinkedList<Statement> stack = new LinkedList<Statement>();
+    LinkedList<Statement> stack = new LinkedList<>();
     stack.add(root);
 
     while (!stack.isEmpty()) {
@@ -90,45 +89,28 @@ public class VarTypeProcessor {
     }
   }
 
-  public void calculateVarTypes(RootStatement root, DirectGraph graph) {
-    setInitVars(root);
-
-    resetExprentTypes(graph);
-
-    //noinspection StatementWithEmptyBody
-    while (!processVarTypes(graph)) ;
-  }
-
   private static void resetExprentTypes(DirectGraph graph) {
-    graph.iterateExprents(new DirectGraph.ExprentIterator() {
-      @Override
-      public int processExprent(Exprent exprent) {
-        List<Exprent> lst = exprent.getAllExprents(true);
-        lst.add(exprent);
+    graph.iterateExprents(exprent -> {
+      List<Exprent> lst = exprent.getAllExprents(true);
+      lst.add(exprent);
 
-        for (Exprent expr : lst) {
-          if (expr.type == Exprent.EXPRENT_VAR) {
-            ((VarExprent)expr).setVarType(VarType.VARTYPE_UNKNOWN);
-          }
-          else if (expr.type == Exprent.EXPRENT_CONST) {
-            ConstExprent constExpr = (ConstExprent)expr;
-            if (constExpr.getConstType().typeFamily == CodeConstants.TYPE_FAMILY_INTEGER) {
-              constExpr.setConstType(new ConstExprent(constExpr.getIntValue(), constExpr.isBoolPermitted(), null).getConstType());
-            }
+      for (Exprent expr : lst) {
+        if (expr.type == Exprent.EXPRENT_VAR) {
+          ((VarExprent)expr).setVarType(VarType.VARTYPE_UNKNOWN);
+        }
+        else if (expr.type == Exprent.EXPRENT_CONST) {
+          ConstExprent constExpr = (ConstExprent)expr;
+          if (constExpr.getConstType().typeFamily == CodeConstants.TYPE_FAMILY_INTEGER) {
+            constExpr.setConstType(new ConstExprent(constExpr.getIntValue(), constExpr.isBoolPermitted(), null).getConstType());
           }
         }
-        return 0;
       }
+      return 0;
     });
   }
 
   private boolean processVarTypes(DirectGraph graph) {
-    return graph.iterateExprents(new DirectGraph.ExprentIterator() {
-      @Override
-      public int processExprent(Exprent exprent) {
-        return checkTypeExprent(exprent) ? 0 : 1;
-      }
-    });
+    return graph.iterateExprents(exprent -> checkTypeExprent(exprent) ? 0 : 1);
   }
 
   private boolean checkTypeExprent(Exprent exprent) {
@@ -151,15 +133,17 @@ public class VarTypeProcessor {
 
     CheckTypesResult result = exprent.checkExprTypeBounds();
 
-    for (CheckTypesResult.ExprentTypePair entry : result.getLstMaxTypeExprents()) {
-      if (entry.type.typeFamily != CodeConstants.TYPE_FAMILY_OBJECT) {
-        changeExprentType(entry.exprent, entry.type, 1);
-      }
-    }
-
     boolean res = true;
-    for (CheckTypesResult.ExprentTypePair entry : result.getLstMinTypeExprents()) {
-      res &= changeExprentType(entry.exprent, entry.type, 0);
+    if (result != null) {
+      for (CheckTypesResult.ExprentTypePair entry : result.getLstMaxTypeExprents()) {
+        if (entry.type.typeFamily != CodeConstants.TYPE_FAMILY_OBJECT) {
+          changeExprentType(entry.exprent, entry.type, 1);
+        }
+      }
+
+      for (CheckTypesResult.ExprentTypePair entry : result.getLstMinTypeExprents()) {
+        res &= changeExprentType(entry.exprent, entry.type, 0);
+      }
     }
 
     return res;
@@ -186,10 +170,9 @@ public class VarTypeProcessor {
       case Exprent.EXPRENT_VAR:
         VarVersionPair pair = null;
         if (exprent.type == Exprent.EXPRENT_CONST) {
-          pair = new VarVersionPair(((ConstExprent)exprent).id, -1);
+          pair = new VarVersionPair(exprent.id, -1);
         }
         else if (exprent.type == Exprent.EXPRENT_VAR) {
-          //noinspection ConstantConditions
           pair = new VarVersionPair((VarExprent)exprent);
         }
 
@@ -208,7 +191,6 @@ public class VarTypeProcessor {
 
           mapExprentMinTypes.put(pair, newMinType);
           if (exprent.type == Exprent.EXPRENT_CONST) {
-            //noinspection ConstantConditions
             ((ConstExprent)exprent).setConstType(newMinType);
           }
 

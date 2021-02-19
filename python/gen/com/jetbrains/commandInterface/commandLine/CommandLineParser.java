@@ -9,9 +9,10 @@ import com.intellij.psi.tree.IElementType;
 import com.intellij.lang.ASTNode;
 import com.intellij.psi.tree.TokenSet;
 import com.intellij.lang.PsiParser;
+import com.intellij.lang.LightPsiParser;
 
 @SuppressWarnings({"SimplifiableIfStatement", "UnusedAssignment"})
-public class CommandLineParser implements PsiParser {
+public class CommandLineParser implements PsiParser, LightPsiParser {
 
   public ASTNode parse(IElementType t, PsiBuilder b) {
     parseLight(t, b);
@@ -22,35 +23,36 @@ public class CommandLineParser implements PsiParser {
     boolean r;
     b = adapt_builder_(t, b, this, null);
     Marker m = enter_section_(b, 0, _COLLAPSE_, null);
-    if (t == ARGUMENT) {
-      r = argument(b, 0);
-    }
-    else if (t == COMMAND) {
-      r = command(b, 0);
-    }
-    else if (t == OPTION) {
-      r = option(b, 0);
-    }
-    else {
-      r = parse_root_(t, b, 0);
-    }
+    r = parse_root_(t, b);
     exit_section_(b, 0, m, t, r, true, TRUE_CONDITION);
   }
 
-  protected boolean parse_root_(IElementType t, PsiBuilder b, int l) {
+  protected boolean parse_root_(IElementType t, PsiBuilder b) {
+    return parse_root_(t, b, 0);
+  }
+
+  static boolean parse_root_(IElementType t, PsiBuilder b, int l) {
     return root(b, l + 1);
   }
 
   /* ********************************************************** */
-  // LITERAL_STARTS_FROM_LETTER | LITERAL_STARTS_FROM_DIGIT
+  // LITERAL_STARTS_FROM_LETTER | LITERAL_STARTS_FROM_DIGIT | LITERAL_STARTS_FROM_SYMBOL |
+  // SPACED_LITERAL_STARTS_FROM_LETTER | SPACED_LITERAL_STARTS_FROM_DIGIT | SPACED_LITERAL_STARTS_FROM_SYMBOL |
+  // SINGLE_Q_SPACED_LITERAL_STARTS_FROM_LETTER | SINGLE_Q_SPACED_LITERAL_STARTS_FROM_DIGIT | SINGLE_Q_SPACED_LITERAL_STARTS_FROM_SYMBOL
   public static boolean argument(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "argument")) return false;
-    if (!nextTokenIs(b, "<argument>", LITERAL_STARTS_FROM_DIGIT, LITERAL_STARTS_FROM_LETTER)) return false;
     boolean r;
-    Marker m = enter_section_(b, l, _NONE_, "<argument>");
+    Marker m = enter_section_(b, l, _NONE_, ARGUMENT, "<argument>");
     r = consumeToken(b, LITERAL_STARTS_FROM_LETTER);
     if (!r) r = consumeToken(b, LITERAL_STARTS_FROM_DIGIT);
-    exit_section_(b, l, m, ARGUMENT, r, false, null);
+    if (!r) r = consumeToken(b, LITERAL_STARTS_FROM_SYMBOL);
+    if (!r) r = consumeToken(b, SPACED_LITERAL_STARTS_FROM_LETTER);
+    if (!r) r = consumeToken(b, SPACED_LITERAL_STARTS_FROM_DIGIT);
+    if (!r) r = consumeToken(b, SPACED_LITERAL_STARTS_FROM_SYMBOL);
+    if (!r) r = consumeToken(b, SINGLE_Q_SPACED_LITERAL_STARTS_FROM_LETTER);
+    if (!r) r = consumeToken(b, SINGLE_Q_SPACED_LITERAL_STARTS_FROM_DIGIT);
+    if (!r) r = consumeToken(b, SINGLE_Q_SPACED_LITERAL_STARTS_FROM_SYMBOL);
+    exit_section_(b, l, m, r, false, null);
     return r;
   }
 
@@ -78,10 +80,10 @@ public class CommandLineParser implements PsiParser {
     if (!recursion_guard_(b, l, "option")) return false;
     if (!nextTokenIs(b, "<option>", LONG_OPTION_NAME_TOKEN, SHORT_OPTION_NAME_TOKEN)) return false;
     boolean r;
-    Marker m = enter_section_(b, l, _NONE_, "<option>");
+    Marker m = enter_section_(b, l, _NONE_, OPTION, "<option>");
     r = option_0(b, l + 1);
     if (!r) r = option_1(b, l + 1);
-    exit_section_(b, l, m, OPTION, r, false, null);
+    exit_section_(b, l, m, r, false, null);
     return r;
   }
 
@@ -138,11 +140,10 @@ public class CommandLineParser implements PsiParser {
   // (argument | option ) *
   private static boolean root_1(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "root_1")) return false;
-    int c = current_position_(b);
     while (true) {
+      int c = current_position_(b);
       if (!root_1_0(b, l + 1)) break;
       if (!empty_element_parsed_guard_(b, "root_1", c)) break;
-      c = current_position_(b);
     }
     return true;
   }
@@ -151,10 +152,8 @@ public class CommandLineParser implements PsiParser {
   private static boolean root_1_0(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "root_1_0")) return false;
     boolean r;
-    Marker m = enter_section_(b);
     r = argument(b, l + 1);
     if (!r) r = option(b, l + 1);
-    exit_section_(b, m, null, r);
     return r;
   }
 

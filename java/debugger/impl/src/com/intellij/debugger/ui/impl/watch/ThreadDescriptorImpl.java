@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
  */
 package com.intellij.debugger.ui.impl.watch;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.DebuggerManagerThreadImpl;
 import com.intellij.debugger.engine.SuspendContextImpl;
 import com.intellij.debugger.engine.SuspendManager;
@@ -48,10 +48,12 @@ public class ThreadDescriptorImpl extends NodeDescriptorImpl implements ThreadDe
     myThread = thread;
   }
 
+  @Override
   public String getName() {
     return myName;
   }
 
+  @Override
   protected String calcRepresentation(EvaluationContextImpl context, DescriptorLabelListener labelListener) throws EvaluateException {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     ThreadReferenceProxyImpl thread = getThreadReference();
@@ -62,15 +64,16 @@ public class ThreadDescriptorImpl extends NodeDescriptorImpl implements ThreadDe
       final String threadStatusText = DebuggerUtilsEx.getThreadStatusText(getThreadReference().status());
       //noinspection HardCodedStringLiteral
       if (grname != null && !"SYSTEM".equalsIgnoreCase(grname)) {
-        return DebuggerBundle.message("label.thread.node.in.group", myName, thread.uniqueID(), threadStatusText, grname);
+        return JavaDebuggerBundle.message("label.thread.node.in.group", myName, thread.uniqueID(), threadStatusText, grname);
       }
-      return DebuggerBundle.message("label.thread.node", myName, thread.uniqueID(), threadStatusText);
+      return JavaDebuggerBundle.message("label.thread.node", myName, thread.uniqueID(), threadStatusText);
     }
     catch (ObjectCollectedException e) {
-      return myName != null ? DebuggerBundle.message("label.thread.node.thread.collected", myName) : "";
+      return myName != null ? JavaDebuggerBundle.message("label.thread.node.thread.collected", myName) : "";
     }
   }
 
+  @Override
   public ThreadReferenceProxyImpl getThreadReference() {
     return myThread;
   }
@@ -83,10 +86,12 @@ public class ThreadDescriptorImpl extends NodeDescriptorImpl implements ThreadDe
     return myIsFrozen;
   }
 
+  @Override
   public boolean isExpandable() {
     return myIsExpandable;
   }
 
+  @Override
   public void setContext(EvaluationContextImpl context) {
     final ThreadReferenceProxyImpl thread = getThreadReference();
     final SuspendManager suspendManager = context != null? context.getDebugProcess().getSuspendManager() : null;
@@ -99,8 +104,8 @@ public class ThreadDescriptorImpl extends NodeDescriptorImpl implements ThreadDe
       myIsSuspended = false;
     }
     myIsExpandable   = calcExpandable(myIsSuspended);
-    mySuspendContext = SuspendManagerUtil.getSuspendContextForThread(suspendContext, thread);
-    myIsAtBreakpoint = suspendManager != null? SuspendManagerUtil.findContextByThread(suspendManager, thread) != null : thread.isAtBreakpoint();
+    mySuspendContext = suspendManager != null ? SuspendManagerUtil.findContextByThread(suspendManager, thread) : suspendContext;
+    myIsAtBreakpoint = thread.isAtBreakpoint();
     myIsCurrent      = suspendContext != null? suspendContext.getThread() == thread : false;
     myIsFrozen       = suspendManager != null? suspendManager.isFrozen(thread) : myIsSuspended;
   }
@@ -129,7 +134,7 @@ public class ThreadDescriptorImpl extends NodeDescriptorImpl implements ThreadDe
       //    try {
       //      Thread.sleep(100000);
       //    } catch (InterruptedException e) {
-      //      e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+      //      e.printStackTrace();
       //    }
       //  }
       return false;
@@ -150,16 +155,16 @@ public class ThreadDescriptorImpl extends NodeDescriptorImpl implements ThreadDe
   }
 
   public Icon getIcon() {
-    if(isCurrent()) {
+    if (isCurrent()) {
       return AllIcons.Debugger.ThreadCurrent;
     }
-    if(isFrozen()) {
-      return AllIcons.Debugger.ThreadFrozen;
-    }
-    if(isAtBreakpoint()) {
+    if (isAtBreakpoint()) {
       return AllIcons.Debugger.ThreadAtBreakpoint;
     }
-    if(isSuspended()) {
+    if (isFrozen()) {
+      return AllIcons.Debugger.ThreadFrozen;
+    }
+    if (isSuspended()) {
       return AllIcons.Debugger.ThreadSuspended;
     }
     return AllIcons.Debugger.ThreadRunning;

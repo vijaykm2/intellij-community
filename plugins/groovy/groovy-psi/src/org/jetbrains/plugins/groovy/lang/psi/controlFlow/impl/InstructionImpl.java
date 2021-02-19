@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.controlFlow.impl;
 
 import com.intellij.psi.PsiElement;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.psi.controlFlow.CallEnvironment;
@@ -31,8 +18,8 @@ import java.util.LinkedHashSet;
  * @author ven
  */
 public class InstructionImpl implements Instruction {
-  private final LinkedHashSet<InstructionImpl> myPredecessors = new LinkedHashSet<InstructionImpl>(1);
-  private final LinkedHashSet<InstructionImpl> mySuccessors = new LinkedHashSet<InstructionImpl>(1);
+  private final LinkedHashSet<Instruction> myPredecessors = new LinkedHashSet<>(1);
+  private final LinkedHashSet<Instruction> mySuccessors = new LinkedHashSet<>(1);
   private LinkedHashSet<NegatingGotoInstruction> myNegations;
 
   protected final PsiElement myPsiElement;
@@ -48,42 +35,46 @@ public class InstructionImpl implements Instruction {
     myPsiElement = element;
   }
 
+  @NotNull
   @Override
-  public Iterable<? extends Instruction> successors(CallEnvironment environment) {
+  public Iterable<Instruction> successors(@NotNull CallEnvironment environment) {
     final Deque<CallInstruction> stack = environment.callStack(this);
-    for (InstructionImpl instruction : mySuccessors) {
+    for (Instruction instruction : mySuccessors) {
       environment.update(stack, instruction);
     }
-
     return mySuccessors;
   }
 
+  @NotNull
   @Override
-  public Iterable<? extends Instruction> predecessors(CallEnvironment environment) {
+  public Iterable<Instruction> predecessors(@NotNull CallEnvironment environment) {
     final Deque<CallInstruction> stack = environment.callStack(this);
-    for (InstructionImpl instruction : myPredecessors) {
+    for (Instruction instruction : myPredecessors) {
       environment.update(stack, instruction);
     }
-
     return myPredecessors;
   }
 
+  @NotNull
   @Override
-  public Iterable<? extends Instruction> allSuccessors() {
+  public Iterable<Instruction> allSuccessors() {
     return mySuccessors;
   }
 
+  @NotNull
   @Override
-  public Iterable<? extends Instruction> allPredecessors() {
+  public Iterable<Instruction> allPredecessors() {
     return myPredecessors;
   }
 
+  @NonNls
+  @Override
   public String toString() {
     final StringBuilder builder = new StringBuilder();
     builder.append(myNumber);
     builder.append("(");
-    for (InstructionImpl successor : mySuccessors) {
-      builder.append(successor.myNumber);
+    for (Instruction successor : mySuccessors) {
+      builder.append(successor.num());
       builder.append(',');
     }
     if (!mySuccessors.isEmpty()) builder.delete(builder.length() - 1, builder.length());
@@ -91,6 +82,8 @@ public class InstructionImpl implements Instruction {
     return builder.toString();
   }
 
+  @NotNull
+  @NonNls
   protected String getElementPresentation() {
     //return "element: " + (myPsiElement != null ? myPsiElement.getText() : null);
     return "element: " + myPsiElement;
@@ -121,7 +114,7 @@ public class InstructionImpl implements Instruction {
 
   void addNegationsFrom(Instruction instruction) {
     if (myNegations == null) {
-      myNegations = new LinkedHashSet<NegatingGotoInstruction>(1);
+      myNegations = new LinkedHashSet<>(1);
     }
     for (NegatingGotoInstruction negation : instruction.getNegatingGotoInstruction()) {
       myNegations.add(negation);

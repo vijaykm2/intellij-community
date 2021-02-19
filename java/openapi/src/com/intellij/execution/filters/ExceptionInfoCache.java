@@ -1,43 +1,33 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.filters;
 
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Pair;
-import com.intellij.psi.JavaPsiFacade;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiFile;
+import com.intellij.openapi.roots.ProjectFileIndex;
+import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.search.PsiShortNamesCache;
+import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import java.util.*;
 import java.util.concurrent.ConcurrentMap;
 
 /**
  * @author peter
  */
 public class ExceptionInfoCache {
-  private final ConcurrentMap<String, Pair<PsiClass[], PsiFile[]>> myCache = ContainerUtil.createConcurrentSoftValueMap();
+  private final ConcurrentMap<String, ClassResolveInfo> myCache = ContainerUtil.createConcurrentSoftValueMap();
   private final Project myProject;
   private final GlobalSearchScope mySearchScope;
 
   public ExceptionInfoCache(GlobalSearchScope searchScope) {
-    myProject = ObjectUtils.assertNotNull(searchScope.getProject());
+    myProject = Objects.requireNonNull(searchScope.getProject());
     mySearchScope = searchScope;
   }
 
@@ -45,23 +35,38 @@ public class ExceptionInfoCache {
     return myProject;
   }
 
-  @NotNull
-  private PsiClass[] findClassesPreferringMyScope(String className) {
+  private PsiClass @NotNull [] findClassesPreferringMyScope(String className) {
     JavaPsiFacade psiFacade = JavaPsiFacade.getInstance(myProject);
     PsiClass[] result = psiFacade.findClasses(className, mySearchScope);
     return result.length != 0 ? result : psiFacade.findClasses(className, GlobalSearchScope.allScope(myProject));
   }
+  
+  @NotNull ClassResolveInfo resolveClassOrFile(String className, @Nullable String fileName) {
+    ClassResolveInfo info = resolveClass(className);
+    
+    if (info.myClasses.isEmpty() && fileName != null) {
+      String id = "file://" + fileName;
+      ClassResolveInfo cached = myCache.get(id);
+      if (cached != null) return cached;
+      // try find the file with the required name
+      //todo[nik] it would be better to use FilenameIndex here to honor the scope by it isn't accessible in Open API
+      PsiFile[] files = PsiShortNamesCache.getInstance(myProject).getFilesByName(fileName);
+      info = ExceptionInfoCache.ClassResolveInfo.create(myProject, files);
+      myCache.put(id, info);
+    }
+    return info;
+  }
 
-  Pair<PsiClass[], PsiFile[]> resolveClass(String className) {
-    Pair<PsiClass[], PsiFile[]> cached = myCache.get(className);
+  @NotNull ClassResolveInfo resolveClass(String className) {
+    ClassResolveInfo cached = myCache.get(className);
     if (cached != null) {
       return cached;
     }
 
     if (DumbService.isDumb(myProject)) {
-      return Pair.create(PsiClass.EMPTY_ARRAY, PsiFile.EMPTY_ARRAY);
+      return ClassResolveInfo.EMPTY;
     }
-    
+
     PsiClass[] classes = findClassesPreferringMyScope(className);
     if (classes.length == 0) {
       final int dollarIndex = className.indexOf('$');
@@ -70,14 +75,61 @@ public class ExceptionInfoCache {
       }
     }
 
-    PsiFile[] files = new PsiFile[classes.length];
-    for (int i = 0; i < classes.length; i++) {
-      files[i] = (PsiFile)classes[i].getContainingFile().getNavigationElement();
-    }
-
-    Pair<PsiClass[], PsiFile[]> result = Pair.create(classes, files);
+    ClassResolveInfo result = ClassResolveInfo.create(myProject, classes);
     myCache.put(className, result);
     return result;
+  }
+
+  static class ClassResolveInfo {
+    static final ClassResolveInfo EMPTY = new ClassResolveInfo(Collections.emptyMap(), false);
+    
+    final Map<VirtualFile, PsiElement> myClasses;
+    final boolean myInLibrary;
+    private volatile List<PsiClass> myExceptionClasses;
+
+    ClassResolveInfo(Map<VirtualFile, PsiElement> classes, boolean library) {
+      myClasses = classes;
+      myInLibrary = library;
+    }
+    
+    List<PsiClass> getExceptionClasses() {
+      List<PsiClass> exceptionClasses = myExceptionClasses;
+      if (exceptionClasses == null) {
+        exceptionClasses = new ArrayList<>();
+        for (PsiElement value : myClasses.values()) {
+          PsiClass psiClass = ObjectUtils.tryCast(value, PsiClass.class);
+          if (psiClass != null && InheritanceUtil.isInheritor(psiClass, CommonClassNames.JAVA_LANG_THROWABLE)) {
+            exceptionClasses.add(psiClass);
+          }
+        }
+        myExceptionClasses = exceptionClasses;
+      }
+      return myExceptionClasses;
+    }
+
+    @NotNull
+    static ExceptionInfoCache.ClassResolveInfo create(Project project, PsiElement[] elements) {
+      ProjectFileIndex index = ProjectRootManager.getInstance(project).getFileIndex();
+      Map<VirtualFile, PsiElement> result = new LinkedHashMap<>();
+      boolean library = true;
+      for (PsiElement element : elements) {
+        element = element.getNavigationElement();
+        PsiFile file = element.getContainingFile();
+        VirtualFile virtualFile = file.getVirtualFile();
+        if (virtualFile == null) continue;
+        if (index.isInContent(virtualFile)) {
+          if (library) {
+            library = false;
+            result.clear();
+          }
+        }
+        else if (!library) {
+          continue;
+        }
+        result.put(virtualFile, element);
+      }
+      return new ClassResolveInfo(result, library);
+    }
   }
 
 }

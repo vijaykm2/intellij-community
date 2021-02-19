@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,11 +20,20 @@ import java.util.Collection;
 import java.util.List;
 
 public class MavenWorkspaceSettings {
+  /**
+   * @deprecated Do not use this public field
+   */
+  @Deprecated
   public MavenGeneralSettings generalSettings = new MavenGeneralSettings();
+
+  /**
+   * @deprecated Do not use this public field
+   */
+  @Deprecated
   public MavenImportingSettings importingSettings = new MavenImportingSettings();
 
-  public List<String> enabledProfiles = new ArrayList<String>();
-  public List<String> disabledProfiles = new ArrayList<String>();
+  public List<String> enabledProfiles = new ArrayList<>();
+  public List<String> disabledProfiles = new ArrayList<>();
 
   public void setEnabledProfiles(Collection<String> profiles) {
     enabledProfiles.clear();
@@ -36,4 +45,19 @@ public class MavenWorkspaceSettings {
     disabledProfiles.addAll(profiles);
   }
 
+  public MavenGeneralSettings getGeneralSettings() {
+    return generalSettings;
+  }
+
+  public void setGeneralSettings(MavenGeneralSettings generalSettings) {
+    this.generalSettings = generalSettings;
+  }
+
+  public MavenImportingSettings getImportingSettings() {
+    return importingSettings;
+  }
+
+  public void setImportingSettings(MavenImportingSettings importingSettings) {
+    this.importingSettings = importingSettings;
+  }
 }

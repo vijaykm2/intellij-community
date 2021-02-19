@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.openapi.ui.MessageType;
@@ -20,7 +6,9 @@ import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.Ref;
 import com.intellij.ui.awt.RelativePoint;
+import com.intellij.ui.tree.TreeTestUtil;
 import com.intellij.ui.treeStructure.Tree;
+import com.intellij.util.ui.JBUI;
 
 import javax.swing.*;
 import java.awt.*;
@@ -39,9 +27,10 @@ public class BalloonTest {
     frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
 
     final JTree tree = new Tree();
+    TreeTestUtil.assertTreeUI(tree);
     content.add(tree);
 
-    final Ref<BalloonImpl> balloon = new Ref<BalloonImpl>();
+    final Ref<BalloonImpl> balloon = new Ref<>();
 
     tree.addMouseListener(new MouseAdapter() {
       @Override
@@ -59,8 +48,8 @@ public class BalloonTest {
           //pane.setBorder(new LineBorder(Color.blue));
 
           balloon.set(new BalloonImpl(
-            new JLabel("Content"), Color.black, null , MessageType.ERROR.getPopupBackground(), true, true, true, true, true, 0, true, false, null,
-            false, 500, 25, 0, 0, false, "This is the title", new Insets(2, 2, 2, 2), true, false, false, Balloon.Layer.normal));
+            new JLabel("Content"), Color.black, null , MessageType.ERROR.getPopupBackground(), true, true, true, true, true, true, 0, true, false, null,
+            false, 500, 25, 0, 0, false, "This is the title", JBUI.insets(2), true, false, false, Balloon.Layer.normal, false, null, -1));
           balloon.get().setShowPointer(true);
 
           if (e.isShiftDown()) {

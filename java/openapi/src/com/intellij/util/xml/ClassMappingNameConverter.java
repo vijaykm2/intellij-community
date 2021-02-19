@@ -16,7 +16,6 @@
 package com.intellij.util.xml;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.Condition;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiType;
@@ -34,7 +33,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * @see com.intellij.util.xml.MappingClass
+ * @see MappingClass
  * @author Dmitry Avdeev
  */
 public class ClassMappingNameConverter extends ResolvingConverter.StringConverter {
@@ -47,12 +46,7 @@ public class ClassMappingNameConverter extends ResolvingConverter.StringConverte
     DomElement parent = context.getInvocationElement().getParent();
     assert parent != null;
     List<DomElement> children = DomUtil.getDefinedChildren(parent, true, true);
-    DomElement classElement = ContainerUtil.find(children, new Condition<DomElement>() {
-      @Override
-      public boolean value(DomElement domElement) {
-        return domElement.getAnnotation(MappingClass.class) != null;
-      }
-    });
+    DomElement classElement = ContainerUtil.find(children, domElement -> domElement.getAnnotation(MappingClass.class) != null);
     if (classElement == null) return Collections.emptyList();
     Object value = ((GenericDomValue)classElement).getValue();
     if (value == null) return Collections.emptyList();

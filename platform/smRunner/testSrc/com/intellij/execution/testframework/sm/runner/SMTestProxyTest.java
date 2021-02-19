@@ -1,25 +1,26 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.testframework.sm.runner;
 
+import com.intellij.execution.Location;
+import com.intellij.execution.PsiLocation;
+import com.intellij.execution.filters.HyperlinkInfo;
 import com.intellij.execution.testframework.Filter;
 import com.intellij.execution.testframework.TestConsoleProperties;
 import com.intellij.execution.testframework.sm.runner.ui.MockPrinter;
+import com.intellij.execution.ui.ConsoleViewContentType;
+import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.project.Project;
+import com.intellij.psi.PsiDocumentManager;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.search.GlobalSearchScope;
-import org.easymock.classextension.EasyMock;
+import com.intellij.util.IdempotenceChecker;
+import com.intellij.util.containers.ContainerUtil;
+import org.easymock.EasyMock;
+import org.jetbrains.annotations.NotNull;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 import static com.intellij.execution.testframework.sm.runner.states.TestStateInfo.Magnitude;
 
@@ -78,6 +79,19 @@ public class SMTestProxyTest extends BaseSMTRunnerTestCase {
     assertEquals("newSuite", mySuite.toString());
     assertSameElements(mySuite.getChildren(), mySimpleTest);
     assertFalse(mySuite.isLeaf());
+  }
+
+  public void testAppendedChildToTestShouldMakeItSuite() {
+    mySuite = createTestProxy("unroll spock test");
+    assertFalse(mySuite.isSuite());
+    assertFalse(mySuite.isDefect());
+    mySuite.setSuiteStarted();
+    assertTrue(mySuite.isSuite());
+    assertFalse(mySuite.isDefect());
+    mySuite.addChild(mySimpleTest);
+    mySimpleTest.setTestFailed("failed message", null, false);
+    assertTrue(mySimpleTest.isDefect());
+    assertTrue(mySuite.isDefect());
   }
 
   public void testIsRoot() {
@@ -212,6 +226,40 @@ public class SMTestProxyTest extends BaseSMTRunnerTestCase {
     assertTrue(mySimpleTest.wasLaunched());
     assertTrue(mySimpleTest.isDefect());
     assertTrue(mySimpleTest.getMagnitudeInfo() == Magnitude.FAILED_INDEX);
+  }
+
+  public void testMultipleAssertions() {
+    mySimpleTest.setStarted();
+    mySimpleTest.setTestComparisonFailed("a", "stacktrace", "actual1", "expected1");
+    mySimpleTest.setTestComparisonFailed("b", "stacktrace", "actual2", "expected2");
+    mySimpleTest.setTestFailed("c", "stacktrace", false);
+    mySimpleTest.setFinished();
+
+    final MockPrinter printer = new MockPrinter(true) {
+      @Override
+      public void printHyperlink(String text, HyperlinkInfo info) {
+        print(text, ConsoleViewContentType.SYSTEM_OUTPUT);
+      }
+    };
+    mySimpleTest.printOn(printer);
+    assertEquals("", printer.getStdOut());
+    assertEquals("\n" +
+                 "a\n" +
+                 "Expected :expected1\n" +
+                 "Actual   :actual1\n" +
+                 "<Click to see difference>\n" +
+                 "\n" +
+                 "stacktrace\n" +
+                 "\n" +
+                 "b\n" +
+                 "Expected :expected2\n" +
+                 "Actual   :actual2\n" +
+                 "<Click to see difference>\n" +
+                 "\n" +
+                 "stacktrace\n" +
+                 "\n" +
+                 "c\n" +
+                 "stacktrace\n", printer.getAllOut());
   }
 
   public void testTestFailed_ComparisonAssertion() {
@@ -595,12 +643,41 @@ public class SMTestProxyTest extends BaseSMTRunnerTestCase {
   }
 
   public void testLocation() {
-    assertNull(mySuite.getLocation(getProject(), GlobalSearchScope.allScope(getProject())));
+    Project project = getProject();
+    GlobalSearchScope allScope = GlobalSearchScope.allScope(project);
+    assertNull(mySuite.getLocation(project, allScope));
 
     mySuite.addChild(mySimpleTest);
 
-    assertNull(mySuite.getLocation(getProject(), GlobalSearchScope.allScope(getProject())));
-    assertNull(mySimpleTest.getLocation(getProject(), GlobalSearchScope.allScope(getProject())));
+    assertNull(mySuite.getLocation(project, allScope));
+    assertNull(mySimpleTest.getLocation(project, allScope));
+    PsiFile testFile = createFile("test.txt", MockTestLocator.TEST_LOCATION_TEXT);
+    Location<PsiFile> testFileLocation = PsiLocation.fromPsiElement(testFile);
+    MockTestLocator locator = new MockTestLocator(testFileLocation);
+    mySimpleTest.setLocator(locator);
+    assertEquals(testFileLocation, mySimpleTest.getLocation(project, allScope));
+    assertEquals(ContainerUtil.newArrayList(allScope), locator.myCalledSearchScopes);
+
+    assertEquals(testFileLocation, mySimpleTest.getLocation(project, allScope));
+    assertEquals(ContainerUtil.newArrayList(allScope), locator.myCalledSearchScopes);
+
+    GlobalSearchScope notAllScope = GlobalSearchScope.notScope(allScope);
+    assertEquals(testFileLocation, mySimpleTest.getLocation(project, notAllScope));
+    assertEquals(ContainerUtil.newArrayList(allScope, notAllScope), locator.myCalledSearchScopes);
+
+    WriteAction.run(() -> {
+      PsiDocumentManager.getInstance(project).getDocument(testFile).setText("");
+      PsiDocumentManager.getInstance(project).commitAllDocuments(); // to rebuild PSI and invalidate cache
+    });
+
+    assertNull(null, mySimpleTest.getLocation(project, allScope));
+    assertEquals(ContainerUtil.newArrayList(allScope, notAllScope, allScope), locator.myCalledSearchScopes);
+
+    assertNull(null, mySimpleTest.getLocation(project, allScope));
+    assertEquals(ContainerUtil.newArrayList(allScope, notAllScope, allScope), locator.myCalledSearchScopes);
+
+    assertNull(null, mySimpleTest.getLocation(project, allScope));
+    assertEquals(ContainerUtil.newArrayList(allScope, notAllScope, allScope), locator.myCalledSearchScopes);
   }
 
   public void testNavigatable() {
@@ -990,5 +1067,32 @@ public class SMTestProxyTest extends BaseSMTRunnerTestCase {
 
   protected static void assertWeightsOrder(final Magnitude previous, final Magnitude next) {
     assertTrue(previous.getSortWeight() < next.getSortWeight());
+  }
+
+  private static class MockTestLocator implements SMTestLocator {
+
+    public static final String TEST_LOCATION_TEXT = "<test location>";
+
+    private final Location myLocation;
+    private final List<GlobalSearchScope> myCalledSearchScopes = new ArrayList<>();
+
+    MockTestLocator(@NotNull Location location) {
+      myLocation = location;
+    }
+
+    @NotNull
+    @Override
+    public List<Location> getLocation(@NotNull String protocol,
+                                      @NotNull String path,
+                                      @NotNull Project project,
+                                      @NotNull GlobalSearchScope scope) {
+      if (!IdempotenceChecker.isCurrentThreadInsideRandomCheck()) {
+        myCalledSearchScopes.add(scope);
+      }
+      if (myLocation.getPsiElement().getText().contains(TEST_LOCATION_TEXT)) {
+        return Collections.singletonList(myLocation);
+      }
+      return Collections.emptyList();
+    }
   }
 }

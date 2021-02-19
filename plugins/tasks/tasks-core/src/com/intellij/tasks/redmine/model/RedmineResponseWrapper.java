@@ -1,14 +1,14 @@
 package com.intellij.tasks.redmine.model;
 
 import com.google.gson.annotations.SerializedName;
-import com.intellij.tasks.impl.gson.Mandatory;
-import com.intellij.tasks.impl.gson.RestModel;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.io.mandatory.Mandatory;
+import org.jetbrains.io.mandatory.RestModel;
 
 import java.util.List;
 
 /**
- * @author Mikhail Golubev
+ * This is a stub definition intended to be used with Google GSON. Its fields are initialized reflectively.
  */
 @SuppressWarnings("UnusedDeclaration")
 public abstract class RedmineResponseWrapper {

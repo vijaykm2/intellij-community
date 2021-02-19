@@ -15,9 +15,9 @@
  */
 package com.intellij.refactoring.inheritanceToDelegation;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.ui.UsageViewDescriptorAdapter;
 import org.jetbrains.annotations.NotNull;
 
@@ -32,12 +32,13 @@ public class InheritanceToDelegationViewDescriptor extends UsageViewDescriptorAd
     myClass = aClass;
   }
 
-  @NotNull
-  public PsiElement[] getElements() {
+  @Override
+  public PsiElement @NotNull [] getElements() {
     return new PsiElement[] { myClass };
   }
 
+  @Override
   public String getProcessedElementsHeader() {
-    return RefactoringBundle.message("replace.inheritance.with.delegation.elements.header");
+    return JavaRefactoringBundle.message("replace.inheritance.with.delegation.elements.header");
   }
 }

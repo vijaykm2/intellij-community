@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,27 +15,25 @@
  */
 package org.jetbrains.git4idea.http;
 
-import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.text.StringUtilRt;
-import org.jetbrains.annotations.NotNull;
+import org.jetbrains.git4idea.GitAppUtil;
 import org.jetbrains.git4idea.GitExternalApp;
 
 /**
  * <p>This is a program that would be called by Git when an HTTP connection is needed, that requires authorization,
- *    and if {@code GIT_ASKPASS} variable is set to the script that invokes this program.</p>
+ * and if {@code GIT_ASKPASS} variable is set to the script that invokes this program.</p>
  * <p>The program is called separately for each authorization aspect.
- *    I. e. if no username is specified, then it is started and queried for the username, and then started once again for the password.</p>
+ * I. e. if no username is specified, then it is started and queried for the username, and then started once again for the password.</p>
  * <p>Since Git 1.7.9 the query format is the following:
  *    <ul>
- *      <li><code>Username for 'https://bitbucket.org':</code></li>
- *      <li><code>Password for 'https://bitbucket.org':</code></li>
- *      <li><code>Password for 'https://username@bitbucket.org':</code></li>
+ *      <li>{@code Username for 'https://bitbucket.org':}</li>
+ *      <li>{@code Password for 'https://bitbucket.org':}</li>
+ *      <li>{@code Password for 'https://username@bitbucket.org':}</li>
  *    </ul>
  * </p>
  * <p>Before Git 1.7.9 the query didn't contain the URL:
  *   <ul>
- *     <li><code>Username: </code></li>
- *     <li><code>Password: </code></li>
+ *     <li>{@code Username: }</li>
+ *     <li>{@code Password: }</li>
  *   </ul>
  * </p>
  * <p>Git expects the reply from the program's standard output.</p>
@@ -52,65 +50,17 @@ public class GitAskPassApp implements GitExternalApp {
         throw new IllegalArgumentException("No arguments specified!");
       }
 
-      Pair<Boolean, String> arguments = parseArguments(args[0]);
-      boolean usernameNeeded = arguments.getFirst();
-      String url = arguments.getSecond();
+      String handlerNo = GitAppUtil.getEnv(GitAskPassXmlRpcHandler.IJ_ASK_PASS_HANDLER_ENV);
+      int xmlRpcPort = GitAppUtil.getEnvInt(GitAskPassXmlRpcHandler.IJ_ASK_PASS_PORT_ENV);
 
-      int handler = Integer.parseInt(getNotNull(GitAskPassXmlRpcHandler.GIT_ASK_PASS_HANDLER_ENV));
-      int xmlRpcPort = Integer.parseInt(getNotNull(GitAskPassXmlRpcHandler.GIT_ASK_PASS_PORT_ENV));
-      GitAskPassXmlRpcClient xmlRpcClient = new GitAskPassXmlRpcClient(xmlRpcPort);
-
-      if (usernameNeeded) {
-        String username = xmlRpcClient.askUsername(handler, url);
-        System.out.println(username);
-      }
-      else {
-        String pass = xmlRpcClient.askPassword(handler, url);
-        System.out.println(pass);
-      }
+      String ans = GitAppUtil.sendXmlRequest(GitAskPassXmlRpcHandler.RPC_METHOD_NAME, xmlRpcPort,
+                                             handlerNo, args[0]);
+      System.out.println(ans);
     }
     catch (Throwable t) {
       System.err.println(t.getMessage());
       t.printStackTrace(System.err);
+      System.exit(1);
     }
   }
-
-  @NotNull
-  private static String getNotNull(@NotNull String env) {
-    String handlerValue = System.getenv(env);
-    if (handlerValue == null) {
-      throw new IllegalStateException(env + " environment variable is not defined!");
-    }
-    return handlerValue;
-  }
-
-  @NotNull
-  private static Pair<Boolean, String> parseArguments(@NotNull String arg) {
-    boolean username = StringUtilRt.startsWithIgnoreCase(arg, "username");
-    String url;
-    String[] split = arg.split(" ");
-    if (split.length > 2) {
-      url = parseUrl(split[2]);
-    }
-    else {
-      url = ""; // XML RPC doesn't like nulls
-    }
-    return Pair.create(username, url);
-  }
-
-  private static String parseUrl(@NotNull String urlArg) {
-    // un-quote and remove the trailing colon
-    String url = urlArg;
-    if (url.startsWith("'")) {
-      url = url.substring(1);
-    }
-    if (url.endsWith(":")) {
-      url = url.substring(0, url.length() - 1);
-    }
-    if (url.endsWith("'")) {
-      url = url.substring(0, url.length() - 1);
-    }
-    return url;
-  }
-
 }

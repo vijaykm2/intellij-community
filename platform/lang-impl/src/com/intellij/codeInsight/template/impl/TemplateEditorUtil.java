@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.template.impl;
 
+import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
 import com.intellij.codeInsight.template.TemplateContextType;
 import com.intellij.ide.DataManager;
 import com.intellij.lexer.Lexer;
@@ -39,13 +26,15 @@ import com.intellij.openapi.fileTypes.SyntaxHighlighter;
 import com.intellij.openapi.fileTypes.SyntaxHighlighterBase;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.PsiDocumentManager;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
 import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class TemplateEditorUtil {
+public final class TemplateEditorUtil {
   private TemplateEditorUtil() {}
 
   public static Editor createEditor(boolean isReadOnly, CharSequence text) {
@@ -60,7 +49,7 @@ public class TemplateEditorUtil {
   private static Document createDocument(CharSequence text, @Nullable TemplateContext context, Project project) {
     if (context != null) {
       for (TemplateContextType type : TemplateManagerImpl.getAllContextTypes()) {
-        if (context.isExplicitlyEnabled(type)) {
+        if (context.isEnabled(type)) {
           return type.createDocument(text, project);
         }
       }
@@ -69,7 +58,7 @@ public class TemplateEditorUtil {
     return EditorFactory.getInstance().createDocument(text);
   }
 
-  private static Editor createEditor(boolean isReadOnly, final Document document, final Project project) {
+  public static Editor createEditor(boolean isReadOnly, final Document document, final Project project) {
     EditorFactory editorFactory = EditorFactory.getInstance();
     Editor editor = (isReadOnly ? editorFactory.createViewer(document, project) : editorFactory.createEditor(document, project));
     editor.getContentComponent().setFocusable(!isReadOnly);
@@ -87,7 +76,7 @@ public class TemplateEditorUtil {
     if (file != null) {
       EditorHighlighter highlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(file, scheme, project);
       ((EditorEx) editor).setHighlighter(highlighter);
-      
+
     }
 
     return editor;
@@ -117,10 +106,23 @@ public class TemplateEditorUtil {
     editor.setHighlighter(layeredHighlighter);
   }
 
+  public static void disposeTemplateEditor(@Nullable Editor templateEditor) {
+    if (templateEditor != null && !templateEditor.isDisposed()) {
+      final Project project = templateEditor.getProject();
+      if (project != null && !project.isDisposed()) {
+        final PsiFile psiFile = PsiDocumentManager.getInstance(project).getPsiFile(templateEditor.getDocument());
+        if (psiFile != null) {
+          DaemonCodeAnalyzer.getInstance(project).setHighlightingEnabled(psiFile, true);
+        }
+      }
+      EditorFactory.getInstance().releaseEditor(templateEditor);
+    }
+  }
+
   private static class TemplateHighlighter extends SyntaxHighlighterBase {
     private final Lexer myLexer;
 
-    public TemplateHighlighter() {
+    TemplateHighlighter() {
       myLexer = new MergingLexerAdapter(new TemplateTextLexer(), TokenSet.create(TemplateTokenType.TEXT));
     }
 
@@ -131,9 +133,8 @@ public class TemplateEditorUtil {
     }
 
     @Override
-    @NotNull
-    public TextAttributesKey[] getTokenHighlights(IElementType tokenType) {
-      return tokenType == TemplateTokenType.VARIABLE ? pack(TemplateColors.TEMPLATE_VARIABLE_ATTRIBUTES) : EMPTY;
+    public TextAttributesKey @NotNull [] getTokenHighlights(IElementType tokenType) {
+      return tokenType == TemplateTokenType.VARIABLE ? pack(TemplateColors.TEMPLATE_VARIABLE_ATTRIBUTES) : TextAttributesKey.EMPTY_ARRAY;
     }
   }
 }

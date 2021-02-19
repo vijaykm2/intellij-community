@@ -16,15 +16,15 @@
 package com.intellij.util.download;
 
 import com.intellij.openapi.util.Condition;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * Describes file which can be downloaded from the net
  *
  * Use {@link DownloadableFileService#createFileDescription(String, String)} to create instances of this interface
- *
- * @author nik
  */
+@ApiStatus.NonExtendable
 public interface DownloadableFileDescription {
   @NotNull
   String getDownloadUrl();
@@ -39,5 +39,5 @@ public interface DownloadableFileDescription {
   String getDefaultFileName();
 
   @NotNull
-  String generateFileName(@NotNull Condition<String> validator);
+  String generateFileName(@NotNull Condition<? super String> validator);
 }

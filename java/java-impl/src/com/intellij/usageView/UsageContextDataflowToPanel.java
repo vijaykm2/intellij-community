@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.usageView;
 
 import com.intellij.analysis.AnalysisScope;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
@@ -39,7 +25,6 @@ import java.awt.*;
 import java.util.List;
 
 public class UsageContextDataflowToPanel extends UsageContextPanelBase {
-  @NotNull private final UsageViewPresentation myPresentation;
   private JComponent myPanel;
 
   public static class Provider implements UsageContextPanel.Provider {
@@ -64,13 +49,12 @@ public class UsageContextDataflowToPanel extends UsageContextPanelBase {
     @NotNull
     @Override
     public String getTabTitle() {
-      return "Dataflow to Here";
+      return JavaBundle.message("dataflow.to.here");
     }
   }
 
   public UsageContextDataflowToPanel(@NotNull Project project, @NotNull UsageViewPresentation presentation) {
     super(project, presentation);
-    myPresentation = presentation;
   }
 
   @Override
@@ -80,12 +64,11 @@ public class UsageContextDataflowToPanel extends UsageContextPanelBase {
   }
 
   @Override
-  public void updateLayoutLater(@Nullable final List<UsageInfo> infos) {
+  public void updateLayoutLater(@Nullable final List<? extends UsageInfo> infos) {
     if (infos == null) {
       removeAll();
-      JComponent titleComp = new JLabel(UsageViewBundle.message("select.the.usage.to.preview", myPresentation.getUsagesWord()), SwingConstants.CENTER);
+      JComponent titleComp = new JLabel(UsageViewBundle.message("select.the.usage.to.preview"), SwingConstants.CENTER);
       add(titleComp, BorderLayout.CENTER);
-      revalidate();
     }
     else {
       PsiElement element = getElementToSliceOn(infos);
@@ -94,13 +77,16 @@ public class UsageContextDataflowToPanel extends UsageContextPanelBase {
         Disposer.dispose((Disposable)myPanel);
       }
 
+      PsiElement restored = JavaSliceUsage.createRootUsage(element, createParams(element, isDataflowToThis())).getElement();
+      if (restored == null || restored.getContainingFile() == null) return;
+
       JComponent panel = createPanel(element, isDataflowToThis());
       myPanel = panel;
       Disposer.register(this, (Disposable)panel);
       removeAll();
       add(panel, BorderLayout.CENTER);
-      revalidate();
     }
+    revalidate();
   }
 
   protected boolean isDataflowToThis() {
@@ -121,7 +107,7 @@ public class UsageContextDataflowToPanel extends UsageContextPanelBase {
     ToolWindow toolWindow = ToolWindowManager.getInstance(myProject).getToolWindow(ToolWindowId.FIND);
     SliceAnalysisParams params = createParams(element, dataFlowToThis);
 
-    SliceRootNode rootNode = new SliceRootNode(myProject, new DuplicateMap(), SliceUsage.createRootUsage(element, params));
+    SliceRootNode rootNode = new SliceRootNode(myProject, new DuplicateMap(), JavaSliceUsage.createRootUsage(element, params));
 
     return new SlicePanel(myProject, dataFlowToThis, rootNode, false, toolWindow) {
       @Override
@@ -131,11 +117,6 @@ public class UsageContextDataflowToPanel extends UsageContextPanelBase {
 
       @Override
       public boolean isToShowPreviewButton() {
-        return false;
-      }
-
-      @Override
-      public boolean isToShowCloseButton() {
         return false;
       }
 
@@ -159,7 +140,7 @@ public class UsageContextDataflowToPanel extends UsageContextPanelBase {
     };
   }
 
-  private static PsiElement getElementToSliceOn(@NotNull List<UsageInfo> infos) {
+  private static PsiElement getElementToSliceOn(@NotNull List<? extends UsageInfo> infos) {
     UsageInfo info = infos.get(0);
     return info.getElement();
   }

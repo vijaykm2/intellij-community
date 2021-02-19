@@ -16,26 +16,24 @@
 package com.theoryinpractice.testng.inspection;
 
 import com.intellij.openapi.application.PluginPathManager;
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-public class TestNGDependsOnInspectionTest extends LightCodeInsightFixtureTestCase {
+public class TestNGDependsOnInspectionTest extends LightJavaCodeInsightFixtureTestCase {
   @Test
-  public void testDependencies() throws Exception {
-    Runnable runnable = new Runnable() {
-      public void run() {
-        myFixture.addClass("package org.testng.annotations;\n" +
-                           "public @interface AfterSuite {  java.lang.String[] dependsOnMethods() default {};}");
-        myFixture.addClass("package org.testng.annotations;\n" +
-                           "public @interface BeforeMethod {  java.lang.String[] dependsOnMethods() default {};}");
-        myFixture.addClass("package org.testng.annotations;\n" +
-                           "public @interface Test {  java.lang.String[] dependsOnMethods() default {};}");
-        myFixture.testHighlighting(true, false, false, "Dependencies.java");
-      }
+  public void testDependencies() {
+    Runnable runnable = () -> {
+      myFixture.addClass("package org.testng.annotations;\n" +
+                         "public @interface AfterSuite {  java.lang.String[] dependsOnMethods() default {};}");
+      myFixture.addClass("package org.testng.annotations;\n" +
+                         "public @interface BeforeMethod {  java.lang.String[] dependsOnMethods() default {};}");
+      myFixture.addClass("package org.testng.annotations;\n" +
+                         "public @interface Test {  java.lang.String[] dependsOnMethods() default {};}");
+      myFixture.testHighlighting(true, false, false, "Dependencies.java");
     };
     UIUtil.invokeAndWaitIfNeeded(runnable);
   }
@@ -51,34 +49,28 @@ public class TestNGDependsOnInspectionTest extends LightCodeInsightFixtureTestCa
   
   @BeforeMethod
     @Override
-    protected void setUp() throws Exception {
-      UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-        @Override
-        public void run() {
-          try {
-            TestNGDependsOnInspectionTest.super.setUp();
-            myFixture.enableInspections(new DependsOnMethodInspection());
-           
-          }
-          catch (Exception e) {
-            throw new RuntimeException(e);
-          }
+    protected void setUp() {
+      UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+        try {
+          TestNGDependsOnInspectionTest.super.setUp();
+          myFixture.enableInspections(new DependsOnMethodInspection());
+
+        }
+        catch (Exception e) {
+          throw new RuntimeException(e);
         }
       });
     }
   
     @AfterMethod
     @Override
-    protected void tearDown() throws Exception {
-      UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-        @Override
-        public void run() {
-          try {
-            TestNGDependsOnInspectionTest.super.tearDown();
-          }
-          catch (Exception e) {
-            throw new RuntimeException(e);
-          }
+    protected void tearDown() {
+      UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+        try {
+          TestNGDependsOnInspectionTest.super.tearDown();
+        }
+        catch (Exception e) {
+          throw new RuntimeException(e);
         }
       });
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2014 Bas Leijdekkers
+ * Copyright 2010-2018 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package com.siyeh.ig.style;
 
+import com.intellij.codeInspection.CleanupLocalInspectionTool;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.openapi.project.Project;
@@ -22,27 +23,19 @@ import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.psi.util.TypeConversionUtil;
-import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.HashSet;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
-import org.jetbrains.annotations.Nls;
+import com.siyeh.ig.psiutils.CommentTracker;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashSet;
 import java.util.Set;
 
-public class SimplifiableAnnotationInspection extends BaseInspection {
-
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("simplifiable.annotation.display.name");
-  }
+public class SimplifiableAnnotationInspection extends BaseInspection implements CleanupLocalInspectionTool {
 
   @NotNull
   @Override
@@ -62,38 +55,33 @@ public class SimplifiableAnnotationInspection extends BaseInspection {
 
   private static class SimplifiableAnnotationFix extends InspectionGadgetsFix {
 
-    public SimplifiableAnnotationFix() {}
-
-    @Override
-    @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message("simplifiable.annotation.quickfix");
-    }
+    SimplifiableAnnotationFix() {}
 
     @Override
     @NotNull
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("simplifiable.annotation.quickfix");
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
       final PsiAnnotation annotation = PsiTreeUtil.getParentOfType(element, PsiAnnotation.class);
       if (annotation == null) {
         return;
       }
       final PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
-      final String annotationText = buildAnnotationText(annotation);
+      CommentTracker tracker = new CommentTracker();
+      final String annotationText = buildAnnotationText(annotation, tracker);
       final PsiAnnotation newAnnotation = factory.createAnnotationFromText(annotationText, element);
-      annotation.replace(newAnnotation);
+      tracker.replaceAndRestoreComments(annotation, newAnnotation);
     }
 
-    private static String buildAnnotationText(PsiAnnotation annotation) {
+    private static String buildAnnotationText(PsiAnnotation annotation, CommentTracker tracker) {
       final StringBuilder out = new StringBuilder("@");
       final PsiJavaCodeReferenceElement nameReferenceElement = annotation.getNameReferenceElement();
       assert nameReferenceElement != null;
-      out.append(nameReferenceElement.getText());
+      out.append(tracker.text(nameReferenceElement));
       final PsiAnnotationParameterList parameterList = annotation.getParameterList();
       final PsiNameValuePair[] attributes = parameterList.getAttributes();
       if (attributes.length == 0) {
@@ -106,7 +94,7 @@ public class SimplifiableAnnotationInspection extends BaseInspection {
         if (name != null && !PsiAnnotation.DEFAULT_REFERENCED_METHOD_NAME.equals(name)) {
           out.append(name).append('=');
         }
-        buildAttributeValueText(attribute.getValue(), out);
+        buildAttributeValueText(attribute.getValue(), out, tracker);
       }
       else {
         for (int i = 0; i < attributes.length; i++) {
@@ -115,25 +103,29 @@ public class SimplifiableAnnotationInspection extends BaseInspection {
             out.append(',');
           }
           out.append(attribute.getName()).append('=');
-          buildAttributeValueText(attribute.getValue(), out);
+          buildAttributeValueText(attribute.getValue(), out, tracker);
         }
       }
       out.append(')');
       return out.toString();
     }
 
-    private static StringBuilder buildAttributeValueText(PsiAnnotationMemberValue value, StringBuilder out) {
+    private static void buildAttributeValueText(PsiAnnotationMemberValue value,
+                                                StringBuilder out,
+                                                CommentTracker tracker) {
       if (value instanceof PsiArrayInitializerMemberValue) {
         final PsiArrayInitializerMemberValue arrayValue = (PsiArrayInitializerMemberValue)value;
         final PsiAnnotationMemberValue[] initializers = arrayValue.getInitializers();
         if (initializers.length == 1) {
-          return out.append(initializers[0].getText());
+          out.append(tracker.text(initializers[0]));
+          return;
         }
       }
       else if (value instanceof PsiAnnotation) {
-        return out.append(buildAnnotationText((PsiAnnotation)value));
+        out.append(buildAnnotationText((PsiAnnotation)value, tracker));
+        return;
       }
-      return out.append(value.getText());
+      out.append(tracker.text(value));
     }
   }
 
@@ -186,7 +178,7 @@ public class SimplifiableAnnotationInspection extends BaseInspection {
           registerError(arrayValue.getLastChild(), ProblemHighlightType.LIKE_UNUSED_SYMBOL, Boolean.FALSE);
         }
       }
-      else if (attributes.length > 1) {
+      else {
         for (PsiNameValuePair attribute : attributes) {
           final PsiAnnotationMemberValue value = attribute.getValue();
           if (!(value instanceof PsiArrayInitializerMemberValue)) {
@@ -206,15 +198,11 @@ public class SimplifiableAnnotationInspection extends BaseInspection {
     }
 
     private static boolean containsError(PsiAnnotation annotation) {
-      final PsiJavaCodeReferenceElement nameRef = annotation.getNameReferenceElement();
-      if (nameRef == null) {
+      final PsiClass aClass = annotation.resolveAnnotationType();
+      if (aClass == null) {
         return true;
       }
-      final PsiClass aClass = (PsiClass)nameRef.resolve();
-      if (aClass == null || !aClass.isAnnotationType()) {
-        return true;
-      }
-      final Set<String> names = new HashSet<String>();
+      final Set<String> names = new HashSet<>();
       final PsiAnnotationParameterList annotationParameterList = annotation.getParameterList();
       if (PsiUtilCore.hasErrorElementChild(annotationParameterList)) {
         return true;

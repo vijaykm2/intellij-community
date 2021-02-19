@@ -16,6 +16,7 @@
 package org.intellij.lang.xpath.xslt.validation.inspections;
 
 import com.intellij.codeInspection.SuppressIntentionAction;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.lang.xml.XMLLanguage;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -30,36 +31,40 @@ import com.intellij.psi.xml.XmlProlog;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.psi.xml.XmlText;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.xml.util.XmlUtil;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 abstract class SuppressInspectionAction extends SuppressIntentionAction {
     private final String myToolId;
-    private final String myMsg;
+    private final @IntentionName String myMsg;
 
-    public SuppressInspectionAction(String toolId, String msg) {
+    SuppressInspectionAction(String toolId, @IntentionName String msg) {
         myToolId = toolId;
         myMsg = msg;
     }
 
+    @Override
     @NotNull
     public String getText() {
         return myMsg;
     }
 
+    @Override
     @NotNull
     public String getFamilyName() {
-        return "Suppress Inspection";
+        return XPathBundle.message("intention.family.name.suppress.inspection");
     }
 
     @Nullable
     protected abstract XmlTag getAnchor(@NotNull PsiElement element);
 
+    @Override
     public boolean isAvailable(@NotNull Project project, Editor editor, @NotNull PsiElement element) {
         return getAnchor(element) != null;
     }
 
+    @Override
     public void invoke(@NotNull Project project, Editor editor, @NotNull PsiElement element) throws IncorrectOperationException {
         final XmlTag anchor = getAnchor(element);
         if (anchor == null) return;
@@ -76,8 +81,8 @@ abstract class SuppressInspectionAction extends SuppressIntentionAction {
         }
         if (prevSibling instanceof XmlComment) {
             final XmlComment comment = (XmlComment)prevSibling;
-            final String text = XmlUtil.getCommentText(comment);
-            if (text != null && InspectionUtil.SUPPRESSION_PATTERN.matcher(text).matches()) {
+            final String text = comment.getCommentText();
+            if (InspectionUtil.SUPPRESSION_PATTERN.matcher(text).matches()) {
                 final String s = text.trim() + ", " + myToolId;
                 final XmlComment newComment = createComment(project, s);
               CodeStyleManager.getInstance(PsiManager.getInstance(project).getProject()).reformat(comment.replace(newComment));
@@ -108,9 +113,5 @@ abstract class SuppressInspectionAction extends SuppressIntentionAction {
         final XmlComment newComment = PsiTreeUtil.getChildOfType(element, XmlComment.class);
         assert newComment != null;
         return newComment;
-    }
-
-    public boolean startInWriteAction() {
-        return true;
     }
 }

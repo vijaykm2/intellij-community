@@ -18,8 +18,6 @@ package com.intellij.javadoc;
 import com.intellij.codeInsight.CodeInsightSettings;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.actionSystem.LangDataKeys;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
@@ -34,7 +32,6 @@ import java.util.List;
  * Holds javadoc-specific navigation logic.
  * 
  * @author Denis Zhdanov
- * @since 5/26/11 5:22 PM
  */
 public class JavadocNavigationDelegate extends EditorNavigationDelegateAdapter {
 

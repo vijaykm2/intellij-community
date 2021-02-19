@@ -1,6 +1,6 @@
 /*
  * Copyright 2006 ProductiveMe Inc.
- * Copyright 2013 JetBrains s.r.o.
+ * Copyright 2013-2018 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.io.OutputStreamWriter;
 
 /**
+ * @author Sergey Zhulin
  * Date: Mar 30, 2006
  * Time: 4:14:38 PM
  */
@@ -136,6 +137,28 @@ public class ExeReader extends Bin.Structure{
       section.resetOffsets(mainOffset + offset);
       offset += section.sizeInBytes();
     }
+  }
+
+  /**
+   * Required for cases when sections change their size due to editing: the overlapping sections should be fixed
+   * afterwards.
+   */
+  public void sectionVirtualAddressFixup() {
+    long virtualAddress = ((ImageSectionHeader)mySectionHeaders.get(0)).getValueMember("VirtualAddress").getValue();
+
+    for (Bin sectionHeader : mySectionHeaders.getArray()) {
+      Value virtualAddressMember = ((ImageSectionHeader)sectionHeader).getValueMember("VirtualAddress");
+
+      // Section always starts from an address divisible by 0x1000
+      if (virtualAddress % 0x1000 != 0)
+        virtualAddress += 0x1000 - virtualAddress % 0x1000;
+
+      virtualAddressMember.setValue(virtualAddress);
+      virtualAddress += ((ImageSectionHeader)sectionHeader).getValueMember("VirtualSize").getValue();
+    }
+
+    // The binary size has been changed as the result, update it in the size holders:
+    updateSizeOffsetHolders();
   }
 
   public void write(DataOutput stream) throws IOException {

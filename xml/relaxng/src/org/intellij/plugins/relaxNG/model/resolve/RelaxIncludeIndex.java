@@ -31,13 +31,8 @@ import org.intellij.plugins.relaxNG.compact.RncFileType;
 import org.intellij.plugins.relaxNG.xml.dom.RngGrammar;
 import org.jetbrains.annotations.NotNull;
 
-/*
-* Created by IntelliJ IDEA.
-* User: sweinreuter
-* Date: 09.06.2010
-*/
 public class RelaxIncludeIndex {
-  public static boolean processForwardDependencies(XmlFile file, final PsiElementProcessor<XmlFile> processor) {
+  public static boolean processForwardDependencies(XmlFile file, final PsiElementProcessor<? super XmlFile> processor) {
     VirtualFile virtualFile = file.getVirtualFile();
     if (virtualFile == null) {
       return processor.execute(file);
@@ -48,7 +43,7 @@ public class RelaxIncludeIndex {
     return processRelatedFiles(file, files, processor);
   }
 
-  public static boolean processBackwardDependencies(@NotNull XmlFile file, PsiElementProcessor<XmlFile> processor) {
+  public static boolean processBackwardDependencies(@NotNull XmlFile file, PsiElementProcessor<? super XmlFile> processor) {
     VirtualFile virtualFile = file.getVirtualFile();
     if (virtualFile == null) {
       return processor.execute(file);
@@ -59,15 +54,10 @@ public class RelaxIncludeIndex {
     return processRelatedFiles(file, files, processor);
   }
 
-  private static boolean processRelatedFiles(PsiFile file, VirtualFile[] files, PsiElementProcessor<XmlFile> processor) {
+  private static boolean processRelatedFiles(PsiFile file, VirtualFile[] files, PsiElementProcessor<? super XmlFile> processor) {
     Project project = file.getProject();
     final PsiManager psiManager = PsiManager.getInstance(project);
-    final PsiFile[] psiFiles = ContainerUtil.map2Array(files, PsiFile.class, new NullableFunction<VirtualFile, PsiFile>() {
-      @Override
-      public PsiFile fun(VirtualFile file) {
-        return psiManager.findFile(file);
-      }
-    });
+    final PsiFile[] psiFiles = ContainerUtil.map2Array(files, PsiFile.class, (NullableFunction<VirtualFile, PsiFile>)file1 -> psiManager.findFile(file1));
 
     for (final PsiFile psiFile : psiFiles) {
       if (!processFile(psiFile, processor)) {
@@ -77,7 +67,7 @@ public class RelaxIncludeIndex {
     return true;
   }
 
-  private static boolean processFile(PsiFile psiFile, PsiElementProcessor<XmlFile> processor) {
+  private static boolean processFile(PsiFile psiFile, PsiElementProcessor<? super XmlFile> processor) {
     final FileType type = psiFile.getFileType();
     if (type == XmlFileType.INSTANCE && isRngFile(psiFile)) {
       if (!processor.execute((XmlFile)psiFile)) {

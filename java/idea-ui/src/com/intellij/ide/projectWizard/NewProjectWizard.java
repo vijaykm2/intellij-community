@@ -22,6 +22,7 @@ import com.intellij.ide.util.projectWizard.ModuleWizardStep;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ui.configuration.ModulesProvider;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.registry.Registry;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,17 +36,17 @@ public class NewProjectWizard extends AbstractProjectWizard {
   private final StepSequence mySequence = new StepSequence();
 
   public NewProjectWizard(@Nullable Project project, @NotNull ModulesProvider modulesProvider, @Nullable String defaultPath) {
-    super(project == null ? IdeBundle.message("title.new.project") : IdeBundle.message("title.add.module"), project, defaultPath);
+    super(IdeBundle.message(project == null ? "title.new.project" : "title.add.module"), project, defaultPath);
     init(modulesProvider);
   }
 
-  public NewProjectWizard(Project project, Component dialogParent, ModulesProvider modulesProvider) {
+  public NewProjectWizard(Project project, Component dialogParent, ModulesProvider modulesProvider, String defaultModuleName) {
     super(IdeBundle.message("title.add.module"), project, dialogParent);
+    myWizardContext.setDefaultModuleName(defaultModuleName);
     init(modulesProvider);
   }
 
   protected void init(@NotNull ModulesProvider modulesProvider) {
-    myWizardContext.setNewWizard(true);
     myWizardContext.setModulesProvider(modulesProvider);
     ProjectTypeStep projectTypeStep = new ProjectTypeStep(myWizardContext, this, modulesProvider);
     Disposer.register(getDisposable(), projectTypeStep);
@@ -56,7 +57,7 @@ public class NewProjectWizard extends AbstractProjectWizard {
     for (ModuleWizardStep step : mySequence.getAllSteps()) {
       addStep(step);
     }
-    if (myWizardContext.isCreatingNewProject()) {
+    if (myWizardContext.isCreatingNewProject() && Registry.is("new.project.load.remote.templates")) {
       projectTypeStep.loadRemoteTemplates(chooseTemplateStep);
     }
     super.init();

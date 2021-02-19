@@ -1,26 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection;
 
 import com.intellij.analysis.AnalysisScope;
 import com.intellij.codeInspection.ex.JobDescriptor;
-import com.intellij.codeInspection.reference.RefEntity;
-import com.intellij.codeInspection.reference.RefGraphAnnotator;
-import com.intellij.codeInspection.reference.RefManager;
-import com.intellij.codeInspection.reference.RefVisitor;
+import com.intellij.codeInspection.reference.*;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.SmartPsiElementPointer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -36,7 +21,6 @@ import org.jetbrains.annotations.Nullable;
  *
  * @author anna
  * @see LocalInspectionTool
- * @since 6.0
  */
 public abstract class GlobalInspectionTool extends InspectionProfileEntry {
   @NotNull
@@ -78,10 +62,29 @@ public abstract class GlobalInspectionTool extends InspectionProfileEntry {
     globalContext.getRefManager().iterate(new RefVisitor() {
       @Override public void visitElement(@NotNull RefEntity refEntity) {
         if (!globalContext.shouldCheck(refEntity, GlobalInspectionTool.this)) return;
+        if (!isInScope(refEntity)) return;
         CommonProblemDescriptor[] descriptors = checkElement(refEntity, scope, manager, globalContext, problemDescriptionsProcessor);
         if (descriptors != null) {
           problemDescriptionsProcessor.addProblemElement(refEntity, descriptors);
         }
+      }
+
+      private boolean isInScope(@NotNull RefEntity refEntity) {
+        if (refEntity instanceof RefElement) {
+          SmartPsiElementPointer pointer = ((RefElement)refEntity).getPointer();
+          if (pointer != null) {
+            VirtualFile virtualFile = pointer.getVirtualFile();
+            if (virtualFile != null && !scope.contains(virtualFile)) return false;
+          }
+          else {
+            RefEntity owner = refEntity.getOwner();
+            return owner == null || isInScope(owner);
+          }
+        }
+        if (refEntity instanceof RefModule) {
+          return scope.containsModule(((RefModule)refEntity).getModule());
+        }
+        return true;
       }
     });
   }
@@ -95,11 +98,10 @@ public abstract class GlobalInspectionTool extends InspectionProfileEntry {
    * @param globalContext the context for the current global inspection run.
    * @return the problems found for the element, or null if no problems were found.
    */
-  @Nullable
-  public CommonProblemDescriptor[] checkElement(@NotNull RefEntity refEntity,
-                                                @NotNull AnalysisScope scope,
-                                                @NotNull InspectionManager manager,
-                                                @NotNull GlobalInspectionContext globalContext) {
+  public CommonProblemDescriptor @Nullable [] checkElement(@NotNull RefEntity refEntity,
+                                                           @NotNull AnalysisScope scope,
+                                                           @NotNull InspectionManager manager,
+                                                           @NotNull GlobalInspectionContext globalContext) {
     return null;
   }
 
@@ -113,12 +115,11 @@ public abstract class GlobalInspectionTool extends InspectionProfileEntry {
    * @param processor     the collector for problems reported by the inspection
    * @return the problems found for the element, or null if no problems were found.
    */
-  @Nullable
-  public CommonProblemDescriptor[] checkElement(@NotNull RefEntity refEntity,
-                                                @NotNull AnalysisScope scope,
-                                                @NotNull InspectionManager manager,
-                                                @NotNull GlobalInspectionContext globalContext,
-                                                @NotNull ProblemDescriptionsProcessor processor) {
+  public CommonProblemDescriptor @Nullable [] checkElement(@NotNull RefEntity refEntity,
+                                                           @NotNull AnalysisScope scope,
+                                                           @NotNull InspectionManager manager,
+                                                           @NotNull GlobalInspectionContext globalContext,
+                                                           @NotNull ProblemDescriptionsProcessor processor) {
     return checkElement(refEntity, scope, manager, globalContext);
   }
 
@@ -130,6 +131,16 @@ public abstract class GlobalInspectionTool extends InspectionProfileEntry {
    * reference graph (refEntities) and uses some other APIs for its processing.
    */
   public boolean isGraphNeeded() {
+    return true;
+  }
+
+  /**
+   * True by default to ensure third party plugins are not broken
+   * 
+   * @return true if inspection should be started ({@link #runInspection(AnalysisScope, InspectionManager, GlobalInspectionContext, ProblemDescriptionsProcessor)}) in ReadAction,
+   *         false if ReadAction is taken by inspection itself
+   */
+  public boolean isReadActionNeeded() {
     return true;
   }
 
@@ -148,7 +159,7 @@ public abstract class GlobalInspectionTool extends InspectionProfileEntry {
    * usages of the same classes and methods, usage searches are not performed directly, but
    * instead are queued for batch processing through
    * {@link GlobalJavaInspectionContext#enqueueClassUsagesProcessor} and similar methods. The method
-   * can add new problems to <code>problemDescriptionsProcessor</code> or remove some of the problems
+   * can add new problems to {@code problemDescriptionsProcessor} or remove some of the problems
    * collected by {@link #runInspection(AnalysisScope, InspectionManager, GlobalInspectionContext, ProblemDescriptionsProcessor)}
    * by calling {@link ProblemDescriptionsProcessor#ignoreElement(RefEntity)}.
    *
@@ -190,7 +201,7 @@ public abstract class GlobalInspectionTool extends InspectionProfileEntry {
    * @param refEntity entity to describe
    * @param composer provides sample api to compose html
    */
-  public void compose(@NotNull StringBuffer buf, @NotNull RefEntity refEntity, @NotNull HTMLComposer composer) {
+  public void compose(@NotNull StringBuilder buf, @NotNull RefEntity refEntity, @NotNull HTMLComposer composer) {
   }
 
   /**
@@ -198,9 +209,17 @@ public abstract class GlobalInspectionTool extends InspectionProfileEntry {
    * {@link #runInspection(AnalysisScope, InspectionManager, GlobalInspectionContext, ProblemDescriptionsProcessor)})
    * ProgressIndicator should progress with {@link GlobalInspectionContext#incrementJobDoneAmount(JobDescriptor, String)}
    */
-  @Nullable
-  public JobDescriptor[] getAdditionalJobs() {
+  public JobDescriptor @Nullable [] getAdditionalJobs() {
     return null;
+  }
+
+  /**
+   * @return JobDescriptors array to show inspection progress correctly. TotalAmount should be set (e.g. in
+   * {@link #runInspection(AnalysisScope, InspectionManager, GlobalInspectionContext, ProblemDescriptionsProcessor)})
+   * ProgressIndicator should progress with {@link GlobalInspectionContext#incrementJobDoneAmount(JobDescriptor, String)}
+   */
+  public JobDescriptor @Nullable [] getAdditionalJobs(@NotNull GlobalInspectionContext context) {
+    return getAdditionalJobs();
   }
 
   /**
@@ -221,8 +240,5 @@ public abstract class GlobalInspectionTool extends InspectionProfileEntry {
   @Nullable
   public LocalInspectionTool getSharedLocalInspectionTool() {
     return null;
-  }
-
-  public void initialize(@NotNull GlobalInspectionContext context) {
   }
 }

@@ -15,14 +15,15 @@
  */
 package com.intellij.ide.util.projectWizard;
 
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.projectImport.ProjectImportProvider;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 10/31/12
  */
 public class ModuleImportProvider extends ProjectImportProvider {
 
@@ -31,7 +32,7 @@ public class ModuleImportProvider extends ProjectImportProvider {
   }
 
   @Override
-  public boolean canImport(VirtualFile fileOrDirectory, Project project) {
+  public boolean canImport(@NotNull VirtualFile fileOrDirectory, Project project) {
     return project != null && !fileOrDirectory.isDirectory() && "iml".equals(fileOrDirectory.getExtension());
   }
 
@@ -45,14 +46,9 @@ public class ModuleImportProvider extends ProjectImportProvider {
     return false;
   }
 
-  @Override
-  public ModuleWizardStep[] createSteps(WizardContext context) {
-    return ModuleWizardStep.EMPTY_ARRAY;
-  }
-
   @Nullable
   @Override
   public String getFileSample() {
-    return "Intellij IDEA module file (*.iml)";
+    return JavaUiBundle.message("intellij.idea.module.file.iml");
   }
 }

@@ -15,24 +15,18 @@
  */
 package org.jetbrains.idea.maven.compiler;
 
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.fileTypes.FileTypes;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles;
 
+import java.io.IOException;
 import java.util.Arrays;
 
 public class ResourceFilteringTest extends MavenCompilingTestCase {
-
-  @Override
-  protected boolean runInWriteAction() {
-    return false;
-  }
 
   public void testBasic() throws Exception {
     createProjectSubFile("resources/file.properties", "value=${project.version}\n" +
@@ -151,6 +145,7 @@ public class ResourceFilteringTest extends MavenCompilingTestCase {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
                      "<version>1</version>" +
+                     "<packaging>pom</packaging>" +
 
                      "<modules>" +
                      "  <module>m1</module>" +
@@ -300,7 +295,7 @@ public class ResourceFilteringTest extends MavenCompilingTestCase {
 
                   "<properties>" +
                   "  <foo>c:\\projects\\foo/bar</foo>" +
-                  "  <bar>a\\b\\c</foo>" +
+                  "  <bar>a\\b\\c</bar>" +
                   "</properties>" +
 
                   "<build>" +
@@ -544,12 +539,7 @@ public class ResourceFilteringTest extends MavenCompilingTestCase {
     compileModules("project");
     assertResult("target/classes/file.properties", "value=1");
 
-    new WriteAction() {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        VfsUtil.saveText(filter, "xxx=2");
-      }
-    }.execute().throwException();
+    WriteAction.runAndWait(() -> VfsUtil.saveText(filter, "xxx=2"));
     PsiDocumentManager.getInstance(myProject).commitAllDocuments();
     compileModules("project");
     assertResult("target/classes/file.properties", "value=2");
@@ -902,8 +892,6 @@ public class ResourceFilteringTest extends MavenCompilingTestCase {
   }
 
   public void testEscapingFiltering() throws Exception {
-    if (!true) return;
-
     createProjectSubFile("filters/filter.properties", "xxx=value");
     createProjectSubFile("resources/file.properties",
                          "value1=\\${xxx}\n" +
@@ -1015,15 +1003,10 @@ public class ResourceFilteringTest extends MavenCompilingTestCase {
                  "value2=\\value\n");
   }
 
-  public void testDoNotFilterButCopyBigFiles() throws Exception {
-    assertEquals(FileTypeManager.getInstance().getFileTypeByFileName("file.xyz"), FileTypes.UNKNOWN);
+  public void testDoNotFilterButCopyBigFiles() throws IOException {
+    assertEquals(FileTypes.UNKNOWN, FileTypeManager.getInstance().getFileTypeByFileName("file.xyz"));
 
-    new WriteAction() {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        createProjectSubFile("resources/file.xyz").setBinaryContent(new byte[1024 * 1024 * 20]);
-      }
-    }.execute().throwException();
+    WriteAction.runAndWait(() -> createProjectSubFile("resources/file.xyz").setBinaryContent(new byte[1024 * 1024 * 20]));
 
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
@@ -1069,7 +1052,6 @@ public class ResourceFilteringTest extends MavenCompilingTestCase {
   }
 
   public void testResourcesOrdering2() throws Exception {
-    if (!true) return;
 
     createProjectSubFile("resources/file.properties", "value=${project.version}\n");
 
@@ -1097,7 +1079,6 @@ public class ResourceFilteringTest extends MavenCompilingTestCase {
   }
 
   public void testResourcesOrdering3() throws Exception {
-    if (!true) return;
 
     createProjectSubFile("resources1/a.txt", "1");
     createProjectSubFile("resources2/a.txt", "2");
@@ -1151,7 +1132,6 @@ public class ResourceFilteringTest extends MavenCompilingTestCase {
   }
 
   public void testOverwriteParameter1() throws Exception {
-    if (!true) return;
 
     createProjectSubFile("resources1/a.txt", "1");
     createProjectSubFile("resources2/a.txt", "2");
@@ -1187,7 +1167,6 @@ public class ResourceFilteringTest extends MavenCompilingTestCase {
   }
 
   public void testOverwriteParameter2() throws Exception {
-    if (!true) return;
 
     createProjectSubFile("resources1/a.txt", "1");
     createProjectSubFile("resources2/a.txt", "2");

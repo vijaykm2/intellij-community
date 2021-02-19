@@ -22,6 +22,7 @@ import com.intellij.ide.util.PsiElementListCellRenderer;
 import com.intellij.lang.annotation.AnnotationHolder;
 import com.intellij.lang.annotation.Annotator;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.xml.XmlTag;
@@ -58,7 +59,7 @@ public class MavenDomGutterAnnotator implements Annotator {
         setPopupTitle(MavenDomBundle.message("navigate.parent.dependency.title")).
         setCellRenderer(MyListCellRenderer.INSTANCE).
         setTooltipText(MavenDomBundle.message("overriding.dependency.title")).
-        install(holder, dependency.getXmlTag());
+        createGutterIcon(holder, dependency.getXmlTag());
     }
   }
 
@@ -74,7 +75,7 @@ public class MavenDomGutterAnnotator implements Annotator {
       iconBuilder.
         setTargets(managingDependency).
         setTooltipText(generateTooltip(managingDependency)).
-        install(holder, tag);
+        createGutterIcon(holder, tag);
     }
   }
 
@@ -84,6 +85,7 @@ public class MavenDomGutterAnnotator implements Annotator {
     return MavenDomProjectProcessorUtils.searchManagingDependency(dependency, project);
   }
 
+  @Override
   public void annotate(@NotNull PsiElement psiElement, @NotNull AnnotationHolder holder) {
     if (psiElement instanceof XmlTag) {
       final DomElement element = DomManager.getDomManager(psiElement.getProject()).getDomElement((XmlTag)psiElement);
@@ -132,7 +134,7 @@ public class MavenDomGutterAnnotator implements Annotator {
       iconBuilder.
         setTargets(Collections.singletonList(managingPlugin)).
         setTooltipText(MavenDomBundle.message("overriden.plugin.title")).
-        install(holder, xmlTag);
+        createGutterIcon(holder, xmlTag);
     }
   }
 
@@ -151,7 +153,7 @@ public class MavenDomGutterAnnotator implements Annotator {
         setPopupTitle(MavenDomBundle.message("navigate.parent.plugin.title")).
         setCellRenderer(MyListCellRenderer.INSTANCE).
         setTooltipText(MavenDomBundle.message("overriding.plugin.title")).
-        install(holder, xmlTag);
+        createGutterIcon(holder, xmlTag);
     }
   }
 
@@ -163,7 +165,7 @@ public class MavenDomGutterAnnotator implements Annotator {
       NavigationGutterIconBuilder.create(MavenIcons.ParentProject, MavenProjectConverter.INSTANCE).
         setTargets(parent).
         setTooltipText(MavenDomBundle.message("parent.pom.title")).
-        install(holder, mavenDomParent.getXmlElement());
+        createGutterIcon(holder, mavenDomParent.getXmlElement());
     }
   }
 
@@ -178,7 +180,7 @@ public class MavenDomGutterAnnotator implements Annotator {
           setCellRenderer(MyListCellRenderer.INSTANCE).
           setPopupTitle(MavenDomBundle.message("navigate.children.poms.title")).
           setTooltipText(MavenDomBundle.message("children.poms.title")).
-          install(holder, model.getXmlElement());
+          createGutterIcon(holder, model.getXmlElement());
       }
     }
   }
@@ -187,6 +189,7 @@ public class MavenDomGutterAnnotator implements Annotator {
     return dependency.getParentOfType(MavenDomDependencyManagement.class, false) != null;
   }
 
+  @NlsContexts.DetailedDescription
   private static String generateTooltip(MavenDomDependency dependency) {
     StringBuilder res = new StringBuilder();
 
@@ -216,7 +219,7 @@ public class MavenDomGutterAnnotator implements Annotator {
 
     res.append("</dependency>");
 
-    return StringUtil.escapeXml(res.toString()).replace(" ", "&nbsp;");
+    return StringUtil.escapeXmlEntities(res.toString()).replace(" ", "&nbsp;"); //NON-NLS
   }
 
   private static class MyListCellRenderer extends PsiElementListCellRenderer<XmlTag> {
@@ -260,6 +263,7 @@ public class MavenDomGutterAnnotator implements Annotator {
   private static class DependencyConverter implements NotNullFunction<MavenDomDependency, Collection<? extends PsiElement>> {
     public static final DependencyConverter INSTANCE = new DependencyConverter();
 
+    @Override
     @NotNull
     public Collection<? extends PsiElement> fun(final MavenDomDependency pointer) {
       return ContainerUtil.createMaybeSingletonList(pointer.getXmlTag());
@@ -269,6 +273,7 @@ public class MavenDomGutterAnnotator implements Annotator {
   private static class PluginConverter implements NotNullFunction<MavenDomPlugin, Collection<? extends PsiElement>> {
     public static final PluginConverter INSTANCE = new PluginConverter();
 
+    @Override
     @NotNull
     public Collection<? extends PsiElement> fun(final MavenDomPlugin pointer) {
       return ContainerUtil.createMaybeSingletonList(pointer.getXmlTag());
@@ -278,6 +283,7 @@ public class MavenDomGutterAnnotator implements Annotator {
   private static class MavenProjectConverter implements NotNullFunction<MavenDomProjectModel, Collection<? extends PsiElement>> {
     public static final MavenProjectConverter INSTANCE = new MavenProjectConverter();
 
+    @Override
     @NotNull
     public Collection<? extends PsiElement> fun(final MavenDomProjectModel pointer) {
       return ContainerUtil.createMaybeSingletonList(pointer.getXmlTag());

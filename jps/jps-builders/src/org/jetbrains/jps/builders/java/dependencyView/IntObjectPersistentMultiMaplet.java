@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.builders.java.dependencyView;
 
-import com.intellij.util.Processor;
 import com.intellij.util.containers.SLRUCache;
+import com.intellij.util.io.AppendablePersistentMap;
 import com.intellij.util.io.DataExternalizer;
 import com.intellij.util.io.KeyDescriptor;
 import com.intellij.util.io.PersistentHashMap;
@@ -30,9 +16,8 @@ import java.util.Collections;
 
 /**
  * @author: db
- * Date: 08.03.11
  */
-class IntObjectPersistentMultiMaplet<V> extends IntObjectMultiMaplet<V> {
+public class IntObjectPersistentMultiMaplet<V> extends IntObjectMultiMaplet<V> {
   private static final Collection NULL_COLLECTION = Collections.emptySet();
   private static final int CACHE_SIZE = 128;
   private final PersistentHashMap<Integer, Collection<V>> myMap;
@@ -42,9 +27,10 @@ class IntObjectPersistentMultiMaplet<V> extends IntObjectMultiMaplet<V> {
   public IntObjectPersistentMultiMaplet(final File file,
                                         final KeyDescriptor<Integer> keyExternalizer,
                                         final DataExternalizer<V> valueExternalizer,
-                                        final CollectionFactory<V> collectionFactory) throws IOException {
+                                        final BuilderCollectionFactory<V> collectionFactory) throws IOException {
     myValueExternalizer = valueExternalizer;
-    myMap = new PersistentHashMap<Integer, Collection<V>>(file, keyExternalizer, new CollectionDataExternalizer<V>(valueExternalizer, collectionFactory));
+    myMap = new PersistentHashMap<>(file, keyExternalizer,
+                                    new CollectionDataExternalizer<>(valueExternalizer, collectionFactory));
     myCache = new SLRUCache<Integer, Collection>(CACHE_SIZE, CACHE_SIZE) {
       @NotNull
       @Override
@@ -97,8 +83,9 @@ class IntObjectPersistentMultiMaplet<V> extends IntObjectMultiMaplet<V> {
   public void put(final int key, final Collection<V> value) {
     try {
       myCache.remove(key);
-      myMap.appendData(key, new PersistentHashMap.ValueDataAppender() {
-        public void append(DataOutput out) throws IOException {
+      myMap.appendData(key, new AppendablePersistentMap.ValueDataAppender() {
+        @Override
+        public void append(@NotNull DataOutput out) throws IOException {
           for (V v : value) {
             myValueExternalizer.save(out, v);
           }
@@ -203,6 +190,7 @@ class IntObjectPersistentMultiMaplet<V> extends IntObjectMultiMaplet<V> {
     }
   }
 
+  @Override
   public void flush(boolean memoryCachesOnly) {
     if (memoryCachesOnly) {
       if (myMap.isDirty()) {
@@ -217,15 +205,12 @@ class IntObjectPersistentMultiMaplet<V> extends IntObjectMultiMaplet<V> {
   @Override
   public void forEachEntry(final TIntObjectProcedure<Collection<V>> procedure) {
     try {
-      myMap.processKeysWithExistingMapping(new Processor<Integer>() {
-        @Override
-        public boolean process(Integer key) {
-          try {
-            return procedure.execute(key, myMap.get(key));
-          }
-          catch (IOException e) {
-            throw new BuildDataCorruptedException(e);
-          }
+      myMap.processKeysWithExistingMapping(key -> {
+        try {
+          return procedure.execute(key, myMap.get(key));
+        }
+        catch (IOException e) {
+          throw new BuildDataCorruptedException(e);
         }
       });
     }
@@ -236,10 +221,10 @@ class IntObjectPersistentMultiMaplet<V> extends IntObjectMultiMaplet<V> {
 
   private static class CollectionDataExternalizer<V> implements DataExternalizer<Collection<V>> {
     private final DataExternalizer<V> myElementExternalizer;
-    private final CollectionFactory<V> myCollectionFactory;
+    private final BuilderCollectionFactory<V> myCollectionFactory;
 
-    public CollectionDataExternalizer(DataExternalizer<V> elementExternalizer,
-                                      CollectionFactory<V> collectionFactory) {
+    CollectionDataExternalizer(DataExternalizer<V> elementExternalizer,
+                                      BuilderCollectionFactory<V> collectionFactory) {
       myElementExternalizer = elementExternalizer;
       myCollectionFactory = collectionFactory;
     }

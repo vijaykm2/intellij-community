@@ -21,24 +21,33 @@ import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.ex.FileTypeManagerEx;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.ArrayUtil;
+import com.intellij.util.containers.ContainerUtil;
 import org.apache.velocity.runtime.parser.ParseException;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.*;
+import java.io.IOException;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 4/6/11
  */
 public abstract class FileTemplateBase implements FileTemplate {
-  public static final boolean DEFAULT_REFORMAT_CODE_VALUE = true;
-  public static final boolean DEFAULT_ENABLED_VALUE = true;
+  static final boolean DEFAULT_REFORMAT_CODE_VALUE = true;
+  static final boolean DEFAULT_ENABLED_VALUE = true;
+  static final String TEMPLATE_CHILDREN_SUFFIX = ".child.";
   @Nullable
   private String myText;
   private boolean myShouldReformatCode = DEFAULT_REFORMAT_CODE_VALUE;
+  private boolean myLiveTemplateEnabled;
+  private boolean myLiveTemplateEnabledChanged;
+  private String myFileName = "";
+  private FileTemplate[] myChildren = EMPTY_ARRAY;
 
   @Override
   public final boolean isReformatCode() {
@@ -50,11 +59,13 @@ public abstract class FileTemplateBase implements FileTemplate {
     myShouldReformatCode = reformat;
   }
 
+  @NotNull 
   public final String getQualifiedName() {
     return getQualifiedName(getName(), getExtension());
   }
 
-  public static String getQualifiedName(final String name, final String extension) {
+  @NotNull
+  public static String getQualifiedName(@NonNls @NotNull String name, @NonNls @NotNull String extension) {
     return FTManager.encodeFileName(name, extension);
   }
 
@@ -62,7 +73,7 @@ public abstract class FileTemplateBase implements FileTemplate {
   @NotNull
   public final String getText() {
     final String text = myText;
-    return text != null? text : getDefaultText();
+    return text != null ? text : getDefaultText();
   }
 
   @Override
@@ -72,7 +83,7 @@ public abstract class FileTemplateBase implements FileTemplate {
     }
     else {
       final String converted = StringUtil.convertLineSeparators(text);
-      myText = converted.equals(getDefaultText())? null : converted;
+      myText = converted.equals(getDefaultText()) ? null : StringUtil.internEmptyString(converted);
     }
   }
 
@@ -83,22 +94,24 @@ public abstract class FileTemplateBase implements FileTemplate {
 
   @Override
   @NotNull
-  public final String getText(Map attributes) throws IOException{
+  public final String getText(@NotNull Map attributes) throws IOException{
     return FileTemplateUtil.mergeTemplate(attributes, getText(), false);
   }
 
   @Override
   @NotNull
-  public final String getText(Properties attributes) throws IOException{
+  public final String getText(@NotNull Properties attributes) throws IOException{
     return FileTemplateUtil.mergeTemplate(attributes, getText(), false);
   }
 
   @Override
-  @NotNull
-  public final String[] getUnsetAttributes(@NotNull Properties properties, Project project) throws ParseException {
-    return FileTemplateUtil.calculateAttributes(getText(), properties, false, project);
+  public final String @NotNull [] getUnsetAttributes(@NotNull Properties properties, @NotNull Project project) throws ParseException {
+    Set<String> attributes = ContainerUtil.set(FileTemplateUtil.calculateAttributes(getText(), properties, false, project));
+    attributes.addAll(Arrays.asList(FileTemplateUtil.calculateAttributes(getFileName(), properties, false, project)));
+    return ArrayUtil.toStringArray(attributes);
   }
 
+  @NotNull
   @Override
   public FileTemplateBase clone() {
     try {
@@ -112,5 +125,61 @@ public abstract class FileTemplateBase implements FileTemplate {
   @Override
   public boolean isTemplateOfType(@NotNull final FileType fType) {
     return fType.equals(FileTypeManagerEx.getInstanceEx().getFileTypeByExtension(getExtension()));
+  }
+
+  @Override
+  public boolean isLiveTemplateEnabled() {
+    return myLiveTemplateEnabled;
+  }
+
+  @Override
+  public void setLiveTemplateEnabled(boolean value) {
+    myLiveTemplateEnabledChanged |= myLiveTemplateEnabled != value;
+    myLiveTemplateEnabled = value;
+  }
+
+  public boolean isLiveTemplateEnabledChanged() {
+    return myLiveTemplateEnabledChanged;
+  }
+
+  public boolean isLiveTemplateEnabledByDefault() { return false; }
+
+  @Override
+  public @NotNull String getFileName() {
+    return myFileName;
+  }
+
+  @Override
+  public void setFileName(@NotNull String fileName) {
+    myFileName = fileName;
+  }
+
+  @Override
+  public FileTemplate @NotNull[] getChildren() {
+    return myChildren;
+  }
+
+  @Override
+  public void setChildren(FileTemplate @NotNull[] children) {
+    myChildren = children;
+  }
+
+  public void addChild(FileTemplate child) {
+    myChildren = ArrayUtil.append(getChildren(), child);
+  }
+
+  public String getChildName(int index) {
+    return getQualifiedName() + TEMPLATE_CHILDREN_SUFFIX + index;
+  }
+
+  public void updateChildrenNames() {
+    FileTemplate @NotNull [] children = getChildren();
+    for (int i = 0; i < children.length; i++) {
+      children[i].setName(getChildName(i));
+    }
+  }
+
+  public static boolean isChild(@NotNull FileTemplate template) {
+    return template.getName().contains(TEMPLATE_CHILDREN_SUFFIX);
   }
 }

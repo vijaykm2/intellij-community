@@ -1,34 +1,21 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util;
 
 import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.roots.ModuleRootManager;
-import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.roots.TestSourcesFilter;
 import com.intellij.openapi.roots.impl.DirectoryIndex;
 import com.intellij.openapi.roots.ui.configuration.CommonContentEntriesEditor;
 import com.intellij.openapi.roots.ui.configuration.ProjectSettingsService;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
@@ -36,20 +23,22 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.impl.source.resolve.FileContextUtil;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.psi.search.GlobalSearchScopes;
-import com.intellij.util.*;
+import com.intellij.psi.search.GlobalSearchScopesCore;
+import com.intellij.util.FilteredQuery;
+import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.Query;
+import com.intellij.util.ThreeState;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.List;
 
-// TODO this should eventually replace PackageUtil from java-impl
-public class PlatformPackageUtil {
+// TODO this should eventually replace PackageUtil from intellij.java.impl
+public final class PlatformPackageUtil {
 
-  private static final Logger LOG = Logger.getInstance("com.intellij.ide.util.PlatformPackageUtil");
+  private static final Logger LOG = Logger.getInstance(PlatformPackageUtil.class);
 
   @Nullable
   private static String findLongestExistingPackage(Project project, String packageName, GlobalSearchScope scope) {
@@ -73,7 +62,7 @@ public class PlatformPackageUtil {
   }
 
   @Nullable
-  private static PsiDirectory getWritableModuleDirectory(@NotNull Query<VirtualFile> vFiles,
+  private static PsiDirectory getWritableModuleDirectory(@NotNull Query<? extends VirtualFile> vFiles,
                                                          GlobalSearchScope scope,
                                                          PsiManager manager) {
     for (VirtualFile vFile : vFiles) {
@@ -95,7 +84,7 @@ public class PlatformPackageUtil {
                                                              boolean askUserToCreate,
                                                              ThreeState chooseFlag) throws IncorrectOperationException {
     PsiDirectory psiDirectory = null;
-    if (chooseFlag == ThreeState.UNSURE && !"".equals(packageName)) {
+    if (chooseFlag == ThreeState.UNSURE && StringUtil.isNotEmpty(packageName)) {
       String rootPackage = findLongestExistingPackage(project, packageName, scope);
       if (rootPackage != null) {
         int beginIndex = rootPackage.length() + 1;
@@ -113,24 +102,20 @@ public class PlatformPackageUtil {
     if (psiDirectory == null) {
       if (chooseFlag == ThreeState.NO && baseDir != null) {
         VirtualFile sourceRoot = ProjectRootManager.getInstance(project).getFileIndex().getSourceRootForFile(baseDir.getVirtualFile());
-        psiDirectory = PsiManager.getInstance(project).findDirectory(sourceRoot);
+        psiDirectory = sourceRoot != null ? PsiManager.getInstance(project).findDirectory(sourceRoot) : null;
       }
       else {
         if (module != null && !checkSourceRootsConfigured(module)) return null;
         final GlobalSearchScope scope_ = scope;
         List<PsiDirectory> dirs =
           ContainerUtil
-            .mapNotNull(ProjectRootManager.getInstance(project).getContentSourceRoots(), new Function<VirtualFile, PsiDirectory>() {
-              @Override
-              public PsiDirectory fun(VirtualFile virtualFile) {
-                return scope_.contains(virtualFile) ? PsiManager.getInstance(project).findDirectory(virtualFile) : null;
-              }
-            });
-        psiDirectory = DirectoryChooserUtil.selectDirectory(project, dirs.toArray(new PsiDirectory[dirs.size()]), baseDir,
+            .mapNotNull(ProjectRootManager.getInstance(project).getContentSourceRoots(),
+                        virtualFile -> scope_.contains(virtualFile) ? PsiManager.getInstance(project).findDirectory(virtualFile) : null);
+        psiDirectory = DirectoryChooserUtil.selectDirectory(project, dirs.toArray(PsiDirectory.EMPTY_ARRAY), baseDir,
                                                             File.separatorChar + packageName.replace('.', File.separatorChar));
         if (psiDirectory == null) return null;
         final VirtualFile sourceRoot = ProjectRootManager.getInstance(project).getFileIndex().getSourceRootForFile(psiDirectory.getVirtualFile());
-        psiDirectory = PsiManager.getInstance(project).findDirectory(sourceRoot);
+        psiDirectory = sourceRoot != null ? PsiManager.getInstance(project).findDirectory(sourceRoot) : null;
       }
     }
 
@@ -138,7 +123,7 @@ public class PlatformPackageUtil {
     boolean askedToCreate = false;
     while (restOfName.length() > 0) {
       final String name = getLeftPart(restOfName);
-      PsiDirectory foundExistingDirectory = psiDirectory.findSubdirectory(name);
+      PsiDirectory foundExistingDirectory = psiDirectory != null ? psiDirectory.findSubdirectory(name) : null;
       if (foundExistingDirectory == null) {
         if (!askedToCreate && askUserToCreate) {
           if (!ApplicationManager.getApplication().isUnitTestMode()) {
@@ -155,18 +140,10 @@ public class PlatformPackageUtil {
 
         final PsiDirectory psiDirectory_ = psiDirectory;
         try {
-          psiDirectory = ActionRunner.runInsideWriteAction(new ActionRunner.InterruptibleRunnableWithResult<PsiDirectory>() {
-            @Override
-            public PsiDirectory run() throws Exception {
-              return psiDirectory_.createSubdirectory(name);
-            }
-          });
+          psiDirectory = WriteAction.compute(() -> psiDirectory_ != null ? psiDirectory_.createSubdirectory(name) : null);
         }
         catch (IncorrectOperationException e) {
           throw e;
-        }
-        catch (IOException e) {
-          throw new IncorrectOperationException(e);
         }
         catch (Exception e) {
           LOG.error(e);
@@ -185,15 +162,14 @@ public class PlatformPackageUtil {
                                               boolean skipSourceDirsForBaseTestDirectory,
                                               boolean skipTestDirsForBaseSourceDirectory) {
     if (baseDir != null) {
-      final ProjectFileIndex fileIndex = ProjectRootManager.getInstance(baseDir.getProject()).getFileIndex();
-      if (fileIndex.isInTestSourceContent(baseDir.getVirtualFile())) {
+      if (TestSourcesFilter.isTestSources(baseDir.getVirtualFile(), baseDir.getProject())) {
         if (skipSourceDirsForBaseTestDirectory) {
-          return scope.intersectWith(GlobalSearchScopes.projectTestScope(baseDir.getProject()));
+          return scope.intersectWith(GlobalSearchScopesCore.projectTestScope(baseDir.getProject()));
         }
       }
       else {
         if (skipTestDirsForBaseSourceDirectory) {
-          return scope.intersectWith(GlobalSearchScopes.projectProductionScope(baseDir.getProject()));
+          return scope.intersectWith(GlobalSearchScopesCore.projectProductionScope(baseDir.getProject()));
         }
       }
     }
@@ -204,20 +180,10 @@ public class PlatformPackageUtil {
     final PsiManager manager = PsiManager.getInstance(project);
 
     Query<VirtualFile> query = DirectoryIndex.getInstance(scope.getProject()).getDirectoriesByPackageName(rootPackage, true);
-    query = new FilteredQuery<VirtualFile>(query, new Condition<VirtualFile>() {
-      @Override
-      public boolean value(VirtualFile virtualFile) {
-        return scope.contains(virtualFile);
-      }
-    });
+    query = new FilteredQuery<>(query, scope::contains);
 
-    List<PsiDirectory> directories = ContainerUtil.mapNotNull(query.findAll(), new Function<VirtualFile, PsiDirectory>() {
-      @Override
-      public PsiDirectory fun(VirtualFile virtualFile) {
-        return manager.findDirectory(virtualFile);
-      }
-    });
-    return directories.toArray(new PsiDirectory[directories.size()]);
+    List<PsiDirectory> directories = ContainerUtil.mapNotNull(query.findAll(), manager::findDirectory);
+    return directories.toArray(PsiDirectory.EMPTY_ARRAY);
   }
 
   private static boolean checkSourceRootsConfigured(final Module module) {
@@ -230,7 +196,7 @@ public class PlatformPackageUtil {
       );
 
       ProjectSettingsService
-        .getInstance(module.getProject()).showModuleConfigurationDialog(module.getName(), CommonContentEntriesEditor.NAME);
+        .getInstance(module.getProject()).showModuleConfigurationDialog(module.getName(), CommonContentEntriesEditor.getName());
 
       sourceRoots = ModuleRootManager.getInstance(module).getSourceRoots();
       if (sourceRoots.length == 0) {
@@ -248,31 +214,6 @@ public class PlatformPackageUtil {
   private static String cutLeftPart(String packageName) {
     int index = packageName.indexOf('.');
     return index > -1 ? packageName.substring(index + 1) : "";
-  }
-
-  @Nullable
-  public static PsiDirectory findPossiblePackageDirectoryInModule(Module module, GlobalSearchScope scope, String packageName) {
-    if (!"".equals(packageName)) {
-      String rootPackage = findLongestExistingPackage(module.getProject(), packageName, scope);
-      if (rootPackage != null) {
-        final PsiDirectory[] psiDirectories = getPackageDirectories(module.getProject(), rootPackage, scope);
-        if (psiDirectories.length > 0) {
-          return psiDirectories[0];
-        }
-      }
-    }
-
-    if (!checkSourceRootsConfigured(module)) return null;
-
-    final VirtualFile[] sourceRoots = ModuleRootManager.getInstance(module).getSourceRoots();
-    for (VirtualFile sourceRoot : sourceRoots) {
-      final PsiDirectory directory = PsiManager.getInstance(module.getProject()).findDirectory(sourceRoot);
-      if (directory != null) {
-        return directory;
-      }
-    }
-
-    return null;
   }
 
   @Nullable

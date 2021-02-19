@@ -1,5 +1,5 @@
 /*
- * Copyright 2011 Bas Leijdekkers
+ * Copyright 2011-2018 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,26 +15,18 @@
  */
 package com.siyeh.ig.errorhandling;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
-import com.siyeh.ig.psiutils.ParenthesesUtils;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 public class NullThrownInspection extends BaseInspection {
-
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("null.thrown.display.name");
-  }
 
   @NotNull
   @Override
@@ -49,27 +41,18 @@ public class NullThrownInspection extends BaseInspection {
   }
 
   private static class ThrowNullFix extends InspectionGadgetsFix {
-    @Override
+
     @NotNull
+    @Override
     public String getFamilyName() {
-      return getName();
-    }
-
-    @NotNull
-    @Override
-    public String getName() {
-      return InspectionGadgetsBundle.message("null.thrown.quickfix");
+      return CommonQuickFixBundle.message("fix.replace.with.x", new NullPointerException());
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
-      final PsiElementFactory factory =
-        JavaPsiFacade.getElementFactory(project);
-      final PsiExpression newExpression =
-        factory.createExpressionFromText(
-          "new java.lang.NullPointerException()", element);
+      final PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
+      final PsiExpression newExpression = factory.createExpressionFromText("new java.lang.NullPointerException()", element);
       element.replace(newExpression);
     }
   }
@@ -85,7 +68,7 @@ public class NullThrownInspection extends BaseInspection {
     public void visitThrowStatement(PsiThrowStatement statement) {
       super.visitThrowStatement(statement);
       final PsiExpression exception =
-        ParenthesesUtils.stripParentheses(statement.getException());
+        PsiUtil.skipParenthesizedExprDown(statement.getException());
       if (!(exception instanceof PsiLiteralExpression)) {
         return;
       }

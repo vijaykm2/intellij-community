@@ -1,29 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/**
- * created at Nov 27, 2001
- * @author Jeka
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.move.moveClassesOrPackages;
 
 import com.intellij.history.LocalHistory;
 import com.intellij.history.LocalHistoryAction;
 import com.intellij.ide.util.DirectoryChooser;
 import com.intellij.ide.util.PlatformPackageUtil;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
@@ -39,57 +21,47 @@ import com.intellij.refactoring.*;
 import com.intellij.refactoring.move.MoveCallback;
 import com.intellij.refactoring.rename.DirectoryAsPackageRenameHandlerBase;
 import com.intellij.refactoring.rename.RenameUtil;
-import com.intellij.refactoring.ui.ConflictsDialog;
 import com.intellij.refactoring.util.*;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.MultiMap;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Stream;
 
-public class MoveClassesOrPackagesImpl {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.move.moveClassesOrPackages.MoveClassesOrPackagesImpl");
+public final class MoveClassesOrPackagesImpl {
+  private static final Logger LOG = Logger.getInstance(MoveClassesOrPackagesImpl.class);
 
-  public static void doMove(final Project project,
-                            PsiElement[] adjustedElements,
-                            PsiElement initialTargetElement,
-                            final MoveCallback moveCallback) {
+  public static void doMove(Project project, PsiElement[] adjustedElements, PsiElement initialTargetElement, MoveCallback moveCallback) {
     if (!CommonRefactoringUtil.checkReadOnlyStatusRecursively(project, Arrays.asList(adjustedElements), true)) {
       return;
     }
 
-    final String initialTargetPackageName = getInitialTargetPackageName(initialTargetElement, adjustedElements);
-    final PsiDirectory initialTargetDirectory = getInitialTargetDirectory(initialTargetElement, adjustedElements);
-    final boolean isTargetDirectoryFixed = initialTargetDirectory == null;
-
-    boolean searchTextOccurences = false;
-    for (int i = 0; i < adjustedElements.length && !searchTextOccurences; i++) {
-      PsiElement psiElement = adjustedElements[i];
-      searchTextOccurences = TextOccurrencesUtil.isSearchTextOccurencesEnabled(psiElement);
-    }
-    final MoveClassesOrPackagesDialog moveDialog =
-      new MoveClassesOrPackagesDialog(project, searchTextOccurences, adjustedElements, initialTargetElement, moveCallback);
+    String initialTargetPackageName = getInitialTargetPackageName(initialTargetElement, adjustedElements);
+    PsiDirectory initialTargetDirectory = getInitialTargetDirectory(initialTargetElement, adjustedElements);
+    boolean searchTextOccurrences = Stream.of(adjustedElements).anyMatch(TextOccurrencesUtil::isSearchTextOccurrencesEnabled);
     boolean searchInComments = JavaRefactoringSettings.getInstance().MOVE_SEARCH_IN_COMMENTS;
-    boolean searchForTextOccurences = JavaRefactoringSettings.getInstance().MOVE_SEARCH_FOR_TEXT;
-    moveDialog.setData(adjustedElements, initialTargetPackageName, initialTargetDirectory, isTargetDirectoryFixed, initialTargetElement == null, searchInComments,
-                       searchForTextOccurences, HelpID.getMoveHelpID(adjustedElements[0]));
-    moveDialog.show();
+    boolean searchForTextOccurrences = JavaRefactoringSettings.getInstance().MOVE_SEARCH_FOR_TEXT;
+    new MoveClassesOrPackagesDialog(
+      project, searchTextOccurrences, adjustedElements, initialTargetElement, moveCallback, initialTargetPackageName,
+      initialTargetDirectory, searchInComments, searchForTextOccurrences
+    ).show();
   }
 
-  @Nullable
-  public static PsiElement[] adjustForMove(final Project project, final PsiElement[] elements, final PsiElement targetElement) {
+  public static PsiElement @Nullable [] adjustForMove(final Project project, final PsiElement[] elements, final PsiElement targetElement) {
     final PsiElement[] psiElements = new PsiElement[elements.length];
-    List<String> names = new ArrayList<String>();
+    List<String> names = new ArrayList<>();
     for (int idx = 0; idx < elements.length; idx++) {
       PsiElement element = elements[idx];
       if (element instanceof PsiDirectory) {
         PsiPackage aPackage = JavaDirectoryService.getInstance().getPackage((PsiDirectory)element);
         LOG.assertTrue(aPackage != null);
         if (aPackage.getQualifiedName().isEmpty()) { //is default package
-          String message = RefactoringBundle.message("move.package.refactoring.cannot.be.applied.to.default.package");
+          String message = JavaRefactoringBundle.message("move.package.refactoring.cannot.be.applied.to.default.package");
           CommonRefactoringUtil.showErrorMessage(RefactoringBundle.message("move.title"), message, HelpID.getMoveHelpID(element), project);
           return null;
         }
@@ -105,12 +77,12 @@ public class MoveClassesOrPackagesImpl {
       else if (element instanceof PsiClass) {
         PsiClass aClass = (PsiClass)element;
         if (aClass instanceof PsiAnonymousClass) {
-          String message = RefactoringBundle.message("move.class.refactoring.cannot.be.applied.to.anonymous.classes");
+          String message = JavaRefactoringBundle.message("move.class.refactoring.cannot.be.applied.to.anonymous.classes");
           CommonRefactoringUtil.showErrorMessage(RefactoringBundle.message("move.title"), message, HelpID.getMoveHelpID(element), project);
           return null;
         }
         if (isClassInnerOrLocal(aClass)) {
-          String message = RefactoringBundle.getCannotRefactorMessage(RefactoringBundle.message("moving.local.classes.is.not.supported"));
+          String message = RefactoringBundle.getCannotRefactorMessage(JavaRefactoringBundle.message("moving.local.classes.is.not.supported"));
           CommonRefactoringUtil.showErrorMessage(RefactoringBundle.message("move.title"), message, HelpID.getMoveHelpID(element), project);
           return null;
         }
@@ -124,7 +96,7 @@ public class MoveClassesOrPackagesImpl {
 
         if (names.contains(name)) {
           String message = RefactoringBundle
-            .getCannotRefactorMessage(RefactoringBundle.message("there.are.going.to.be.multiple.destination.files.with.the.same.name"));
+            .getCannotRefactorMessage(JavaRefactoringBundle.message("there.are.going.to.be.multiple.destination.files.with.the.same.name"));
           CommonRefactoringUtil.showErrorMessage(RefactoringBundle.message("move.title"), message, HelpID.getMoveHelpID(element), project);
           return null;
         }
@@ -154,19 +126,20 @@ public class MoveClassesOrPackagesImpl {
     final PsiDirectory[] directories = aPackage.getDirectories();
     final VirtualFile[] virtualFiles = aPackage.occursInPackagePrefixes();
     if (directories.length > 1 || virtualFiles.length > 0) {
-      final StringBuffer message = new StringBuffer();
+      final @Nls StringBuffer message = new StringBuffer();
       RenameUtil.buildPackagePrefixChangedMessage(virtualFiles, message, aPackage.getQualifiedName());
       if (directories.length > 1) {
         DirectoryAsPackageRenameHandlerBase.buildMultipleDirectoriesInPackageMessage(message, aPackage.getQualifiedName(), directories);
         message.append("\n\n");
-        String report = RefactoringBundle
+        String report = JavaRefactoringBundle
           .message("all.these.directories.will.be.moved.and.all.references.to.0.will.be.changed", aPackage.getQualifiedName());
         message.append(report);
       }
       message.append("\n");
       message.append(RefactoringBundle.message("do.you.wish.to.continue"));
-      int ret =
-        Messages.showYesNoDialog(project, message.toString(), RefactoringBundle.message("warning.title"), Messages.getWarningIcon());
+      //noinspection HardCodedStringLiteral
+      String resultMessage = message.toString();
+      int ret = Messages.showYesNoDialog(project, resultMessage, RefactoringBundle.message("warning.title"), Messages.getWarningIcon());
       if (ret != Messages.YES) {
         return false;
       }
@@ -183,7 +156,7 @@ public class MoveClassesOrPackagesImpl {
       if (curPackage.equals(srcPackage)) {
         if (showError) {
           CommonRefactoringUtil.showErrorMessage(RefactoringBundle.message("move.title"),
-                                                 RefactoringBundle.message("cannot.move.package.into.itself"),
+                                                 JavaRefactoringBundle.message("cannot.move.package.into.itself"),
                                                  HelpID.getMoveHelpID(srcPackage), project);
         }
         return false;
@@ -315,63 +288,35 @@ public class MoveClassesOrPackagesImpl {
 
     List<PsiDirectory> sourceRootDirectories = buildRearrangeTargetsList(project, directories);
     DirectoryChooser chooser = new DirectoryChooser(project);
-    chooser.setTitle(RefactoringBundle.message("select.source.root.chooser.title"));
-    chooser.fillList(sourceRootDirectories.toArray(new PsiDirectory[sourceRootDirectories.size()]), null, project, "");
+    chooser.setTitle(JavaRefactoringBundle.message("select.source.root.chooser.title"));
+    chooser.fillList(sourceRootDirectories.toArray(PsiDirectory.EMPTY_ARRAY), null, project, "");
     if (!chooser.showAndGet()) {
       return;
     }
     final PsiDirectory selectedTarget = chooser.getSelectedDirectory();
     if (selectedTarget == null) return;
-    final MultiMap<PsiElement, String> conflicts = new MultiMap<PsiElement, String>();
-    final Runnable analyzeConflicts = new Runnable() {
-      @Override
-      public void run() {
-        ApplicationManager.getApplication().runReadAction(new Runnable() {
-          @Override
-          public void run() {
-            RefactoringConflictsUtil
-              .analyzeModuleConflicts(project, Arrays.asList(directories), UsageInfo.EMPTY_ARRAY, selectedTarget, conflicts);
-          }
-        });
-      }
-    };
+    final MultiMap<PsiElement, String> conflicts = new MultiMap<>();
+    final Runnable analyzeConflicts = () -> ApplicationManager.getApplication().runReadAction(() -> RefactoringConflictsUtil
+      .analyzeModuleConflicts(project, Arrays.asList(directories), UsageInfo.EMPTY_ARRAY, selectedTarget, conflicts));
     if (!ProgressManager.getInstance()
-      .runProcessWithProgressSynchronously(analyzeConflicts, "Analyze Module Conflicts...", true, project)) {
+      .runProcessWithProgressSynchronously(analyzeConflicts, JavaRefactoringBundle.message("analyze.module.conflicts"), true, project)) {
       return;
     }
-    if (!conflicts.isEmpty()) {
-      if (ApplicationManager.getApplication().isUnitTestMode()) {
-        throw new BaseRefactoringProcessor.ConflictsInTestsException(conflicts.values());
-      }
-      else {
-        final ConflictsDialog conflictsDialog = new ConflictsDialog(project, conflicts);
-        if (!conflictsDialog.showAndGet()) {
-          return;
-        }
-      }
-    }
+    if (!BaseRefactoringProcessor.processConflicts(project, conflicts)) return;
     final Ref<IncorrectOperationException> ex = Ref.create(null);
     final String commandDescription = RefactoringBundle.message("moving.directories.command");
-    Runnable runnable = new Runnable() {
-      @Override
-      public void run() {
-        ApplicationManager.getApplication().runWriteAction(new Runnable() {
-          @Override
-          public void run() {
-            LocalHistoryAction a = LocalHistory.getInstance().startAction(commandDescription);
-            try {
-              rearrangeDirectoriesToTarget(directories, selectedTarget);
-            }
-            catch (IncorrectOperationException e) {
-              ex.set(e);
-            }
-            finally {
-              a.finish();
-            }
-          }
-        });
+    Runnable runnable = () -> ApplicationManager.getApplication().runWriteAction(() -> {
+      LocalHistoryAction a = LocalHistory.getInstance().startAction(commandDescription);
+      try {
+        rearrangeDirectoriesToTarget(directories, selectedTarget);
       }
-    };
+      catch (IncorrectOperationException e) {
+        ex.set(e);
+      }
+      finally {
+        a.finish();
+      }
+    });
     CommandProcessor.getInstance().executeCommand(project, runnable, commandDescription, null);
     if (ex.get() != null) {
       RefactoringUIUtil.processIncorrectOperation(project, ex.get());
@@ -380,7 +325,7 @@ public class MoveClassesOrPackagesImpl {
 
   private static List<PsiDirectory> buildRearrangeTargetsList(final Project project, final PsiDirectory[] directories) {
     final List<VirtualFile> sourceRoots = JavaProjectRootsUtil.getSuitableDestinationSourceRoots(project);
-    List<PsiDirectory> sourceRootDirectories = new ArrayList<PsiDirectory>();
+    List<PsiDirectory> sourceRootDirectories = new ArrayList<>();
     sourceRoots:
     for (final VirtualFile sourceRoot : sourceRoots) {
       PsiDirectory sourceRootDirectory = PsiManager.getInstance(project).findDirectory(sourceRoot);
@@ -409,5 +354,4 @@ public class MoveClassesOrPackagesImpl {
       MoveClassesOrPackagesUtil.moveDirectoryRecursively(directory, moveTarget);
     }
   }
-
 }

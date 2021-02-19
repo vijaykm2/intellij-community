@@ -24,9 +24,6 @@ import org.jetbrains.jps.model.JpsReferenceableElement;
 import java.io.File;
 import java.util.List;
 
-/**
- * @author nik
- */
 public interface JpsLibrary extends JpsNamedElement, JpsReferenceableElement<JpsLibrary> {
 
   @NotNull
@@ -42,6 +39,7 @@ public interface JpsLibrary extends JpsNamedElement, JpsReferenceableElement<Jps
 
   void delete();
 
+  @Override
   @NotNull
   JpsLibraryReference createReference();
 

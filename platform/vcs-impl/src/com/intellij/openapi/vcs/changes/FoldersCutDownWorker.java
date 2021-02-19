@@ -15,7 +15,7 @@
  */
 package com.intellij.openapi.vcs.changes;
 
-import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 
 import java.util.HashSet;
@@ -25,12 +25,12 @@ public class FoldersCutDownWorker {
   private final Set<String> myPaths;
 
   public FoldersCutDownWorker() {
-    myPaths = new HashSet<String>();
+    myPaths = new HashSet<>();
   }
 
   public boolean addCurrent(final VirtualFile file) {
     for (String path : myPaths) {
-      if (FileUtil.startsWith(file.getPath(), path)) {
+      if (VfsUtilCore.isAncestorOrSelf(path, file)) {
         return false;
       }
     }

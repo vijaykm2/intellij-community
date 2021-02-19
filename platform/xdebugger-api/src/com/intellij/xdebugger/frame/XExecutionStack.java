@@ -1,23 +1,11 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.frame;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
+import com.intellij.openapi.util.NlsContexts.ListItem;
 import com.intellij.xdebugger.Obsolescent;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,18 +15,16 @@ import java.util.List;
 /**
  * Represents a stack of executions frames usually corresponding to a thread. It is shown in 'Frames' panel of
  * 'Debug' tool window
- *
- * @author nik
  */
 public abstract class XExecutionStack {
   public static final XExecutionStack[] EMPTY_ARRAY = new XExecutionStack[0];
-  private final String myDisplayName;
+  private final @Nls String myDisplayName;
   private final Icon myIcon;
 
   /**
    * @param displayName presentable name of the thread to be shown in the combobox in 'Frames' tab
    */
-  protected XExecutionStack(final String displayName) {
+  protected XExecutionStack(@ListItem String displayName) {
     this(displayName, AllIcons.Debugger.ThreadSuspended);
   }
 
@@ -46,12 +32,13 @@ public abstract class XExecutionStack {
    * @param displayName presentable name of the thread to be shown in the combobox in 'Frames' tab
    * @param icon icon to be shown in the combobox in 'Frames' tab
    */
-  protected XExecutionStack(final @NotNull String displayName, final @Nullable Icon icon) {
+  protected XExecutionStack(@ListItem @NotNull String displayName, final @Nullable Icon icon) {
     myDisplayName = displayName;
     myIcon = icon;
   }
 
   @NotNull
+  @Nls
   public final String getDisplayName() {
     return myDisplayName;
   }
@@ -73,15 +60,15 @@ public abstract class XExecutionStack {
 
   /**
    * Return top stack frame synchronously
-   * @return top stack frame or <code>null</code> if it isn't available
+   * @return top stack frame or {@code null} if it isn't available
    */
   @Nullable
   public abstract XStackFrame getTopFrame();
 
   /**
-   * Start computing stack frames top-down starting from <code>firstFrameIndex</code>. This method is called from the Event Dispatch Thread
+   * Start computing stack frames top-down starting from {@code firstFrameIndex}. This method is called from the Event Dispatch Thread
    * so it should return quickly
-   * @param firstFrameIndex frame index to start from (<code>1</code> corresponds to the frame just under the top frame)
+   * @param firstFrameIndex frame index to start from ({@code 1} corresponds to the frame just under the top frame)
    * @param container callback
    */
   public abstract void computeStackFrames(int firstFrameIndex, XStackFrameContainer container);
@@ -90,8 +77,8 @@ public abstract class XExecutionStack {
     /**
      * Add stack frames to the list
      * @param stackFrames stack frames to add
-     * @param last <code>true</code> if all frames are added
+     * @param last {@code true} if all frames are added
      */
-    void addStackFrames(@NotNull List<? extends XStackFrame> stackFrames, final boolean last);
+    void addStackFrames(@NotNull List<? extends XStackFrame> stackFrames, boolean last);
   }
 }

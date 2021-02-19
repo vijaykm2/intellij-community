@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -30,13 +16,12 @@ import com.intellij.uiDesigner.shared.XYLayoutManager;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 
 /**
  * @author yole
  */
-public class GridBuildUtil {
-  private static final Logger LOG=Logger.getInstance("#com.intellij.uiDesigner.GridBuildUtil");
+public final class GridBuildUtil {
+  private static final Logger LOG = Logger.getInstance(GridBuildUtil.class);
 
   private final static int HORIZONTAL_GRID = 1;
   private final static int VERTICAL_GRID = 2;
@@ -146,7 +131,7 @@ public class GridBuildUtil {
         createNewContainer = false;
       }
       else {
-        componentsToConvert = selection.toArray(new RadComponent[selection.size()]);
+        componentsToConvert = selection.toArray(RadComponent.EMPTY_ARRAY);
         parent = selection.get(0).getParent();
         createNewContainer = true;
       }
@@ -242,17 +227,15 @@ public class GridBuildUtil {
   private static GridLayoutManager createOneDimensionGrid(final RadComponent[] selection, final boolean isVertical){
     Arrays.sort(
       selection,
-      new Comparator<RadComponent>() {
-        public int compare(final RadComponent o1, final RadComponent o2){
-          final Rectangle bounds1 = o1.getBounds();
-          final Rectangle bounds2 = o2.getBounds();
+      (o1, o2) -> {
+        final Rectangle bounds1 = o1.getBounds();
+        final Rectangle bounds2 = o2.getBounds();
 
-          if (isVertical) {
-            return (bounds1.y + bounds1.height / 2) - (bounds2.y + bounds2.height / 2);
-          }
-          else {
-            return (bounds1.x + bounds1.width / 2) - (bounds2.x + bounds2.width / 2);
-          }
+        if (isVertical) {
+          return (bounds1.y + bounds1.height / 2) - (bounds2.y + bounds2.height / 2);
+        }
+        else {
+          return (bounds1.x + bounds1.width / 2) - (bounds2.x + bounds2.width / 2);
         }
       }
     );
@@ -283,10 +266,10 @@ public class GridBuildUtil {
   }
 
   /**
-   * @param x array of <code>X</code> coordinates of components that should be layed out in a grid.
+   * @param x array of {@code X} coordinates of components that should be layed out in a grid.
    * This is input/output parameter.
    *
-   * @param y array of <code>Y</code> coordinates of components that should be layed out in a grid.
+   * @param y array of {@code Y} coordinates of components that should be layed out in a grid.
    * This is input/output parameter.
    *
    * @param rowSpans output parameter.

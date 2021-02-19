@@ -28,6 +28,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.*;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.text.CharArrayUtil;
+import com.intellij.xml.util.CheckEmptyTagInspection;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,7 +36,7 @@ import org.jetbrains.annotations.Nullable;
  * @author spleaner
  */
 public class XmlSmartEnterProcessor extends SmartEnterProcessor {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.completion.XmlSmartEnterProcessor");
+  private static final Logger LOG = Logger.getInstance(XmlSmartEnterProcessor.class);
 
   @Override
   public boolean process(@NotNull final Project project, @NotNull final Editor editor, @NotNull final PsiFile psiFile) {
@@ -57,7 +58,7 @@ public class XmlSmartEnterProcessor extends SmartEnterProcessor {
         int caretAt = editor.getCaretModel().getOffset();
         final CharSequence text = doc.getCharsSequence();
         final int probableCommaOffset = CharArrayUtil.shiftForward(text, insertionOffset, " \t");
-        final PsiElement siebling = tagAtCaret.getNextSibling();
+        final PsiElement sibling = tagAtCaret.getNextSibling();
         int caretTo = caretAt;
         char ch;
 
@@ -107,28 +108,26 @@ public class XmlSmartEnterProcessor extends SmartEnterProcessor {
             caretTo = probableCommaOffset + text2insert.length();
           }
         }
-        else if (siebling instanceof XmlTag && siebling.getTextRange().getStartOffset() == caretAt) {
+        else if (sibling instanceof XmlTag && sibling.getTextRange().getStartOffset() == caretAt) {
           final XmlAttribute xmlAttribute = PsiTreeUtil.getParentOfType(atCaret, XmlAttribute.class, false, XmlTag.class);
           final CharSequence text2insert = getClosingPart(xmlAttribute, tagAtCaret, false);
 
           doc.insertString(caretAt, text2insert);
           if (shouldInsertClosingTag(xmlAttribute, tagAtCaret)) {
-            doc.insertString(siebling.getTextRange().getEndOffset() + text2insert.length(), "</" + tagAtCaret.getName() + ">");
+            doc.insertString(sibling.getTextRange().getEndOffset() + text2insert.length(), "</" + tagAtCaret.getName() + ">");
           }
 
-          caretTo = siebling.getTextRange().getEndOffset() + text2insert.length();
+          caretTo = sibling.getTextRange().getEndOffset() + text2insert.length();
         }
         else if (probableCommaOffset >= text.length() || ((ch = text.charAt(probableCommaOffset)) != '/' && ch != '>')) {
           final XmlAttribute xmlAttribute = PsiTreeUtil.getParentOfType(atCaret, XmlAttribute.class, false, XmlTag.class);
-          final CharSequence text2insert = getClosingPart(xmlAttribute, tagAtCaret, true);
+          final String text2insert = getClosingPart(xmlAttribute, tagAtCaret, true);
 
           doc.insertString(insertionOffset, text2insert);
-          caretTo = insertionOffset + text2insert.length();
+          caretTo = insertionOffset + text2insert.indexOf('>') + 1;
         }
 
         commitChanges(project, editor, psiFile, caretTo, null);
-
-        return true;
       }
       else {
         final XmlTag unclosedTag = findClosestUnclosedTag(tagAtCaret);
@@ -146,8 +145,8 @@ public class XmlSmartEnterProcessor extends SmartEnterProcessor {
 
         doc.insertString(offset, closingTagString);
         commitChanges(project, editor, psiFile, offset, parentTag != null ? parentTag : unclosedTag);
-        return true;
       }
+      return true;
     }
     catch (IncorrectOperationException e) {
       LOG.error(e);
@@ -199,7 +198,10 @@ public class XmlSmartEnterProcessor extends SmartEnterProcessor {
   }
 
   protected String getClosingPart(final XmlAttribute xmlAttribute, final XmlTag tagAtCaret, final boolean emptyTag) {
-    return getClosingQuote(xmlAttribute) + (emptyTag ? "/>" : ">");
+    return getClosingQuote(xmlAttribute) +
+           (emptyTag ?
+              CheckEmptyTagInspection.isTagWithEmptyEndNotAllowed(tagAtCaret) ? "></" + tagAtCaret.getName() + ">"  : "/>" :
+              ">");
   }
 
   @NotNull

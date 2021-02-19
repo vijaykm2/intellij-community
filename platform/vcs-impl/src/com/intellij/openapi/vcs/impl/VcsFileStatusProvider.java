@@ -1,67 +1,42 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.impl;
 
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.diff.DiffContentFactoryImpl;
+import com.intellij.ide.scratch.ScratchUtil;
+import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.fileEditor.impl.LoadTextUtil;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
-import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vcs.changes.*;
+import com.intellij.openapi.vcs.diff.DiffProvider;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.openapi.vcs.readOnlyHandler.ReadonlyStatusHandlerImpl;
 import com.intellij.openapi.vcs.rollback.RollbackEnvironment;
+import com.intellij.openapi.vfs.CharsetToolkit;
+import com.intellij.openapi.vfs.ReadonlyStatusHandler;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.ThreeState;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author yole
- */
-public class VcsFileStatusProvider implements FileStatusProvider, VcsBaseContentProvider {
+import java.nio.charset.Charset;
+
+@Service
+public final class VcsFileStatusProvider implements FileStatusProvider, VcsBaseContentProvider {
   private final Project myProject;
-  private final FileStatusManagerImpl myFileStatusManager;
-  private final ProjectLevelVcsManager myVcsManager;
-  private final ChangeListManager myChangeListManager;
-  private final VcsDirtyScopeManager myDirtyScopeManager;
-  private final VcsConfiguration myConfiguration;
-  private boolean myHaveEmptyContentRevisions;
 
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.impl.VcsFileStatusProvider");
+  private static final Logger LOG = Logger.getInstance(VcsFileStatusProvider.class);
 
-  public VcsFileStatusProvider(final Project project,
-                               final FileStatusManagerImpl fileStatusManager,
-                               final ProjectLevelVcsManager vcsManager,
-                               ChangeListManager changeListManager,
-                               VcsDirtyScopeManager dirtyScopeManager, VcsConfiguration configuration) {
+  public static VcsFileStatusProvider getInstance(@NotNull Project project) {
+    return project.getService(VcsFileStatusProvider.class);
+  }
+
+  VcsFileStatusProvider(@NotNull Project project) {
     myProject = project;
-    myFileStatusManager = fileStatusManager;
-    myVcsManager = vcsManager;
-    myChangeListManager = changeListManager;
-    myDirtyScopeManager = dirtyScopeManager;
-    myConfiguration = configuration;
-    myHaveEmptyContentRevisions = true;
-    myFileStatusManager.setFileStatusProvider(this);
 
-    changeListManager.addChangeListListener(new ChangeListAdapter() {
+    project.getMessageBus().connect().subscribe(ChangeListListener.TOPIC, new ChangeListAdapter() {
       @Override
       public void changeListAdded(ChangeList list) {
         fileStatusesChanged();
@@ -73,37 +48,30 @@ public class VcsFileStatusProvider implements FileStatusProvider, VcsBaseContent
       }
 
       @Override
-      public void changeListChanged(ChangeList list) {
-        fileStatusesChanged();
-      }
-
-      @Override
       public void changeListUpdateDone() {
-        if (myHaveEmptyContentRevisions) {
-          myHaveEmptyContentRevisions = false;
-          fileStatusesChanged();
-        }
-      }
-
-      @Override public void unchangedFileStatusChanged() {
         fileStatusesChanged();
       }
     });
+
+    VcsBaseContentProvider.EP_NAME.addChangeListener(myProject, this::fileStatusesChanged, myProject);
   }
 
   private void fileStatusesChanged() {
-    myFileStatusManager.fileStatusesChanged();
+    FileStatusManager.getInstance(myProject).fileStatusesChanged();
   }
 
   @Override
   @NotNull
   public FileStatus getFileStatus(@NotNull final VirtualFile virtualFile) {
-    final AbstractVcs vcs = myVcsManager.getVcsFor(virtualFile);
+    AbstractVcs vcs = ProjectLevelVcsManager.getInstance(myProject).getVcsFor(virtualFile);
     if (vcs == null) {
+      if (ScratchUtil.isScratch(virtualFile)) {
+        return FileStatus.SUPPRESSED;
+      }
       return FileStatusManagerImpl.getDefaultStatus(virtualFile);
     }
 
-    final FileStatus status = myChangeListManager.getStatus(virtualFile);
+    final FileStatus status = ChangeListManager.getInstance(myProject).getStatus(virtualFile);
     if (status == FileStatus.NOT_CHANGED && isDocumentModified(virtualFile)) {
       return FileStatus.MODIFIED;
     }
@@ -118,73 +86,188 @@ public class VcsFileStatusProvider implements FileStatusProvider, VcsBaseContent
     return FileDocumentManager.getInstance().isFileModified(virtualFile);
   }
 
-  @Override
   public void refreshFileStatusFromDocument(@NotNull final VirtualFile virtualFile, @NotNull final Document doc) {
     if (LOG.isDebugEnabled()) {
-      LOG.debug("refreshFileStatusFromDocument: file.getModificationStamp()=" + virtualFile.getModificationStamp() + ", document.getModificationStamp()=" + doc.getModificationStamp());
+      LOG.debug("refreshFileStatusFromDocument: file.getModificationStamp()=" + virtualFile.getModificationStamp() +
+                ", document.getModificationStamp()=" + doc.getModificationStamp());
     }
-    FileStatus cachedStatus = myFileStatusManager.getCachedStatus(virtualFile);
-    if (cachedStatus == null || cachedStatus == FileStatus.NOT_CHANGED || !isDocumentModified(virtualFile)) {
-      final AbstractVcs vcs = myVcsManager.getVcsFor(virtualFile);
-      if (vcs == null) return;
-      if (cachedStatus == FileStatus.MODIFIED && !isDocumentModified(virtualFile)) {
-        if (!((ReadonlyStatusHandlerImpl) ReadonlyStatusHandlerImpl.getInstance(myProject)).getState().SHOW_DIALOG) {
-          RollbackEnvironment rollbackEnvironment = vcs.getRollbackEnvironment();
-          if (rollbackEnvironment != null) {
-            rollbackEnvironment.rollbackIfUnchanged(virtualFile);
-          }
+
+    AbstractVcs vcs = ProjectLevelVcsManager.getInstance(myProject).getVcsFor(virtualFile);
+    if (vcs == null) return;
+
+    FileStatusManagerImpl fileStatusManager = (FileStatusManagerImpl)FileStatusManager.getInstance(myProject);
+    FileStatus cachedStatus = fileStatusManager.getCachedStatus(virtualFile);
+    boolean isDocumentModified = isDocumentModified(virtualFile);
+
+    if (cachedStatus == FileStatus.MODIFIED && !isDocumentModified) {
+      if (!((ReadonlyStatusHandlerImpl)ReadonlyStatusHandler.getInstance(myProject)).getState().SHOW_DIALOG) {
+        RollbackEnvironment rollbackEnvironment = vcs.getRollbackEnvironment();
+        if (rollbackEnvironment != null) {
+          rollbackEnvironment.rollbackIfUnchanged(virtualFile);
         }
       }
-      myFileStatusManager.fileStatusChanged(virtualFile);
-      ChangeProvider cp = vcs.getChangeProvider();
-      if (cp != null && cp.isModifiedDocumentTrackingRequired()) {
-        myDirtyScopeManager.fileDirty(virtualFile);
+    }
+
+    boolean isStatusChanged = cachedStatus != null && cachedStatus != FileStatus.NOT_CHANGED;
+    if (isStatusChanged != isDocumentModified) {
+      fileStatusManager.fileStatusChanged(virtualFile);
+    }
+
+    ChangeProvider cp = vcs.getChangeProvider();
+    if (cp != null && cp.isModifiedDocumentTrackingRequired()) {
+      FileStatus status = ChangeListManager.getInstance(myProject).getStatus(virtualFile);
+      boolean isClmStatusChanged = status != FileStatus.NOT_CHANGED;
+      if (isClmStatusChanged != isDocumentModified) {
+        VcsDirtyScopeManager.getInstance(myProject).fileDirty(virtualFile);
       }
     }
   }
 
   @NotNull
-  @Override
   public ThreeState getNotChangedDirectoryParentingStatus(@NotNull VirtualFile virtualFile) {
-    return myConfiguration.SHOW_DIRTY_RECURSIVELY ? myChangeListManager.haveChangesUnder(virtualFile) : ThreeState.NO;
+    if (VcsConfiguration.getInstance(myProject).SHOW_DIRTY_RECURSIVELY) {
+      return ChangeListManager.getInstance(myProject).haveChangesUnder(virtualFile);
+    }
+    else {
+      return ThreeState.NO;
+    }
   }
 
   @Override
   @Nullable
-  public Pair<VcsRevisionNumber, String> getBaseRevision(@NotNull final VirtualFile file) {
-    final Change change = ChangeListManager.getInstance(myProject).getChange(file);
-    if (change != null) {
-      final ContentRevision beforeRevision = change.getBeforeRevision();
-      if (beforeRevision instanceof BinaryContentRevision) return null;
-      if (beforeRevision != null) {
-        String content;
-        try {
-          content = beforeRevision.getContent();
-        }
-        catch (VcsException ex) {
-          content = null;
-        }
-        if (content == null) {
-          myHaveEmptyContentRevisions = true;
-          return null;
-        }
-        return Pair.create(beforeRevision.getRevisionNumber(), content);
-      }
-      return null;
+  public BaseContent getBaseRevision(@NotNull final VirtualFile file) {
+    if (!isHandledByVcs(file)) {
+      VcsBaseContentProvider provider = findProviderFor(file);
+      return provider == null ? null : provider.getBaseRevision(file);
     }
 
-    if (isDocumentModified(file)) {
-      String content = ApplicationManager.getApplication().runReadAction(new Computable<String>() {
-        @Override
-        public String compute() {
-          if (!file.isValid()) return null;
-          return LoadTextUtil.loadText(file).toString();
+    ChangeListManager changeListManager = ChangeListManager.getInstance(myProject);
+
+    Change change = changeListManager.getChange(file);
+    if (change != null) {
+      ContentRevision beforeRevision = change.getBeforeRevision();
+      return beforeRevision == null ? null : createBaseContent(myProject, beforeRevision);
+    }
+
+    FileStatus status = changeListManager.getStatus(file);
+    if (status == FileStatus.HIJACKED) {
+      AbstractVcs vcs = ProjectLevelVcsManager.getInstance(myProject).getVcsFor(file);
+      DiffProvider diffProvider = vcs != null ? vcs.getDiffProvider() : null;
+      if (diffProvider != null) {
+        VcsRevisionNumber currentRevision = diffProvider.getCurrentRevision(file);
+        return currentRevision == null ? null : new HijackedBaseContent(myProject, diffProvider, file, currentRevision);
+      }
+    }
+
+    if (status == FileStatus.NOT_CHANGED) {
+      AbstractVcs vcs = ProjectLevelVcsManager.getInstance(myProject).getVcsFor(file);
+      DiffProvider diffProvider = vcs != null ? vcs.getDiffProvider() : null;
+      ChangeProvider cp = vcs != null ? vcs.getChangeProvider() : null;
+      if (diffProvider != null && cp != null) {
+        if (cp.isModifiedDocumentTrackingRequired() &&
+            FileDocumentManager.getInstance().isFileModified(file)) {
+          ContentRevision beforeRevision = diffProvider.createCurrentFileContent(file);
+          if (beforeRevision != null) return createBaseContent(myProject, beforeRevision);
         }
-      });
-      if (content == null) return null;
-      return Pair.create(VcsRevisionNumber.NULL, content);
+      }
     }
 
     return null;
+  }
+
+  @Nullable
+  private VcsBaseContentProvider findProviderFor(@NotNull VirtualFile file) {
+    return VcsBaseContentProvider.EP_NAME.findFirstSafe(myProject, it -> it.isSupported(file));
+  }
+
+  @Override
+  public boolean isSupported(@NotNull VirtualFile file) {
+    return isHandledByVcs(file) || findProviderFor(file) != null;
+  }
+
+  private boolean isHandledByVcs(@NotNull VirtualFile file) {
+    return file.isInLocalFileSystem() && ProjectLevelVcsManager.getInstance(myProject).getVcsFor(file) != null;
+  }
+
+  @NotNull
+  public static BaseContent createBaseContent(@NotNull Project project, @NotNull ContentRevision contentRevision) {
+    return new BaseContentImpl(project, contentRevision);
+  }
+
+  private static class BaseContentImpl implements BaseContent {
+    @Nullable private final Project myProject;
+    @NotNull private final ContentRevision myContentRevision;
+
+    BaseContentImpl(@NotNull Project project, @NotNull ContentRevision contentRevision) {
+      myProject = project;
+      myContentRevision = contentRevision;
+    }
+
+    @NotNull
+    @Override
+    public VcsRevisionNumber getRevisionNumber() {
+      return myContentRevision.getRevisionNumber();
+    }
+
+    @Nullable
+    @Override
+    public String loadContent() {
+      return loadContentRevision(myProject, myContentRevision);
+    }
+  }
+
+  private static class HijackedBaseContent implements BaseContent {
+    @Nullable private final Project myProject;
+    @NotNull private final DiffProvider myDiffProvider;
+    @NotNull private final VirtualFile myFile;
+    @NotNull private final VcsRevisionNumber myRevision;
+
+    HijackedBaseContent(@Nullable Project project,
+                        @NotNull DiffProvider diffProvider,
+                        @NotNull VirtualFile file,
+                        @NotNull VcsRevisionNumber revision) {
+      myProject = project;
+      myDiffProvider = diffProvider;
+      myFile = file;
+      myRevision = revision;
+    }
+
+    @NotNull
+    @Override
+    public VcsRevisionNumber getRevisionNumber() {
+      return myRevision;
+    }
+
+    @Nullable
+    @Override
+    public String loadContent() {
+      ContentRevision contentRevision = myDiffProvider.createFileContent(myRevision, myFile);
+      if (contentRevision == null) return null;
+      return loadContentRevision(myProject, contentRevision);
+    }
+  }
+
+  @Nullable
+  private static String loadContentRevision(@Nullable Project project, @NotNull ContentRevision contentRevision) {
+    try {
+      if (contentRevision instanceof ByteBackedContentRevision) {
+        byte[] revisionContent = ((ByteBackedContentRevision)contentRevision).getContentAsBytes();
+        FilePath filePath = contentRevision.getFile();
+
+        if (revisionContent != null) {
+          Charset charset = DiffContentFactoryImpl.guessCharset(project, revisionContent, filePath);
+          return CharsetToolkit.decodeString(revisionContent, charset);
+        }
+        else {
+          return null;
+        }
+      }
+      else {
+        return contentRevision.getContent();
+      }
+    }
+    catch (VcsException ex) {
+      return null;
+    }
   }
 }

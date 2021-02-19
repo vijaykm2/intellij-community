@@ -1,33 +1,18 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.eclipse.config;
 
-import com.intellij.openapi.application.AccessToken;
+import com.intellij.configurationStore.SaveSession;
+import com.intellij.configurationStore.SaveSessionProducer;
+import com.intellij.configurationStore.StorageUtilKt;
+import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.StateStorage;
-import com.intellij.openapi.components.Storage;
-import com.intellij.openapi.components.impl.stores.StorageUtil;
-import com.intellij.openapi.editor.DocumentRunnable;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.roots.impl.ModuleRootManagerImpl;
+import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.util.JDOMUtil;
-import com.intellij.openapi.vfs.CharsetToolkit;
+import com.intellij.openapi.vfs.SafeWriteRequestor;
 import com.intellij.openapi.vfs.VirtualFile;
-import gnu.trove.THashMap;
-import gnu.trove.THashSet;
+import com.intellij.util.ThrowableRunnable;
 import org.jdom.Element;
 import org.jdom.output.EclipseJDOMUtil;
 import org.jetbrains.annotations.NotNull;
@@ -38,16 +23,19 @@ import org.jetbrains.idea.eclipse.conversion.DotProjectFileHelper;
 import org.jetbrains.idea.eclipse.conversion.EclipseClasspathWriter;
 import org.jetbrains.idea.eclipse.conversion.IdeaSpecificSettings;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-final class ClasspathSaveSession implements StateStorage.ExternalizationSession, StateStorage.SaveSession {
-  private final Map<String, Element> modifiedContent = new THashMap<String, Element>();
-  private final Set<String> deletedContent = new THashSet<String>();
+final class ClasspathSaveSession implements SaveSessionProducer, SaveSession, SafeWriteRequestor {
+  private final Map<String, Element> modifiedContent = new HashMap<>();
+  private final Set<String> deletedContent = new HashSet<>();
 
   private final Module module;
 
@@ -66,48 +54,43 @@ final class ClasspathSaveSession implements StateStorage.ExternalizationSession,
   }
 
   @Override
-  public void setState(@NotNull Object component, @NotNull String componentName, @NotNull Object state, Storage storageSpec) {
+  public void setState(Object component, @NotNull String componentName, @Nullable Object state) throws IOException {
+    CachedXmlDocumentSet fileSet = EclipseClasspathStorageProvider.getFileCache(module);
+
+    Element oldClassPath;
     try {
-      CachedXmlDocumentSet fileSet = EclipseClasspathStorageProvider.getFileCache(module);
+      oldClassPath = fileSet.load(EclipseXml.CLASSPATH_FILE, true);
+    }
+    catch (Exception e) {
+      EclipseClasspathWriter.LOG.warn(e);
+      oldClassPath = null;
+    }
 
-      Element oldClassPath;
-      try {
-        oldClassPath = fileSet.load(EclipseXml.CLASSPATH_FILE, true);
-      }
-      catch (Exception e) {
-        EclipseClasspathWriter.LOG.warn(e);
-        oldClassPath = null;
-      }
-
-      ModuleRootManagerImpl moduleRootManager = (ModuleRootManagerImpl)component;
-      if (oldClassPath != null || moduleRootManager.getSourceRoots().length > 0 || moduleRootManager.getOrderEntries().length > 2) {
-        Element newClassPathElement = new EclipseClasspathWriter().writeClasspath(oldClassPath, moduleRootManager);
-        if (oldClassPath == null || !JDOMUtil.areElementsEqual(newClassPathElement, oldClassPath)) {
-          update(newClassPathElement, EclipseXml.CLASSPATH_FILE);
-        }
-      }
-
-      if (fileSet.getFile(EclipseXml.PROJECT_FILE, true) == null) {
-        DotProjectFileHelper.saveDotProjectFile(module, fileSet.getParent(EclipseXml.PROJECT_FILE));
-      }
-
-      Element ideaSpecific = new Element(IdeaXml.COMPONENT_TAG);
-      String emlFilename = moduleRootManager.getModule().getName() + EclipseXml.IDEA_SETTINGS_POSTFIX;
-      if (IdeaSpecificSettings.writeIdeaSpecificClasspath(ideaSpecific, moduleRootManager)) {
-        update(ideaSpecific, emlFilename);
-      }
-      else {
-        delete(emlFilename);
+    ModuleRootManager moduleRootManager = (ModuleRootManager)component;
+    if (oldClassPath != null || moduleRootManager.getSourceRoots().length > 0 || moduleRootManager.getOrderEntries().length > 2) {
+      Element newClassPathElement = new EclipseClasspathWriter().writeClasspath(oldClassPath, moduleRootManager);
+      if (oldClassPath == null || !JDOMUtil.areElementsEqual(newClassPathElement, oldClassPath)) {
+        update(newClassPathElement, EclipseXml.CLASSPATH_FILE);
       }
     }
-    catch (IOException e) {
-      throw new RuntimeException(e);
+
+    if (fileSet.getFile(EclipseXml.PROJECT_FILE, true) == null) {
+      DotProjectFileHelper.saveDotProjectFile(module, fileSet.getParent(EclipseXml.PROJECT_FILE));
+    }
+
+    Element ideaSpecific = new Element(IdeaXml.COMPONENT_TAG);
+    String emlFilename = moduleRootManager.getModule().getName() + EclipseXml.IDEA_SETTINGS_POSTFIX;
+    if (IdeaSpecificSettings.writeIdeaSpecificClasspath(ideaSpecific, moduleRootManager)) {
+      update(ideaSpecific, emlFilename);
+    }
+    else {
+      delete(emlFilename);
     }
   }
 
   @Nullable
   @Override
-  public StateStorage.SaveSession createSaveSession() {
+  public SaveSession createSaveSession() {
     return modifiedContent.isEmpty() && deletedContent.isEmpty() ? null : this;
   }
 
@@ -115,17 +98,12 @@ final class ClasspathSaveSession implements StateStorage.ExternalizationSession,
   public void save() throws IOException {
     CachedXmlDocumentSet fileSet = EclipseClasspathStorageProvider.getFileCache(module);
 
-    AccessToken token = ApplicationManager.getApplication().acquireWriteActionLock(DocumentRunnable.IgnoreDocumentRunnable.class);
-    try {
+    ThrowableRunnable<IOException> runnable = () -> {
       for (String key : modifiedContent.keySet()) {
         Element content = modifiedContent.get(key);
-        String path = fileSet.getParent(key) + '/' + key;
-        Writer writer = new OutputStreamWriter(StorageUtil.getOrCreateVirtualFile(this, new File(path)).getOutputStream(this), CharsetToolkit.UTF8_CHARSET);
-        try {
+        VirtualFile virtualFile = StorageUtilKt.getOrCreateVirtualFile(Paths.get(fileSet.getParent(key) + '/' + key), this);
+        try (Writer writer = new OutputStreamWriter(virtualFile.getOutputStream(this), StandardCharsets.UTF_8)) {
           EclipseJDOMUtil.output(content, writer, module.getProject());
-        }
-        finally {
-          writer.close();
         }
       }
 
@@ -144,9 +122,16 @@ final class ClasspathSaveSession implements StateStorage.ExternalizationSession,
         }
       }
       deletedContent.clear();
+    };
+
+    Application app = ApplicationManager.getApplication();
+    // platform doesn't check isWriteAccessAllowed because wants to track all write action starter classes,
+    // but for our case more important to avoid write action start code execution for performance reasons
+    if (app.isWriteAccessAllowed()) {
+      runnable.run();
     }
-    finally {
-      token.finish();
+    else {
+      WriteAction.run(runnable);
     }
   }
 }

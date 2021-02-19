@@ -1,26 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
-import com.intellij.xdebugger.AbstractDebuggerSession;
 import com.intellij.xdebugger.impl.actions.DebuggerActionHandler;
 import com.intellij.xdebugger.impl.actions.DebuggerToggleActionHandler;
 import com.intellij.xdebugger.impl.actions.EditBreakpointActionHandler;
@@ -32,11 +16,10 @@ import com.intellij.xdebugger.impl.evaluate.quick.common.ValueHintType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import java.awt.*;
 
-/**
- * @author nik
- */
+@Deprecated
 public abstract class DebuggerSupport {
   private static final ExtensionPointName<DebuggerSupport> EXTENSION_POINT = ExtensionPointName.create("com.intellij.xdebugger.debuggerSupport");
 
@@ -53,59 +36,85 @@ public abstract class DebuggerSupport {
     }
   }
 
-  @NotNull
-  public static DebuggerSupport[] getDebuggerSupports() {
-    return Extensions.getExtensions(EXTENSION_POINT);
+  public static DebuggerSupport @NotNull [] getDebuggerSupports() {
+    return EXTENSION_POINT.getExtensions();
   }
 
   @NotNull
   public abstract BreakpointPanelProvider<?> getBreakpointPanelProvider();
 
   @NotNull
-  public abstract DebuggerActionHandler getStepOverHandler();
+  public DebuggerActionHandler getStepOverHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
 
   @NotNull
-  public abstract DebuggerActionHandler getStepIntoHandler();
+  public DebuggerActionHandler getStepIntoHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
 
   @NotNull
-  public abstract DebuggerActionHandler getSmartStepIntoHandler();
+  public DebuggerActionHandler getSmartStepIntoHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
 
   @NotNull
-  public abstract DebuggerActionHandler getStepOutHandler();
+  public DebuggerActionHandler getStepOutHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
 
   @NotNull
-  public abstract DebuggerActionHandler getForceStepOverHandler();
+  public DebuggerActionHandler getForceStepOverHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
 
   @NotNull
-  public abstract DebuggerActionHandler getForceStepIntoHandler();
-
-
-  @NotNull
-  public abstract DebuggerActionHandler getRunToCursorHandler();
+  public DebuggerActionHandler getForceStepIntoHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
 
   @NotNull
-  public abstract DebuggerActionHandler getForceRunToCursorHandler();
-
-
-  @NotNull
-  public abstract DebuggerActionHandler getResumeActionHandler();
+  public DebuggerActionHandler getRunToCursorHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
 
   @NotNull
-  public abstract DebuggerActionHandler getPauseHandler();
-
-
-  @NotNull
-  public abstract DebuggerActionHandler getToggleLineBreakpointHandler();
-
-  @NotNull
-  public abstract DebuggerActionHandler getToggleTemporaryLineBreakpointHandler();
+  public DebuggerActionHandler getForceRunToCursorHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
 
 
   @NotNull
-  public abstract DebuggerActionHandler getShowExecutionPointHandler();
+  public DebuggerActionHandler getResumeActionHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
 
   @NotNull
-  public abstract DebuggerActionHandler getEvaluateHandler();
+  public DebuggerActionHandler getPauseHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
+
+
+  @NotNull
+  public DebuggerActionHandler getToggleLineBreakpointHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
+
+  @NotNull
+  public DebuggerActionHandler getToggleTemporaryLineBreakpointHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
+
+
+  @NotNull
+  public DebuggerActionHandler getShowExecutionPointHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
+
+  @NotNull
+  public DebuggerActionHandler getEvaluateHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
 
   @NotNull
   public QuickEvaluateHandler getQuickEvaluateHandler() {
@@ -136,24 +145,77 @@ public abstract class DebuggerSupport {
   };
 
   @NotNull
-  public abstract DebuggerActionHandler getAddToWatchesActionHandler();
+  public DebuggerActionHandler getAddToWatchesActionHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
+
+  @NotNull
+  public DebuggerActionHandler getAddToInlineWatchesActionHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
+
 
   public DebuggerActionHandler getEvaluateInConsoleActionHandler() {
     return DisabledActionHandler.INSTANCE;
   }
 
-  @NotNull
-  public abstract DebuggerToggleActionHandler getMuteBreakpointsHandler();
+  protected static final DebuggerToggleActionHandler DISABLED_TOGGLE_HANDLER = new DebuggerToggleActionHandler() {
+    @Override
+    public boolean isEnabled(@NotNull Project project, AnActionEvent event) {
+      return false;
+    }
+
+    @Override
+    public boolean isSelected(@NotNull Project project, AnActionEvent event) {
+      return false;
+    }
+
+    @Override
+    public void setSelected(@NotNull Project project, AnActionEvent event, boolean state) {
+    }
+  };
 
   @NotNull
-  public abstract MarkObjectActionHandler getMarkObjectHandler();
+  public DebuggerToggleActionHandler getMuteBreakpointsHandler() {
+    return DISABLED_TOGGLE_HANDLER;
+  }
 
+  protected static final MarkObjectActionHandler DISABLED_MARK_HANDLER = new MarkObjectActionHandler() {
+    @Override
+    public boolean isMarked(@NotNull Project project, @NotNull AnActionEvent event) {
+      return false;
+    }
 
-  @Nullable
-  public abstract AbstractDebuggerSession getCurrentSession(@NotNull Project project);
+    @Override
+    public void perform(@NotNull Project project, AnActionEvent event) {
+    }
+
+    @Override
+    public boolean isEnabled(@NotNull Project project, AnActionEvent event) {
+      return false;
+    }
+  };
 
   @NotNull
-  public abstract EditBreakpointActionHandler getEditBreakpointAction();
+  public MarkObjectActionHandler getMarkObjectHandler() {
+    return DISABLED_MARK_HANDLER;
+  }
+
+  protected static final EditBreakpointActionHandler DISABLED_EDIT = new EditBreakpointActionHandler() {
+    @Override
+    protected void doShowPopup(Project project, JComponent component, Point whereToShow, Object breakpoint) {
+    }
+
+    @Override
+    public boolean isEnabled(@NotNull Project project, AnActionEvent event) {
+      return false;
+    }
+  };
+
+  @NotNull
+  public EditBreakpointActionHandler getEditBreakpointAction() {
+    return DISABLED_EDIT;
+  }
 
 
   @NotNull

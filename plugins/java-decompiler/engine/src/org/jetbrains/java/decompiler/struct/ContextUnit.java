@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.decompiler.struct;
 
 import org.jetbrains.java.decompiler.main.DecompilerContext;
@@ -42,11 +28,11 @@ public class ContextUnit {
   private final IResultSaver resultSaver;
   private final IDecompiledData decompiledData;
 
-  private final List<String> classEntries = new ArrayList<String>();  // class file or jar/zip entry
-  private final List<String> dirEntries = new ArrayList<String>();
-  private final List<String[]> otherEntries = new ArrayList<String[]>();
+  private final List<String> classEntries = new ArrayList<>();  // class file or jar/zip entry
+  private final List<String> dirEntries = new ArrayList<>();
+  private final List<String[]> otherEntries = new ArrayList<>();
 
-  private List<StructClass> classes = new ArrayList<StructClass>();
+  private List<StructClass> classes = new ArrayList<>();
   private Manifest manifest;
 
   public ContextUnit(int type, String archivePath, String filename, boolean own, IResultSaver resultSaver, IDecompiledData decompiledData) {
@@ -72,18 +58,14 @@ public class ContextUnit {
   }
 
   public void reload(LazyLoader loader) throws IOException {
-    List<StructClass> lstClasses = new ArrayList<StructClass>();
+    List<StructClass> lstClasses = new ArrayList<>();
 
     for (StructClass cl : classes) {
       String oldName = cl.qualifiedName;
 
       StructClass newCl;
-      DataInputFullStream in = loader.getClassStream(oldName);
-      try {
-        newCl = new StructClass(in, cl.isOwn(), loader);
-      }
-      finally {
-        in.close();
+      try (DataInputFullStream in = loader.getClassStream(oldName)) {
+        newCl = StructClass.create(in, cl.isOwn(), loader);
       }
 
       lstClasses.add(newCl);
@@ -110,6 +92,9 @@ public class ContextUnit {
         // classes
         for (int i = 0; i < classes.size(); i++) {
           StructClass cl = classes.get(i);
+          if (!cl.isOwn()) {
+            continue;
+          }
           String entryName = decompiledData.getClassEntryName(cl, classEntries.get(i));
           if (entryName != null) {
             String content = decompiledData.getClassContent(cl);

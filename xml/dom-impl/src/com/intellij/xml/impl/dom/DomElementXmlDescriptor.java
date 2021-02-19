@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.impl.dom;
 
 import com.intellij.codeInsight.daemon.impl.analysis.XmlHighlightingAwareElementDescriptor;
+import com.intellij.ide.presentation.Presentation;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
@@ -34,9 +21,6 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Type;
 import java.util.List;
 
-/**
- * @author mike
- */
 public class DomElementXmlDescriptor extends AbstractDomChildrenDescriptor implements XmlHighlightingAwareElementDescriptor {
   private final DomChildrenDescription myChildrenDescription;
 
@@ -73,7 +57,9 @@ public class DomElementXmlDescriptor extends AbstractDomChildrenDescriptor imple
         element = myManager.getDomElement(tag.getParentTag());
       }
       if (element != null && file instanceof XmlFile && !(myChildrenDescription instanceof MyRootDomChildrenDescription)) {
-        final String namespace = DomService.getInstance().getEvaluatedXmlName(element).evaluateChildName(myChildrenDescription.getXmlName()).getNamespace(tag, (XmlFile)file);
+        final String namespace = DomService.getInstance().getEvaluatedXmlName(element)
+          .evaluateChildName(myChildrenDescription.getXmlName())
+          .getNamespace(tag, (XmlFile)file);
         if (!tag.getNamespaceByPrefix("").equals(namespace)) {
           final String s = tag.getPrefixByNamespace(namespace);
           if (StringUtil.isNotEmpty(s)) {
@@ -91,10 +77,11 @@ public class DomElementXmlDescriptor extends AbstractDomChildrenDescriptor imple
     return false;
   }
 
+  @Presentation(typeName = "Root Tag")
   private static class MyRootDomChildrenDescription implements DomChildrenDescription {
     private final DomElement myDomElement;
 
-    public MyRootDomChildrenDescription(final DomElement domElement) {
+    MyRootDomChildrenDescription(final DomElement domElement) {
       myDomElement = domElement;
     }
 
@@ -136,37 +123,37 @@ public class DomElementXmlDescriptor extends AbstractDomChildrenDescriptor imple
 
     @Override
     @NotNull
-      public String getCommonPresentableName(@NotNull final DomNameStrategy strategy) {
+    public String getCommonPresentableName(@NotNull final DomNameStrategy strategy) {
       throw new UnsupportedOperationException("Method getCommonPresentableName not implemented in " + getClass());
     }
 
     @Override
     @NotNull
-      public String getCommonPresentableName(@NotNull final DomElement parent) {
+    public String getCommonPresentableName(@NotNull final DomElement parent) {
       throw new UnsupportedOperationException("Method getCommonPresentableName not implemented in " + getClass());
     }
 
     @Override
     @NotNull
-      public List<? extends DomElement> getValues(@NotNull final DomElement parent) {
+    public List<? extends DomElement> getValues(@NotNull final DomElement parent) {
       throw new UnsupportedOperationException("Method getValues not implemented in " + getClass());
     }
 
     @Override
     @NotNull
-      public List<? extends DomElement> getStableValues(@NotNull final DomElement parent) {
+    public List<? extends DomElement> getStableValues(@NotNull final DomElement parent) {
       throw new UnsupportedOperationException("Method getStableValues not implemented in " + getClass());
     }
 
     @Override
     @NotNull
-      public Type getType() {
+    public Type getType() {
       throw new UnsupportedOperationException("Method getType not implemented in " + getClass());
     }
 
     @Override
     @NotNull
-      public DomNameStrategy getDomNameStrategy(@NotNull final DomElement parent) {
+    public DomNameStrategy getDomNameStrategy(@NotNull final DomElement parent) {
       throw new UnsupportedOperationException("Method getDomNameStrategy not implemented in " + getClass());
     }
 
@@ -182,9 +169,9 @@ public class DomElementXmlDescriptor extends AbstractDomChildrenDescriptor imple
 
     @Override
     @Nullable
-      public <T extends Annotation> T getAnnotation(final Class<T> annotationClass) {
-          throw new UnsupportedOperationException("Method getAnnotation not implemented in " + getClass());
-        }
+    public <T extends Annotation> T getAnnotation(final Class<T> annotationClass) {
+      throw new UnsupportedOperationException("Method getAnnotation not implemented in " + getClass());
+    }
 
     @Override
     @Nullable
@@ -202,5 +189,4 @@ public class DomElementXmlDescriptor extends AbstractDomChildrenDescriptor imple
       return false;
     }
   }
-
 }

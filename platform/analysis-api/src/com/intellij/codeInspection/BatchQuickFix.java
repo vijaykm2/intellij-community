@@ -18,24 +18,27 @@ package com.intellij.codeInspection;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
 /**
- * User: anna
- * Date: 10/27/11
+ * This interface must be used if you have some "custom" logic for batch fixes otherwise it is enough to implement equal {@link QuickFix#getFamilyName()} for the fixes.
+ *
+ * If the fixes don't have same "family name" the "Inspect all" view doesn't show "fix all" option 
+ * so same family name must be used even if you implement the {@link BatchQuickFix} interface.
  */
 public interface BatchQuickFix<D extends CommonProblemDescriptor> {
   /**
    * Called to apply the cumulative fix. Is invoked in WriteAction
    *
-   * @param project    {@link com.intellij.openapi.project.Project}
-   * @param descriptors problem reported by the tool on which fix should work
+   * @param project             {@link Project}
+   * @param descriptors         problem reported by the tool on which fix should work
    * @param psiElementsToIgnore elements to be excluded from view during post-refresh
-   * @param refreshViews post-refresh inspection results view; would remove collected elements from the view
+   * @param refreshViews        post-refresh inspection results view; would remove collected elements from the view
    */
   void applyFix(@NotNull final Project project,
-                @NotNull final D[] descriptors,
-                final List<PsiElement> psiElementsToIgnore,
-                final Runnable refreshViews);
+                final D @NotNull [] descriptors,
+                @NotNull final List<PsiElement> psiElementsToIgnore,
+                @Nullable final Runnable refreshViews);
 }

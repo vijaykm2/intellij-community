@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.importing;
 
 import com.intellij.openapi.module.Module;
@@ -25,7 +11,7 @@ import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.project.model.impl.module.JpsRootModel;
 import com.intellij.project.model.impl.module.content.JpsContentEntry;
 import com.intellij.project.model.impl.module.content.JpsSourceFolder;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.SmartList;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
@@ -45,14 +31,13 @@ import java.util.*;
 
 /**
  * @author Vladislav.Soroka
- * @since 4/30/2014
  */
-public class MavenSourceFoldersModuleExtension extends ModuleExtension<MavenSourceFoldersModuleExtension> {
+public class MavenSourceFoldersModuleExtension extends ModuleExtension {
 
   private ModifiableRootModel myRootModel;
   private JpsModule myDummyJpsModule;
   private JpsRootModel myDummyJpsRootModel;
-  private final Set<JpsSourceFolder> myJpsSourceFolders = new TreeSet<JpsSourceFolder>(ContentFolderComparator.INSTANCE);
+  private final Set<JpsSourceFolder> myJpsSourceFolders = new TreeSet<>(ContentFolderComparator.INSTANCE);
   private boolean isJpsSourceFoldersChanged;
 
   public void init(@NotNull Module module, @NotNull ModifiableRootModel modifiableRootModel) {
@@ -81,6 +66,7 @@ public class MavenSourceFoldersModuleExtension extends ModuleExtension<MavenSour
     }
   }
 
+  @NotNull
   @Override
   public ModuleExtension getModifiableModel(boolean writable) {
     return new MavenSourceFoldersModuleExtension();
@@ -149,11 +135,11 @@ public class MavenSourceFoldersModuleExtension extends ModuleExtension<MavenSour
   }
 
   @Override
-  public void readExternal(Element element) throws InvalidDataException {
+  public void readExternal(@NotNull Element element) throws InvalidDataException {
   }
 
   @Override
-  public void writeExternal(Element element) throws WriteExternalException {
+  public void writeExternal(@NotNull Element element) throws WriteExternalException {
   }
 
   public void clearSourceFolders() {
@@ -198,15 +184,14 @@ public class MavenSourceFoldersModuleExtension extends ModuleExtension<MavenSour
     return null;
   }
 
-  @NotNull
-  public String[] getSourceRootUrls(boolean includingTests) {
-    List<String> result = new SmartList<String>();
+  public String @NotNull [] getSourceRootUrls(boolean includingTests) {
+    List<String> result = new SmartList<>();
     for (JpsSourceFolder eachFolder : myJpsSourceFolders) {
       if (includingTests || !eachFolder.isTestSource()) {
         result.add(eachFolder.getUrl());
       }
     }
-    return ArrayUtil.toStringArray(result);
+    return ArrayUtilRt.toStringArray(result);
   }
 
   @Nullable

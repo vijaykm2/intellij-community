@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,87 +15,126 @@
  */
 package com.intellij.refactoring.safeDelete;
 
+import com.intellij.codeInspection.deadCode.UnusedDeclarationInspectionBase;
+import com.intellij.ide.highlighter.JavaFileType;
+import com.intellij.java.JavaBundle;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.*;
+import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.search.PsiSearchHelper;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.refactoring.changeSignature.MethodNodeBase;
-import com.intellij.refactoring.changeSignature.inCallers.JavaCallerChooser;
-import com.intellij.refactoring.changeSignature.inCallers.JavaMethodNode;
-import com.intellij.refactoring.safeDelete.usageInfo.SafeDeleteMethodCalleeUsageInfo;
+import com.intellij.refactoring.changeSignature.CallerChooserBase;
+import com.intellij.refactoring.changeSignature.MemberNodeBase;
+import com.intellij.refactoring.changeSignature.inCallers.JavaMemberNode;
+import com.intellij.refactoring.safeDelete.usageInfo.SafeDeleteMemberCalleeUsageInfo;
 import com.intellij.refactoring.safeDelete.usageInfo.SafeDeleteReferenceJavaDeleteUsageInfo;
+import com.intellij.ui.ColoredTreeCellRenderer;
 import com.intellij.usageView.UsageInfo;
+import com.intellij.usageView.UsageViewShortNameLocation;
 import com.intellij.util.CommonProcessors;
-import com.intellij.util.Consumer;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
-abstract class SafeDeleteJavaCalleeChooser extends JavaCallerChooser {
-  private final Project myProject;
+abstract class SafeDeleteJavaCalleeChooser extends CallerChooserBase<PsiElement> {
+  SafeDeleteJavaCalleeChooser(PsiMember member,
+                                     Project project,
+                                     ArrayList<UsageInfo> result) {
+    super(member, project, JavaRefactoringBundle.message("safe.delete.select.members.to.propagate.dialog.title"), null, "dummy." + JavaFileType.INSTANCE.getDefaultExtension(), members -> result.addAll(ContainerUtil.map(members, m -> {
+      return new SafeDeleteReferenceJavaDeleteUsageInfo(m, m, true);
+    })));
+  }
 
-  public SafeDeleteJavaCalleeChooser(final PsiMethod method, Project project, final ArrayList<UsageInfo> result) {
-    super(method, project, "Select Methods To Cascade Safe Delete", null, new Consumer<Set<PsiMethod>>() {
-      @Override
-      public void consume(Set<PsiMethod> methods) {
-        result.addAll(ContainerUtil.map(methods, new Function<PsiMethod, SafeDeleteReferenceJavaDeleteUsageInfo>() {
-          @Override
-          public SafeDeleteReferenceJavaDeleteUsageInfo fun(PsiMethod m) {
-            return new SafeDeleteReferenceJavaDeleteUsageInfo(m, m, true);
-          }
-        }));
-      }
-    });
-    myProject = project;
+  protected abstract ArrayList<SafeDeleteMemberCalleeUsageInfo> getTopLevelItems();
+
+  @Override
+  protected @NlsContexts.Label String getEmptyCallerText() {
+    return JavaRefactoringBundle.message("java.safe.delete.caller.text");
+  }
+
+  @Override
+  protected @NlsContexts.Label String getEmptyCalleeText() {
+    return JavaRefactoringBundle.message("java.safe.delete.empty.callee.text");
+  }
+  
+  @Override
+  protected PsiElement[] findDeepestSuperMethods(PsiElement method) {
+    return method instanceof PsiMethod ? ((PsiMethod)method).findDeepestSuperMethods() : PsiMember.EMPTY_ARRAY;
   }
 
   @Nullable
-  static List<PsiMethod> computeCalleesSafeToDelete(final PsiMethod psiMethod) {
-    final PsiCodeBlock body = psiMethod.getBody();
+  static List<PsiElement> computeReferencedCodeSafeToDelete(final PsiMember psiMember) {
+    final PsiElement body;
+    if (psiMember instanceof PsiMethod) {
+      body = ((PsiMethod)psiMember).getBody();
+    } else {
+      assert psiMember instanceof PsiField;
+      body = ((PsiField)psiMember).getInitializer();
+    }
     if (body != null) {
-      final PsiClass containingClass = psiMethod.getContainingClass();
+      final PsiClass containingClass = psiMember.getContainingClass();
       if (containingClass != null) {
-        final Set<PsiMethod> methodsToCheck = new HashSet<PsiMethod>();
+        final Set<PsiElement> elementsToCheck = new HashSet<>();
         body.accept(new JavaRecursiveElementWalkingVisitor() {
           @Override
-          public void visitMethodCallExpression(PsiMethodCallExpression expression) {
-            super.visitMethodCallExpression(expression);
-            ContainerUtil.addAllNotNull(methodsToCheck, expression.resolveMethod());
+          public void visitReferenceExpression(PsiReferenceExpression expression) {
+            super.visitReferenceExpression(expression);
+            PsiElement resolved = expression.resolve();
+            if (resolved instanceof PsiMethod || resolved instanceof PsiField) {
+              ContainerUtil.addAllNotNull(elementsToCheck, resolved);
+            }
+          }
+
+          @Override
+          public void visitLiteralExpression(PsiLiteralExpression expression) {
+            super.visitLiteralExpression(expression);
+            PsiReference @NotNull [] references = expression.getReferences();
+            for (PsiReference reference : references) {
+              if (reference instanceof PsiPolyVariantReference) {
+                PsiElement[] nonMembers = Arrays.stream(((PsiPolyVariantReference)reference).multiResolve(false))
+                  .map(result -> result.getElement())
+                  .filter(e -> !(e instanceof PsiMember))
+                  .toArray(PsiElement[]::new);
+                if (nonMembers.length < 10) {
+                  ContainerUtil.addAllNotNull(elementsToCheck, nonMembers);
+                }
+              }
+              else {
+                PsiElement resolve = reference.resolve();
+                if (resolve != null && !(resolve instanceof PsiMember)) {
+                  elementsToCheck.add(resolve);
+                }
+              }
+            }
           }
         });
 
-        return ContainerUtil.filter(methodsToCheck, new Condition<PsiMethod>() {
-          @Override
-          public boolean value(final PsiMethod m) {
-            return containingClass.equals(m.getContainingClass()) &&
-                   !psiMethod.equals(m) &&
-                   m.findDeepestSuperMethods().length == 0 &&
-                   ReferencesSearch.search(m).forEach(new CommonProcessors.CollectProcessor<PsiReference>() {
-                     @Override
-                     public boolean process(PsiReference reference) {
-                       final PsiElement element = reference.getElement();
-                       return PsiTreeUtil.isAncestor(psiMethod, element, true) ||
-                              PsiTreeUtil.isAncestor(m, element, true);
-                     }
-                   });
-          }
-        });
+        return elementsToCheck
+          .stream()
+          .filter(m -> !(m instanceof PsiMember) || containingClass.equals(((PsiMember)m).getContainingClass()) && !psiMember.equals(m))
+          .filter(m -> !(m instanceof PsiMethod) || ((PsiMethod)m).findDeepestSuperMethods().length == 0)
+          .filter(m -> m.isPhysical())
+          .filter(m -> usedOnlyIn(m, psiMember))
+          .collect(Collectors.toList());
       }
     }
     return null;
   }
 
-  protected abstract ArrayList<SafeDeleteMethodCalleeUsageInfo> getTopLevelItems();
-
   @Override
-  protected JavaMethodNode createTreeNode(PsiMethod nodeMethod,
-                                          com.intellij.util.containers.HashSet<PsiMethod> callees,
-                                          Runnable cancelCallback) {
-    final SafeDeleteJavaMethodNode node = new SafeDeleteJavaMethodNode(nodeMethod, callees, cancelCallback, nodeMethod != null ? nodeMethod.getProject() : myProject);
-    if (getTopMethod().equals(nodeMethod)) {
+  protected MemberNodeBase<PsiElement> createTreeNodeFor(PsiElement nodeMethod,
+                                                        HashSet<PsiElement> callees,
+                                                        Runnable cancelCallback) {
+    final SafeDeleteJavaMemberNode node = new SafeDeleteJavaMemberNode(nodeMethod, callees, cancelCallback, nodeMethod != null ? nodeMethod.getProject() : myProject);
+    if (getTopMember().equals(nodeMethod)) {
       node.setEnabled(false);
       node.setChecked(true);
     }
@@ -103,59 +142,93 @@ abstract class SafeDeleteJavaCalleeChooser extends JavaCallerChooser {
   }
 
   @Override
-  protected MethodNodeBase<PsiMethod> getCalleeNode(MethodNodeBase<PsiMethod> node) {
+  protected MemberNodeBase<PsiElement> getCalleeNode(MemberNodeBase<PsiElement> node) {
     return node;
   }
 
   @Override
-  protected MethodNodeBase<PsiMethod> getCallerNode(MethodNodeBase<PsiMethod> node) {
-    return (MethodNodeBase<PsiMethod>)node.getParent();
+  protected MemberNodeBase<PsiElement> getCallerNode(MemberNodeBase<PsiElement> node) {
+    return (MemberNodeBase<PsiElement>)node.getParent();
   }
 
-  private class SafeDeleteJavaMethodNode extends JavaMethodNode {
+  @Override
+  protected @NotNull @Nls String getCalleeEditorTitle() {
+    return JavaBundle.message("caller.chooser.referenced.code.title");
+  }
 
-    public SafeDeleteJavaMethodNode(PsiMethod currentMethod,
-                                    HashSet<PsiMethod> callees,
-                                    Runnable cancelCallback,
-                                    Project project) {
-      super(currentMethod, callees, project, cancelCallback);
-      
+  private class SafeDeleteJavaMemberNode extends MemberNodeBase<PsiElement> {
+
+    SafeDeleteJavaMemberNode(PsiElement currentMember,
+                             HashSet<PsiElement> callees,
+                             Runnable cancelCallback,
+                             Project project) {
+      super(currentMember, callees, project, cancelCallback);
     }
 
     @Override
-    protected MethodNodeBase<PsiMethod> createNode(PsiMethod caller, HashSet<PsiMethod> callees) {
-      return new SafeDeleteJavaMethodNode(caller, callees, myCancelCallback, myProject);
+    protected void customizeRendererText(ColoredTreeCellRenderer renderer) {
+      PsiElement member = getMember();
+      if (member instanceof PsiMember) {
+        JavaMemberNode.customizeRendererText(renderer, ((PsiMember)member), isEnabled());
+      }
+      else {
+        renderer.append(ElementDescriptionUtil.getElementDescription(member, UsageViewShortNameLocation.INSTANCE));
+      }
     }
 
     @Override
-    protected List<PsiMethod> computeCallers() {
-      if (getTopMethod().equals(getMethod())) {
-        return ContainerUtil.map(getTopLevelItems(), new Function<SafeDeleteMethodCalleeUsageInfo, PsiMethod>() {
-          @Override
-          public PsiMethod fun(SafeDeleteMethodCalleeUsageInfo info) {
-            return info.getCalledMethod();
-          }
-        });
+    protected MemberNodeBase<PsiElement> createNode(PsiElement caller, HashSet<PsiElement> callees) {
+      return new SafeDeleteJavaMemberNode(caller, callees, myCancelCallback, myProject);
+    }
+
+    @Override
+    protected List<PsiElement> computeCallers() {
+      PsiElement member = getMember();
+      if (getTopMember().equals(member)) {
+        return ContainerUtil.map(getTopLevelItems(), info -> info.getCalledElement());
       }
 
-      final List<PsiMethod> callees = computeCalleesSafeToDelete(getMethod());
+      if (!(member instanceof PsiMember)) return Collections.emptyList();
+      final List<PsiElement> callees = computeReferencedCodeSafeToDelete((PsiMember)member);
       if (callees != null) {
-        callees.remove(getTopMethod());
+        callees.remove(getTopMember());
         return callees;
       }
       else {
-        return Collections.<PsiMethod>emptyList();
+        return Collections.emptyList();
       }
     }
 
     @Override
-    protected Condition<PsiMethod> getFilter() {
-      return new Condition<PsiMethod>() {
-        @Override
-        public boolean value(PsiMethod method) {
-          return !myMethod.equals(method);
-        }
-      };
+    protected Condition<PsiElement> getFilter() {
+      return member -> !getMember().equals(member);
     }
+  }
+
+  private static boolean usedOnlyIn(@NotNull PsiElement explored, @NotNull PsiMember place) {
+    if (explored instanceof PsiNamedElement) {
+      final String name = ((PsiNamedElement)explored).getName();
+      if (name != null && 
+          PsiSearchHelper.getInstance(explored.getProject())
+            .isCheapEnoughToSearch(name, GlobalSearchScope.projectScope(explored.getProject()), null, null) == PsiSearchHelper.SearchCostResult.TOO_MANY_OCCURRENCES) {
+        return false;
+      }
+    }
+    if (explored instanceof PsiClassOwner) {
+      for (PsiClass aClass : ((PsiClassOwner)explored).getClasses()) {
+        if (!usedOnlyIn(aClass, place)) return false;
+      }
+      return true;
+    }
+    if (UnusedDeclarationInspectionBase.isDeclaredAsEntryPoint(explored)) return false;
+    CommonProcessors.FindProcessor<PsiReference> findProcessor = new CommonProcessors.FindProcessor<>() {
+      @Override
+      protected boolean accept(PsiReference reference) {
+        final PsiElement element = reference.getElement();
+        return !PsiTreeUtil.isAncestor(place, element, true) &&
+               !PsiTreeUtil.isAncestor(explored, element, true);
+      }
+    };
+    return ReferencesSearch.search(explored).forEach(findProcessor);
   }
 }

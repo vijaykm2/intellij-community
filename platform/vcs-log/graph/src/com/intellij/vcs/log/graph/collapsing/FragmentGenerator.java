@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.graph.collapsing;
 
 import com.intellij.openapi.util.Condition;
@@ -28,7 +14,7 @@ import java.util.Set;
 
 public class FragmentGenerator {
 
-  public static class GreenFragment {
+  public static final class GreenFragment {
     @Nullable private final Integer myUpRedNode;
     @Nullable private final Integer myDownRedNode;
     @NotNull private final Set<Integer> myMiddleGreenNodes;
@@ -56,27 +42,17 @@ public class FragmentGenerator {
   }
 
   @NotNull private final LiteLinearGraph myGraph;
-  @NotNull private final Condition<Integer> myRedNodes;
+  @NotNull private final Condition<? super Integer> myRedNodes;
 
-  public FragmentGenerator(@NotNull LiteLinearGraph graph, @NotNull Condition<Integer> redNodes) {
+  public FragmentGenerator(@NotNull LiteLinearGraph graph, @NotNull Condition<? super Integer> redNodes) {
     myGraph = graph;
     myRedNodes = redNodes;
   }
 
   @NotNull
   public Set<Integer> getMiddleNodes(final int upNode, final int downNode, boolean strict) {
-    Set<Integer> downWalk = getWalkNodes(upNode, false, new Condition<Integer>() {
-      @Override
-      public boolean value(Integer integer) {
-        return integer > downNode;
-      }
-    });
-    Set<Integer> upWalk = getWalkNodes(downNode, true, new Condition<Integer>() {
-      @Override
-      public boolean value(Integer integer) {
-        return integer < upNode;
-      }
-    });
+    Set<Integer> downWalk = getWalkNodes(upNode, false, integer -> integer > downNode);
+    Set<Integer> upWalk = getWalkNodes(downNode, true, integer -> integer < upNode);
 
     downWalk.retainAll(upWalk);
     if (strict) {
@@ -107,7 +83,7 @@ public class FragmentGenerator {
 
   @NotNull
   public GreenFragment getGreenFragmentForCollapse(int startNode, int maxWalkSize) {
-    if (myRedNodes.value(startNode)) return new GreenFragment(null, null, Collections.<Integer>emptySet());
+    if (myRedNodes.value(startNode)) return new GreenFragment(null, null, Collections.emptySet());
     Integer upRedNode = getNearRedNode(startNode, maxWalkSize, true);
     Integer downRedNode = getNearRedNode(startNode, maxWalkSize, false);
 
@@ -126,7 +102,7 @@ public class FragmentGenerator {
 
   @NotNull
   private Set<Integer> getWalkNodes(int startNode, boolean isUp, Condition<Integer> stopFunction) {
-    Set<Integer> walkNodes = new HashSet<Integer>();
+    Set<Integer> walkNodes = new HashSet<>();
 
     TreeSetNodeIterator walker = new TreeSetNodeIterator(startNode, isUp);
     while (walker.notEmpty()) {
@@ -147,7 +123,7 @@ public class FragmentGenerator {
 
   @NotNull
   private static Condition<Integer> createStopFunction(final int maxNodeCount) {
-    return new Condition<Integer>() {
+    return new Condition<>() {
       private int count = maxNodeCount;
 
       @Override
@@ -157,5 +133,4 @@ public class FragmentGenerator {
       }
     };
   }
-
 }

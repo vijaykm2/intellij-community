@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lexer;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -21,53 +7,44 @@ import com.intellij.psi.StringEscapesTokenTypes;
 import com.intellij.psi.tree.IElementType;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author max
- */
 public class StringLiteralLexer extends LexerBase {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.lexer.StringLiteralLexer");
+  private static final Logger LOG = Logger.getInstance(StringLiteralLexer.class);
 
   private static final short AFTER_FIRST_QUOTE = 1;
   private static final short AFTER_LAST_QUOTE = 2;
 
   public static final char NO_QUOTE_CHAR = (char)-1;
 
-  private CharSequence myBuffer;
-  private int myStart;
-  private int myEnd;
+  protected CharSequence myBuffer;
+  protected int myStart;
+  protected int myEnd;
   private int myState;
   private int myLastState;
-  private int myBufferEnd;
-  private final char myQuoteChar;
-  private final IElementType myOriginalLiteralToken;
+  protected int myBufferEnd;
+  protected final char myQuoteChar;
+  protected final IElementType myOriginalLiteralToken;
   private final boolean myCanEscapeEolOrFramingSpaces;
   private final String myAdditionalValidEscapes;
   private boolean mySeenEscapedSpacesOnly;
   private final boolean myAllowOctal;
   private final boolean myAllowHex;
 
-  public StringLiteralLexer(char quoteChar, final IElementType originalLiteralToken) {
+  public StringLiteralLexer(char quoteChar, IElementType originalLiteralToken) {
     this(quoteChar, originalLiteralToken, false, null);
   }
 
-  /**
-   * @param canEscapeEolOrFramingSpaces true if following sequences are acceptable
-   *    '\' in the end of the buffer (meaning escaped end of line) or
-   *    '\ ' (escaped space) in the beginning and in the end of the buffer (meaning escaped space, to avoid auto trimming on load)
-   */
-  public StringLiteralLexer(char quoteChar,
-                            final IElementType originalLiteralToken,
-                            boolean canEscapeEolOrFramingSpaces,
-                            String additionalValidEscapes) {
+  public StringLiteralLexer(char quoteChar, IElementType originalLiteralToken, boolean canEscapeEolOrFramingSpaces, String additionalValidEscapes) {
     this(quoteChar, originalLiteralToken, canEscapeEolOrFramingSpaces, additionalValidEscapes, true, false);
   }
 
   /**
-   * @param canEscapeEolOrFramingSpaces true if following sequences are acceptable
-   *    '\' in the end of the buffer (meaning escaped end of line) or
+   * @param canEscapeEolOrFramingSpaces {@code true} if following sequences are acceptable:<br/>
+   *                                    <b>*</b> {@code '\'} at the end of the buffer (meaning escaped end of line)<br/>
+   *                                    <b>*</b> {@code '\ '} (escaped space) at the beginning and ath the end of the buffer
+   *                                    (meaning escaped space, to avoid auto trimming on load)
    */
   public StringLiteralLexer(char quoteChar,
-                            final IElementType originalLiteralToken,
+                            IElementType originalLiteralToken,
                             boolean canEscapeEolOrFramingSpaces,
                             String additionalValidEscapes,
                             boolean allowOctal,
@@ -105,19 +82,17 @@ public class StringLiteralLexer extends LexerBase {
       return myOriginalLiteralToken;
     }
 
-    if (myStart + 1 >= myEnd) return StringEscapesTokenTypes.INVALID_CHARACTER_ESCAPE_TOKEN;
+    if (myStart + 1 >= myEnd) {
+      return handleSingleSlashEscapeSequence();
+    }
+
     char nextChar = myBuffer.charAt(myStart + 1);
     mySeenEscapedSpacesOnly &= nextChar == ' ';
-    if (myCanEscapeEolOrFramingSpaces &&
-        (nextChar == '\n' || nextChar == ' ' && (mySeenEscapedSpacesOnly || isTrailingSpace(myStart+2)))
-      ) {
+    if (myCanEscapeEolOrFramingSpaces && (nextChar == '\n' || nextChar == ' ' && (mySeenEscapedSpacesOnly || isTrailingSpace(myStart+2)))) {
       return StringEscapesTokenTypes.VALID_STRING_ESCAPE_TOKEN;
     }
     if (nextChar == 'u') {
-      for(int i = myStart + 2; i < myStart + 6; i++) {
-        if (i >= myEnd || !StringUtil.isHexDigit(myBuffer.charAt(i))) return StringEscapesTokenTypes.INVALID_UNICODE_ESCAPE_TOKEN;
-      }
-      return StringEscapesTokenTypes.VALID_STRING_ESCAPE_TOKEN;
+      return getUnicodeEscapeSequenceType();
     }
 
     if (nextChar == 'x' && myAllowHex) {
@@ -129,6 +104,7 @@ public class StringLiteralLexer extends LexerBase {
 
     switch (nextChar) {
       case '0':
+        if (shouldAllowSlashZero()) return StringEscapesTokenTypes.VALID_STRING_ESCAPE_TOKEN;
       case '1':
       case '2':
       case '3':
@@ -137,7 +113,6 @@ public class StringLiteralLexer extends LexerBase {
       case '6':
       case '7':
         if (!myAllowOctal) return StringEscapesTokenTypes.INVALID_CHARACTER_ESCAPE_TOKEN;
-        //noinspection fallthrough
       case 'n':
       case 'r':
       case 'b':
@@ -148,6 +123,7 @@ public class StringLiteralLexer extends LexerBase {
       case '\\':
         return StringEscapesTokenTypes.VALID_STRING_ESCAPE_TOKEN;
     }
+
     if (myAdditionalValidEscapes != null && myAdditionalValidEscapes.indexOf(nextChar) != -1) {
       return StringEscapesTokenTypes.VALID_STRING_ESCAPE_TOKEN;
     }
@@ -155,13 +131,30 @@ public class StringLiteralLexer extends LexerBase {
     return StringEscapesTokenTypes.INVALID_CHARACTER_ESCAPE_TOKEN;
   }
 
+  protected boolean shouldAllowSlashZero() {
+    return false;
+  }
+
+  @NotNull
+  protected IElementType handleSingleSlashEscapeSequence() {
+    return StringEscapesTokenTypes.INVALID_CHARACTER_ESCAPE_TOKEN;
+  }
+
+  @NotNull
+  protected IElementType getUnicodeEscapeSequenceType() {
+    for (int i = myStart + 2; i < myStart + 6; i++) {
+      if (i >= myEnd || !StringUtil.isHexDigit(myBuffer.charAt(i))) return StringEscapesTokenTypes.INVALID_UNICODE_ESCAPE_TOKEN;
+    }
+    return StringEscapesTokenTypes.VALID_STRING_ESCAPE_TOKEN;
+  }
+
   // all subsequent chars are escaped spaces
-  private boolean isTrailingSpace(final int start) {
-    for (int i=start;i<myBufferEnd;i+=2) {
-      final char c = myBuffer.charAt(i);
+  private boolean isTrailingSpace(int start) {
+    for (int i = start; i < myBufferEnd; i += 2) {
+      char c = myBuffer.charAt(i);
       if (c != '\\') return false;
-      if (i==myBufferEnd-1) return false;
-      if (myBuffer.charAt(i+1) != ' ') return false;
+      if (i == myBufferEnd - 1) return false;
+      if (myBuffer.charAt(i + 1) != ' ') return false;
     }
     return true;
   }
@@ -183,7 +176,7 @@ public class StringLiteralLexer extends LexerBase {
     if (myState == AFTER_LAST_QUOTE) return start;
     int i = start;
     if (myBuffer.charAt(i) == '\\') {
-      LOG.assertTrue(myState == AFTER_FIRST_QUOTE);
+      LOG.assertTrue(myState == AFTER_FIRST_QUOTE, this);
       i++;
       if (i == myBufferEnd || myBuffer.charAt(i) == '\n' && !myCanEscapeEolOrFramingSpaces) {
         myState = AFTER_LAST_QUOTE;
@@ -203,27 +196,18 @@ public class StringLiteralLexer extends LexerBase {
       }
 
       if (myAllowHex && myBuffer.charAt(i) == 'x') {
-        i++;
-        for (; i < start + 4; i++) {
-          if (i == myBufferEnd || myBuffer.charAt(i) == '\n' || myBuffer.charAt(i) == myQuoteChar) {
-            return i;
-          }
-        }
-        return i;
+        return locateHexEscapeSequence(start, i);
       }
 
       if (myBuffer.charAt(i) == 'u') {
-        i++;
-        for (; i < start + 6; i++) {
-          if (i == myBufferEnd || myBuffer.charAt(i) == '\n' || myBuffer.charAt(i) == myQuoteChar) {
-            return i;
-          }
-        }
-        return i;
+        return locateUnicodeEscapeSequence(start, i);
       }
-      else {
-        return i + 1;
+
+      int additionalLocation = locateAdditionalEscapeSequence(start, i);
+      if (additionalLocation != -1) {
+        return additionalLocation;
       }
+      return i + 1;
     }
     LOG.assertTrue(myState == AFTER_FIRST_QUOTE || myBuffer.charAt(i) == myQuoteChar, this);
     while (i < myBufferEnd) {
@@ -239,6 +223,43 @@ public class StringLiteralLexer extends LexerBase {
     }
 
     return i;
+  }
+
+  protected int locateHexEscapeSequence(int start, int i) {
+    i++;
+    for (; i < start + 4; i++) {
+      if (i == myBufferEnd || myBuffer.charAt(i) == '\n' || myBuffer.charAt(i) == myQuoteChar) {
+        return i;
+      }
+    }
+    return i;
+  }
+
+  protected int locateUnicodeEscapeSequence(int start, int i) {
+    i++;
+    for (; i < start + 6; i++) {
+      if (i == myBufferEnd || myBuffer.charAt(i) == '\n' || myBuffer.charAt(i) == myQuoteChar) {
+        return i;
+      }
+    }
+    return i;
+  }
+
+  /**
+   * <p>Locates the end of an additional (non-standard) escape sequence. The sequence is considered to begin with a backslash symbol
+   * located at the {@code start} index of the lexer's buffer.</p>
+   *
+   * <p>Override this method if your language supports non-standard escape sequences. For example, in Go language Unicode escapes look
+   * like '\U12345678'. To locate this escape sequence, the implementation should check that {@code indexOfCharAfterSlash} points to the
+   * 'U' symbol in the buffer and return {@code start + 8} (or the end index of the buffer if it is too short).
+   * Otherwise, the implementations should return -1 to indicate that the current buffer starting at the index {@code start}
+   * doesn't represent an additional escape sequence.</p>
+   *
+   * <p>When overriding this method, you most likely will need to also override {@link StringLiteralLexer#getTokenType}
+   * to return proper type for the sequences located here.</p>
+   */
+  protected int locateAdditionalEscapeSequence(@SuppressWarnings("unused") int start, @SuppressWarnings("unused") int indexOfCharAfterSlash) {
+    return -1;
   }
 
   @Override
@@ -259,7 +280,6 @@ public class StringLiteralLexer extends LexerBase {
     return myBufferEnd;
   }
 
-  @SuppressWarnings("HardCodedStringLiteral")
   @Override
   public String toString() {
     return "StringLiteralLexer {" +
@@ -275,7 +295,7 @@ public class StringLiteralLexer extends LexerBase {
            ", myState=" + myState +
            ", myEnd=" + myEnd +
            ", myStart=" + myStart +
-           ", myToken=" + (myBuffer == null ? null : myBuffer.subSequence(myStart, myEnd)) +
+           ", myToken=" + (myBuffer == null || myEnd < myStart || myEnd > myBuffer.length() ? null : myBuffer.subSequence(myStart, myEnd)) +
            '}';
   }
 }

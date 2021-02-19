@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.components.StoragePathMacros;
-import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
 
 /**
@@ -28,11 +27,8 @@ import com.intellij.openapi.project.Project;
  *
  * @author Constantine.Plotnikov
  */
-@State(
-    name = "GotoFileConfiguration",
-    storages = {@Storage(
-        file = StoragePathMacros.WORKSPACE_FILE)})
-public class GotoFileConfiguration extends ChooseByNameFilterConfiguration<FileType> {
+@State(name = "GotoFileConfiguration", storages = @Storage(StoragePathMacros.WORKSPACE_FILE))
+public class GotoFileConfiguration extends ChooseByNameFilterConfiguration<FileTypeRef> {
   /**
    * Get configuration instance
    *
@@ -44,7 +40,7 @@ public class GotoFileConfiguration extends ChooseByNameFilterConfiguration<FileT
   }
 
   @Override
-  protected String nameForElement(FileType type) {
+  protected String nameForElement(FileTypeRef type) {
     return type.getName();
   }
 }

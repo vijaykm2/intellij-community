@@ -1,55 +1,46 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.actions;
 
 import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.ListPopup;
 import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.NlsContexts;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Konstantin Bulenkov
  */
-@SuppressWarnings({"MethodMayBeStatic"})
-public class NewElementAction extends AnAction  implements DumbAware, PopupAction {
+public class NewElementAction extends DumbAwareAction implements PopupAction {
+
   @Override
-  public void actionPerformed(final AnActionEvent event) {
-    showPopup(event.getDataContext());
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    createPopup(e.getDataContext())
+      .showInBestPositionFor(e.getDataContext());
   }
 
-  protected void showPopup(DataContext context) {
-    createPopup(context).showInBestPositionFor(context);
+  @NotNull
+  protected ListPopup createPopup(@NotNull DataContext dataContext) {
+    return JBPopupFactory.getInstance().createActionGroupPopup(
+      getPopupTitle(),
+      getGroup(dataContext),
+      dataContext,
+      getActionSelectionAid(),
+      isShowDisabledActions(),
+      getDisposeCallback(),
+      getMaxRowCount(),
+      getPreselectActionCondition(dataContext),
+      getPlace());
   }
 
-  protected ListPopup createPopup(DataContext dataContext) {
-    return JBPopupFactory.getInstance()
-      .createActionGroupPopup(getPopupTitle(),
-                              getGroup(dataContext),
-                              dataContext,
-                              isShowNumbers(),
-                              isShowDisabledActions(),
-                              isHonorActionMnemonics(),
-                              getDisposeCallback(),
-                              getMaxRowCount(),
-                              getPreselectActionCondition(dataContext));
+  @Nullable
+  protected JBPopupFactory.ActionSelectionAid getActionSelectionAid() {
+    return null;
   }
 
   protected int getMaxRowCount() {
@@ -66,26 +57,18 @@ public class NewElementAction extends AnAction  implements DumbAware, PopupActio
     return null;
   }
 
-  protected boolean isHonorActionMnemonics() {
-    return false;
-  }
-
   protected boolean isShowDisabledActions() {
     return false;
   }
 
-  protected boolean isShowNumbers() {
-    return false;
-  }
-
-  protected String getPopupTitle() {
+  protected @NlsContexts.PopupTitle String getPopupTitle() {
     return IdeBundle.message("title.popup.new.element");
   }
 
   @Override
-  public void update(AnActionEvent e){
+  public void update(@NotNull AnActionEvent e) {
     Presentation presentation = e.getPresentation();
-    Project project = CommonDataKeys.PROJECT.getData(e.getDataContext());
+    Project project = e.getProject();
     if (project == null) {
       presentation.setEnabled(false);
       return;
@@ -98,8 +81,8 @@ public class NewElementAction extends AnAction  implements DumbAware, PopupActio
     presentation.setEnabled(!ActionGroupUtil.isGroupEmpty(getGroup(e.getDataContext()), e));
   }
 
-  protected boolean isEnabled(AnActionEvent e) {
-    if (Boolean.TRUE.equals(LangDataKeys.NO_NEW_ACTION.getData(e.getDataContext()))) {
+  protected boolean isEnabled(@NotNull AnActionEvent e) {
+    if (Boolean.TRUE.equals(e.getData(LangDataKeys.NO_NEW_ACTION))) {
       return false;
     }
     return true;
@@ -107,5 +90,10 @@ public class NewElementAction extends AnAction  implements DumbAware, PopupActio
 
   protected ActionGroup getGroup(DataContext dataContext) {
     return (ActionGroup)ActionManager.getInstance().getAction(IdeActions.GROUP_WEIGHING_NEW);
+  }
+
+  @NotNull
+  protected String getPlace() {
+    return ActionPlaces.getActionGroupPopupPlace(IdeActions.GROUP_WEIGHING_NEW);
   }
 }

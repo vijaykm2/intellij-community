@@ -1,26 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.introduce.constant;
 
 import com.intellij.ide.util.*;
-import com.intellij.openapi.application.AccessToken;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.editor.event.DocumentAdapter;
 import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
@@ -28,6 +13,7 @@ import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.resolve.JavaResolveUtil;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -39,14 +25,13 @@ import com.intellij.refactoring.ui.JavaVisibilityPanel;
 import com.intellij.refactoring.ui.NameSuggestionsField;
 import com.intellij.ui.RecentsManager;
 import com.intellij.ui.ReferenceEditorComboWithBrowseButton;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.GroovyFileType;
 import org.jetbrains.plugins.groovy.actions.GroovyTemplates;
 import org.jetbrains.plugins.groovy.actions.GroovyTemplatesFactory;
@@ -70,8 +55,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author Maxim.Medvedev
@@ -79,7 +64,7 @@ import java.util.List;
 public class GrIntroduceConstantDialog extends DialogWrapper
   implements GrIntroduceConstantSettings, GrIntroduceDialog<GrIntroduceConstantSettings> {
 
-  private static final Logger LOG  = Logger.getInstance("#org.jetbrains.plugins.groovy.refactoring.introduce.constant.GrIntroduceConstantDialog");
+  private static final Logger LOG = Logger.getInstance(GrIntroduceConstantDialog.class);
 
   private final GrIntroduceContext myContext;
   private JLabel myNameLabel;
@@ -102,7 +87,7 @@ public class GrIntroduceConstantDialog extends DialogWrapper
     myTargetClass = defaultTargetClass;
     myDefaultTargetClass = defaultTargetClass;
 
-    setTitle(GrIntroduceConstantHandler.REFACTORING_NAME);
+    setTitle(GroovyBundle.message("introduce.constant.title"));
 
     myJavaVisibilityPanel.setVisibility(JavaRefactoringSettings.getInstance().INTRODUCE_CONSTANT_VISIBILITY);
 
@@ -174,7 +159,7 @@ public class GrIntroduceConstantDialog extends DialogWrapper
     myTargetClassPanel.setLayout(new BorderLayout());
     myTargetClassPanel.add(myTargetClassLabel, BorderLayout.NORTH);
     myTargetClassPanel.add(myTargetClassEditor, BorderLayout.CENTER);
-    Set<String> possibleClassNames = new LinkedHashSet<String>();
+    Set<String> possibleClassNames = new LinkedHashSet<>();
     for (final PsiElement occurrence : myContext.getOccurrences()) {
       final PsiClass parentClass = getParentClass(occurrence);
       if (parentClass != null && parentClass.getQualifiedName() != null) {
@@ -190,9 +175,9 @@ public class GrIntroduceConstantDialog extends DialogWrapper
       myTargetClassEditor.prependItem(myDefaultTargetClass.getQualifiedName());
     }
 
-    myTargetClassEditor.getChildComponent().addDocumentListener(new DocumentAdapter() {
+    myTargetClassEditor.getChildComponent().addDocumentListener(new DocumentListener() {
       @Override
-      public void documentChanged(DocumentEvent e) {
+      public void documentChanged(@NotNull DocumentEvent e) {
         targetClassChanged();
         updateOkStatus();
        // enableEnumDependant(introduceEnumConstant());
@@ -206,16 +191,11 @@ public class GrIntroduceConstantDialog extends DialogWrapper
     myPanel.registerKeyboardAction(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
-        myNameField.requestFocus();
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myNameField, true));
       }
     }, KeyStroke.getKeyStroke(KeyEvent.VK_N, InputEvent.ALT_MASK), JComponent.WHEN_IN_FOCUSED_WINDOW);
 
-    myNameField.addDataChangedListener(new NameSuggestionsField.DataChanged() {
-      @Override
-      public void dataChanged() {
-        updateOkStatus();
-      }
-    });
+    myNameField.addDataChangedListener(() -> updateOkStatus());
   }
 
   @Override
@@ -280,15 +260,15 @@ public class GrIntroduceConstantDialog extends DialogWrapper
       myTypeCombo = GrTypeComboBox.createTypeComboBoxWithDefType(var.getDeclaredType(), var);
     }
 
-    List<String> names = new ArrayList<String>();
+    List<String> names = new ArrayList<>();
     if (var != null) {
       names.add(var.getName());
     }
     if (expression != null) {
-      ContainerUtil.addAll(names, suggestNames());
+      names.addAll(suggestNames());
     }
 
-    myNameField = new NameSuggestionsField(ArrayUtil.toStringArray(names), myContext.getProject(), GroovyFileType.GROOVY_FILE_TYPE);
+    myNameField = new NameSuggestionsField(ArrayUtilRt.toStringArray(names), myContext.getProject(), GroovyFileType.GROOVY_FILE_TYPE);
 
     GrTypeComboBox.registerUpDownHint(myNameField, myTypeCombo);
   }
@@ -308,7 +288,7 @@ public class GrIntroduceConstantDialog extends DialogWrapper
     else {
       UIUtil.setEnabled(myJavaVisibilityPanel, true, true);
       // exclude all modifiers not visible from all occurrences
-      final Set<String> visible = new THashSet<String>();
+      final Set<String> visible = new HashSet<>();
       visible.add(PsiModifier.PRIVATE);
       visible.add(PsiModifier.PROTECTED);
       visible.add(PsiModifier.PACKAGE_LOCAL);
@@ -372,7 +352,7 @@ public class GrIntroduceConstantDialog extends DialogWrapper
 
       if (newClass == null &&
           Messages.showOkCancelDialog(myContext.getProject(), GroovyRefactoringBundle.message("class.does.not.exist.in.the.module"),
-                                      IntroduceConstantHandler.REFACTORING_NAME, Messages.getErrorIcon()) != Messages.OK) {
+                                      IntroduceConstantHandler.getRefactoringNameText(), Messages.getErrorIcon()) != Messages.OK) {
         return;
       }
       myTargetClassInfo = new TargetClassInfo(targetClassName, myContext.getPlace().getContainingFile().getContainingDirectory(), module, myContext.getProject());
@@ -389,7 +369,7 @@ public class GrIntroduceConstantDialog extends DialogWrapper
     super.doOKAction();
   }
 
-  private static class TargetClassInfo {
+  private static final class TargetClassInfo {
     private PsiClass myTargetClass;
 
     String myQualifiedName;
@@ -429,7 +409,7 @@ public class GrIntroduceConstantDialog extends DialogWrapper
       if (psiPackage != null) {
         final PsiDirectory[] directories = psiPackage.getDirectories(GlobalSearchScope.allScope(project));
         psiDirectory = directories.length > 1 ? DirectoryChooserUtil
-          .chooseDirectory(directories, null, project, new HashMap<PsiDirectory, String>()) : directories[0];
+          .chooseDirectory(directories, null, project, new HashMap<>()) : directories[0];
       }
       else {
         psiDirectory = PackageUtil.findOrCreateDirectoryForPackage(module, packageName, baseDirectory, false);
@@ -437,15 +417,11 @@ public class GrIntroduceConstantDialog extends DialogWrapper
       if (psiDirectory == null) return null;
       final String shortName = StringUtil.getShortName(qualifiedName);
       final String fileName = shortName + NewGroovyActionBase.GROOVY_EXTENSION;
-      final AccessToken lock = ApplicationManager.getApplication().acquireWriteActionLock(GrIntroduceConstantDialog.class);
-      try {
+      return WriteAction.compute(() -> {
         final GroovyFile file =
           (GroovyFile)GroovyTemplatesFactory.createFromTemplate(psiDirectory, shortName, fileName, GroovyTemplates.GROOVY_CLASS, true);
         return file.getTypeDefinitions()[0];
-      }
-      finally {
-        lock.finish();
-      }
+      });
     }
   }
 }

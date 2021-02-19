@@ -1,32 +1,23 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.core;
 
+import com.intellij.lang.jvm.facade.JvmFacade;
+import com.intellij.lang.jvm.facade.JvmFacadeImpl;
 import com.intellij.mock.MockFileIndexFacade;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.openapi.roots.PackageIndex;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.JavaPsiFacade;
+import com.intellij.psi.JvmPsiConversionHelper;
 import com.intellij.psi.PsiElementFactory;
 import com.intellij.psi.PsiResolveHelper;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettingsFacade;
+import com.intellij.psi.controlFlow.ControlFlowFactory;
 import com.intellij.psi.impl.JavaPsiFacadeImpl;
 import com.intellij.psi.impl.JavaPsiImplementationHelper;
+import com.intellij.psi.impl.JvmPsiConversionHelperImpl;
 import com.intellij.psi.impl.PsiElementFactoryImpl;
 import com.intellij.psi.impl.file.impl.JavaFileManager;
 import com.intellij.psi.impl.source.resolve.JavaResolveCache;
@@ -35,20 +26,24 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 
-public class JavaCoreProjectEnvironment  extends  CoreProjectEnvironment {
+/**
+ * Used in Kotlin.
+ */
+public class JavaCoreProjectEnvironment extends CoreProjectEnvironment {
   private final JavaFileManager myFileManager;
   private final PackageIndex myPackageIndex;
 
-  public JavaCoreProjectEnvironment(Disposable parentDisposable, CoreApplicationEnvironment applicationEnvironment) {
+  public JavaCoreProjectEnvironment(@NotNull Disposable parentDisposable, @NotNull CoreApplicationEnvironment applicationEnvironment) {
     super(parentDisposable, applicationEnvironment);
 
-    myProject.registerService(PsiElementFactory.class, new PsiElementFactoryImpl(myPsiManager));
+    myProject.registerService(PsiElementFactory.class, new PsiElementFactoryImpl(myProject));
     myProject.registerService(JavaPsiImplementationHelper.class, createJavaPsiImplementationHelper());
-    myProject.registerService(PsiResolveHelper.class, new PsiResolveHelperImpl(myPsiManager));
+    myProject.registerService(PsiResolveHelper.class, new PsiResolveHelperImpl(myProject));
     myProject.registerService(LanguageLevelProjectExtension.class, new CoreLanguageLevelProjectExtension());
-    myProject.registerService(JavaResolveCache.class, new JavaResolveCache(myMessageBus));
+    myProject.registerService(JavaResolveCache.class, new JavaResolveCache(myProject));
     myProject.registerService(JavaCodeStyleSettingsFacade.class, new CoreJavaCodeStyleSettingsFacade());
     myProject.registerService(JavaCodeStyleManager.class, new CoreJavaCodeStyleManager());
+    myProject.registerService(ControlFlowFactory.class, new ControlFlowFactory(myProject));
 
     myPackageIndex = createCorePackageIndex();
     myProject.registerService(PackageIndex.class, myPackageIndex);
@@ -56,7 +51,13 @@ public class JavaCoreProjectEnvironment  extends  CoreProjectEnvironment {
     myFileManager = createCoreFileManager();
     myProject.registerService(JavaFileManager.class, myFileManager);
 
-    JavaPsiFacadeImpl javaPsiFacade = new JavaPsiFacadeImpl(myProject, myPsiManager, myFileManager, myMessageBus);
+    myProject.registerService(JvmPsiConversionHelper.class, new JvmPsiConversionHelperImpl());
+    registerJavaPsiFacade();
+    myProject.registerService(JvmFacade.class, new JvmFacadeImpl(myProject, myMessageBus));
+  }
+
+  protected void registerJavaPsiFacade() {
+    JavaPsiFacadeImpl javaPsiFacade = new JavaPsiFacadeImpl(myProject);
     myProject.registerService(JavaPsiFacade.class, javaPsiFacade);
   }
 
@@ -72,8 +73,7 @@ public class JavaCoreProjectEnvironment  extends  CoreProjectEnvironment {
     return new CorePackageIndex();
   }
 
-  @SuppressWarnings("UnusedDeclaration")
-  public void addJarToClassPath (File path) {
+  public void addJarToClassPath(File path) {
     assert path.isFile();
 
     final VirtualFile root = getEnvironment().getJarFileSystem().findFileByPath(path + "!/");

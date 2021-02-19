@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,26 +15,34 @@
  */
 package com.intellij.find.impl.livePreview;
 
+import com.intellij.find.EditorSearchSession;
 import com.intellij.find.FindResult;
 import com.intellij.find.FindUtil;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.util.TextRange;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class SelectionManager {
   @NotNull private final SearchResults mySearchResults;
+  private final boolean myHadSelectionInitially;
+  private final List<FoldRegion> myRegionsToRestore = new ArrayList<>();
 
   public SelectionManager(@NotNull SearchResults results) {
     mySearchResults = results;
+    myHadSelectionInitially = results.getEditor().getSelectionModel().hasSelection();
   }
 
-  public void updateSelection(boolean removePreviousSelection, boolean removeAllPreviousSelections) {
+  public void updateSelection(boolean removePreviousSelection, boolean removeAllPreviousSelections, boolean adjustScrollPosition) {
     Editor editor = mySearchResults.getEditor();
     if (removeAllPreviousSelections) {
       editor.getCaretModel().removeSecondaryCarets();
     }
     final FindResult cursor = mySearchResults.getCursor();
     if (cursor == null) {
+      if (removePreviousSelection && !myHadSelectionInitially) editor.getSelectionModel().removeSelection();
       return;
     }
     if (mySearchResults.getFindModel().isGlobal()) {
@@ -42,26 +50,31 @@ public class SelectionManager {
         FoldingModel foldingModel = editor.getFoldingModel();
         final FoldRegion[] allRegions = editor.getFoldingModel().getAllFoldRegions();
 
-        foldingModel.runBatchFoldingOperation(new Runnable() {
-          @Override
-          public void run() {
-            for (FoldRegion region : allRegions) {
-              if (!region.isValid()) continue;
-              if (cursor.intersects(TextRange.create(region))) {
+        foldingModel.runBatchFoldingOperation(() -> {
+          for (FoldRegion region : myRegionsToRestore) {
+            if (region.isValid()) region.setExpanded(false);
+          }
+          myRegionsToRestore.clear();
+          for (FoldRegion region : allRegions) {
+            if (!region.isValid()) continue;
+            if (cursor.intersects(TextRange.create(region))) {
+              if (!region.isExpanded()) {
                 region.setExpanded(true);
+                myRegionsToRestore.add(region);
               }
             }
           }
         });
-        editor.getSelectionModel().setSelection(cursor.getStartOffset(), cursor.getEndOffset());
         editor.getCaretModel().moveToOffset(cursor.getEndOffset());
+        editor.getSelectionModel().setSelection(cursor.getStartOffset(), cursor.getEndOffset());
+        EditorSearchSession.logSelectionUpdate();
       }
       else {
         FindUtil.selectSearchResultInEditor(editor, cursor, -1);
       }
-      editor.getScrollingModel().scrollToCaret(ScrollType.CENTER);
+      if (adjustScrollPosition) editor.getScrollingModel().scrollToCaret(ScrollType.CENTER);
     } else {
-      if (!SearchResults.insideVisibleArea(editor, cursor)) {
+      if (!SearchResults.insideVisibleArea(editor, cursor) && adjustScrollPosition) {
         LogicalPosition pos = editor.offsetToLogicalPosition(cursor.getStartOffset());
         editor.getScrollingModel().scrollTo(pos, ScrollType.CENTER);
       }
@@ -85,6 +98,10 @@ public class SelectionManager {
 
   public boolean isSelected(@NotNull FindResult result) {
     Editor editor = mySearchResults.getEditor();
-    return editor.getCaretModel().getCaretAt(editor.offsetToVisualPosition(result.getEndOffset())) != null;
+    int endOffset = result.getEndOffset();
+    for (Caret caret : editor.getCaretModel().getAllCarets()) {
+      if (caret.getOffset() == endOffset) return true;
+    }
+    return false;
   }
 }

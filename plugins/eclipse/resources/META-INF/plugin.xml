@@ -1,9 +1,10 @@
 <idea-plugin>
-  <name>Eclipse Integration</name>
+  <name>Eclipse Interoperability</name>
   <id>org.jetbrains.idea.eclipse</id>
+  <category>Other Tools</category>
   <description>
       <![CDATA[
-        This plugin enables integration with Eclipse and provides the following features:
+        Enables interoperability with Eclipse and provides the following features:
         <ul>
         <li>Open Eclipse project in IntelliJ IDEA</li>
         <li>Import Eclipse project into IntelliJ IDEA</li>
@@ -15,33 +16,40 @@
       ]]>
     </description>
 
-  <version>3.0</version>
-  <vendor url="https://www.jetbrains.com">JetBrains s.r.o.</vendor>
+  <vendor>JetBrains</vendor>
+  <depends>com.intellij.modules.java</depends>
   <extensions defaultExtensionNs="com.intellij">
     <classpathStorageProvider implementation="org.jetbrains.idea.eclipse.config.EclipseClasspathStorageProvider"/>
-    <compileServer.plugin classpath="eclipse-jps-plugin.jar;common-eclipse-util.jar"/>
+    <workspaceModel.customModuleRootsSerializer implementation="org.jetbrains.idea.eclipse.config.EclipseModuleRootsSerializer"/>
+    <workspaceModel.customModuleComponentSerializer implementation="org.jetbrains.idea.eclipse.config.EclipseModuleManagerSerializer"/>
+    <compileServer.plugin classpath="eclipse-jps.jar;eclipse-common.jar"/>
     <projectImportProvider implementation="org.jetbrains.idea.eclipse.importWizard.EclipseProjectImportProvider"/>
     <projectOpenProcessor id="EclipseProjectOpenProcessor" implementation="org.jetbrains.idea.eclipse.importWizard.EclipseProjectOpenProcessor"/>
     <projectImportBuilder implementation="org.jetbrains.idea.eclipse.importWizard.EclipseImportBuilder"/>
-    <errorHandler implementation="com.intellij.diagnostic.ITNReporter"/>
-    <fileTypeFactory implementation="org.jetbrains.idea.eclipse.config.EclipseFileTypeFactory"/>
+    <fileType name="Eclipse" implementationClass="org.jetbrains.idea.eclipse.config.EclipseFileType" fileNames=".classpath;.project" fieldName="INSTANCE"/>
     <syntaxHighlighter key="Eclipse" implementationClass="com.intellij.ide.highlighter.XmlFileHighlighter"/>
-    <schemeImporter 
-        name="Eclipse XML Profile"
+    <schemeImporter
+        nameKey="eclipse.xml.profile"
+        nameBundle="messages.EclipseBundle"
         implementationClass="org.jetbrains.idea.eclipse.importer.EclipseCodeStyleSchemeImporter"
         schemeClass="com.intellij.psi.codeStyle.CodeStyleScheme"/>
+    <schemeImporter 
+        nameKey="eclipse.color.theme.name"
+        nameBundle="messages.EclipseBundle"
+        implementationClass="org.jetbrains.idea.eclipse.importer.colors.EclipseColorSchemeImporter"
+        schemeClass="com.intellij.openapi.editor.colors.EditorColorsScheme"/>
+
+    <moduleService serviceImplementation="org.jetbrains.idea.eclipse.config.EclipseModuleManagerImpl"/>
+    <notificationGroup id="Unknown Natures Detected" displayType="BALLOON"/>
   </extensions>
-  <module-components>
-    <component>
-      <implementation-class>org.jetbrains.idea.eclipse.config.EclipseModuleManagerImpl</implementation-class>
-    </component>
-  </module-components>
   <actions>
-    <action id="ExportToEclipse" class="org.jetbrains.idea.eclipse.export.ExportEclipseProjectsAction" text="Export to Eclipse...">
-      <add-to-group group-id="ExportImportGroup" anchor="last"/>
+    <action id="ExportToEclipse" class="org.jetbrains.idea.eclipse.export.ExportEclipseProjectsAction">
+      <override-text place="MainMenu"/>
+      <add-to-group group-id="FileExportGroup" anchor="last"/>
     </action>
   </actions>
   <extensionPoints>
-    <extensionPoint name="natureImporter" interface="org.jetbrains.idea.eclipse.importWizard.EclipseNatureImporter"/>
+    <extensionPoint name="natureImporter" interface="org.jetbrains.idea.eclipse.importWizard.EclipseNatureImporter" dynamic="true"/>
   </extensionPoints>
+  <resource-bundle>messages.EclipseBundle</resource-bundle>
 </idea-plugin>

@@ -32,16 +32,14 @@ import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.util.Collection;
 
-/**
- * @author nik
- */
 public class BuildoutFrameworkDetector extends FacetBasedFrameworkDetector<BuildoutFacet, BuildoutFacetConfiguration> {
-  private static final Logger LOG = Logger.getInstance("#com.jetbrains.python.buildout.BuildoutFrameworkDetector");
+  private static final Logger LOG = Logger.getInstance(BuildoutFrameworkDetector.class);
 
   public BuildoutFrameworkDetector() {
     super("buildout-python");
   }
 
+  @NotNull
   @Override
   public FacetType<BuildoutFacet, BuildoutFacetConfiguration> getFacetType() {
     return BuildoutFacetType.getInstance();

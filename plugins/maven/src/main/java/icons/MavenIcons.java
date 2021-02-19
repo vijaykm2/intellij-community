@@ -1,45 +1,28 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package icons;
 
-import com.intellij.openapi.util.IconLoader;
+import com.intellij.ui.IconManager;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
 /**
  * NOTE THIS FILE IS AUTO-GENERATED
- * DO NOT EDIT IT BY HAND, run build/scripts/icons.gant instead
+ * DO NOT EDIT IT BY HAND, run "Generate icon classes" configuration instead
  */
-public class MavenIcons {
-  private static Icon load(String path) {
-    return IconLoader.getIcon(path, MavenIcons.class);
+public final class MavenIcons {
+  private static @NotNull Icon load(@NotNull String path, long cacheKey, int flags) {
+    return IconManager.getInstance().loadRasterizedIcon(path, MavenIcons.class.getClassLoader(), cacheKey, flags);
   }
-
-  public static final Icon ChildrenProjects = load("/images/childrenProjects.png"); // 12x12
-  public static final Icon ExecuteMavenGoal = load("/images/executeMavenGoal.png"); // 16x16
-  public static final Icon MavenLogo = load("/images/mavenLogo.png"); // 16x16
-  public static final Icon MavenPlugin = load("/images/mavenPlugin.png"); // 16x16
-  public static final Icon MavenProject = load("/images/mavenProject.png"); // 16x16
-  public static final Icon ModulesClosed = load("/images/modulesClosed.png"); // 16x16
-  public static final Icon OfflineMode = load("/images/offlineMode.png"); // 16x16
-  public static final Icon ParentProject = load("/images/parentProject.png"); // 12x12
-  public static final Icon Phase = load("/images/phase.png"); // 16x16
-  public static final Icon PhasesClosed = load("/images/phasesClosed.png"); // 16x16
-  public static final Icon PluginGoal = load("/images/pluginGoal.png"); // 16x16
-  public static final Icon ProfilesClosed = load("/images/profilesClosed.png"); // 16x16
-  public static final Icon ToolWindowMaven = load("/images/toolWindowMaven.png"); // 13x13
-  public static final Icon UpdateFolders = load("/images/updateFolders.png"); // 16x16
+  /** 16x16 */ public static final @NotNull Icon ChildrenProjects = load("images/childrenProjects.svg", 7495011412939449109L, 2);
+  /** 16x16 */ public static final @NotNull Icon ExecuteMavenGoal = load("images/executeMavenGoal.svg", -680680215035421765L, 2);
+  /** 16x16 */ public static final @NotNull Icon MavenLoadChanges = load("images/mavenLoadChanges.svg", -1299605207973174912L, 2);
+  /** 16x16 */ public static final @NotNull Icon MavenPlugin = load("images/mavenPlugin.svg", -4864401814922338974L, 0);
+  /** 16x16 */ public static final @NotNull Icon MavenProject = load("images/mavenProject.svg", 3263820586923657935L, 0);
+  /** 16x16 */ public static final @NotNull Icon ModulesClosed = load("images/modulesClosed.svg", -330579732039861822L, 0);
+  /** 16x16 */ public static final @NotNull Icon ParentProject = load("images/parentProject.svg", -1798119235733684936L, 2);
+  /** 16x16 */ public static final @NotNull Icon PluginGoal = load("images/pluginGoal.svg", -1081745147707391267L, 0);
+  /** 16x16 */ public static final @NotNull Icon ProfilesClosed = load("images/profilesClosed.svg", 1840465016142959383L, 0);
+  /** 16x16 */ public static final @NotNull Icon ToolWindowMaven = load("images/toolWindowMaven.svg", 5296073372187474736L, 2);
+  /** 16x16 */ public static final @NotNull Icon UpdateFolders = load("images/updateFolders.svg", -1969809871307978388L, 2);
 }

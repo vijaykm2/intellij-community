@@ -32,11 +32,8 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.util.GrStatementOwner;
 
 public abstract class GrJoinLinesHandlerBase implements JoinRawLinesHandlerDelegate {
-  private static final boolean BACK = false;
-  private static final boolean FORWARD = false;
-
   @Override
-  public int tryJoinRawLines(Document document, PsiFile file, int start, int end) {
+  public int tryJoinRawLines(@NotNull Document document, @NotNull PsiFile file, int start, int end) {
     if (!(file instanceof GroovyFileBase)) return CANNOT_JOIN;
     final PsiElement element = file.findElementAt(end);
     final GrStatementOwner statementOwner = PsiTreeUtil.getParentOfType(element, GrStatementOwner.class, true, GroovyFileBase.class);
@@ -47,10 +44,10 @@ public abstract class GrJoinLinesHandlerBase implements JoinRawLinesHandlerDeleg
     for (PsiElement child = statementOwner.getFirstChild(); child != null; child = child.getNextSibling()) {
       final TextRange range = child.getTextRange();
       if (range.getEndOffset() == start) {
-        first = skipSemicolonsAndWhitespaces(child, BACK);
+        first = skipSemicolonsAndWhitespaces(child, false);
       }
       else if (range.getStartOffset() == end) {
-        last = skipSemicolonsAndWhitespaces(child, FORWARD);
+        last = skipSemicolonsAndWhitespaces(child, true);
       }
 
     }
@@ -59,7 +56,7 @@ public abstract class GrJoinLinesHandlerBase implements JoinRawLinesHandlerDeleg
   }
 
   @Override
-  public int tryJoinLines(Document document, PsiFile file, int start, int end) {
+  public int tryJoinLines(@NotNull Document document, @NotNull PsiFile file, int start, int end) {
     return CANNOT_JOIN;
   }
 

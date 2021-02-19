@@ -1,23 +1,12 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.sdk.flavors;
 
 import com.intellij.execution.configurations.GeneralCommandLine;
+import com.intellij.openapi.module.Module;
+import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.PatternUtil;
+import com.jetbrains.python.sdk.PythonEnvUtil;
 import icons.PythonIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -30,17 +19,27 @@ import java.util.regex.Pattern;
 /**
  * @author yole
  */
-public class IronPythonSdkFlavor extends PythonSdkFlavor {
+public final class IronPythonSdkFlavor extends PythonSdkFlavor {
   public static final Pattern VERSION_RE = Pattern.compile("\\w+ ([0-9\\.]+).*");
 
   private IronPythonSdkFlavor() {
   }
 
-  public static IronPythonSdkFlavor INSTANCE = new IronPythonSdkFlavor();
-
   @Override
-  public Collection<String> suggestHomePaths() {
-    Set<String> result = new TreeSet<String>();
+  public boolean isPlatformIndependent() {
+    return true;
+  }
+
+  @Nullable
+  @Override
+  public String envPathParam() {
+    return "IRONPYTHONPATH";
+  }
+
+  @NotNull
+  @Override
+  public Collection<String> suggestHomePaths(@Nullable Module module, @Nullable UserDataHolder context) {
+    Set<String> result = new TreeSet<>();
     String root = System.getenv("ProgramFiles(x86)");
     if (root == null) {
       root = System.getenv("ProgramFiles");
@@ -87,13 +86,13 @@ public class IronPythonSdkFlavor extends PythonSdkFlavor {
   }
 
   @Override
-  public void initPythonPath(GeneralCommandLine cmd, Collection<String> path) {
-    initPythonPath(path, cmd.getEnvironment());
+  public void initPythonPath(GeneralCommandLine cmd, boolean passParentEnvs, Collection<String> path) {
+    initPythonPath(path, passParentEnvs, cmd.getEnvironment());
   }
 
   @Override
-  public void initPythonPath(Collection<String> path, Map<String, String> env) {
-    addToEnv("IRONPYTHONPATH", StringUtil.join(path, File.pathSeparator), env);
+  public void initPythonPath(Collection<String> path, boolean passParentEnvs, Map<String, String> env) {
+    PythonEnvUtil.addToEnv("IRONPYTHONPATH", StringUtil.join(path, File.pathSeparator), env);
   }
 
   @NotNull

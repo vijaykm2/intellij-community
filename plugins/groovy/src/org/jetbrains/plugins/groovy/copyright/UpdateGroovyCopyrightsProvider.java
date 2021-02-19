@@ -1,25 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/*
- * User: anna
- * Date: 30-Nov-2009
- */
 package org.jetbrains.plugins.groovy.copyright;
 
+import com.intellij.copyright.UpdateJavaFileCopyright;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
@@ -31,7 +14,6 @@ import com.maddyhome.idea.copyright.CopyrightProfile;
 import com.maddyhome.idea.copyright.options.JavaOptions;
 import com.maddyhome.idea.copyright.psi.UpdateCopyright;
 import com.maddyhome.idea.copyright.psi.UpdateCopyrightsProvider;
-import com.maddyhome.idea.copyright.psi.UpdateJavaFileCopyright;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrStatement;
 import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GroovyScriptClass;
@@ -58,12 +40,12 @@ public class UpdateGroovyCopyrightsProvider extends UpdateCopyrightsProvider {
       }
 
       @Override
-      protected void checkCommentsForTopClass(PsiClass topclass, int location, List<PsiComment> comments) {
-        if (!(topclass instanceof GroovyScriptClass)) {
-          super.checkCommentsForTopClass(topclass, location, comments);
+      protected void checkCommentsForTopClass(PsiClass topClass, int location, List<PsiComment> comments) {
+        if (!(topClass instanceof GroovyScriptClass)) {
+          super.checkCommentsForTopClass(topClass, location, comments);
           return;
         }
-        final GroovyFile containingFile = (GroovyFile)topclass.getContainingFile();
+        final GroovyFile containingFile = (GroovyFile)topClass.getContainingFile();
 
         PsiElement last = containingFile.getFirstChild();
         while (last != null && !(last instanceof GrStatement)) {

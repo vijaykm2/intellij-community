@@ -20,9 +20,6 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author nik
- */
 public abstract class ChooseAndAddAction<ItemType> extends ClasspathPanelAction {
   protected ChooseAndAddAction(ClasspathPanel classpathPanel) {
     super(classpathPanel);
@@ -38,7 +35,7 @@ public abstract class ChooseAndAddAction<ItemType> extends ClasspathPanelAction 
     if (chosen.isEmpty()) {
       return;
     }
-    List<ClasspathTableItem<?>> toAdd = new ArrayList<ClasspathTableItem<?>>();
+    List<ClasspathTableItem<?>> toAdd = new ArrayList<>();
     for (ItemType item : chosen) {
       final ClasspathTableItem<?> tableItem = createTableItem(item);
       if (tableItem != null) {

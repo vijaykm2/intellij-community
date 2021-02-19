@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +16,28 @@
 package com.siyeh.ig.javadoc;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.intellij.testFramework.LightProjectDescriptor;
+import com.siyeh.ig.LightJavaInspectionTestCase;
+import org.jetbrains.annotations.NotNull;
 
-public class UnnecessaryInheritDocInspectionTest extends LightInspectionTestCase {
+public class UnnecessaryInheritDocInspectionTest extends LightJavaInspectionTestCase {
 
   public void testUnnecessaryInheritDoc() {
     doTest();
   }
 
+  public void testModuleInfo() {
+    doNamedTest("module-info");
+  }
+
   @Override
   protected InspectionProfileEntry getInspection() {
     return new UnnecessaryInheritDocInspection();
+  }
+
+  @NotNull
+  @Override
+  protected LightProjectDescriptor getProjectDescriptor() {
+    return JAVA_9;
   }
 }

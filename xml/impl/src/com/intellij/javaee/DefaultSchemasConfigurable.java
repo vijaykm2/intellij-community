@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2010 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,8 +20,10 @@ import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.TextFieldWithAutoCompletion;
 import com.intellij.ui.components.JBRadioButton;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.xml.Html5SchemaProvider;
+import com.intellij.xml.XmlBundle;
 import com.intellij.xml.util.XmlUtil;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
@@ -53,7 +55,7 @@ public class DefaultSchemasConfigurable implements Configurable {
   @NotNull
   private String getDoctype() {
     if (myHtml4RadioButton.isSelected()) {
-      return XmlUtil.XHTML_URI;
+      return XmlUtil.XHTML4_SCHEMA_LOCATION;
     }
     if (myHtml5RadioButton.isSelected()) {
       return Html5SchemaProvider.getHtml5SchemaLocation();
@@ -64,13 +66,13 @@ public class DefaultSchemasConfigurable implements Configurable {
   @Nls
   @Override
   public String getDisplayName() {
-    return "Default XML Schemas";
+    return XmlBundle.message("configurable.DefaultSchemasConfigurable.display.name");
   }
 
   @Nullable
   @Override
   public String getHelpTopic() {
-    return null;
+    return "reference.default.schemas";
   }
 
   @Nullable
@@ -88,6 +90,11 @@ public class DefaultSchemasConfigurable implements Configurable {
     myHtml4RadioButton.addActionListener(listener);
     myHtml5RadioButton.addActionListener(listener);
     myOtherRadioButton.addActionListener(listener);
+
+    if (UIUtil.isUnderWin10LookAndFeel()) {
+      myOtherRadioButton.setBorder(JBUI.Borders.empty());
+    }
+
     return myContentPanel;
   }
 
@@ -123,15 +130,12 @@ public class DefaultSchemasConfigurable implements Configurable {
     else {
       myOtherRadioButton.setSelected(true);
       myDoctypeTextField.setEnabled(true);
-      UIUtil.invokeLaterIfNeeded(new Runnable() {
-        @Override
-        public void run() {
-          try {
-            myDoctypeTextField.setText(doctype);
-          }
-          catch (Exception e) {
-            throw new RuntimeException(e);
-          }
+      UIUtil.invokeLaterIfNeeded(() -> {
+        try {
+          myDoctypeTextField.setText(doctype);
+        }
+        catch (Exception e) {
+          throw new RuntimeException(e);
         }
       });
     }
@@ -141,9 +145,5 @@ public class DefaultSchemasConfigurable implements Configurable {
     else {
       myXMLSchema11JBRadioButton.setSelected(true);
     }
-  }
-
-  @Override
-  public void disposeUIResources() {
   }
 }

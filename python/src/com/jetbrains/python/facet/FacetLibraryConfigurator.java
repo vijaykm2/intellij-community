@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.facet;
 
 import com.intellij.ide.highlighter.ArchiveFileType;
@@ -21,10 +7,10 @@ import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.roots.impl.OrderEntryUtil;
-import com.intellij.openapi.roots.impl.libraries.LibraryImpl;
-import com.intellij.openapi.roots.impl.libraries.LibraryTableBase;
-import com.intellij.openapi.roots.impl.libraries.ProjectLibraryTable;
+import com.intellij.openapi.roots.impl.libraries.LibraryEx;
 import com.intellij.openapi.roots.libraries.Library;
+import com.intellij.openapi.roots.libraries.LibraryTable;
+import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar;
 import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -39,7 +25,7 @@ import java.util.Set;
 /**
  * @author yole
  */
-public class FacetLibraryConfigurator {
+public final class FacetLibraryConfigurator {
   private FacetLibraryConfigurator() {
   }
 
@@ -49,6 +35,7 @@ public class FacetLibraryConfigurator {
                                          final List<String> paths) {
     final ModifiableModelsProvider modelsProvider = ModifiableModelsProvider.SERVICE.getInstance();
     ApplicationManager.getApplication().runWriteAction(new Runnable() {
+      @Override
       public void run() {
         // add all paths to library
         final ModifiableRootModel model = existingModel != null ? existingModel : modelsProvider.getModuleModifiableModel(module);
@@ -57,9 +44,9 @@ public class FacetLibraryConfigurator {
           // update existing
           Library lib = orderEntry.getLibrary();
           if (lib != null) {
-            if (lib instanceof LibraryImpl && ((LibraryImpl)lib).getKind() == null) {   // replace old python libraries with python specific ones
+            if (lib instanceof LibraryEx && ((LibraryEx)lib).getKind() == null) {   // replace old python libraries with python specific ones
               model.removeOrderEntry(orderEntry);
-              ProjectLibraryTable.getInstance(model.getProject()).removeLibrary(lib);
+              LibraryTablesRegistrar.getInstance().getLibraryTable(model.getProject()).removeLibrary(lib);
               createNewLibrary(model);
               return;
             }
@@ -75,8 +62,7 @@ public class FacetLibraryConfigurator {
       }
 
       private void createNewLibrary(ModifiableRootModel model) {
-        final LibraryTableBase.ModifiableModelEx projectLibrariesModel =
-          (LibraryTableBase.ModifiableModelEx)modelsProvider.getLibraryTableModifiableModel(model.getProject());
+        final LibraryTable.ModifiableModel projectLibrariesModel = modelsProvider.getLibraryTableModifiableModel(model.getProject());
         Library lib = projectLibrariesModel.createLibrary(libraryName, PythonLibraryType.getInstance().getKind());
         fillLibrary(module.getProject(), lib, paths);
         projectLibrariesModel.commit();
@@ -93,7 +79,7 @@ public class FacetLibraryConfigurator {
     for (String root : lib.getUrls(OrderRootType.CLASSES)) {
       modifiableModel.removeRoot(root, OrderRootType.CLASSES);
     }
-    Set<VirtualFile> roots = new HashSet<VirtualFile>();
+    Set<VirtualFile> roots = new HashSet<>();
     ProjectRootManager rootManager = ProjectRootManager.getInstance(project);
     Collections.addAll(roots, rootManager.getContentRoots());
     Collections.addAll(roots, rootManager.getContentSourceRoots());
@@ -120,18 +106,16 @@ public class FacetLibraryConfigurator {
 
   public static void detachPythonLibrary(final Module module, final String libraryName) {
     final ModifiableModelsProvider modelsProvider = ModifiableModelsProvider.SERVICE.getInstance();
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      public void run() {
-        // remove the library
-        final ModifiableRootModel model = modelsProvider.getModuleModifiableModel(module);
-        OrderEntry entry = OrderEntryUtil.findLibraryOrderEntry(model, libraryName);
-        if (entry == null) {
-          modelsProvider.disposeModuleModifiableModel(model);
-        }
-        else {
-          model.removeOrderEntry(entry);
-          modelsProvider.commitModuleModifiableModel(model);
-        }
+    ApplicationManager.getApplication().runWriteAction(() -> {
+      // remove the library
+      final ModifiableRootModel model = modelsProvider.getModuleModifiableModel(module);
+      OrderEntry entry = OrderEntryUtil.findLibraryOrderEntry(model, libraryName);
+      if (entry == null) {
+        modelsProvider.disposeModuleModifiableModel(model);
+      }
+      else {
+        model.removeOrderEntry(entry);
+        modelsProvider.commitModuleModifiableModel(model);
       }
     });
   }

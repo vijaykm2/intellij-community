@@ -1,81 +1,88 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.github.tasks;
 
-import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.credentialStore.CredentialAttributes;
+import com.intellij.credentialStore.CredentialAttributesKt;
+import com.intellij.icons.AllIcons;
+import com.intellij.openapi.progress.EmptyProgressIndicator;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.PasswordUtil;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.tasks.*;
 import com.intellij.tasks.impl.BaseRepository;
-import com.intellij.tasks.impl.BaseRepositoryImpl;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xmlb.annotations.Tag;
-import com.intellij.util.xmlb.annotations.Transient;
-import icons.TasksIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.plugins.github.api.GithubApiUtil;
-import org.jetbrains.plugins.github.api.GithubConnection;
-import org.jetbrains.plugins.github.api.GithubIssue;
-import org.jetbrains.plugins.github.api.GithubIssueComment;
-import org.jetbrains.plugins.github.exceptions.*;
-import org.jetbrains.plugins.github.util.GithubAuthData;
-import org.jetbrains.plugins.github.util.GithubUtil;
+import org.jetbrains.plugins.github.api.GithubApiRequestExecutor;
+import org.jetbrains.plugins.github.api.GithubApiRequests;
+import org.jetbrains.plugins.github.api.GithubServerPath;
+import org.jetbrains.plugins.github.api.data.GithubIssue;
+import org.jetbrains.plugins.github.api.data.GithubIssueBase;
+import org.jetbrains.plugins.github.api.data.GithubIssueCommentWithHtml;
+import org.jetbrains.plugins.github.api.data.GithubIssueState;
+import org.jetbrains.plugins.github.api.util.GithubApiPagesLoader;
+import org.jetbrains.plugins.github.exceptions.GithubAuthenticationException;
+import org.jetbrains.plugins.github.exceptions.GithubJsonException;
+import org.jetbrains.plugins.github.exceptions.GithubRateLimitExceededException;
+import org.jetbrains.plugins.github.exceptions.GithubStatusCodeException;
+import org.jetbrains.plugins.github.issue.GithubIssuesLoadingHelper;
 
 import javax.swing.*;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * @author Dennis.Ushakov
- */
 @Tag("GitHub")
-public class GithubRepository extends BaseRepositoryImpl {
-  private static final Logger LOG = GithubUtil.LOG;
+final class GithubRepository extends BaseRepository {
 
   private Pattern myPattern = Pattern.compile("($^)");
   @NotNull private String myRepoAuthor = "";
   @NotNull private String myRepoName = "";
   @NotNull private String myUser = "";
-  @NotNull private String myToken = "";
+  private boolean myAssignedIssuesOnly = false;
 
   @SuppressWarnings({"UnusedDeclaration"})
-  public GithubRepository() {
+  GithubRepository() {
   }
 
-  public GithubRepository(GithubRepository other) {
+  GithubRepository(GithubRepository other) {
     super(other);
     setRepoName(other.myRepoName);
     setRepoAuthor(other.myRepoAuthor);
-    setToken(other.myToken);
+    setAssignedIssuesOnly(other.myAssignedIssuesOnly);
   }
 
-  public GithubRepository(GithubRepositoryType type) {
+  GithubRepository(GithubRepositoryType type) {
     super(type);
-    setUrl("https://" + GithubApiUtil.DEFAULT_GITHUB_HOST);
+    setUrl("https://" + GithubServerPath.DEFAULT_HOST);
   }
 
   @NotNull
   @Override
   public CancellableConnection createCancellableConnection() {
     return new CancellableConnection() {
-      private final GithubConnection myConnection = new GithubConnection(getAuthData(), false);
+      private final GithubApiRequestExecutor myExecutor = getExecutor();
+      private final ProgressIndicator myIndicator = new EmptyProgressIndicator();
 
       @Override
       protected void doTest() throws Exception {
         try {
-          GithubApiUtil.getIssuesQueried(myConnection, getRepoAuthor(), getRepoName(), "", false);
+          myExecutor.execute(myIndicator, GithubApiRequests.Repos.get(getServer(), getRepoAuthor(), getRepoName()));
         }
-        catch (GithubOperationCanceledException ignore) {
+        catch (ProcessCanceledException ignore) {
         }
       }
 
       @Override
       public void cancel() {
-        myConnection.abort();
+        myIndicator.cancel();
       }
     };
   }
@@ -85,7 +92,7 @@ public class GithubRepository extends BaseRepositoryImpl {
     return super.isConfigured() &&
            !StringUtil.isEmptyOrSpaces(getRepoAuthor()) &&
            !StringUtil.isEmptyOrSpaces(getRepoName()) &&
-           !StringUtil.isEmptyOrSpaces(getToken());
+           !StringUtil.isEmptyOrSpaces(getPassword());
   }
 
   @Override
@@ -102,13 +109,10 @@ public class GithubRepository extends BaseRepositoryImpl {
       return getIssues(query, offset + limit, withClosed);
     }
     catch (GithubRateLimitExceededException e) {
-      return new Task[0];
+      return Task.EMPTY_ARRAY;
     }
-    catch (GithubAuthenticationException e) {
+    catch (GithubAuthenticationException | GithubStatusCodeException e) {
       throw new Exception(e.getMessage(), e); // Wrap to show error message
-    }
-    catch (GithubStatusCodeException e) {
-      throw new Exception(e.getMessage(), e);
     }
     catch (GithubJsonException e) {
       throw new Exception("Bad response format", e);
@@ -121,38 +125,48 @@ public class GithubRepository extends BaseRepositoryImpl {
     return getIssues(query, offset, limit, withClosed);
   }
 
-  @NotNull
-  private Task[] getIssues(@Nullable String query, int max, boolean withClosed) throws Exception {
-    GithubConnection connection = getConnection();
+  private Task @NotNull [] getIssues(@Nullable String query, int max, boolean withClosed) throws Exception {
+    GithubApiRequestExecutor executor = getExecutor();
+    ProgressIndicator indicator = getProgressIndicator();
+    GithubServerPath server = getServer();
 
-    try {
-      List<GithubIssue> issues;
-      if (StringUtil.isEmptyOrSpaces(query)) {
-        if (StringUtil.isEmptyOrSpaces(myUser)) {
-          myUser = GithubApiUtil.getCurrentUser(connection).getLogin();
-        }
-        issues = GithubApiUtil.getIssuesAssigned(connection, getRepoAuthor(), getRepoName(), myUser, max, withClosed);
+    String assigned = null;
+    if (myAssignedIssuesOnly) {
+      if (StringUtil.isEmptyOrSpaces(myUser)) {
+        myUser = executor.execute(indicator, GithubApiRequests.CurrentUser.get(server)).getLogin();
       }
-      else {
-        issues = GithubApiUtil.getIssuesQueried(connection, getRepoAuthor(), getRepoName(), query, withClosed);
-      }
+      assigned = myUser;
+    }
 
-      return ContainerUtil.map2Array(issues, Task.class, new Function<GithubIssue, Task>() {
-        @Override
-        public Task fun(GithubIssue issue) {
-          return createTask(issue);
-        }
-      });
+    List<? extends GithubIssueBase> issues;
+    if (StringUtil.isEmptyOrSpaces(query)) {
+      // search queries have way smaller request number limit
+      issues = GithubIssuesLoadingHelper.load(executor, indicator, server, getRepoAuthor(), getRepoName(), withClosed, max, assigned);
     }
-    finally {
-      connection.close();
+    else {
+      issues = GithubIssuesLoadingHelper.search(executor, indicator, server, getRepoAuthor(), getRepoName(), withClosed, assigned, query);
     }
+    List<Task> tasks = new ArrayList<>();
+
+    for (GithubIssueBase issue : issues) {
+      List<GithubIssueCommentWithHtml> comments = GithubApiPagesLoader
+        .loadAll(executor, indicator, GithubApiRequests.Repos.Issues.Comments.pages(issue.getCommentsUrl()));
+      tasks.add(createTask(issue, comments));
+    }
+
+    return tasks.toArray(Task.EMPTY_ARRAY);
   }
 
   @NotNull
-  private Task createTask(final GithubIssue issue) {
+  private Task createTask(@NotNull GithubIssueBase issue, @NotNull List<GithubIssueCommentWithHtml> comments) {
     return new Task() {
-      @NotNull String myRepoName = getRepoName();
+      @NotNull private final String myRepoName = getRepoName();
+      private final Comment @NotNull [] myComments =
+        ContainerUtil.map2Array(comments, Comment.class, comment -> new GithubComment(comment.getCreatedAt(),
+                                                                                      comment.getUser().getLogin(),
+                                                                                      comment.getBodyHtml(),
+                                                                                      comment.getUser().getAvatarUrl(),
+                                                                                      comment.getUser().getHtmlUrl()));
 
       @Override
       public boolean isIssue() {
@@ -164,9 +178,8 @@ public class GithubRepository extends BaseRepositoryImpl {
         return issue.getHtmlUrl();
       }
 
-      @NotNull
       @Override
-      public String getId() {
+      public @NlsSafe @NotNull String getId() {
         return myRepoName + "-" + issue.getNumber();
       }
 
@@ -176,26 +189,20 @@ public class GithubRepository extends BaseRepositoryImpl {
         return issue.getTitle();
       }
 
+      @Override
       public String getDescription() {
         return issue.getBody();
       }
 
-      @NotNull
       @Override
-      public Comment[] getComments() {
-        try {
-          return fetchComments(issue.getNumber());
-        }
-        catch (Exception e) {
-          LOG.warn("Error fetching comments for " + issue.getNumber(), e);
-          return Comment.EMPTY_ARRAY;
-        }
+      public Comment @NotNull [] getComments() {
+        return myComments;
       }
 
       @NotNull
       @Override
       public Icon getIcon() {
-        return TasksIcons.Github;
+        return AllIcons.Vcs.Vendors.Github;
       }
 
       @NotNull
@@ -216,7 +223,7 @@ public class GithubRepository extends BaseRepositoryImpl {
 
       @Override
       public boolean isClosed() {
-        return !"open".equals(issue.getState());
+        return issue.getState() == GithubIssueState.closed;
       }
 
       @Override
@@ -231,25 +238,7 @@ public class GithubRepository extends BaseRepositoryImpl {
     };
   }
 
-  private Comment[] fetchComments(final long id) throws Exception {
-    GithubConnection connection = getConnection();
-    try {
-      List<GithubIssueComment> result = GithubApiUtil.getIssueComments(connection, getRepoAuthor(), getRepoName(), id);
-
-      return ContainerUtil.map2Array(result, Comment.class, new Function<GithubIssueComment, Comment>() {
-        @Override
-        public Comment fun(GithubIssueComment comment) {
-          return new GithubComment(comment.getCreatedAt(), comment.getUser().getLogin(), comment.getBodyHtml(),
-                                   comment.getUser().getAvatarUrl(),
-                                   comment.getUser().getHtmlUrl());
-        }
-      });
-    }
-    finally {
-      connection.close();
-    }
-  }
-
+  @Override
   @Nullable
   public String extractId(@NotNull String taskName) {
     Matcher matcher = myPattern.matcher(taskName);
@@ -264,41 +253,37 @@ public class GithubRepository extends BaseRepositoryImpl {
       return null;
     }
     final String numericId = id.substring(index + 1);
-    GithubConnection connection = getConnection();
-    try {
-      return createTask(GithubApiUtil.getIssue(connection, getRepoAuthor(), getRepoName(), numericId));
-    }
-    catch (GithubStatusCodeException e) {
-      if (e.getStatusCode() == 404) {
-        return null;
-      }
-      throw e;
-    }
-    finally {
-      connection.close();
-    }
+    GithubApiRequestExecutor executor = getExecutor();
+    ProgressIndicator indicator = getProgressIndicator();
+    GithubIssue issue = executor.execute(indicator,
+                                         GithubApiRequests.Repos.Issues.get(getServer(), getRepoAuthor(), getRepoName(), numericId));
+    if (issue == null) return null;
+    List<GithubIssueCommentWithHtml> comments = GithubApiPagesLoader
+      .loadAll(executor, indicator, GithubApiRequests.Repos.Issues.Comments.pages(issue.getCommentsUrl()));
+    return createTask(issue, comments);
   }
 
   @Override
   public void setTaskState(@NotNull Task task, @NotNull TaskState state) throws Exception {
-    GithubConnection connection = getConnection();
-    try {
-      boolean isOpen;
-      switch (state) {
-        case OPEN:
-          isOpen = true;
-          break;
-        case RESOLVED:
-          isOpen = false;
-          break;
-        default:
-          throw new IllegalStateException("Unknown state: " + state);
-      }
-      GithubApiUtil.setIssueState(connection, getRepoAuthor(), getRepoName(), task.getNumber(), isOpen);
+    boolean isOpen;
+    switch (state) {
+      case OPEN:
+        isOpen = true;
+        break;
+      case RESOLVED:
+        isOpen = false;
+        break;
+      default:
+        throw new IllegalStateException("Unknown state: " + state);
     }
-    finally {
-      connection.close();
-    }
+    GithubApiRequestExecutor executor = getExecutor();
+    GithubServerPath server = getServer();
+    String repoAuthor = getRepoAuthor();
+    String repoName = getRepoName();
+
+    ProgressIndicator indicator = getProgressIndicator();
+    executor.execute(indicator,
+                     GithubApiRequests.Repos.Issues.updateState(server, repoAuthor, repoName, task.getNumber(), isOpen));
   }
 
   @NotNull
@@ -307,8 +292,7 @@ public class GithubRepository extends BaseRepositoryImpl {
     return new GithubRepository(this);
   }
 
-  @NotNull
-  public String getRepoName() {
+  public @NlsSafe @NotNull String getRepoName() {
     return myRepoName;
   }
 
@@ -317,8 +301,7 @@ public class GithubRepository extends BaseRepositoryImpl {
     myPattern = Pattern.compile("(" + StringUtil.escapeToRegexp(repoName) + "\\-\\d+)");
   }
 
-  @NotNull
-  public String getRepoAuthor() {
+  public @NlsSafe @NotNull String getRepoAuthor() {
     return myRepoAuthor;
   }
 
@@ -326,8 +309,7 @@ public class GithubRepository extends BaseRepositoryImpl {
     myRepoAuthor = repoAuthor;
   }
 
-  @NotNull
-  public String getUser() {
+  public @NlsSafe @NotNull String getUser() {
     return myUser;
   }
 
@@ -335,37 +317,45 @@ public class GithubRepository extends BaseRepositoryImpl {
     myUser = user;
   }
 
-  @Transient
-  @NotNull
-  public String getToken() {
-    return myToken;
-  }
-
-  public void setToken(@NotNull String token) {
-    myToken = token;
+  /**
+   * Stores access token
+   */
+  @Override
+  public void setPassword(String password) {
+    super.setPassword(password);
     setUser("");
   }
 
-  @Tag("token")
-  public String getEncodedToken() {
-    return PasswordUtil.encodePassword(getToken());
+  public boolean isAssignedIssuesOnly() {
+    return myAssignedIssuesOnly;
   }
 
-  public void setEncodedToken(String password) {
-    try {
-      setToken(PasswordUtil.decodePassword(password));
-    }
-    catch (NumberFormatException e) {
-      LOG.warn("Can't decode token", e);
-    }
+  public void setAssignedIssuesOnly(boolean value) {
+    myAssignedIssuesOnly = value;
   }
 
-  private GithubAuthData getAuthData() {
-    return GithubAuthData.createTokenAuth(getUrl(), getToken(), isUseProxy());
+  @Override
+  @NotNull
+  protected CredentialAttributes getAttributes() {
+    String serviceName = CredentialAttributesKt.generateServiceName("Tasks", getRepositoryType().getName() + " " + getPresentableName());
+    return new CredentialAttributes(serviceName, "GitHub OAuth token");
   }
 
-  private GithubConnection getConnection() {
-    return new GithubConnection(getAuthData(), true);
+  @NotNull
+  private GithubApiRequestExecutor getExecutor() {
+    return GithubApiRequestExecutor.Factory.getInstance().create(getPassword(), myUseProxy);
+  }
+
+  @NotNull
+  private static ProgressIndicator getProgressIndicator() {
+    ProgressIndicator indicator = ProgressManager.getInstance().getProgressIndicator();
+    if (indicator == null) indicator = new EmptyProgressIndicator();
+    return indicator;
+  }
+
+  @NotNull
+  private GithubServerPath getServer() {
+    return GithubServerPath.from(getUrl());
   }
 
   @Override
@@ -374,11 +364,17 @@ public class GithubRepository extends BaseRepositoryImpl {
     if (!(o instanceof GithubRepository)) return false;
 
     GithubRepository that = (GithubRepository)o;
-    if (!Comparing.equal(getRepoAuthor(), that.getRepoAuthor())) return false;
-    if (!Comparing.equal(getRepoName(), that.getRepoName())) return false;
-    if (!Comparing.equal(getToken(), that.getToken())) return false;
+    if (!Objects.equals(getRepoAuthor(), that.getRepoAuthor())) return false;
+    if (!Objects.equals(getRepoName(), that.getRepoName())) return false;
+    if (!Comparing.equal(isAssignedIssuesOnly(), that.isAssignedIssuesOnly())) return false;
 
     return true;
+  }
+
+  @Override
+  public int hashCode() {
+    return StringUtil.stringHashCode(getRepoName()) +
+           31 * StringUtil.stringHashCode(getRepoAuthor());
   }
 
   @Override

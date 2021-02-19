@@ -22,45 +22,33 @@ import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiExpression;
 import com.sun.jdi.ObjectReference;
-import com.sun.jdi.Type;
 import com.sun.jdi.Value;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * User: lex
- * Date: Oct 8, 2003
- * Time: 5:08:07 PM
- */
-public class ThrownExceptionValueDescriptorImpl extends ValueDescriptorImpl{
-  @NotNull
-  private final ObjectReference myExceptionObj;
-
+public class ThrownExceptionValueDescriptorImpl extends ValueDescriptorImpl {
   public ThrownExceptionValueDescriptorImpl(Project project, @NotNull ObjectReference exceptionObj) {
-    super(project);
-    myExceptionObj = exceptionObj;
+    super(project, exceptionObj);
     // deliberately force default renderer as it does not invoke methods for rendering
     // calling methods on exception object at this moment may lead to VM hang
     setRenderer(DebugProcessImpl.getDefaultRenderer(exceptionObj));
   }
 
+  @Override
   public Value calcValue(EvaluationContextImpl evaluationContext) throws EvaluateException {
-    return myExceptionObj;
+    return getValue();
   }
 
+  @Override
   public String getName() {
     return "Exception";
   }
 
-  @NotNull
   @Override
-  public Type getType() {
-    return myExceptionObj.referenceType();
-  }
-
   public PsiExpression getDescriptorEvaluation(DebuggerContext context) throws EvaluateException {
     throw new EvaluateException("Evaluation not supported for thrown exception object");
   }
 
+  @Override
   public boolean canSetValue() {
     return false;
   }

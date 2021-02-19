@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,10 +18,14 @@ package com.intellij.util.xml.highlighting;
 
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.openapi.project.Project;
+import com.intellij.psi.xml.XmlAttribute;
+import com.intellij.psi.xml.XmlElement;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.xml.DomBundle;
+import com.intellij.util.PsiNavigateUtil;
 import com.intellij.util.xml.DomElement;
+import com.intellij.util.xml.XmlDomBundle;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -30,10 +34,10 @@ import org.jetbrains.annotations.NotNull;
 public class AddDomElementQuickFix<T extends DomElement> implements LocalQuickFix {
 
   protected final T myElement;
-  protected final String myName;
+  protected final @IntentionName String myName;
 
   public AddDomElementQuickFix(@NotNull T element) {
-    myElement = (T)element.createStableCopy();
+    myElement = element.createStableCopy();
     myName = computeName();
   }
 
@@ -43,11 +47,10 @@ public class AddDomElementQuickFix<T extends DomElement> implements LocalQuickFi
     return myName;
   }
 
+  @IntentionName
   private String computeName() {
     final String name = myElement.getXmlElementName();
-    return isTag() ?
-           DomBundle.message("add.element.fix.name", name) :
-           DomBundle.message("add.attribute.fix.name", name);
+    return XmlDomBundle.message(isTag() ? "dom.quickfix.add.element.name" : "dom.quickfix.add.attribute.name", name);
   }
 
   private boolean isTag() {
@@ -57,11 +60,14 @@ public class AddDomElementQuickFix<T extends DomElement> implements LocalQuickFi
   @Override
   @NotNull
   public String getFamilyName() {
-    return DomBundle.message("quick.fixes.family");
+    return XmlDomBundle.message("dom.quickfix.add.element.family");
   }
 
   @Override
   public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
-    myElement.ensureXmlElementExists();
+    final XmlElement element = myElement.ensureXmlElementExists();
+
+    final XmlElement navigationElement = isTag() ? element : ((XmlAttribute)element).getValueElement();
+    PsiNavigateUtil.navigate(navigationElement);
   }
 }

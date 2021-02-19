@@ -1,53 +1,50 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.refactoring;
 
+import com.google.common.collect.Collections2;
 import com.intellij.codeInsight.PsiEquivalenceUtil;
-import com.intellij.find.findUsages.FindUsagesHandler;
+import com.intellij.ide.fileTemplates.FileTemplate;
+import com.intellij.ide.fileTemplates.FileTemplateManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtilCore;
-import com.intellij.usageView.UsageInfo;
-import com.intellij.util.Processor;
-import com.intellij.util.containers.HashSet;
-import com.jetbrains.python.findUsages.PyFindUsagesHandlerFactory;
+import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.containers.ContainerUtil;
+import com.jetbrains.NotNullPredicate;
+import com.jetbrains.python.PyBundle;
+import com.jetbrains.python.PyNames;
 import com.jetbrains.python.psi.*;
+import com.jetbrains.python.refactoring.classes.extractSuperclass.PyExtractSuperclassHelper;
+import com.jetbrains.python.refactoring.classes.membersManager.PyMemberInfo;
+import com.jetbrains.python.refactoring.introduce.IntroduceValidator;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.*;
+import java.util.function.BiPredicate;
 
-/**
- * Created by IntelliJ IDEA.
- * User: Alexey.Ivanov
- * Date: Aug 20, 2009
- * Time: 7:07:02 PM
- */
-public class PyRefactoringUtil {
+public final class PyRefactoringUtil {
+  private PyRefactoringUtil() {
+  }
+
   @NotNull
   public static List<PsiElement> getOccurrences(@NotNull final PsiElement pattern, @Nullable final PsiElement context) {
     if (context == null) {
       return Collections.emptyList();
     }
-    final List<PsiElement> occurrences = new ArrayList<PsiElement>();
+    final List<PsiElement> occurrences = new ArrayList<>();
     final PyElementVisitor visitor = new PyElementVisitor() {
+      @Override
       public void visitElement(@NotNull final PsiElement element) {
         if (element instanceof PyParameter) {
           return;
@@ -120,9 +117,9 @@ public class PyRefactoringUtil {
       final int endOffset = element2.getTextOffset() + element2.getTextLength() - parent.getTextOffset();
 
       final String prefix = parentText.substring(0, startOffset);
-      final String suffix = parentText.substring(endOffset, parentText.length());
+      final String suffix = parentText.substring(endOffset);
       final TextRange textRange = TextRange.from(startOffset, endOffset - startOffset);
-      final PsiElement fakeExpression = generator.createFromText(langLevel, parent.getClass(), prefix + "python" + suffix);
+      final PsiElement fakeExpression = generator.createExpressionFromText(langLevel, prefix + "python" + suffix);
       if (PsiUtilCore.hasErrorElementChild(fakeExpression)) {
         return null;
       }
@@ -131,51 +128,6 @@ public class PyRefactoringUtil {
       return expression;
     }
     return null;
-  }
-
-  @NotNull
-  public static Collection<String> collectUsedNames(@Nullable final PsiElement scope) {
-    if (!(scope instanceof PyClass) && !(scope instanceof PyFile) && !(scope instanceof PyFunction)) {
-      return Collections.emptyList();
-    }
-    final Set<String> variables = new HashSet<String>() {
-      @Override
-      public boolean add(String s) {
-        return s != null && super.add(s);
-      }
-    };
-    scope.acceptChildren(new PyRecursiveElementVisitor() {
-      @Override
-      public void visitPyTargetExpression(@NotNull final PyTargetExpression node) {
-        variables.add(node.getName());
-      }
-
-      @Override
-      public void visitPyNamedParameter(@NotNull final PyNamedParameter node) {
-        variables.add(node.getName());
-      }
-
-      @Override
-      public void visitPyReferenceExpression(PyReferenceExpression node) {
-        if (!node.isQualified()) {
-          variables.add(node.getReferencedName());
-        }
-        else {
-          super.visitPyReferenceExpression(node);
-        }
-      }
-
-      @Override
-      public void visitPyFunction(@NotNull final PyFunction node) {
-        variables.add(node.getName());
-      }
-
-      @Override
-      public void visitPyClass(@NotNull final PyClass node) {
-        variables.add(node.getName());
-      }
-    });
-    return variables;
   }
 
   @Nullable
@@ -196,18 +148,36 @@ public class PyRefactoringUtil {
     return getSelectedExpression(file.getProject(), file, element1, element2);
   }
 
-  @NotNull
-  public static PsiElement[] findStatementsInRange(@NotNull final PsiFile file, int startOffset, int endOffset) {
+  public static PsiElement @NotNull [] findStatementsInRange(@NotNull final PsiFile file, int startOffset, int endOffset) {
+    ArrayList<PsiElement> array = new ArrayList<>();
+
     PsiElement element1 = file.findElementAt(startOffset);
     PsiElement element2 = file.findElementAt(endOffset - 1);
+    PsiElement endComment = null;
+
+    boolean startsWithWhitespace = false;
+    boolean endsWithWhitespace = false;
     if (element1 instanceof PsiWhiteSpace) {
       startOffset = element1.getTextRange().getEndOffset();
       element1 = file.findElementAt(startOffset);
+      startsWithWhitespace = true;
     }
     if (element2 instanceof PsiWhiteSpace) {
-      endOffset = element2.getTextRange().getStartOffset();
-      element2 = file.findElementAt(endOffset - 1);
+      element2 = PsiTreeUtil.skipWhitespacesBackward(element2);
+      endsWithWhitespace = true;
     }
+    while (element2 instanceof PsiComment) {
+      endComment = element2;
+      element2 = PsiTreeUtil.skipWhitespacesAndCommentsBackward(element2);
+      endsWithWhitespace = true;
+    }
+
+    while (element1 instanceof PsiComment) {
+      array.add(element1);
+      element1 = PsiTreeUtil.skipWhitespacesForward(element1);
+      startsWithWhitespace = true;
+    }
+
     if (element1 == null || element2 == null) {
       return PsiElement.EMPTY_ARRAY;
     }
@@ -236,7 +206,7 @@ public class PyRefactoringUtil {
         element1 = element1.getParent();
       }
     }
-    if (startOffset != element1.getTextRange().getStartOffset()) {
+    if (startOffset != element1.getTextRange().getStartOffset() && !startsWithWhitespace) {
       return PsiElement.EMPTY_ARRAY;
     }
 
@@ -245,7 +215,7 @@ public class PyRefactoringUtil {
         element2 = element2.getParent();
       }
     }
-    if (endOffset != element2.getTextRange().getEndOffset()) {
+    if (endOffset != element2.getTextRange().getEndOffset() && !endsWithWhitespace) {
       return PsiElement.EMPTY_ARRAY;
     }
 
@@ -257,7 +227,7 @@ public class PyRefactoringUtil {
     }
 
     PsiElement[] children = parent.getChildren();
-    ArrayList<PsiElement> array = new ArrayList<PsiElement>();
+
     boolean flag = false;
     for (PsiElement child : children) {
       if (child.equals(element1)) {
@@ -271,15 +241,17 @@ public class PyRefactoringUtil {
       }
     }
 
+    while (endComment instanceof PsiComment) {
+      array.add(endComment);
+      endComment = PsiTreeUtil.skipWhitespacesForward(endComment);
+    }
+
     for (PsiElement element : array) {
       if (!(element instanceof PyStatement || element instanceof PsiWhiteSpace || element instanceof PsiComment)) {
         return PsiElement.EMPTY_ARRAY;
       }
     }
     return PsiUtilCore.toPsiElementArray(array);
-  }
-
-  private PyRefactoringUtil() {
   }
 
   public static boolean areConflictingMethods(PyFunction pyFunction, PyFunction pyFunction1) {
@@ -291,25 +263,149 @@ public class PyRefactoringUtil {
     return Comparing.strEqual(firstName, secondName) && firstParams.length == secondParams.length;
   }
 
+  /**
+   * Selects the shortest unique name inside the scope of scopeAnchor generated using {@link NameSuggesterUtil#generateNamesByType(String)}.
+   * If none of those names is suitable, unique names is made by appending number suffix.
+   *
+   * @param typeName    initial type name for generator
+   * @param scopeAnchor PSI element used to determine correct scope
+   * @return unique name in the scope of scopeAnchor
+   */
   @NotNull
-  public static List<UsageInfo> findUsages(@NotNull PsiNamedElement element, boolean forHighlightUsages) {
-    final List<UsageInfo> usages = new ArrayList<UsageInfo>();
-    final FindUsagesHandler handler = new PyFindUsagesHandlerFactory().createFindUsagesHandler(element, forHighlightUsages);
-    assert handler != null;
-    final List<PsiElement> elementsToProcess = new ArrayList<PsiElement>();
-    Collections.addAll(elementsToProcess, handler.getPrimaryElements());
-    Collections.addAll(elementsToProcess, handler.getSecondaryElements());
-    for (PsiElement e : elementsToProcess) {
-      handler.processElementUsages(e, new Processor<UsageInfo>() {
-        @Override
-        public boolean process(UsageInfo usageInfo) {
-          if (!usageInfo.isNonCodeUsage) {
-            usages.add(usageInfo);
-          }
-          return true;
-        }
-      }, FindUsagesHandler.createFindUsagesOptions(element.getProject(), null));
+  public static String selectUniqueNameFromType(@NotNull String typeName, @NotNull PsiElement scopeAnchor) {
+    return selectUniqueName(typeName, true, scopeAnchor, PyRefactoringUtil::isValidNewName);
+  }
+
+  /**
+   * Selects the shortest unique name inside the scope of scopeAnchor generated using {@link NameSuggesterUtil#generateNames(String)}.
+   * If none of those names is suitable, unique names is made by appending number suffix.
+   *
+   * @param templateName initial template name for generator
+   * @param scopeAnchor  PSI element used to determine correct scope
+   * @return unique name in the scope of scopeAnchor
+   */
+  @NotNull
+  public static String selectUniqueName(@NotNull String templateName, @NotNull PsiElement scopeAnchor) {
+    return selectUniqueName(templateName, false, scopeAnchor, PyRefactoringUtil::isValidNewName);
+  }
+
+  @NotNull
+  public static String selectUniqueName(@NotNull String templateName, @NotNull PsiElement scopeAnchor, @NotNull BiPredicate<String, PsiElement> isValid) {
+    return selectUniqueName(templateName, false, scopeAnchor, isValid);
+  }
+
+  @NotNull
+  private static String selectUniqueName(@NotNull String templateName, boolean templateIsType, @NotNull PsiElement scopeAnchor, @NotNull BiPredicate<String, PsiElement> isValid) {
+    final Collection<String> suggestions;
+    if (templateIsType) {
+      suggestions = NameSuggesterUtil.generateNamesByType(templateName);
     }
-    return usages;
+    else {
+      suggestions = NameSuggesterUtil.generateNames(templateName);
+    }
+    for (String name : suggestions) {
+      if (isValid.test(name, scopeAnchor)) {
+        return name;
+      }
+    }
+
+    final String shortestName = ContainerUtil.getFirstItem(suggestions);
+    return appendNumberUntilValid(shortestName, scopeAnchor, isValid);
+  }
+
+  /**
+   * Appends increasing numbers starting from 1 to the name until it becomes unique within the scope of the scopeAnchor.
+   *
+   * @param name        initial name
+   * @param scopeAnchor PSI element used to determine correct scope
+   * @param predicate used to test if suggested name is valid
+   * @return unique name in the scope probably with number suffix appended
+   */
+  @NotNull
+  public static String appendNumberUntilValid(@NotNull String name, @NotNull PsiElement scopeAnchor, @NotNull BiPredicate<String, PsiElement> predicate) {
+    int counter = 1;
+    String candidate = name;
+    while (!predicate.test(candidate, scopeAnchor)) {
+      candidate = name + counter;
+      counter++;
+    }
+    return candidate;
+  }
+
+  public static boolean isValidNewName(@NotNull String name, @NotNull PsiElement scopeAnchor) {
+    return !(IntroduceValidator.isDefinedInScope(name, scopeAnchor) || PyNames.isReserved(name));
+  }
+
+  @NotNull
+  public static PyFile getOrCreateFile(String path, Project project) {
+    final VirtualFile vfile = LocalFileSystem.getInstance().findFileByIoFile(new File(path));
+    final PsiFile psi;
+    if (vfile == null) {
+      final File file = new File(path);
+      try {
+        final VirtualFile baseDir = project.getBaseDir();
+        final FileTemplateManager fileTemplateManager = FileTemplateManager.getInstance(project);
+        final FileTemplate template = fileTemplateManager.getInternalTemplate("Python Script");
+        final Properties properties = fileTemplateManager.getDefaultProperties();
+        properties.setProperty("NAME", FileUtilRt.getNameWithoutExtension(file.getName()));
+        final String content = template.getText(properties);
+        psi = PyExtractSuperclassHelper.placeFile(project,
+                                                  StringUtil.notNullize(
+                                                    file.getParent(),
+                                                    baseDir != null ? baseDir
+                                                      .getPath() : "."
+                                                  ),
+                                                  file.getName(),
+                                                  content
+        );
+      }
+      catch (IOException e) {
+        throw new IncorrectOperationException(String.format("Cannot create file '%s'", path), (Throwable)e);
+      }
+    }
+    else {
+      psi = PsiManager.getInstance(project).findFile(vfile);
+    }
+    if (!(psi instanceof PyFile)) {
+      throw new IncorrectOperationException(PyBundle.message(
+        "refactoring.move.module.members.error.cannot.place.elements.into.nonpython.file"));
+    }
+    return (PyFile)psi;
+  }
+
+  /**
+   * Filters out {@link PyMemberInfo}
+   * that should not be displayed in this refactoring (like object)
+   *
+   * @param pyMemberInfos collection to sort
+   * @return sorted collection
+   */
+  @NotNull
+  public static Collection<PyMemberInfo<PyElement>> filterOutObject(@NotNull final Collection<PyMemberInfo<PyElement>> pyMemberInfos) {
+    return Collections2.filter(pyMemberInfos, new ObjectPredicate(false));
+  }
+
+  /**
+   * Filters only PyClass object (new class)
+   */
+  public static class ObjectPredicate extends NotNullPredicate<PyMemberInfo<PyElement>> {
+    private final boolean myAllowObjects;
+
+    /**
+     * @param allowObjects allows only objects if true. Allows all but objects otherwise.
+     */
+    public ObjectPredicate(final boolean allowObjects) {
+      myAllowObjects = allowObjects;
+    }
+
+    @Override
+    public boolean applyNotNull(@NotNull final PyMemberInfo<PyElement> input) {
+      return myAllowObjects == isObject(input);
+    }
+
+    private static boolean isObject(@NotNull final PyMemberInfo<PyElement> classMemberInfo) {
+      final PyElement element = classMemberInfo.getMember();
+      return (element instanceof PyClass) && PyNames.OBJECT.equals(element.getName());
+    }
   }
 }

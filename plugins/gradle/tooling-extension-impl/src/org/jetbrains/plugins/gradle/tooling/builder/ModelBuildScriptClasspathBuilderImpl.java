@@ -17,22 +17,20 @@ package org.jetbrains.plugins.gradle.tooling.builder;
 
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.Configuration;
-import org.gradle.api.artifacts.ConfigurationContainer;
-import org.gradle.api.artifacts.repositories.ArtifactRepository;
 import org.gradle.plugins.ide.idea.IdeaPlugin;
-import org.gradle.plugins.ide.idea.model.Dependency;
 import org.gradle.plugins.ide.idea.model.IdeaModule;
-import org.gradle.plugins.ide.idea.model.ModuleLibrary;
-import org.gradle.plugins.ide.idea.model.Path;
 import org.gradle.util.GradleVersion;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.plugins.gradle.model.BuildScriptClasspathModel;
-import org.jetbrains.plugins.gradle.model.ClasspathEntryModel;
+import org.jetbrains.plugins.gradle.model.*;
+import org.jetbrains.plugins.gradle.tooling.AbstractModelBuilderService;
 import org.jetbrains.plugins.gradle.tooling.ErrorMessageBuilder;
-import org.jetbrains.plugins.gradle.tooling.ModelBuilderService;
+import org.jetbrains.plugins.gradle.tooling.ModelBuilderContext;
 import org.jetbrains.plugins.gradle.tooling.internal.BuildScriptClasspathModelImpl;
 import org.jetbrains.plugins.gradle.tooling.internal.ClasspathEntryModelImpl;
+import org.jetbrains.plugins.gradle.tooling.util.DependencyTraverser;
+import org.jetbrains.plugins.gradle.tooling.util.SourceSetCachedFinder;
+import org.jetbrains.plugins.gradle.tooling.util.resolve.DependencyResolverImpl;
 
 import java.io.File;
 import java.util.*;
@@ -40,15 +38,12 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * @author Vladislav.Soroka
- * @since 12/20/13
  */
-public class ModelBuildScriptClasspathBuilderImpl implements ModelBuilderService {
+public class ModelBuildScriptClasspathBuilderImpl extends AbstractModelBuilderService {
 
-  private static final String COMPILE_SCOPE = "COMPILE";
-  private static final String PLUS_CONFIGURATION = "plus";
-  private static final String MINUS_CONFIGURATION = "minus";
   private static final String CLASSPATH_CONFIGURATION_NAME = "classpath";
   private final Map<String, BuildScriptClasspathModelImpl> cache = new ConcurrentHashMap<String, BuildScriptClasspathModelImpl>();
+  private SourceSetCachedFinder mySourceSetFinder = null;
 
   @Override
   public boolean canBuild(String modelName) {
@@ -57,82 +52,76 @@ public class ModelBuildScriptClasspathBuilderImpl implements ModelBuilderService
 
   @Nullable
   @Override
-  public Object buildAll(final String modelName, final Project project) {
+  public Object buildAll(@NotNull final String modelName, @NotNull final Project project, @NotNull ModelBuilderContext context) {
     BuildScriptClasspathModelImpl buildScriptClasspath = cache.get(project.getPath());
     if (buildScriptClasspath != null) return buildScriptClasspath;
+
+    if (mySourceSetFinder == null) mySourceSetFinder = new SourceSetCachedFinder(context);
 
     buildScriptClasspath = new BuildScriptClasspathModelImpl();
     final File gradleHomeDir = project.getGradle().getGradleHomeDir();
     buildScriptClasspath.setGradleHomeDir(gradleHomeDir);
     buildScriptClasspath.setGradleVersion(GradleVersion.current().getVersion());
 
-    final IdeaPlugin ideaPlugin = project.getPlugins().getPlugin(IdeaPlugin.class);
+    boolean downloadJavadoc = false;
+    boolean downloadSources = true;
+
+    final IdeaPlugin ideaPlugin = project.getPlugins().findPlugin(IdeaPlugin.class);
     if (ideaPlugin != null) {
-      Project parent = project.getParent();
-      if (parent != null) {
-        BuildScriptClasspathModelImpl parentBuildScriptClasspath = (BuildScriptClasspathModelImpl)buildAll(modelName, parent);
-        if (parentBuildScriptClasspath != null) {
-          for (ClasspathEntryModel classpathEntryModel : parentBuildScriptClasspath.getClasspath()) {
-            buildScriptClasspath.add(classpathEntryModel);
-          }
-        }
-      }
-      Configuration classpathConfiguration = project.getBuildscript().getConfigurations().findByName(CLASSPATH_CONFIGURATION_NAME);
-      if (classpathConfiguration == null) return null;
-
-      final Configuration configuration;
       final IdeaModule ideaModule = ideaPlugin.getModel().getModule();
-      final ConfigurationContainer configurations = ideaModule.getProject().getConfigurations();
+      downloadJavadoc = ideaModule.isDownloadJavadoc();
+      downloadSources = ideaModule.isDownloadSources();
+    }
 
-      if (classpathConfiguration.getState() == Configuration.State.UNRESOLVED) {
-        configuration = classpathConfiguration;
-        configurations.add(configuration);
-      }
-      else {
-        String confName = project.getPath() + ":" + classpathConfiguration.getName();
-        if(configurations.findByName(confName) != null) {
-          confName += (":" + UUID.randomUUID().toString());
-        }
-
-        configuration = configurations.maybeCreate(confName);
-        configuration.getDependencies().addAll(classpathConfiguration.getAllDependencies());
-        configuration.getArtifacts().addAll(classpathConfiguration.getAllArtifacts());
-      }
-
-      final List<ArtifactRepository> buildscriptRepositories = project.getBuildscript().getRepositories();
-      final List<ArtifactRepository> projectRepositories = new ArrayList<ArtifactRepository>(project.getRepositories());
-      project.getRepositories().clear();
-      project.getRepositories().addAll(buildscriptRepositories);
-
-      Collection<Configuration> plusConfigurations = Collections.singletonList(configuration);
-
-      final Map<String, Map<String, Collection<Configuration>>> scopes =
-        new HashMap<String, Map<String, Collection<Configuration>>>(ideaModule.getScopes());
-
-      Map<String, Map<String, Collection<Configuration>>> buildScriptScope = new HashMap<String, Map<String, Collection<Configuration>>>();
-      Map<String, Collection<Configuration>> plusConfiguration = new HashMap<String, Collection<Configuration>>();
-      plusConfiguration.put(PLUS_CONFIGURATION, plusConfigurations);
-      if (scopes.get(COMPILE_SCOPE) != null) {
-        plusConfiguration.put(MINUS_CONFIGURATION, scopes.get(COMPILE_SCOPE).get(PLUS_CONFIGURATION));
-      }
-      buildScriptScope.put(COMPILE_SCOPE, plusConfiguration);
-      ideaModule.setScopes(buildScriptScope);
-      final Set<Dependency> buildScriptDependencies = ideaModule.resolveDependencies();
-      for (Dependency dependency : buildScriptDependencies) {
-        if (dependency instanceof ModuleLibrary) {
-          ModuleLibrary moduleLibrary = (ModuleLibrary)dependency;
-          if (COMPILE_SCOPE.equals(moduleLibrary.getScope())) {
-            buildScriptClasspath.add(new ClasspathEntryModelImpl(
-              convert(moduleLibrary.getClasses()), convert(moduleLibrary.getSources()), convert(moduleLibrary.getJavadoc())));
-          }
+    Project parent = project.getParent();
+    if (parent != null) {
+      BuildScriptClasspathModelImpl parentBuildScriptClasspath = (BuildScriptClasspathModelImpl)buildAll(modelName, parent, context);
+      if (parentBuildScriptClasspath != null) {
+        for (ClasspathEntryModel classpathEntryModel : parentBuildScriptClasspath.getClasspath()) {
+          buildScriptClasspath.add(classpathEntryModel);
         }
       }
+    }
+    Configuration classpathConfiguration = project.getBuildscript().getConfigurations().findByName(CLASSPATH_CONFIGURATION_NAME);
+    if (classpathConfiguration == null) return null;
 
-      // revert project and ideaModule modifications
-      ideaModule.setScopes(scopes);
-      configurations.remove(configuration);
-      project.getRepositories().clear();
-      project.getRepositories().addAll(projectRepositories);
+    Collection<ExternalDependency> dependencies = new DependencyResolverImpl(project, downloadJavadoc, downloadSources, mySourceSetFinder).resolveDependencies(classpathConfiguration);
+
+    for (ExternalDependency dependency : new DependencyTraverser(dependencies)) {
+      if (dependency instanceof ExternalProjectDependency) {
+        ExternalProjectDependency projectDependency = (ExternalProjectDependency)dependency;
+        Collection<File> projectDependencyArtifacts = projectDependency.getProjectDependencyArtifacts();
+        Collection<File> projectDependencyArtifactsSources = projectDependency.getProjectDependencyArtifactsSources();
+        buildScriptClasspath.add(new ClasspathEntryModelImpl(
+          pathSet(projectDependencyArtifacts),
+          pathSet(projectDependencyArtifactsSources),
+          Collections.<String>emptySet()
+        ));
+      }
+      else if (dependency instanceof ExternalLibraryDependency) {
+        final ExternalLibraryDependency libraryDep = (ExternalLibraryDependency)dependency;
+        buildScriptClasspath.add(new ClasspathEntryModelImpl(
+          pathSet(libraryDep.getFile()),
+          pathSet(libraryDep.getSource()),
+          pathSet(libraryDep.getJavadoc())
+        ));
+      }
+      else if (dependency instanceof ExternalMultiLibraryDependency) {
+        ExternalMultiLibraryDependency multiLibraryDependency = (ExternalMultiLibraryDependency)dependency;
+        buildScriptClasspath.add(new ClasspathEntryModelImpl(
+          pathSet(multiLibraryDependency.getFiles()),
+          pathSet(multiLibraryDependency.getSources()),
+          pathSet(multiLibraryDependency.getJavadoc())
+        ));
+      }
+      else if (dependency instanceof FileCollectionDependency) {
+        FileCollectionDependency fileCollectionDependency = (FileCollectionDependency)dependency;
+        buildScriptClasspath.add(new ClasspathEntryModelImpl(
+          pathSet(fileCollectionDependency.getFiles()),
+          Collections.<String>emptySet(),
+          Collections.<String>emptySet()
+        ));
+      }
     }
 
     cache.put(project.getPath(), buildScriptClasspath);
@@ -147,11 +136,20 @@ public class ModelBuildScriptClasspathBuilderImpl implements ModelBuilderService
     ).withDescription("Unable to resolve additional buildscript classpath dependencies");
   }
 
-  private static Set<String> convert(Set<Path> paths) {
-    Set<String> result = new HashSet<String>(paths.size());
-    for (Path path : paths) {
-      result.add(path.getRelPath());
+  private static Set<String> pathSet(Collection<File> files) {
+    if (files.isEmpty()) return Collections.emptySet();
+    Set<String> set = new HashSet<String>(files.size());
+    for (File file : files) {
+      if(file != null) {
+        set.add(file.getPath());
+      }
     }
-    return result;
+    if (set.isEmpty()) return Collections.emptySet();
+    if (set.size() == 1) return Collections.singleton(set.iterator().next());
+    return set;
+  }
+
+  private static Set<String> pathSet(File... files) {
+    return pathSet(Arrays.asList(files));
   }
 }

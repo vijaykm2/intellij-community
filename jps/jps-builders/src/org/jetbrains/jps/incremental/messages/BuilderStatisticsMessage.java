@@ -15,19 +15,28 @@
  */
 package org.jetbrains.jps.incremental.messages;
 
-/**
- * @author nik
- */
+import com.intellij.openapi.util.text.StringUtil;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.jps.incremental.Utils;
+
 public class BuilderStatisticsMessage extends BuildMessage {
   private final String myBuilderName;
   private final int myNumberOfProcessedSources;
   private final long myElapsedTimeMs;
 
-  public BuilderStatisticsMessage(String builderName, int numberOfProcessedSources, long elapsedTimeMs) {
-    super("", Kind.INFO);
+  public BuilderStatisticsMessage(@Nls String builderName, int numberOfProcessedSources, long elapsedTimeMs) {
+    super(createText(builderName, numberOfProcessedSources, elapsedTimeMs), Kind.INFO);
     myBuilderName = builderName;
     myNumberOfProcessedSources = numberOfProcessedSources;
     myElapsedTimeMs = elapsedTimeMs;
+  }
+
+  @NotNull
+  private static String createText(String builderName, int srcCount, long time) {
+    return "Build duration: Builder '" + StringUtil.capitalize(builderName) + "' took " + Utils.formatDuration(time) + "; " +
+           srcCount + " sources processed" +
+           (srcCount == 0 ? "" : " (" + time / srcCount + " ms per file)");
   }
 
   public String getBuilderName() {

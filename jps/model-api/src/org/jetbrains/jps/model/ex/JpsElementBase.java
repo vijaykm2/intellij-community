@@ -21,9 +21,6 @@ import org.jetbrains.jps.model.JpsElement;
 import org.jetbrains.jps.model.JpsEventDispatcher;
 import org.jetbrains.jps.model.JpsModel;
 
-/**
- * @author nik
- */
 public abstract class JpsElementBase<Self extends JpsElementBase<Self>> implements JpsElement, JpsElement.BulkModificationSupport<Self> {
   protected JpsElementBase myParent;
 
@@ -70,9 +67,11 @@ public abstract class JpsElementBase<Self extends JpsElementBase<Self>> implemen
     return this;
   }
 
+  @Override
   @NotNull
   public abstract Self createCopy();
 
+  @Override
   public abstract void applyChanges(@NotNull Self modified);
 
   public JpsElementBase getParent() {

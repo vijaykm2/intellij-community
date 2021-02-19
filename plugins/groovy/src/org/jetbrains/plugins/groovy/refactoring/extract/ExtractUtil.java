@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.refactoring.extract;
 
@@ -25,10 +11,8 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiPrimitiveType;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
@@ -46,12 +30,12 @@ import org.jetbrains.plugins.groovy.lang.psi.api.util.GrStatementOwner;
 import org.jetbrains.plugins.groovy.lang.psi.api.util.GrVariableDeclarationOwner;
 import org.jetbrains.plugins.groovy.lang.psi.dataFlow.reachingDefs.VariableInfo;
 import org.jetbrains.plugins.groovy.lang.psi.impl.ApplicationStatementUtil;
+import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyNamesUtil;
 import org.jetbrains.plugins.groovy.lang.psi.impl.PsiImplUtil;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.expressions.TypesUtil;
 import org.jetbrains.plugins.groovy.lang.psi.util.GrStringUtil;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 import org.jetbrains.plugins.groovy.lang.resolve.ResolveUtil;
-import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyNamesUtil;
 import org.jetbrains.plugins.groovy.refactoring.extract.method.ExtractMethodInfoHelper;
 import org.jetbrains.plugins.groovy.refactoring.introduce.StringPartInfo;
 
@@ -60,7 +44,7 @@ import java.util.*;
 /**
  * @author ilyas
  */
-public class ExtractUtil {
+public final class ExtractUtil {
   private static final Logger LOG = Logger.getInstance(ExtractUtil.class);
 
   private ExtractUtil() {
@@ -101,8 +85,7 @@ public class ExtractUtil {
     return realStatement;
   }
 
-  @NotNull
-  private static GrStatement[] createResultStatement(ExtractInfoHelper helper) {
+  private static GrStatement @NotNull [] createResultStatement(ExtractInfoHelper helper) {
     VariableInfo[] outputVars = helper.getOutputVariableInfos();
 
     PsiType type = helper.getOutputType();
@@ -125,7 +108,7 @@ public class ExtractUtil {
     }
     else if (mustAdd.size() == outputVars.length && outputVars.length == 1) {
       return new GrVariableDeclaration[]{
-        factory.createVariableDeclaration(ArrayUtil.EMPTY_STRING_ARRAY, callExpression, outputVars[0].getType(), outputVars[0].getName())
+        factory.createVariableDeclaration(ArrayUtilRt.EMPTY_STRING_ARRAY, callExpression, outputVars[0].getType(), outputVars[0].getName())
       };
     }
     else if (varsAreEqual(mustAdd, outputVars)) {
@@ -134,13 +117,13 @@ public class ExtractUtil {
     else {
       final List<GrStatement> result = generateVarDeclarations(mustAdd, helper.getProject(), null);
       result.add(createAssignment(outputVars, callExpression, helper.getProject()));
-      return result.toArray(new GrStatement[result.size()]);
+      return result.toArray(GrStatement.EMPTY_ARRAY);
     }
   }
 
   private static boolean varsAreEqual(List<VariableInfo> toAdd, VariableInfo[] outputVars) {
     if (toAdd.size() != outputVars.length) return false;
-    Set<String> names = ContainerUtil.newHashSet();
+    Set<String> names = new HashSet<>();
     for (VariableInfo info : toAdd) {
       names.add(info.getName());
     }
@@ -179,7 +162,7 @@ public class ExtractUtil {
   private static List<GrStatement> generateVarDeclarations(List<VariableInfo> varInfos,
                                                            Project project,
                                                            @Nullable GrExpression initializer) {
-    List<GrStatement> result = new ArrayList<GrStatement>();
+    List<GrStatement> result = new ArrayList<>();
     if (varInfos.isEmpty()) return result;
 
     GroovyPsiElementFactory factory = GroovyPsiElementFactory.getInstance(project);
@@ -187,7 +170,7 @@ public class ExtractUtil {
 
     if (distinctDeclaration) {
       for (VariableInfo info : varInfos) {
-        result.add(factory.createVariableDeclaration(ArrayUtil.EMPTY_STRING_ARRAY, "", info.getType(), info.getName()));
+        result.add(factory.createVariableDeclaration(ArrayUtilRt.EMPTY_STRING_ARRAY, "", info.getType(), info.getName()));
       }
     }
     else {
@@ -195,14 +178,14 @@ public class ExtractUtil {
       for (int i = 0, mustAddLength = varInfos.size(); i < mustAddLength; i++) {
         names[i] = varInfos.get(i).getName();
       }
-      result.add(factory.createVariableDeclaration(ArrayUtil.EMPTY_STRING_ARRAY, initializer, varInfos.get(0).getType(), names));
+      result.add(factory.createVariableDeclaration(ArrayUtilRt.EMPTY_STRING_ARRAY, initializer, varInfos.get(0).getType(), names));
     }
     return result;
   }
 
   private static boolean haveDifferentTypes(List<VariableInfo> varInfos) {
     if (varInfos.size() < 2) return true;
-    Set<String> diffTypes = new HashSet<String>();
+    Set<String> diffTypes = new HashSet<>();
     for (VariableInfo info : varInfos) {
       final PsiType t = info.getType();
       diffTypes.add(t == null ? null : TypesUtil.unboxPrimitiveTypeWrapper(t).getCanonicalText());
@@ -233,12 +216,12 @@ public class ExtractUtil {
   /*
   To declare or not a variable to which method call result will be assigned.
    */
-  private static List<VariableInfo> mustAddVariableDeclaration(@NotNull GrStatement[] statements, @NotNull VariableInfo[] vars) {
-    Map<String, VariableInfo> names = new HashMap<String, VariableInfo>();
+  private static List<VariableInfo> mustAddVariableDeclaration(GrStatement @NotNull [] statements, VariableInfo @NotNull [] vars) {
+    Map<String, VariableInfo> names = new HashMap<>();
     for (VariableInfo var : vars) {
       names.put(var.getName(), var);
     }
-    List<VariableInfo> result = new ArrayList<VariableInfo>();
+    List<VariableInfo> result = new ArrayList<>();
 
     for (GrStatement statement : statements) {
       if (statement instanceof GrVariableDeclaration) {
@@ -252,7 +235,7 @@ public class ExtractUtil {
       }
     }
     for (String varName : names.keySet()) {
-      if (ResolveUtil.resolveProperty(statements[0], varName) == null) {
+      if (ResolveUtil.resolveProperty(statements[statements.length - 1], varName) == null) {
         result.add(names.get(varName));
       }
     }
@@ -274,7 +257,7 @@ public class ExtractUtil {
   }
 
   private static Collection<GrVariable> collectUsedLocalVarsOrParamsDeclaredOutside(ExtractInfoHelper helper) {
-    final Collection<GrVariable> result = new HashSet<GrVariable>();
+    final Collection<GrVariable> result = new HashSet<>();
 
     final TextRange range = getRangeOfRefactoring(helper);
     final int start = range.getStartOffset();
@@ -282,7 +265,7 @@ public class ExtractUtil {
 
     final GroovyRecursiveElementVisitor visitor = new GroovyRecursiveElementVisitor() {
       @Override
-      public void visitReferenceExpression(GrReferenceExpression ref) {
+      public void visitReferenceExpression(@NotNull GrReferenceExpression ref) {
         final PsiElement resolved = ref.resolve();
         if ((resolved instanceof GrParameter || PsiUtil.isLocalVariable(resolved)) && resolved.isPhysical()) {
           final int offset = resolved.getTextRange().getStartOffset();
@@ -323,7 +306,7 @@ public class ExtractUtil {
     buffer.append(") { \n");
 
     GroovyPsiElementFactory factory = GroovyPsiElementFactory.getInstance(helper.getProject());
-    generateBody(helper, type == PsiType.VOID, buffer, helper.isForceReturn());
+    generateBody(helper, PsiType.VOID.equals(type), buffer, helper.isForceReturn());
 
     buffer.append("\n}");
 
@@ -347,7 +330,7 @@ public class ExtractUtil {
 
     ParameterInfo[] infos = helper.getParameterInfos();
 
-    Set<String> declaredVars = new HashSet<String>();
+    Set<String> declaredVars = new HashSet<>();
     for (ParameterInfo info : infos) {
       declaredVars.add(info.getName());
     }
@@ -356,7 +339,7 @@ public class ExtractUtil {
       declaredVars.add(info.getName());
     }
 
-    List<VariableInfo> genDecl = new ArrayList<VariableInfo>();
+    List<VariableInfo> genDecl = new ArrayList<>();
     final Collection<GrVariable> outside = collectUsedLocalVarsOrParamsDeclaredOutside(helper);
 
     for (final GrVariable variable : outside) {
@@ -420,12 +403,12 @@ public class ExtractUtil {
     ParameterInfo[] infos = helper.getParameterInfos();
     int number = 0;
     for (ParameterInfo info : infos) {
-      if (info.passAsParameter()) number++;
+      if (info.passAsParameter) number++;
     }
-    ArrayList<String> params = new ArrayList<String>();
+    ArrayList<String> params = new ArrayList<>();
     for (ParameterInfo info : infos) {
-      if (info.passAsParameter()) {
-        PsiType paramType = info.getType();
+      if (info.passAsParameter) {
+        PsiType paramType = info.type;
         final PsiPrimitiveType unboxed = PsiPrimitiveType.getUnboxedType(paramType);
         if (unboxed != null) paramType = unboxed;
 
@@ -440,7 +423,7 @@ public class ExtractUtil {
         i++;
       }
     }
-    return ArrayUtil.toStringArray(params);
+    return ArrayUtilRt.toStringArray(params);
   }
 
   @NotNull
@@ -474,7 +457,7 @@ public class ExtractUtil {
     buffer.append("(");
     int number = 0;
     for (ParameterInfo info : helper.getParameterInfos()) {
-      if (info.passAsParameter()) number++;
+      if (info.passAsParameter) number++;
     }
     int i = 0;
     String[] argumentNames = helper.getArgumentNames();

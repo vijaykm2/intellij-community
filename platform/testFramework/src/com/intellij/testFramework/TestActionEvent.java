@@ -24,9 +24,12 @@ import org.jetbrains.annotations.NotNull;
  */
 public class TestActionEvent extends AnActionEvent {
 
+  public boolean IsFromActionToolbar;
+  public boolean IsFromContextMenu;
+
   public TestActionEvent(@NotNull DataContext dataContext,
                          @NotNull AnAction action) {
-    super(null, dataContext, "", action.getTemplatePresentation(), ActionManager.getInstance(), 0);
+    super(null, dataContext, "", action.getTemplatePresentation().clone(), ActionManager.getInstance(), 0);
   }
 
   public TestActionEvent(@NotNull AnAction action) {
@@ -43,5 +46,15 @@ public class TestActionEvent extends AnActionEvent {
 
   public TestActionEvent() {
     super(null, DataManager.getInstance().getDataContext(), "", new Presentation(), ActionManager.getInstance(), 0);
+  }
+
+  @Override
+  public boolean isFromActionToolbar() {
+    return IsFromActionToolbar;
+  }
+
+  @Override
+  public boolean isFromContextMenu() {
+    return IsFromContextMenu;
   }
 }

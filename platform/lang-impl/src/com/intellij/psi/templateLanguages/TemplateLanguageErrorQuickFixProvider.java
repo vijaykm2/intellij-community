@@ -30,6 +30,7 @@ import com.intellij.psi.PsiErrorElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -56,7 +57,7 @@ public class TemplateLanguageErrorQuickFixProvider implements ErrorQuickFixProvi
 
       @Override
       @NotNull
-      public String getText() {
+      public @Nls String getText() {
         return LangBundle.message("quickfix.change.template.data.language.text", language.getDisplayName());
       }
 
@@ -74,12 +75,9 @@ public class TemplateLanguageErrorQuickFixProvider implements ErrorQuickFixProvi
       @Override
       public void invoke(@NotNull final Project project, final Editor editor, final PsiFile file) throws IncorrectOperationException {
         final TemplateDataLanguageConfigurable configurable = new TemplateDataLanguageConfigurable(project);
-        ShowSettingsUtil.getInstance().editConfigurable(project, configurable, new Runnable() {
-          @Override
-          public void run() {
-            if (virtualFile != null) {
-              configurable.selectFile(virtualFile);
-            }
+        ShowSettingsUtil.getInstance().editConfigurable(project, configurable, () -> {
+          if (virtualFile != null) {
+            configurable.selectFile(virtualFile);
           }
         });
       }

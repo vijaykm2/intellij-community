@@ -39,9 +39,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author nik
- */
 public class ArtifactBySourceFileFinderImpl extends ArtifactBySourceFileFinder {
   private CachedValue<MultiValuesMap<VirtualFile, Artifact>> myFile2Artifacts;
   private final Project myProject;
@@ -53,27 +50,25 @@ public class ArtifactBySourceFileFinderImpl extends ArtifactBySourceFileFinder {
   public CachedValue<MultiValuesMap<VirtualFile, Artifact>> getFileToArtifactsMap() {
     if (myFile2Artifacts == null) {
       myFile2Artifacts =
-        CachedValuesManager.getManager(myProject).createCachedValue(new CachedValueProvider<MultiValuesMap<VirtualFile, Artifact>>() {
-          public Result<MultiValuesMap<VirtualFile, Artifact>> compute() {
-            MultiValuesMap<VirtualFile, Artifact> result = computeFileToArtifactsMap();
-            List<ModificationTracker> trackers = new ArrayList<ModificationTracker>();
-            trackers.add(ArtifactManager.getInstance(myProject).getModificationTracker());
-            for (ComplexPackagingElementType<?> type : PackagingElementFactory.getInstance().getComplexElementTypes()) {
-              ContainerUtil.addIfNotNull(type.getAllSubstitutionsModificationTracker(myProject), trackers);
-            }
-            return Result.create(result, trackers.toArray(new ModificationTracker[trackers.size()]));
+        CachedValuesManager.getManager(myProject).createCachedValue(() -> {
+          MultiValuesMap<VirtualFile, Artifact> result = computeFileToArtifactsMap();
+          List<ModificationTracker> trackers = new ArrayList<>();
+          trackers.add(ArtifactManager.getInstance(myProject).getModificationTracker());
+          for (ComplexPackagingElementType<?> type : PackagingElementFactory.getInstance().getComplexElementTypes()) {
+            ContainerUtil.addIfNotNull(trackers, type.getAllSubstitutionsModificationTracker(myProject));
           }
+          return CachedValueProvider.Result.create(result, trackers);
         }, false);
     }
     return myFile2Artifacts;
   }
 
   private MultiValuesMap<VirtualFile, Artifact> computeFileToArtifactsMap() {
-    final MultiValuesMap<VirtualFile, Artifact> result = new MultiValuesMap<VirtualFile, Artifact>();
+    final MultiValuesMap<VirtualFile, Artifact> result = new MultiValuesMap<>();
     final ArtifactManager artifactManager = ArtifactManager.getInstance(myProject);
     for (final Artifact artifact : artifactManager.getArtifacts()) {
       final PackagingElementResolvingContext context = artifactManager.getResolvingContext();
-      ArtifactUtil.processPackagingElements(artifact, null, new PackagingElementProcessor<PackagingElement<?>>() {
+      ArtifactUtil.processPackagingElements(artifact, null, new PackagingElementProcessor<>() {
         @Override
         public boolean process(@NotNull PackagingElement<?> element, @NotNull PackagingElementPath path) {
           if (element instanceof FileOrDirectoryCopyPackagingElement<?>) {
@@ -107,12 +102,12 @@ public class ArtifactBySourceFileFinderImpl extends ArtifactBySourceFileFinder {
       final Collection<Artifact> artifacts = map.get(file);
       if (artifacts != null) {
         if (result == null) {
-          result = new SmartList<Artifact>();
+          result = new SmartList<>();
         }
         result.addAll(artifacts);
       }
       file = file.getParent();
     }
-    return result != null ? result : Collections.<Artifact>emptyList();
+    return result != null ? result : Collections.emptyList();
   }
 }

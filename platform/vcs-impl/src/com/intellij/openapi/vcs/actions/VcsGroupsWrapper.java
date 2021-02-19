@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.actions;
 
 import com.intellij.openapi.actionSystem.*;
@@ -23,100 +9,96 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsBundle;
-import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.NotNull;
 
-import java.util.*;
+import java.text.MessageFormat;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
+import static com.intellij.util.containers.ContainerUtil.getFirstItem;
 
 public class VcsGroupsWrapper extends DefaultActionGroup implements DumbAware {
 
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.actions.DefaultActionGroup");
+  private static final Logger LOG = Logger.getInstance(VcsGroupsWrapper.class);
 
-  private final PresentationFactory myPresentationFactory = new PresentationFactory();
-  private AnAction[] myChildren;
+  @NotNull private final PresentationFactory myPresentationFactory = new PresentationFactory();
 
-  public void update(AnActionEvent e) {
-    VcsContext dataContext = VcsContextWrapper.createInstanceOn(e);
-    if (myChildren == null) {
-      DefaultActionGroup vcsGroupsGroup = (DefaultActionGroup)ActionManager.getInstance().getAction("VcsGroup");
-      ArrayList<AnAction> validChildren = new ArrayList<AnAction>();
-      AnAction[] children = vcsGroupsGroup.getChildren(new AnActionEvent(null, e.getDataContext(), e.getPlace(), myPresentationFactory.getPresentation(
-        vcsGroupsGroup),
-                                                                         ActionManager.getInstance(),
-                                                                         0));
-      for (AnAction child : children) {
-        if (!(child instanceof StandardVcsGroup)) {
-          LOG.error("Any version control group should extends com.intellij.openapi.vcs.actions.StandardVcsGroup class. GroupId class: " +
-                    child.getClass().getName() + ", group ID: " + ActionManager.getInstance().getId(child));
-        }
-        else {
-          validChildren.add(child);
-        }
-      }
-
-      myChildren = validChildren.toArray(new AnAction[validChildren.size()]);
-
-    }
-
-    Project project = dataContext.getProject();
-    Presentation presentation = e.getPresentation();
+  @Override
+  public void update(@NotNull AnActionEvent e) {
+    Project project = e.getProject();
     if (project == null) {
-      presentation.setVisible(false);
+      e.getPresentation().setVisible(false);
       return;
     }
 
-    Collection<String> currentVcses = new HashSet<String>();
+    Set<String> currentVcses = collectVcses(project, e.getDataContext());
 
-    VirtualFile[] selectedFiles = dataContext.getSelectedFiles();
-
-    ProjectLevelVcsManager projectLevelVcsManager = ProjectLevelVcsManager.getInstance(project);
-
-    Map<String, AnAction> vcsToActionMap = new HashMap<String, AnAction>();
-
-    for (AnAction aMyChildren : myChildren) {
-      StandardVcsGroup child = (StandardVcsGroup)aMyChildren;
-      String vcsName = child.getVcsName(project);
-      vcsToActionMap.put(vcsName, child);
-    }
-
-    for (VirtualFile selectedFile : selectedFiles) {
-      AbstractVcs vcs = projectLevelVcsManager.getVcsFor(selectedFile);
-      if (vcs != null) {
-        currentVcses.add(vcs.getName());
-      }
-    }
-
-    if (currentVcses.size() == 1 && vcsToActionMap.containsKey(currentVcses.iterator().next())) {
-      updateFromAction(vcsToActionMap.get(currentVcses.iterator().next()), presentation);
+    if (currentVcses.isEmpty()) {
+      e.getPresentation().setVisible(false);
     }
     else {
-      DefaultActionGroup composite = new DefaultActionGroup(VcsBundle.message("group.name.version.control"), true);
-      for (AnAction aMyChildren : myChildren) {
-        StandardVcsGroup child = (StandardVcsGroup)aMyChildren;
-        String vcsName = child.getVcsName(project);
-        if (currentVcses.contains(vcsName)) {
-          composite.add(child);
-        }
+      Map<String, StandardVcsGroup> vcsGroupMap = collectVcsGroups(e);
+      StandardVcsGroup firstVcsGroup = vcsGroupMap.get(getFirstItem(currentVcses));
+      DefaultActionGroup allVcsesGroup =
+        currentVcses.size() == 1 && firstVcsGroup != null ? firstVcsGroup : createAllVcsesGroup(vcsGroupMap, currentVcses);
+
+      copyPresentation(allVcsesGroup, e.getPresentation());
+      removeAll();
+      addAll(allVcsesGroup);
+    }
+  }
+
+  private void copyPresentation(@NotNull AnAction sourceAction, @NotNull Presentation target) {
+    Presentation source = myPresentationFactory.getPresentation(sourceAction);
+
+    target.setDescription(source.getDescription());
+    target.restoreTextWithMnemonic(source);
+    target.setVisible(source.isVisible());
+    target.setEnabled(source.isEnabled());
+  }
+
+  @NotNull
+  private static Set<String> collectVcses(@NotNull Project project, @NotNull DataContext dataContext) {
+    ProjectLevelVcsManager vcsManager = ProjectLevelVcsManager.getInstance(project);
+
+    return VcsContextUtil.selectedFilesIterable(dataContext)
+      .filterMap(vcsManager::getVcsFor)
+      .map(AbstractVcs::getName)
+      .unique()
+      .take(vcsManager.getAllActiveVcss().length) // stop processing files if all available vcses are already affected
+      .toSet();
+  }
+
+  @NotNull
+  private static Map<String, StandardVcsGroup> collectVcsGroups(@NotNull AnActionEvent e) {
+    Map<String, StandardVcsGroup> result = new HashMap<>();
+    DefaultActionGroup vcsGroup = (DefaultActionGroup)ActionManager.getInstance().getAction("VcsGroup");
+
+    for (AnAction child : vcsGroup.getChildren(e)) {
+      if (!(child instanceof StandardVcsGroup)) {
+        LOG.error(MessageFormat.format("Any version control group should extend {0}. Violated by {1}, {2}.", // NON-NLS
+                                       StandardVcsGroup.class,
+                                       ActionManager.getInstance().getId(child), child.getClass()));
       }
-      updateFromAction(composite, presentation);
-
-      if (currentVcses.size() == 0) e.getPresentation().setVisible(false);
+      else {
+        StandardVcsGroup group = (StandardVcsGroup)child;
+        result.put(group.getVcsName(e.getProject()), group);
+      }
     }
 
-    super.update(e);
+    return result;
   }
 
-  private void updateFromAction(AnAction action, Presentation presentation) {
-    Presentation wrappedActionPresentation = myPresentationFactory.getPresentation(action);
-    presentation.setDescription(wrappedActionPresentation.getDescription());
-    presentation.restoreTextWithMnemonic(wrappedActionPresentation);
-    presentation.setVisible(wrappedActionPresentation.isVisible());
-    presentation.setEnabled(wrappedActionPresentation.isEnabled());
-    removeAll();
-    DefaultActionGroup wrappedGroup = (DefaultActionGroup)action;
-    for (AnAction aChildren : wrappedGroup.getChildren(null)) {
-      add(aChildren);
-    }
+  @NotNull
+  private static DefaultActionGroup createAllVcsesGroup(@NotNull Map<String, StandardVcsGroup> vcsGroupsMap, @NotNull Set<String> vcses) {
+    DefaultActionGroup result = DefaultActionGroup.createPopupGroup(VcsBundle.messagePointer("group.name.version.control"));
 
+    vcsGroupsMap.entrySet().stream()
+      .filter(e -> vcses.contains(e.getKey()))
+      .map(Map.Entry::getValue)
+      .forEach(result::add);
+
+    return result;
   }
-
 }

@@ -1,27 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.runner;
 
 import com.intellij.execution.CantRunException;
-import com.intellij.execution.ExecutionException;
-import com.intellij.execution.Executor;
 import com.intellij.execution.configurations.JavaParameters;
-import com.intellij.execution.configurations.RunProfile;
+import com.intellij.execution.configurations.RuntimeConfigurationException;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.JavaSdkType;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.OrderEnumerator;
@@ -47,7 +30,7 @@ public abstract class GroovyScriptRunner {
 
   public abstract boolean isValidModule(@NotNull Module module);
 
-  public abstract boolean ensureRunnerConfigured(@Nullable Module module, RunProfile profile, Executor executor, final Project project) throws ExecutionException;
+  public abstract void ensureRunnerConfigured(@NotNull GroovyScriptRunConfiguration configuration) throws RuntimeConfigurationException;
 
   public abstract void configureCommandLine(JavaParameters params, @Nullable Module module, boolean tests, VirtualFile script,
                                             GroovyScriptRunConfiguration configuration) throws CantRunException;
@@ -56,13 +39,13 @@ public abstract class GroovyScriptRunner {
     return false;
   }
 
+  @Nullable
   protected static String getConfPath(final String groovyHomePath) {
     String confpath = FileUtil.toSystemDependentName(groovyHomePath + "/conf/groovy-starter.conf");
     if (new File(confpath).exists()) {
       return confpath;
     }
-
-    return getPathInConf("groovy-starter.conf");
+    return null;
   }
 
   public static String getPathInConf(String fileName) {
@@ -146,7 +129,7 @@ public abstract class GroovyScriptRunner {
       return null;
     }
 
-    Set<VirtualFile> core = new HashSet<VirtualFile>(params.getClassPath().getVirtualFiles());
+    Set<VirtualFile> core = new HashSet<>(params.getClassPath().getVirtualFiles());
 
     for (VirtualFile virtualFile : tmp.getClassPath().getVirtualFiles()) {
       if (allowDuplication || !core.contains(virtualFile)) {

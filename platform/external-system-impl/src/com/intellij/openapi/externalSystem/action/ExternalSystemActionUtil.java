@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.action;
 
 import com.intellij.execution.executors.DefaultRunExecutor;
@@ -21,7 +7,6 @@ import com.intellij.ide.util.ElementsChooser;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.externalSystem.model.execution.ExternalSystemTaskExecutionSettings;
 import com.intellij.openapi.externalSystem.model.execution.ExternalTaskExecutionInfo;
-import com.intellij.openapi.externalSystem.model.execution.ExternalTaskPojo;
 import com.intellij.openapi.externalSystem.model.task.TaskData;
 import com.intellij.openapi.module.Module;
 import com.intellij.ui.treeStructure.SimpleTree;
@@ -35,22 +20,25 @@ import javax.swing.tree.TreeCellRenderer;
 import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.event.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author Vladislav.Soroka
- * @since 9/18/13
  */
-public class ExternalSystemActionUtil {
+public final class ExternalSystemActionUtil {
 
   public static void executeAction(final String actionId, final InputEvent e) {
+    executeAction(actionId, "", e);
+  }
+
+  public static void executeAction(final String actionId, @NotNull final String place, final InputEvent e) {
     final ActionManager actionManager = ActionManager.getInstance();
     final AnAction action = actionManager.getAction(actionId);
     if (action != null) {
       final Presentation presentation = new Presentation();
       final AnActionEvent event =
-        new AnActionEvent(e, DataManager.getInstance().getDataContext(e.getComponent()), "", presentation, actionManager, 0);
+        new AnActionEvent(e, DataManager.getInstance().getDataContext(e.getComponent()), place, presentation, actionManager, 0);
       action.update(event);
       if (presentation.isEnabled()) {
         action.actionPerformed(event);
@@ -64,10 +52,10 @@ public class ExternalSystemActionUtil {
     return module != null ? module : LangDataKeys.MODULE_CONTEXT.getData(context);
   }
 
-  public static <E> void setElements(ElementsChooser<E> chooser, Collection<E> all, Collection<E> selected, Comparator<E> comparator) {
+  public static <E> void setElements(ElementsChooser<E> chooser, Collection<? extends E> all, Collection<E> selected, Comparator<? super E> comparator) {
     List<E> selection = chooser.getSelectedElements();
     chooser.clear();
-    Collection<E> sorted = new TreeSet<E>(comparator);
+    Collection<E> sorted = new TreeSet<>(comparator);
     sorted.addAll(all);
     for (E element : sorted) {
       chooser.addElement(element, selected.contains(element));
@@ -83,6 +71,7 @@ public class ExternalSystemActionUtil {
 
     final TreeCellRenderer baseRenderer = tree.getCellRenderer();
     tree.setCellRenderer(new TreeCellRenderer() {
+      @Override
       public Component getTreeCellRendererComponent(final JTree tree,
                                                     final Object value,
                                                     final boolean selected,
@@ -97,9 +86,8 @@ public class ExternalSystemActionUtil {
           return baseComponent;
         }
 
-        final Color foreground = selected ? UIUtil.getTreeSelectionForeground() : UIUtil.getTreeTextForeground();
-
-        Color background = selected ? UIUtil.getTreeSelectionBackground(hasFocus) : UIUtil.getTreeTextBackground();
+        Color foreground = UIUtil.getTreeForeground(selected, hasFocus);
+        Color background = UIUtil.getTreeBackground(selected, hasFocus);
 
         panel.add(baseComponent, BorderLayout.CENTER);
         panel.setBackground(background);
@@ -116,6 +104,7 @@ public class ExternalSystemActionUtil {
     });
 
     tree.addMouseListener(new MouseAdapter() {
+      @Override
       public void mousePressed(MouseEvent e) {
         int row = tree.getRowForLocation(e.getX(), e.getY());
         if (row >= 0) {
@@ -134,6 +123,7 @@ public class ExternalSystemActionUtil {
     });
 
     tree.addKeyListener(new KeyAdapter() {
+      @Override
       public void keyPressed(KeyEvent e) {
         if (e.getKeyCode() == KeyEvent.VK_SPACE) {
           TreePath[] treePaths = tree.getSelectionPaths();

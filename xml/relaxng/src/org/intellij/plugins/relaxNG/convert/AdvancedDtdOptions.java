@@ -16,6 +16,7 @@
 
 package org.intellij.plugins.relaxNG.convert;
 
+import com.intellij.CommonBundle;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.project.Project;
@@ -26,7 +27,9 @@ import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiRecursiveElementVisitor;
 import com.intellij.psi.xml.XmlAttributeDecl;
 import com.intellij.psi.xml.XmlElementDecl;
+import org.intellij.plugins.relaxNG.RelaxngBundle;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -34,11 +37,6 @@ import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 import java.util.*;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 18.11.2007
- */
 public class AdvancedDtdOptions implements AdvancedOptions {
   @NonNls
   private static final String COLON_REPLACEMENT = "colon-replacement";
@@ -86,12 +84,14 @@ public class AdvancedDtdOptions implements AdvancedOptions {
       }
     });
     myNamespaceMap.setModel(new NamespaceMapModel());
-    myNamespaceMap.getColumnModel().getColumn(0).setMaxWidth((int)(new JLabel("Prefix").getPreferredSize().width * 1.2));
+    myNamespaceMap.getColumnModel().getColumn(0).setMaxWidth((int)(new JLabel(CommonBundle.message("label.prefix")).getPreferredSize().width * 1.2));
 
     final DefaultActionGroup group = new DefaultActionGroup();
-    group.add(new AnAction(null, "Remove Entry", AllIcons.General.Remove) {
+    group.add(new AnAction(Presentation.NULL_STRING, RelaxngBundle.messagePointer(
+      "relaxng.convert-schema.advanced-options.dtd.action.remove-entry.description"),
+                           AllIcons.General.Remove) {
       @Override
-      public void update(AnActionEvent e) {
+      public void update(@NotNull AnActionEvent e) {
         if (myNamespaceMap.getModel().getRowCount() == 0 || myNamespaceMap.getSelectedRow() == -1) {
           e.getPresentation().setEnabled(false);
         } else {
@@ -100,12 +100,12 @@ public class AdvancedDtdOptions implements AdvancedOptions {
       }
 
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         ((NamespaceMapModel)myNamespaceMap.getModel()).removeRow(myNamespaceMap.getSelectedRow());
       }
     });
 
-    final ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, group, false);
+    final ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar("RelaxNgDtdOptions", group, false);
     myToolbar.add(toolbar.getComponent());
   }
 
@@ -116,7 +116,7 @@ public class AdvancedDtdOptions implements AdvancedOptions {
 
   @Override
   public Map<String, ?> getOptions() {
-    final HashMap<String, Object> map = new LinkedHashMap<String, Object>();
+    final HashMap<String, Object> map = new LinkedHashMap<>();
 
     map.put(INLINE_ATTLIST, myInlineAttlistCheckBox.isSelected());
 
@@ -193,10 +193,10 @@ public class AdvancedDtdOptions implements AdvancedOptions {
       return Collections.emptyMap();
     }
 
-    final HashMap<String, Object> map = new LinkedHashMap<String, Object>();
+    final HashMap<String, Object> map = new LinkedHashMap<>();
     file.accept(new PsiRecursiveElementVisitor() {
       @Override
-      public void visitElement(PsiElement element) {
+      public void visitElement(@NotNull PsiElement element) {
         if (element instanceof XmlElementDecl) {
           final String s = ((XmlElementDecl)element).getName();
           if (s != null) {
@@ -222,11 +222,11 @@ public class AdvancedDtdOptions implements AdvancedOptions {
   }
 
   private static class NamespaceMapModel extends AbstractTableModel {
-    private final List<String[]> myList = new ArrayList<String[]>();
+    private final List<String[]> myList = new ArrayList<>();
 
     @Override
     public String getColumnName(int column) {
-      return column == 0 ? "Prefix" : "URI";
+      return column == 0 ? RelaxngBundle.message("prefix") : "URI"; //NON-NLS
     }
 
     @Override

@@ -1,31 +1,17 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.impl;
 
 import com.intellij.ide.SelectInContext;
 import com.intellij.ide.SelectInTarget;
-import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
+import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.util.SlowOperations;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-
 
 public abstract class SelectInTargetPsiWrapper implements SelectInTarget {
   protected final Project myProject;
@@ -42,7 +28,7 @@ public abstract class SelectInTargetPsiWrapper implements SelectInTarget {
   public final boolean canSelect(@NotNull SelectInContext context) {
     if (!isContextValid(context)) return false;
 
-    return canWorkWithCustomObjects() || canSelectInner(context);
+    return canSelectInner(context);
   }
 
   protected boolean canSelectInner(@NotNull SelectInContext context) {
@@ -60,21 +46,18 @@ public abstract class SelectInTargetPsiWrapper implements SelectInTarget {
   @Nullable
   protected PsiFileSystemItem getContextPsiFile(@NotNull SelectInContext context) {
     VirtualFile virtualFile = context.getVirtualFile();
-    final Document document = FileDocumentManager.getInstance().getDocument(virtualFile);
-    final PsiFileSystemItem psiFile;
-    if (document != null) {
-      psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document);
+    PsiFileSystemItem psiFile = PsiManager.getInstance(myProject).findFile(virtualFile);
+    if (psiFile != null) {
+      return psiFile;
     }
-    else if (context.getSelectorInFile() instanceof PsiFile) {
-      psiFile = (PsiFile)context.getSelectorInFile();
+
+    if (context.getSelectorInFile() instanceof PsiFile) {
+      return (PsiFile)context.getSelectorInFile();
     }
-    else if (virtualFile.isDirectory()) {
-      psiFile = PsiManager.getInstance(myProject).findDirectory(virtualFile);
+    if (virtualFile.isDirectory()) {
+      return PsiManager.getInstance(myProject).findDirectory(virtualFile);
     }
-    else {
-      psiFile = PsiManager.getInstance(myProject).findFile(virtualFile);
-    }
-    return psiFile;
+    return null;
   }
 
   @Override
@@ -82,12 +65,16 @@ public abstract class SelectInTargetPsiWrapper implements SelectInTarget {
     VirtualFile file = context.getVirtualFile();
     Object selector = context.getSelectorInFile();
     if (selector == null) {
-      PsiManager psiManager = PsiManager.getInstance(myProject);
-      selector = file.isDirectory() ? psiManager.findDirectory(file) : psiManager.findFile(file);
+      selector = PsiUtilCore.findFileSystemItem(myProject, file);
     }
 
     if (selector instanceof PsiElement) {
-      select(((PsiElement)selector).getOriginalElement(), requestFocus);
+      PsiUtilCore.ensureValid((PsiElement)selector);
+      PsiElement original = ((PsiElement)selector).getOriginalElement();
+      if (original != null && !original.isValid()) {
+        throw new PsiInvalidElementAccessException(original, "Returned by " + selector + " of " + selector.getClass());
+      }
+      SlowOperations.allowSlowOperations(() -> select(original, requestFocus));
     }
     else {
       select(selector, file, requestFocus);
@@ -96,7 +83,45 @@ public abstract class SelectInTargetPsiWrapper implements SelectInTarget {
 
   protected abstract void select(Object selector, VirtualFile virtualFile, boolean requestFocus);
 
-  protected abstract boolean canWorkWithCustomObjects();
+  /**
+   * @deprecated unused, implement canSelectInner(context) instead
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  protected boolean canWorkWithCustomObjects() {
+    return false;
+  }
 
   protected abstract void select(PsiElement element, boolean requestFocus);
+
+  @Nullable
+  protected static PsiElement findElementToSelect(PsiElement element, PsiElement candidate) {
+    PsiElement toSelect = candidate;
+
+    if (toSelect == null) {
+      if (element instanceof PsiFile || element instanceof PsiDirectory) {
+        toSelect = element;
+      }
+      else {
+        PsiFile containingFile = element.getContainingFile();
+        if (containingFile != null) {
+          FileViewProvider viewProvider = containingFile.getViewProvider();
+          toSelect = viewProvider.getPsi(viewProvider.getBaseLanguage());
+        }
+      }
+    }
+
+    if (toSelect != null) {
+      PsiElement originalElement = null;
+      try {
+        originalElement = toSelect.getOriginalElement();
+      }
+      catch (IndexNotReadyException ignored) { }
+      if (originalElement != null) {
+        toSelect = originalElement;
+      }
+    }
+
+    return toSelect;
+  }
 }

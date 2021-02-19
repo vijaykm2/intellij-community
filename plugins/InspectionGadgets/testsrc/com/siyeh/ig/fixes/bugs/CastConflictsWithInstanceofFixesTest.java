@@ -20,7 +20,6 @@ import com.siyeh.ig.bugs.CastConflictsWithInstanceofInspection;
 
 /**
  * @author anna
- * @since 16-Jun-2009
  */
 public class CastConflictsWithInstanceofFixesTest extends IGQuickFixesTestCase {
   @Override
@@ -37,16 +36,12 @@ public class CastConflictsWithInstanceofFixesTest extends IGQuickFixesTestCase {
     doTest("replaceInstanceOf", "Replace 'String' with 'Integer' in instanceof");
   }
 
-  public void testReplaceCastMethodInDeclaration() {
-    doTest("replaceCastMethodInDeclaration", "Replace 'Integer' with 'String' in cast");
-  }
-
-  public void testReplaceInstanceofMethod() {
-    doTest("replaceInstanceofMethod", "Replace 'String' with 'Integer' in instanceof");
-  }
-
   public void testIgnoreUncheckedCastToTypeParameter() {
     assertQuickfixNotAvailable("Replace 'E' with 'String' in cast");
+  }
+
+  public void testReplaceInstanceofInFront() {
+    doTest("replaceInstanceofInFront", "Replace 'String' with 'Integer' in instanceof");
   }
 
   @Override

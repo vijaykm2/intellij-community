@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2012 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,12 @@
 package com.siyeh.ig.bugs;
 
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.dataFlow.CommonDataflow;
+import com.intellij.codeInspection.dataFlow.TypeConstraint;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
-import com.intellij.util.IncorrectOperationException;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -31,22 +33,14 @@ public class CastConflictsWithInstanceofInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "cast.conflicts.with.instanceof.display.name");
-  }
-
-  @Override
-  @NotNull
   public String buildErrorString(Object... infos) {
     final PsiReferenceExpression referenceExpression = (PsiReferenceExpression)infos[0];
     return InspectionGadgetsBundle.message(
       "cast.conflicts.with.instanceof.problem.descriptor",  referenceExpression.getText());
   }
 
-  @NotNull
   @Override
-  protected InspectionGadgetsFix[] buildFixes(final Object... infos) {
+  protected InspectionGadgetsFix @NotNull [] buildFixes(final Object... infos) {
     final String castExpressionType = ((PsiTypeElement)infos[1]).getText();
     final String instanceofType = ((PsiTypeElement)infos[2]).getText();
     return new InspectionGadgetsFix[]{
@@ -60,8 +54,7 @@ public class CastConflictsWithInstanceofInspection extends BaseInspection {
     return new CastConflictsWithInstanceofVisitor();
   }
 
-  private static class CastConflictsWithInstanceofVisitor
-    extends BaseInspectionVisitor {
+  private static class CastConflictsWithInstanceofVisitor extends BaseInspectionVisitor {
 
     @Override
     public void visitTypeCastExpression(@NotNull PsiTypeCastExpression expression) {
@@ -70,82 +63,28 @@ public class CastConflictsWithInstanceofInspection extends BaseInspection {
       if (castType == null) {
         return;
       }
-      final PsiType type = castType.getType();
-      final PsiExpression operand = expression.getOperand();
-      if (!(operand instanceof PsiReferenceExpression)) {
-        return;
-      }
-      final PsiReferenceExpression referenceExpression = (PsiReferenceExpression)operand;
-      final PsiInstanceOfExpression conflictingInstanceof =
-        InstanceOfUtils.getConflictingInstanceof(type, referenceExpression, expression);
-      if (conflictingInstanceof == null) {
-        return;
-      }
-      final PsiTypeElement instanceofTypeElement = conflictingInstanceof.getCheckType();
-      if (instanceofTypeElement == null) {
-        return;
-      }
+      final PsiExpression operand = PsiUtil.skipParenthesizedExprDown(expression.getOperand());
+      if (!(operand instanceof PsiReferenceExpression)) return;
+      PsiReferenceExpression referenceExpression = (PsiReferenceExpression)operand;
+      PsiType castType1 = castType.getType();
+      PsiInstanceOfExpression conflictingInstanceof = InstanceOfUtils.getConflictingInstanceof(castType1, referenceExpression, expression);
+      if (conflictingInstanceof == null) return;
+      PsiTypeElement instanceofTypeElement = conflictingInstanceof.getCheckType();
+      if (instanceofTypeElement == null) return;
+      PsiType psiType = TypeConstraint.fromDfType(CommonDataflow.getDfType(operand)).getPsiType(operand.getProject());
+      if (psiType != null && castType1.isAssignableFrom(psiType)) return;
       registerError(expression, referenceExpression, castType, instanceofTypeElement);
-    }
-
-    @Override
-    public void visitMethodCallExpression(PsiMethodCallExpression expression) {
-      super.visitMethodCallExpression(expression);
-      final PsiReferenceExpression methodExpression = expression.getMethodExpression();
-      final String methodName = methodExpression.getReferenceName();
-      if (!"cast".equals(methodName)) {
-        return;
-      }
-      final PsiMethod method = expression.resolveMethod();
-      if (method == null) {
-        return;
-      }
-      final PsiClass containingClass = method.getContainingClass();
-      if (containingClass == null) {
-        return;
-      }
-      final String qualifiedName = containingClass.getQualifiedName();
-      if (!"java.lang.Class".equals(qualifiedName)) {
-        return;
-      }
-      final PsiExpression qualifier = methodExpression.getQualifierExpression();
-      if (!(qualifier instanceof PsiClassObjectAccessExpression)) {
-        return;
-      }
-      final PsiClassObjectAccessExpression classObjectAccessExpression = (PsiClassObjectAccessExpression)qualifier;
-      final PsiTypeElement operand = classObjectAccessExpression.getOperand();
-      final PsiType castType = operand.getType();
-      if (!(castType instanceof PsiClassType)) {
-        return;
-      }
-      final PsiExpressionList argumentList = expression.getArgumentList();
-      final PsiExpression[] arguments = argumentList.getExpressions();
-      if (arguments.length != 1) {
-        return;
-      }
-      final PsiExpression argument = arguments[0];
-      if (!(argument instanceof PsiReferenceExpression)) {
-        return;
-      }
-      final PsiReferenceExpression referenceExpression = (PsiReferenceExpression)argument;
-      final PsiInstanceOfExpression conflictingInstanceof =
-        InstanceOfUtils.getConflictingInstanceof(castType, referenceExpression, expression);
-      if (conflictingInstanceof == null) {
-        return;
-      }
-      final PsiTypeElement instanceofTypeElement = conflictingInstanceof.getCheckType();
-      registerError(expression, referenceExpression, operand, instanceofTypeElement);
     }
   }
 
-  private static abstract class ReplaceFix extends InspectionGadgetsFix {
+  private abstract static class ReplaceFix extends InspectionGadgetsFix {
 
     protected ReplaceFix() {
     }
 
     @Override
-    protected final void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
-        final PsiElement element = descriptor.getPsiElement();
+    protected final void doFix(Project project, ProblemDescriptor descriptor) {
+      final PsiElement element = descriptor.getPsiElement();
       final PsiTypeElement castTypeElement;
       final PsiReferenceExpression reference;
       if (element instanceof PsiTypeCastExpression) {
@@ -203,7 +142,7 @@ public class CastConflictsWithInstanceofInspection extends BaseInspection {
     private final String myInstanceofType;
     private final String myCastType;
 
-    public ReplaceCastFix(String instanceofType, String castType) {
+    ReplaceCastFix(String instanceofType, String castType) {
       myInstanceofType = instanceofType;
       myCastType = castType;
     }
@@ -217,7 +156,7 @@ public class CastConflictsWithInstanceofInspection extends BaseInspection {
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Replace cast type";
+      return InspectionGadgetsBundle.message("replace.cast.fix.family.name");
     }
 
     @Override
@@ -231,7 +170,7 @@ public class CastConflictsWithInstanceofInspection extends BaseInspection {
     private final String myInstanceofType;
     private final String myCastType;
 
-    public ReplaceInstanceofFix(String instanceofType, String castType) {
+    ReplaceInstanceofFix(String instanceofType, String castType) {
       myInstanceofType = instanceofType;
       myCastType = castType;
     }
@@ -239,7 +178,7 @@ public class CastConflictsWithInstanceofInspection extends BaseInspection {
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Replace instanceOf type";
+      return InspectionGadgetsBundle.message("replace.instanceof.fix.family.name");
     }
 
     @Override

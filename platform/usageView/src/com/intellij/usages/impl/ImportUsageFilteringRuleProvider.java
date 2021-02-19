@@ -1,31 +1,17 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.usages.impl;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CustomShortcutSet;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
 import com.intellij.usageView.UsageViewBundle;
 import com.intellij.usages.UsageView;
+import com.intellij.usages.impl.actions.RuleAction;
 import com.intellij.usages.rules.ImportFilteringRule;
 import com.intellij.usages.rules.UsageFilteringRule;
 import com.intellij.usages.rules.UsageFilteringRuleProvider;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -34,48 +20,44 @@ import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author yole
- */
-public class ImportUsageFilteringRuleProvider implements UsageFilteringRuleProvider {
+public final class ImportUsageFilteringRuleProvider implements UsageFilteringRuleProvider {
   @Override
-  @NotNull
-  public UsageFilteringRule[] getActiveRules(@NotNull final Project project) {
-    final List<UsageFilteringRule> rules = new ArrayList<UsageFilteringRule>();
+  public UsageFilteringRule @NotNull [] getActiveRules(@NotNull final Project project) {
+    final List<UsageFilteringRule> rules = new ArrayList<>();
     if (!ImportFilteringUsageViewSetting.getInstance().SHOW_IMPORTS) {
-      ContainerUtil.addAll(rules, Extensions.getExtensions(ImportFilteringRule.EP_NAME));
+      rules.addAll(ImportFilteringRule.EP_NAME.getExtensionList());
     }
-    return rules.toArray(new UsageFilteringRule[rules.size()]);
+    return rules.toArray(UsageFilteringRule.EMPTY_ARRAY);
   }
 
   @Override
-  @NotNull
-  public AnAction[] createFilteringActions(@NotNull final UsageView view) {
-    final UsageViewImpl impl = (UsageViewImpl)view;
+  public AnAction @NotNull [] createFilteringActions(@NotNull UsageView view) {
     if (view.getPresentation().isCodeUsages()) {
-      final JComponent component = view.getComponent();
-      final ShowImportsAction showImportsAction = new ShowImportsAction(impl);
-      showImportsAction.registerCustomShortcutSet(new CustomShortcutSet(KeyStroke.getKeyStroke(KeyEvent.VK_I, InputEvent.CTRL_DOWN_MASK)), component, view);
-      return new AnAction[] { showImportsAction };
+      JComponent component = view.getComponent();
+      UsageViewImpl impl = (UsageViewImpl)view;
+      ShowImportsAction showImportsAction = new ShowImportsAction();
+      CustomShortcutSet shortcutSet = new CustomShortcutSet(KeyStroke.getKeyStroke(KeyEvent.VK_I, InputEvent.CTRL_DOWN_MASK));
+      showImportsAction.registerCustomShortcutSet(shortcutSet, component, impl);
+      return new AnAction[]{showImportsAction};
     }
     else {
       return AnAction.EMPTY_ARRAY;
     }
   }
+}
 
-  private static class ShowImportsAction extends RuleAction {
-    private ShowImportsAction(UsageViewImpl view) {
-      super(view, UsageViewBundle.message("action.show.import.statements"), AllIcons.Actions.ShowImportStatements);
-    }
+final class ShowImportsAction extends RuleAction {
+  ShowImportsAction() {
+    super(UsageViewBundle.messagePointer("action.show.import.statements"), AllIcons.Actions.ShowImportStatements);
+  }
 
-    @Override
-    protected boolean getOptionValue() {
-      return ImportFilteringUsageViewSetting.getInstance().SHOW_IMPORTS;
-    }
+  @Override
+  protected boolean getOptionValue(@NotNull AnActionEvent e) {
+    return ImportFilteringUsageViewSetting.getInstance().SHOW_IMPORTS;
+  }
 
-    @Override
-    protected void setOptionValue(boolean value) {
-      ImportFilteringUsageViewSetting.getInstance().SHOW_IMPORTS = value;
-    }
+  @Override
+  protected void setOptionValue(@NotNull AnActionEvent e, boolean value) {
+    ImportFilteringUsageViewSetting.getInstance().SHOW_IMPORTS = value;
   }
 }

@@ -71,8 +71,8 @@ __version__ = "0.3"
 __all__ = ["HTTPServer", "BaseHTTPRequestHandler"]
 
 import sys
-from _pydev_imps import _pydev_time as time
-from _pydev_imps import _pydev_socket as socket
+from _pydev_imps._pydev_saved_modules import time
+from _pydev_imps._pydev_saved_modules import socket
 from warnings import filterwarnings, catch_warnings
 with catch_warnings():
     if sys.py3kwarning:
@@ -596,7 +596,7 @@ def test(HandlerClass = BaseHTTPRequestHandler,
     httpd = ServerClass(server_address, HandlerClass)
 
     sa = httpd.socket.getsockname()
-    print ("Serving HTTP on", sa[0], "port", sa[1], "...")
+    print("Serving HTTP on", sa[0], "port", sa[1], "...")
     httpd.serve_forever()
 
 

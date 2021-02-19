@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine;
 
 import com.intellij.debugger.MultiRequestPositionManager;
@@ -20,30 +6,34 @@ import com.intellij.debugger.NoDataException;
 import com.intellij.debugger.PositionManager;
 import com.intellij.debugger.SourcePosition;
 import com.intellij.debugger.engine.evaluation.EvaluationContext;
+import com.intellij.debugger.impl.DebuggerUtilsEx;
+import com.intellij.debugger.impl.DebuggerUtilsImpl;
 import com.intellij.debugger.jdi.StackFrameProxyImpl;
 import com.intellij.debugger.requests.ClassPrepareRequestor;
+import com.intellij.debugger.ui.impl.watch.StackFrameDescriptorImpl;
 import com.intellij.execution.filters.LineNumbersMapping;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.progress.ProcessCanceledException;
+import com.intellij.openapi.fileTypes.FileType;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.PsiFile;
 import com.intellij.util.ThreeState;
 import com.intellij.xdebugger.frame.XStackFrame;
-import com.sun.jdi.InternalException;
 import com.sun.jdi.Location;
 import com.sun.jdi.ReferenceType;
-import com.sun.jdi.VMDisconnectedException;
 import com.sun.jdi.request.ClassPrepareRequest;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 public class CompoundPositionManager extends PositionManagerEx implements MultiRequestPositionManager{
   private static final Logger LOG = Logger.getInstance(CompoundPositionManager.class);
 
-  private final ArrayList<PositionManager> myPositionManagers = new ArrayList<PositionManager>();
+  public static final CompoundPositionManager EMPTY = new CompoundPositionManager();
+
+  private final ArrayList<PositionManager> myPositionManagers = new ArrayList<>();
 
   @SuppressWarnings("UnusedDeclaration")
   public CompoundPositionManager() {
@@ -56,54 +46,84 @@ public class CompoundPositionManager extends PositionManagerEx implements MultiR
   public void appendPositionManager(PositionManager manager) {
     myPositionManagers.remove(manager);
     myPositionManagers.add(0, manager);
+    clearCache();
   }
 
-  private Cache<Location, SourcePosition> mySourcePositionCache = new Cache<Location, SourcePosition>();
-
-  private interface Processor<T> {
-    T process(PositionManager positionManager) throws NoDataException;
+  public void clearCache() {
+    DebuggerManagerThreadImpl.assertIsManagerThread();
+    mySourcePositionCache.clear();
   }
 
-  private <T> T iterate(Processor<T> processor, T defaultValue) {
+  private final Map<Location, SourcePosition> mySourcePositionCache = new WeakHashMap<>();
+
+  private interface Producer<T> {
+    T produce(PositionManager positionManager) throws NoDataException;
+  }
+
+  private <T> T iterate(Producer<? extends T> processor, T defaultValue, SourcePosition position) {
+    return iterate(processor, defaultValue, position, true);
+  }
+
+  private <T> T iterate(Producer<? extends T> processor, T defaultValue, SourcePosition position, boolean ignorePCE) {
+    FileType fileType = position != null ? position.getFile().getFileType() : null;
     for (PositionManager positionManager : myPositionManagers) {
-      try {
-        return processor.process(positionManager);
+      if (fileType != null) {
+        Set<? extends FileType> types = positionManager.getAcceptedFileTypes();
+        if (types != null && !types.contains(fileType)) {
+          continue;
+        }
       }
-      catch (NoDataException ignored) {}
-      catch (VMDisconnectedException e) {throw e;}
-      catch (InternalException e) {LOG.info(e);}
-      catch (ProcessCanceledException ignored) {}
-      catch (Exception e) {LOG.error(e);}
-      catch (AssertionError e) {LOG.error(e);}
+      try {
+        if (!ignorePCE) {
+          ProgressManager.checkCanceled();
+        }
+        return DebuggerUtilsImpl.suppressExceptions(() -> processor.produce(positionManager), defaultValue, ignorePCE, NoDataException.class);
+      }
+      catch (NoDataException ignored) {
+      }
     }
     return defaultValue;
   }
 
+  @Nullable
   @Override
   public SourcePosition getSourcePosition(final Location location) {
     if (location == null) return null;
-    SourcePosition res = mySourcePositionCache.get(location);
-    if (res != null) return res;
-
-    return iterate(new Processor<SourcePosition>() {
-      @Override
-      public SourcePosition process(PositionManager positionManager) throws NoDataException {
-        SourcePosition res = positionManager.getSourcePosition(location);
-        mySourcePositionCache.put(location, res);
-        return res;
+    return ReadAction.nonBlocking(() -> {
+      SourcePosition res = null;
+      try {
+        res = mySourcePositionCache.get(location);
       }
-    }, null);
+      catch (IllegalArgumentException ignored) { // Invalid method id
+      }
+      if (checkCacheEntry(res, location)) return res;
+
+      return iterate(positionManager -> {
+        SourcePosition res1 = positionManager.getSourcePosition(location);
+        try {
+          mySourcePositionCache.put(location, res1);
+        }
+        catch (IllegalArgumentException ignored) { // Invalid method id
+        }
+        return res1;
+      }, null, null, false);
+    }).executeSynchronously();
+  }
+
+  private static boolean checkCacheEntry(@Nullable SourcePosition position, @NotNull Location location) {
+    if (position == null) return false;
+    PsiFile psiFile = position.getFile();
+    if (!psiFile.isValid()) return false;
+    String url = DebuggerUtilsEx.getAlternativeSourceUrl(location.declaringType().name(), psiFile.getProject());
+    if (url == null) return true;
+    VirtualFile file = psiFile.getVirtualFile();
+    return file != null && url.equals(file.getUrl());
   }
 
   @Override
   @NotNull
   public List<ReferenceType> getAllClasses(@NotNull final SourcePosition classPosition) {
-    return iterate(new Processor<List<ReferenceType>>() {
-      @Override
-      public List<ReferenceType> process(PositionManager positionManager) throws NoDataException {
-        return positionManager.getAllClasses(classPosition);
-      }
-    }, Collections.<ReferenceType>emptyList());
+    return iterate(positionManager -> positionManager.getAllClasses(classPosition), Collections.emptyList(), classPosition);
   }
 
   @Override
@@ -121,57 +141,44 @@ public class CompoundPositionManager extends PositionManagerEx implements MultiR
     }
 
     final SourcePosition finalPosition = position;
-    return iterate(new Processor<List<Location>>() {
-      @Override
-      public List<Location> process(PositionManager positionManager) throws NoDataException {
-        return positionManager.locationsOfLine(type, finalPosition);
-      }
-    }, Collections.<Location>emptyList());
+    return iterate(positionManager -> positionManager.locationsOfLine(type, finalPosition), Collections.emptyList(), position);
   }
 
   @Override
   public ClassPrepareRequest createPrepareRequest(@NotNull final ClassPrepareRequestor requestor, @NotNull final SourcePosition position) {
-    return iterate(new Processor<ClassPrepareRequest>() {
-      @Override
-      public ClassPrepareRequest process(PositionManager positionManager) throws NoDataException {
-        return positionManager.createPrepareRequest(requestor, position);
-      }
-    }, null);
+    return iterate(positionManager -> positionManager.createPrepareRequest(requestor, position), null, position);
   }
 
   @NotNull
   @Override
   public List<ClassPrepareRequest> createPrepareRequests(@NotNull final ClassPrepareRequestor requestor, @NotNull final SourcePosition position) {
-    return iterate(new Processor<List<ClassPrepareRequest>>() {
-      @Override
-      public List<ClassPrepareRequest> process(PositionManager positionManager) throws NoDataException {
-        if (positionManager instanceof MultiRequestPositionManager) {
-          return ((MultiRequestPositionManager)positionManager).createPrepareRequests(requestor, position);
-        }
-        else {
-          ClassPrepareRequest prepareRequest = positionManager.createPrepareRequest(requestor, position);
-          if (prepareRequest == null) {
-            return Collections.emptyList();
-          }
-          return Collections.singletonList(prepareRequest);
-        }
+    return iterate(positionManager -> {
+      if (positionManager instanceof MultiRequestPositionManager) {
+        return ((MultiRequestPositionManager)positionManager).createPrepareRequests(requestor, position);
       }
-    }, Collections.<ClassPrepareRequest>emptyList());
+      else {
+        ClassPrepareRequest prepareRequest = positionManager.createPrepareRequest(requestor, position);
+        if (prepareRequest == null) {
+          return Collections.emptyList();
+        }
+        return Collections.singletonList(prepareRequest);
+      }
+    }, Collections.emptyList(), position);
   }
 
   @Nullable
   @Override
-  public XStackFrame createStackFrame(@NotNull StackFrameProxyImpl frame, @NotNull DebugProcessImpl debugProcess, @NotNull Location location) {
+  public XStackFrame createStackFrame(@NotNull StackFrameDescriptorImpl descriptor) {
     for (PositionManager positionManager : myPositionManagers) {
       if (positionManager instanceof PositionManagerEx) {
         try {
-          XStackFrame xStackFrame = ((PositionManagerEx)positionManager).createStackFrame(frame, debugProcess, location);
+          XStackFrame xStackFrame = ((PositionManagerEx)positionManager).createStackFrame(descriptor);
           if (xStackFrame != null) {
             return xStackFrame;
           }
         }
         catch (Throwable e) {
-          LOG.error(e);
+          DebuggerUtilsImpl.logError(e);
         }
       }
     }
@@ -192,27 +199,10 @@ public class CompoundPositionManager extends PositionManagerEx implements MultiR
           }
         }
         catch (Throwable e) {
-          LOG.error(e);
+          DebuggerUtilsImpl.logError(e);
         }
       }
     }
     return ThreeState.UNSURE;
-  }
-
-  private static class Cache<K,V> {
-    private K myKey;
-    private V myValue;
-
-    public V get(@NotNull K key) {
-      if (key.equals(myKey)) {
-        return myValue;
-      }
-      return null;
-    }
-
-    public void put(@NotNull K key, V value) {
-      myKey = key;
-      myValue = value;
-    }
   }
 }

@@ -1,41 +1,33 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.containers;
 
 import com.intellij.util.IncorrectOperationException;
-import gnu.trove.TObjectHashingStrategy;
+import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
 // have to extend ArrayList because otherwise the spliterator() methods declared in Set and List are in conflict
-public class OrderedSet<T> extends ArrayList<T> implements Set<T>, RandomAccess {
-  private final OpenTHashSet<T> myHashSet;
+public class OrderedSet<@NotNull T> extends ArrayList<T> implements Set<T>, RandomAccess {
+  private final ObjectOpenCustomHashSet<T> hashSet;
 
   public OrderedSet() {
-    this(ContainerUtil.<T>canonicalStrategy());
+    hashSet = new ObjectOpenCustomHashSet<>(FastUtilHashingStrategies.getCanonicalStrategy());
   }
 
-  public OrderedSet(@NotNull TObjectHashingStrategy<T> hashingStrategy) {
-    this(hashingStrategy, 4);
+  public OrderedSet(@NotNull Collection<? extends T> set) {
+    super(set);
+
+    hashSet = new ObjectOpenCustomHashSet<>(set, FastUtilHashingStrategies.getCanonicalStrategy());
   }
 
-  public OrderedSet(@NotNull TObjectHashingStrategy<T> hashingStrategy, int capacity) {
+  public OrderedSet(@NotNull HashingStrategy<? super T> hashingStrategy) {
+    hashSet = new ObjectOpenCustomHashSet<>(FastUtilHashingStrategies.adaptAsNotNull(hashingStrategy));
+  }
+
+  public OrderedSet(int capacity) {
     super(capacity);
-    myHashSet = new OpenTHashSet<T>(capacity, hashingStrategy);
+    hashSet = new ObjectOpenCustomHashSet<>(capacity, FastUtilHashingStrategies.getCanonicalStrategy());
   }
 
   @Override
@@ -67,7 +59,7 @@ public class OrderedSet<T> extends ArrayList<T> implements Set<T>, RandomAccess 
 
   @Override
   public boolean contains(Object o) {
-    return myHashSet.contains(o);
+    return hashSet.contains(o);
   }
 
   @Override
@@ -81,7 +73,7 @@ public class OrderedSet<T> extends ArrayList<T> implements Set<T>, RandomAccess 
 
   @Override
   public boolean add(T o) {
-    if (myHashSet.add(o)){
+    if (hashSet.add(o)) {
       super.add(o);
       return true;
     }
@@ -90,7 +82,7 @@ public class OrderedSet<T> extends ArrayList<T> implements Set<T>, RandomAccess 
 
   @Override
   public boolean remove(Object o) {
-    if (myHashSet.remove(o)){
+    if (hashSet.remove(o)) {
       super.remove(o);
       return true;
     }
@@ -99,45 +91,45 @@ public class OrderedSet<T> extends ArrayList<T> implements Set<T>, RandomAccess 
 
   @Override
   public void clear() {
-    myHashSet.clear();
+    hashSet.clear();
     super.clear();
   }
 
   @Override
-  public boolean addAll(final int index, @NotNull final Collection<? extends T> c) {
+  public boolean addAll(int index, @NotNull Collection<? extends T> c) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public T set(final int index, @NotNull final T element) {
-    final T removed = remove(index);
+  public T set(int index, @NotNull T element) {
+    T removed = remove(index);
     add(index, element);
     return removed;
   }
 
   @Override
-  public void add(final int index, @NotNull final T element) {
-    if (myHashSet.add(element)){
+  public void add(int index, @NotNull T element) {
+    if (hashSet.add(element)) {
       super.add(index, element);
     }
   }
 
   @Override
-  public T remove(final int index) {
-    final T t = super.remove(index);
-    myHashSet.remove(t);
+  public T remove(int index) {
+    T t = super.remove(index);
+    hashSet.remove(t);
     return t;
   }
 
   @Override
-  public int indexOf(final Object o) {
-    final int index = myHashSet.index((T)o);
-    return index >= 0? super.indexOf(myHashSet.get(index)) : -1;
+  public int indexOf(Object o) {
+    T existing = hashSet.get(o);
+    return existing == null ? -1 : super.indexOf(existing);
   }
 
   @Override
-  public int lastIndexOf(final Object o) {
-    final int index = myHashSet.index((T)o);
-    return index >= 0 ? super.lastIndexOf(myHashSet.get(index)) : -1;
+  public int lastIndexOf(Object o) {
+    T existing = hashSet.get(o);
+    return existing == null ? -1 : super.lastIndexOf(existing);
   }
 }

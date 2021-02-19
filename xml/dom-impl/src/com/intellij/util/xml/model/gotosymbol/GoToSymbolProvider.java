@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.util.xml.model.gotosymbol;
 
@@ -22,11 +8,17 @@ import com.intellij.navigation.NavigationItem;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Key;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.FakePsiElement;
+import com.intellij.psi.util.CachedValue;
+import com.intellij.psi.util.CachedValueProvider;
+import com.intellij.psi.util.CachedValuesManager;
+import com.intellij.psi.util.PsiModificationTracker;
 import com.intellij.psi.xml.XmlElement;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xml.DomElement;
 import com.intellij.util.xml.ElementPresentationManager;
 import com.intellij.util.xml.GenericDomValue;
@@ -35,15 +27,14 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Base class for "Go To Symbol" contributors.
  */
 public abstract class GoToSymbolProvider implements ChooseByNameContributor {
+  // non-static to store modules accepted by different providers separately
+  private final Key<CachedValue<Collection<Module>>> ACCEPTABLE_MODULES = Key.create("ACCEPTABLE_MODULES_" + toString());
 
   protected abstract void addNames(@NotNull Module module, Set<String> result);
 
@@ -51,38 +42,38 @@ public abstract class GoToSymbolProvider implements ChooseByNameContributor {
 
   protected abstract boolean acceptModule(final Module module);
 
-  protected static void addNewNames(@NotNull final List<? extends DomElement> elements, final Set<String> existingNames) {
+  protected static void addNewNames(@NotNull final List<? extends DomElement> elements, final Set<? super String> existingNames) {
     for (DomElement name : elements) {
       existingNames.add(name.getGenericInfo().getElementName(name));
     }
   }
 
-  @Override
-  @NotNull
-  public String[] getNames(final Project project, boolean includeNonProjectItems) {
-    Set<String> result = new HashSet<String>();
-    Module[] modules = ModuleManager.getInstance(project).getModules();
-    for (Module module : modules) {
-      if (acceptModule(module)) {
-        addNames(module, result);
-      }
-    }
+  private Collection<Module> getAcceptableModules(final Project project) {
+    return CachedValuesManager.getManager(project).getCachedValue(project, ACCEPTABLE_MODULES, () ->
+      CachedValueProvider.Result.create(calcAcceptableModules(project), PsiModificationTracker.MODIFICATION_COUNT), false);
+  }
 
-    return ArrayUtil.toStringArray(result);
+  @NotNull
+  protected Collection<Module> calcAcceptableModules(@NotNull Project project) {
+    return ContainerUtil.findAll(ModuleManager.getInstance(project).getModules(), module -> acceptModule(module));
   }
 
   @Override
-  @NotNull
-  public NavigationItem[] getItemsByName(final String name, final String pattern, final Project project, boolean includeNonProjectItems) {
-    List<NavigationItem> result = new ArrayList<NavigationItem>();
-    Module[] modules = ModuleManager.getInstance(project).getModules();
-    for (Module module : modules) {
-      if (acceptModule(module)) {
-        addItems(module, name, result);
-      }
+  public String @NotNull [] getNames(final Project project, boolean includeNonProjectItems) {
+    Set<String> result = new HashSet<>();
+    for (Module module : getAcceptableModules(project)) {
+      addNames(module, result);
     }
+    return ArrayUtilRt.toStringArray(result);
+  }
 
-    return result.toArray(new NavigationItem[result.size()]);
+  @Override
+  public NavigationItem @NotNull [] getItemsByName(final String name, final String pattern, final Project project, boolean includeNonProjectItems) {
+    List<NavigationItem> result = new ArrayList<>();
+    for (Module module : getAcceptableModules(project)) {
+      addItems(module, name, result);
+    }
+    return result.toArray(NavigationItem.EMPTY_NAVIGATION_ITEM_ARRAY);
   }
 
   @Nullable
@@ -140,6 +131,11 @@ public abstract class GoToSymbolProvider implements ChooseByNameContributor {
     }
 
     @Override
+    public String getName() {
+      return myText;
+    }
+
+    @Override
     public ItemPresentation getPresentation() {
       return new ItemPresentation() {
 
@@ -149,7 +145,6 @@ public abstract class GoToSymbolProvider implements ChooseByNameContributor {
         }
 
         @Override
-        @Nullable
         public String getLocationString() {
           return '(' + myPsiElement.getContainingFile().getName() + ')';
         }

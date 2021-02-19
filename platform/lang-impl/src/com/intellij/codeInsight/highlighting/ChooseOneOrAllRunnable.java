@@ -19,35 +19,35 @@ import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.ide.util.PsiElementListCellRenderer;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.ui.popup.PopupChooserBuilder;
+import com.intellij.openapi.ui.popup.IPopupChooserBuilder;
+import com.intellij.openapi.ui.popup.JBPopupFactory;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.PsiElement;
-import com.intellij.ui.components.JBList;
 import com.intellij.util.ArrayUtil;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Vector;
 
 public abstract class ChooseOneOrAllRunnable<T extends PsiElement> implements Runnable {
   private final T[] myClasses;
   private final Editor myEditor;
-  private JList myList;
-  private final String myTitle;
 
-  public ChooseOneOrAllRunnable(final List<T> classes, final Editor editor, final String title, Class<T> type) {
+  private final @NlsContexts.PopupTitle String myTitle;
+
+  public ChooseOneOrAllRunnable(@NotNull List<? extends T> classes, @NotNull Editor editor, @NotNull @NlsContexts.PopupTitle String title, @NotNull Class<T> type) {
     myClasses = ArrayUtil.toObjectArray(classes, type);
     myEditor = editor;
     myTitle = title;
   }
 
-  protected abstract void selected(T... classes);
+  protected abstract void selected(T @NotNull ... classes);
 
   @Override
   public void run() {
     if (myClasses.length == 1) {
-      //TODO: cdr this place should produce at least warning
-      // selected(myClasses[0]);
       selected((T[])ArrayUtil.toObjectArray(myClasses[0].getClass(), myClasses[0]));
     }
     else if (myClasses.length > 0) {
@@ -59,42 +59,31 @@ public abstract class ChooseOneOrAllRunnable<T extends PsiElement> implements Ru
         selected(myClasses);
         return;
       }
-      Vector<Object> model = new Vector<Object>(Arrays.asList(myClasses));
-      model.insertElementAt(CodeInsightBundle.message("highlight.thrown.exceptions.chooser.all.entry"), 0);
+      List<Object> model = new ArrayList<>(Arrays.asList(myClasses));
+      String selectAll = CodeInsightBundle.message("highlight.thrown.exceptions.chooser.all.entry");
+      model.add(0, selectAll);
 
-      myList = new JBList(model);
-      myList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-      myList.setCellRenderer(renderer);
-
-      final PopupChooserBuilder builder = new PopupChooserBuilder(myList);
-      renderer.installSpeedSearch(builder);
-
-      final Runnable callback = new Runnable() {
-        @Override
-        public void run() {
-          int idx = myList.getSelectedIndex();
-          if (idx < 0) return;
-          if (idx > 0) {
-            selected((T[])ArrayUtil.toObjectArray(myClasses[idx-1].getClass(), myClasses[idx-1]));
-          }
-          else {
+      IPopupChooserBuilder<Object> builder = JBPopupFactory.getInstance()
+        .createPopupChooserBuilder(model)
+        .setRenderer(renderer) // exploit PsiElementListCellRenderer ability to render strings too
+        .setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
+        .setItemChosenCallback(selectedValue -> {
+          if (selectedValue.equals(selectAll)) {
             selected(myClasses);
           }
-        }
-      };
+          else {
+            selected((T[])ArrayUtil.toObjectArray(selectedValue.getClass(), selectedValue));
+          }
+        })
+        .setTitle(myTitle);
+      renderer.installSpeedSearch(builder);
 
-      ApplicationManager.getApplication().invokeLater(new Runnable() {
-        @Override
-        public void run() {
-          builder.
-            setTitle(myTitle).
-            setItemChoosenCallback(callback).
-            createPopup().
-            showInBestPositionFor(myEditor);
-        }
-      });
+      ApplicationManager.getApplication().invokeLater(() -> builder
+        .createPopup()
+        .showInBestPositionFor(myEditor));
     }
   }
 
+  @NotNull
   protected abstract PsiElementListCellRenderer<T> createRenderer();
 }

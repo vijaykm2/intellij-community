@@ -15,14 +15,14 @@
  */
 package com.intellij.openapi.compiler;
 
-import com.intellij.openapi.extensions.ExtensionPointName;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * @author yole
+ * @deprecated Use {@link Compiler#EP_NAME} extension point to register compilers instead
  */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
 public interface CompilerFactory {
-  ExtensionPointName<CompilerFactory> EP_NAME = ExtensionPointName.create("com.intellij.compilerFactory");
-  
   Compiler[] createCompilers(@NotNull CompilerManager compilerManager);
 }

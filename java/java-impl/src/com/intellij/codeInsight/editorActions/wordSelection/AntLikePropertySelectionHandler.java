@@ -17,13 +17,14 @@ package com.intellij.codeInsight.editorActions.wordSelection;
 
 import com.intellij.codeInsight.editorActions.ExtendWordSelectionHandlerBase;
 import com.intellij.lang.Language;
-import com.intellij.lang.StdLanguages;
 import com.intellij.lang.java.JavaLanguage;
+import com.intellij.lang.xml.XMLLanguage;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiComment;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -31,11 +32,10 @@ import java.util.List;
 
 public class AntLikePropertySelectionHandler extends ExtendWordSelectionHandlerBase {
   @Override
-  public boolean canSelect(PsiElement e) {
+  public boolean canSelect(@NotNull PsiElement e) {
     Language l = e.getLanguage();
     if (!(l.equals(JavaLanguage.INSTANCE)
-          || l.equals(StdLanguages.XML)
-          || l.equals(StdLanguages.ANT))) {
+          || l.equals(XMLLanguage.INSTANCE))) {
       return false;
     }
 
@@ -43,7 +43,7 @@ public class AntLikePropertySelectionHandler extends ExtendWordSelectionHandlerB
   }
 
   @Override
-  public List<TextRange> select(PsiElement e, CharSequence editorText, int cursorOffset, Editor editor) {
+  public List<TextRange> select(@NotNull PsiElement e, @NotNull CharSequence editorText, int cursorOffset, @NotNull Editor editor) {
     TextRange range = e.getTextRange();
     char prevLeftChar = ' ';
     for (int left = cursorOffset; left >= range.getStartOffset(); left--) {

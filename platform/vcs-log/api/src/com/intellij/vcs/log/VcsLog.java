@@ -15,12 +15,14 @@
  */
 package com.intellij.vcs.log;
 
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.Consumer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.awt.*;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Future;
 
 /**
@@ -32,44 +34,65 @@ public interface VcsLog {
    * Returns commits currently selected in the log.
    */
   @NotNull
-  List<Hash> getSelectedCommits();
+  List<CommitId> getSelectedCommits();
 
   /**
-   * Returns details of the selected commits if all of them have been loaded.
-   * To avoid data inconsistency, if at least one of the selected commits have no details loaded, empty list is returned.
+   * Returns metadata of the selected commit which are visible in the table. <br/>
+   * Metadata can be retrieved from index, or loaded from the repository.
+   * Metadata is loaded faster than full details and since it is done while scrolling,
+   * there is a better chance that details for a commit are loaded when user selects it.
+   * This makes this method preferable to {@link #getSelectedDetails()}.
+   * Still, check for LoadingDetails instance has to be done when using details from this list.
+   */
+  @NotNull
+  List<VcsCommitMetadata> getSelectedShortDetails();
+
+  /**
+   * Returns details of the selected commits.
+   * For commits that are not loaded an instance of LoadingDetails is returned.
    */
   @NotNull
   List<VcsFullCommitDetails> getSelectedDetails();
 
   /**
-   * Returns names of branches which contain the given commit, or null if this information is unavailable.
+   * Sends a request to load details that are currently selected.
+   * Details are loaded in background. If a progress indicator is specified it is used during loading process.
+   * After all details are loaded they are provided to the consumer in the EDT.
+   *
+   * @param consumer called in EDT after all details are loaded.
    */
-  @Nullable
-  Collection<String> getContainingBranches(@NotNull Hash commitHash);
+  void requestSelectedDetails(@NotNull Consumer<? super List<VcsFullCommitDetails>> consumer);
 
   /**
-   * Returns all {@link VcsRef commit references} available in the log.
+   * Returns names of branches which contain the given commit, or null if this information is unavailable yet.
    */
-  @NotNull
-  Collection<VcsRef> getAllReferences();
+  @Nullable
+  Collection<String> getContainingBranches(@NotNull Hash commitHash, @NotNull VirtualFile root);
 
   /**
    * Asynchronously selects the commit node defined by the given reference (commit hash, branch or tag).
    * Returns a {@link Future future} that allows to check if the commit was selected, wait for the selection while log is being loaded,
    * or cancel commit selection.
+   *
+   * @param reference target reference (commit hash, branch or tag)
    */
   @NotNull
-  Future<Boolean> jumpToReference(String reference);
+  Future<Boolean> jumpToReference(@NotNull String reference);
 
   /**
-   * Returns the VCS log toolbar component.
+   * Asynchronously selects the given commit in the given root.
+   * Returns a {@link Future future} that allows to check if the commit was selected, wait for the selection while log is being loaded,
+   * or cancel commit selection.
+   *
+   * @param commitHash target commit
+   * @param root target repository root
    */
   @NotNull
-  Component getToolbar();
+  Future<Boolean> jumpToCommit(@NotNull Hash commitHash, @NotNull VirtualFile root);
 
   /**
    * Returns {@link VcsLogProvider VcsLogProviders} which are active in this log, i.e. which VCS roots are shown in the log.
    */
   @NotNull
-  Collection<VcsLogProvider> getLogProviders();
+  Map<VirtualFile, VcsLogProvider> getLogProviders();
 }

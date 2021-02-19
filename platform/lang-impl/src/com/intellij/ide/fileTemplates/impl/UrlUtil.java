@@ -1,23 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.fileTemplates.impl;
 
 import com.intellij.ide.fileTemplates.FileTemplate;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.io.URLUtil;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedInputStream;
 import java.io.File;
@@ -33,25 +21,22 @@ import java.util.zip.ZipFile;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 3/25/11
  */
-public class UrlUtil {
+public final class UrlUtil {
   private static final String JAR_SEPARATOR = URLUtil.JAR_SEPARATOR;
   private static final String URL_PATH_SEPARATOR = "/";
   private static final String FILE_PROTOCOL = URLUtil.FILE_PROTOCOL;
   private static final String FILE_PROTOCOL_PREFIX = FILE_PROTOCOL + ":";
 
-  public static String loadText(URL url) throws IOException {
-    final InputStream stream = new BufferedInputStream(URLUtil.openStream(url));
-    try {
+  @NotNull
+  public static String loadText(@NotNull URL url) throws IOException {
+    try (InputStream stream = new BufferedInputStream(URLUtil.openStream(url))) {
       return new String(FileUtil.loadBytes(stream), FileTemplate.ourEncoding);
-    }
-    finally {
-      stream.close();
     }
   }
 
-  public static List<String> getChildrenRelativePaths(URL root) throws IOException {
+  @NotNull
+  public static List<String> getChildrenRelativePaths(@NotNull URL root) throws IOException {
     final String protocol = root.getProtocol();
     if ("jar".equalsIgnoreCase(protocol)) {
       return getChildPathsFromJar(root);
@@ -62,15 +47,16 @@ public class UrlUtil {
     return Collections.emptyList();
   }
 
-  private static List<String> getChildPathsFromFile(URL root) {
-    final List<String> paths = new ArrayList<String>();
+  @NotNull
+  private static List<String> getChildPathsFromFile(@NotNull URL root) {
+    final List<String> paths = new ArrayList<>();
     final File rootFile = new File(FileUtil.unquote(root.getPath()));
     new Object() {
       void collectFiles(File fromFile, String prefix) {
         final File[] list = fromFile.listFiles();
         if (list != null) {
           for (File file : list) {
-            final String childRelativePath = prefix.length() == 0 ? file.getName() : prefix + URL_PATH_SEPARATOR + file.getName();
+            final String childRelativePath = prefix.isEmpty() ? file.getName() : prefix + URL_PATH_SEPARATOR + file.getName();
             if (file.isDirectory()) {
               collectFiles(file, childRelativePath);
             }
@@ -84,12 +70,10 @@ public class UrlUtil {
     return paths;
   }
 
-  private static List<String> getChildPathsFromJar(URL root) throws IOException {
-    final List<String> paths = new ArrayList<String>();
+  @NotNull
+  private static List<String> getChildPathsFromJar(@NotNull URL root) throws IOException {
     String file = root.getFile();
-    if (file.startsWith(FILE_PROTOCOL_PREFIX)) {
-      file = file.substring(FILE_PROTOCOL_PREFIX.length());
-    }
+    file = StringUtil.trimStart(file, FILE_PROTOCOL_PREFIX);
     final int jarSeparatorIndex = file.indexOf(JAR_SEPARATOR);
     assert jarSeparatorIndex > 0;
 
@@ -97,9 +81,9 @@ public class UrlUtil {
     if (!rootDirName.endsWith(URL_PATH_SEPARATOR)) {
       rootDirName += URL_PATH_SEPARATOR;
     }
-    final ZipFile zipFile = new ZipFile(FileUtil.unquote(file.substring(0, jarSeparatorIndex)));
-    try {
+    try (ZipFile zipFile = new ZipFile(FileUtil.unquote(file.substring(0, jarSeparatorIndex)))) {
       final Enumeration<? extends ZipEntry> entries = zipFile.entries();
+      final List<String> paths = new ArrayList<>();
       while (entries.hasMoreElements()) {
         final ZipEntry entry = entries.nextElement();
         if (!entry.isDirectory()) {
@@ -110,9 +94,6 @@ public class UrlUtil {
         }
       }
       return paths;
-    }
-    finally {
-      zipFile.close();
     }
   }
 }

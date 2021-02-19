@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.utils;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
-import com.intellij.openapi.application.AccessToken;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.editor.Document;
@@ -29,6 +15,8 @@ import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.ui.update.MergingUpdateQueue;
 import com.intellij.util.ui.update.Update;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.dom.MavenDomUtil;
 import org.jetbrains.idea.maven.project.MavenProject;
 import org.jetbrains.idea.maven.project.MavenProjectChanges;
@@ -38,83 +26,78 @@ import org.jetbrains.idea.maven.server.NativeMavenProjectHolder;
 
 import java.util.List;
 
-public class MavenRehighlighter extends MavenSimpleProjectComponent {
-  private MergingUpdateQueue myQueue;
+public class MavenRehighlighter implements Disposable {
+  private final MergingUpdateQueue queue;
 
-  protected MavenRehighlighter(Project project) {
-    super(project);
+  public MavenRehighlighter(@NotNull Project project) {
+    queue = new MergingUpdateQueue(getClass().getSimpleName(), 1000, true, MergingUpdateQueue.ANY_COMPONENT, this, null, true);
   }
 
-  public void initComponent() {
-    myQueue = new MergingUpdateQueue(getClass().getSimpleName(), 1000, true, MergingUpdateQueue.ANY_COMPONENT, myProject, null, true);
-    myQueue.setPassThrough(false);
+  @Override
+  public void dispose() {
+  }
 
-    MavenProjectsManager m = MavenProjectsManager.getInstance(myProject);
-
-    m.addManagerListener(new MavenProjectsManager.Listener() {
-      public void activated() {
-        rehighlight(myProject);
-      }
-
-      public void projectsScheduled() {
-      }
-
+  public static void install(@NotNull Project project, @NotNull MavenProjectsManager projectsManager) {
+    projectsManager.addManagerListener(new MavenProjectsManager.Listener() {
       @Override
-      public void importAndResolveScheduled() {
+      public void activated() {
+        rehighlight(project, null);
       }
     });
-
-    m.addProjectsTreeListener(new MavenProjectsTree.ListenerAdapter() {
-      public void projectsUpdated(List<Pair<MavenProject, MavenProjectChanges>> updated, List<MavenProject> deleted) {
+    projectsManager.addProjectsTreeListener(new MavenProjectsTree.Listener() {
+      @Override
+      public void projectsUpdated(@NotNull List<Pair<MavenProject, MavenProjectChanges>> updated, @NotNull List<MavenProject> deleted) {
         for (Pair<MavenProject, MavenProjectChanges> each : updated) {
-          rehighlight(myProject, each.first);
+          rehighlight(project, each.first);
         }
       }
 
-      public void projectResolved(Pair<MavenProject, MavenProjectChanges> projectWithChanges,
+      @Override
+      public void projectResolved(@NotNull Pair<MavenProject, MavenProjectChanges> projectWithChanges,
                                   NativeMavenProjectHolder nativeMavenProject) {
-        rehighlight(myProject, projectWithChanges.first);
+        rehighlight(project, projectWithChanges.first);
       }
 
-      public void pluginsResolved(MavenProject project) {
-        rehighlight(myProject, project);
+      @Override
+      public void pluginsResolved(@NotNull MavenProject mavenProject) {
+        rehighlight(project, mavenProject);
       }
 
-      public void foldersResolved(Pair<MavenProject, MavenProjectChanges> projectWithChanges) {
-        rehighlight(myProject, projectWithChanges.first);
+      @Override
+      public void foldersResolved(@NotNull Pair<MavenProject, MavenProjectChanges> projectWithChanges) {
+        rehighlight(project, projectWithChanges.first);
       }
 
-      public void artifactsDownloaded(MavenProject project) {
-        rehighlight(myProject, project);
+      @Override
+      public void artifactsDownloaded(@NotNull MavenProject mavenProject) {
+        rehighlight(project, mavenProject);
       }
     });
   }
 
-  public static void rehighlight(final Project project) {
+  public static void rehighlight(@NotNull Project project) {
     rehighlight(project, null);
   }
 
-  public static void rehighlight(final Project project, final MavenProject mavenProject) {
-    AccessToken accessToken = ApplicationManager.getApplication().acquireReadActionLock();
-    try {
-      if (project.isDisposed()) return;
-      ServiceManager.getService(project, MavenRehighlighter.class).myQueue.queue(new MyUpdate(project, mavenProject));
-    }
-    finally {
-      accessToken.finish();
-    }
+  public static void rehighlight(@NotNull Project project, @Nullable MavenProject mavenProject) {
+    ApplicationManager.getApplication().runReadAction(() -> {
+      if (!project.isDisposed()) {
+        ServiceManager.getService(project, MavenRehighlighter.class).queue.queue(new MyUpdate(project, mavenProject));
+      }
+    });
   }
 
   private static class MyUpdate extends Update {
     private final Project myProject;
     private final MavenProject myMavenProject;
 
-    public MyUpdate(Project project, MavenProject mavenProject) {
+    MyUpdate(Project project, MavenProject mavenProject) {
       super(project);
       myProject = project;
       myMavenProject = mavenProject;
     }
 
+    @Override
     public void run() {
       if (myMavenProject == null) {
         for (VirtualFile each : FileEditorManager.getInstance(myProject).getOpenFiles()) {

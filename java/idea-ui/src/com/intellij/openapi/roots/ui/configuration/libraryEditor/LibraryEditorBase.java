@@ -16,22 +16,21 @@
 package com.intellij.openapi.roots.ui.configuration.libraryEditor;
 
 import com.intellij.openapi.roots.OrderRootType;
+import com.intellij.openapi.roots.ProjectModelExternalSource;
 import com.intellij.openapi.roots.libraries.LibraryProperties;
 import com.intellij.openapi.roots.libraries.LibraryType;
 import com.intellij.openapi.roots.libraries.ui.OrderRoot;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-/**
- * @author nik
- */
 public abstract class LibraryEditorBase implements LibraryEditor {
   @Override
   public void removeAllRoots() {
-    final List<OrderRootType> types = new ArrayList<OrderRootType>(getOrderRootTypes());
+    final List<OrderRootType> types = new ArrayList<>(getOrderRootTypes());
     for (OrderRootType type : types) {
       final String[] urls = getUrls(type);
       for (String url : urls) {
@@ -47,7 +46,7 @@ public abstract class LibraryEditorBase implements LibraryEditor {
   public abstract void setType(@NotNull LibraryType<?> type);
 
   @Override
-  public void addRoots(Collection<? extends OrderRoot> roots) {
+  public void addRoots(@NotNull Collection<? extends OrderRoot> roots) {
     for (OrderRoot root : roots) {
       if (root.isJarDirectory()) {
         addJarDirectory(root.getFile(), false, root.getType());
@@ -56,5 +55,11 @@ public abstract class LibraryEditorBase implements LibraryEditor {
         addRoot(root.getFile(), root.getType());
       }
     }
+  }
+
+  @Nullable
+  @Override
+  public ProjectModelExternalSource getExternalSource() {
+    return null;
   }
 }

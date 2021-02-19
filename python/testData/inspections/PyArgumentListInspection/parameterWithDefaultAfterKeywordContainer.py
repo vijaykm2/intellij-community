@@ -2,4 +2,4 @@ def foo(**kwargs): pass
 
 two = 0
 kw = {}
-foo(**kw, <error descr="Cannot appear past keyword arguments or *arg or **kwarg">two=1</error>)
+foo(**kw, <error descr="Python version 2.7 does not allow keyword arguments after **expression">two=1</error>)

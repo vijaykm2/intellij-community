@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.actions.validate;
 
 import com.intellij.javaee.UriUtil;
@@ -24,13 +10,15 @@ import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.xml.*;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.Function;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xml.util.XmlResourceResolver;
 import org.apache.xerces.impl.Constants;
+import org.apache.xerces.impl.XMLEntityManager;
+import org.apache.xerces.impl.XercesAccessor;
 import org.apache.xerces.jaxp.JAXPConstants;
 import org.apache.xerces.jaxp.SAXParserFactoryImpl;
+import org.apache.xerces.util.SecurityManager;
 import org.apache.xerces.util.XMLGrammarPoolImpl;
 import org.apache.xerces.xni.grammars.XMLGrammarPool;
 import org.jetbrains.annotations.NonNls;
@@ -41,24 +29,27 @@ import org.xml.sax.SAXNotRecognizedException;
 import org.xml.sax.SAXParseException;
 import org.xml.sax.helpers.DefaultHandler;
 
+import javax.xml.XMLConstants;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
 import java.io.StringReader;
 import java.util.Arrays;
+import java.util.Map;
 
-/**
- * @author Mike
- */
-public class ValidateXmlActionHandler {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.xml.actions.validate.ValidateXmlAction");
-  @NonNls private static final String SCHEMA_FULL_CHECKING_FEATURE_ID = "http://apache.org/xml/features/validation/schema-full-checking";
+public class ValidateXmlActionHandler implements ValidateXmlHandler {
+  private static final Logger LOG = Logger.getInstance(ValidateXmlActionHandler.class);
+
+  private static final String SCHEMA_FULL_CHECKING_FEATURE_ID = "http://apache.org/xml/features/validation/schema-full-checking";
   private static final String GRAMMAR_FEATURE_ID = Constants.XERCES_PROPERTY_PREFIX + Constants.XMLGRAMMAR_POOL_PROPERTY;
+  private static final String ENTITY_MANAGER_PROPERTY_ID = Constants.XERCES_PROPERTY_PREFIX + Constants.ENTITY_MANAGER_PROPERTY;
 
   private static final Key<XMLGrammarPool> GRAMMAR_POOL_KEY = Key.create("GrammarPoolKey");
   private static final Key<Long> GRAMMAR_POOL_TIME_STAMP_KEY = Key.create("GrammarPoolTimeStampKey");
   private static final Key<VirtualFile[]> DEPENDENT_FILES_KEY = Key.create("GrammarPoolFilesKey");
   private static final Key<String[]> KNOWN_NAMESPACES_KEY = Key.create("KnownNamespacesKey");
+  private static final Key<Map<String, XMLEntityManager.Entity>> ENTITIES_KEY = Key.create("EntityManagerKey");
+  public static final String JDK_XML_MAX_OCCUR_LIMIT = "jdk.xml.maxOccurLimit";
 
   private Project myProject;
   private XmlFile myFile;
@@ -111,6 +102,12 @@ public class ValidateXmlActionHandler {
     return msg;
   }
 
+  @Override
+  public boolean isAvailable(XmlFile file) {
+    return true;
+  }
+
+  @Override
   public void doValidate(XmlFile file) {
     myProject = file.getProject();
     myFile = file;
@@ -145,7 +142,9 @@ public class ValidateXmlActionHandler {
 
   public void doParse() {
     try {
-      myParser.parse(new InputSource(new StringReader(myFile.getText())), new DefaultHandler() {
+      InputSource inputSource = new InputSource(new StringReader(myFile.getText()));
+      inputSource.setSystemId(myFile.getVirtualFile().getUrl().replace("file:", "file:/"));
+      myParser.parse(inputSource, new DefaultHandler() {
         @Override
         public void warning(SAXParseException e) throws SAXException {
           if (myErrorReporter.isUniqueProblem(e)) myErrorReporter.processError(e, ProblemType.WARNING);
@@ -175,6 +174,7 @@ public class ValidateXmlActionHandler {
             ENTITY_RESOLVER_PROPERTY_NAME,
             myXmlResourceResolver
           );
+          configureEntityManager(myFile, myParser);
         }
       });
 
@@ -222,22 +222,36 @@ public class ValidateXmlActionHandler {
         } catch(NoSuchMethodError ignore) {}
         schemaChecking = true;
       }
+      try {
+        factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+      } catch (Exception ignore) {
+      }
 
       SAXParser parser = factory.newSAXParser();
 
       parser.setProperty(ENTITY_RESOLVER_PROPERTY_NAME, myXmlResourceResolver);
 
-      if (schemaChecking) { // when dtd checking schema refs could not be validated @see http://marc.theaimsgroup.com/?l=xerces-j-user&m=112504202423704&w=2
-        XMLGrammarPool grammarPool = getGrammarPool(myFile, myForceChecking);
-
-        parser.getXMLReader().setProperty(GRAMMAR_FEATURE_ID, grammarPool);
+      try {
+        parser.getXMLReader().setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+      } catch (Exception ignore) {
       }
 
+      String property = System.getProperty(JDK_XML_MAX_OCCUR_LIMIT);
+      if (property != null) {
+        SecurityManager securityManager = (SecurityManager)parser.getProperty(Constants.XERCES_PROPERTY_PREFIX + Constants.SECURITY_MANAGER_PROPERTY);
+        securityManager.setMaxOccurNodeLimit(Integer.parseInt(property));
+      }
+
+      if (schemaChecking) { // when dtd checking schema refs could not be validated @see http://marc.theaimsgroup.com/?l=xerces-j-user&m=112504202423704&w=2
+        XMLGrammarPool grammarPool = getGrammarPool(myFile, myForceChecking);
+        configureEntityManager(myFile, parser);
+        parser.getXMLReader().setProperty(GRAMMAR_FEATURE_ID, grammarPool);
+      }
       try {
         if (schemaChecking) {
           parser.setProperty(JAXPConstants.JAXP_SCHEMA_LANGUAGE,JAXPConstants.W3C_XML_SCHEMA);
           parser.getXMLReader().setFeature(SCHEMA_FULL_CHECKING_FEATURE_ID, true);
-          
+
           if (Boolean.TRUE.equals(Boolean.getBoolean(XmlResourceResolver.HONOUR_ALL_SCHEMA_LOCATIONS_PROPERTY_KEY))) {
             parser.getXMLReader().setFeature("http://apache.org/xml/features/honour-all-schemaLocations", true);
           }
@@ -266,8 +280,9 @@ public class ValidateXmlActionHandler {
     }
 
     if (grammarPool == null) {
+      invalidateEntityManager(file);
       grammarPool = new XMLGrammarPoolImpl();
-      file.putUserData(GRAMMAR_POOL_KEY,grammarPool);
+      file.putUserData(GRAMMAR_POOL_KEY, grammarPool);
     }
     return grammarPool;
   }
@@ -297,15 +312,31 @@ public class ValidateXmlActionHandler {
     return true;
   }
 
+  private static void invalidateEntityManager(XmlFile file) {
+    file.putUserData(ENTITIES_KEY, null);
+  }
+
+  private static void configureEntityManager(XmlFile file, SAXParser parser) throws SAXException {
+    XMLEntityManager entityManager = (XMLEntityManager)parser.getXMLReader().getProperty(ENTITY_MANAGER_PROPERTY_ID);
+    Map<String, XMLEntityManager.Entity> entities = file.getUserData(ENTITIES_KEY);
+    if (entities != null) {
+      // passing of entityManager object would break validation, so we copy its entities
+      Map<String, XMLEntityManager.Entity> map = XercesAccessor.getEntities(entityManager);
+      for (Map.Entry<String, XMLEntityManager.Entity> entry : entities.entrySet()) {
+        if (entry.getValue().isEntityDeclInExternalSubset()) {
+          map.put(entry.getKey(), entry.getValue());
+        }
+      }
+    }
+    else {
+      file.putUserData(ENTITIES_KEY, XercesAccessor.getEntities(entityManager));
+    }
+  }
+
   private static String[] getNamespaces(XmlFile file) {
     XmlTag rootTag = file.getRootTag();
-    if (rootTag == null) return ArrayUtil.EMPTY_STRING_ARRAY;
-    return ContainerUtil.mapNotNull(rootTag.getAttributes(), new Function<XmlAttribute, String>() {
-      @Override
-      public String fun(XmlAttribute attribute) {
-        return attribute.getValue();
-      }
-    }, ArrayUtil.EMPTY_STRING_ARRAY);
+    if (rootTag == null) return ArrayUtilRt.EMPTY_STRING_ARRAY;
+    return ContainerUtil.mapNotNull(rootTag.getAttributes(), attribute -> attribute.getValue(), ArrayUtilRt.EMPTY_STRING_ARRAY);
   }
 
   private static long calculateTimeStamp(final VirtualFile[] files, Project myProject) {

@@ -1,6 +1,6 @@
 // fields double initialization
 import java.io.*;
-import java.net.*;
+
 class Foo {
     final int k;
     final int ff = 5;
@@ -68,7 +68,7 @@ class c5 {
     }
     c5(int i, int j) {
       this('c');
-      k = 5;
+      <error descr="Variable 'k' might already have been assigned to">k</error> = 5;
     }
     c5(String s) {
       this(0,0);

@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.propertyInspector.editors.string;
 
 import com.intellij.CommonBundle;
 import com.intellij.ide.util.TreeClassChooserFactory;
 import com.intellij.ide.util.TreeFileChooser;
 import com.intellij.lang.properties.IProperty;
+import com.intellij.lang.properties.PropertiesFileType;
 import com.intellij.lang.properties.PropertiesReferenceManager;
 import com.intellij.lang.properties.PropertiesUtilBase;
 import com.intellij.lang.properties.psi.PropertiesFile;
@@ -27,7 +14,6 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.undo.UndoUtil;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
@@ -51,9 +37,8 @@ import com.intellij.uiDesigner.binding.FormReferenceProvider;
 import com.intellij.uiDesigner.compiler.AsmCodeGenerator;
 import com.intellij.uiDesigner.designSurface.GuiEditor;
 import com.intellij.uiDesigner.lw.StringDescriptor;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.Processor;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -62,7 +47,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.awt.event.KeyEvent;
+import java.awt.event.InputEvent;
 import java.util.*;
 
 /**
@@ -70,7 +55,7 @@ import java.util.*;
  * @author Vladimir Kondratyev
  */
 public final class StringEditorDialog extends DialogWrapper{
-  private static final Logger LOG = Logger.getInstance("#com.intellij.uiDesigner.propertyInspector.editors.string.StringEditorDialog");
+  private static final Logger LOG = Logger.getInstance(StringEditorDialog.class);
 
   @NonNls private static final String CARD_STRING = "string";
   @NonNls private static final String CARD_BUNDLE = "bundle";
@@ -98,10 +83,12 @@ public final class StringEditorDialog extends DialogWrapper{
     init(); /* run initialization proc */
   }
 
+  @Override
   protected String getDimensionServiceKey() {
     return getClass().getName();
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     if(myForm.myRbString.isSelected()){
       return myForm.myTfValue;
@@ -164,36 +151,32 @@ public final class StringEditorDialog extends DialogWrapper{
           }
         }
         final ReadonlyStatusHandler.OperationStatus operationStatus =
-          ReadonlyStatusHandler.getInstance(module.getProject()).ensureFilesWritable(propFile.getVirtualFile());
+          ReadonlyStatusHandler.getInstance(module.getProject()).ensureFilesWritable(Collections.singletonList(propFile.getVirtualFile()));
         if (operationStatus.hasReadonlyFiles()) {
           return null;
         }
         final String newKeyName1 = newKeyName;
         CommandProcessor.getInstance().executeCommand(
           module.getProject(),
-          new Runnable() {
-            public void run() {
-              UndoUtil.markPsiFileForUndo(formFile);
-              ApplicationManager.getApplication().runWriteAction(new Runnable() {
-                public void run() {
-                  PsiDocumentManager.getInstance(module.getProject()).commitAllDocuments();
-                  try {
-                    if (newKeyName1 != null) {
-                      propFile.addProperty(newKeyName1, editedValue);
-                    }
-                    else {
-                      final IProperty propertyByKey = propFile.findPropertyByKey(descriptor.getKey());
-                      if (propertyByKey != null) {
-                        propertyByKey.setValue(editedValue);
-                      }
-                    }
-                  }
-                  catch (IncorrectOperationException e) {
-                    LOG.error(e);
+          () -> {
+            UndoUtil.markPsiFileForUndo(formFile);
+            ApplicationManager.getApplication().runWriteAction(() -> {
+              PsiDocumentManager.getInstance(module.getProject()).commitAllDocuments();
+              try {
+                if (newKeyName1 != null) {
+                  propFile.addProperty(newKeyName1, editedValue);
+                }
+                else {
+                  final IProperty propertyByKey1 = propFile.findPropertyByKey(descriptor.getKey());
+                  if (propertyByKey1 != null) {
+                    propertyByKey1.setValue(editedValue);
                   }
                 }
-              });
-            }
+              }
+              catch (IncorrectOperationException e) {
+                LOG.error(e);
+              }
+            });
           }, UIDesignerBundle.message("command.update.property"), null);
         return newKeyName;
       }
@@ -201,22 +184,16 @@ public final class StringEditorDialog extends DialogWrapper{
     return null;
   }
 
-  private static Collection<PsiReference> findPropertyReferences(final Property pproperty, final Module module) {
-    final Collection<PsiReference> references = Collections.synchronizedList(new ArrayList<PsiReference>());
+  private static Collection<PsiReference> findPropertyReferences(final Property property, final Module module) {
+    final Collection<PsiReference> references = Collections.synchronizedList(new ArrayList<>());
     ProgressManager.getInstance().runProcessWithProgressSynchronously(
-          new Runnable() {
-        public void run() {
-          ReferencesSearch.search(pproperty).forEach(new Processor<PsiReference>() {
-            public boolean process(final PsiReference psiReference) {
-              PsiMethod method = PsiTreeUtil.getParentOfType(psiReference.getElement(), PsiMethod.class);
-              if (method == null || !AsmCodeGenerator.SETUP_METHOD_NAME.equals(method.getName())) {
-                references.add(psiReference);
-              }
-              return true;
-            }
-          });
+      (Runnable)() -> ReferencesSearch.search(property).forEach(psiReference -> {
+        PsiMethod method = PsiTreeUtil.getParentOfType(psiReference.getElement(), PsiMethod.class);
+        if (method == null || !AsmCodeGenerator.SETUP_METHOD_NAME.equals(method.getName())) {
+          references.add(psiReference);
         }
-      }, UIDesignerBundle.message("edit.text.searching.references"), false, module.getProject()
+        return true;
+      }), UIDesignerBundle.message("edit.text.searching.references"), false, module.getProject()
     );
     return references;
   }
@@ -230,10 +207,12 @@ public final class StringEditorDialog extends DialogWrapper{
     } while(propFile.findPropertyByKey(newName) != null);
 
     InputValidator validator = new InputValidator() {
+      @Override
       public boolean checkInput(String inputString) {
         return inputString.length() > 0 && propFile.findPropertyByKey(inputString) == null;
       }
 
+      @Override
       public boolean canClose(String inputString) {
         return checkInput(inputString);
       }
@@ -246,33 +225,29 @@ public final class StringEditorDialog extends DialogWrapper{
   public static boolean saveCreatedProperty(final PropertiesFile bundle, final String name, final String value,
                                             final PsiFile formFile) {
     final ReadonlyStatusHandler.OperationStatus operationStatus =
-      ReadonlyStatusHandler.getInstance(bundle.getProject()).ensureFilesWritable(bundle.getVirtualFile());
+      ReadonlyStatusHandler.getInstance(bundle.getProject()).ensureFilesWritable(Collections.singletonList(bundle.getVirtualFile()));
     if (operationStatus.hasReadonlyFiles()) {
       return false;
     }
     CommandProcessor.getInstance().executeCommand(
       bundle.getProject(),
-      new Runnable() {
-        public void run() {
-          UndoUtil.markPsiFileForUndo(formFile);
-          ApplicationManager.getApplication().runWriteAction(new Runnable() {
-            public void run() {
-              try {
-                bundle.addProperty(name, value);
-              }
-              catch (IncorrectOperationException e1) {
-                LOG.error(e1);
-              }
-            }
-          });
-        }
+      () -> {
+        UndoUtil.markPsiFileForUndo(formFile);
+        ApplicationManager.getApplication().runWriteAction(() -> {
+          try {
+            bundle.addProperty(name, value);
+          }
+          catch (IncorrectOperationException e1) {
+            LOG.error(e1);
+          }
+        });
       }, UIDesignerBundle.message("command.create.property"), null);
     return true;
   }
 
   /**
-   * @return edited descriptor. If initial descriptor was <code>null</code>
-   * and user didn't change anything then this method returns <code>null</code>.
+   * @return edited descriptor. If initial descriptor was {@code null}
+   * and user didn't change anything then this method returns {@code null}.
    */
   @Nullable
   StringDescriptor getDescriptor(){
@@ -312,6 +287,7 @@ public final class StringEditorDialog extends DialogWrapper{
     }
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return myForm.myPanel;
   }
@@ -329,9 +305,10 @@ public final class StringEditorDialog extends DialogWrapper{
     private JLabel myLblKey;
     private JLabel myLblBundleName;
 
-    public MyForm() {
+    MyForm() {
       myRbString.addActionListener(
         new ActionListener() {
+          @Override
           public void actionPerformed(final ActionEvent e) {
             CardLayout cardLayout = (CardLayout) myCardHolder.getLayout();
             cardLayout.show(myCardHolder, CARD_STRING);
@@ -341,12 +318,13 @@ public final class StringEditorDialog extends DialogWrapper{
 
       myRbResourceBundle.addActionListener(
         new ActionListener() {
+          @Override
           public void actionPerformed(final ActionEvent e) {
             if (!myDefaultBundleInitialized) {
               myDefaultBundleInitialized = true;
               Set<String> bundleNames = FormEditingUtil.collectUsedBundleNames(myEditor.getRootContainer());
               if (bundleNames.size() > 0) {
-                myTfBundleName.setText(ArrayUtil.toStringArray(bundleNames)[0]);
+                myTfBundleName.setText(ArrayUtilRt.toStringArray(bundleNames)[0]);
               }
             }
             CardLayout cardLayout = (CardLayout) myCardHolder.getLayout();
@@ -362,16 +340,18 @@ public final class StringEditorDialog extends DialogWrapper{
       // Enable keyboard pressing
       myTfBundleName.registerKeyboardAction(
         new AbstractAction() {
+          @Override
           public void actionPerformed(final ActionEvent e) {
             myTfBundleName.getButton().doClick();
           }
         },
-        KeyStroke.getKeyStroke(myLblBundleName.getDisplayedMnemonic(), KeyEvent.ALT_DOWN_MASK),
+        KeyStroke.getKeyStroke(myLblBundleName.getDisplayedMnemonic(), InputEvent.ALT_DOWN_MASK),
         JComponent.WHEN_IN_FOCUSED_WINDOW
       );
 
       myTfBundleName.addActionListener(
         new ActionListener() {
+          @Override
           public void actionPerformed(final ActionEvent e) {
             Project project = myEditor.getProject();
             final String bundleNameText = myTfBundleName.getText().replace('/', '.');
@@ -379,14 +359,16 @@ public final class StringEditorDialog extends DialogWrapper{
             PsiFile initialPropertiesFile = file == null ? null : file.getContainingFile();
             final GlobalSearchScope moduleScope = GlobalSearchScope.moduleWithDependenciesScope(myEditor.getModule());
             TreeFileChooser fileChooser = TreeClassChooserFactory.getInstance(project).createFileChooser(UIDesignerBundle.message("title.choose.properties.file"), initialPropertiesFile,
-                                                                                                         StdFileTypes.PROPERTIES, new TreeFileChooser.PsiFileFilter() {
+                                                                                                         PropertiesFileType.INSTANCE, new TreeFileChooser.PsiFileFilter() {
+              @Override
               public boolean accept(PsiFile file) {
                 final VirtualFile virtualFile = file.getVirtualFile();
                 return virtualFile != null && moduleScope.contains(virtualFile);
               }
             });
             fileChooser.showDialog();
-            PropertiesFile propertiesFile = (PropertiesFile)fileChooser.getSelectedFile();
+            PsiFile selectedFile = fileChooser.getSelectedFile();
+            PropertiesFile propertiesFile = selectedFile instanceof PropertiesFile ? (PropertiesFile)selectedFile : null;
             if (propertiesFile == null) {
               return;
             }
@@ -402,16 +384,18 @@ public final class StringEditorDialog extends DialogWrapper{
       // Enable keyboard pressing
       myTfKey.registerKeyboardAction(
         new AbstractAction() {
+          @Override
           public void actionPerformed(final ActionEvent e) {
             myTfKey.getButton().doClick();
           }
         },
-        KeyStroke.getKeyStroke(myLblKey.getDisplayedMnemonic(), KeyEvent.ALT_DOWN_MASK),
+        KeyStroke.getKeyStroke(myLblKey.getDisplayedMnemonic(), InputEvent.ALT_DOWN_MASK),
         JComponent.WHEN_IN_FOCUSED_WINDOW
       );
 
       myTfKey.addActionListener(
         new ActionListener() {
+          @Override
           public void actionPerformed(final ActionEvent e) {
             // 1. Check that bundle exist. Otherwise we cannot show key chooser
             final String bundleName = myTfBundleName.getText();

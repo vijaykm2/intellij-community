@@ -1,114 +1,111 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.actions;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.Presentation;
+import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.actionSystem.UpdateInBackground;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.vcs.*;
+import com.intellij.openapi.vcs.AbstractVcs;
+import com.intellij.openapi.vcs.AbstractVcsHelper;
+import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.ProjectLevelVcsManager;
+import com.intellij.openapi.vcs.changes.ChangesUtil;
 import com.intellij.openapi.vcs.history.VcsHistoryProvider;
-import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.ObjectUtils;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.vcs.log.VcsLogFileHistoryProvider;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
+import java.util.Collection;
+import java.util.List;
+import java.util.Objects;
 
 
-public class TabbedShowHistoryAction extends AbstractVcsAction {
+public class TabbedShowHistoryAction extends DumbAwareAction implements UpdateInBackground {
+  private static final int MANY_CHANGES_THRESHOLD = 1000;
+
   @Override
-  protected void update(VcsContext context, Presentation presentation) {
-    presentation.setEnabled(isEnabled(context));
-    final Project project = context.getProject();
-    presentation.setVisible(project != null && ProjectLevelVcsManager.getInstance(project).hasActiveVcss());
+  public void update(@NotNull AnActionEvent e) {
+    Project project = e.getProject();
+    boolean isVisible = project != null && ProjectLevelVcsManager.getInstance(project).hasActiveVcss();
+    e.getPresentation().setEnabled(isEnabled(e.getDataContext()));
+    e.getPresentation().setVisible(isVisible);
   }
 
-  protected VcsHistoryProvider getProvider(AbstractVcs activeVcs) {
-    return activeVcs.getVcsHistoryProvider();
-  }
-
-  protected boolean isEnabled(VcsContext context) {
-    FilePath selectedFile = getSelectedFileOrNull(context);
-    if (selectedFile == null) return false;
-    Project project = context.getProject();
+  protected boolean isEnabled(@NotNull DataContext context) {
+    Project project = context.getData(CommonDataKeys.PROJECT);
     if (project == null) return false;
-    VirtualFile someVFile = selectedFile.getVirtualFile() != null ?
-                            selectedFile.getVirtualFile() : selectedFile.getVirtualFileParent();
-    if (someVFile == null) {
-      return false;
+
+    List<FilePath> selectedFiles = VcsContextUtil.selectedFilePathsIterable(context)
+      .take(MANY_CHANGES_THRESHOLD)
+      .toList();
+
+    if (selectedFiles.isEmpty()) return false;
+
+    if (canShowNewFileHistory(project, selectedFiles)) {
+      return ContainerUtil.all(selectedFiles, path -> AbstractVcs.fileInVcsByFileStatus(project, path));
     }
-    AbstractVcs vcs = ProjectLevelVcsManager.getInstance(project).getVcsFor(someVFile);
-    if (vcs == null) return false;
-    VcsHistoryProvider vcsHistoryProvider = getProvider(vcs);
-    if (vcsHistoryProvider == null) return false;
-    if (selectedFile.isDirectory() && (! vcsHistoryProvider.supportsHistoryForDirectories())) return false;
-    if (!canFileHaveHistory(project, someVFile)) {
-      return false;
+
+    if (selectedFiles.size() == 1) {
+      FilePath selectedPath = ContainerUtil.getFirstItem(selectedFiles);
+      if (selectedPath == null) return false;
+      VirtualFile fileOrParent = getExistingFileOrParent(selectedPath);
+      if (fileOrParent == null) return false;
+
+      if (canShowOldFileHistory(project, selectedPath, fileOrParent)) {
+        return AbstractVcs.fileInVcsByFileStatus(project, selectedPath);
+      }
     }
-    return vcsHistoryProvider.canShowHistoryFor(someVFile);
+
+    return false;
   }
 
-  private static boolean canFileHaveHistory(@NotNull Project project, @NotNull VirtualFile file) {
-    final FileStatus fileStatus = FileStatusManager.getInstance(project).getStatus(file);
-    return fileStatus != FileStatus.ADDED && fileStatus != FileStatus.UNKNOWN && fileStatus != FileStatus.IGNORED;
+  private static boolean canShowOldFileHistory(@NotNull Project project, @NotNull FilePath path, @NotNull VirtualFile fileOrParent) {
+    AbstractVcs vcs = ChangesUtil.getVcsForFile(fileOrParent, project);
+    if (vcs == null) return false;
+
+    VcsHistoryProvider provider = vcs.getVcsHistoryProvider();
+    return provider != null &&
+           (provider.supportsHistoryForDirectories() || !path.isDirectory()) &&
+           provider.canShowHistoryFor(fileOrParent);
+  }
+
+  private static boolean canShowNewFileHistory(@NotNull Project project, @NotNull Collection<FilePath> paths) {
+    VcsLogFileHistoryProvider historyProvider = ApplicationManager.getApplication().getService(VcsLogFileHistoryProvider.class);
+    return historyProvider != null && historyProvider.canShowFileHistory(project, paths, null);
   }
 
   @Nullable
-  protected static FilePath getSelectedFileOrNull(VcsContext context) {
-    FilePath result = null;
-    VirtualFile[] virtualFileArray = context.getSelectedFiles();
-    if (virtualFileArray.length != 0) {
-      if (virtualFileArray.length > 1) return null;
-      if (virtualFileArray.length > 0) {
-        result = new FilePathImpl(virtualFileArray[0]);
-      }
-    }
-
-    File[] fileArray = context.getSelectedIOFiles();
-    if (fileArray != null && fileArray.length > 0) {
-      for (File file : fileArray) {
-        final File parentIoFile = file.getParentFile();
-        if (parentIoFile == null) continue;
-        final VirtualFile parent = LocalFileSystem.getInstance().findFileByIoFile(parentIoFile);
-        if (parent != null) {
-          final FilePathImpl child = new FilePathImpl(parent, file.getName(), false);
-          if (result != null) return null;
-          result = child;
-        }
-      }
-    }
-    return result;
+  private static VirtualFile getExistingFileOrParent(@NotNull FilePath selectedPath) {
+    return ObjectUtils.chooseNotNull(selectedPath.getVirtualFile(), selectedPath.getVirtualFileParent());
   }
 
   @Override
-  protected void actionPerformed(@NotNull VcsContext context) {
-    FilePath path = getSelectedFileOrNull(context);
-    if (path == null) return;
-    Project project = context.getProject();
-    VirtualFile someVFile = path.getVirtualFile() != null ? path.getVirtualFile() : path.getVirtualFileParent();
-    AbstractVcs activeVcs = ProjectLevelVcsManager.getInstance(project).getVcsFor(someVFile);
-    assert activeVcs != null;
-    VcsHistoryProvider vcsHistoryProvider = getProvider(activeVcs);
-    AbstractVcsHelper.getInstance(project).showFileHistory(vcsHistoryProvider, activeVcs.getAnnotationProvider(), path, null, activeVcs);
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    Project project = Objects.requireNonNull(e.getProject());
+    List<FilePath> selectedFiles = VcsContextUtil.selectedFilePaths(e.getDataContext());
+    if (canShowNewFileHistory(project, selectedFiles)) {
+      showNewFileHistory(project, selectedFiles);
+    }
+    else if (selectedFiles.size() == 1) {
+      FilePath path = Objects.requireNonNull(ContainerUtil.getFirstItem(selectedFiles));
+      AbstractVcs vcs = Objects.requireNonNull(ChangesUtil.getVcsForFile(Objects.requireNonNull(getExistingFileOrParent(path)), project));
+      showOldFileHistory(project, vcs, path);
+    }
   }
 
+  private static void showNewFileHistory(@NotNull Project project, @NotNull Collection<FilePath> paths) {
+    VcsLogFileHistoryProvider historyProvider = ApplicationManager.getApplication().getService(VcsLogFileHistoryProvider.class);
+    historyProvider.showFileHistory(project, paths, null);
+  }
 
-
-  @Override
-  protected boolean forceSyncUpdate(final AnActionEvent e) {
-    return true;
+  private static void showOldFileHistory(@NotNull Project project, @NotNull AbstractVcs vcs, @NotNull FilePath path) {
+    VcsHistoryProvider provider = Objects.requireNonNull(vcs.getVcsHistoryProvider());
+    AbstractVcsHelper.getInstance(project).showFileHistory(provider, vcs.getAnnotationProvider(), path, vcs);
   }
 }

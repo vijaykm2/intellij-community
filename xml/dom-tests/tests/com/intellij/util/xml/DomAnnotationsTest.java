@@ -16,8 +16,8 @@
 package com.intellij.util.xml;
 
 import com.intellij.codeInspection.InspectionManager;
+import com.intellij.ide.highlighter.XmlFileType;
 import com.intellij.lang.annotation.HighlightSeverity;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiFileFactory;
 import com.intellij.psi.xml.XmlFile;
@@ -35,8 +35,7 @@ public class DomAnnotationsTest extends DomTestCase {
   @Override
   protected <T extends DomElement> T createElement(final String xml, final Class<T> aClass) {
     final String name = "a.xml";
-    final XmlFile file = (XmlFile)PsiFileFactory.getInstance(getProject()).createFileFromText(name, StdFileTypes.XML, xml, 0,
-                                                                                                              true);
+    final XmlFile file = (XmlFile)PsiFileFactory.getInstance(getProject()).createFileFromText(name, XmlFileType.INSTANCE, xml, 0, true);
     final XmlTag tag = file.getDocument().getRootTag();
     final String rootTagName = tag != null ? tag.getName() : "root";
     final T element = getDomManager().getFileElement(file, aClass, rootTagName).getRootElement();
@@ -45,7 +44,7 @@ public class DomAnnotationsTest extends DomTestCase {
     return element;
   }
 
-  public void testResolveProblemsAreReportedOnlyOnce() throws Throwable {
+  public void testResolveProblemsAreReportedOnlyOnce() {
     final MyElement myElement = createElement("<a><my-class>abc</my-class></a>", MyElement.class);
     
     new MockDomInspection(MyElement.class).checkFile(DomUtil.getFile(myElement), InspectionManager.getInstance(getProject()), true);
@@ -60,7 +59,7 @@ public class DomAnnotationsTest extends DomTestCase {
     assertEquals(1, holder.getProblems(myElement, true, true).size());
   }
 
-  public void testMinSeverity() throws Throwable {
+  public void testMinSeverity() {
     final MyElement element = createElement("<a/>", MyElement.class);
     final DomElementsProblemsHolderImpl holder = new DomElementsProblemsHolderImpl(DomUtil.getFileElement(element));
     final DomElementProblemDescriptorImpl error = new DomElementProblemDescriptorImpl(element, "abc", HighlightSeverity.ERROR);

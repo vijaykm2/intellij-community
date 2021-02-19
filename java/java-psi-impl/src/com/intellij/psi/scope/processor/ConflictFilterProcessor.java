@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.scope.processor;
 
 import com.intellij.openapi.util.Key;
@@ -28,10 +14,6 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-/**
- * @author ik
- * Date: 31.03.2003
- */
 public class ConflictFilterProcessor extends FilterScopeProcessor<CandidateInfo> implements NameHint {
   private final PsiConflictResolver[] myResolvers;
   private JavaResolveResult[] myCachedResult;
@@ -41,10 +23,10 @@ public class ConflictFilterProcessor extends FilterScopeProcessor<CandidateInfo>
 
   public ConflictFilterProcessor(String name,
                                  @NotNull ElementFilter filter,
-                                 @NotNull PsiConflictResolver[] resolvers,
+                                 PsiConflictResolver @NotNull [] resolvers,
                                  @NotNull List<CandidateInfo> container,
                                  @NotNull PsiElement place,
-                                 PsiFile placeFile) {
+                                 @NotNull PsiFile placeFile) {
     super(filter, container);
     myResolvers = resolvers;
     myName = name;
@@ -55,7 +37,7 @@ public class ConflictFilterProcessor extends FilterScopeProcessor<CandidateInfo>
   @Override
   public boolean execute(@NotNull PsiElement element, @NotNull ResolveState state) {
     JavaResolveResult[] cachedResult = myCachedResult;
-    if (cachedResult != null && cachedResult.length == 1 && cachedResult[0].isAccessible()) {
+    if (cachedResult != null && cachedResult.length == 1 && stopAtFoundResult(cachedResult[0])) {
       return false;
     }
     if (myName == null || PsiUtil.checkName(element, myName, myPlace)) {
@@ -64,12 +46,16 @@ public class ConflictFilterProcessor extends FilterScopeProcessor<CandidateInfo>
     return true;
   }
 
+  protected boolean stopAtFoundResult(@NotNull JavaResolveResult cachedResult) {
+    return cachedResult.isAccessible();
+  }
+
   @Override
   protected void add(@NotNull PsiElement element, @NotNull PsiSubstitutor substitutor) {
     add(new CandidateInfo(element, substitutor));
   }
 
-  protected void add(CandidateInfo info) {
+  protected void add(@NotNull CandidateInfo info) {
     myCachedResult = null;
     myResults.add(info);
   }
@@ -81,20 +67,21 @@ public class ConflictFilterProcessor extends FilterScopeProcessor<CandidateInfo>
     }
   }
 
-  @NotNull
-  public JavaResolveResult[] getResult() {
+  public JavaResolveResult @NotNull [] getResult() {
     JavaResolveResult[] cachedResult = myCachedResult;
     if (cachedResult == null) {
-      final List<CandidateInfo> conflicts = getResults();
-      for (PsiConflictResolver resolver : myResolvers) {
-        CandidateInfo candidate = resolver.resolveConflict(conflicts);
-        if (candidate != null) {
-          conflicts.clear();
-          conflicts.add(candidate);
-          break;
+      List<CandidateInfo> conflicts = getResults();
+      if (!conflicts.isEmpty()) {
+        for (PsiConflictResolver resolver : myResolvers) {
+          CandidateInfo candidate = resolver.resolveConflict(conflicts);
+          if (candidate != null) {
+            conflicts.clear();
+            conflicts.add(candidate);
+            break;
+          }
         }
       }
-      myCachedResult = cachedResult = conflicts.toArray(new JavaResolveResult[conflicts.size()]);
+      myCachedResult = cachedResult = conflicts.toArray(JavaResolveResult.EMPTY_ARRAY);
     }
 
     return cachedResult;

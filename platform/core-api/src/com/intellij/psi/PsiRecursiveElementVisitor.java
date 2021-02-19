@@ -16,6 +16,7 @@
 package com.intellij.psi;
 
 import com.intellij.openapi.progress.ProgressIndicatorProvider;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
@@ -23,7 +24,7 @@ import java.util.List;
  * Represents a PSI element visitor which recursively visits the children of the element
  * on which the visit was started.
  */
-public abstract class PsiRecursiveElementVisitor extends PsiElementVisitor {
+public abstract class PsiRecursiveElementVisitor extends PsiElementVisitor implements PsiRecursiveVisitor {
   private final boolean myVisitAllFileRoots;
 
   protected PsiRecursiveElementVisitor() {
@@ -35,13 +36,13 @@ public abstract class PsiRecursiveElementVisitor extends PsiElementVisitor {
   }
 
   @Override
-  public void visitElement(final PsiElement element) {
+  public void visitElement(@NotNull final PsiElement element) {
     ProgressIndicatorProvider.checkCanceled();
     element.acceptChildren(this);
   }
 
   @Override
-  public void visitFile(final PsiFile file) {
+  public void visitFile(@NotNull final PsiFile file) {
     if (myVisitAllFileRoots) {
       final FileViewProvider viewProvider = file.getViewProvider();
       final List<PsiFile> allFiles = viewProvider.getAllFiles();

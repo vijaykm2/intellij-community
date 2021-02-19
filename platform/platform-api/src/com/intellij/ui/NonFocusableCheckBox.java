@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 package com.intellij.ui;
 
 import com.intellij.ide.ui.UISettings;
+import com.intellij.openapi.util.NlsContexts;
 
 import javax.swing.*;
 
@@ -24,7 +25,7 @@ import javax.swing.*;
  *  @author dsl
  */
 public class NonFocusableCheckBox extends JCheckBox {
-  public NonFocusableCheckBox(String text) {
+  public NonFocusableCheckBox(@NlsContexts.Checkbox String text) {
     super(text);
     initFocusability();
   }
@@ -34,7 +35,7 @@ public class NonFocusableCheckBox extends JCheckBox {
   }
 
   private void initFocusability() {
-    if (!UISettings.getShadowInstance().DISABLE_MNEMONICS_IN_CONTROLS) { // Or that won't be keyboard accessible at all
+    if (!UISettings.getShadowInstance().getDisableMnemonicsInControls()) { // Or that won't be keyboard accessible at all
       setFocusable(false);
     }
   }

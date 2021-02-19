@@ -1,34 +1,21 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.resolve
 
-import com.intellij.psi.PsiMethod
 import com.intellij.testFramework.LightProjectDescriptor
-import org.jetbrains.plugins.groovy.GroovyLightProjectDescriptor
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrMethodCall
+import org.jetbrains.plugins.groovy.util.TypingTest
+
+import static com.intellij.psi.CommonClassNames.JAVA_LANG_INTEGER
 
 /**
  * Created by Max Medvedev on 10/02/14
  */
-class TypeInference2_3Test extends TypeInferenceTestBase {
-  @Override
-  protected LightProjectDescriptor getProjectDescriptor() {
-    return GroovyLightProjectDescriptor.GROOVY_2_3
-  }
+class TypeInference2_3Test extends TypeInferenceTestBase implements TypingTest {
 
-  public void testContravariantType() throws Exception {
+  final LightProjectDescriptor projectDescriptor = GroovyProjectDescriptors.GROOVY_2_3
+
+  void testContravariantType() throws Exception {
     doTest('''\
 import groovy.transform.CompileStatic
 import java.util.concurrent.Callable
@@ -216,5 +203,213 @@ class Thing {
         ["bc", "a", ].sort { i<caret>t.size() }
       }
     }""", "java.lang.String")
+  }
+
+  void testSmartTypeOnDef() {
+    doTest("""\
+    class Idea {
+      public static void main(String[] args) {
+       def aa = new Object()
+       aa = "as"
+       a<caret>a
+      }
+    }""", "java.lang.String")
+  }
+
+  void testSmartType() {
+    doTest("""\
+    class Idea {
+      public static void main(String[] args) {
+       Object aa = new Object()
+       aa = "as"
+       a<caret>a
+      }
+    }""", "java.lang.String")
+  }
+
+  void testSmartTypeIf() {
+    doTest("""\
+    import groovy.transform.CompileStatic
+
+    @CompileStatic
+    class Idea {
+      public static void main(String[] args) {
+       Object aa = new Object()
+       if (aa instanceof String) {
+        a<caret>a
+       }
+       
+      }
+    }""", "java.lang.String")
+  }
+
+  void testSmartTypeIfOnDef() {
+    doTest("""\
+    class Idea {
+      public static void main(String[] args) {
+       def aa = new Object()
+       if (aa instanceof String) {
+        a<caret>a
+       }
+       
+      }
+    }""", "java.lang.String")
+  }
+
+  void testSmartTypeAssert() {
+    doTest("""\
+    class Idea {
+      public static void main(String[] args) {
+       Object aa = new Object()
+       assert aa instanceof String 
+       a<caret>a
+       
+       
+      }
+    }""", "java.lang.String")
+  }
+
+  void testSmartTypeAssertOnDef() {
+    doTest("""\
+    class Idea {
+      public static void main(String[] args) {
+       def aa = new Object()
+       assert aa instanceof String 
+       a<caret>a
+       
+       
+      }
+    }""", "java.lang.String")
+  }
+
+  void 'test type of method returning null in @CompileStatic'() {
+    typingTest '''\
+@groovy.transform.CompileStatic
+class B {
+    void m() { <caret>method() }
+    private List method() { return null }
+}
+''', GrMethodCall, 'java.util.List'
+  }
+
+  void 'test inference from explicit typed SAM argument'() {
+    doTest '''
+interface SAM<O> {
+    void accept(O out)
+}
+
+def <R> R samMethod(SAM<R> mapper) {
+}
+
+s<caret>amMethod({Integer i->})
+
+''', JAVA_LANG_INTEGER
+  }
+
+  void 'test inference from explicit typed SAM argument (nested generic)'() {
+    doTest '''
+interface SAM<O> {
+    void accept(Collection<List<O>> out)
+}
+
+def <R> R samMethod(SAM<R> mapper) {
+}
+
+s<caret>amMethod({Collection<List<Integer>> i->})
+
+''', JAVA_LANG_INTEGER
+  }
+
+  void 'test inference from explicit typed SAM argument (several type params)'() {
+    doTest '''
+public interface SAM<T, O> {
+    void flatMap(T value, Collection<O> out) throws Exception;
+}
+
+class C<T> {
+    public <R> R flatMap(SAM<T, R> f) {
+        return null
+    }
+}
+
+new C<String>().flat<caret>Map {
+    String s, Collection<Integer> c ->
+} 
+''', JAVA_LANG_INTEGER
+  }
+
+  void 'test inference from explicit typed SAM argument (with return type)'() {
+    doTest '''
+public interface SAM<T, O> {
+    void flatMap(T value, Collection<O> out) throws Exception;
+}
+
+class C<T> {
+    public <R> R flatMap(SAM<T, R> f) {
+        return null
+    }
+}
+
+new C<String>().flat<caret>Map {
+    String s, Collection<Integer> c -> new String[10]
+} 
+''', JAVA_LANG_INTEGER
+  }
+
+  void 'test inference from explicit typed SAM argument (with lambda)'() {
+    doTest '''
+public interface SAM<T, O> {
+    void flatMap(T value, Collection<O> out) throws Exception;
+}
+
+class C<T> {
+    public <R> R flatMap(SAM<T, R> f) {
+        return null
+    }
+}
+
+new C<String>().flat<caret>Map((String s, Collection<Integer> c) -> new String[10])
+    
+ 
+''', JAVA_LANG_INTEGER
+  }
+
+  void 'test inference from explicit typed SAM argument (with default values)'() {
+    doTest '''
+public interface SAM<T, O> {
+    void flatMap(T value, Collection<O> out) throws Exception;
+}
+
+class C<T> {
+    public <R> R flatMap(SAM<T, R> f) {
+        return null
+    }
+}
+
+new C<String>().flat<caret>Map {
+    String s, Collection<Integer> c, Double d = 1.0 -> new String[10]
+} 
+''', JAVA_LANG_INTEGER
+  }
+
+  void 'test inference from explicit typed SAM argument (with SAM inheritance)'() {
+    doTest '''
+public interface SAM<T, O> {
+    void flatMap(T value, Collection<O> out) throws Exception;
+}
+
+public interface Inheritor<U> extends SAM<String, U> {
+}
+
+class C {
+    public <R> R flatMap(Inheritor<R> f) {
+        return null
+    }
+}
+
+new C().flat<caret>Map {
+    String s, Collection<Integer> c -> new String[10]
+} 
+''', JAVA_LANG_INTEGER
   }
 }

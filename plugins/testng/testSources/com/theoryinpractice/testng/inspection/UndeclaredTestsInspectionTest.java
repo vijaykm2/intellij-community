@@ -14,14 +14,10 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 18-Jun-2007
- */
 package com.theoryinpractice.testng.inspection;
 
 import com.intellij.openapi.application.PluginPathManager;
-import com.intellij.testFramework.InspectionTestCase;
+import com.intellij.testFramework.JavaInspectionTestCase;
 import com.intellij.util.ui.UIUtil;
 import com.theoryinpractice.testng.util.TestNGUtil;
 import org.jetbrains.annotations.NonNls;
@@ -30,43 +26,40 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
-public class UndeclaredTestsInspectionTest extends InspectionTestCase {
+public class UndeclaredTestsInspectionTest extends JavaInspectionTestCase {
 
   @Override
   public String getName() {
     return "test";
   }
 
+  @Override
   @BeforeMethod
-  protected void setUp() throws Exception {
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          UndeclaredTestsInspectionTest.super.setUp();
-        }
-        catch (Exception e) {
-          throw new RuntimeException(e);
-        }
+  protected void setUp() {
+    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+      try {
+        UndeclaredTestsInspectionTest.super.setUp();
+      }
+      catch (Exception e) {
+        throw new RuntimeException(e);
       }
     });
   }
 
+  @Override
   @AfterMethod
-  protected void tearDown() throws Exception {
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          UndeclaredTestsInspectionTest.super.tearDown();
-        }
-        catch (Exception e) {
-          throw new RuntimeException(e);
-        }
+  protected void tearDown() {
+    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+      try {
+        UndeclaredTestsInspectionTest.super.tearDown();
+      }
+      catch (Exception e) {
+        throw new RuntimeException(e);
       }
     });
   }
 
+  @Override
   @NonNls
   protected String getTestDataPath() {
     return PluginPathManager.getPluginHomePath("testng") + "/testData/inspection";
@@ -78,17 +71,14 @@ public class UndeclaredTestsInspectionTest extends InspectionTestCase {
   }
 
   @Test(dataProvider = "data")
-  public void doTest(final String name) throws Exception {
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          TestNGUtil.hasDocTagsSupport = true;
-          doTest("undeclaredTests/" + name, new UndeclaredTestInspection());
-        }
-        catch (Exception e) {
-          throw new RuntimeException(e);
-        }
+  public void doTest(final String name) {
+    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+      try {
+        TestNGUtil.hasDocTagsSupport = true;
+        doTest("undeclaredTests/" + name, new UndeclaredTestInspection());
+      }
+      catch (Exception e) {
+        throw new RuntimeException(e);
       }
     });
   }

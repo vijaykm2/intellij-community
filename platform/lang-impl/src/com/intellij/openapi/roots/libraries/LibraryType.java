@@ -19,10 +19,12 @@ import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.OrderRootType;
+import com.intellij.openapi.roots.impl.libraries.UnknownLibraryKind;
 import com.intellij.openapi.roots.libraries.ui.LibraryEditorComponent;
 import com.intellij.openapi.roots.libraries.ui.LibraryPropertiesEditor;
 import com.intellij.openapi.roots.libraries.ui.LibraryRootsComponentDescriptor;
 import com.intellij.openapi.roots.ui.configuration.FacetsProvider;
+import com.intellij.openapi.util.NlsContexts.Label;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -31,13 +33,15 @@ import javax.swing.*;
 import java.util.List;
 
 /**
- * Override this class to provide custom library type. The implementation should be registered in plugin.xml:
+ * Override this class to provide custom library type. Type and properties for custom libraries are stored in project configuration files. If
+ * they can be detected automatically it's better to use {@link LibraryPresentationProvider} extension point instead. <br>
+ * The implementation should be registered in plugin.xml:
  * <p>
  * &lt;extensions defaultExtensionNs="com.intellij"&gt;<br>
  * &nbsp;&nbsp;&lt;library.type implementation="qualified-class-name"/&gt;<br>
  * &lt;/extensions&gt;
  *
- * @author nik
+ * @see LibraryPresentationProvider
  */
 public abstract class LibraryType<P extends LibraryProperties> extends LibraryPresentationProvider<P> {
   public static final ExtensionPointName<LibraryType<?>> EP_NAME = ExtensionPointName.create("com.intellij.library.type");
@@ -57,6 +61,7 @@ public abstract class LibraryType<P extends LibraryProperties> extends LibraryPr
   /**
    * @return text to show in 'New Library' popup. Return {@code null} if the type should not be shown in the 'New Library' popup
    */
+  @Label
   @Nullable
   public abstract String getCreateActionName();
 
@@ -76,7 +81,7 @@ public abstract class LibraryType<P extends LibraryProperties> extends LibraryPr
 
   /**
    * Override this method to customize the library roots editor
-   * @return {@link com.intellij.openapi.roots.libraries.ui.LibraryRootsComponentDescriptor} instance
+   * @return {@link LibraryRootsComponentDescriptor} instance
    */
   @Nullable
   public LibraryRootsComponentDescriptor createLibraryRootsComponentDescriptor() {
@@ -95,15 +100,19 @@ public abstract class LibraryType<P extends LibraryProperties> extends LibraryPr
    * @return Root types to collect library files which do not belong to the project and therefore
    *         indicate that the library is external.
    */
-  public OrderRootType[] getExternalRootTypes() {
+  public OrderRootType @NotNull [] getExternalRootTypes() {
     return DEFAULT_EXTERNAL_ROOT_TYPES;
   }
 
-  public static LibraryType findByKind(LibraryKind kind) {
-    for (LibraryType type : EP_NAME.getExtensions()) {
+  @NotNull
+  public static LibraryType findByKind(@NotNull LibraryKind kind) {
+    for (LibraryType<?> type : EP_NAME.getExtensions()) {
       if (type.getKind() == kind) {
         return type;
       }
+    }
+    if (kind instanceof UnknownLibraryKind) {
+      return new UnknownLibraryType((UnknownLibraryKind)kind);
     }
     throw new IllegalArgumentException("Library with kind " + kind + " is not registered");
   }

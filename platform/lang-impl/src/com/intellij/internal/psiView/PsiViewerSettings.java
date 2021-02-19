@@ -1,31 +1,17 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.internal.psiView;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.*;
 import com.intellij.util.xmlb.XmlSerializerUtil;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Konstantin Bulenkov
  */
-@State(
-  name = "PsiViewerSettings",
-  storages = @Storage(file = StoragePathMacros.APP_CONFIG + "/other.xml")
-)
-public class PsiViewerSettings implements PersistentStateComponent<PsiViewerSettings> {
+@State(name = "PsiViewerSettings", storages = @Storage(StoragePathMacros.NON_ROAMABLE_FILE))
+@Service
+public final class PsiViewerSettings implements PersistentStateComponent<PsiViewerSettings> {
   public boolean showWhiteSpaces = true;
   public boolean showTreeNodes = true;
   public String type = "JAVA file";
@@ -33,11 +19,10 @@ public class PsiViewerSettings implements PersistentStateComponent<PsiViewerSett
   public String dialect = "";
   public int textDividerLocation = 250;
   public int treeDividerLocation = 400;
-  public int blockRefDividerLocation = 600;
-  public boolean showBlocks = true;
+  public int lastSelectedTabIndex = 0;
 
   public static PsiViewerSettings getSettings() {
-    return ServiceManager.getService(PsiViewerSettings.class);
+    return ApplicationManager.getApplication().getService(PsiViewerSettings.class);
   }
 
   @Override
@@ -46,7 +31,7 @@ public class PsiViewerSettings implements PersistentStateComponent<PsiViewerSett
   }
 
   @Override
-  public void loadState(PsiViewerSettings state) {
+  public void loadState(@NotNull PsiViewerSettings state) {
     XmlSerializerUtil.copyBean(state, this);
   }
 }

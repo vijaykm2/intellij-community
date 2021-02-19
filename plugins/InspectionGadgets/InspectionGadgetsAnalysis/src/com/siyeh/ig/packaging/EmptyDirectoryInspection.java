@@ -1,5 +1,5 @@
 /*
- * Copyright 2011 Bas Leijdekkers
+ * Copyright 2011-2016 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,13 +19,10 @@ import com.intellij.analysis.AnalysisScope;
 import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.reference.RefElement;
 import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
-import com.intellij.openapi.application.Application;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.ContentIterator;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
@@ -40,18 +37,13 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.util.HashMap;
+import java.util.Map;
 
 public class EmptyDirectoryInspection extends BaseGlobalInspection {
 
   @SuppressWarnings("PublicField")
   public boolean onlyReportDirectoriesUnderSourceRoots = false;
-
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("empty.directory.display.name");
-  }
 
   @Override
   public JComponent createOptionsPanel() {
@@ -61,26 +53,25 @@ public class EmptyDirectoryInspection extends BaseGlobalInspection {
   }
 
   @Override
+  public boolean isGraphNeeded() {
+    return false;
+  }
+
+  @Override
   public void runInspection(@NotNull final AnalysisScope scope, @NotNull final InspectionManager manager,
     @NotNull final GlobalInspectionContext context,
     @NotNull final ProblemDescriptionsProcessor processor) {
     final Project project = context.getProject();
     final ProjectFileIndex index = ProjectRootManager.getInstance(project).getFileIndex();
-    final SearchScope searchScope = scope.toSearchScope();
+    final SearchScope searchScope = ReadAction.compute(() -> scope.toSearchScope());
     if (!(searchScope instanceof GlobalSearchScope)) {
       return;
     }
     final GlobalSearchScope globalSearchScope = (GlobalSearchScope)searchScope;
     final PsiManager psiManager = PsiManager.getInstance(project);
-    index.iterateContent(new ContentIterator() {
-      @Override
-      public boolean processFile(final VirtualFile fileOrDir) {
-        if (!fileOrDir.isDirectory()) {
-          return true;
-        }
-        if (!globalSearchScope.contains(fileOrDir)) {
-          return true;
-        }
+    ReadAction.nonBlocking(() -> {
+      Map<RefElement, CommonProblemDescriptor> results = new HashMap<>();
+      index.iterateContent(fileOrDir -> {
         if (onlyReportDirectoriesUnderSourceRoots && !index.isInSourceContent(fileOrDir)) {
           return true;
         }
@@ -88,40 +79,29 @@ public class EmptyDirectoryInspection extends BaseGlobalInspection {
         if (children.length != 0) {
           return true;
         }
-        final Application application = ApplicationManager.getApplication();
-        final PsiDirectory directory = application.runReadAction(
-          new Computable<PsiDirectory>() {
-            @Override
-            public PsiDirectory compute() {
-              return psiManager.findDirectory(fileOrDir);
-            }
-          });
+        final PsiDirectory directory = psiManager.findDirectory(fileOrDir);
         final RefElement refDirectory = context.getRefManager().getReference(directory);
-        if (context.shouldCheck(refDirectory, EmptyDirectoryInspection.this)) {
+        if (refDirectory == null || context.shouldCheck(refDirectory, this)) {
           return true;
         }
         final String relativePath = getPathRelativeToModule(fileOrDir, project);
         if (relativePath == null) {
           return true;
         }
-        processor.addProblemElement(refDirectory, manager.createProblemDescriptor(InspectionGadgetsBundle.message(
-          "empty.directories.problem.descriptor", relativePath), new EmptyPackageFix(fileOrDir.getUrl(), fileOrDir.getName())));
+        results.put(refDirectory, manager.createProblemDescriptor(
+          InspectionGadgetsBundle.message("empty.directories.problem.descriptor", relativePath),
+          new EmptyPackageFix(fileOrDir.getUrl(), fileOrDir.getName())));
         return true;
-      }
-    });
+      }, globalSearchScope);
+      return results;
+    }).executeSynchronously()
+      .forEach((element, descriptor) -> processor.addProblemElement(element, descriptor));
   }
 
   @Nullable
   private static String getPathRelativeToModule(VirtualFile file, Project project) {
     final ProjectRootManager rootManager = ProjectRootManager.getInstance(project);
-    final Application application = ApplicationManager.getApplication();
-    final VirtualFile[] contentRoots = application.runReadAction(
-      new Computable<VirtualFile[]>() {
-        @Override
-        public VirtualFile[] compute() {
-          return rootManager.getContentRootsFromAllModules();
-        }
-      });
+    final VirtualFile[] contentRoots = rootManager.getContentRootsFromAllModules();
     for (VirtualFile otherRoot : contentRoots) {
       if (VfsUtilCore.isAncestor(otherRoot, file, false)) {
         return VfsUtilCore.getRelativePath(file, otherRoot, '/');
@@ -135,7 +115,7 @@ public class EmptyDirectoryInspection extends BaseGlobalInspection {
     private final String url;
     private final String name;
 
-    public EmptyPackageFix(String url, String name) {
+    EmptyPackageFix(String url, String name) {
       this.url = url;
       this.name = name;
     }
@@ -150,7 +130,7 @@ public class EmptyDirectoryInspection extends BaseGlobalInspection {
     @NotNull
     @Override
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("empty.directories.delete.quickfix", "");
     }
 
     @Override

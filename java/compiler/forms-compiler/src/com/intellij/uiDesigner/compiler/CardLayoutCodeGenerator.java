@@ -34,11 +34,13 @@ public class CardLayoutCodeGenerator extends SimpleLayoutCodeGenerator {
     super(Type.getType(CardLayout.class));
   }
 
+  @Override
   public void generateComponentLayout(LwComponent lwComponent,
                                       GeneratorAdapter generator,
                                       int componentLocal,
-                                      int parentLocal) {
-    super.generateComponentLayout(lwComponent, generator, componentLocal, parentLocal);
+                                      int parentLocal,
+                                      String formClassName) {
+    super.generateComponentLayout(lwComponent, generator, componentLocal, parentLocal, formClassName);
 
     String defaultCard = (String)lwComponent.getParent().getClientProperty(UIFormXmlConstants.LAYOUT_CARD);
     if (lwComponent.getId().equals(defaultCard)) {

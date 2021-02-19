@@ -5,7 +5,7 @@ import com.intellij.openapi.editor.HighlighterColors;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.fileTypes.SyntaxHighlighterBase;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.containers.HashMap;
+import java.util.HashMap;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
@@ -16,7 +16,7 @@ import static com.intellij.openapi.editor.DefaultLanguageHighlighterColors.*;
  * @author Mikhail Golubev
  */
 public class JqlHighlighter extends SyntaxHighlighterBase {
-  private static final Map<IElementType, TextAttributesKey> KEYS = new HashMap<IElementType, TextAttributesKey>();
+  private static final Map<IElementType, TextAttributesKey> KEYS = new HashMap<>();
   static {
     KEYS.put(JqlTokenTypes.STRING_LITERAL, STRING);
     KEYS.put(JqlTokenTypes.NUMBER_LITERAL, NUMBER);
@@ -35,9 +35,8 @@ public class JqlHighlighter extends SyntaxHighlighterBase {
     return new JqlLexer();
   }
 
-  @NotNull
   @Override
-  public TextAttributesKey[] getTokenHighlights(IElementType tokenType) {
+  public TextAttributesKey @NotNull [] getTokenHighlights(IElementType tokenType) {
     return pack(KEYS.get(tokenType));
   }
 }

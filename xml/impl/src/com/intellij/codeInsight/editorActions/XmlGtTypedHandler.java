@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.editorActions;
 
 import com.intellij.application.options.editor.WebEditorOptions;
 import com.intellij.codeInsight.highlighting.BraceMatchingUtil;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.xml.XMLLanguage;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorModificationUtil;
 import com.intellij.openapi.editor.ScrollType;
@@ -27,35 +12,26 @@ import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.highlighter.HighlighterIterator;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.html.HtmlTag;
 import com.intellij.psi.impl.source.xml.XmlTokenImpl;
 import com.intellij.psi.templateLanguages.OuterLanguageElement;
 import com.intellij.psi.templateLanguages.TemplateLanguageFileViewProvider;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.xml.*;
-import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.xml.XmlElementDescriptor;
-import com.intellij.xml.XmlElementDescriptorWithCDataContent;
 import com.intellij.xml.util.HtmlUtil;
 import com.intellij.xml.util.XmlUtil;
-import org.jetbrains.annotations.NonNls;
-
-import java.util.Collection;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 public class XmlGtTypedHandler extends TypedHandlerDelegate {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.editorActions.TypedHandler");
-
+  @NotNull
   @Override
-  public Result beforeCharTyped(final char c, final Project project, Editor editor, PsiFile editedFile, final FileType fileType) {
+  public Result beforeCharTyped(final char c, @NotNull final Project project, @NotNull Editor editor, @NotNull PsiFile editedFile, @NotNull final FileType fileType) {
     final WebEditorOptions webEditorOptions = WebEditorOptions.getInstance();
     if (c == '>' && webEditorOptions != null && webEditorOptions.isAutomaticallyInsertClosingTag() && fileContainsXmlLanguage(editedFile)) {
       PsiDocumentManager.getInstance(project).commitAllDocuments();
 
-      PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
       FileViewProvider provider = editedFile.getViewProvider();
       int offset = editor.getCaretModel().getOffset();
 
@@ -85,7 +61,7 @@ public class XmlGtTypedHandler extends TypedHandlerDelegate {
                   nonAcceptableDelimiter = false;
                 }
               }
-            } else if (tokenType == XmlTokenType.XML_NAME) {
+            } else if (tokenType == XmlTokenType.XML_NAME || tokenType == XmlTokenType.XML_TAG_NAME) {
               if (element.getNextSibling() instanceof PsiErrorElement) {
                 nonAcceptableDelimiter = false;
               }
@@ -107,6 +83,9 @@ public class XmlGtTypedHandler extends TypedHandlerDelegate {
 
             if (tokenType == XmlTokenType.XML_EMPTY_ELEMENT_END) {
               return Result.STOP;
+            }
+            else if (tokenType == XmlTokenType.XML_START_TAG_START) {
+              return Result.CONTINUE;
             }
           }
         }
@@ -166,10 +145,12 @@ public class XmlGtTypedHandler extends TypedHandlerDelegate {
       if (startToken == null || !startToken.getText().equals("<")) return Result.CONTINUE;
 
       String name = tag.getName();
-      if (elementAtCaret instanceof XmlToken && ((XmlToken)elementAtCaret).getTokenType() == XmlTokenType.XML_NAME) {
+      if (elementAtCaret instanceof XmlToken &&
+           (((XmlToken)elementAtCaret).getTokenType() == XmlTokenType.XML_NAME ||
+            ((XmlToken)elementAtCaret).getTokenType() == XmlTokenType.XML_TAG_NAME)) {
         name = name.substring(0, offset - elementAtCaret.getTextOffset());
       }
-      if (tag instanceof HtmlTag && HtmlUtil.isSingleHtmlTag(name)) return Result.CONTINUE;
+      if (tag instanceof HtmlTag && HtmlUtil.isSingleHtmlTag(tag, true)) return Result.CONTINUE;
       if (name.isEmpty()) return Result.CONTINUE;
 
       int tagOffset = tag.getTextRange().getStartOffset();
@@ -178,7 +159,7 @@ public class XmlGtTypedHandler extends TypedHandlerDelegate {
       if (nameToken != null && nameToken.getTextRange().getStartOffset() > offset) return Result.CONTINUE;
 
       HighlighterIterator iterator = ((EditorEx) editor).getHighlighter().createIterator(tagOffset);
-      if (BraceMatchingUtil.matchBrace(editor.getDocument().getCharsSequence(), editedFile.getFileType(), iterator, true,true)) {
+      if (BraceMatchingUtil.matchBrace(editor.getDocument().getCharsSequence(), fileType, iterator, true,true)) {
         PsiElement parent = tag.getParent();
         boolean hasBalance = true;
         loop: while(parent instanceof XmlTag) {
@@ -200,43 +181,25 @@ public class XmlGtTypedHandler extends TypedHandlerDelegate {
         }
         if (hasBalance) return Result.CONTINUE;
       }
-
-      Collection<TextRange> cdataReformatRanges = null;
-      final XmlElementDescriptor descriptor = tag.getDescriptor();
-
       EditorModificationUtil.insertStringAtCaret(editor, "</" + name + ">", false, 0);
-      
-      if (descriptor instanceof XmlElementDescriptorWithCDataContent) {
-        final XmlElementDescriptorWithCDataContent cDataContainer = (XmlElementDescriptorWithCDataContent)descriptor;
-
-        cdataReformatRanges = ContainerUtil.newSmartList();
-        if (cDataContainer.requiresCdataBracesInContext(tag)) {
-          @NonNls final String cDataStart = "><![CDATA[";
-          final String inserted = cDataStart + "\n]]>";
-          EditorModificationUtil.insertStringAtCaret(editor, inserted, false, cDataStart.length());
-          int caretOffset = editor.getCaretModel().getOffset();
-          if (caretOffset >= cDataStart.length()) {
-            cdataReformatRanges.add(TextRange.from(caretOffset - cDataStart.length(), inserted.length() + 1));
-          }
-        }
-      }
-
-      if (cdataReformatRanges != null && !cdataReformatRanges.isEmpty()) {
-        PsiDocumentManager.getInstance(project).commitDocument(editor.getDocument());
-        try {          
-          CodeStyleManager.getInstance(project).reformatText(file, cdataReformatRanges);
-        }
-        catch (IncorrectOperationException e) {
-          LOG.error(e);
-        }
-      }
-      return cdataReformatRanges != null && !cdataReformatRanges.isEmpty() ? Result.STOP : Result.CONTINUE;
+      return insertTagContent(project, tag, name, editedFile, editor);
     }
     return Result.CONTINUE;
   }
 
-  private static boolean fileContainsXmlLanguage(PsiFile editedFile) {
+  protected @NotNull Result insertTagContent(@NotNull Project project,
+                                             XmlTag tag,
+                                             String name,
+                                             PsiFile file, @NotNull Editor editor) {
+    return Result.CONTINUE;
+  }
+
+  public static boolean fileContainsXmlLanguage(@Nullable PsiFile editedFile) {
+    if (editedFile == null) return false;
     if (editedFile.getLanguage() instanceof XMLLanguage) {
+      return true;
+    }
+    if (HtmlUtil.supportsXmlTypedHandlers(editedFile)) {
       return true;
     }
     final FileViewProvider provider = editedFile.getViewProvider();

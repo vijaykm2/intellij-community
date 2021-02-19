@@ -12,17 +12,19 @@
 // limitations under the License.
 package org.zmlx.hg4idea.command;
 
+import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.Consumer;
 import com.intellij.vcsUtil.VcsFileUtil;
-import org.jetbrains.annotations.Nullable;
+import com.intellij.vcsUtil.VcsUtil;
+import org.jetbrains.annotations.NotNull;
+import org.zmlx.hg4idea.HgDisposable;
 import org.zmlx.hg4idea.HgFile;
 import org.zmlx.hg4idea.execution.HgCommandExecutor;
 import org.zmlx.hg4idea.execution.HgCommandResult;
-import org.zmlx.hg4idea.execution.HgCommandResultHandler;
 
 import java.io.File;
 import java.util.*;
@@ -44,34 +46,27 @@ public class HgResolveCommand {
     }
     final HgCommandExecutor executor = new HgCommandExecutor(myProject);
     executor.setSilent(true);
-    final HgCommandResult result = executor.executeInCurrentThread(repo, "resolve", Arrays.asList("--list"));
+    final HgCommandResult result = executor.executeInCurrentThread(repo, "resolve", Collections.singletonList("--list"));
     if (result == null) {
       return Collections.emptyMap();
     }
     return handleResult(repo, result);
   }
 
-  public void list(final VirtualFile repo, final Consumer<Map<HgFile, HgResolveStatusEnum>> resultHandler) {
+  public void getListAsynchronously(final VirtualFile repo, final Consumer<Map<HgFile, HgResolveStatusEnum>> resultHandler) {
     if (repo == null) {
-      resultHandler.consume(Collections.<HgFile, HgResolveStatusEnum>emptyMap());
+      resultHandler.consume(Collections.emptyMap());
     }
-    final HgCommandExecutor executor = new HgCommandExecutor(myProject);
+    HgCommandExecutor executor = new HgCommandExecutor(myProject);
     executor.setSilent(true);
-    executor.execute(repo, "resolve", Arrays.asList("--list"), new HgCommandResultHandler() {
-      @Override
-      public void process(@Nullable HgCommandResult result) {
-        if (result == null) {
-          resultHandler.consume(Collections.<HgFile, HgResolveStatusEnum>emptyMap());
-        }
-
-        final Map<HgFile, HgResolveStatusEnum> resolveStatus = handleResult(repo, result);
-        resultHandler.consume(resolveStatus);
-      }
+    BackgroundTaskUtil.executeOnPooledThread(HgDisposable.getInstance(myProject), () -> {
+      HgCommandResult result = executor.executeInCurrentThread(repo, "resolve", Collections.singletonList("--list"));
+      resultHandler.consume(result == null ? Collections.emptyMap() : handleResult(repo, result));
     });
   }
 
   private static Map<HgFile, HgResolveStatusEnum> handleResult(VirtualFile repo, HgCommandResult result) {
-    final Map<HgFile, HgResolveStatusEnum> resolveStatus = new HashMap<HgFile, HgResolveStatusEnum>();
+    final Map<HgFile, HgResolveStatusEnum> resolveStatus = new HashMap<>();
     for (String line : result.getOutputLines()) {
       if (StringUtil.isEmptyOrSpaces(line) || line.length() < ITEM_COUNT) {
         continue;
@@ -85,16 +80,17 @@ public class HgResolveCommand {
     return resolveStatus;
   }
 
-  public void markResolved(VirtualFile repo, VirtualFile path) {
-    new HgCommandExecutor(myProject).execute(repo, "resolve", Arrays.asList("--mark", path.getPath()), null);
+  public void markResolved(@NotNull VirtualFile repo, @NotNull VirtualFile path) {
+    markResolved(repo, Collections.singleton(VcsUtil.getFilePath(path)));
   }
 
-  public void markResolved(VirtualFile repo, Collection<FilePath> paths) {
+  public void markResolved(@NotNull VirtualFile repo, @NotNull Collection<FilePath> paths) {
     for (List<String> chunk : VcsFileUtil.chunkPaths(repo, paths)) {
-      final List<String> args = new ArrayList<String>();
+      List<String> args = new ArrayList<>();
       args.add("--mark");
       args.addAll(chunk);
-      new HgCommandExecutor(myProject).execute(repo, "resolve", args, null);
+      BackgroundTaskUtil.executeOnPooledThread(HgDisposable.getInstance(myProject), () ->
+        new HgCommandExecutor(myProject).executeInCurrentThread(repo, "resolve", args));
     }
   }
 

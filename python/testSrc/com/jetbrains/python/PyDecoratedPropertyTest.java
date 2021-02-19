@@ -31,11 +31,11 @@ public class PyDecoratedPropertyTest extends PyTestCase {
     myClass = file.getTopLevelClasses().get(0);
   }
 
-  public void testW1() throws Exception {
+  public void testW1() {
     Property p;
     Maybe<PyCallable> accessor;
     final String name = "w1";
-    p = myClass.findProperty(name, true);
+    p = myClass.findProperty(name, true, null);
     assertNotNull(p);
     assertNull(p.getDoc());
     assertNull(p.getDefinitionSite());
@@ -56,11 +56,11 @@ public class PyDecoratedPropertyTest extends PyTestCase {
     assertEquals(name, accessor.value().getName());
   }
 
-  public void testW2() throws Exception {
+  public void testW2() {
     Property p;
     Maybe<PyCallable> accessor;
     final String name = "w2";
-    p = myClass.findProperty(name, true);
+    p = myClass.findProperty(name, true, null);
     assertNotNull(p);
     assertNull(p.getDoc());
     assertNull(p.getDefinitionSite());

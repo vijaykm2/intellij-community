@@ -17,10 +17,11 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.zmlx.hg4idea.HgBundle;
 import org.zmlx.hg4idea.command.HgPullCommand;
 import org.zmlx.hg4idea.repo.HgRepository;
 import org.zmlx.hg4idea.ui.HgPullDialog;
-import org.zmlx.hg4idea.util.HgErrorUtil;
+import org.zmlx.hg4idea.util.HgUtil;
 
 import java.util.Collection;
 
@@ -32,12 +33,12 @@ public class HgPullAction extends HgAbstractGlobalSingleRepoAction {
     if (dialog.showAndGet()) {
       final String source = dialog.getSource();
       final HgRepository hgRepository = dialog.getRepository();
-      new Task.Backgroundable(project, "Pulling changes from " + source, false) {
+      new Task.Backgroundable(project, HgBundle.message("action.hg4idea.pull.progress", source), false) {
 
         @Override
         public void run(@NotNull ProgressIndicator indicator) {
           executePull(project, hgRepository, source);
-          HgErrorUtil.markDirtyAndHandleErrors(project, hgRepository.getRoot());
+          HgUtil.markDirectoryDirty(project, hgRepository.getRoot());
         }
       }.queue();
     }
@@ -46,7 +47,7 @@ public class HgPullAction extends HgAbstractGlobalSingleRepoAction {
   private static void executePull(final Project project, final HgRepository hgRepository, final String source) {
     final HgPullCommand command = new HgPullCommand(project, hgRepository.getRoot());
     command.setSource(source);
-    command.execute();
+    command.executeInCurrentThread();
     hgRepository.update();
   }
 }

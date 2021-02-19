@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,27 +14,33 @@
  * limitations under the License.
  */
 
-/**
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: Nov 15, 2002
- * Time: 4:12:48 PM
- * To change this template use Options | File Templates.
- */
 package com.intellij.refactoring.introduceVariable;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.PsiType;
 
 public interface IntroduceVariableSettings {
+  @NlsSafe
   String getEnteredName();
 
   boolean isReplaceAllOccurrences();
 
   boolean isDeclareFinal();
+  
+  default boolean isDeclareVarType() {
+    return false;
+  }
 
   boolean isReplaceLValues();
 
   PsiType getSelectedType();
 
   boolean isOK();
+  
+  default IntroduceVariableBase.JavaReplaceChoice getReplaceChoice() {
+    if (isReplaceAllOccurrences()) {
+      return isReplaceLValues() ? IntroduceVariableBase.JavaReplaceChoice.ALL : IntroduceVariableBase.JavaReplaceChoice.NO_WRITE;
+    }
+    return IntroduceVariableBase.JavaReplaceChoice.NO;
+  }
 }

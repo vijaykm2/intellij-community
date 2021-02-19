@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.formatter.xml;
 
 import com.intellij.formatting.*;
@@ -23,12 +9,12 @@ import com.intellij.psi.formatter.common.AbstractBlock;
 import com.intellij.psi.impl.source.SourceTreeToPsiMap;
 import com.intellij.psi.templateLanguages.OuterLanguageElement;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.xml.IXmlAttributeElementType;
 import com.intellij.psi.xml.XmlElementType;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.psi.xml.XmlTokenType;
 
 import java.util.List;
-
 
 public abstract class AbstractSyntheticBlock implements Block {
   protected final Indent myIndent;
@@ -53,9 +39,13 @@ public abstract class AbstractSyntheticBlock implements Block {
 
   }
 
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.formatter.xml.AbstractSyntheticBlock");
+  private static final Logger LOG = Logger.getInstance(AbstractSyntheticBlock.class);
 
-  private ASTNode getFirstNode(final List<Block> subBlocks) {
+  public boolean shouldKeepWhiteSpacesInside() {
+    return myTag != null && myXmlFormattingPolicy.keepWhiteSpacesInsideTag(myTag);
+  }
+
+  private ASTNode getFirstNode(final List<? extends Block> subBlocks) {
     LOG.assertTrue(!subBlocks.isEmpty());
     final Block firstBlock = subBlocks.get(0);
     if (firstBlock instanceof AbstractBlock) {
@@ -66,7 +56,7 @@ public abstract class AbstractSyntheticBlock implements Block {
     }
   }
 
-  private ASTNode getLastNode(final List<Block> subBlocks) {
+  private ASTNode getLastNode(final List<? extends Block> subBlocks) {
     LOG.assertTrue(!subBlocks.isEmpty());
     final Block lastBlock = subBlocks.get(subBlocks.size() - 1);
     if (lastBlock instanceof AbstractBlock) {
@@ -96,21 +86,29 @@ public abstract class AbstractSyntheticBlock implements Block {
     return null;
   }
 
-  protected static boolean isXmlTagName(final IElementType type1, final IElementType type2) {
-    if (type1 == XmlTokenType.XML_NAME && type2 == XmlTokenType.XML_TAG_END) return true;
-    if (type1 == XmlTokenType.XML_NAME && type2 == XmlTokenType.XML_EMPTY_ELEMENT_END) return true;
-    if (type1 == XmlElementType.XML_ATTRIBUTE && type2 == XmlTokenType.XML_EMPTY_ELEMENT_END) return true;
-    return type1 == XmlElementType.XML_ATTRIBUTE && type2 == XmlTokenType.XML_TAG_END;
+  protected boolean isXmlTagName(final IElementType type1, final IElementType type2) {
+    if ((type1 == XmlTokenType.XML_NAME || type1 == XmlTokenType.XML_TAG_NAME) && (type2 == XmlTokenType.XML_TAG_END)) return true;
+    if ((type1 == XmlTokenType.XML_NAME || type1 == XmlTokenType.XML_TAG_NAME) && (type2 == XmlTokenType.XML_EMPTY_ELEMENT_END)) {
+      return true;
+    }
+    if (isAttributeElementType(type1) && type2 == XmlTokenType.XML_EMPTY_ELEMENT_END) return true;
+    return isAttributeElementType(type1) && type2 == XmlTokenType.XML_TAG_END;
+  }
+
+  protected boolean isTextNode(IElementType nodeType) {
+    return nodeType == XmlElementType.XML_TEXT ||
+           nodeType == XmlElementType.HTML_RAW_TEXT;
   }
 
   public boolean endsWithText() {
-    return myEndTreeNode.getElementType() == XmlElementType.XML_TEXT ||
-           myEndTreeNode.getElementType() == XmlTokenType.XML_DATA_CHARACTERS;
+    return isTextNode(myEndTreeNode.getElementType()) ||
+           myEndTreeNode.getElementType() == XmlTokenType.XML_DATA_CHARACTERS ||
+           myEndTreeNode.getElementType() == XmlTokenType.XML_CHAR_ENTITY_REF ||
+           myEndTreeNode.getElementType() == XmlElementType.XML_ENTITY_REF;
   }
 
   public boolean isTagDescription() {
-    final ASTNode startTreeNode = myStartTreeNode;
-    return isTagDescription(startTreeNode);
+    return isTagDescription(myStartTreeNode);
   }
 
   private static boolean isTagDescription(final ASTNode startTreeNode) {
@@ -119,8 +117,10 @@ public abstract class AbstractSyntheticBlock implements Block {
   }
 
   public boolean startsWithText() {
-    return myStartTreeNode.getElementType() == XmlElementType.XML_TEXT ||
-           myStartTreeNode.getElementType() == XmlTokenType.XML_DATA_CHARACTERS;
+    return isTextNode(myStartTreeNode.getElementType()) ||
+           myStartTreeNode.getElementType() == XmlTokenType.XML_DATA_CHARACTERS ||
+           myStartTreeNode.getElementType() == XmlTokenType.XML_CHAR_ENTITY_REF ||
+           myStartTreeNode.getElementType() == XmlElementType.XML_ENTITY_REF;
   }
 
   public boolean endsWithTextElement() {
@@ -151,7 +151,7 @@ public abstract class AbstractSyntheticBlock implements Block {
     return isTagDescription(myStartTreeNode);
   }
 
-  protected static TextRange calculateTextRange(final List<Block> subBlocks) {
+  protected static TextRange calculateTextRange(final List<? extends Block> subBlocks) {
     return new TextRange(subBlocks.get(0).getTextRange().getStartOffset(),
                          subBlocks.get(subBlocks.size() - 1).getTextRange().getEndOffset());
   }
@@ -227,6 +227,10 @@ public abstract class AbstractSyntheticBlock implements Block {
 
   protected boolean insertLineFeedAfter(final XmlTag tag) {
     return myXmlFormattingPolicy.getWrappingTypeForTagBegin(tag) == WrapType.ALWAYS;
+  }
+
+  protected boolean isAttributeElementType(final IElementType elementType) {
+    return elementType instanceof IXmlAttributeElementType;
   }
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2011 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2016 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,39 +16,51 @@
 package com.siyeh.ig.abstraction;
 
 import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
-import com.intellij.psi.PsiInstanceOfExpression;
-import com.intellij.psi.PsiTypeElement;
+import com.intellij.psi.*;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
+import com.siyeh.ig.callMatcher.CallMatcher;
+import com.siyeh.ig.psiutils.ExpressionUtils;
+import com.siyeh.ig.psiutils.MethodUtils;
+import org.intellij.lang.annotations.Pattern;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import javax.swing.JComponent;
+import javax.swing.*;
 
 public class InstanceofInterfacesInspection extends BaseInspection {
+  private static final CallMatcher OBJECT_GET_CLASS =
+    CallMatcher.exactInstanceCall(CommonClassNames.JAVA_LANG_OBJECT, "getClass").parameterCount(0);
 
   @SuppressWarnings("PublicField")
   public boolean ignoreAbstractClasses = false;
 
-  @Override
+  @Pattern(VALID_ID_PATTERN)
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "instanceof.concrete.class.display.name");
+  @Override
+  public String getID() {
+    return "InstanceofConcreteClass";
+  }
+
+  @Nullable
+  @Override
+  public String getAlternativeID() {
+    return "InstanceofInterfaces"; // keep old suppression working
   }
 
   @Override
   @NotNull
   public String buildErrorString(Object... infos) {
-    return InspectionGadgetsBundle.message(
-      "instanceof.concrete.class.problem.descriptor");
+    return InspectionGadgetsBundle.message(infos[0] instanceof PsiTypeTestPattern ?
+                                           "instanceof.concrete.class.problem.descriptor" :
+                                           "instanceof.concrete.class.equality.problem.descriptor");
   }
 
   @Override
   public JComponent createOptionsPanel() {
-    return new SingleCheckboxOptionsPanel(
-      InspectionGadgetsBundle.message("instanceof.interfaces.option"),
-      this, "ignoreAbstractClasses");
+    return new SingleCheckboxOptionsPanel(InspectionGadgetsBundle.message("instanceof.interfaces.option"), this, "ignoreAbstractClasses");
   }
 
   @Override
@@ -56,22 +68,31 @@ public class InstanceofInterfacesInspection extends BaseInspection {
     return new InstanceofInterfacesVisitor();
   }
 
-  private class InstanceofInterfacesVisitor
-    extends BaseInspectionVisitor {
+  private class InstanceofInterfacesVisitor extends BaseInspectionVisitor {
+    @Override
+    public void visitMethodCallExpression(PsiMethodCallExpression call) {
+      if (OBJECT_GET_CLASS.test(call)) {
+        PsiExpression other = ExpressionUtils.getExpressionComparedTo(call);
+        if (other instanceof PsiClassObjectAccessExpression) {
+          checkTypeElement(((PsiClassObjectAccessExpression)other).getOperand());
+        }
+      }
+    }
 
     @Override
-    public void visitInstanceOfExpression(
-      @NotNull PsiInstanceOfExpression expression) {
-      super.visitInstanceOfExpression(expression);
-      final PsiTypeElement typeElement = expression.getCheckType();
-      if (!ConcreteClassUtil.typeIsConcreteClass(typeElement,
-                                                 ignoreAbstractClasses)) {
+    public void visitInstanceOfExpression(@NotNull PsiInstanceOfExpression expression) {
+      checkTypeElement(expression.getCheckType());
+    }
+
+    public void checkTypeElement(PsiTypeElement typeElement) {
+      if (!ConcreteClassUtil.typeIsConcreteClass(typeElement, ignoreAbstractClasses)) {
         return;
       }
-      if (typeElement == null) {
+      final PsiMethod method = PsiTreeUtil.getParentOfType(typeElement, PsiMethod.class, true, PsiClass.class, PsiLambdaExpression.class);
+      if (MethodUtils.isEquals(method)) {
         return;
       }
-      registerError(typeElement);
+      registerError(typeElement, typeElement.getParent());
     }
   }
 }

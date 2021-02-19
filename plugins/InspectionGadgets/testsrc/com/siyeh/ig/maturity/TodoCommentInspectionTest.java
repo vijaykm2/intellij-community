@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,15 +17,27 @@ package com.siyeh.ig.maturity;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
 import com.intellij.codeInspection.TodoCommentInspection;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
-public class TodoCommentInspectionTest extends LightInspectionTestCase {
+public class TodoCommentInspectionTest extends LightJavaInspectionTestCase {
 
   public void testNoDuplicates() {
     doTest("class A {\n" +
-           "/*TODO comment '// todo fixme'*/// todo fixme/**/\n" +
+           "// /*TODO comment 'todo fixme'*/todo fixme/**/\n" +
            "}");
+  }
+
+  public void testOnlyHighlightLineWithTodo() {
+    myFixture.configureByText("X.java",
+                              "/**\n" +
+                              " * Very useful class\n" +
+                              " * <warning descr=\"TODO comment 'TODO: to be or not to be'\">TODO: to be or not to be</warning>\n" +
+                              " *\n" +
+                              " * @author turbanov\n" +
+                              " */\n" +
+                              "class WithTodo {}");
+    myFixture.testHighlighting(true, false, false);
   }
 
   @Nullable

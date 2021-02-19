@@ -1,6 +1,6 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.project;
 
-import com.intellij.openapi.util.Comparing;
 import com.intellij.util.SmartList;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -8,17 +8,14 @@ import org.jetbrains.idea.maven.dom.DependencyConflictId;
 import org.jetbrains.idea.maven.model.MavenArtifact;
 import org.jetbrains.idea.maven.model.MavenId;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * @author Sergey Evdokimov
  */
-public class MavenArtifactIndex {
+public final class MavenArtifactIndex {
 
-  private static final MavenArtifactIndex EMPTY_INDEX = new MavenArtifactIndex(Collections.<String, Map<String, List<MavenArtifact>>>emptyMap());
+  private static final MavenArtifactIndex EMPTY_INDEX = new MavenArtifactIndex(Collections.emptyMap());
 
   private final Map<String, Map<String, List<MavenArtifact>>> myData;
 
@@ -36,7 +33,7 @@ public class MavenArtifactIndex {
     if (groupMap == null) return Collections.emptyList();
 
     List<MavenArtifact> res = groupMap.get(artifactId);
-    return res == null ? Collections.<MavenArtifact>emptyList() : res;
+    return res == null ? Collections.emptyList() : res;
   }
 
   @NotNull
@@ -65,9 +62,9 @@ public class MavenArtifactIndex {
     List<MavenArtifact> artifacts = groupMap.get(artifactId);
     if (artifacts == null) return Collections.emptyList();
 
-    List<MavenArtifact> res = new SmartList<MavenArtifact>();
+    List<MavenArtifact> res = new SmartList<>();
     for (MavenArtifact artifact : artifacts) {
-      if (Comparing.equal(version, artifact.getVersion())) {
+      if (Objects.equals(version, artifact.getVersion())) {
         res.add(artifact);
       }
     }
@@ -77,10 +74,10 @@ public class MavenArtifactIndex {
 
 
 
-  public static MavenArtifactIndex build(@NotNull List<MavenArtifact> dependencies) {
+  public static MavenArtifactIndex build(@NotNull List<? extends MavenArtifact> dependencies) {
     if (dependencies.isEmpty()) return EMPTY_INDEX;
 
-    Map<String, Map<String, List<MavenArtifact>>> map = new HashMap<String, Map<String, List<MavenArtifact>>>();
+    Map<String, Map<String, List<MavenArtifact>>> map = new HashMap<>();
 
     for (MavenArtifact dep : dependencies) {
       String groupId = dep.getGroupId();
@@ -91,13 +88,13 @@ public class MavenArtifactIndex {
 
       Map<String, List<MavenArtifact>> groupMap = map.get(groupId);
       if (groupMap == null) {
-        groupMap = new HashMap<String, List<MavenArtifact>>();
+        groupMap = new HashMap<>();
         map.put(groupId, groupMap);
       }
 
       List<MavenArtifact> artifactList = groupMap.get(artifactId);
       if (artifactList == null) {
-        artifactList = new SmartList<MavenArtifact>();
+        artifactList = new SmartList<>();
         groupMap.put(artifactId, artifactList);
       }
 

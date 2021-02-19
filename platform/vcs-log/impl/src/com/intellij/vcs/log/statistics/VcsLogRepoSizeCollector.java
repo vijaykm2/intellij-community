@@ -1,85 +1,66 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.statistics;
 
-import com.intellij.internal.statistic.AbstractApplicationUsagesCollector;
-import com.intellij.internal.statistic.CollectUsagesException;
-import com.intellij.internal.statistic.beans.GroupDescriptor;
-import com.intellij.internal.statistic.beans.UsageDescriptor;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
+import com.intellij.internal.statistic.beans.MetricEvent;
+import com.intellij.internal.statistic.beans.MetricEventFactoryKt;
+import com.intellij.internal.statistic.eventLog.FeatureUsageData;
+import com.intellij.internal.statistic.service.fus.collectors.ProjectUsagesCollector;
+import com.intellij.internal.statistic.service.fus.collectors.UsageDescriptorKeyValidator;
+import com.intellij.internal.statistic.utils.PluginInfoDetectorKt;
+import com.intellij.internal.statistic.utils.StatisticsUtil;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.VcsKey;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.vcs.log.VcsLogProvider;
-import com.intellij.vcs.log.data.VisiblePack;
-import com.intellij.vcs.log.graph.PermanentGraph;
-import com.intellij.vcs.log.impl.VcsLogContentProvider;
-import com.intellij.vcs.log.impl.VcsLogManager;
-import com.intellij.vcs.log.ui.VcsLogUiImpl;
+import com.intellij.vcs.log.data.DataPack;
+import com.intellij.vcs.log.data.VcsLogData;
+import com.intellij.vcs.log.impl.VcsProjectLog;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
-public class VcsLogRepoSizeCollector extends AbstractApplicationUsagesCollector {
-
-  public static final GroupDescriptor ID = GroupDescriptor.create("VCS Log");
+@NonNls
+public class VcsLogRepoSizeCollector extends ProjectUsagesCollector {
 
   @NotNull
   @Override
-  public Set<UsageDescriptor> getProjectUsages(@NotNull Project project) throws CollectUsagesException {
-    VcsLogManager logManager = VcsLogContentProvider.findLogManager(project);
-    VisiblePack dataPack = getDataPack(logManager);
-    if (dataPack != null) {
-      PermanentGraph<Integer> permanentGraph = dataPack.getPermanentGraph();
-      MultiMap<VcsKey, VirtualFile> groupedRoots = groupRootsByVcs(dataPack.getLogProviders());
-
-      Set<UsageDescriptor> usages = ContainerUtil.newHashSet();
-      usages.add(new UsageDescriptor("vcs.log.commit.count", permanentGraph.getAllCommits().size()));
-      for (VcsKey vcs : groupedRoots.keySet()) {
-        //noinspection StringToUpperCaseOrToLowerCaseWithoutLocale
-        usages.add(new UsageDescriptor("vcs.log." + vcs.getName().toLowerCase() + ".root.count", groupedRoots.get(vcs).size()));
+  public Set<MetricEvent> getMetrics(@NotNull Project project) {
+    VcsProjectLog projectLog = VcsProjectLog.getInstance(project);
+    VcsLogData logData = projectLog.getDataManager();
+    if (logData != null) {
+      DataPack dataPack = logData.getDataPack();
+      if (dataPack.isFull()) {
+        int commitCount = dataPack.getPermanentGraph().getAllCommits().size();
+        int branchesCount = dataPack.getRefsModel().getBranches().size();
+        int usersCount = logData.getAllUsers().size();
+        Set<MetricEvent> usages = ContainerUtil.newHashSet(new MetricEvent("dataInitialized"));
+        usages.add(MetricEventFactoryKt.newCounterMetric("commit.count", StatisticsUtil.getNextPowerOfTwo(commitCount)));
+        usages.add(MetricEventFactoryKt.newCounterMetric("branches.count", StatisticsUtil.getNextPowerOfTwo(branchesCount)));
+        usages.add(MetricEventFactoryKt.newCounterMetric("users.count", StatisticsUtil.getNextPowerOfTwo(usersCount)));
+        MultiMap<VcsKey, VirtualFile> groupedRoots = groupRootsByVcs(dataPack.getLogProviders());
+        for (VcsKey vcs : groupedRoots.keySet()) {
+          FeatureUsageData vcsData = new FeatureUsageData().addData("vcs", getVcsKeySafe(vcs));
+          int rootCount = groupedRoots.get(vcs).size();
+          usages.add(MetricEventFactoryKt.newCounterMetric("root.count", StatisticsUtil.getNextPowerOfTwo(rootCount), vcsData));
+        }
+        return usages;
       }
-      return usages;
     }
     return Collections.emptySet();
   }
 
-  @Nullable
-  private static VisiblePack getDataPack(@Nullable VcsLogManager logManager) {
-    if (logManager != null) {
-      final VcsLogUiImpl ui = logManager.getLogUi();
-      if (ui != null) {
-        final Ref<VisiblePack> dataPack = Ref.create();
-        ApplicationManager.getApplication().invokeAndWait(new Runnable() {
-          @Override
-          public void run() {
-            dataPack.set(ui.getDataPack());
-          }
-        }, ModalityState.defaultModalityState());
-        return dataPack.get();
-      }
+  @NotNull
+  private static String getVcsKeySafe(@NotNull VcsKey vcs) {
+    if (PluginInfoDetectorKt.getPluginInfo(vcs.getClass()).isDevelopedByJetBrains()) {
+      return UsageDescriptorKeyValidator.ensureProperKey(StringUtil.toLowerCase(vcs.getName()));
     }
-    return null;
+    return "third.party";
   }
 
   @NotNull
@@ -95,7 +76,12 @@ public class VcsLogRepoSizeCollector extends AbstractApplicationUsagesCollector 
 
   @NotNull
   @Override
-  public GroupDescriptor getGroupId() {
-    return ID;
+  public String getGroupId() {
+    return "vcs.log.data";
+  }
+
+  @Override
+  public int getVersion() {
+    return 3;
   }
 }

@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.ExpectedTypeInfo;
 import com.intellij.codeInsight.JavaPsiEquivalenceUtil;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupElementWeigher;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.patterns.PsiJavaPatterns;
 import com.intellij.patterns.StandardPatterns;
 import com.intellij.psi.*;
@@ -30,11 +15,13 @@ import com.intellij.psi.filters.element.ExcludeDeclaredFilter;
 import com.intellij.psi.filters.element.ExcludeSillyAssignment;
 import com.intellij.psi.impl.search.MethodDeepestSuperSearcher;
 import com.intellij.psi.scope.ElementClassFilter;
-import com.intellij.psi.util.PropertyUtil;
+import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.CommonProcessors;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.Objects;
 
 /**
 * @author peter
@@ -51,7 +38,7 @@ class RecursionWeigher extends LookupElementWeigher {
   private final boolean myDelegate;
   private final CompletionType myCompletionType;
 
-  public RecursionWeigher(PsiElement position,
+  RecursionWeigher(PsiElement position,
                           CompletionType completionType,
                           @NotNull PsiReferenceExpression reference,
                           @Nullable PsiMethodCallExpression expression,
@@ -157,7 +144,7 @@ class RecursionWeigher extends LookupElementWeigher {
     if (object instanceof PsiMethod && myPositionMethod != null) {
       final PsiMethod method = (PsiMethod)object;
       if (PsiTreeUtil.isAncestor(myReference, myPosition, false) &&
-          Comparing.equal(method.getName(), myPositionMethod.getName())) {
+          Objects.equals(method.getName(), myPositionMethod.getName())) {
         if (!myDelegate && findDeepestSuper(method).equals(findDeepestSuper(myPositionMethod))) {
           return Result.recursive;
         }
@@ -170,15 +157,14 @@ class RecursionWeigher extends LookupElementWeigher {
 
   @Nullable
   private String getSetterPropertyName(@Nullable PsiMethod calledMethod) {
-    if (PropertyUtil.isSimplePropertySetter(calledMethod)) {
-      assert calledMethod != null;
-      return PropertyUtil.getPropertyName(calledMethod);
+    if (PropertyUtilBase.isSimplePropertySetter(calledMethod)) {
+      return PropertyUtilBase.getPropertyName(calledMethod);
     }
     PsiReferenceExpression reference = ExcludeSillyAssignment.getAssignedReference(myPosition);
     if (reference != null) {
       PsiElement target = reference.resolve();
       if (target instanceof PsiField) {
-        return PropertyUtil.suggestPropertyName((PsiField)target);
+        return PropertyUtilBase.suggestPropertyName((PsiField)target);
       }
     }
     return null;
@@ -189,12 +175,12 @@ class RecursionWeigher extends LookupElementWeigher {
     if (prop == null) return false;
 
     if (lookupObject instanceof PsiField &&
-        prop.equals(PropertyUtil.suggestPropertyName((PsiField)lookupObject))) {
+        prop.equals(PropertyUtilBase.suggestPropertyName((PsiField)lookupObject))) {
       return true;
     }
     if (lookupObject instanceof PsiMethod &&
-        PropertyUtil.isSimplePropertyGetter((PsiMethod)lookupObject) &&
-        prop.equals(PropertyUtil.getPropertyName((PsiMethod)lookupObject))) {
+        PropertyUtilBase.isSimplePropertyGetter((PsiMethod)lookupObject) &&
+        prop.equals(PropertyUtilBase.getPropertyName((PsiMethod)lookupObject))) {
       return true;
     }
     return false;
@@ -210,7 +196,7 @@ class RecursionWeigher extends LookupElementWeigher {
 
   @NotNull
   public static PsiMethod findDeepestSuper(@NotNull final PsiMethod method) {
-    CommonProcessors.FindFirstProcessor<PsiMethod> processor = new CommonProcessors.FindFirstProcessor<PsiMethod>();
+    CommonProcessors.FindFirstProcessor<PsiMethod> processor = new CommonProcessors.FindFirstProcessor<>();
     MethodDeepestSuperSearcher.processDeepestSuperMethods(method, processor);
     final PsiMethod first = processor.getFoundValue();
     return first == null ? method : first;

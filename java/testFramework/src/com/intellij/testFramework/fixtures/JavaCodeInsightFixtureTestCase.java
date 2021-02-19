@@ -1,63 +1,55 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework.fixtures;
 
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.LanguageLevelProjectExtension;
+import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiElementFactory;
-import com.intellij.psi.PsiManager;
 import com.intellij.psi.impl.PsiManagerEx;
-import com.intellij.testFramework.IdeaTestCase;
+import com.intellij.testFramework.TestIndexingModeSupporter;
 import com.intellij.testFramework.UsefulTestCase;
 import com.intellij.testFramework.builders.JavaModuleFixtureBuilder;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 
 /**
  * @author peter
  */
-public abstract class JavaCodeInsightFixtureTestCase extends UsefulTestCase{
+public abstract class JavaCodeInsightFixtureTestCase extends UsefulTestCase implements TestIndexingModeSupporter {
   protected JavaCodeInsightTestFixture myFixture;
-  protected Module myModule;
+  private @NotNull IndexingMode myIndexingMode = IndexingMode.SMART;
 
-  @SuppressWarnings({"JUnitTestCaseWithNonTrivialConstructors"})
-  protected JavaCodeInsightFixtureTestCase() {
-    IdeaTestCase.initPlatformPrefix();
+  @NotNull
+  @Override
+  public Disposable getTestRootDisposable() {
+    return myFixture == null ? super.getTestRootDisposable() : myFixture.getTestRootDisposable();
   }
 
   @Override
   protected void setUp() throws Exception {
     super.setUp();
 
-    final TestFixtureBuilder<IdeaProjectTestFixture> projectBuilder = IdeaTestFixtureFactory.getFixtureFactory().createFixtureBuilder(getName());
+    TestFixtureBuilder<IdeaProjectTestFixture> projectBuilder = IdeaTestFixtureFactory.getFixtureFactory().createFixtureBuilder(getName());
     myFixture = JavaTestFixtureFactory.getFixtureFactory().createCodeInsightFixture(projectBuilder.getFixture());
-    final JavaModuleFixtureBuilder moduleFixtureBuilder = projectBuilder.addModule(JavaModuleFixtureBuilder.class);
+    myFixture = JavaIndexingModeCodeInsightTestFixture.Companion.wrapFixture(myFixture, getIndexingMode());
+    JavaModuleFixtureBuilder<?> moduleFixtureBuilder = projectBuilder.addModule(JavaModuleFixtureBuilder.class);
     if (toAddSourceRoot()) {
       moduleFixtureBuilder.addSourceContentRoot(myFixture.getTempDirPath());
-    } else {
+    }
+    else {
       moduleFixtureBuilder.addContentRoot(myFixture.getTempDirPath());
     }
-    tuneFixture(moduleFixtureBuilder);    
+    tuneFixture(moduleFixtureBuilder);
 
-    myFixture.setUp();
     myFixture.setTestDataPath(getTestDataPath());
-    myModule = moduleFixtureBuilder.getFixture().getModule();
+    myFixture.setUp();
+    LanguageLevelProjectExtension.getInstance(getProject()).setLanguageLevel(LanguageLevel.JDK_1_6);
   }
 
   protected boolean toAddSourceRoot() {
@@ -66,14 +58,14 @@ public abstract class JavaCodeInsightFixtureTestCase extends UsefulTestCase{
 
   @Override
   protected void tearDown() throws Exception {
-    myModule = null;
-
     try {
       myFixture.tearDown();
     }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
     finally {
       myFixture = null;
-
       super.tearDown();
     }
   }
@@ -99,18 +91,31 @@ public abstract class JavaCodeInsightFixtureTestCase extends UsefulTestCase{
     return PathManager.getHomePath().replace(File.separatorChar, '/') + getBasePath();
   }
 
-  protected void tuneFixture(final JavaModuleFixtureBuilder moduleBuilder) throws Exception {}
-
+  protected void tuneFixture(JavaModuleFixtureBuilder<?> moduleBuilder) throws Exception {}
 
   protected Project getProject() {
     return myFixture.getProject();
   }
 
   protected PsiManagerEx getPsiManager() {
-    return (PsiManagerEx)PsiManager.getInstance(getProject());
+    return PsiManagerEx.getInstanceEx(getProject());
   }
 
   public PsiElementFactory getElementFactory() {
-    return JavaPsiFacade.getInstance(getProject()).getElementFactory();
+    return JavaPsiFacade.getElementFactory(getProject());
+  }
+
+  protected Module getModule() {
+    return myFixture.getModule();
+  }
+
+  @Override
+  public void setIndexingMode(@NotNull IndexingMode mode) {
+    myIndexingMode = mode;
+  }
+
+  @Override
+  public @NotNull IndexingMode getIndexingMode() {
+    return myIndexingMode;
   }
 }

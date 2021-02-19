@@ -32,12 +32,6 @@ public class SystemGCInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("gc.call.display.name");
-  }
-
-  @Override
-  @NotNull
   public String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message("gc.call.problem.descriptor");
   }
@@ -64,7 +58,7 @@ public class SystemGCInspection extends BaseInspection {
         return;
       }
       final PsiParameterList parameterList = method.getParameterList();
-      if (parameterList.getParametersCount() != 0) {
+      if (!parameterList.isEmpty()) {
         return;
       }
       final PsiClass aClass = method.getContainingClass();

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,13 +21,13 @@ import com.intellij.codeInsight.template.impl.TemplateState;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.CaretModel;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.SelectionModel;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts.DialogTitle;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Pass;
 import com.intellij.openapi.util.TextRange;
@@ -40,33 +40,36 @@ import com.intellij.refactoring.introduce.inplace.OccurrencesChooser;
 import com.intellij.refactoring.listeners.RefactoringEventData;
 import com.intellij.refactoring.listeners.RefactoringEventListener;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
-import com.intellij.util.Function;
+import com.intellij.util.ObjectUtils;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PyTokenTypes;
-import com.jetbrains.python.PythonStringUtil;
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil;
 import com.jetbrains.python.psi.*;
+import com.jetbrains.python.psi.impl.PyPsiUtils;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
+import com.jetbrains.python.psi.types.PyCallableParameter;
 import com.jetbrains.python.psi.types.PyNoneType;
 import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.TypeEvalContext;
 import com.jetbrains.python.refactoring.NameSuggesterUtil;
 import com.jetbrains.python.refactoring.PyRefactoringUtil;
 import com.jetbrains.python.refactoring.PyReplaceExpressionUtil;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-import static com.jetbrains.python.inspections.PyStringFormatParser.*;
+import static com.jetbrains.python.PyStringFormatParser.*;
+import static com.jetbrains.python.psi.PyUtil.as;
 
 /**
  * @author Alexey.Ivanov
  * @author vlan
  */
 abstract public class IntroduceHandler implements RefactoringActionHandler {
-  protected static PsiElement findAnchor(List<PsiElement> occurrences) {
+  protected static PsiElement findAnchor(List<? extends PsiElement> occurrences) {
     PsiElement anchor = occurrences.get(0);
     final Pair<PsiElement, TextRange> data = anchor.getUserData(PyReplaceExpressionUtil.SELECTION_BREAKS_AST_NODE);
     // Search anchor in the origin file, not in dummy.py, if selection breaks statement and thus element was generated
@@ -103,7 +106,7 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
   }
 
   @Nullable
-  protected static PsiElement findOccurrenceUnderCaret(List<PsiElement> occurrences, Editor editor) {
+  protected static PsiElement findOccurrenceUnderCaret(List<? extends PsiElement> occurrences, Editor editor) {
     if (occurrences.isEmpty()) {
       return null;
     }
@@ -115,14 +118,14 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
     }
     int line = editor.getDocument().getLineNumber(offset);
     for (PsiElement occurrence : occurrences) {
+      PyPsiUtils.assertValid(occurrence);
       if (occurrence.isValid() && editor.getDocument().getLineNumber(occurrence.getTextRange().getStartOffset()) == line) {
         return occurrence;
       }
     }
     for (PsiElement occurrence : occurrences) {
-      if (occurrence.isValid()) {
-        return occurrence;
-      }
+      PyPsiUtils.assertValid(occurrence);
+      return occurrence;
     }
     return null;
   }
@@ -146,24 +149,26 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
   }
 
   private final IntroduceValidator myValidator;
-  protected final String myDialogTitle;
+  protected final @DialogTitle String myDialogTitle;
 
-  protected IntroduceHandler(@NotNull final IntroduceValidator validator, @NotNull final String dialogTitle) {
+  protected IntroduceHandler(@NotNull final IntroduceValidator validator, @NotNull final @DialogTitle String dialogTitle) {
     myValidator = validator;
     myDialogTitle = dialogTitle;
   }
 
+  @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file, DataContext dataContext) {
     performAction(new IntroduceOperation(project, editor, file, null));
   }
 
-  public void invoke(@NotNull Project project, @NotNull PsiElement[] elements, DataContext dataContext) {
+  @Override
+  public void invoke(@NotNull Project project, PsiElement @NotNull [] elements, DataContext dataContext) {
   }
 
   public Collection<String> getSuggestedNames(@NotNull final PyExpression expression) {
     Collection<String> candidates = generateSuggestedNames(expression);
 
-    Collection<String> res = new ArrayList<String>();
+    Collection<String> res = new ArrayList<>();
     for (String name : candidates) {
       if (myValidator.checkPossibleName(name, expression)) {
         res.add(name);
@@ -184,7 +189,7 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
   }
 
   protected Collection<String> generateSuggestedNames(PyExpression expression) {
-    Collection<String> candidates = new LinkedHashSet<String>() {
+    Collection<String> candidates = new LinkedHashSet<>() {
       @Override
       public boolean add(String s) {
         if (PyNames.isReserved(s)) {
@@ -193,7 +198,7 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
         return super.add(s);
       }
     };
-    String text = expression.getText();
+    String text = PyStringLiteralUtil.getStringValue(expression);
     final Pair<PsiElement, TextRange> selection = expression.getUserData(PyReplaceExpressionUtil.SELECTION_BREAKS_AST_NODE);
     if (selection != null) {
       text = selection.getSecond().substring(selection.getFirst().getText());
@@ -223,16 +228,19 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
       candidates.add(kwArg.getKeyword());
     }
 
-    final PyArgumentList argList = PsiTreeUtil.getParentOfType(expression, PyArgumentList.class);
-    if (argList != null) {
-      final CallArgumentsMapping result = argList.analyzeCall(PyResolveContext.noImplicits());
-      if (result.getMarkedCallee() != null) {
-        final PyNamedParameter namedParameter = result.getPlainMappedParams().get(expression);
-        if (namedParameter != null) {
-          candidates.add(namedParameter.getName());
-        }
-      }
-    }
+    Optional
+      .ofNullable(PsiTreeUtil.getParentOfType(expression, PyArgumentList.class))
+      .map(PyArgumentList::getCallExpression)
+      .ifPresent(
+        call -> StreamEx
+          .of(call.multiMapArguments(PyResolveContext.defaultContext().withTypeEvalContext(context)))
+          .map(mapping -> mapping.getMappedParameters().get(expression))
+          .nonNull()
+          .map(PyCallableParameter::getName)
+          .nonNull()
+          .forEach(candidates::add)
+      );
+
     return candidates;
   }
 
@@ -357,10 +365,13 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
   private boolean smartIntroduce(final IntroduceOperation operation) {
     final Editor editor = operation.getEditor();
     final PsiFile file = operation.getFile();
-    int offset = editor.getCaretModel().getOffset();
+    final int offset = editor.getCaretModel().getOffset();
     PsiElement elementAtCaret = file.findElementAt(offset);
+    if ((elementAtCaret instanceof PsiWhiteSpace && offset == elementAtCaret.getTextOffset() || elementAtCaret == null) && offset > 0) {
+      elementAtCaret = file.findElementAt(offset - 1);
+    }
     if (!checkIntroduceContext(file, editor, elementAtCaret)) return true;
-    final List<PyExpression> expressions = new ArrayList<PyExpression>();
+    final List<PyExpression> expressions = new ArrayList<>();
     while (elementAtCaret != null) {
       if (elementAtCaret instanceof PyStatement || elementAtCaret instanceof PyFile) {
         break;
@@ -376,17 +387,13 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
       return true;
     }
     else if (expressions.size() > 1) {
-      IntroduceTargetChooser.showChooser(editor, expressions, new Pass<PyExpression>() {
+      IntroduceTargetChooser.showChooser(editor, expressions, new Pass<>() {
         @Override
         public void pass(PyExpression pyExpression) {
           operation.setElement(pyExpression);
           performActionOnElement(operation);
         }
-      }, new Function<PyExpression, String>() {
-        public String fun(PyExpression pyExpression) {
-          return pyExpression.getText();
-        }
-      });
+      }, pyExpression -> pyExpression.getText());
       return true;
     }
     return false;
@@ -410,8 +417,8 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
   }
 
   private static boolean isValidIntroduceVariant(PsiElement element) {
-    final PyCallExpression call = PsiTreeUtil.getParentOfType(element, PyCallExpression.class);
-    if (call != null && PsiTreeUtil.isAncestor(call.getCallee(), element, false)) {
+    final PyCallExpression call = as(element.getParent(), PyCallExpression.class);
+    if (call != null && call.getCallee() == element) {
       return false;
     }
     final PyComprehensionElement comprehension = PsiTreeUtil.getParentOfType(element, PyComprehensionElement.class, true);
@@ -452,7 +459,7 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
         performInplaceIntroduce(operation);
       }
       else {
-        OccurrencesChooser.simpleChooser(editor).showChooser(operation.getElement(), operation.getOccurrences(), new Pass<OccurrencesChooser.ReplaceChoice>() {
+        OccurrencesChooser.simpleChooser(editor).showChooser(operation.getElement(), operation.getOccurrences(), new Pass<>() {
           @Override
           public void pass(OccurrencesChooser.ReplaceChoice replaceChoice) {
             operation.setReplaceAll(replaceChoice == OccurrencesChooser.ReplaceChoice.ALL);
@@ -476,7 +483,7 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
       operation.getEditor().getCaretModel().moveToOffset(elementForCaret.getTextRange().getStartOffset());
       final InplaceVariableIntroducer<PsiElement> introducer =
               new PyInplaceVariableIntroducer(target, operation, occurrences);
-      introducer.performInplaceRefactoring(new LinkedHashSet<String>(operation.getSuggestedNames()));
+      introducer.performInplaceRefactoring(new LinkedHashSet<>(operation.getSuggestedNames()));
     }
   }
 
@@ -518,8 +525,10 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
 
   private static class InitializerTextBuilder extends PyRecursiveElementVisitor {
     private final StringBuilder myResult = new StringBuilder();
+    private final boolean myPreserveFormatting;
 
-    public InitializerTextBuilder(@NotNull PyExpression expression) {
+    InitializerTextBuilder(@NotNull PyExpression expression) {
+      myPreserveFormatting = shouldPreserveFormatting(expression);
       if (PsiTreeUtil.findChildOfType(expression, PsiComment.class) != null) {
         myResult.append(expression.getText());
       }
@@ -532,17 +541,18 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
     }
 
     @Override
-    public void visitWhiteSpace(PsiWhiteSpace space) {
-      myResult.append(space.getText().replace('\n', ' ').replace("\\", ""));
+    public void visitWhiteSpace(@NotNull PsiWhiteSpace space) {
+      final String text = space.getText();
+      myResult.append(myPreserveFormatting ? text : text.replace('\n', ' ').replace("\\", ""));
     }
 
     @Override
-    public void visitPyStringLiteralExpression(PyStringLiteralExpression node) {
+    public void visitPyStringLiteralExpression(@NotNull PyStringLiteralExpression node) {
       final Pair<PsiElement, TextRange> data = node.getUserData(PyReplaceExpressionUtil.SELECTION_BREAKS_AST_NODE);
       if (data != null) {
         final PsiElement parent = data.getFirst();
         final String text = parent.getText();
-        final Pair<String, String> detectedQuotes = PythonStringUtil.getQuotes(text);
+        final Pair<String, String> detectedQuotes = PyStringLiteralUtil.getQuotes(text);
         final Pair<String, String> quotes = detectedQuotes != null ? detectedQuotes : Pair.create("'", "'");
         final TextRange range = data.getSecond();
         final String substring = range.substring(text);
@@ -569,7 +579,7 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
     }
 
     @Override
-    public void visitElement(PsiElement element) {
+    public void visitElement(@NotNull PsiElement element) {
       if (element.getChildren().length == 0) {
         myResult.append(element.getText());
       }
@@ -578,7 +588,15 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
       }
     }
 
-    private boolean needToWrapTopLevelExpressionInParenthesis(@NotNull PyExpression node) {
+    private static boolean shouldPreserveFormatting(@NotNull PyExpression expression) {
+      // A collection literal in brackets
+      if (expression instanceof PyParenthesizedExpression) {
+        return ((PyParenthesizedExpression)expression).getContainedExpression() instanceof PyTupleExpression;
+      }
+      return expression instanceof PySequenceExpression && !(expression instanceof PyTupleExpression);
+    }
+
+    private static boolean needToWrapTopLevelExpressionInParenthesis(@NotNull PyExpression node) {
       if (node instanceof PyGeneratorExpression) {
         final PsiElement firstChild = node.getFirstChild();
         if (firstChild != null && firstChild.getNode().getElementType() != PyTokenTypes.LPAR) {
@@ -612,20 +630,21 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
                                     final IntroduceOperation operation) {
     final PyExpression expression = operation.getInitializer();
     final Project project = operation.getProject();
-    return new WriteCommandAction<PsiElement>(project, expression.getContainingFile()) {
-      protected void run(@NotNull final Result<PsiElement> result) throws Throwable {
+    final SmartPsiElementPointer<PsiElement> result =
+      WriteCommandAction.writeCommandAction(project, expression.getContainingFile()).compute(() -> {
+        final PsiElement insertedDeclaration;
         try {
           final RefactoringEventData afterData = new RefactoringEventData();
           afterData.addElement(declaration);
           project.getMessageBus().syncPublisher(RefactoringEventListener.REFACTORING_EVENT_TOPIC)
             .refactoringStarted(getRefactoringId(), afterData);
 
-          result.setResult(addDeclaration(operation, declaration));
+          insertedDeclaration = addDeclaration(operation, declaration);
 
           PyExpression newExpression = createExpression(project, operation.getName(), declaration);
 
           if (operation.isReplaceAll()) {
-            List<PsiElement> newOccurrences = new ArrayList<PsiElement>();
+            List<PsiElement> newOccurrences = new ArrayList<>();
             for (PsiElement occurrence : operation.getOccurrences()) {
               final PsiElement replaced = replaceExpression(occurrence, newExpression, operation);
               if (replaced != null) {
@@ -647,8 +666,9 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
           project.getMessageBus().syncPublisher(RefactoringEventListener.REFACTORING_EVENT_TOPIC)
             .refactoringDone(getRefactoringId(), afterData);
         }
-      }
-    }.execute().getResultObject();
+        return ObjectUtils.doIfNotNull(insertedDeclaration, SmartPointerManager::createPointer);
+      });
+    return ObjectUtils.doIfNotNull(result, SmartPsiElementPointer::getElement);
   }
 
   protected abstract String getRefactoringId();
@@ -680,11 +700,11 @@ abstract public class IntroduceHandler implements RefactoringActionHandler {
   private static class PyInplaceVariableIntroducer extends InplaceVariableIntroducer<PsiElement> {
     private final PyTargetExpression myTarget;
 
-    public PyInplaceVariableIntroducer(PyTargetExpression target,
+    PyInplaceVariableIntroducer(PyTargetExpression target,
                                        IntroduceOperation operation,
                                        List<PsiElement> occurrences) {
-      super(target, operation.getEditor(), operation.getProject(), "Introduce Variable",
-            occurrences.toArray(new PsiElement[occurrences.size()]), null);
+      super(target, operation.getEditor(), operation.getProject(), PyBundle.message("python.introduce.variable.refactoring.name"),
+            occurrences.toArray(PsiElement.EMPTY_ARRAY), null);
       myTarget = target;
     }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,9 +45,9 @@ import java.beans.PropertyChangeSupport;
 /**
  * @author Sergey.Vasiliev
  */
-abstract public class PerspectiveFileEditor extends UserDataHolderBase implements DocumentsEditor, Committable {
+public abstract class PerspectiveFileEditor extends UserDataHolderBase implements DocumentsEditor, Committable {
   private final Wrapper myWrapper = new Wrapper();
-  private boolean myInitialised = false;
+  private boolean myInitialised;
   /** createCustomComponent() is in progress */
   private boolean myInitializing;
 
@@ -62,19 +62,17 @@ abstract public class PerspectiveFileEditor extends UserDataHolderBase implement
     myUndoHelper = new UndoHelper(project, this);
     myFile = file;
 
-    FileEditorManager.getInstance(myProject).addFileEditorManagerListener(new FileEditorManagerAdapter() {
+    project.getMessageBus().connect(this).subscribe(
+      FileEditorManagerListener.FILE_EDITOR_MANAGER, new FileEditorManagerListener() {
       @Override
       public void selectionChanged(@NotNull FileEditorManagerEvent event) {
         if (!isValid()) return;
 
-        ApplicationManager.getApplication().invokeLater(new Runnable() {
-          @Override
-          public void run() {
-            if (myUndoHelper.isShowing() && !getComponent().isShowing()) {
-              deselectNotify();
-            } else if (!myUndoHelper.isShowing() && getComponent().isShowing()) {
-              selectNotify();
-            }
+        ApplicationManager.getApplication().invokeLater(() -> {
+          if (myUndoHelper.isShowing() && !getComponent().isShowing()) {
+            deselectNotify();
+          } else if (!myUndoHelper.isShowing() && getComponent().isShowing()) {
+            selectNotify();
           }
         });
 
@@ -109,7 +107,7 @@ abstract public class PerspectiveFileEditor extends UserDataHolderBase implement
           }
         }
       }
-    }, this);
+    });
 
     myUndoHelper.startListeningDocuments();
 
@@ -123,28 +121,28 @@ abstract public class PerspectiveFileEditor extends UserDataHolderBase implement
   }
 
   @Nullable
-  abstract protected DomElement getSelectedDomElement();
+  protected abstract DomElement getSelectedDomElement();
 
-  abstract protected void setSelectedDomElement(DomElement domElement);
+  protected abstract void setSelectedDomElement(DomElement domElement);
 
   public final void addWatchedElement(@NotNull final DomElement domElement) {
     addWatchedDocument(getDocumentManager().getDocument(DomUtil.getFile(domElement)));
   }
 
-  public final void removeWatchedElement(@NotNull final DomElement domElement) {
+  final void removeWatchedElement(@NotNull final DomElement domElement) {
     removeWatchedDocument(getDocumentManager().getDocument(DomUtil.getFile(domElement)));
   }
 
-  public final void addWatchedDocument(final Document document) {
+  private void addWatchedDocument(final Document document) {
     myUndoHelper.addWatchedDocument(document);
   }
 
-  public final void removeWatchedDocument(final Document document) {
+  private void removeWatchedDocument(final Document document) {
     myUndoHelper.removeWatchedDocument(document);
   }
 
   @Nullable
-  protected DomElement getSelectedDomElementFromTextEditor(final TextEditor textEditor) {
+  private DomElement getSelectedDomElementFromTextEditor(final TextEditor textEditor) {
     final PsiFile psiFile = getPsiFile();
     if (psiFile == null) return null;
     final PsiElement psiElement = psiFile.findElementAt(textEditor.getEditor().getCaretModel().getOffset());
@@ -156,7 +154,7 @@ abstract public class PerspectiveFileEditor extends UserDataHolderBase implement
     return DomManager.getDomManager(myProject).getDomElement(xmlTag);
   }
 
-  public void setSelectionInTextEditor(final TextEditor textEditor, final DomElement element) {
+  private void setSelectionInTextEditor(final TextEditor textEditor, final DomElement element) {
     if (element != null && element.isValid()) {
       final XmlTag tag = element.getXmlTag();
       if (tag == null) return;
@@ -182,7 +180,7 @@ abstract public class PerspectiveFileEditor extends UserDataHolderBase implement
   }
 
   @Override
-  public final Document[] getDocuments() {
+  public final Document @NotNull [] getDocuments() {
     return myUndoHelper.getDocuments();
   }
 
@@ -265,12 +263,6 @@ abstract public class PerspectiveFileEditor extends UserDataHolderBase implement
   @Override
   public StructureViewBuilder getStructureViewBuilder() {
     return null;
-  }
-
-  @Override
-  @NotNull
-  public FileEditorState getState(@NotNull FileEditorStateLevel level) {
-    return FileEditorState.INSTANCE;
   }
 
   @Override

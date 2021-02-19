@@ -24,9 +24,6 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * Created by Max Medvedev on 28/02/14
- */
 public class FirstParamHintProcessor extends ParamHintProcessor {
   public FirstParamHintProcessor() {
     super("groovy.transform.stc.FirstParam", 0, -1);
@@ -60,7 +57,7 @@ public class FirstParamHintProcessor extends ParamHintProcessor {
     @Override
     public List<PsiType[]> inferExpectedSignatures(@NotNull PsiMethod method,
                                                    @NotNull PsiSubstitutor substitutor,
-                                                   @NotNull String[] options) {
+                                                   String @NotNull [] options) {
       List<PsiType[]> signatures = new FirstParamHintProcessor().inferExpectedSignatures(method, substitutor, options);
       if (signatures.size() == 1) {
         PsiType[] signature = signatures.get(0);

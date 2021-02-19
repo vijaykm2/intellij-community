@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.designSurface;
 
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.uiDesigner.SelectionWatcher;
 import com.intellij.uiDesigner.radComponents.RadComponent;
 import com.intellij.util.ui.PlatformColors;
@@ -37,17 +24,17 @@ import java.util.Map;
  * @author Vladimir Kondratyev
  */
 final class ActiveDecorationLayer extends JComponent implements FeedbackLayer {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.uiDesigner.designSurface.ActiveDecorationLayer");
+  private static final Logger LOG = Logger.getInstance(ActiveDecorationLayer.class);
 
   private final GuiEditor myEditor;
   private final JToolTip myToolTip;
 
-  private final Map<RadComponent, ListenerNavigateButton> myNavigateButtons = new HashMap<RadComponent, ListenerNavigateButton>();
+  private final Map<RadComponent, ListenerNavigateButton> myNavigateButtons = new HashMap<>();
 
   private final FeedbackPainterPanel myFeedbackPainterPanel = new FeedbackPainterPanel();
   private final RectangleFeedbackPainter myRectangleFeedbackPainter = new RectangleFeedbackPainter();
 
-  public ActiveDecorationLayer(@NotNull final GuiEditor editor) {
+  ActiveDecorationLayer(@NotNull final GuiEditor editor) {
     myEditor = editor;
     myToolTip = new JToolTip();
   }
@@ -56,6 +43,7 @@ final class ActiveDecorationLayer extends JComponent implements FeedbackLayer {
     new MyNavigateButtonSelectionWatcher(myEditor);
   }
 
+  @Override
   public void paint(final Graphics g){
     layoutListenerNavigateButtons();
 
@@ -74,10 +62,12 @@ final class ActiveDecorationLayer extends JComponent implements FeedbackLayer {
     }
   }
 
+  @Override
   public void putFeedback(Component relativeTo, final Rectangle rc, final String tooltipText) {
     putFeedback(relativeTo, rc, myRectangleFeedbackPainter, tooltipText);
   }
 
+  @Override
   public void putFeedback(Component relativeTo, Rectangle rc, final FeedbackPainter feedbackPainter, final String tooltipText) {
     rc = SwingUtilities.convertRectangle(relativeTo, rc, this);
     myFeedbackPainterPanel.setBounds(rc);
@@ -90,7 +80,7 @@ final class ActiveDecorationLayer extends JComponent implements FeedbackLayer {
     }
   }
 
-  private void putToolTip(Component relativeTo, Point pnt, @Nullable String text) {
+  private void putToolTip(Component relativeTo, Point pnt, @Nullable @NlsSafe String text) {
     if (text == null) {
       if (myToolTip.getParent() == this) {
         remove(myToolTip);
@@ -116,6 +106,7 @@ final class ActiveDecorationLayer extends JComponent implements FeedbackLayer {
     }
   }
 
+  @Override
   public void removeFeedback() {
     boolean needRepaint = false;
     if (myFeedbackPainterPanel.getParent() == this) {
@@ -131,6 +122,7 @@ final class ActiveDecorationLayer extends JComponent implements FeedbackLayer {
 
   private static class RectangleFeedbackPainter implements FeedbackPainter {
 
+    @Override
     public void paintFeedback(Graphics2D g2d, Rectangle rc) {
       g2d.setColor(PlatformColors.BLUE);
       g2d.setStroke(new BasicStroke(2.5f));
@@ -142,10 +134,11 @@ final class ActiveDecorationLayer extends JComponent implements FeedbackLayer {
   private static class FeedbackPainterPanel extends JPanel {
     private FeedbackPainter myFeedbackPainter;
 
-    public FeedbackPainterPanel() {
+    FeedbackPainterPanel() {
       setOpaque(false);
     }
 
+    @Override
     protected void paintComponent(Graphics g) {
       super.paintComponent(g);
       Graphics2D g2d = (Graphics2D) g;
@@ -166,10 +159,11 @@ final class ActiveDecorationLayer extends JComponent implements FeedbackLayer {
   }
 
   private class MyNavigateButtonSelectionWatcher extends SelectionWatcher {
-    public MyNavigateButtonSelectionWatcher(final GuiEditor editor) {
+    MyNavigateButtonSelectionWatcher(final GuiEditor editor) {
       super(editor);
     }
 
+    @Override
     protected void selectionChanged(RadComponent component, boolean selected) {
       ListenerNavigateButton btn = myNavigateButtons.get(component);
       if (selected) {

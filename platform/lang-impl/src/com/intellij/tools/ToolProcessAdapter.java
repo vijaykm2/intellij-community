@@ -23,10 +23,10 @@ import com.intellij.openapi.project.ex.ProjectManagerEx;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.openapi.wm.StatusBar;
 import com.intellij.openapi.wm.WindowManager;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Eugene Zhuravlev
- * @since Mar 30, 2005
  */
 public class ToolProcessAdapter extends ProcessAdapter {
   private final Project myProject;
@@ -40,25 +40,19 @@ public class ToolProcessAdapter extends ProcessAdapter {
   }
 
   @Override
-  public void processTerminated(ProcessEvent event) {
+  public void processTerminated(@NotNull ProcessEvent event) {
     final String message = ToolsBundle.message("tools.completed.message", myName, event.getExitCode());
 
     if (mySynchronizeAfterExecution) {
-      ApplicationManager.getApplication().runReadAction(new Runnable() {
-        @Override
-        public void run() {
-          VirtualFileManager.getInstance().asyncRefresh(new Runnable() {
-            @Override
-            public void run() {
-              if (ProjectManagerEx.getInstanceEx().isProjectOpened(myProject)) {
-                StatusBar statusBar = WindowManager.getInstance().getStatusBar(myProject);
-                if (statusBar != null) {
-                  statusBar.setInfo(message);
-                }
-              }
+      ApplicationManager.getApplication().runReadAction(() -> {
+        VirtualFileManager.getInstance().asyncRefresh(() -> {
+          if (ProjectManagerEx.getInstanceEx().isProjectOpened(myProject)) {
+            StatusBar statusBar = WindowManager.getInstance().getStatusBar(myProject);
+            if (statusBar != null) {
+              statusBar.setInfo(message);
             }
-          });
-        }
+          }
+        });
       });
     }
     if (ProjectManagerEx.getInstanceEx().isProjectOpened(myProject)) {

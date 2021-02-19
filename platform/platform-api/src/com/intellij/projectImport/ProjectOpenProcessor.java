@@ -1,55 +1,76 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.projectImport;
 
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.io.File;
+import java.util.concurrent.CompletableFuture;
 
 public abstract class ProjectOpenProcessor {
-  public static final ExtensionPointName<ProjectOpenProcessor> EXTENSION_POINT_NAME = new ExtensionPointName<ProjectOpenProcessor>("com.intellij.projectOpenProcessor");
+  public static final ExtensionPointName<ProjectOpenProcessor> EXTENSION_POINT_NAME =
+    new ExtensionPointName<>("com.intellij.projectOpenProcessor");
 
-  public abstract String getName();
+  public abstract @NotNull @Nls String getName();
 
-  @Nullable
-  public abstract Icon getIcon();
+  public @Nullable Icon getIcon() {
+    return null;
+  }
 
-  @Nullable
-  public Icon getIcon(final VirtualFile file) {
+  public @Nullable Icon getIcon(@NotNull VirtualFile file) {
     return getIcon();
   }
 
-  public abstract boolean canOpenProject(VirtualFile file);
+  public abstract boolean canOpenProject(@NotNull VirtualFile file);
 
-  public boolean isProjectFile(VirtualFile file) {
+  public boolean isProjectFile(@NotNull VirtualFile file) {
     return canOpenProject(file);
   }
 
-  @Nullable
-  public abstract Project doOpenProject(@NotNull VirtualFile virtualFile, @Nullable Project projectToClose, boolean forceOpenInNewFrame);
+  /**
+   * If known that a user tries to open some project, ask if the user wants to open it as a plain file or as a project.
+   * @return Messages.YES -> Open as a project, Messages.NO -> Open as a plain file, Messages.CANCEL -> Don't open.
+   */
+  @Messages.YesNoCancelResult
+  public int askConfirmationForOpeningProject(@NotNull VirtualFile file, @Nullable Project project) {
+    return Messages.showYesNoCancelDialog(project,
+                                          IdeBundle.message("message.open.file.is.project", file.getName()),
+                                          IdeBundle.message("title.open.project"),
+                                          IdeBundle.message("message.open.file.is.project.open.as.project"),
+                                          IdeBundle.message("message.open.file.is.project.open.as.file"),
+                                          IdeBundle.message("button.cancel"),
+                                          Messages.getQuestionIcon());
+  }
+
+  /**
+   * Create an instance of the project, configure the project according to the needs of this ProjectOpenProcessor, and open it.
+   * <p/>
+   * The call to this method is guarded by the "Do you trust this project" check (see TrustedProjects#confirmOpeningUntrustedProject()),
+   * so it is safe for implementations of this method to assume that the project is trusted.
+   *
+   * @return The created project, or null if it was not possible to create a project for some reason.
+   */
+  public abstract @Nullable Project doOpenProject(@NotNull VirtualFile virtualFile, @Nullable Project projectToClose, boolean forceOpenInNewFrame);
+
+  /**
+   * If true, then opening the project via this provider might cause execution of arbitrary unverified code.
+   */
+  public boolean executesUnverifiedCode() {
+    return false;
+  }
+
+  /**
+   * Return null if not supported.
+   */
+  public @Nullable CompletableFuture<@Nullable Project> openProjectAsync(@NotNull VirtualFile virtualFile, @Nullable Project projectToClose, boolean forceOpenInNewFrame) {
+    return null;
+  }
 
   /**
    * Allow opening a directory directly if the project files are located in that directory.
@@ -60,24 +81,35 @@ public abstract class ProjectOpenProcessor {
     return true;
   }
 
-  @Nullable
-  public static ProjectOpenProcessor getImportProvider(VirtualFile file) {
-    for (ProjectOpenProcessor provider : Extensions.getExtensions(EXTENSION_POINT_NAME)) {
-      if (provider.canOpenProject(file)) {
-        return provider;
-      }
-    }
-    return null;
+  /**
+   * Returns true if this processor is able to import the project after it has been opened in IDEA.
+   *
+   * @see #importProjectAfterwards(Project, VirtualFile)
+   */
+  public boolean canImportProjectAfterwards() {
+    return false;
   }
 
-  @Nullable
-  public static ProjectOpenProcessor getStrongImportProvider(VirtualFile file) {
-    for (ProjectOpenProcessor provider : Extensions.getExtensions(EXTENSION_POINT_NAME)) {
-      if (provider.canOpenProject(file) && provider.isStrongProjectInfoHolder()) {
-        return provider;
-      }
-    }
-    return null;
+  /**
+   * Import the project after it has already been opened in IDEA.
+   *
+   * @see #canImportProjectAfterwards()
+   */
+  public void importProjectAfterwards(@NotNull Project project, @NotNull VirtualFile file) {
+  }
+
+  public static @Nullable ProjectOpenProcessor getImportProvider(@NotNull VirtualFile file) {
+    return getImportProvider(file, false);
+  }
+
+  /**
+   * @param onlyIfExistingProjectFile when true, doesn't return 'generic' providers that can open any non-project directory/text file
+   *                                  (e.g. PlatformProjectOpenProcessor)
+   */
+  public static @Nullable ProjectOpenProcessor getImportProvider(@NotNull VirtualFile file, boolean onlyIfExistingProjectFile) {
+    return EXTENSION_POINT_NAME.findFirstSafe(provider -> {
+      return provider.canOpenProject(file) && (!onlyIfExistingProjectFile || provider.isProjectFile(file));
+    });
   }
 
   /**
@@ -85,9 +117,5 @@ public abstract class ProjectOpenProcessor {
    */
   public boolean isStrongProjectInfoHolder() {
     return false;
-  }
-
-  public void refreshProjectFiles(File basedir) {
-
   }
 }

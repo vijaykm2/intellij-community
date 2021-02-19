@@ -1,21 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion;
 
+import com.intellij.application.options.editor.WebEditorOptions;
 import com.intellij.codeInsight.AutoPopupController;
+import com.intellij.codeInsight.editorActions.TabOutScopesTracker;
+import com.intellij.codeInsight.editorActions.XmlEditUtil;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
@@ -42,7 +31,7 @@ import java.util.Collections;
 * @author peter
 */
 public class XmlAttributeInsertHandler implements InsertHandler<LookupElement> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.completion.XmlAttributeInsertHandler");
+  private static final Logger LOG = Logger.getInstance(XmlAttributeInsertHandler.class);
 
   public static final XmlAttributeInsertHandler INSTANCE = new XmlAttributeInsertHandler();
 
@@ -57,7 +46,7 @@ public class XmlAttributeInsertHandler implements InsertHandler<LookupElement> {
   }
 
   @Override
-  public void handleInsert(final InsertionContext context, final LookupElement item) {
+  public void handleInsert(@NotNull final InsertionContext context, @NotNull final LookupElement item) {
     final Editor editor = context.getEditor();
 
     final Document document = editor.getDocument();
@@ -65,15 +54,29 @@ public class XmlAttributeInsertHandler implements InsertHandler<LookupElement> {
     final PsiFile file = context.getFile();
 
     final CharSequence chars = document.getCharsSequence();
-    if (!CharArrayUtil.regionMatches(chars, caretOffset, "=\"") && !CharArrayUtil.regionMatches(chars, caretOffset, "='")) {
+    final String quote = XmlEditUtil.getAttributeQuote(file);
+    final boolean insertQuotes = WebEditorOptions.getInstance().isInsertQuotesForAttributeValue() && StringUtil.isNotEmpty(quote);
+    final boolean hasQuotes = CharArrayUtil.regionMatches(chars, caretOffset, "=\"") ||
+                              CharArrayUtil.regionMatches(chars, caretOffset, "='");
+    if (!hasQuotes) {
+      if (CharArrayUtil.regionMatches(chars, caretOffset, "=")) {
+        document.deleteString(caretOffset, caretOffset + 1);
+      }
+
       PsiElement fileContext = file.getContext();
-      String toInsert= "=\"\"";
+      String toInsert = null;
 
       if(fileContext != null) {
         if (fileContext.getText().startsWith("\"")) toInsert = "=''";
+        if (fileContext.getText().startsWith("'")) toInsert = "=\"\"";
       }
-      
-      if (caretOffset >= document.getTextLength() || "/> \n\t\r".indexOf(document.getCharsSequence().charAt(caretOffset)) < 0) {
+      if (toInsert == null) {
+        toInsert = "=" + quote + quote;
+      }
+
+      if (!insertQuotes) toInsert = "=";
+
+      if (caretOffset < document.getTextLength() && "/> \n\t\r".indexOf(document.getCharsSequence().charAt(caretOffset)) < 0) {
         document.insertString(caretOffset, toInsert + " ");
       }
       else {
@@ -85,7 +88,8 @@ public class XmlAttributeInsertHandler implements InsertHandler<LookupElement> {
       }
     }
 
-    editor.getCaretModel().moveToOffset(caretOffset + 2);
+    editor.getCaretModel().moveToOffset(caretOffset + (insertQuotes || hasQuotes ? 2 : 1));
+    TabOutScopesTracker.getInstance().registerEmptyScopeAtCaret(context.getEditor());
     editor.getScrollingModel().scrollToCaret(ScrollType.RELATIVE);
     editor.getSelectionModel().removeSelection();
     AutoPopupController.getInstance(editor.getProject()).scheduleAutoPopup(editor);

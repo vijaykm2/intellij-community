@@ -1,23 +1,43 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.model.java;
 
+import com.intellij.util.lang.JavaVersion;
+import org.jetbrains.annotations.NotNull;
+
 /**
- * @author nik
+ * The {@link com.intellij.pom.java.LanguageLevel} class is an IDE-side counterpart of this enum.
  */
 public enum LanguageLevel {
-  JDK_1_3, JDK_1_4, JDK_1_5, JDK_1_6, JDK_1_7, JDK_1_8, JDK_1_9
+  JDK_1_3(3),
+  JDK_1_4(4),
+  JDK_1_5(5),
+  JDK_1_6(6),
+  JDK_1_7(7),
+  JDK_1_8(8),
+  JDK_1_9(9),
+  JDK_10(10),
+  JDK_11(11),
+  JDK_12(12),
+  JDK_13(13),
+  JDK_14(14),
+  JDK_15(15), JDK_15_PREVIEW(15),
+  JDK_16(16), JDK_16_PREVIEW(16),
+  JDK_X(17);
+
+  public static final LanguageLevel HIGHEST = JDK_15;
+
+  private final JavaVersion myVersion;
+
+  LanguageLevel(int major) {
+    myVersion = JavaVersion.compose(major);
+  }
+
+  @NotNull
+  public JavaVersion toJavaVersion() {
+    return myVersion;
+  }
+
+  public boolean isPreview() {
+    return name().endsWith("_PREVIEW");
+  }
 }

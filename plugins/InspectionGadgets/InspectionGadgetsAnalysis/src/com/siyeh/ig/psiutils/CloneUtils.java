@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import com.siyeh.HardcodedMethodConstants;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class CloneUtils {
+public final class CloneUtils {
 
   private CloneUtils() {}
 
@@ -54,28 +54,11 @@ public class CloneUtils {
     }
     else {
       // for 1.5 and after, clone may be covariant
-      javaLangObject = null;
-    }
-    return MethodUtils.methodMatches(method, null, javaLangObject,
-                                     HardcodedMethodConstants.CLONE, PsiType.EMPTY_ARRAY);
-  }
-
-  public static boolean onlyThrowsException(@NotNull PsiMethod method) {
-    if (!method.hasModifierProperty(PsiModifier.FINAL)) {
-      final PsiClass aClass = method.getContainingClass();
-      if (aClass == null || !aClass.hasModifierProperty(PsiModifier.FINAL)) {
+      if (method.getReturnType() instanceof PsiPrimitiveType) {
         return false;
       }
+      javaLangObject = null;
     }
-    final PsiCodeBlock body = method.getBody();
-    if (body == null) {
-      return false;
-    }
-    final PsiStatement[] statements = body.getStatements();
-    if (statements.length == 0) {
-      return false;
-    }
-    final PsiStatement statement = statements[statements.length - 1];
-    return statement instanceof PsiThrowStatement;
+    return MethodUtils.methodMatches(method, null, javaLangObject, HardcodedMethodConstants.CLONE, PsiType.EMPTY_ARRAY);
   }
 }

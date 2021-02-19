@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util;
 
 import com.intellij.icons.AllIcons;
-import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.ApiStatus;
 
 import javax.swing.*;
 
@@ -24,7 +10,6 @@ import javax.swing.*;
  * @author Konstantin Bulenkov
  */
 public interface PlatformIcons {
-  @NonNls String PUBLIC_ICON_PATH = "/nodes/c_public.png";
   Icon PUBLIC_ICON = AllIcons.Nodes.C_public;
   Icon LOCKED_ICON = AllIcons.Nodes.Locked;
   Icon SYMLINK_ICON = AllIcons.Nodes.Symlink;
@@ -33,17 +18,13 @@ public interface PlatformIcons {
   Icon PACKAGE_LOCAL_ICON = AllIcons.Nodes.C_plocal;
   Icon PACKAGE_ICON = AllIcons.Nodes.Package;
 
-  Icon DIRECTORY_CLOSED_ICON = AllIcons.Nodes.TreeClosed;
-  @Deprecated Icon DIRECTORY_OPEN_ICON = DIRECTORY_CLOSED_ICON;
-
-  @NonNls String CLASS_ICON_PATH = "/nodes/class.png";
   Icon CLASS_ICON = AllIcons.Nodes.Class;
   Icon EXCEPTION_CLASS_ICON = AllIcons.Nodes.ExceptionClass;
-  Icon NEW_EXCEPTION = AllIcons.Hierarchy.Caller;
   Icon ANONYMOUS_CLASS_ICON = AllIcons.Nodes.AnonymousClass;
   Icon ABSTRACT_CLASS_ICON = AllIcons.Nodes.AbstractClass;
   Icon ANNOTATION_TYPE_ICON = AllIcons.Nodes.Annotationtype;
   Icon ENUM_ICON = AllIcons.Nodes.Enum;
+  Icon RECORD_ICON = AllIcons.Nodes.Record;
   Icon INTERFACE_ICON = AllIcons.Nodes.Interface;
   Icon METHOD_ICON = AllIcons.Nodes.Method;
   Icon FUNCTION_ICON = AllIcons.Nodes.Function;
@@ -55,30 +36,29 @@ public interface PlatformIcons {
   Icon LIBRARY_ICON = AllIcons.Nodes.PpLib;
   Icon WEB_ICON = AllIcons.Nodes.PpWeb;
   Icon JAR_ICON = AllIcons.Nodes.PpJar;
-  Icon FILE_ICON = AllIcons.Nodes.PpFile;
+  Icon FILE_ICON = AllIcons.Nodes.Folder;
 
-  Icon VARIABLE_READ_ACCESS = AllIcons.Nodes.Read_access;
-  Icon VARIABLE_WRITE_ACCESS = AllIcons.Nodes.Write_access;
-  Icon VARIABLE_RW_ACCESS = AllIcons.Nodes.Rw_access;
+  Icon VARIABLE_READ_ACCESS = AllIcons.Nodes.ReadAccess;
+  Icon VARIABLE_WRITE_ACCESS = AllIcons.Nodes.WriteAccess;
+  Icon VARIABLE_RW_ACCESS = AllIcons.Nodes.RwAccess;
   Icon CUSTOM_FILE_ICON = AllIcons.FileTypes.Custom;
   Icon PROPERTY_ICON = AllIcons.Nodes.Property;
-  Icon NEW_PARAMETER = AllIcons.Hierarchy.Caller;
+  Icon NEW_PARAMETER = AllIcons.Hierarchy.Supertypes;
   Icon ASPECT_ICON = AllIcons.Nodes.Aspect;
-  Icon ADVICE_ICON = AllIcons.Nodes.Advice;
+
   Icon ERROR_INTRODUCTION_ICON = AllIcons.Nodes.ErrorIntroduction;
   Icon WARNING_INTRODUCTION_ICON = AllIcons.Nodes.WarningIntroduction;
   Icon JAVA_OUTSIDE_SOURCE_ICON = AllIcons.FileTypes.JavaOutsideSource;
   Icon EXCLUDED_FROM_COMPILE_ICON = AllIcons.Nodes.ExcludedFromCompile;
-  Icon PROJECT_ICON = AllIcons.Icon_small;
+  Icon PROJECT_ICON = AllIcons.Toolwindows.ToolWindowProject;
   Icon UI_FORM_ICON = AllIcons.FileTypes.UiForm;
   Icon JSP_ICON = AllIcons.FileTypes.Jsp;
-  Icon SMALL_VCS_CONFIGURABLE = AllIcons.General.SmallConfigurableVcs;
-  Icon GROUP_BY_PACKAGES = AllIcons.Toolbar.Folders;
-  Icon ADD_ICON = IconUtil.getAddIcon();
-  Icon DELETE_ICON = IconUtil.getRemoveIcon();
+  Icon SMALL_VCS_CONFIGURABLE = AllIcons.Actions.ShowAsTree;
+  Icon GROUP_BY_PACKAGES = AllIcons.Actions.GroupByPackage;
+  Icon ADD_ICON = AllIcons.General.Add;
+  Icon DELETE_ICON = AllIcons.General.Remove;
   Icon COPY_ICON = AllIcons.Actions.Copy;
-  Icon EDIT = IconUtil.getEditIcon();
-  Icon ANALYZE = IconUtil.getAnalyzeIcon();
+  Icon EDIT = AllIcons.Actions.Edit;
   Icon SELECT_ALL_ICON = AllIcons.Actions.Selectall;
   Icon UNSELECT_ALL_ICON = AllIcons.Actions.Unselectall;
   Icon PROPERTIES_ICON = AllIcons.Actions.Properties;
@@ -87,19 +67,22 @@ public interface PlatformIcons {
 
   Icon CHECK_ICON = AllIcons.Actions.Checked;
   Icon CHECK_ICON_SELECTED = AllIcons.Actions.Checked_selected;
-  Icon CHECK_ICON_SMALL = AllIcons.Actions.Checked_small;
-  Icon CHECK_ICON_SMALL_SELECTED = AllIcons.Actions.Checked_small_selected;
+  Icon CHECK_ICON_SMALL = AllIcons.Actions.Checked;
+  Icon CHECK_ICON_SMALL_SELECTED = AllIcons.Actions.Checked_selected;
 
+  /** @deprecated to be removed in IDEA 2021.1 (use expandable text field instead, see https://jetbrains.design/intellij/controls/built_in_button/) */
+  @SuppressWarnings("unused")
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
   Icon OPEN_EDIT_DIALOG_ICON = AllIcons.Actions.ShowViewer;
   Icon FLATTEN_PACKAGES_ICON = AllIcons.ObjectBrowser.FlattenPackages;
-  Icon EDIT_IN_SECTION_ICON = AllIcons.General.EditItemInSection;
+  Icon EDIT_IN_SECTION_ICON = AllIcons.Actions.Edit;
   Icon CLASS_INITIALIZER = AllIcons.Nodes.ClassInitializer;
 
   Icon CLOSED_MODULE_GROUP_ICON = AllIcons.Nodes.ModuleGroup;
-  @Deprecated Icon OPENED_MODULE_GROUP_ICON = CLOSED_MODULE_GROUP_ICON;
 
   Icon FOLDER_ICON = AllIcons.Nodes.Folder;
-  Icon SOURCE_FOLDERS_ICON = AllIcons.Nodes.SourceFolder;
+  Icon SOURCE_FOLDERS_ICON = AllIcons.Nodes.Package;
   Icon TEST_SOURCE_FOLDER = AllIcons.Nodes.TestSourceFolder;
   Icon INVALID_ENTRY_ICON = AllIcons.Nodes.PpInvalid;
 
@@ -107,12 +90,31 @@ public interface PlatformIcons {
   Icon MODULES_TEST_SOURCE_FOLDER = AllIcons.Modules.TestRoot;
 
   Icon CONTENT_ROOT_ICON_CLOSED = AllIcons.Nodes.Module;
-  @Deprecated Icon CONTENT_ROOT_ICON_OPEN = CONTENT_ROOT_ICON_CLOSED;
+
+  /**
+   * @deprecated use {@link #CONTENT_ROOT_ICON_CLOSED}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  Icon CONTENT_ROOT_ICON_OPEN = CONTENT_ROOT_ICON_CLOSED;
 
   Icon UP_DOWN_ARROWS = AllIcons.Ide.UpDown;
 
-  Icon COMBOBOX_ARROW_ICON = AllIcons.General.ComboArrow;
-  
+  Icon COMBOBOX_ARROW_ICON = AllIcons.General.ArrowDown;
+
   Icon EXPORT_ICON = AllIcons.ToolbarDecorator.Export;
   Icon IMPORT_ICON = AllIcons.ToolbarDecorator.Import;
+
+  /**
+   * @deprecated use {@link #FOLDER_ICON}
+   */
+  @Deprecated
+  Icon DIRECTORY_CLOSED_ICON = FOLDER_ICON;
+
+  /**
+   * @deprecated use {@link #FOLDER_ICON}
+   */
+  @Deprecated
+    @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  Icon DIRECTORY_OPEN_ICON = FOLDER_ICON;
 }

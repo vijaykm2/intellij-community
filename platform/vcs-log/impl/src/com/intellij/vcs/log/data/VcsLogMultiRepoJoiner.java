@@ -1,6 +1,6 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.data;
 
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.graph.GraphCommit;
 import org.jetbrains.annotations.NotNull;
 
@@ -9,7 +9,7 @@ import java.util.*;
 public class VcsLogMultiRepoJoiner<CommitId, Commit extends GraphCommit<CommitId>> {
 
   @NotNull
-  public List<Commit> join(@NotNull Collection<List<Commit>> logsFromRepos) {
+  public List<Commit> join(@NotNull Collection<? extends List<Commit>> logsFromRepos) {
     if (logsFromRepos.size() == 1) {
       return logsFromRepos.iterator().next();
     }
@@ -18,9 +18,9 @@ public class VcsLogMultiRepoJoiner<CommitId, Commit extends GraphCommit<CommitId
     for (List<Commit> repo : logsFromRepos) {
       size += repo.size();
     }
-    List<Commit> result = new ArrayList<Commit>(size);
+    List<Commit> result = new ArrayList<>(size);
 
-    Map<Commit, Iterator<Commit>> nextCommits = ContainerUtil.newHashMap();
+    Map<Commit, Iterator<Commit>> nextCommits = new HashMap<>();
     for (List<Commit> log : logsFromRepos) {
       Iterator<Commit> iterator = log.iterator();
       if (iterator.hasNext()) {
@@ -43,7 +43,7 @@ public class VcsLogMultiRepoJoiner<CommitId, Commit extends GraphCommit<CommitId
   }
 
   @NotNull
-  private Commit findLatestCommit(@NotNull Set<Commit> commits) {
+  private Commit findLatestCommit(@NotNull Set<? extends Commit> commits) {
     long maxTimeStamp = Long.MIN_VALUE;
     Commit lastCommit = null;
     for (Commit commit : commits) {
@@ -55,5 +55,4 @@ public class VcsLogMultiRepoJoiner<CommitId, Commit extends GraphCommit<CommitId
     assert lastCommit != null;
     return lastCommit;
   }
-
 }

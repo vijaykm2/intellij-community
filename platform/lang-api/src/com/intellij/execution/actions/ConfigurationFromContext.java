@@ -20,7 +20,9 @@ import com.intellij.execution.configurations.ConfigurationType;
 import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Comparator;
 
@@ -31,6 +33,13 @@ import java.util.Comparator;
  * @see RunConfigurationProducer
  */
 public abstract class ConfigurationFromContext {
+
+  private boolean myIsFromAlternativeLocation;
+
+  @Nullable
+  @Nls
+  private String myAlternativeLocationDisplayName;
+
   /**
    * Returns the created run configuration settings.
    *
@@ -112,41 +121,67 @@ public abstract class ConfigurationFromContext {
     return false;
   }
 
+  @Override
+  public String toString() {
+    return getConfigurationSettings().toString();
+  }
+
+  /**
+   * Return if this configuration was created from alternative location provided by {@link MultipleRunLocationsProvider}.
+   *
+   * @return true if the configuration was created from alternative location, false otherwise.
+   */
+  public boolean isFromAlternativeLocation() {
+    return myIsFromAlternativeLocation;
+  }
+
+  public void setFromAlternativeLocation(boolean isFromAlternativeLocation) {
+    this.myIsFromAlternativeLocation = isFromAlternativeLocation;
+  }
+
+  /**
+   * Return alternative location display name provided by {@link MultipleRunLocationsProvider}.
+   *
+   * @return Location display name, null if name was not provided or this configuration is not from alternative location.
+   */
+  @Nullable
+  @Nls
+  public String getAlternativeLocationDisplayName() {
+    return myAlternativeLocationDisplayName;
+  }
+
+  public void setAlternativeLocationDisplayName(@Nullable @Nls String alternativeLocationDisplayName) {
+    this.myAlternativeLocationDisplayName = alternativeLocationDisplayName;
+  }
+
+
   /**
    * Compares configurations according to precedence.
    */
-  public static final Comparator<ConfigurationFromContext> COMPARATOR = new Comparator<ConfigurationFromContext>() {
-    @Override
-    public int compare(ConfigurationFromContext configuration1, ConfigurationFromContext configuration2) {
-      if (PsiTreeUtil.isAncestor(configuration1.getSourceElement(), configuration2.getSourceElement(), true)) {
-        return 1;
-      }
-      if (PsiTreeUtil.isAncestor(configuration2.getSourceElement(), configuration1.getSourceElement(), true)) {
-        return -1;
-      }
-      if (!configuration1.isPreferredTo(configuration2)) {
-        return 1;
-      }
-      if (configuration2.shouldReplace(configuration1)) {
-        return 1;
-      }
-      if (!configuration2.isPreferredTo(configuration1)) {
-        return -1;
-      }
-      if (configuration1.shouldReplace(configuration2)) {
-        return -1;
-      }
-      return 0;
+  public static final Comparator<ConfigurationFromContext> COMPARATOR = (configuration1, configuration2) -> {
+    if (PsiTreeUtil.isAncestor(configuration1.getSourceElement(), configuration2.getSourceElement(), true)) {
+      return 1;
     }
+    if (PsiTreeUtil.isAncestor(configuration2.getSourceElement(), configuration1.getSourceElement(), true)) {
+      return -1;
+    }
+    if (!configuration1.isPreferredTo(configuration2)) {
+      return 1;
+    }
+    if (configuration2.shouldReplace(configuration1)) {
+      return 1;
+    }
+    if (!configuration2.isPreferredTo(configuration1)) {
+      return -1;
+    }
+    if (configuration1.shouldReplace(configuration2)) {
+      return -1;
+    }
+    return 0;
   };
 
   /**
    * Compares configurations according to configuration type name.
    */
-  public static final Comparator<ConfigurationFromContext> NAME_COMPARATOR = new Comparator<ConfigurationFromContext>() {
-    @Override
-    public int compare(final ConfigurationFromContext p1, final ConfigurationFromContext p2) {
-      return p1.getConfigurationType().getDisplayName().compareTo(p2.getConfigurationType().getDisplayName());
-    }
-  };
+  public static final Comparator<ConfigurationFromContext> NAME_COMPARATOR = Comparator.comparing(p -> p.getConfigurationType().getDisplayName());
 }

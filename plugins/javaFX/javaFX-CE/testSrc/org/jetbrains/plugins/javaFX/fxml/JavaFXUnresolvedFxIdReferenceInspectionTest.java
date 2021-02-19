@@ -17,15 +17,13 @@ package org.jetbrains.plugins.javaFX.fxml;
 
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.openapi.application.PluginPathManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
+import com.intellij.util.VisibilityUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.javaFX.fxml.codeInsight.inspections.JavaFxUnresolvedFxIdReferenceInspection;
 
 import java.util.List;
 
-/**
- * User: anna
- * Date: 1/10/13
- */
 public class JavaFXUnresolvedFxIdReferenceInspectionTest extends AbstractJavaFXQuickFixTest {
 
   @Override
@@ -33,24 +31,24 @@ public class JavaFXUnresolvedFxIdReferenceInspectionTest extends AbstractJavaFXQ
     myFixture.enableInspections(new JavaFxUnresolvedFxIdReferenceInspection());
   }
 
-  public void testUnknownRef() throws Exception {
-    doTest("Controller");
+  public void testUnknownRef() {
+    doTest("Controller", VisibilityUtil.ESCALATE_VISIBILITY);
   }
 
-  public void testRootType() throws Exception {
+  public void testRootType() {
     myFixture.configureByFiles(getTestName(true) + ".fxml");
     final List<IntentionAction> intentionActions = myFixture.filterAvailableIntentions(getHint("unknown"));
     assertEmpty(intentionActions);
   }
 
-  public void testIncludeBtnWithController() throws Exception {
+  public void testIncludeBtnWithController() {
     myFixture.addFileToProject("btn.fxml", "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
                                            "<?import javafx.scene.control.*?>\n" +
                                            "<Button/>");
-    doTest("MyController");
+    doTest("MyController", VisibilityUtil.ESCALATE_VISIBILITY);
   }
 
-  public void testFieldsFromControllerSuper() throws Exception {
+  public void testFieldsFromControllerSuper() {
     myFixture.addClass("import javafx.scene.control.RadioButton;\n" +
                        "public class SuperController {\n" +
                        "    public RadioButton option1;\n" +
@@ -59,6 +57,12 @@ public class JavaFXUnresolvedFxIdReferenceInspectionTest extends AbstractJavaFXQ
     final String testFxml = getTestName(true) + ".fxml";
     myFixture.configureByFile(testFxml);
     myFixture.testHighlighting(true, false, false, testFxml);
+  }
+
+  private void doTest(final String controllerName, final String defaultVisibility) {
+    JavaCodeStyleSettings settings = JavaCodeStyleSettings.getInstance(getProject());
+    settings.VISIBILITY = defaultVisibility;
+    doTest(controllerName);
   }
 
   private void doTest(final String controllerName) {

@@ -14,12 +14,9 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 12-Jan-2010
- */
 package com.intellij.refactoring.rename.naming;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMethod;
@@ -45,17 +42,19 @@ public class AutomaticParametersRenamer extends AutomaticRenamer {
     }
   }
 
+  @Override
   public String getDialogTitle() {
-    return "Rename Parameters";
+    return JavaRefactoringBundle.message("rename.parameters.dialog.title");
   }
 
+  @Override
   public String getDialogDescription() {
-    return "Rename parameter in hierarchy to:";
+    return JavaRefactoringBundle.message("rename.parameter.in.hierarchy.to.dialog.description");
   }
 
   @Override
   public String entityName() {
-    return "Parameter";
+    return JavaRefactoringBundle.message("automatic.parameter.renamer.entity.name");
   }
 
   @Override

@@ -18,16 +18,14 @@ package com.intellij.util.xml.highlighting;
 
 import com.intellij.codeInsight.daemon.impl.SeverityRegistrar;
 import com.intellij.codeInsight.daemon.impl.TrafficLightRenderer;
-import com.intellij.icons.AllIcons;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.util.Alarm;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.xml.DomChangeAdapter;
 import com.intellij.util.xml.DomElement;
 import com.intellij.util.xml.DomManager;
@@ -39,9 +37,6 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import java.awt.*;
 
-/**
- * User: Sergey.Vasiliev
- */
 public class DomElementsErrorPanel extends JPanel implements CommittablePanel, Highlightable {
 
   private static final int ALARM_PERIOD = 241;
@@ -94,7 +89,6 @@ public class DomElementsErrorPanel extends JPanel implements CommittablePanel, H
     if (!areValid()) return;
 
     repaint();
-    setToolTipText(myErrorStripeRenderer.getTooltipMessage());
 
     if (!isHighlightingFinished()) {
       addUpdateRequest();
@@ -106,27 +100,17 @@ public class DomElementsErrorPanel extends JPanel implements CommittablePanel, H
   }
 
   private void addUpdateRequest() {
-    ApplicationManager.getApplication().invokeLater(new Runnable() {
-
-      @Override
-      public void run() {
-        myAlarm.addRequest(new Runnable() {
-          @Override
-          public void run() {
-            if (myProject.isOpen() && !myProject.isDisposed()) {
-              updatePanel();
-            }
-          }
-        }, ALARM_PERIOD);
+    ApplicationManager.getApplication().invokeLater(() -> myAlarm.addRequest(() -> {
+      if (myProject.isOpen() && !myProject.isDisposed()) {
+        updatePanel();
       }
-    });
+    }, ALARM_PERIOD));
   }
 
   @Override
   protected void paintComponent(Graphics g) {
     super.paintComponent(g);
-
-    myErrorStripeRenderer.paint(this, g, new Rectangle(0, 0, getWidth(), getHeight()));
+    myErrorStripeRenderer.getStatus().getIcon().paintIcon(this, g, 0, 0);
   }
 
   @Override
@@ -149,13 +133,13 @@ public class DomElementsErrorPanel extends JPanel implements CommittablePanel, H
   }
 
   private static Dimension getDimension() {
-    return new Dimension(AllIcons.General.ErrorsInProgress.getIconWidth() + 2, AllIcons.General.ErrorsInProgress.getIconHeight() + 2);
+    return JBUI.size(14);
   }
 
   private class DomElementsTrafficLightRenderer extends TrafficLightRenderer {
-    public DomElementsTrafficLightRenderer(@NotNull XmlFile xmlFile) {
+    DomElementsTrafficLightRenderer(@NotNull XmlFile xmlFile) {
       super(xmlFile.getProject(),
-            PsiDocumentManager.getInstance(xmlFile.getProject()).getDocument(xmlFile), xmlFile);
+            xmlFile.getViewProvider().getDocument());
     }
 
     @NotNull
@@ -187,24 +171,10 @@ public class DomElementsErrorPanel extends JPanel implements CommittablePanel, H
       }
     }
 
-    protected boolean isInspectionCompleted() {
-      return ContainerUtil.and(myDomElements, new Condition<DomElement>() {
-        @Override
-        public boolean value(final DomElement element) {
-          return myAnnotationsManager.getHighlightStatus(element) == DomHighlightStatus.INSPECTIONS_FINISHED;
-        }
-      });
+    boolean isInspectionCompleted() {
+      return ContainerUtil.and(myDomElements,
+                               element -> myAnnotationsManager.getHighlightStatus(element) == DomHighlightStatus.INSPECTIONS_FINISHED);
     }
-
-    protected boolean isErrorAnalyzingFinished() {
-      return ContainerUtil.and(myDomElements, new Condition<DomElement>() {
-        @Override
-        public boolean value(final DomElement element) {
-          return myAnnotationsManager.getHighlightStatus(element).compareTo(DomHighlightStatus.ANNOTATORS_FINISHED) >= 0;
-        }
-      });
-    }
-
   }
 
 }

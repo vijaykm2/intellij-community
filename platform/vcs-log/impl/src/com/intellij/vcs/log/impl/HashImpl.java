@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.impl;
 
 import com.intellij.util.io.DataInputOutputUtil;
 import com.intellij.vcs.log.Hash;
+import com.intellij.vcs.log.util.VcsLogUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.DataInput;
@@ -27,24 +14,24 @@ import java.util.Arrays;
 /**
  * <p>The {@link Hash} implementation which stores a hash in a byte array thus saving some memory.</p>
  */
-public class HashImpl implements Hash {
+public final class HashImpl implements Hash {
 
   private static final int BASE = 16;
-  private static final int SHORT_HASH_LENGTH = 7;
 
-  @NotNull
-  private final byte[] myData;
+  private final byte @NotNull [] myData;
   private final int myHashCode;
 
   @NotNull
   public static Hash build(@NotNull String inputStr) {
     byte[] data = buildData(inputStr);
+    assert data.length > 0 : "Can not build hash for string " + inputStr;
     return new HashImpl(data);
   }
 
   @NotNull
   public static Hash read(@NotNull DataInput in) throws IOException {
     int length = DataInputOutputUtil.readINT(in);
+    if (length == 0) throw new IOException("Can not read hash: data length is zero");
     byte[] buf = new byte[length];
     in.readFully(buf);
     return new HashImpl(buf);
@@ -55,8 +42,7 @@ public class HashImpl implements Hash {
     out.write(myData);
   }
 
-  @NotNull
-  private static byte[] buildData(@NotNull String inputStr) {
+  private static byte @NotNull [] buildData(@NotNull String inputStr) {
     // if length == 5, need 3 byte + 1 signal byte
     int length = inputStr.length();
     byte even = (byte)(length % 2);
@@ -81,7 +67,7 @@ public class HashImpl implements Hash {
     return k;
   }
 
-  private HashImpl(@NotNull byte[] hash) {
+  private HashImpl(byte @NotNull [] hash) {
     myData = hash;
     myHashCode = Arrays.hashCode(hash);
   }
@@ -128,7 +114,6 @@ public class HashImpl implements Hash {
   @NotNull
   @Override
   public String toShortString() {
-    String s = asString();
-    return s.substring(0, Math.min(s.length(), SHORT_HASH_LENGTH));
+    return VcsLogUtil.getShortHash(asString());
   }
 }

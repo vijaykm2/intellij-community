@@ -6,6 +6,7 @@ backends = {'tk': 'TkAgg',
             'wx': 'WXAgg',
             'qt': 'Qt4Agg', # qt3 not supported
             'qt4': 'Qt4Agg',
+            'qt5': 'Qt5Agg',
             'osx': 'MacOSX'}
 
 # We also need a reverse backends2guis mapping that will properly choose which
@@ -13,7 +14,8 @@ backends = {'tk': 'TkAgg',
 # most part it's just a reverse of the above dict, but we also need to add a
 # few others that map to the same GUI manually:
 backend2gui = dict(zip(backends.values(), backends.keys()))
-backend2gui['Qt4Agg'] = 'qt'
+backend2gui['Qt4Agg'] = 'qt4'
+backend2gui['Qt5Agg'] = 'qt5'
 # In the reverse mapping, there are a few extra valid matplotlib backends that
 # map to the same GUI support
 backend2gui['GTK'] = backend2gui['GTKCairo'] = 'gtk'
@@ -22,7 +24,7 @@ backend2gui['CocoaAgg'] = 'osx'
 
 
 def do_enable_gui(guiname):
-    from pydev_versioncheck import versionok_for_gui
+    from _pydev_bundle.pydev_versioncheck import versionok_for_gui
     if versionok_for_gui():
         try:
             from pydev_ipython.inputhook import enable_gui
@@ -52,7 +54,7 @@ def find_gui_and_backend():
 def is_interactive_backend(backend):
     """ Check if backend is interactive """
     matplotlib = sys.modules['matplotlib']
-    from matplotlib.rcsetup import interactive_bk, non_interactive_bk
+    from matplotlib.rcsetup import interactive_bk, non_interactive_bk  # @UnresolvedImport
     if backend in interactive_bk:
         return True
     elif backend in non_interactive_bk:
@@ -69,8 +71,8 @@ def patch_use(enable_gui_function):
         gui, backend = find_gui_and_backend()
         enable_gui_function(gui)
 
-    setattr(matplotlib, "real_use", getattr(matplotlib, "use"))
-    setattr(matplotlib, "use", patched_use)
+    matplotlib.real_use = matplotlib.use
+    matplotlib.use = patched_use
 
 
 def patch_is_interactive():
@@ -79,8 +81,12 @@ def patch_is_interactive():
     def patched_is_interactive():
         return matplotlib.rcParams['interactive']
 
-    setattr(matplotlib, "real_is_interactive", getattr(matplotlib, "is_interactive"))
-    setattr(matplotlib, "is_interactive", patched_is_interactive)
+    matplotlib.real_is_interactive = matplotlib.is_interactive
+    matplotlib.is_interactive = patched_is_interactive
+
+
+def _get_major_version(module):
+    return int(module.__version__.split('.')[0])
 
 
 def activate_matplotlib(enable_gui_function):
@@ -88,6 +94,19 @@ def activate_matplotlib(enable_gui_function):
     enable_gui_function - Function which enables gui, should be run in the main thread.
     """
     matplotlib = sys.modules['matplotlib']
+    if not hasattr(matplotlib, 'rcParams'):
+        # matplotlib module wasn't fully imported, try later
+        return False
+
+    if _get_major_version(matplotlib) >= 3:
+        # since matplotlib 3.0, accessing `matplotlib.rcParams` lead to pyplot import,
+        # so we need to wait until necessary pyplot attributes will be imported as well
+        if 'matplotlib.pyplot' not in sys.modules:
+            return False
+        pyplot = sys.modules['matplotlib.pyplot']
+        if not hasattr(pyplot, 'switch_backend'):
+            return False
+
     gui, backend = find_gui_and_backend()
     is_interactive = is_interactive_backend(backend)
     if is_interactive:
@@ -101,6 +120,7 @@ def activate_matplotlib(enable_gui_function):
         matplotlib.interactive(False)
     patch_use(enable_gui_function)
     patch_is_interactive()
+    return True
 
 
 def flag_calls(func):
@@ -137,6 +157,7 @@ def activate_pylab():
     # We need to detect at runtime whether show() is called by the user.
     # For this, we wrap it into a decorator which adds a 'called' flag.
     pylab.draw_if_interactive = flag_calls(pylab.draw_if_interactive)
+    return True
 
 
 def activate_pyplot():
@@ -145,3 +166,4 @@ def activate_pyplot():
     # We need to detect at runtime whether show() is called by the user.
     # For this, we wrap it into a decorator which adds a 'called' flag.
     pyplot.draw_if_interactive = flag_calls(pyplot.draw_if_interactive)
+    return True

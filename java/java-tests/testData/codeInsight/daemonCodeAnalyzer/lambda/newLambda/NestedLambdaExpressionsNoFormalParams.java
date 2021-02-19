@@ -26,9 +26,7 @@ abstract class NoFormalParamTypeInferenceNeeded {
   {
     map(a -> zip(text ->  text));
     zip(a -> zip(text ->  text));
-    Integer zip = zip(a -> zip(<error descr="inference variable R has incompatible bounds:
- lower bounds: Object
-upper bounds: Object, R">text -> text</error>));
+    Integer zip = <error descr="Incompatible types. Found: 'java.lang.Object', required: 'java.lang.Integer'">zip(a -> zip(text -> text));</error>
   }
 
 }

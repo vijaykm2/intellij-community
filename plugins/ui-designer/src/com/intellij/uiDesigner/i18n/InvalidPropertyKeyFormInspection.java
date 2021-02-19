@@ -24,6 +24,7 @@ import com.intellij.uiDesigner.inspections.StringDescriptorInspection;
 import com.intellij.uiDesigner.lw.IComponent;
 import com.intellij.uiDesigner.lw.IProperty;
 import com.intellij.uiDesigner.lw.StringDescriptor;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
@@ -33,9 +34,10 @@ import java.util.List;
  */
 public class InvalidPropertyKeyFormInspection extends StringDescriptorInspection {
   public InvalidPropertyKeyFormInspection() {
-    super("UnresolvedPropertyKey");
+    super("InvalidPropertyKeyForm");
   }
 
+  @Override
   protected void checkStringDescriptor(final Module module,
                                        final IComponent component,
                                        final IProperty prop,
@@ -48,7 +50,13 @@ public class InvalidPropertyKeyFormInspection extends StringDescriptorInspection
   }
 
   @Nullable
-  private static String checkDescriptor(final StringDescriptor descriptor, final Module module) {
+  @Override
+  public String getAlternativeID() {
+    return "UnresolvedPropertyKey";
+  }
+
+  @Nullable
+  private static @Nls String checkDescriptor(final StringDescriptor descriptor, final Module module) {
     final String bundleName = descriptor.getDottedBundleName();
     final String key = descriptor.getKey();
     if (bundleName == null && key == null) return null;
@@ -63,7 +71,7 @@ public class InvalidPropertyKeyFormInspection extends StringDescriptorInspection
     PropertiesReferenceManager manager = PropertiesReferenceManager.getInstance(module.getProject());
     List<PropertiesFile> propFiles = manager.findPropertiesFiles(module, bundleName);
 
-    if (propFiles.size() == 0) {
+    if (propFiles.isEmpty()) {
       return UIDesignerBundle.message("inspection.invalid.property.in.form.quickfix.error.bundle.not.found", bundleName);
     }
 

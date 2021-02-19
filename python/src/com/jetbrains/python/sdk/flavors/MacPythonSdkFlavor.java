@@ -1,45 +1,43 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.sdk.flavors;
 
-import com.intellij.openapi.util.io.FileSystemUtil;
+import com.intellij.openapi.module.Module;
+import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.UserDataHolder;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.newvfs.NewVirtualFile;
-import com.intellij.util.containers.HashSet;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.Set;
 
 /**
  * @author yole
  */
-public class MacPythonSdkFlavor extends CPythonSdkFlavor {
+public final class MacPythonSdkFlavor extends CPythonSdkFlavor {
   private MacPythonSdkFlavor() {
   }
 
-  public static MacPythonSdkFlavor INSTANCE = new MacPythonSdkFlavor();
   private static final String[] POSSIBLE_BINARY_NAMES = {"python", "python2", "python3"};
 
   @Override
-  public Collection<String> suggestHomePaths() {
-    Set<String> candidates = new HashSet<String>();
+  public boolean isApplicable() {
+    return SystemInfo.isMac;
+  }
+
+  @NotNull
+  @Override
+  public Collection<String> suggestHomePaths(@Nullable Module module, @Nullable UserDataHolder context) {
+    Set<String> candidates = new HashSet<>();
     collectPythonInstallations("/Library/Frameworks/Python.framework/Versions", candidates);
     collectPythonInstallations("/System/Library/Frameworks/Python.framework/Versions", candidates);
+    collectPythonInstallations("/usr/local/Cellar/python", candidates);
     UnixPythonSdkFlavor.collectUnixPythons("/usr/local/bin", candidates);
+    UnixPythonSdkFlavor.collectUnixPythons("/usr/bin", candidates);
     return candidates;
   }
 
@@ -51,7 +49,7 @@ public class MacPythonSdkFlavor extends CPythonSdkFlavor {
       }
       rootVDir.refresh(true, false);
       for (VirtualFile dir : rootVDir.getChildren()) {
-        final String dirName = dir.getName().toLowerCase();
+        final String dirName = StringUtil.toLowerCase(dir.getName());
         if (dir.isDirectory()) {
           if ("Current".equals(dirName) || dirName.startsWith("2") || dirName.startsWith("3")) {
             final VirtualFile binDir = dir.findChild("bin");
@@ -59,11 +57,8 @@ public class MacPythonSdkFlavor extends CPythonSdkFlavor {
               for (String name : POSSIBLE_BINARY_NAMES) {
                 final VirtualFile child = binDir.findChild(name);
                 if (child == null) continue;
-                String path = child.getPath();
-                if (FileSystemUtil.isSymLink(path)) {
-                  path = FileSystemUtil.resolveSymLink(path);
-                }
-                if (path != null && !candidates.contains(path)) {
+                final String path = child.getPath();
+                if (!candidates.contains(path)) {
                   candidates.add(path);
                   break;
                 }

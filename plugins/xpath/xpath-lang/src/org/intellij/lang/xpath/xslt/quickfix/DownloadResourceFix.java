@@ -26,6 +26,7 @@ import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.net.IOExceptionDialog;
 import org.intellij.lang.xpath.xslt.XsltSupport;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collections;
@@ -39,15 +40,15 @@ public class DownloadResourceFix implements LocalQuickFix {
     myLocation = location;
   }
 
+  @Override
   @NotNull
-  public String getName() {
-    return "Download External Resource";
+  public String getFamilyName() {
+    return XPathBundle.message("intention.family.name.download.external.resource");
   }
 
-  @NotNull
   @Override
-  public String getFamilyName() {
-    return getName();
+  public boolean startInWriteAction() {
+    return false;
   }
 
   @Override
@@ -55,25 +56,25 @@ public class DownloadResourceFix implements LocalQuickFix {
     boolean tryAgain = true;
 
     final DownloadManager.DownloadException[] ex = new DownloadManager.DownloadException[1];
-    final Runnable runnable = new Runnable() {
-      public void run() {
-        final ProgressIndicator progress = ProgressManager.getInstance().getProgressIndicator();
-        final DownloadManager downloadManager = new MyDownloadManager(project, progress);
+    final Runnable runnable = () -> {
+      final ProgressIndicator progress = ProgressManager.getInstance().getProgressIndicator();
+      final DownloadManager downloadManager = new MyDownloadManager(project, progress);
 
-        try {
-          downloadManager.fetch(myLocation);
-        }
-        catch (DownloadManager.DownloadException e) {
-          ex[0] = e;
-        }
+      try {
+        downloadManager.fetch(myLocation);
+      }
+      catch (DownloadManager.DownloadException e) {
+        ex[0] = e;
       }
     };
 
     while (tryAgain) {
       tryAgain = false;
-      if (ProgressManager.getInstance().runProcessWithProgressSynchronously(runnable, "Downloading Resource", true, project)) {
+      if (ProgressManager.getInstance().runProcessWithProgressSynchronously(runnable,
+                                                                            XPathBundle.message("progress.title.downloading.resource"), true, project)) {
         if (ex[0] != null) {
-          tryAgain = IOExceptionDialog.showErrorDialog("Error during Download", "Error downloading " + ex[0].getLocation());
+          tryAgain = IOExceptionDialog.showErrorDialog(XPathBundle.message("dialog.title.error.during.download"),
+                                                       XPathBundle.message("text.error.downloading", ex[0].getLocation()));
           ex[0] = null;
         }
         else {
@@ -84,11 +85,11 @@ public class DownloadResourceFix implements LocalQuickFix {
   }
 
   private static class MyDownloadManager extends DownloadManager {
-    public MyDownloadManager(Project project, ProgressIndicator progress) {
+    MyDownloadManager(Project project, ProgressIndicator progress) {
       super(project, progress);
     }
 
-    private static void processReferences(XmlTag[] subTags, Set<String> list) {
+    private static void processReferences(XmlTag[] subTags, Set<? super String> list) {
       for (XmlTag xmlTag : subTags) {
         final String href = xmlTag.getAttributeValue("href");
         // TODO: Handle relative dependencies!
@@ -98,16 +99,18 @@ public class DownloadResourceFix implements LocalQuickFix {
       }
     }
 
+    @Override
     protected boolean isAccepted(PsiFile psiFile) {
       return XsltSupport.isXsltFile(psiFile);
     }
 
+    @Override
     protected Set<String> getResourceDependencies(PsiFile psiFile) {
       final XmlDocument document = ((XmlFile)psiFile).getDocument();
       if (document != null) {
         final XmlTag rootTag = document.getRootTag();
         if (rootTag != null) {
-          final Set<String> list = new HashSet<String>();
+          final Set<String> list = new HashSet<>();
           processReferences(rootTag.findSubTags("include", XsltSupport.XSLT_NS), list);
           processReferences(rootTag.findSubTags("import", XsltSupport.XSLT_NS), list);
           return list;

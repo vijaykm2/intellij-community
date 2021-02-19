@@ -1,71 +1,45 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.console;
 
-import com.google.common.collect.Lists;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.options.Configurable;
-import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.components.JBCheckBox;
+import com.jetbrains.python.PyBundle;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author traff
- */
-public class PyConsoleOptionsConfigurable extends SearchableConfigurable.Parent.Abstract implements Configurable.NoScroll{
+public final class PyConsoleOptionsConfigurable extends SearchableConfigurable.Parent.Abstract implements Configurable.NoScroll {
   public static final String CONSOLE_SETTINGS_HELP_REFERENCE = "reference.project.settings.console";
   public static final String CONSOLE_SETTINGS_HELP_REFERENCE_PYTHON = "reference.project.settings.console.python";
 
-
   private PyConsoleOptionsPanel myPanel;
 
-  private final PyConsoleOptions myOptionsProvider;
-  private Project myProject;
+  private final Project myProject;
 
-  public PyConsoleOptionsConfigurable(PyConsoleOptions optionsProvider, Project project) {
-    myOptionsProvider = optionsProvider;
+  public PyConsoleOptionsConfigurable(@NotNull Project project) {
     myProject = project;
   }
 
-  @NotNull
   @Override
-  public String getId() {
+  public @NotNull String getId() {
     return "pyconsole";
   }
 
   @Override
-  public Runnable enableSearch(String option) {
-    return null;
-  }
-
-  @Override
   protected Configurable[] buildConfigurables() {
-    List<Configurable> result = Lists.newArrayList();
+    List<Configurable> result = new ArrayList<>();
 
     PyConsoleSpecificOptionsPanel pythonConsoleOptionsPanel = new PyConsoleSpecificOptionsPanel(myProject);
-    result.add(createConsoleChildConfigurable("Python Console", pythonConsoleOptionsPanel,
-                                              myOptionsProvider.getPythonConsoleSettings(), CONSOLE_SETTINGS_HELP_REFERENCE_PYTHON));
+    result.add(createConsoleChildConfigurable(PyBundle.message("configurable.PyConsoleOptionsConfigurable.child.display.name"), pythonConsoleOptionsPanel,
+                                              PyConsoleOptions.getInstance(myProject).getPythonConsoleSettings(), CONSOLE_SETTINGS_HELP_REFERENCE_PYTHON));
 
-    for (PyConsoleOptionsProvider provider : Extensions.getExtensions(PyConsoleOptionsProvider.EP_NAME)) {
+    for (PyConsoleOptionsProvider provider : PyConsoleOptionsProvider.EP_NAME.getExtensionList()) {
       if (provider.isApplicableTo(myProject)) {
         result.add(createConsoleChildConfigurable(provider.getName(),
                                                   new PyConsoleSpecificOptionsPanel(myProject),
@@ -74,28 +48,21 @@ public class PyConsoleOptionsConfigurable extends SearchableConfigurable.Parent.
       }
     }
 
-    return result.toArray(new Configurable[result.size()]);
+    return result.toArray(new Configurable[0]);
   }
 
-  private static Configurable createConsoleChildConfigurable(final String name,
+  private static Configurable createConsoleChildConfigurable(final @NlsContexts.ConfigurableName String name,
                                                              final PyConsoleSpecificOptionsPanel panel,
                                                              final PyConsoleOptions.PyConsoleSettings settings, final String helpReference) {
     return new SearchableConfigurable() {
 
-      @NotNull
       @Override
-      public String getId() {
+      public @NotNull String getId() {
         return "PyConsoleConfigurable." + name;
       }
 
       @Override
-      public Runnable enableSearch(String option) {
-        return null;  //To change body of implemented methods use File | Settings | File Templates.
-      }
-
-      @Nls
-      @Override
-      public String getDisplayName() {
+      public @Nls String getDisplayName() {
         return name;
       }
 
@@ -115,7 +82,7 @@ public class PyConsoleOptionsConfigurable extends SearchableConfigurable.Parent.
       }
 
       @Override
-      public void apply() throws ConfigurationException {
+      public void apply() {
         panel.apply();
       }
 
@@ -130,10 +97,9 @@ public class PyConsoleOptionsConfigurable extends SearchableConfigurable.Parent.
     };
   }
 
-  @Nls
   @Override
-  public String getDisplayName() {
-    return "Console";
+  public @Nls String getDisplayName() {
+    return PyBundle.message("configurable.PyConsoleOptionsConfigurable.display.name");
   }
 
   @Override
@@ -145,7 +111,7 @@ public class PyConsoleOptionsConfigurable extends SearchableConfigurable.Parent.
   public JComponent createComponent() {
     myPanel = new PyConsoleOptionsPanel();
 
-    return myPanel.createPanel(myOptionsProvider);
+    return myPanel.createPanel(PyConsoleOptions.getInstance(myProject));
   }
 
   @Override
@@ -154,7 +120,7 @@ public class PyConsoleOptionsConfigurable extends SearchableConfigurable.Parent.
   }
 
   @Override
-  public void apply() throws ConfigurationException {
+  public void apply() {
     myPanel.apply();
   }
 
@@ -173,6 +139,8 @@ public class PyConsoleOptionsConfigurable extends SearchableConfigurable.Parent.
     private JPanel myWholePanel;
     private JBCheckBox myShowDebugConsoleByDefault;
     private JBCheckBox myIpythonEnabledCheckbox;
+    private JBCheckBox myShowsVariablesByDefault;
+    private JBCheckBox myUseExistingConsole;
     private PyConsoleOptions myOptionsProvider;
 
     public JPanel createPanel(PyConsoleOptions optionsProvider) {
@@ -184,16 +152,22 @@ public class PyConsoleOptionsConfigurable extends SearchableConfigurable.Parent.
     public void apply() {
       myOptionsProvider.setShowDebugConsoleByDefault(myShowDebugConsoleByDefault.isSelected());
       myOptionsProvider.setIpythonEnabled(myIpythonEnabledCheckbox.isSelected());
+      myOptionsProvider.setShowVariablesByDefault(myShowsVariablesByDefault.isSelected());
+      myOptionsProvider.setUseExistingConsole(myUseExistingConsole.isSelected());
     }
 
     public void reset() {
       myShowDebugConsoleByDefault.setSelected(myOptionsProvider.isShowDebugConsoleByDefault());
       myIpythonEnabledCheckbox.setSelected(myOptionsProvider.isIpythonEnabled());
+      myShowsVariablesByDefault.setSelected(myOptionsProvider.isShowVariableByDefault());
+      myUseExistingConsole.setSelected(myOptionsProvider.isUseExistingConsole());
     }
 
     public boolean isModified() {
       return myShowDebugConsoleByDefault.isSelected() != myOptionsProvider.isShowDebugConsoleByDefault() ||
-             myIpythonEnabledCheckbox.isSelected()  != myOptionsProvider.isIpythonEnabled();
+             myIpythonEnabledCheckbox.isSelected()  != myOptionsProvider.isIpythonEnabled() ||
+             myShowsVariablesByDefault.isSelected() != myOptionsProvider.isShowVariableByDefault() ||
+             myUseExistingConsole.isSelected() != myOptionsProvider.isUseExistingConsole();
 
     }
   }

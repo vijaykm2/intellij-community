@@ -20,9 +20,12 @@ import org.jetbrains.annotations.NotNull;
 import java.util.List;
 
 /**
- * @author nik
+ * Represents a {@link JpsDirectoryPackagingElement directory} or an {@link JpsArchivePackagingElement archive} node in the output layout.
  */
 public interface JpsCompositePackagingElement extends JpsPackagingElement {
+  /**
+   * @return list of nodes representing top-level content of this directory or archive
+   */
   @NotNull
   List<JpsPackagingElement> getChildren();
 

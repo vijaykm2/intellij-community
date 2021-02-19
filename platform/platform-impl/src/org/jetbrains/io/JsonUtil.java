@@ -1,8 +1,7 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.io;
 
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.SmartList;
-import gnu.trove.THashMap;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.ByteBufUtilEx;
@@ -10,16 +9,17 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class JsonUtil {
+public final class JsonUtil {
   private static final String[] REPLACEMENT_CHARS;
 
   static {
     REPLACEMENT_CHARS = new String[128];
     for (int i = 0; i <= 31; i++) {
-      REPLACEMENT_CHARS[i] = String.format("\\u%04x", (int)i);
+      REPLACEMENT_CHARS[i] = String.format("\\u%04x", i);
     }
     REPLACEMENT_CHARS['"'] = "\\\"";
     REPLACEMENT_CHARS['\\'] = "\\\\";
@@ -32,7 +32,7 @@ public class JsonUtil {
 
   public static void escape(@NotNull CharSequence value, @NotNull StringBuilder sb) {
     int length = value.length();
-    sb.ensureCapacity(sb.capacity() + length + 2);
+    sb.ensureCapacity(sb.length() + length + 2);
     sb.append('"');
     int last = 0;
     for (int i = 0; i < length; i++) {
@@ -108,21 +108,15 @@ public class JsonUtil {
       return Collections.emptyList();
     }
 
-    List<T> list = new SmartList<T>();
+    List<T> list = new SmartList<>();
     readListBody(reader, list);
     reader.endArray();
     return list;
   }
 
   @NotNull
-  public static Object[] nextArray(@NotNull JsonReaderEx reader) {
-    List<Object> list = nextList(reader);
-    return ArrayUtil.toObjectArray(list);
-  }
-
-  @NotNull
   public static Map<String, Object> nextObject(@NotNull JsonReaderEx reader) {
-    Map<String, Object> map = new THashMap<String, Object>();
+    Map<String, Object> map = new HashMap<>();
     reader.beginObject();
     while (reader.hasNext()) {
       map.put(reader.nextName(), nextAny(reader));

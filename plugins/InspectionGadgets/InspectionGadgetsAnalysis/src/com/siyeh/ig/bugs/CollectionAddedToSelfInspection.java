@@ -29,13 +29,6 @@ public class CollectionAddedToSelfInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "collection.added.to.self.display.name");
-  }
-
-  @Override
-  @NotNull
   public String buildErrorString(Object... infos) {
     final String methodName = (String)infos[0];
     return InspectionGadgetsBundle.message("collection.added.to.self.problem.descriptor", methodName);
@@ -76,7 +69,7 @@ public class CollectionAddedToSelfInspection extends BaseInspection {
       PsiExpression selfArgument = null;
       final PsiExpression[] arguments = argumentList.getExpressions();
       for (PsiExpression argument : arguments) {
-        if (EquivalenceChecker.expressionsAreEquivalent(qualifier, argument)) {
+        if (EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(qualifier, argument)) {
           selfArgument = argument;
         }
       }

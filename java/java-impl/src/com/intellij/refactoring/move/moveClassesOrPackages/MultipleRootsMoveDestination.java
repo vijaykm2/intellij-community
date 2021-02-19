@@ -18,45 +18,55 @@ package com.intellij.refactoring.move.moveClassesOrPackages;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.*;
+import com.intellij.psi.PsiDirectory;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiPackage;
 import com.intellij.refactoring.PackageWrapper;
 import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.MultiMap;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
+import java.util.Objects;
 
 /**
  *  @author dsl
  */
 public class MultipleRootsMoveDestination extends AutocreatingMoveDestination {
-  private static final Logger LOG = Logger.getInstance(
-    "#com.intellij.refactoring.move.moveClassesOrPackages.MultipleRootsMoveDestination");
+  private static final Logger LOG = Logger.getInstance(MultipleRootsMoveDestination.class);
 
   public MultipleRootsMoveDestination(PackageWrapper aPackage) {
     super(aPackage);
   }
 
+  @NotNull
+  @Override
   public PackageWrapper getTargetPackage() {
     return myPackage;
   }
 
 
+  @Override
   public PsiDirectory getTargetDirectory(PsiDirectory source) throws IncorrectOperationException {
     //if (JavaDirectoryService.getInstance().isSourceRoot(source)) return null;
     return getOrCreateDirectoryForSource(source.getVirtualFile());
   }
 
+  @Override
   public PsiDirectory getTargetDirectory(PsiFile source) throws IncorrectOperationException {
     return getOrCreateDirectoryForSource(source.getVirtualFile());
   }
 
-  public PsiDirectory getTargetIfExists(PsiFile source) {
+  @Override
+  public PsiDirectory getTargetIfExists(@NotNull PsiFile source) {
     return findTargetDirectoryForSource(source.getVirtualFile());
   }
 
+  @Override
   public String verify(PsiFile source) {
     VirtualFile virtualFile = source.getVirtualFile();
     if (virtualFile.isDirectory()) {
@@ -71,6 +81,7 @@ public class MultipleRootsMoveDestination extends AutocreatingMoveDestination {
     return checkCanCreateInSourceRoot(sourceRootForFile);
   }
 
+  @Override
   @Nullable
   public String verify(PsiDirectory source) {
     VirtualFile virtualFile = source.getVirtualFile();
@@ -82,6 +93,7 @@ public class MultipleRootsMoveDestination extends AutocreatingMoveDestination {
     return checkCanCreateInSourceRoot(sourceRootForFile);
   }
 
+  @Override
   @Nullable
   public String verify(PsiPackage source) {
     PsiDirectory[] directories = source.getDirectories();
@@ -92,15 +104,17 @@ public class MultipleRootsMoveDestination extends AutocreatingMoveDestination {
     return null;
   }
 
-  public void analyzeModuleConflicts(final Collection<PsiElement> elements,
-                                     MultiMap<PsiElement,String> conflicts, final UsageInfo[] usages) {
+  @Override
+  public void analyzeModuleConflicts(@NotNull final Collection<? extends PsiElement> elements,
+                                     @NotNull MultiMap<PsiElement,String> conflicts, final UsageInfo[] usages) {
   }
 
   @Override
-  public boolean isTargetAccessible(Project project, VirtualFile place) {
+  public boolean isTargetAccessible(@NotNull Project project, @NotNull VirtualFile place) {
     return true;
   }
 
+  @Override
   public PsiDirectory getTargetIfExists(PsiDirectory source) {
     return findTargetDirectoryForSource(source.getVirtualFile());
   }
@@ -114,8 +128,6 @@ public class MultipleRootsMoveDestination extends AutocreatingMoveDestination {
 
   private PsiDirectory getOrCreateDirectoryForSource(final VirtualFile file)
     throws IncorrectOperationException {
-    final VirtualFile sourceRoot = myFileIndex.getSourceRootForFile(file);
-    LOG.assertTrue(sourceRoot != null);
-    return RefactoringUtil.createPackageDirectoryInSourceRoot(myPackage, sourceRoot);
+    return RefactoringUtil.createPackageDirectoryInSourceRoot(myPackage, Objects.requireNonNull(myFileIndex.getSourceRootForFile(file)));
   }
 }

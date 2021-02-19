@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 17-Jun-2009
- */
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.lang.annotation.HighlightSeverity;
@@ -32,7 +28,7 @@ public abstract class SeveritiesProvider {
   public static final ExtensionPointName<SeveritiesProvider> EP_NAME = ExtensionPointName.create("com.intellij.severitiesProvider");
 
   /**
-   * @see com.intellij.openapi.editor.colors.TextAttributesKey#createTextAttributesKey(String, com.intellij.openapi.editor.markup.TextAttributes)
+   * @see com.intellij.openapi.editor.colors.TextAttributesKey#createTextAttributesKey(String, TextAttributes)
    */
   @NotNull
   public abstract List<HighlightInfoType> getSeveritiesHighlightInfoTypes();

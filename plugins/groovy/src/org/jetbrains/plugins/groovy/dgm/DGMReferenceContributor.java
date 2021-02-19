@@ -37,9 +37,8 @@ public class DGMReferenceContributor extends PsiReferenceContributor {
   @Override
   public void registerReferenceProviders(@NotNull PsiReferenceRegistrar registrar) {
     registrar.registerReferenceProvider(PlatformPatterns.psiElement(PropertiesTokenTypes.VALUE_CHARACTERS), new PsiReferenceProvider() {
-      @NotNull
       @Override
-      public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
+      public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
         if (!DGMUtil.isInDGMFile(element)) return PsiReference.EMPTY_ARRAY;
 
         IProperty parent = (IProperty)element.getParent();
@@ -47,7 +46,7 @@ public class DGMReferenceContributor extends PsiReferenceContributor {
           return PsiReference.EMPTY_ARRAY;
         }
 
-        ArrayList<PsiReference> result = new ArrayList<PsiReference>();
+        ArrayList<PsiReference> result = new ArrayList<>();
 
         String text = element.getText();
 
@@ -65,7 +64,7 @@ public class DGMReferenceContributor extends PsiReferenceContributor {
           i = skipWhiteSpace(i, text);
         }
 
-        return result.toArray(new PsiReference[result.size()]);
+        return result.toArray(PsiReference.EMPTY_ARRAY);
       }
     });
   }

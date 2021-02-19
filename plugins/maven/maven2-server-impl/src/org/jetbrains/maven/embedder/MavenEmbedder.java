@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.maven.embedder;
 
+import com.intellij.util.ExceptionUtilRt;
 import org.apache.maven.DefaultMaven;
 import org.apache.maven.Maven;
 import org.apache.maven.artifact.Artifact;
@@ -58,6 +45,7 @@ import org.codehaus.plexus.logging.Logger;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
 import org.codehaus.plexus.util.xml.pull.XmlPullParserException;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.sonatype.plexus.components.sec.dispatcher.SecDispatcher;
 import org.sonatype.plexus.components.sec.dispatcher.SecDispatcherException;
 
@@ -68,7 +56,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.*;
 
-public class MavenEmbedder {
+public final class MavenEmbedder {
   private static final String PROP_MAVEN_HOME = "maven.home";
 
   private final DefaultPlexusContainer myContainer;
@@ -76,6 +64,7 @@ public class MavenEmbedder {
   private final Logger myLogger;
   private final MavenEmbedderSettings myEmbedderSettings;
   private final ArtifactRepository myLocalRepository;
+  private Properties myUserProperties = new Properties();
 
   private MavenEmbedder(@NotNull DefaultPlexusContainer container,
                         @NotNull Settings settings,
@@ -107,9 +96,7 @@ public class MavenEmbedder {
       wagonManager.addProxy(proxy.getProtocol(), proxy.getHost(), proxy.getPort(), proxy.getUsername(), pass, proxy.getNonProxyHosts());
     }
 
-    for (Object each : mySettings.getServers()) {
-      Server server = (Server)each;
-
+    for (Server server : mySettings.getServers()) {
       String passWord = decrypt(server.getPassword());
       String passPhrase = decrypt(server.getPassphrase());
 
@@ -122,8 +109,7 @@ public class MavenEmbedder {
       }
     }
 
-    for (Object each : mySettings.getMirrors()) {
-      Mirror mirror = (Mirror)each;
+    for (Mirror mirror : mySettings.getMirrors()) {
       if (mirror.getUrl() == null) continue;
       wagonManager.addMirror(mirror.getId(), mirror.getMirrorOf(), mirror.getUrl());
     }
@@ -418,7 +404,7 @@ public class MavenEmbedder {
     MavenExecutionRequest result = new DefaultMavenExecutionRequest(myLocalRepository, mySettings, dispatcher, goals, file.getParent(),
                                                                     createProfileManager(activeProfiles, inactiveProfiles,
                                                                                          executionProperties), executionProperties,
-                                                                    new Properties(), true) {
+                                                                    myUserProperties, true) {
       private boolean myIsRecursive;
 
       @Override
@@ -439,8 +425,7 @@ public class MavenEmbedder {
   }
 
   private MavenExecutionResult handleException(Throwable e) {
-    if (e instanceof RuntimeException) throw (RuntimeException)e;
-    if (e instanceof Error) throw (Error)e;
+    ExceptionUtilRt.rethrowUnchecked(e);
 
     return new MavenExecutionResult(null, Collections.singletonList((Exception)e));
   }
@@ -483,7 +468,7 @@ public class MavenEmbedder {
 
   private void releaseResolverThreadExecutor() {
     ArtifactResolver resolver = getComponent(ArtifactResolver.class);
-    @SuppressWarnings({"unchecked"}) FieldAccessor pool = new FieldAccessor(DefaultArtifactResolver.class, resolver, "resolveArtifactPool");
+    FieldAccessor pool = new FieldAccessor(DefaultArtifactResolver.class, resolver, "resolveArtifactPool");
     try {
       final Object threadPool = pool.getField(); // an instance of a hidden copy of ThreadPoolExecutor
       threadPool.getClass().getMethod("shutdown").invoke(threadPool);
@@ -594,6 +579,10 @@ public class MavenEmbedder {
   public static <T> void setImplementation(PlexusContainer container, Class<T> componentClass, Class<? extends T> implementationClass) {
     ComponentDescriptor d = container.getComponentDescriptor(componentClass.getName());
     d.setImplementation(implementationClass.getName());
+  }
+
+  public void setUserProperties(@Nullable Properties userProperties) {
+    myUserProperties = userProperties == null ? new Properties() : userProperties;
   }
 }
 

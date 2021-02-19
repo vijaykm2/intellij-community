@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ import java.util.Collection;
  * @author peter
 */
 public abstract class PatternCondition<T> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.patterns.PatternCondition");
+  private static final Logger LOG = Logger.getInstance(PatternCondition.class);
   @NonNls private static final String PARAMETER_FIELD_PREFIX = "val$";
   private final String myDebugMethodName;
 
@@ -108,11 +108,11 @@ public abstract class PatternCondition<T> {
   }
 
   // this code eats CPU, for debug purposes ONLY
-  public boolean processParameters(final PairProcessor<String, Object> processor) {
+  public boolean processParameters(final PairProcessor<? super String, Object> processor) {
     for (Class aClass = getClass(); aClass != null; aClass = aClass.getSuperclass()) {
       for (final Field field : aClass.getDeclaredFields()) {
         if (!Modifier.isStatic(field.getModifiers()) &&
-            (((field.getModifiers() & 0x1000 /*Modifer.SYNTHETIC*/) == 0 && !aClass.equals(PatternCondition.class))
+            (!field.isSynthetic() && !aClass.equals(PatternCondition.class)
              || field.getName().startsWith(PARAMETER_FIELD_PREFIX))) {
           final String name = field.getName();
           final String fixedName = name.startsWith(PARAMETER_FIELD_PREFIX) ?

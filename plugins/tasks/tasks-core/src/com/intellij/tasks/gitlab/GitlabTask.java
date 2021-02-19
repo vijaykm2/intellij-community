@@ -6,7 +6,7 @@ import com.intellij.tasks.TaskRepository;
 import com.intellij.tasks.TaskType;
 import com.intellij.tasks.gitlab.model.GitlabIssue;
 import com.intellij.tasks.gitlab.model.GitlabProject;
-import icons.TasksIcons;
+import icons.TasksCoreIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,7 +37,15 @@ public class GitlabTask extends Task {
   @NotNull
   @Override
   public String getId() {
+    // Will be in form <projectId>:<issueId>
+    //return myIssue.getProjectId() + ":" + myIssue.getId();
     return String.valueOf(myIssue.getId());
+  }
+
+  @NotNull
+  @Override
+  public String getPresentableId() {
+    return "#" + myIssue.getLocalId();
   }
 
   @NotNull
@@ -52,16 +60,15 @@ public class GitlabTask extends Task {
     return null;
   }
 
-  @NotNull
   @Override
-  public Comment[] getComments() {
+  public Comment @NotNull [] getComments() {
     return Comment.EMPTY_ARRAY;
   }
 
   @NotNull
   @Override
   public Icon getIcon() {
-    return TasksIcons.Gitlab;
+    return TasksCoreIcons.Gitlab;
   }
 
   @NotNull

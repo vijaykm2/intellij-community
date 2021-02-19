@@ -1,42 +1,38 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.changeSignature;
 
-import com.intellij.codeInsight.TargetElementUtil;
+import com.intellij.codeInsight.JavaTargetElementEvaluator;
 import com.intellij.ide.util.SuperMethodWarningUtil;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.actionSystem.LangDataKeys;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
+import com.intellij.openapi.command.CommandProcessor;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.*;
+import com.intellij.psi.util.JavaPsiRecordUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.changeClassSignature.ChangeClassSignatureDialog;
+import com.intellij.refactoring.changeSignature.inplace.InplaceChangeSignature;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Arrays;
+import java.util.List;
+
 public class JavaChangeSignatureHandler implements ChangeSignatureHandler {
 
+  private static final Logger LOG = Logger.getInstance(JavaChangeSignatureHandler.class);
+
+  @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file, DataContext dataContext) {
     editor.getScrollingModel().scrollToCaret(ScrollType.MAKE_VISIBLE);
     PsiElement element = findTargetMember(file, editor);
@@ -46,14 +42,8 @@ public class JavaChangeSignatureHandler implements ChangeSignatureHandler {
     invokeOnElement(project, editor, element);
   }
 
-  private static void invokeOnElement(Project project, Editor editor, PsiElement element) {
-    if (element instanceof PsiMethod) {
-      final ChangeSignatureGestureDetector detector = ChangeSignatureGestureDetector.getInstance(project);
-      final PsiIdentifier nameIdentifier = ((PsiMethod)element).getNameIdentifier();
-      if (nameIdentifier != null && detector.isChangeSignatureAvailable(element)) {
-        detector.changeSignature(element.getContainingFile(), false);
-        return;
-      }
+  private static void invokeOnElement(Project project, @Nullable Editor editor, PsiElement element) {
+    if (element instanceof PsiMethod && ((PsiMethod)element).getNameIdentifier() != null) {
       invoke((PsiMethod) element, project, editor);
     }
     else if (element instanceof PsiClass) {
@@ -61,11 +51,12 @@ public class JavaChangeSignatureHandler implements ChangeSignatureHandler {
     }
     else {
       String message = RefactoringBundle.getCannotRefactorMessage(RefactoringBundle.message("error.wrong.caret.position.method.or.class.name"));
-      CommonRefactoringUtil.showErrorHint(project, editor, message, REFACTORING_NAME, HelpID.CHANGE_SIGNATURE);
+      CommonRefactoringUtil.showErrorHint(project, editor, message, RefactoringBundle.message("changeSignature.refactoring.name"), HelpID.CHANGE_SIGNATURE);
     }
   }
 
-  public void invoke(@NotNull final Project project, @NotNull final PsiElement[] elements, @Nullable final DataContext dataContext) {
+  @Override
+  public void invoke(@NotNull final Project project, final PsiElement @NotNull [] elements, @Nullable final DataContext dataContext) {
     if (elements.length != 1) return;
     Editor editor = dataContext != null ? CommonDataKeys.EDITOR.getData(dataContext) : null;
     invokeOnElement(project, editor, elements[0]);
@@ -77,8 +68,8 @@ public class JavaChangeSignatureHandler implements ChangeSignatureHandler {
     return RefactoringBundle.message("error.wrong.caret.position.method.or.class.name");
   }
 
-  private static void invoke(final PsiMethod method, final Project project, @Nullable final Editor editor) {
-    PsiMethod newMethod = SuperMethodWarningUtil.checkSuperMethod(method, RefactoringBundle.message("to.refactor"));
+  private static void invoke(@NotNull PsiMethod method, @NotNull Project project, @Nullable final Editor editor) {
+    PsiMethod newMethod = SuperMethodWarningUtil.checkSuperMethod(method);
     if (newMethod == null) return;
 
     if (!newMethod.equals(method)) {
@@ -89,18 +80,70 @@ public class JavaChangeSignatureHandler implements ChangeSignatureHandler {
     if (!CommonRefactoringUtil.checkReadOnlyStatus(project, method)) return;
 
     final PsiClass containingClass = method.getContainingClass();
-    final PsiReferenceExpression refExpr = editor != null ? TargetElementUtil.findReferenceExpression(editor) : null;
-    final boolean allowDelegation = containingClass != null && (!containingClass.isInterface() || PsiUtil.isLanguageLevel8OrHigher(containingClass));
-    final DialogWrapper dialog = new JavaChangeSignatureDialog(project, method, allowDelegation, refExpr == null ? method : refExpr);
-    dialog.show();
+    final PsiReferenceExpression refExpr = editor != null ? JavaTargetElementEvaluator.findReferenceExpression(editor) : null;
+    final boolean allowDelegation = containingClass != null && 
+                                    (!containingClass.isInterface() || PsiUtil.isLanguageLevel8OrHigher(containingClass)) &&
+                                    !JavaPsiRecordUtil.isCanonicalConstructor(method);
+    InplaceChangeSignature inplaceChangeSignature = editor != null ? InplaceChangeSignature.getCurrentRefactoring(editor) : null;
+    ChangeInfo initialChange = inplaceChangeSignature != null ? inplaceChangeSignature.getStableChange() : null;
+
+    boolean isInplace = Registry.is("inplace.change.signature") &&
+                        editor != null && editor.getSettings().isVariableInplaceRenameEnabled() &&
+                        (initialChange == null || initialChange.getMethod() != method) &&
+                        refExpr == null;
+    PsiIdentifier nameIdentifier = method.getNameIdentifier();
+    LOG.assertTrue(nameIdentifier != null);
+    if (isInplace) {
+      CommandProcessor.getInstance().executeCommand(project, () -> new InplaceChangeSignature(project, editor, nameIdentifier),
+                                                    RefactoringBundle.message("changeSignature.refactoring.name"), null);
+    }
+    else {
+      JavaMethodDescriptor methodDescriptor = new JavaMethodDescriptor(method);
+      if (initialChange != null) {
+        JavaChangeInfo currentInfo = (JavaChangeInfo)inplaceChangeSignature.getCurrentInfo();
+        if (currentInfo != null) {
+          methodDescriptor = new JavaMethodDescriptor(method) {
+            @Override
+            public String getName() {
+              return currentInfo.getNewName();
+            }
+
+            @Override
+            public @NotNull List<ParameterInfoImpl> getParameters() {
+              return Arrays.asList((ParameterInfoImpl[])currentInfo.getNewParameters());
+            }
+
+            @Override
+            public @NotNull String getVisibility() {
+              return currentInfo.getNewVisibility();
+            }
+
+
+            @Override
+            public int getParametersCount() {
+              return currentInfo.getNewParameters().length;
+            }
+
+            @Nullable
+            @Override
+            public String getReturnTypeText() {
+              return currentInfo.getNewReturnType().getTypeText();
+            }
+          };
+        }
+        inplaceChangeSignature.cancel();
+      }
+      final DialogWrapper dialog = new JavaChangeSignatureDialog(project, methodDescriptor, allowDelegation, refExpr == null ? method : refExpr);
+      dialog.show();
+    }
   }
 
   private static void invoke(final PsiClass aClass, Editor editor) {
     final PsiTypeParameterList typeParameterList = aClass.getTypeParameterList();
     Project project = aClass.getProject();
     if (typeParameterList == null) {
-      final String message = RefactoringBundle.getCannotRefactorMessage(RefactoringBundle.message("changeClassSignature.no.type.parameters"));
-      CommonRefactoringUtil.showErrorHint(project, editor, message, REFACTORING_NAME, HelpID.CHANGE_CLASS_SIGNATURE);
+      final String message = RefactoringBundle.getCannotRefactorMessage(JavaRefactoringBundle.message("changeClassSignature.no.type.parameters"));
+      CommonRefactoringUtil.showErrorHint(project, editor, message, RefactoringBundle.message("changeSignature.refactoring.name"), HelpID.CHANGE_CLASS_SIGNATURE);
       return;
     }
     if (!CommonRefactoringUtil.checkReadOnlyStatus(project, aClass)) return;
@@ -113,15 +156,18 @@ public class JavaChangeSignatureHandler implements ChangeSignatureHandler {
     //}
   }
 
-  @Nullable
-  public PsiElement findTargetMember(PsiFile file, Editor editor) {
-    PsiElement element = file.findElementAt(editor.getCaretModel().getOffset());
-    return findTargetMember(element);
-  }
-
-  public PsiElement findTargetMember(PsiElement element) {
+  @Override
+  public PsiElement findTargetMember(@NotNull PsiElement element) {
     if (PsiTreeUtil.getParentOfType(element, PsiParameterList.class) != null) {
       return PsiTreeUtil.getParentOfType(element, PsiMethod.class);
+    }
+    PsiRecordHeader header = PsiTreeUtil.getParentOfType(element, PsiRecordHeader.class);
+    if (header != null) {
+      PsiClass aClass = header.getContainingClass();
+      if (aClass != null) {
+        return JavaPsiRecordUtil.findCanonicalConstructor(aClass);
+      }
+      return null;
     }
 
     final PsiTypeParameterList typeParameterList = PsiTreeUtil.getParentOfType(element, PsiTypeParameterList.class);
@@ -138,7 +184,7 @@ public class JavaChangeSignatureHandler implements ChangeSignatureHandler {
       return elementParent;
     }
     if (elementParent instanceof PsiClass && ((PsiClass)elementParent).getNameIdentifier()==element) {
-      if (((PsiClass)elementParent).isAnnotationType()) {
+      if (((PsiClass)elementParent).isAnnotationType() || ((PsiClass)elementParent).isEnum()) {
         return null;
       }
       return elementParent;

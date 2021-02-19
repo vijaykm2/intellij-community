@@ -18,25 +18,21 @@ import org.jetbrains.annotations.NotNull;
 import org.zmlx.hg4idea.util.HgUtil;
 
 public class HgExecutableValidator extends ExecutableValidator {
-
-  private final HgVcs myVcs;
-
-  public HgExecutableValidator(@NotNull Project project, @NotNull HgVcs vcs) {
+  public HgExecutableValidator(@NotNull Project project) {
     super(project,
-          HgVcsMessages.message("hg4idea.executable.notification.title"),
-          HgVcsMessages.message("hg4idea.executable.notification.description"));
-    myVcs = vcs;
+          HgBundle.message("hg4idea.executable.notification.title"),
+          HgBundle.message("hg4idea.executable.notification.description"));
   }
 
   @Override
   protected String getCurrentExecutable() {
-    return myVcs.getGlobalSettings().getHgExecutable();
+    return HgExecutableManager.getInstance().getHgExecutable(myProject);
   }
 
   @NotNull
   @Override
   protected String getConfigurableDisplayName() {
-    return HgProjectConfigurable.DISPLAY_NAME;
+    return HgProjectConfigurable.getDISPLAY_NAME();
   }
 
   @Override

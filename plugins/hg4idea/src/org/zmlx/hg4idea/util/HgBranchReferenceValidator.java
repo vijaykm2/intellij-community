@@ -17,25 +17,16 @@ package org.zmlx.hg4idea.util;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.zmlx.hg4idea.HgBundle;
 import org.zmlx.hg4idea.repo.HgRepository;
 
 import java.util.Collection;
-import java.util.regex.Pattern;
 
 public class HgBranchReferenceValidator extends HgReferenceValidator {
-  private static final Pattern DIGITS_ILLEGAL = Pattern.compile("[0-9]*");  // reference names couldn't contain only digits
+  private final HgRepository myRepository;
 
   public HgBranchReferenceValidator(@NotNull HgRepository repository) {
-    super(repository);
-  }
-
-  @Override
-  public boolean checkInput(@Nullable String name) {
-    if (name != null && DIGITS_ILLEGAL.matcher(name).matches()) {
-      myErrorText = "Invalid name for branch/tag";
-      return false;
-    }
-    return super.checkInput(name);
+    myRepository = repository;
   }
 
   @Override
@@ -43,7 +34,7 @@ public class HgBranchReferenceValidator extends HgReferenceValidator {
     Collection<String> branches = myRepository.getBranches().keySet();
     String currentBranch = myRepository.getCurrentBranch(); //  branches set doesn't contain uncommitted branch -> need an addition check
     myErrorText = currentBranch.equals(name) || branches.contains(name)
-                  ? String.format("A branch with the \'%s\' name already exists", name) : null;
+                  ? HgBundle.message("hg4idea.branch.duplicated.name.error", name) : null;
     return myErrorText != null;
   }
 }

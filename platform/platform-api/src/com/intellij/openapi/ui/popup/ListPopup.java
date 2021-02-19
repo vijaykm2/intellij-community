@@ -23,9 +23,7 @@ import java.awt.event.InputEvent;
  * A popup window displaying a list of items (or other actions).
  *
  * @author mike
- * @see com.intellij.openapi.ui.popup.JBPopupFactory#createActionGroupPopup
- * @see com.intellij.openapi.ui.popup.JBPopupFactory#createWizardStep
- * @since 6.0
+ * @see JBPopupFactory#createActionGroupPopup
  */
 public interface ListPopup extends JBPopup {
 
@@ -49,9 +47,14 @@ public interface ListPopup extends JBPopup {
 
   /**
    * If default selection is set, then handleSelect is invoked without showing a popup
-   * @param autoHandle
    */
   void setHandleAutoSelectionBeforeShow(boolean autoHandle);
 
   void addListSelectionListener(ListSelectionListener listSelectionListener);
+
+  /**
+   * If enabled then all items with submenus will be expanded on mouse hover.
+   * If disabled then mouse click needed to expand submenu
+   */
+  default void setShowSubmenuOnHover(boolean showSubmenuOnHover) {}
 }

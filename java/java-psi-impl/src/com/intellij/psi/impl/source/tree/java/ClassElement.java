@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class ClassElement extends CompositeElement implements Constants {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.ClassElement");
+  private static final Logger LOG = Logger.getInstance(ClassElement.class);
 
   private static final TokenSet MODIFIERS_TO_REMOVE_IN_INTERFACE_BIT_SET = TokenSet.create(
     PUBLIC_KEYWORD, ABSTRACT_KEYWORD, STATIC_KEYWORD, FINAL_KEYWORD, NATIVE_KEYWORD);
@@ -113,7 +113,7 @@ public class ClassElement extends CompositeElement implements Constants {
           if (run == semicolonPlace) {
             anchor = before.booleanValue() ? semicolonPlace.getTreeNext() : semicolonPlace;
             if (anchor != null && PsiImplUtil.isWhitespaceOrComment(anchor)) {
-              anchor = PsiTreeUtil.skipSiblingsForward(anchor.getPsi(), PsiWhiteSpace.class, PsiComment.class).getNode();
+              anchor = PsiTreeUtil.skipWhitespacesAndCommentsForward(anchor.getPsi()).getNode();
             }
             break;
           }
@@ -258,6 +258,9 @@ public class ClassElement extends CompositeElement implements Constants {
       case ChildRole.IMPLEMENTS_LIST:
         return findChildByType(IMPLEMENTS_LIST);
 
+      case ChildRole.PERMITS_LIST:
+        return findChildByType(PERMITS_LIST);
+
       case ChildRole.TYPE_PARAMETER_LIST:
         return findChildByType(TYPE_PARAMETER_LIST);
 
@@ -323,7 +326,7 @@ public class ClassElement extends CompositeElement implements Constants {
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     assert child.getTreeParent() == this;
 
     IElementType i = child.getElementType();
@@ -365,6 +368,9 @@ public class ClassElement extends CompositeElement implements Constants {
     }
     else if (i == IMPLEMENTS_LIST) {
       return ChildRole.IMPLEMENTS_LIST;
+    }
+    else if (i == PERMITS_LIST) {
+      return ChildRole.PERMITS_LIST;
     }
     else if (ElementType.CLASS_KEYWORD_BIT_SET.contains(i)) {
       return getChildRole(child, ChildRole.CLASS_OR_INTERFACE_KEYWORD);

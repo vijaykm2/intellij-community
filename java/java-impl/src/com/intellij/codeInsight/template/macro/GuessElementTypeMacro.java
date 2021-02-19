@@ -16,16 +16,16 @@
  */
 package com.intellij.codeInsight.template.macro;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.guess.GuessManager;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.template.*;
 import com.intellij.codeInsight.template.impl.JavaTemplateUtil;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.psi.GenericsUtil;
 import com.intellij.psi.PsiExpression;
 import com.intellij.psi.PsiType;
-import com.intellij.psi.PsiWildcardType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -40,7 +40,7 @@ public class GuessElementTypeMacro extends Macro {
 
   @Override
   public String getPresentableName() {
-    return CodeInsightBundle.message("macro.guess.element.type.of.container");
+    return JavaBundle.message("macro.guess.element.type.of.container");
   }
 
   @Override
@@ -50,25 +50,24 @@ public class GuessElementTypeMacro extends Macro {
   }
 
   @Override
-  public Result calculateResult(@NotNull Expression[] params, final ExpressionContext context) {
+  public Result calculateResult(Expression @NotNull [] params, final ExpressionContext context) {
     PsiType[] types = guessTypes(params, context);
     if (types == null || types.length == 0) return null;
     return new PsiTypeResult(types[0], context.getProject());
   }
 
   @Override
-  public LookupElement[] calculateLookupItems(@NotNull Expression[] params, ExpressionContext context) {
+  public LookupElement[] calculateLookupItems(Expression @NotNull [] params, ExpressionContext context) {
     PsiType[] types = guessTypes(params, context);
     if (types == null || types.length < 2) return null;
-    Set<LookupElement> set = new LinkedHashSet<LookupElement>();
+    Set<LookupElement> set = new LinkedHashSet<>();
     for (PsiType type : types) {
       JavaTemplateUtil.addTypeLookupItem(set, type);
     }
-    return set.toArray(new LookupElement[set.size()]);
+    return set.toArray(LookupElement.EMPTY_ARRAY);
   }
 
-  @Nullable
-  private static PsiType[] guessTypes(Expression[] params, ExpressionContext context) {
+  private static PsiType @Nullable [] guessTypes(Expression[] params, ExpressionContext context) {
     if (params.length != 1) return null;
     final Result result = params[0].calculateResult(context);
     if (result == null) return null;
@@ -79,14 +78,7 @@ public class GuessElementTypeMacro extends Macro {
     if (expr == null) return null;
     PsiType[] types = GuessManager.getInstance(project).guessContainerElementType(expr, new TextRange(context.getTemplateStartOffset(), context.getTemplateEndOffset()));
     for (int i = 0; i < types.length; i++) {
-      PsiType type = types[i];
-      if (type instanceof PsiWildcardType) {
-        if (((PsiWildcardType)type).isExtends()) {
-          types[i] = ((PsiWildcardType)type).getBound();
-        } else {
-          types[i] = PsiType.getJavaLangObject(expr.getManager(), expr.getResolveScope());
-        }
-      }
+      types[i] = GenericsUtil.getVariableTypeByExpressionType(types[i]);
     }
     return types;
   }

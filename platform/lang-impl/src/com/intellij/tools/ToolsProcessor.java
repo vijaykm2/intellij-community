@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ package com.intellij.tools;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.PathMacroManager;
-import com.intellij.openapi.options.BaseSchemeProcessor;
+import com.intellij.openapi.options.NonLazySchemeProcessor;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.util.text.StringUtil;
@@ -31,7 +31,7 @@ import java.io.File;
 import java.io.IOException;
 
 
-abstract public class ToolsProcessor<T extends Tool> extends BaseSchemeProcessor<ToolsGroup<T>> {
+abstract public class ToolsProcessor<T extends Tool> extends NonLazySchemeProcessor<ToolsGroup<T>, ToolsGroup<T>> {
   @NonNls private static final String TOOL_SET = "toolSet";
   @NonNls private static final String TOOL = "tool";
   @NonNls private static final String ATTRIBUTE_NAME = "name";
@@ -56,13 +56,13 @@ abstract public class ToolsProcessor<T extends Tool> extends BaseSchemeProcessor
 
   @NotNull
   @Override
-  public ToolsGroup<T> readScheme(@NotNull Element root) throws InvalidDataException, IOException, JDOMException {
+  public ToolsGroup<T> readScheme(@NotNull Element root, boolean duringLoad) throws InvalidDataException, IOException, JDOMException {
     if (!TOOL_SET.equals(root.getName())) {
       throw new InvalidDataException();
     }
 
     String attrName = root.getAttributeValue(ATTRIBUTE_NAME);
-    String groupName = StringUtil.isEmpty(attrName)? Tool.DEFAULT_GROUP_NAME : attrName;
+    String groupName = StringUtil.isEmpty(attrName)? getDefaultGroupName() : attrName;
     ToolsGroup<T> result = createToolsGroup(groupName);
 
     final PathMacroManager macroManager = PathMacroManager.getInstance(ApplicationManager.getApplication());
@@ -74,9 +74,7 @@ abstract public class ToolsProcessor<T extends Tool> extends BaseSchemeProcessor
 
       Element exec = element.getChild(EXEC);
       if (exec != null) {
-        for (final Object o1 : exec.getChildren(ELEMENT_OPTION)) {
-          Element optionElement = (Element)o1;
-
+        for (final Element optionElement : exec.getChildren(ELEMENT_OPTION)) {
           String name = optionElement.getAttributeValue(ATTRIBUTE_NAME);
           String value = optionElement.getAttributeValue(ATTRIBUTE_VALUE);
 
@@ -95,9 +93,7 @@ abstract public class ToolsProcessor<T extends Tool> extends BaseSchemeProcessor
         }
       }
 
-      for (final Object o2 : element.getChildren(FILTER)) {
-        Element childNode = (Element)o2;
-
+      for (final Element childNode : element.getChildren(FILTER)) {
         FilterInfo filterInfo = new FilterInfo();
         filterInfo.readExternal(childNode);
         tool.addOutputFilter(filterInfo);
@@ -124,10 +120,15 @@ abstract public class ToolsProcessor<T extends Tool> extends BaseSchemeProcessor
     tool.setFilesSynchronizedAfterRun(Boolean.valueOf(element.getAttributeValue(SYNCHRONIZE_AFTER_EXECUTION)).booleanValue());
   }
 
+  protected String getDefaultGroupName() {
+    return Tool.DEFAULT_GROUP_NAME;
+  }
+
   protected abstract ToolsGroup<T> createToolsGroup(String groupName);
 
   protected abstract T createTool();
 
+  @NotNull
   @Override
   public Element writeScheme(@NotNull final ToolsGroup<T> scheme) throws WriteExternalException {
     Element groupElement = new Element(TOOL_SET);

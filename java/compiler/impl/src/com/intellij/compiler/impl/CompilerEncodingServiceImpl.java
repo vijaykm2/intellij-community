@@ -41,32 +41,26 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * @author nik
- */
 public class CompilerEncodingServiceImpl extends CompilerEncodingService {
   @NotNull private final Project myProject;
   private final CachedValue<Map<Module, Set<Charset>>> myModuleFileEncodings;
 
   public CompilerEncodingServiceImpl(@NotNull Project project) {
     myProject = project;
-    myModuleFileEncodings = CachedValuesManager.getManager(project).createCachedValue(new CachedValueProvider<Map<Module, Set<Charset>>>() {
-      @Override
-      public Result<Map<Module, Set<Charset>>> compute() {
-        Map<Module, Set<Charset>> result = computeModuleCharsetMap();
-        return Result.create(result, ProjectRootManager.getInstance(myProject),
-                             ((EncodingProjectManagerImpl)EncodingProjectManager.getInstance(myProject)).getModificationTracker());
-      }
+    myModuleFileEncodings = CachedValuesManager.getManager(project).createCachedValue(() -> {
+      Map<Module, Set<Charset>> result = computeModuleCharsetMap();
+      return CachedValueProvider.Result.create(result, ProjectRootManager.getInstance(myProject),
+                                               ((EncodingProjectManagerImpl)EncodingProjectManager.getInstance(myProject)).getModificationTracker());
     }, false);
   }
 
   @NotNull
   private Map<Module, Set<Charset>> computeModuleCharsetMap() {
-    final Map<Module, Set<Charset>> map = new THashMap<Module, Set<Charset>>();
-    final Map<VirtualFile, Charset> mappings = ((EncodingProjectManagerImpl)EncodingProjectManager.getInstance(myProject)).getAllMappings();
+    final Map<Module, Set<Charset>> map = new THashMap<>();
+    final Map<? extends VirtualFile, ? extends Charset> mappings = ((EncodingProjectManagerImpl)EncodingProjectManager.getInstance(myProject)).getAllMappings();
     ProjectFileIndex index = ProjectRootManager.getInstance(myProject).getFileIndex();
     final CompilerManager compilerManager = CompilerManager.getInstance(myProject);
-    for (Map.Entry<VirtualFile, Charset> entry : mappings.entrySet()) {
+    for (Map.Entry<? extends VirtualFile, ? extends Charset> entry : mappings.entrySet()) {
       final VirtualFile file = entry.getKey();
       final Charset charset = entry.getValue();
       if (file == null || charset == null || (!file.isDirectory() && !compilerManager.isCompilableFileType(file.getFileType()))
@@ -77,7 +71,7 @@ public class CompilerEncodingServiceImpl extends CompilerEncodingService {
 
       Set<Charset> set = map.get(module);
       if (set == null) {
-        set = new LinkedHashSet<Charset>();
+        set = new LinkedHashSet<>();
         map.put(module, set);
 
         final VirtualFile sourceRoot = index.getSourceRootForFile(file);
@@ -106,7 +100,7 @@ public class CompilerEncodingServiceImpl extends CompilerEncodingService {
         if (encoding != null) {
           Set<Charset> charsets = map.get(module);
           if (charsets == null) {
-            charsets = new LinkedHashSet<Charset>();
+            charsets = new LinkedHashSet<>();
             map.put(module, charsets);
           }
           charsets.add(encoding);

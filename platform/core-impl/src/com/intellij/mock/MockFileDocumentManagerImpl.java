@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.mock;
 
 import com.intellij.openapi.editor.Document;
@@ -27,12 +13,15 @@ import com.intellij.util.Function;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.function.Predicate;
+
 public class MockFileDocumentManagerImpl extends FileDocumentManager {
   private static final Key<VirtualFile> MOCK_VIRTUAL_FILE_KEY = Key.create("MockVirtualFile");
-  private final Function<CharSequence, Document> myFactory;
+  private final Function<? super CharSequence, ? extends Document> myFactory;
   @Nullable private final Key<Document> myCachedDocumentKey;
 
-  public MockFileDocumentManagerImpl(Function<CharSequence, Document> factory, @Nullable Key<Document> cachedDocumentKey) {
+  public MockFileDocumentManagerImpl(@Nullable Key<Document> cachedDocumentKey,
+                                     @NotNull Function<? super CharSequence, ? extends Document> factory) {
     myFactory = factory;
     myCachedDocumentKey = cachedDocumentKey;
   }
@@ -41,7 +30,7 @@ public class MockFileDocumentManagerImpl extends FileDocumentManager {
 
   private static boolean isBinaryWithoutDecompiler(VirtualFile file) {
     final FileType ft = file.getFileType();
-    return ft.isBinary() && BinaryFileTypeDecompilers.INSTANCE.forFileType(ft) == null;
+    return ft.isBinary() && BinaryFileTypeDecompilers.getInstance().forFileType(ft) == null;
   }
 
   @Override
@@ -76,6 +65,10 @@ public class MockFileDocumentManagerImpl extends FileDocumentManager {
   }
 
   @Override
+  public void saveDocuments(@NotNull Predicate<? super Document> filter) {
+  }
+
+  @Override
   public void saveDocument(@NotNull Document document) {
   }
 
@@ -84,9 +77,8 @@ public class MockFileDocumentManagerImpl extends FileDocumentManager {
   }
 
   @Override
-  @NotNull
-  public Document[] getUnsavedDocuments() {
-    return new Document[0];
+  public Document @NotNull [] getUnsavedDocuments() {
+    return Document.EMPTY_ARRAY;
   }
 
   @Override
@@ -100,11 +92,16 @@ public class MockFileDocumentManagerImpl extends FileDocumentManager {
   }
 
   @Override
+  public boolean isPartialPreviewOfALargeFile(@NotNull Document document) {
+    return false;
+  }
+
+  @Override
   public void reloadFromDisk(@NotNull Document document) {
   }
 
   @Override
-  public void reloadFiles(@NotNull final VirtualFile... files) {
+  public void reloadFiles(final VirtualFile @NotNull ... files) {
   }
 
   @Override

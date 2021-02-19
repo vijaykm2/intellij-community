@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +16,14 @@
 package com.intellij.refactoring.removemiddleman;
 
 import com.intellij.codeInsight.generation.GenerateMembersUtil;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.presentation.java.SymbolPresentationUtil;
 import com.intellij.psi.search.searches.ReferencesSearch;
-import com.intellij.psi.util.PropertyUtil;
+import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.refactoring.RefactorJBundle;
 import com.intellij.refactoring.removemiddleman.usageInfo.DeleteMethod;
 import com.intellij.refactoring.removemiddleman.usageInfo.InlineDelegatingCall;
@@ -38,7 +39,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.List;
 
 public class RemoveMiddlemanProcessor extends FixableUsagesRefactoringProcessor {
-  private static final Logger LOG = Logger.getInstance("#" + RemoveMiddlemanProcessor.class.getName());
+  private static final Logger LOG = Logger.getInstance(RemoveMiddlemanProcessor.class);
 
   private final PsiField field;
   private final PsiClass containingClass;
@@ -49,18 +50,20 @@ public class RemoveMiddlemanProcessor extends FixableUsagesRefactoringProcessor 
     super(field.getProject());
     this.field = field;
     containingClass = field.getContainingClass();
-    final String propertyName = PropertyUtil.suggestPropertyName(field);
+    final String propertyName = PropertyUtilBase.suggestPropertyName(field);
     final boolean isStatic = field.hasModifierProperty(PsiModifier.STATIC);
-    getter = PropertyUtil.findPropertyGetter(containingClass, propertyName, isStatic, false);
+    getter = PropertyUtilBase.findPropertyGetter(containingClass, propertyName, isStatic, false);
     myDelegateMethodInfos = memberInfos;
   }
 
+  @Override
   @NotNull
-  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo[] usageInfos) {
+  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo @NotNull [] usageInfos) {
     return new RemoveMiddlemanUsageViewDescriptor(field);
   }
 
 
+  @Override
   public void findUsages(@NotNull List<FixableUsageInfo> usages) {
     for (final MemberInfo memberInfo : myDelegateMethodInfos) {
       if (!memberInfo.isChecked()) continue;
@@ -74,13 +77,14 @@ public class RemoveMiddlemanProcessor extends FixableUsagesRefactoringProcessor 
   }
 
   @Override
-  protected boolean preprocessUsages(final Ref<UsageInfo[]> refUsages) {
-    final MultiMap<PsiElement, String> conflicts = new MultiMap<PsiElement, String>();
+  protected boolean preprocessUsages(@NotNull final Ref<UsageInfo[]> refUsages) {
+    final MultiMap<PsiElement, String> conflicts = new MultiMap<>();
     for (MemberInfo memberInfo : myDelegateMethodInfos) {
       if (memberInfo.isChecked() && memberInfo.isToAbstract()) {
         final PsiMember psiMember = memberInfo.getMember();
         if (psiMember instanceof PsiMethod && ((PsiMethod)psiMember).findDeepestSuperMethods().length > 0) {
-          conflicts.putValue(psiMember, SymbolPresentationUtil.getSymbolPresentableText(psiMember) + " will be deleted. Hierarchy will be broken");
+          conflicts.putValue(psiMember, JavaRefactoringBundle
+            .message("remove.middleman.deleted.hierarchy.conflict", SymbolPresentationUtil.getSymbolPresentableText(psiMember)));
         }
       }
     }
@@ -108,7 +112,8 @@ public class RemoveMiddlemanProcessor extends FixableUsagesRefactoringProcessor 
     }
   }
 
-  protected void performRefactoring(UsageInfo[] usageInfos) {
+  @Override
+  protected void performRefactoring(UsageInfo @NotNull [] usageInfos) {
     if (getter != null) {
       try {
         if (containingClass.findMethodBySignature(getter, false) == null) {
@@ -123,7 +128,9 @@ public class RemoveMiddlemanProcessor extends FixableUsagesRefactoringProcessor 
     super.performRefactoring(usageInfos);
   }
 
+  @Override
+  @NotNull
   protected String getCommandName() {
-    return RefactorJBundle.message("exposed.delegation.command.name", containingClass.getName(), '.', field.getName());
+    return RefactorJBundle.message("exposed.delegation.command.name", StringUtil.getQualifiedName(containingClass.getName(), field.getName()));
   }
 }

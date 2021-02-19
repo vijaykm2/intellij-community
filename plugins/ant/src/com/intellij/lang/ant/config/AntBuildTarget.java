@@ -18,19 +18,35 @@ package com.intellij.lang.ant.config;
 
 import com.intellij.lang.ant.config.impl.BuildFileProperty;
 import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.util.NlsSafe;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Collections;
 import java.util.List;
 
 public interface AntBuildTarget {
   @Nullable
-  String getName();
+  @NlsSafe String getName();
 
   @Nullable
+  @NlsSafe
   String getDisplayName();
 
+  /**
+   * @return target names as defined in the underlying ant build file in the order they should be executed
+   *         For normal targets this is a singleton list with the target name that getName() method returns. For meta-targets this is
+   *         a list of targets that form the meta-target
+   */
+  @NotNull
+  default List<@NlsSafe String> getTargetNames() {
+    final String name = getName();
+    return name == null? Collections.emptyList() : Collections.singletonList(name);
+  }
+
   @Nullable
-  String getNotEmptyDescription();
+  @Nls(capitalization = Nls.Capitalization.Sentence) String getNotEmptyDescription();
 
   boolean isDefault();
 

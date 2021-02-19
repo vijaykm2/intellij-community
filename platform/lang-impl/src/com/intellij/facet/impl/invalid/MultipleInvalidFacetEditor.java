@@ -18,15 +18,10 @@ package com.intellij.facet.impl.invalid;
 import com.intellij.facet.impl.ui.MultipleFacetEditorHelperImpl;
 import com.intellij.facet.ui.FacetEditor;
 import com.intellij.facet.ui.MultipleFacetSettingsEditor;
-import com.intellij.util.NotNullFunction;
 import com.intellij.util.ui.ThreeStateCheckBox;
-import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
-/**
- * @author nik
- */
 public class MultipleInvalidFacetEditor extends MultipleFacetSettingsEditor {
   private final MultipleFacetEditorHelperImpl myHelper;
   private JPanel myMainPanel;
@@ -34,13 +29,7 @@ public class MultipleInvalidFacetEditor extends MultipleFacetSettingsEditor {
 
   public MultipleInvalidFacetEditor(FacetEditor[] editors) {
     myHelper = new MultipleFacetEditorHelperImpl();
-    myHelper.bind(myIgnoreFacetsCheckBox, editors, new NotNullFunction<FacetEditor, JCheckBox>() {
-      @NotNull
-      @Override
-      public JCheckBox fun(FacetEditor editor) {
-        return editor.getEditorTab(InvalidFacetEditor.class).getIgnoreCheckBox();
-      }
-    });
+    myHelper.bind(myIgnoreFacetsCheckBox, editors, editor -> editor.getEditorTab(InvalidFacetEditor.class).getIgnoreCheckBox());
   }
 
   @Override

@@ -1,39 +1,26 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.quickFix;
 
 import com.intellij.codeInsight.CodeInsightUtil;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
-import com.intellij.codeInsight.daemon.impl.quickfix.EmptyExpression;
 import com.intellij.codeInsight.generation.ClassMember;
 import com.intellij.codeInsight.generation.GenerateFieldOrPropertyHandler;
 import com.intellij.codeInsight.generation.GenerateMembersUtil;
 import com.intellij.codeInsight.generation.GenerationInfo;
 import com.intellij.codeInsight.intention.IntentionAction;
-import com.intellij.codeInsight.template.*;
+import com.intellij.codeInsight.template.Expression;
+import com.intellij.codeInsight.template.TemplateBuilderImpl;
+import com.intellij.codeInsight.template.TemplateManager;
+import com.intellij.codeInsight.template.impl.ConstantNode;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PropertyMemberType;
-import com.intellij.psi.util.PropertyUtil;
+import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -44,20 +31,20 @@ import java.util.List;
  * @author peter
 */
 public class CreateFieldOrPropertyFix implements IntentionAction, LocalQuickFix {
-  private static final Logger LOG = Logger.getInstance("com.intellij.codeInsight.daemon.quickFix.CreateFieldOrPropertyFix");
+  private static final Logger LOG = Logger.getInstance(CreateFieldOrPropertyFix.class);
 
-  private final PsiClass myClass;
+  private final SmartPsiElementPointer<PsiClass> myClass;
   private final String myName;
   private final PsiType myType;
   private final PropertyMemberType myMemberType;
   private final PsiAnnotation[] myAnnotations;
 
-  public CreateFieldOrPropertyFix(final PsiClass aClass,
-                                  final String name,
-                                  final PsiType type,
+  public CreateFieldOrPropertyFix(@NotNull PsiClass aClass,
+                                  String name,
+                                  PsiType type,
                                   @NotNull PropertyMemberType memberType,
-                                  final PsiAnnotation[] annotations) {
-    myClass = aClass;
+                                  PsiAnnotation[] annotations) {
+    myClass = SmartPointerManager.createPointer(aClass);
     myName = name;
     myType = type;
     myMemberType = memberType;
@@ -68,12 +55,6 @@ public class CreateFieldOrPropertyFix implements IntentionAction, LocalQuickFix 
   @NotNull
   public String getText() {
     return QuickFixBundle.message(myMemberType == PropertyMemberType.FIELD ? "create.field.text":"create.property.text", myName);
-  }
-
-  @Override
-  @NotNull
-  public String getName() {
-    return getText();
   }
 
   @Override
@@ -98,41 +79,33 @@ public class CreateFieldOrPropertyFix implements IntentionAction, LocalQuickFix 
   }
 
   private void applyFixInner(final Project project) {
-    final PsiFile file = myClass.getContainingFile();
-    final Editor editor = CodeInsightUtil.positionCursor(project, myClass.getContainingFile(), myClass.getLBrace());
+    PsiClass aClass = myClass.getElement();
+    if (aClass == null) return;
+    final PsiFile file = aClass.getContainingFile();
+    final Editor editor = CodeInsightUtil.positionCursorAtLBrace(project, aClass.getContainingFile(), aClass);
     if (editor != null) {
-      new WriteCommandAction(project, file) {
-        @Override
-        protected void run(Result result) throws Throwable {
-          generateMembers(project, editor, file);
-        }
-
-        @Override
-        protected boolean isGlobalUndoAction() {
-          return true; // todo check
-        }
-      }.execute();
+      WriteCommandAction.writeCommandAction(project, file)
+                        .withGlobalUndo()
+                        .run(() -> generateMembers(project, editor));
     }
   }
 
-  private void generateMembers(final Project project, final Editor editor, final PsiFile file) {
+  private void generateMembers(final Project project, final Editor editor) {
     try {
-      List<? extends GenerationInfo> prototypes = new GenerateFieldOrPropertyHandler(myName, myType, myMemberType, myAnnotations).generateMemberPrototypes(myClass, ClassMember.EMPTY_ARRAY);
-      prototypes = GenerateMembersUtil.insertMembersAtOffset(myClass.getContainingFile(), editor.getCaretModel().getOffset(), prototypes);
+      PsiClass aClass = myClass.getElement();
+      if (aClass == null) return;
+      List<? extends GenerationInfo> prototypes = new GenerateFieldOrPropertyHandler(myName, myType, myMemberType, myAnnotations)
+          .generateMemberPrototypes(aClass, ClassMember.EMPTY_ARRAY);
+      prototypes = GenerateMembersUtil.insertMembersAtOffset(aClass, editor.getCaretModel().getOffset(), prototypes);
       if (prototypes.isEmpty()) return;
       final PsiElement scope = prototypes.get(0).getPsiMember().getContext();
       assert scope != null;
-      final Expression expression = new EmptyExpression() {
-        @Override
-        public com.intellij.codeInsight.template.Result calculateResult(final ExpressionContext context) {
-          return new TextResult(myType.getCanonicalText());
-        }
-      };
+      Expression expression = new ConstantNode(myType.getCanonicalText());
       final TemplateBuilderImpl builder = new TemplateBuilderImpl(scope);
       boolean first = true;
       @NonNls final String TYPE_NAME_VAR = "TYPE_NAME_VAR";
       for (GenerationInfo prototype : prototypes) {
-        final PsiTypeElement typeElement = PropertyUtil.getPropertyTypeElement(prototype.getPsiMember());
+        final PsiTypeElement typeElement = PropertyUtilBase.getPropertyTypeElement(prototype.getPsiMember());
         if (first) {
           first = false;
           builder.replaceElement(typeElement, TYPE_NAME_VAR, expression, true);

@@ -27,34 +27,28 @@ import org.jetbrains.annotations.Nullable;
  */
 public interface PsiImportList extends PsiElement {
   PsiImportList[] EMPTY_ARRAY = new PsiImportList[0];
-  ArrayFactory<PsiImportList> ARRAY_FACTORY = new ArrayFactory<PsiImportList>() {
-    @NotNull
-    @Override
-    public PsiImportList[] create(int count) {
-      return count == 0 ? EMPTY_ARRAY : new PsiImportList[count];
-    }
-  };
+  ArrayFactory<PsiImportList> ARRAY_FACTORY = count -> count == 0 ? EMPTY_ARRAY : new PsiImportList[count];
 
   /**
    * Returns the non-static import statements contained in the list.
    *
    * @return the array of non-static import statements.
    */
-  @NotNull PsiImportStatement[] getImportStatements();
+  PsiImportStatement @NotNull [] getImportStatements();
 
   /**
    * Returns the static import statements contained in the list.
    *
    * @return the array of static import statements.
    */
-  @NotNull PsiImportStaticStatement[] getImportStaticStatements();
+  PsiImportStaticStatement @NotNull [] getImportStaticStatements();
 
   /**
    * Returns all import statements contained in the list.
    *
    * @return the array of import statements.
    */
-  @NotNull PsiImportStatementBase[] getAllImportStatements();
+  PsiImportStatementBase @NotNull [] getAllImportStatements();
 
   /**
    * Searches the list for a single-class import statement importing the specified class.

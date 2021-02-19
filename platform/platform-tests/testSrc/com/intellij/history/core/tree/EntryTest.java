@@ -43,8 +43,8 @@ public class EntryTest extends LocalHistoryTestCase {
     assertTrue(e.pathEquals("PATH"));
   }
 
-  private class MyEntry extends Entry {
-    public MyEntry() {
+  private static class MyEntry extends Entry {
+    MyEntry() {
       super((String)null);
     }
 
@@ -60,17 +60,17 @@ public class EntryTest extends LocalHistoryTestCase {
     }
 
     @Override
-    public void collectDifferencesWith(Entry e, List<Difference> result) {
+    public void collectDifferencesWith(@NotNull Entry e, @NotNull List<? super Difference> result, boolean isRightContentCurrent) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    protected void collectCreatedDifferences(List<Difference> result) {
+    protected void collectCreatedDifferences(@NotNull List<? super Difference> result, boolean isRightContentCurrent) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    protected void collectDeletedDifferences(List<Difference> result) {
+    protected void collectDeletedDifferences(@NotNull List<? super Difference> result, boolean isRightContentCurrent) {
       throw new UnsupportedOperationException();
     }
   }

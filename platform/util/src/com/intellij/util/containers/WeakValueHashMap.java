@@ -1,50 +1,43 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.containers;
 
-import gnu.trove.TObjectHashingStrategy;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
 
+/**
+ * @deprecated use {@link ContainerUtil#createWeakValueMap()} instead
+ */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
 public final class WeakValueHashMap<K,V> extends RefValueHashMap<K,V> {
-  private static class MyWeakReference<K, T> extends WeakReference<T> implements MyReference<K, T> {
+  private static final class MyWeakReference<K, T> extends WeakReference<T> implements MyReference<K, T> {
     private final K key;
 
-    private MyWeakReference(K key, T referent, ReferenceQueue<? super T> q) {
+    private MyWeakReference(@NotNull K key, T referent, ReferenceQueue<? super T> q) {
       super(referent, q);
       this.key = key;
     }
 
+    @NotNull
     @Override
     public K getKey() {
       return key;
     }
   }
 
+  /**
+   * @deprecated use {@link ContainerUtil#createWeakValueMap()} instead
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
   public WeakValueHashMap() {
   }
 
-  public WeakValueHashMap(@NotNull TObjectHashingStrategy<K> strategy) {
-    super(strategy);
-  }
-
   @Override
-  protected MyReference<K, V> createReference(@NotNull K key, V value, @NotNull ReferenceQueue<V> queue) {
-    return new MyWeakReference<K, V>(key, value, queue);
+  protected MyReference<K, V> createReference(@NotNull K key, V value, @NotNull ReferenceQueue<? super V> queue) {
+    return new MyWeakReference<>(key, value, queue);
   }
 }

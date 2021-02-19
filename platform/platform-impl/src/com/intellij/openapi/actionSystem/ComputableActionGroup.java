@@ -30,7 +30,7 @@ public abstract class ComputableActionGroup extends ActionGroup implements DumbA
   }
 
   protected ComputableActionGroup(boolean popup) {
-    super(null, popup);
+    super(Presentation.NULL_STRING, popup);
   }
 
   @Override
@@ -39,14 +39,13 @@ public abstract class ComputableActionGroup extends ActionGroup implements DumbA
   }
 
   @Override
-  @NotNull
-  public final AnAction[] getChildren(@Nullable AnActionEvent e) {
+  public final AnAction @NotNull [] getChildren(@Nullable AnActionEvent e) {
     if (e == null) {
       return EMPTY_ARRAY;
     }
 
     if (myChildren == null) {
-      myChildren = new CachedValueImpl<AnAction[]>(createChildrenProvider(e.getActionManager()));
+      myChildren = new CachedValueImpl<>(createChildrenProvider(e.getActionManager()));
     }
     return myChildren.getValue();
   }
@@ -65,16 +64,9 @@ public abstract class ComputableActionGroup extends ActionGroup implements DumbA
     @NotNull
     @Override
     protected final CachedValueProvider<AnAction[]> createChildrenProvider(@NotNull final ActionManager actionManager) {
-      return new CachedValueProvider<AnAction[]>() {
-        @Nullable
-        @Override
-        public Result<AnAction[]> compute() {
-          return Result.create(computeChildren(actionManager), ModificationTracker.NEVER_CHANGED);
-        }
-      };
+      return () -> CachedValueProvider.Result.create(computeChildren(actionManager), ModificationTracker.NEVER_CHANGED);
     }
 
-    @NotNull
-    protected abstract AnAction[] computeChildren(@NotNull ActionManager manager);
+    protected abstract AnAction @NotNull [] computeChildren(@NotNull ActionManager manager);
   }
 }

@@ -8,9 +8,8 @@ You may also need "get_what_to_run_by_env" that gets folder (current or passed a
 import os
 import time
 import abc
-import sys
 import tcmessages
-
+from _jb_utils import VersionAgnosticUtils
 
 __author__ = 'Ilya.Kazakevich'
 
@@ -58,6 +57,17 @@ def get_what_to_run_by_env(environment):
     return base_dir, scenarios, what_to_run
 
 
+def get_location(base_dir, location_file, location_line):
+    """
+    Generates location that PyCharm resolves to file
+    :param base_dir: base directory to resolve relative path against
+    :param location_file: path to file
+    :param location_line: line number
+    """
+    my_file = str(location_file).lstrip("/\\")
+    return "file:///{0}:{1}".format(os.path.normpath(os.path.join(base_dir, my_file)), location_line)
+
+
 class BddRunner(object):
     """
     Extends this class, implement abstract methods and use its API to implement new BDD frameworks.
@@ -102,8 +112,7 @@ class BddRunner(object):
         :param location object with "file" (relative to base_dir) and "line" fields.
         :return: location in format file:line (as supported in tcmessages)
         """
-        my_file = str(location.file).lstrip("/\\")
-        return "file:///{0}:{1}".format(os.path.normpath(os.path.join(self.__base_dir, my_file)), location.line)
+        return get_location(self.__base_dir, location.file, location.line)
 
     def _test_undefined(self, test_name, location):
         """
@@ -133,7 +142,8 @@ class BddRunner(object):
         self.__last_test_name = None
         pass
 
-    def _test_failed(self, name, message, details):
+
+    def _test_failed(self, name, message, details, duration=None):
         """
         Report test failure
         :param name: test name
@@ -142,8 +152,13 @@ class BddRunner(object):
         :type message basestring
         :param details: failure details (probably stacktrace)
         :type details str
+        :param duration how long test took
+        :type duration int
         """
-        self.tc_messages.testFailed(name, message=VersionAgnosticUtils().to_unicode(message), details=details)
+        self.tc_messages.testFailed(name,
+                                    message=VersionAgnosticUtils().to_unicode(message),
+                                    details=details,
+                                    duration=duration)
         self.__last_test_name = None
 
     def _test_passed(self, name, duration=None):
@@ -227,47 +242,3 @@ class BddRunner(object):
         Implement it! It should launch tests using your BDD. Use "self._" functions to report results.
         """
         pass
-
-
-class VersionAgnosticUtils(object):
-    """
-    "six" emulator: this class fabrics appropriate tool to use regardless python version.
-    Use it to write code that works both on py2 and py3
-    """
-
-    @staticmethod
-    def __new__(cls, *more):
-        """
-        Fabrics Py2 or Py3 instance based on py version
-        """
-        real_class = _Py3KUtils if sys.version_info >= (3, 0) else _Py2Utils
-        return super(cls, real_class).__new__(real_class, *more)
-
-    def to_unicode(self, obj):
-        """
-
-        :param obj: string to convert to unicode
-        :return: unicode string
-        """
-
-        raise NotImplementedError()
-
-
-
-class _Py2Utils(VersionAgnosticUtils):
-    """
-    Util for Py2
-    """
-    def to_unicode(self, obj):
-        if isinstance(obj, unicode):
-            return obj
-        return unicode(obj.decode("utf-8"))
-
-
-
-class _Py3KUtils(VersionAgnosticUtils):
-    """
-    Util for Py3
-    """
-    def to_unicode(self, obj):
-        return str(obj)

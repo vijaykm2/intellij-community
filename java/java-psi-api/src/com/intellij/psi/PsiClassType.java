@@ -1,56 +1,52 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
-import com.intellij.openapi.util.Comparing;
+import com.intellij.lang.jvm.JvmTypeDeclaration;
+import com.intellij.lang.jvm.types.JvmReferenceType;
+import com.intellij.lang.jvm.types.JvmSubstitutor;
+import com.intellij.lang.jvm.types.JvmType;
+import com.intellij.lang.jvm.types.JvmTypeResolveResult;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.ArrayFactory;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * Represents a class type.
  *
  * @author max
  */
-public abstract class PsiClassType extends PsiType {
-  /**
-   * The empty array of PSI class types which can be reused to avoid unnecessary allocations.
-   */
+public abstract class PsiClassType extends PsiType implements JvmReferenceType {
   public static final PsiClassType[] EMPTY_ARRAY = new PsiClassType[0];
-  public static final ArrayFactory<PsiClassType> ARRAY_FACTORY = new ArrayFactory<PsiClassType>() {
-    @NotNull
-    @Override
-    public PsiClassType[] create(int count) {
-      return new PsiClassType[count];
-    }
-  };
+  public static final ArrayFactory<PsiClassType> ARRAY_FACTORY = count -> count == 0 ? EMPTY_ARRAY : new PsiClassType[count];
 
   protected final LanguageLevel myLanguageLevel;
 
-  protected PsiClassType(LanguageLevel languageLevel) {
+  protected PsiClassType(@NotNull LanguageLevel languageLevel) {
     this(languageLevel, PsiAnnotation.EMPTY_ARRAY);
   }
 
-  protected PsiClassType(LanguageLevel languageLevel, @NotNull PsiAnnotation[] annotations) {
+  protected PsiClassType(LanguageLevel languageLevel, PsiAnnotation @NotNull [] annotations) {
     super(annotations);
     myLanguageLevel = languageLevel;
+  }
+
+  public PsiClassType(LanguageLevel languageLevel, @NotNull TypeAnnotationProvider provider) {
+    super(provider);
+    myLanguageLevel = languageLevel;
+  }
+
+  @NotNull
+  @Override
+  public PsiClassType annotate(@NotNull TypeAnnotationProvider provider) {
+    return (PsiClassType)super.annotate(provider);
   }
 
   /**
@@ -58,6 +54,7 @@ public abstract class PsiClassType extends PsiType {
    *
    * @return the class instance, or null if the reference resolve failed.
    */
+  @Override
   @Nullable
   public abstract PsiClass resolve();
 
@@ -73,17 +70,17 @@ public abstract class PsiClassType extends PsiType {
    *
    * @return the array of type arguments, or an empty array if the type does not point to a generic class or interface.
    */
-  @NotNull
-  public abstract PsiType[] getParameters();
+  public abstract PsiType @NotNull [] getParameters();
 
   public int getParameterCount() {
     return getParameters().length;
   }
 
+  @Override
   public boolean equals(Object obj) {
     if (this == obj) return true;
     if (!(obj instanceof PsiClassType)) {
-      return obj instanceof PsiCapturedWildcardType && 
+      return obj instanceof PsiCapturedWildcardType &&
              ((PsiCapturedWildcardType)obj).getLowerBound().equalsToText(CommonClassNames.JAVA_LANG_OBJECT) &&
              equalsToText(CommonClassNames.JAVA_LANG_OBJECT);
     }
@@ -91,7 +88,7 @@ public abstract class PsiClassType extends PsiType {
 
     String className = getClassName();
     String otherClassName = otherClassType.getClassName();
-    if (!Comparing.equal(className, otherClassName)) return false;
+    if (!Objects.equals(className, otherClassName)) return false;
 
     if (getParameterCount() != otherClassType.getParameterCount()) return false;
 
@@ -105,8 +102,7 @@ public abstract class PsiClassType extends PsiType {
       return aClass == otherClass;
     }
     return aClass.getManager().areElementsEquivalent(aClass, otherClass) &&
-           (PsiUtil.isRawSubstitutor(aClass, result.getSubstitutor()) ||
-            PsiUtil.equalOnEquivalentClasses(result.getSubstitutor(), aClass, otherResult.getSubstitutor(), otherClass));
+           PsiUtil.equalOnEquivalentClasses(this, aClass, otherClassType, otherClass);
   }
 
   /**
@@ -157,6 +153,7 @@ public abstract class PsiClassType extends PsiType {
     return false;
   }
 
+  @Override
   public int hashCode() {
     final String className = getClassName();
     if (className == null) return 0;
@@ -164,8 +161,7 @@ public abstract class PsiClassType extends PsiType {
   }
 
   @Override
-  @NotNull
-  public PsiType[] getSuperTypes() {
+  public PsiType @NotNull [] getSuperTypes() {
     ClassResolveResult resolveResult = resolveGenerics();
     PsiClass aClass = resolveResult.getElement();
     if (aClass == null) return EMPTY_ARRAY;
@@ -216,7 +212,7 @@ public abstract class PsiClassType extends PsiType {
   public abstract PsiClassType rawType();
 
   /**
-   * Overrides {@link com.intellij.psi.PsiType#getResolveScope()} to narrow specify @NotNull.
+   * Overrides {@link PsiType#getResolveScope()} to narrow specify @NotNull.
    */
   @Override
   @NotNull
@@ -240,6 +236,50 @@ public abstract class PsiClassType extends PsiType {
   @NotNull
   @Contract(pure = true)
   public abstract PsiClassType setLanguageLevel(@NotNull LanguageLevel languageLevel);
+
+  @NotNull
+  @Override
+  public String getName() {
+    return getClassName();
+  }
+
+  /**
+   * If class-type is created from the explicit reference in the code returns that reference.
+   * @return reference which the type is created from. Returns null if not applicable.
+   */
+  @ApiStatus.Experimental
+  public @Nullable PsiElement getPsiContext() {
+    return null;
+  }
+  
+  @Nullable
+  @Override
+  public JvmTypeResolveResult resolveType() {
+    ClassResolveResult resolveResult = resolveGenerics();
+    PsiClass clazz = resolveResult.getElement();
+    return clazz == null ? null : new JvmTypeResolveResult() {
+
+      private final JvmSubstitutor mySubstitutor = new PsiJvmSubstitutor(clazz.getProject(), resolveResult.getSubstitutor());
+
+      @NotNull
+      @Override
+      public JvmTypeDeclaration getDeclaration() {
+        return clazz;
+      }
+
+      @NotNull
+      @Override
+      public JvmSubstitutor getSubstitutor() {
+        return mySubstitutor;
+      }
+    };
+  }
+
+  @NotNull
+  @Override
+  public Iterable<JvmType> typeArguments() {
+    return Arrays.asList(getParameters());
+  }
 
   /**
    * Represents the result of resolving a reference to a Java class.
@@ -287,13 +327,24 @@ public abstract class PsiClassType extends PsiType {
     };
   }
 
-  /**
-   * Temporary class to facilitate transition to {@link #getCanonicalText(boolean)}.
-   */
-  public static abstract class Stub extends PsiClassType {
-    protected Stub(LanguageLevel languageLevel, @NotNull PsiAnnotation[] annotations) {
+  public abstract static class Stub extends PsiClassType {
+    protected Stub(LanguageLevel languageLevel, PsiAnnotation @NotNull [] annotations) {
       super(languageLevel, annotations);
     }
+
+    protected Stub(LanguageLevel languageLevel, @NotNull TypeAnnotationProvider annotations) {
+      super(languageLevel, annotations);
+    }
+
+    @NotNull
+    @Override
+    public final String getPresentableText() {
+      return getPresentableText(false);
+    }
+
+    @NotNull
+    @Override
+    public abstract String getPresentableText(boolean annotated);
 
     @NotNull
     @Override

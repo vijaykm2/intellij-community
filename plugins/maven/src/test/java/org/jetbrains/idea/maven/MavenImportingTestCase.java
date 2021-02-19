@@ -1,47 +1,36 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven;
 
-import com.intellij.compiler.server.BuildManager;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.externalSystem.test.ExternalSystemTestCase;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.impl.JavaAwareProjectJdkTableImpl;
 import com.intellij.openapi.roots.*;
-import com.intellij.openapi.roots.impl.libraries.ProjectLibraryTable;
 import com.intellij.openapi.roots.libraries.Library;
+import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.TestDialog;
-import com.intellij.openapi.util.AsyncResult;
+import com.intellij.openapi.ui.TestDialogManager;
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.VfsUtil;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess;
 import com.intellij.testFramework.IdeaTestUtil;
-import com.intellij.util.Consumer;
-import com.intellij.util.PathUtil;
-import com.intellij.util.ui.UIUtil;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.testFramework.RunAll;
+import com.intellij.util.containers.ContainerUtil;
+import org.intellij.lang.annotations.Language;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.concurrency.AsyncPromise;
 import org.jetbrains.idea.maven.execution.*;
 import org.jetbrains.idea.maven.model.MavenArtifact;
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles;
@@ -53,24 +42,42 @@ import org.jetbrains.jps.model.java.JavaSourceRootType;
 import org.jetbrains.jps.model.module.JpsModuleSourceRootType;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public abstract class MavenImportingTestCase extends MavenTestCase {
   protected MavenProjectsTree myProjectsTree;
+  protected MavenProjectResolver myProjectResolver;
   protected MavenProjectsManager myProjectsManager;
-  private File myGlobalSettingsFile;
 
   @Override
   protected void setUp() throws Exception {
-    VfsRootAccess.allowRootAccess(PathManager.getOptionsPath());
+    VfsRootAccess.allowRootAccess(getTestRootDisposable(), PathManager.getConfigPath());
+
     super.setUp();
-    myGlobalSettingsFile =
-      MavenWorkspaceSettingsComponent.getInstance(myProject).getSettings().generalSettings.getEffectiveGlobalSettingsIoFile();
-    if (myGlobalSettingsFile != null) {
-      VfsRootAccess.allowRootAccess(myGlobalSettingsFile.getAbsolutePath());
+
+    File settingsFile = MavenWorkspaceSettingsComponent.getInstance(myProject).getSettings().generalSettings.getEffectiveGlobalSettingsIoFile();
+    if (settingsFile != null) {
+      VfsRootAccess.allowRootAccess(getTestRootDisposable(), settingsFile.getAbsolutePath());
     }
+  }
+
+  @Override
+  protected void tearDown() throws Exception {
+    RunAll.runAll(
+      () -> WriteAction.runAndWait(() -> JavaAwareProjectJdkTableImpl.removeInternalJdkInTests()),
+      () -> TestDialogManager.setTestDialog(TestDialog.DEFAULT),
+      () -> removeFromLocalRepository("test"),
+      () -> ExternalSystemTestCase.deleteBuildSystemDirectory(),
+      () -> {
+        myProjectsManager = null;
+        myProjectsTree = null;
+        myProjectResolver = null;
+      },
+      () -> super.tearDown()
+    );
   }
 
   @Override
@@ -80,26 +87,9 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
     removeFromLocalRepository("test");
   }
 
-  @Override
-  protected void tearDown() throws Exception {
-    try {
-      if (myGlobalSettingsFile != null) {
-        VfsRootAccess.disallowRootAccess(myGlobalSettingsFile.getAbsolutePath());
-      }
-      VfsRootAccess.disallowRootAccess(PathManager.getOptionsPath());
-      Messages.setTestDialog(TestDialog.DEFAULT);
-      myProjectsManager.projectClosed();
-      removeFromLocalRepository("test");
-      FileUtil.delete(BuildManager.getInstance().getBuildSystemDirectory());
-    }
-    finally {
-      super.tearDown();
-    }
-  }
-
   protected void assertModules(String... expectedNames) {
     Module[] actual = ModuleManager.getInstance(myProject).getModules();
-    List<String> actualNames = new ArrayList<String>();
+    List<String> actualNames = new ArrayList<>();
 
     for (Module m : actual) {
       actualNames.add(m.getName());
@@ -108,14 +98,20 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
     assertUnorderedElementsAreEqual(actualNames, expectedNames);
   }
 
+  protected void assertRootProjects(String... expectedNames) {
+    List<MavenProject> rootProjects = myProjectsTree.getRootProjects();
+    List<String> actualNames = ContainerUtil.map(rootProjects, it -> it.getMavenId().getArtifactId());
+    assertUnorderedElementsAreEqual(actualNames, expectedNames);
+  }
+
   protected void assertContentRoots(String moduleName, String... expectedRoots) {
-    List<String> actual = new ArrayList<String>();
+    List<String> actual = new ArrayList<>();
     for (ContentEntry e : getContentRoots(moduleName)) {
       actual.add(e.getUrl());
     }
 
     for (int i = 0; i < expectedRoots.length; i++) {
-      expectedRoots[i] = VfsUtil.pathToUrl(expectedRoots[i]);
+      expectedRoots[i] = VfsUtilCore.pathToUrl(expectedRoots[i]);
     }
 
     assertUnorderedPathsAreEqual(actual, Arrays.asList(expectedRoots));
@@ -127,7 +123,7 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
 
   protected void assertGeneratedSources(String moduleName, String... expectedSources) {
     ContentEntry contentRoot = getContentRoot(moduleName);
-    List<ContentFolder> folders = new ArrayList<ContentFolder>();
+    List<ContentFolder> folders = new ArrayList<>();
     for (SourceFolder folder : contentRoot.getSourceFolders(JavaSourceRootType.SOURCE)) {
       JavaSourceRootProperties properties = folder.getJpsElement().getProperties(JavaSourceRootType.SOURCE);
       assertNotNull(properties);
@@ -160,13 +156,13 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
     doAssertContentFolders(root, Arrays.asList(root.getExcludeFolders()), expectedExcudes);
   }
 
-  private void doAssertContentFolders(String moduleName, @NotNull JpsModuleSourceRootType<?> rootType, String... expected) {
+  protected void doAssertContentFolders(String moduleName, @NotNull JpsModuleSourceRootType<?> rootType, String... expected) {
     ContentEntry contentRoot = getContentRoot(moduleName);
     doAssertContentFolders(contentRoot, contentRoot.getSourceFolders(rootType), expected);
   }
 
   private static void doAssertContentFolders(ContentEntry e, final List<? extends ContentFolder> folders, String... expected) {
-    List<String> actual = new ArrayList<String>();
+    List<String> actual = new ArrayList<>();
     for (ContentFolder f : folders) {
       String rootUrl = e.getUrl();
       String folderUrl = f.getUrl();
@@ -190,10 +186,8 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
     assertEquals(testOutput, getAbsolutePath(e.getCompilerOutputUrlForTests()));
   }
 
-  private static String getAbsolutePath(String path) {
-    path = VfsUtil.urlToPath(path);
-    path = PathUtil.getCanonicalPath(path);
-    return FileUtil.toSystemIndependentName(path);
+  private static @NotNull String getAbsolutePath(@Nullable String path) {
+    return path == null ? "" : FileUtil.toSystemIndependentName(FileUtil.toCanonicalPath(VirtualFileManager.extractPath(path)));
   }
 
   protected void assertProjectOutput(String module) {
@@ -254,17 +248,17 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
   }
 
   protected void assertExportedDeps(String moduleName, String... expectedDeps) {
-    final List<String> actual = new ArrayList<String>();
+    final List<String> actual = new ArrayList<>();
 
-    getRootManager(moduleName).orderEntries().withoutSdk().withoutModuleSourceEntries().exportedOnly().process(new RootPolicy<Object>() {
+    getRootManager(moduleName).orderEntries().withoutSdk().withoutModuleSourceEntries().exportedOnly().process(new RootPolicy<>() {
       @Override
-      public Object visitModuleOrderEntry(ModuleOrderEntry e, Object value) {
+      public Object visitModuleOrderEntry(@NotNull ModuleOrderEntry e, Object value) {
         actual.add(e.getModuleName());
         return null;
       }
 
       @Override
-      public Object visitLibraryOrderEntry(LibraryOrderEntry e, Object value) {
+      public Object visitLibraryOrderEntry(@NotNull LibraryOrderEntry e, Object value) {
         actual.add(e.getLibraryName());
         return null;
       }
@@ -291,7 +285,7 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
   }
 
   private List<String> collectModuleDepsNames(String moduleName, Class clazz) {
-    List<String> actual = new ArrayList<String>();
+    List<String> actual = new ArrayList<>();
 
     for (OrderEntry e : getRootManager(moduleName).getOrderEntries()) {
       if (clazz.isInstance(e)) {
@@ -316,8 +310,8 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
   }
 
   public void assertProjectLibraries(String... expectedNames) {
-    List<String> actualNames = new ArrayList<String>();
-    for (Library each : ProjectLibraryTable.getInstance(myProject).getLibraries()) {
+    List<String> actualNames = new ArrayList<>();
+    for (Library each : LibraryTablesRegistrar.getInstance().getLibraryTable(myProject).getLibraries()) {
       String name = each.getName();
       actualNames.add(name == null ? "<unnamed>" : name);
     }
@@ -337,20 +331,14 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
   }
 
   protected Module getModule(final String name) {
-    AccessToken accessToken = ApplicationManager.getApplication().acquireReadActionLock();
-    try {
-      Module m = ModuleManager.getInstance(myProject).findModuleByName(name);
-      assertNotNull("Module " + name + " not found", m);
-      return m;
-    }
-    finally {
-      accessToken.finish();
-    }
+    Module m = ReadAction.compute(() -> ModuleManager.getInstance(myProject).findModuleByName(name));
+    assertNotNull("Module " + name + " not found", m);
+    return m;
   }
 
   private ContentEntry getContentRoot(String moduleName) {
     ContentEntry[] ee = getContentRoots(moduleName);
-    List<String> roots = new ArrayList<String>();
+    List<String> roots = new ArrayList<>();
     for (ContentEntry e : ee) {
       roots.add(e.getUrl());
     }
@@ -363,7 +351,7 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
 
   private ContentEntry getContentRoot(String moduleName, String path) {
     for (ContentEntry e : getContentRoots(moduleName)) {
-      if (e.getUrl().equals(VfsUtil.pathToUrl(path))) return e;
+      if (e.getUrl().equals(VfsUtilCore.pathToUrl(path))) return e;
     }
     throw new AssertionError("content root not found");
   }
@@ -372,11 +360,11 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
     return getRootManager(moduleName).getContentEntries();
   }
 
-  private ModuleRootManager getRootManager(String module) {
+  public ModuleRootManager getRootManager(String module) {
     return ModuleRootManager.getInstance(getModule(module));
   }
 
-  protected void importProject(@NonNls String xml) throws IOException {
+  protected void importProject(@NotNull @Language(value = "XML", prefix = "<project>", suffix = "</project>") String xml) {
     createProjectPom(xml);
     importProject();
   }
@@ -385,8 +373,12 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
     importProjectWithProfiles();
   }
 
+  protected void importProjectWithErrors() {
+    doImportProjects(Collections.singletonList(myProjectPom), false);
+  }
+
   protected void importProjectWithProfiles(String... profiles) {
-    doImportProjects(true, Collections.singletonList(myProjectPom), profiles);
+    doImportProjects(Collections.singletonList(myProjectPom), true, profiles);
   }
 
   protected void importProject(VirtualFile file) {
@@ -394,40 +386,27 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
   }
 
   protected void importProjects(VirtualFile... files) {
-    doImportProjects(true, Arrays.asList(files));
+    doImportProjects(Arrays.asList(files), true);
   }
 
-  protected void importProjectWithMaven3(@NonNls String xml) throws IOException {
-    createProjectPom(xml);
-    importProjectWithMaven3();
+  protected void importProjectsWithErrors(VirtualFile... files) {
+    doImportProjects(Arrays.asList(files), false);
   }
 
-  protected void importProjectWithMaven3() {
-    importProjectWithMaven3WithProfiles();
-  }
-
-  protected void importProjectWithMaven3WithProfiles(String... profiles) {
-    doImportProjects(false, Collections.singletonList(myProjectPom), profiles);
-  }
-
-  private void doImportProjects(boolean useMaven2, final List<VirtualFile> files, String... profiles) {
-    MavenServerManager.getInstance().setUseMaven2(useMaven2);
+  protected void doImportProjects(final List<VirtualFile> files, boolean failOnReadingError, String... profiles) {
     initProjectsManager(false);
 
     readProjects(files, profiles);
 
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        myProjectsManager.waitForResolvingCompletion();
-        myProjectsManager.scheduleImportInTests(files);
-        myProjectsManager.importProjects();
-      }
+    ApplicationManager.getApplication().invokeAndWait(() -> {
+      myProjectsManager.waitForResolvingCompletion();
+      myProjectsManager.scheduleImportInTests(files);
+      myProjectsManager.importProjects();
     });
 
-    for (MavenProject each : myProjectsTree.getProjects()) {
-      if (each.hasReadingProblems()) {
-        System.out.println(each + " has problems: " + each.getProblems());
+    if (failOnReadingError) {
+      for (MavenProject each : myProjectsTree.getProjects()) {
+        assertFalse("Failed to import Maven project: " + each.getProblems(), each.hasReadingProblems());
       }
     }
   }
@@ -445,7 +424,10 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
   protected void initProjectsManager(boolean enableEventHandling) {
     myProjectsManager.initForTests();
     myProjectsTree = myProjectsManager.getProjectsTreeForTests();
-    if (enableEventHandling) myProjectsManager.listenForExternalChanges();
+    myProjectResolver = new MavenProjectResolver(myProjectsTree);
+    if (enableEventHandling) {
+      myProjectsManager.enableAutoImportInTests();
+    }
   }
 
   protected void scheduleResolveAll() {
@@ -453,15 +435,12 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
   }
 
   protected void waitForReadingCompletion() {
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          myProjectsManager.waitForReadingCompletion();
-        }
-        catch (Exception e) {
-          throw new RuntimeException(e);
-        }
+    ApplicationManager.getApplication().invokeAndWait(() -> {
+      try {
+        myProjectsManager.waitForReadingCompletion();
+      }
+      catch (Exception e) {
+        throw new RuntimeException(e);
       }
     });
   }
@@ -471,7 +450,7 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
   }
 
   protected void readProjects(VirtualFile... files) {
-    List<MavenProject> projects = new ArrayList<MavenProject>();
+    List<MavenProject> projects = new ArrayList<>();
     for (VirtualFile each : files) {
       projects.add(myProjectsManager.findProject(each));
     }
@@ -480,24 +459,16 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
   }
 
   protected void resolveDependenciesAndImport() {
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        myProjectsManager.waitForResolvingCompletion();
-        myProjectsManager.performScheduledImportInTests();
-      }
+    ApplicationManager.getApplication().invokeAndWait(() -> {
+      myProjectsManager.waitForResolvingCompletion();
+      myProjectsManager.performScheduledImportInTests();
     });
   }
 
   protected void resolveFoldersAndImport() {
     myProjectsManager.scheduleFoldersResolveForAllProjects();
     myProjectsManager.waitForFoldersResolvingCompletion();
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        myProjectsManager.performScheduledImportInTests();
-      }
-    });
+    ApplicationManager.getApplication().invokeAndWait(() -> myProjectsManager.performScheduledImportInTests());
   }
 
   protected void resolvePlugins() {
@@ -512,13 +483,8 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
                                                                      List<MavenArtifact> artifacts) {
     final MavenArtifactDownloader.DownloadResult[] unresolved = new MavenArtifactDownloader.DownloadResult[1];
 
-    AsyncResult<MavenArtifactDownloader.DownloadResult> result = new AsyncResult<MavenArtifactDownloader.DownloadResult>();
-    result.doWhenDone(new Consumer<MavenArtifactDownloader.DownloadResult>() {
-      @Override
-      public void consume(MavenArtifactDownloader.DownloadResult unresolvedArtifacts) {
-        unresolved[0] = unresolvedArtifacts;
-      }
-    });
+    AsyncPromise<MavenArtifactDownloader.DownloadResult> result = new AsyncPromise<>();
+    result.onSuccess(unresolvedArtifacts -> unresolved[0] = unresolvedArtifacts);
 
     myProjectsManager.scheduleArtifactsDownloading(projects, artifacts, true, true, result);
     myProjectsManager.waitForArtifactsDownloadingCompletion();
@@ -530,17 +496,24 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
     myProjectsManager.waitForPostImportTasksCompletion();
   }
 
-  protected void executeGoal(String relativePath, String goal) {
+  protected void executeGoal(String relativePath, String goal) throws Exception {
     VirtualFile dir = myProjectRoot.findFileByRelativePath(relativePath);
 
-    MavenRunnerParameters rp = new MavenRunnerParameters(true, dir.getPath(), Arrays.asList(goal), Collections.<String>emptyList());
+    MavenRunnerParameters rp = new MavenRunnerParameters(true, dir.getPath(), (String)null, Collections.singletonList(goal), Collections.emptyList());
     MavenRunnerSettings rs = new MavenRunnerSettings();
-    MavenExecutor e = new MavenExternalExecutor(myProject, rp, getMavenGeneralSettings(), rs, new SoutMavenConsole());
-
-    e.execute(new EmptyProgressIndicator());
+    Semaphore wait = new Semaphore(1);
+    wait.acquire();
+    MavenRunner.getInstance(myProject).run(rp, rs, () -> {
+      wait.release();
+    });
+    boolean tryAcquire = wait.tryAcquire(10, TimeUnit.SECONDS);
+    assertTrue( "Maven execution failed", tryAcquire);
   }
 
-  protected void removeFromLocalRepository(String relativePath) throws IOException {
+  protected void removeFromLocalRepository(String relativePath) {
+    if (SystemInfo.isWindows) {
+      MavenServerManager.getInstance().shutdown(true);
+    }
     FileUtil.delete(new File(getRepositoryPath(), relativePath));
   }
 
@@ -556,30 +529,24 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
     return sdk;
   }
 
-  protected static Sdk createJdk(String versionName) {
-    return IdeaTestUtil.getMockJdk17(versionName);
+  protected static Sdk createJdk() {
+    return IdeaTestUtil.getMockJdk17();
   }
 
   protected static AtomicInteger configConfirmationForYesAnswer() {
     final AtomicInteger counter = new AtomicInteger();
-    Messages.setTestDialog(new TestDialog() {
-      @Override
-      public int show(String message) {
-        counter.set(counter.get() + 1);
-        return 0;
-      }
+    TestDialogManager.setTestDialog(message -> {
+      counter.getAndIncrement();
+      return Messages.YES;
     });
     return counter;
   }
 
   protected static AtomicInteger configConfirmationForNoAnswer() {
     final AtomicInteger counter = new AtomicInteger();
-    Messages.setTestDialog(new TestDialog() {
-      @Override
-      public int show(String message) {
-        counter.set(counter.get() + 1);
-        return 1;
-      }
+    TestDialogManager.setTestDialog(message -> {
+      counter.getAndIncrement();
+      return Messages.NO;
     });
     return counter;
   }

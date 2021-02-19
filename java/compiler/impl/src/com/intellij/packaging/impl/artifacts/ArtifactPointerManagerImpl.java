@@ -1,38 +1,23 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.packaging.impl.artifacts;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.packaging.artifacts.*;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.TestOnly;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * @author nik
- */
-public class ArtifactPointerManagerImpl extends ArtifactPointerManager {
-  private final Map<String, ArtifactPointerImpl> myUnresolvedPointers = new HashMap<String, ArtifactPointerImpl>();
-  private final Map<Artifact, ArtifactPointerImpl> myPointers = new HashMap<Artifact, ArtifactPointerImpl>();
+public final class ArtifactPointerManagerImpl extends ArtifactPointerManager {
+  private final Map<String, ArtifactPointerImpl> myUnresolvedPointers = new HashMap<>();
+  private final Map<Artifact, ArtifactPointerImpl> myPointers = new HashMap<>();
   private ArtifactManager myArtifactManager;
 
   public ArtifactPointerManagerImpl(Project project) {
-    project.getMessageBus().connect().subscribe(ArtifactManager.TOPIC, new ArtifactAdapter() {
+    project.getMessageBus().connect().subscribe(ArtifactManager.TOPIC, new ArtifactListener() {
       @Override
       public void artifactRemoved(@NotNull Artifact artifact) {
         disposePointer(artifact);
@@ -44,7 +29,7 @@ public class ArtifactPointerManagerImpl extends ArtifactPointerManager {
         if (pointer != null) {
           pointer.setName(artifact.getName());
         }
-        
+
         final ArtifactPointerImpl unresolved = myUnresolvedPointers.remove(artifact.getName());
         if (unresolved != null) {
           unresolved.setArtifact(artifact);
@@ -73,6 +58,7 @@ public class ArtifactPointerManagerImpl extends ArtifactPointerManager {
     }
   }
 
+  @Override
   public ArtifactPointer createPointer(@NotNull String name) {
     if (myArtifactManager != null) {
       final Artifact artifact = myArtifactManager.findArtifact(name);
@@ -89,6 +75,7 @@ public class ArtifactPointerManagerImpl extends ArtifactPointerManager {
     return pointer;
   }
 
+  @Override
   public ArtifactPointer createPointer(@NotNull Artifact artifact) {
     ArtifactPointerImpl pointer = myPointers.get(artifact);
     if (pointer == null) {
@@ -104,12 +91,17 @@ public class ArtifactPointerManagerImpl extends ArtifactPointerManager {
     return pointer;
   }
 
+  @TestOnly
+  public Map<Artifact, ArtifactPointerImpl> getPointers() {
+    return Collections.unmodifiableMap(myPointers);
+  }
+
   @Override
   public ArtifactPointer createPointer(@NotNull Artifact artifact, @NotNull ArtifactModel artifactModel) {
     return createPointer(artifactModel.getOriginalArtifact(artifact));
   }
 
-  public void disposePointers(List<Artifact> artifacts) {
+  public void disposePointers(List<? extends Artifact> artifacts) {
     for (Artifact artifact : artifacts) {
       disposePointer(artifact);
     }

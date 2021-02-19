@@ -19,12 +19,14 @@ import com.intellij.openapi.util.UserDataHolder;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.ModuleChunk;
 import org.jetbrains.jps.api.CanceledStatus;
+import org.jetbrains.jps.builders.BuildTarget;
 import org.jetbrains.jps.builders.logging.BuildLoggingManager;
 import org.jetbrains.jps.cmdline.ProjectDescriptor;
 
+import java.util.Collection;
+
 /**
  * @author Eugene Zhuravlev
- *         Date: 7/8/12
  */
 public interface CompileContext extends UserDataHolder, MessageHandler {
   ProjectDescriptor getProjectDescriptor();
@@ -32,18 +34,18 @@ public interface CompileContext extends UserDataHolder, MessageHandler {
   CompileScope getScope();
 
   /**
-   * @deprecated use {@link org.jetbrains.jps.builders.java.JavaBuilderUtil#isCompileJavaIncrementally(CompileContext)} for java-related usages
-   */
-  boolean isMake();
-
-  /**
    * @deprecated use {@link org.jetbrains.jps.builders.java.JavaBuilderUtil#isForcedRecompilationAllJavaModules(CompileContext)} for java-related usages
    */
+  @Deprecated
   boolean isProjectRebuild();
 
   @Nullable
   String getBuilderParameter(String paramName);
 
+  /**
+   * Registers a listener which will receive events about files which are created, modified or deleted by the build process. In order to
+   * ensure that no events are lost this method may be called in {@link Builder#buildStarted}'s implementation.
+   */
   void addBuildListener(BuildListener listener);
 
   void removeBuildListener(BuildListener listener);
@@ -58,9 +60,9 @@ public interface CompileContext extends UserDataHolder, MessageHandler {
 
   void setDone(float done);
 
-  long getCompilationStartStamp();
+  long getCompilationStartStamp(BuildTarget<?> target);
 
-  void updateCompilationStartStamp();
+  void setCompilationStartStamp(Collection<? extends BuildTarget<?>> target, long stamp);
 
   void markNonIncremental(ModuleBuildTarget target);
 

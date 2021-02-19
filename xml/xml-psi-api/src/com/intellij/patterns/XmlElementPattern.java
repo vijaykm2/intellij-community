@@ -30,13 +30,13 @@ public class XmlElementPattern<T extends XmlElement,Self extends XmlElementPatte
     super(aClass);
   }
 
-  public XmlElementPattern(@NotNull final InitialPatternCondition<T> condition) {
+  XmlElementPattern(@NotNull final InitialPatternCondition<T> condition) {
     super(condition);
   }
 
   public static class Capture extends XmlElementPattern<XmlElement, Capture> {
-    protected Capture() {
-      super(new InitialPatternCondition<XmlElement>(XmlElement.class) {
+    Capture() {
+      super(new InitialPatternCondition<>(XmlElement.class) {
         @Override
         public boolean accepts(@Nullable final Object o, final ProcessingContext context) {
           return o instanceof XmlElement;
@@ -46,8 +46,8 @@ public class XmlElementPattern<T extends XmlElement,Self extends XmlElementPatte
   }
 
   public static class XmlTextPattern extends XmlElementPattern<XmlText, XmlTextPattern> {
-    public XmlTextPattern() {
-      super(new InitialPatternCondition<XmlText>(XmlText.class) {
+    XmlTextPattern() {
+      super(new InitialPatternCondition<>(XmlText.class) {
         @Override
         public boolean accepts(@Nullable final Object o, final ProcessingContext context) {
           return o instanceof XmlText;
@@ -57,8 +57,8 @@ public class XmlElementPattern<T extends XmlElement,Self extends XmlElementPatte
   }
 
   public static class XmlEntityRefPattern extends XmlElementPattern<XmlEntityRef, XmlEntityRefPattern> {
-    public XmlEntityRefPattern() {
-      super(new InitialPatternCondition<XmlEntityRef>(XmlEntityRef.class) {
+    XmlEntityRefPattern() {
+      super(new InitialPatternCondition<>(XmlEntityRef.class) {
         @Override
         public boolean accepts(@Nullable final Object o, final ProcessingContext context) {
           return o instanceof XmlEntityRef;

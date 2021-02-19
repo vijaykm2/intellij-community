@@ -1,6 +1,6 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.xsltDebugger.impl;
 
-import com.intellij.icons.AllIcons;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.project.Project;
@@ -21,6 +21,7 @@ import com.intellij.xdebugger.breakpoints.XBreakpointProperties;
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint;
 import org.intellij.plugins.xsltDebugger.VMPausedException;
 import org.intellij.plugins.xsltDebugger.XsltBreakpointType;
+import org.intellij.plugins.xsltDebugger.XsltDebuggerBundle;
 import org.intellij.plugins.xsltDebugger.rt.engine.Breakpoint;
 import org.intellij.plugins.xsltDebugger.rt.engine.BreakpointManager;
 import org.intellij.plugins.xsltDebugger.rt.engine.DebuggerStoppedException;
@@ -28,7 +29,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class XsltBreakpointHandler extends XBreakpointHandler<XLineBreakpoint<XBreakpointProperties>> {
-  private XsltDebugProcess myXsltDebugProcess;
+  private final XsltDebugProcess myXsltDebugProcess;
 
   public XsltBreakpointHandler(XsltDebugProcess xsltDebugProcess, final Class<? extends XsltBreakpointType> typeClass) {
     super(typeClass);
@@ -48,9 +49,7 @@ public class XsltBreakpointHandler extends XBreakpointHandler<XLineBreakpoint<XB
     final String fileURL = getFileURL(file);
     final int lineNumber = getActualLineNumber(breakpoint, project);
     if (lineNumber == -1) {
-      final XDebugSession session = myXsltDebugProcess.getSession();
-      session.updateBreakpointPresentation(breakpoint, AllIcons.Debugger.Db_invalid_breakpoint,
-                                           "Unsupported breakpoint position");
+      myXsltDebugProcess.getSession().setBreakpointInvalid(breakpoint, "Unsupported breakpoint position");
       return;
     }
 
@@ -65,9 +64,8 @@ public class XsltBreakpointHandler extends XBreakpointHandler<XLineBreakpoint<XB
     } catch (DebuggerStoppedException ignore) {
     } catch (VMPausedException e) {
       final XDebugSession session = myXsltDebugProcess.getSession();
-      session.reportMessage("Target VM is not responding. Breakpoint can not be set", MessageType.ERROR);
-      session.updateBreakpointPresentation(breakpoint, AllIcons.Debugger.Db_invalid_breakpoint,
-                                           "Target VM is not responding. Breakpoint can not be set");
+      session.reportMessage(XsltDebuggerBundle.message("notification.content.target.vm.not.responding.breakpoint.can.not.be.set"), MessageType.ERROR);
+      session.setBreakpointInvalid(breakpoint, "Target VM is not responding. Breakpoint can not be set");
     }
   }
 
@@ -100,7 +98,8 @@ public class XsltBreakpointHandler extends XBreakpointHandler<XLineBreakpoint<XB
       }
     } catch (DebuggerStoppedException ignore) {
     } catch (VMPausedException e) {
-      myXsltDebugProcess.getSession().reportMessage("Target VM is not responding. Breakpoint can not be removed", MessageType.ERROR);
+      myXsltDebugProcess.getSession().reportMessage(
+        XsltDebuggerBundle.message("notification.content.target.vm.not.responding.breakpoint.can.not.be.removed"), MessageType.ERROR);
     }
   }
 

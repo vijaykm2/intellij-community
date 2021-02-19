@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.wizard;
 
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.Project;
@@ -46,7 +33,7 @@ public class WizardDialog<T extends WizardModel> extends DialogWrapper implement
 
   private JPanel myStepContent;
   private CardLayout myCardLayout;
-  private final Map<WizardStep, String> myStepCardNames = new HashMap<WizardStep, String>();
+  private final Map<WizardStep, String> myStepCardNames = new HashMap<>();
 
   public WizardDialog(Project project, boolean canBeParent, T model) {
     super(project, canBeParent);
@@ -73,6 +60,7 @@ public class WizardDialog<T extends WizardModel> extends DialogWrapper implement
   }
 
 
+  @Override
   protected JComponent createCenterPanel() {
     JPanel result = new JPanel(new BorderLayout());
 
@@ -94,6 +82,7 @@ public class WizardDialog<T extends WizardModel> extends DialogWrapper implement
 
     myCardLayout = new CardLayout();
     myStepContent = new JPanel(myCardLayout) {
+      @Override
       public Dimension getPreferredSize() {
         Dimension custom = getWindowPreferredSize();
         Dimension superSize = super.getPreferredSize();
@@ -118,6 +107,7 @@ public class WizardDialog<T extends WizardModel> extends DialogWrapper implement
     return result;
   }
 
+  @Override
   protected void init() {
     setTitle(myModel.getTitle());
 
@@ -130,9 +120,9 @@ public class WizardDialog<T extends WizardModel> extends DialogWrapper implement
   }
 
   private void initHelpButton() {
-    myHelp.setText("Help");
-    myHelp.setMnemonic('H');
+    myHelp.setText(IdeBundle.message("button.help"));
     myHelp.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         onHelp();
       }
@@ -140,6 +130,7 @@ public class WizardDialog<T extends WizardModel> extends DialogWrapper implement
 
     getRootPane().registerKeyboardAction(
       new ActionListener() {
+        @Override
         public void actionPerformed(final ActionEvent e) {
           onHelp();
         }
@@ -150,6 +141,7 @@ public class WizardDialog<T extends WizardModel> extends DialogWrapper implement
 
     getRootPane().registerKeyboardAction(
       new ActionListener() {
+        @Override
         public void actionPerformed(final ActionEvent e) {
           onHelp();
         }
@@ -204,6 +196,7 @@ public class WizardDialog<T extends WizardModel> extends DialogWrapper implement
     }
   }
 
+  @Override
   protected JComponent createSouthPanel() {
     final JPanel southPanel = new JPanel(new BorderLayout());
     final JPanel panel = new JPanel(new GridLayout(1, 0, 5, 0));
@@ -220,14 +213,17 @@ public class WizardDialog<T extends WizardModel> extends DialogWrapper implement
     return southPanel;
   }
 
+  @Override
   public void onStepChanged() {
     initCurrentStep();
   }
 
+  @Override
   public void onWizardGoalDropped() {
     doCancelAction();
   }
 
+  @Override
   public void onWizardGoalAchieved() {
     doOKAction();
   }

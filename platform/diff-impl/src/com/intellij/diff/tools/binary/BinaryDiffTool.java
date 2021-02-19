@@ -18,6 +18,7 @@ package com.intellij.diff.tools.binary;
 import com.intellij.diff.DiffContext;
 import com.intellij.diff.FrameDiffTool;
 import com.intellij.diff.requests.DiffRequest;
+import com.intellij.openapi.diff.DiffBundle;
 import org.jetbrains.annotations.NotNull;
 
 public class BinaryDiffTool implements FrameDiffTool {
@@ -26,17 +27,22 @@ public class BinaryDiffTool implements FrameDiffTool {
   @NotNull
   @Override
   public DiffViewer createComponent(@NotNull DiffContext context, @NotNull DiffRequest request) {
-    return new BinaryDiffViewer(context, request);
+    if (OnesideBinaryDiffViewer.canShowRequest(context, request)) return new OnesideBinaryDiffViewer(context, request);
+    if (TwosideBinaryDiffViewer.canShowRequest(context, request)) return new TwosideBinaryDiffViewer(context, request);
+    if (ThreesideBinaryDiffViewer.canShowRequest(context, request)) return new ThreesideBinaryDiffViewer(context, request);
+    throw new IllegalArgumentException(request.toString());
   }
 
   @Override
   public boolean canShow(@NotNull DiffContext context, @NotNull DiffRequest request) {
-    return BinaryDiffViewer.canShowRequest(context, request);
+    return OnesideBinaryDiffViewer.canShowRequest(context, request) ||
+           TwosideBinaryDiffViewer.canShowRequest(context, request) ||
+           ThreesideBinaryDiffViewer.canShowRequest(context, request);
   }
 
   @NotNull
   @Override
   public String getName() {
-    return "Binary file viewer";
+    return DiffBundle.message("binary.file.viewer");
   }
 }

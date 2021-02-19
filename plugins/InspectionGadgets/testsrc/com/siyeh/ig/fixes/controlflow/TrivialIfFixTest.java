@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,42 +15,46 @@
  */
 package com.siyeh.ig.fixes.controlflow;
 
-import com.intellij.codeInsight.intention.IntentionAction;
-import com.siyeh.InspectionGadgetsBundle;
+import com.intellij.pom.java.LanguageLevel;
+import com.intellij.testFramework.builders.JavaModuleFixtureBuilder;
 import com.siyeh.ig.IGQuickFixesTestCase;
 import com.siyeh.ig.controlflow.TrivialIfInspection;
 
-import java.util.List;
-
 public class TrivialIfFixTest extends IGQuickFixesTestCase {
-
+  @Override
+  protected void tuneFixture(final JavaModuleFixtureBuilder builder) {
+    builder.setLanguageLevel(LanguageLevel.JDK_14);
+  }
+  
   @Override
   protected void setUp() throws Exception {
     super.setUp();
     myFixture.enableInspections(new TrivialIfInspection());
     myRelativePath = "controlflow/trivialIf";
+    myDefaultHint = "Simplify 'if else'";
   }
 
-  public void testComments() {
-    doTestByName(getTestName(false));
-  }
-
-  public void testCommentsInAssignment() {
-    doTestByName(getTestName(false));
-  }
-
-  public void doTestByName(String testName) {
-    myFixture.configureByFile(getRelativePath() + "/" + testName + ".java");
-    final String message = InspectionGadgetsBundle.message("constant.conditional.expression.simplify.quickfix");
-    final List<IntentionAction> actions =
-      myFixture.filterAvailableIntentions(message);
-    assertFalse("No actions available", actions.isEmpty());
-    for (IntentionAction action : actions) {
-      if (action.getText().equals(message)) {
-        myFixture.launchAction(action);
-        myFixture.checkResultByFile(getRelativePath() + "/" + testName + ".after.java");
-        break;
-      }
-    }
-  }
+  public void testComments() { doTest(); }
+  public void testCommentsInAssignment() { doTest(); }
+  public void testAssignmentNegated() { doTest(); }
+  public void testImplicitAssignment() { doTest(); }
+  public void testImplicitAssignmentAnd() { assertQuickfixNotAvailable(); }
+  public void testNegatedConditional() { doTest(); }
+  public void testNegatedConditional1() { doTest(); }
+  public void testAssert1() { doTest(); }
+  public void testAssert2() { doTest(); }
+  public void testParentheses() { doTest(); }
+  public void testNested() { doTest(); }
+  public void testInCodeBlock() { doTest(); }
+  public void testInSwitch() { doTest(); }
+  public void testRedundantComparison1() { doTest(); }
+  public void testRedundantComparison2() { doTest(); }
+  public void testRedundantComparisonNested() { doTest(); }
+  public void testRedundantComparisonNested2() { doTest(); }
+  public void testRedundantComparisonNested3() { doTest(); }
+  public void testRedundantComparisonDouble() { assertQuickfixNotAvailable(); }
+  public void testMethodCall() { doTest(); }
+  public void testMethodCall2() { doTest(); }
+  public void testYield() { doTest(); }
+  public void testOverwrittenDeclaration() { doTest(); }
 }

@@ -1,61 +1,50 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.util.projectWizard;
 
-import com.intellij.ide.IdeBundle;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.options.ConfigurationException;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.util.ProgressIndicatorBase;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.concurrency.SwingWorker;
+import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.UiNotifyConnector;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 
-/**
- * @author nik
- */
+import static java.awt.GridBagConstraints.*;
+
 public abstract class AbstractStepWithProgress<Result> extends ModuleWizardStep {
-  
+  private static final Logger LOG = Logger.getInstance(AbstractStepWithProgress.class);
   @NonNls private static final String PROGRESS_PANEL = "progress_panel";
   @NonNls private static final String RESULTS_PANEL = "results_panel";
   private JPanel myPanel;
-  
+
   private JLabel myTitleLabel;
   private JLabel myProgressLabel;
   private JLabel myProgressLabel2;
-  private ProgressIndicator myProgressIndicator = null;
-  private final String myPromptStopSearch;
+  private ProgressIndicator myProgressIndicator;
+  private final @NlsContexts.DialogMessage String myPromptStopSearch;
 
-  public AbstractStepWithProgress(final String promptStopSearching) {
+  public AbstractStepWithProgress(final @NlsContexts.DialogMessage String promptStopSearching) {
     myPromptStopSearch = promptStopSearching;
   }
 
+  @Override
   public final JComponent getComponent() {
     if (myPanel == null) {
       myPanel = new JPanel(new CardLayout());
@@ -68,11 +57,11 @@ public abstract class AbstractStepWithProgress<Result> extends ModuleWizardStep 
   }
 
   protected abstract JComponent createResultsPanel();
-  
-  protected abstract String getProgressText();
-  
+
+  protected abstract @NlsContexts.ProgressText String getProgressText();
+
   protected abstract boolean shouldRunProgress();
-  
+
   protected abstract Result calculate();
 
   protected abstract void onFinished(Result result, boolean canceled);
@@ -80,27 +69,23 @@ public abstract class AbstractStepWithProgress<Result> extends ModuleWizardStep 
   private JPanel createProgressPanel() {
     final JPanel progressPanel = new JPanel(new GridBagLayout());
     myTitleLabel = new JLabel();
-    myTitleLabel.setFont(UIUtil.getLabelFont().deriveFont(Font.BOLD));
-    progressPanel.add(myTitleLabel, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 2, 1, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(8, 10, 5, 10), 0, 0));
+    myTitleLabel.setFont(StartupUiUtil.getLabelFont().deriveFont(Font.BOLD));
+    progressPanel.add(myTitleLabel, new GridBagConstraints(0, RELATIVE, 2, 1, 1.0, 0.0, NORTHWEST, HORIZONTAL, JBUI.insets(8, 10, 5, 10), 0, 0));
 
     myProgressLabel = new JLabel();
-    progressPanel.add(myProgressLabel, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(8, 10, 0, 10), 0, 0));
+    progressPanel.add(myProgressLabel, new GridBagConstraints(0, RELATIVE, 1, 1, 1.0, 0.0, NORTHWEST, HORIZONTAL, JBUI.insets(8, 10, 0, 10), 0, 0));
 
     myProgressLabel2 = new JLabel() {
           @Override
-          public void setText(String text) {
+          public void setText(@Nls String text) {
             super.setText(StringUtil.trimMiddle(text, 80));
           }
         };
-    progressPanel.add(myProgressLabel2, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1.0, 1.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(8, 10, 0, 10), 0, 0));
+    progressPanel.add(myProgressLabel2, new GridBagConstraints(0, RELATIVE, 1, 1, 1.0, 1.0, NORTHWEST, HORIZONTAL, JBUI.insets(8, 10, 0, 10), 0, 0));
 
-    JButton stopButton = new JButton(IdeBundle.message("button.stop.searching"));
-    stopButton.addActionListener(new ActionListener() {
-      public void actionPerformed(ActionEvent e) {
-        cancelSearch();
-      }
-    });
-    progressPanel.add(stopButton, new GridBagConstraints(1, GridBagConstraints.RELATIVE, 1, 2, 0.0, 1.0, GridBagConstraints.NORTHWEST, GridBagConstraints.NONE, new Insets(10, 0, 0, 10), 0, 0));
+    JButton stopButton = new JButton(JavaUiBundle.message("button.stop.searching"));
+    stopButton.addActionListener(__ -> cancelSearch());
+    progressPanel.add(stopButton, new GridBagConstraints(1, RELATIVE, 1, 2, 0.0, 1.0, NORTHWEST, NONE, JBUI.insets(10, 0, 0, 10), 0, 0));
     return progressPanel;
   }
 
@@ -121,8 +106,9 @@ public abstract class AbstractStepWithProgress<Result> extends ModuleWizardStep 
   private synchronized boolean isProgressRunning() {
     return myProgressIndicator != null && myProgressIndicator.isRunning();
   }
-  
-  
+
+
+  @Override
   public void updateStep() {
     if (shouldRunProgress()) {
       runProgress();
@@ -132,7 +118,7 @@ public abstract class AbstractStepWithProgress<Result> extends ModuleWizardStep 
     }
   }
 
-  protected void runProgress() {
+  private void runProgress() {
     final MyProgressIndicator progress = new MyProgressIndicator();
     progress.setModalityProgress(null);
     final String title = getProgressText();
@@ -144,44 +130,38 @@ public abstract class AbstractStepWithProgress<Result> extends ModuleWizardStep 
 
     if (ApplicationManager.getApplication().isUnitTestMode()) {
 
-      Result result = ProgressManager.getInstance().runProcess(new Computable<Result>() {
-        @Override
-        public Result compute() {
-          return calculate();
-        }
-      }, progress);
+      Result result = ProgressManager.getInstance().runProcess(this::calculate, progress);
       onFinished(result, false);
       return;
     }
 
-    UiNotifyConnector.doWhenFirstShown(myPanel, new Runnable() {
+    UiNotifyConnector.doWhenFirstShown(myPanel, () -> new SwingWorker<Result>() {
       @Override
-      public void run() {
-
-        new SwingWorker() {
-          public Object construct() {
-            final Ref<Result> result = Ref.create(null);
-            ProgressManager.getInstance().runProcess(new Runnable() {
-              public void run() {
-                result.set(calculate());
-              }
-            }, progress);
-            return result.get();
-          }
-
-          public void finished() {
-            myProgressIndicator = null;
-            ApplicationManager.getApplication().invokeLater(new Runnable() {
-              public void run() {
-                final Result result = (Result)get();
-                onFinished(result, progress.isCanceled());
-                showCard(RESULTS_PANEL);
-              }
-            });
-          }
-        }.start();
+      public Result construct() {
+        LOG.debug("Start calculation in " + AbstractStepWithProgress.this + " using worker " + toString());
+        final Ref<Result> result = Ref.create(null);
+        try {
+          ProgressManager.getInstance().runProcess(() -> result.set(calculate()), progress);
+          LOG.debug("Finish calculation in " + AbstractStepWithProgress.this + " using worker " + toString());
+        }
+        catch (ProcessCanceledException e) {
+          LOG.debug("Calculation in " + AbstractStepWithProgress.this + " was cancelled");
+        }
+        return result.get();
       }
-    });
+
+      @Override
+      public void finished() {
+        LOG.debug("Schedule showing results for " + AbstractStepWithProgress.this + " using worker " + toString());
+        myProgressIndicator = null;
+        ApplicationManager.getApplication().invokeLater(() -> {
+          LOG.debug("Show results for " + AbstractStepWithProgress.this);
+          final Result result = get();
+          onFinished(result, progress.isCanceled());
+          showCard(RESULTS_PANEL);
+        });
+      }
+    }.start());
   }
 
   private void showCard(final String id) {
@@ -189,10 +169,11 @@ public abstract class AbstractStepWithProgress<Result> extends ModuleWizardStep 
     myPanel.revalidate();
   }
 
+  @Override
   public boolean validate() throws ConfigurationException {
     if (isProgressRunning()) {
       final int answer = Messages.showOkCancelDialog(getComponent(), myPromptStopSearch,
-                                             IdeBundle.message("title.question"), IdeBundle.message("action.continue.searching"), IdeBundle.message("action.stop.searching"), Messages.getWarningIcon());
+                                             JavaUiBundle.message("title.question"), JavaUiBundle.message("action.continue.searching"), JavaUiBundle.message("action.stop.searching"), Messages.getWarningIcon());
       if (answer != Messages.OK) { // terminate
         cancelSearch();
       }
@@ -201,6 +182,7 @@ public abstract class AbstractStepWithProgress<Result> extends ModuleWizardStep 
     return true;
   }
 
+  @Override
   public void onStepLeaving() {
     if (isProgressRunning()) {
       cancelSearch();
@@ -208,22 +190,20 @@ public abstract class AbstractStepWithProgress<Result> extends ModuleWizardStep 
   }
 
   protected class MyProgressIndicator extends ProgressIndicatorBase {
+    @Override
     public void setText(String text) {
       updateLabel(myProgressLabel, text);
       super.setText(text);
     }
 
+    @Override
     public void setText2(String text) {
       updateLabel(myProgressLabel2, text);
       super.setText2(text);
     }
 
-    private void updateLabel(final JLabel label, final String text) {
-      UIUtil.invokeLaterIfNeeded(new Runnable() {
-        public void run() {
-          label.setText(text);
-        }
-      });
+    private void updateLabel(final JLabel label, @NlsContexts.Label final String text) {
+      UIUtil.invokeLaterIfNeeded(() -> label.setText(text));
     }
   }
 }

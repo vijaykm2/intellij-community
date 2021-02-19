@@ -23,14 +23,15 @@ import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.roots.OrderRootType;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.jetbrains.python.sdk.PythonSdkType;
+import com.jetbrains.python.sdk.PythonSdkUtil;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author yole
  */
 public class PythonSpellcheckerGenerateDictionariesAction extends AnAction {
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     Module module = e.getData(LangDataKeys.MODULE);
     if (module == null) {
       return;
@@ -39,7 +40,7 @@ public class PythonSpellcheckerGenerateDictionariesAction extends AnAction {
     if (contentRoots.length == 0) {
       return;
     }
-    Sdk sdk = PythonSdkType.findPythonSdk(module);
+    Sdk sdk = PythonSdkUtil.findPythonSdk(module);
     if (sdk == null) {
       return;
     }

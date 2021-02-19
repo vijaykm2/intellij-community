@@ -15,8 +15,8 @@
  */
 package com.intellij.uiDesigner.lw;
 
-import org.jdom.Element;
 import com.intellij.uiDesigner.UIFormXmlConstants;
+import org.jdom.Element;
 
 /**
  * @author Vladimir Kondratyev
@@ -27,9 +27,10 @@ public final class LwRbIntroStringProperty extends LwIntrospectedProperty {
   }
 
   /**
-   * @return instance of {@link com.intellij.uiDesigner.lw.StringDescriptor}
+   * @return instance of {@link StringDescriptor}
    */
-  public Object read(final Element element) throws Exception{
+  @Override
+  public Object read(final Element element) {
     final StringDescriptor descriptor = LwXmlReader.getStringDescriptor(element,
                                                                         UIFormXmlConstants.ATTRIBUTE_VALUE,
                                                                         UIFormXmlConstants.ATTRIBUTE_RESOURCE_BUNDLE,

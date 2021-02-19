@@ -1,44 +1,40 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.configurable;
 
-import com.intellij.ide.actions.ShowFilePathAction;
-import com.intellij.openapi.options.ConfigurationException;
-import com.intellij.openapi.options.SearchableConfigurable;
+import com.intellij.ide.actions.RevealFileAction;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vcs.*;
+import com.intellij.openapi.vcs.AbstractVcs;
+import com.intellij.openapi.vcs.VcsBundle;
+import com.intellij.openapi.vcs.VcsConfiguration;
+import com.intellij.openapi.vcs.VcsShowConfirmationOption;
+import com.intellij.openapi.vcs.changes.ChangeListManager;
+import com.intellij.openapi.vcs.changes.ChangeListUtil;
 import com.intellij.openapi.vcs.ex.ProjectLevelVcsManagerEx;
+import com.intellij.openapi.vcs.impl.projectlevelman.PersistentVcsShowConfirmationOption;
+import com.intellij.openapi.vcs.impl.projectlevelman.PersistentVcsShowSettingOption;
 import com.intellij.openapi.vcs.readOnlyHandler.ReadonlyStatusHandlerImpl;
 import com.intellij.openapi.vfs.ReadonlyStatusHandler;
+import com.intellij.ui.EnumComboBoxModel;
+import com.intellij.ui.border.IdeaTitledBorder;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.border.Border;
 import java.awt.*;
-import java.util.*;
+import java.awt.event.ItemEvent;
+import java.awt.event.ItemListener;
 import java.util.List;
+import java.util.*;
 
-public class VcsGeneralConfigurationPanel {
+public class VcsGeneralConfigurationPanel implements Disposable {
 
-  private JCheckBox myForceNonEmptyComment;
   private JCheckBox myShowReadOnlyStatusDialog;
 
   private JRadioButton myShowDialogOnAddingFile;
@@ -58,24 +54,34 @@ public class VcsGeneralConfigurationPanel {
   private JPanel myPromptsPanel;
 
 
-  Map<VcsShowOptionsSettingImpl, JCheckBox> myPromptOptions = new LinkedHashMap<VcsShowOptionsSettingImpl, JCheckBox>();
+  Map<PersistentVcsShowSettingOption, JCheckBox> myPromptOptions = new LinkedHashMap<>();
   private JPanel myRemoveConfirmationPanel;
   private JPanel myAddConfirmationPanel;
-  private JCheckBox myCbOfferToMoveChanges;
-  private JComboBox myFailedCommitChangelistCombo;
-  private JComboBox myOnPatchCreation;
-  private JCheckBox myClearInitialCommitMessage;
+  private JComboBox<ShowPatchAfterCreation> myOnPatchCreation;
+  private JCheckBox myReloadContext;
+  private JLabel myOnPatchCreationLabel;
+  private JPanel myEmptyChangeListPanel;
+  private JCheckBox myAddExternalFiles;
   private ButtonGroup myEmptyChangelistRemovingGroup;
 
   public VcsGeneralConfigurationPanel(final Project project) {
 
     myProject = project;
+    myOnPatchCreationLabel.setText(VcsBundle.message("combobox.show.patch.in.explorer.after.creation",
+                                                     RevealFileAction.getFileManagerName()));
 
     myOnFileAddingGroup = new JRadioButton[]{
       myShowDialogOnAddingFile,
       myPerformActionOnAddingFile,
       myDoNothingOnAddingFile
     };
+
+    myPerformActionOnAddingFile.addItemListener(new ItemListener() {
+      @Override
+      public void itemStateChanged(ItemEvent e) {
+        myAddExternalFiles.setEnabled(myPerformActionOnAddingFile.isSelected());
+      }
+    });
 
     myOnFileRemovingGroup = new JRadioButton[]{
       myShowDialogOnRemovingFile,
@@ -85,10 +91,10 @@ public class VcsGeneralConfigurationPanel {
 
     myPromptsPanel.setLayout(new GridLayout(3, 0));
 
-    List<VcsShowOptionsSettingImpl> options = ProjectLevelVcsManagerEx.getInstanceEx(project).getAllOptions();
+    List<PersistentVcsShowSettingOption> options = ProjectLevelVcsManagerEx.getInstanceEx(project).getAllOptions();
 
-    for (VcsShowOptionsSettingImpl setting : options) {
-      if (!setting.getApplicableVcses().isEmpty() || project.isDefault()) {
+    for (PersistentVcsShowSettingOption setting : options) {
+      if (project.isDefault() || !setting.getApplicableVcses(project).isEmpty()) {
         final JCheckBox checkBox = new JCheckBox(setting.getDisplayName());
         myPromptsPanel.add(checkBox);
         myPromptOptions.put(setting, checkBox);
@@ -96,21 +102,25 @@ public class VcsGeneralConfigurationPanel {
     }
 
     myPromptsPanel.setSize(myPromptsPanel.getPreferredSize());                           // todo check text!
+    myOnPatchCreation.setModel(new EnumComboBoxModel<>(ShowPatchAfterCreation.class));
     myOnPatchCreation.setName((SystemInfo.isMac ? "Reveal patch in" : "Show patch in ") +
-                              ShowFilePathAction.getFileManagerName() + " after creation:");
+                              RevealFileAction.getFileManagerName() + " after creation:");
+
+    ChangeListUtil.onChangeListAvailabilityChanged(myProject, this, true, () -> {
+      boolean changeListsEnabled = ChangeListManager.getInstance(myProject).areChangeListsEnabled();
+      UIUtil.setEnabled(myEmptyChangeListPanel, changeListsEnabled, true);
+    });
   }
 
-  public void apply() throws ConfigurationException {
+  public void apply() {
 
     VcsConfiguration settings = VcsConfiguration.getInstance(myProject);
 
-    settings.FORCE_NON_EMPTY_COMMENT = myForceNonEmptyComment.isSelected();
-    settings.CLEAR_INITIAL_COMMIT_MESSAGE = myClearInitialCommitMessage.isSelected();
-    settings.OFFER_MOVE_TO_ANOTHER_CHANGELIST_ON_PARTIAL_COMMIT = myCbOfferToMoveChanges.isSelected();
     settings.REMOVE_EMPTY_INACTIVE_CHANGELISTS = getSelected(myEmptyChangelistRemovingGroup);
-    settings.MOVE_TO_FAILED_COMMIT_CHANGELIST = getFailedCommitConfirm();
+    settings.RELOAD_CONTEXT = myReloadContext.isSelected();
+    settings.ADD_EXTERNAL_FILES_SILENTLY = myAddExternalFiles.isSelected();
 
-    for (VcsShowOptionsSettingImpl setting : myPromptOptions.keySet()) {
+    for (PersistentVcsShowSettingOption setting : myPromptOptions.keySet()) {
       setting.setValue(myPromptOptions.get(setting).isSelected());
     }
 
@@ -124,25 +134,10 @@ public class VcsGeneralConfigurationPanel {
   private void applyPatchOption(VcsConfiguration settings) {
     settings.SHOW_PATCH_IN_EXPLORER = getShowPatchValue();
   }
-  
+
   @Nullable
   private Boolean getShowPatchValue() {
-    final int index = myOnPatchCreation.getSelectedIndex();
-    if (index == 0) {
-      return null;
-    } else if (index == 1) {
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-  private VcsShowConfirmationOption.Value getFailedCommitConfirm() {
-    switch(myFailedCommitChangelistCombo.getSelectedIndex()) {
-      case 0: return VcsShowConfirmationOption.Value.DO_ACTION_SILENTLY;
-      case 1: return VcsShowConfirmationOption.Value.DO_NOTHING_SILENTLY;
-      default: return VcsShowConfirmationOption.Value.SHOW_CONFIRMATION;
-    }
+    return ((ShowPatchAfterCreation)Objects.requireNonNull(myOnPatchCreation.getSelectedItem())).getState();
   }
 
   private VcsShowConfirmationOption getAddConfirmation() {
@@ -153,6 +148,25 @@ public class VcsGeneralConfigurationPanel {
   private VcsShowConfirmationOption getRemoveConfirmation() {
     return ProjectLevelVcsManagerEx.getInstanceEx(myProject)
       .getConfirmation(VcsConfiguration.StandardConfirmation.REMOVE);
+  }
+
+  private void createUIComponents() {
+    myPanel = new JPanel() {
+      @Override
+      public void doLayout() {
+        updateMinSize(myAddConfirmationPanel, myRemoveConfirmationPanel, myEmptyChangeListPanel, myPromptsPanel);
+        super.doLayout();
+      }
+
+      private void updateMinSize(JPanel... panels) {
+        for (JPanel panel : panels) {
+          Border border = panel.getBorder();
+          if (border instanceof IdeaTitledBorder) {
+            ((IdeaTitledBorder)border).acceptMinimumSize(panel);
+          }
+        }
+      }
+    };
   }
 
 
@@ -179,28 +193,17 @@ public class VcsGeneralConfigurationPanel {
   public boolean isModified() {
 
     VcsConfiguration settings = VcsConfiguration.getInstance(myProject);
-    if (settings.FORCE_NON_EMPTY_COMMENT != myForceNonEmptyComment.isSelected()){
-      return true;
-    }
-    if (settings.CLEAR_INITIAL_COMMIT_MESSAGE != myClearInitialCommitMessage.isSelected()){
-      return true;
-    }
-    if (settings.OFFER_MOVE_TO_ANOTHER_CHANGELIST_ON_PARTIAL_COMMIT != myCbOfferToMoveChanges.isSelected()){
-      return true;
-    }
     if (settings.REMOVE_EMPTY_INACTIVE_CHANGELISTS != getSelected(myEmptyChangelistRemovingGroup)){
       return true;
     }
-
-    if (!Comparing.equal(getFailedCommitConfirm(), settings.MOVE_TO_FAILED_COMMIT_CHANGELIST)) {
-      return true;
-    }
+    if (settings.RELOAD_CONTEXT != myReloadContext.isSelected()) return true;
+    if (settings.ADD_EXTERNAL_FILES_SILENTLY != myAddExternalFiles.isSelected()) return true;
 
     if (getReadOnlyStatusHandler().getState().SHOW_DIALOG != myShowReadOnlyStatusDialog.isSelected()) {
       return true;
     }
 
-    for (VcsShowOptionsSettingImpl setting : myPromptOptions.keySet()) {
+    for (PersistentVcsShowSettingOption setting : myPromptOptions.keySet()) {
       if (setting.getValue() != myPromptOptions.get(setting).isSelected()) return true;
     }
 
@@ -213,47 +216,35 @@ public class VcsGeneralConfigurationPanel {
 
   public void reset() {
     VcsConfiguration settings = VcsConfiguration.getInstance(myProject);
-    myForceNonEmptyComment.setSelected(settings.FORCE_NON_EMPTY_COMMENT);
-    myClearInitialCommitMessage.setSelected(settings.CLEAR_INITIAL_COMMIT_MESSAGE);
-    myCbOfferToMoveChanges.setSelected(settings.OFFER_MOVE_TO_ANOTHER_CHANGELIST_ON_PARTIAL_COMMIT);
+    myReloadContext.setSelected(settings.RELOAD_CONTEXT);
+    myAddExternalFiles.setSelected(settings.ADD_EXTERNAL_FILES_SILENTLY);
+    myAddExternalFiles.setEnabled(myPerformActionOnAddingFile.isSelected());
     VcsShowConfirmationOption.Value value = settings.REMOVE_EMPTY_INACTIVE_CHANGELISTS;
     UIUtil.setSelectedButton(myEmptyChangelistRemovingGroup, value == VcsShowConfirmationOption.Value.SHOW_CONFIRMATION
                                                              ? 0
                                                              : value == VcsShowConfirmationOption.Value.DO_NOTHING_SILENTLY ? 2 : 1);
     myShowReadOnlyStatusDialog.setSelected(getReadOnlyStatusHandler().getState().SHOW_DIALOG);
-    if (settings.MOVE_TO_FAILED_COMMIT_CHANGELIST == VcsShowConfirmationOption.Value.DO_ACTION_SILENTLY) {
-      myFailedCommitChangelistCombo.setSelectedIndex(0);
-    }
-    else if (settings.MOVE_TO_FAILED_COMMIT_CHANGELIST == VcsShowConfirmationOption.Value.DO_NOTHING_SILENTLY) {
-      myFailedCommitChangelistCombo.setSelectedIndex(1);
-    }
-    else {
-      myFailedCommitChangelistCombo.setSelectedIndex(2);
-    }
-
-    for (VcsShowOptionsSettingImpl setting : myPromptOptions.keySet()) {
+    for (PersistentVcsShowSettingOption setting : myPromptOptions.keySet()) {
       myPromptOptions.get(setting).setSelected(setting.getValue());
     }
 
     selectInGroup(myOnFileAddingGroup, getAddConfirmation());
     selectInGroup(myOnFileRemovingGroup, getRemoveConfirmation());
-    if (settings.SHOW_PATCH_IN_EXPLORER == null) {
-      myOnPatchCreation.setSelectedIndex(0);
-    } else if (Boolean.TRUE.equals(settings.SHOW_PATCH_IN_EXPLORER)) {
-      myOnPatchCreation.setSelectedIndex(1);
-    } else {
-      myOnPatchCreation.setSelectedIndex(2);
-    }
+    myOnPatchCreation.setSelectedItem(ShowPatchAfterCreation.getByState(settings.SHOW_PATCH_IN_EXPLORER));
   }
 
   private static void selectInGroup(final JRadioButton[] group, final VcsShowConfirmationOption confirmation) {
     final VcsShowConfirmationOption.Value value = confirmation.getValue();
     final int index;
-    //noinspection EnumSwitchStatementWhichMissesCases
-    switch(value) {
-      case SHOW_CONFIRMATION: index = 0; break;
-      case DO_ACTION_SILENTLY: index = 1; break;
-      default: index = 2;
+    switch (value) {
+      case SHOW_CONFIRMATION:
+        index = 0;
+        break;
+      case DO_ACTION_SILENTLY:
+        index = 1;
+        break;
+      default:
+        index = 2;
     }
     group[index].setSelected(true);
   }
@@ -263,35 +254,70 @@ public class VcsGeneralConfigurationPanel {
     return myPanel;
   }
 
-  public void updateAvailableOptions(final Collection<AbstractVcs> activeVcses) {
-    for (VcsShowOptionsSettingImpl setting : myPromptOptions.keySet()) {
+  public void updateAvailableOptions(final Collection<? extends AbstractVcs> activeVcses) {
+    for (PersistentVcsShowSettingOption setting : myPromptOptions.keySet()) {
       final JCheckBox checkBox = myPromptOptions.get(setting);
       checkBox.setEnabled(setting.isApplicableTo(activeVcses) || myProject.isDefault());
       if (!myProject.isDefault()) {
-        checkBox.setToolTipText(VcsBundle.message("tooltip.text.action.applicable.to.vcses", composeText(setting.getApplicableVcses())));
+        checkBox.setToolTipText(
+          VcsBundle.message("tooltip.text.action.applicable.to.vcses", composeText(setting.getApplicableVcses(myProject))));
       }
     }
 
     if (!myProject.isDefault()) {
       final ProjectLevelVcsManagerEx vcsManager = ProjectLevelVcsManagerEx.getInstanceEx(myProject);
-      final VcsShowConfirmationOptionImpl addConfirmation = vcsManager.getConfirmation(VcsConfiguration.StandardConfirmation.ADD);
+      PersistentVcsShowConfirmationOption addConfirmation = vcsManager.getConfirmation(VcsConfiguration.StandardConfirmation.ADD);
       UIUtil.setEnabled(myAddConfirmationPanel, addConfirmation.isApplicableTo(activeVcses), true);
       myAddConfirmationPanel.setToolTipText(
-        VcsBundle.message("tooltip.text.action.applicable.to.vcses", composeText(addConfirmation.getApplicableVcses())));
+        VcsBundle.message("tooltip.text.action.applicable.to.vcses", composeText(addConfirmation.getApplicableVcses(myProject))));
 
-      final VcsShowConfirmationOptionImpl removeConfirmation = vcsManager.getConfirmation(VcsConfiguration.StandardConfirmation.REMOVE);
+      PersistentVcsShowConfirmationOption removeConfirmation = vcsManager.getConfirmation(VcsConfiguration.StandardConfirmation.REMOVE);
       UIUtil.setEnabled(myRemoveConfirmationPanel, removeConfirmation.isApplicableTo(activeVcses), true);
       myRemoveConfirmationPanel.setToolTipText(
-        VcsBundle.message("tooltip.text.action.applicable.to.vcses", composeText(removeConfirmation.getApplicableVcses())));
+        VcsBundle.message("tooltip.text.action.applicable.to.vcses", composeText(removeConfirmation.getApplicableVcses(myProject))));
     }
   }
 
-  private static String composeText(final List<AbstractVcs> applicableVcses) {
-    final TreeSet<String> result = new TreeSet<String>();
+  @Override
+  public void dispose() {
+  }
+
+  private static String composeText(final List<? extends AbstractVcs> applicableVcses) {
+    final TreeSet<String> result = new TreeSet<>();
     for (AbstractVcs abstractVcs : applicableVcses) {
       result.add(abstractVcs.getDisplayName());
     }
     return StringUtil.join(result, ", ");
   }
 
+  private enum ShowPatchAfterCreation {
+    ASK(VcsBundle.message("settings.confirmation.option.text.ask"), null),
+    YES(VcsBundle.message("settings.confirmation.option.text.yes"), true),
+    NO(VcsBundle.message("settings.confirmation.option.text.no"), false);
+
+    private final String myText;
+    private final Boolean myState;
+
+    ShowPatchAfterCreation(@Nls String text, Boolean state) {
+      myText = text;
+      myState = state;
+    }
+
+    Boolean getState() {
+      return myState;
+    }
+
+    @NotNull
+    static ShowPatchAfterCreation getByState(Boolean state) {
+      if (state == null) {
+        return ASK;
+      }
+      return state ? YES : NO;
+    }
+
+    @Override
+    public String toString() {
+      return myText;
+    }
+  }
 }

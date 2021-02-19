@@ -1,23 +1,13 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.testOnly;
 
 import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.TestFrameworks;
-import com.intellij.codeInspection.*;
+import com.intellij.codeInspection.AbstractBaseJavaLocalInspectionTool;
+import com.intellij.codeInspection.ProblemHighlightType;
+import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.codeInspection.RemoveAnnotationQuickFix;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -25,15 +15,17 @@ import com.intellij.psi.*;
 import com.intellij.psi.impl.light.LightModifierList;
 import com.intellij.psi.impl.source.resolve.JavaResolveUtil;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.util.ObjectUtils;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class TestOnlyInspection extends BaseJavaBatchLocalInspectionTool {
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionsBundle.message("inspection.test.only.problems.display.name");
-  }
+import java.util.Arrays;
+import java.util.List;
+
+import static com.intellij.codeInsight.AnnotationUtil.CHECK_EXTERNAL;
+
+public class TestOnlyInspection extends AbstractBaseJavaLocalInspectionTool {
 
   @Override
   @NotNull
@@ -44,43 +36,115 @@ public class TestOnlyInspection extends BaseJavaBatchLocalInspectionTool {
   @Override
   @NotNull
   public String getGroupDisplayName() {
-    return GENERAL_GROUP_NAME;
+    return getGeneralGroupName();
   }
 
   @Override
   @NotNull
   public PsiElementVisitor buildVisitor(@NotNull final ProblemsHolder h, boolean isOnTheFly) {
     return new JavaElementVisitor() {
-      @Override public void visitCallExpression(PsiCallExpression e) {
-        validate(e, h);
+      @Override
+      public void visitMethodCallExpression(PsiMethodCallExpression expression) {
+        validate(expression.getMethodExpression(), expression.resolveMethod(), h);
+      }
+
+      @Override
+      public void visitNewExpression(PsiNewExpression expression) {
+        PsiJavaCodeReferenceElement reference = expression.getClassOrAnonymousClassReference();
+        if (reference != null && validate(reference, expression.resolveMethod(), h)) {
+          validate(reference, ObjectUtils.tryCast(reference.resolve(), PsiMember.class), h);
+        }
+      }
+
+      @Override
+      public void visitMethodReferenceExpression(PsiMethodReferenceExpression expression) {
+        PsiElement resolve = expression.resolve();
+        if (resolve instanceof PsiMethod) {
+          validate(expression, (PsiMethod)resolve, h);
+        }
+      }
+
+      @Override
+      public void visitReferenceExpression(PsiReferenceExpression reference) {
+        PsiElement resolve = reference.resolve();
+        if (resolve instanceof PsiField) {
+          validate(reference, (PsiField)resolve, h);
+        }
+      }
+
+      @Override
+      public void visitReferenceElement(PsiJavaCodeReferenceElement reference) {
+        if (reference.getParent() instanceof PsiNewExpression
+            || reference.getParent() instanceof PsiAnonymousClass
+            || PsiTreeUtil.getParentOfType(reference, PsiImportStatementBase.class) != null) {
+          return;
+        }
+        PsiElement resolve = reference.resolve();
+        if (resolve instanceof PsiClass) validate(reference, (PsiClass)resolve, h);
+      }
+
+      @Override
+      public void visitElement(@NotNull PsiElement element) {
+        if (element instanceof PsiMember) {
+          PsiAnnotation vft = findVisibleForTestingAnnotation((PsiMember)element);
+          if (vft != null && isDirectlyTestOnly((PsiMember)element)) {
+            PsiElement toHighlight = null;
+            if (element instanceof PsiNameIdentifierOwner) {
+              toHighlight = ((PsiNameIdentifierOwner)element).getNameIdentifier();
+            }
+            if (toHighlight == null) {
+              toHighlight = element;
+            }
+            h.registerProblem(toHighlight, JavaAnalysisBundle.message("visible.for.testing.makes.little.sense.on.test.only.code"), new RemoveAnnotationQuickFix(vft, (PsiModifierListOwner)element));
+          }
+        }
+        super.visitElement(element);
       }
     };
   }
 
-  private static void validate(PsiCallExpression e, ProblemsHolder h) {
-    PsiMethod method = e.resolveMethod();
+  private static boolean validate(@NotNull PsiElement place, @Nullable PsiMember member, ProblemsHolder h) {
+    if (member == null) {
+      return true;
+    }
 
-    if (method == null || !isAnnotatedAsTestOnly(method)) return;
-    if (isInsideTestOnlyMethod(e)) return;
-    if (isInsideTestClass(e)) return;
-    if (isUnderTestSources(e)) return;
+    PsiAnnotation vft = findVisibleForTestingAnnotation(member);
+    if (vft == null && !isAnnotatedAsTestOnly(member)) {
+      return true;
+    }
+    if (isInsideTestOnlyMethod(place) || isInsideTestOnlyField(place) || isInsideTestOnlyClass(place) || isInsideTestClass(place)
+        || isUnderTestSources(place)) {
+      return true;
+    }
 
-    PsiAnnotation anno = findVisibleForTestingAnnotation(method);
-    if (anno != null) {
-      String modifier = getAccessModifierWithoutTesting(anno);
+    if (vft != null) {
+      String modifier = getAccessModifierWithoutTesting(vft);
       if (modifier == null) {
-        modifier = method.hasModifierProperty(PsiModifier.PUBLIC) ? PsiModifier.PROTECTED :
-                   method.hasModifierProperty(PsiModifier.PROTECTED) ? PsiModifier.PACKAGE_LOCAL :
-                   PsiModifier.PRIVATE;
+        modifier = getNextLowerAccessLevel(member);
       }
-      
-      LightModifierList modList = new LightModifierList(method.getManager(), JavaLanguage.INSTANCE, modifier);
-      if (JavaResolveUtil.isAccessible(method, method.getContainingClass(), modList, e, null, null)) {
-        return;
+
+      LightModifierList modList = new LightModifierList(member.getManager(), JavaLanguage.INSTANCE, modifier);
+      if (JavaResolveUtil.isAccessible(member, member.getContainingClass(), modList, place, null, null)) {
+        return true;
       }
     }
 
-    reportProblem(e, h);
+    reportProblem(place, member, h);
+    return false;
+  }
+
+  private static final List<String> ourModifiersDescending =
+    Arrays.asList(PsiModifier.PUBLIC, PsiModifier.PROTECTED, PsiModifier.PACKAGE_LOCAL, PsiModifier.PRIVATE);
+
+  private static String getNextLowerAccessLevel(@NotNull PsiMember member) {
+    int methodModifier = ContainerUtil.indexOf(ourModifiersDescending, member::hasModifierProperty);
+    int minModifier = ourModifiersDescending.size() - 1;
+    if (member instanceof PsiMethod) {
+      for (PsiMethod superMethod : ((PsiMethod)member).findSuperMethods()) {
+        minModifier = Math.min(minModifier, ContainerUtil.indexOf(ourModifiersDescending, superMethod::hasModifierProperty));
+      }
+    }
+    return ourModifiersDescending.get(Math.min(minModifier, methodModifier + 1));
   }
 
   @Nullable
@@ -97,21 +161,35 @@ public class TestOnlyInspection extends BaseJavaBatchLocalInspectionTool {
   }
 
   @Nullable
-  private static PsiAnnotation findVisibleForTestingAnnotation(@NotNull PsiMethod method) {
-    PsiAnnotation anno = AnnotationUtil.findAnnotation(method, "com.google.common.annotations.VisibleForTesting");
-    return anno != null ? anno : AnnotationUtil.findAnnotation(method, "com.android.annotations.VisibleForTesting");
+  private static PsiAnnotation findVisibleForTestingAnnotation(@NotNull PsiMember member) {
+    return AnnotationUtil.findAnnotation(member, 
+                                         "com.google.common.annotations.VisibleForTesting",
+                                         "com.android.annotations.VisibleForTesting",
+                                         "org.jetbrains.annotations.VisibleForTesting");
   }
 
-  private static boolean isInsideTestOnlyMethod(PsiCallExpression e) {
-    PsiMethod m = getTopLevelParentOfType(e, PsiMethod.class);
-    return isAnnotatedAsTestOnly(m);
+  private static boolean isInsideTestOnlyMethod(PsiElement e) {
+    return isAnnotatedAsTestOnly(getTopLevelParentOfType(e, PsiMethod.class));
   }
 
-  private static boolean isAnnotatedAsTestOnly(@Nullable PsiMethod m) {
-    return m != null && (AnnotationUtil.isAnnotated(m, AnnotationUtil.TEST_ONLY, false, false) || findVisibleForTestingAnnotation(m) != null);
+  private static boolean isInsideTestOnlyField(PsiElement e) {
+    return isAnnotatedAsTestOnly(getTopLevelParentOfType(e, PsiField.class));
   }
 
-  private static boolean isInsideTestClass(PsiCallExpression e) {
+  private static boolean isInsideTestOnlyClass(@NotNull PsiElement e) {
+    return isAnnotatedAsTestOnly(getTopLevelParentOfType(e, PsiClass.class));
+  }
+
+  private static boolean isAnnotatedAsTestOnly(@Nullable PsiMember m) {
+    if (m == null) return false;
+    return isDirectlyTestOnly(m) || isAnnotatedAsTestOnly(m.getContainingClass());
+  }
+
+  private static boolean isDirectlyTestOnly(@NotNull PsiMember m) {
+    return AnnotationUtil.isAnnotated(m, AnnotationUtil.TEST_ONLY, CHECK_EXTERNAL);
+  }
+
+  private static boolean isInsideTestClass(PsiElement e) {
     PsiClass c = getTopLevelParentOfType(e, PsiClass.class);
     return c != null && TestFrameworks.getInstance().isTestClass(c);
   }
@@ -128,14 +206,17 @@ public class TestOnlyInspection extends BaseJavaBatchLocalInspectionTool {
     while (true);
   }
 
-  private static boolean isUnderTestSources(PsiCallExpression e) {
+  private static boolean isUnderTestSources(PsiElement e) {
     ProjectRootManager rm = ProjectRootManager.getInstance(e.getProject());
     VirtualFile f = e.getContainingFile().getVirtualFile();
     return f != null && rm.getFileIndex().isInTestSourceContent(f);
   }
 
-  private static void reportProblem(PsiCallExpression e, ProblemsHolder h) {
-    String message = InspectionsBundle.message("inspection.test.only.problems.test.only.method.call");
+  private static void reportProblem(PsiElement e, PsiMember target, ProblemsHolder h) {
+    String message = JavaAnalysisBundle.message(target instanceof PsiClass
+                                               ? "inspection.test.only.problems.test.only.class.reference"
+                                               : target instanceof PsiField ? "inspection.test.only.problems.test.only.field.reference"
+                                                                            : "inspection.test.only.problems.test.only.method.call");
     h.registerProblem(e, message, ProblemHighlightType.GENERIC_ERROR_OR_WARNING);
   }
 }

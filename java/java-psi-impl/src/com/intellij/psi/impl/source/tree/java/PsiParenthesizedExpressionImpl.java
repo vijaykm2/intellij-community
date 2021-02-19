@@ -20,13 +20,15 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.Constants;
 import com.intellij.psi.impl.source.tree.ChildRole;
-import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.scope.ElementClassHint;
+import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.tree.ChildRoleBase;
+import com.intellij.psi.tree.IElementType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class PsiParenthesizedExpressionImpl extends ExpressionPsiElement implements PsiParenthesizedExpression, Constants {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiParenthesizedExpressionImpl");
+  private static final Logger LOG = Logger.getInstance(PsiParenthesizedExpressionImpl.class);
 
   public PsiParenthesizedExpressionImpl() {
     super(PARENTH_EXPRESSION);
@@ -65,7 +67,7 @@ public class PsiParenthesizedExpressionImpl extends ExpressionPsiElement impleme
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
     if (i == LPARENTH) {
@@ -92,6 +94,20 @@ public class PsiParenthesizedExpressionImpl extends ExpressionPsiElement impleme
     }
   }
 
+  @Override
+  public boolean processDeclarations(@NotNull PsiScopeProcessor processor,
+                                     @NotNull ResolveState state,
+                                     PsiElement lastParent,
+                                     @NotNull PsiElement place) {
+    if (lastParent != null) return true;
+    ElementClassHint elementClassHint = processor.getHint(ElementClassHint.KEY);
+    if (elementClassHint != null && !elementClassHint.shouldProcess(ElementClassHint.DeclarationKind.VARIABLE)) return true;
+    PsiExpression expression = getExpression();
+    if (expression == null) return true;
+    return expression.processDeclarations(processor, state, null, place);
+  }
+
+  @Override
   public String toString() {
     return "PsiParenthesizedExpression:" + getText();
   }

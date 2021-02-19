@@ -1,35 +1,22 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.projectWizard;
 
 import com.intellij.CommonBundle;
-import com.intellij.ide.IdeBundle;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.module.ModuleType;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectManager;
-import com.intellij.openapi.projectRoots.ProjectJdkTable;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.SdkTypeId;
-import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.roots.ui.configuration.JdkComboBox;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.ProjectSdksModel;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -38,9 +25,11 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
+import static java.awt.GridBagConstraints.CENTER;
+import static java.awt.GridBagConstraints.HORIZONTAL;
+
 /**
  * @author Dmitry Avdeev
- *         Date: 10/26/12
  */
 public class SdkSettingsStep extends ModuleWizardStep {
   protected final JdkComboBox myJdkComboBox;
@@ -49,18 +38,25 @@ public class SdkSettingsStep extends ModuleWizardStep {
   private final ModuleBuilder myModuleBuilder;
   private final JPanel myJdkPanel;
 
-  public SdkSettingsStep(SettingsStep settingsStep, @NotNull ModuleBuilder moduleBuilder,
-                           @NotNull Condition<SdkTypeId> sdkFilter) {
+  public SdkSettingsStep(@NotNull SettingsStep settingsStep, @NotNull ModuleBuilder moduleBuilder,
+                         @NotNull Condition<? super SdkTypeId> sdkTypeIdFilter) {
+    this(settingsStep, moduleBuilder, sdkTypeIdFilter, null);
+  }
 
-    this(settingsStep.getContext(), moduleBuilder, sdkFilter);
+  public SdkSettingsStep(@NotNull SettingsStep settingsStep,
+                         @NotNull ModuleBuilder moduleBuilder,
+                         @NotNull Condition<? super SdkTypeId> sdkTypeIdFilter,
+                         @Nullable Condition<? super Sdk> sdkFilter) {
+    this(settingsStep.getContext(), moduleBuilder, sdkTypeIdFilter, sdkFilter);
     if (!isEmpty()) {
       settingsStep.addSettingsField(getSdkFieldLabel(settingsStep.getContext().getProject()), myJdkPanel);
     }
   }
 
-  public SdkSettingsStep(WizardContext context,
+  public SdkSettingsStep(@NotNull WizardContext context,
                          @NotNull ModuleBuilder moduleBuilder,
-                         @NotNull Condition<SdkTypeId> sdkFilter) {
+                         @NotNull Condition<? super SdkTypeId> sdkTypeIdFilter,
+                         @Nullable Condition<? super Sdk> sdkFilter) {
     myModuleBuilder = moduleBuilder;
 
     myWizardContext = context;
@@ -68,8 +64,20 @@ public class SdkSettingsStep extends ModuleWizardStep {
     Project project = myWizardContext.getProject();
     myModel.reset(project);
 
-    myJdkComboBox = new JdkComboBox(myModel, sdkFilter);
-    myJdkPanel = new JPanel(new BorderLayout(4, 0));
+    Disposable disposable = context.getDisposable();
+    if (disposable != null) {
+      Disposable stepDisposable = () -> myModel.disposeUIResources();
+      Disposer.register(disposable, stepDisposable);
+    }
+
+    if (sdkFilter == null) {
+      sdkFilter = JdkComboBox.getSdkFilter(sdkTypeIdFilter);
+    }
+
+    myJdkComboBox = new JdkComboBox(myWizardContext.getProject(), myModel, sdkTypeIdFilter, sdkFilter, sdkTypeIdFilter, null);
+    myJdkPanel = new JPanel(new GridBagLayout());
+    myJdkPanel.setFocusable(false);
+    myJdkComboBox.getAccessibleContext().setAccessibleName(myJdkPanel.getAccessibleContext().getAccessibleName());
 
     final PropertiesComponent component = project == null ? PropertiesComponent.getInstance() : PropertiesComponent.getInstance(project);
     ModuleType moduleType = moduleBuilder.getModuleType();
@@ -85,42 +93,12 @@ public class SdkSettingsStep extends ModuleWizardStep {
       }
     });
 
-    Sdk sdk = getPreselectedSdk(project, component.getValue(selectedJdkProperty), sdkFilter);
-    myJdkComboBox.setSelectedJdk(sdk);
-
-    JButton button = new JButton("Ne\u001Bw...");
-    myJdkComboBox.setSetupButton(button, project, myModel,
-                                 project == null ? new JdkComboBox.NoneJdkComboBoxItem() : new JdkComboBox.ProjectJdkComboBoxItem(),
-                                 null,
-                                 false);
-
-    myJdkPanel.add(myJdkComboBox);
-    myJdkPanel.add(myJdkComboBox.getSetUpButton(), BorderLayout.EAST);
+    preselectSdk(project, component.getValue(selectedJdkProperty), sdkTypeIdFilter);
+    myJdkPanel.add(myJdkComboBox, new GridBagConstraints(0, 0, 1, 1, 1.0, 1.0, CENTER, HORIZONTAL, JBUI.emptyInsets(), 0, 0));
   }
 
-  private Sdk getPreselectedSdk(Project project, String lastUsedSdk, Condition<SdkTypeId> sdkFilter) {
-    if (project != null) {
-      Sdk sdk = ProjectRootManager.getInstance(project).getProjectSdk();
-      if (sdk != null && myModuleBuilder.isSuitableSdkType(sdk.getSdkType())) {
-        // use project SDK
-        //noinspection unchecked
-        myJdkComboBox.insertItemAt(new JdkComboBox.ProjectJdkComboBoxItem(), 0);
-        return null;
-      }
-    }
-    if (lastUsedSdk != null) {
-      Sdk sdk = ProjectJdkTable.getInstance().findJdk(lastUsedSdk);
-      if (sdk != null && myModuleBuilder.isSuitableSdkType(sdk.getSdkType())) {
-        return sdk;
-      }
-    }
-    // set default project SDK
-    Project defaultProject = ProjectManager.getInstance().getDefaultProject();
-    Sdk selected = ProjectRootManager.getInstance(defaultProject).getProjectSdk();
-    if (selected != null && sdkFilter.value(selected.getSdkType())) {
-      return selected;
-    }
-    return null;
+  private void preselectSdk(Project project, String lastUsedSdk, Condition<? super SdkTypeId> sdkFilter) {
+    ProjectWizardUtil.preselectJdkForNewModule(project, lastUsedSdk, myJdkComboBox, myModuleBuilder, sdkFilter);
   }
 
   protected void onSdkSelected(Sdk sdk) {}
@@ -130,8 +108,8 @@ public class SdkSettingsStep extends ModuleWizardStep {
   }
 
   @NotNull
-  protected String getSdkFieldLabel(@Nullable Project project) {
-    return (project == null ? "Project" : "Module") + " \u001BSDK:";
+  protected @NlsContexts.Label String getSdkFieldLabel(@Nullable Project project) {
+    return JavaUiBundle.message("sdk.setting.step.label", project == null ? 0 : 1);
   }
 
   @Override
@@ -142,20 +120,21 @@ public class SdkSettingsStep extends ModuleWizardStep {
   @Override
   public void updateDataModel() {
     Project project = myWizardContext.getProject();
+    Sdk jdk = myJdkComboBox.getSelectedJdk();
     if (project == null) {
-      Sdk jdk = myJdkComboBox.getSelectedJdk();
       myWizardContext.setProjectJdk(jdk);
     }
     else {
-      myModuleBuilder.setModuleJdk(myJdkComboBox.getSelectedJdk());
+      myModuleBuilder.setModuleJdk(jdk);
     }
   }
 
   @Override
   public boolean validate() throws ConfigurationException {
-    if (myJdkComboBox.getSelectedJdk() == null && !myJdkComboBox.isProjectJdkSelected()) {
+    JdkComboBox.JdkComboBoxItem item = myJdkComboBox.getSelectedItem();
+    if (myJdkComboBox.getSelectedJdk() == null && !(item instanceof JdkComboBox.ProjectJdkComboBoxItem)) {
       if (Messages.showDialog(getNoSdkMessage(),
-                                       IdeBundle.message("title.no.jdk.specified"),
+                                       JavaUiBundle.message("title.no.jdk.specified"),
                                        new String[]{CommonBundle.getYesButtonText(), CommonBundle.getNoButtonText()}, 1, Messages.getWarningIcon()) != Messages.YES) {
         return false;
       }
@@ -164,16 +143,16 @@ public class SdkSettingsStep extends ModuleWizardStep {
       myModel.apply(null, true);
     } catch (ConfigurationException e) {
       //IDEA-98382 We should allow Next step if user has wrong SDK
-      if (Messages.showDialog(e.getMessage() + "/nDo you want to proceed?",
-                                       e.getTitle(),
-                                       new String[]{CommonBundle.getYesButtonText(), CommonBundle.getNoButtonText()}, 1, Messages.getWarningIcon()) != Messages.YES) {
+      if (Messages.showDialog(JavaUiBundle.message("dialog.message.0.do.you.want.to.proceed", e.getMessage()),
+                              e.getTitle(),
+                              new String[]{CommonBundle.getYesButtonText(), CommonBundle.getNoButtonText()}, 1, Messages.getWarningIcon()) != Messages.YES) {
         return false;
       }
     }
     return true;
   }
 
-  protected String getNoSdkMessage() {
-    return IdeBundle.message("prompt.confirm.project.no.jdk");
+  protected @NlsContexts.DialogMessage String getNoSdkMessage() {
+    return JavaUiBundle.message("prompt.confirm.project.no.jdk");
   }
 }

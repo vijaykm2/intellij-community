@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@ package com.intellij.util.containers;
 
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Collection;
 import java.util.Enumeration;
 
 /**
@@ -27,7 +26,7 @@ import java.util.Enumeration;
  * Methods are adapted from {@link java.util.concurrent.ConcurrentMap} to integer keys
  * @see java.util.concurrent.ConcurrentMap
  */
-public interface ConcurrentIntObjectMap<V> {
+public interface ConcurrentIntObjectMap<V> extends IntObjectMap<V> {
   /**
    * @return written value
    */
@@ -36,17 +35,8 @@ public interface ConcurrentIntObjectMap<V> {
   boolean remove(int key, @NotNull V value);
   boolean replace(int key, @NotNull V oldValue, @NotNull  V newValue);
 
-  // regular Map methods
-  V put(int key, @NotNull V value);
-  V get(int key);
-  V remove(int key);
-  boolean containsKey(int key);
-  void clear();
   @NotNull
-  Iterable<IntEntry<V>> entries();
-
-  @NotNull
-  int[] keys();
+  Enumeration<V> elements();
 
   /**
    * @return Approximate number of elements in the map.
@@ -55,19 +45,13 @@ public interface ConcurrentIntObjectMap<V> {
    * and Second, for weak- or soft- keyed maps it returns the total number of references
    *         rather than alive values because otherwise it would be too expensive
    */
+  @Override
   int size();
 
-  boolean isEmpty();
-  @NotNull
-  Enumeration<V> elements();
-  @NotNull
-  Collection<V> values();
-  boolean containsValue(@NotNull V value);
+  /**
+   * @return the previous value associated with the specified key,
+   * or {@code null} if there was no mapping for the key
+   */
   V putIfAbsent(int key, @NotNull V value);
 
-  interface IntEntry<V> {
-    int getKey();
-    @NotNull
-    V getValue();
-  }
 }

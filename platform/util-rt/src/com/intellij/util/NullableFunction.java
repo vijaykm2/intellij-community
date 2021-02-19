@@ -15,6 +15,7 @@
  */
 package com.intellij.util;
 
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -25,11 +26,18 @@ public interface NullableFunction<Param, Result> extends Function<Param, Result>
   Result fun(final Param param);
 
   /**
-   * @see FunctionUtil#nullConstant()
+   * @deprecated use {@link FunctionUtil#nullConstant()} instead
    */
-  NullableFunction NULL = new NullableFunction() {
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  NullableFunction<?,?> NULL = new NullableFunction<Object,Object>() {
     public Object fun(final Object o) {
       return null;
+    }
+
+    @Override
+    public String toString() {
+      return "NullableFunction.NULL";
     }
   };
 }

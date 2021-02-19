@@ -16,6 +16,7 @@
 package org.zmlx.hg4idea.action.mq;
 
 import org.jetbrains.annotations.NotNull;
+import org.zmlx.hg4idea.HgBundle;
 import org.zmlx.hg4idea.command.mq.HgQFoldCommand;
 import org.zmlx.hg4idea.repo.HgRepository;
 
@@ -24,14 +25,14 @@ import java.util.List;
 public class HgQFoldActionFromPatches extends HgActionFromMqPatches {
 
   @Override
-  protected void execute(@NotNull HgRepository repository, @NotNull List<String> patchNames) {
-    new HgQFoldCommand(repository).execute(patchNames);
+  protected void executeInCurrentThread(@NotNull HgRepository repository, @NotNull List<String> patchNames) {
+    new HgQFoldCommand(repository).executeInCurrentThread(patchNames);
   }
 
   @NotNull
   @Override
   protected String getTitle() {
-    return "Folding patches...";
+    return HgBundle.message("action.hg4idea.QFold.title");
   }
 
   @Override

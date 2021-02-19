@@ -18,6 +18,7 @@ package com.intellij.ide.hierarchy.call;
 import com.intellij.ide.util.treeView.NodeDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
+import com.intellij.psi.impl.light.LightMemberReference;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
 import org.jetbrains.annotations.NotNull;
@@ -25,9 +26,6 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Created by Max Medvedev on 10/5/13
- */
 public class JavaCallReferenceProcessor implements CallReferenceProcessor {
   @Override
   public boolean process(@NotNull PsiReference reference, @NotNull JavaCallHierarchyData data) {
@@ -44,7 +42,7 @@ public class JavaCallReferenceProcessor implements CallReferenceProcessor {
       if (qualifier instanceof PsiSuperExpression) { // filter super.foo() call inside foo() and similar cases (bug 8411)
         final PsiClass superClass = PsiUtil.resolveClassInType(qualifier.getType());
         if (superClass == null || originalClass.isInheritor(superClass, true)) {
-          return true;
+          return false;
         }
       }
       if (qualifier != null && !methodToFind.hasModifierProperty(PsiModifier.STATIC)) {
@@ -57,7 +55,7 @@ public class JavaCallReferenceProcessor implements CallReferenceProcessor {
             final PsiMethod callee = psiClass.findMethodBySignature(methodToFind, true);
             if (callee != null && !methodsToFind.contains(callee)) {
               // skip sibling methods
-              return true;
+              return false;
             }
           }
         }
@@ -71,32 +69,55 @@ public class JavaCallReferenceProcessor implements CallReferenceProcessor {
       final PsiElement parent = ((PsiElement)reference).getParent();
       if (parent instanceof PsiNewExpression) {
         if (((PsiNewExpression)parent).getClassReference() != reference) {
-          return true;
+          return false;
         }
       }
       else if (parent instanceof PsiAnonymousClass) {
         if (((PsiAnonymousClass)parent).getBaseClassReference() != reference) {
-          return true;
+          return false;
         }
       }
-      else {
+      else if (!(reference instanceof LightMemberReference)) {
         return true;
       }
     }
 
     final PsiElement element = reference.getElement();
     final PsiMember key = CallHierarchyNodeDescriptor.getEnclosingElement(element);
+    CallHierarchyNodeDescriptor parentDescriptor = (CallHierarchyNodeDescriptor) data.getNodeDescriptor();
+    if (isRecursiveNode(method, parentDescriptor)) return false;
 
     synchronized (methodToDescriptorMap) {
       CallHierarchyNodeDescriptor d = (CallHierarchyNodeDescriptor)methodToDescriptorMap.get(key);
       if (d == null) {
-        d = new CallHierarchyNodeDescriptor(myProject, (CallHierarchyNodeDescriptor)data.getNodeDescriptor(), element, false, true);
+        d = new CallHierarchyNodeDescriptor(myProject, parentDescriptor, element, false, true);
         methodToDescriptorMap.put(key, d);
       }
       else if (!d.hasReference(reference)) {
         d.incrementUsageCount();
       }
       d.addReference(reference);
+    }
+    return false;
+  }
+
+  private static boolean isRecursiveNode(@NotNull PsiMethod method, @NotNull CallHierarchyNodeDescriptor parentDescriptor) {
+    // detect recursion
+    // the current call-site calls *method*
+    // Thus, we already have a node that represents *method*
+    // Check whether we have any other node along the parent-chain that represents that same method
+
+    NodeDescriptor ancestorDescriptor = parentDescriptor;
+    // Start check on grandparent
+    while ((ancestorDescriptor = ancestorDescriptor.getParentDescriptor()) != null) {
+      if (ancestorDescriptor instanceof CallHierarchyNodeDescriptor) {
+        PsiMember ancestorCallSite = ((CallHierarchyNodeDescriptor)ancestorDescriptor).getEnclosingElement();
+        if (ancestorCallSite == method) {
+          // We have at least two occurrences in the parent chain of method already
+          // Don't search any deeper
+          return true;
+        }
+      }
     }
     return false;
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,13 +20,12 @@ import com.intellij.lang.ant.AntBundle;
 import com.intellij.lang.ant.config.AntBuildListener;
 import com.intellij.lang.ant.config.execution.AntBuildMessageView;
 import com.intellij.lang.ant.config.execution.ExecutionHandler;
-import com.intellij.lang.ant.config.impl.BuildFileProperty;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.Presentation;
+import org.jetbrains.annotations.NotNull;
 
-import java.util.Collections;
-
+@SuppressWarnings("ComponentNotRegistered")
 public final class RunAction extends AnAction {
   private final AntBuildMessageView myAntBuildMessageView;
 
@@ -35,15 +34,17 @@ public final class RunAction extends AnAction {
     myAntBuildMessageView = antBuildMessageView;
   }
 
-  public void actionPerformed(AnActionEvent e) {
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
     ExecutionHandler.runBuild(
       myAntBuildMessageView.getBuildFile(),
       myAntBuildMessageView.getTargets(),
       myAntBuildMessageView,
-      e.getDataContext(), Collections.<BuildFileProperty>emptyList(), AntBuildListener.NULL);
+      e.getDataContext(), myAntBuildMessageView.getAdditionalProperties(), AntBuildListener.NULL);
   }
 
-  public void update(AnActionEvent event){
+  @Override
+  public void update(@NotNull AnActionEvent event){
     Presentation presentation = event.getPresentation();
     presentation.setEnabled(myAntBuildMessageView.isStopped());
   }

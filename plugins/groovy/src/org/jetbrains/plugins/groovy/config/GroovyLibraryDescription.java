@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.config;
 
 import com.intellij.openapi.fileChooser.FileChooser;
@@ -31,6 +17,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 
 import javax.swing.*;
 import java.util.Collections;
@@ -38,9 +25,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/**
-* @author nik
-*/
 public class GroovyLibraryDescription extends CustomLibraryDescription {
   private static final String GROOVY_FRAMEWORK_NAME = "Groovy";
   private final String myEnvVariable;
@@ -52,7 +36,7 @@ public class GroovyLibraryDescription extends CustomLibraryDescription {
   }
 
   public static Set<? extends LibraryKind> getAllGroovyKinds() {
-    final HashSet<LibraryKind> kinds = new HashSet<LibraryKind>();
+    final HashSet<LibraryKind> kinds = new HashSet<>();
     for (LibraryPresentationProvider provider : LibraryPresentationProvider.EP_NAME.getExtensions()) {
       if (provider instanceof GroovyLibraryPresentationProviderBase) {
         kinds.add(provider.getKind());
@@ -99,8 +83,13 @@ public class GroovyLibraryDescription extends CustomLibraryDescription {
   @Override
   public NewLibraryConfiguration createNewLibrary(@NotNull JComponent parentComponent, VirtualFile contextDirectory) {
     VirtualFile initial = findFile(System.getenv(myEnvVariable));
-    if (initial == null && GROOVY_FRAMEWORK_NAME.equals(myFrameworkName) && SystemInfo.isLinux) {
-      initial = findFile("/usr/share/groovy");
+    if (initial == null && GROOVY_FRAMEWORK_NAME.equals(myFrameworkName)) {
+      if (SystemInfo.isLinux) {
+        initial = findFile("/usr/share/groovy");
+      }
+      else if (SystemInfo.isMac) {
+        initial = findFile("/usr/local/opt/groovy/libexec"); // homebrew
+      }
     }
 
     final FileChooserDescriptor descriptor = new FileChooserDescriptor(false, true, false, false, false, false) {
@@ -112,8 +101,8 @@ public class GroovyLibraryDescription extends CustomLibraryDescription {
         return findManager(file) != null;
       }
     };
-    descriptor.setTitle(myFrameworkName + " SDK");
-    descriptor.setDescription("Choose a directory containing " + myFrameworkName + " distribution");
+    descriptor.setTitle(GroovyBundle.message("framework.0.sdk.chooser.title", myFrameworkName));
+    descriptor.setDescription(GroovyBundle.message("framework.0.sdk.chooser.description", myFrameworkName));
     final VirtualFile dir = FileChooser.chooseFile(descriptor, parentComponent, null, initial);
     if (dir == null) return null;
 
@@ -124,10 +113,12 @@ public class GroovyLibraryDescription extends CustomLibraryDescription {
 
     final String path = dir.getPath();
     final String sdkVersion = provider.getSDKVersion(path);
-    if (AbstractConfigUtils.UNDEFINED_VERSION.equals(sdkVersion)) {
-      Messages.showErrorDialog(parentComponent,
-                               "Looks like " + myFrameworkName + " distribution in specified path is broken. Cannot determine version.",
-                               "Failed to Create Library");
+    if (sdkVersion == null) {
+      Messages.showErrorDialog(
+        parentComponent,
+        GroovyBundle.message("framework.0.sdk.chooser.error.message", myFrameworkName),
+        GroovyBundle.message("framework.0.sdk.chooser.error.title")
+      );
       return null;
     }
 

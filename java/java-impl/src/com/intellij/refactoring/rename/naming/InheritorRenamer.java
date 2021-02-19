@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package com.intellij.refactoring.rename.naming;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.search.searches.ClassInheritorsSearch;
 import com.intellij.refactoring.RefactoringBundle;
@@ -24,7 +25,7 @@ import com.intellij.refactoring.RefactoringBundle;
  */
 public class InheritorRenamer extends AutomaticRenamer {
   public InheritorRenamer(PsiClass aClass, String newClassName) {
-    for (final PsiClass inheritor : ClassInheritorsSearch.search(aClass, true).findAll()) {
+    for (final PsiClass inheritor : ClassInheritorsSearch.search(aClass).findAll()) {
       if (inheritor.getName() != null) {
         myElements.add(inheritor);
       }
@@ -33,15 +34,18 @@ public class InheritorRenamer extends AutomaticRenamer {
     suggestAllNames(aClass.getName(), newClassName);
   }
 
+  @Override
   public String getDialogTitle() {
     return RefactoringBundle.message("rename.inheritors.title");
   }
 
+  @Override
   public String getDialogDescription() {
-    return RefactoringBundle.message("rename.inheritors.with.the.following.names.to");
+    return JavaRefactoringBundle.message("rename.inheritors.with.the.following.names.to");
   }
 
+  @Override
   public String entityName() {
-    return RefactoringBundle.message("entity.name.inheritor");
+    return JavaRefactoringBundle.message("entity.name.inheritor");
   }
 }

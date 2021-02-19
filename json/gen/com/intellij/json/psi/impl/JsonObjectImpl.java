@@ -11,14 +11,19 @@ import static com.intellij.json.JsonElementTypes.*;
 import com.intellij.json.psi.*;
 import com.intellij.navigation.ItemPresentation;
 
-public class JsonObjectImpl extends JsonContainerImpl implements JsonObject {
+public class JsonObjectImpl extends JsonObjectMixin implements JsonObject {
 
-  public JsonObjectImpl(ASTNode node) {
+  public JsonObjectImpl(@NotNull ASTNode node) {
     super(node);
   }
 
+  public void accept(@NotNull JsonElementVisitor visitor) {
+    visitor.visitObject(this);
+  }
+
+  @Override
   public void accept(@NotNull PsiElementVisitor visitor) {
-    if (visitor instanceof JsonElementVisitor) ((JsonElementVisitor)visitor).visitObject(this);
+    if (visitor instanceof JsonElementVisitor) accept((JsonElementVisitor)visitor);
     else super.accept(visitor);
   }
 
@@ -28,13 +33,8 @@ public class JsonObjectImpl extends JsonContainerImpl implements JsonObject {
     return PsiTreeUtil.getChildrenOfTypeAsList(this, JsonProperty.class);
   }
 
-  @Nullable
-  public JsonProperty findProperty(String name) {
-    return JsonPsiImplUtils.findProperty(this, name);
-  }
-
-  @Nullable
-  public ItemPresentation getPresentation() {
+  @Override
+  public @Nullable ItemPresentation getPresentation() {
     return JsonPsiImplUtils.getPresentation(this);
   }
 

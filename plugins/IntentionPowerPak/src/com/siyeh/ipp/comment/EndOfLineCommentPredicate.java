@@ -22,14 +22,15 @@ import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.tree.IElementType;
 import com.siyeh.ipp.base.PsiElementPredicate;
 
-import java.util.regex.Pattern;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 class EndOfLineCommentPredicate implements PsiElementPredicate {
 
   private static final Pattern NO_INSPECTION_PATTERN =
     Pattern.compile("//[\t ]*noinspection .*");
 
+  @Override
   public boolean satisfiedBy(PsiElement element) {
     if (!(element instanceof PsiComment)) {
       return false;
@@ -44,6 +45,6 @@ class EndOfLineCommentPredicate implements PsiElementPredicate {
     }
     final String text = comment.getText();
     final Matcher matcher = NO_INSPECTION_PATTERN.matcher(text);
-    return !matcher.matches();
+    return !matcher.matches() && !text.startsWith("#!");
   }
 }

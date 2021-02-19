@@ -15,7 +15,6 @@
  */
 package com.intellij.xml.util;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.template.Template;
 import com.intellij.codeInsight.template.TemplateManager;
 import com.intellij.codeInspection.LocalQuickFix;
@@ -31,17 +30,19 @@ import com.intellij.psi.PsiReference;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.*;
 import com.intellij.xml.XmlBundle;
+import com.intellij.xml.analysis.XmlAnalysisBundle;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.PropertyKey;
 
 public class AddDtdDeclarationFix implements LocalQuickFix {
+  @PropertyKey(resourceBundle = XmlBundle.BUNDLE)
   private final String myMessageKey;
   private final String myElementDeclarationName;
   private final String myReference;
 
   public AddDtdDeclarationFix(
-    @PropertyKey(resourceBundle = XmlBundle.PATH_TO_BUNDLE) String messageKey,
+    @PropertyKey(resourceBundle = XmlAnalysisBundle.BUNDLE) String messageKey,
     @NotNull String elementDeclarationName,
     @NotNull PsiReference reference) {
     myMessageKey = messageKey;
@@ -51,21 +52,14 @@ public class AddDtdDeclarationFix implements LocalQuickFix {
 
   @Override
   @NotNull
-  public String getName() {
-    return XmlBundle.message(myMessageKey, myReference);
-  }
-
-  @Override
-  @NotNull
   public String getFamilyName() {
-    return getName();
+    return XmlAnalysisBundle.message(myMessageKey, myReference);
   }
 
   @Override
   public void applyFix(@NotNull final Project project, @NotNull final ProblemDescriptor descriptor) {
     final PsiElement element = descriptor.getPsiElement();
     final PsiFile containingFile = element.getContainingFile();
-    if (!FileModificationService.getInstance().prepareFileForWrite(containingFile)) return;
 
     @NonNls String prefixToInsert = "";
     @NonNls String suffixToInsert = "";

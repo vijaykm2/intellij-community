@@ -16,20 +16,18 @@
 
 package org.intellij.plugins.relaxNG.model.descriptors;
 
-import com.intellij.openapi.util.Comparing;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.XmlElement;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.Function;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xml.impl.BasicXmlAttributeDescriptor;
 import com.intellij.xml.util.XmlEnumeratedValueReference;
-import gnu.trove.THashSet;
-import gnu.trove.TObjectHashingStrategy;
+import it.unimi.dsi.fastutil.Hash;
+import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -39,20 +37,32 @@ import org.xml.sax.Locator;
 import javax.xml.namespace.QName;
 import java.util.*;
 
-public class RngXmlAttributeDescriptor extends BasicXmlAttributeDescriptor {
+public final class RngXmlAttributeDescriptor extends BasicXmlAttributeDescriptor {
   @NonNls
   private static final QName UNKNOWN = new QName("", "#unknown");
 
-  private static final TObjectHashingStrategy<Locator> HASHING_STRATEGY = new TObjectHashingStrategy<Locator>() {
+  private static final Hash.Strategy<Locator> HASHING_STRATEGY = new Hash.Strategy<>() {
     @Override
-    public int computeHashCode(Locator o) {
+    public int hashCode(@Nullable Locator o) {
+      if (o == null) {
+        return 0;
+      }
+
       final String s = o.getSystemId();
       return o.getLineNumber() * 31 + o.getColumnNumber() * 23 + (s != null ? s.hashCode() * 11 : 0);
     }
+
     @Override
-    public boolean equals(Locator o, Locator o1) {
+    public boolean equals(@Nullable Locator o, @Nullable Locator o1) {
+      if (o == o1) {
+        return true;
+      }
+      if (o == null || o1 == null) {
+        return false;
+      }
+
       if ((o.getLineNumber() == o1.getLineNumber() && o.getColumnNumber() == o1.getColumnNumber())) {
-        if (Comparing.equal(o.getSystemId(), o1.getSystemId())) {
+        if (Objects.equals(o.getSystemId(), o1.getSystemId())) {
           return true;
         }
       }
@@ -63,7 +73,7 @@ public class RngXmlAttributeDescriptor extends BasicXmlAttributeDescriptor {
   private final Map<String, String> myValues;
   private final boolean myOptional;
   private final RngElementDescriptor myElementDescriptor;
-  private final THashSet<Locator> myDeclarations = new THashSet<Locator>(HASHING_STRATEGY);
+  private final Set<Locator> myDeclarations = new ObjectOpenCustomHashSet<>(HASHING_STRATEGY);
   private final QName myName;
 
   RngXmlAttributeDescriptor(RngElementDescriptor elementDescriptor, DAttributePattern pattern, Map<String, String> values, boolean optional) {
@@ -86,13 +96,12 @@ public class RngXmlAttributeDescriptor extends BasicXmlAttributeDescriptor {
   public RngXmlAttributeDescriptor mergeWith(RngXmlAttributeDescriptor d) {
     final QName name = d.myName.equals(UNKNOWN) ? myName : d.myName;
 
-    final HashMap<String, String> values = new HashMap<String, String>(myValues);
+    Map<String, String> values = new LinkedHashMap<>(myValues);
     values.putAll(d.myValues);
 
-    final THashSet<Locator> locations = new THashSet<Locator>(myDeclarations, HASHING_STRATEGY);
+    Set<Locator> locations = new ObjectOpenCustomHashSet<>(myDeclarations, HASHING_STRATEGY);
     locations.addAll(d.myDeclarations);
-
-    return new RngXmlAttributeDescriptor(myElementDescriptor, name, values, myOptional || d.myOptional, locations.toArray(new Locator[locations.size()]));
+    return new RngXmlAttributeDescriptor(myElementDescriptor, name, values, myOptional || d.myOptional, locations.toArray(new Locator[0]));
   }
 
   @Override
@@ -107,12 +116,12 @@ public class RngXmlAttributeDescriptor extends BasicXmlAttributeDescriptor {
 
   @Override
   public boolean hasIdType() {
-    return myValues.values().contains("ID");
+    return myValues.containsValue("ID");
   }
 
   @Override
   public boolean hasIdRefType() {
-    return myValues.values().contains("IDREF");
+    return myValues.containsValue("IDREF");
   }
 
   @Override
@@ -131,14 +140,14 @@ public class RngXmlAttributeDescriptor extends BasicXmlAttributeDescriptor {
     if (myValues.size() > 0) {
       final Map<String, String> copy;
       if (myValues.get(null) != null) {
-        copy = new HashMap<String, String>(myValues);
+        copy = new HashMap<>(myValues);
         copy.remove(null);
       } else {
         copy = myValues;
       }
-      return copy.keySet().toArray(new String[copy.size()]);
+      return ArrayUtilRt.toStringArray(copy.keySet());
     } else {
-      return ArrayUtil.EMPTY_STRING_ARRAY;
+      return ArrayUtilRt.EMPTY_STRING_ARRAY;
     }
   }
 
@@ -150,15 +159,12 @@ public class RngXmlAttributeDescriptor extends BasicXmlAttributeDescriptor {
     return myElementDescriptor.getDeclaration(it.next());
   }
 
+  @Override
+  @NotNull
   public Collection<PsiElement> getDeclarations() {
-    return ContainerUtil.map2List(myDeclarations, new Function<Locator, PsiElement>() {
-      @Override
-      public PsiElement fun(Locator locator) {
-        return myElementDescriptor.getDeclaration(locator);
-      }
-    });
+    return ContainerUtil.map2List(myDeclarations, locator -> myElementDescriptor.getDeclaration(locator));
   }
-  
+
   @Override
   public String getName(PsiElement context) {
     final XmlTag tag = PsiTreeUtil.getParentOfType(context, XmlTag.class, false, PsiFile.class);
@@ -194,8 +200,8 @@ public class RngXmlAttributeDescriptor extends BasicXmlAttributeDescriptor {
   }
 
   @Override
-  public Object[] getDependences() {
-    return myElementDescriptor.getDependences();
+  public Object @NotNull [] getDependencies() {
+    return myElementDescriptor.getDependencies();
   }
 
   @Override

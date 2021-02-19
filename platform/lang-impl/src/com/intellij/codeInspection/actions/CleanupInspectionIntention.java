@@ -1,58 +1,46 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInspection.actions;
 
 import com.intellij.codeInsight.FileModificationService;
+import com.intellij.codeInsight.daemon.impl.DaemonProgressIndicator;
 import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.codeInsight.intention.EmptyIntentionAction;
+import com.intellij.codeInsight.intention.FileModifier;
 import com.intellij.codeInsight.intention.HighPriorityAction;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
 import com.intellij.codeInspection.ex.LocalInspectionToolWrapper;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
-import com.intellij.psi.PsiDocumentManager;
-import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 
-/**
- * User: anna
- * Date: 21-Feb-2006
- */
 public class CleanupInspectionIntention implements IntentionAction, HighPriorityAction {
   private final InspectionToolWrapper myToolWrapper;
-  private final Class myQuickfixClass;
+  private final FileModifier myQuickfix;
+  @Nullable private final PsiFile myFile;
   private final String myText;
 
-  public CleanupInspectionIntention(@NotNull InspectionToolWrapper toolWrapper, @NotNull Class quickFixClass, String text) {
+  public CleanupInspectionIntention(@NotNull InspectionToolWrapper toolWrapper,
+                                    @NotNull FileModifier quickFix,
+                                    @Nullable PsiFile file,
+                                    String text) {
     myToolWrapper = toolWrapper;
-    myQuickfixClass = quickFixClass;
+    myQuickfix = quickFix;
+    myFile = file;
     myText = text;
+  }
+
+  public InspectionToolWrapper getToolWrapper() {
+    return myToolWrapper;
   }
 
   @Override
@@ -69,55 +57,28 @@ public class CleanupInspectionIntention implements IntentionAction, HighPriority
 
   @Override
   public void invoke(@NotNull final Project project, final Editor editor, final PsiFile file) throws IncorrectOperationException {
-    if (!FileModificationService.getInstance().preparePsiElementForWrite(file)) return;
+    PsiFile targetFile = myFile != null ? myFile : file;
     final List<ProblemDescriptor> descriptions =
-      ProgressManager.getInstance().runProcess(new Computable<List<ProblemDescriptor>>() {
-        @Override
-        public List<ProblemDescriptor> compute() {
-          InspectionManager inspectionManager = InspectionManager.getInstance(project);
-          return InspectionEngine.runInspectionOnFile(file, myToolWrapper, inspectionManager.createNewGlobalContext(false));
-        }
-      }, new EmptyProgressIndicator());
+      ProgressManager.getInstance().runProcess(() -> {
+        InspectionManager inspectionManager = InspectionManager.getInstance(project);
+        return InspectionEngine.runInspectionOnFile(targetFile, myToolWrapper, inspectionManager.createNewGlobalContext());
+      }, new DaemonProgressIndicator());
 
-    Collections.sort(descriptions, new Comparator<CommonProblemDescriptor>() {
-      @Override
-      public int compare(final CommonProblemDescriptor o1, final CommonProblemDescriptor o2) {
-        final ProblemDescriptorBase d1 = (ProblemDescriptorBase)o1;
-        final ProblemDescriptorBase d2 = (ProblemDescriptorBase)o2;
-        return d2.getTextRange().getStartOffset() - d1.getTextRange().getStartOffset();
-      }
-    });
-    boolean applicableFixFound = false;
-    for (final ProblemDescriptor descriptor : descriptions) {
-      final QuickFix[] fixes = descriptor.getFixes();
-      if (fixes != null && fixes.length > 0) {
-        for (final QuickFix<CommonProblemDescriptor> fix : fixes) {
-          if (fix != null && fix.getClass().isAssignableFrom(myQuickfixClass)) {
-            final PsiElement element = descriptor.getPsiElement();
-            if (element != null && element.isValid()) {
-              applicableFixFound = true;
-              ApplicationManager.getApplication().runWriteAction(new Runnable() {
-                @Override
-                public void run() {
-                  fix.applyFix(project, descriptor);
-                }
-              });
-              PsiDocumentManager.getInstance(project).commitAllDocuments();
-            }
-            break;
-          }
-        }
-      }
-    }
+    if (descriptions.isEmpty() || !FileModificationService.getInstance().preparePsiElementForWrite(targetFile)) return;
 
-    if (!applicableFixFound) {
-      HintManager.getInstance().showErrorHint(editor, "Unfortunately '" + myText + "' is currently not available for batch mode");
+    final AbstractPerformFixesTask fixesTask = CleanupInspectionUtil.getInstance().applyFixes(project, LangBundle.message("apply.fixes"), descriptions, myQuickfix.getClass(), myQuickfix.startInWriteAction());
+
+    if (!fixesTask.isApplicableFixFound()) {
+      HintManager.getInstance().showErrorHint(editor,
+                                              LangBundle.message("hint.text.unfortunately.currently.available.for.batch.mode", myText));
     }
   }
 
   @Override
   public boolean isAvailable(@NotNull final Project project, final Editor editor, final PsiFile file) {
-    return myQuickfixClass != EmptyIntentionAction.class &&
+    return myQuickfix.getClass() != EmptyIntentionAction.class &&
+           (myQuickfix.startInWriteAction() || myQuickfix instanceof BatchQuickFix) &&
+           editor != null &&
            !(myToolWrapper instanceof LocalInspectionToolWrapper && ((LocalInspectionToolWrapper)myToolWrapper).isUnfair());
   }
 

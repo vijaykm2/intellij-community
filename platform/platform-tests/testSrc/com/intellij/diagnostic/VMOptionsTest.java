@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,182 +15,269 @@
  */
 package com.intellij.diagnostic;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.testFramework.rules.TempDirectory;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
-import static org.junit.Assert.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertEquals;
 
 public class VMOptionsTest {
+  private static final Logger LOG = Logger.getInstance(VMOptionsTest.class);
+  @Rule public TempDirectory myTempDir = new TempDirectory();
+
   private File myFile;
 
   @Before
   public void setUp() throws IOException {
-    myFile = FileUtil.createTempFile("vmoptions.", ".txt");
-    writeFile("-Xmx512m\n" +
-              "-XX:MaxPermSize=128m");
-    VMOptions.setTestFile(myFile.getPath());
+    myFile = myTempDir.newFile("vmoptions.txt");
+    FileUtil.writeToFile(myFile, "-Xmx512m\n-XX:MaxMetaspaceSize=128m");
+    System.setProperty("jb.vmOptionsFile", myFile.getPath());
   }
 
   @After
   public void tearDown() {
-    VMOptions.clearTestFile();
-    FileUtil.delete(myFile);
-  }
-
-  @Test
-  public void testRegExpr() {
-    Pattern p = Pattern.compile("-Xmx(\\d*)([a-zA-Z]*)");
-
-    Matcher m = p.matcher("-option -Xmx128mb -option");
-    assertTrue(m.find());
-
-    assertEquals("128", m.group(1));
-    assertEquals("mb", m.group(2));
-
-    m = p.matcher("-option -Xmx -option");
-    assertTrue(m.find());
-
-    assertEquals("", m.group(1));
-    assertEquals("", m.group(2));
-
-    m = p.matcher("-option -Xxx -option");
-    assertFalse(m.find());
-  }
-
-  @Test
-  public void testMacOsRegExpr() {
-    Pattern p = Pattern.compile("<key>" + VMOptions.MAC_ARCH_VM_OPTIONS + "</key>\\s*<string>(.*)</string>");
-
-    Matcher m = p.matcher("<plist version=\"1.0\">\n" +
-                          "  <dict>\n" +
-                          "    <dict>\n" +
-                          "      <key>" + VMOptions.MAC_ARCH_VM_OPTIONS + "</key>\n" +
-                          "      <string>-option -Xmx128mb -option</string>\n" +
-                          "   </dict>\n" +
-                          "  </dict>\n" +
-                          "</plist>");
-    assertTrue(m.find());
-
-    assertEquals("-option -Xmx128mb -option", m.group(1));
+    System.clearProperty("jb.vmOptionsFile");
   }
 
   @Test
   public void testReading() {
-    assertEquals(512, VMOptions.readXmx());
-    assertEquals(128, VMOptions.readMaxPermGen());
+    assertEquals(512, VMOptions.readOption(VMOptions.MemoryKind.HEAP, false));
+    assertEquals(128, VMOptions.readOption(VMOptions.MemoryKind.METASPACE, false));
   }
 
   @Test
-  public void testReadingEmpty() {
-    writeFile("");
+  public void testReadingEmpty() throws IOException {
+    FileUtil.writeToFile(myFile, "");
 
-    assertEquals(-1, VMOptions.readXmx());
-    assertEquals(-1, VMOptions.readMaxPermGen());
+    assertEquals(-1, VMOptions.readOption(VMOptions.MemoryKind.HEAP, false));
+    assertEquals(-1, VMOptions.readOption(VMOptions.MemoryKind.METASPACE, false));
   }
 
   @Test
-  public void testReadingKilos() {
-    writeFile("-Xmx512000k\n" +
-              "-XX:MaxPermSize=128000K  -XX:ReservedCodeCacheSize=256000K");
+  public void testReadingKilos() throws IOException {
+    FileUtil.writeToFile(myFile, "-Xmx512000k -XX:MaxMetaspaceSize=128000K -XX:ReservedCodeCacheSize=256000K");
 
-    assertEquals(512000 / 1024, VMOptions.readXmx());
-    assertEquals(128000 / 1024, VMOptions.readMaxPermGen());
-    assertEquals(256000 / 1024, VMOptions.readCodeCache());
+    assertEquals(512000 / 1024, VMOptions.readOption(VMOptions.MemoryKind.HEAP, false));
+    assertEquals(128000 / 1024, VMOptions.readOption(VMOptions.MemoryKind.METASPACE, false));
+    assertEquals(256000 / 1024, VMOptions.readOption(VMOptions.MemoryKind.CODE_CACHE, false));
   }
 
   @Test
-  public void testReadingGigs() {
-    writeFile("-Xmx512g\n" +
-              "-XX:MaxPermSize=128G");
+  public void testReadingGigs() throws IOException {
+    FileUtil.writeToFile(myFile, "-Xmx512g\n-XX:MaxMetaspaceSize=128G");
 
-    assertEquals(512 * 1024, VMOptions.readXmx());
-    assertEquals(128 * 1024, VMOptions.readMaxPermGen());
+    assertEquals(512 * 1024, VMOptions.readOption(VMOptions.MemoryKind.HEAP, false));
+    assertEquals(128 * 1024, VMOptions.readOption(VMOptions.MemoryKind.METASPACE, false));
   }
 
   @Test
-  public void testReadingWithoutUnit() {
-    writeFile("-Xmx512\n" +
-              "-XX:MaxPermSize=128");
+  public void testReadingWithoutUnit() throws IOException {
+    FileUtil.writeToFile(myFile, "-Xmx512\n-XX:MaxMetaspaceSize=128");
 
-    assertEquals(512, VMOptions.readXmx());
-    assertEquals(128, VMOptions.readMaxPermGen());
+    assertEquals(512, VMOptions.readOption(VMOptions.MemoryKind.HEAP, false));
+    assertEquals(128, VMOptions.readOption(VMOptions.MemoryKind.METASPACE, false));
   }
 
   @Test
-  public void testWriting() {
-    VMOptions.writeXmx(1024);
-    VMOptions.writeMaxPermGen(256);
+  public void testWriting() throws IOException {
+    VMOptions.writeOption(VMOptions.MemoryKind.HEAP, 1024);
+    VMOptions.writeOption(VMOptions.MemoryKind.METASPACE, 512);
 
-    assertEquals("-Xmx1024m\n" +
-                 "-XX:MaxPermSize=256m",
-                 readFile());
+    assertThat(FileUtil.loadFile(myFile)).isEqualToIgnoringWhitespace("-Xmx1024m -XX:MaxMetaspaceSize=512m");
   }
 
   @Test
-  public void testWritingPreservingLocation() {
-    writeFile("-someOption\n" +
-              "-Xmx512m\n" +
-              "-XX:MaxPermSize=128m\n" +
-              "-anotherOption");
+  public void testWritingPreservingLocation() throws IOException {
+    FileUtil.writeToFile(myFile, "-someOption\n-Xmx512m\n-XX:MaxMetaspaceSize=128m\n-anotherOption");
 
-    VMOptions.writeXmx(1024);
-    VMOptions.writeMaxPermGen(256);
+    VMOptions.writeOption(VMOptions.MemoryKind.HEAP, 1024);
+    VMOptions.writeOption(VMOptions.MemoryKind.METASPACE, 256);
 
-    assertEquals("-someOption\n" +
-                 "-Xmx1024m\n" +
-                 "-XX:MaxPermSize=256m\n" +
-                 "-anotherOption",
-                 readFile());
+    assertThat(FileUtil.loadFile(myFile)).isEqualToIgnoringWhitespace("-someOption -Xmx1024m -XX:MaxMetaspaceSize=256m -anotherOption");
   }
 
   @Test
-  public void testWritingNew() {
-    writeFile("-someOption");
+  public void testWritingNew() throws IOException {
+    FileUtil.writeToFile(myFile, "-someOption");
 
-    VMOptions.writeXmx(1024);
-    VMOptions.writeMaxPermGen(256);
-    VMOptions.writeCodeCache(256);
+    VMOptions.writeOption(VMOptions.MemoryKind.HEAP, 1024);
+    VMOptions.writeOption(VMOptions.MemoryKind.METASPACE, 256);
+    VMOptions.writeOption(VMOptions.MemoryKind.CODE_CACHE, 256);
 
-    assertEquals("-someOption -Xmx1024m -XX:MaxPermSize=256m -XX:ReservedCodeCacheSize=256m",
-                 readFile());
+    assertThat(FileUtil.loadFile(myFile)).isEqualToIgnoringWhitespace("-someOption -Xmx1024m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=256m");
   }
 
   @Test
-  public void testWritingReadOnlyFile() {
+  public void testWritingReadOnlyFile() throws IOException {
     FileUtil.setReadOnlyAttribute(myFile.getPath(), true);
 
-    VMOptions.writeXmx(1024);
-    VMOptions.writeMaxPermGen(256);
+    VMOptions.writeOption(VMOptions.MemoryKind.HEAP, 1024);
+    VMOptions.writeOption(VMOptions.MemoryKind.METASPACE, 256);
 
-    assertEquals("-Xmx1024m\n" +
-                 "-XX:MaxPermSize=256m",
-                 readFile());
+    assertThat(FileUtil.loadFile(myFile)).isEqualToIgnoringWhitespace("-Xmx1024m -XX:MaxMetaspaceSize=256m");
+  }
+
+  @Test
+  public void testWritingNonExistingFile() throws IOException {
+    FileUtil.delete(myFile);
+
+    VMOptions.writeOption(VMOptions.MemoryKind.HEAP, 1024);
+    VMOptions.writeOption(VMOptions.MemoryKind.METASPACE, 256);
+
+    assertThat(FileUtil.loadFile(myFile)).isEqualToIgnoringWhitespace("-Xmx1024m -XX:MaxMetaspaceSize=256m");
+  }
+
+  @Test
+  public void testWritingCDSArchiveFileFromScratch() throws IOException {
+    FileUtil.delete(myFile);
+
+    String myCDSFile = "a/b/c/cds-for-test.jsa";
+    VMOptions.writeEnableCDSArchiveOption(myCDSFile);
+
+    String text = FileUtil.loadFile(myFile);
+
+    assertEquals("-Xshare:auto\n" +
+                 "-XX:+UnlockDiagnosticVMOptions\n" +
+                 "-XX:SharedArchiveFile=a/b/c/cds-for-test.jsa",
+                 StringUtil.convertLineSeparators(text));
+  }
+
+  @Test
+  public void testWritingCDSArchiveFileFromXdumpClash() throws IOException {
+    FileUtil.writeToFile(myFile, "-someOption\n" +
+                                 "-Xmx512m\n" +
+                                 "-XX:MaxMetaspaceSize=128m\n" +
+                                 "-anotherOption\n" +
+                                 "-Xshare:dump\n" +
+                                 "junk");
+
+    String myCDSFile = "a/b/c/cds-for-test.jsa";
+    VMOptions.writeEnableCDSArchiveOption(myCDSFile);
+
+    String text = FileUtil.loadFile(myFile);
+    assertEquals("-someOption\n" +
+                 "-Xmx512m\n" +
+                 "-XX:MaxMetaspaceSize=128m\n" +
+                 "-anotherOption\n" +
+                 "-Xshare:auto\n" +
+                 "junk\n" +
+                 "-XX:+UnlockDiagnosticVMOptions\n" +
+                 "-XX:SharedArchiveFile=a/b/c/cds-for-test.jsa",
+                 StringUtil.convertLineSeparators(text));
+  }
+
+  @Test
+  public void testWritingCDSArchiveFileFromXXClash() throws IOException {
+    FileUtil.writeToFile(myFile, "-someOption\n" +
+                                 "-Xmx512m\n" +
+                                 "-XX:MaxMetaspaceSize=128m\n" +
+                                 "-anotherOption\n" +
+                                 "-XX:+UnlockDiagnosticVMOptions\n" +
+                                 "junk");
+
+    String myCDSFile = "a/b/c/cds-for-test.jsa";
+    VMOptions.writeEnableCDSArchiveOption(myCDSFile);
+
+    String text = FileUtil.loadFile(myFile);
+    LOG.debug(text);
+
+    assertEquals("-someOption\n" +
+                 "-Xmx512m\n" +
+                 "-XX:MaxMetaspaceSize=128m\n" +
+                 "-anotherOption\n" +
+                 "-XX:+UnlockDiagnosticVMOptions\n" +
+                 "junk\n" +
+                 "-Xshare:auto\n" +
+                 "-XX:SharedArchiveFile=a/b/c/cds-for-test.jsa",
+                 StringUtil.convertLineSeparators(text));
+  }
+
+  @Test
+  public void testWritingCDSArchiveFileFromArchiveClash() throws IOException {
+    FileUtil.writeToFile(myFile, "-someOption\n-Xmx512m\n-XX:MaxMetaspaceSize=128m\n-anotherOption\n-XX:SharedArchiveFile=foo-bar\njunk");
+
+    String myCDSFile = "cds-for-test.jsa";
+    VMOptions.writeEnableCDSArchiveOption(myCDSFile);
+
+    String text = FileUtil.loadFile(myFile);
+    LOG.debug(text);
+    assertEquals("-someOption\n" +
+                 "-Xmx512m\n" +
+                 "-XX:MaxMetaspaceSize=128m\n" +
+                 "-anotherOption\n" +
+                 "-XX:SharedArchiveFile=cds-for-test.jsa\n" +
+                 "junk\n" +
+                 "-Xshare:auto\n" +
+                 "-XX:+UnlockDiagnosticVMOptions",
+                 StringUtil.convertLineSeparators(text));
   }
 
 
-  private String readFile() {
-    try {
-      return FileUtil.loadFile(myFile);
-    }
-    catch (IOException e) {
-      throw new RuntimeException(e);
-    }
+  @Test
+  public void testWritingCDSDisableScratch() throws IOException {
+    FileUtil.writeToFile(myFile, "");
+
+    VMOptions.writeDisableCDSArchiveOption();
+
+    String text = FileUtil.loadFile(myFile);
+    assertEquals("",
+                 StringUtil.convertLineSeparators(text));
   }
 
-  private void writeFile(String content) {
-    @SuppressWarnings("SSBasedInspection") byte[] bytes = content.getBytes();
-    try {
-      FileUtil.writeToFile(myFile, bytes);
-    }
-    catch (IOException e) {
-      throw new RuntimeException(e);
-    }
+  @Test
+  public void testWritingCDSDisableFull() throws IOException {
+    FileUtil.writeToFile(myFile, "-someOption\n" +
+                                 "-Xmx512m\n" +
+                                 "-XX:MaxMetaspaceSize=128m\n" +
+                                 "-anotherOption\n" +
+                                 "-XX:+UnlockDiagnosticVMOptions\n" +
+                                 "junk\n" +
+                                 "-Xshare:auto\n" +
+                                 "junk2\n" +
+                                 "-XX:SharedArchiveFile=a/b/c/cds-for-test.jsa\n" +
+                                 "junk3");
+
+    VMOptions.writeDisableCDSArchiveOption();
+
+    //let's make sure we do not remove anything extra
+    assertEquals("-someOption\n" +
+                 "-Xmx512m\n" +
+                 "-XX:MaxMetaspaceSize=128m\n" +
+                 "-anotherOption\n" +
+                 "-XX:+UnlockDiagnosticVMOptions\n" +
+                 "junk\n" +
+                 "junk2\n" +
+                 "junk3", StringUtil.convertLineSeparators(FileUtil.loadFile(myFile)));
+  }
+
+  @Test
+  public void testWritingCDSDisableXShare() throws IOException {
+    FileUtil.writeToFile(myFile, "-someOption\n" +
+                                 "-Xmx512m\n" +
+                                 "-XX:MaxMetaspaceSize=128m\n" +
+                                 "-anotherOption\n" +
+                                 "-XX:+UnlockDiagnosticVMOptions\n" +
+                                 "-Xshare:dump\n" +
+                                 "-XX:SharedArchiveFile=545\njunk");
+
+    VMOptions.writeDisableCDSArchiveOption();
+
+    //let's make sure we do not remove anything extra
+    assertEquals("-someOption\n" +
+                 "-Xmx512m\n" +
+                 "-XX:MaxMetaspaceSize=128m\n" +
+                 "-anotherOption\n" +
+                 "-XX:+UnlockDiagnosticVMOptions\n" +
+                 "junk",
+                 StringUtil.convertLineSeparators(FileUtil.loadFile(myFile)));
   }
 }

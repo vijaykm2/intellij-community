@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,39 +15,66 @@
  */
 package com.intellij.spellchecker.inspector;
 
+import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.registry.RegistryValue;
 import com.intellij.spellchecker.SpellCheckerManager;
-import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixtureTestCase;
+import com.intellij.spellchecker.settings.SpellCheckerSettings;
+import com.intellij.testFramework.fixtures.BasePlatformTestCase;
 
 import java.util.List;
 
+@SuppressWarnings("SpellCheckingInspection")
+public class SuggestionTest extends BasePlatformTestCase {
 
-public class SuggestionTest extends LightPlatformCodeInsightFixtureTestCase {
+  public static final String TYPPPO = "Typppo";
 
-  private SpellCheckerManager spManager;
+  public void testSuggestions() { doTest("upgade", "upgrade"); }
 
-  private SpellCheckerManager getManager() {
-    if (spManager == null) {
-      spManager = SpellCheckerManager.getInstance(myFixture.getProject());
-    }
-    assert spManager != null;
-    return spManager;
+  public void testFirstLetterUppercaseSuggestions() { doTest("Upgade", "Upgrade"); }
+
+  public void testCamelCaseSuggestions() { doTest("TestUpgade", "TestUpgrade"); }
+
+  private void doTest(String word, String expected) {
+    List<String> result = SpellCheckerManager.getInstance(myFixture.getProject()).getSuggestions(word);
+    assertEquals(expected, result.get(0));
   }
 
-  public void testSuggestions() {
-    List<String> result = getManager().getSuggestions("upgade");
-    assertEquals("upgrade", result.get(0));
+  public void testMaxSuggestions() {
+    final SpellCheckerManager manager = SpellCheckerManager.getInstance(myFixture.getProject());
+    int oldCorrectionsLimit = Registry.intValue("spellchecker.corrections.limit");
+    assertTrue(manager.getSuggestions(TYPPPO).size() <= oldCorrectionsLimit);
   }
 
+  public void testMaxSuggestions1() {
+    final SpellCheckerManager manager = SpellCheckerManager.getInstance(myFixture.getProject());
+    final RegistryValue registryValue = Registry.get("spellchecker.corrections.limit");
+    final int oldCorrectionsLimit = registryValue.asInteger();
 
-  public void testFirstLetterUppercaseSuggestions() {
-    List<String> result = getManager().getSuggestions("Upgade");
-    assertEquals("Upgrade", result.get(0));
+    registryValue.setValue((1));
+    assertEquals(1, manager.getSuggestions(TYPPPO).size());
+
+    registryValue.setValue((oldCorrectionsLimit));
   }
 
-  public void testCamelCaseSuggestions() {
-    SpellCheckerManager manager = SpellCheckerManager.getInstance(myFixture.getProject());
-    assert manager != null;
-    List<String> result = manager.getSuggestions("TestUpgade");
-    assertEquals("TestUpgrade", result.get(0));
+  public void testMaxSuggestions0() {
+    final SpellCheckerManager manager = SpellCheckerManager.getInstance(myFixture.getProject());
+    final RegistryValue registryValue = Registry.get("spellchecker.corrections.limit");
+    final int oldCorrectionsLimit = registryValue.asInteger();
+    
+    registryValue.setValue(0); // some incorrect value appeared
+    assertEquals(0, manager.getSuggestions(TYPPPO).size());
+
+    registryValue.setValue(oldCorrectionsLimit);
+  }
+
+  public void testMaxSuggestions1000() {
+    final SpellCheckerManager manager = SpellCheckerManager.getInstance(myFixture.getProject());
+    final RegistryValue registryValue = Registry.get("spellchecker.corrections.limit");
+    final int oldCorrectionsLimit = registryValue.asInteger();
+    registryValue.setValue(1000);
+    // because of quality threshold
+    assertTrue(manager.getSuggestions("SomeVeryLongWordToReduceSuggestionsCount").size() < 1000);
+
+    registryValue.setValue(oldCorrectionsLimit);
   }
 }

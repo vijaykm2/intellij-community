@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/**
- * class ToggleMethodBreakpointAction
- * @author Jeka
- */
 package com.intellij.debugger.actions;
 
 import com.intellij.debugger.DebuggerManagerEx;
@@ -25,6 +21,8 @@ import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.debugger.ui.breakpoints.Breakpoint;
 import com.intellij.debugger.ui.breakpoints.BreakpointManager;
 import com.intellij.debugger.ui.breakpoints.MethodBreakpoint;
+import com.intellij.ide.highlighter.JavaClassFileType;
+import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -33,7 +31,6 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
@@ -42,11 +39,13 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiMethod;
 import com.intellij.util.DocumentUtil;
 import com.intellij.util.text.CharArrayUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class ToggleMethodBreakpointAction extends AnAction {
 
-  public void update(AnActionEvent event){
+  @Override
+  public void update(@NotNull AnActionEvent event){
     boolean toEnable = getPlace(event) != null;
 
     if (ActionPlaces.isPopupPlace(event.getPlace())) {
@@ -58,7 +57,8 @@ public class ToggleMethodBreakpointAction extends AnAction {
   }
 
 
-  public void actionPerformed(AnActionEvent e) {
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
     Project project = e.getData(CommonDataKeys.PROJECT);
     if (project == null) {
       return;
@@ -114,7 +114,7 @@ public class ToggleMethodBreakpointAction extends AnAction {
         if (file != null) {
           final VirtualFile virtualFile = file.getVirtualFile();
           FileType fileType = virtualFile != null ? virtualFile.getFileType() : null;
-          if (StdFileTypes.JAVA == fileType || StdFileTypes.CLASS  == fileType) {
+          if (JavaFileType.INSTANCE == fileType || JavaClassFileType.INSTANCE == fileType) {
             method = findMethod(project, editor);
           }
         }

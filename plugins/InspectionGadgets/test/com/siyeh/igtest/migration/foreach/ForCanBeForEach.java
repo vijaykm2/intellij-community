@@ -5,12 +5,13 @@ import java.util.*;
 public class ForCanBeForEach {
 
     public void foo(int[] is) {
-        <warning descr="'for' loop replaceable with 'foreach'">for</warning> (int i = 0; i < is.length; i++) {
+        <warning descr="'for' loop replaceable with enhanced 'for'">for</warning> (int i = 0; i < is.length; i++) {
+            System.out.println(is[i]);
         }
     }
 
     public void test(Collection bars){
-        <warning descr="'for' loop replaceable with 'foreach'">for</warning>(Iterator<List> it = bars.iterator(); it .hasNext();){
+        <warning descr="'for' loop replaceable with enhanced 'for'">for</warning>(Iterator<List> it = bars.iterator(); it .hasNext();){
             final List bar = it.next();
             bar.size();
         }
@@ -19,7 +20,7 @@ public class ForCanBeForEach {
     public int foo(){
         final int[] ints = new int[3];
         int total = 0;
-        <warning descr="'for' loop replaceable with 'foreach'">for</warning>(int i = 0; i < ints.length; i++){
+        <warning descr="'for' loop replaceable with enhanced 'for'">for</warning>(int i = 0; i < ints.length; i++){
             final int j = ints[i];
             total += j;
         }
@@ -29,7 +30,7 @@ public class ForCanBeForEach {
     public int bar(){
         final int[] ints = new int[3];
         int total = 0;
-        <warning descr="'for' loop replaceable with 'foreach'">for</warning>(int i = 0; i < ints.length; i++){
+        <warning descr="'for' loop replaceable with enhanced 'for'">for</warning>(int i = 0; i < ints.length; i++){
             total += ints[i];
         }
         return total;
@@ -38,7 +39,7 @@ public class ForCanBeForEach {
     public int baz(){
         int total = 0;
         final List ints = new ArrayList();
-        <warning descr="'for' loop replaceable with 'foreach'">for</warning>(Iterator iterator = ints.iterator(); iterator.hasNext();){
+        <warning descr="'for' loop replaceable with enhanced 'for'">for</warning>(Iterator iterator = ints.iterator(); iterator.hasNext();){
             final Integer value = (Integer) iterator.next();
             total += value.intValue();
         }
@@ -48,7 +49,7 @@ public class ForCanBeForEach {
     public int bazoom(){
         int total = 0;
         final List<Integer> ints = new ArrayList<Integer>();
-        <warning descr="'for' loop replaceable with 'foreach'">for</warning>(Iterator<Integer> iterator = ints.iterator(); iterator.hasNext();){
+        <warning descr="'for' loop replaceable with enhanced 'for'">for</warning>(Iterator<Integer> iterator = ints.iterator(); iterator.hasNext();){
             final Integer value = iterator.next();
             total += value.intValue();
         }
@@ -58,7 +59,7 @@ public class ForCanBeForEach {
     public int wildBazoom(){
         int total = 0;
         final List<? extends Integer> ints = new ArrayList<Integer>();
-        <warning descr="'for' loop replaceable with 'foreach'">for</warning>(Iterator<? extends Integer> iterator = ints.iterator();
+        <warning descr="'for' loop replaceable with enhanced 'for'">for</warning>(Iterator<? extends Integer> iterator = ints.iterator();
             iterator.hasNext();){
             final Integer value = iterator.next();
             total += value.intValue();
@@ -78,7 +79,7 @@ public class ForCanBeForEach {
         Map<String, Integer> m = new HashMap<String, Integer>();
         m.put("123", 123);
         m.put("456", 456);
-        <warning descr="'for' loop replaceable with 'foreach'">for</warning>(Iterator<Map.Entry<String, Integer>> iterator = m.entrySet()
+        <warning descr="'for' loop replaceable with enhanced 'for'">for</warning>(Iterator<Map.Entry<String, Integer>> iterator = m.entrySet()
                 .iterator(); iterator.hasNext();){
             Map.Entry<String, Integer> entry = iterator.next();
             System.out.println(entry.getKey() + "=" + entry.getValue());
@@ -101,7 +102,7 @@ public class ForCanBeForEach {
 
     public void boom2(){
         OuterClass.UnnecessaryEnumModifier2Inspection[] inners = new OuterClass.UnnecessaryEnumModifier2Inspection[3];
-        <warning descr="'for' loop replaceable with 'foreach'">for</warning>(int i = 0; i < inners.length; i++){
+        <warning descr="'for' loop replaceable with enhanced 'for'">for</warning>(int i = 0; i < inners.length; i++){
             OuterClass.UnnecessaryEnumModifier2Inspection inner = inners[i];
             System.out.println(inner);
         }
@@ -123,7 +124,7 @@ public class ForCanBeForEach {
     }
 
     public void quickFixBoom(List numbers) {
-        <warning descr="'for' loop replaceable with 'foreach'">for</warning> (int i = 0; i < (numbers.size()); i++) {
+        <warning descr="'for' loop replaceable with enhanced 'for'">for</warning> (int i = 0; i < (numbers.size()); i++) {
             System.out.println("numbers[i]: " + numbers.get(i));
         }
     }
@@ -179,7 +180,7 @@ public class ForCanBeForEach {
 
     void sizeInVariable(List ls) {
         int size = ls.size();
-        <warning descr="'for' loop replaceable with 'foreach'">for</warning> (int i = (0); (i < (size)); (i)++) {
+        <warning descr="'for' loop replaceable with enhanced 'for'">for</warning> (int i = (0); (i < (size)); (i)++) {
             Object o = ls.get(i);
             System.out.println("o = " + o);
         }
@@ -188,7 +189,7 @@ public class ForCanBeForEach {
     class X extends ArrayList {
 
         void foo() {
-            <warning descr="'for' loop replaceable with 'foreach'">for</warning> (int i = 0; i < size(); i++) {
+            <warning descr="'for' loop replaceable with enhanced 'for'">for</warning> (int i = 0; i < size(); i++) {
                 this.get(i);
             }
         }
@@ -205,7 +206,7 @@ public class ForCanBeForEach {
     int strange() {
         int total = 0;
         final List ints = new ArrayList();
-        <warning descr="'for' loop replaceable with 'foreach'">for</warning> (ListIterator l = ints.listIterator(); l.hasNext(); ) {
+        <warning descr="'for' loop replaceable with enhanced 'for'">for</warning> (ListIterator l = ints.listIterator(); l.hasNext(); ) {
             System.out.println(l.next());
         }
         return total;
@@ -234,10 +235,10 @@ public class ForCanBeForEach {
     }
 
   void indexedList(List<String> l) {
-    <warning descr="'for' loop replaceable with 'foreach'">for</warning> (int i = 0, max = l.size(); i < max; i++) {
+    <warning descr="'for' loop replaceable with enhanced 'for'">for</warning> (int i = 0, max = l.size(); i < max; i++) {
       System.out.println(l.get(i));
     }
-    <warning descr="'for' loop replaceable with 'foreach'">for</warning> (int i = (0), max = (l.size()); ((max) > (i)); (i)++) {
+    <warning descr="'for' loop replaceable with enhanced 'for'">for</warning> (int i = (0), max = (l.size()); ((max) > (i)); (i)++) {
       System.out.println(l.get(i)); }
     for (int i = 0; i < l.size(); i++) {}
   }
@@ -247,16 +248,20 @@ public class ForCanBeForEach {
   }
   static class User {{
     String[] strings = Constants.STRINGS;
-    <warning descr="'for' loop replaceable with 'foreach'">for</warning> (int i = 0, length = strings.length; i < length; i++) { // should warn here
+    <warning descr="'for' loop replaceable with enhanced 'for'">for</warning> (int i = 0, length = strings.length; i < length; i++) { // should warn here
       String s = strings[i];
       System.out.println(s);
     }
   }}
 
   public void food(int[] is) {
-    <warning descr="'for' loop replaceable with 'foreach'">for</warning> (int i = 0; is.length > i; i++) {
+    <warning descr="'for' loop replaceable with enhanced 'for'">for</warning> (int i = 0; is.length > i; i++) {
+      System.out.println(is[i]);
     }
     for (int i = 0, j = 10; i < is.length; i++) {
+    }
+    for (int i = 0; i < is.length; i++) {
+      System.out.println('-');
     }
   }
 
@@ -266,10 +271,66 @@ public class ForCanBeForEach {
     }
   }
 
+    void insideTryBlockPositive1() {
+      try {
+        <warning descr="'for' loop replaceable with enhanced 'for'">for</warning> (Iterator<String> string = Arrays.asList("1", "2").iterator(); string.hasNext();) {
+          System.out.println(string.next());
+        }
+      } catch (Exception e) {
+      }
+    }
+
+    void insideTryBlockPositive2() {
+      <warning descr="'for' loop replaceable with enhanced 'for'">for</warning> (Iterator<String> string = Arrays.asList("1", "2").iterator(); string.hasNext();) {
+        try {
+          System.out.println("Some string");
+        } catch (Exception e) {
+        }
+        System.out.println(string.next());
+      }
+    }
+
+    void insideTryBlockNegative() {
+      for (Iterator<String> string = Arrays.asList("1", "2").iterator(); string.hasNext();) {
+        try {
+          System.out.println(string.next());
+        } catch (Exception e) {
+
+        }
+      }
+    }
+
+    void insideInnerForPositive() {
+      <warning descr="'for' loop replaceable with enhanced 'for'">for</warning> (Iterator<Integer> iterator = Arrays.asList(1, 2, 3, 4, 5, 6).iterator(); iterator.hasNext();) {
+        for (int i = 0; i < 3; i++) {
+          System.out.println("Test");
+        }
+        Integer next = iterator.next();
+        System.out.println(next);
+      }
+    }
+
+  void insideInnerForNegative() {
+      for (Iterator<Integer> iterator = Arrays.asList(1, 2, 3, 4, 5, 6).iterator(); iterator.hasNext();) {
+      for (int i = 0; i < 3; i++) {
+        Integer next = iterator.next();
+        System.out.println(next);
+      }
+    }
+  }
+
+    void b(List<String> list) {
+        for (final Iterator<String> iterator = list.iterator(); iterator.hasNext(); ) {
+            System.out.println(iterator.next());
+            final Iterator<String> iterator1 = iterator;
+            System.out.println(iterator1);
+        }
+    }
+
   class XX<T> {
     void m(T[] ts) {
-      <warning descr="'for' loop replaceable with 'foreach'">for</warning> (int i = 0; i < ts.length; i++) {
-        System.out.println();
+      <warning descr="'for' loop replaceable with enhanced 'for'">for</warning> (int i = 0; i < ts.length; i++) {
+        System.out.println(ts[i]);
       }
     }
   }
@@ -296,4 +357,24 @@ class OuterClass
     private UnnecessaryEnumModifier2Inspection() {
     }
   }
+}
+class Base implements Iterable<String> {
+    @Override
+    public Iterator<String> iterator() {
+        return null;
+    }
+}
+
+class Sub extends Base {
+    @Override
+    public Iterator<String> iterator() {
+        ArrayList<String> strings = new ArrayList<String>();
+        for (Iterator<String> superIterator = super.iterator(); superIterator.hasNext(); ) {
+            String str = superIterator.next();
+
+            strings.add(str + str);
+        }
+
+        return strings.iterator();
+    }
 }

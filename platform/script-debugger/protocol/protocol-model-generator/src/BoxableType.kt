@@ -1,19 +1,21 @@
 package org.jetbrains.protocolModelGenerator
 
-abstract class BoxableType {
-  abstract fun getFullText(): CharSequence
+interface BoxableType {
+  val defaultValue: String?
 
-  abstract fun getShortText(contextNamespace: NamePath): String
+  val fullText: CharSequence
 
-  abstract val writeMethodName: String
+  fun getShortText(contextNamespace: NamePath): String
+
+  val writeMethodName: String
 
   companion object {
-    val STRING: BoxableType = StandaloneType(NamePath("String"), "writeString")
-    val ANY_STRING: BoxableType = StandaloneType(NamePath("String"), "writeString")
-    val INT: BoxableType = StandaloneType(NamePath("int"), "writeInt")
-    val LONG: BoxableType = StandaloneType(NamePath("long"), "writeLong")
-    val NUMBER: BoxableType = StandaloneType(NamePath("double"), "writeDouble")
-    val BOOLEAN: BoxableType = StandaloneType(NamePath("boolean"), "writeBoolean")
-    val MAP: BoxableType = StandaloneType(NamePath("java.util.Map<String, String>"), "writeMap")
+    val STRING: StandaloneType = StandaloneType(NamePath("String"), "writeString", "null")
+    val ANY_STRING: StandaloneType = StandaloneType(NamePath("String"), "writeString", "null")
+    val INT: StandaloneType = StandaloneType(NamePath("Int"), "writeInt", null)
+    val LONG: StandaloneType = StandaloneType(NamePath("Long"), "writeLong", null)
+    val NUMBER: StandaloneType = StandaloneType(NamePath("Double"), "writeDouble", "null")
+    val BOOLEAN: StandaloneType = StandaloneType(NamePath("Boolean"), "writeBoolean", null)
+    val MAP: StandaloneType = StandaloneType(NamePath("Map<String, String>"), "writeMap", "null")
   }
 }

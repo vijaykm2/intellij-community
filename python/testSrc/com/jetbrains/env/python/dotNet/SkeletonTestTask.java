@@ -1,40 +1,38 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.env.python.dotNet;
 
 import com.google.common.collect.Sets;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.IntentionActionDelegate;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ex.QuickFixWrapper;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.progress.util.AbstractProgressIndicatorBase;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.io.StreamUtil;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiDocumentManager;
-import com.intellij.rt.execution.junit.FileComparisonFailure;
-import com.intellij.util.ui.UIUtil;
 import com.jetbrains.env.PyExecutionFixtureTestTask;
+import com.jetbrains.env.PyTestTask;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.inspections.quickfix.GenerateBinaryStubsFix;
 import com.jetbrains.python.inspections.unresolvedReference.PyUnresolvedReferencesInspection;
-import com.jetbrains.python.psi.PyFile;
 import com.jetbrains.python.sdk.InvalidSdkException;
-import com.jetbrains.python.sdk.PythonSdkType;
-import com.jetbrains.python.sdkTools.SdkCreationType;
+import com.jetbrains.python.sdk.PythonSdkUtil;
+import com.jetbrains.python.tools.sdkTools.SdkCreationType;
 import org.hamcrest.Matchers;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.junit.Assert;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
-import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.util.Arrays;
 import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -61,11 +59,11 @@ class SkeletonTestTask extends PyExecutionFixtureTestTask {
   private final String mySourceFileToRunGenerationOn;
   @NotNull
   private final String myUseQuickFixWithThisModuleOnly;
-  private PyFile myGeneratedSkeleton;
 
   /**
    * @param expectedSkeletonFile          if you want test to compare generated result with some file, provide its name.
-   *                                      Pass null if you do not want to compare result with anything (you may do it yourself with {@link #getGeneratedSkeleton()})
+   *                                      Pass null if you do not want to compare result with anything
+   *                                      (you may do it yourself by overwriting {@link PyTestTask#runTestOn(String, Sdk)}) but <strong>call super</strong>
    * @param moduleNameToBeGenerated       name of module you think we should generate in dotted notation (like "System.Web" or "com.myModule").
    *                                      System will wait for skeleton file for this module to be generated
    * @param sourceFileToRunGenerationOn   Source file where we should run "generate stubs" on. Be sure to place "caret" on appropriate place!
@@ -76,6 +74,7 @@ class SkeletonTestTask extends PyExecutionFixtureTestTask {
                    @NotNull final String moduleNameToBeGenerated,
                    @NotNull final String sourceFileToRunGenerationOn,
                    @Nullable final String useQuickFixWithThisModuleOnly) {
+    super(null);
     myExpectedSkeletonFile = expectedSkeletonFile;
     myModuleNameToBeGenerated = moduleNameToBeGenerated.replace('.', '/');
     mySourceFileToRunGenerationOn = sourceFileToRunGenerationOn;
@@ -84,9 +83,10 @@ class SkeletonTestTask extends PyExecutionFixtureTestTask {
 
 
   @Override
-  public void runTestOn(@NotNull final String sdkHome) throws IOException, InvalidSdkException {
+  public void runTestOn(@NotNull final String sdkHome, @Nullable Sdk existingSdk) throws IOException, InvalidSdkException {
     final Sdk sdk = createTempSdk(sdkHome, SdkCreationType.SDK_PACKAGES_ONLY);
-    final File skeletonsPath = new File(PythonSdkType.getSkeletonsPath(PathManager.getSystemPath(), sdk.getHomePath()));
+    final File skeletonsPath = new File(PythonSdkUtil.getSkeletonsPath(PathManager.getSystemPath(), sdk.getHomePath()));
+    Arrays.stream(skeletonsPath.listFiles()).forEach(FileUtil::delete);
     File skeletonFileOrDirectory = new File(skeletonsPath, myModuleNameToBeGenerated); // File with module skeleton
 
     // Module may be stored in "moduleName.py" or "moduleName/__init__.py"
@@ -103,70 +103,52 @@ class SkeletonTestTask extends PyExecutionFixtureTestTask {
       assert skeletonFile.delete() : "Failed to delete file " + skeletonFile;
     }
 
-    myFixture.copyFileToProject("dotNet/" + mySourceFileToRunGenerationOn, mySourceFileToRunGenerationOn); // File that uses CLR library
-    myFixture.copyFileToProject("dotNet/PythonLibs.dll", "PythonLibs.dll"); // Library itself
-    myFixture.copyFileToProject("dotNet/SingleNameSpace.dll", "SingleNameSpace.dll"); // Another library
-    myFixture.configureByFile(mySourceFileToRunGenerationOn);
+    ApplicationManager.getApplication().invokeAndWait(() -> {
+      myFixture.copyFileToProject("dotNet/" + mySourceFileToRunGenerationOn, mySourceFileToRunGenerationOn); // File that uses CLR library
+      myFixture.copyFileToProject("dotNet/PythonLibs.dll", "PythonLibs.dll"); // Library itself
+      myFixture.copyFileToProject("dotNet/SingleNameSpace.dll", "SingleNameSpace.dll"); // Another library
+      myFixture.configureByFile(mySourceFileToRunGenerationOn);
+    }, ModalityState.NON_MODAL);
     myFixture.enableInspections(PyUnresolvedReferencesInspection.class); // This inspection should suggest us to generate stubs
 
+    ApplicationManager.getApplication().invokeAndWait(() -> {
+      PsiDocumentManager.getInstance(myFixture.getProject()).commitAllDocuments();
+      final String intentionName = PyBundle.message("sdk.gen.stubs.for.binary.modules", myUseQuickFixWithThisModuleOnly);
+      IntentionAction intention = IntentionActionDelegate.unwrap(myFixture.findSingleIntention(intentionName));
 
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        PsiDocumentManager.getInstance(myFixture.getProject()).commitAllDocuments();
-        final String intentionName = PyBundle.message("sdk.gen.stubs.for.binary.modules", myUseQuickFixWithThisModuleOnly);
-        final IntentionAction intention = myFixture.findSingleIntention(intentionName);
-        Assert.assertNotNull("No intention found to generate skeletons!", intention);
-        Assert.assertThat("Intention should be quick fix to run", intention, Matchers.instanceOf(QuickFixWrapper.class));
-        final LocalQuickFix quickFix = ((QuickFixWrapper)intention).getFix();
-        Assert.assertThat("Quick fix should be 'generate binary skeletons' fix to run", quickFix,
-                          Matchers.instanceOf(GenerateBinaryStubsFix.class));
-        final Task fixTask = ((GenerateBinaryStubsFix)quickFix).getFixTask(myFixture.getFile());
-        fixTask.run(new AbstractProgressIndicatorBase());
-      }
-    });
+      Assert.assertNotNull("No intention found to generate skeletons!", intention);
+      Assert.assertThat("Intention should be quick fix to run", intention, Matchers.instanceOf(QuickFixWrapper.class));
+      final LocalQuickFix quickFix = ((QuickFixWrapper)intention).getFix();
+      Assert.assertThat("Quick fix should be 'generate binary skeletons' fix to run", quickFix,
+                        Matchers.instanceOf(GenerateBinaryStubsFix.class));
+      final Task fixTask = ((GenerateBinaryStubsFix)quickFix).getFixTask(myFixture.getFile());
+      fixTask.run(new AbstractProgressIndicatorBase());
+    }, ModalityState.defaultModalityState());
 
     FileUtil.copy(skeletonFile, new File(myFixture.getTempDirPath(), skeletonFile.getName()));
     if (myExpectedSkeletonFile != null) {
-      final String actual = StreamUtil.readText(new FileInputStream(skeletonFile), Charset.defaultCharset());
-      final String skeletonText =
-        StreamUtil.readText(new FileInputStream(new File(getTestDataPath(), myExpectedSkeletonFile)), Charset.defaultCharset());
-
-      // TODO: Move to separate method ?
-      if (!Matchers.equalToIgnoringWhiteSpace(removeGeneratorVersion(skeletonText)).matches(removeGeneratorVersion(actual))) {
-        throw new FileComparisonFailure("asd", skeletonText, actual, skeletonFile.getAbsolutePath());
-      }
+      String actual = Files.readString(skeletonFile.toPath());
+      String skeletonText = Files.readString(new File(getTestDataPath(), myExpectedSkeletonFile).toPath());
+      Assert.assertThat("Wrong skeleton generated", removeComments(actual),
+                        Matchers.equalToIgnoringCase(removeComments(skeletonText)));
     }
-    myGeneratedSkeleton = (PyFile)myFixture.configureByFile(skeletonFile.getName());
+    myFixture.configureByFile(skeletonFile.getName());
   }
 
   /**
-   * Removes strings that starts with "# by generator", because generator version may change
+   * Removes strings that starts with "#" and """, because generator version and other stuff may change
+   *
    * @param textToClean text to remove strings from
    * @return text after cleanup
    */
-  private static String removeGeneratorVersion(@NotNull final String textToClean) {
-    final List<String> strings = StringUtil.split(textToClean, "\n");
-    final Iterator<String> iterator = strings.iterator();
-    while (iterator.hasNext()) {
-      if (iterator.next().startsWith("# by generator")) {
-        iterator.remove();
-      }
-    }
-    return StringUtil.join(strings, "\n");
+  private static String removeComments(@NotNull final String textToClean) {
+    return textToClean.replaceAll("(#|\"\"\").+", "");
   }
 
 
+  @NotNull
   @Override
   public Set<String> getTags() {
     return Collections.unmodifiableSet(IRON_TAGS);
-  }
-
-  /**
-   * @return File for generated skeleton. Call it after {@link #runTestOn(String)} only!
-   */
-  @NotNull
-  PyFile getGeneratedSkeleton() {
-    return myGeneratedSkeleton;
   }
 }

@@ -1,57 +1,37 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service.project.manage;
 
-import com.intellij.openapi.application.Application;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceManager;
-import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.externalSystem.ExternalSystemManager;
 import com.intellij.openapi.externalSystem.model.DataNode;
 import com.intellij.openapi.externalSystem.model.Key;
 import com.intellij.openapi.externalSystem.model.ProjectKeys;
-import com.intellij.openapi.externalSystem.model.project.ExternalSystemSourceType;
+import com.intellij.openapi.externalSystem.model.ProjectSystemId;
+import com.intellij.openapi.externalSystem.model.project.ExternalProjectPojo;
 import com.intellij.openapi.externalSystem.model.project.ModuleData;
 import com.intellij.openapi.externalSystem.model.project.ProjectData;
-import com.intellij.openapi.externalSystem.service.project.PlatformFacade;
-import com.intellij.openapi.externalSystem.util.DisposeAwareProjectChange;
+import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider;
+import com.intellij.openapi.externalSystem.settings.AbstractExternalSystemLocalSettings;
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.externalSystem.util.ExternalSystemConstants;
 import com.intellij.openapi.externalSystem.util.Order;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.*;
-import com.intellij.openapi.vfs.LocalFileSystem;
-import com.intellij.openapi.vfs.VfsUtilCore;
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.Alarm;
-import com.intellij.util.containers.ContainerUtilRt;
+import com.intellij.openapi.util.Computable;
+import com.intellij.util.SmartList;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.Collection;
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
 
 /**
- * Encapsulates functionality of importing gradle module to the intellij project.
- * 
+ * Encapsulates functionality of importing external system module to the intellij project.
+ *
  * @author Denis Zhdanov
- * @since 2/7/12 2:49 PM
  */
-@Order(ExternalSystemConstants.BUILTIN_SERVICE_ORDER)
-public class ModuleDataService implements ProjectDataServiceEx<ModuleData, Module> {
-
-  public static final com.intellij.openapi.util.Key<ModuleData> MODULE_DATA_KEY = com.intellij.openapi.util.Key.create("MODULE_DATA_KEY");
-
-  private static final Logger LOG = Logger.getInstance("#" + ModuleDataService.class.getName());
-
-  /**
-   * We can't modify project modules (add/remove) until it's initialised, so, we delay that activity. Current constant
-   * holds number of milliseconds to wait between 'after project initialisation' processing attempts.
-   */
-  private static final int PROJECT_INITIALISATION_DELAY_MS = (int)TimeUnit.SECONDS.toMillis(1);
-
-  private final Alarm myAlarm = new Alarm(Alarm.ThreadToUse.SHARED_THREAD);
+@Order(ExternalSystemConstants.BUILTIN_MODULE_DATA_SERVICE_ORDER)
+public class ModuleDataService extends AbstractModuleDataService<ModuleData> {
 
   @NotNull
   @Override
@@ -59,249 +39,90 @@ public class ModuleDataService implements ProjectDataServiceEx<ModuleData, Modul
     return ProjectKeys.MODULE;
   }
 
-  public void importData(@NotNull final Collection<DataNode<ModuleData>> toImport,
-                         @NotNull final Project project,
-                         final boolean synchronous) {
-    final PlatformFacade platformFacade = ServiceManager.getService(PlatformFacade.class);
-    importData(toImport, project, platformFacade, synchronous);
+  @NotNull
+  @Override
+  public Computable<Collection<Module>> computeOrphanData(final @NotNull Collection<? extends DataNode<ModuleData>> toImport,
+                                                          @NotNull final ProjectData projectData,
+                                                          @NotNull final Project project,
+                                                          @NotNull final IdeModifiableModelsProvider modelsProvider) {
+    return () -> {
+      List<Module> orphanIdeModules = new SmartList<>();
+
+      for (Module module : modelsProvider.getModules()) {
+        if (!ExternalSystemApiUtil.isExternalSystemAwareModule(projectData.getOwner(), module)) continue;
+        if (ExternalSystemApiUtil.getExternalModuleType(module) != null) continue;
+
+        final String rootProjectPath = ExternalSystemApiUtil.getExternalRootProjectPath(module);
+        if (projectData.getLinkedExternalProjectPath().equals(rootProjectPath)) {
+          if (module.getUserData(AbstractModuleDataService.MODULE_DATA_KEY) == null) {
+            orphanIdeModules.add(module);
+          }
+        }
+      }
+
+      return orphanIdeModules;
+    };
   }
 
   @Override
-  public void importData(@NotNull final Collection<DataNode<ModuleData>> toImport,
-                         @NotNull final Project project,
-                         @NotNull final PlatformFacade platformFacade,
-                         final boolean synchronous) {
+  public void postProcess(@NotNull Collection<? extends DataNode<ModuleData>> toImport,
+                          @Nullable ProjectData projectData,
+                          @NotNull Project project,
+                          @NotNull IdeModifiableModelsProvider modelsProvider) {
+    super.postProcess(toImport, projectData, project, modelsProvider);
+
+    updateLocalSettings(toImport, project);
+  }
+
+  private static void updateLocalSettings(Collection<? extends DataNode<ModuleData>> toImport, Project project) {
     if (toImport.isEmpty()) {
       return;
     }
-    if (!project.isInitialized()) {
-      myAlarm.addRequest(new ImportModulesTask(project, toImport, synchronous), PROJECT_INITIALISATION_DELAY_MS);
-      return;
+    ProjectSystemId externalSystemId = toImport.iterator().next().getData().getOwner();
+    ExternalSystemManager<?, ?, ?, ?, ?> manager = ExternalSystemApiUtil.getManager(externalSystemId);
+    assert manager != null;
+
+    final MultiMap<DataNode<ProjectData>, DataNode<ModuleData>> grouped = ExternalSystemApiUtil.groupBy(toImport, ProjectKeys.PROJECT);
+    Map<ExternalProjectPojo, Collection<ExternalProjectPojo>> data = new HashMap<>();
+    for (Map.Entry<DataNode<ProjectData>, Collection<DataNode<ModuleData>>> entry : grouped.entrySet()) {
+      data.put(ExternalProjectPojo.from(entry.getKey().getData()),
+               ContainerUtil.map2List(entry.getValue(), node -> ExternalProjectPojo.from(node.getData())));
     }
-    ExternalSystemApiUtil.executeProjectChangeAction(synchronous, new DisposeAwareProjectChange(project) {
-      @Override
-      public void execute() {
-        final Collection<DataNode<ModuleData>> toCreate = filterExistingModules(toImport, project, platformFacade);
-        if (!toCreate.isEmpty()) {
-          createModules(toCreate, project, platformFacade);
-        }
-        for (DataNode<ModuleData> node : toImport) {
-          Module module = platformFacade.findIdeModule(node.getData(), project);
-          if (module != null) {
-            syncPaths(module, platformFacade, node.getData());
-          }
-        }
-      }
-    });
-  }
 
-  private void createModules(@NotNull final Collection<DataNode<ModuleData>> toCreate,
-                             @NotNull final Project project,
-                             @NotNull final PlatformFacade platformFacade) {
-    removeExistingModulesConfigs(toCreate, project);
-    Application application = ApplicationManager.getApplication();
-    final Map<DataNode<ModuleData>, Module> moduleMappings = ContainerUtilRt.newHashMap();
-    application.runWriteAction(new Runnable() {
-      @Override
-      public void run() {
-        for (DataNode<ModuleData> module : toCreate) {
-          importModule(module);
-        }
-      }
-
-      private void importModule(@NotNull DataNode<ModuleData> module) {
-        ModuleData data = module.getData();
-        final Module created = platformFacade.newModule(project, data.getModuleFilePath(), data.getModuleTypeId());
-
-        // Ensure that the dependencies are clear (used to be not clear when manually removing the module and importing it via gradle)
-        final ModifiableRootModel moduleRootModel = platformFacade.getModuleModifiableModel(created);
-        moduleRootModel.inheritSdk();
-        setModuleOptions(created, module);
-
-        RootPolicy<Object> visitor = new RootPolicy<Object>() {
-          @Override
-          public Object visitLibraryOrderEntry(LibraryOrderEntry libraryOrderEntry, Object value) {
-            moduleRootModel.removeOrderEntry(libraryOrderEntry);
-            return value;
-          }
-
-          @Override
-          public Object visitModuleOrderEntry(ModuleOrderEntry moduleOrderEntry, Object value) {
-            moduleRootModel.removeOrderEntry(moduleOrderEntry);
-            return value;
-          }
-        };
-        try {
-          for (OrderEntry orderEntry : moduleRootModel.getOrderEntries()) {
-            orderEntry.accept(visitor, null);
-          }
-        }
-        finally {
-          moduleRootModel.commit();
-        }
-        moduleMappings.put(module, created);
-      }
-    });
+    AbstractExternalSystemLocalSettings settings = manager.getLocalSettingsProvider().fun(project);
+    Set<String> pathsToForget = detectRenamedProjects(data, settings.getAvailableProjects());
+    if (!pathsToForget.isEmpty()) {
+      settings.forgetExternalProjects(pathsToForget);
+    }
+    Map<ExternalProjectPojo, Collection<ExternalProjectPojo>> projects = new HashMap<>(settings.getAvailableProjects());
+    projects.putAll(data);
+    settings.setAvailableProjects(projects);
   }
 
   @NotNull
-  private static Collection<DataNode<ModuleData>> filterExistingModules(@NotNull Collection<DataNode<ModuleData>> modules,
-                                                                        @NotNull Project project, @NotNull PlatformFacade platformFacade)
-  {
-    Collection<DataNode<ModuleData>> result = ContainerUtilRt.newArrayList();
-    for (DataNode<ModuleData> node : modules) {
-      ModuleData moduleData = node.getData();
-      Module module = platformFacade.findIdeModule(moduleData, project);
-      if (module == null) {
-        result.add(node);
+  private static Set<String> detectRenamedProjects(@NotNull Map<ExternalProjectPojo, Collection<ExternalProjectPojo>> currentInfo,
+                                                   @NotNull Map<ExternalProjectPojo, Collection<ExternalProjectPojo>> oldInfo) {
+    Map<String/* external config path */, String/* project name */> map = new HashMap<>();
+    for (Map.Entry<ExternalProjectPojo, Collection<ExternalProjectPojo>> entry : currentInfo.entrySet()) {
+      map.put(entry.getKey().getPath(), entry.getKey().getName());
+      for (ExternalProjectPojo pojo : entry.getValue()) {
+        map.put(pojo.getPath(), pojo.getName());
       }
-      else {
-        setModuleOptions(module, node);
+    }
+
+    Set<String> result = new HashSet<>();
+    for (Map.Entry<ExternalProjectPojo, Collection<ExternalProjectPojo>> entry : oldInfo.entrySet()) {
+      String newName = map.get(entry.getKey().getPath());
+      if (newName != null && !newName.equals(entry.getKey().getName())) {
+        result.add(entry.getKey().getPath());
+      }
+      for (ExternalProjectPojo pojo : entry.getValue()) {
+        newName = map.get(pojo.getPath());
+        if (newName != null && !newName.equals(pojo.getName())) {
+          result.add(pojo.getPath());
+        }
       }
     }
     return result;
-  }
-
-  private void removeExistingModulesConfigs(@NotNull final Collection<DataNode<ModuleData>> nodes, @NotNull final Project project) {
-    if (nodes.isEmpty()) {
-      return;
-    }
-    ExternalSystemApiUtil.executeProjectChangeAction(true, new DisposeAwareProjectChange(project) {
-      @Override
-      public void execute() {
-        LocalFileSystem fileSystem = LocalFileSystem.getInstance();
-        for (DataNode<ModuleData> node : nodes) {
-          // Remove existing '*.iml' file if necessary.
-          ModuleData data = node.getData();
-          VirtualFile file = fileSystem.refreshAndFindFileByPath(data.getModuleFilePath());
-          if (file != null) {
-            try {
-              file.delete(this);
-            }
-            catch (IOException e) {
-              LOG.warn("Can't remove existing module config file at '" + data.getModuleFilePath() + "'");
-            }
-          }
-        }
-      }
-    });
-  }
-
-  private static void syncPaths(@NotNull Module module, @NotNull PlatformFacade platformFacade, @NotNull ModuleData data) {
-    ModifiableRootModel modifiableModel = platformFacade.getModuleModifiableModel(module);
-    CompilerModuleExtension extension = modifiableModel.getModuleExtension(CompilerModuleExtension.class);
-    if (extension == null) {
-      modifiableModel.dispose();
-      LOG.warn(String.format("Can't sync paths for module '%s'. Reason: no compiler extension is found for it", module.getName()));
-      return;
-    }
-    try {
-      String compileOutputPath = data.getCompileOutputPath(ExternalSystemSourceType.SOURCE);
-      if (compileOutputPath != null) {
-        extension.setCompilerOutputPath(VfsUtilCore.pathToUrl(compileOutputPath));
-      }
-
-      String testCompileOutputPath = data.getCompileOutputPath(ExternalSystemSourceType.TEST);
-      if (testCompileOutputPath != null) {
-        extension.setCompilerOutputPathForTests(VfsUtilCore.pathToUrl(testCompileOutputPath));
-      }
-
-      extension.inheritCompilerOutputPath(data.isInheritProjectCompileOutputPath());
-    }
-    finally {
-      modifiableModel.commit();
-    }
-  }
-
-  @Override
-  public void removeData(@NotNull Collection<? extends Module> toRemove,
-                         @NotNull Project project,
-                         boolean synchronous) {
-    final PlatformFacade platformFacade = ServiceManager.getService(PlatformFacade.class);
-    removeData(toRemove, project, platformFacade, synchronous);
-  }
-
-
-  @Override
-  public void removeData(@NotNull final Collection<? extends Module> modules,
-                         @NotNull Project project,
-                         @NotNull PlatformFacade platformFacade,
-                         boolean synchronous) {
-    if (modules.isEmpty()) {
-      return;
-    }
-    ExternalSystemApiUtil.executeProjectChangeAction(synchronous, new DisposeAwareProjectChange(project) {
-      @Override
-      public void execute() {
-        for (Module module : modules) {
-          if (module.isDisposed()) continue;
-
-          ModuleManager moduleManager = ModuleManager.getInstance(module.getProject());
-          String path = module.getModuleFilePath();
-          moduleManager.disposeModule(module);
-          File file = new File(path);
-          if (file.isFile()) {
-            boolean success = file.delete();
-            if (!success) {
-              LOG.warn("Can't remove module file at '" + path + "'");
-            }
-          }
-        }
-      }
-    });
-  }
-
-  public static void unlinkModuleFromExternalSystem(@NotNull Module module) {
-    module.clearOption(ExternalSystemConstants.EXTERNAL_SYSTEM_ID_KEY);
-    module.clearOption(ExternalSystemConstants.LINKED_PROJECT_PATH_KEY);
-    module.clearOption(ExternalSystemConstants.ROOT_PROJECT_PATH_KEY);
-  }
-
-  private class ImportModulesTask implements Runnable {
-
-    private final Project                          myProject;
-    private final Collection<DataNode<ModuleData>> myModules;
-    private final boolean                          mySynchronous;
-
-    ImportModulesTask(@NotNull Project project, @NotNull Collection<DataNode<ModuleData>> modules, boolean synchronous) {
-      myProject = project;
-      myModules = modules;
-      mySynchronous = synchronous;
-    }
-
-    @Override
-    public void run() {
-      myAlarm.cancelAllRequests();
-      if (!myProject.isInitialized()) {
-        myAlarm.addRequest(
-          new ImportModulesTask(myProject, myModules, mySynchronous),
-          PROJECT_INITIALISATION_DELAY_MS
-        );
-        return;
-      }
-
-      importData(myModules, myProject, mySynchronous);
-    }
-  }
-
-  private static void setModuleOptions(Module module, DataNode<ModuleData> moduleDataNode) {
-    ModuleData moduleData = moduleDataNode.getData();
-    module.putUserData(MODULE_DATA_KEY, moduleData);
-
-    module.setOption(ExternalSystemConstants.EXTERNAL_SYSTEM_ID_KEY, moduleData.getOwner().toString());
-    module.setOption(ExternalSystemConstants.LINKED_PROJECT_ID_KEY, moduleData.getId());
-    module.setOption(ExternalSystemConstants.LINKED_PROJECT_PATH_KEY, moduleData.getLinkedExternalProjectPath());
-    final ProjectData projectData = moduleDataNode.getData(ProjectKeys.PROJECT);
-    module.setOption(ExternalSystemConstants.ROOT_PROJECT_PATH_KEY, projectData != null ? projectData.getLinkedExternalProjectPath() : "");
-
-    if (moduleData.getGroup() != null) {
-      module.setOption(ExternalSystemConstants.EXTERNAL_SYSTEM_MODULE_GROUP_KEY, moduleData.getGroup());
-    }
-    if (moduleData.getVersion() != null) {
-      module.setOption(ExternalSystemConstants.EXTERNAL_SYSTEM_MODULE_VERSION_KEY, moduleData.getVersion());
-    }
-
-    // clear maven option
-    module.clearOption("org.jetbrains.idea.maven.project.MavenProjectsManager.isMavenModule");
   }
 }

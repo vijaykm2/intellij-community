@@ -20,7 +20,8 @@ import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.ui.DocumentAdapter;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -38,8 +39,8 @@ public class AddNamespaceDialog extends DialogWrapper {
     private JPanel myRoot;
     private JLabel myIcon;
 
-    private ComboBox myPrefix;
-    private ComboBox myURI;
+    private ComboBox<String> myPrefix;
+    private ComboBox<String> myURI;
 
     public AddNamespaceDialog(Project project, Set<String> unresolvedPrefixes, Collection<String> uriList, Mode mode) {
         super(project, false);
@@ -47,15 +48,16 @@ public class AddNamespaceDialog extends DialogWrapper {
         myIcon.setText(null);
         myIcon.setIcon(Messages.getQuestionIcon());
 
-        myURI.setModel(new DefaultComboBoxModel(ArrayUtil.toStringArray(uriList)));
+      myURI.setModel(new DefaultComboBoxModel<>(ArrayUtilRt.toStringArray(uriList)));
         myURI.setSelectedItem("");
         myURI.setEditable(mode == Mode.EDITABLE || mode == Mode.URI_EDITABLE);
         addUpdateListener(myURI);
 
-        myPrefix.setModel(new DefaultComboBoxModel(ArrayUtil.toStringArray(unresolvedPrefixes)));
+      myPrefix.setModel(new DefaultComboBoxModel<>(ArrayUtilRt.toStringArray(unresolvedPrefixes)));
         myPrefix.setEditable(mode == Mode.EDITABLE || mode == Mode.PREFIX_EDITABLE);
         if (unresolvedPrefixes.size() == 1) {
-            myPrefix.setSelectedItem(unresolvedPrefixes.iterator().next());
+            final String next = unresolvedPrefixes.iterator().next();  //NON-NLS
+            myPrefix.setSelectedItem(next);
         }
         addUpdateListener(myPrefix);
 
@@ -63,19 +65,21 @@ public class AddNamespaceDialog extends DialogWrapper {
         init();
     }
 
-    private void addUpdateListener(ComboBox comboBox) {
+    private void addUpdateListener(ComboBox<String> comboBox) {
         final ComboBoxEditor boxEditor = comboBox.getEditor();
         if (boxEditor != null) {
             final Component component = boxEditor.getEditorComponent();
             if (component instanceof JTextField) {
                 ((JTextField)component).getDocument().addDocumentListener(new DocumentAdapter() {
-                    protected void textChanged(DocumentEvent e) {
+                    @Override
+                    protected void textChanged(@NotNull DocumentEvent e) {
                         updateOkAction();
                     }
                 });
             }
         }
         comboBox.addItemListener(new ItemListener() {
+            @Override
             public void itemStateChanged(ItemEvent e) {
                 updateOkAction();
             }
@@ -86,6 +90,7 @@ public class AddNamespaceDialog extends DialogWrapper {
         getOKAction().setEnabled(getURI().length() > 0 && getPrefix().length() > 0);
     }
 
+    @Override
     protected JComponent createCenterPanel() {
         return myRoot;
     }

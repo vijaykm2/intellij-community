@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,12 +16,12 @@
 package com.siyeh.ig.abstraction;
 
 import com.intellij.codeInspection.LocalInspectionTool;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 
 /**
  * @author Bas Leijdekkers
  */
-public class BooleanParameterInspectionTest extends LightInspectionTestCase {
+public class BooleanParameterInspectionTest extends LightJavaInspectionTestCase {
 
   public void testSimple() {
     doTest("class X {" +
@@ -35,6 +35,23 @@ public class BooleanParameterInspectionTest extends LightInspectionTestCase {
   public void testConstructor() {
     doTest("class X {" +
            "  public /*'public' constructor 'X()' with 'boolean' parameter*/X/**/(boolean x) {}" +
+           "}");
+  }
+
+  public void testSetter() {
+    doTest("class X {" +
+           "  public void setMyProperty(final boolean myProperty) {}" +
+           "}");
+  }
+
+  public void testVarargs() {
+    doTest("class Y {" +
+           "    public Y(boolean... b) {}" +
+           "}" +
+           "class X extends Y {" +
+           "    public /*'public' constructor 'X()' with 'boolean' parameter*/X/**/(boolean b) {" +
+           "        super(true, b);" +
+           "    }" +
            "}");
   }
 

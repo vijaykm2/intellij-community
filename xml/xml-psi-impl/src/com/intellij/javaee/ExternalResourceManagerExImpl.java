@@ -1,46 +1,35 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.javaee;
 
 import com.intellij.application.options.PathMacrosImpl;
 import com.intellij.application.options.ReplacePathToMacroMap;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.*;
+import com.intellij.openapi.components.ExpandMacroToPathMap;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.ClearableLazyValue;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.Strings;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.xml.XmlFile;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.xml.Html5SchemaProvider;
 import com.intellij.xml.XmlSchemaProvider;
 import com.intellij.xml.index.XmlNamespaceIndex;
 import com.intellij.xml.util.XmlUtil;
-import gnu.trove.THashMap;
-import gnu.trove.THashSet;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -51,58 +40,47 @@ import java.io.File;
 import java.net.URL;
 import java.util.*;
 
-@State(
-  name = "ExternalResourceManagerImpl",
-  storages = {@Storage(file = StoragePathMacros.APP_CONFIG + "/other.xml")}
-)
+@State(name = "ExternalResourceManagerImpl", storages = @Storage("javaeeExternalResources.xml"))
 public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx implements PersistentStateComponent<Element> {
-  static final Logger LOG = Logger.getInstance(ExternalResourceManagerExImpl.class);
+  private static final Logger LOG = Logger.getInstance(ExternalResourceManagerExImpl.class);
 
   @NonNls public static final String J2EE_1_3 = "http://java.sun.com/dtd/";
   @NonNls public static final String J2EE_1_2 = "http://java.sun.com/j2ee/dtds/";
   @NonNls public static final String J2EE_NS = "http://java.sun.com/xml/ns/j2ee/";
   @NonNls public static final String JAVAEE_NS = "http://java.sun.com/xml/ns/javaee/";
+  @NonNls public static final String JCP_NS = "http://xmlns.jcp.org/xml/ns/javaee/";
+  @NonNls public static final String JAKARTA_NS = "https://jakarta.ee/xml/ns/jakartaee/";
 
   private static final String CATALOG_PROPERTIES_ELEMENT = "CATALOG_PROPERTIES";
   private static final String XSD_1_1 = new Resource("/standardSchemas/XMLSchema-1_1/XMLSchema.xsd", ExternalResourceManagerExImpl.class, null).getResourceUrl();
 
-  private final Map<String, Map<String, String>> myResources = new THashMap<String, Map<String, String>>();
-  private final Set<String> myResourceLocations = new THashSet<String>();
+  private final Map<String, Map<String, String>> myResources = new HashMap<>();
+  private final Set<String> myResourceLocations = new HashSet<>();
 
-  private final Set<String> myIgnoredResources = new TreeSet<String>();
-  private final Set<String> myStandardIgnoredResources = new TreeSet<String>();
+  private final Set<String> myIgnoredResources = Collections.synchronizedSet(new TreeSet<>());
+  private final Set<String> myStandardIgnoredResources = Collections.synchronizedSet(new TreeSet<>());
 
-  private final NotNullLazyValue<Map<String, Map<String, Resource>>> myStandardResources = new AtomicNotNullLazyValue<Map<String, Map<String, Resource>>>() {
-    @NotNull
-    @Override
-    protected Map<String, Map<String, Resource>> compute() {
-      return computeStdResources();
-    }
-  };
+  private final ClearableLazyValue<Map<String, Map<String, Resource>>> myStandardResources = ClearableLazyValue.create(() -> computeStdResources());
 
-  private final CachedValueProvider<MultiMap<String, String>> myUrlByNamespaceProvider = new CachedValueProvider<MultiMap<String, String>>() {
-    @Nullable
-    @Override
-    public CachedValueProvider.Result<MultiMap<String, String>> compute() {
-      MultiMap<String, String> result = new MultiMap<String, String>();
+  private final CachedValueProvider<MultiMap<String, String>> myUrlByNamespaceProvider = () -> {
+    MultiMap<String, String> result = new MultiMap<>();
 
-      Collection<Map<String, Resource>> values = myStandardResources.getValue().values();
-      for (Map<String, Resource> map : values) {
-        for (Map.Entry<String, Resource> entry : map.entrySet()) {
-          String url = entry.getValue().getResourceUrl();
-          if (url != null) {
-            VirtualFile file = VfsUtilCore.findRelativeFile(url, null);
-            if (file != null) {
-              String namespace = XmlNamespaceIndex.computeNamespace(file);
-              if (namespace != null) {
-                result.putValue(namespace, entry.getKey());
-              }
+    Collection<Map<String, Resource>> values = myStandardResources.getValue().values();
+    for (Map<String, Resource> map : values) {
+      for (Map.Entry<String, Resource> entry : map.entrySet()) {
+        String url = entry.getValue().getResourceUrl();
+        if (url != null) {
+          VirtualFile file = VfsUtilCore.findRelativeFile(url, null);
+          if (file != null) {
+            String namespace = XmlNamespaceIndex.computeNamespace(file);
+            if (namespace != null) {
+              result.putValue(namespace, entry.getKey());
             }
           }
         }
       }
-      return CachedValueProvider.Result.create(result, ExternalResourceManagerExImpl.this);
     }
+    return CachedValueProvider.Result.create(result, this);
   };
 
   private String myDefaultHtmlDoctype = HTML5_DOCTYPE_ELEMENT;
@@ -114,18 +92,18 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
 
   protected Map<String, Map<String, Resource>> computeStdResources() {
     ResourceRegistrarImpl registrar = new ResourceRegistrarImpl();
-    for (StandardResourceProvider provider : StandardResourceProvider.EP_NAME.getExtensions()) {
+    for (StandardResourceProvider provider : StandardResourceProvider.EP_NAME.getIterable()) {
       provider.registerResources(registrar);
     }
-    for (StandardResourceEP extension : StandardResourceEP.EP_NAME.getExtensions()) {
+    for (StandardResourceEP extension : StandardResourceEP.EP_NAME.getIterable()) {
       registrar.addStdResource(extension.url, extension.version, extension.resourcePath, null, extension.getLoaderForClass());
     }
 
+    myStandardIgnoredResources.clear();
     myStandardIgnoredResources.addAll(registrar.getIgnored());
     return registrar.getResources();
   }
 
-  private final List<ExternalResourceListener> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   @NonNls private static final String RESOURCE_ELEMENT = "resource";
   @NonNls private static final String URL_ATTR = "url";
   @NonNls private static final String LOCATION_ATTR = "location";
@@ -134,6 +112,16 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
   @NonNls private static final String XML_SCHEMA_VERSION = "xml-schema-version";
 
   private static final String DEFAULT_VERSION = "";
+
+  public ExternalResourceManagerExImpl() {
+    StandardResourceProvider.EP_NAME.addChangeListener(this::dropCache, null);
+    StandardResourceEP.EP_NAME.addChangeListener(this::dropCache, null);
+  }
+
+  private void dropCache() {
+    myStandardResources.drop();
+    incModificationCount();
+  }
 
   @Override
   public boolean isStandardResource(VirtualFile file) {
@@ -146,20 +134,15 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
     return myResourceLocations.contains(file.getUrl());
   }
 
-  @Nullable
-  static <T> Map<String, T> getMap(@NotNull Map<String, Map<String, T>> resources, @Nullable String version, boolean create) {
-    version = StringUtil.notNullize(version, DEFAULT_VERSION);
+  private static @Nullable <T> Map<String, T> getMap(@NotNull Map<String, Map<String, T>> resources, @Nullable String version) {
+    version = Strings.notNullize(version, DEFAULT_VERSION);
     Map<String, T> map = resources.get(version);
-    if (map == null) {
-      if (create) {
-        map = new THashMap<String, T>();
-        resources.put(version, map);
-      }
-      else if (!version.equals(DEFAULT_VERSION)) {
-        map = resources.get(DEFAULT_VERSION);
-      }
-    }
-    return map;
+    return map == null && !version.equals(DEFAULT_VERSION) ? resources.get(DEFAULT_VERSION) : map;
+  }
+
+  static <T> @NotNull Map<String, T> getOrCreateMap(@NotNull Map<String, Map<String, T>> resources, @Nullable String version) {
+    version = Strings.notNullize(version, DEFAULT_VERSION);
+    return resources.computeIfAbsent(version, __ -> new HashMap<>());
   }
 
   @Override
@@ -169,7 +152,7 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
 
   @Override
   public String getResourceLocation(@NotNull @NonNls String url, @Nullable String version) {
-    String result = getUserResource(url, StringUtil.notNullize(version, DEFAULT_VERSION));
+    String result = getUserResource(url, Strings.notNullize(version, DEFAULT_VERSION));
     if (result == null) {
       XMLCatalogManager manager = getCatalogManager();
       if (manager != null) {
@@ -196,7 +179,7 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
   @Override
   @Nullable
   public String getStdResource(@NotNull String url, @Nullable String version) {
-    Map<String, Resource> map = getMap(myStandardResources.getValue(), version, false);
+    Map<String, Resource> map = getMap(myStandardResources.getValue(), version);
     if (map != null) {
       Resource resource = map.get(url);
       return resource == null ? null : resource.getResourceUrl();
@@ -208,7 +191,7 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
 
   @Nullable
   private String getUserResource(@NotNull String url, @Nullable String version) {
-    Map<String, String> map = getMap(myResources, version, false);
+    Map<String, String> map = getMap(myResources, version);
     return map != null ? map.get(url) : null;
   }
 
@@ -250,44 +233,23 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
 
   @Override
   public String[] getResourceUrls(@Nullable FileType fileType, @Nullable @NonNls String version, boolean includeStandard) {
-    List<String> result = new LinkedList<String>();
+    List<String> result = new LinkedList<>();
     addResourcesFromMap(result, version, myResources);
 
     if (includeStandard) {
       addResourcesFromMap(result, version, myStandardResources.getValue());
     }
 
-    return ArrayUtil.toStringArray(result);
+    return ArrayUtilRt.toStringArray(result);
   }
 
-  private static <T> void addResourcesFromMap(@NotNull List<String> result, @Nullable String version, @NotNull Map<String, Map<String, T>> resourcesMap) {
-    Map<String, T> resources = getMap(resourcesMap, version, false);
+  private static <T> void addResourcesFromMap(@NotNull List<? super String> result, @Nullable String version, @NotNull Map<String, Map<String, T>> resourcesMap) {
+    Map<String, T> resources = getMap(resourcesMap, version);
     if (resources != null) {
       result.addAll(resources.keySet());
     }
   }
 
-  @TestOnly
-  public static void addTestResource(final String url, final String location, Disposable parentDisposable) {
-    final ExternalResourceManagerExImpl instance = (ExternalResourceManagerExImpl)getInstance();
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      @Override
-      public void run() {
-        instance.addResource(url, location);
-      }
-    });
-    Disposer.register(parentDisposable, new Disposable() {
-      @Override
-      public void dispose() {
-        ApplicationManager.getApplication().runWriteAction(new Runnable() {
-          @Override
-          public void run() {
-            instance.removeResource(url);
-          }
-        });
-      }
-    });
-  }
   @Override
   public void addResource(@NotNull String url, String location) {
     addResource(url, DEFAULT_VERSION, location);
@@ -301,9 +263,7 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
   }
 
   private void addSilently(@NotNull String url, @Nullable String version, String location) {
-    Map<String, String> map = getMap(myResources, version, true);
-    assert map != null;
-    map.put(url, location);
+    getOrCreateMap(myResources, version).put(url, location);
     myResourceLocations.add(location);
     incModificationCount();
   }
@@ -316,7 +276,7 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
   @Override
   public void removeResource(@NotNull String url, @Nullable String version) {
     ApplicationManager.getApplication().assertWriteAccessAllowed();
-    Map<String, String> map = getMap(myResources, version, false);
+    Map<String, String> map = getMap(myResources, version);
     if (map != null) {
       String location = map.remove(url);
       if (location != null) {
@@ -339,11 +299,11 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
 
   @Override
   public String[] getAvailableUrls() {
-    Set<String> urls = new THashSet<String>();
+    Set<String> urls = new HashSet<>();
     for (Map<String, String> map : myResources.values()) {
       urls.addAll(map.keySet());
     }
-    return ArrayUtil.toStringArray(urls);
+    return ArrayUtilRt.toStringArray(urls);
   }
 
   @Override
@@ -374,6 +334,46 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
     }
   }
 
+  @Override
+  public void addIgnoredResources(@NotNull List<String> urls, @Nullable Disposable disposable) {
+    Application app = ApplicationManager.getApplication();
+    if (app.isWriteAccessAllowed()) {
+      doAddIgnoredResources(urls, disposable);
+    }
+    else {
+      app.runWriteAction(() -> doAddIgnoredResources(urls, disposable));
+    }
+  }
+
+  private void doAddIgnoredResources(@NotNull List<String> urls, @Nullable Disposable disposable) {
+    long modificationCount = getModificationCount();
+    for (String url : urls) {
+      addIgnoredSilently(url);
+    }
+
+    if (modificationCount != getModificationCount()) {
+      if (disposable != null) {
+        //noinspection CodeBlock2Expr
+        Disposer.register(disposable, () -> {
+          ApplicationManager.getApplication().runWriteAction(() -> {
+            boolean isChanged = false;
+            for (String url : urls) {
+              if (myIgnoredResources.remove(url)) {
+                isChanged = true;
+              }
+            }
+
+            if (isChanged) {
+              fireExternalResourceChanged();
+            }
+          });
+        });
+      }
+
+      fireExternalResourceChanged();
+    }
+  }
+
   private boolean addIgnoredSilently(@NotNull String url) {
     if (myStandardIgnoredResources.contains(url)) {
       return false;
@@ -389,15 +389,6 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
   }
 
   @Override
-  public void removeIgnoredResource(@NotNull String url) {
-    ApplicationManager.getApplication().assertWriteAccessAllowed();
-    if (myIgnoredResources.remove(url)) {
-      incModificationCount();
-      fireExternalResourceChanged();
-    }
-  }
-
-  @Override
   public boolean isIgnoredResource(@NotNull String url) {
     if (myIgnoredResources.contains(url)) {
       return true;
@@ -409,7 +400,7 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
   }
 
   private static boolean isImplicitNamespaceDescriptor(@NotNull String url) {
-    for (ImplicitNamespaceDescriptorProvider provider : ImplicitNamespaceDescriptorProvider.EP_NAME.getExtensions()) {
+    for (ImplicitNamespaceDescriptorProvider provider : ImplicitNamespaceDescriptorProvider.EP_NAME.getExtensionList()) {
       if (provider.getNamespaceDescriptor(null, url, null) != null) {
         return true;
       }
@@ -423,13 +414,13 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
     myStandardResources.getValue();
 
     if (myIgnoredResources.isEmpty()) {
-      return ArrayUtil.toStringArray(myStandardIgnoredResources);
+      return ArrayUtilRt.toStringArray(myStandardIgnoredResources);
     }
 
-    Set<String> set = new THashSet<String>(myIgnoredResources.size() + myStandardIgnoredResources.size());
+    Set<String> set = new HashSet<>(myIgnoredResources.size() + myStandardIgnoredResources.size());
     set.addAll(myIgnoredResources);
     set.addAll(myStandardIgnoredResources);
-    return ArrayUtil.toStringArray(set);
+    return ArrayUtilRt.toStringArray(set);
   }
 
   @Override
@@ -442,7 +433,7 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
   public Element getState() {
     Element element = new Element("state");
 
-    Set<String> urls = new TreeSet<String>();
+    Set<String> urls = new TreeSet<>();
     for (Map<String, String> map : myResources.values()) {
       urls.addAll(map.keySet());
     }
@@ -493,7 +484,7 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
   }
 
   @Override
-  public void loadState(Element state) {
+  public void loadState(@NotNull Element state) {
     ExpandMacroToPathMap macroExpands = new ExpandMacroToPathMap();
     PathMacrosImpl.getInstanceEx().addMacroExpands(macroExpands);
     macroExpands.substitute(state, SystemInfo.isFileSystemCaseSensitive);
@@ -501,8 +492,8 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
     incModificationCount();
     for (Element element : state.getChildren(RESOURCE_ELEMENT)) {
       String url = element.getAttributeValue(URL_ATTR);
-      if (!StringUtil.isEmpty(url)) {
-        addSilently(url, DEFAULT_VERSION, element.getAttributeValue(LOCATION_ATTR).replace('/', File.separatorChar));
+      if (!Strings.isEmpty(url)) {
+        addSilently(url, DEFAULT_VERSION, Objects.requireNonNull(element.getAttributeValue(LOCATION_ATTR)).replace('/', File.separatorChar));
       }
     }
 
@@ -530,31 +521,17 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
     }
   }
 
-  @Override
-  public void addExternalResourceListener(ExternalResourceListener listener) {
-    myListeners.add(listener);
-  }
-
-  @Override
-  public void removeExternalResourceListener(ExternalResourceListener listener) {
-    myListeners.remove(listener);
-  }
-
   private void fireExternalResourceChanged() {
-    for (ExternalResourceListener listener : myListeners) {
-      listener.externalResourceChanged();
-    }
+    ApplicationManager.getApplication().getMessageBus().syncPublisher(ExternalResourceListener.TOPIC).externalResourceChanged();
     incModificationCount();
   }
 
-  Collection<Map<String, Resource>> getStandardResources() {
+  final @NotNull Collection<Map<String, Resource>> getStandardResources() {
     return myStandardResources.getValue().values();
   }
 
-  private static final NotNullLazyKey<ExternalResourceManagerExImpl, Project> INSTANCE_CACHE = ServiceManager.createLazyKey(ExternalResourceManagerExImpl.class);
-
-  private static ExternalResourceManagerExImpl getProjectResources(Project project) {
-    return INSTANCE_CACHE.getValue(project);
+  private static ExternalResourceManagerExImpl getProjectResources(@NotNull Project project) {
+    return project.getService(ExternalResourceManagerExImpl.class);
   }
 
   @Override
@@ -627,27 +604,12 @@ public class ExternalResourceManagerExImpl extends ExternalResourceManagerEx imp
 
   @TestOnly
   public static void registerResourceTemporarily(final String url, final String location, Disposable disposable) {
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      @Override
-      public void run() {
-        getInstance().addResource(url, location);
-      }
-    });
-
-    Disposer.register(disposable, new Disposable() {
-      @Override
-      public void dispose() {
-        ApplicationManager.getApplication().runWriteAction(new Runnable() {
-          @Override
-          public void run() {
-            getInstance().removeResource(url);
-          }
-        });
-      }
-    });
+    Application app = ApplicationManager.getApplication();
+    app.runWriteAction(() -> getInstance().addResource(url, location));
+    Disposer.register(disposable, () -> app.runWriteAction(() -> getInstance().removeResource(url)));
   }
 
-  static class Resource {
+  static final class Resource {
     private final String myFile;
     private final ClassLoader myClassLoader;
     private final Class myClass;

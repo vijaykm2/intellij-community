@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.shell;
 
 import com.intellij.execution.console.LanguageConsoleImpl;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiType;
 import com.intellij.testFramework.LightVirtualFile;
@@ -37,57 +22,55 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefini
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
 import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.GrTopStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.imports.GrImportStatement;
-import org.jetbrains.plugins.groovy.lang.psi.api.types.GrCodeReferenceElement;
 
 public class GroovyShellLanguageConsoleView extends LanguageConsoleImpl {
 
   public GroovyShellLanguageConsoleView(Project project, String name) {
-    super(project, name, GroovyLanguage.INSTANCE);
-  }
-
-  @NotNull
-  @Override
-  protected PsiFile createFile(@NotNull Project project,
-                               @NotNull VirtualFile virtualFile) {
-    return new GroovyShellCodeFragment(project, (LightVirtualFile)virtualFile);
+    super(new Helper(project, new LightVirtualFile(name, GroovyLanguage.INSTANCE, "")) {
+      @NotNull
+      @Override
+      public PsiFile getFile() {
+        return new GroovyShellCodeFragment(project, (LightVirtualFile)virtualFile);
+      }
+    });
   }
 
   protected void processCode() {
-    for (GrTopStatement statement : getFile().getTopStatements()) {
+    GroovyShellCodeFragment groovyFile = getGroovyFile();
+    for (GrTopStatement statement : groovyFile.getTopStatements()) {
       if (statement instanceof GrImportStatement) {
-        getFile().addImportsFromString(importToString((GrImportStatement)statement));
+        groovyFile.addImportsFromString(importToString((GrImportStatement)statement));
       }
       else if (statement instanceof GrMethod) {
-        getFile().addVariable(((GrMethod)statement).getName(), generateClosure((GrMethod)statement));
+        groovyFile.addVariable(((GrMethod)statement).getName(), generateClosure((GrMethod)statement));
       }
       else if (statement instanceof GrAssignmentExpression) {
         GrAssignmentExpression assignment = (GrAssignmentExpression)statement;
         GrExpression left = assignment.getLValue();
         if (left instanceof GrReferenceExpression && !((GrReferenceExpression)left).isQualified()) {
-          getFile().addVariable(((GrReferenceExpression)left).getReferenceName(), assignment.getRValue());
+          groovyFile.addVariable(((GrReferenceExpression)left).getReferenceName(), assignment.getRValue());
         }
       }
       else if (statement instanceof GrTypeDefinition) {
-        getFile().addTypeDefinition(prepareTypeDefinition((GrTypeDefinition)statement));
+        groovyFile.addTypeDefinition(prepareTypeDefinition((GrTypeDefinition)statement));
       }
     }
 
-    PsiType scriptType = getFile().getInferredScriptReturnType();
+    PsiType scriptType = groovyFile.getInferredScriptReturnType();
     if (scriptType != null) {
-      getFile().addVariable("_", scriptType);
+      groovyFile.addVariable("_", scriptType);
     }
   }
 
-  @Override
   @NotNull
-  public GroovyShellCodeFragment getFile() {
-    return (GroovyShellCodeFragment)myFile;
+  public GroovyShellCodeFragment getGroovyFile() {
+    return (GroovyShellCodeFragment)getFile();
   }
 
   @NotNull
   private GrTypeDefinition prepareTypeDefinition(@NotNull GrTypeDefinition typeDefinition) {
     GroovyPsiElementFactory factory = GroovyPsiElementFactory.getInstance(getProject());
-    GroovyFile file = factory.createGroovyFile("", false, myFile);
+    GroovyFile file = factory.createGroovyFile("", false, getFile());
     return (GrTypeDefinition)file.add(typeDefinition);
   }
 
@@ -105,17 +88,15 @@ public class GroovyShellLanguageConsoleView extends LanguageConsoleImpl {
     if (parameters.length > 0) buffer.delete(buffer.length() - 1, buffer.length());
     buffer.append("->}");
 
-    return factory.createClosureFromText(buffer.toString(), myFile);
+    return factory.createClosureFromText(buffer.toString(), getFile());
   }
 
   @Nullable
   private static String importToString(@NotNull GrImportStatement anImport) {
-    StringBuilder buffer = new StringBuilder();
+    String qname = anImport.getImportFqn();
+    if (qname == null) return null;
 
-    GrCodeReferenceElement reference = anImport.getImportReference();
-    if (reference == null) return null;
-    String qname = reference.getClassNameText();
-    buffer.append(qname);
+    StringBuilder buffer = new StringBuilder(qname);
     if (!anImport.isOnDemand()) {
       String importedName = anImport.getImportedName();
       buffer.append(":").append(importedName);
@@ -151,14 +132,14 @@ public class GroovyShellLanguageConsoleView extends LanguageConsoleImpl {
   }
 
   private void clearVariables() {
-    getFile().clearVariables();
+    getGroovyFile().clearVariables();
   }
 
   private void clearClasses() {
-    getFile().clearClasses();
+    getGroovyFile().clearClasses();
   }
 
   private void clearImports() {
-    getFile().clearImports();
+    getGroovyFile().clearImports();
   }
 }

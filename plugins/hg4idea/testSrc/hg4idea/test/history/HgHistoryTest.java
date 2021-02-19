@@ -15,14 +15,16 @@
  */
 package hg4idea.test.history;
 
-import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.vcsUtil.VcsUtil;
 import hg4idea.test.HgPlatformTest;
 import org.zmlx.hg4idea.HgFile;
 import org.zmlx.hg4idea.HgFileRevision;
 import org.zmlx.hg4idea.command.HgLogCommand;
 import org.zmlx.hg4idea.execution.HgCommandException;
+import org.zmlx.hg4idea.provider.HgHistoryProvider;
 import org.zmlx.hg4idea.util.HgUtil;
 
 import java.io.File;
@@ -31,19 +33,15 @@ import java.util.List;
 import static com.intellij.openapi.vcs.Executor.*;
 import static hg4idea.test.HgExecutor.hg;
 
-/**
- * @author Nadya Zabrodina
- */
 public class HgHistoryTest extends HgPlatformTest {
   static final String[] names = {"f1.txt", "f2.txt", "f3.txt"};
   static final String subDirName = "sub";
 
   @Override
-  protected void setUp() throws Exception {
+  public void setUp() throws Exception {
     super.setUp();
     cd(myRepository);
-    File hgrc = new File(new File(myRepository.getPath(), ".hg"), "hgrc");
-    FileUtil.appendToFile(hgrc, "[extensions]\n" +
+    appendToHgrc(myRepository, "[extensions]\n" +
                                 "largefiles=!\n");
     mkdir(subDirName);
     cd(subDirName);
@@ -58,6 +56,7 @@ public class HgHistoryTest extends HgPlatformTest {
       echo(names[i], "f" + i);
       hg("commit -m a ");
     }
+    changeListManager.ensureUpToDate();
   }
 
   public void testFileNameInTargetRevisionAfterRename() throws HgCommandException {
@@ -65,7 +64,7 @@ public class HgHistoryTest extends HgPlatformTest {
     int namesSize = names.length;
     VirtualFile subDir = myRepository.findFileByRelativePath(subDirName);
     assert subDir != null;
-    VirtualFile vFile = subDir.findFileByRelativePath(names[namesSize - 1]);
+    VirtualFile vFile = VfsUtil.findFileByIoFile(new File(subDir.getPath(),names[namesSize - 1]), true);
     assert vFile != null;
     HgFile hgFile = new HgFile(myRepository, VfsUtilCore.virtualToIoFile(vFile));
     HgLogCommand logCommand = new HgLogCommand(myProject);
@@ -88,7 +87,7 @@ public class HgHistoryTest extends HgPlatformTest {
     //find file with parent revision name
     VirtualFile subDir = myRepository.findFileByRelativePath(subDirName);
     assert subDir != null;
-    VirtualFile vFile = subDir.findFileByRelativePath(names[namesSize - 1]);
+    VirtualFile vFile = VfsUtil.findFileByIoFile(new File(subDir.getPath(),names[namesSize - 1]), true);
     assert vFile != null;
     HgFile hgFile = new HgFile(myRepository, VfsUtilCore.virtualToIoFile(vFile));
     HgLogCommand logCommand = new HgLogCommand(myProject);
@@ -107,9 +106,9 @@ public class HgHistoryTest extends HgPlatformTest {
     int namesSize = names.length;
     VirtualFile subDir = myRepository.findFileByRelativePath(subDirName);
     assert subDir != null;
-    VirtualFile currentVirtualFile = subDir.findFileByRelativePath(names[namesSize - 1]);
-    assert currentVirtualFile != null;
-    HgFile localFile = new HgFile(myRepository, VfsUtilCore.virtualToIoFile(currentVirtualFile));
+    VirtualFile vFile = VfsUtil.findFileByIoFile(new File(subDir.getPath(), names[namesSize - 1]), true);
+    assert vFile != null;
+    HgFile localFile = new HgFile(myRepository, VfsUtilCore.virtualToIoFile(vFile));
     HgLogCommand logCommand = new HgLogCommand(myProject);
     logCommand.setFollowCopies(true);
     List<HgFileRevision> revisions = logCommand.execute(localFile, -1, true);
@@ -119,5 +118,24 @@ public class HgHistoryTest extends HgPlatformTest {
       assertEquals(hgFile.getRelativePath(),
                    targetFileName.getRelativePath());
     }
+  }
+
+  public void testUncommittedRenamedFileHistory() {
+    cd(myRepository);
+    VirtualFile subDir = myRepository.findFileByRelativePath(subDirName);
+    assert subDir != null;
+    cd(subDir);
+    int namesSize = names.length;
+    String beforeName = names[namesSize - 1];
+    VirtualFile before = VfsUtil.findFileByIoFile(new File(subDir.getPath(), beforeName), true);
+    assert before != null;
+    final String renamed = "renamed";
+    hg("mv " + beforeName + " " + renamed);
+    myRepository.refresh(false, true);
+    VirtualFile renamedFile = VfsUtil.findFileByIoFile(new File(subDir.getPath(), renamed), true);
+    assert renamedFile != null;
+    changeListManager.ensureUpToDate();
+    List<HgFileRevision> revisions = HgHistoryProvider.getHistory(VcsUtil.getFilePath(renamedFile), myRepository, myProject);
+    assertEquals(3, revisions.size());
   }
 }

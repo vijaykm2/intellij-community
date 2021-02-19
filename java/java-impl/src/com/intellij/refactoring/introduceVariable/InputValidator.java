@@ -15,54 +15,46 @@
  */
 package com.intellij.refactoring.introduceVariable;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiExpression;
 import com.intellij.psi.PsiVariable;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.rename.JavaUnresolvableLocalCollisionDetector;
 import com.intellij.refactoring.util.RefactoringUIUtil;
 import com.intellij.refactoring.util.occurrences.ExpressionOccurrenceManager;
-import com.intellij.util.containers.HashSet;
 import com.intellij.util.containers.MultiMap;
+
+import java.util.HashSet;
 
 public class InputValidator implements IntroduceVariableBase.Validator {
   private final Project myProject;
-  private final PsiElement myAnchorStatementIfAll;
-  private final PsiElement myAnchorStatement;
   private final ExpressionOccurrenceManager myOccurenceManager;
   private final IntroduceVariableBase myIntroduceVariableBase;
 
+  @Override
   public boolean isOK(IntroduceVariableSettings settings) {
     String name = settings.getEnteredName();
-    final PsiElement anchor;
-    final boolean replaceAllOccurrences = settings.isReplaceAllOccurrences();
-    if (replaceAllOccurrences) {
-      anchor = myAnchorStatementIfAll;
-    } else {
-      anchor = myAnchorStatement;
-    }
+    PsiExpression[] occurrences = settings.getReplaceChoice().filter(myOccurenceManager);
+    final PsiElement anchor = IntroduceVariableBase.getAnchor(occurrences);
+    if (anchor == null) return true;
     final PsiElement scope = anchor.getParent();
     if(scope == null) return true;
-    final MultiMap<PsiElement, String> conflicts = new MultiMap<PsiElement, String>();
-    final HashSet<PsiVariable> reportedVariables = new HashSet<PsiVariable>();
+    final MultiMap<PsiElement, String> conflicts = new MultiMap<>();
+    final HashSet<PsiVariable> reportedVariables = new HashSet<>();
     JavaUnresolvableLocalCollisionDetector.CollidingVariableVisitor visitor = new JavaUnresolvableLocalCollisionDetector.CollidingVariableVisitor() {
+      @Override
       public void visitCollidingElement(PsiVariable collidingVariable) {
         if (!reportedVariables.contains(collidingVariable)) {
           reportedVariables.add(collidingVariable);
-          String message = RefactoringBundle.message("introduced.variable.will.conflict.with.0", RefactoringUIUtil.getDescription(collidingVariable, true));
+          String message = JavaRefactoringBundle.message("introduced.variable.will.conflict.with.0", RefactoringUIUtil.getDescription(collidingVariable, true));
           conflicts.putValue(collidingVariable, message);
         }
       }
     };
     JavaUnresolvableLocalCollisionDetector.visitLocalsCollisions(anchor, name, scope, anchor, visitor);
-    if (replaceAllOccurrences) {
-      final PsiExpression[] occurences = myOccurenceManager.getOccurrences();
-      for (PsiExpression occurence : occurences) {
-        IntroduceVariableBase.checkInLoopCondition(occurence, conflicts);
-      }
-    } else {
-      IntroduceVariableBase.checkInLoopCondition(myOccurenceManager.getMainOccurence(), conflicts);
+    for (PsiExpression occurence : occurrences) {
+      IntroduceVariableBase.checkInLoopCondition(occurence, conflicts);
     }
 
     if (conflicts.size() > 0) {
@@ -75,13 +67,9 @@ public class InputValidator implements IntroduceVariableBase.Validator {
 
   public InputValidator(final IntroduceVariableBase introduceVariableBase,
                         Project project,
-                        PsiElement anchorStatementIfAll,
-                        PsiElement anchorStatement,
                         ExpressionOccurrenceManager occurenceManager) {
     myIntroduceVariableBase = introduceVariableBase;
     myProject = project;
-    myAnchorStatementIfAll = anchorStatementIfAll;
-    myAnchorStatement = anchorStatement;
     myOccurenceManager = occurenceManager;
   }
 }

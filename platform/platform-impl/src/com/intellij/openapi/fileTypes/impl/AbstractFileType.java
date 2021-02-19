@@ -1,53 +1,38 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileTypes.impl;
 
-import com.intellij.ide.highlighter.FileTypeRegistrator;
+import com.intellij.ide.highlighter.FileTypeRegistrar;
 import com.intellij.ide.highlighter.custom.SyntaxTable;
 import com.intellij.ide.highlighter.custom.impl.CustomFileTypeEditor;
 import com.intellij.lang.Commenter;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileTypes.*;
 import com.intellij.openapi.fileTypes.ex.ExternalizableFileType;
-import com.intellij.openapi.options.ExternalInfo;
 import com.intellij.openapi.options.ExternalizableScheme;
 import com.intellij.openapi.options.SettingsEditor;
-import com.intellij.openapi.util.*;
-import com.intellij.util.ArrayUtil;
+import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.InvalidDataException;
+import com.intellij.openapi.util.Pair;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.SmartList;
 import com.intellij.util.text.StringTokenizer;
 import org.jdom.Element;
-import org.jdom.output.XMLOutputter;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
 public class AbstractFileType extends UserFileType<AbstractFileType> implements ExternalizableFileType, ExternalizableScheme,
-                                                                                CustomSyntaxTableFileType {
+                                                                                CustomSyntaxTableFileType, PlainTextLikeFileType {
   private static final String SEMICOLON = ";";
-  protected SyntaxTable mySyntaxTable;
+  @NotNull
+  private SyntaxTable mySyntaxTable;
   private SyntaxTable myDefaultSyntaxTable;
-  protected Commenter myCommenter = null;
-  @NonNls public static final String ELEMENT_HIGHLIGHTING = "highlighting";
+  private Commenter myCommenter;
+  @NonNls static final String ELEMENT_HIGHLIGHTING = "highlighting";
   @NonNls private static final String ELEMENT_OPTIONS = "options";
   @NonNls private static final String ELEMENT_OPTION = "option";
   @NonNls private static final String ATTRIBUTE_VALUE = "value";
@@ -68,21 +53,19 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
   @NonNls private static final String ELEMENT_KEYWORDS3 = "keywords3";
   @NonNls private static final String ELEMENT_KEYWORDS4 = "keywords4";
   @NonNls private static final String ATTRIBUTE_NAME = "name";
-  @NonNls public static final String ELEMENT_EXTENSION_MAP = "extensionMap";
-  private final ExternalInfo myExternalInfo = new ExternalInfo();
 
-  public AbstractFileType(SyntaxTable syntaxTable) {
+  public AbstractFileType(@NotNull SyntaxTable syntaxTable) {
     mySyntaxTable = syntaxTable;
   }
 
-  public void initSupport() {
-    for (FileTypeRegistrator registrator : Extensions.getRootArea().getExtensionPoint(FileTypeRegistrator.EP_NAME).getExtensions()) {
-      registrator.initFileType(this);
+  void initSupport() {
+    for (FileTypeRegistrar registrar : FileTypeRegistrar.EP_NAME.getExtensions()) {
+      registrar.initFileType(this);
     }
   }
 
   @Override
-  public SyntaxTable getSyntaxTable() {
+  public @NotNull SyntaxTable getSyntaxTable() {
     return mySyntaxTable;
   }
 
@@ -90,7 +73,7 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
     return myCommenter;
   }
 
-  public void setSyntaxTable(SyntaxTable syntaxTable) {
+  public void setSyntaxTable(@NotNull SyntaxTable syntaxTable) {
     mySyntaxTable = syntaxTable;
   }
 
@@ -100,11 +83,11 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
   }
 
   @Override
-  public void copyFrom(UserFileType newType) {
+  public void copyFrom(@NotNull UserFileType<AbstractFileType> newType) {
     super.copyFrom(newType);
+
     if (newType instanceof AbstractFileType) {
       mySyntaxTable = ((CustomSyntaxTableFileType)newType).getSyntaxTable();
-      myExternalInfo.copy(((AbstractFileType)newType).myExternalInfo);
     }
   }
 
@@ -122,13 +105,12 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
   }
 
   @NotNull
-  public static SyntaxTable readSyntaxTable(@NotNull Element root) {
+  static SyntaxTable readSyntaxTable(@NotNull Element root) {
     SyntaxTable table = new SyntaxTable();
 
     for (Element element : root.getChildren()) {
       if (ELEMENT_OPTIONS.equals(element.getName())) {
-        for (final Object o1 : element.getChildren(ELEMENT_OPTION)) {
-          Element e = (Element)o1;
+        for (final Element e : element.getChildren(ELEMENT_OPTION)) {
           String name = e.getAttributeValue(ATTRIBUTE_NAME);
           String value = e.getAttributeValue(ATTRIBUTE_VALUE);
           if (VALUE_LINE_COMMENT.equals(name)) {
@@ -147,24 +129,24 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
             table.setNumPostfixChars(value);
           }
           else if (VALUE_LINE_COMMENT_AT_START.equals(name)) {
-            table.lineCommentOnlyAtStart = Boolean.valueOf(value).booleanValue();
+            table.lineCommentOnlyAtStart = Boolean.parseBoolean(value);
           }
           else if (VALUE_HAS_BRACES.equals(name)) {
-            table.setHasBraces(Boolean.valueOf(value).booleanValue());
+            table.setHasBraces(Boolean.parseBoolean(value));
           }
           else if (VALUE_HAS_BRACKETS.equals(name)) {
-            table.setHasBrackets(Boolean.valueOf(value).booleanValue());
+            table.setHasBrackets(Boolean.parseBoolean(value));
           }
           else if (VALUE_HAS_PARENS.equals(name)) {
-            table.setHasParens(Boolean.valueOf(value).booleanValue());
+            table.setHasParens(Boolean.parseBoolean(value));
           }
           else if (VALUE_HAS_STRING_ESCAPES.equals(name)) {
-            table.setHasStringEscapes(Boolean.valueOf(value).booleanValue());
+            table.setHasStringEscapes(Boolean.parseBoolean(value));
           }
         }
       }
       else if (ELEMENT_KEYWORDS.equals(element.getName())) {
-        boolean ignoreCase = Boolean.valueOf(element.getAttributeValue(ATTRIBUTE_IGNORE_CASE)).booleanValue();
+        boolean ignoreCase = Boolean.parseBoolean(element.getAttributeValue(ATTRIBUTE_IGNORE_CASE));
         table.setIgnoreCase(ignoreCase);
         loadKeywords(element, table.getKeywords1());
       }
@@ -179,31 +161,20 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
       }
     }
 
-    boolean DUMP_TABLE = false;
-    if (DUMP_TABLE) {
-      Element element = new Element("temp");
-      writeTable(element, table);
-      XMLOutputter outputter = JDOMUtil.createOutputter("\n");
-      try {
-        outputter.output((Element)element.getContent().get(0), System.out);
-      }
-      catch (IOException ignored) {
-      }
-    }
     return table;
   }
 
-  private static void loadKeywords(Element element, Set<String> keywords) {
+  private static void loadKeywords(@NotNull Element element, @NotNull Set<? super String> keywords) {
     String value = element.getAttributeValue(ELEMENT_KEYWORDS);
     if (value != null) {
       StringTokenizer tokenizer = new StringTokenizer(value, SEMICOLON);
       while(tokenizer.hasMoreElements()) {
         String keyword = tokenizer.nextToken().trim();
-        if (keyword.length() != 0) keywords.add(keyword);
+        if (!keyword.isEmpty()) keywords.add(keyword);
       }
     }
-    for (final Object o1 : element.getChildren(ELEMENT_KEYWORD)) {
-      keywords.add(((Element)o1).getAttributeValue(ATTRIBUTE_NAME));
+    for (final Element e : element.getChildren(ELEMENT_KEYWORD)) {
+      keywords.add(e.getAttributeValue(ATTRIBUTE_NAME));
     }
   }
 
@@ -273,7 +244,7 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
     element.addContent(highlightingElement);
   }
 
-  private static void addElementOption(final Element optionsElement, final String valueHasParens, final boolean hasParens) {
+  private static void addElementOption(@NotNull Element optionsElement, @NotNull String valueHasParens, final boolean hasParens) {
     if (!hasParens) {
       return;
     }
@@ -284,10 +255,10 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
     optionsElement.addContent(supportParens);
   }
 
-  private static Element writeKeywords(Set<String> keywords, String tagName, Element highlightingElement) {
-    if (keywords.size() == 0 && !ELEMENT_KEYWORDS.equals(tagName)) return null;
+  private static Element writeKeywords(@NotNull Set<String> keywords, @NotNull String tagName, @NotNull Element highlightingElement) {
+    if (keywords.isEmpty() && !ELEMENT_KEYWORDS.equals(tagName)) return null;
     Element keywordsElement = new Element(tagName);
-    String[] strings = ArrayUtil.toStringArray(keywords);
+    String[] strings = ArrayUtilRt.toStringArray(keywords);
     Arrays.sort(strings);
     StringBuilder keywordsAttribute = new StringBuilder();
 
@@ -295,7 +266,8 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
       if (!keyword.contains(SEMICOLON)) {
         if (keywordsAttribute.length() != 0) keywordsAttribute.append(SEMICOLON);
         keywordsAttribute.append(keyword);
-      } else {
+      }
+      else {
         Element e = new Element(ELEMENT_KEYWORD);
         e.setAttribute(ATTRIBUTE_NAME, keyword);
         keywordsElement.addContent(e);
@@ -318,23 +290,19 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
     return !Comparing.equal(myDefaultSyntaxTable, getSyntaxTable());
   }
 
-  @NonNls private static final String ELEMENT_MAPPING = "mapping";
-  @NonNls private static final String ATTRIBUTE_EXT = "ext";
-  @NonNls private static final String ATTRIBUTE_PATTERN = "pattern";
-  /** Applied for removed mappings approved by user */
-  @NonNls private static final String ATTRIBUTE_APPROVED = "approved";
-
-  @NonNls private static final String ELEMENT_REMOVED_MAPPING = "removed_mapping";
-  @NonNls private static final String ATTRIBUTE_TYPE = "type";
+  @NonNls static final String ELEMENT_MAPPING = "mapping";
+  @NonNls static final String ATTRIBUTE_EXT = "ext";
+  @NonNls static final String ATTRIBUTE_PATTERN = "pattern";
+  @NonNls static final String ATTRIBUTE_TYPE = "type";
 
   @NotNull
-  public static List<Pair<FileNameMatcher, String>> readAssociations(@NotNull Element element) {
+  static List<Pair<FileNameMatcher, String>> readAssociations(@NotNull Element element) {
     List<Element> children = element.getChildren(ELEMENT_MAPPING);
     if (children.isEmpty()) {
       return Collections.emptyList();
     }
 
-    List<Pair<FileNameMatcher, String>> result = new SmartList<Pair<FileNameMatcher, String>>();
+    List<Pair<FileNameMatcher, String>> result = new SmartList<>();
     for (Element mapping : children) {
       String ext = mapping.getAttributeValue(ATTRIBUTE_EXT);
       String pattern = mapping.getAttributeValue(ATTRIBUTE_PATTERN);
@@ -345,35 +313,10 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
     return result;
   }
 
-  @NotNull
-  public static List<Trinity<FileNameMatcher, String, Boolean>> readRemovedAssociations(@NotNull Element element) {
-    List<Trinity<FileNameMatcher, String, Boolean>> result = new SmartList<Trinity<FileNameMatcher, String, Boolean>>();
-    List<Element> children = element.getChildren(ELEMENT_REMOVED_MAPPING);
-    if (children.isEmpty()) {
-      return Collections.emptyList();
-    }
-
-    for (Element mapping : children) {
-      String ext = mapping.getAttributeValue(ATTRIBUTE_EXT);
-      FileNameMatcher matcher = ext == null ? FileTypeManager.parseFromString(mapping.getAttributeValue(ATTRIBUTE_PATTERN)) : new ExtensionFileNameMatcher(ext);
-      result.add(Trinity.create(matcher, mapping.getAttributeValue(ATTRIBUTE_TYPE), Boolean.parseBoolean(mapping.getAttributeValue(ATTRIBUTE_APPROVED))));
-    }
-    return result;
-  }
-
   @Nullable
-  public static Element writeMapping(String typeName, @NotNull FileNameMatcher matcher, boolean specifyTypeName) {
+  static Element writeMapping(@NotNull String typeName, @NotNull FileNameMatcher matcher, boolean specifyTypeName) {
     Element mapping = new Element(ELEMENT_MAPPING);
-    if (matcher instanceof ExtensionFileNameMatcher) {
-      mapping.setAttribute(ATTRIBUTE_EXT, ((ExtensionFileNameMatcher)matcher).getExtension());
-    }
-    else if (matcher instanceof WildcardFileNameMatcher) {
-      mapping.setAttribute(ATTRIBUTE_PATTERN, ((WildcardFileNameMatcher)matcher).getPattern());
-    }
-    else if (matcher instanceof ExactFileNameMatcher) {
-      mapping.setAttribute(ATTRIBUTE_PATTERN, ((ExactFileNameMatcher)matcher).getFileName());
-    }
-    else {
+    if (!writePattern(matcher, mapping)) {
       return null;
     }
 
@@ -384,13 +327,10 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
     return mapping;
   }
 
-  static Element writeRemovedMapping(final FileType type, final FileNameMatcher matcher, final boolean specifyTypeName, boolean approved) {
-    Element mapping = new Element(ELEMENT_REMOVED_MAPPING);
+  // returns true if written
+  static boolean writePattern(@NotNull FileNameMatcher matcher, @NotNull Element mapping) {
     if (matcher instanceof ExtensionFileNameMatcher) {
       mapping.setAttribute(ATTRIBUTE_EXT, ((ExtensionFileNameMatcher)matcher).getExtension());
-      if (approved) {
-        mapping.setAttribute(ATTRIBUTE_APPROVED, "true");
-      }
     }
     else if (matcher instanceof WildcardFileNameMatcher) {
       mapping.setAttribute(ATTRIBUTE_PATTERN, ((WildcardFileNameMatcher)matcher).getPattern());
@@ -399,13 +339,9 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
       mapping.setAttribute(ATTRIBUTE_PATTERN, ((ExactFileNameMatcher)matcher).getFileName());
     }
     else {
-      return null;
+      return false;
     }
-    if (specifyTypeName) {
-      mapping.setAttribute(ATTRIBUTE_TYPE, type.getName());
-    }
-
-    return mapping;
+    return true;
   }
 
   @Override
@@ -413,13 +349,12 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
     return new CustomFileTypeEditor();
   }
 
-  public void setCommenter(final Commenter commenter) {
+  public void setCommenter(@NotNull Commenter commenter) {
     myCommenter = commenter;
   }
 
   @Override
-  @NotNull
-  public ExternalInfo getExternalInfo() {
-    return myExternalInfo;
+  public String toString() {
+    return "AbstractFileType "+mySyntaxTable;
   }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.vcs.log.graph.utils.impl;
 
@@ -21,22 +7,17 @@ import com.intellij.vcs.log.graph.utils.Flags;
 import com.intellij.vcs.log.graph.utils.UpdatableIntToIntMap;
 import org.jetbrains.annotations.NotNull;
 
-public class ListIntToIntMap extends AbstractIntToIntMap implements UpdatableIntToIntMap {
+public final class ListIntToIntMap extends AbstractIntToIntMap implements UpdatableIntToIntMap {
   public static final int DEFAULT_BLOCK_SIZE = 30;
 
   @NotNull
-  public static UpdatableIntToIntMap newInstance(@NotNull final BooleanFunction<Integer> thisIsVisible, final int longSize) {
-    return newInstance(thisIsVisible, longSize, DEFAULT_BLOCK_SIZE);
+  public static UpdatableIntToIntMap newInstance(@NotNull BooleanFunction<? super Integer> thisIsVisible, int longSize) {
+    return newInstance(new BooleanFunctionFlags(thisIsVisible, longSize));
   }
 
   @NotNull
-  public static UpdatableIntToIntMap newInstance(final Flags visibleNodes) {
-    return newInstance(new BooleanFunction<Integer>() {
-      @Override
-      public boolean fun(Integer integer) {
-        return visibleNodes.get(integer);
-      }
-    }, visibleNodes.size());
+  public static UpdatableIntToIntMap newInstance(@NotNull Flags visibleNodes) {
+    return newInstance(visibleNodes, DEFAULT_BLOCK_SIZE);
   }
 
   /**
@@ -45,27 +26,28 @@ public class ListIntToIntMap extends AbstractIntToIntMap implements UpdatableInt
    *                  getShortIndex access need: blockSize
    */
   @NotNull
-  public static UpdatableIntToIntMap newInstance(@NotNull final BooleanFunction<Integer> thisIsVisible, final int longSize, int blockSize) {
+  public static UpdatableIntToIntMap newInstance(@NotNull Flags visibility, int blockSize) {
+    int longSize = visibility.size();
     if (longSize < 0) throw new NegativeArraySizeException("size < 0: " + longSize);
 
     if (longSize == 0) return IDIntToIntMap.EMPTY;
 
     int sumSize = (longSize - 1) / blockSize + 1;
-    ListIntToIntMap listIntToIntMap = new ListIntToIntMap(thisIsVisible, longSize, blockSize, new int[sumSize]);
+    ListIntToIntMap listIntToIntMap = new ListIntToIntMap(visibility, longSize, blockSize, new int[sumSize]);
     listIntToIntMap.update(0, longSize - 1);
     return listIntToIntMap;
   }
 
-  @NotNull final BooleanFunction<Integer> myThisIsVisible;
+  @NotNull final Flags myVisibility;
 
   private final int myLongSize;
 
   private final int myBlockSize;
   private final int[] mySubSumOfBlocks;
 
-  private ListIntToIntMap(@NotNull BooleanFunction<Integer> thisIsVisible, int longSize, int blockSize, int[] subSumOfBlocks) {
+  private ListIntToIntMap(@NotNull Flags visibility, int longSize, int blockSize, int[] subSumOfBlocks) {
     myLongSize = longSize;
-    myThisIsVisible = thisIsVisible;
+    myVisibility = visibility;
     myBlockSize = blockSize;
     mySubSumOfBlocks = subSumOfBlocks;
   }
@@ -88,25 +70,12 @@ public class ListIntToIntMap extends AbstractIntToIntMap implements UpdatableInt
   public int getLongIndex(int shortIndex) {
     checkShortIndex(shortIndex);
 
-    int a = 0;
-    int b = mySubSumOfBlocks.length - 1;
-    while (b > a) {
-      int middle = (a + b) / 2;
-      if (mySubSumOfBlocks[middle] <= shortIndex) {
-        a = middle + 1;
-      }
-      else {
-        b = middle;
-      }
-    }
-    assert a == b;
-
-    int blockIndex = a;
+    int blockIndex = lastInsertionPoint(mySubSumOfBlocks, shortIndex);
     int prefVisibleCount = 0;
     if (blockIndex > 0) prefVisibleCount = mySubSumOfBlocks[blockIndex - 1];
 
     for (int longIndex = blockIndex * myBlockSize; longIndex < myLongSize; longIndex++) {
-      if (myThisIsVisible.fun(longIndex)) prefVisibleCount++;
+      if (myVisibility.get(longIndex)) prefVisibleCount++;
       if (prefVisibleCount > shortIndex) return longIndex;
     }
 
@@ -133,15 +102,9 @@ public class ListIntToIntMap extends AbstractIntToIntMap implements UpdatableInt
     if (blockIndex > 0) sum = mySubSumOfBlocks[blockIndex - 1];
 
     for (int longIndex = blockIndex * myBlockSize; longIndex <= lastLongIndex; longIndex++) {
-      if (myThisIsVisible.fun(longIndex)) sum++;
+      if (myVisibility.get(longIndex)) sum++;
     }
     return sum;
-  }
-
-  private void updateSumWithCorrectPrevious(int blockIndex) {
-    int endIndex = Math.min(myLongSize, (blockIndex + 1) * myBlockSize);
-
-    mySubSumOfBlocks[blockIndex] = calculateSumForBlock(blockIndex, endIndex - 1);
   }
 
   @Override
@@ -152,7 +115,8 @@ public class ListIntToIntMap extends AbstractIntToIntMap implements UpdatableInt
     int prevEndSum = mySubSumOfBlocks[endSumIndex];
 
     for (int blockIndex = startSumIndex; blockIndex <= endSumIndex; blockIndex++) {
-      updateSumWithCorrectPrevious(blockIndex);
+      int endIndex = Math.min(myLongSize, (blockIndex + 1) * myBlockSize);
+      mySubSumOfBlocks[blockIndex] = calculateSumForBlock(blockIndex, endIndex - 1);
     }
 
     int sumDelta = mySubSumOfBlocks[endSumIndex] - prevEndSum;
@@ -161,5 +125,28 @@ public class ListIntToIntMap extends AbstractIntToIntMap implements UpdatableInt
     }
   }
 
-
+  /**
+   * Finds an insertion point for the key in a sorted array using binary search.
+   * Can not be implemented with {@link java.util.Arrays#binarySearch(int[], int)}} as the latter does not guarantee
+   * which of the multiple occurrences of the key is going to be found, while this method always returns the last insertion point.
+   *
+   * @param array the array to be searched
+   * @param key the value to be searched for
+   * @return index of the insertion point for the key. The insertion point is defined as the index of the first element greater than the key.
+   */
+  private static int lastInsertionPoint(int[] array, int key) {
+    int l = 0;
+    int u = array.length - 1;
+    while (u > l) {
+      int middle = (l + u) / 2;
+      if (array[middle] <= key) {
+        l = middle + 1;
+      }
+      else {
+        u = middle;
+      }
+    }
+    assert l == u;
+    return l;
+  }
 }

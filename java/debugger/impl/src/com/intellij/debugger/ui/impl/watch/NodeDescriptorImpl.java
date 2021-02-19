@@ -1,42 +1,26 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.impl.watch;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.DebugProcess;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
 import com.intellij.debugger.ui.tree.NodeDescriptor;
 import com.intellij.debugger.ui.tree.render.DescriptorLabelListener;
+import com.intellij.debugger.ui.tree.render.OnDemandRenderer;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Key;
-import com.intellij.util.containers.HashMap;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.xdebugger.impl.ui.tree.ValueMarkup;
-import com.sun.jdi.InconsistentDebugInfoException;
-import com.sun.jdi.InvalidStackFrameException;
-import com.sun.jdi.ObjectReference;
+import com.sun.jdi.*;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 
 public abstract class NodeDescriptorImpl implements NodeDescriptor {
-  protected static final Logger LOG = Logger.getInstance("#com.intellij.debugger.ui.impl.watch.NodeDescriptorImpl");
+  protected static final Logger LOG = Logger.getInstance(NodeDescriptorImpl.class);
 
   public static final String UNKNOWN_VALUE_MESSAGE = "";
   public boolean myIsExpanded = false;
@@ -45,12 +29,11 @@ public abstract class NodeDescriptorImpl implements NodeDescriptor {
   public boolean myIsSynthetic = false;
 
   private EvaluateException myEvaluateException;
-  private String myLabel = UNKNOWN_VALUE_MESSAGE;
+  private @NlsContexts.Label String myLabel = UNKNOWN_VALUE_MESSAGE;
 
-  private HashMap<Key, Object> myUserData;
+  private Map<Key, Object> myUserData;
 
-  private final List<NodeDescriptorImpl> myChildren = new ArrayList<NodeDescriptorImpl>();
-  private static final Key<Map<ObjectReference, ValueMarkup>> MARKUP_MAP_KEY = new Key<Map<ObjectReference, ValueMarkup>>("ValueMarkupMap");
+  private static final Key<Map<ObjectReference, ValueMarkup>> MARKUP_MAP_KEY = new Key<>("ValueMarkupMap");
 
   @Override
   public String getName() {
@@ -69,7 +52,7 @@ public abstract class NodeDescriptorImpl implements NodeDescriptor {
   @Override
   public <T> void putUserData(Key<T> key, T value) {
     if(myUserData == null) {
-      myUserData = new HashMap<Key, Object>();
+      myUserData = new HashMap<>();
     }
     myUserData.put(key, value);
   }
@@ -79,15 +62,35 @@ public abstract class NodeDescriptorImpl implements NodeDescriptor {
     labelListener.labelChanged();
   }
 
-  protected void updateRepresentationNoNotify(EvaluationContextImpl context, DescriptorLabelListener labelListener) {
+  public void updateRepresentationNoNotify(EvaluationContextImpl context, DescriptorLabelListener labelListener) {
     try {
       try {
         myEvaluateException = null;
         myLabel = calcRepresentation(context, labelListener);
       }
+      catch (InconsistentDebugInfoException e) {
+        throw new EvaluateException(JavaDebuggerBundle.message("error.inconsistent.debug.info"));
+      }
+      catch (InvalidStackFrameException e) {
+        throw new EvaluateException(JavaDebuggerBundle.message("error.invalid.stackframe"));
+      }
+      catch (ObjectCollectedException e) {
+        throw EvaluateExceptionUtil.OBJECT_WAS_COLLECTED;
+      }
+      catch (VMDisconnectedException e) {
+        throw e;
+      }
       catch (RuntimeException e) {
-        LOG.debug(e);
-        throw processException(e);
+        if (e.getCause() instanceof InterruptedException) {
+          throw e;
+        }
+        if (context.getDebugProcess().getVirtualMachineProxy().canBeModified()) { // do not care in read only vms
+          LOG.debug(e);
+        }
+        else {
+          LOG.warn(e);
+        }
+        throw new EvaluateException(JavaDebuggerBundle.message("internal.debugger.error"));
       }
     }
     catch (EvaluateException e) {
@@ -95,20 +98,7 @@ public abstract class NodeDescriptorImpl implements NodeDescriptor {
     }
   }
 
-  protected abstract String calcRepresentation(EvaluationContextImpl context, DescriptorLabelListener labelListener) throws EvaluateException;
-
-  private static EvaluateException processException(Exception e) {
-    if (e instanceof InconsistentDebugInfoException) {
-      return new EvaluateException(DebuggerBundle.message("error.inconsistent.debug.info"), null);
-    }
-
-    else if (e instanceof InvalidStackFrameException) {
-      return new EvaluateException(DebuggerBundle.message("error.invalid.stackframe"), null);
-    }
-    else {
-      return EvaluateExceptionUtil.DEBUG_INFO_UNAVAILABLE;
-    }
-  }
+  protected abstract @NlsContexts.Label String calcRepresentation(EvaluationContextImpl context, DescriptorLabelListener labelListener) throws EvaluateException;
 
   @Override
   public void displayAs(NodeDescriptor descriptor) {
@@ -117,7 +107,12 @@ public abstract class NodeDescriptorImpl implements NodeDescriptor {
       myIsExpanded = that.myIsExpanded;
       myIsSelected = that.myIsSelected;
       myIsVisible  = that.myIsVisible;
-      myUserData = that.myUserData != null ? new HashMap<Key, Object>(that.myUserData) : null;
+      myUserData = that.myUserData != null ? new HashMap<>(that.myUserData) : null;
+
+      // TODO introduce unified way to handle this
+      if (myUserData != null) {
+        myUserData.remove(OnDemandRenderer.ON_DEMAND_CALCULATED); // calculated flag should not be inherited
+      }
     }
   }
 
@@ -130,7 +125,7 @@ public abstract class NodeDescriptorImpl implements NodeDescriptor {
   }
 
   @Override
-  public String getLabel() {
+  public @NlsContexts.Label String getLabel() {
     return myLabel;
   }
 
@@ -143,7 +138,7 @@ public abstract class NodeDescriptorImpl implements NodeDescriptor {
     return e.getMessage();
   }
 
-  protected String setLabel(String customLabel) {
+  protected String setLabel(@NlsContexts.Label String customLabel) {
     return myLabel = customLabel;
   }
 
@@ -151,10 +146,6 @@ public abstract class NodeDescriptorImpl implements NodeDescriptor {
   public void clear() {
     myEvaluateException = null;
     myLabel = "";
-  }
-
-  public List<NodeDescriptorImpl> getChildren() {
-    return myChildren;
   }
 
   @Override
@@ -169,7 +160,7 @@ public abstract class NodeDescriptorImpl implements NodeDescriptor {
     }
     Map<ObjectReference, ValueMarkup> map = process.getUserData(MARKUP_MAP_KEY);
     if (map == null) {
-      map = new java.util.HashMap<ObjectReference, ValueMarkup>();
+      map = new HashMap<>();
       process.putUserData(MARKUP_MAP_KEY, map);
     }
     return map;

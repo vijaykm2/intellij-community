@@ -1,96 +1,122 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.newvfs.persistent;
 
+import com.intellij.concurrency.ConcurrentCollectionFactory;
+import com.intellij.concurrency.JobSchedulerImpl;
+import com.intellij.diagnostic.Activity;
+import com.intellij.diagnostic.StartUpMeasurer;
+import com.intellij.ide.plugins.DynamicPluginListener;
+import com.intellij.ide.plugins.IdeaPluginDescriptor;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ApplicationComponent;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.fileTypes.FileTypeRegistry;
-import com.intellij.openapi.fileTypes.FileTypes;
-import com.intellij.openapi.util.LowMemoryWatcher;
-import com.intellij.openapi.util.ShutDownTracker;
-import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.fileTypes.InternalFileType;
+import com.intellij.openapi.progress.util.PingProgress;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectLocator;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.io.*;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.Strings;
 import com.intellij.openapi.vfs.*;
+import com.intellij.openapi.vfs.encoding.EncodingManager;
+import com.intellij.openapi.vfs.encoding.EncodingProjectManager;
+import com.intellij.openapi.vfs.encoding.Utf8BomOptionProvider;
 import com.intellij.openapi.vfs.ex.temp.TempFileSystem;
+import com.intellij.openapi.vfs.impl.local.LocalFileSystemImpl;
 import com.intellij.openapi.vfs.newvfs.*;
 import com.intellij.openapi.vfs.newvfs.events.*;
 import com.intellij.openapi.vfs.newvfs.impl.*;
+import com.intellij.openapi.vfs.pointers.VirtualFilePointerManager;
 import com.intellij.util.*;
-import com.intellij.util.containers.ConcurrentIntObjectMap;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.EmptyIntHashSet;
+import com.intellij.util.containers.*;
 import com.intellij.util.io.ReplicatorInputStream;
-import com.intellij.util.io.URLUtil;
-import com.intellij.util.messages.MessageBus;
-import gnu.trove.*;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.util.io.storage.HeavyProcessLatch;
+import it.unimi.dsi.fastutil.Hash;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.ints.IntSet;
+import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenCustomHashSet;
+import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Queue;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Function;
 
-/**
- * @author max
- */
-public class PersistentFSImpl extends PersistentFS implements ApplicationComponent {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vfs.newvfs.persistent.PersistentFS");
+public final class PersistentFSImpl extends PersistentFS implements Disposable {
+  private static final Logger LOG = Logger.getInstance(PersistentFS.class);
 
-  private final MessageBus myEventBus;
+  private final Map<String, VirtualFileSystemEntry> myRoots;
 
-  private final ReadWriteLock myRootsLock = new ReentrantReadWriteLock();
-  private final Map<String, VirtualFileSystemEntry> myRoots = ContainerUtil.newTroveMap(FileUtil.PATH_HASHING_STRATEGY);
-  private final TIntObjectHashMap<VirtualFileSystemEntry> myRootsById = new TIntObjectHashMap<VirtualFileSystemEntry>();
-
-  private final ConcurrentIntObjectMap<VirtualFileSystemEntry> myIdToDirCache = ContainerUtil.createConcurrentIntObjectMap();
-  private final Object myInputLock = new Object();
+  // FS roots must be in this map too. findFileById() relies on this.
+  private final ConcurrentIntObjectMap<VirtualFileSystemEntry> myIdToDirCache =
+    ConcurrentCollectionFactory.createConcurrentIntObjectSoftValueMap();
+  private final ReadWriteLock myInputLock = new ReentrantReadWriteLock();
 
   private final AtomicBoolean myShutDown = new AtomicBoolean(false);
-  @SuppressWarnings({"FieldCanBeLocal", "unused"})
-  private final LowMemoryWatcher myWatcher = LowMemoryWatcher.register(new Runnable() {
-    @Override
-    public void run() {
-      clearIdCache();
-    }
-  });
+  private final AtomicInteger myStructureModificationCount = new AtomicInteger();
+  private BulkFileListener myPublisher;
+  private final VfsData myVfsData = new VfsData();
 
-  public PersistentFSImpl(@NotNull MessageBus bus) {
-    myEventBus = bus;
-    ShutDownTracker.getInstance().registerShutdownTask(new Runnable() {
+  public PersistentFSImpl() {
+    if (SystemInfoRt.isFileSystemCaseSensitive) {
+      myRoots = new ConcurrentHashMap<>(10, 0.4f, JobSchedulerImpl.getCPUCoresCount());
+    }
+    else {
+      myRoots = ConcurrentCollectionFactory.createConcurrentMap(10, 0.4f, JobSchedulerImpl.getCPUCoresCount(), HashingStrategy.caseInsensitive());
+    }
+
+    ShutDownTracker.getInstance().registerShutdownTask(this::performShutdown);
+    LowMemoryWatcher.register(this::clearIdCache, this);
+
+    AsyncEventSupport.startListening();
+
+    ApplicationManager.getApplication().getMessageBus().connect().subscribe(DynamicPluginListener.TOPIC, new DynamicPluginListener(){
       @Override
-      public void run() {
-        performShutdown();
+      public void pluginUnloaded(@NotNull IdeaPluginDescriptor pluginDescriptor, boolean isUpdate) {
+        // myIdToDirCache could retain alien file systems
+        clearIdCache();
+        // remove alien file system references from myRoots
+        for (Iterator<Map.Entry<String, VirtualFileSystemEntry>> iterator = myRoots.entrySet().iterator(); iterator.hasNext(); ) {
+          Map.Entry<String, VirtualFileSystemEntry> entry = iterator.next();
+          VirtualFileSystemEntry root = entry.getValue();
+          if (VirtualFileManager.getInstance().getFileSystem(root.getFileSystem().getProtocol()) == null) {
+            // the file system must have been unregistered
+            iterator.remove();
+          }
+        }
       }
     });
-  }
-
-  @Override
-  public void initComponent() {
+    Activity activity = StartUpMeasurer.startActivity("connect FSRecords");
     FSRecords.connect();
+    activity.end();
+  }
+
+  private @NotNull BulkFileListener getPublisher() {
+    BulkFileListener publisher = myPublisher;
+    if (publisher == null) {
+      // cannot be in constructor, to ensure that lazy listeners will be not created too early
+      publisher = ApplicationManager.getApplication().getMessageBus().syncPublisher(VirtualFileManager.VFS_CHANGES);
+      myPublisher = publisher;
+    }
+    return publisher;
   }
 
   @Override
-  public void disposeComponent() {
+  public void dispose() {
     performShutdown();
   }
 
@@ -103,14 +129,7 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
   }
 
   @Override
-  @NonNls
-  @NotNull
-  public String getComponentName() {
-    return "app.component.PersistentFS";
-  }
-
-  @Override
-  public boolean areChildrenLoaded(@NotNull final VirtualFile dir) {
+  public boolean areChildrenLoaded(@NotNull VirtualFile dir) {
     return areChildrenLoaded(getFileId(dir));
   }
 
@@ -119,41 +138,33 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
     return FSRecords.getCreationTimestamp();
   }
 
-  @NotNull
-  private static NewVirtualFileSystem getDelegate(@NotNull VirtualFile file) {
+  public @NotNull VirtualFileSystemEntry getOrCacheDir(int id, @NotNull VirtualDirectoryImpl newDir) {
+    VirtualFileSystemEntry dir = myIdToDirCache.get(id);
+    if (dir != null) return dir;
+    return myIdToDirCache.cacheOrGet(id, newDir);
+  }
+  public VirtualFileSystemEntry getCachedDir(int id) {
+    return myIdToDirCache.get(id);
+  }
+
+  private static @NotNull NewVirtualFileSystem getDelegate(@NotNull VirtualFile file) {
     return (NewVirtualFileSystem)file.getFileSystem();
   }
 
   @Override
-  public boolean wereChildrenAccessed(@NotNull final VirtualFile dir) {
+  public boolean wereChildrenAccessed(@NotNull VirtualFile dir) {
     return FSRecords.wereChildrenAccessed(getFileId(dir));
   }
 
   @Override
-  @NotNull
-  public String[] list(@NotNull final VirtualFile file) {
-    int id = getFileId(file);
-
-    FSRecords.NameId[] nameIds = FSRecords.listAll(id);
-    if (!areChildrenLoaded(id)) {
-      nameIds  = persistAllChildren(file, id, nameIds);
-    }
-    return ContainerUtil.map2Array(nameIds, String.class, new Function<FSRecords.NameId, String>() {
-      @Override
-      public String fun(FSRecords.NameId id) {
-        return id.name.toString();
-      }
-    });
+  public String @NotNull [] list(@NotNull VirtualFile file) {
+    List<? extends ChildInfo> children = listAll(file);
+    return ContainerUtil.map2Array(children, String.class, id -> id.getName().toString());
   }
 
   @Override
-  @NotNull
-  public String[] listPersisted(@NotNull VirtualFile parent) {
-    return listPersisted(FSRecords.list(getFileId(parent)));
-  }
-
-  @NotNull
-  private static String[] listPersisted(@NotNull int[] childrenIds) {
+  public String @NotNull [] listPersisted(@NotNull VirtualFile parent) {
+    int[] childrenIds = FSRecords.listIds(getFileId(parent));
     String[] names = ArrayUtil.newStringArray(childrenIds.length);
     for (int i = 0; i < childrenIds.length; i++) {
       names[i] = FSRecords.getName(childrenIds[i]);
@@ -161,177 +172,187 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
     return names;
   }
 
-  @NotNull
-  private static FSRecords.NameId[] persistAllChildren(@NotNull final VirtualFile file, final int id, @NotNull FSRecords.NameId[] current) {
+  // return actual children
+  private static @NotNull List<? extends ChildInfo> persistAllChildren(@NotNull VirtualFile file, int id) {
     final NewVirtualFileSystem fs = replaceWithNativeFS(getDelegate(file));
-
+    Map<String, ChildInfo> justCreated = new HashMap<>();
     String[] delegateNames = VfsUtil.filterNames(fs.list(file));
-    if (delegateNames.length == 0 && current.length > 0) {
-      return current;
-    }
-
-    Set<String> toAdd = ContainerUtil.newHashSet(delegateNames);
-    for (FSRecords.NameId nameId : current) {
-      toAdd.remove(nameId.name.toString());
-    }
-
-    final TIntArrayList childrenIds = new TIntArrayList(current.length + toAdd.size());
-    final List<FSRecords.NameId> nameIds = ContainerUtil.newArrayListWithCapacity(current.length + toAdd.size());
-    for (FSRecords.NameId nameId : current) {
-      childrenIds.add(nameId.id);
-      nameIds.add(nameId);
-    }
-    for (String newName : toAdd) {
-      FakeVirtualFile child = new FakeVirtualFile(file, newName);
-      FileAttributes attributes = fs.getAttributes(child);
-      if (attributes != null) {
-        int childId = createAndFillRecord(fs, child, id, attributes);
-        childrenIds.add(childId);
-        nameIds.add(new FSRecords.NameId(childId, FileNameCache.storeName(newName), newName));
+    ListResult saved = FSRecords.update(file, id, current -> {
+      List<? extends ChildInfo> currentChildren = current.children;
+      if (delegateNames.length == 0 && !currentChildren.isEmpty()) {
+        return current;
       }
-    }
+      // preserve current children which match delegateNames (to have stable id)
+      // (on case-insensitive system replace those from current with case-changes ones from delegateNames preserving the id)
+      // add those from delegateNames which are absent from current
+      Set<String> toAddNames = CollectionFactory.createFilePathSet(delegateNames, file.isCaseSensitive());
+      for (ChildInfo currentChild : currentChildren) {
+        toAddNames.remove(currentChild.getName().toString());
+      }
 
-    FSRecords.updateList(id, childrenIds.toNativeArray());
+      List<ChildInfo> toAddChildren = new ArrayList<>(toAddNames.size());
+      if (fs instanceof BatchingFileSystem) {
+        Map<String, FileAttributes> map = ((BatchingFileSystem)fs).listWithAttributes(file, toAddNames);
+        for (Map.Entry<String, FileAttributes> entry : map.entrySet()) {
+          String newName = entry.getKey();
+          Pair<@NotNull FileAttributes, String> childData = getChildData(fs, file, newName, entry.getValue(), null);
+          if (childData != null) {
+            ChildInfo newChild = justCreated.computeIfAbsent(newName, name -> makeChildRecord(file, id, name, childData, fs, null));
+            toAddChildren.add(newChild);
+          }
+        }
+      }
+      else {
+        for (String newName : toAddNames) {
+          Pair<@NotNull FileAttributes, String> childData = getChildData(fs, file, newName, null, null);
+          if (childData != null) {
+            ChildInfo newChild = justCreated.computeIfAbsent(newName, name -> makeChildRecord(file, id, name, childData, fs, null));
+            toAddChildren.add(newChild);
+          }
+        }
+      }
+
+      // some clients (e.g. RefreshWorker) expect subsequent list() calls to return equal arrays
+      toAddChildren.sort(ChildInfo.BY_ID);
+      return current.merge(toAddChildren, file.isCaseSensitive());
+    });
+
     setChildrenCached(id);
 
-    return nameIds.toArray(new FSRecords.NameId[nameIds.size()]);
+    return saved.children;
   }
 
-  public static void setChildrenCached(int id) {
+  private static void setChildrenCached(int id) {
     int flags = FSRecords.getFlags(id);
-    FSRecords.setFlags(id, flags | CHILDREN_CACHED_FLAG, true);
+    FSRecords.setFlags(id, flags | Flags.CHILDREN_CACHED);
   }
 
   @Override
-  @NotNull
-  public FSRecords.NameId[] listAll(@NotNull VirtualFile parent) {
-    final int parentId = getFileId(parent);
+  @ApiStatus.Internal
+  public @NotNull List<? extends ChildInfo> listAll(@NotNull VirtualFile file) {
+    int id = getFileId(file);
 
-    FSRecords.NameId[] nameIds = FSRecords.listAll(parentId);
-    if (!areChildrenLoaded(parentId)) {
-      return persistAllChildren(parent, parentId, nameIds);
+    if (areChildrenLoaded(id)) {
+      return FSRecords.list(id).children;
     }
-
-    return nameIds;
+    return persistAllChildren(file, id);
   }
 
-  private static boolean areChildrenLoaded(final int parentId) {
-    return (FSRecords.getFlags(parentId) & CHILDREN_CACHED_FLAG) != 0;
+  private static boolean areChildrenLoaded(int parentId) {
+    return BitUtil.isSet(FSRecords.getFlags(parentId), Flags.CHILDREN_CACHED);
   }
 
   @Override
-  @Nullable
-  public DataInputStream readAttribute(@NotNull final VirtualFile file, @NotNull final FileAttribute att) {
+  public @Nullable DataInputStream readAttribute(@NotNull VirtualFile file, @NotNull FileAttribute att) {
     return FSRecords.readAttributeWithLock(getFileId(file), att);
   }
 
   @Override
-  @NotNull
-  public DataOutputStream writeAttribute(@NotNull final VirtualFile file, @NotNull final FileAttribute att) {
+  public @NotNull DataOutputStream writeAttribute(@NotNull VirtualFile file, @NotNull FileAttribute att) {
     return FSRecords.writeAttribute(getFileId(file), att);
   }
 
-  @Nullable
-  private static DataInputStream readContent(@NotNull VirtualFile file) {
+  private static @Nullable DataInputStream readContent(@NotNull VirtualFile file) {
     return FSRecords.readContent(getFileId(file));
   }
 
-  @Nullable
-  private static DataInputStream readContentById(int contentId) {
+  private static @NotNull DataInputStream readContentById(int contentId) {
     return FSRecords.readContentById(contentId);
   }
 
-  @NotNull
-  private static DataOutputStream writeContent(@NotNull VirtualFile file, boolean readOnly) {
+  private static @NotNull DataOutputStream writeContent(@NotNull VirtualFile file, boolean readOnly) {
     return FSRecords.writeContent(getFileId(file), readOnly);
   }
 
-  private static void writeContent(@NotNull VirtualFile file, ByteSequence content, boolean readOnly) throws IOException {
+  private static void writeContent(@NotNull VirtualFile file, @NotNull ByteArraySequence content, boolean readOnly) {
     FSRecords.writeContent(getFileId(file), content, readOnly);
   }
 
   @Override
-  public int storeUnlinkedContent(@NotNull byte[] bytes) {
+  public int storeUnlinkedContent(byte @NotNull [] bytes) {
     return FSRecords.storeUnlinkedContent(bytes);
   }
 
   @Override
-  public int getModificationCount(@NotNull final VirtualFile file) {
+  public int getModificationCount(@NotNull VirtualFile file) {
     return FSRecords.getModCount(getFileId(file));
   }
 
   @Override
-  public int getCheapFileSystemModificationCount() {
+  public int getModificationCount() {
     return FSRecords.getLocalModCount();
   }
 
   @Override
-  public int getFilesystemModificationCount() {
-    return FSRecords.getModCount();
+  public int getStructureModificationCount() {
+    return myStructureModificationCount.get();
   }
 
-  private static boolean writeAttributesToRecord(final int id,
-                                                 final int parentId,
-                                                 @NotNull VirtualFile file,
-                                                 @NotNull NewVirtualFileSystem fs,
-                                                 @NotNull FileAttributes attributes) {
-    String name = file.getName();
-    if (!name.isEmpty()) {
-      if (namesEqual(fs, name, FSRecords.getName(id))) return false; // TODO: Handle root attributes change.
-    }
-    else {
-      if (areChildrenLoaded(id)) return false; // TODO: hack
-    }
-
-    FSRecords.writeAttributesToRecord(id, parentId, attributes, name);
-
-    return true;
+  public void incStructuralModificationCount() {
+    myStructureModificationCount.incrementAndGet();
   }
 
   @Override
-  public int getFileAttributes(int id) {
+  public int getFilesystemModificationCount() {
+    return FSRecords.getPersistentModCount();
+  }
+
+  // return nameId>0 if write successful, -1 if not
+  private static int writeAttributesToRecord(int id,
+                                             @Nullable VirtualFile parentFile,
+                                             int parentId,
+                                             @NotNull CharSequence name,
+                                             @NotNull NewVirtualFileSystem fs,
+                                             @NotNull FileAttributes attributes) {
+    assert id > 0 : id;
+    assert parentId >= 0 : parentId; // 0 means there's no parent
+    if (name.length() != 0) {
+      if (namesEqual(fs, parentFile, name, FSRecords.getNameSequence(id))) return -1; // TODO: Handle root attributes change.
+    }
+    else {
+      if (areChildrenLoaded(id)) return -1; // TODO: hack
+    }
+
+    return FSRecords.writeAttributesToRecord(id, parentId, attributes, name.toString());
+  }
+
+  @Override
+  public @Attributes int getFileAttributes(int id) {
     assert id > 0;
-    //noinspection MagicConstant
     return FSRecords.getFlags(id);
   }
 
   @Override
-  public boolean isDirectory(@NotNull final VirtualFile file) {
+  public boolean isDirectory(@NotNull VirtualFile file) {
     return isDirectory(getFileAttributes(getFileId(file)));
   }
 
-  private static int getParent(final int id) {
-    assert id > 0;
-    return FSRecords.getParent(id);
-  }
-
-  private static boolean namesEqual(@NotNull VirtualFileSystem fs, @NotNull String n1, String n2) {
-    return fs.isCaseSensitive() ? n1.equals(n2) : n1.equalsIgnoreCase(n2);
-  }
-
-  @Override
-  public boolean exists(@NotNull final VirtualFile fileOrDirectory) {
-    return ((VirtualFileWithId)fileOrDirectory).getId() > 0;
+  private static boolean namesEqual(@NotNull VirtualFileSystem fs,
+                                    @Nullable VirtualFile parentFile,
+                                    @NotNull CharSequence n1,
+                                    @NotNull CharSequence n2) {
+    return Comparing.equal(n1, n2, parentFile == null ? fs.isCaseSensitive() : parentFile.isCaseSensitive());
   }
 
   @Override
-  public long getTimeStamp(@NotNull final VirtualFile file) {
+  public boolean exists(@NotNull VirtualFile fileOrDirectory) {
+    return fileOrDirectory.exists();
+  }
+
+  @Override
+  public long getTimeStamp(@NotNull VirtualFile file) {
     return FSRecords.getTimestamp(getFileId(file));
   }
 
   @Override
-  public void setTimeStamp(@NotNull final VirtualFile file, final long modStamp) throws IOException {
+  public void setTimeStamp(@NotNull VirtualFile file, long modStamp) throws IOException {
     final int id = getFileId(file);
     FSRecords.setTimestamp(id, modStamp);
     getDelegate(file).setTimeStamp(file, modStamp);
   }
 
   private static int getFileId(@NotNull VirtualFile file) {
-    final int id = ((VirtualFileWithId)file).getId();
-    if (id <= 0) {
-      throw new InvalidVirtualFileAccessException(file);
-    }
-    return id;
+    return ((VirtualFileWithId)file).getId();
   }
 
   @Override
@@ -341,21 +362,21 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
 
   @Override
   public String resolveSymLink(@NotNull VirtualFile file) {
-    throw new UnsupportedOperationException();
+    return FSRecords.readSymlinkTarget(getFileId(file));
   }
 
   @Override
   public boolean isWritable(@NotNull VirtualFile file) {
-    return (getFileAttributes(getFileId(file)) & IS_READ_ONLY) == 0;
+    return !BitUtil.isSet(getFileAttributes(getFileId(file)), Flags.IS_READ_ONLY);
   }
 
   @Override
   public boolean isHidden(@NotNull VirtualFile file) {
-    return (getFileAttributes(getFileId(file)) & IS_HIDDEN) != 0;
+    return BitUtil.isSet(getFileAttributes(getFileId(file)), Flags.IS_HIDDEN);
   }
 
   @Override
-  public void setWritable(@NotNull final VirtualFile file, final boolean writableFlag) throws IOException {
+  public void setWritable(@NotNull VirtualFile file, boolean writableFlag) throws IOException {
     getDelegate(file).setWritable(file, writableFlag);
     boolean oldWritable = isWritable(file);
     if (oldWritable != writableFlag) {
@@ -364,53 +385,92 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
   }
 
   @Override
-  public int getId(@NotNull VirtualFile parent, @NotNull String childName, @NotNull NewVirtualFileSystem fs) {
+  @ApiStatus.Internal
+  public ChildInfo findChildInfo(@NotNull VirtualFile parent, @NotNull String childName, @NotNull NewVirtualFileSystem fs) {
     int parentId = getFileId(parent);
-    int[] children = FSRecords.list(parentId);
+    Ref<ChildInfo> result = new Ref<>();
 
-    if (children.length > 0) {
-      // fast path, check that some child has same nameId as given name, this avoid O(N) on retrieving names for processing non-cached children
-      int nameId = FSRecords.getNameId(childName);
-      for (final int childId : children) {
-        if (nameId == FSRecords.getNameId(childId)) {
-          return childId;
+    Function<ListResult, ListResult> convertor = children -> {
+      ChildInfo child = findExistingChildInfo(parent, childName, children.children, fs);
+      if (child != null) {
+        result.set(child);
+        return children;
+      }
+      Pair<@NotNull FileAttributes, String> childData = getChildData(fs, parent, childName, null, null); // todo: use BatchingFileSystem
+      if (childData == null) {
+        return children;
+      }
+      String canonicalName;
+      if (parent.isCaseSensitive()) {
+        canonicalName = childName;
+      }
+      else {
+        canonicalName = fs.getCanonicallyCasedName(new FakeVirtualFile(parent, childName));
+        if (Strings.isEmptyOrSpaces(canonicalName)) {
+          return children;
+        }
+
+        if (!childName.equals(canonicalName)) {
+          child = findExistingChildInfo(parent, canonicalName, children.children, fs);
+          result.set(child);
         }
       }
-      // for case sensitive system the above check is exhaustive in consistent state of vfs
-    }
+      if (child == null) {
+        if (result.isNull()) {
+          child = makeChildRecord(parent, parentId, canonicalName, childData, fs, null);
+          result.set(child);
+        }
+        else {
+          // might have stored on previous attempt
+          child = result.get();
+        }
+        return children.insert(child);
+      }
+      return children;
+    };
+    FSRecords.update(parent, parentId, convertor);
+    return result.get();
+  }
 
-    for (final int childId : children) {
-      if (namesEqual(fs, childName, FSRecords.getName(childId))) return childId;
+  private static ChildInfo findExistingChildInfo(@NotNull VirtualFile parent,
+                                                 @NotNull String childName,
+                                                 @NotNull List<? extends ChildInfo> children,
+                                                 @NotNull NewVirtualFileSystem fs) {
+    if (children.isEmpty()) {
+      return null;
     }
-
-    final VirtualFile fake = new FakeVirtualFile(parent, childName);
-    final FileAttributes attributes = fs.getAttributes(fake);
-    if (attributes != null) {
-      final int child = createAndFillRecord(fs, fake, parentId, attributes);
-      FSRecords.updateList(parentId, ArrayUtil.append(children, child));
-      return child;
+    // fast path, check that some child has same nameId as given name to avoid overhead on retrieving names for non-cached children
+    int nameId = FSRecords.getNameId(childName);
+    for (ChildInfo info : children) {
+      if (nameId == info.getNameId()) {
+        return info;
+      }
     }
-
-    return 0;
+    // for case sensitive system the above check is exhaustive in consistent state of vfs
+    if (!parent.isCaseSensitive()) {
+      for (ChildInfo info : children) {
+        if (namesEqual(fs, parent, childName, FSRecords.getNameByNameId(info.getNameId()))) {
+          return info;
+        }
+      }
+    }
+    return null;
   }
 
   @Override
-  public long getLength(@NotNull final VirtualFile file) {
-    long len;
-    if (mustReloadContent(file)) {
-      len = reloadLengthFromDelegate(file, getDelegate(file));
-    }
-    else {
-      final int id = getFileId(file);
-      len = FSRecords.getLength(id);
-    }
-
-    return len;
+  public long getLength(@NotNull VirtualFile file) {
+    long length = getLengthIfUpToDate(file);
+    return length == -1 ? reloadLengthFromDelegate(file, getDelegate(file)) : length;
   }
 
-  @NotNull
   @Override
-  public VirtualFile copyFile(Object requestor, @NotNull VirtualFile file, @NotNull VirtualFile parent, @NotNull String name) throws IOException {
+  public long getLastRecordedLength(@NotNull VirtualFile file) {
+    int id = getFileId(file);
+    return FSRecords.getLength(id);
+  }
+
+  @Override
+  public @NotNull VirtualFile copyFile(Object requestor, @NotNull VirtualFile file, @NotNull VirtualFile parent, @NotNull String name) throws IOException {
     getDelegate(file).copyFile(requestor, file, parent, name);
     processEvent(new VFileCopyEvent(requestor, file, parent, name));
 
@@ -421,11 +481,15 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
     return child;
   }
 
-  @NotNull
   @Override
-  public VirtualFile createChildDirectory(Object requestor, @NotNull VirtualFile parent, @NotNull String dir) throws IOException {
+  public @NotNull VirtualFile createChildDirectory(Object requestor, @NotNull VirtualFile parent, @NotNull String dir) throws IOException {
     getDelegate(parent).createChildDirectory(requestor, parent, dir);
-    processEvent(new VFileCreateEvent(requestor, parent, dir, true, false));
+
+    processEvent(new VFileCreateEvent(requestor, parent, dir, true, null, null, false, ChildInfo.EMPTY_ARRAY));
+    VFileEvent caseSensitivityEvent = VfsImplUtil.generateCaseSensitivityChangedEventForUnknownCase(parent, dir);
+    if (caseSensitivityEvent != null) {
+      processEvent(caseSensitivityEvent);
+    }
 
     final VirtualFile child = parent.findChild(dir);
     if (child == null) {
@@ -434,21 +498,40 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
     return child;
   }
 
-  @NotNull
   @Override
-  public VirtualFile createChildFile(Object requestor, @NotNull VirtualFile parent, @NotNull String file) throws IOException {
-    getDelegate(parent).createChildFile(requestor, parent, file);
-    processEvent(new VFileCreateEvent(requestor, parent, file, false, false));
+  public @NotNull VirtualFile createChildFile(Object requestor, @NotNull VirtualFile parent, @NotNull String name) throws IOException {
+    getDelegate(parent).createChildFile(requestor, parent, name);
+    processEvent(new VFileCreateEvent(requestor, parent, name, false, null, null, false, null));
+    VFileEvent caseSensitivityEvent = VfsImplUtil.generateCaseSensitivityChangedEventForUnknownCase(parent, name);
+    if (caseSensitivityEvent != null) {
+      processEvent(caseSensitivityEvent);
+    }
 
-    final VirtualFile child = parent.findChild(file);
+    final VirtualFile child = parent.findChild(name);
     if (child == null) {
-      throw new IOException("Cannot create child file '" + file + "' at " + parent.getPath());
+      throw new IOException("Cannot create child file '" + name + "' at " + parent.getPath());
+    }
+    if (child.getCharset().equals(StandardCharsets.UTF_8) &&
+        !(child.getFileType() instanceof InternalFileType) &&
+        isUtf8BomRequired(child)) {
+      child.setBOM(CharsetToolkit.UTF8_BOM);
     }
     return child;
   }
 
+  private static boolean isUtf8BomRequired(@NotNull VirtualFile file) {
+    for (Utf8BomOptionProvider encodingProvider : Utf8BomOptionProvider.EP_NAME.getIterable()) {
+      if (encodingProvider.shouldAddBOMForNewUtf8File(file)) {
+        return true;
+      }
+    }
+    Project project = ProjectLocator.getInstance().guessProjectForFile(file);
+    EncodingManager encodingManager = project == null ? EncodingManager.getInstance() : EncodingProjectManager.getInstance(project);
+    return encodingManager.shouldAddBOMForNewUtf8File();
+  }
+
   @Override
-  public void deleteFile(final Object requestor, @NotNull final VirtualFile file) throws IOException {
+  public void deleteFile(Object requestor, @NotNull VirtualFile file) throws IOException {
     final NewVirtualFileSystem delegate = getDelegate(file);
     delegate.deleteFile(requestor, file);
 
@@ -458,7 +541,7 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
   }
 
   @Override
-  public void renameFile(final Object requestor, @NotNull VirtualFile file, @NotNull String newName) throws IOException {
+  public void renameFile(Object requestor, @NotNull VirtualFile file, @NotNull String newName) throws IOException {
     getDelegate(file).renameFile(requestor, file, newName);
     String oldName = file.getName();
     if (!newName.equals(oldName)) {
@@ -467,22 +550,27 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
   }
 
   @Override
-  @NotNull
-  public byte[] contentsToByteArray(@NotNull final VirtualFile file) throws IOException {
+  public byte @NotNull [] contentsToByteArray(@NotNull VirtualFile file) throws IOException {
     return contentsToByteArray(file, true);
   }
 
   @Override
-  @NotNull
-  public byte[] contentsToByteArray(@NotNull final VirtualFile file, boolean cacheContent) throws IOException {
+  public byte @NotNull [] contentsToByteArray(@NotNull VirtualFile file, boolean cacheContent) throws IOException {
     InputStream contentStream = null;
     boolean reloadFromDelegate;
     boolean outdated;
     int fileId;
-    synchronized (myInputLock) {
+    long length;
+
+    myInputLock.readLock().lock();
+    try {
       fileId = getFileId(file);
-      outdated = checkFlag(fileId, MUST_RELOAD_CONTENT) || FSRecords.getLength(fileId) == -1L;
+      length = getLengthIfUpToDate(file);
+      outdated = length == -1 || mustReloadContent(file);
       reloadFromDelegate = outdated || (contentStream = readContent(file)) == null;
+    }
+    finally {
+      myInputLock.readLock().unlock();
     }
 
     if (reloadFromDelegate) {
@@ -492,13 +580,13 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
       if (outdated) {
         // in this case, file can have out-of-date length. so, update it first (it's needed for correct contentsToByteArray() work)
         // see IDEA-90813 for possible bugs
-        FSRecords.setLength(fileId, delegate.getLength(file));
+        setLength(fileId, delegate.getLength(file));
         content = delegate.contentsToByteArray(file);
       }
       else {
         // a bit of optimization
         content = delegate.contentsToByteArray(file);
-        FSRecords.setLength(fileId, content.length);
+        setLength(fileId, content.length);
       }
 
       Application application = ApplicationManager.getApplication();
@@ -508,64 +596,93 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
       if ((!delegate.isReadOnly() ||
            // do not cache archive content unless asked
            cacheContent && !application.isInternal() && !application.isUnitTestMode()) &&
-          content.length <= PersistentFSConstants.FILE_LENGTH_TO_CACHE_THRESHOLD) {
-        synchronized (myInputLock) {
-          writeContent(file, new ByteSequence(content), delegate.isReadOnly());
-          setFlag(file, MUST_RELOAD_CONTENT, false);
+          shouldCache(content.length)) {
+
+        myInputLock.writeLock().lock();
+        try {
+          writeContent(file, ByteArraySequence.create(content), delegate.isReadOnly());
+          setFlag(file, Flags.MUST_RELOAD_CONTENT, false);
+        }
+        finally {
+          myInputLock.writeLock().unlock();
         }
       }
 
       return content;
     }
-    else {
-      try {
-        final int length = (int)file.getLength();
-        assert length >= 0 : file;
-        return FileUtil.loadBytes(contentStream, length);
-      }
-      catch (IOException e) {
-        throw FSRecords.handleError(e);
-      }
+    try {
+      assert length >= 0 : file;
+      return contentStream.readNBytes((int)length);
     }
+    catch (IOException e) {
+      FSRecords.handleError(e);
+    }
+    return ArrayUtil.EMPTY_BYTE_ARRAY;
   }
 
   @Override
-  @NotNull
-  public byte[] contentsToByteArray(int contentId) throws IOException {
-    final DataInputStream stream = readContentById(contentId);
-    assert stream != null : contentId;
-    return FileUtil.loadBytes(stream);
+  public byte @NotNull [] contentsToByteArray(int contentId) throws IOException {
+    return readContentById(contentId).readAllBytes();
   }
 
   @Override
-  @NotNull
-  public InputStream getInputStream(@NotNull final VirtualFile file) throws IOException {
-    synchronized (myInputLock) {
-      InputStream contentStream;
-      if (mustReloadContent(file) || (contentStream = readContent(file)) == null) {
+  public @NotNull InputStream getInputStream(@NotNull VirtualFile file) throws IOException {
+    InputStream contentStream;
+    boolean useReplicator = false;
+    long len = 0L;
+    boolean readOnly = false;
+
+    myInputLock.readLock().lock();
+    try {
+      long storedLength = getLengthIfUpToDate(file);
+      boolean mustReloadLength = storedLength == -1;
+
+      if (mustReloadLength || mustReloadContent(file) || FileUtilRt.isTooLarge(file.getLength()) || (contentStream = readContent(file)) == null) {
         NewVirtualFileSystem delegate = getDelegate(file);
-        long len = reloadLengthFromDelegate(file, delegate);
-        InputStream nativeStream = delegate.getInputStream(file);
+        len = mustReloadLength ? reloadLengthFromDelegate(file, delegate) : storedLength;
+        contentStream = delegate.getInputStream(file);
 
-        if (len > PersistentFSConstants.FILE_LENGTH_TO_CACHE_THRESHOLD) return nativeStream;
-        return createReplicator(file, nativeStream, len, delegate.isReadOnly());
-      }
-      else {
-        return contentStream;
+        if (shouldCache(len)) {
+          useReplicator = true;
+          readOnly = delegate.isReadOnly();
+        }
       }
     }
+    finally {
+      myInputLock.readLock().unlock();
+    }
+
+    if (useReplicator) {
+      contentStream = createReplicatorAndStoreContent(file, contentStream, len, readOnly);
+    }
+
+    return contentStream;
   }
 
-  private static long reloadLengthFromDelegate(@NotNull VirtualFile file, @NotNull NewVirtualFileSystem delegate) {
+  private static boolean shouldCache(long len) {
+    return len <= PersistentFSConstants.FILE_LENGTH_TO_CACHE_THRESHOLD && !HeavyProcessLatch.INSTANCE.isRunning();
+  }
+
+  private static boolean mustReloadContent(@NotNull VirtualFile file) {
+    return BitUtil.isSet(FSRecords.getFlags(getFileId(file)), Flags.MUST_RELOAD_CONTENT);
+  }
+
+  private static long reloadLengthFromDelegate(@NotNull VirtualFile file, @NotNull FileSystemInterface delegate) {
     final long len = delegate.getLength(file);
-    FSRecords.setLength(getFileId(file), len);
+    int fileId = getFileId(file);
+    setLength(fileId, len);
     return len;
   }
 
-  private InputStream createReplicator(@NotNull final VirtualFile file,
-                                       final InputStream nativeStream,
-                                       final long fileLength,
-                                       final boolean readOnly) throws IOException {
+  private static void setLength(int fileId, long len) {
+    FSRecords.setLength(fileId, len);
+    setFlag(fileId, Flags.MUST_RELOAD_LENGTH, false);
+  }
+
+  private @NotNull InputStream createReplicatorAndStoreContent(@NotNull VirtualFile file,
+                                                               @NotNull InputStream nativeStream,
+                                                               long fileLength,
+                                                               boolean readOnly) {
     if (nativeStream instanceof BufferExposingByteArrayInputStream) {
       // optimization
       BufferExposingByteArrayInputStream  byteStream = (BufferExposingByteArrayInputStream )nativeStream;
@@ -573,43 +690,69 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
       storeContentToStorage(fileLength, file, readOnly, bytes, bytes.length);
       return nativeStream;
     }
-    @SuppressWarnings("IOResourceOpenedButNotSafelyClosed")
     final BufferExposingByteArrayOutputStream cache = new BufferExposingByteArrayOutputStream((int)fileLength);
     return new ReplicatorInputStream(nativeStream, cache) {
+      boolean isClosed;
+
       @Override
       public void close() throws IOException {
-        super.close();
-        storeContentToStorage(fileLength, file, readOnly, cache.getInternalBuffer(), cache.size());
+        if (!isClosed) {
+          try {
+            boolean isEndOfFileReached;
+            try {
+              isEndOfFileReached = available() <= 0;
+            }
+            catch (IOException ignored) {
+              isEndOfFileReached = false;
+            }
+            super.close();
+            if (isEndOfFileReached) {
+              storeContentToStorage(fileLength, file, readOnly, cache.getInternalBuffer(), cache.size());
+            }
+          }
+          finally {
+            isClosed = true;
+          }
+        }
       }
     };
   }
 
   private void storeContentToStorage(long fileLength,
                                      @NotNull VirtualFile file,
-                                     boolean readOnly, @NotNull byte[] bytes, int bytesLength)
-    throws IOException {
-    synchronized (myInputLock) {
+                                     boolean readOnly, byte @NotNull [] bytes, int bytesLength) {
+    myInputLock.writeLock().lock();
+    try {
       if (bytesLength == fileLength) {
-        writeContent(file, new ByteSequence(bytes, 0, bytesLength), readOnly);
-        setFlag(file, MUST_RELOAD_CONTENT, false);
+        writeContent(file, new ByteArraySequence(bytes, 0, bytesLength), readOnly);
+        setFlag(file, Flags.MUST_RELOAD_CONTENT, false);
+        setFlag(file, Flags.MUST_RELOAD_LENGTH, false);
       }
       else {
-        setFlag(file, MUST_RELOAD_CONTENT, true);
+        doCleanPersistedContent(getFileId(file));
       }
+    }
+    finally {
+      myInputLock.writeLock().unlock();
     }
   }
 
-  private static boolean mustReloadContent(@NotNull VirtualFile file) {
+  @TestOnly
+  public static byte @Nullable [] getContentHashIfStored(@NotNull VirtualFile file) {
+    return FSRecords.getContentHash(getFileId(file));
+  }
+
+  // returns last recorded length or -1 if must reload from delegate
+  private static long getLengthIfUpToDate(@NotNull VirtualFile file) {
     int fileId = getFileId(file);
-    return checkFlag(fileId, MUST_RELOAD_CONTENT) || FSRecords.getLength(fileId) == -1L;
+    return BitUtil.isSet(FSRecords.getFlags(fileId), Flags.MUST_RELOAD_LENGTH) ? -1 : FSRecords.getLength(fileId);
   }
 
   @Override
-  @NotNull
-  public OutputStream getOutputStream(@NotNull final VirtualFile file,
-                                      final Object requestor,
-                                      final long modStamp,
-                                      final long timeStamp) throws IOException {
+  public @NotNull OutputStream getOutputStream(@NotNull VirtualFile file,
+                                               Object requestor,
+                                               long modStamp,
+                                               long timeStamp) {
     return new ByteArrayOutputStream() {
       private boolean closed; // protection against user calling .close() twice
 
@@ -622,28 +765,26 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
 
         VFileContentChangeEvent event = new VFileContentChangeEvent(requestor, file, file.getModificationStamp(), modStamp, false);
         List<VFileContentChangeEvent> events = Collections.singletonList(event);
-        BulkFileListener publisher = myEventBus.syncPublisher(VirtualFileManager.VFS_CHANGES);
-        publisher.before(events);
+        fireBeforeEvents(getPublisher(), events);
 
         NewVirtualFileSystem delegate = getDelegate(file);
-        OutputStream ioFileStream = delegate.getOutputStream(file, requestor, modStamp, timeStamp);
         // FSRecords.ContentOutputStream already buffered, no need to wrap in BufferedStream
-        OutputStream persistenceStream = writeContent(file, delegate.isReadOnly());
-
-        try {
+        try (OutputStream persistenceStream = writeContent(file, delegate.isReadOnly())) {
           persistenceStream.write(buf, 0, count);
         }
         finally {
-          try {
+          try (OutputStream ioFileStream = delegate.getOutputStream(file, requestor, modStamp, timeStamp)) {
             ioFileStream.write(buf, 0, count);
           }
           finally {
             closed = true;
-            persistenceStream.close();
-            ioFileStream.close();
 
-            executeTouch(file, false, event.getModificationStamp());
-            publisher.after(events);
+            final FileAttributes attributes = delegate.getAttributes(file);
+            executeTouch(file, false, event.getModificationStamp(),
+                         attributes != null ? attributes.length : DEFAULT_LENGTH,
+                         // due to fs rounding timestamp of written file can be significantly different from current time
+                         attributes != null ? attributes.lastModified : DEFAULT_TIMESTAMP);
+            fireAfterEvents(getPublisher(), events);
           }
         }
       }
@@ -666,256 +807,561 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
   }
 
   @Override
-  public void moveFile(final Object requestor, @NotNull final VirtualFile file, @NotNull final VirtualFile newParent) throws IOException {
+  public void moveFile(Object requestor, @NotNull VirtualFile file, @NotNull VirtualFile newParent) throws IOException {
     getDelegate(file).moveFile(requestor, file, newParent);
     processEvent(new VFileMoveEvent(requestor, file, newParent));
   }
 
   private void processEvent(@NotNull VFileEvent event) {
-    processEvents(Collections.singletonList(event));
-  }
-
-  private static class EventWrapper {
-    private final VFileDeleteEvent event;
-    private final int id;
-
-    private EventWrapper(final VFileDeleteEvent event, final int id) {
-      this.event = event;
-      this.id = id;
+    ApplicationManager.getApplication().assertWriteAccessAllowed();
+    if (!event.isValid()) {
+      return;
     }
-  }
+    List<VFileEvent> outValidatedEvents = new ArrayList<>();
+    outValidatedEvents.add(event);
+    List<Runnable> outApplyActions = new ArrayList<>();
+    List<VFileEvent> jarDeleteEvents = VfsImplUtil.getJarInvalidationEvents(event, outApplyActions);
+    BulkFileListener publisher = getPublisher();
+    if (jarDeleteEvents.isEmpty() && outApplyActions.isEmpty()) {
+      // optimisation: skip all groupings
+      fireBeforeEvents(publisher, outValidatedEvents);
 
-  @NotNull private static final Comparator<EventWrapper> DEPTH_COMPARATOR = new Comparator<EventWrapper>() {
-    @Override
-    public int compare(@NotNull final EventWrapper o1, @NotNull final EventWrapper o2) {
-      return o1.event.getFileDepth() - o2.event.getFileDepth();
-    }
-  };
+      applyEvent(event);
 
-  @NotNull
-  private static List<VFileEvent> validateEvents(@NotNull List<VFileEvent> events) {
-    final List<EventWrapper> deletionEvents = ContainerUtil.newArrayList();
-    for (int i = 0, size = events.size(); i < size; i++) {
-      final VFileEvent event = events.get(i);
-      if (event instanceof VFileDeleteEvent && event.isValid()) {
-        deletionEvents.add(new EventWrapper((VFileDeleteEvent)event, i));
-      }
-    }
-
-    final TIntHashSet invalidIDs;
-    if (deletionEvents.isEmpty()) {
-      invalidIDs = EmptyIntHashSet.INSTANCE;
+      fireAfterEvents(publisher, outValidatedEvents);
     }
     else {
-      ContainerUtil.quickSort(deletionEvents, DEPTH_COMPARATOR);
-
-      invalidIDs = new TIntHashSet(deletionEvents.size());
-      final Set<VirtualFile> dirsToBeDeleted = new THashSet<VirtualFile>(deletionEvents.size());
-      nextEvent:
-      for (EventWrapper wrapper : deletionEvents) {
-        final VirtualFile candidate = wrapper.event.getFile();
-        VirtualFile parent = candidate;
-        while (parent != null) {
-          if (dirsToBeDeleted.contains(parent)) {
-            invalidIDs.add(wrapper.id);
-            continue nextEvent;
-          }
-          parent = parent.getParent();
-        }
-
-        if (candidate.isDirectory()) {
-          dirsToBeDeleted.add(candidate);
-        }
+      outApplyActions.add(() -> applyEvent(event));
+      // there are a number of additional jar events generated
+      for (VFileEvent jarDeleteEvent : jarDeleteEvents) {
+        outApplyActions.add(() -> applyEvent(jarDeleteEvent));
+        outValidatedEvents.add(jarDeleteEvent);
       }
-    }
 
-    final List<VFileEvent> filtered = new ArrayList<VFileEvent>(events.size() - invalidIDs.size());
-    for (int i = 0, size = events.size(); i < size; i++) {
-      final VFileEvent event = events.get(i);
-      if (event.isValid() && !(event instanceof VFileDeleteEvent && invalidIDs.contains(i))) {
-        filtered.add(event);
-      }
+      applyMultipleEvents(publisher, outApplyActions, outValidatedEvents, false);
     }
-    return filtered;
   }
 
+  // Tries to find a group of non-conflicting events in range [startIndex..inEvents.size()).
+  // Two events are conflicting if the originating file of one event is an ancestor (non-strict) of the file from the other.
+  // E.g. "change(a/b/c/x.txt)" and "delete(a/b/c)" are conflicting because "a/b/c/x.txt" is under the "a/b/c" directory from the other event.
+  //
+  // returns index after the last grouped event.
+  private static int groupByPath(List<? extends CompoundVFileEvent> events,
+                                 int startIndex,
+                                 @NotNull MostlySingularMultiMap<String, VFileEvent> filesInvolved,
+                                 @NotNull Set<? super String> middleDirsInvolved,
+                                 @NotNull Set<? super VirtualFile> deleted,
+                                 @NotNull Map<VirtualDirectoryImpl, Object> toCreate,// dir -> VFileCreateEvent or Collection<VFileCreateEvent> in this dir
+                                 @NotNull Set<? super VFileEvent> eventsToRemove) {
+    // store all paths from all events (including all parents)
+    // check the each new event's path against this set and if it's there, this event is conflicting
+    int i;
+    for (i = startIndex; i < events.size(); i++) {
+      VFileEvent event = events.get(i).getFileEvent();
+      String path = event.getPath();
+      if (event instanceof VFileDeleteEvent && removeNestedDelete(((VFileDeleteEvent)event).getFile(), deleted)) {
+        eventsToRemove.add(event);
+        continue;
+      }
+      if (event instanceof VFileCreateEvent) {
+        VFileCreateEvent createEvent = (VFileCreateEvent)event;
+        VirtualDirectoryImpl parent = (VirtualDirectoryImpl)createEvent.getParent();
+        Object createEvents = toCreate.get(parent);
+        if (createEvents == null) {
+          toCreate.put(parent, createEvent);
+        }
+        else {
+          if (createEvents instanceof VFileCreateEvent) {
+            VFileCreateEvent prevEvent = (VFileCreateEvent)createEvents;
+            Set<VFileCreateEvent> children = parent.isCaseSensitive() ? new LinkedHashSet<>() :
+                                             new ObjectLinkedOpenCustomHashSet<>(CASE_INSENSITIVE_STRATEGY);
+            children.add(prevEvent);
+            toCreate.put(parent, children);
+            createEvents = children;
+          }
+          //noinspection unchecked
+          Collection<VFileCreateEvent> children = (Collection<VFileCreateEvent>)createEvents;
+          if (!children.add(createEvent)) {
+            eventsToRemove.add(createEvent);
+            continue;
+          }
+        }
+      }
+
+      if (eventConflictsWithPrevious(event, path, filesInvolved, middleDirsInvolved)) {
+        break;
+      }
+      // some synthetic events really are composite events, e.g. VFileMoveEvent = VFileDeleteEvent+VFileCreateEvent,
+      // so both paths should be checked for conflicts
+      String path2 = getAlternativePath(event);
+      if (path2 != null &&
+          !(SystemInfoRt.isFileSystemCaseSensitive ? path2.equals(path) : path2.equalsIgnoreCase(path)) &&
+          eventConflictsWithPrevious(event, path2, filesInvolved, middleDirsInvolved)) {
+        break;
+      }
+    }
+
+    return i;
+  }
+
+  private static String getAlternativePath(@NotNull VFileEvent event) {
+    if (event instanceof VFilePropertyChangeEvent && ((VFilePropertyChangeEvent)event).getPropertyName().equals(VirtualFile.PROP_NAME)) {
+      VFilePropertyChangeEvent pce = (VFilePropertyChangeEvent)event;
+      VirtualFile parent = pce.getFile().getParent();
+      String newName = (String)pce.getNewValue();
+      return parent == null ? newName : parent.getPath()+"/"+newName;
+    }
+    if (event instanceof VFileCopyEvent) {
+      return ((VFileCopyEvent)event).getFile().getPath();
+    }
+    if (event instanceof VFileMoveEvent) {
+      VFileMoveEvent vme = (VFileMoveEvent)event;
+      String newName = vme.getFile().getName();
+      return vme.getNewParent().getPath() + "/" + newName;
+    }
+    return null;
+  }
+
+  // return true if the file or the ancestor of the file is going to be deleted
+  private static boolean removeNestedDelete(@NotNull VirtualFile file, @NotNull Set<? super VirtualFile> deleted) {
+    if (!deleted.add(file)) {
+      return true;
+    }
+    while (true) {
+      file = file.getParent();
+      if (file == null) break;
+      if (deleted.contains(file)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private static boolean eventConflictsWithPrevious(@NotNull VFileEvent event,
+                                                    @NotNull String path,
+                                                    @NotNull MostlySingularMultiMap<String, VFileEvent> files,
+                                                    @NotNull Set<? super String> middleDirs) {
+    boolean canReconcileEvents = true;
+    for (VFileEvent prev : files.get(path)) {
+      if (!(isContentChangeLikeHarmlessEvent(event) && isContentChangeLikeHarmlessEvent(prev))) {
+        canReconcileEvents = false;
+        break;
+      }
+    }
+    if (!canReconcileEvents) {
+      // conflicting event found for (non-strict) descendant, stop
+      return true;
+    }
+    if (middleDirs.contains(path)) {
+      // conflicting event found for (non-strict) descendant, stop
+      return true;
+    }
+    files.add(path, event);
+    int li = path.length();
+    while (true) {
+      int liPrev = path.lastIndexOf('/', li-1);
+      if (liPrev == -1) break;
+      String parentDir = path.substring(0, liPrev);
+      if (files.containsKey(parentDir)) {
+        // conflicting event found for ancestor, stop
+        return true;
+      }
+      if (!middleDirs.add(parentDir)) break;  // all parents up already stored, stop
+      li = liPrev;
+    }
+
+    return false;
+  }
+
+  private static boolean isContentChangeLikeHarmlessEvent(@NotNull VFileEvent event) {
+    if (event instanceof VFileContentChangeEvent) return true;
+    if (event instanceof VFilePropertyChangeEvent) {
+      String prop = ((VFilePropertyChangeEvent)event).getPropertyName();
+      return prop.equals(VirtualFile.PROP_WRITABLE)
+             || prop.equals(VirtualFile.PROP_ENCODING)
+             || prop.equals(VirtualFile.PROP_CHILDREN_CASE_SENSITIVITY);
+    }
+    return false;
+  }
+
+  // finds a group of non-conflicting events, validate them.
+  // "outApplyActions" will contain handlers for applying the grouped events
+  // "outValidatedEvents" will contain events for which VFileEvent.isValid() is true
+  // return index after the last processed event
+  private int groupAndValidate(@NotNull List<? extends CompoundVFileEvent> events,
+                               int startIndex,
+                               @NotNull List<? super Runnable> outApplyActions,
+                               @NotNull List<? super VFileEvent> outValidatedEvents,
+                               @NotNull MostlySingularMultiMap<String, VFileEvent> filesInvolved,
+                               @NotNull Set<? super String> middleDirsInvolved,
+                               @NotNull Map<VirtualDirectoryImpl, Object> toCreate,
+                               @NotNull Set<VFileEvent> toIgnore,
+                               @NotNull Set<? super VirtualFile> toDelete,
+                               boolean excludeAsyncListeners) {
+    int endIndex = groupByPath(events, startIndex, filesInvolved, middleDirsInvolved, toDelete, toCreate, toIgnore);
+    assert endIndex > startIndex : events.get(startIndex) +"; files: "+filesInvolved+"; middleDirs: "+middleDirsInvolved;
+    // since all events in the group events[startIndex..endIndex) are mutually non-conflicting, we can re-arrange creations/deletions together
+    groupCreations(outValidatedEvents, outApplyActions, toCreate);
+    groupDeletions(events, startIndex, endIndex, outValidatedEvents, outApplyActions, toIgnore);
+    groupOthers(events, startIndex, endIndex, outValidatedEvents, outApplyActions);
+
+    for (int i = startIndex; i < endIndex; i++) {
+      CompoundVFileEvent event = events.get(i);
+
+      outApplyActions.addAll(event.getApplyActions());
+
+      if (excludeAsyncListeners && !event.areInducedEventsCalculated()) {
+        LOG.error("Nested file events must be processed by async file listeners! Event: " + event);
+      }
+
+      for (VFileEvent jarDeleteEvent : event.getInducedEvents()) {
+        outApplyActions.add((Runnable)() -> applyEvent(jarDeleteEvent));
+        outValidatedEvents.add(jarDeleteEvent);
+      }
+    }
+    return endIndex;
+  }
+
+  // find all VFileCreateEvent events in [start..end)
+  // group them by parent directory, validate in bulk for each directory, and return "applyCreations()" runnable
+  private void groupCreations(@NotNull List<? super VFileEvent> outValidated,
+                              @NotNull List<? super Runnable> outApplyActions,
+                              @NotNull Map<VirtualDirectoryImpl, Object> created) {
+    if (!created.isEmpty()) {
+      // since the VCreateEvent.isValid() is extremely expensive, combine all creation events for the directory together
+      // and use VirtualDirectoryImpl.validateChildrenToCreate() optimised for bulk validation
+      boolean hasValidEvents = false;
+      for (Map.Entry<VirtualDirectoryImpl, Object> entry : created.entrySet()) {
+        VirtualDirectoryImpl directory = entry.getKey();
+        Object value = entry.getValue();
+        //noinspection unchecked
+        Set<VFileCreateEvent> createEvents = value instanceof VFileCreateEvent ? new HashSet<>(Collections.singletonList((VFileCreateEvent)value)) : (Set<VFileCreateEvent>)value;
+        directory.validateChildrenToCreate(createEvents);
+        hasValidEvents |= !createEvents.isEmpty();
+        outValidated.addAll(createEvents);
+        entry.setValue(createEvents);
+      }
+
+      if (hasValidEvents) {
+        //noinspection unchecked
+        Map<VirtualDirectoryImpl, Set<VFileCreateEvent>> finalGrouped = (Map)created;
+        outApplyActions.add((Runnable)() -> {
+          applyCreations(finalGrouped);
+          incStructuralModificationCount();
+        });
+      }
+    }
+  }
+
+  // find all VFileDeleteEvent events in [start..end)
+  // group them by parent directory (can be null), filter out files which parent dir is to be deleted too, and return "applyDeletions()" runnable
+  private void groupDeletions(@NotNull List<? extends CompoundVFileEvent> events,
+                              int start,
+                              int end,
+                              @NotNull List<? super VFileEvent> outValidated,
+                              @NotNull List<? super Runnable> outApplyActions,
+                              @NotNull Set<? extends VFileEvent> toIgnore) {
+    MultiMap<VirtualDirectoryImpl, VFileDeleteEvent> grouped = null;
+    boolean hasValidEvents = false;
+    for (int i = start; i < end; i++) {
+      VFileEvent event = events.get(i).getFileEvent();
+      if (!(event instanceof VFileDeleteEvent) || toIgnore.contains(event) || !event.isValid()) continue;
+      VFileDeleteEvent de = (VFileDeleteEvent)event;
+      VirtualDirectoryImpl parent = (VirtualDirectoryImpl)de.getFile().getParent();
+      if (grouped == null) {
+        grouped = new MultiMap<>(end - start);
+      }
+      grouped.putValue(parent, de);
+      outValidated.add(event);
+      hasValidEvents = true;
+    }
+
+    if (hasValidEvents) {
+      MultiMap<VirtualDirectoryImpl, VFileDeleteEvent> finalGrouped = grouped;
+      outApplyActions.add((Runnable)() -> {
+        clearIdCache();
+        applyDeletions(finalGrouped);
+        incStructuralModificationCount();
+      });
+    }
+  }
+
+  // find events other than VFileCreateEvent or VFileDeleteEvent in [start..end)
+  // validate and return "applyEvent()" runnable for each event because it's assumed there won't be too many of them
+  private void groupOthers(@NotNull List<? extends CompoundVFileEvent> events,
+                           int start,
+                           int end,
+                           @NotNull List<? super VFileEvent> outValidated,
+                           @NotNull List<? super Runnable> outApplyActions) {
+    for (int i = start; i < end; i++) {
+      VFileEvent event = events.get(i).getFileEvent();
+      if (event instanceof VFileCreateEvent || event instanceof VFileDeleteEvent || !event.isValid()) continue;
+      outValidated.add(event);
+      outApplyActions.add((Runnable)() -> applyEvent(event));
+    }
+  }
+
+  private static final int INNER_ARRAYS_THRESHOLD = 1024; // max initial size, to avoid OOM on million-events processing
   @Override
-  public void processEvents(@NotNull List<VFileEvent> events) {
+  public void processEvents(@NotNull List<? extends VFileEvent> events) {
+    processEventsImpl(ContainerUtil.map(events, e -> new CompoundVFileEvent(e)), false);
+  }
+
+  @ApiStatus.Internal
+  public void processEventsImpl(@NotNull List<? extends CompoundVFileEvent> events, boolean excludeAsyncListeners) {
     ApplicationManager.getApplication().assertWriteAccessAllowed();
 
-    List<VFileEvent> validated = validateEvents(events);
+    int startIndex = 0;
+    int cappedInitialSize = Math.min(events.size(), INNER_ARRAYS_THRESHOLD);
+    List<Runnable> applyActions = new ArrayList<>(cappedInitialSize);
+    // even in the unlikely case when case-insensitive maps falsely detect conflicts of case-sensitive paths,
+    // the worst outcome will be one extra event batch, which is acceptable
+    MostlySingularMultiMap<String, VFileEvent> files = new MostlySingularMultiMap<>(CollectionFactory.createFilePathMap(cappedInitialSize));
+    Set<String> middleDirs = CollectionFactory.createFilePathSet(cappedInitialSize);
 
-    BulkFileListener publisher = myEventBus.syncPublisher(VirtualFileManager.VFS_CHANGES);
-    publisher.before(validated);
+    List<VFileEvent> validated = new ArrayList<>(cappedInitialSize);
+    BulkFileListener publisher = getPublisher();
+    Map<VirtualDirectoryImpl, Object> toCreate = new LinkedHashMap<>();
+    Set<VFileEvent> toIgnore = new ReferenceOpenHashSet<>(); // VFileEvent overrides equals(), hence identity-based
+    Set<VirtualFile> toDelete = CollectionFactory.createSmallMemoryFootprintSet();
+    while (startIndex != events.size()) {
+      PingProgress.interactWithEdtProgress();
 
-    THashMap<VirtualFile, List<VFileEvent>> parentToChildrenEventsChanges = null;
-    for (VFileEvent event : validated) {
-      VirtualFile changedParent = null;
-      if (event instanceof VFileCreateEvent) {
-        changedParent = ((VFileCreateEvent)event).getParent();
-        ((VFileCreateEvent)event).resetCache();
-      }
-      else if (event instanceof VFileDeleteEvent) {
-        changedParent = ((VFileDeleteEvent)event).getFile().getParent();
-      }
+      applyActions.clear();
+      files.clear();
+      middleDirs.clear();
+      validated.clear();
+      toCreate.clear();
+      toIgnore.clear();
+      toDelete.clear();
+      startIndex = groupAndValidate(events,
+                                    startIndex,
+                                    applyActions,
+                                    validated,
+                                    files,
+                                    middleDirs,
+                                    toCreate,
+                                    toIgnore,
+                                    toDelete,
+                                    excludeAsyncListeners);
 
-      if (changedParent != null) {
-        if (parentToChildrenEventsChanges == null) parentToChildrenEventsChanges = new THashMap<VirtualFile, List<VFileEvent>>();
-        List<VFileEvent> parentChildrenChanges = parentToChildrenEventsChanges.get(changedParent);
-        if (parentChildrenChanges == null) {
-          parentToChildrenEventsChanges.put(changedParent, parentChildrenChanges = new SmartList<VFileEvent>());
-        }
-        parentChildrenChanges.add(event);
-      }
-      else {
-        applyEvent(event);
+      if (!validated.isEmpty()) {
+        applyMultipleEvents(publisher, applyActions, validated, excludeAsyncListeners);
       }
     }
-
-    if (parentToChildrenEventsChanges != null) {
-      parentToChildrenEventsChanges.forEachEntry(new TObjectObjectProcedure<VirtualFile, List<VFileEvent>>() {
-        @Override
-        public boolean execute(VirtualFile parent, List<VFileEvent> childrenEvents) {
-          applyChildrenChangeEvents(parent, childrenEvents);
-          return true;
-        }
-      });
-      parentToChildrenEventsChanges.clear();
-    }
-
-    publisher.after(validated);
   }
 
-  private void applyChildrenChangeEvents(@NotNull VirtualFile parent, @NotNull List<VFileEvent> events) {
-    final NewVirtualFileSystem delegate = getDelegate(parent);
-    TIntArrayList childrenIdsUpdated = new TIntArrayList();
-    List<VirtualFile> childrenToBeUpdated = new SmartList<VirtualFile>();
+  private static void applyMultipleEvents(@NotNull BulkFileListener publisher,
+                                          @NotNull List<? extends Runnable> applyActions,
+                                          @NotNull List<? extends VFileEvent> applyEvents, boolean excludeAsyncListeners) {
+    PingProgress.interactWithEdtProgress();
+    // do defensive copy to cope with ill-written listeners that save passed list for later processing
+    List<VFileEvent> toSend = ContainerUtil.immutableList(applyEvents.toArray(new VFileEvent[0]));
 
-    final int parentId = getFileId(parent);
-    assert parentId != 0;
-    TIntHashSet parentChildrenIds = new TIntHashSet(FSRecords.list(parentId));
-    boolean hasRemovedChildren = false;
+    try {
+      if (excludeAsyncListeners) AsyncEventSupport.markAsynchronouslyProcessedEvents(toSend);
 
-    for (VFileEvent event : events) {
-      if (event instanceof VFileCreateEvent) {
-        String name = ((VFileCreateEvent)event).getChildName();
-        final VirtualFile fake = new FakeVirtualFile(parent, name);
-        final FileAttributes attributes = delegate.getAttributes(fake);
+      fireBeforeEvents(publisher, toSend);
 
-        if (attributes != null) {
-          final int childId = createAndFillRecord(delegate, fake, parentId, attributes);
-          assert parent instanceof VirtualDirectoryImpl : parent;
-          final VirtualDirectoryImpl dir = (VirtualDirectoryImpl)parent;
-          VirtualFileSystemEntry child = dir.createChild(name, childId, dir.getFileSystem());
-          childrenToBeUpdated.add(child);
-          childrenIdsUpdated.add(childId);
-          parentChildrenIds.add(childId);
-        }
+      PingProgress.interactWithEdtProgress();
+      applyActions.forEach(Runnable::run);
+
+      PingProgress.interactWithEdtProgress();
+      fireAfterEvents(publisher, toSend);
+    }
+    finally {
+      if (excludeAsyncListeners) AsyncEventSupport.unmarkAsynchronouslyProcessedEvents(toSend);
+    }
+  }
+
+  private static void fireBeforeEvents(@NotNull BulkFileListener publisher, @NotNull List<? extends VFileEvent> toSend) {
+    publisher.before(toSend);
+    ((BulkFileListener)VirtualFilePointerManager.getInstance()).before(toSend);
+  }
+
+  private static void fireAfterEvents(@NotNull BulkFileListener publisher, @NotNull List<? extends VFileEvent> toSend) {
+    CachedFileType.clearCache();
+    ((BulkFileListener)VirtualFilePointerManager.getInstance()).after(toSend);
+    publisher.after(toSend);
+  }
+
+  // remove children from specified directories using VirtualDirectoryImpl.removeChildren() optimised for bulk removals
+  private void applyDeletions(@NotNull MultiMap<VirtualDirectoryImpl, VFileDeleteEvent> deletions) {
+    for (Map.Entry<VirtualDirectoryImpl, Collection<VFileDeleteEvent>> entry : deletions.entrySet()) {
+      VirtualDirectoryImpl parent = entry.getKey();
+      Collection<VFileDeleteEvent> deleteEvents = entry.getValue();
+      // no valid containing directory, apply events the old way - one by one
+      if (parent == null || !parent.isValid()) {
+        deleteEvents.forEach(this::applyEvent);
+        return;
       }
-      else if (event instanceof VFileDeleteEvent) {
-        VirtualFile file = ((VFileDeleteEvent)event).getFile();
-        if (!file.exists()) {
-          LOG.error("Deleting a file, which does not exist: " + file.getPath());
-          continue;
-        }
 
-        hasRemovedChildren = true;
+      int parentId = getFileId(parent);
+      List<CharSequence> childrenNamesDeleted = new ArrayList<>(deleteEvents.size());
+      IntSet childrenIdsDeleted = new IntOpenHashSet(deleteEvents.size());
+      List<ChildInfo> deleted = new ArrayList<>(deleteEvents.size());
+      for (VFileDeleteEvent event : deleteEvents) {
+        VirtualFile file = event.getFile();
         int id = getFileId(file);
+        childrenNamesDeleted.add(file.getNameSequence());
+        childrenIdsDeleted.add(id);
+        FSRecords.deleteRecordRecursively(id);
+        invalidateSubtree(file, "Bulk file deletions", event);
+        deleted.add(new ChildInfoImpl(id, ChildInfoImpl.UNKNOWN_ID_YET, null, null, null));
+      }
+      deleted.sort(ChildInfo.BY_ID);
+      FSRecords.update(parent, parentId, oldChildren -> oldChildren.subtract(deleted));
+      parent.removeChildren(childrenIdsDeleted, childrenNamesDeleted);
+    }
+  }
 
-        childrenToBeUpdated.add(file);
-        childrenIdsUpdated.add(-id);
-        parentChildrenIds.remove(id);
+  // add children to specified directories using VirtualDirectoryImpl.createAndAddChildren() optimised for bulk additions
+  private void applyCreations(@NotNull Map<VirtualDirectoryImpl, Set<VFileCreateEvent>> creations) {
+    for (Map.Entry<VirtualDirectoryImpl, Set<VFileCreateEvent>> entry : creations.entrySet()) {
+      VirtualDirectoryImpl parent = entry.getKey();
+      Collection<VFileCreateEvent> createEvents = entry.getValue();
+      applyCreateEventsInDirectory(parent, createEvents);
+    }
+  }
+
+  private void applyCreateEventsInDirectory(@NotNull VirtualDirectoryImpl parent, @NotNull Collection<VFileCreateEvent> createEvents) {
+    int parentId = getFileId(parent);
+    NewVirtualFile vf = findFileById(parentId);
+    if (!(vf instanceof VirtualDirectoryImpl)) return;
+    parent = (VirtualDirectoryImpl)vf;  // retain in myIdToDirCache at least for the duration of this block in order to subsequent findFileById() won't crash
+    NewVirtualFileSystem delegate = replaceWithNativeFS(getDelegate(parent));
+
+    List<ChildInfo> childrenAdded = new ArrayList<>(createEvents.size());
+    for (VFileCreateEvent createEvent : createEvents) {
+      createEvent.resetCache();
+      String name = createEvent.getChildName();
+      Pair<@NotNull FileAttributes, String> childData = getChildData(delegate, createEvent.getParent(), name, createEvent.getAttributes(), createEvent.getSymlinkTarget());
+      if (childData != null) {
+        ChildInfo child = makeChildRecord(parent, parentId, name, childData, delegate, createEvent.getChildren());
+        childrenAdded.add(child);
       }
     }
+    childrenAdded.sort(ChildInfo.BY_ID);
+    boolean caseSensitive = parent.isCaseSensitive();
+    FSRecords.update(parent, parentId, oldChildren -> oldChildren.merge(childrenAdded, caseSensitive));
+    parent.createAndAddChildren(childrenAdded, false, (__,___)->{});
 
-    FSRecords.updateList(parentId, parentChildrenIds.toArray());
+    saveScannedChildrenRecursively(createEvents, delegate, parent.isCaseSensitive());
+  }
 
-    if (hasRemovedChildren) clearIdCache();
-    VirtualDirectoryImpl parentImpl = (VirtualDirectoryImpl)parent;
+  private static void saveScannedChildrenRecursively(@NotNull Collection<VFileCreateEvent> createEvents,
+                                                     @NotNull NewVirtualFileSystem delegate,
+                                                     boolean isCaseSensitive) {
+    for (VFileCreateEvent createEvent : createEvents) {
+      ChildInfo[] children = createEvent.getChildren();
+      if (children == null || !createEvent.isDirectory()) continue;
+      // todo avoid expensive findFile
+      VirtualFile createdDir = createEvent.getFile();
+      if (createdDir instanceof VirtualDirectoryImpl) {
+        Queue<Pair<VirtualDirectoryImpl, ChildInfo[]>> queue = new ArrayDeque<>();
+        queue.add(new Pair<>((VirtualDirectoryImpl)createdDir, children));
+        while (!queue.isEmpty()) {
+          Pair<VirtualDirectoryImpl, ChildInfo[]> queued = queue.remove();
+          VirtualDirectoryImpl directory = queued.first;
+          List<ChildInfo> scannedChildren = Arrays.asList(queued.second);
+          int directoryId = directory.getId();
+          List<ChildInfo> added = new ArrayList<>(scannedChildren.size());
+          for (ChildInfo childInfo : scannedChildren) {
+            CharSequence childName = childInfo.getName();
+            Pair<@NotNull FileAttributes, String> childData = getChildData(delegate, directory, childName.toString(), childInfo.getFileAttributes(), childInfo.getSymlinkTarget());
+            if (childData != null) {
+              ChildInfo newChild = makeChildRecord(directory, directoryId, childName, childData, delegate, childInfo.getChildren());
+              added.add(newChild);
+            }
+          }
 
-    for (int i = 0, len = childrenIdsUpdated.size(); i < len; ++i) {
-      final int childId = childrenIdsUpdated.get(i);
-      final VirtualFile childFile = childrenToBeUpdated.get(i);
-
-      if (childId > 0) {
-        parentImpl.addChild((VirtualFileSystemEntry)childFile);
-      }
-      else {
-        FSRecords.deleteRecordRecursively(-childId);
-        parentImpl.removeChild(childFile);
-        invalidateSubtree(childFile);
+          added.sort(ChildInfo.BY_ID);
+          FSRecords.update(directory, directoryId, oldChildren -> oldChildren.merge(added, isCaseSensitive));
+          setChildrenCached(directoryId);
+          // set "all children loaded" because the first "fileCreated" listener (looking at you, local history)
+          // will call getChildren() anyway, beyond a shadow of a doubt
+          directory.createAndAddChildren(added, true, (childCreated, childInfo) -> {
+            // enqueue recursive children
+            if (childCreated instanceof VirtualDirectoryImpl && childInfo.getChildren() != null) {
+              queue.add(new Pair<>((VirtualDirectoryImpl)childCreated, childInfo.getChildren()));
+            }
+          });
+        }
       }
     }
   }
 
   @Override
-  @Nullable
-  public VirtualFileSystemEntry findRoot(@NotNull String basePath, @NotNull NewVirtualFileSystem fs) {
-    if (basePath.isEmpty()) {
+  public @Nullable VirtualFileSystemEntry findRoot(@NotNull String path, @NotNull NewVirtualFileSystem fs) {
+    if (path.isEmpty()) {
       LOG.error("Invalid root, fs=" + fs);
       return null;
     }
 
-    String rootUrl = normalizeRootUrl(basePath, fs);
+    String rootUrl = UriUtil.trimTrailingSlashes(VirtualFileManager.constructUrl(fs.getProtocol(), path));
+    VirtualFileSystemEntry root = myRoots.get(rootUrl);
+    if (root != null) return root;
 
-    myRootsLock.readLock().lock();
-    try {
-      VirtualFileSystemEntry root = myRoots.get(rootUrl);
-      if (root != null) return root;
-    }
-    finally {
-      myRootsLock.readLock().unlock();
-    }
-
-    final VirtualFileSystemEntry newRoot;
-    int rootId = FSRecords.findRootRecord(rootUrl);
-
-    VfsData.Segment segment = VfsData.getSegment(rootId, true);
-    VfsData.DirectoryData directoryData = new VfsData.DirectoryData();
-    if (fs instanceof JarFileSystem) {
-      String parentPath = basePath.substring(0, basePath.indexOf(JarFileSystem.JAR_SEPARATOR));
-      VirtualFile parentFile = LocalFileSystem.getInstance().findFileByPath(parentPath);
-      if (parentFile == null) return null;
-      FileType type = FileTypeRegistry.getInstance().getFileTypeByFileName(parentFile.getName());
-      if (type != FileTypes.ARCHIVE) return null;
-      newRoot = new JarRoot(fs, rootId, segment, directoryData, parentFile);
+    CharSequence rootName;
+    String rootPath;
+    if (fs instanceof ArchiveFileSystem) {
+      ArchiveFileSystem afs = (ArchiveFileSystem)fs;
+      VirtualFile localFile = afs.findLocalByRootPath(path);
+      if (localFile == null) return null;
+      rootName = localFile.getNameSequence();
+      rootPath = afs.getRootPathByLocal(localFile);
+      rootUrl = UriUtil.trimTrailingSlashes(VirtualFileManager.constructUrl(fs.getProtocol(), rootPath));
     }
     else {
-      newRoot = new FsRoot(fs, rootId, segment, directoryData, basePath);
+      rootName = rootPath = path;
     }
 
-    FileAttributes attributes = fs.getAttributes(new StubVirtualFile() {
-      @NotNull
-      @Override
-      public String getPath() {
-        return newRoot.getPath();
-      }
-
-      @Nullable
-      @Override
-      public VirtualFile getParent() {
-        return null;
-      }
-    });
+    FileAttributes attributes = loadAttributes(fs, rootPath);
     if (attributes == null || !attributes.isDirectory()) {
       return null;
     }
+    // assume roots have the FS default case sensitivity
+    attributes = attributes.withCaseSensitivity(fs.isCaseSensitive() ? FileAttributes.CaseSensitivity.SENSITIVE : FileAttributes.CaseSensitivity.INSENSITIVE);
+    // avoid creating zillion of roots which are not actual roots
+    String parentPath = fs instanceof LocalFileSystem ? PathUtil.getParentPath(rootPath) : "";
+    if (!parentPath.isEmpty()) {
+      FileAttributes parentAttributes = loadAttributes(fs, parentPath);
+      if (parentAttributes != null) {
+        throw new IllegalArgumentException("Must pass FS root path, but got: '" + path + "', which has a parent '" + parentPath + "'." +
+                                           " Use NewVirtualFileSystem.extractRootPath() for obtaining root path");
+      }
+    }
 
-    boolean mark = false;
+    int rootId = FSRecords.findRootRecord(rootUrl);
 
-    myRootsLock.writeLock().lock();
-    try {
-      VirtualFileSystemEntry root = myRoots.get(rootUrl);
+    int rootNameId = FileNameCache.storeName(rootName.toString());
+    boolean mark;
+    VirtualFileSystemEntry newRoot;
+    synchronized (myRoots) {
+      root = myRoots.get(rootUrl);
       if (root != null) return root;
 
-      VfsData.initFile(rootId, segment, -1, directoryData);
-      mark = writeAttributesToRecord(rootId, 0, newRoot, fs, attributes);
+      try {
+        newRoot = new FsRoot(rootId, rootNameId, myVfsData, fs, StringUtil.trimTrailing(rootPath, '/'), attributes);
+      }
+      catch (VfsData.FileAlreadyCreatedException e) {
+        for (Map.Entry<String, VirtualFileSystemEntry> entry : myRoots.entrySet()) {
+          final VirtualFileSystemEntry existingRoot = entry.getValue();
+          if (existingRoot.getId() == rootId) {
+            String message = "Duplicate FS roots: " + rootUrl + " / " + entry.getKey() + " id=" + rootId + " valid=" + existingRoot.isValid();
+            throw new RuntimeException(message, e);
+          }
+        }
+        throw new RuntimeException("No root duplication, rootName='" + rootName + "'; rootNameId=" + rootNameId + "; rootId=" + rootId + ";" +
+                                   " path='" + path + "'; fs=" + fs + "; rootUrl='" + rootUrl + "'", e);
+      }
+      incStructuralModificationCount();
+      mark = writeAttributesToRecord(rootId, null, 0, rootName, fs, attributes) != -1;
 
       myRoots.put(rootUrl, newRoot);
-      myRootsById.put(rootId, newRoot);
-    }
-    finally {
-      myRootsLock.writeLock().unlock();
+      myIdToDirCache.put(rootId, newRoot);
     }
 
     if (!mark && attributes.lastModified != FSRecords.getTimestamp(rootId)) {
@@ -927,168 +1373,124 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
     return newRoot;
   }
 
-  @NotNull
-  private static String normalizeRootUrl(@NotNull String basePath, @NotNull NewVirtualFileSystem fs) {
-    // need to protect against relative path of the form "/x/../y"
-    return UriUtil.trimTrailingSlashes(
-      fs.getProtocol() + URLUtil.SCHEME_SEPARATOR + VfsImplUtil.normalize(fs, FileUtil.toCanonicalPath(basePath)));
+  private static @Nullable FileAttributes loadAttributes(@NotNull NewVirtualFileSystem fs, @NotNull String path) {
+    StubVirtualFile file = new StubVirtualFile(fs) {
+      @Override
+      public @NotNull String getPath() { return path; }
+
+      @Override
+      public @Nullable VirtualFile getParent() { return null; }
+    };
+    return fs.getAttributes(file);
   }
 
   @Override
   public void clearIdCache() {
-    myIdToDirCache.clear();
-  }
-
-  private static final int DEPTH_LIMIT = 75;
-
-  @Override
-  @Nullable
-  public NewVirtualFile findFileById(final int id) {
-    return findFileById(id, false, null, 0);
+    // remove all except roots
+    myIdToDirCache.entrySet().removeIf(e -> e.getValue().getParent() != null);
   }
 
   @Override
-  public NewVirtualFile findFileByIdIfCached(final int id) {
-    return findFileById(id, true, null, 0);
-  }
-
-  @Nullable
-  private VirtualFileSystemEntry findFileById(int id, boolean cachedOnly, TIntArrayList visited, int mask) {
+  public @Nullable NewVirtualFile findFileById(int id) {
     VirtualFileSystemEntry cached = myIdToDirCache.get(id);
-    if (cached != null) return cached;
-
-    if (visited != null && (visited.size() >= DEPTH_LIMIT || (mask & id) == id && visited.contains(id))) {
-      @NonNls String sb = "Dead loop detected in persistent FS (id=" + id + " cached-only=" + cachedOnly + "):";
-      for (int i = 0; i < visited.size(); i++) {
-        int _id = visited.get(i);
-        sb += "\n  " + _id + " '" + getName(_id) + "' " +
-          String.format("%02x", getFileAttributes(_id)) + ' ' + myIdToDirCache.containsKey(_id);
-      }
-      LOG.error(sb);
-      return null;
-    }
-
-    int parentId = getParent(id);
-    if (parentId >= id) {
-      if (visited == null) visited = new TIntArrayList(DEPTH_LIMIT);
-    }
-    if (visited != null)  visited.add(id);
-
-    VirtualFileSystemEntry result;
-    if (parentId == 0) {
-      myRootsLock.readLock().lock();
-      try {
-        result = myRootsById.get(id);
-      }
-      finally {
-        myRootsLock.readLock().unlock();
-      }
-    }
-    else {
-      VirtualFileSystemEntry parentFile = findFileById(parentId, cachedOnly, visited, mask | id);
-      if (parentFile instanceof VirtualDirectoryImpl) {
-        result = ((VirtualDirectoryImpl)parentFile).findChildById(id, cachedOnly);
-      }
-      else {
-        result = null;
-      }
-    }
-
-    if (result != null && result.isDirectory()) {
-      VirtualFileSystemEntry old = myIdToDirCache.put(id, result);
-      if (old != null) result = old;
-    }
-    return result;
+    return cached != null ? cached : FSRecords.findFileById(id, myIdToDirCache);
   }
 
   @Override
-  @NotNull
-  public VirtualFile[] getRoots() {
-    myRootsLock.readLock().lock();
-    try {
-      Collection<VirtualFileSystemEntry> roots = myRoots.values();
-      return VfsUtilCore.toVirtualFileArray(roots);
-    }
-    finally {
-      myRootsLock.readLock().unlock();
-    }
+  public NewVirtualFile findFileByIdIfCached(int id) {
+    return myVfsData.hasLoadedFile(id) ? findFileById(id) : null;
   }
 
   @Override
-  @NotNull
-  public VirtualFile[] getRoots(@NotNull final NewVirtualFileSystem fs) {
-    final List<VirtualFile> roots = new ArrayList<VirtualFile>();
+  public VirtualFile @NotNull [] getRoots() {
+    Collection<VirtualFileSystemEntry> roots = myRoots.values();
+    return VfsUtilCore.toVirtualFileArray(roots); // ConcurrentHashMap.keySet().toArray(new T[0]) guaranteed to return array with no nulls
+  }
 
-    myRootsLock.readLock().lock();
-    try {
-      for (NewVirtualFile root : myRoots.values()) {
-        if (root.getFileSystem() == fs) {
-          roots.add(root);
-        }
+  @Override
+  public VirtualFile @NotNull [] getRoots(@NotNull NewVirtualFileSystem fs) {
+    final List<VirtualFile> roots = new ArrayList<>();
+
+    for (NewVirtualFile root : myRoots.values()) {
+      if (root.getFileSystem() == fs) {
+        roots.add(root);
       }
-    }
-    finally {
-      myRootsLock.readLock().unlock();
     }
 
     return VfsUtilCore.toVirtualFileArray(roots);
   }
 
   @Override
-  @NotNull
-  public VirtualFile[] getLocalRoots() {
-    List<VirtualFile> roots = ContainerUtil.newSmartList();
+  public VirtualFile @NotNull [] getLocalRoots() {
+    List<VirtualFile> roots = new SmartList<>();
 
-    myRootsLock.readLock().lock();
-    try {
-      for (NewVirtualFile root : myRoots.values()) {
-        if (root.isInLocalFileSystem() && !(root.getFileSystem() instanceof TempFileSystem)) {
-          roots.add(root);
-        }
+    for (NewVirtualFile root : myRoots.values()) {
+      if (root.isInLocalFileSystem() && !(root.getFileSystem() instanceof TempFileSystem)) {
+        roots.add(root);
       }
     }
-    finally {
-      myRootsLock.readLock().unlock();
-    }
-
     return VfsUtilCore.toVirtualFileArray(roots);
   }
 
-  private VirtualFileSystemEntry applyEvent(@NotNull VFileEvent event) {
+  private void applyEvent(@NotNull VFileEvent event) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Applying " + event);
+    }
     try {
       if (event instanceof VFileCreateEvent) {
-        final VFileCreateEvent createEvent = (VFileCreateEvent)event;
-        return executeCreateChild(createEvent.getParent(), createEvent.getChildName());
+        VFileCreateEvent ce = (VFileCreateEvent)event;
+        executeCreateChild(ce.getParent(), ce.getChildName(), ce.getAttributes(), ce.getSymlinkTarget(), ce.isEmptyDirectory());
       }
       else if (event instanceof VFileDeleteEvent) {
         final VFileDeleteEvent deleteEvent = (VFileDeleteEvent)event;
-        executeDelete(deleteEvent.getFile());
+        executeDelete(deleteEvent);
       }
       else if (event instanceof VFileContentChangeEvent) {
         final VFileContentChangeEvent contentUpdateEvent = (VFileContentChangeEvent)event;
-        executeTouch(contentUpdateEvent.getFile(), contentUpdateEvent.isFromRefresh(), contentUpdateEvent.getModificationStamp());
+        VirtualFile file = contentUpdateEvent.getFile();
+        long length = contentUpdateEvent.getNewLength();
+        long timestamp = contentUpdateEvent.getNewTimestamp();
+
+        if (!contentUpdateEvent.isLengthAndTimestampDiffProvided()) {
+          final NewVirtualFileSystem delegate = getDelegate(file);
+          final FileAttributes attributes = delegate.getAttributes(file);
+          length = attributes != null ? attributes.length : DEFAULT_LENGTH;
+          timestamp = attributes != null ? attributes.lastModified : DEFAULT_TIMESTAMP;
+        }
+
+        executeTouch(file, contentUpdateEvent.isFromRefresh(), contentUpdateEvent.getModificationStamp(), length, timestamp);
       }
       else if (event instanceof VFileCopyEvent) {
-        final VFileCopyEvent copyEvent = (VFileCopyEvent)event;
-        return executeCreateChild(copyEvent.getNewParent(), copyEvent.getNewChildName());
+        VFileCopyEvent ce = (VFileCopyEvent)event;
+        executeCreateChild(ce.getNewParent(), ce.getNewChildName(), null, null, ce.getFile().getChildren().length == 0);
       }
       else if (event instanceof VFileMoveEvent) {
         final VFileMoveEvent moveEvent = (VFileMoveEvent)event;
         executeMove(moveEvent.getFile(), moveEvent.getNewParent());
       }
       else if (event instanceof VFilePropertyChangeEvent) {
-        final VFilePropertyChangeEvent propertyChangeEvent = (VFilePropertyChangeEvent)event;
-        if (VirtualFile.PROP_NAME.equals(propertyChangeEvent.getPropertyName())) {
-          executeRename(propertyChangeEvent.getFile(), (String)propertyChangeEvent.getNewValue());
-        }
-        else if (VirtualFile.PROP_WRITABLE.equals(propertyChangeEvent.getPropertyName())) {
-          executeSetWritable(propertyChangeEvent.getFile(), ((Boolean)propertyChangeEvent.getNewValue()).booleanValue());
-        }
-        else if (VirtualFile.PROP_HIDDEN.equals(propertyChangeEvent.getPropertyName())) {
-          executeSetHidden(propertyChangeEvent.getFile(), ((Boolean)propertyChangeEvent.getNewValue()).booleanValue());
-        }
-        else if (VirtualFile.PROP_SYMLINK_TARGET.equals(propertyChangeEvent.getPropertyName())) {
-          executeSetTarget(propertyChangeEvent.getFile(), (String)propertyChangeEvent.getNewValue());
+        VFilePropertyChangeEvent propertyChangeEvent = (VFilePropertyChangeEvent)event;
+        VirtualFile file = propertyChangeEvent.getFile();
+        Object newValue = propertyChangeEvent.getNewValue();
+        switch (propertyChangeEvent.getPropertyName()) {
+          case VirtualFile.PROP_NAME:
+            executeRename(file, (String)newValue);
+            break;
+          case VirtualFile.PROP_WRITABLE:
+            executeSetWritable(file, ((Boolean)newValue).booleanValue());
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("File " + file + " writable=" + file.isWritable() + " id=" + getFileId(file));
+            }
+            break;
+          case VirtualFile.PROP_HIDDEN:
+            executeSetHidden(file, ((Boolean)newValue).booleanValue());
+            break;
+          case VirtualFile.PROP_SYMLINK_TARGET:
+            executeSetTarget(file, (String)newValue);
+            break;
+          case VirtualFile.PROP_CHILDREN_CASE_SENSITIVITY:
+            executeChangeCaseSensitivity(file, (FileAttributes.CaseSensitivity)newValue);
+            break;
         }
       }
     }
@@ -1096,50 +1498,85 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
       // Exception applying single event should not prevent other events from applying.
       LOG.error(e);
     }
-    return null;
   }
 
-  @NotNull
-  @NonNls
+  public static void executeChangeCaseSensitivity(@NotNull VirtualFile file, @NotNull FileAttributes.CaseSensitivity newCaseSensitivity) {
+    VirtualDirectoryImpl directory = (VirtualDirectoryImpl)file;
+    setFlag(directory, Flags.CHILDREN_CASE_SENSITIVE, newCaseSensitivity == FileAttributes.CaseSensitivity.SENSITIVE);
+    setFlag(directory, Flags.CHILDREN_CASE_SENSITIVITY_CACHED, true);
+    directory.setCaseSensitivityFlag(newCaseSensitivity);
+  }
+
+  @Override
   public String toString() {
     return "PersistentFS";
   }
 
-  private static VirtualFileSystemEntry executeCreateChild(@NotNull VirtualFile parent, @NotNull String name) {
-    final NewVirtualFileSystem delegate = getDelegate(parent);
-    final VirtualFile fake = new FakeVirtualFile(parent, name);
-    final FileAttributes attributes = delegate.getAttributes(fake);
-    if (attributes != null) {
-      final int parentId = getFileId(parent);
-      final int childId = createAndFillRecord(delegate, fake, parentId, attributes);
-      appendIdToParentList(parentId, childId);
-      assert parent instanceof VirtualDirectoryImpl : parent;
-      final VirtualDirectoryImpl dir = (VirtualDirectoryImpl)parent;
-      VirtualFileSystemEntry child = dir.createChild(name, childId, dir.getFileSystem());
-      dir.addChild(child);
-      return child;
+  private void executeCreateChild(@NotNull VirtualFile parent,
+                                  @NotNull String name,
+                                  @Nullable FileAttributes attributes,
+                                  @Nullable String symlinkTarget,
+                                  boolean isEmptyDirectory) {
+    NewVirtualFileSystem delegate = getDelegate(parent);
+    int parentId = getFileId(parent);
+    Pair<@NotNull FileAttributes, String> childData = getChildData(delegate, parent, name, attributes, symlinkTarget);
+    if (childData == null) {
+      return;
     }
-    return null;
+    ChildInfo childInfo = makeChildRecord(parent, parentId, name, childData, delegate, null);
+    FSRecords.update(parent, parentId, children -> {
+      // check that names are not duplicated
+      ChildInfo duplicate = findExistingChildInfo(parent, name, children.children, delegate);
+      if (duplicate != null) return children;
+
+      return children.insert(childInfo);
+    });
+    int childId = childInfo.getId();
+    assert parent instanceof VirtualDirectoryImpl : parent;
+    VirtualDirectoryImpl dir = (VirtualDirectoryImpl)parent;
+    VirtualFileSystemEntry child = dir.createChild(name, childId, dir.getFileSystem(), fileAttributesToFlags(childData.first), isEmptyDirectory);
+    if (isEmptyDirectory) {
+      // when creating empty directory we need to make sure every file created inside will fire "file created" event
+      // in order to virtual file pointer manager get those events to update its pointers properly
+      // (because currently VirtualFilePointerManager ignores empty directory creation events for performance reasons)
+      setChildrenCached(childId);
+    }
+    dir.addChild(child);
+    incStructuralModificationCount();
   }
 
-  private static int createAndFillRecord(@NotNull NewVirtualFileSystem delegateSystem,
-                                         @NotNull VirtualFile delegateFile,
-                                         int parentId,
-                                         @NotNull FileAttributes attributes) {
-    final int childId = FSRecords.createRecord();
-    writeAttributesToRecord(childId, parentId, delegateFile, delegateSystem, attributes);
-    return childId;
+  private static @NotNull ChildInfo makeChildRecord(@NotNull VirtualFile parentFile,
+                                                    int parentId,
+                                                    @NotNull CharSequence name,
+                                                    @NotNull Pair<@NotNull FileAttributes, String> childData,
+                                                    @NotNull NewVirtualFileSystem fs,
+                                                    ChildInfo @Nullable [] children) {
+    int childId = FSRecords.createRecord();
+    FileAttributes attributes = childData.first;
+    int nameId = writeAttributesToRecord(childId, parentFile, parentId, name, fs, attributes);
+    assert childId > 0 : childId;
+    return new ChildInfoImpl(childId, nameId, attributes, children, childData.second);
   }
 
-  private static void appendIdToParentList(final int parentId, final int childId) {
-    int[] childrenList = FSRecords.list(parentId);
-    childrenList = ArrayUtil.append(childrenList, childId);
-    FSRecords.updateList(parentId, childrenList);
+  // return File attributes, symlink target
+  // null when file not found
+  private static @Nullable Pair<@NotNull FileAttributes, String> getChildData(@NotNull NewVirtualFileSystem fs,
+                                                                    @NotNull VirtualFile parent,
+                                                                    @NotNull String name,
+                                                                    @Nullable FileAttributes attributes,
+                                                                    @Nullable String symlinkTarget) {
+    if (attributes == null) {
+      FakeVirtualFile virtualFile = new FakeVirtualFile(parent, name);
+      attributes = fs.getAttributes(virtualFile);
+      symlinkTarget = attributes != null && attributes.isSymLink() ? fs.resolveSymLink(virtualFile) : null;
+    }
+    return attributes == null ? null : new Pair<>(attributes, symlinkTarget);
   }
 
-  private void executeDelete(@NotNull VirtualFile file) {
+  private void executeDelete(@NotNull VFileDeleteEvent event) {
+    VirtualFile file = event.getFile();
     if (!file.exists()) {
-      LOG.error("Deleting a file, which does not exist: " + file.getPath());
+      LOG.error("Deleting a file which does not exist: " +((VirtualFileWithId)file).getId()+ " "+file.getPath());
       return;
     }
     clearIdCache();
@@ -1150,19 +1587,15 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
     final int parentId = parent == null ? 0 : getFileId(parent);
 
     if (parentId == 0) {
-      String rootUrl = normalizeRootUrl(file.getPath(), (NewVirtualFileSystem)file.getFileSystem());
-      myRootsLock.writeLock().lock();
-      try {
+      String rootUrl = UriUtil.trimTrailingSlashes(file.getUrl());
+      synchronized (myRoots) {
         myRoots.remove(rootUrl);
-        myRootsById.remove(id);
+        myIdToDirCache.remove(id);
         FSRecords.deleteRootRecord(id);
-      }
-      finally {
-        myRootsLock.writeLock().unlock();
       }
     }
     else {
-      removeIdFromParentList(parentId, id, parent, file);
+      removeIdFromChildren(parent, parentId, id);
       VirtualDirectoryImpl directory = (VirtualDirectoryImpl)file.getParent();
       assert directory != null : file;
       directory.removeChild(file);
@@ -1170,76 +1603,79 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
 
     FSRecords.deleteRecordRecursively(id);
 
-    invalidateSubtree(file);
+    invalidateSubtree(file, "File deleted", event);
+    incStructuralModificationCount();
   }
 
-  private static void invalidateSubtree(@NotNull VirtualFile file) {
-    final VirtualFileSystemEntry impl = (VirtualFileSystemEntry)file;
-    impl.invalidate();
+  private static void invalidateSubtree(@NotNull VirtualFile file, @NotNull Object source, @NotNull Object reason) {
+    VirtualFileSystemEntry impl = (VirtualFileSystemEntry)file;
+    if (file.is(VFileProperty.SYMLINK)) {
+      VirtualFileSystem fs = file.getFileSystem();
+      if (fs instanceof LocalFileSystemImpl) {
+        ((LocalFileSystemImpl)fs).symlinkRemoved(impl.getId());
+      }
+    }
+    impl.invalidate(source, reason);
     for (VirtualFile child : impl.getCachedChildren()) {
-      invalidateSubtree(child);
+      invalidateSubtree(child, source, reason);
     }
   }
 
-  private static void removeIdFromParentList(final int parentId, final int id, @NotNull VirtualFile parent, VirtualFile file) {
-    int[] childList = FSRecords.list(parentId);
-
-    int index = ArrayUtil.indexOf(childList, id);
-    if (index == -1) {
-      throw new RuntimeException("Cannot find child (" + id + ")" + file
-                                 + "\n\tin (" + parentId + ")" + parent
-                                 + "\n\tactual children:" + Arrays.toString(childList));
-    }
-    childList = ArrayUtil.remove(childList, index);
-    FSRecords.updateList(parentId, childList);
+  private static void removeIdFromChildren(@NotNull VirtualFile parent, int parentId, int childId) {
+    ChildInfo toRemove = new ChildInfoImpl(childId, ChildInfoImpl.UNKNOWN_ID_YET, null, null, null);
+    FSRecords.update(parent, parentId, list -> list.remove(toRemove));
   }
 
-  private static void executeRename(@NotNull VirtualFile file, @NotNull final String newName) {
+  private static void executeRename(@NotNull VirtualFile file, @NotNull String newName) {
     final int id = getFileId(file);
     FSRecords.setName(id, newName);
     ((VirtualFileSystemEntry)file).setNewName(newName);
   }
 
   private static void executeSetWritable(@NotNull VirtualFile file, boolean writableFlag) {
-    setFlag(file, IS_READ_ONLY, !writableFlag);
-    ((VirtualFileSystemEntry)file).updateProperty(VirtualFile.PROP_WRITABLE, writableFlag);
+    setFlag(file, Flags.IS_READ_ONLY, !writableFlag);
+    ((VirtualFileSystemEntry)file).setWritableFlag(writableFlag);
   }
 
   private static void executeSetHidden(@NotNull VirtualFile file, boolean hiddenFlag) {
-    setFlag(file, IS_HIDDEN, hiddenFlag);
-    ((VirtualFileSystemEntry)file).updateProperty(VirtualFile.PROP_HIDDEN, hiddenFlag);
+    setFlag(file, Flags.IS_HIDDEN, hiddenFlag);
+    ((VirtualFileSystemEntry)file).setHiddenFlag(hiddenFlag);
   }
 
-  private static void executeSetTarget(@NotNull VirtualFile file, String target) {
-    ((VirtualFileSystemEntry)file).setLinkTarget(target);
+  private static void executeSetTarget(@NotNull VirtualFile file, @Nullable String target) {
+    int id = getFileId(file);
+    FSRecords.storeSymlinkTarget(id, target);
+    VirtualFileSystem fs = file.getFileSystem();
+    if (fs instanceof LocalFileSystemImpl) {
+      ((LocalFileSystemImpl)fs).symlinkUpdated(id, file.getParent(), file.getNameSequence(), file.getPath(), target);
+    }
   }
 
-  private static void setFlag(@NotNull VirtualFile file, int mask, boolean value) {
+  private static void setFlag(@NotNull VirtualFile file, @PersistentFS.Attributes int mask, boolean value) {
     setFlag(getFileId(file), mask, value);
   }
 
-  private static void setFlag(final int id, final int mask, final boolean value) {
+  private static void setFlag(int id, @PersistentFS.Attributes int mask, boolean value) {
     int oldFlags = FSRecords.getFlags(id);
     int flags = value ? oldFlags | mask : oldFlags & ~mask;
 
     if (oldFlags != flags) {
-      FSRecords.setFlags(id, flags, true);
+      FSRecords.setFlags(id, flags);
     }
   }
 
-  private static boolean checkFlag(int fileId, int mask) {
-    return (FSRecords.getFlags(fileId) & mask) != 0;
-  }
-
-  private static void executeTouch(@NotNull VirtualFile file, boolean reloadContentFromDelegate, long newModificationStamp) {
+  private static void executeTouch(@NotNull VirtualFile file,
+                                   boolean reloadContentFromDelegate,
+                                   long newModificationStamp,
+                                   long newLength,
+                                   long newTimestamp) {
     if (reloadContentFromDelegate) {
-      setFlag(file, MUST_RELOAD_CONTENT, true);
+      setFlag(file, Flags.MUST_RELOAD_CONTENT, true);
     }
 
-    final NewVirtualFileSystem delegate = getDelegate(file);
-    final FileAttributes attributes = delegate.getAttributes(file);
-    FSRecords.setLength(getFileId(file), attributes != null ? attributes.length : DEFAULT_LENGTH);
-    FSRecords.setTimestamp(getFileId(file), attributes != null ? attributes.lastModified : DEFAULT_TIMESTAMP);
+    int fileId = getFileId(file);
+    setLength(fileId, newLength);
+    FSRecords.setTimestamp(fileId, newTimestamp);
 
     ((VirtualFileSystemEntry)file).setModificationStamp(newModificationStamp);
   }
@@ -1249,12 +1685,22 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
 
     final int fileId = getFileId(file);
     final int newParentId = getFileId(newParent);
-    final int oldParentId = getFileId(file.getParent());
+    VirtualFile oldParent = file.getParent();
+    final int oldParentId = getFileId(oldParent);
 
-    removeIdFromParentList(oldParentId, fileId, file.getParent(), file);
+    VirtualFileSystemEntry virtualFileSystemEntry = (VirtualFileSystemEntry)file;
+    NewVirtualFileSystem fileSystem = virtualFileSystemEntry.getFileSystem();
+
+    removeIdFromChildren(oldParent, oldParentId, fileId);
     FSRecords.setParent(fileId, newParentId);
-    appendIdToParentList(newParentId, fileId);
-    ((VirtualFileSystemEntry)file).setParent(newParent);
+    ChildInfo newChild = new ChildInfoImpl(fileId, virtualFileSystemEntry.getNameId(), null, null, null);
+    FSRecords.update(newParent, newParentId, children -> {
+      // check that names are not duplicated
+      ChildInfo duplicate = findExistingChildInfo(file, file.getName(), children.children, fileSystem);
+      if (duplicate != null) return children;
+      return children.insert(newChild);
+    });
+    virtualFileSystemEntry.setParent(newParent);
   }
 
   @Override
@@ -1264,107 +1710,70 @@ public class PersistentFSImpl extends PersistentFS implements ApplicationCompone
   }
 
   @TestOnly
-  public void cleanPersistedContents() {
-    final int[] roots = FSRecords.listRoots();
-    for (int root : roots) {
-      cleanPersistedContentsRecursively(root);
-    }
+  public static void cleanPersistedContent(int id) {
+    doCleanPersistedContent(id);
   }
 
   @TestOnly
-  private void cleanPersistedContentsRecursively(int id) {
+  public void cleanPersistedContents() {
+    int[] roots = FSRecords.listRoots();
+    for (int root : roots) {
+      markForContentReloadRecursively(root);
+    }
+  }
+
+  private void markForContentReloadRecursively(int id) {
     if (isDirectory(getFileAttributes(id))) {
-      for (int child : FSRecords.list(id)) {
-        cleanPersistedContentsRecursively(child);
+      for (int child : FSRecords.listIds(id)) {
+        markForContentReloadRecursively(child);
       }
     }
     else {
-      setFlag(id, MUST_RELOAD_CONTENT, true);
+      doCleanPersistedContent(id);
     }
   }
 
-
-  private abstract static class AbstractRoot extends VirtualDirectoryImpl {
-    private AbstractRoot(int id, VfsData.Segment segment, VfsData.DirectoryData data, NewVirtualFileSystem fs) {
-      super(id, segment, data, null, fs);
-    }
-
-    @NotNull
-    @Override
-    public abstract CharSequence getNameSequence();
-
-    @Override
-    protected abstract char[] appendPathOnFileSystem(int accumulatedPathLength, int[] positionRef);
-
-    @Override
-    public void setNewName(@NotNull String newName) {
-      throw new IncorrectOperationException();
-    }
-
-    @Override
-    public final void setParent(@NotNull VirtualFile newParent) {
-      throw new IncorrectOperationException();
-    }
+  private static void doCleanPersistedContent(int id) {
+    setFlag(id, Flags.MUST_RELOAD_CONTENT, true);
+    setFlag(id, Flags.MUST_RELOAD_LENGTH, true);
   }
 
-  private static class JarRoot extends AbstractRoot {
-    private final VirtualFile myParentLocalFile;
-    private final String myParentPath;
-
-    private JarRoot(@NotNull NewVirtualFileSystem fs, int id, VfsData.Segment segment, VfsData.DirectoryData data, VirtualFile parentLocalFile) {
-      super(id, segment, data, fs);
-      myParentLocalFile = parentLocalFile;
-      myParentPath = myParentLocalFile.getPath();
-    }
-
-    @NotNull
-    @Override
-    public CharSequence getNameSequence() {
-      return myParentLocalFile.getNameSequence();
-    }
-
-    @Override
-    protected char[] appendPathOnFileSystem(int accumulatedPathLength, int[] positionRef) {
-      char[] chars = new char[myParentPath.length() + JarFileSystem.JAR_SEPARATOR.length() + accumulatedPathLength];
-      positionRef[0] = copyString(chars, positionRef[0], myParentPath);
-      positionRef[0] = copyString(chars, positionRef[0], JarFileSystem.JAR_SEPARATOR);
-      return chars;
-    }
+  @Override
+  public boolean mayHaveChildren(int id) {
+    return FSRecords.mayHaveChildren(id);
   }
 
-  private static class FsRoot extends AbstractRoot {
-    private final String myName;
-
-    private FsRoot(@NotNull NewVirtualFileSystem fs, int id, VfsData.Segment segment, VfsData.DirectoryData data, @NotNull String basePath) {
-      super(id, segment, data, fs);
-      myName = FileUtil.toSystemIndependentName(basePath);
-    }
-
-    @NotNull
-    @Override
-    public CharSequence getNameSequence() {
-      return myName;
-    }
-
-    @Override
-    protected char[] appendPathOnFileSystem(int pathLength, int[] position) {
-      String name = getName();
-      int nameLength = name.length();
-      int rootPathLength = pathLength + nameLength;
-
-      // otherwise we called this as a part of longer file path calculation and slash will be added anyway
-      boolean appendSlash = SystemInfo.isWindows && nameLength == 2 && name.charAt(1) == ':' && pathLength == 0;
-
-      if (appendSlash) ++rootPathLength;
-      char[] chars = new char[rootPathLength];
-
-      position[0] = copyString(chars, position[0], name);
-
-      if (appendSlash) {
-        chars[position[0]++] = '/';
-      }
-
-      return chars;
-    }
+  @TestOnly
+  @NotNull ConcurrentIntObjectMap<VirtualFileSystemEntry> getIdToDirCache() {
+    return myIdToDirCache;
   }
+
+  static @Attributes int fileAttributesToFlags(@NotNull FileAttributes attributes) {
+    FileAttributes.CaseSensitivity sensitivity = attributes.areChildrenCaseSensitive();
+    boolean isCaseSensitive = sensitivity == FileAttributes.CaseSensitivity.SENSITIVE;
+    return fileAttributesToFlags(attributes.isDirectory(), attributes.isWritable(), attributes.isSymLink(), attributes.isSpecial(),
+                                 attributes.isHidden(), sensitivity != FileAttributes.CaseSensitivity.UNKNOWN, isCaseSensitive);
+  }
+
+  public static @Attributes int fileAttributesToFlags(boolean isDirectory, boolean isWritable, boolean isSymLink, boolean isSpecial,
+                                                      boolean isHidden, boolean isChildrenCaseSensitivityCached, boolean areChildrenCaseSensitive) {
+    return (isDirectory ? Flags.IS_DIRECTORY : 0) |
+           (isWritable ? 0 : Flags.IS_READ_ONLY) |
+           (isSymLink ? Flags.IS_SYMLINK : 0) |
+           (isSpecial ? Flags.IS_SPECIAL : 0) |
+           (isHidden ? Flags.IS_HIDDEN : 0) |
+           (isChildrenCaseSensitivityCached ? Flags.CHILDREN_CASE_SENSITIVITY_CACHED : 0) |
+           (areChildrenCaseSensitive ? Flags.CHILDREN_CASE_SENSITIVE : 0);
+  }
+  private static final Hash.Strategy<VFileCreateEvent> CASE_INSENSITIVE_STRATEGY = new Hash.Strategy<>() {
+    @Override
+    public int hashCode(@Nullable VFileCreateEvent object) {
+      return StringUtil.stringHashCodeInsensitive(object.getChildName());
+    }
+
+    @Override
+    public boolean equals(VFileCreateEvent o1, VFileCreateEvent o2) {
+      return o2 != null && o1.getChildName().equalsIgnoreCase(o2.getChildName());
+    }
+  };
 }

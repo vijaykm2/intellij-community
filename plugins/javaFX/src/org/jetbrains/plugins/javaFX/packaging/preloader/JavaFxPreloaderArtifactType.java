@@ -20,22 +20,18 @@ import com.intellij.packaging.artifacts.ArtifactType;
 import com.intellij.packaging.elements.CompositePackagingElement;
 import com.intellij.packaging.elements.PackagingElementFactory;
 import com.intellij.packaging.elements.PackagingElementOutputKind;
+import javax.swing.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.javaFX.JavaFXBundle;
 
-import javax.swing.*;
-
-/**
- * User: anna
- * Date: 3/12/13
- */
 public class JavaFxPreloaderArtifactType extends ArtifactType {
   public static JavaFxPreloaderArtifactType getInstance() {
     return EP_NAME.findExtension(JavaFxPreloaderArtifactType.class);
   }
   
   protected JavaFxPreloaderArtifactType() {
-    super("javafx-preloader", "JavaFx Preloader");
+    super("javafx-preloader", JavaFXBundle.messagePointer("javafx.preloader.title"));
   }
 
   @NotNull

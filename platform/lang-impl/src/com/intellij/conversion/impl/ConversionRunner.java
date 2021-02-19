@@ -1,48 +1,40 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.conversion.impl;
 
 import com.intellij.conversion.*;
 import com.intellij.openapi.components.StorageScheme;
+import com.intellij.openapi.diagnostic.Logger;
+import org.jetbrains.annotations.NotNull;
 
-import java.io.File;
-import java.util.*;
+import java.io.IOException;
+import java.nio.file.AccessMode;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 
-/**
- * @author nik
- */
-public class ConversionRunner {
+public final class ConversionRunner {
+  private final String providerId;
   private final ConverterProvider myProvider;
   private final ConversionContextImpl myContext;
   private final ConversionProcessor<ModuleSettings> myModuleFileConverter;
-  private final ConversionProcessor<ProjectSettings> myProjectFileConverter;
+  private final ConversionProcessor<ComponentManagerSettings> myProjectFileConverter;
   private final ConversionProcessor<WorkspaceSettings> myWorkspaceConverter;
   private boolean myProcessProjectFile;
   private boolean myProcessWorkspaceFile;
   private boolean myProcessRunConfigurations;
   private boolean myProcessProjectLibraries;
   private boolean myArtifacts;
-  private final List<File> myModulesFilesToProcess = new ArrayList<File>();
+  private final List<Path> myModulesFilesToProcess = new ArrayList<>();
   private final ProjectConverter myConverter;
   private final ConversionProcessor<RunManagerSettings> myRunConfigurationsConverter;
   private final ConversionProcessor<ProjectLibrariesSettings> myProjectLibrariesConverter;
   private final ConversionProcessor<ArtifactsSettings> myArtifactsConverter;
 
-  public ConversionRunner(ConverterProvider provider, ConversionContextImpl context) {
+  public ConversionRunner(@NotNull String providerId, @NotNull ConverterProvider provider, @NotNull ConversionContextImpl context) {
+    this.providerId = providerId;
     myProvider = provider;
     myContext = context;
     myConverter = provider.createConverter(context);
@@ -54,19 +46,21 @@ public class ConversionRunner {
     myArtifactsConverter = myConverter.createArtifactsConverter();
   }
 
+  public @NotNull String getProviderId() {
+    return providerId;
+  }
+
   public boolean isConversionNeeded() throws CannotConvertException {
-    if (myContext.isConversionAlreadyPerformed(myProvider)) return false;
-    
     myProcessProjectFile = myContext.getStorageScheme() == StorageScheme.DEFAULT && myProjectFileConverter != null
                            && myProjectFileConverter.isConversionNeeded(myContext.getProjectSettings());
 
-    myProcessWorkspaceFile = myWorkspaceConverter != null && myContext.getWorkspaceFile().exists()
+    myProcessWorkspaceFile = myWorkspaceConverter != null && Files.exists(myContext.getWorkspaceSettings().getPath())
                              && myWorkspaceConverter.isConversionNeeded(myContext.getWorkspaceSettings());
 
     myModulesFilesToProcess.clear();
     if (myModuleFileConverter != null) {
-      for (File moduleFile : myContext.getModuleFiles()) {
-        if (moduleFile.exists() && myModuleFileConverter.isConversionNeeded(myContext.getModuleSettings(moduleFile))) {
+      for (Path moduleFile : myContext.getModulePaths()) {
+        if (Files.exists(moduleFile) && myModuleFileConverter.isConversionNeeded(myContext.getModuleSettings(moduleFile))) {
           myModulesFilesToProcess.add(moduleFile);
         }
       }
@@ -81,54 +75,63 @@ public class ConversionRunner {
     myArtifacts = myArtifactsConverter != null
                   && myArtifactsConverter.isConversionNeeded(myContext.getArtifactsSettings());
 
-    return myProcessProjectFile ||
-           myProcessWorkspaceFile ||
-           myProcessRunConfigurations ||
-           myProcessProjectLibraries ||
-           !myModulesFilesToProcess.isEmpty() ||
-           myConverter.isConversionNeeded();
+    if (myProcessProjectFile ||
+        myProcessWorkspaceFile ||
+        myProcessRunConfigurations ||
+        myProcessProjectLibraries ||
+        !myModulesFilesToProcess.isEmpty()) {
+      return true;
+    }
+
+    try {
+      return myConverter.isConversionNeeded();
+    }
+    catch (Exception e) {
+      Logger.getInstance(ConversionRunner.class).error("Converter of provider " + providerId + " cannot check is conversion needed or not", e);
+      return false;
+    }
   }
 
-  public boolean isModuleConversionNeeded(File moduleFile) throws CannotConvertException {
+  public boolean isModuleConversionNeeded(@NotNull Path moduleFile) throws CannotConvertException {
     return myModuleFileConverter != null && myModuleFileConverter.isConversionNeeded(myContext.getModuleSettings(moduleFile));
   }
 
-  public Collection<File> getCreatedFiles() {
+  public @NotNull Collection<Path> getCreatedFiles() {
     return myConverter.getCreatedFiles();
   }
 
-  public Set<File> getAffectedFiles() {
-    Set<File> affectedFiles = new HashSet<File>();
+  public void collectAffectedFiles(@NotNull Collection<Path> affectedFiles) {
     if (myProcessProjectFile) {
       affectedFiles.add(myContext.getProjectFile());
     }
     if (myProcessWorkspaceFile) {
-      affectedFiles.add(myContext.getWorkspaceFile());
+      affectedFiles.add(myContext.getWorkspaceSettings().getPath());
     }
     affectedFiles.addAll(myModulesFilesToProcess);
 
-    try {
-      if (myProcessRunConfigurations) {
-        affectedFiles.addAll(myContext.getRunManagerSettings().getAffectedFiles());
+    if (myProcessRunConfigurations) {
+      try {
+        myContext.getRunManagerSettings().collectAffectedFiles(affectedFiles);
       }
-      if (myProcessProjectLibraries) {
-        affectedFiles.addAll(myContext.getProjectLibrariesSettings().getAffectedFiles());
-      }
-      if (myArtifacts) {
-        affectedFiles.addAll(myContext.getArtifactsSettings().getAffectedFiles());
+      catch (CannotConvertException ignored) {
       }
     }
-    catch (CannotConvertException ignored) {
-    }
-    if (!myProvider.canDetermineIfConversionAlreadyPerformedByProjectFiles()) {
-      final ComponentManagerSettings settings = myContext.getProjectFileVersionSettings();
-      if (settings != null) {
-        affectedFiles.add(settings.getFile());
+    if (myProcessProjectLibraries) {
+      try {
+        myContext.getProjectLibrariesSettings().collectAffectedFiles(affectedFiles);
+      }
+      catch (CannotConvertException ignored) {
       }
     }
-    
+    if (myArtifacts) {
+      try {
+        myContext.getArtifactsSettings().collectAffectedFiles(affectedFiles);
+      }
+      catch (CannotConvertException ignored) {
+      }
+    }
+
     affectedFiles.addAll(myConverter.getAdditionalAffectedFiles());
-    return affectedFiles;
   }
 
   public void preProcess() throws CannotConvertException {
@@ -140,7 +143,7 @@ public class ConversionRunner {
       myWorkspaceConverter.preProcess(myContext.getWorkspaceSettings());
     }
 
-    for (File moduleFile : myModulesFilesToProcess) {
+    for (Path moduleFile : myModulesFilesToProcess) {
       myModuleFileConverter.preProcess(myContext.getModuleSettings(moduleFile));
     }
 
@@ -167,7 +170,7 @@ public class ConversionRunner {
       myWorkspaceConverter.process(myContext.getWorkspaceSettings());
     }
 
-    for (File moduleFile : myModulesFilesToProcess) {
+    for (Path moduleFile : myModulesFilesToProcess) {
       myModuleFileConverter.process(myContext.getModuleSettings(moduleFile));
     }
 
@@ -194,7 +197,7 @@ public class ConversionRunner {
       myWorkspaceConverter.postProcess(myContext.getWorkspaceSettings());
     }
 
-    for (File moduleFile : myModulesFilesToProcess) {
+    for (Path moduleFile : myModulesFilesToProcess) {
       myModuleFileConverter.postProcess(myContext.getModuleSettings(moduleFile));
     }
 
@@ -212,21 +215,26 @@ public class ConversionRunner {
     myConverter.postProcessingFinished();
   }
 
-  public ConverterProvider getProvider() {
+  public @NotNull ConverterProvider getProvider() {
     return myProvider;
   }
 
-  public static List<File> getReadOnlyFiles(final Collection<File> affectedFiles) {
-    List<File> result = new ArrayList<File>();
-    for (File file : affectedFiles) {
-      if (!file.canWrite()) {
+  public static @NotNull List<Path> getReadOnlyFiles(@NotNull Collection<? extends Path> affectedFiles) {
+    List<Path> result = new ArrayList<>();
+    for (Path file : affectedFiles) {
+      try {
+        file.getFileSystem().provider().checkAccess(file, AccessMode.WRITE);
+      }
+      catch (NoSuchFileException ignored) {
+      }
+      catch (IOException ignored) {
         result.add(file);
       }
     }
     return result;
   }
 
-  public void convertModule(File moduleFile) throws CannotConvertException {
+  public void convertModule(@NotNull Path moduleFile) throws CannotConvertException {
     final ModuleSettings settings = myContext.getModuleSettings(moduleFile);
     myModuleFileConverter.preProcess(settings);
     myModuleFileConverter.process(settings);

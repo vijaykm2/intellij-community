@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.shell;
 
 import com.intellij.openapi.actionSystem.AnAction;
@@ -20,30 +6,34 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ProjectRootModificationTracker;
 import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.Key;
+import com.intellij.psi.util.CachedValue;
+import com.intellij.psi.util.CachedValueProvider;
+import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.util.Consumer;
-import com.intellij.util.Function;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.util.ModuleChooserUtil;
+
+import java.util.Collection;
+import java.util.List;
 
 public abstract class GroovyShellActionBase extends AnAction {
 
   private final GroovyShellConfig myConfig;
 
-  private final Condition<Module> APPLICABLE_MODULE = new Condition<Module>() {
+  private final Condition<Module> APPLICABLE_MODULE = new Condition<>() {
     @Override
     public boolean value(Module module) {
       return myConfig.isSuitableModule(module);
     }
   };
 
-  private final Function<Module, String> VERSION_PROVIDER = new Function<Module, String>() {
-    @Override
-    public String fun(Module module) {
-      return myConfig.getVersion(module);
-    }
-  };
+  // non-static to distinguish different module acceptability conditions
+  private final Key<CachedValue<Boolean>> APPLICABLE_MODULE_CACHE = Key.create("APPLICABLE_MODULE_CACHE");
 
-  private final Consumer<Module> RUNNER = new Consumer<Module>() {
+  private final Consumer<Module> RUNNER = new Consumer<>() {
     @Override
     public void consume(final Module module) {
       GroovyShellRunnerImpl.doRunShell(myConfig, module);
@@ -55,19 +45,27 @@ public abstract class GroovyShellActionBase extends AnAction {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
+    boolean enabled = project != null && hasGroovyCompatibleModule(project);
 
-    boolean enabled = project != null && !ModuleChooserUtil.getGroovyCompatibleModules(project, APPLICABLE_MODULE).isEmpty();
+    e.getPresentation().setEnabledAndVisible(enabled);
+  }
 
-    e.getPresentation().setEnabled(enabled);
-    e.getPresentation().setVisible(enabled);
+  private boolean hasGroovyCompatibleModule(final Project project) {
+    return CachedValuesManager.getManager(project).getCachedValue(project, APPLICABLE_MODULE_CACHE, () -> {
+      Collection<Module> possibleModules = myConfig.getPossiblySuitableModules(project);
+      return CachedValueProvider.Result.create(ModuleChooserUtil.hasGroovyCompatibleModules(possibleModules, APPLICABLE_MODULE),
+                                               ProjectRootModificationTracker.getInstance(project));
+    }, false);
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     assert project != null;
-    ModuleChooserUtil.selectModule(project, APPLICABLE_MODULE, VERSION_PROVIDER, RUNNER);
+    List<Module> suitableModules = ModuleChooserUtil.filterGroovyCompatibleModules(myConfig.getPossiblySuitableModules(project),
+                                                                                   APPLICABLE_MODULE);
+    ModuleChooserUtil.selectModule(project, suitableModules, myConfig::getVersion, RUNNER);
   }
 }

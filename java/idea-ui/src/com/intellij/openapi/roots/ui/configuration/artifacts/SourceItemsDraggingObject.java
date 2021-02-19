@@ -22,9 +22,6 @@ import com.intellij.packaging.ui.ArtifactEditorContext;
 import java.util.List;
 import java.util.ArrayList;
 
-/**
- * @author nik
- */
 public class SourceItemsDraggingObject extends PackagingElementDraggingObject {
   private final PackagingSourceItem[] mySourceItems;
 
@@ -34,7 +31,7 @@ public class SourceItemsDraggingObject extends PackagingElementDraggingObject {
 
   @Override
   public List<PackagingElement<?>> createPackagingElements(ArtifactEditorContext context) {
-    final List<PackagingElement<?>> result = new ArrayList<PackagingElement<?>>();
+    final List<PackagingElement<?>> result = new ArrayList<>();
     for (PackagingSourceItem item : mySourceItems) {
       result.addAll(item.createElements(context));
     }

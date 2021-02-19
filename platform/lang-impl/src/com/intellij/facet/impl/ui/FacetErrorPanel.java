@@ -34,9 +34,6 @@ import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author nik
- */
 public class FacetErrorPanel {
   private final JPanel myMainPanel;
   private JPanel myButtonPanel;
@@ -103,7 +100,7 @@ public class FacetErrorPanel {
   }
 
   private class FacetValidatorsManagerImpl implements FacetValidatorsManager {
-    private final List<FacetEditorValidator> myValidators = new ArrayList<FacetEditorValidator>();
+    private final List<FacetEditorValidator> myValidators = new ArrayList<>();
 
     @Override
     public void registerValidator(final FacetEditorValidator validator, JComponent... componentsToWatch) {

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.structureView.impl.java;
 
 import com.intellij.ide.util.treeView.WeighedItem;
@@ -24,38 +10,42 @@ import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.colors.CodeInsightColors;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
+import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.psi.*;
-import com.intellij.psi.util.PropertyUtil;
+import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.psi.util.PsiUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.ArrayList;
 import java.util.Collection;
 
-public class PropertyGroup implements Group, ColoredItemPresentation, AccessLevelProvider, WeighedItem {
-  private final String myPropertyName;
-  private final PsiType myPropertyType;
+public final class PropertyGroup implements Group, ColoredItemPresentation, AccessLevelProvider, WeighedItem {
+  @NotNull private final String myPropertyName;
+  @NotNull private final String myTypeText;
 
-  private SmartPsiElementPointer myFieldPointer;
-  private SmartPsiElementPointer myGetterPointer;
-  private SmartPsiElementPointer mySetterPointer;
+  private SmartPsiElementPointer<?> myFieldPointer;
+  private SmartPsiElementPointer<?> myGetterPointer;
+  private SmartPsiElementPointer<?> mySetterPointer;
   private boolean myIsStatic;
+
   public static final Icon PROPERTY_READ_ICON = loadIcon("/nodes/propertyRead.png");
   public static final Icon PROPERTY_READ_STATIC_ICON = loadIcon("/nodes/propertyReadStatic.png");
   public static final Icon PROPERTY_WRITE_ICON = loadIcon("/nodes/propertyWrite.png");
   public static final Icon PROPERTY_WRITE_STATIC_ICON = loadIcon("/nodes/propertyWriteStatic.png");
   public static final Icon PROPERTY_READ_WRITE_ICON = loadIcon("/nodes/propertyReadWrite.png");
   public static final Icon PROPERTY_READ_WRITE_STATIC_ICON = loadIcon("/nodes/propertyReadWriteStatic.png");
-  private final Project myProject;
-  private final Collection<TreeElement> myChildren = new ArrayList<TreeElement>();
 
-  private PropertyGroup(String propertyName, PsiType propertyType, boolean isStatic, @NotNull Project project) {
+  private final Project myProject;
+  private final Collection<TreeElement> myChildren = new ArrayList<>();
+
+  private PropertyGroup(@NotNull String propertyName, @NotNull PsiType propertyType, boolean isStatic, @NotNull Project project) {
     myPropertyName = propertyName;
-    myPropertyType = propertyType;
+    myTypeText = propertyType.getPresentableText();
     myIsStatic = isStatic;
     myProject = project;
   }
@@ -63,7 +53,7 @@ public class PropertyGroup implements Group, ColoredItemPresentation, AccessLeve
   public static PropertyGroup createOn(PsiElement object, final TreeElement treeElement) {
     if (object instanceof PsiField) {
       PsiField field = (PsiField)object;
-      PropertyGroup group = new PropertyGroup(PropertyUtil.suggestPropertyName(field), field.getType(),
+      PropertyGroup group = new PropertyGroup(PropertyUtilBase.suggestPropertyName(field), field.getType(),
                                               field.hasModifierProperty(PsiModifier.STATIC), object.getProject());
       group.setField(field);
       group.myChildren.add(treeElement);
@@ -71,16 +61,16 @@ public class PropertyGroup implements Group, ColoredItemPresentation, AccessLeve
     }
     else if (object instanceof PsiMethod) {
       PsiMethod method = (PsiMethod)object;
-      if (PropertyUtil.isSimplePropertyGetter(method)) {
-        PropertyGroup group = new PropertyGroup(PropertyUtil.getPropertyNameByGetter(method), method.getReturnType(),
+      if (PropertyUtilBase.isSimplePropertyGetter(method)) {
+        PropertyGroup group = new PropertyGroup(PropertyUtilBase.getPropertyNameByGetter(method), method.getReturnType(),
                                                 method.hasModifierProperty(PsiModifier.STATIC), object.getProject());
         group.setGetter(method);
         group.myChildren.add(treeElement);
         return group;
       }
-      else if (PropertyUtil.isSimplePropertySetter(method)) {
+      else if (PropertyUtilBase.isSimplePropertySetter(method)) {
         PropertyGroup group =
-          new PropertyGroup(PropertyUtil.getPropertyNameBySetter(method), method.getParameterList().getParameters()[0].getType(),
+          new PropertyGroup(PropertyUtilBase.getPropertyNameBySetter(method), method.getParameterList().getParameters()[0].getType(),
                             method.hasModifierProperty(PsiModifier.STATIC), object.getProject());
         group.setSetter(method);
         group.myChildren.add(treeElement);
@@ -134,13 +124,8 @@ public class PropertyGroup implements Group, ColoredItemPresentation, AccessLeve
   }
 
   @Override
-  public String getLocationString() {
-    return null;
-  }
-
-  @Override
   public String getPresentableText() {
-    return myPropertyName + ": " + myPropertyType.getPresentableText();
+    return myPropertyName + ": " + myTypeText;
   }
 
   public String toString() {
@@ -152,27 +137,11 @@ public class PropertyGroup implements Group, ColoredItemPresentation, AccessLeve
     if (this == o) return true;
     if (!(o instanceof PropertyGroup)) return false;
 
-    final PropertyGroup propertyGroup = (PropertyGroup)o;
-
-    if (myPropertyName != null ? !myPropertyName.equals(propertyGroup.myPropertyName) : propertyGroup.myPropertyName != null) return false;
-
-    if (myPropertyType != null && !myPropertyType.isValid()) return false;
-    if (propertyGroup.myPropertyType != null && !propertyGroup.myPropertyType.isValid()) return false;
-
-    if (myPropertyType != null && myPropertyType.isValid()
-        ? !myPropertyType.equals(propertyGroup.myPropertyType) 
-        : propertyGroup.myPropertyType != null) {
-      return false;
-    }
-    return true;
+    return myPropertyName.equals(((PropertyGroup)o).myPropertyName) && myTypeText.equals(((PropertyGroup)o).myTypeText);
   }
 
   public int hashCode() {
-    return myPropertyName != null ? myPropertyName.hashCode() : 0;
-  }
-
-  public String getGetterName() {
-    return PropertyUtil.suggestGetterName(myPropertyName, myPropertyType);
+    return myPropertyName.hashCode() * 31 + myTypeText.hashCode();
   }
 
   @Override
@@ -230,7 +199,7 @@ public class PropertyGroup implements Group, ColoredItemPresentation, AccessLeve
   }
 
   private static Icon loadIcon(@NonNls String resourceName) {
-    Icon icon = IconLoader.findIcon(resourceName);
+    Icon icon = IconLoader.findIcon(resourceName, PropertyGroup.class, PropertyGroup.class.getClassLoader(), null, true);
     Application application = ApplicationManager.getApplication();
     if (icon == null && application != null && application.isUnitTestMode()) {
       return new ImageIcon();
@@ -247,11 +216,13 @@ public class PropertyGroup implements Group, ColoredItemPresentation, AccessLeve
     return isDeprecated(getField()) && isDeprecated(getGetter()) && isDeprecated(getSetter());
   }
 
-  private static boolean isDeprecated(final PsiElement element) {
-    if (element == null) return false;
-    if (!element.isValid()) return false;
-    if (!(element instanceof PsiDocCommentOwner)) return false;
-    return ((PsiDocCommentOwner)element).isDeprecated();
+  private static boolean isDeprecated(@Nullable final PsiDocCommentOwner element) {
+    try {
+      return element != null && element.isValid() && element.isDeprecated();
+    }
+    catch (IndexNotReadyException e) {
+      return false;
+    }
   }
 
   public boolean isComplete() {

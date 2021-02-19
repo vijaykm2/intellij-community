@@ -1,24 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.intelliLang.inject.groovy;
 
 import com.intellij.lang.Language;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.Ref;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.light.LightElement;
 import com.intellij.psi.tree.IElementType;
@@ -31,6 +17,7 @@ import org.intellij.plugins.intelliLang.inject.InjectorUtils;
 import org.intellij.plugins.intelliLang.inject.LanguageInjectionSupport;
 import org.intellij.plugins.intelliLang.inject.config.BaseInjection;
 import org.intellij.plugins.intelliLang.inject.java.JavaLanguageInjectionSupport;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -57,10 +44,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
-/**
- * @author Gregory.Shrago
- */
-public class GroovyLanguageInjectionSupport extends AbstractLanguageInjectionSupport {
+final class GroovyLanguageInjectionSupport extends AbstractLanguageInjectionSupport {
   @NonNls public static final String GROOVY_SUPPORT_ID = "groovy";
 
   @Override
@@ -70,9 +54,16 @@ public class GroovyLanguageInjectionSupport extends AbstractLanguageInjectionSup
   }
 
   @Override
-  @NotNull
-  public Class[] getPatternClasses() {
+  public Class @NotNull [] getPatternClasses() {
     return new Class[] {GroovyPatterns.class};
+  }
+
+  @Nullable
+  @Override
+  public BaseInjection findCommentInjection(@NotNull PsiElement host, @Nullable Ref<? super PsiElement> commentRef) {
+    PsiFile containingFile = host.getContainingFile();
+    boolean compiled = containingFile != null && containingFile.getOriginalFile() instanceof PsiCompiledFile;
+    return compiled ? null : super.findCommentInjection(host, commentRef);
   }
 
   @Override
@@ -91,7 +82,8 @@ public class GroovyLanguageInjectionSupport extends AbstractLanguageInjectionSup
   }
 
   @Override
-  public boolean addInjectionInPlace(@NotNull Language language, @Nullable PsiLanguageInjectionHost psiElement) {
+  public boolean addInjectionInPlace(Language language, @Nullable PsiLanguageInjectionHost psiElement) {
+    if (language == null) return false;
     if (!isStringLiteral(psiElement)) return false;
 
 
@@ -103,25 +95,23 @@ public class GroovyLanguageInjectionSupport extends AbstractLanguageInjectionSup
     if (!isStringLiteral(psiElement)) return false;
 
     GrLiteralContainer host = (GrLiteralContainer)psiElement;
-    final HashMap<BaseInjection, Pair<PsiMethod, Integer>> injectionsMap = ContainerUtil.newHashMap();
-    final ArrayList<PsiElement> annotations = new ArrayList<PsiElement>();
+    final HashMap<BaseInjection, Pair<PsiMethod, Integer>> injectionsMap = new HashMap<>();
+    final ArrayList<PsiElement> annotations = new ArrayList<>();
     final Project project = host.getProject();
     final Configuration configuration = Configuration.getProjectInstance(project);
     collectInjections(host, configuration, this, injectionsMap, annotations);
 
     if (injectionsMap.isEmpty() && annotations.isEmpty()) return false;
-    final ArrayList<BaseInjection> originalInjections = new ArrayList<BaseInjection>(injectionsMap.keySet());
-    final List<BaseInjection> newInjections = ContainerUtil.mapNotNull(originalInjections, new NullableFunction<BaseInjection, BaseInjection>() {
-      @Override
-      public BaseInjection fun(final BaseInjection injection) {
-        final Pair<PsiMethod, Integer> pair = injectionsMap.get(injection);
-        final String placeText = JavaLanguageInjectionSupport.getPatternStringForJavaPlace(pair.first, pair.second);
-        final BaseInjection newInjection = injection.copy();
-        newInjection.setPlaceEnabled(placeText, false);
-        return InjectorUtils.canBeRemoved(newInjection) ? null : newInjection;
-      }
-    });
-    configuration.replaceInjectionsWithUndo(project, newInjections, originalInjections, annotations);
+    final ArrayList<BaseInjection> originalInjections = new ArrayList<>(injectionsMap.keySet());
+    final List<BaseInjection> newInjections = ContainerUtil.mapNotNull(originalInjections,
+                                                                       (NullableFunction<BaseInjection, BaseInjection>)injection -> {
+                                                                         final Pair<PsiMethod, Integer> pair = injectionsMap.get(injection);
+                                                                         final String placeText = JavaLanguageInjectionSupport.getPatternStringForJavaPlace(pair.first, pair.second);
+                                                                         final BaseInjection newInjection = injection.copy();
+                                                                         newInjection.setPlaceEnabled(placeText, false);
+                                                                         return InjectorUtils.canBeRemoved(newInjection) ? null : newInjection;
+                                                                       });
+    configuration.replaceInjectionsWithUndo(project, psiElement.getContainingFile(), newInjections, originalInjections, annotations);
     return true;
   }
 
@@ -210,24 +200,22 @@ public class GroovyLanguageInjectionSupport extends AbstractLanguageInjectionSup
 
   private static Processor<PsiLanguageInjectionHost> getAnnotationFixer(@NotNull final Project project,
                                                                         @NotNull final String languageId) {
-    return new Processor<PsiLanguageInjectionHost>() {
-      @Override
-      public boolean process(@Nullable PsiLanguageInjectionHost host) {
-        if (host == null) return false;
+    return host -> {
+      if (host == null) return false;
 
-        final Configuration.AdvancedConfiguration configuration = Configuration.getProjectInstance(project).getAdvancedConfiguration();
-        boolean allowed = configuration.isSourceModificationAllowed();
-        configuration.setSourceModificationAllowed(true);
-        try {
-          return doInject(languageId, host, host);
-        }
-        finally {
-          configuration.setSourceModificationAllowed(allowed);
-        }
+      final Configuration.AdvancedConfiguration configuration = Configuration.getProjectInstance(project).getAdvancedConfiguration();
+      boolean allowed = configuration.isSourceModificationAllowed();
+      configuration.setSourceModificationAllowed(true);
+      try {
+        return doInject(languageId, host, host);
+      }
+      finally {
+        configuration.setSourceModificationAllowed(allowed);
       }
     };
   }
 
+  @Contract("null -> false")
   private static boolean isStringLiteral(@Nullable PsiLanguageInjectionHost element) {
     if (element instanceof GrStringContent) {
       return true;

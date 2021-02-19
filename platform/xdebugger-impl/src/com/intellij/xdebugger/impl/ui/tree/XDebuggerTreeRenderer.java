@@ -1,25 +1,11 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.ui.tree;
 
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.ui.AbstractExpandableItemsHandler;
 import com.intellij.ui.ColoredTreeCellRenderer;
+import com.intellij.ui.ExpandableItemsHandler;
+import com.intellij.ui.ScreenUtil;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.xdebugger.XDebuggerBundle;
 import com.intellij.xdebugger.frame.ImmediateFullValueEvaluator;
@@ -27,35 +13,31 @@ import com.intellij.xdebugger.frame.XDebuggerTreeNodeHyperlink;
 import com.intellij.xdebugger.impl.ui.DebuggerUIUtil;
 import com.intellij.xdebugger.impl.ui.tree.nodes.XDebuggerTreeNode;
 import com.intellij.xdebugger.impl.ui.tree.nodes.XValueNodeImpl;
+import icons.PlatformDebuggerImplIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.plaf.basic.BasicTreeUI;
-import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.event.MouseEvent;
-import java.lang.reflect.Method;
 
-/**
- * @author nik
- */
+import static com.intellij.util.ui.tree.TreeUtil.getNodeRowX;
+
 class XDebuggerTreeRenderer extends ColoredTreeCellRenderer {
-  private static final Logger LOG = Logger.getInstance(XDebuggerTreeRenderer.class);
-
   private final MyColoredTreeCellRenderer myLink = new MyColoredTreeCellRenderer();
   private boolean myHaveLink;
   private int myLinkOffset;
   private int myLinkWidth;
+  private Object myIconTag;
 
   private final MyLongTextHyperlink myLongTextLink = new MyLongTextHyperlink();
 
-  public XDebuggerTreeRenderer() {
-    setSupportFontFallback(true);
+  XDebuggerTreeRenderer() {
     getIpad().right = 0;
     myLink.getIpad().left = 0;
   }
 
+  @Override
   public void customizeCellRenderer(@NotNull final JTree tree,
                                     final Object value,
                                     final boolean selected,
@@ -67,21 +49,27 @@ class XDebuggerTreeRenderer extends ColoredTreeCellRenderer {
     myLink.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus);
     XDebuggerTreeNode node = (XDebuggerTreeNode)value;
     node.appendToComponent(this);
-    setIcon(node.getIcon());
+    updateIcon(node);
+    myIconTag = node.getIconTag();
 
-    Rectangle treeVisibleRect = tree.getVisibleRect();
-    TreePath path = tree.getPathForRow(row);
-    int rowX = path != null ? getRowX((BasicTreeUI)tree.getUI(), row, path.getPathCount() - 1) : 0;
+    Rectangle treeVisibleRect = tree.getParent() instanceof JViewport ? ((JViewport)tree.getParent()).getViewRect() : tree.getVisibleRect();
+    int rowX = getNodeRowX(tree, row);
 
     if (myHaveLink) {
       setupLinkDimensions(treeVisibleRect, rowX);
     }
     else {
-      if (rowX + super.getPreferredSize().width > treeVisibleRect.x + treeVisibleRect.width) {
+      int visibleRectRightX = treeVisibleRect.x + treeVisibleRect.width;
+      int notFittingWidth = rowX + super.getPreferredSize().width - visibleRectRightX;
+      if (node instanceof XValueNodeImpl && notFittingWidth > 0) {
         // text does not fit visible area - show link
-        if (node instanceof XValueNodeImpl) {
-          final String rawValue = DebuggerUIUtil.getNodeRawValue((XValueNodeImpl)node);
-          if (!StringUtil.isEmpty(rawValue)) {
+        String rawValue = DebuggerUIUtil.getNodeRawValue((XValueNodeImpl)node);
+        if (!StringUtil.isEmpty(rawValue) && tree.isShowing()) {
+          Point treeRightSideOnScreen = new Point(visibleRectRightX, treeVisibleRect.y);
+          SwingUtilities.convertPointToScreen(treeRightSideOnScreen, tree);
+          Rectangle screen = ScreenUtil.getScreenRectangle(treeRightSideOnScreen);
+          // text may fit the screen in ExpandableItemsHandler
+          if (screen.x + screen.width < treeRightSideOnScreen.x + notFittingWidth) {
             myLongTextLink.setupComponent(rawValue, ((XDebuggerTree)tree).getProject());
             append(myLongTextLink.getLinkText(), myLongTextLink.getTextAttributes(), myLongTextLink);
             setupLinkDimensions(treeVisibleRect, rowX);
@@ -90,36 +78,22 @@ class XDebuggerTreeRenderer extends ColoredTreeCellRenderer {
         }
       }
     }
-    putClientProperty(AbstractExpandableItemsHandler.DISABLE_EXPANDABLE_HANDLER, myHaveLink ? true : null);
+    putClientProperty(ExpandableItemsHandler.RENDERER_DISABLED, myHaveLink);
   }
 
-  private static Method ourGetRowXMethod = null;
-
-  private static int getRowX(BasicTreeUI ui, int row, int depth) {
-    if (ourGetRowXMethod == null) {
-      try {
-        ourGetRowXMethod = BasicTreeUI.class.getDeclaredMethod("getRowX", int.class, int.class);
-        ourGetRowXMethod.setAccessible(true);
-      }
-      catch (NoSuchMethodException e) {
-        LOG.error(e);
-      }
-    }
-    if (ourGetRowXMethod != null) {
-      try {
-        return (Integer)ourGetRowXMethod.invoke(ui, row, depth);
-      }
-      catch (Exception e) {
-        LOG.error(e);
-      }
-    }
-    return 0;
+  private void updateIcon(XDebuggerTreeNode node) {
+    Icon icon = node instanceof XValueNodeImpl &&
+                node.getTree().getPinToTopManager().isEnabled() &&
+                node.getTree().getPinToTopManager().isItemPinned((XValueNodeImpl)node) ?
+                PlatformDebuggerImplIcons.PinToTop.PinnedItem : node.getIcon();
+    setIcon(icon);
   }
 
   private void setupLinkDimensions(Rectangle treeVisibleRect, int rowX) {
     Dimension linkSize = myLink.getPreferredSize();
     myLinkWidth = linkSize.width;
     myLinkOffset = Math.min(super.getPreferredSize().width, treeVisibleRect.x + treeVisibleRect.width - myLinkWidth - rowX);
+    myLink.setSize(myLinkWidth, getHeight()); // actually we only set width here, height is not yet ready
   }
 
   @Override
@@ -136,14 +110,14 @@ class XDebuggerTreeRenderer extends ColoredTreeCellRenderer {
   @Override
   protected void doPaint(Graphics2D g) {
     if (myHaveLink) {
-      Graphics2D textGraphics = (Graphics2D)g.create(0, 0, myLinkOffset, g.getClipBounds().height);
+      Graphics2D textGraphics = (Graphics2D)g.create(0, 0, myLinkOffset, getHeight());
       try {
         super.doPaint(textGraphics);
       } finally {
         textGraphics.dispose();
       }
       g.translate(myLinkOffset, 0);
-      myLink.setHeight(getHeight());
+      myLink.setSize(myLink.getWidth(), getHeight());
       myLink.doPaint(g);
       g.translate(-myLinkOffset, 0);
     }
@@ -166,14 +140,22 @@ class XDebuggerTreeRenderer extends ColoredTreeCellRenderer {
   @Override
   public Object getFragmentTagAt(int x) {
     if (myHaveLink) {
-      return myLink.getFragmentTagAt(x - myLinkOffset);
+      Object linkTag = myLink.getFragmentTagAt(x - myLinkOffset);
+      if (linkTag != null) {
+        return linkTag;
+      }
     }
-    return super.getFragmentTagAt(x);
+    Object baseFragment = super.getFragmentTagAt(x);
+    if (baseFragment != null) {
+      return baseFragment;
+    }
+    if (myIconTag != null && findFragmentAt(x) == FRAGMENT_ICON) {
+      return myIconTag;
+    }
+    return null;
   }
 
   private static class MyColoredTreeCellRenderer extends ColoredTreeCellRenderer {
-    private int myHeight;
-
     @Override
     public void customizeCellRenderer(@NotNull JTree tree,
                                       Object value,
@@ -187,22 +169,13 @@ class XDebuggerTreeRenderer extends ColoredTreeCellRenderer {
     protected void doPaint(Graphics2D g) {
       super.doPaint(g);
     }
-
-    public void setHeight(int height) {
-      myHeight = height;
-    }
-
-    @Override
-    public int getHeight() {
-      return myHeight;
-    }
   }
 
   private static class MyLongTextHyperlink extends XDebuggerTreeNodeHyperlink {
     private String myText;
     private Project myProject;
 
-    public MyLongTextHyperlink() {
+    MyLongTextHyperlink() {
       super(XDebuggerBundle.message("node.test.show.full.value"));
     }
 

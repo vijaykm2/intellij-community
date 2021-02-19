@@ -1,11 +1,14 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.gitlab;
 
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
+import com.intellij.tasks.TaskBundle;
 import com.intellij.tasks.config.BaseRepositoryEditor;
 import com.intellij.tasks.gitlab.model.GitlabProject;
 import com.intellij.tasks.impl.TaskUiUtil;
+import com.intellij.ui.SimpleListCellRenderer;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.util.Consumer;
 import com.intellij.util.ui.FormBuilder;
@@ -24,12 +27,12 @@ import static com.intellij.tasks.gitlab.GitlabRepository.UNSPECIFIED_PROJECT;
 public class GitlabRepositoryEditor extends BaseRepositoryEditor<GitlabRepository> {
 
   private JBLabel myProjectLabel;
-  private ComboBox myProjectComboBox;
+  private ComboBox<GitlabProject> myProjectComboBox;
 
 
-  public GitlabRepositoryEditor(Project project, GitlabRepository repository, Consumer<GitlabRepository> changeListener) {
+  public GitlabRepositoryEditor(Project project, GitlabRepository repository, Consumer<? super GitlabRepository> changeListener) {
     super(project, repository, changeListener);
-    myPasswordLabel.setText("Token:");
+    myPasswordLabel.setText(TaskBundle.message("label.token"));
 
     // Hide unused login field
     myUsernameLabel.setVisible(false);
@@ -39,12 +42,7 @@ public class GitlabRepositoryEditor extends BaseRepositoryEditor<GitlabRepositor
 
     installListener(myProjectComboBox);
 
-    UIUtil.invokeLaterIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        initialize();
-      }
-    });
+    UIUtil.invokeLaterIfNeeded(() -> initialize());
   }
 
   private void initialize() {
@@ -57,9 +55,9 @@ public class GitlabRepositoryEditor extends BaseRepositoryEditor<GitlabRepositor
   @Nullable
   @Override
   protected JComponent createCustomPanel() {
-    myProjectLabel = new JBLabel("Project:", SwingConstants.RIGHT);
-    myProjectComboBox = new ComboBox(300);
-    myProjectComboBox.setRenderer(new TaskUiUtil.SimpleComboBoxRenderer("Set server URL and token first"));
+    myProjectLabel = new JBLabel(TaskBundle.message("label.project"), SwingConstants.RIGHT);
+    myProjectComboBox = new ComboBox<>(300);
+    myProjectComboBox.setRenderer(SimpleListCellRenderer.create(TaskBundle.message("label.set.server.url.token.first"), GitlabProject::getName));
     myProjectLabel.setLabelFor(myProjectComboBox);
     return new FormBuilder().addLabeledComponent(myProjectLabel, myProjectComboBox).getPanel();
   }
@@ -84,9 +82,9 @@ public class GitlabRepositoryEditor extends BaseRepositoryEditor<GitlabRepositor
     myTestButton.setEnabled(myRepository.isConfigured());
   }
 
-  private class FetchProjectsTask extends TaskUiUtil.ComboBoxUpdater<GitlabProject> {
+  private final class FetchProjectsTask extends TaskUiUtil.ComboBoxUpdater<GitlabProject> {
     private FetchProjectsTask() {
-      super(GitlabRepositoryEditor.this.myProject, "Downloading Gitlab projects...", myProjectComboBox);
+      super(GitlabRepositoryEditor.this.myProject, TaskBundle.message("progress.title.downloading.gitlab.projects"), myProjectComboBox);
     }
 
     @Override

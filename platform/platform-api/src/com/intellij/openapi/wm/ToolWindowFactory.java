@@ -1,30 +1,44 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm;
 
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * Performs lazy initialization of a toolwindow registered in plugin.xml.
- *
- * @author yole
- * @see ToolWindowEP
+ * Performs lazy initialization of a tool window registered in {@code plugin.xml}.
+ * Please implement {@link com.intellij.openapi.project.DumbAware} marker interface to indicate that the tool window content should be
+ * available during the indexing process.
+ * <p/>
+ * To localize tool window stripe title, add key {@code toolwindow.stripe.yourToolWindowId.replace(" ", "_")} to plugin's resource bundle.
+ * <p/>
+ * See <a href="https://www.jetbrains.org/intellij/sdk/docs/user_interface_components/tool_windows.html">Tool Windows</a> in SDK Docs.
  */
 public interface ToolWindowFactory {
+  default boolean isApplicable(@NotNull Project project) {
+    return true;
+  }
+
   void createToolWindowContent(@NotNull Project project, @NotNull ToolWindow toolWindow);
+
+  /**
+   * Perform additional initialization routine here.
+   */
+  default void init(@NotNull ToolWindow toolWindow) {}
+
+  /**
+   * Check if tool window (and its stripe button) should be visible after startup.
+   *
+   * @see ToolWindow#isAvailable()
+   */
+  default boolean shouldBeAvailable(@NotNull Project project) {
+    return true;
+  }
+
+  /**
+   * @deprecated Use {@link ToolWindowEP#isDoNotActivateOnStart}
+   */
+  @Deprecated
+  default boolean isDoNotActivateOnStart() {
+    return false;
+  }
 }

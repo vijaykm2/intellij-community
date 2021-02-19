@@ -1,6 +1,8 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.console;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
+import com.intellij.execution.ExecutionBundle;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.actionSystem.AnAction;
@@ -12,7 +14,6 @@ import com.intellij.openapi.project.DumbAware;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
@@ -20,20 +21,20 @@ final class UseConsoleInputAction extends ToggleAction implements DumbAware {
   private final String processInputStateKey;
   private boolean useProcessStdIn;
 
-  public UseConsoleInputAction(@NotNull String processInputStateKey) {
-    super("Use Console Input", null, AllIcons.Debugger.CommandLine);
+  UseConsoleInputAction(@NotNull String processInputStateKey) {
+    super(ExecutionBundle.message("action.text.use.console.input"), null, AllIcons.Debugger.Console);
 
     this.processInputStateKey = processInputStateKey;
-    useProcessStdIn = PropertiesComponent.getInstance().getBoolean(processInputStateKey, false);
+    useProcessStdIn = PropertiesComponent.getInstance().getBoolean(processInputStateKey);
   }
 
   @Override
-  public boolean isSelected(@Nullable AnActionEvent event) {
+  public boolean isSelected(@NotNull AnActionEvent event) {
     return !useProcessStdIn;
   }
 
   @Override
-  public void setSelected(AnActionEvent event, boolean state) {
+  public void setSelected(@NotNull AnActionEvent event, boolean state) {
     useProcessStdIn = !state;
 
     LanguageConsoleView consoleView = (LanguageConsoleView)event.getData(LangDataKeys.CONSOLE_VIEW);
@@ -42,12 +43,7 @@ final class UseConsoleInputAction extends ToggleAction implements DumbAware {
     PsiFile file = consoleView.getFile();
     daemonCodeAnalyzer.setHighlightingEnabled(file, state);
     daemonCodeAnalyzer.restart(file);
-    if (state) {
-      PropertiesComponent.getInstance().unsetValue(processInputStateKey);
-    }
-    else {
-      PropertiesComponent.getInstance().setValue(processInputStateKey, "true");
-    }
+    PropertiesComponent.getInstance().setValue(processInputStateKey, useProcessStdIn);
 
     List<AnAction> actions = ActionUtil.getActions(consoleView.getConsoleEditor().getComponent());
     ConsoleExecuteAction action = ContainerUtil.findInstance(actions, ConsoleExecuteAction.class);

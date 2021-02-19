@@ -1,43 +1,25 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.remote;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-import com.intellij.openapi.util.JDOMExternalizer;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.PathMappingSettings;
 import org.jdom.Element;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 
-/**
- * @author traff
- */
 public class RemoteSdkPropertiesHolder implements RemoteSdkProperties {
-  private static final String INTERPRETER_PATH = "INTERPRETER_PATH";
-  private static final String HELPERS_PATH = "HELPERS_PATH";
-  private static final String REMOTE_ROOTS = "REMOTE_ROOTS";
-  private static final String REMOTE_PATH = "REMOTE_PATH";
-  private static final String INITIALIZED = "INITIALIZED";
-  private static final String VALID = "VALID";
-  private static final String PATH_MAPPINGS = "PATH_MAPPINGS";
+  @NonNls private static final String INTERPRETER_PATH = "INTERPRETER_PATH";
+  @NonNls private static final String HELPERS_PATH = "HELPERS_PATH";
+  @NonNls private static final String REMOTE_ROOTS = "REMOTE_ROOTS";
+  @NonNls private static final String REMOTE_PATH = "REMOTE_PATH";
+  @NonNls private static final String INITIALIZED = "INITIALIZED";
+  @NonNls private static final String VALID = "VALID";
+  @NonNls private static final String PATH_MAPPINGS = "PATH_MAPPINGS";
+  @NonNls private static final String RUN_AS_ROOT_VIA_SUDO = "RUN_AS_ROOT_VIA_SUDO";
 
   private String mySdkId;
 
@@ -48,11 +30,13 @@ public class RemoteSdkPropertiesHolder implements RemoteSdkProperties {
 
   private boolean myHelpersVersionChecked = false;
 
-  private Set<String> myRemoteRoots = Sets.newTreeSet();
+  private Set<String> myRemoteRoots = new TreeSet<>();
 
   private boolean myInitialized = false;
 
   private boolean myValid = true;
+
+  private boolean myRunAsRootViaSudo = false;
 
   @NotNull
   private PathMappingSettings myPathMappings = new PathMappingSettings();
@@ -81,28 +65,9 @@ public class RemoteSdkPropertiesHolder implements RemoteSdkProperties {
     myHelpersPath = helpersPath;
   }
 
+  @Override
   public String getDefaultHelpersName() {
     return myHelpersDefaultDirName;
-  }
-
-  @Override
-  public void addRemoteRoot(String remoteRoot) {
-    myRemoteRoots.add(remoteRoot);
-  }
-
-  @Override
-  public void clearRemoteRoots() {
-    myRemoteRoots.clear();
-  }
-
-  @Override
-  public List<String> getRemoteRoots() {
-    return Lists.newArrayList(myRemoteRoots);
-  }
-
-  @Override
-  public void setRemoteRoots(List<String> remoteRoots) {
-    myRemoteRoots = Sets.newTreeSet(remoteRoots);
   }
 
   @NotNull
@@ -129,10 +94,12 @@ public class RemoteSdkPropertiesHolder implements RemoteSdkProperties {
     myHelpersVersionChecked = helpersVersionChecked;
   }
 
+  @Override
   public void setSdkId(String sdkId) {
     mySdkId = sdkId;
   }
 
+  @Override
   public String getSdkId() {
     return mySdkId;
   }
@@ -157,16 +124,26 @@ public class RemoteSdkPropertiesHolder implements RemoteSdkProperties {
     myValid = valid;
   }
 
+  @Override
+  public boolean isRunAsRootViaSudo() {
+    return myRunAsRootViaSudo;
+  }
+
+  @Override
+  public void setRunAsRootViaSudo(boolean runAsRootViaSudo) {
+    myRunAsRootViaSudo = runAsRootViaSudo;
+  }
+
   public void copyTo(RemoteSdkProperties copy) {
     copy.setInterpreterPath(getInterpreterPath());
     copy.setHelpersPath(getHelpersPath());
     copy.setHelpersVersionChecked(isHelpersVersionChecked());
 
-    copy.setRemoteRoots(getRemoteRoots());
-
     copy.setInitialized(isInitialized());
 
     copy.setValid(isValid());
+
+    copy.setRunAsRootViaSudo(isRunAsRootViaSudo());
   }
 
   public void save(Element rootElement) {
@@ -175,27 +152,22 @@ public class RemoteSdkPropertiesHolder implements RemoteSdkProperties {
 
     rootElement.setAttribute(INITIALIZED, Boolean.toString(isInitialized()));
     rootElement.setAttribute(VALID, Boolean.toString(isValid()));
+    rootElement.setAttribute(RUN_AS_ROOT_VIA_SUDO, Boolean.toString(isRunAsRootViaSudo()));
 
     PathMappingSettings.writeExternal(rootElement, myPathMappings);
-
-    for (String remoteRoot : getRemoteRoots()) {
-      final Element child = new Element(REMOTE_ROOTS);
-      child.setAttribute(REMOTE_PATH, remoteRoot);
-      rootElement.addContent(child);
-    }
   }
 
   public void load(Element element) {
     setInterpreterPath(StringUtil.nullize(element.getAttributeValue(INTERPRETER_PATH)));
     setHelpersPath(StringUtil.nullize(element.getAttributeValue(HELPERS_PATH)));
 
-    setRemoteRoots(JDOMExternalizer.loadStringsList(element, REMOTE_ROOTS, REMOTE_PATH));
+    setInitialized(Boolean.parseBoolean(element.getAttributeValue(INITIALIZED)));
 
-    setInitialized(StringUtil.parseBoolean(element.getAttributeValue(INITIALIZED), true));
-
-    setValid(StringUtil.parseBoolean(element.getAttributeValue(VALID), true));
+    setValid(Boolean.parseBoolean(element.getAttributeValue(VALID)));
 
     setPathMappings(PathMappingSettings.readExternal(element));
+
+    setRunAsRootViaSudo(Boolean.parseBoolean(element.getAttributeValue(RUN_AS_ROOT_VIA_SUDO)));
   }
 
   @Override
@@ -215,6 +187,7 @@ public class RemoteSdkPropertiesHolder implements RemoteSdkProperties {
     }
     if (myHelpersPath != null ? !myHelpersPath.equals(holder.myHelpersPath) : holder.myHelpersPath != null) return false;
     if (myInterpreterPath != null ? !myInterpreterPath.equals(holder.myInterpreterPath) : holder.myInterpreterPath != null) return false;
+    if (myRunAsRootViaSudo != holder.myRunAsRootViaSudo) return false;
     if (!myPathMappings.equals(holder.myPathMappings)) return false;
     if (myRemoteRoots != null ? !myRemoteRoots.equals(holder.myRemoteRoots) : holder.myRemoteRoots != null) return false;
     if (mySdkId != null ? !mySdkId.equals(holder.mySdkId) : holder.mySdkId != null) return false;
@@ -226,6 +199,7 @@ public class RemoteSdkPropertiesHolder implements RemoteSdkProperties {
   public int hashCode() {
     int result = mySdkId != null ? mySdkId.hashCode() : 0;
     result = 31 * result + (myInterpreterPath != null ? myInterpreterPath.hashCode() : 0);
+    result = 31 * result + (myRunAsRootViaSudo ? 1 : 0);
     result = 31 * result + (myHelpersPath != null ? myHelpersPath.hashCode() : 0);
     result = 31 * result + (myHelpersDefaultDirName != null ? myHelpersDefaultDirName.hashCode() : 0);
     result = 31 * result + (myHelpersVersionChecked ? 1 : 0);

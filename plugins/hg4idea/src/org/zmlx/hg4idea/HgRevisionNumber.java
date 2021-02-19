@@ -12,15 +12,16 @@
 // limitations under the License.
 package org.zmlx.hg4idea;
 
-import com.google.common.base.Objects;
-import com.intellij.openapi.util.Couple;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
+import com.intellij.vcs.log.util.VcsUserUtil;
 import org.jetbrains.annotations.NotNull;
 import org.zmlx.hg4idea.log.HgBaseLogParser;
 import org.zmlx.hg4idea.util.HgUtil;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 public class HgRevisionNumber implements VcsRevisionNumber {
 
@@ -30,18 +31,19 @@ public class HgRevisionNumber implements VcsRevisionNumber {
   @NotNull private final String commitMessage;
   @NotNull private final String author;
   @NotNull private final String email;
-  @NotNull private final List<HgRevisionNumber> parents;
+  @NotNull private final List<? extends HgRevisionNumber> parents;
   @NotNull private final String mySubject;
 
   private final boolean isWorkingVersion;
 
   // this is needed in place of VcsRevisionNumber.NULL, because sometimes we need to return HgRevisionNumber.
-  public static final HgRevisionNumber NULL_REVISION_NUMBER = new HgRevisionNumber("", "", "", "", Collections.<HgRevisionNumber>emptyList()) {
+  public static final HgRevisionNumber NULL_REVISION_NUMBER = new HgRevisionNumber("", "", "", "", Collections.emptyList()) {
     @Override
     public int compareTo(VcsRevisionNumber o) {
       return NULL.compareTo(o);
     }
 
+    @NotNull
     @Override
     public String asString() {
       return NULL.asString();
@@ -49,30 +51,39 @@ public class HgRevisionNumber implements VcsRevisionNumber {
   };
 
   public static HgRevisionNumber getInstance(@NotNull String revision,@NotNull  String changeset,@NotNull  String author,@NotNull  String commitMessage) {
-    return new HgRevisionNumber(revision, changeset, author, commitMessage, Collections.<HgRevisionNumber>emptyList());
+    return new HgRevisionNumber(revision, changeset, author, commitMessage, Collections.emptyList());
   }
 
   public static HgRevisionNumber getInstance(@NotNull String revision,@NotNull  String changeset) {
-    return new HgRevisionNumber(revision, changeset, "", "", Collections.<HgRevisionNumber>emptyList());
+    return new HgRevisionNumber(revision, changeset, "", "", Collections.emptyList());
   }
 
-  public static HgRevisionNumber getInstance(@NotNull String revision,@NotNull  String changeset,@NotNull  List<HgRevisionNumber> parents) {
+  public static HgRevisionNumber getInstance(@NotNull String revision,@NotNull  String changeset,@NotNull List<? extends HgRevisionNumber> parents) {
     return new HgRevisionNumber(revision, changeset, "", "", parents);
   }
 
   public static HgRevisionNumber getLocalInstance(@NotNull String revision) {
-    return new HgRevisionNumber(revision, "", "", "", Collections.<HgRevisionNumber>emptyList());
+    return new HgRevisionNumber(revision, "", "", "", Collections.emptyList());
   }
 
   public HgRevisionNumber(@NotNull String revision,
                           @NotNull String changeset,
                           @NotNull String authorInfo,
                           @NotNull String commitMessage,
-                          @NotNull List<HgRevisionNumber> parents) {
+                          @NotNull List<? extends HgRevisionNumber> parents) {
+    this(revision, changeset, HgUtil.parseUserNameAndEmail(authorInfo).getFirst(), HgUtil.parseUserNameAndEmail(authorInfo).getSecond(),
+         commitMessage, parents);
+  }
+
+  public HgRevisionNumber(@NotNull String revision,
+                          @NotNull String changeset,
+                          @NotNull String author,
+                          @NotNull String email,
+                          @NotNull String commitMessage,
+                          @NotNull List<? extends HgRevisionNumber> parents) {
     this.commitMessage = commitMessage;
-    Couple<String> authorArgs = HgUtil.parseUserNameAndEmail(authorInfo);
-    this.author = authorArgs.getFirst();
-    this.email = authorArgs.getSecond();
+    this.author = author;
+    this.email = email;
     this.parents = parents;
     this.revision = revision.trim();
     this.changeset = changeset.trim();
@@ -80,11 +91,13 @@ public class HgRevisionNumber implements VcsRevisionNumber {
     mySubject = HgBaseLogParser.extractSubject(commitMessage);
   }
 
+  @NlsSafe
   @NotNull
   public String getChangeset() {
     return changeset;
   }
 
+  @NlsSafe
   @NotNull
   public String getRevision() {
     return revision;
@@ -94,20 +107,36 @@ public class HgRevisionNumber implements VcsRevisionNumber {
     return java.lang.Long.parseLong(revision);
   }
 
+  @NlsSafe
   @NotNull
   public String getCommitMessage() {
     return commitMessage;
   }
 
+  @NlsSafe
+  @NotNull
+  public String getName() {
+    return author;
+  }
+
+  @NlsSafe
+  @NotNull
+  public String getEmail() {
+    return email;
+  }
+
+  @NlsSafe
   @NotNull
   public String getAuthor() {
-    return author;
+    return VcsUserUtil.getUserName(author, email);
   }
 
   public boolean isWorkingVersion() {
     return isWorkingVersion;
   }
 
+  @NotNull
+  @Override
   public String asString() {
     if (revision.isEmpty()) {
       return changeset;
@@ -116,10 +145,11 @@ public class HgRevisionNumber implements VcsRevisionNumber {
   }
 
   @NotNull
-  public List<HgRevisionNumber> getParents() {
+  public List<? extends HgRevisionNumber> getParents() {
     return parents;
   }
 
+  @Override
   public int compareTo(VcsRevisionNumber o) {
     // boundary cases
     if (this == o) {
@@ -175,7 +205,7 @@ public class HgRevisionNumber implements VcsRevisionNumber {
   @Override
   public int hashCode() {
     // if short revision number is not empty, then short changeset is enough, a.e. annotations
-    return Objects.hashCode(revision, revision.isEmpty() ? changeset : getShortHash(changeset));
+    return Objects.hash(revision, revision.isEmpty() ? changeset : getShortHash(changeset));
   }
 
   @Override
@@ -198,10 +228,5 @@ public class HgRevisionNumber implements VcsRevisionNumber {
   @NotNull
   public String getSubject() {
     return mySubject;
-  }
-
-  @NotNull
-  public String getEmail() {
-    return email;
   }
 }

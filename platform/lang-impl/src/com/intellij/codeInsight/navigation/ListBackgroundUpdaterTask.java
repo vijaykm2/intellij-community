@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,46 +16,51 @@
 package com.intellij.codeInsight.navigation;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.JBListUpdater;
+import com.intellij.openapi.ui.popup.JBPopup;
+import com.intellij.openapi.util.NlsContexts.ProgressTitle;
+import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiElement;
 import com.intellij.ui.components.JBList;
-import com.intellij.ui.speedSearch.NameFilteringListModel;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.ui.popup.AbstractPopup;
+import com.intellij.usages.UsageView;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
-import java.util.List;
+import java.util.Comparator;
 
 /**
- * User: anna
+ * @deprecated please use {@link BackgroundUpdaterTask}
  */
-public abstract class ListBackgroundUpdaterTask extends BackgroundUpdaterTask<JBList> {
-  public ListBackgroundUpdaterTask(@Nullable final Project project, @NotNull final String title) {
-    super(project, title);
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+public abstract class ListBackgroundUpdaterTask extends BackgroundUpdaterTask {
+
+  protected AbstractPopup myPopup;
+
+  /**
+   * @deprecated Use {@link #ListBackgroundUpdaterTask(Project, String, Comparator)}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public ListBackgroundUpdaterTask(@Nullable final Project project, @NotNull @ProgressTitle final String title) {
+    this(project, title, null);
   }
 
-  @Override
-  protected void paintBusy(final boolean paintBusy) {
-    final Runnable runnable = new Runnable() {
-      @Override
-      public void run() {
-        myComponent.setPaintBusy(paintBusy);
-      }
-    };
-    //ensure start/end order 
-    SwingUtilities.invokeLater(runnable);
+  public ListBackgroundUpdaterTask(@Nullable final Project project, @NotNull final @ProgressTitle String title, @Nullable Comparator<PsiElement> comparator) {
+    super(project, title, comparator);
   }
 
-  @Override
-  protected void replaceModel(@NotNull List<PsiElement> data) {
-    final Object selectedValue = myComponent.getSelectedValue();
-    final int index = myComponent.getSelectedIndex();
-    ((NameFilteringListModel)myComponent.getModel()).replaceAll(data);
-    if (index == 0) {
-      myComponent.setSelectedIndex(0);
-    }
-    else {
-      myComponent.setSelectedValue(selectedValue, true);
+  /**
+   * @deprecated please use {@link BackgroundUpdaterTask}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public void init(@NotNull AbstractPopup popup, @NotNull Object component, @NotNull Ref<UsageView> usageView) {
+    myPopup = popup;
+    if (component instanceof JBList) {
+      init((JBPopup)myPopup, new JBListUpdater((JBList)component), usageView);
     }
   }
 }

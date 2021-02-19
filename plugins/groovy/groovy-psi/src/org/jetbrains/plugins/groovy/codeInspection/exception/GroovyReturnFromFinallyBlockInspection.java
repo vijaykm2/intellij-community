@@ -15,9 +15,9 @@
  */
 package org.jetbrains.plugins.groovy.codeInspection.exception;
 
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.utils.ControlFlowUtils;
@@ -26,23 +26,9 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.branch.GrReturnState
 public class GroovyReturnFromFinallyBlockInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return ERROR_HANDLING;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "'return' inside 'finally' block";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "'#ref' inside 'finally' block #loc";
+    return GroovyBundle.message("inspection.message.ref.inside.finally.block");
 
   }
 
@@ -54,7 +40,7 @@ public class GroovyReturnFromFinallyBlockInspection extends BaseInspection {
 
   private static class Visitor extends BaseInspectionVisitor {
     @Override
-    public void visitReturnStatement(GrReturnStatement returnStatement) {
+    public void visitReturnStatement(@NotNull GrReturnStatement returnStatement) {
 
       super.visitReturnStatement(returnStatement);
       if (!ControlFlowUtils.isInFinallyBlock(returnStatement)) {

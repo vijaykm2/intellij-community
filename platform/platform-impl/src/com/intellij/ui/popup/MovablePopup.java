@@ -1,30 +1,28 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.popup;
 
+import com.intellij.ui.ComponentUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.HierarchyListener;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 
-/**
- * @author Sergey Malenkov
- */
 public class MovablePopup {
+  private final HierarchyListener myListener = event -> setVisible(false);
+  private Runnable myOnAncestorFocusLost = null;
+  private final WindowAdapter myWindowFocusAdapter = new WindowAdapter() {
+    @Override
+    public void windowLostFocus(WindowEvent e) {
+      super.windowLostFocus(e);
+      if (myOnAncestorFocusLost != null) {
+        myOnAncestorFocusLost.run();
+      }
+    }
+  };
   private final Component myOwner;
   private final Component myContent;
   private Rectangle myViewBounds;
@@ -45,10 +43,6 @@ public class MovablePopup {
     myHeavyWeight = true;
   }
 
-  public void dispose() {
-    disposeAndUpdate(false);
-  }
-
   /**
    * Sets whether this popup should be always on top.
    * This property is used by heavy weight popups only.
@@ -57,6 +51,20 @@ public class MovablePopup {
     if (myAlwaysOnTop != value) {
       myAlwaysOnTop = value;
       disposeAndUpdate(true);
+    }
+  }
+
+  public void onAncestorFocusLost(Runnable r) {
+    myOnAncestorFocusLost = r;
+  }
+
+  private static void setAlwaysOnTop(@NotNull Window window, boolean value) {
+    if (value != window.isAlwaysOnTop()) {
+      try {
+        window.setAlwaysOnTop(value);
+      }
+      catch (Exception ignored) {
+      }
     }
   }
 
@@ -82,6 +90,12 @@ public class MovablePopup {
     }
   }
 
+  private static void setWindowFocusable(@NotNull Window window, boolean value) {
+    if (value != window.getFocusableWindowState()) {
+      window.setFocusableWindowState(value);
+    }
+  }
+
   /**
    * Sets whether this popup should have a shadow.
    * This property is used by heavy weight popups only.
@@ -90,6 +104,13 @@ public class MovablePopup {
     if (myWindowShadow != value) {
       myWindowShadow = value;
       disposeAndUpdate(true);
+    }
+  }
+
+  private static void setWindowShadow(@NotNull Window window, boolean value) {
+    JRootPane root = getRootPane(window);
+    if (root != null) {
+      root.putClientProperty("Window.shadow", value);
     }
   }
 
@@ -133,36 +154,25 @@ public class MovablePopup {
   }
 
   public void setVisible(boolean visible) {
-    if (myView != null) {
-      myView.setVisible(visible);
-    }
-    else if (visible) {
-      Window owner = UIUtil.getWindow(myOwner);
+    Window owner = ComponentUtil.getWindow(myOwner);
+    if (!visible && myView != null) {
+      disposeAndUpdate(false);
       if (owner != null) {
+        owner.removeWindowFocusListener(myWindowFocusAdapter);
+      }
+    }
+    else if (visible && myView == null) {
+      if (owner != null) {
+        owner.addWindowFocusListener(myWindowFocusAdapter);
         if (myHeavyWeight) {
-          JWindow view = new JWindow(owner);
-          // TODO 1.7+: temporary fix for the i3 window manager because of Java 1.6
-          try {
-            @SuppressWarnings("unchecked")
-            Class<? extends Enum> type = (Class<? extends Enum>)Class.forName("java.awt.Window$Type");
-            Object value = Enum.valueOf(type, "POPUP");
-            view.getClass().getMethod("setType", type).invoke(view, value);
-          }
-          catch (Exception ignored) {
-          }
-          // TODO 1.7+: setType(Window.Type.POPUP); // or UTILITY
-          if (myAlwaysOnTop) {
-            try {
-              view.setAlwaysOnTop(true);
-            }
-            catch (SecurityException ignored) {
-              myAlwaysOnTop = false;
-            }
-          }
-          view.setFocusableWindowState(myWindowFocusable);
-          if (!myWindowShadow) {
-            view.getRootPane().putClientProperty("Window.shadow", Boolean.FALSE);
-          }
+          Window view = new JWindow(owner);
+          view.setType(Window.Type.POPUP);
+          setAlwaysOnTop(view, myAlwaysOnTop);
+          setWindowFocusable(view, myWindowFocusable);
+          setWindowShadow(view, myWindowShadow);
+          view.setAutoRequestFocus(false);
+          view.setFocusable(false);
+          view.setFocusableWindowState(false);
           myView = view;
         }
         else if (owner instanceof RootPaneContainer) {
@@ -183,14 +193,16 @@ public class MovablePopup {
           SwingUtilities.convertPointFromScreen(location, parent);
           myViewBounds.setLocation(location);
         }
+        myView.setBackground(UIUtil.getLabelBackground());
         myView.setBounds(myViewBounds);
         myView.setVisible(true);
         myViewBounds = null;
+        myOwner.addHierarchyListener(myListener);
       }
     }
   }
 
-  /**
+  /**al
    * Determines whether this popup should be visible.
    */
   public boolean isVisible() {
@@ -199,11 +211,17 @@ public class MovablePopup {
 
   private void disposeAndUpdate(boolean update) {
     if (myView != null) {
+      myOwner.removeHierarchyListener(myListener);
+      SwingUtilities.getWindowAncestor(myOwner).removeWindowFocusListener(myWindowFocusAdapter);
       boolean visible = myView.isVisible();
+      myView.setVisible(false);
+      Container container = myContent.getParent();
+      if (container != null) {
+        container.remove(myContent);
+      }
       if (myView instanceof Window) {
         myViewBounds = myView.getBounds();
-        Window window = (Window)myView;
-        window.dispose();
+        ((Window)myView).dispose();
       }
       else {
         Container parent = myView.getParent();
@@ -247,5 +265,13 @@ public class MovablePopup {
         myView.repaint();
       }
     }
+  }
+
+  private static JRootPane getRootPane(Window window) {
+    if (window instanceof RootPaneContainer) {
+      RootPaneContainer container = (RootPaneContainer)window;
+      return container.getRootPane();
+    }
+    return null;
   }
 }

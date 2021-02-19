@@ -33,9 +33,6 @@ import org.jetbrains.jps.model.module.impl.JpsModuleImpl;
 import org.jetbrains.jps.model.module.impl.JpsModuleReferenceImpl;
 import org.jetbrains.jps.model.module.impl.JpsModuleSourceRootImpl;
 
-/**
- * @author nik
- */
 public class JpsElementFactoryImpl extends JpsElementFactory {
   @Override
   public JpsModel createModel() {
@@ -52,7 +49,7 @@ public class JpsElementFactoryImpl extends JpsElementFactory {
 
   @Override
   public <P extends JpsElement> JpsModule createModule(@NotNull String name, @NotNull JpsModuleType<P> type, @NotNull P properties) {
-    return new JpsModuleImpl<P>(type, name, properties);
+    return new JpsModuleImpl<>(type, name, properties);
   }
 
 
@@ -60,14 +57,14 @@ public class JpsElementFactoryImpl extends JpsElementFactory {
   public <P extends JpsElement> JpsTypedLibrary<P> createLibrary(@NotNull String name,
                                                                    @NotNull JpsLibraryType<P> type,
                                                                    @NotNull P properties) {
-    return new JpsLibraryImpl<P>(name, type, properties);
+    return new JpsLibraryImpl<>(name, type, properties);
   }
 
   @Override
   public <P extends JpsElement> JpsTypedLibrary<JpsSdk<P>> createSdk(@NotNull String name, @Nullable String homePath,
                                                                      @Nullable String versionString, @NotNull JpsSdkType<P> type,
                                                                      @NotNull P properties) {
-    return createLibrary(name, type, new JpsSdkImpl<P>(homePath, versionString, type, properties));
+    return createLibrary(name, type, new JpsSdkImpl<>(homePath, versionString, type, properties));
   }
 
   @NotNull
@@ -75,7 +72,7 @@ public class JpsElementFactoryImpl extends JpsElementFactory {
   public <P extends JpsElement> JpsModuleSourceRoot createModuleSourceRoot(@NotNull String url,
                                                                            @NotNull JpsModuleSourceRootType<P> type,
                                                                            @NotNull P properties) {
-    return new JpsModuleSourceRootImpl<P>(url, type, properties);
+    return new JpsModuleSourceRootImpl<>(url, type, properties);
   }
 
   @NotNull
@@ -94,7 +91,7 @@ public class JpsElementFactoryImpl extends JpsElementFactory {
   @NotNull
   @Override
   public <P extends JpsElement> JpsSdkReference<P> createSdkReference(@NotNull String sdkName, @NotNull JpsSdkType<P> sdkType) {
-    return new JpsSdkReferenceImpl<P>(sdkName, sdkType, createGlobalReference());
+    return new JpsSdkReferenceImpl<>(sdkName, sdkType, createGlobalReference());
   }
 
   @NotNull
@@ -118,6 +115,6 @@ public class JpsElementFactoryImpl extends JpsElementFactory {
   @NotNull
   @Override
   public <D> JpsSimpleElement<D> createSimpleElement(@NotNull D data) {
-    return new JpsSimpleElementImpl<D>(data);
+    return new JpsSimpleElementImpl<>(data);
   }
 }

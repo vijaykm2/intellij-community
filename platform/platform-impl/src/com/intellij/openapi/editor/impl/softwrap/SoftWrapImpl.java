@@ -23,7 +23,6 @@ import org.jetbrains.annotations.NotNull;
  * {@link SoftWrap} implementation that is built around {@link TextChangeImpl}.
  *
  * @author Denis Zhdanov
- * @since Sep 1, 2010 2:39:06 PM
  */
 public class SoftWrapImpl implements SoftWrap {
 
@@ -53,9 +52,8 @@ public class SoftWrapImpl implements SoftWrap {
     return myChange.getText();
   }
 
-  @NotNull
   @Override
-  public char[] getChars() {
+  public char @NotNull [] getChars() {
     return myChange.getChars();
   }
 

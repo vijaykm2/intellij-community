@@ -34,9 +34,6 @@ import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author nik
- */
 public abstract class FacetEditorContextBase extends UserDataHolderBase implements FacetEditorContext {
   private final FacetsProvider myFacetsProvider;
   @Nullable private final FacetEditorContext myParentContext;
@@ -57,19 +54,23 @@ public abstract class FacetEditorContextBase extends UserDataHolderBase implemen
     myFacetsProvider = facetsProvider != null ? facetsProvider : DefaultFacetsProvider.INSTANCE;
   }
 
+  @Override
   public Library[] getLibraries() {
     return LibraryTablesRegistrar.getInstance().getLibraryTable(getProject()).getLibraries();
   }
 
+  @Override
   @NotNull
   public String getFacetName() {
     return myFacet.getName();
   }
 
+  @Override
   public VirtualFile[] getLibraryFiles(final Library library, final OrderRootType rootType) {
     return library.getFiles(rootType);
   }
 
+  @Override
   @Nullable
   public Library findLibrary(@NotNull String name) {
     for (Library library : getLibraries()) {
@@ -80,7 +81,7 @@ public abstract class FacetEditorContextBase extends UserDataHolderBase implemen
     return null;
   }
 
-  
+
   public UserDataHolder getSharedProjectData() {
     return mySharedProjectData;
   }
@@ -93,6 +94,7 @@ public abstract class FacetEditorContextBase extends UserDataHolderBase implemen
   @NotNull
   public abstract ArtifactsStructureConfigurableContext getArtifactsStructureContext();
 
+  @Override
   @Nullable
   public <T> T getUserData(@NotNull final Key<T> key) {
     T t = super.getUserData(key);
@@ -102,16 +104,19 @@ public abstract class FacetEditorContextBase extends UserDataHolderBase implemen
     return t;
   }
 
+  @Override
   @NotNull
   public FacetsProvider getFacetsProvider() {
     return myFacetsProvider;
   }
 
+  @Override
   @NotNull
   public ModulesProvider getModulesProvider() {
     return myModulesProvider;
   }
 
+  @Override
   @NotNull
   public ModuleRootModel getRootModel() {
     return getModifiableRootModel();
@@ -119,11 +124,13 @@ public abstract class FacetEditorContextBase extends UserDataHolderBase implemen
 
   public abstract LibrariesContainer getContainer();
 
+  @Override
   @NotNull
   public Facet getFacet() {
     return myFacet;
   }
 
+  @Override
   @Nullable
   public Facet getParentFacet() {
     return myFacet.getUnderlyingFacet();

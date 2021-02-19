@@ -1,37 +1,25 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl;
 
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
+import com.intellij.psi.impl.light.LightClass;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.util.PsiSuperMethodUtil;
 import com.intellij.psi.util.PsiUtilCore;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.IdentityHashMap;
 import java.util.Map;
 
 /**
  * @author peter
  */
 class TypeCorrector extends PsiTypeMapper {
-  private final Map<PsiClassType, PsiClassType> myResultMap = ContainerUtil.newIdentityHashMap();
+  private final Map<PsiClassType, PsiClassType> myResultMap = new IdentityHashMap<>();
   private final GlobalSearchScope myResolveScope;
 
   TypeCorrector(GlobalSearchScope resolveScope) {
@@ -39,13 +27,14 @@ class TypeCorrector extends PsiTypeMapper {
   }
 
   @Override
-  public PsiType visitType(PsiType type) {
-    if (type instanceof PsiLambdaParameterType || type instanceof PsiLambdaExpressionType || type instanceof PsiMethodReferenceType) {
+  public PsiType visitType(@NotNull PsiType type) {
+    if (LambdaUtil.notInferredType(type)) {
       return type;
     }
     return super.visitType(type);
   }
 
+  @SuppressWarnings("unchecked")
   @Nullable
   public <T extends PsiType> T correctType(@NotNull T type) {
     if (type instanceof PsiClassType) {
@@ -54,7 +43,7 @@ class TypeCorrector extends PsiTypeMapper {
         final PsiClassType.ClassResolveResult classResolveResult = classType.resolveGenerics();
         final PsiClass psiClass = classResolveResult.getElement();
         if (psiClass != null && classResolveResult.getSubstitutor() == PsiSubstitutor.EMPTY) {
-          final PsiClass mappedClass = mapClass(psiClass);
+          final PsiClass mappedClass = PsiSuperMethodUtil.correctClassByScope(psiClass, myResolveScope);
           if (mappedClass == null || mappedClass == psiClass) return (T) classType;
         }
       }
@@ -64,7 +53,12 @@ class TypeCorrector extends PsiTypeMapper {
   }
 
   @Override
-  public PsiType visitClassType(final PsiClassType classType) {
+  public PsiType visitClassType(@NotNull PsiClassType classType) {
+    if (classType instanceof PsiCorrectedClassType) {
+      return myResolveScope.equals(classType.getResolveScope()) ? classType :
+             visitClassType(((PsiCorrectedClassType)classType).myDelegate);
+    }
+
     PsiClassType alreadyComputed = myResultMap.get(classType);
     if (alreadyComputed != null) {
       return alreadyComputed;
@@ -74,10 +68,11 @@ class TypeCorrector extends PsiTypeMapper {
     final PsiClass psiClass = classResolveResult.getElement();
     final PsiSubstitutor substitutor = classResolveResult.getSubstitutor();
     if (psiClass == null) return classType;
+    if (psiClass instanceof LightClass) return classType;
 
     PsiUtilCore.ensureValid(psiClass);
 
-    final PsiClass mappedClass = mapClass(psiClass);
+    final PsiClass mappedClass = PsiSuperMethodUtil.correctClassByScope(psiClass, myResolveScope);
     if (mappedClass == null) return classType;
 
     PsiClassType mappedType = new PsiCorrectedClassType(classType.getLanguageLevel(),
@@ -87,29 +82,23 @@ class TypeCorrector extends PsiTypeMapper {
     return mappedType;
   }
 
-  @Nullable
-  private PsiClass mapClass(@NotNull PsiClass psiClass) {
-    String qualifiedName = psiClass.getQualifiedName();
-    if (qualifiedName == null) {
-      return psiClass;
-    }
-
-    PsiFile file = psiClass.getContainingFile();
-    if (file == null || !file.getViewProvider().isPhysical()) {
-      return psiClass;
-    }
-
-    return JavaPsiFacade.getInstance(psiClass.getProject()).findClass(qualifiedName, myResolveScope);
-  }
-
   @NotNull
   private PsiSubstitutor mapSubstitutor(PsiClass originalClass, PsiClass mappedClass, PsiSubstitutor substitutor) {
     PsiTypeParameter[] typeParameters = mappedClass.getTypeParameters();
     PsiTypeParameter[] originalTypeParameters = originalClass.getTypeParameters();
-    if (typeParameters.length != originalTypeParameters.length) return substitutor;
+    if (typeParameters.length != originalTypeParameters.length) {
+      if (originalTypeParameters.length == 0) {
+        return JavaPsiFacade.getElementFactory(mappedClass.getProject()).createRawSubstitutor(mappedClass);
+      }
+      return substitutor;
+    }
+
+    Map<PsiTypeParameter, PsiType> substitutionMap = substitutor.getSubstitutionMap();
 
     PsiSubstitutor mappedSubstitutor = PsiSubstitutor.EMPTY;
     for (int i = 0; i < originalTypeParameters.length; i++) {
+      if (!substitutionMap.containsKey(originalTypeParameters[i])) continue;
+
       PsiType originalSubstitute = substitutor.substitute(originalTypeParameters[i]);
       if (originalSubstitute != null) {
         PsiType substitute = mapType(originalSubstitute);
@@ -139,22 +128,19 @@ class TypeCorrector extends PsiTypeMapper {
     return mappedSubstitutor;
   }
 
-  private class PsiCorrectedClassType extends PsiClassType.Stub {
+  private final class PsiCorrectedClassType extends PsiClassType.Stub {
     private final PsiClassType myDelegate;
     private final CorrectedResolveResult myResolveResult;
 
-    public PsiCorrectedClassType(LanguageLevel languageLevel,
-                                 PsiClassType delegate,
-                                 CorrectedResolveResult resolveResult) {
-      super(languageLevel, delegate.getAnnotations());
+    private PsiCorrectedClassType(@NotNull LanguageLevel languageLevel,
+                                  PsiClassType delegate,
+                                  CorrectedResolveResult resolveResult) {
+      super(languageLevel, delegate.getAnnotationProvider());
+      if (delegate instanceof PsiCorrectedClassType) {
+        throw new IllegalArgumentException();
+      }
       myDelegate = delegate;
       myResolveResult = resolveResult;
-    }
-
-    @NotNull
-    @Override
-    public String getCanonicalText(boolean annotated) {
-      return myDelegate.getCanonicalText();
     }
 
     @NotNull
@@ -168,19 +154,25 @@ class TypeCorrector extends PsiTypeMapper {
       return myDelegate.getClassName();
     }
 
-    @NotNull
     @Override
-    public PsiType[] getParameters() {
-      return ContainerUtil.map2Array(myDelegate.getParameters(), PsiType.class, new Function<PsiType, PsiType>() {
-        @Override
-        public PsiType fun(PsiType type) {
-          if (type == null) {
-            LOG.error(myDelegate + " of " + myDelegate.getClass() + "; substitutor=" + myDelegate.resolveGenerics().getSubstitutor());
-            return null;
-          }
-          return mapType(type);
+    public @Nullable PsiElement getPsiContext() {
+      return myDelegate.getPsiContext();
+    }
+
+    @Override
+    public PsiType @NotNull [] getParameters() {
+      return ContainerUtil.map2Array(myDelegate.getParameters(), PsiType.class, type -> {
+        if (type == null) {
+          LOG.error(myDelegate + " of " + myDelegate.getClass() + "; substitutor=" + myDelegate.resolveGenerics().getSubstitutor());
+          return null;
         }
+        return mapType(type);
       });
+    }
+
+    @Override
+    public int getParameterCount() {
+      return myDelegate.getParameters().length;
     }
 
     @NotNull
@@ -215,10 +207,22 @@ class TypeCorrector extends PsiTypeMapper {
       return new PsiCorrectedClassType(languageLevel, myDelegate, myResolveResult);
     }
 
+    @Override
+    public @NotNull PsiClassType annotate(@NotNull TypeAnnotationProvider provider) {
+      PsiClassType newDelegate = myDelegate.annotate(provider);
+      return newDelegate == myDelegate ? this : new PsiCorrectedClassType(myLanguageLevel, newDelegate, myResolveResult);
+    }
+
     @NotNull
     @Override
-    public String getPresentableText() {
-      return myDelegate.getPresentableText();
+    public String getPresentableText(boolean annotated) {
+      return myDelegate.getPresentableText(annotated);
+    }
+
+    @NotNull
+    @Override
+    public String getCanonicalText(boolean annotated) {
+      return myDelegate.getCanonicalText(annotated);
     }
 
     @NotNull
@@ -229,7 +233,7 @@ class TypeCorrector extends PsiTypeMapper {
 
     @Override
     public boolean isValid() {
-      return myDelegate.isValid() && resolve().isValid();
+      return myDelegate.isValid() && myResolveResult.myMappedClass.isValid() && myResolveResult.mySubstitutor.isValid();
     }
 
     @Override
@@ -245,7 +249,7 @@ class TypeCorrector extends PsiTypeMapper {
     private final PsiClassType.ClassResolveResult myClassResolveResult;
     private volatile PsiSubstitutor myLazySubstitutor;
 
-    public CorrectedResolveResult(PsiClass psiClass,
+    CorrectedResolveResult(PsiClass psiClass,
                                   PsiClass mappedClass,
                                   PsiSubstitutor substitutor,
                                   PsiClassType.ClassResolveResult classResolveResult) {

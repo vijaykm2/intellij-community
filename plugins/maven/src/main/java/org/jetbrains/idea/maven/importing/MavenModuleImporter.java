@@ -1,52 +1,44 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.importing;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.intellij.openapi.application.AccessToken;
+import com.intellij.execution.configurations.JavaParameters;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.externalSystem.model.project.ProjectId;
+import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleType;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTable;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.java.LanguageLevel;
+import com.intellij.util.text.VersionComparatorUtil;
 import gnu.trove.THashSet;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.model.MavenArtifact;
 import org.jetbrains.idea.maven.model.MavenConstants;
+import org.jetbrains.idea.maven.model.MavenPlugin;
 import org.jetbrains.idea.maven.project.*;
+import org.jetbrains.idea.maven.utils.MavenLog;
 import org.jetbrains.idea.maven.utils.MavenUtil;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class MavenModuleImporter {
-
+public final class MavenModuleImporter {
   public static final String SUREFIRE_PLUGIN_LIBRARY_NAME = "maven-surefire-plugin urls";
 
-  private static final Set<String> IMPORTED_CLASSIFIERS = ImmutableSet.of("client");
+  private static final Set<String> IMPORTED_CLASSIFIERS = Set.of("client");
 
   private static final Map<String, LanguageLevel> MAVEN_IDEA_PLUGIN_LEVELS = ImmutableMap.of(
     "JDK_1_3", LanguageLevel.JDK_1_3,
@@ -63,7 +55,7 @@ public class MavenModuleImporter {
   private final MavenProjectChanges myMavenProjectChanges;
   private final Map<MavenProject, String> myMavenProjectToModuleName;
   private final MavenImportingSettings mySettings;
-  private final MavenModifiableModelsProvider myModifiableModelsProvider;
+  private final IdeModifiableModelsProvider myModifiableModelsProvider;
   private MavenRootModelAdapter myRootModelAdapter;
 
   public MavenModuleImporter(Module module,
@@ -72,7 +64,7 @@ public class MavenModuleImporter {
                              @Nullable MavenProjectChanges changes,
                              Map<MavenProject, String> mavenProjectToModuleName,
                              MavenImportingSettings settings,
-                             MavenModifiableModelsProvider modifiableModelsProvider) {
+                             IdeModifiableModelsProvider modifiableModelsProvider) {
     myModule = module;
     myMavenTree = mavenTree;
     myMavenProject = mavenProject;
@@ -80,15 +72,23 @@ public class MavenModuleImporter {
     myMavenProjectToModuleName = mavenProjectToModuleName;
     mySettings = settings;
     myModifiableModelsProvider = modifiableModelsProvider;
+
+    VirtualFile pomFile = mavenProject.getFile();
+    if (!FileUtil.namesEqual("pom", pomFile.getNameWithoutExtension())) {
+      MavenPomPathModuleService.getInstance(module).setPomFileUrl(pomFile.getUrl());
+    }
   }
 
   public ModifiableRootModel getRootModel() {
     return myRootModelAdapter.getRootModel();
   }
 
-  public void config(boolean isNewlyCreatedModule) {
-    myRootModelAdapter = new MavenRootModelAdapter(myMavenProject, myModule, myModifiableModelsProvider);
-    myRootModelAdapter.init(isNewlyCreatedModule);
+  void setRootModelAdapter(MavenRootModelAdapter mavenRootModelAdapter) { // need for new worskapce model
+    myRootModelAdapter = mavenRootModelAdapter;
+  }
+
+  public void config(MavenRootModelAdapter mavenRootModelAdapter) {
+    myRootModelAdapter = mavenRootModelAdapter;
 
     configFolders();
     configDependencies();
@@ -96,13 +96,13 @@ public class MavenModuleImporter {
   }
 
   public void preConfigFacets() {
-    MavenUtil.invokeAndWaitWriteAction(myModule.getProject(), new Runnable() {
-      public void run() {
-        if (myModule.isDisposed()) return;
+    MavenUtil.invokeAndWaitWriteAction(myModule.getProject(), () -> {
+      if (myModule.isDisposed()) return;
 
-        final ModuleType moduleType = ModuleType.get(myModule);
+      final ModuleType moduleType = ModuleType.get(myModule);
 
-        for (final MavenImporter importer : getSuitableImporters()) {
+      for (final MavenImporter importer : getSuitableImporters()) {
+        try {
           final MavenProjectChanges changes;
           if (myMavenProjectChanges == null) {
             if (importer.processChangedModulesOnly()) continue;
@@ -116,17 +116,20 @@ public class MavenModuleImporter {
             importer.preProcess(myModule, myMavenProject, changes, myModifiableModelsProvider);
           }
         }
+        catch (Exception e) {
+          MavenLog.LOG.error(e);
+        }
       }
     });
   }
 
   public void configFacets(final List<MavenProjectsProcessorTask> postTasks) {
-    MavenUtil.invokeAndWaitWriteAction(myModule.getProject(), new Runnable() {
-      public void run() {
-        if (myModule.isDisposed()) return;
+    MavenUtil.smartInvokeAndWait(myModule.getProject(), ModalityState.defaultModalityState(), () -> {
+      if (myModule.isDisposed()) return;
 
-        final ModuleType moduleType = ModuleType.get(myModule);
+      final ModuleType moduleType = ModuleType.get(myModule);
 
+      ApplicationManager.getApplication().runWriteAction(() -> {
         for (final MavenImporter importer : getSuitableImporters()) {
           final MavenProjectChanges changes;
           if (myMavenProjectChanges == null) {
@@ -138,16 +141,49 @@ public class MavenModuleImporter {
           }
 
           if (importer.getModuleType() == moduleType) {
-            importer.process(myModifiableModelsProvider,
-                             myModule,
-                             myRootModelAdapter,
-                             myMavenTree,
-                             myMavenProject,
-                             changes,
-                             myMavenProjectToModuleName,
-                             postTasks);
+            try {
+              importer.process(myModifiableModelsProvider,
+                               myModule,
+                               myRootModelAdapter,
+                               myMavenTree,
+                               myMavenProject,
+                               changes,
+                               myMavenProjectToModuleName,
+                               postTasks);
+            }
+            catch (Exception e) {
+              MavenLog.LOG.error(e);
+            }
           }
         }
+      });
+    });
+  }
+
+  public void postConfigFacets() {
+    MavenUtil.invokeAndWaitWriteAction(myModule.getProject(), () -> {
+      if (myModule.isDisposed()) return;
+
+      final ModuleType moduleType = ModuleType.get(myModule);
+
+      for (final MavenImporter importer : getSuitableImporters()) {
+        try {
+          final MavenProjectChanges changes;
+          if (myMavenProjectChanges == null) {
+            if (importer.processChangedModulesOnly()) continue;
+            changes = MavenProjectChanges.NONE;
+          }
+          else {
+            changes = myMavenProjectChanges;
+          }
+
+          if (importer.getModuleType() == moduleType) {
+            importer.postProcess(myModule, myMavenProject, changes, myModifiableModelsProvider);
+          }
+        } catch(Exception e) {
+          MavenLog.LOG.error(e);
+        }
+
       }
     });
   }
@@ -161,17 +197,14 @@ public class MavenModuleImporter {
   }
 
   private void configDependencies() {
-    THashSet<String> dependencyTypesFromSettings = new THashSet<String>();
+    THashSet<String> dependencyTypesFromSettings = new THashSet<>();
 
-    AccessToken accessToken = ReadAction.start();
-    try {
-      if (myModule.getProject().isDisposed()) return;
+    if (!ReadAction.compute(()->{
+      if (myModule.getProject().isDisposed()) return false;
 
       dependencyTypesFromSettings.addAll(MavenProjectsManager.getInstance(myModule.getProject()).getImportingSettings().getDependencyTypesAsSet());
-    }
-    finally {
-      accessToken.finish();
-    }
+      return true;
+    })) return;
 
 
     for (MavenArtifact artifact : myMavenProject.getDependencies()) {
@@ -218,7 +251,8 @@ public class MavenModuleImporter {
             addAttachArtifactDependency(buildHelperCfg, scope, depProject, artifact);
           }
 
-          if (IMPORTED_CLASSIFIERS.contains(artifact.getClassifier())
+          String classifier = artifact.getClassifier();
+          if (classifier != null && IMPORTED_CLASSIFIERS.contains(classifier)
               && !isTestJar
               && !"system".equals(artifact.getScope())
               && !"false".equals(System.getProperty("idea.maven.classifier.dep"))) {
@@ -228,7 +262,7 @@ public class MavenModuleImporter {
               artifact.getVersion(),
               artifact.getBaseVersion(),
               dependencyType,
-              artifact.getClassifier(),
+              classifier,
               artifact.getScope(),
               artifact.isOptional(),
               artifact.getExtension(),
@@ -245,7 +279,26 @@ public class MavenModuleImporter {
         myRootModelAdapter.addSystemDependency(artifact, scope);
       }
       else {
-        myRootModelAdapter.addLibraryDependency(artifact, scope, myModifiableModelsProvider, myMavenProject);
+        if ("bundle".equals(dependencyType)) {
+          artifact = new MavenArtifact(
+            artifact.getGroupId(),
+            artifact.getArtifactId(),
+            artifact.getVersion(),
+            artifact.getBaseVersion(),
+            "jar",
+            artifact.getClassifier(),
+            artifact.getScope(),
+            artifact.isOptional(),
+            "jar",
+            null,
+            myMavenProject.getLocalRepository(),
+            false, false
+          );
+        }
+        LibraryOrderEntry libraryOrderEntry =
+          myRootModelAdapter.addLibraryDependency(artifact, scope, myModifiableModelsProvider, myMavenProject);
+        myModifiableModelsProvider.trySubstitute(
+          myModule, libraryOrderEntry, new ProjectId(artifact.getGroupId(), artifact.getArtifactId(), artifact.getVersion()));
       }
     }
 
@@ -263,6 +316,7 @@ public class MavenModuleImporter {
     }
   }
 
+  //TODO: Rewrite
   private void addAttachArtifactDependency(@NotNull Element buildHelperCfg,
                                            @NotNull DependencyScope scope,
                                            @NotNull MavenProject mavenProject,
@@ -298,9 +352,9 @@ public class MavenModuleImporter {
 
           Library library = myModifiableModelsProvider.getLibraryByName(libraryName);
           if (library == null) {
-            library = myModifiableModelsProvider.createLibrary(libraryName);
+            library = myModifiableModelsProvider.createLibrary(libraryName, MavenRootModelAdapter.getMavenExternalSource());
           }
-          libraryModel = myModifiableModelsProvider.getLibraryModel(library);
+          libraryModel = myModifiableModelsProvider.getModifiableLibraryModel(library);
 
           LibraryOrderEntry entry = myRootModelAdapter.getRootModel().addLibraryEntry(library);
           entry.setScope(scope);
@@ -330,22 +384,75 @@ public class MavenModuleImporter {
   private void configLanguageLevel() {
     if ("false".equalsIgnoreCase(System.getProperty("idea.maven.configure.language.level"))) return;
 
+    LanguageLevel level = getLanguageLevel(myMavenProject);
+    myRootModelAdapter.setLanguageLevel(level);
+  }
+
+  public static LanguageLevel getLanguageLevel(MavenProject mavenProject) {
     LanguageLevel level = null;
 
-    Element cfg = myMavenProject.getPluginConfiguration("com.googlecode", "maven-idea-plugin");
+    Element cfg = mavenProject.getPluginConfiguration("com.googlecode", "maven-idea-plugin");
     if (cfg != null) {
       level = MAVEN_IDEA_PLUGIN_LEVELS.get(cfg.getChildTextTrim("jdkLevel"));
     }
 
     if (level == null) {
-      level = LanguageLevel.parse(myMavenProject.getSourceLevel());
+      String mavenProjectReleaseLevel = mavenProject.getReleaseLevel();
+      level = LanguageLevel.parse(mavenProjectReleaseLevel);
+      if (level == null) {
+        String mavenProjectSourceLevel = mavenProject.getSourceLevel();
+        level = LanguageLevel.parse(mavenProjectSourceLevel);
+        if (level == null && (StringUtil.isNotEmpty(mavenProjectSourceLevel) || StringUtil.isNotEmpty(mavenProjectReleaseLevel))) {
+          level = LanguageLevel.HIGHEST;
+        }
+      }
     }
 
-    // default source and target settings of maven-compiler-plugin is 1.5, see details at http://maven.apache.org/plugins/maven-compiler-plugin
+    // default source and target settings of maven-compiler-plugin is 1.5 for versions less than 3.8.1 and 1.6 for 3.8.1 and above
+    // see details at http://maven.apache.org/plugins/maven-compiler-plugin and https://issues.apache.org/jira/browse/MCOMPILER-335
     if (level == null) {
-      level = LanguageLevel.JDK_1_5;
+      level = getDefaultLevel(mavenProject);
     }
 
-    myRootModelAdapter.setLanguageLevel(level);
+    if (level.isAtLeast(LanguageLevel.JDK_11)) {
+      level = adjustPreviewLanguageLevel(mavenProject, level);
+    }
+    return level;
+  }
+
+  @NotNull
+  public static LanguageLevel getDefaultLevel(MavenProject mavenProject) {
+    MavenPlugin plugin = mavenProject.findPlugin("org.apache.maven.plugins", "maven-compiler-plugin");
+    if (plugin != null && plugin.getVersion() != null) {
+      if (VersionComparatorUtil.compare("3.8.1", plugin.getVersion()) <= 0) {
+        return LanguageLevel.JDK_1_6;
+      }
+      else {
+        return LanguageLevel.JDK_1_5;
+      }
+    }
+    return LanguageLevel.JDK_1_5;
+  }
+
+  private static LanguageLevel adjustPreviewLanguageLevel(MavenProject mavenProject, LanguageLevel level) {
+    Element compilerConfiguration = mavenProject.getPluginConfiguration("org.apache.maven.plugins", "maven-compiler-plugin");
+    if (compilerConfiguration != null) {
+      Element compilerArgs = compilerConfiguration.getChild("compilerArgs");
+      if (compilerArgs != null) {
+        if (isPreviewText(compilerArgs) ||
+            compilerArgs.getChildren("arg").stream().anyMatch(MavenModuleImporter::isPreviewText) ||
+            compilerArgs.getChildren("compilerArg").stream().anyMatch(MavenModuleImporter::isPreviewText)) {
+          try {
+            return LanguageLevel.valueOf(level.name() + "_PREVIEW");
+          }
+          catch (IllegalArgumentException ignored) { }
+        }
+      }
+    }
+    return level;
+  }
+
+  private static boolean isPreviewText(Element child) {
+    return JavaParameters.JAVA_ENABLE_PREVIEW_PROPERTY.equals(child.getTextTrim());
   }
 }

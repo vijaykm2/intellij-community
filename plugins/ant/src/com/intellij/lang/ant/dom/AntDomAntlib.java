@@ -15,6 +15,7 @@
  */
 package com.intellij.lang.ant.dom;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.xml.SubTagList;
 import org.jetbrains.annotations.Nullable;
 
@@ -22,7 +23,6 @@ import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Jul 8, 2010
  */
 public abstract class AntDomAntlib extends AntDomElement{
 
@@ -45,7 +45,7 @@ public abstract class AntDomAntlib extends AntDomElement{
   public abstract List<AntDomTypeDef> getScriptdefs();
 
   @Nullable
-  public static String toAntlibResource(String antlibUri) {
+  public static @NlsSafe String toAntlibResource(String antlibUri) {
     if (!antlibUri.startsWith(ANTLIB_URI_PREFIX)) {
       return null;
     }

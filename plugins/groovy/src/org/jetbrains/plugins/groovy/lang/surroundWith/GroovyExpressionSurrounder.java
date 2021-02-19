@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,10 +25,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
 
-/**
- * User: Dmitry.Krasilschikov
- * Date: 22.05.2007
- */
 public abstract class GroovyExpressionSurrounder implements Surrounder {
   protected boolean isApplicable(@NotNull PsiElement element) {
     return element instanceof GrExpression;
@@ -36,7 +32,7 @@ public abstract class GroovyExpressionSurrounder implements Surrounder {
 
   @Override
   @Nullable
-  public TextRange surroundElements(@NotNull Project project, @NotNull Editor editor, @NotNull PsiElement[] elements) throws IncorrectOperationException {
+  public TextRange surroundElements(@NotNull Project project, @NotNull Editor editor, PsiElement @NotNull [] elements) throws IncorrectOperationException {
     if (elements.length != 1) return null;
 
     PsiElement element = elements[0];
@@ -44,10 +40,10 @@ public abstract class GroovyExpressionSurrounder implements Surrounder {
     return surroundExpression((GrExpression) element, element.getParent());
   }
 
-  protected abstract TextRange surroundExpression(GrExpression expression, PsiElement context);
+  protected abstract TextRange surroundExpression(@NotNull GrExpression expression, @Nullable PsiElement context);
 
   @Override
-  public boolean isApplicable(@NotNull PsiElement[] elements) {
+  public boolean isApplicable(PsiElement @NotNull [] elements) {
     return elements.length == 1 &&  isApplicable(elements[0]);
   }
 

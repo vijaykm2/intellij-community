@@ -30,12 +30,12 @@ import java.util.List;
  */
 public class VarargsSelectioner extends BasicSelectioner {
   @Override
-  public boolean canSelect(PsiElement e) {
+  public boolean canSelect(@NotNull PsiElement e) {
     return e instanceof PsiExpressionList;
   }
 
   @Override
-  public List<TextRange> select(PsiElement e, CharSequence editorText, int cursorOffset, Editor editor) {
+  public List<TextRange> select(@NotNull PsiElement e, @NotNull CharSequence editorText, int cursorOffset, @NotNull Editor editor) {
     if (!(e instanceof PsiExpressionList)) {
       return Collections.emptyList();
     }
@@ -60,9 +60,8 @@ public class VarargsSelectioner extends BasicSelectioner {
     return Collections.singletonList(new TextRange(firstExpressionRange.getStartOffset(), lastExpressionRange.getEndOffset()));
   }
 
-  @NotNull
-  private static PsiExpression[] getVarargArgs(@NotNull PsiParameterList parameterList,
-                                               @NotNull PsiExpressionList expressionList) {
+  private static PsiExpression @NotNull [] getVarargArgs(@NotNull PsiParameterList parameterList,
+                                                         @NotNull PsiExpressionList expressionList) {
     final PsiParameter[] parameters = parameterList.getParameters();
     final PsiExpression[] expressions = expressionList.getExpressions();
 

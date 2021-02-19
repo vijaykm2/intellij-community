@@ -25,9 +25,10 @@ import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.TypeUtils;
-import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,13 +36,6 @@ import org.jetbrains.annotations.Nullable;
  * @author Bas Leijdekkers
  */
 public class BigDecimalLegacyMethodInspection extends BaseInspection {
-
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("bigdecimal.legacy.method.display.name");
-  }
 
   @NotNull
   @Override
@@ -68,14 +62,8 @@ public class BigDecimalLegacyMethodInspection extends BaseInspection {
 
     @NotNull
     @Override
-    public String getName() {
-      return InspectionGadgetsBundle.message("bigdecimal.legacy.method.quickfix");
-    }
-
-    @NotNull
-    @Override
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("bigdecimal.legacy.method.quickfix");
     }
 
     @Override
@@ -96,31 +84,32 @@ public class BigDecimalLegacyMethodInspection extends BaseInspection {
       if (!(value instanceof Integer)) {
         return;
       }
+      CommentTracker commentTracker = new CommentTracker();
       final int roundingMode = (Integer)value;
       switch (roundingMode) {
         case 0:
-          PsiReplacementUtil.replaceExpressionAndShorten(argument, "java.math.RoundingMode.UP");
+          PsiReplacementUtil.replaceExpressionAndShorten(argument, "java.math.RoundingMode.UP", commentTracker);
           break;
         case 1:
-          PsiReplacementUtil.replaceExpressionAndShorten(argument, "java.math.RoundingMode.DOWN");
+          PsiReplacementUtil.replaceExpressionAndShorten(argument, "java.math.RoundingMode.DOWN", commentTracker);
           break;
         case 2:
-          PsiReplacementUtil.replaceExpressionAndShorten(argument, "java.math.RoundingMode.CEILING");
+          PsiReplacementUtil.replaceExpressionAndShorten(argument, "java.math.RoundingMode.CEILING", commentTracker);
           break;
         case 3:
-          PsiReplacementUtil.replaceExpressionAndShorten(argument, "java.math.RoundingMode.FLOOR");
+          PsiReplacementUtil.replaceExpressionAndShorten(argument, "java.math.RoundingMode.FLOOR", commentTracker);
           break;
         case 4:
-          PsiReplacementUtil.replaceExpressionAndShorten(argument, "java.math.RoundingMode.HALF_UP");
+          PsiReplacementUtil.replaceExpressionAndShorten(argument, "java.math.RoundingMode.HALF_UP", commentTracker);
           break;
         case 5:
-          PsiReplacementUtil.replaceExpressionAndShorten(argument, "java.math.RoundingMode.HALF_DOWN");
+          PsiReplacementUtil.replaceExpressionAndShorten(argument, "java.math.RoundingMode.HALF_DOWN", commentTracker);
           break;
         case 6:
-          PsiReplacementUtil.replaceExpressionAndShorten(argument, "java.math.RoundingMode.HALF_EVEN");
+          PsiReplacementUtil.replaceExpressionAndShorten(argument, "java.math.RoundingMode.HALF_EVEN", commentTracker);
           break;
         case 7:
-          PsiReplacementUtil.replaceExpressionAndShorten(argument, "java.math.RoundingMode.UNNECESSARY");
+          PsiReplacementUtil.replaceExpressionAndShorten(argument, "java.math.RoundingMode.UNNECESSARY", commentTracker);
           break;
       }
     }
@@ -142,7 +131,7 @@ public class BigDecimalLegacyMethodInspection extends BaseInspection {
     public void visitMethodCallExpression(PsiMethodCallExpression expression) {
       super.visitMethodCallExpression(expression);
       final PsiReferenceExpression methodExpression = expression.getMethodExpression();
-      final String name = methodExpression.getReferenceName();
+      final @NonNls String name = methodExpression.getReferenceName();
       if (!"setScale".equals(name) && !"divide".equals(name)) {
         return;
       }

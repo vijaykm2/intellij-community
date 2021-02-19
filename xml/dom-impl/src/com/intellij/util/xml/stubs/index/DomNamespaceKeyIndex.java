@@ -27,9 +27,6 @@ import com.intellij.util.indexing.IdFilter;
 import com.intellij.util.xml.DomFileElement;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @since 13.0
- */
 public class DomNamespaceKeyIndex extends StringStubIndexExtension<PsiFile> {
 
   public static final StubIndexKey<String, PsiFile> KEY = StubIndexKey.createIndexKey("dom.namespaceKey");
@@ -40,23 +37,17 @@ public class DomNamespaceKeyIndex extends StringStubIndexExtension<PsiFile> {
     return ourInstance;
   }
 
-  public boolean hasStubElementsWithNamespaceKey(final DomFileElement domFileElement, final String namespaceKey) {
+  public boolean hasStubElementsWithNamespaceKey(@NotNull DomFileElement<?> domFileElement,
+                                                 @NotNull String namespaceKey) {
     final VirtualFile file = domFileElement.getFile().getVirtualFile();
     if (!(file instanceof VirtualFileWithId)) return false;
 
-    final int virtualFileId = ((VirtualFileWithId)file).getId();
-    CommonProcessors.FindFirstProcessor<PsiFile> processor = new CommonProcessors.FindFirstProcessor<PsiFile>();
+    CommonProcessors.FindFirstProcessor<PsiFile> processor = new CommonProcessors.FindFirstProcessor<>();
     StubIndex.getInstance().processElements(
       KEY,
       namespaceKey,
       domFileElement.getFile().getProject(),
       GlobalSearchScope.fileScope(domFileElement.getFile()),
-      new IdFilter() {
-        @Override
-        public boolean containsFileId(int id) {
-          return id == virtualFileId;
-        }
-      },
       PsiFile.class, 
       processor
     );

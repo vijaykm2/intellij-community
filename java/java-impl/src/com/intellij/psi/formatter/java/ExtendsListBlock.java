@@ -15,17 +15,17 @@
  */
 package com.intellij.psi.formatter.java;
 
-import com.intellij.formatting.Alignment;
-import com.intellij.formatting.Block;
-import com.intellij.formatting.Indent;
-import com.intellij.formatting.Wrap;
+import com.intellij.formatting.*;
 import com.intellij.formatting.alignment.AlignmentStrategy;
 import com.intellij.lang.ASTNode;
+import com.intellij.psi.JavaTokenType;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.formatter.FormatterUtil;
 import com.intellij.psi.impl.source.tree.ElementType;
 import com.intellij.psi.impl.source.tree.JavaElementType;
+import com.intellij.psi.tree.IElementType;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,24 +35,26 @@ public class ExtendsListBlock extends AbstractJavaBlock{
                           Wrap wrap,
                           Alignment alignment,
                           CommonCodeStyleSettings settings,
-                          JavaCodeStyleSettings javaSettings)
+                          JavaCodeStyleSettings javaSettings,
+                          @NotNull FormattingMode formattingMode)
   {
-    super(node, wrap, alignment, Indent.getNoneIndent(), settings, javaSettings);
+    super(node, wrap, alignment, Indent.getNoneIndent(), settings, javaSettings, formattingMode);
   }
   
   public ExtendsListBlock(ASTNode node,
                           Wrap wrap,
                           AlignmentStrategy alignmentStrategy,
                           CommonCodeStyleSettings settings,
-                          JavaCodeStyleSettings javaSettings)
+                          JavaCodeStyleSettings javaSettings,
+                          @NotNull FormattingMode formattingMode)
   {
-    super(node, wrap, alignmentStrategy, Indent.getNoneIndent(), settings, javaSettings);
+    super(node, wrap, alignmentStrategy, Indent.getNoneIndent(), settings, javaSettings, formattingMode);
   }
 
   @Override
   protected List<Block> buildChildren() {
-    final ArrayList<Block> result = new ArrayList<Block>();
-    ArrayList<Block> elementsExceptKeyword = new ArrayList<Block>();
+    final ArrayList<Block> result = new ArrayList<>();
+    ArrayList<Block> elementsExceptKeyword = new ArrayList<>();
     myChildAlignment = createChildAlignment();
     myChildIndent = Indent.getContinuationIndent(myIndentSettings.USE_RELATIVE_INDENTS);
     myUseChildAttributes = true;
@@ -63,14 +65,18 @@ public class ExtendsListBlock extends AbstractJavaBlock{
 
     while (child != null) {
       if (!FormatterUtil.containsWhiteSpacesOnly(child) && child.getTextLength() > 0){
-        if (ElementType.KEYWORD_BIT_SET.contains(child.getElementType())) {
+        IElementType elementType = child.getElementType();
+        if (ElementType.KEYWORD_BIT_SET.contains(elementType)) {
           if (!elementsExceptKeyword.isEmpty()) {
             result.add(new SyntheticCodeBlock(elementsExceptKeyword, null,  mySettings, myJavaSettings, Indent.getNoneIndent(), null));
-            elementsExceptKeyword = new ArrayList<Block>();
+            elementsExceptKeyword = new ArrayList<>();
           }
-          result.add(createJavaBlock(child, mySettings, myJavaSettings, myChildIndent, arrangeChildWrap(child, childWrap), alignment));
+          Indent indent = mySettings.ALIGN_THROWS_KEYWORD 
+                          && elementType == JavaTokenType.THROWS_KEYWORD ? Indent.getNoneIndent() : myChildIndent;
+          
+          result.add(createJavaBlock(child, mySettings, myJavaSettings, indent, arrangeChildWrap(child, childWrap), alignment, getFormattingMode()));
         } else {
-          Alignment candidate = myAlignmentStrategy.getAlignment(child.getElementType());
+          Alignment candidate = myAlignmentStrategy.getAlignment(elementType);
           if (candidate != null) {
             alignment = myChildAlignment = candidate;
           }
@@ -88,7 +94,9 @@ public class ExtendsListBlock extends AbstractJavaBlock{
   }
 
   private boolean alignList() {
-    if (myNode.getElementType() == JavaElementType.EXTENDS_LIST || myNode.getElementType() == JavaElementType.IMPLEMENTS_LIST) {
+    if (myNode.getElementType() == JavaElementType.EXTENDS_LIST ||
+        myNode.getElementType() == JavaElementType.IMPLEMENTS_LIST ||
+        myNode.getElementType() == JavaElementType.PERMITS_LIST) {
       return mySettings.ALIGN_MULTILINE_EXTENDS_LIST;
     } else if (myNode.getElementType() == JavaElementType.THROWS_LIST) {
       return mySettings.ALIGN_MULTILINE_THROWS_LIST;

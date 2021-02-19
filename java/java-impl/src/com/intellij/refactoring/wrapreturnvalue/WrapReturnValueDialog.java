@@ -1,25 +1,9 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.wrapreturnvalue;
 
-import com.intellij.psi.util.PsiUtil;
-import com.intellij.ui.ListCellRendererWrapper;
 import com.intellij.ide.util.TreeClassChooser;
 import com.intellij.ide.util.TreeClassChooserFactory;
-import com.intellij.openapi.help.HelpManager;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Iconable;
@@ -38,6 +22,7 @@ import com.intellij.refactoring.ui.RefactoringDialog;
 import com.intellij.ui.ComboboxWithBrowseButton;
 import com.intellij.ui.DocumentAdapter;
 import com.intellij.ui.ReferenceEditorComboWithBrowseButton;
+import com.intellij.ui.SimpleListCellRenderer;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 
@@ -47,7 +32,6 @@ import javax.swing.event.DocumentListener;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
-@SuppressWarnings({"OverridableMethodCallInConstructor"})
 class WrapReturnValueDialog extends RefactoringDialog {
 
   private final PsiMethod sourceMethod;
@@ -60,7 +44,7 @@ class WrapReturnValueDialog extends RefactoringDialog {
 
   private ReferenceEditorComboWithBrowseButton existingClassField;
   private JRadioButton useExistingClassButton;
-  private JComboBox myFieldsCombo;
+  private JComboBox<PsiField> myFieldsCombo;
   private JPanel myExistingClassPanel;
 
   private JPanel myWholePanel;
@@ -78,10 +62,12 @@ class WrapReturnValueDialog extends RefactoringDialog {
     init();
   }
 
+  @Override
   protected String getDimensionServiceKey() {
     return "RefactorJ.WrapReturnValue";
   }
 
+  @Override
   protected void doAction() {
     final boolean useExistingClass = useExistingClassButton.isSelected();
     final boolean createInnerClass = myCreateInnerClassButton.isSelected();
@@ -111,33 +97,35 @@ class WrapReturnValueDialog extends RefactoringDialog {
     final PsiNameHelper nameHelper = PsiNameHelper.getInstance(project);
     if (myCreateInnerClassButton.isSelected()) {
       final String innerClassName = getInnerClassName().trim();
-      if (!nameHelper.isIdentifier(innerClassName)) throw new ConfigurationException("\'" + innerClassName + "\' is invalid inner class name");
+      if (!nameHelper.isIdentifier(innerClassName)) throw new ConfigurationException(
+        RefactorJBundle.message("dialog.message.invalid.inner.class.name", innerClassName));
       final PsiClass containingClass = sourceMethod.getContainingClass();
       if (containingClass != null && containingClass.findInnerClassByName(innerClassName, false) != null) {
-        throw new ConfigurationException("Inner class with name \'" + innerClassName + "\' already exist");
+        throw new ConfigurationException(RefactorJBundle.message("dialog.message.inner.class.with.name.already.exist", innerClassName));
       }
     } else if (useExistingClassButton.isSelected()) {
       final String className = existingClassField.getText().trim();
       if (className.length() == 0 || !nameHelper.isQualifiedName(className)) {
-        throw new ConfigurationException("\'" + className + "\' is invalid qualified wrapper class name");
+        throw new ConfigurationException(RefactorJBundle.message("dialog.message.invalid.qualified.wrapper.class.name", className));
       }
       final Object item = myFieldsCombo.getSelectedItem();
       if (item == null) {
-        throw new ConfigurationException("Wrapper field not found");
+        throw new ConfigurationException(RefactorJBundle.message("dialog.message.wrapper.field.not.found"));
       }
     } else {
       final String className = getClassName();
       if (className.length() == 0 || !nameHelper.isIdentifier(className)) {
-        throw new ConfigurationException("\'" + className + "\' is invalid wrapper class name");
+        throw new ConfigurationException(RefactorJBundle.message("dialog.message.invalid.wrapper.class.name", className));
       }
       final String packageName = getPackageName();
 
       if (packageName.length() == 0 || !nameHelper.isQualifiedName(packageName)) {
-        throw new ConfigurationException("\'" + packageName + "\' is invalid wrapper class package name");
+        throw new ConfigurationException(RefactorJBundle.message("dialog.message.invalid.wrapper.class.package.name", packageName));
       }
     }
   }
 
+  @NotNull
   private String getInnerClassName() {
     return myInnerClassNameTextField.getText().trim();
   }
@@ -152,17 +140,20 @@ class WrapReturnValueDialog extends RefactoringDialog {
     return classNameField.getText().trim();
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     sourceMethodTextField.setEditable(false);
 
     final DocumentListener docListener = new DocumentAdapter() {
-      protected void textChanged(final DocumentEvent e) {
+      @Override
+      protected void textChanged(@NotNull final DocumentEvent e) {
         validateButtons();
       }
     };
 
     classNameField.getDocument().addDocumentListener(docListener);
     myFieldsCombo.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(final ActionEvent e) {
         validateButtons();
       }
@@ -178,7 +169,8 @@ class WrapReturnValueDialog extends RefactoringDialog {
     final PsiClass containingClass = sourceMethod.getContainingClass();
     assert containingClass != null : sourceMethod;
     final String containingClassName = containingClass instanceof PsiAnonymousClass
-                                       ? "Anonymous " + ((PsiAnonymousClass)containingClass).getBaseClassType().getClassName()
+                                       ? JavaBundle.message("wrap.return.value.anonymous.class.presentation",
+                                                            ((PsiAnonymousClass)containingClass).getBaseClassType().getClassName())
                                        : containingClass.getName();
     final String sourceMethodName = sourceMethod.getName();
     sourceMethodTextField.setText(containingClassName + '.' + sourceMethodName);
@@ -188,6 +180,7 @@ class WrapReturnValueDialog extends RefactoringDialog {
     buttonGroup.add(myCreateInnerClassButton);
     createNewClassButton.setSelected(true);
     final ActionListener enableListener = new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent actionEvent) {
         toggleRadioEnablement();
       }
@@ -196,22 +189,18 @@ class WrapReturnValueDialog extends RefactoringDialog {
     createNewClassButton.addActionListener(enableListener);
     myCreateInnerClassButton.addActionListener(enableListener);
     toggleRadioEnablement();
-    
-    final DefaultComboBoxModel model = new DefaultComboBoxModel();
+
+    final DefaultComboBoxModel<PsiField> model = new DefaultComboBoxModel<>();
     myFieldsCombo.setModel(model);
-    myFieldsCombo.setRenderer(new ListCellRendererWrapper() {
-      @Override
-      public void customize(JList list, Object value, int index, boolean selected, boolean hasFocus) {
-        if (value instanceof PsiField) {
-          final PsiField field = (PsiField)value;
-          setText(field.getName());
-          setIcon(field.getIcon(Iconable.ICON_FLAG_VISIBILITY));
-        }
+    myFieldsCombo.setRenderer(SimpleListCellRenderer.create((label, field, index) -> {
+      if (field != null) {
+        label.setText(field.getName());
+        label.setIcon(field.getIcon(Iconable.ICON_FLAG_VISIBILITY));
       }
-    });
-    existingClassField.getChildComponent().getDocument().addDocumentListener(new com.intellij.openapi.editor.event.DocumentAdapter() {
+    }));
+    existingClassField.getChildComponent().getDocument().addDocumentListener(new com.intellij.openapi.editor.event.DocumentListener() {
       @Override
-      public void documentChanged(com.intellij.openapi.editor.event.DocumentEvent e) {
+      public void documentChanged(@NotNull com.intellij.openapi.editor.event.DocumentEvent e) {
         final JavaPsiFacade facade = JavaPsiFacade.getInstance(myProject);
         final PsiClass currentClass = facade.findClass(existingClassField.getText(), GlobalSearchScope.allScope(myProject));
         if (currentClass != null) {
@@ -253,17 +242,20 @@ class WrapReturnValueDialog extends RefactoringDialog {
   }
 
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return classNameField;
   }
 
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(HelpID.WrapReturnValue);
+  @Override
+  protected String getHelpId() {
+    return HelpID.WrapReturnValue;
   }
 
   private void createUIComponents() {
-    final com.intellij.openapi.editor.event.DocumentAdapter adapter = new com.intellij.openapi.editor.event.DocumentAdapter() {
-      public void documentChanged(com.intellij.openapi.editor.event.DocumentEvent e) {
+    final com.intellij.openapi.editor.event.DocumentListener adapter = new com.intellij.openapi.editor.event.DocumentListener() {
+      @Override
+      public void documentChanged(@NotNull com.intellij.openapi.editor.event.DocumentEvent e) {
         validateButtons();
       }
     };
@@ -273,6 +265,7 @@ class WrapReturnValueDialog extends RefactoringDialog {
     packageTextField.getChildComponent().getDocument().addDocumentListener(adapter);
 
     existingClassField = new ReferenceEditorComboWithBrowseButton(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         final TreeClassChooser chooser = TreeClassChooserFactory.getInstance(getProject())
           .createWithInnerClassesScopeChooser(RefactorJBundle.message("select.wrapper.class"), GlobalSearchScope.allScope(myProject), null, null);

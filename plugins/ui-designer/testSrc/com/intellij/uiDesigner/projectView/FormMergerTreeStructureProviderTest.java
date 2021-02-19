@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import com.intellij.projectView.BaseProjectViewTestCase;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiJavaFile;
+import org.jetbrains.annotations.NotNull;
 
 
 public class FormMergerTreeStructureProviderTest extends BaseProjectViewTestCase {
@@ -49,6 +50,29 @@ public class FormMergerTreeStructureProviderTest extends BaseProjectViewTestCase
 
     PsiClass psiClass = ((PsiJavaFile)getPackageDirectory().findFile("Form1.java")).getClasses()[0];
     myStructure.checkNavigateFromSourceBehaviour(psiClass, psiClass.getContainingFile().getVirtualFile(), pane);
+  }
+
+  @NotNull
+  @Override
+  protected String getTestDirectoryName() {
+    return "standardProviders";
+  }
+
+  public void testStandardProvidersForm1() {
+    final AbstractProjectViewPSIPane pane = myStructure.createPane();
+    getProjectTreeStructure().setProviders(new ClassesTreeStructureProvider(myProject),
+                                           new FormMergerTreeStructureProvider(myProject));
+
+    assertStructureEqual(getPackageDirectory(), "PsiDirectory: package1\n" +
+                                                " PsiClass:Class1\n" +
+                                                " PsiJavaFile:Class2.java\n" +
+                                                "  PsiClass:Class2\n" +
+                                                "  PsiClass:Class3\n" +
+                                                " PsiJavaFile:Class4.java\n" +
+                                                " PsiFile(plain text):Form2.form\n" +
+                                                " Form:Form1\n" +
+                                                "  PsiClass:Form1\n" +
+                                                "  PsiFile(plain text):Form1.form\n");
 
     PsiFile psiFile = getPackageDirectory().findFile("Form1.form");
     VirtualFile virtualFile = psiFile.getContainingFile().getVirtualFile();

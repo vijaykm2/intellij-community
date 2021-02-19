@@ -1,27 +1,13 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.convertToJava;
 
 import com.intellij.psi.PsiAnonymousClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiParameter;
 import com.intellij.psi.PsiVariable;
-import com.intellij.util.containers.HashMap;
-import com.intellij.util.containers.HashSet;
-import gnu.trove.TObjectIntHashMap;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElement;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyRecursiveElementVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrField;
@@ -31,14 +17,16 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrRefere
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefinition;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
 /**
  * @author Medvedev Max
  */
-class LocalVarAnalyzer extends GroovyRecursiveElementVisitor {
-  static class Result {
+final class LocalVarAnalyzer extends GroovyRecursiveElementVisitor {
+  static final class Result {
     private final Set<PsiVariable> toMakeFinal;
     private final Set<PsiVariable> toWrap;
     private final Map<PsiVariable, String> varToName;
@@ -67,9 +55,9 @@ class LocalVarAnalyzer extends GroovyRecursiveElementVisitor {
     LocalVarAnalyzer visitor = new LocalVarAnalyzer();
     root.accept(visitor);
 
-    Map<PsiVariable, String> varToName = analyzedVars == null ? new HashMap<PsiVariable, String>() : analyzedVars.varToName;
-    Set<PsiVariable> toWrap = analyzedVars == null ? new HashSet<PsiVariable>() : analyzedVars.toWrap;
-    Set<PsiVariable> toMakeFinal = analyzedVars == null ? new HashSet<PsiVariable>() : analyzedVars.toMakeFinal;
+    Map<PsiVariable, String> varToName = analyzedVars == null ? new HashMap<>() : analyzedVars.varToName;
+    Set<PsiVariable> toWrap = analyzedVars == null ? new HashSet<>() : analyzedVars.toWrap;
+    Set<PsiVariable> toMakeFinal = analyzedVars == null ? new HashSet<>() : analyzedVars.toMakeFinal;
     for (PsiVariable v : visitor.touched) {
       if (visitor.rewritten.contains(v)) {
         toWrap.add(v);
@@ -89,12 +77,12 @@ class LocalVarAnalyzer extends GroovyRecursiveElementVisitor {
   }
 
   public static Result initialResult() {
-    return new Result(new HashSet<PsiVariable>(), new HashSet<PsiVariable>(), new HashMap<PsiVariable, String>());
+    return new Result(new HashSet<>(), new HashSet<>(), new HashMap<>());
   }
 
-  private final Set<PsiVariable> touched = new HashSet<PsiVariable>();
-  private final Set<PsiVariable> rewritten = new HashSet<PsiVariable>();
-  private final TObjectIntHashMap<PsiVariable> allVars = new TObjectIntHashMap<PsiVariable>();
+  private final Set<PsiVariable> touched = new HashSet<>();
+  private final Set<PsiVariable> rewritten = new HashSet<>();
+  private final Object2IntMap<PsiVariable> allVars = new Object2IntOpenHashMap<>();
 
   private int grade = 0;
 
@@ -103,14 +91,14 @@ class LocalVarAnalyzer extends GroovyRecursiveElementVisitor {
 
 
   @Override
-  public void visitClosure(GrClosableBlock closure) {
+  public void visitClosure(@NotNull GrClosableBlock closure) {
     grade++;
     super.visitClosure(closure);
     grade--;
   }
 
   @Override
-  public void visitTypeDefinition(GrTypeDefinition typeDefinition) {
+  public void visitTypeDefinition(@NotNull GrTypeDefinition typeDefinition) {
     if (!(typeDefinition instanceof PsiAnonymousClass)) return;
     grade++;
     super.visitTypeDefinition(typeDefinition);
@@ -118,24 +106,26 @@ class LocalVarAnalyzer extends GroovyRecursiveElementVisitor {
   }
 
   @Override
-  public void visitVariable(GrVariable variable) {
+  public void visitVariable(@NotNull GrVariable variable) {
     super.visitVariable(variable);
     if (variable instanceof GrField) return;
     allVars.put(variable, grade);
   }
 
   @Override
-  public void visitReferenceExpression(GrReferenceExpression ref) {
+  public void visitReferenceExpression(@NotNull GrReferenceExpression ref) {
     super.visitReferenceExpression(ref);
     PsiElement resolved = ref.resolve();
-    if (!allVars.contains(resolved)) return;
+    if (!allVars.containsKey(resolved)) {
+      return;
+    }
     GrVariable var = (GrVariable)resolved;
 
     if (PsiUtil.isAccessedForWriting(ref)) {
       rewritten.add(var);
     }
 
-    if (allVars.get(var) < grade) {
+    if (allVars.getInt(var) < grade) {
       touched.add((PsiVariable)resolved);
     }
   }

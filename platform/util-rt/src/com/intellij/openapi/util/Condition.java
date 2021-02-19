@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,11 @@
  */
 package com.intellij.openapi.util;
 
-import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.ApiStatus;
 
 /**
+ * Please use {@link java.util.function.Predicate} instead.
+ *
  * Returns {@code true} or {@code false} for the given input object.
  * <p/>
  * See {@link Conditions} for chained conditions.
@@ -27,13 +29,15 @@ import org.jetbrains.annotations.NonNls;
 public interface Condition<T> {
   boolean value(T t);
 
+  /**
+   * @deprecated use {@link Conditions#notNull()} instead
+   */
+  @Deprecated
   Condition<Object> NOT_NULL = new Condition<Object>() {
-    @Override
     public boolean value(final Object object) {
       return object != null;
     }
 
-    @NonNls
     @Override
     public String toString() {
       return "Condition.NOT_NULL";
@@ -41,30 +45,30 @@ public interface Condition<T> {
   };
 
   /**
-   * @see com.intellij.openapi.util.Conditions#alwaysTrue()
+   * @deprecated use {@link Conditions#alwaysTrue()} instead
    */
-  Condition TRUE = new Condition() {
-    @Override
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  Condition<Object> TRUE = new Condition<Object>() {
     public boolean value(final Object object) {
       return true;
     }
 
-    @NonNls
     @Override
     public String toString() {
       return "Condition.TRUE";
     }
   };
   /**
-   * @see com.intellij.openapi.util.Conditions#alwaysFalse()
+   * @deprecated use {@link Conditions#alwaysFalse()} instead
    */
-  Condition FALSE = new Condition() {
-    @Override
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  Condition<Object> FALSE = new Condition<Object>() {
     public boolean value(final Object object) {
       return false;
     }
 
-    @NonNls
     @Override
     public String toString() {
       return "Condition.FALSE";

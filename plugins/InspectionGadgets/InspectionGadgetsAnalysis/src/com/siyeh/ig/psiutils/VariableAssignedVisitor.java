@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2014 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2020 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,33 +19,42 @@ import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.TypeConversionUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.function.Predicate;
 
 public class VariableAssignedVisitor extends JavaRecursiveElementWalkingVisitor {
 
-  @NotNull private final Collection<PsiVariable> variables;
+  @NotNull private final Collection<? extends PsiVariable> variables;
   private final boolean recurseIntoClasses;
   private final boolean checkUnaryExpressions;
+  private final Predicate<? super PsiAssignmentExpression> mySkipFilter;
   private boolean assigned = false;
   private PsiElement excludedElement = null;
 
-  public VariableAssignedVisitor(@NotNull Collection<PsiVariable> variables, boolean recurseIntoClasses) {
+  public VariableAssignedVisitor(@NotNull Collection<? extends PsiVariable> variables, boolean recurseIntoClasses) {
     this.variables = variables;
     checkUnaryExpressions = true;
     this.recurseIntoClasses = recurseIntoClasses;
+    mySkipFilter = null;
   }
 
   public VariableAssignedVisitor(@NotNull PsiVariable variable, boolean recurseIntoClasses) {
-    variables = Collections.singleton(variable);
-    final PsiType type = variable.getType();
-    checkUnaryExpressions = TypeConversionUtil.isNumericType(type);
-    this.recurseIntoClasses = recurseIntoClasses;
+    this(variable, null, recurseIntoClasses);
   }
 
   public VariableAssignedVisitor(@NotNull PsiVariable variable) {
     this(variable, true);
+  }
+
+  public VariableAssignedVisitor(@NotNull PsiVariable variable, @Nullable Predicate<? super PsiAssignmentExpression> skipFilter,
+                                 boolean recurseIntoClasses) {
+    variables = Collections.singleton(variable);
+    checkUnaryExpressions = TypeConversionUtil.isNumericType(variable.getType());
+    this.recurseIntoClasses = recurseIntoClasses;
+    mySkipFilter = skipFilter;
   }
 
   public void setExcludedElement(PsiElement excludedElement) {
@@ -68,9 +77,11 @@ public class VariableAssignedVisitor extends JavaRecursiveElementWalkingVisitor 
     super.visitAssignmentExpression(assignment);
     final PsiExpression lhs = assignment.getLExpression();
     for (PsiVariable variable : variables) {
-      if (VariableAccessUtils.evaluatesToVariable(lhs, variable)) {
-        assigned = true;
-        break;
+      if (ExpressionUtils.isReferenceTo(lhs, variable)) {
+        if (mySkipFilter == null || !mySkipFilter.test(assignment)) {
+          assigned = true;
+          break;
+        }
       }
     }
   }
@@ -84,11 +95,11 @@ public class VariableAssignedVisitor extends JavaRecursiveElementWalkingVisitor 
   }
 
   @Override
-  public void visitPrefixExpression(@NotNull PsiPrefixExpression prefixExpression) {
+  public void visitUnaryExpression(@NotNull PsiUnaryExpression prefixExpression) {
     if (assigned) {
       return;
     }
-    super.visitPrefixExpression(prefixExpression);
+    super.visitUnaryExpression(prefixExpression);
     if (!checkUnaryExpressions) {
       return;
     }
@@ -98,29 +109,7 @@ public class VariableAssignedVisitor extends JavaRecursiveElementWalkingVisitor 
     }
     final PsiExpression operand = prefixExpression.getOperand();
     for (PsiVariable variable : variables) {
-      if (VariableAccessUtils.evaluatesToVariable(operand, variable)) {
-        assigned = true;
-        break;
-      }
-    }
-  }
-
-  @Override
-  public void visitPostfixExpression(@NotNull PsiPostfixExpression postfixExpression) {
-    if (assigned) {
-      return;
-    }
-    super.visitPostfixExpression(postfixExpression);
-    if (!checkUnaryExpressions) {
-      return;
-    }
-    final IElementType tokenType = postfixExpression.getOperationTokenType();
-    if (!tokenType.equals(JavaTokenType.PLUSPLUS) && !tokenType.equals(JavaTokenType.MINUSMINUS)) {
-      return;
-    }
-    final PsiExpression operand = postfixExpression.getOperand();
-    for (PsiVariable variable : variables) {
-      if (VariableAccessUtils.evaluatesToVariable(operand, variable)) {
+      if (ExpressionUtils.isReferenceTo(operand, variable)) {
         assigned = true;
         break;
       }

@@ -14,31 +14,24 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 08.07.2002
- * Time: 18:22:48
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.classMembers;
 
+import com.intellij.ide.nls.NlsMessages;
 import com.intellij.lang.LanguageDependentMembersRefactoringSupport;
+import com.intellij.navigation.NavigationItem;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.NavigatablePsiElement;
 import com.intellij.psi.PsiElement;
 import com.intellij.refactoring.RefactoringBundle;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 
 public class UsesMemberDependencyGraph<T extends NavigatablePsiElement, C extends PsiElement, M extends MemberInfoBase<T>> implements MemberDependencyGraph<T, M> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.util.classMembers.UsesMemberDependencyGraph");
+  private static final Logger LOG = Logger.getInstance(UsesMemberDependencyGraph.class);
   protected HashSet<T> mySelectedNormal;
   protected HashSet<T> mySelectedAbstract;
   protected HashSet<T> myDependencies = null;
@@ -48,17 +41,17 @@ public class UsesMemberDependencyGraph<T extends NavigatablePsiElement, C extend
 
   public UsesMemberDependencyGraph(C aClass, C superClass, boolean recursive) {
     myRecursive = recursive;
-    mySelectedNormal = new HashSet<T>();
-    mySelectedAbstract = new HashSet<T>();
-    myMemberDependenciesStorage = new MemberDependenciesStorage<T, C>(aClass, superClass);
+    mySelectedNormal = new HashSet<>();
+    mySelectedAbstract = new HashSet<>();
+    myMemberDependenciesStorage = new MemberDependenciesStorage<>(aClass, superClass);
   }
 
 
   @Override
   public Set<? extends T> getDependent() {
     if (myDependencies == null) {
-      myDependencies = new HashSet<T>();
-      myDependenciesToDependentMap = new HashMap<T, HashSet<T>>();
+      myDependencies = new HashSet<>();
+      myDependenciesToDependentMap = new HashMap<>();
       buildDeps(null, mySelectedNormal);
     }
     return myDependencies;
@@ -71,21 +64,16 @@ public class UsesMemberDependencyGraph<T extends NavigatablePsiElement, C extend
     return myDependenciesToDependentMap.get(member);
   }
 
-  public String getElementTooltip(T element) {
+  public @NlsContexts.Tooltip String getElementTooltip(T element) {
     final Set<? extends T> dependencies = getDependenciesOf(element);
     if(dependencies == null || dependencies.size() == 0) return null;
 
-    ArrayList<String> strings = new ArrayList<String>();
-    for (T dep : dependencies) {
-      strings.add(dep.getName());
-    }
-
-    if(strings.isEmpty()) return null;
-    return RefactoringBundle.message("used.by.0", StringUtil.join(strings, ", "));
+    String strings = dependencies.stream().map(NavigationItem::getName).collect(NlsMessages.joiningAnd());
+    return RefactoringBundle.message("used.by.0", strings);
   }
 
 
-  private void buildDeps(T sourceElement, Set<T> members) {
+  private void buildDeps(T sourceElement, Set<? extends T> members) {
     if (myRecursive) {
       buildDepsRecursively(sourceElement, members);
     }
@@ -101,7 +89,7 @@ public class UsesMemberDependencyGraph<T extends NavigatablePsiElement, C extend
     }
   }
 
-  private void buildDepsRecursively(final T sourceElement, @Nullable final Set<T> members) {
+  private void buildDepsRecursively(final T sourceElement, @Nullable final Set<? extends T> members) {
     if (members != null) {
       for (T member : members) {
         if (!myDependencies.contains(member)) {
@@ -122,7 +110,7 @@ public class UsesMemberDependencyGraph<T extends NavigatablePsiElement, C extend
     if (sourceElement != null) {
       HashSet<T> relations = myDependenciesToDependentMap.get(member);
       if (relations == null) {
-        relations = new HashSet<T>();
+        relations = new HashSet<>();
         myDependenciesToDependentMap.put(member, relations);
       }
       relations.add(sourceElement);

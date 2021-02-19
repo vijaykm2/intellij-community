@@ -15,72 +15,102 @@
  */
 package com.intellij.patterns;
 
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Key;
-import com.intellij.util.InstanceofCheckerGenerator;
 import com.intellij.util.PairProcessor;
 import com.intellij.util.ProcessingContext;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
+import java.util.*;
 
 /**
  * @author peter
  */
 public abstract class ObjectPattern<T, Self extends ObjectPattern<T, Self>> implements Cloneable, ElementPattern<T> {
-  private ElementPatternCondition<T> myCondition;
+  private InitialPatternCondition<T> myInitialCondition;
+  private Object myConditions;
 
   protected ObjectPattern(@NotNull final InitialPatternCondition<T> condition) {
-    myCondition = new ElementPatternCondition<T>(condition);
+    myInitialCondition = condition;
+    myConditions = null;
   }
 
-  protected ObjectPattern(final Class<T> aClass) {
-    final Condition<Object> checker = InstanceofCheckerGenerator.getInstance().getInstanceofChecker(aClass);
-    myCondition = new ElementPatternCondition<T>(new InitialPatternCondition<T>(aClass) {
+  protected ObjectPattern(@NotNull Class<T> aClass) {
+    this(new InitialPatternCondition<T>(aClass) {
+      @Override
       public boolean accepts(@Nullable final Object o, final ProcessingContext context) {
-        return checker.value(o);
+        return aClass.isInstance(o);
       }
     });
   }
 
+  @Override
   public final boolean accepts(@Nullable Object t) {
-    return myCondition.accepts(t, new ProcessingContext());
+    return accepts(t, new ProcessingContext());
   }
 
+  @Override
+  @SuppressWarnings("unchecked")
   public boolean accepts(@Nullable final Object o, final ProcessingContext context) {
-    return myCondition.accepts(o, context);
+    if (!myInitialCondition.accepts(o, context)) return false;
+    if (myConditions == null) return true;
+    if (o == null) return false;
+
+    if (myConditions instanceof PatternCondition) {
+      return ((PatternCondition)myConditions).accepts(o, context);
+    }
+
+    List<PatternCondition<T>> list = (List<PatternCondition<T>>)myConditions;
+    final int listSize = list.size();
+    //noinspection ForLoopReplaceableByForEach
+    for (int i = 0; i < listSize; i++) {
+      if (!list.get(i).accepts((T)o, context)) return false;
+    }
+    return true;
   }
 
-  public final ElementPatternCondition getCondition() {
-    return myCondition;
+  @Override
+  @NotNull
+  @SuppressWarnings("unchecked")
+  public final ElementPatternCondition<T> getCondition() {
+    if (myConditions == null) {
+      return new ElementPatternCondition<>(myInitialCondition);
+    }
+    if (myConditions instanceof PatternCondition) {
+      PatternCondition<? super T> singleCondition = (PatternCondition)myConditions;
+      return new ElementPatternCondition<>(myInitialCondition, Collections.singletonList(singleCondition));
+    }
+    return new ElementPatternCondition<>(myInitialCondition, (List)myConditions);
   }
 
+  @NotNull
   public Self andNot(final ElementPattern pattern) {
     ElementPattern<T> not = StandardPatterns.not(pattern);
     return and(not);
   }
 
-  public Self andOr(@NotNull ElementPattern... patterns) {
+  @NotNull
+  public Self andOr(ElementPattern @NotNull ... patterns) {
     ElementPattern or = StandardPatterns.or(patterns);
     return and(or);
   }
 
+  @NotNull
   public Self and(final ElementPattern pattern) {
     return with(new PatternConditionPlus<T, T>("and", pattern) {
       @Override
-      public boolean processValues(T t, ProcessingContext context, PairProcessor<T, ProcessingContext> processor) {
+      public boolean processValues(T t, ProcessingContext context, PairProcessor<? super T, ? super ProcessingContext> processor) {
         return processor.process(t, context);
       }
     });
   }
 
+  @NotNull
   public Self equalTo(@NotNull final T o) {
     return with(new ValuePatternCondition<T>("equalTo") {
+      @Override
       public boolean accepts(@NotNull final T t, final ProcessingContext context) {
         return t.equals(o);
       }
@@ -101,7 +131,7 @@ public abstract class ObjectPattern<T, Self extends ObjectPattern<T, Self>> impl
       list = Collections.singletonList(values[0]);
     }
     else if (length >= 11) {
-      list = new HashSet<T>(Arrays.asList(values));
+      list = ContainerUtil.set(values);
     }
     else {
       list = Arrays.asList(values);
@@ -137,33 +167,32 @@ public abstract class ObjectPattern<T, Self extends ObjectPattern<T, Self>> impl
     });
   }
 
+  @NotNull
   public Self isNull() {
+    //noinspection Convert2Diamond (would break compilation: IDEA-168317)
     return adapt(new ElementPatternCondition<T>(new InitialPatternCondition(Object.class) {
+      @Override
       public boolean accepts(@Nullable final Object o, final ProcessingContext context) {
         return o == null;
       }
     }));
   }
 
+  @NotNull
   public Self notNull() {
+    //noinspection Convert2Diamond (would break compilation: IDEA-168317)
     return adapt(new ElementPatternCondition<T>(new InitialPatternCondition(Object.class) {
+      @Override
       public boolean accepts(@Nullable final Object o, final ProcessingContext context) {
         return o != null;
       }
     }));
   }
 
-  public Self save(final Key<? super T> key) {
+  @NotNull
+  public Self save(@NotNull Key<? super T> key) {
     return with(new PatternCondition<T>("save") {
-      public boolean accepts(@NotNull final T t, final ProcessingContext context) {
-        context.put((Key)key, t);
-        return true;
-      }
-    });
-  }
-
-  public Self save(@NonNls final String key) {
-    return with(new PatternCondition<T>("save") {
+      @Override
       public boolean accepts(@NotNull final T t, final ProcessingContext context) {
         context.put(key, t);
         return true;
@@ -171,15 +200,31 @@ public abstract class ObjectPattern<T, Self extends ObjectPattern<T, Self>> impl
     });
   }
 
-  public Self with(final PatternCondition<? super T> pattern) {
-    final ElementPatternCondition<T> condition = myCondition.append(pattern);
+  @NotNull
+  public Self save(@NonNls final String key) {
+    return with(new PatternCondition<T>("save") {
+      @Override
+      public boolean accepts(@NotNull final T t, final ProcessingContext context) {
+        context.put(key, t);
+        return true;
+      }
+    });
+  }
+
+  @NotNull
+  public Self with(@NotNull PatternCondition<? super T> pattern) {
+    final ElementPatternCondition<T> condition = getCondition().append(pattern);
     return adapt(condition);
   }
 
-  private Self adapt(final ElementPatternCondition<T> condition) {
+  @NotNull
+  private Self adapt(@NotNull ElementPatternCondition<T> condition) {
     try {
       final ObjectPattern s = (ObjectPattern)clone();
-      s.myCondition = condition;
+      s.myInitialCondition = condition.getInitialCondition();
+      List<PatternCondition<? super T>> conditions = condition.getConditions();
+      s.myConditions = conditions.isEmpty() ? null : conditions.size() == 1 ? conditions.get(0) : conditions;
+      //noinspection unchecked
       return (Self)s;
     }
     catch (CloneNotSupportedException e) {
@@ -187,8 +232,10 @@ public abstract class ObjectPattern<T, Self extends ObjectPattern<T, Self>> impl
     }
   }
 
+  @NotNull
   public Self without(final PatternCondition<? super T> pattern) {
     return with(new PatternCondition<T>("without") {
+      @Override
       public boolean accepts(@NotNull final T o, final ProcessingContext context) {
         return !pattern.accepts(o, context);
       }
@@ -196,12 +243,12 @@ public abstract class ObjectPattern<T, Self extends ObjectPattern<T, Self>> impl
   }
 
   public String toString() {
-    return myCondition.toString();
+    return getCondition().toString();
   }
 
   public static class Capture<T> extends ObjectPattern<T,Capture<T>> {
 
-    public Capture(final Class<T> aClass) {
+    public Capture(@NotNull Class<T> aClass) {
       super(aClass);
     }
 

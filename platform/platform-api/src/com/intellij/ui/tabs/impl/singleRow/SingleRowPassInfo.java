@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.tabs.impl.singleRow;
 
 import com.intellij.ui.tabs.TabInfo;
@@ -21,6 +7,7 @@ import com.intellij.ui.tabs.impl.LayoutPassInfo;
 
 import javax.swing.*;
 import java.awt.*;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -34,19 +21,14 @@ public class SingleRowPassInfo extends LayoutPassInfo {
   public final List<TabInfo> toDrop;
   final int moreRectAxisSize;
   public Rectangle moreRect;
+  public Rectangle titleRect;
 
-  public JComponent hToolbar;
-  public JComponent vToolbar;
-
-  public Rectangle firstGhost;
-  public boolean firstGhostVisible;
-
-  public Rectangle lastGhost;
-  public boolean lastGhostVisible;
+  public WeakReference<JComponent> hToolbar;
+  public WeakReference<JComponent> vToolbar;
 
   public Insets insets;
 
-  public JComponent comp;
+  public WeakReference<JComponent> comp;
   public Rectangle tabRectangle;
   final int scrollOffset;
 
@@ -56,37 +38,32 @@ public class SingleRowPassInfo extends LayoutPassInfo {
     JBTabsImpl tabs = layout.myTabs;
     layoutSize = tabs.getSize();
     contentCount = tabs.getTabCount();
-    toLayout = new ArrayList<TabInfo>();
-    toDrop = new ArrayList<TabInfo>();
+    toLayout = new ArrayList<>();
+    toDrop = new ArrayList<>();
     moreRectAxisSize = layout.getStrategy().getMoreRectAxisSize();
     scrollOffset = layout.getScrollOffset();
   }
 
-  public TabInfo getPreviousFor(final TabInfo info) {
-    return getPrevious(myVisibleInfos, myVisibleInfos.indexOf(info));
-  }
-
-  public TabInfo getNextFor(final TabInfo info) {
-    return getNext(myVisibleInfos, myVisibleInfos.indexOf(info));
-  }
-
+  @Deprecated
+  @Override
   public int getRowCount() {
     return 1;
   }
 
+  @Deprecated
+  @Override
   public int getColumnCount(final int row) {
     return myVisibleInfos.size();
   }
 
+  @Deprecated
+  @Override
   public TabInfo getTabAt(final int row, final int column) {
     return myVisibleInfos.get(column);
   }
 
+  @Override
   public Rectangle getHeaderRectangle() {
     return (Rectangle)tabRectangle.clone();
-  }
-
-  public boolean hasCurveSpaceFor(final TabInfo tabInfo) {
-    return true;
   }
 }

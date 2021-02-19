@@ -1,17 +1,15 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.javaFX;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.model.ex.JpsElementBase;
+import org.jetbrains.plugins.javaFX.packaging.JavaFxApplicationIcons;
 import org.jetbrains.plugins.javaFX.packaging.JavaFxManifestAttribute;
 import org.jetbrains.plugins.javaFX.packaging.JavaFxPackagerConstants;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * User: anna
- * Date: 3/13/13
- */
 public class JpsJavaFxArtifactProperties extends JpsElementBase<JpsJavaFxArtifactProperties> {
   protected MyState myState = new MyState();
 
@@ -27,8 +25,11 @@ public class JpsJavaFxArtifactProperties extends JpsElementBase<JpsJavaFxArtifac
     myState.setTitle(state.myTitle);
     myState.setVendor(state.myVendor);
     myState.setDescription(state.myDescription);
+    myState.setVersion(state.myVersion);
     myState.setWidth(state.myWidth);
     myState.setHeight(state.myHeight);
+    myState.setHtmlTemplateFile(state.myHtmlTemplateFile);
+    myState.setHtmlPlaceholderId(state.myHtmlPlaceholderId);
     myState.setHtmlParamFile(state.myHtmlParamFile);
     myState.setParamFile(state.myParamFile);
     myState.setUpdateMode(state.myUpdateMode);
@@ -41,6 +42,8 @@ public class JpsJavaFxArtifactProperties extends JpsElementBase<JpsJavaFxArtifac
     myState.setConvertCss2Bin(state.myConvertCss2Bin);
     myState.setNativeBundle(state.myNativeBundle);
     myState.setCustomManifestAttributes(state.myCustomManifestAttributes);
+    myState.setIcons(state.myIcons);
+    myState.setMsgOutputLevel(state.myMsgOutputLevel);
   }
 
   @NotNull
@@ -59,8 +62,11 @@ public class JpsJavaFxArtifactProperties extends JpsElementBase<JpsJavaFxArtifac
     private String myVendor;
     private String myDescription;
     private String myAppClass;
+    private String myVersion;
     private String myWidth = JavaFxPackagerConstants.DEFAULT_WEIGHT;
     private String myHeight = JavaFxPackagerConstants.DEFAULT_HEIGHT;
+    private String myHtmlTemplateFile;
+    private String myHtmlPlaceholderId;
     private String myHtmlParamFile;
     private String myParamFile;
     private String myUpdateMode = JavaFxPackagerConstants.UPDATE_MODE_BACKGROUND;
@@ -72,7 +78,9 @@ public class JpsJavaFxArtifactProperties extends JpsElementBase<JpsJavaFxArtifac
     private String myKeypass;
     private boolean myConvertCss2Bin;
     public JavaFxPackagerConstants.NativeBundles myNativeBundle = JavaFxPackagerConstants.NativeBundles.none;
-    private List<JavaFxManifestAttribute> myCustomManifestAttributes = new ArrayList<JavaFxManifestAttribute>();
+    private List<JavaFxManifestAttribute> myCustomManifestAttributes = new ArrayList<>();
+    private JavaFxApplicationIcons myIcons = new JavaFxApplicationIcons();
+    private JavaFxPackagerConstants.MsgOutputLevel myMsgOutputLevel = JavaFxPackagerConstants.MsgOutputLevel.Default;
 
     public String getTitle() {
       return myTitle;
@@ -98,6 +106,22 @@ public class JpsJavaFxArtifactProperties extends JpsElementBase<JpsJavaFxArtifac
       myDescription = description;
     }
 
+    public String getVersion() {
+      return myVersion;
+    }
+
+    public void setVersion(String version) {
+      myVersion = version;
+    }
+
+    public JavaFxApplicationIcons getIcons() {
+      return myIcons;
+    }
+
+    public void setIcons(JavaFxApplicationIcons icons) {
+      myIcons = icons;
+    }
+
     public String getAppClass() {
       return myAppClass;
     }
@@ -120,6 +144,22 @@ public class JpsJavaFxArtifactProperties extends JpsElementBase<JpsJavaFxArtifac
 
     public void setHeight(String height) {
       myHeight = height;
+    }
+
+    public String getHtmlTemplateFile() {
+      return myHtmlTemplateFile;
+    }
+
+    public void setHtmlTemplateFile(String htmlTemplateFile) {
+      myHtmlTemplateFile = htmlTemplateFile;
+    }
+
+    public String getHtmlPlaceholderId() {
+      return myHtmlPlaceholderId;
+    }
+
+    public void setHtmlPlaceholderId(String htmlPlaceholderId) {
+      myHtmlPlaceholderId = htmlPlaceholderId;
     }
 
     public String getHtmlParamFile() {
@@ -216,6 +256,14 @@ public class JpsJavaFxArtifactProperties extends JpsElementBase<JpsJavaFxArtifac
 
     public void setCustomManifestAttributes(List<JavaFxManifestAttribute> customManifestAttributes) {
       myCustomManifestAttributes = customManifestAttributes;
+    }
+
+    public JavaFxPackagerConstants.MsgOutputLevel getMsgOutputLevel() {
+      return myMsgOutputLevel;
+    }
+
+    public void setMsgOutputLevel(JavaFxPackagerConstants.MsgOutputLevel msgOutputLevel) {
+      myMsgOutputLevel = msgOutputLevel;
     }
   }
 }

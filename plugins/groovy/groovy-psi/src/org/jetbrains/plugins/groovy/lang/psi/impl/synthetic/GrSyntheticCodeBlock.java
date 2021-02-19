@@ -47,9 +47,8 @@ public class GrSyntheticCodeBlock extends LightElement implements PsiCodeBlock {
     return "code block wrapper to represent java codeBlock";
   }
 
-  @NotNull
   @Override
-  public PsiStatement[] getStatements() {
+  public PsiStatement @NotNull [] getStatements() {
     return PsiStatement.EMPTY_ARRAY; //todo return statements
   }
 
@@ -87,7 +86,7 @@ public class GrSyntheticCodeBlock extends LightElement implements PsiCodeBlock {
     final PsiJavaToken token = SoftReference.dereference(ref);
     if (token != null) return token;
     final LightJavaToken newToken = new LightJavaToken(element, type);
-    element.putUserData(PSI_JAVA_TOKEN, new SoftReference<PsiJavaToken>(newToken));
+    element.putUserData(PSI_JAVA_TOKEN, new SoftReference<>(newToken));
     return newToken;
   }
 

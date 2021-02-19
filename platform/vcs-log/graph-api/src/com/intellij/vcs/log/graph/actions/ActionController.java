@@ -20,12 +20,16 @@ import org.jetbrains.annotations.NotNull;
 /**
  * @author erokhins
  */
-public interface ActionController<CommitId> {
+public interface ActionController<Id> {
 
   @NotNull
-  GraphAnswer<CommitId> performAction(@NotNull GraphAction graphAction);
+  GraphAnswer<Id> performAction(@NotNull GraphAction graphAction);
 
   boolean areLongEdgesHidden();
 
   void setLongEdgesHidden(boolean longEdgesHidden);
+
+  default boolean isActionSupported(@NotNull GraphAction action) {
+    return true;
+  }
 }

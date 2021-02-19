@@ -23,7 +23,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * @author ven
  */
-public class OverriderUsageInfo extends UsageInfo {
+public class OverriderUsageInfo extends UsageInfo implements OverriderMethodUsageInfo<PsiMethod> {
   private final PsiMethod myBaseMethod;
   private final boolean myToInsertArgs;
   private final boolean myToCatchExceptions;
@@ -40,10 +40,12 @@ public class OverriderUsageInfo extends UsageInfo {
     myIsOriginalOverrider = isOriginalOverrider;
   }
 
+  @Override
   public PsiMethod getBaseMethod() {
     return myBaseMethod;
   }
 
+  @Override
   public PsiMethod getOverridingMethod() {
     return myOverridingMethod;
   }
@@ -51,6 +53,7 @@ public class OverriderUsageInfo extends UsageInfo {
   /**
    * @deprecated use {@link #getOverridingMethod()} instead
    */
+  @Deprecated
   @Nullable
   @Override
   public PsiMethod getElement() {

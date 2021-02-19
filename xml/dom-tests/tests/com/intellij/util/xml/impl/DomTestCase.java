@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,8 @@
  */
 package com.intellij.util.xml.impl;
 
-import com.intellij.openapi.application.Result;
-import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.psi.PsiFileFactory;
 import com.intellij.psi.XmlElementFactory;
-import com.intellij.psi.impl.PsiModificationTrackerImpl;
 import com.intellij.psi.xml.XmlElement;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
@@ -28,9 +25,7 @@ import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.xml.*;
 import com.intellij.util.xml.events.DomEvent;
 import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.Nullable;
-
-import java.util.List;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author peter
@@ -39,7 +34,7 @@ public abstract class DomTestCase extends LightIdeaTestCase {
   protected CallRegistry<DomEvent> myCallRegistry;
   private final DomEventListener myListener = new DomEventListener() {
     @Override
-    public void eventOccured(DomEvent event) {
+    public void eventOccured(@NotNull DomEvent event) {
       myCallRegistry.putActual(event);
     }
   };
@@ -47,19 +42,20 @@ public abstract class DomTestCase extends LightIdeaTestCase {
   @Override
   protected void setUp() throws Exception {
     super.setUp();
-    myCallRegistry = new CallRegistry<DomEvent>();
-    getDomManager().addDomEventListener(myListener, myTestRootDisposable);
+    myCallRegistry = new CallRegistry<>();
+    getDomManager().addDomEventListener(myListener, getTestRootDisposable());
   }
 
   protected void assertCached(final DomElement element, final XmlElement xmlElement) {
     assertNotNull(xmlElement);
     assertSame(element.getXmlTag(), xmlElement);
-    final DomInvocationHandler cachedElement = getCachedHandler(xmlElement);
-    assertNotNull(cachedElement);
-    assertEquals(element, cachedElement.getProxy());
+    DomInvocationHandler currentDom = getDomManager().getDomHandler(xmlElement);
+    assertNotNull(currentDom);
+    assertEquals(element, currentDom.getProxy());
+    assertTrue(element.isValid());
   }
 
-  protected void assertCached(final DomFileElementImpl element, final XmlFile file) {
+  protected void assertCached(DomFileElementImpl<?> element, final XmlFile file) {
     assertNotNull(file);
     assertEquals(element, getDomManager().getFileElement(file));
   }
@@ -72,7 +68,7 @@ public abstract class DomTestCase extends LightIdeaTestCase {
     return (DomManagerImpl)DomManager.getDomManager(getProject());
   }
 
-  protected static XmlFile createXmlFile(@NonNls final String text) throws IncorrectOperationException {
+  protected XmlFile createXmlFile(@NonNls final String text) throws IncorrectOperationException {
     return (XmlFile)createLightFile("a.xml", text);
   }
 
@@ -87,9 +83,11 @@ public abstract class DomTestCase extends LightIdeaTestCase {
   public static <T extends DomElement> T createElement(final DomManager domManager, final String xml, final Class<T> aClass)
     throws IncorrectOperationException {
     final String name = "a.xml";
+    //noinspection deprecation
     final XmlFile file = (XmlFile)PsiFileFactory.getInstance(domManager.getProject()).createFileFromText(name, xml);
     final XmlTag tag = file.getDocument().getRootTag();
     final String rootTagName = tag != null ? tag.getName() : "root";
+    //noinspection deprecation
     final T element = domManager.getFileElement(file, aClass, rootTagName).getRootElement();
     assertNotNull(element);
     assertSame(tag, element.getXmlTag());
@@ -108,19 +106,8 @@ public abstract class DomTestCase extends LightIdeaTestCase {
     return getDomManager().getTypeChooserManager();
   }
 
-  protected static void incModCount() {
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(Result result) throws Throwable {
-        ((PsiModificationTrackerImpl)getPsiManager().getModificationTracker()).incCounter();
-      }
-    }.execute();
-  }
-
-  @Nullable
-  public DomInvocationHandler getCachedHandler(XmlElement element) {
-    final List<DomInvocationHandler> option = getDomManager().getSemService().getCachedSemElements(DomManagerImpl.DOM_HANDLER_KEY, element);
-    return option == null || option.isEmpty() ? null : option.get(0);
+  protected void incModCount() {
+    getPsiManager().dropPsiCaches();
   }
 
   public enum MyEnum implements NamedEnum {

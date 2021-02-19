@@ -17,15 +17,17 @@ package org.jetbrains.java.generate.inspection;
 
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.psi.*;
-import com.intellij.psi.util.PropertyUtil;
-import gnu.trove.THashSet;
+import com.intellij.psi.util.PropertyUtilBase;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.java.generate.GenerateToStringContext;
 import org.jetbrains.java.generate.GenerateToStringUtils;
 
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Inspection to check if the current class toString() method is out of
@@ -33,14 +35,7 @@ import java.util.Collections;
  * to exclude certain fields (eg. constants etc.). Will only warn if the
  * class has a toString() method.
  */
-public class FieldNotUsedInToStringInspection extends AbstractToStringInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Field not used in 'toString()' method";
-  }
-
+public final class FieldNotUsedInToStringInspection extends AbstractToStringInspection {
   @Override
   @NotNull
   public String getShortName() {
@@ -58,17 +53,12 @@ public class FieldNotUsedInToStringInspection extends AbstractToStringInspection
     return new FieldNotUsedInToStringVisitor(holder);
   }
 
-  private static class FieldNotUsedInToStringVisitor extends JavaElementVisitor{
+  private static final class FieldNotUsedInToStringVisitor extends JavaElementVisitor{
 
     private final ProblemsHolder myHolder;
 
-    public FieldNotUsedInToStringVisitor(ProblemsHolder holder) {
+    private FieldNotUsedInToStringVisitor(ProblemsHolder holder) {
       myHolder = holder;
-    }
-
-    @Override
-    public void visitField(PsiField field) {
-      super.visitField(field);
     }
 
     @Override
@@ -79,7 +69,7 @@ public class FieldNotUsedInToStringInspection extends AbstractToStringInspection
         return;
       }
       final PsiParameterList parameterList = method.getParameterList();
-      if (parameterList.getParametersCount() != 0) {
+      if (!parameterList.isEmpty()) {
         return;
       }
       final PsiType returnType = method.getReturnType();
@@ -104,24 +94,25 @@ public class FieldNotUsedInToStringInspection extends AbstractToStringInspection
       method.accept(visitor);
       for (PsiField field : visitor.getUnusedFields()) {
         final String fieldName = field.getName();
-        myHolder.registerProblem(field.getNameIdentifier(), "Field '" + fieldName + "' is not used in 'toString()' method",
-                                 ProblemHighlightType.GENERIC_ERROR_OR_WARNING, GenerateToStringQuickFix.getInstance());
+        myHolder.registerProblem(field.getNameIdentifier(),
+                                 JavaAnalysisBundle.message("inspection.field.not.used.in.to.string.description2", fieldName),
+                                 ProblemHighlightType.GENERIC_ERROR_OR_WARNING, createFixes());
       }
       for (PsiMethod unusedMethod : visitor.getUnusedMethods()) {
         final PsiIdentifier identifier = unusedMethod.getNameIdentifier();
         final PsiElement target = identifier == null ? unusedMethod : identifier;
-        myHolder.registerProblem(target, "Method '" + unusedMethod.getName() + "' is not used in 'toString()' method",
-                                 ProblemHighlightType.GENERIC_ERROR_OR_WARNING, GenerateToStringQuickFix.getInstance());
+        myHolder.registerProblem(target,
+                                 JavaAnalysisBundle.message("inspection.field.not.used.in.to.string.description", unusedMethod.getName()),
+                                 ProblemHighlightType.GENERIC_ERROR_OR_WARNING, createFixes());
       }
     }
   }
 
-  private static class FieldUsedVisitor extends JavaRecursiveElementVisitor {
+  private static final class FieldUsedVisitor extends JavaRecursiveElementWalkingVisitor {
+    private final Set<PsiField> myUnusedFields = new HashSet<>();
+    private final Set<PsiMethod> myUnusedMethods = new HashSet<>();
 
-    private final THashSet<PsiField> myUnusedFields = new THashSet<PsiField>();
-    private final THashSet<PsiMethod> myUnusedMethods = new THashSet<PsiMethod>();
-
-    public FieldUsedVisitor(PsiField[] fields, PsiMethod[] methods) {
+    FieldUsedVisitor(PsiField[] fields, PsiMethod[] methods) {
       Collections.addAll(myUnusedFields, fields);
       Collections.addAll(myUnusedMethods, methods);
     }
@@ -145,7 +136,7 @@ public class FieldNotUsedInToStringInspection extends AbstractToStringInspection
         }
         else {
           myUnusedMethods.remove(method);
-          final PsiField field = PropertyUtil.findPropertyFieldByMember(method);
+          final PsiField field = PropertyUtilBase.findPropertyFieldByMember(method);
           myUnusedFields.remove(field);
         }
       }
@@ -168,11 +159,11 @@ public class FieldNotUsedInToStringInspection extends AbstractToStringInspection
       return false;
     }
 
-    public THashSet<PsiField> getUnusedFields() {
+    Set<PsiField> getUnusedFields() {
       return myUnusedFields;
     }
 
-    public THashSet<PsiMethod> getUnusedMethods() {
+    Set<PsiMethod> getUnusedMethods() {
       return myUnusedMethods;
     }
   }

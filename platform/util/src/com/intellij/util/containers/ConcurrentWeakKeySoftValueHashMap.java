@@ -1,60 +1,44 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * Created by IntelliJ IDEA.
- * User: Alexey
- * Date: 18.12.2006
- * Time: 20:18:31
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.containers;
 
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Getter;
-import gnu.trove.TObjectHashingStrategy;
+import com.intellij.util.ObjectUtils;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.SoftReference;
 import java.lang.ref.WeakReference;
-import java.util.Collection;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-
-import static com.intellij.reference.SoftReference.deref;
 
 /**
  * Concurrent map with weak keys and soft values.
  * Null keys are NOT allowed
  * Null values are NOT allowed
- * @deprecated Use {@link ContainerUtil#createConcurrentWeakKeySoftValueMap(int, float, int, gnu.trove.TObjectHashingStrategy)} instead
+ * @deprecated Use {@link ContainerUtil#createConcurrentWeakKeySoftValueMap(int, float, int, HashingStrategy)} instead
  */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
 public class ConcurrentWeakKeySoftValueHashMap<K, V> implements ConcurrentMap<K, V> {
   private final ConcurrentMap<KeyReference<K,V>, ValueReference<K,V>> myMap;
-  final ReferenceQueue<K> myKeyQueue = new ReferenceQueue<K>();
-  final ReferenceQueue<V> myValueQueue = new ReferenceQueue<V>();
-  @NotNull final TObjectHashingStrategy<K> myHashingStrategy;
+  final ReferenceQueue<K> myKeyQueue = new ReferenceQueue<>();
+  final ReferenceQueue<V> myValueQueue = new ReferenceQueue<>();
+  @NotNull final HashingStrategy<? super K> myHashingStrategy;
 
-  public ConcurrentWeakKeySoftValueHashMap(int initialCapacity,
+  protected ConcurrentWeakKeySoftValueHashMap(int initialCapacity,
+                                              float loadFactor,
+                                              int concurrencyLevel) {
+    this(initialCapacity, loadFactor, concurrencyLevel, HashingStrategy.canonical());
+  }
+
+  protected ConcurrentWeakKeySoftValueHashMap(int initialCapacity,
                                               float loadFactor,
                                               int concurrencyLevel,
-                                              @NotNull final TObjectHashingStrategy<K> hashingStrategy) {
+                                              @NotNull HashingStrategy<? super K> hashingStrategy) {
     myHashingStrategy = hashingStrategy;
-    myMap = ContainerUtil.newConcurrentMap(initialCapacity, loadFactor, concurrencyLevel, ContainerUtil.<KeyReference<K,V>>canonicalStrategy());
+    myMap = new ConcurrentHashMap<>(initialCapacity, loadFactor, concurrencyLevel);
   }
 
   public interface KeyReference<K, V> extends Getter<K> {
@@ -80,18 +64,18 @@ public class ConcurrentWeakKeySoftValueHashMap<K, V> implements ConcurrentMap<K,
     V get();
   }
 
-  static class WeakKey<K, V> extends WeakReference<K> implements KeyReference<K, V> {
+  static final class WeakKey<K, V> extends WeakReference<K> implements KeyReference<K, V> {
     private final int myHash; // Hash code of the key, stored here since the key may be tossed by the GC
-    private final TObjectHashingStrategy<K> myStrategy;
+    private final HashingStrategy<? super K> myStrategy;
     @NotNull private final ValueReference<K, V> myValueReference;
 
     WeakKey(@NotNull K k,
             @NotNull ValueReference<K, V> valueReference,
-            @NotNull TObjectHashingStrategy<K> strategy,
-            @NotNull ReferenceQueue<K> queue) {
+            @NotNull HashingStrategy<? super K> strategy,
+            @NotNull ReferenceQueue<? super K> queue) {
       super(k, queue);
       myValueReference = valueReference;
-      myHash = strategy.computeHashCode(k);
+      myHash = strategy.hashCode(k);
       myStrategy = strategy;
     }
 
@@ -100,6 +84,7 @@ public class ConcurrentWeakKeySoftValueHashMap<K, V> implements ConcurrentMap<K,
       if (this == o) return true;
       if (!(o instanceof KeyReference)) return false;
       K t = get();
+      //noinspection unchecked
       K other = ((KeyReference<K,V>)o).get();
       if (t == null || other == null) return false;
       if (t == other) return true;
@@ -117,28 +102,23 @@ public class ConcurrentWeakKeySoftValueHashMap<K, V> implements ConcurrentMap<K,
     }
   }
 
-  private static class SoftValue<K, V> extends SoftReference<V> implements ValueReference<K,V> {
-   @NotNull private volatile KeyReference<K, V> myKeyReference; // can't make it final because of circular dependency of KeyReference to ValueReference
-   private final int myHash; // Hashcode of key, stored here since the key may be tossed by the GC
-   private SoftValue(@NotNull V value, @NotNull ReferenceQueue<V> queue) {
+  static final class SoftValue<K, V> extends SoftReference<V> implements ValueReference<K,V> {
+   @NotNull volatile KeyReference<K, V> myKeyReference; // can't make it final because of circular dependency of KeyReference to ValueReference
+   private SoftValue(@NotNull V value, @NotNull ReferenceQueue<? super V> queue) {
      super(value, queue);
-     myHash = value.hashCode();
    }
 
-   // MUST work with gced references too for the code in processQueue to work
+   // When referent is collected, equality should be identity-based (for the processQueues() remove this very same SoftValue)
+   // otherwise it's just canonical equals on referents for replace(K,V,V) to work
    @Override
    public final boolean equals(final Object o) {
      if (this == o) return true;
      if (o == null) return false;
 
-     ValueReference that = (ValueReference)o;
-
-     return myHash == that.hashCode() && Comparing.equal(get(), that.get());
-   }
-
-   @Override
-   public final int hashCode() {
-     return myHash;
+     V v = get();
+     //noinspection unchecked
+     Object thatV = ((ValueReference<K, V>)o).get();
+     return v != null && v.equals(thatV);
    }
 
    @NotNull
@@ -149,18 +129,19 @@ public class ConcurrentWeakKeySoftValueHashMap<K, V> implements ConcurrentMap<K,
  }
 
   @NotNull
-  protected KeyReference<K,V> createKeyReference(@NotNull K k, @NotNull final V v) {
+  KeyReference<K,V> createKeyReference(@NotNull K k, @NotNull final V v) {
     final ValueReference<K, V> valueReference = createValueReference(v, myValueQueue);
-    WeakKey<K, V> keyReference = new WeakKey<K, V>(k, valueReference, myHashingStrategy, myKeyQueue);
+    KeyReference<K,V> keyReference = new WeakKey<>(k, valueReference, myHashingStrategy, myKeyQueue);
     if (valueReference instanceof SoftValue) {
-      ((SoftValue)valueReference).myKeyReference = keyReference;
+      ((SoftValue<K, V>)valueReference).myKeyReference = keyReference;
     }
+    ObjectUtils.reachabilityFence(k);
     return keyReference;
   }
 
   @NotNull
-  protected ValueReference<K, V> createValueReference(@NotNull V value, @NotNull ReferenceQueue<V> queue) {
-    return new SoftValue<K, V>(value, queue);
+  protected ValueReference<K, V> createValueReference(@NotNull V value, @NotNull ReferenceQueue<? super V> queue) {
+    return new SoftValue<>(value, queue);
   }
 
   @Override
@@ -215,18 +196,15 @@ public class ConcurrentWeakKeySoftValueHashMap<K, V> implements ConcurrentMap<K,
     }
   }
 
-  private static final ThreadLocal<HardKey> HARD_KEY = new ThreadLocal<HardKey>() {
-    @Override
-    protected HardKey initialValue() {
-      return new HardKey();
-    }
-  };
+  private static final ThreadLocal<HardKey<?,?>> HARD_KEY = ThreadLocal.withInitial(() -> new HardKey<>());
 
   @NotNull
   private HardKey<K,V> createHardKey(Object o) {
-    @SuppressWarnings("unchecked") K key = (K)o;
-    @SuppressWarnings("unchecked") HardKey<K,V> hardKey = HARD_KEY.get();
-    hardKey.set(key, myHashingStrategy.computeHashCode(key));
+    //noinspection unchecked
+    K key = (K)o;
+    //noinspection unchecked
+    HardKey<K,V> hardKey = (HardKey<K, V>)HARD_KEY.get();
+    hardKey.set(key, myHashingStrategy.hashCode(key));
     return hardKey;
   }
 
@@ -235,33 +213,36 @@ public class ConcurrentWeakKeySoftValueHashMap<K, V> implements ConcurrentMap<K,
   @Override
   public V get(@NotNull Object key) {
     HardKey<K,V> hardKey = createHardKey(key);
-    ValueReference<K, V> valueReference = myMap.get(hardKey);
-    V v = deref(valueReference);
-    hardKey.clear();
-    return v;
+    try {
+      ValueReference<K, V> valueReference = myMap.get(hardKey);
+      return com.intellij.reference.SoftReference.deref(valueReference);
+    }
+    finally {
+      hardKey.clear();
+    }
   }
 
   @Override
   public boolean containsKey(Object key) {
-    HardKey<K,V> hardKey = createHardKey(key);
-    boolean result = myMap.containsKey(hardKey);
-    hardKey.clear();
-    return result;
+    throw RefValueHashMap.pointlessContainsKey();
   }
 
   @Override
   public boolean containsValue(Object value) {
-    throw new UnsupportedOperationException();
+    throw RefValueHashMap.pointlessContainsValue();
   }
 
   @Override
   public V remove(Object key) {
     processQueues();
     HardKey<K,V> hardKey = createHardKey(key);
-    ValueReference<K, V> valueReference = myMap.remove(hardKey);
-    V v = deref(valueReference);
-    hardKey.clear();
-    return v;
+    try {
+      ValueReference<K, V> valueReference = myMap.remove(hardKey);
+      return com.intellij.reference.SoftReference.deref(valueReference);
+    }
+    finally {
+      hardKey.clear();
+    }
   }
 
   @Override
@@ -279,18 +260,20 @@ public class ConcurrentWeakKeySoftValueHashMap<K, V> implements ConcurrentMap<K,
     ValueReference<K,V> valueReference = keyReference.getValueReference();
     ValueReference<K, V> prevValReference = myMap.put(keyReference, valueReference);
 
-    return deref(prevValReference);
+    return com.intellij.reference.SoftReference.deref(prevValReference);
   }
 
-  boolean processQueues() {
+  private boolean processQueues() {
     boolean removed = false;
     KeyReference<K,V> keyReference;
+    //noinspection unchecked
     while ((keyReference = (KeyReference<K, V>)myKeyQueue.poll()) != null) {
       ValueReference<K, V> valueReference = keyReference.getValueReference();
       removed |= myMap.remove(keyReference, valueReference);
     }
 
     ValueReference<K,V> valueReference;
+    //noinspection unchecked
     while ((valueReference = (ValueReference<K, V>)myValueQueue.poll()) != null) {
       keyReference = valueReference.getKeyReference();
       removed |= myMap.remove(keyReference, valueReference);
@@ -308,7 +291,14 @@ public class ConcurrentWeakKeySoftValueHashMap<K, V> implements ConcurrentMap<K,
   @NotNull
   @Override
   public Collection<V> values() {
-    throw new UnsupportedOperationException();
+    List<V> values = new ArrayList<>();
+    for (ValueReference<K, V> valueReference : myMap.values()) {
+      V v = com.intellij.reference.SoftReference.deref(valueReference);
+      if (v != null) {
+        values.add(v);
+      }
+    }
+    return values;
   }
 
   @NotNull
@@ -322,22 +312,33 @@ public class ConcurrentWeakKeySoftValueHashMap<K, V> implements ConcurrentMap<K,
     processQueues();
 
     HardKey<K, V> hardKey = createHardKey(key);
-    ValueReference<K, V> valueReference = myMap.get(hardKey);
-    V v = deref(valueReference);
+    try {
+      ValueReference<K, V> valueReference = myMap.get(hardKey);
+      V v = com.intellij.reference.SoftReference.deref(valueReference);
 
-    boolean result = value.equals(v) && myMap.remove(hardKey, valueReference);
-    hardKey.clear();
-    return result;
+      return value.equals(v) && myMap.remove(hardKey, valueReference);
+    }
+    finally {
+      hardKey.clear();
+    }
   }
 
   @Override
   public V putIfAbsent(@NotNull K key, @NotNull V value) {
-    processQueues();
-    KeyReference<K, V> keyReference = createKeyReference(key, value);
-    ValueReference<K, V> valueReference = keyReference.getValueReference();
-
-    ValueReference<K, V> result = myMap.putIfAbsent(keyReference, valueReference);
-    return deref(result);
+    KeyReference<K, V> keyRef = createKeyReference(key, value);
+    ValueReference<K, V> newRef = keyRef.getValueReference();
+    while (true) {
+      processQueues();
+      ValueReference<K, V> oldRef = myMap.putIfAbsent(keyRef, newRef);
+      if (oldRef == null) return null;
+      final V oldVal = oldRef.get();
+      if (oldVal == null) {
+        if (myMap.replace(keyRef, oldRef, newRef)) return null;
+      }
+      else {
+        return oldVal;
+      }
+    }
   }
 
   @Override
@@ -357,6 +358,6 @@ public class ConcurrentWeakKeySoftValueHashMap<K, V> implements ConcurrentMap<K,
     KeyReference<K, V> keyReference = createKeyReference(key, value);
     ValueReference<K, V> valueReference = keyReference.getValueReference();
     ValueReference<K, V> result = myMap.replace(keyReference, valueReference);
-    return deref(result);
+    return com.intellij.reference.SoftReference.deref(result);
   }
 }

@@ -22,7 +22,7 @@ import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.codeInsight.editorActions.smartEnter.PySmartEnterProcessor;
 import com.jetbrains.python.psi.PyExceptPart;
 import com.jetbrains.python.psi.PyExpression;
-import com.jetbrains.python.psi.PyUtil;
+import com.jetbrains.python.psi.impl.PyPsiUtils;
 import org.jetbrains.annotations.NotNull;
 
 import static com.jetbrains.python.psi.PyUtil.sure;
@@ -30,8 +30,6 @@ import static com.jetbrains.python.psi.PyUtil.sure;
 /**
  * Created by IntelliJ IDEA.
  * Author: Alexey.Ivanov
- * Date:   22.04.2010
- * Time:   18:13:34
  */
 public class PyExceptFixer extends PyFixer<PyExceptPart> {
   public PyExceptFixer() {
@@ -40,9 +38,9 @@ public class PyExceptFixer extends PyFixer<PyExceptPart> {
 
   @Override
   public void doApply(@NotNull Editor editor, @NotNull PySmartEnterProcessor processor, @NotNull PyExceptPart exceptPart) throws IncorrectOperationException {
-    final PsiElement colon = PyUtil.getFirstChildOfType(exceptPart, PyTokenTypes.COLON);
+    final PsiElement colon = PyPsiUtils.getFirstChildOfType(exceptPart, PyTokenTypes.COLON);
     if (colon == null) {
-      final PsiElement exceptToken = PyUtil.getFirstChildOfType(exceptPart, PyTokenTypes.EXCEPT_KEYWORD);
+      final PsiElement exceptToken = PyPsiUtils.getFirstChildOfType(exceptPart, PyTokenTypes.EXCEPT_KEYWORD);
       int offset = sure(exceptToken).getTextRange().getEndOffset();
       final PyExpression exceptClass = exceptPart.getExceptClass();
       if (exceptClass != null) {

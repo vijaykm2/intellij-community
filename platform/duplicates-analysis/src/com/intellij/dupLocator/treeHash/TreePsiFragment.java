@@ -6,9 +6,6 @@ import com.intellij.psi.PsiElement;
 
 import java.util.List;
 
-/**
-* @author oleg
-*/
 public class TreePsiFragment extends PsiFragment {
   private final NodeSpecificHasher myHasher;
 
@@ -22,6 +19,7 @@ public class TreePsiFragment extends PsiFragment {
     myHasher = hasher;
   }
 
+  @Override
   public boolean isEqual(PsiElement[] elements, int discardCost) {
     if (elements.length != myElementAnchors.length) {
       return false;

@@ -1,32 +1,24 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.colors;
 
+import com.intellij.ide.ui.UISettings;
+import com.intellij.ide.ui.UISettingsListener;
 import com.intellij.ui.ColorUtil;
+import com.intellij.ui.JBColor;
+import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.function.Function;
 
 /**
  * @author gregsh
  */
-public class EditorColorsUtil {
+public final class EditorColorsUtil {
   private EditorColorsUtil() {
   }
 
@@ -37,6 +29,12 @@ public class EditorColorsUtil {
   @NotNull
   public static EditorColorsScheme getGlobalOrDefaultColorScheme() {
     return getColorSchemeForBackground(null);
+  }
+
+  @Nullable
+  public static Color getGlobalOrDefaultColor(@NotNull ColorKey colorKey) {
+    Color color = getColorSchemeForBackground(null).getColor(colorKey);
+    return color != null? color : colorKey.getDefaultColor();
   }
 
   /**
@@ -54,14 +52,49 @@ public class EditorColorsUtil {
    */
   public static EditorColorsScheme getColorSchemeForBackground(@Nullable Color background) {
     EditorColorsScheme globalScheme = EditorColorsManager.getInstance().getGlobalScheme();
-    boolean dark1 = background == null ? UIUtil.isUnderDarcula() : ColorUtil.isDark(background);
+    boolean dark1 = background == null ? StartupUiUtil.isUnderDarcula() : ColorUtil.isDark(background);
     boolean dark2 = ColorUtil.isDark(globalScheme.getDefaultBackground());
     if (dark1 != dark2) {
-      EditorColorsScheme scheme = EditorColorsManager.getInstance().getScheme(EditorColorsScheme.DEFAULT_SCHEME_NAME);
+      EditorColorsScheme scheme = EditorColorsManager.getInstance().getScheme(dark1 ? "Darcula" : EditorColorsScheme.DEFAULT_SCHEME_NAME);
       if (scheme != null) {
         return scheme;
       }
     }
     return globalScheme;
+  }
+
+  @NotNull
+  public static EditorColorsScheme getColorSchemeForPrinting() {
+    EditorColorsManager colorsManager = EditorColorsManager.getInstance();
+    return colorsManager.isDarkEditor() ? colorsManager.getScheme(EditorColorsManager.DEFAULT_SCHEME_NAME)
+                                        : colorsManager.getGlobalScheme();
+  }
+
+  /**
+   * Use this method before showing a hidden component to make sure its LaF and colors are up-to-date.
+   * If a component was not reachable via Swing hierarchy and also was not reported via
+   * {@link UIUtil#NOT_IN_HIERARCHY_COMPONENTS}, its look-and-feel and colors need to be refreshed.
+   *
+   * @see com.intellij.util.ComponentTreeEventDispatcher
+   * @see UIUtil#NOT_IN_HIERARCHY_COMPONENTS
+   */
+  public static void updateNotInHierarchyComponentUIAndColors(@Nullable Component component) {
+    if (component == null || component.isValid()) return;
+    for (Component o : UIUtil.uiTraverser(component).postOrderDfsTraversal()) {
+      if (o instanceof JComponent) ((JComponent)o).updateUI();
+      if (o instanceof UISettingsListener) ((UISettingsListener)o).uiSettingsChanged(UISettings.getInstance());
+      if (o instanceof EditorColorsListener)
+        ((EditorColorsListener)o).globalSchemeChange(EditorColorsManager.getInstance().getGlobalScheme());
+    }
+  }
+
+  public static @NotNull ColorKey createColorKey(@NonNls @NotNull String name, @NotNull Color defaultColor) {
+    return ColorKey.createColorKey(name, JBColor.namedColor(name, defaultColor));
+  }
+
+  public static @Nullable Color getColor(@Nullable Component component, @NotNull ColorKey key) {
+    Function<ColorKey, Color> function = UIUtil.getClientProperty(component, ColorKey.FUNCTION_KEY);
+    Color color = function == null ? null : function.apply(key);
+    return color != null ? color : key.getDefaultColor();
   }
 }

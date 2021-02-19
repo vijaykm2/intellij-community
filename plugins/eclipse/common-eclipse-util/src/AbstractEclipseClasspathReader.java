@@ -20,6 +20,7 @@ import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import org.jdom.Element;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -28,10 +29,6 @@ import java.util.*;
 import java.util.jar.Manifest;
 import java.util.regex.PatternSyntaxException;
 
-/**
- * User: anna
- * Date: 10/29/12
- */
 public abstract class AbstractEclipseClasspathReader<T> {
   protected final String myRootPath;
   @Nullable protected final List<String> myCurrentRoots;
@@ -46,7 +43,7 @@ public abstract class AbstractEclipseClasspathReader<T> {
   protected abstract String prepareValidUrlInsideJar(String url);
 
   protected abstract void addNamedLibrary(T rootModel,
-                                          Collection<String> unknownLibraries,
+                                          Collection<? super String> unknownLibraries,
                                           boolean exported,
                                           String name,
                                           boolean applicationLevel);
@@ -54,7 +51,7 @@ public abstract class AbstractEclipseClasspathReader<T> {
   protected abstract void addInvalidModuleEntry(T rootModel, boolean exported, String moduleName);
 
   protected abstract void setUpModuleJdk(T rootModel,
-                                         Collection<String> unknownJdks,
+                                         Collection<? super String> unknownJdks,
                                          EclipseModuleManager eclipseModuleManager,
                                          String jdkName);
 
@@ -71,7 +68,7 @@ public abstract class AbstractEclipseClasspathReader<T> {
                                            boolean exported,
                                            String libName,
                                            String url,
-                                           String srcUrl, ExpandMacroToPathMap macroMap);
+                                           String srcUrl, String nativeRoot, ExpandMacroToPathMap macroMap);
 
   protected abstract String expandEclipsePath2Url(T rootModel, String path);
 
@@ -80,23 +77,21 @@ public abstract class AbstractEclipseClasspathReader<T> {
   protected abstract int rearrange(T rootModel);
 
   protected void readClasspathEntry(T rootModel,
-                                    final Collection<String> unknownLibraries,
-                                    Collection<String> unknownJdks,
-                                    Set<String> refsToModules,
+                                    final Collection<? super String> unknownLibraries,
+                                    Collection<? super String> unknownJdks,
+                                    Set<? super String> refsToModules,
                                     final String testPattern,
                                     Element element, int index,
                                     @Nullable EclipseModuleManager eclipseModuleManager,
                                     final ExpandMacroToPathMap macroMap,
-                                    final Set<String> libs) throws ConversionException {
+                                    final Set<? super String> libs) throws ConversionException {
     String kind = element.getAttributeValue(EclipseXml.KIND_ATTR);
     if (kind == null) {
-      //noinspection SpellCheckingInspection
       throw new ConversionException("Missing classpathentry/@kind");
     }
 
     String path = element.getAttributeValue(EclipseXml.PATH_ATTR);
     if (path == null) {
-      //noinspection SpellCheckingInspection
       throw new ConversionException("Missing classpathentry/@path");
     }
 
@@ -109,7 +104,7 @@ public abstract class AbstractEclipseClasspathReader<T> {
         addInvalidModuleEntry(rootModel, exported, moduleName);
       }
       else {
-        String srcUrl = pathToUrl(myRootPath + "/" + path);
+        String srcUrl = pathToUrl(getPathRelativeToRoot(path));
         boolean isTestFolder;
         try {
           isTestFolder = !StringUtil.isEmpty(testPattern) && path.matches(testPattern);
@@ -117,7 +112,7 @@ public abstract class AbstractEclipseClasspathReader<T> {
         catch (PatternSyntaxException e) {
           isTestFolder = false;
         }
-        String linked = expandLinkedResourcesPath(macroMap, path);
+        String linked = expandLinkedResourcesPath(myRootPath, macroMap, path);
         if (linked == null) {
           addSourceFolderToCurrentContentRoot(rootModel, srcUrl, isTestFolder);
         }
@@ -136,8 +131,8 @@ public abstract class AbstractEclipseClasspathReader<T> {
       }
     }
     else if (kind.equals(EclipseXml.OUTPUT_KIND)) {
-      String output = myRootPath + "/" + path;
-      String linked = expandLinkedResourcesPath(macroMap, path);
+      String output = getPathRelativeToRoot(path);
+      String linked = expandLinkedResourcesPath(myRootPath, macroMap, path);
       if (linked != null) {
         output = linked;
         if (eclipseModuleManager != null) {
@@ -147,7 +142,7 @@ public abstract class AbstractEclipseClasspathReader<T> {
       setupOutput(rootModel, output);
     }
     else if (kind.equals(EclipseXml.LIB_KIND)) {
-      String linked = expandLinkedResourcesPath(macroMap, path);
+      String linked = expandLinkedResourcesPath(myRootPath, macroMap, path);
       String url;
       if (linked != null) {
         url = prepareValidUrlInsideJar(pathToUrl(linked));
@@ -166,7 +161,7 @@ public abstract class AbstractEclipseClasspathReader<T> {
       final String sourcePath = element.getAttributeValue(EclipseXml.SOURCEPATH_ATTR);
       String srcUrl = null;
       if (sourcePath != null) {
-        final String linkedSrc = expandLinkedResourcesPath(macroMap, sourcePath);
+        final String linkedSrc = expandLinkedResourcesPath(myRootPath, macroMap, sourcePath);
         if (linkedSrc != null) {
           srcUrl = prepareValidUrlInsideJar(pathToUrl(linkedSrc));
           if (eclipseModuleManager != null) {
@@ -178,12 +173,16 @@ public abstract class AbstractEclipseClasspathReader<T> {
         }
       }
 
-      addModuleLibrary(rootModel, element, exported, getPresentableName(path, libs), url, srcUrl, macroMap);
+      String nativeRoot = getNativeLibraryRoot(element);
+      if (nativeRoot != null) {
+        nativeRoot = expandEclipsePath2Url(rootModel, nativeRoot);
+      }
+
+      addModuleLibrary(rootModel, element, exported, getPresentableName(path, libs), url, srcUrl, nativeRoot, macroMap);
     }
     else if (kind.equals(EclipseXml.VAR_KIND)) {
       int slash = path.indexOf("/");
       if (slash == 0) {
-        //noinspection SpellCheckingInspection
         throw new ConversionException("Incorrect 'classpathentry/var@path' format");
       }
 
@@ -201,7 +200,11 @@ public abstract class AbstractEclipseClasspathReader<T> {
           eclipseModuleManager.registerEclipseSrcVariablePath(srcUrl, srcPathAttr);
         }
       }
-      addModuleLibrary(rootModel, element, exported, libName, url, srcUrl, macroMap);
+      String nativeRoot = getNativeLibraryRoot(element);
+      if (nativeRoot != null) {
+        nativeRoot = expandEclipsePath2Url(rootModel, nativeRoot);
+      }
+      addModuleLibrary(rootModel, element, exported, libName, url, srcUrl, nativeRoot, macroMap);
     }
     else if (kind.equals(EclipseXml.CON_KIND)) {
       if (path.equals(EclipseXml.ECLIPSE_PLATFORM)) {
@@ -232,27 +235,42 @@ public abstract class AbstractEclipseClasspathReader<T> {
           if (eclipseModuleManager != null) {
             eclipseModuleManager.registerUnknownCons(path);
           }
-          addNamedLibrary(rootModel, new ArrayList<String>(), exported, path, true);
+          addNamedLibrary(rootModel, new ArrayList<>(), exported, path, true);
         }
       }
     }
     else {
-      //noinspection SpellCheckingInspection
       throw new ConversionException("Unknown classpathentry/@kind: " + kind);
     }
   }
 
-  protected static int srcVarStart(String srcPath) {
+  private String getPathRelativeToRoot(String path) {
+    return path.isEmpty() ? myRootPath : (myRootPath + "/" + path);
+  }
+
+  public static String getNativeLibraryRoot(Element element) {
+    final Element attributes = element.getChild(EclipseXml.ATTRIBUTES_TAG);
+    if (attributes != null) {
+      for (Element attributeElement : attributes.getChildren(EclipseXml.ATTRIBUTE_TAG)) {
+        if (EclipseXml.DLL_LINK.equals(attributeElement.getAttributeValue(EclipseXml.NAME_ATTR))) {
+          return attributeElement.getAttributeValue(EclipseXml.VALUE_ATTR);
+        }
+      }
+    }
+    return null;
+  }
+
+  public static int srcVarStart(String srcPath) {
     return srcPath.startsWith("/") ? 1 : 0;
   }
 
   @NotNull
-  protected static String getPresentableName(@NotNull String path) {
+  public static String getPresentableName(@NotNull String path) {
     return getPresentableName(path, null);
   }
 
   @NotNull
-  protected static String getPresentableName(@NotNull String path, Set<String> names) {
+  public static String getPresentableName(@NotNull String path, Set<? super String> names) {
     String pathComponent = getLastPathComponent(path);
     if (pathComponent != null && names != null && !names.add(pathComponent)) {
       return path;
@@ -268,16 +286,17 @@ public abstract class AbstractEclipseClasspathReader<T> {
     return idx < 0 || idx == path.length() - 1 ? null : path.substring(idx + 1);
   }
 
-  protected static String getVariableRelatedPath(String var, String path) {
-    return var == null ? null : ("$" + var + "$" + (path == null ? "" : ("/" + path)));
+  @NotNull
+  public static String getVariableRelatedPath(@NotNull String var, String path) {
+    return "$" + var + "$" + (path == null ? "" : "/" + path);
   }
 
   @NotNull
-  protected static String pathToUrl(@NotNull String path) {
-    return "file://" + path;
+  protected static @NonNls String pathToUrl(@NotNull String path) {
+    return "file://" + FileUtil.toSystemIndependentName(path);
   }
 
-  protected static EPathVariable createEPathVariable(String pathAttr, int varStart) {
+  public static EPathVariable createEPathVariable(String pathAttr, int varStart) {
     int slash = pathAttr.indexOf("/", varStart);
     if (slash > 0) {
       return new EPathVariable(pathAttr.substring(varStart, slash), pathAttr.substring(slash + 1));
@@ -294,9 +313,9 @@ public abstract class AbstractEclipseClasspathReader<T> {
   }
 
   @Nullable
-  protected String expandLinkedResourcesPath(final ExpandMacroToPathMap macroMap,
-                                             final String path) {
-    final EclipseProjectFinder.LinkedResource linkedResource = EclipseProjectFinder.findLinkedResource(myRootPath, path);
+  public static String expandLinkedResourcesPath(String rootPath, final ExpandMacroToPathMap macroMap,
+                                                 final String path) {
+    final EclipseProjectFinder.LinkedResource linkedResource = EclipseProjectFinder.findLinkedResource(rootPath, path);
     if (linkedResource != null) {
       if (linkedResource.containsPathVariable()) {
         final String toPathVariableFormat =
@@ -309,7 +328,7 @@ public abstract class AbstractEclipseClasspathReader<T> {
   }
 
 
-  protected void readRequiredBundles(T rootModel, Set<String> refsToModules) throws ConversionException {
+  protected void readRequiredBundles(T rootModel, Set<? super String> refsToModules) throws ConversionException {
     if (myModuleNames == null) {
       return;
     }
@@ -356,13 +375,22 @@ public abstract class AbstractEclipseClasspathReader<T> {
     }
   }
 
-  protected static class EPathVariable {
+  public static class EPathVariable {
+    @NotNull
     private final String myVariable;
     private final String myRelatedPath;
 
-    protected EPathVariable(final String variable, final String relatedPath) {
+    protected EPathVariable(@NotNull String variable, final String relatedPath) {
       myVariable = variable;
       myRelatedPath = relatedPath;
+    }
+
+    public @NotNull String getVariable() {
+      return myVariable;
+    }
+
+    public String getRelatedPath() {
+      return myRelatedPath;
     }
   }
 }

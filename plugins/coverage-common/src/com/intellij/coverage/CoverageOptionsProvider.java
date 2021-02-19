@@ -1,21 +1,18 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.coverage;
 
 import com.intellij.openapi.components.*;
-import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.NotNull;
 
-/**
- * User: anna
- * Date: 4/28/11
- */
 @State(
   name = "CoverageOptionsProvider",
   storages = {
-    @Storage(file = StoragePathMacros.WORKSPACE_FILE)
+    @Storage(StoragePathMacros.WORKSPACE_FILE)
   }
 )
 public class CoverageOptionsProvider implements PersistentStateComponent<CoverageOptionsProvider.State> {
-  private State myState = new State();
+  private final State myState = new State();
 
   public static CoverageOptionsProvider getInstance(Project project) {
     return ServiceManager.getService(project, CoverageOptionsProvider.class);
@@ -43,7 +40,7 @@ public class CoverageOptionsProvider implements PersistentStateComponent<Coverag
   }
 
   @Override
-  public void loadState(State state) {
+  public void loadState(@NotNull State state) {
     myState.myAddOrReplace = state.myAddOrReplace;
     myState.myActivateViewOnRun = state.myActivateViewOnRun;
   }

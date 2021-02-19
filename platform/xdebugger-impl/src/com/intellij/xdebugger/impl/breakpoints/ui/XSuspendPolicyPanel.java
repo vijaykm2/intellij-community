@@ -1,24 +1,12 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.breakpoints.ui;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.wm.IdeFocusManager;
+import com.intellij.xdebugger.XDebuggerBundle;
 import com.intellij.xdebugger.breakpoints.SuspendPolicy;
-import com.intellij.xdebugger.breakpoints.XBreakpoint;
 import com.intellij.xdebugger.breakpoints.XBreakpointManager;
+import com.intellij.xdebugger.impl.breakpoints.XBreakpointBase;
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointManagerImpl;
 import org.jetbrains.annotations.NotNull;
 
@@ -29,13 +17,14 @@ import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 
-public class XSuspendPolicyPanel<B extends XBreakpoint<?>> extends XBreakpointPropertiesSubPanel<B> {
+public class XSuspendPolicyPanel extends XBreakpointPropertiesSubPanel {
   private JCheckBox mySuspendCheckBox;
   private JRadioButton mySuspendAll;
   private JRadioButton mySuspendThread;
 
   private JPanel myContentPane;
   private JButton myMakeDefaultButton;
+  private JPanel myMakeDefaultPanel;
 
   private ButtonGroup mySuspendPolicyGroup;
 
@@ -46,7 +35,7 @@ public class XSuspendPolicyPanel<B extends XBreakpoint<?>> extends XBreakpointPr
   private Delegate myDelegate;
 
   @Override
-  public void init(Project project, final XBreakpointManager breakpointManager, @NotNull B breakpoint) {
+  public void init(Project project, final XBreakpointManager breakpointManager, @NotNull XBreakpointBase breakpoint) {
     super.init(project, breakpointManager, breakpoint);
 
     mySuspendCheckBox.addActionListener(new ActionListener() {
@@ -87,19 +76,21 @@ public class XSuspendPolicyPanel<B extends XBreakpoint<?>> extends XBreakpointPr
         SuspendPolicy suspendPolicy = getSelectedSuspendPolicy();
         ((XBreakpointManagerImpl)myBreakpointManager).getBreakpointDefaults(myBreakpointType).setSuspendPolicy(suspendPolicy);
         updateSuspendPolicyFont();
-        if (SuspendPolicy.THREAD == suspendPolicy) {
-          mySuspendThread.requestFocus();
-        }
-        else {
-          mySuspendAll.requestFocus();
-        }
+
+        JRadioButton comp = SuspendPolicy.THREAD == suspendPolicy ? mySuspendThread : mySuspendAll;
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(comp, true));
+
         myMakeDefaultButton.setEnabled(false);
       }
     });
   }
 
   private void updateMakeDefaultEnableState() {
-    myMakeDefaultButton.setEnabled(!getSelectedSuspendPolicy().equals(((XBreakpointManagerImpl)myBreakpointManager).getBreakpointDefaults(myBreakpointType).getSuspendPolicy()));
+    boolean enabled = !getSelectedSuspendPolicy().equals(
+      ((XBreakpointManagerImpl)myBreakpointManager).getBreakpointDefaults(myBreakpointType).getSuspendPolicy());
+    ((CardLayout)myMakeDefaultPanel.getLayout()).show(myMakeDefaultPanel, enabled ? "Show" : "Hide");
+    myMakeDefaultButton.setVisible(enabled);
+    myMakeDefaultButton.setEnabled(enabled);
   }
 
   private void updateSuspendPolicyFont() {
@@ -125,13 +116,20 @@ public class XSuspendPolicyPanel<B extends XBreakpoint<?>> extends XBreakpointPr
   private void changeVisibleState(boolean suspendThreadSupported) {
     mySuspendAll.setVisible(suspendThreadSupported);
     mySuspendThread.setVisible(suspendThreadSupported);
-    myMakeDefaultButton.setVisible(suspendThreadSupported);
+    myMakeDefaultPanel.setVisible(suspendThreadSupported);
+    if (!suspendThreadSupported) {
+      mySuspendCheckBox.setText(XDebuggerBundle.message("suspend.policy.panel.suspend.execution"));
+    }
   }
 
   @Override
   public boolean lightVariant(boolean showAllOptions) {
     myContentPane.setBorder(null);
     return false;
+  }
+
+  public void hide() {
+    myContentPane.getParent().remove(myContentPane);
   }
 
   @Override
@@ -160,7 +158,7 @@ public class XSuspendPolicyPanel<B extends XBreakpoint<?>> extends XBreakpointPr
       return mySuspendAll.isSelected() ? SuspendPolicy.ALL : SuspendPolicy.THREAD;
     }
     else {
-      return SuspendPolicy.ALL;
+      return myBreakpoint.getType().getDefaultSuspendPolicy();
     }
   }
 

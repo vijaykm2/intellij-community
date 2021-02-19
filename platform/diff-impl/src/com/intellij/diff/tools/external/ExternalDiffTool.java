@@ -1,42 +1,30 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diff.tools.external;
 
 import com.intellij.diff.DiffDialogHints;
 import com.intellij.diff.DiffManagerEx;
-import com.intellij.diff.chains.DiffRequestChain;
-import com.intellij.diff.chains.DiffRequestProducer;
-import com.intellij.diff.chains.DiffRequestProducerException;
-import com.intellij.diff.chains.SimpleDiffRequestChain;
+import com.intellij.diff.chains.*;
 import com.intellij.diff.contents.DiffContent;
 import com.intellij.diff.requests.ContentDiffRequest;
 import com.intellij.diff.requests.DiffRequest;
 import com.intellij.execution.ExecutionException;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
+import com.intellij.openapi.ListSelection;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.UserDataHolderBase;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.HtmlBuilder;
+import com.intellij.openapi.util.text.HtmlChunk;
+import com.intellij.util.ThrowableConvertor;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -45,8 +33,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-public class ExternalDiffTool {
-  public static final Logger LOG = Logger.getInstance(ExternalDiffTool.class);
+public final class ExternalDiffTool {
+  private static final Logger LOG = Logger.getInstance(ExternalDiffTool.class);
 
   public static boolean isDefault() {
     return ExternalDiffSettings.getInstance().isDiffEnabled() && ExternalDiffSettings.getInstance().isDiffDefault();
@@ -60,25 +48,11 @@ public class ExternalDiffTool {
                           @NotNull final DiffRequestChain chain,
                           @NotNull final DiffDialogHints hints) {
     try {
-      //noinspection unchecked
-      final Ref<List<DiffRequest>> requestsRef = new Ref<List<DiffRequest>>();
-      final Ref<Throwable> exceptionRef = new Ref<Throwable>();
-      ProgressManager.getInstance().run(new Task.Modal(project, "Loading Requests", true) {
-        @Override
-        public void run(@NotNull ProgressIndicator indicator) {
-          try {
-            requestsRef.set(collectRequests(project, chain, indicator));
-          }
-          catch (Throwable e) {
-            exceptionRef.set(e);
-          }
-        }
-      });
+      final List<DiffRequest> requests = loadRequestsUnderProgress(project, chain);
+      if (requests == null) return;
 
-      if (!exceptionRef.isNull()) throw exceptionRef.get();
-
-      List<DiffRequest> showInBuiltin = new ArrayList<DiffRequest>();
-      for (DiffRequest request : requestsRef.get()) {
+      List<DiffRequest> showInBuiltin = new ArrayList<>();
+      for (DiffRequest request : requests) {
         if (canShow(request)) {
           showRequest(project, request);
         }
@@ -94,22 +68,49 @@ public class ExternalDiffTool {
     catch (ProcessCanceledException ignore) {
     }
     catch (Throwable e) {
-      LOG.error(e);
-      Messages.showErrorDialog(project, e.getMessage(), "Can't Show Diff In External Tool");
+      LOG.warn(e);
+      Messages.showErrorDialog(project, e.getMessage(), DiffBundle.message("can.t.show.diff.in.external.tool"));
+    }
+  }
+
+  @Nullable
+  private static List<DiffRequest> loadRequestsUnderProgress(@Nullable Project project,
+                                                             @NotNull DiffRequestChain chain) throws Throwable {
+    if (chain instanceof AsyncDiffRequestChain) {
+      return computeWithModalProgress(project, DiffBundle.message("progress.title.loading.requests"), indicator -> {
+        ListSelection<? extends DiffRequestProducer> listSelection = ((AsyncDiffRequestChain)chain).loadRequestsInBackground();
+        return collectRequests(project, listSelection.getList(), listSelection.getSelectedIndex(), indicator);
+      });
+    }
+    else {
+      List<? extends DiffRequestProducer> allProducers = chain.getRequests();
+      int index = chain.getIndex();
+
+      return computeWithModalProgress(project, DiffBundle.message("progress.title.loading.requests"), indicator -> {
+        return collectRequests(project, allProducers, index, indicator);
+      });
     }
   }
 
   @NotNull
   private static List<DiffRequest> collectRequests(@Nullable Project project,
-                                                   @NotNull final DiffRequestChain chain,
+                                                   @NotNull List<? extends DiffRequestProducer> allProducers,
+                                                   int index,
                                                    @NotNull ProgressIndicator indicator) {
-    List<DiffRequest> requests = new ArrayList<DiffRequest>();
+    // TODO: show all changes on explicit selection (not only `chain.getIndex()` one)
+    if (allProducers.isEmpty()) return Collections.emptyList();
+    List<? extends DiffRequestProducer> producers = Collections.singletonList(allProducers.get(index));
+    return collectRequests(project, producers, indicator);
+  }
+
+  @NotNull
+  private static List<DiffRequest> collectRequests(@Nullable Project project,
+                                                   @NotNull List<? extends DiffRequestProducer> producers,
+                                                   @NotNull ProgressIndicator indicator) {
+    List<DiffRequest> requests = new ArrayList<>();
 
     UserDataHolderBase context = new UserDataHolderBase();
-    List<String> errorRequests = new ArrayList<String>();
-
-    // TODO: show all changes on explicit selection
-    List<? extends DiffRequestProducer> producers = Collections.singletonList(chain.getRequests().get(chain.getIndex()));
+    List<DiffRequestProducer> errorRequests = new ArrayList<>();
 
     for (DiffRequestProducer producer : producers) {
       try {
@@ -117,29 +118,43 @@ public class ExternalDiffTool {
       }
       catch (DiffRequestProducerException e) {
         LOG.warn(e);
-        errorRequests.add(producer.getName());
+        errorRequests.add(producer);
       }
     }
 
     if (!errorRequests.isEmpty()) {
-      new Notification("diff", "Can't load some changes", StringUtil.join(errorRequests, "<br>"), NotificationType.ERROR).notify(project);
+      HtmlBuilder message = new HtmlBuilder()
+        .appendWithSeparators(HtmlChunk.br(), ContainerUtil.map(errorRequests, producer -> HtmlChunk.text(producer.getName())));
+      new Notification("Diff", DiffBundle.message("can.t.load.some.changes"), message.toString(), NotificationType.ERROR).notify(project);
     }
 
     return requests;
   }
 
-  public static void showRequest(@Nullable Project project, @NotNull DiffRequest request)
-    throws ExecutionException, IOException {
+  private static <T> T computeWithModalProgress(@Nullable Project project,
+                                                @NotNull @NlsContexts.DialogTitle String title,
+                                                @NotNull ThrowableConvertor<? super ProgressIndicator, T, ? extends Exception> computable) throws Exception {
+    return ProgressManager.getInstance().run(new Task.WithResult<T, Exception>(project, title, true) {
+      @Override
+      protected T compute(@NotNull ProgressIndicator indicator) throws Exception {
+        return computable.convert(indicator);
+      }
+    });
+  }
+
+  public static void showRequest(@Nullable Project project, @NotNull DiffRequest request) throws ExecutionException, IOException {
     request.onAssigned(true);
+    try {
+      ExternalDiffSettings settings = ExternalDiffSettings.getInstance();
 
-    ExternalDiffSettings settings = ExternalDiffSettings.getInstance();
+      List<DiffContent> contents = ((ContentDiffRequest)request).getContents();
+      List<String> titles = ((ContentDiffRequest)request).getContentTitles();
 
-    List<DiffContent> contents = ((ContentDiffRequest)request).getContents();
-    List<String> titles = ((ContentDiffRequest)request).getContentTitles();
-
-    ExternalDiffToolUtil.execute(settings, contents, titles, request.getTitle());
-
-    request.onAssigned(false);
+      ExternalDiffToolUtil.execute(project, settings, contents, titles, request.getTitle());
+    }
+    finally {
+      request.onAssigned(false);
+    }
   }
 
   public static boolean canShow(@NotNull DiffRequest request) {

@@ -16,11 +16,11 @@
 package org.intellij.plugins.intelliLang.inject.config.ui;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
+import java.util.Objects;
+import javax.swing.JPanel;
+import javax.swing.JTextField;
 import org.intellij.plugins.intelliLang.inject.config.XmlTagInjection;
-
-import javax.swing.*;
 
 public class XmlTagPanel extends AbstractInjectionPanel<XmlTagInjection> {
 
@@ -41,19 +41,22 @@ public class XmlTagPanel extends AbstractInjectionPanel<XmlTagInjection> {
     init(injection.copy());
   }
 
+  @Override
   protected void apply(XmlTagInjection other) {
     String name = myNameTextField.getText();
-    boolean useGenerated = myUseGeneratedName && Comparing.equal(myOrigInjection.getDisplayName(), name);
+    boolean useGenerated = myUseGeneratedName && Objects.equals(myOrigInjection.getDisplayName(), name);
     String newName = useGenerated || StringUtil.isEmptyOrSpaces(name) ? other.getGeneratedName() : name;
     other.setDisplayName(newName);
   }
 
+  @Override
   protected void resetImpl() {
     myNameTextField.setText(myOrigInjection.getDisplayName());
 
-    myUseGeneratedName = Comparing.equal(myOrigInjection.getDisplayName(), myOrigInjection.getGeneratedName());
+    myUseGeneratedName = Objects.equals(myOrigInjection.getDisplayName(), myOrigInjection.getGeneratedName());
   }
 
+  @Override
   public JPanel getComponent() {
     return myRoot;
   }

@@ -15,7 +15,7 @@
  */
 package com.intellij.util.containers;
 
-import com.intellij.util.GCUtil;
+import com.intellij.util.ref.GCUtil;
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -28,8 +28,8 @@ import static org.junit.Assert.*;
 public class WeakListTest {
   private static final String HARD_REFERENCED = "xxx";
 
-  private final WeakList<Object> myWeakList = new WeakList<Object>();
-  private final List<Object> myHolder = new ArrayList<Object>();
+  private final WeakList<Object> myWeakList = new WeakList<>();
+  private final List<Object> myHolder = new ArrayList<>();
 
   @Test
   public void testCompresses() {
@@ -52,6 +52,7 @@ public class WeakListTest {
     assertSame(HARD_REFERENCED, myWeakList.iterator().next());
   }
 
+  @SuppressWarnings("RedundantOperationOnEmptyContainer")
   @Test
   public void testClear() {
     fillWithObjects(20);
@@ -70,6 +71,7 @@ public class WeakListTest {
     Iterator<?> iterator = myWeakList.iterator();
     for (int i = 0; i < N; i++) {
       assertTrue(iterator.hasNext());
+      //noinspection ConstantConditions
       assertTrue(iterator.hasNext());
       int element = (Integer)iterator.next();
       assertEquals(i, element);
@@ -225,6 +227,6 @@ public class WeakListTest {
   }
 
   private static void gc() {
-    GCUtil.tryForceGC();
+    GCUtil.tryGcSoftlyReachableObjects();
   }
 }

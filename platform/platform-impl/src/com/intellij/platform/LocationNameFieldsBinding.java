@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.platform;
 
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
@@ -21,8 +7,10 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComponentWithBrowseButton.BrowseFolderActionListener;
 import com.intellij.openapi.ui.TextComponentAccessor;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.DocumentAdapter;
 import org.jetbrains.annotations.NotNull;
@@ -45,16 +33,16 @@ public class LocationNameFieldsBinding {
   private boolean myModifyingProjectName = false;
   private boolean myExternalModify = false;
   private String myBaseDir;
-  private String mySuggestedProjectName;
+  private final String mySuggestedProjectName;
 
   public LocationNameFieldsBinding(@Nullable Project project,
                                    final TextFieldWithBrowseButton locationField,
                                    final JTextField nameField,
                                    String baseDir,
-                                   String title) {
+                                   @NlsContexts.DialogTitle String title) {
     myBaseDir = baseDir;
     File suggestedProjectDirectory = FileUtil.findSequentNonexistentFile(new File(baseDir), "untitled", "");
-    locationField.setText(suggestedProjectDirectory.toString());
+    locationField.setText(suggestedProjectDirectory.getPath());
     nameField.setDocument(new NameFieldDocument(nameField, locationField));
     mySuggestedProjectName = suggestedProjectDirectory.getName();
     nameField.setText(mySuggestedProjectName);
@@ -62,13 +50,13 @@ public class LocationNameFieldsBinding {
 
     FileChooserDescriptor descriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor();
     BrowseFolderActionListener<JTextField> listener =
-      new BrowseFolderActionListener<JTextField>(title, "", locationField, project, descriptor, TextComponentAccessor.TEXT_FIELD_WHOLE_TEXT) {
+      new BrowseFolderActionListener<>(title, "", locationField, project, descriptor, TextComponentAccessor.TEXT_FIELD_WHOLE_TEXT) {
         @Override
         protected void onFileChosen(@NotNull VirtualFile chosenFile) {
           myBaseDir = chosenFile.getPath();
           if (isProjectNameChanged(nameField.getText()) && !nameField.getText().equals(chosenFile.getName())) {
             myExternalModify = true;
-            locationField.setText(new File(chosenFile.getPath(), nameField.getText()).toString());
+            locationField.setText(new File(chosenFile.getPath(), nameField.getText()).getPath());
             myExternalModify = false;
           }
           else {
@@ -82,18 +70,16 @@ public class LocationNameFieldsBinding {
     locationField.addActionListener(listener);
     locationField.getTextField().getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         if (myExternalModify) {
           return;
         }
         myModifyingLocation = true;
         String path = locationField.getText().trim();
-        if (path.endsWith(File.separator)) {
-          path = path.substring(0, path.length() - File.separator.length());
-        }
+        path = StringUtil.trimEnd(path, File.separator);
         int ind = path.lastIndexOf(File.separator);
         if (ind != -1) {
-          String projectName = path.substring(ind + 1, path.length());
+          String projectName = path.substring(ind + 1);
           if (!nameField.getText().trim().isEmpty()) {
             myBaseDir = path.substring(0, ind);
           }
@@ -113,10 +99,10 @@ public class LocationNameFieldsBinding {
   }
 
   private class NameFieldDocument extends PlainDocument {
-    public NameFieldDocument(final JTextField projectNameTextField, final TextFieldWithBrowseButton locationField) {
+    NameFieldDocument(final JTextField projectNameTextField, final TextFieldWithBrowseButton locationField) {
       addDocumentListener(new DocumentAdapter() {
         @Override
-        protected void textChanged(final DocumentEvent e) {
+        protected void textChanged(@NotNull final DocumentEvent e) {
           if (!myModifyingLocation && !myExternalModify) {
             myModifyingProjectName = true;
             File f = new File(myBaseDir);
@@ -135,7 +121,7 @@ public class LocationNameFieldsBinding {
         if (replace) {
           if (sb == null) {
             sb = new StringBuilder(str.length());
-            sb.append(str.substring(0, i));
+            sb.append(str, 0, i);
           }
           sb.append('_');
         }

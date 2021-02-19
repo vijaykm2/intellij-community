@@ -15,11 +15,13 @@
  */
 package com.intellij.openapi.diff.impl.dir;
 
-import com.intellij.ide.diff.*;
+import com.intellij.ide.diff.DiffElement;
+import com.intellij.ide.diff.DirDiffModel;
+import com.intellij.ide.diff.DirDiffSettings;
+import com.intellij.ide.diff.VirtualFileDiffElement;
 import com.intellij.openapi.diff.DirDiffManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
-import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFocusManager;
 import org.jetbrains.annotations.NotNull;
@@ -43,18 +45,18 @@ public class DirDiffManagerImpl extends DirDiffManager {
   public void showDiff(@NotNull final DiffElement dir1,
                        @NotNull final DiffElement dir2,
                        final DirDiffSettings settings,
-                       @Nullable final Runnable onWindowClose) {
+                       @Nullable final Runnable onWindowClosing) {
     final DirDiffTableModel model = new DirDiffTableModel(myProject, dir1, dir2, settings);
     if (settings.showInFrame) {
       DirDiffFrame frame = new DirDiffFrame(myProject, model);
-      setWindowListener(onWindowClose, frame.getFrame());
+      setWindowListener(onWindowClosing, frame.getFrame());
       frame.show();
     } else {
       DirDiffDialog dirDiffDialog = new DirDiffDialog(myProject, model);
       if (myProject == null || myProject.isDefault()/* || isFromModalDialog(myProject)*/) {
         dirDiffDialog.setModal(true);
       }
-      setWindowListener(onWindowClose, dirDiffDialog.getOwner());
+      setWindowListener(onWindowClosing, dirDiffDialog.getOwner());
       dirDiffDialog.show();
     }
   }
@@ -68,12 +70,12 @@ public class DirDiffManagerImpl extends DirDiffManager {
     return false;
   }
 
-  private void setWindowListener(final Runnable onWindowClose, final Window window) {
-    if (onWindowClose != null) {
+  private void setWindowListener(final Runnable onWindowClosing, final Window window) {
+    if (onWindowClosing != null) {
       window.addWindowListener(new WindowAdapter() {
         @Override
-        public void windowClosed(WindowEvent e) {
-          onWindowClose.run();
+        public void windowClosing(WindowEvent e) {
+          onWindowClosing.run();
           window.removeWindowListener(this);
         }
       });
@@ -99,9 +101,7 @@ public class DirDiffManagerImpl extends DirDiffManager {
   public DiffElement createDiffElement(Object obj) {
     //TODO make EP
     if (obj instanceof VirtualFile) {
-      final VirtualFile file = (VirtualFile)obj;
-      return JarFileSystem.PROTOCOL.equalsIgnoreCase(file.getExtension())
-             ? new JarFileDiffElement(file) : new VirtualFileDiffElement(file);
+      return VirtualFileDiffElement.createElement((VirtualFile)obj);
     }
     return null;
   }

@@ -1,38 +1,28 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/**
- * created at Nov 21, 2001
- * @author Jeka
- */
 package com.intellij.refactoring.move.moveMembers;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiFormatUtil;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.move.MoveCallback;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
+import org.jetbrains.annotations.ApiStatus;
 
 import java.util.HashSet;
 import java.util.Set;
 
-public class MoveMembersImpl {
-  public static final String REFACTORING_NAME = RefactoringBundle.message("move.members.title");
+public final class MoveMembersImpl {
+  /**
+   * @deprecated Use {@link #getRefactoringName()} instead
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.2")
+  public static final String REFACTORING_NAME = "Move Static Members";
 
   /**
    * element should be either not anonymous PsiClass whose members should be moved
@@ -52,13 +42,13 @@ public class MoveMembersImpl {
     } else {
       return;
     }
-    
-    final Set<PsiMember> preselectMembers = new HashSet<PsiMember>();
+
+    final Set<PsiMember> preselectMembers = new HashSet<>();
     for (PsiElement element : elements) {
       if (element instanceof PsiMember && !sourceClass.equals(((PsiMember)element).getContainingClass())) {
         String message = RefactoringBundle.getCannotRefactorMessage(
           RefactoringBundle.message("members.to.be.moved.should.belong.to.the.same.class"));
-        CommonRefactoringUtil.showErrorMessage(REFACTORING_NAME, message, HelpID.MOVE_MEMBERS, project);
+        CommonRefactoringUtil.showErrorMessage(getRefactoringName(), message, HelpID.MOVE_MEMBERS, project);
         return;
       }
       if (element instanceof PsiField) {
@@ -69,8 +59,8 @@ public class MoveMembersImpl {
             PsiFormatUtil.SHOW_NAME | PsiFormatUtil.SHOW_TYPE | PsiFormatUtil.TYPE_AFTER,
             PsiSubstitutor.EMPTY);
           String message = RefactoringBundle.message("field.0.is.not.static", fieldName,
-                                                          REFACTORING_NAME);
-          CommonRefactoringUtil.showErrorMessage(REFACTORING_NAME, message, HelpID.MOVE_MEMBERS, project);
+                                                     getRefactoringName());
+          CommonRefactoringUtil.showErrorMessage(getRefactoringName(), message, HelpID.MOVE_MEMBERS, project);
           return;
         }
         preselectMembers.add(field);
@@ -83,14 +73,14 @@ public class MoveMembersImpl {
           PsiFormatUtil.SHOW_TYPE
         );
         if (method.isConstructor()) {
-          String message = RefactoringBundle.message("0.refactoring.cannot.be.applied.to.constructors", REFACTORING_NAME);
-          CommonRefactoringUtil.showErrorMessage(REFACTORING_NAME, message, HelpID.MOVE_MEMBERS, project);
+          String message = RefactoringBundle.message("0.refactoring.cannot.be.applied.to.constructors", getRefactoringName());
+          CommonRefactoringUtil.showErrorMessage(getRefactoringName(), message, HelpID.MOVE_MEMBERS, project);
           return;
         }
         if (!method.hasModifierProperty(PsiModifier.STATIC)) {
           String message = RefactoringBundle.message("method.0.is.not.static", methodName,
-                                                REFACTORING_NAME);
-          CommonRefactoringUtil.showErrorMessage(REFACTORING_NAME, message, HelpID.MOVE_MEMBERS, project);
+                                                     getRefactoringName());
+          CommonRefactoringUtil.showErrorMessage(getRefactoringName(), message, HelpID.MOVE_MEMBERS, project);
           return;
         }
         preselectMembers.add(method);
@@ -98,9 +88,9 @@ public class MoveMembersImpl {
       else if (element instanceof PsiClass) {
         PsiClass aClass = (PsiClass)element;
         if (!aClass.hasModifierProperty(PsiModifier.STATIC)) {
-          String message = RefactoringBundle.message("inner.class.0.is.not.static", aClass.getQualifiedName(),
-                                                REFACTORING_NAME);
-          CommonRefactoringUtil.showErrorMessage(REFACTORING_NAME, message, HelpID.MOVE_MEMBERS, project);
+          String message = JavaRefactoringBundle.message("inner.class.0.is.not.static", aClass.getQualifiedName(),
+                                                     getRefactoringName());
+          CommonRefactoringUtil.showErrorMessage(getRefactoringName(), message, HelpID.MOVE_MEMBERS, project);
           return;
         }
         preselectMembers.add(aClass);
@@ -118,5 +108,9 @@ public class MoveMembersImpl {
             preselectMembers,
             moveCallback);
     dialog.show();
+  }
+
+  public static @NlsContexts.DialogTitle String getRefactoringName() {
+    return RefactoringBundle.message("move.members.title");
   }
 }

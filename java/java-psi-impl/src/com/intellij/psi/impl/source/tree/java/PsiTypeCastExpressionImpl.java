@@ -18,16 +18,16 @@ package com.intellij.psi.impl.source.tree.java;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.*;
-import com.intellij.psi.impl.PsiImplUtil;
 import com.intellij.psi.impl.source.Constants;
 import com.intellij.psi.impl.source.tree.ChildRole;
-import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.ChildRoleBase;
+import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.util.PsiUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class PsiTypeCastExpressionImpl extends ExpressionPsiElement implements PsiTypeCastExpression, Constants {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiTypeCastExpressionImpl");
+  private static final Logger LOG = Logger.getInstance(PsiTypeCastExpressionImpl.class);
 
   public PsiTypeCastExpressionImpl() {
     super(TYPE_CAST_EXPRESSION);
@@ -47,7 +47,7 @@ public class PsiTypeCastExpressionImpl extends ExpressionPsiElement implements P
   @Nullable public PsiType getType() {
     final PsiTypeElement castType = getCastType();
     if (castType == null) return null;
-    return PsiImplUtil.normalizeWildcardTypeByPosition(castType.getType(), this);
+    return PsiUtil.captureToplevelWildcards(castType.getType(), this);
   }
 
   @Override
@@ -72,7 +72,7 @@ public class PsiTypeCastExpressionImpl extends ExpressionPsiElement implements P
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     assert child.getTreeParent() == this: "child:"+child+"; child.getTreeParent():"+child.getTreeParent();
     IElementType i = child.getElementType();
     if (i == LPARENTH) {
@@ -102,6 +102,7 @@ public class PsiTypeCastExpressionImpl extends ExpressionPsiElement implements P
     }
   }
 
+  @Override
   public String toString() {
     return "PsiTypeCastExpression:" + getText();
   }

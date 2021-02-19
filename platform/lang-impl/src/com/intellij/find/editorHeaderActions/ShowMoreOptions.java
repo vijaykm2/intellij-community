@@ -1,36 +1,45 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.find.editorHeaderActions;
 
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.ide.lightEdit.LightEditCompatible;
+import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.CustomShortcutSet;
+import com.intellij.openapi.actionSystem.KeyboardShortcut;
 import com.intellij.openapi.actionSystem.impl.ActionButton;
 import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl;
-import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.project.DumbAwareAction;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import javax.swing.text.JTextComponent;
-import java.awt.event.InputEvent;
-import java.awt.event.KeyEvent;
 
-/**
-* Created by IntelliJ IDEA.
-* User: zajac
-* Date: 25.05.11
-* Time: 22:24
-* To change this template use File | Settings | File Templates.
-*/
-public class ShowMoreOptions extends AnAction implements DumbAware {
-  private final JComponent myToolbarComponent;
-  public static final Shortcut SHORT_CUT = new KeyboardShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, InputEvent.ALT_DOWN_MASK), null);
+public class ShowMoreOptions extends DumbAwareAction implements LightEditCompatible {
 
-  public ShowMoreOptions(JComponent toolbarComponent, JTextComponent searchField) {
+  private final ActionToolbarImpl myToolbarComponent;
+
+  //placeholder for keymap
+  public ShowMoreOptions() {
+    myToolbarComponent = null;
+  }
+
+  public ShowMoreOptions(ActionToolbarImpl toolbarComponent, JComponent shortcutHolder) {
     this.myToolbarComponent = toolbarComponent;
-    registerCustomShortcutSet(new CustomShortcutSet(SHORT_CUT), searchField);
+    KeyboardShortcut keyboardShortcut = ActionManager.getInstance().getKeyboardShortcut("ShowFilterPopup");
+    if (keyboardShortcut != null) {
+      registerCustomShortcutSet(new CustomShortcutSet(keyboardShortcut), shortcutHolder);
+    }
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
-    final ActionButton secondaryActions = ((ActionToolbarImpl)myToolbarComponent).getSecondaryActionsButton();
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    final ActionButton secondaryActions = myToolbarComponent.getSecondaryActionsButton();
     if (secondaryActions != null) {
       secondaryActions.click();
     }
+  }
+
+  @Override
+  public void update(@NotNull AnActionEvent e) {
+    e.getPresentation().setEnabled(myToolbarComponent != null && myToolbarComponent.getSecondaryActionsButton() != null);
   }
 }

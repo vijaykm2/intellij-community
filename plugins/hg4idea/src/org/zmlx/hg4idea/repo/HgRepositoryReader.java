@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.zmlx.hg4idea.repo;
 
+import com.google.common.io.BaseEncoding;
 import com.intellij.dvcs.DvcsUtil;
 import com.intellij.dvcs.repo.RepoStateException;
 import com.intellij.dvcs.repo.Repository;
@@ -25,7 +12,6 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.Hash;
 import com.intellij.vcs.log.VcsLogObjectsFactory;
-import org.apache.commons.codec.binary.Hex;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.zmlx.hg4idea.HgNameWithHashInfo;
@@ -34,11 +20,13 @@ import org.zmlx.hg4idea.util.HgVersion;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import static com.intellij.openapi.util.io.FileUtilRt.doIOOperation;
 
 /**
  * Reads information about the Hg repository from Hg service files located in the {@code .hg} folder.
@@ -47,8 +35,7 @@ import java.util.regex.Pattern;
  *
  * @author Nadya Zabrodina
  */
-public class HgRepositoryReader {
-
+public final class HgRepositoryReader {
   private static final Logger LOG = Logger.getInstance(HgRepositoryReader.class);
 
   private static final Pattern HASH_NAME = Pattern.compile("\\s*([0-9a-fA-F]{40})[:?|\\s+](.+)");
@@ -119,7 +106,7 @@ public class HgRepositoryReader {
   public String readCurrentRevision() {
     if (!isDirStateInfoAvailable()) return null;
     try {
-      return Hex.encodeHexString(readHashBytesFromFile(myDirStateFile));
+      return BaseEncoding.base16().lowerCase().encode(readHashBytesFromFile(myDirStateFile));
     }
     catch (IOException e) {
       // dirState exists if not fresh,  if we could not load dirState info repository must be corrupted
@@ -128,17 +115,18 @@ public class HgRepositoryReader {
     }
   }
 
-  @NotNull
-  private static byte[] readHashBytesFromFile(@NotNull File file) throws IOException {
-    byte[] bytes;
-    final InputStream stream = new FileInputStream(file);
-    try {
-      bytes = FileUtil.loadBytes(stream, 20);
+  private static byte @NotNull [] readHashBytesFromFile(@NotNull File file) throws IOException {
+    try (FileInputStream stream = doIOOperation(lastAttempt -> {
+      try {
+        return new FileInputStream(file);
+      }
+      catch (FileNotFoundException e) {
+        if (lastAttempt) throw e;
+        return null;
+      }
+    })) {
+      return FileUtil.loadBytes(Objects.requireNonNull(stream), 20);
     }
-    finally {
-      stream.close();
-    }
-    return bytes;
   }
 
   /**
@@ -183,8 +171,8 @@ public class HgRepositoryReader {
   }
 
   @NotNull
-  public Map<String, Set<Hash>> readBranches() {
-    Map<String, Set<Hash>> branchesWithHashes = new HashMap<String, Set<Hash>>();
+  public Map<String, LinkedHashSet<Hash>> readBranches() {
+    Map<String, LinkedHashSet<Hash>> branchesWithHashes = new HashMap<>();
     // Set<String> branchNames = new HashSet<String>();
     if (isBranchInfoAvailable()) {
       Pattern activeBranchPattern = myStatusInBranchFile ? HASH_STATUS_NAME : HASH_NAME;
@@ -198,7 +186,7 @@ public class HgRepositoryReader {
             branchesWithHashes.get(name).add(myVcsObjectsFactory.createHash(matcher.group(1)));
           }
           else {
-            Set<Hash> hashes = new HashSet<Hash>();
+            LinkedHashSet<Hash> hashes = new LinkedHashSet<>();
             hashes.add(myVcsObjectsFactory.createHash(matcher.group(1)));
             branchesWithHashes.put(name, hashes);
           }
@@ -260,7 +248,7 @@ public class HgRepositoryReader {
 
   @NotNull
   private Collection<HgNameWithHashInfo> readReferences(@NotNull File fileWithReferences) {
-    HashSet<HgNameWithHashInfo> result = ContainerUtil.newHashSet();
+    HashSet<HgNameWithHashInfo> result = new HashSet<>();
     readReferences(fileWithReferences, result);
     return result;
   }
@@ -292,7 +280,7 @@ public class HgRepositoryReader {
 
   @NotNull
   public List<HgNameWithHashInfo> readMQAppliedPatches() {
-    ArrayList<HgNameWithHashInfo> mqPatchRefs = ContainerUtil.newArrayList();
+    ArrayList<HgNameWithHashInfo> mqPatchRefs = new ArrayList<>();
     readReferences(new File(myMqInternalDir, "status"), mqPatchRefs);
     return mqPatchRefs;
   }
@@ -300,6 +288,6 @@ public class HgRepositoryReader {
   @NotNull
   public List<String> readMqPatchNames() {
     File seriesFile = new File(myMqInternalDir, "series");
-    return seriesFile.exists() ? StringUtil.split(DvcsUtil.tryLoadFileOrReturn(seriesFile, ""), "\n") : ContainerUtil.<String>emptyList();
+    return seriesFile.exists() ? StringUtil.split(DvcsUtil.tryLoadFileOrReturn(seriesFile, ""), "\n") : ContainerUtil.emptyList();
   }
 }

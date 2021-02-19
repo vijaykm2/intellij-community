@@ -20,9 +20,9 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.templateLanguages.TemplateLanguageFileViewProvider;
 import com.intellij.util.IncorrectOperationException;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
@@ -35,29 +35,10 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.branch.GrContinueSta
 public class GroovyUnnecessaryContinueInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONTROL_FLOW;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Unnecessary 'continue' statement";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "#ref is unnecessary as the last statement in a loop #loc";
+    return GroovyBundle.message("inspection.message.ref.is.unnecessary.as.last.statement.in.loop");
 
-  }
-
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
   }
 
   @NotNull
@@ -76,12 +57,12 @@ public class GroovyUnnecessaryContinueInspection extends BaseInspection {
 
     @Override
     @NotNull
-    public String getName() {
-      return "Remove unnecessary continue";
+    public String getFamilyName() {
+      return GroovyBundle.message("intention.family.name.remove.unnecessary.continue");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
+    public void doFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor)
         throws IncorrectOperationException {
       final PsiElement continueKeywordElement = descriptor.getPsiElement();
       final GrContinueStatement continueStatement = (GrContinueStatement) continueKeywordElement.getParent();
@@ -93,7 +74,7 @@ public class GroovyUnnecessaryContinueInspection extends BaseInspection {
   private static class Visitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitContinueStatement(GrContinueStatement continueStatement) {
+    public void visitContinueStatement(@NotNull GrContinueStatement continueStatement) {
       super.visitContinueStatement(continueStatement);
       if (continueStatement.getContainingFile().getViewProvider() instanceof TemplateLanguageFileViewProvider) {
         return;

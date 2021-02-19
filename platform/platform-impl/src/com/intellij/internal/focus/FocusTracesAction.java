@@ -15,12 +15,17 @@
  */
 package com.intellij.internal.focus;
 
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.internal.InternalActionsBundle;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.impl.FocusManagerImpl;
 import com.intellij.openapi.wm.impl.FocusRequestInfo;
+import org.jetbrains.annotations.NotNull;
 
 import java.awt.*;
 import java.awt.event.AWTEventListener;
@@ -35,12 +40,16 @@ public class FocusTracesAction extends AnAction implements DumbAware {
   private static boolean myActive = false;
   private AWTEventListener myFocusTracker;
 
+  public FocusTracesAction() {
+    setEnabledInModalContext(true);
+  }
+
   public static boolean isActive() {
     return myActive;
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     final IdeFocusManager manager = IdeFocusManager.getGlobalInstance();
     if (! (manager instanceof FocusManagerImpl)) return;
@@ -61,7 +70,7 @@ public class FocusTracesAction extends AnAction implements DumbAware {
 
     if (!myActive) {
       final List<FocusRequestInfo> requests = focusManager.getRequests();
-      new FocusTracesDialog(project, new ArrayList<FocusRequestInfo>(requests)).show();
+      new FocusTracesDialog(project, new ArrayList<>(requests)).show();
       Toolkit.getDefaultToolkit().removeAWTEventListener(myFocusTracker);
       myFocusTracker = null;
       requests.clear();
@@ -69,12 +78,12 @@ public class FocusTracesAction extends AnAction implements DumbAware {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final Presentation presentation = e.getPresentation();
     if (myActive) {
-      presentation.setText("Stop Focus Tracing");
+      presentation.setText(InternalActionsBundle.messagePointer("action.presentation.FocusTracesAction.text.stop.focus.tracing"));
     } else {
-      presentation.setText("Start Focus Tracing");
+      presentation.setText(InternalActionsBundle.messagePointer("action.presentation.FocusTracesAction.text.start.focus.tracing"));
     }
     presentation.setEnabled(e.getData(CommonDataKeys.PROJECT) != null);
   }

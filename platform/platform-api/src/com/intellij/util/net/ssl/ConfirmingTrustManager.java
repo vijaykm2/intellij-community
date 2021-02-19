@@ -1,11 +1,10 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.net.ssl;
 
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.io.StreamUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.EventDispatcher;
@@ -25,9 +24,9 @@ import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -38,7 +37,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  *
  * @author Mikhail Golubev
  */
-public class ConfirmingTrustManager extends ClientOnlyTrustManager {
+public final class ConfirmingTrustManager extends ClientOnlyTrustManager {
   private static final Logger LOG = Logger.getInstance(ConfirmingTrustManager.class);
   private static final X509Certificate[] NO_CERTIFICATES = new X509Certificate[0];
   private static final X509TrustManager MISSING_TRUST_MANAGER = new ClientOnlyTrustManager() {
@@ -53,6 +52,9 @@ public class ConfirmingTrustManager extends ClientOnlyTrustManager {
       return NO_CERTIFICATES;
     }
   };
+
+  public final ThreadLocal<UntrustedCertificateStrategy> myUntrustedCertificateStrategy =
+    ThreadLocal.withInitial(() -> UntrustedCertificateStrategy.ASK_USER);
 
   public static ConfirmingTrustManager createForStorage(@NotNull String path, @NotNull String password) {
     return new ConfirmingTrustManager(getSystemDefault(), new MutableTrustManager(path, password));
@@ -95,7 +97,8 @@ public class ConfirmingTrustManager extends ClientOnlyTrustManager {
 
   @Override
   public void checkServerTrusted(final X509Certificate[] certificates, String s) throws CertificateException {
-    checkServerTrusted(certificates, s, true, true);
+    boolean askUser = myUntrustedCertificateStrategy.get() == UntrustedCertificateStrategy.ASK_USER;
+    checkServerTrusted(certificates, s, true, askUser);
   }
 
   public void checkServerTrusted(final X509Certificate[] certificates, String s, boolean addToKeyStore, boolean askUser)
@@ -127,20 +130,16 @@ public class ConfirmingTrustManager extends ClientOnlyTrustManager {
       LOG.debug("Image Fetcher thread is detected. Certificate check will be skipped.");
       return true;
     }
-    CertificateManager.Config config = CertificateManager.getInstance().getState();
-    if (app.isUnitTestMode() || app.isHeadlessEnvironment() || config.ACCEPT_AUTOMATICALLY) {
+    if (app.isUnitTestMode() || app.isHeadlessEnvironment() || CertificateManager.getInstance().getState().ACCEPT_AUTOMATICALLY) {
       LOG.debug("Certificate will be accepted automatically");
       if (addToKeyStore) {
         myCustomManager.addCertificate(endPoint);
       }
       return true;
     }
-    boolean accepted = askUser && CertificateManager.showAcceptDialog(new Callable<DialogWrapper>() {
-      @Override
-      public DialogWrapper call() throws Exception {
-        // TODO may be another kind of warning, if default trust store is missing
-        return CertificateWarningDialog.createUntrustedCertificateWarning(endPoint);
-      }
+    boolean accepted = askUser && CertificateManager.showAcceptDialog(() -> {
+      // TODO may be another kind of warning, if default trust store is missing
+      return CertificateWarningDialog.createUntrustedCertificateWarning(endPoint);
     });
     if (accepted) {
       LOG.info("Certificate was accepted by user");
@@ -168,9 +167,9 @@ public class ConfirmingTrustManager extends ClientOnlyTrustManager {
    * Trust manager that supports modifications of underlying physical key store.
    * It can also notify clients about such modifications, see {@link #addListener(CertificateListener)}.
    *
-   * @see com.intellij.util.net.ssl.CertificateListener
+   * @see CertificateListener
    */
-  public static class MutableTrustManager extends ClientOnlyTrustManager {
+  public static final class MutableTrustManager extends ClientOnlyTrustManager {
     private final String myPath;
     private final String myPassword;
     private final TrustManagerFactory myFactory;
@@ -203,6 +202,7 @@ public class ConfirmingTrustManager extends ClientOnlyTrustManager {
         return TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
       }
       catch (NoSuchAlgorithmException e) {
+        LOG.error("Cannot create trust manager factory", e);
         return null;
       }
     }
@@ -213,13 +213,8 @@ public class ConfirmingTrustManager extends ClientOnlyTrustManager {
         keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
         File cacertsFile = new File(path);
         if (cacertsFile.exists()) {
-          FileInputStream stream = null;
-          try {
-            stream = new FileInputStream(path);
+          try (FileInputStream stream = new FileInputStream(path)) {
             keyStore.load(stream, password.toCharArray());
-          }
-          finally {
-            StreamUtil.closeStream(stream);
           }
         }
         else {
@@ -231,7 +226,7 @@ public class ConfirmingTrustManager extends ClientOnlyTrustManager {
         }
       }
       catch (Exception e) {
-        LOG.error(e);
+        LOG.error("Cannot create key store", e);
         return null;
       }
       return keyStore;
@@ -258,7 +253,7 @@ public class ConfirmingTrustManager extends ClientOnlyTrustManager {
         return true;
       }
       catch (Exception e) {
-        LOG.error("Can't add certificate", e);
+        LOG.error("Cannot add certificate", e);
         return false;
       }
       finally {
@@ -317,7 +312,7 @@ public class ConfirmingTrustManager extends ClientOnlyTrustManager {
         return true;
       }
       catch (Exception e) {
-        LOG.error("Can't remove certificate for alias: " + alias, e);
+        LOG.error("Cannot remove certificate for alias: " + alias, e);
         return false;
       }
       finally {
@@ -353,7 +348,7 @@ public class ConfirmingTrustManager extends ClientOnlyTrustManager {
     public List<X509Certificate> getCertificates() {
       myReadLock.lock();
       try {
-        List<X509Certificate> certificates = new ArrayList<X509Certificate>();
+        List<X509Certificate> certificates = new ArrayList<>();
         for (String alias : Collections.list(myKeyStore.aliases())) {
           certificates.add(getCertificate(alias));
         }
@@ -449,11 +444,16 @@ public class ConfirmingTrustManager extends ClientOnlyTrustManager {
       try {
         if (myFactory != null && myKeyStore != null) {
           myFactory.init(myKeyStore);
-          return findX509TrustManager(myFactory.getTrustManagers());
+          final TrustManager[] trustManagers = myFactory.getTrustManagers();
+          final X509TrustManager result = findX509TrustManager(trustManagers);
+          if (result == null) {
+            LOG.error("Cannot find X509 trust manager among " + Arrays.toString(trustManagers));
+          }
+          return result;
         }
       }
       catch (KeyStoreException e) {
-        LOG.error(e);
+        LOG.error("Cannot initialize trust store", e);
       }
       return null;
     }
@@ -464,12 +464,8 @@ public class ConfirmingTrustManager extends ClientOnlyTrustManager {
     }
 
     private void flushKeyStore() throws Exception {
-      FileOutputStream stream = new FileOutputStream(myPath);
-      try {
+      try (FileOutputStream stream = new FileOutputStream(myPath)) {
         myKeyStore.store(stream, myPassword.toCharArray());
-      }
-      finally {
-        StreamUtil.closeStream(stream);
       }
     }
   }

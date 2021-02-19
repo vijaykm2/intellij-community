@@ -18,6 +18,7 @@ package com.intellij.codeInspection.htmlInspections;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.JDOMExternalizableStringList;
@@ -25,9 +26,9 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlChildRole;
-import org.jetbrains.annotations.NotNull;
-
 import java.util.StringTokenizer;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
 
 public abstract class HtmlUnknownElementInspection extends HtmlLocalInspectionTool implements XmlEntitiesInspection {
   public JDOMExternalizableStringList myValues;
@@ -42,15 +43,16 @@ public abstract class HtmlUnknownElementInspection extends HtmlLocalInspectionTo
 
     final StringTokenizer tokenizer = new StringTokenizer(properties, ",");
     while (tokenizer.hasMoreTokens()) {
-      result.add(tokenizer.nextToken().toLowerCase().trim());
+      result.add(StringUtil.toLowerCase(tokenizer.nextToken()).trim());
     }
 
     return result;
   }
 
   protected static void registerProblemOnAttributeName(@NotNull XmlAttribute attribute,
-                                                     String message, @NotNull ProblemsHolder holder,
-                                                     LocalQuickFix... quickfixes) {
+                                                       @InspectionMessage String message,
+                                                       @NotNull ProblemsHolder holder,
+                                                       LocalQuickFix... quickfixes) {
     final ASTNode node = attribute.getNode();
     assert node != null;
     final ASTNode nameNode = XmlChildRole.ATTRIBUTE_NAME_FINDER.findChild(node);
@@ -63,12 +65,12 @@ public abstract class HtmlUnknownElementInspection extends HtmlLocalInspectionTo
   }
 
   protected boolean isCustomValue(@NotNull final String value) {
-    return myValues.contains(value.toLowerCase());
+    return myValues.contains(StringUtil.toLowerCase(value));
   }
 
   @Override
   public void addEntry(@NotNull final String text) {
-    final String s = text.trim().toLowerCase();
+    final String s = StringUtil.toLowerCase(text.trim());
     if (!isCustomValue(s)) {
       myValues.add(s);
     }
@@ -95,7 +97,7 @@ public abstract class HtmlUnknownElementInspection extends HtmlLocalInspectionTo
     myValues = reparseProperties(values);
   }
 
-  protected abstract String getCheckboxTitle();
+  protected abstract @Nls String getCheckboxTitle();
 
   @NotNull
   protected abstract String getPanelTitle();

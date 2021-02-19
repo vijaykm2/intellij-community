@@ -21,13 +21,13 @@ import com.intellij.codeInsight.generation.GenerateGetterAndSetterHandler;
 import com.intellij.openapi.application.PluginPathManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
-import com.intellij.testFramework.PlatformTestCase;
-import com.intellij.testFramework.PsiTestUtil;
+import com.intellij.testFramework.HeavyPlatformTestCase;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.javaFX.fxml.AbstractJavaFXTestCase;
 
-@PlatformTestCase.WrapInCommand
+@HeavyPlatformTestCase.WrapInCommand
 public class GenerateGetterSetterTest extends DaemonAnalyzerTestCase {
   public void testDouble() throws Exception {
     doTest();
@@ -40,19 +40,18 @@ public class GenerateGetterSetterTest extends DaemonAnalyzerTestCase {
   @Override
   protected void setUpModule() {
     super.setUpModule();
-    PsiTestUtil.addLibrary(getModule(), "javafx", PluginPathManager.getPluginHomePath("javaFX") + "/testData", "jfxrt.jar");
+    AbstractJavaFXTestCase.addJavaFxJarAsLibrary(getModule());
   }
 
   protected void doTest() throws Exception {
     configureByFile("/generateGetterSetter/before" + getTestName(false) + ".java");
     new GenerateGetterAndSetterHandler() {
-      @Nullable
       @Override
-      protected ClassMember[] chooseMembers(ClassMember[] members,
-                                            boolean allowEmptySelection,
-                                            boolean copyJavadocCheckbox,
-                                            Project project,
-                                            @Nullable Editor editor) {
+      protected ClassMember @Nullable [] chooseMembers(ClassMember[] members,
+                                                       boolean allowEmptySelection,
+                                                       boolean copyJavadocCheckbox,
+                                                       Project project,
+                                                       @Nullable Editor editor) {
         return members;
       }
     }.invoke(getProject(), getEditor(), getFile());

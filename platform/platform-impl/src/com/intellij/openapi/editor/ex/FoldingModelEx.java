@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.ex;
 
 import com.intellij.openapi.Disposable;
@@ -24,22 +10,15 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
+import java.util.List;
 
-/**
- * @author max
- */
 public interface FoldingModelEx extends FoldingModel {
   void setFoldingEnabled(boolean isEnabled);
   boolean isFoldingEnabled();
 
-  FoldRegion getFoldingPlaceholderAt(Point p);
+  FoldRegion getFoldingPlaceholderAt(@NotNull Point p);
 
   boolean intersectsRegion(int startOffset, int endOffset);
-
-  /**
-   * @deprecated Use an equivalent method {@link FoldingModel#getCollapsedRegionAtOffset(int)} instead. To be removed in IDEA 16.
-   */
-  FoldRegion fetchOutermost(int offset);
 
   /**
    * Returns an index in an array returned by {@link #fetchTopLevel()} method, for the last folding region lying entirely before given
@@ -51,6 +30,11 @@ public interface FoldingModelEx extends FoldingModel {
 
   FoldRegion[] fetchTopLevel();
 
+  /**
+   * @param neverExpands If {@code true}, the created region is created in the collapsed state, and cannot be expanded
+   *                     ({@link FoldRegion#setExpanded(boolean)} does nothing for it). No marker will be displayed in gutter for such a
+   *                     region. 'Never-expanding' fold region cannot be part of a {@link FoldingGroup}.
+   */
   @Nullable
   FoldRegion createFoldRegion(int startOffset, int endOffset, @NotNull String placeholder, @Nullable FoldingGroup group,
                               boolean neverExpands);
@@ -60,4 +44,13 @@ public interface FoldingModelEx extends FoldingModel {
   void clearFoldRegions();
 
   void rebuild();
+
+  @NotNull
+  List<FoldRegion> getGroupedRegions(FoldingGroup group);
+
+  void clearDocumentRangesModificationStatus();
+
+  boolean hasDocumentRegionChangedFor(@NotNull FoldRegion region);
+
+  @NotNull List<@NotNull FoldRegion> getRegionsOverlappingWith(int startOffset, int endOffset);
 }

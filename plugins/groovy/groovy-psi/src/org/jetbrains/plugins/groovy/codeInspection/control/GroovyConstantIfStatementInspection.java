@@ -21,6 +21,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
@@ -32,25 +33,8 @@ public class GroovyConstantIfStatementInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getGroupDisplayName() {
-    return CONTROL_FLOW;
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Constant if statement";
-  }
-
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... args) {
-    return "#ref statement can be simplified #loc";
+    return GroovyBundle.message("inspection.message.ref.statement.can.be.simplified");
   }
 
   @NotNull
@@ -68,12 +52,12 @@ public class GroovyConstantIfStatementInspection extends BaseInspection {
 
     @Override
     @NotNull
-    public String getName() {
-      return "Simplify";
+    public String getFamilyName() {
+      return GroovyBundle.message("intention.family.name.simplify");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
+    public void doFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor)
         throws IncorrectOperationException {
       final PsiElement ifKeyword = descriptor.getPsiElement();
       final GrIfStatement ifStatement = (GrIfStatement) ifKeyword.getParent();
@@ -98,7 +82,7 @@ public class GroovyConstantIfStatementInspection extends BaseInspection {
       extends BaseInspectionVisitor {
 
     @Override
-    public void visitIfStatement(GrIfStatement statement) {
+    public void visitIfStatement(@NotNull GrIfStatement statement) {
       super.visitIfStatement(statement);
       final GrExpression condition = statement.getCondition();
       if (condition == null) {

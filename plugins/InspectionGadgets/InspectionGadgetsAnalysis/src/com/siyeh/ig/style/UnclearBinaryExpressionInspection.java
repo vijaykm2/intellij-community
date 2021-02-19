@@ -25,9 +25,9 @@ import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ipp.psiutils.ErrorUtil;
 import org.intellij.lang.annotations.Pattern;
 import org.jetbrains.annotations.Contract;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -38,13 +38,6 @@ public class UnclearBinaryExpressionInspection extends BaseInspection {
   @Override
   public String getID() {
     return "UnclearExpression";
-  }
-
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("unclear.binary.expression.display.name");
   }
 
   @NotNull
@@ -59,15 +52,10 @@ public class UnclearBinaryExpressionInspection extends BaseInspection {
   }
 
   private static class UnclearBinaryExpressionFix extends InspectionGadgetsFix {
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @NotNull
     @Override
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message("unclear.binary.expression.quickfix");
     }
 
@@ -89,6 +77,9 @@ public class UnclearBinaryExpressionInspection extends BaseInspection {
       super.visitExpression(expression);
       final PsiElement parent = expression.getParent();
       if (mightBeConfusingExpression(parent) || !isUnclearExpression(expression, parent)) {
+        return;
+      }
+      if (ErrorUtil.containsDeepError(expression)) {
         return;
       }
       registerError(expression);
@@ -180,7 +171,7 @@ public class UnclearBinaryExpressionInspection extends BaseInspection {
       appendText(polyadicExpression, parentheses, out);
     }
     else if (expression instanceof PsiParenthesizedExpression) {
-      for (PsiElement child : expression.getChildren()) {
+      for (PsiElement child = expression.getFirstChild(); child != null; child = child.getNextSibling()) {
         if (child instanceof PsiExpression) {
           final PsiExpression unwrappedExpression = (PsiExpression)child;
           createReplacementText(unwrappedExpression, out);
@@ -236,7 +227,7 @@ public class UnclearBinaryExpressionInspection extends BaseInspection {
     if (parentheses) {
       out.append('(');
     }
-    for (PsiElement child : expression.getChildren()) {
+    for (PsiElement child = expression.getFirstChild(); child != null; child = child.getNextSibling()) {
       if (child instanceof PsiExpression) {
         createReplacementText((PsiExpression)child, out);
       }

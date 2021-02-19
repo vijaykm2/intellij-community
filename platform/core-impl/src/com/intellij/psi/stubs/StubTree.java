@@ -19,15 +19,14 @@
  */
 package com.intellij.psi.stubs;
 
-import com.intellij.util.Function;
+import com.intellij.psi.impl.source.StubbedSpine;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 
 public class StubTree extends ObjectStubTree<StubElement<?>> {
+  private final StubSpine mySpine = new StubSpine(this);
 
   public StubTree(@NotNull final PsiFileStub root) {
     this(root, true);
@@ -37,47 +36,29 @@ public class StubTree extends ObjectStubTree<StubElement<?>> {
     super((ObjectStubBase)root, withBackReference);
   }
 
+  @NotNull
   @Override
-  protected void enumerateStubs(@NotNull Stub root, @NotNull List<Stub> result) {
-    final PsiFileStub[] files = ((PsiFileStub)root).getStubRoots();
-    int idOffset = 0;
-    final List<Stub> dummyList = new ArrayList<Stub>();
-    for (PsiFileStub file : files) {
-      if (file == root) break;
-      final int fileStubsCount;
-      final ObjectStubTree existingTree = file.getUserData(STUB_TO_TREE_REFERENCE);
-      if (existingTree != null) {
-        fileStubsCount = existingTree.getPlainList().size();
-      }
-      else {
-        dummyList.clear();
-        enumerateStubs(file, dummyList, idOffset);
-        fileStubsCount = dummyList.size();
-      }
-      idOffset += fileStubsCount;
-    }
-    enumerateStubs(root, result, idOffset);
+  protected List<StubElement<?>> enumerateStubs(@NotNull Stub root) {
+    return ((StubBase)root).myStubList.finalizeLoadingStage().toPlainList();
   }
 
   @NotNull
   @Override
-  public List<StubElement<?>> getPlainListFromAllRoots() {
-    final PsiFileStub[] roots = getRoot().getStubRoots();
+  final List<StubElement<?>> getPlainListFromAllRoots() {
+    PsiFileStub[] roots = ((PsiFileStubImpl<?>)getRoot()).getStubRoots();
     if (roots.length == 1) return super.getPlainListFromAllRoots();
 
-    return ContainerUtil.concat(roots, new Function<PsiFileStub, Collection<? extends StubElement<?>>>() {
-      @Override
-      public Collection<? extends StubElement<?>> fun(PsiFileStub stub) {
-        final ObjectStubTree existingTree = stub.getUserData(STUB_TO_TREE_REFERENCE);
-        //noinspection unchecked
-        return existingTree != null ? existingTree.getPlainList() : new StubTree(stub, false).getPlainList();
-      }
-    });
+    return ContainerUtil.concat(roots, stub -> ((PsiFileStubImpl)stub).myStubList.toPlainList());
   }
 
   @NotNull
   @Override
   public PsiFileStub getRoot() {
     return (PsiFileStub)myRoot;
+  }
+
+  @NotNull
+  public StubbedSpine getSpine() {
+    return mySpine;
   }
 }

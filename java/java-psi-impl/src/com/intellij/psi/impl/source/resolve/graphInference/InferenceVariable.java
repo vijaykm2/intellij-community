@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,19 +15,15 @@
  */
 package com.intellij.psi.impl.source.resolve.graphInference;
 
-import com.intellij.psi.PsiClassType;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiType;
-import com.intellij.psi.PsiTypeParameter;
+import com.intellij.psi.*;
 import com.intellij.psi.impl.light.LightTypeParameter;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.util.TypeConversionUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/**
- * User: anna
- */
 public class InferenceVariable extends LightTypeParameter {
   private final PsiElement myContext;
 
@@ -35,14 +31,17 @@ public class InferenceVariable extends LightTypeParameter {
     return getDelegate();
   }
 
-  private boolean myThrownBound = false;
-  private final Map<InferenceBound, List<PsiType>> myBounds = new HashMap<InferenceBound, List<PsiType>>();
+  private boolean myThrownBound;
+  private final Map<InferenceBound, List<PsiType>> myBounds = new EnumMap<>(InferenceBound.class);
+  private final String myName;
 
   private PsiType myInstantiation = PsiType.NULL;
 
-  InferenceVariable(PsiElement context, PsiTypeParameter parameter) {
+  InferenceVariable(PsiElement context, PsiTypeParameter parameter, String name) {
     super(parameter);
+    myName = name;
     myContext = context;
+    TypeConversionUtil.markAsFreshVariable(this, context);
   }
 
   public PsiType getInstantiation() {
@@ -53,31 +52,39 @@ public class InferenceVariable extends LightTypeParameter {
     myInstantiation = instantiation;
   }
 
-  @NotNull
   @Override
-  public PsiClassType[] getExtendsListTypes() {
-    final List<PsiClassType> result = new ArrayList<PsiClassType>();
+  public PsiClassType @NotNull [] getExtendsListTypes() {
+    final List<PsiClassType> result = new ArrayList<>();
     for (PsiType type : getBounds(InferenceBound.UPPER)) {
       if (type instanceof PsiClassType) {
         result.add((PsiClassType)type);
       }
     }
-    return result.toArray(new PsiClassType[result.size()]);
+    return result.toArray(PsiClassType.EMPTY_ARRAY);
   }
 
-  public boolean addBound(PsiType classType, InferenceBound inferenceBound) {
-    if (inferenceBound == InferenceBound.EQ &&
-        PsiUtil.resolveClassInClassTypeOnly(classType) == this) {
+  public static void addBound(PsiType inferenceVariableType, PsiType boundType, InferenceBound inferenceBound, InferenceSession session) {
+    final InferenceVariable variable = session.getInferenceVariable(inferenceVariableType);
+    if (variable != null) {
+      variable.addBound(boundType, inferenceBound, session.myIncorporationPhase);
+    }
+  }
+
+  boolean addBound(PsiType classType, InferenceBound inferenceBound, @Nullable InferenceIncorporationPhase incorporationPhase) {
+    if (PsiUtil.resolveClassInClassTypeOnly(classType) == this) {
       return false;
     }
-    List<PsiType> list = myBounds.get(inferenceBound);
-    if (list == null) {
-      list = new ArrayList<PsiType>();
-      myBounds.put(inferenceBound, list);
+    List<PsiType> bounds = myBounds.computeIfAbsent(inferenceBound, __ -> new ArrayList<>());
+
+    if (classType == null) {
+      classType = PsiType.NULL;
     }
-    final int idx = list.indexOf(classType);
-    if (idx < 0) {
-      list.add(classType);
+
+    if (incorporationPhase == null || !bounds.contains(classType)) {
+      bounds.add(classType);
+      if (incorporationPhase != null) {
+        incorporationPhase.addBound(this, classType, inferenceBound);
+      }
       return true;
     }
     return false;
@@ -85,19 +92,14 @@ public class InferenceVariable extends LightTypeParameter {
 
   public List<PsiType> getBounds(InferenceBound inferenceBound) {
     final List<PsiType> bounds = myBounds.get(inferenceBound);
-    return bounds != null ? new ArrayList<PsiType>(bounds) : Collections.<PsiType>emptyList();
+    return bounds != null ? new ArrayList<>(bounds) : Collections.emptyList();
   }
 
   public Set<InferenceVariable> getDependencies(InferenceSession session) {
-    final Set<InferenceVariable> dependencies = new LinkedHashSet<InferenceVariable>();
-    for (List<PsiType> boundTypes : myBounds.values()) {
-      if (boundTypes != null) {
-        for (PsiType bound : boundTypes) {
-          session.collectDependencies(bound, dependencies);
-        }
-      }
-    }
-
+    final Set<InferenceVariable> dependencies = new LinkedHashSet<>();
+    collectBoundDependencies(session, dependencies);
+    collectTransitiveDependencies(session, dependencies, dependencies);
+    
     if (!session.hasCapture(this) && dependencies.isEmpty()) {
       return dependencies;
     }
@@ -106,26 +108,39 @@ public class InferenceVariable extends LightTypeParameter {
       return dependencies;
     }
 
-    for (Iterator<InferenceVariable> iterator = dependencies.iterator(); iterator.hasNext(); ) {
-      if (!session.hasCapture(iterator.next())) {
-        iterator.remove();
-      }
-    }
+    dependencies.removeIf(variable -> !session.hasCapture(variable));
     session.collectCaptureDependencies(this, dependencies);
     return dependencies;
   }
 
-  public boolean hasInstantiation(InferenceSession session) {
-    List<PsiType> bounds = getBounds(InferenceBound.EQ);
-    if (bounds != null) {
-      for (PsiType bound : bounds) {
-        if (session.isProperType(bound)) return true;
-      }
+  private void collectTransitiveDependencies(InferenceSession session,
+                                             Set<? extends InferenceVariable> dependencies,
+                                             Set<? super InferenceVariable> rootDependencies) {
+    final LinkedHashSet<InferenceVariable> newDependencies = new LinkedHashSet<>();
+
+    for (InferenceVariable dependency : dependencies) {
+      dependency.collectBoundDependencies(session, newDependencies);
     }
-    return false;
+    newDependencies.removeAll(rootDependencies);
+    newDependencies.remove(this);
+
+    if (!newDependencies.isEmpty()) {
+      rootDependencies.addAll(newDependencies);
+      collectTransitiveDependencies(session, newDependencies, rootDependencies);
+    }
   }
 
-  public boolean isThrownBound() {
+  private void collectBoundDependencies(InferenceSession session, Set<? super InferenceVariable> dependencies) {
+    for (Collection<PsiType> boundTypes : myBounds.values()) {
+      if (boundTypes != null) {
+        for (PsiType bound : boundTypes) {
+          session.collectDependencies(bound, dependencies);
+        }
+      }
+    }
+  }
+
+  boolean isThrownBound() {
     return myThrownBound;
   }
 
@@ -134,8 +149,21 @@ public class InferenceVariable extends LightTypeParameter {
   }
 
   @Override
+  public boolean isInheritor(@NotNull PsiClass baseClass, boolean checkDeep) {
+    for (PsiType type : getBounds(InferenceBound.UPPER)) {
+      PsiClass psiClass = PsiUtil.resolveClassInClassTypeOnly(type);
+      if (psiClass != null) {
+        if (getManager().areElementsEquivalent(baseClass, psiClass)) return true;
+        if (checkDeep && psiClass.isInheritor(baseClass, true)) return true;
+      }
+    }
+    
+    return super.isInheritor(baseClass, checkDeep);
+  }
+
+  @Override
   public boolean isEquivalentTo(PsiElement another) {
-    return this == another || getDelegate() == another;
+    return this == another;
   }
 
   @Override
@@ -148,7 +176,18 @@ public class InferenceVariable extends LightTypeParameter {
     return getDelegate().toString();
   }
 
-  public PsiElement getCallContext() {
+  @Override
+  public PsiTypeParameterListOwner getOwner() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public String getName() {
+    return myName;
+  }
+
+  PsiElement getCallContext() {
     return myContext;
   }
 }

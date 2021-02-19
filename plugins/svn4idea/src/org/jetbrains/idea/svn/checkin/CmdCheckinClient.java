@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.checkin;
 
 import com.intellij.execution.process.ProcessOutputTypes;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.AbstractFilterChildren;
@@ -29,34 +16,27 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.svn.SvnUtil;
 import org.jetbrains.idea.svn.api.BaseSvnClient;
 import org.jetbrains.idea.svn.api.Depth;
+import org.jetbrains.idea.svn.api.Target;
 import org.jetbrains.idea.svn.commandLine.*;
 import org.jetbrains.idea.svn.status.Status;
 import org.jetbrains.idea.svn.status.StatusClient;
 import org.jetbrains.idea.svn.status.StatusType;
-import org.tmatesoft.svn.core.wc2.SvnTarget;
 
 import java.io.File;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Created with IntelliJ IDEA.
- * User: Irina.Chernushina
- * Date: 2/25/13
- * Time: 4:56 PM
- */
+import static org.jetbrains.idea.svn.SvnBundle.message;
+
 public class CmdCheckinClient extends BaseSvnClient implements CheckinClient {
 
   private static final Logger LOG = Logger.getInstance(CmdCheckinClient.class);
 
   public static final long INVALID_REVISION_NUMBER = -1L;
 
-  @NotNull
   @Override
-  public CommitInfo[] commit(@NotNull List<File> paths, @NotNull String message) throws VcsException {
+  public CommitInfo @NotNull [] commit(@NotNull List<File> paths, @NotNull String message) throws VcsException {
     // if directory renames were used, IDEA reports all files under them as moved, but for svn we can not pass some of them
     // to commit command - since not all paths are registered as changes -> so we need to filter these cases, but only if
     // there at least some child-parent relationships in passed paths
@@ -65,8 +45,7 @@ public class CmdCheckinClient extends BaseSvnClient implements CheckinClient {
     return runCommit(paths, message);
   }
 
-  @NotNull
-  private CommitInfo[] runCommit(@NotNull List<File> paths, @NotNull String message) throws VcsException {
+  private CommitInfo @NotNull [] runCommit(@NotNull List<File> paths, @NotNull String message) throws VcsException {
     if (ContainerUtil.isEmpty(paths)) return new CommitInfo[]{CommitInfo.EMPTY};
 
     Command command = newCommand(SvnCommandName.ci);
@@ -79,18 +58,18 @@ public class CmdCheckinClient extends BaseSvnClient implements CheckinClient {
 
     IdeaCommitHandler handler = new IdeaCommitHandler(ProgressManager.getInstance().getProgressIndicator());
     CmdCheckinClient.CommandListener listener = new CommandListener(handler);
-    listener.setBaseDirectory(CommandUtil.correctUpToExistingParent(paths.get(0)));
-    execute(myVcs, SvnTarget.fromFile(paths.get(0)), null, command, listener);
+    listener.setBaseDirectory(CommandUtil.requireExistingParent(paths.get(0)));
+    execute(myVcs, Target.on(paths.get(0)), null, command, listener);
     listener.throwExceptionIfOccurred();
 
     long revision = validateRevisionNumber(listener.getCommittedRevision());
 
-    return new CommitInfo[]{new CommitInfo.Builder().setRevision(revision).build()};
+    return new CommitInfo[]{new CommitInfo.Builder().setRevisionNumber(revision).build()};
   }
 
   private static long validateRevisionNumber(long revision) throws VcsException {
     if (revision < 0) {
-      throw new VcsException("Wrong committed revision number: " + revision);
+      throw new VcsException(message("error.wrong.committed.revision.number", revision));
     }
 
     return revision;
@@ -98,10 +77,10 @@ public class CmdCheckinClient extends BaseSvnClient implements CheckinClient {
 
   @NotNull
   private List<File> filterCommittables(@NotNull List<File> committables) throws SvnBindException {
-    final Set<String> childrenOfSomebody = ContainerUtil.newHashSet();
+    final Set<String> childrenOfSomebody = new HashSet<>();
     new AbstractFilterChildren<File>() {
       @Override
-      protected void sortAscending(List<File> list) {
+      protected void sortAscending(List<? extends File> list) {
         Collections.sort(list);
       }
 
@@ -115,9 +94,9 @@ public class CmdCheckinClient extends BaseSvnClient implements CheckinClient {
         }
         return isAncestor;
       }
-    }.doFilter(ContainerUtil.newArrayList(committables));
+    }.doFilter(new ArrayList<>(committables));
     if (!childrenOfSomebody.isEmpty()) {
-      List<File> result = ContainerUtil.newArrayList();
+      List<File> result = new ArrayList<>();
       StatusClient statusClient = myFactory.createStatusClient();
 
       for (File file : committables) {
@@ -127,8 +106,7 @@ public class CmdCheckinClient extends BaseSvnClient implements CheckinClient {
         else {
           try {
             final Status status = statusClient.doStatus(file, false);
-            if (status != null && !StatusType.STATUS_NONE.equals(status.getContentsStatus()) &&
-                !StatusType.STATUS_UNVERSIONED.equals(status.getContentsStatus())) {
+            if (status != null && !status.is(StatusType.STATUS_NONE, StatusType.STATUS_UNVERSIONED)) {
               result.add(file);
             }
           }
@@ -189,7 +167,7 @@ public class CmdCheckinClient extends BaseSvnClient implements CheckinClient {
       }
     }
 
-    private void parseLine(String line) throws SvnBindException {
+    private void parseLine(@NlsSafe String line) throws SvnBindException {
       if (StringUtil.isEmptyOrSpaces(line)) return;
       if (line.startsWith(CommitEventType.transmittingDeltas.getText())) {
         if (myHandler != null) {
@@ -233,14 +211,12 @@ public class CmdCheckinClient extends BaseSvnClient implements CheckinClient {
               myHandler.committedRevision(myCommittedRevision);
             }
           } catch (NumberFormatException e) {
-            final String message = "Wrong committed revision number: " + num.toString() + ", string: " + line;
-            LOG.info(message, e);
-            throw new SvnBindException(message);
+            LOG.info("Wrong committed revision number: " + num + ", " + line, e);
+            throw new SvnBindException(message("error.wrong.committed.revision.number", num) + ", " + line);
           }
         } else {
-          final String message = "Missing committed revision number: " + num.toString() + ", string: " + line;
-          LOG.info(message);
-          throw new SvnBindException(message);
+          LOG.info("Missing committed revision number: " + num + ", " + line);
+          throw new SvnBindException(message("error.missing.committed.revision.number", num) + ", " + line);
         }
       } else {
         if (myHandler == null) return;

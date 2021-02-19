@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.server;
 
 import org.apache.maven.execution.MavenExecutionRequest;
@@ -19,10 +20,7 @@ import org.jdom.output.XMLOutputter;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.StringReader;
-import java.io.StringWriter;
+import java.io.*;
 import java.rmi.RemoteException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -31,7 +29,7 @@ import java.util.*;
 /**
  * @author Sergey Evdokimov
  */
-public class MavenEffectivePomDumper {
+public final class MavenEffectivePomDumper {
 
   /**
    * The POM XSD URL
@@ -54,7 +52,7 @@ public class MavenEffectivePomDumper {
     final StringWriter w = new StringWriter();
 
     try {
-      final MavenExecutionRequest request = embedder.createRequest(file, activeProfiles, inactiveProfiles, Collections.<String>emptyList());
+      final MavenExecutionRequest request = embedder.createRequest(file, activeProfiles, inactiveProfiles, null);
 
       embedder.executeWithMavenSession(request, new Runnable() {
         @Override
@@ -66,7 +64,8 @@ public class MavenEffectivePomDumper {
 
             MavenProject project = buildingResult.getProject();
 
-            XMLWriter writer = new PrettyPrintXMLWriter(w, StringUtils.repeat(" ", XmlWriterUtil.DEFAULT_INDENTATION_SIZE));
+            XMLWriter writer = new PrettyPrintXMLWriter(new PrintWriter(w), StringUtils.repeat(" ", XmlWriterUtil.DEFAULT_INDENTATION_SIZE),
+                                                        "\n", null, null);
 
             writeHeader(writer);
 
@@ -106,7 +105,7 @@ public class MavenEffectivePomDumper {
 
     effectivePom = addMavenNamespace(sWriter.toString(), true);
 
-    writeComment(writer, "Effective POM for project \'" + project.getId() + "\'");
+    writeComment(writer, "Effective POM for project '" + project.getId() + "'");
 
     writer.writeMarkup(effectivePom);
   }
@@ -172,7 +171,6 @@ public class MavenEffectivePomDumper {
         element.setContent(i + 1, new Text(((Text)c2).getText().replace("\n", "\n\n")));
       }
     }
-
   }
 
   private static void addLineBreaks(Document pomXml, Namespace pomNamespace) {
@@ -243,6 +241,7 @@ public class MavenEffectivePomDumper {
     /**
      * {@inheritDoc}
      */
+    @Override
     public Set keySet() {
       Set keynames = super.keySet();
       Vector list = new Vector(keynames);

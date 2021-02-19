@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.testframework.actions;
 
 import com.intellij.diff.DiffContentFactory;
@@ -13,18 +14,21 @@ import com.intellij.diff.util.DiffUserDataKeysEx.ScrollToPolicy;
 import com.intellij.execution.ExecutionBundle;
 import com.intellij.execution.testframework.stacktrace.DiffHyperlink;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.newvfs.NewVirtualFileSystem;
+import com.intellij.util.io.URLUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
 public class TestDiffRequestProcessor extends DiffRequestProcessor {
-  @NotNull private final List<DiffHyperlink> myRequests;
+  @NotNull private final List<? extends DiffHyperlink> myRequests;
   private int myIndex;
 
-  public TestDiffRequestProcessor(@Nullable Project project, @NotNull List<DiffHyperlink> requests, int index) {
+  public TestDiffRequestProcessor(@Nullable Project project, @NotNull List<? extends DiffHyperlink> requests, int index) {
     super(project, DiffPlaces.TESTS_FAILED_ASSERTIONS);
     myRequests = requests;
     myIndex = index;
@@ -46,28 +50,45 @@ public class TestDiffRequestProcessor extends DiffRequestProcessor {
     if (myIndex < 0 || myIndex >= myRequests.size()) return NoDiffRequest.INSTANCE;
     DiffHyperlink hyperlink = myRequests.get(myIndex);
     try {
-      String title = hyperlink.getDiffTitle();
+      String windowTitle = hyperlink.getDiffTitle();
 
-      String title1;
-      String title2 = ExecutionBundle.message("diff.content.actual.title");
-      DiffContent content1;
-      DiffContent content2 = DiffContentFactory.getInstance().create(hyperlink.getRight(), null);
+      String text1 = hyperlink.getLeft();
+      String text2 = hyperlink.getRight();
+      VirtualFile file1 = findFile(hyperlink.getFilePath());
+      VirtualFile file2 = findFile(hyperlink.getActualFilePath());
 
-      String filePath = hyperlink.getFilePath();
-      final VirtualFile vFile;
-      if (filePath != null && (vFile = LocalFileSystem.getInstance().findFileByPath(filePath)) != null) {
-        title1 = ExecutionBundle.message("diff.content.expected.title") + " (" + vFile.getPresentableUrl() + ")";
-        content1 = DiffContentFactory.getInstance().create(getProject(), vFile);
-      }
-      else {
-        title1 = ExecutionBundle.message("diff.content.expected.title");
-        content1 = DiffContentFactory.getInstance().create(hyperlink.getLeft(), null);
-      }
+      DiffContent content1 = createContentWithTitle(getProject(), text1, file1, file2);
+      DiffContent content2 = createContentWithTitle(getProject(), text2, file2, file1);
 
-      return new SimpleDiffRequest(title, content1, content2, title1, title2);
+      String title1 = file1 != null ? ExecutionBundle.message("diff.content.expected.title.with.file.url", file1.getPresentableUrl())
+                                    : ExecutionBundle.message("diff.content.expected.title");
+      String title2 = file2 != null ? ExecutionBundle.message("diff.content.actual.title.with.file.url", file2.getPresentableUrl())
+                                    : ExecutionBundle.message("diff.content.actual.title");
+
+      return new SimpleDiffRequest(windowTitle, content1, content2, title1, title2);
     }
     catch (Exception e) {
       return new ErrorDiffRequest(e);
+    }
+  }
+
+  @Nullable
+  private static VirtualFile findFile(@Nullable String path) {
+    if (path == null) return null;
+    NewVirtualFileSystem fs = path.contains(URLUtil.JAR_SEPARATOR) ? JarFileSystem.getInstance() : LocalFileSystem.getInstance();
+    return fs.refreshAndFindFileByPath(path);
+  }
+
+  @NotNull
+  private static DiffContent createContentWithTitle(@Nullable Project project,
+                                                    @NotNull String content,
+                                                    @Nullable VirtualFile contentFile,
+                                                    @Nullable VirtualFile highlightFile) {
+    if (contentFile != null) {
+      return DiffContentFactory.getInstance().create(project, contentFile);
+    }
+    else {
+      return DiffContentFactory.getInstance().create(project, content, highlightFile);
     }
   }
 
@@ -76,13 +97,13 @@ public class TestDiffRequestProcessor extends DiffRequestProcessor {
   //
 
   @Override
-  protected boolean hasNextChange() {
-    return true; // TODO: disable looping ?
+  protected boolean hasNextChange(boolean fromUpdate) {
+    return myIndex + 1 < myRequests.size();
   }
 
   @Override
-  protected boolean hasPrevChange() {
-    return true;
+  protected boolean hasPrevChange(boolean fromUpdate) {
+    return myIndex > 0;
   }
 
   @Override

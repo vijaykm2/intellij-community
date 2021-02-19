@@ -18,6 +18,7 @@ package com.intellij.codeInsight.daemon.impl.analysis;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.codeInspection.XmlSuppressableInspectionTool;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiReference;
@@ -30,7 +31,6 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 9/3/12
  */
 public class XmlPathReferenceInspection extends XmlSuppressableInspectionTool {
   @NotNull
@@ -39,25 +39,28 @@ public class XmlPathReferenceInspection extends XmlSuppressableInspectionTool {
     return new XmlElementVisitor() {
       @Override
       public void visitXmlAttributeValue(XmlAttributeValue value) {
-        checkRefs(value, holder, isOnTheFly);
+        checkRefs(value, holder);
       }
 
       @Override
       public void visitXmlDoctype(XmlDoctype xmlDoctype) {
-        checkRefs(xmlDoctype, holder, isOnTheFly);
+        checkRefs(xmlDoctype, holder);
       }
 
       @Override
       public void visitXmlTag(XmlTag tag) {
-        checkRefs(tag, holder, isOnTheFly);
+        checkRefs(tag, holder);
       }
     };
   }
   
-  private void checkRefs(PsiElement element, ProblemsHolder holder, boolean isOnTheFly) {
+  private void checkRefs(PsiElement element, ProblemsHolder holder) {
     PsiReference[] references = element.getReferences();
     for (PsiReference reference : references) {
       if (!XmlHighlightVisitor.isUrlReference(reference)) {
+        continue;
+      }
+      if (XmlHighlightVisitor.isInjectedWithoutValidation(element)) {
         continue;
       }
       if (!needToCheckRef(reference)) {
@@ -70,7 +73,9 @@ public class XmlPathReferenceInspection extends XmlSuppressableInspectionTool {
       if (!isHtml && XmlHighlightVisitor.skipValidation(element)) {
         continue;
       }
-      if (XmlHighlightVisitor.hasBadResolve(reference, false)) {
+      reference.getElement();
+      final TextRange range = reference.getElement().getTextRange();
+      if (range != null && !range.isEmpty() && XmlHighlightVisitor.hasBadResolve(reference, false)) {
         holder.registerProblem(reference, ProblemsHolder.unresolvedReferenceMessage(reference),
                                isHtml ? ProblemHighlightType.GENERIC_ERROR_OR_WARNING : ProblemHighlightType.LIKE_UNKNOWN_SYMBOL);
       }

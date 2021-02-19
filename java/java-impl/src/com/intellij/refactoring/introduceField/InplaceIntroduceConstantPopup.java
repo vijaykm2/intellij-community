@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,20 +15,24 @@
  */
 package com.intellij.refactoring.introduceField;
 
+import com.intellij.codeInsight.TargetElementUtil;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.Comparing;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.VariableKind;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.JavaRefactoringSettings;
 import com.intellij.refactoring.RefactoringActionHandler;
+import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.ui.TypeSelectorManagerImpl;
 import com.intellij.refactoring.util.occurrences.OccurrenceManager;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,10 +41,6 @@ import java.awt.*;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 
-/**
- * User: anna
- * Date: 3/18/11
- */
 public class InplaceIntroduceConstantPopup extends AbstractInplaceIntroduceFieldPopup {
 
   private final String myInitializerText;
@@ -49,6 +49,7 @@ public class InplaceIntroduceConstantPopup extends AbstractInplaceIntroduceField
   private JCheckBox myReplaceAllCb;
 
   private JCheckBox myMoveToAnotherClassCb;
+  private String myVisibility;
 
   public InplaceIntroduceConstantPopup(Project project,
                                        Editor editor,
@@ -59,14 +60,14 @@ public class InplaceIntroduceConstantPopup extends AbstractInplaceIntroduceField
                                        TypeSelectorManagerImpl typeSelectorManager,
                                        PsiElement anchorElement,
                                        PsiElement anchorElementIfAll, OccurrenceManager occurrenceManager) {
-    super(project, editor, expr, localVariable, occurrences, typeSelectorManager, IntroduceConstantHandler.REFACTORING_NAME,
+    super(project, editor, expr, localVariable, occurrences, typeSelectorManager, IntroduceConstantHandler.getRefactoringNameText(),
           parentClass, anchorElement, occurrenceManager, anchorElementIfAll);
 
     myInitializerText = getExprText(expr, localVariable);
 
 
     GridBagConstraints gc =
-      new GridBagConstraints(0, 0, 1, 1, 1, 0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(0, 0, 0, 0), 0, 0);
+      new GridBagConstraints(0, 0, 1, 1, 1, 0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, JBUI.emptyInsets(), 0, 0);
     myWholePanel.add(getPreviewComponent(), gc);
 
     gc.gridy = 1;
@@ -92,8 +93,8 @@ public class InplaceIntroduceConstantPopup extends AbstractInplaceIntroduceField
     final JPanel right = new JPanel(new GridBagLayout());
     final GridBagConstraints rgc =
       new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1, 0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL,
-                             new Insets(0, 0, 0, 0), 0, 0);
-    myReplaceAllCb = new JCheckBox("Replace all occurrences");
+                             JBUI.emptyInsets(), 0, 0);
+    myReplaceAllCb = new JCheckBox(RefactoringBundle.message("replace.all.occurences.checkbox"));
     myReplaceAllCb.setMnemonic('a');
     myReplaceAllCb.setFocusable(false);
     myReplaceAllCb.setVisible(myOccurrences.length > 1);
@@ -105,23 +106,30 @@ public class InplaceIntroduceConstantPopup extends AbstractInplaceIntroduceField
   private JPanel createLeftPanel() {
     final JPanel left = new JPanel(new GridBagLayout());
     myMoveToAnotherClassCb =
-      new JCheckBox("Move to another class", JavaRefactoringSettings.getInstance().INTRODUCE_CONSTANT_MOVE_TO_ANOTHER_CLASS);
+      new JCheckBox(JavaRefactoringBundle.message("introduce.constant.move.to.another.class.checkbox"), JavaRefactoringSettings.getInstance().INTRODUCE_CONSTANT_MOVE_TO_ANOTHER_CLASS);
     myMoveToAnotherClassCb.setMnemonic('m');
     myMoveToAnotherClassCb.setFocusable(false);
     left.add(myMoveToAnotherClassCb,
-             new GridBagConstraints(0, 0, 1, 1, 1, 0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(0, 0, 0, 0),
+             new GridBagConstraints(0, 0, 1, 1, 1, 0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, JBUI.emptyInsets(),
                                     0, 0));
     return left;
   }
 
 
+  @NotNull
   private String getSelectedVisibility() {
-    if (myParentClass != null && myParentClass.isInterface()) {
+    if (getParentClass() != null && getParentClass().isInterface()) {
       return PsiModifier.PUBLIC;
     }
     String initialVisibility = JavaRefactoringSettings.getInstance().INTRODUCE_CONSTANT_VISIBILITY;
     if (initialVisibility == null) {
       initialVisibility = PsiModifier.PUBLIC;
+    }
+    else {
+      String effectiveVisibility = IntroduceConstantDialog.getEffectiveVisibility(initialVisibility, myOccurrences, getParentClass(), myProject);
+      if (effectiveVisibility != null) {
+        return effectiveVisibility;
+      }
     }
     return initialVisibility;
   }
@@ -130,38 +138,34 @@ public class InplaceIntroduceConstantPopup extends AbstractInplaceIntroduceField
   @Override
   protected PsiVariable createFieldToStartTemplateOn(final String[] names, final PsiType psiType) {
     final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(myProject);
-    return ApplicationManager.getApplication().runWriteAction(new Computable<PsiField>() {
-      @Override
-      public PsiField compute() {
+    return WriteAction.compute(() -> {
 
-        PsiField field = elementFactory.createFieldFromText(
-          psiType.getCanonicalText() + " " + (chooseName(names, myParentClass.getLanguage())) + " = " + myInitializerText + ";",
-          myParentClass);
-        PsiUtil.setModifierProperty(field, PsiModifier.FINAL, true);
-        PsiUtil.setModifierProperty(field, PsiModifier.STATIC, true);
-        final String visibility = getSelectedVisibility();
-        if (visibility != null) {
-          PsiUtil.setModifierProperty(field, visibility, true);
-        }
-        final PsiElement anchorElementIfAll = getAnchorElementIfAll();
-        PsiElement finalAnchorElement;
-        for (finalAnchorElement = anchorElementIfAll;
-             finalAnchorElement != null && finalAnchorElement.getParent() != myParentClass;
-             finalAnchorElement = finalAnchorElement.getParent()) {
-        }
-        PsiMember anchorMember = finalAnchorElement instanceof PsiMember ? (PsiMember)finalAnchorElement : null;
-        field = BaseExpressionToFieldHandler.ConvertToFieldRunnable
-          .appendField(myExpr, BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION, myParentClass, myParentClass, field, anchorMember);
-        myFieldRangeStart = myEditor.getDocument().createRangeMarker(field.getTextRange());
-        return field;
+      PsiClass parentClass = getParentClass();
+      PsiField field = elementFactory.createFieldFromText(
+        psiType.getCanonicalText() + " " + (chooseName(names, parentClass.getLanguage())) + " = " + myInitializerText + ";", parentClass);
+      PsiUtil.setModifierProperty(field, PsiModifier.FINAL, true);
+      PsiUtil.setModifierProperty(field, PsiModifier.STATIC, true);
+      myVisibility = getSelectedVisibility();
+      PsiUtil.setModifierProperty(field, myVisibility, true);
+      final PsiElement anchorElementIfAll = getAnchorElementIfAll();
+      PsiElement finalAnchorElement;
+      for (finalAnchorElement = anchorElementIfAll;
+           finalAnchorElement != null && finalAnchorElement.getParent() != parentClass;
+           finalAnchorElement = finalAnchorElement.getParent()) {
       }
+      PsiMember anchorMember = finalAnchorElement instanceof PsiMember ? (PsiMember)finalAnchorElement : null;
+      field = BaseExpressionToFieldHandler.ConvertToFieldRunnable
+        .appendField(myExpr, BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION, parentClass, parentClass, field,
+                     anchorMember);
+      myFieldRangeStart = myEditor.getDocument().createRangeMarker(field.getTextRange());
+      return field;
     });
   }
 
   @Override
   protected String[] suggestNames(PsiType defaultType, String propName) {
     return IntroduceConstantDialog.createNameSuggestionGenerator(propName, myExpr != null && myExpr.isValid() ? myExpr : null, JavaCodeStyleManager.getInstance(myProject), null,
-                                                                 myParentClass)
+                                                                 getParentClass())
       .getSuggestedNameInfo(defaultType).names;
   }
 
@@ -183,7 +187,7 @@ public class InplaceIntroduceConstantPopup extends AbstractInplaceIntroduceField
   @Override
   protected void saveSettings(@NotNull PsiVariable psiVariable) {
     super.saveSettings(psiVariable);
-    JavaRefactoringSettings.getInstance().INTRODUCE_CONSTANT_VISIBILITY = getSelectedVisibility();
+    JavaRefactoringSettings.getInstance().INTRODUCE_CONSTANT_VISIBILITY = myVisibility;
   }
 
   @Override
@@ -191,33 +195,30 @@ public class InplaceIntroduceConstantPopup extends AbstractInplaceIntroduceField
     JavaRefactoringSettings.getInstance().INTRODUCE_CONSTANT_MOVE_TO_ANOTHER_CLASS = myMoveToAnotherClassCb.isSelected();
     if (myMoveToAnotherClassCb.isSelected()) {
       myEditor.putUserData(INTRODUCE_RESTART, true);
-      ApplicationManager.getApplication().invokeLater(new Runnable() {
-        @Override
-        public void run() {
-          myEditor.putUserData(ACTIVE_INTRODUCE, InplaceIntroduceConstantPopup.this);
-          try {
-            final IntroduceConstantHandler constantHandler = new IntroduceConstantHandler();
-            final PsiLocalVariable localVariable = (PsiLocalVariable)getLocalVariable();
-            if (localVariable != null) {
-              constantHandler.invokeImpl(myProject, localVariable, myEditor);
-            }
-            else {
-              constantHandler.invokeImpl(myProject, myExpr, myEditor);
-            }
+      ApplicationManager.getApplication().invokeLater(() -> {
+        myEditor.putUserData(ACTIVE_INTRODUCE, this);
+        try {
+          final IntroduceConstantHandler constantHandler = new IntroduceConstantHandler();
+          final PsiLocalVariable localVariable = (PsiLocalVariable)getLocalVariable();
+          if (localVariable != null) {
+            constantHandler.invokeImpl(myProject, localVariable, myEditor);
           }
-          finally {
-            myEditor.putUserData(INTRODUCE_RESTART, false);
-            myEditor.putUserData(ACTIVE_INTRODUCE, null);
-            releaseResources();
-            if (myLocalMarker != null) {
-              myLocalMarker.dispose();
-            }
-            if (myExprMarker != null) {
-              myExprMarker.dispose();
-            }
+          else {
+            constantHandler.invokeImpl(myProject, myExpr, myEditor);
           }
         }
-      });
+        finally {
+          myEditor.putUserData(INTRODUCE_RESTART, false);
+          myEditor.putUserData(ACTIVE_INTRODUCE, null);
+          releaseResources();
+          if (myLocalMarker != null) {
+            myLocalMarker.dispose();
+          }
+          if (myExprMarker != null) {
+            myExprMarker.dispose();
+          }
+        }
+      }, myProject.getDisposed());
       return false;
     }
     return super.performRefactoring();
@@ -234,6 +235,24 @@ public class InplaceIntroduceConstantPopup extends AbstractInplaceIntroduceField
   }
 
   @Override
+  protected boolean startsOnTheSameElements(Editor editor,
+                                            RefactoringActionHandler handler,
+                                            PsiElement[] elements) {
+    if (elements.length == 0 && handler instanceof IntroduceConstantHandler) {
+      PsiVariable variable = getVariable();
+      if (variable != null) {
+        PsiReference reference = TargetElementUtil.findReference(editor);
+        if (reference instanceof PsiReferenceExpression &&
+            reference.resolve() == null &&
+            Comparing.strEqual(variable.getName(), ((PsiReferenceExpression)reference).getReferenceName())) {
+          return true;
+        }
+      }
+    }
+    return elements.length == 1 && startsOnTheSameElement(handler, elements[0]);
+  }
+
+  @Override
   protected void performIntroduce() {
     final BaseExpressionToFieldHandler.Settings settings =
       new BaseExpressionToFieldHandler.Settings(getInputName(),
@@ -242,28 +261,25 @@ public class InplaceIntroduceConstantPopup extends AbstractInplaceIntroduceField
                                                 isReplaceAllOccurrences(), true,
                                                 true,
                                                 BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION,
-                                                getSelectedVisibility(), (PsiLocalVariable)getLocalVariable(),
+                                                myVisibility, (PsiLocalVariable)getLocalVariable(),
                                                 getType(),
                                                 true,
-                                                myParentClass, false, false);
-    new WriteCommandAction(myProject, getCommandName(), getCommandName()) {
-      @Override
-      protected void run(Result result) throws Throwable {
-        if (getLocalVariable() != null) {
-          final LocalToFieldHandler.IntroduceFieldRunnable fieldRunnable =
-            new LocalToFieldHandler.IntroduceFieldRunnable(false, (PsiLocalVariable)getLocalVariable(), myParentClass, settings, true,
-                                                           myOccurrences);
-          fieldRunnable.run();
-        }
-        else {
-          final BaseExpressionToFieldHandler.ConvertToFieldRunnable convertToFieldRunnable =
-            new BaseExpressionToFieldHandler.ConvertToFieldRunnable(myExpr, settings, settings.getForcedType(),
-                                                                    myOccurrences, myOccurrenceManager,
-                                                                    getAnchorElementIfAll(), getAnchorElement(), myEditor, myParentClass);
-          convertToFieldRunnable.run();
-        }
+                                                getParentClass(), false, false);
+    WriteCommandAction.writeCommandAction(myProject).withName(getCommandName()).withGroupId(getCommandName()).run(() -> {
+      if (getLocalVariable() != null) {
+        final LocalToFieldHandler.IntroduceFieldRunnable fieldRunnable =
+          new LocalToFieldHandler.IntroduceFieldRunnable(false, (PsiLocalVariable)getLocalVariable(), getParentClass(), settings, true,
+                                                         myOccurrences);
+        fieldRunnable.run();
       }
-    }.execute();
+      else {
+        final BaseExpressionToFieldHandler.ConvertToFieldRunnable convertToFieldRunnable =
+          new BaseExpressionToFieldHandler.ConvertToFieldRunnable(myExpr, settings, settings.getForcedType(),
+                                                                  myOccurrences, myOccurrenceManager,
+                                                                  getAnchorElementIfAll(), getAnchorElement(), myEditor, getParentClass());
+        convertToFieldRunnable.run();
+      }
+    });
   }
 
   @Override

@@ -20,15 +20,14 @@ import com.intellij.dvcs.push.Pusher;
 import com.intellij.dvcs.push.VcsPushOptionValue;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.zmlx.hg4idea.HgBundle;
 import org.zmlx.hg4idea.action.HgCommandResultNotifier;
 import org.zmlx.hg4idea.command.HgPushCommand;
 import org.zmlx.hg4idea.execution.HgCommandResult;
-import org.zmlx.hg4idea.execution.HgCommandResultHandler;
 import org.zmlx.hg4idea.repo.HgRepository;
 
 import java.util.List;
@@ -36,11 +35,13 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static org.zmlx.hg4idea.HgNotificationIdsHolder.*;
+
 public class HgPusher extends Pusher<HgRepository, HgPushSource, HgTarget> {
 
   private static final Logger LOG = Logger.getInstance(HgPusher.class);
   private static final String ONE = "one";
-  private static Pattern PUSH_COMMITS_PATTERN = Pattern.compile(".*(?:added|pushed) (\\d+|" + ONE + ") changeset.*");
+  private static final Pattern PUSH_COMMITS_PATTERN = Pattern.compile(".*(?:added|pushed) (\\d+|" + ONE + ") changeset.*");
   // hg push command has definite exit values for some cases:
   // mercurial returns 0 if push was successful, 1 if nothing to push. see hg push --help
   static int PUSH_SUCCEEDED_EXIT_VALUE = 0;
@@ -70,35 +71,34 @@ public class HgPusher extends Pusher<HgRepository, HgPushSource, HgTarget> {
       else {
         pushCommand.setBranchName(branchName);
       }
-      push(project, pushCommand);
+      pushSynchronously(project, pushCommand);
     }
   }
 
-  public static void push(@NotNull final Project project, @NotNull HgPushCommand command) {
+  public static void pushSynchronously(@NotNull final Project project, @NotNull HgPushCommand command) {
     final VirtualFile repo = command.getRepo();
-    command.execute(new HgCommandResultHandler() {
-      @Override
-      public void process(@Nullable HgCommandResult result) {
-        if (result == null) {
-          return;
-        }
+    HgCommandResult result = command.executeInCurrentThread();
+    if (result == null) {
+      return;
+    }
 
-        if (result.getExitValue() == PUSH_SUCCEEDED_EXIT_VALUE) {
-          int commitsNum = getNumberOfPushedCommits(result);
-          String successTitle = "Pushed successfully";
-          String successDescription = String.format("Pushed %d %s [%s]", commitsNum, StringUtil.pluralize("commit", commitsNum),
-                                                    repo.getPresentableName());
-          VcsNotifier.getInstance(project).notifySuccess(successTitle, successDescription);
-        }
-        else if (result.getExitValue() == NOTHING_TO_PUSH_EXIT_VALUE) {
-          VcsNotifier.getInstance(project).notifySuccess("Nothing to push");
-        }
-        else {
-          new HgCommandResultNotifier(project).notifyError(result, "Push failed",
-                                                           "Failed to push to [" + repo.getPresentableName() + "]");
-        }
-      }
-    });
+    if (result.getExitValue() == PUSH_SUCCEEDED_EXIT_VALUE) {
+      int commitsNum = getNumberOfPushedCommits(result);
+      String successTitle = HgBundle.message("action.hg4idea.push.success");
+      String successDescription = HgBundle.message("action.hg4idea.push.success.msg",
+                                                   commitsNum,
+                                                   repo.getPresentableName());
+      VcsNotifier.getInstance(project).notifySuccess(PUSH_SUCCESS, successTitle, successDescription);
+    }
+    else if (result.getExitValue() == NOTHING_TO_PUSH_EXIT_VALUE) {
+      VcsNotifier.getInstance(project).notifySuccess(NOTHING_TO_PUSH, "", HgBundle.message("action.hg4idea.push.nothing"));
+    }
+    else {
+      new HgCommandResultNotifier(project).notifyError(PUSH_ERROR,
+                                                       result,
+                                                       HgBundle.message("action.hg4idea.push.error"),
+                                                       HgBundle.message("action.hg4idea.push.error.msg", repo.getPresentableName()));
+    }
   }
 
   static int getNumberOfPushedCommits(@NotNull HgCommandResult result) {

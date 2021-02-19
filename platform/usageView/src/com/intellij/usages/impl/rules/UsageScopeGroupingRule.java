@@ -1,43 +1,34 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.usages.impl.rules;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.roots.TestSourcesFilter;
 import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.usageView.UsageViewBundle;
 import com.intellij.usages.Usage;
 import com.intellij.usages.UsageGroup;
+import com.intellij.usages.UsageTarget;
 import com.intellij.usages.UsageView;
 import com.intellij.usages.rules.PsiElementUsage;
-import com.intellij.usages.rules.UsageGroupingRule;
+import com.intellij.usages.rules.SingleParentUsageGroupingRule;
+import com.intellij.usages.rules.UsageGroupingRuleEx;
 import com.intellij.util.PlatformIcons;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
-/**
- * @author max
- */
-public class UsageScopeGroupingRule implements UsageGroupingRule {
+class UsageScopeGroupingRule extends SingleParentUsageGroupingRule implements DumbAware, UsageGroupingRuleEx {
+  @Nullable
   @Override
-  public UsageGroup groupUsage(@NotNull Usage usage) {
+  protected UsageGroup getParentGroupFor(@NotNull Usage usage, UsageTarget @NotNull [] targets) {
     if (!(usage instanceof PsiElementUsage)) {
       return null;
     }
@@ -49,23 +40,28 @@ public class UsageScopeGroupingRule implements UsageGroupingRule {
     if (virtualFile == null) {
       return null;
     }
-    ProjectFileIndex fileIndex = ProjectRootManager.getInstance(element.getProject()).getFileIndex();
-    boolean isInLib = fileIndex.isInLibraryClasses(virtualFile) || fileIndex.isInLibrarySource(virtualFile);
+    Project project = element.getProject();
+    ProjectFileIndex fileIndex = ProjectRootManager.getInstance(project).getFileIndex();
+    boolean isInLib = fileIndex.isInLibrary(virtualFile);
     if (isInLib) return LIBRARY;
-    boolean isInTest = fileIndex.isInTestSourceContent(virtualFile);
-    return isInTest ? TEST : PRODUCTION;
+    return TestSourcesFilter.isTestSources(virtualFile, project) ? TEST : PRODUCTION;
+  }
+
+  @Override
+  public String getGroupingActionId() {
+    return "UsageGrouping.Scope";
   }
 
   private static final UsageScopeGroup TEST = new UsageScopeGroup(0) {
     @Override
     public Icon getIcon(boolean isOpen) {
-      return AllIcons.Modules.TestSourceFolder;
+      return AllIcons.Nodes.TestSourceFolder;
     }
 
     @Override
     @NotNull
     public String getText(UsageView view) {
-      return "Test";
+      return UsageViewBundle.message("list.item.test");
     }
   };
   private static final UsageScopeGroup PRODUCTION = new UsageScopeGroup(1) {
@@ -77,7 +73,7 @@ public class UsageScopeGroupingRule implements UsageGroupingRule {
     @Override
     @NotNull
     public String getText(UsageView view) {
-      return "Production";
+      return UsageViewBundle.message("list.item.production");
     }
   };
   private static final UsageScopeGroup LIBRARY = new UsageScopeGroup(2) {
@@ -89,7 +85,7 @@ public class UsageScopeGroupingRule implements UsageGroupingRule {
     @Override
     @NotNull
     public String getText(UsageView view) {
-      return "Library";
+      return UsageViewBundle.message("list.item.library");
     }
   };
   private abstract static class UsageScopeGroup implements UsageGroup {

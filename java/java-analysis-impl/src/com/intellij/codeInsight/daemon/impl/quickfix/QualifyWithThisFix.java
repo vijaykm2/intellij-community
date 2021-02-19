@@ -15,8 +15,8 @@
  */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -24,9 +24,6 @@ import com.intellij.refactoring.util.RefactoringChangeUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 
-/**
-* User: anna
-*/
 public class QualifyWithThisFix implements IntentionAction {
   private final PsiClass myContainingClass;
   private final PsiElement myExpression;
@@ -39,7 +36,7 @@ public class QualifyWithThisFix implements IntentionAction {
   @NotNull
   @Override
   public String getText() {
-    return "Qualify with " + myContainingClass.getName() + ".this";
+    return JavaAnalysisBundle.message("qualify.with.0.this", myContainingClass.getName());
   }
 
   @NotNull
@@ -55,7 +52,6 @@ public class QualifyWithThisFix implements IntentionAction {
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
     final PsiThisExpression thisExpression =
       RefactoringChangeUtil.createThisExpression(PsiManager.getInstance(project), myContainingClass);
     ((PsiReferenceExpression)myExpression).setQualifierExpression(thisExpression);

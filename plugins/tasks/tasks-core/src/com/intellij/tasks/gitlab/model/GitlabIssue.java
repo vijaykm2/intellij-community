@@ -1,13 +1,15 @@
 package com.intellij.tasks.gitlab.model;
 
 import com.google.gson.annotations.SerializedName;
+import com.intellij.openapi.util.NlsSafe;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Date;
 
 /**
- * @author Mikhail Golubev
+ * This is a stub definition intended to be used with Google GSON. Its fields are initialized reflectively.
  */
+@SuppressWarnings("unused")
 public class GitlabIssue {
   private int id;
   @SerializedName("iid")
@@ -28,7 +30,7 @@ public class GitlabIssue {
   }
 
   @NotNull
-  public String getTitle() {
+  public @NlsSafe String getTitle() {
     return title;
   }
 

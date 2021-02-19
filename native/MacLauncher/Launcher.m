@@ -1,29 +1,21 @@
-//
-// Created by max on 5/4/12.
-//
-// To change the template use AppCode | Preferences | File Templates.
-//
-
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 #import "Launcher.h"
 #import "VMOptionsReader.h"
 #import "PropertyFileReader.h"
 #import "utils.h"
+#import "rosetta.h"
+#import <AppKit/AppKit.h>
 #import <dlfcn.h>
-@class NSAlert;
 
-typedef jint (JNICALL *fun_ptr_t_CreateJavaVM)(JavaVM **pvm, void **env, void *args);
+
 NSBundle *vm;
 NSString *const JVMOptions = @"JVMOptions";
 NSString *JVMVersion = NULL;
-NSString* minRequiredJavaVersion = @"1.6.0_65-b14-466.1";
-NSString* osxVersion = @"10.10";
-BOOL javaUpdateRequired = false;
-
+NSString* minRequiredJavaVersion = @"1.8";
 
 @interface NSString (CustomReplacements)
 - (NSString *)replaceAll:(NSString *)pattern to:(NSString *)replacement;
-
 @end
 
 @implementation NSString (CustomReplacements)
@@ -43,7 +35,7 @@ BOOL javaUpdateRequired = false;
 
 @implementation NSDictionary (TypedGetters)
 - (NSDictionary *)dictionaryForKey:(id)key {
-    id answer = [self objectForKey:key];
+    id answer = self[key];
     if ([answer isKindOfClass:[NSDictionary class]]) {
         return answer;
     }
@@ -59,7 +51,6 @@ BOOL javaUpdateRequired = false;
 @end
 
 @implementation Launcher
-
 - (id)initWithArgc:(int)anArgc argv:(char **)anArgv {
     self = [super init];
     if (self) {
@@ -70,112 +61,69 @@ BOOL javaUpdateRequired = false;
     return self;
 }
 
-NSString* getOSXVersion(){
-  NSString *versionString;
-  NSDictionary * sv = [NSDictionary dictionaryWithContentsOfFile:@"/System/Library/CoreServices/SystemVersion.plist"];
-  versionString = [sv objectForKey:@"ProductVersion"];
-  //NSLog(@"OS X: %@", versionString);
-  return versionString;
-}
-
-void openUrl(){
-    CFURLRef url = (__bridge CFURLRef)[NSURL URLWithString:@"http://support.apple.com/kb/DL1572?viewlocale=en_US&locale=en_US"];
-    NSString *fileString =  @"/Applications/Safari.app/";
-    
-    FSRef appFSURL;
-    OSStatus stat2=FSPathMakeRef((const UInt8 *)[fileString UTF8String], &appFSURL, NULL);
-    if (stat2<0) {
-        NSLog(@"can't create FSRef of Safari");
-    }
-    
-    //create the application parameters structure
-    LSApplicationParameters appParam;
-    appParam.version = 0;       //should always be zero
-    appParam.flags = kLSLaunchDefaults; //use the default launch options
-    appParam.application = &appFSURL; //pass in the reference of applications FSRef
-    appParam.argv = NULL;
-    appParam.environment = NULL;
-    appParam.asyncLaunchRefCon = NULL;
-    appParam.initialEvent = NULL;
-    
-    //array of urls. now with a single object array
-    CFArrayRef array = (__bridge CFArrayRef)[NSArray arrayWithObject:(__bridge id)url];
-    
-    //open the url with the application
-    OSStatus stat = LSOpenURLsWithRole(array, kLSRolesAll, NULL, &appParam, NULL, 0);
-    //kLSRolesAll - the role with which the applicaiton is to be opened (kLSRolesAll accepts any)
-    
-    if (stat<0) {
-        NSLog(@"Can not open the url (http://support.apple.com/kb/DL1572?viewlocale=en_US&locale=en_US) with the Safari");
-    }
-}
-
-void showWarning(NSString* installedJava){
+void showWarning(NSString* messageText){
    NSAlert* alert = [[NSAlert alloc] init];
-   [alert addButtonWithTitle:@"Update"];
-   [alert addButtonWithTitle:@"Cancel"];
-    NSString* message_description = [NSString stringWithFormat:@"%@%@%@",@"Java version: ", installedJava, @" which is installed on your Mac is obsolete."];
-   NSString* message_suggestion  = @"Would you like to update Java?";
-   NSString* informativeText =[NSString stringWithFormat:@"%@\n%@",message_description,message_suggestion];
-   [alert setMessageText:@"Java Update"];
+   [alert addButtonWithTitle:@"OK"];
+   NSString* message_description = [NSString stringWithFormat:@"Java 1.8 or later is required."];
+   NSString* informativeText =[NSString stringWithFormat:@"%@",message_description];
+   [alert setMessageText:messageText];
    [alert setInformativeText:informativeText ];
-   [alert setAlertStyle:NSWarningAlertStyle];
-    if ([alert runModal] == NSAlertFirstButtonReturn){
-        openUrl();
-    }
-    [alert release];
+   [alert setAlertStyle:NSAlertStyleWarning];
+   [alert runModal];
+   [alert release];
 }
 
-BOOL isJavaUpdateRequired(NSString *vmVersion, NSString *requiredVersion){
-    BOOL needUpdate = false;
-    NSString* currentOSXVersion = getOSXVersion();
-    if ([osxVersion compare:currentOSXVersion options:NSNumericSearch] <= 0){
-      if ([minRequiredJavaVersion compare:vmVersion options:NSNumericSearch] > 0){
-        NSLog(@"find Java: %@", vmVersion);
-        NSLog(@"required JavaVersion: %@", minRequiredJavaVersion);
-        needUpdate = true;
-        showWarning(vmVersion);
-      }
+BOOL appendBundle(NSString *path, NSMutableArray *sink) {
+    if (! [[NSFileManager defaultManager] fileExistsAtPath:path]) {
+        NSLog(@"Can't find bundled java.The folder doesn't exist: %@", path);
     }
-    return needUpdate;
-}
-
-
-void appendBundle(NSString *path, NSMutableArray *sink) {
-    if ([path hasSuffix:@"jdk"] || [path hasSuffix:@".jre"]) {
-        NSBundle *bundle = [NSBundle bundleWithPath:path];
-        if (bundle != nil) {
-            [sink addObject:bundle];
+    else {
+        if ([path hasSuffix:@"jdk"] || [path hasSuffix:@".jre"] || [path hasSuffix:@"jbr"]) {
+            NSBundle *bundle = [NSBundle bundleWithPath:path];
+            if (bundle != nil) {
+                [sink addObject:bundle];
+                return true;
+            }
         }
     }
+    return false;
 }
 
-void appendJvmBundlesAt(NSString *path, NSMutableArray *sink) {
+BOOL appendJvmBundlesAt(NSString *path, NSMutableArray *sink) {
     NSError *error = nil;
     NSArray *names = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:path error:&error];
 
+    BOOL res = false;
     if (names != nil) {
         for (NSString *name in names) {
-            appendBundle([path stringByAppendingPathComponent:name], sink);
+            res |= appendBundle([path stringByAppendingPathComponent:name], sink);
         }
     }
+    return res;
 }
 
 NSArray *allVms() {
+    // search java info in user's idea.properties
+    NSString* ideaProperty = getPropertiesFilePath();
+    if ([[NSFileManager defaultManager] fileExistsAtPath:ideaProperty]) {
+        NSDictionary *inConfig =[PropertyFileReader readFile:ideaProperty];
+        NSString* userJavaVersion = inConfig[@"JVMVersion"];
+        if (userJavaVersion != nil && meetMinRequirements(userJavaVersion)) {
+            JVMVersion = userJavaVersion;
+            NSLog(@"user JavaVersion from custom configs, which mentioned in idea.properties %@", userJavaVersion);
+        }
+    }
+
+    NSString *required = requiredJvmVersions();
+    NSLog(@"allVms required %@", required);
+
     NSMutableArray *jvmBundlePaths = [NSMutableArray array];
 
-    // search java info in user's idea.properties
-    NSDictionary *inConfig = [PropertyFileReader readFile:getPropertiesFilePath()];
-    NSString* userJavaVersion = [inConfig objectForKey:@"JVMVersion"];
-    if (userJavaVersion != nil) JVMVersion = userJavaVersion;
-    NSString *required = requiredJvmVersions();
+    NSBundle *bundle = [NSBundle mainBundle];
+    appendBundle([bundle.bundlePath stringByAppendingPathComponent:@"Contents/jbr"], jvmBundlePaths);
 
-    if (! jvmBundlePaths.count > 0 ) {
-        NSBundle *bundle = [NSBundle mainBundle];
-        NSString *appDir = [bundle.bundlePath stringByAppendingPathComponent:@"Contents"];
-
-        appendJvmBundlesAt([appDir stringByAppendingPathComponent:@"/jre"], jvmBundlePaths);
-        if ((jvmBundlePaths.count > 0) && (satisfies(jvmVersion(jvmBundlePaths[jvmBundlePaths.count-1]), required))) return jvmBundlePaths;
+    if (jvmBundlePaths.count == 0 || !satisfies(jvmVersion(jvmBundlePaths[jvmBundlePaths.count-1]), required)) {
+        NSLog(@"Can't get bundled java version. It is probably corrupted.");
 
         appendJvmBundlesAt([NSHomeDirectory() stringByAppendingPathComponent:@"Library/Java/JavaVirtualMachines"], jvmBundlePaths);
         appendJvmBundlesAt(@"/Library/Java/JavaVirtualMachines", jvmBundlePaths);
@@ -192,65 +140,87 @@ NSString *jvmVersion(NSBundle *bundle) {
 }
 
 NSString *requiredJvmVersions() {
-    return (JVMVersion != NULL) ? JVMVersion : [[NSBundle mainBundle].infoDictionary valueForKey:@"JVMVersion" inDictionary: JVMOptions defaultObject:@"1.7*"];
+    return (JVMVersion != NULL) ? JVMVersion : [[NSBundle mainBundle].infoDictionary valueForKey:@"JVMVersion" inDictionary: JVMOptions defaultObject:@"1.8*"];
+}
+
+BOOL meetMinRequirements (NSString *vmVersion) {
+    return [minRequiredJavaVersion compare:vmVersion options:NSNumericSearch] <= 0;
 }
 
 BOOL satisfies(NSString *vmVersion, NSString *requiredVersion) {
-    if (!javaUpdateRequired){
-      javaUpdateRequired = isJavaUpdateRequired(vmVersion, requiredVersion);
+    BOOL meetRequirement = meetMinRequirements(vmVersion);
+    if (! meetRequirement) {
+        return meetRequirement;
     }
-    if (javaUpdateRequired){
-      return !javaUpdateRequired;
-    }
+
     if ([requiredVersion hasSuffix:@"+"]) {
-      requiredVersion = [requiredVersion substringToIndex:[requiredVersion length] - 1];
-      return [requiredVersion compare:vmVersion options:NSNumericSearch] <= 0;
+        requiredVersion = [requiredVersion substringToIndex:[requiredVersion length] - 1];
+        return [requiredVersion compare:vmVersion options:NSNumericSearch] <= 0;
     }
     if ([requiredVersion hasSuffix:@"*"]) {
-      requiredVersion = [requiredVersion substringToIndex:[requiredVersion length] - 1];
+        requiredVersion = [requiredVersion substringToIndex:[requiredVersion length] - 1];
     }
     return [vmVersion hasPrefix:requiredVersion];
 }
 
-NSComparisonResult compareVMVersions(id vm1, id vm2, void *context) {
+NSComparisonResult compareVMVersions(id vm1, id vm2, __unused void *context) {
     return [jvmVersion(vm2) compare:jvmVersion(vm1) options:NSNumericSearch];
 }
 
-NSBundle *findMatchingVm() {
-    // The name of the environment variable.
-    NSString *variable = [[getExecutable() uppercaseString] stringByAppendingString:@"_JDK"];
-    // The explicitly set JDK to use.
-    NSString *explicit = [[[NSProcessInfo processInfo] environment] objectForKey:variable];
-    NSLog(@"Value of %@: %@", variable, explicit);
-    if (explicit != nil) {
-        NSBundle *jdkBundle = [NSBundle bundleWithPath:explicit];
-        if (jdkBundle != nil && ![jvmVersion(jdkBundle) isEqualToString:@"0"]) {
-            // If the user chooses a VM, use it even if it doesn't satisfy Info.pList
-            debugLog(@"User VM:");
-            debugLog([jdkBundle bundlePath]);
-            return jdkBundle;
-        }
-    }
-    
-    NSFileManager *fileManager = [NSFileManager defaultManager];
-    
-    NSString *pathForFile = [NSString stringWithFormat:@"%@/%@.jdk", getPreferencesFolderPath(), getExecutable()];
-    
-    if ([fileManager fileExistsAtPath:pathForFile]){
-        NSString* fileContents = [NSString stringWithContentsOfFile:pathForFile encoding:NSUTF8StringEncoding error:nil];
-        NSArray* allLinedStrings = [fileContents componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
-        if (allLinedStrings.count > 0) {
-            NSString* jdkFromProfile = allLinedStrings[0];
-            NSBundle *jdkBundle = [NSBundle bundleWithPath:jdkFromProfile];
-            if (jdkBundle != nil && ![jvmVersion(jdkBundle) isEqualToString:@"0"]) {
-                // If the user chooses a VM, use it even if it doesn't satisfy Info.pList
-                debugLog(@"User VM from IDE profile:");
+NSBundle *getJDKBundle(NSString* jdkVersion, NSString* source) {
+    if (jdkVersion != nil) {
+        NSBundle *jdkBundle = [NSBundle bundleWithPath : jdkVersion];
+        if (jdkBundle != nil && ![jvmVersion(jdkBundle) isEqualToString :@"0"]) {
+            NSString *javaVersion = jvmVersion(jdkBundle);
+            if (javaVersion != nil && meetMinRequirements(javaVersion)) {
+                debugLog(@"VM from:");
+                debugLog(source);
                 debugLog([jdkBundle bundlePath]);
                 return jdkBundle;
             }
         }
     }
-    
+    return nil;
+}
+
+NSBundle *findMatchingVm() {
+    // boot jdk action
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+
+    NSString *pathForFile = [NSString stringWithFormat:@"%@/%@.jdk", getPreferencesFolderPath(), getExecutable()];
+
+    if (!pathForFile.isAbsolutePath) {
+        // Handle relative paths
+        pathForFile = [[[NSBundle mainBundle] bundlePath] stringByAppendingPathComponent:pathForFile];
+    }
+
+    if ([fileManager fileExistsAtPath:pathForFile]) {
+        NSString* fileContents = [NSString stringWithContentsOfFile:pathForFile encoding:NSUTF8StringEncoding error:nil];
+        NSArray* allLinedStrings = [fileContents componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+        if (allLinedStrings.count > 0) {
+            NSString* jdkFromProfile = allLinedStrings[0];
+            NSBundle *jdkBundle = getJDKBundle(jdkFromProfile, @"IDE profile");
+            if (jdkBundle != nil) {
+                return jdkBundle;
+            }
+        }
+    }
+
+    //the environment variable.
+    NSString *variable = [[getExecutable() uppercaseString] stringByAppendingString:@"_JDK"];
+    // The explicitly set JDK to use.
+    NSString *explicit = [[NSProcessInfo processInfo] environment][variable];
+    if (explicit != nil) {
+        NSLog(@"Value of %@: %@", variable, explicit);
+        NSBundle *jdkBundle = getJDKBundle(explicit, @"environment variable");
+        if (jdkBundle != nil) {
+          return jdkBundle;
+        }
+        else {
+          NSLog(@"Value of environment variable: %@ doesn't point to valid JDK: %@", variable, explicit);
+        }
+    }
+
     NSArray *vmBundles = [allVms() sortedArrayUsingFunction:compareVMVersions context:NULL];
 
     if (isDebugEnabled()) {
@@ -263,7 +233,7 @@ NSBundle *findMatchingVm() {
     NSString *requiredList = requiredJvmVersions();
     debugLog([NSString stringWithFormat:@"Required VMs: %@", requiredList]);
 
-    if (requiredList != nil && requiredList != NULL) {
+    if (requiredList != nil) {
         NSArray *array = [requiredList componentsSeparatedByString:@","];
         for (NSString* required in array) {
             for (NSBundle *vm in vmBundles) {
@@ -271,14 +241,16 @@ NSBundle *findMatchingVm() {
                     debugLog(@"Chosen VM:");
                     debugLog([vm bundlePath]);
                     return vm;
-                }
+                 }
             }
         }
-    } else {
+    }
+    else {
         NSLog(@"Info.plist is corrupted, Absent JVMOptions key.");
         exit(-1);
     }
     NSLog(@"No matching VM found.");
+    showWarning(@"No matching VM found.");
     return nil;
 }
 
@@ -296,15 +268,14 @@ CFBundleRef NSBundle2CFBundle(NSBundle *bundle) {
 - (NSMutableString *)buildClasspath:(NSBundle *)jvm {
     NSDictionary *jvmInfo = [[NSBundle mainBundle] objectForInfoDictionaryKey:JVMOptions];
     NSMutableString *classpathOption = [NSMutableString stringWithString:@"-Djava.class.path="];
-    NSString *classPath = [jvmInfo objectForKey:@"ClassPath"];
-    if (classPath != nil && classPath != NULL) {
-      [classpathOption appendString:[jvmInfo objectForKey:@"ClassPath"]];
-      NSString *toolsJar = [[jvm bundlePath] stringByAppendingString:@"/Contents/Home/lib/tools.jar"];
-      if ([[NSFileManager defaultManager] fileExistsAtPath:toolsJar]) {
-        [classpathOption appendString:@":"];
-        [classpathOption appendString:toolsJar];
-      }
-
+    NSString *classPath = jvmInfo[@"ClassPath"];
+    if (classPath != nil) {
+        [classpathOption appendString:jvmInfo[@"ClassPath"]];
+        NSString *toolsJar = [[jvm bundlePath] stringByAppendingString:@"/Contents/Home/lib/tools.jar"];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:toolsJar]) {
+            [classpathOption appendString:@":"];
+            [classpathOption appendString:toolsJar];
+        }
     } else {
         NSLog(@"Info.plist is corrupted, Absent ClassPath key.");
         exit(-1);
@@ -317,7 +288,7 @@ NSString *getJVMProperty(NSString *property) {
     NSDictionary *jvmInfo = [[NSBundle mainBundle] objectForInfoDictionaryKey:JVMOptions];
     NSDictionary *properties = [jvmInfo dictionaryForKey:@"Properties"];
     if (properties != nil) {
-        return [properties objectForKey:property];
+        return properties[property];
     }
     return nil;
 }
@@ -330,83 +301,106 @@ NSString *getExecutable() {
     return getJVMProperty(@"idea.executable");
 }
 
-NSString *getBundleName() {
-    return [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleName"];
-}
-
 NSString *getPropertiesFilePath() {
     return [getPreferencesFolderPath() stringByAppendingString:@"/idea.properties"];
 }
 
-
 NSString *getPreferencesFolderPath() {
-    return [NSString stringWithFormat:@"%@/Library/Preferences/%@", NSHomeDirectory(), getSelector()];
+    return [NSString stringWithFormat:@"%@/Library/Application Support/%@/%@", NSHomeDirectory(), getJVMProperty(@"idea.vendor.name"), getSelector()];
 }
-
-// NSString *getDefaultVMOptionsFilePath() {
-//    return [[[NSBundle mainBundle] bundlePath] stringByAppendingString:@fileName];
 
 NSString *getDefaultFilePath(NSString *fileName) {
     NSString *fullFileName = [[[NSBundle mainBundle] bundlePath] stringByAppendingString:@"/Contents"];
     fullFileName = [fullFileName stringByAppendingString:fileName];
     NSLog(@"fullFileName is: %@", fullFileName);
     if ([[NSFileManager defaultManager] fileExistsAtPath:fullFileName]) {
-      NSLog(@"fullFileName exists: %@", fullFileName);
-    } else{
-      fullFileName = [[[NSBundle mainBundle] bundlePath] stringByAppendingString:fileName];
-      NSLog(@"fullFileName exists: %@", fullFileName);
+        NSLog(@"fullFileName exists: %@", fullFileName);
+    } else {
+        fullFileName = [[[NSBundle mainBundle] bundlePath] stringByAppendingString:fileName];
+        NSLog(@"fullFileName exists: %@", fullFileName);
     }
     return fullFileName;
 }
 
-NSString *getApplicationVMOptionsPath() {
-    return getDefaultFilePath([NSString stringWithFormat:@"/bin/%@.vmoptions", getExecutable()]);
-}
+NSArray *parseVMOptions() {
+    NSString *vmOptionsFile = nil;
+    NSMutableArray *vmOptions = nil;
 
-NSString *getUserVMOptionsPath() {
-    return [NSString stringWithFormat:@"%@/%@.vmoptions", getPreferencesFolderPath(), getExecutable()];
-}
-
-NSString *getOverrideVMOptionsPath() {
+    // 1. $<IDE_NAME>_VM_OPTIONS
     NSString *variable = [[getExecutable() uppercaseString] stringByAppendingString:@"_VM_OPTIONS"];
     NSString *value = [[[NSProcessInfo processInfo] environment] objectForKey:variable];
-    NSLog(@"Value of %@ is %@", variable, value);
-    return value == nil ? @"" : value;
-}
-
-NSArray *parseVMOptions() {
-    NSArray *files = @[getApplicationVMOptionsPath(),
-                       getUserVMOptionsPath(),
-                       getOverrideVMOptionsPath()];
-
-    NSMutableArray *options = [NSMutableArray array];
-    NSMutableArray *used = [NSMutableArray array];
-
-    for (NSString *file in files) {
-        NSLog(@"Processing VMOptions file at %@", file);
-        NSArray *contents = [VMOptionsReader readFile:file];
-        if (contents != nil) {
-            NSLog(@"Done");
-            [used addObject:file];
-            [options addObjectsFromArray:contents];
-        } else {
-            NSLog(@"No content found");
+    if (value != nil) {
+        vmOptions = [VMOptionsReader readFile:value];
+        if (vmOptions != nil) {
+            vmOptionsFile = value;
         }
     }
-    [options addObject:[NSString stringWithFormat:@"-Djb.vmOptionsFile=%@", [used componentsJoinedByString:@","]]];
 
-    return options;
+    // 2. <IDE_HOME>.vmoptions || <IDE_HOME>/bin/<bin_name>.vmoptions + <IDE_HOME>.vmoptions (Toolbox)
+    if (vmOptionsFile == nil) {
+        NSString *candidate = [NSString stringWithFormat:@"%@.vmoptions", [[NSBundle mainBundle] bundlePath]];
+        vmOptions = [VMOptionsReader readFile:candidate];
+        if (vmOptions != nil) {
+            vmOptionsFile = candidate;
+            if (![vmOptions containsObject:@"-ea"]) {
+                candidate = getDefaultFilePath([NSString stringWithFormat:@"/bin/%@.vmoptions", getExecutable()]);
+                NSMutableArray *mainOptions = [VMOptionsReader readFile:candidate];
+                if (mainOptions != nil) {
+                    [mainOptions addObjectsFromArray:vmOptions];
+                    vmOptions = mainOptions;
+                }
+            }
+        }
+    }
+
+    // 3. <config_directory>/<bin_name>.vmoptions
+    if (vmOptionsFile == nil) {
+        NSString *candidate = [NSString stringWithFormat:@"%@/%@.vmoptions", getPreferencesFolderPath(), getExecutable()];
+        vmOptions = [VMOptionsReader readFile:candidate];
+        if (vmOptions != nil) {
+            vmOptionsFile = candidate;
+        }
+    }
+
+    // 4. <IDE_HOME>/bin/<bin_name>.vmoptions [+ <config_directory>/user.vmoptions]
+    if (vmOptionsFile == nil) {
+        NSString *candidate = getDefaultFilePath([NSString stringWithFormat:@"/bin/%@.vmoptions", getExecutable()]);
+        vmOptions = [VMOptionsReader readFile:candidate];
+        if (vmOptions != nil) {
+            vmOptionsFile = candidate;
+        }
+        candidate = [NSString stringWithFormat:@"%@/user.vmoptions", getPreferencesFolderPath()];
+        NSMutableArray *userVmOptions = [VMOptionsReader readFile:candidate];
+        if (userVmOptions != nil) {
+            [vmOptions addObjectsFromArray:userVmOptions];
+            vmOptionsFile = candidate;
+        }
+    }
+
+    if (vmOptionsFile != nil) {
+        [vmOptions addObject:[NSString stringWithFormat:@"-Djb.vmOptionsFile=%@", vmOptionsFile]];
+        return vmOptions;
+    }
+    else {
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert addButtonWithTitle:@"OK"];
+        [alert setMessageText:@"Cannot find VM options file"];
+        [alert setAlertStyle:NSAlertStyleWarning];
+        [alert runModal];
+        [alert release];
+        return nil;
+    }
 }
 
 NSString *getOverridePropertiesPath() {
     NSString *variable = [[getExecutable() uppercaseString] stringByAppendingString:@"_PROPERTIES"];
-    return [[[NSProcessInfo processInfo] environment] objectForKey:variable];
+    return [[NSProcessInfo processInfo] environment][variable];
 }
 
 - (void)fillArgs:(NSMutableArray *)args_array fromProperties:(NSDictionary *)properties {
     if (properties != nil) {
         for (id key in properties) {
-            [args_array addObject:[NSString stringWithFormat:@"-D%@=%@", key, [properties objectForKey:key]]];
+            [args_array addObject:[NSString stringWithFormat:@"-D%@=%@", key, properties[key]]];
         }
     }
 }
@@ -419,8 +413,10 @@ NSString *getOverridePropertiesPath() {
 
     [args_array addObject:classpathOption];
 
-    [args_array addObjectsFromArray:[[jvmInfo objectForKey:@"VMOptions"] componentsSeparatedByString:@" "]];
-    [args_array addObjectsFromArray:parseVMOptions()];
+    NSArray *vmOptions = parseVMOptions();
+    if (vmOptions != nil) {
+        [args_array addObjectsFromArray:vmOptions];
+    }
 
     NSString *properties = getOverridePropertiesPath();
     if (properties != nil) {
@@ -433,10 +429,11 @@ NSString *getOverridePropertiesPath() {
     args.version = JNI_VERSION_1_6;
     args.ignoreUnrecognized = JNI_TRUE;
 
-    args.nOptions = (jint)[args_array count];
-    args.options = calloc((size_t) args.nOptions, sizeof(JavaVMOption));
-    for (NSUInteger idx = 0; idx < args.nOptions; idx++) {
-        id obj = [args_array objectAtIndex:idx];
+    NSUInteger nOptions = [args_array count];
+    args.nOptions = (jint) nOptions;
+    args.options = calloc(nOptions, sizeof(JavaVMOption));
+    for (NSUInteger idx = 0; idx < nOptions; idx++) {
+        id obj = args_array[idx];
         args.options[idx].optionString = strdup([[self expandMacros:[obj description]] UTF8String]);
     }
     return args;
@@ -444,15 +441,15 @@ NSString *getOverridePropertiesPath() {
 
 - (const char *)mainClassName {
     NSDictionary *jvmInfo = [[NSBundle mainBundle] objectForInfoDictionaryKey:JVMOptions];
-    
-    NSString *mainClass = [jvmInfo objectForKey:@"MainClass"];
-    if (mainClass == nil || mainClass == NULL) {
+
+    NSString *mainClass = jvmInfo[@"MainClass"];
+    if (mainClass == nil) {
         NSLog(@"Info.plist is corrupted, Absent MainClass key.");
         exit(-1);
     }
-    
-    char *answer = strdup([[jvmInfo objectForKey:@"MainClass"] UTF8String]);
-    
+
+    char *answer = strdup([jvmInfo[@"MainClass"] UTF8String]);
+
     char *cur = answer;
     while (*cur) {
         if (*cur == '.') {
@@ -460,61 +457,36 @@ NSString *getOverridePropertiesPath() {
         }
         cur++;
     }
-    
+
     return answer;
 }
 
 - (void)process_cwd {
-    NSDictionary *jvmInfo = [[NSBundle mainBundle] objectForInfoDictionaryKey:JVMOptions];
-    NSString *cwd = [jvmInfo objectForKey:@"WorkingDirectory"];
-    if (cwd != nil && cwd != NULL) {
-        cwd = [self expandMacros:cwd];
-        if (chdir([cwd UTF8String]) != 0) {
-            NSLog(@"Cannot chdir to working directory at %@", cwd);
+    const char *cmd = getenv("_");
+    if (cmd != NULL && strcmp(cmd, "/usr/bin/open") == 0) {
+        const char *pwd = getenv("PWD");
+        if (pwd != NULL && chdir(pwd) != 0) {
+            NSLog(@"Cannot chdir() to %s", pwd);
         }
-    } else {
-        NSString *dir = [[NSFileManager defaultManager] currentDirectoryPath];
-        NSLog(@"WorkingDirectory is absent in Info.plist. Current Directory: %@", dir);
     }
+
+    NSString *dir = [[NSFileManager defaultManager] currentDirectoryPath];
+    NSLog(@"Current Directory: %@", dir);
 }
 
 BOOL validationJavaVersion(){
     vm = findMatchingVm();
-    if (javaUpdateRequired) {
-        NSLog(@"update Java is required");
+    if (vm == nil) {
         return false;
     }
     return true;
-}
-
-- (void)alert:(NSArray *)values {
-    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-    [alert setMessageText:[values objectAtIndex:0]];
-    [alert setInformativeText:[values objectAtIndex:1]];
-
-    if ([values count] > 2) {
-        NSTextView *accessory = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0 , 300 , 15)];
-        [accessory setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
-        NSMutableAttributedString *str = [[NSMutableAttributedString alloc] initWithString: [values objectAtIndex:2]];
-        [str addAttribute: NSLinkAttributeName value: [values objectAtIndex:2] range: NSMakeRange(0, str.length)];
-        [accessory insertText:str];
-        [accessory setEditable:NO];
-        [accessory setDrawsBackground:NO];
-        [alert setAccessoryView:accessory];
-    }
-
-    [alert runModal];
 }
 
 - (void)launch {
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
 
     if (vm == nil) {
-        NSString *title = @"Java not found";
-        NSString *message = [getBundleName() stringByAppendingString:@" was unable to find a valid JVM. Please download it from:"];
-        NSString *link = @"http://support.apple.com/kb/DL1572?viewlocale=en_US&locale=en_US";
-        [self performSelectorOnMainThread:@selector(alert:) withObject:@[title, message, link] waitUntilDone:true];
-
+        showWarning(@"No matching VM found.");
         NSLog(@"Cannot find matching VM, aborting");
         exit(-1);
     }
@@ -523,25 +495,34 @@ BOOL validationJavaVersion(){
     BOOL ok = [vm loadAndReturnError:&error];
     if (!ok) {
         NSLog(@"Cannot load JVM bundle: %@", error);
-        exit(-1);
+        int ret = -1;
+
+#ifdef __arm64__
+        requestRosetta(@(argv[0]));
+
+        char **new_argv = calloc((size_t) argc + 3, sizeof(char *));
+        new_argv[0] = "/usr/bin/arch";
+        new_argv[1] = "-x86_64";
+        memcpy(&new_argv[2], argv, argc * sizeof(char *));
+
+        NSLog(@"Retrying as x86_64...");
+        ret = execv("/usr/bin/arch", new_argv);
+        perror("Could not launch as x86_64");
+#endif
+
+        exit(ret);
     }
 
     CFBundleRef cfvm = NSBundle2CFBundle(vm);
 
-    fun_ptr_t_CreateJavaVM create_vm = CFBundleGetFunctionPointerForName(cfvm, CFSTR("JNI_CreateJavaVM"));
+    fun_ptr_t_CreateJavaVM create_vm = (fun_ptr_t_CreateJavaVM) CFBundleGetFunctionPointerForName(cfvm, CFSTR("JNI_CreateJavaVM"));
 
     if (create_vm == NULL) {
-        // We have Apple VM chosen here...
-/*
-        [self execCommandLineJava:vm];
-        return;
-*/
-
         NSString *serverLibUrl = [vm.bundlePath stringByAppendingPathComponent:@"Contents/Libraries/libserver.dylib"];
 
         void *libHandle = dlopen(serverLibUrl.UTF8String, RTLD_NOW + RTLD_GLOBAL);
         if (libHandle) {
-            create_vm = dlsym(libHandle, "JNI_CreateJavaVM_Impl");
+            create_vm = (fun_ptr_t_CreateJavaVM) dlsym(libHandle, "JNI_CreateJavaVM_Impl");
         }
     }
 
@@ -559,8 +540,20 @@ BOOL validationJavaVersion(){
 
     jint create_vm_rc = create_vm(&jvm, &env, &args);
     if (create_vm_rc != JNI_OK || jvm == NULL) {
-        NSLog(@"JNI_CreateJavaVM (%@) failed: %ld", vm.bundlePath, create_vm_rc);
-        exit(-1);
+        NSString *serverLibUrl = [vm.bundlePath stringByAppendingPathComponent:@"Contents/Home/lib/server/libjvm.dylib"];
+
+        void *libHandle = dlopen(serverLibUrl.UTF8String, RTLD_NOW + RTLD_GLOBAL);
+        if (libHandle) {
+            create_vm = (fun_ptr_t_CreateJavaVM) dlsym(libHandle, "JNI_CreateJavaVM");
+        }
+        
+        if (create_vm != NULL) {
+            create_vm_rc = create_vm(&jvm, &env, &args);
+        }
+        if (create_vm == NULL || create_vm_rc != JNI_OK) {
+            NSLog(@"JNI_CreateJavaVM (%@) failed: %d", vm.bundlePath, create_vm_rc);
+            exit(-1);
+        }
     }
 
     jclass string_class = (*env)->FindClass(env, "java/lang/String");
@@ -609,5 +602,4 @@ BOOL validationJavaVersion(){
 
     [pool release];
 }
-
 @end

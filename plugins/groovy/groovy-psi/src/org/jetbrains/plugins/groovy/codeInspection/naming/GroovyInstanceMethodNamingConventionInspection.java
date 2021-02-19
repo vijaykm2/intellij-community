@@ -18,6 +18,7 @@ package org.jetbrains.plugins.groovy.codeInspection.naming;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiModifier;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyQuickFixFactory;
@@ -28,12 +29,6 @@ public class GroovyInstanceMethodNamingConventionInspection extends ConventionIn
 
   private static final int DEFAULT_MIN_LENGTH = 4;
   private static final int DEFAULT_MAX_LENGTH = 32;
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Instance method naming convention";
-  }
 
   @Override
   protected GroovyFix buildFix(@NotNull PsiElement location) {
@@ -50,11 +45,11 @@ public class GroovyInstanceMethodNamingConventionInspection extends ConventionIn
   public String buildErrorString(Object... args) {
     final String className = (String) args[0];
     if (className.length() < getMinLength()) {
-      return "Instance method name '#ref' is too short";
+      return GroovyBundle.message("inspection.message.instance.method.name.ref.too.short");
     } else if (className.length() > getMaxLength()) {
-      return "Instance method name '#ref' is too long";
+      return GroovyBundle.message("inspection.message.instance.method.name.ref.too.long");
     }
-    return "Instance method name '#ref' doesn't match regex '" + getRegex() + "' #loc";
+    return GroovyBundle.message("inspection.message.instance.method.name.ref.doesnt.match.regex", getRegex());
   }
 
   @Override
@@ -82,7 +77,7 @@ public class GroovyInstanceMethodNamingConventionInspection extends ConventionIn
   private class NamingConventionsVisitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitMethod(GrMethod grMethod) {
+    public void visitMethod(@NotNull GrMethod grMethod) {
       super.visitMethod(grMethod);
       if (grMethod.hasModifierProperty(PsiModifier.STATIC) || grMethod.isConstructor()) {
         return;

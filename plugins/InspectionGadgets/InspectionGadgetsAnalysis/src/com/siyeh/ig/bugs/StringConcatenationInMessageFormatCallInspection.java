@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2012 Bas Leijdekkers
+ * Copyright 2010-2018 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,25 +20,16 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.psiutils.ExpressionUtils;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class StringConcatenationInMessageFormatCallInspection extends BaseInspection {
-
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("string.concatenation.in.message.format.call.display.name");
-  }
 
   @NotNull
   @Override
@@ -57,7 +48,7 @@ public class StringConcatenationInMessageFormatCallInspection extends BaseInspec
 
     private final String variableName;
 
-    public StringConcatenationInFormatCallFix(String variableName) {
+    StringConcatenationInFormatCallFix(String variableName) {
       this.variableName = variableName;
     }
 
@@ -70,11 +61,11 @@ public class StringConcatenationInMessageFormatCallInspection extends BaseInspec
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Replace concatenation with argument";
+      return InspectionGadgetsBundle.message("string.concatenation.in.format.call.fix.family.name");
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
       if (!(element instanceof PsiBinaryExpression)) {
         return;

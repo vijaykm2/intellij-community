@@ -1,33 +1,30 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl.content;
 
-import com.intellij.openapi.wm.ToolWindow;
+import com.intellij.openapi.rd.GraphicsExKt;
+import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.ui.Gray;
 import com.intellij.ui.content.Content;
+import com.intellij.ui.popup.PopupState;
+import com.intellij.ui.scale.JBUIScale;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.accessibility.ScreenReader;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import javax.accessibility.AccessibleAction;
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
 import javax.swing.*;
-import javax.swing.border.Border;
-import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 
-public class ContentComboLabel extends BaseLabel {
+final class ContentComboLabel extends BaseLabel {
+  private final PopupState<JBPopup> myPopupState = PopupState.forPopup();
 
   private final ComboIcon myComboIcon = new ComboIcon() {
     @Override
@@ -37,15 +34,28 @@ public class ContentComboLabel extends BaseLabel {
 
     @Override
     public boolean isActive() {
-      return myUi.myWindow.isActive();
+      return myUi.window.isActive();
     }
   };
   private final ComboContentLayout myLayout;
 
-  public ContentComboLabel(ComboContentLayout layout) {
+  ContentComboLabel(@NotNull ComboContentLayout layout) {
     super(layout.myUi, true);
+
     myLayout = layout;
     addMouseListener(new MouseAdapter(){});
+    if (ScreenReader.isActive()) {
+      setFocusable(true);
+      addKeyListener(new KeyAdapter() {
+        @Override
+        public void keyPressed(KeyEvent e) {
+          if (e.getModifiers() == 0 && e.getKeyCode() == KeyEvent.VK_SPACE) {
+            ToolWindowContentUi.toggleContentPopup(myUi, myUi.getContentManager());
+          }
+          super.keyPressed(e);
+        }
+      });
+    }
   }
 
   @Override
@@ -53,56 +63,57 @@ public class ContentComboLabel extends BaseLabel {
     super.processMouseEvent(e);
 
     if (UIUtil.isActionClick(e)) {
-      myUi.toggleContentPopup();
+      if (myPopupState.isRecentlyHidden()) return; // do not show new popup
+      ToolWindowContentUi.toggleContentPopup(myUi, myUi.getContentManager(), myPopupState);
     }
   }
 
   void update() {
-    if (isToDrawCombo()) {
-      setBorder(new EmptyBorder(0, 8, 0, 8));
-    } else {
-      setBorder(null);
-    }
-
-    updateTextAndIcon(myUi.myManager.getSelectedContent(), true);
+    setBorder(isToDrawCombo() ? JBUI.Borders.empty(0, 8) : JBUI.Borders.empty());
+    updateTextAndIcon(getContent(), true);
   }
 
   @Override
   protected boolean allowEngravement() {
-    return myUi == null || myUi.myWindow.isActive();
+    return myUi == null || myUi.window.isActive();
+  }
+
+  @Override
+  public Dimension getMinimumSize() {
+    Dimension size = super.getMinimumSize();
+    if (!isMinimumSizeSet()) {
+      size.width = isToDrawCombo() ? myComboIcon.getIconWidth() : 0;
+      Icon icon = getIcon();
+      if (icon != null) size.width += icon.getIconWidth() + getIconTextGap();
+      Insets insets = getInsets();
+      if (insets != null) size.width += insets.left + insets.right;
+    }
+    return size;
   }
 
   @Override
   public Dimension getPreferredSize() {
-    if (!isToDrawCombo()) {
-      return super.getPreferredSize();
+    Dimension size = super.getPreferredSize();
+    if (!isPreferredSizeSet() && isToDrawCombo()) {
+      size.width += myComboIcon.getIconWidth();
     }
-
-    int width = 0;
-    for (int i = 0; i < myUi.myManager.getContentCount(); i++) {
-      final Content content = myUi.myManager.getContent(i);
-      assert content != null;
-      String text = content.getDisplayName();
-      final Icon icon = content.getUserData(ToolWindow.SHOW_CONTENT_ICON) == Boolean.TRUE ? content.getIcon() : null;
-      FontMetrics metrics = getFontMetrics(getFont());
-      int eachTextWidth = metrics.stringWidth(text != null ? text : "");
-      int iconWidth = icon != null ? icon.getIconWidth() : 0;
-      width = Math.max(eachTextWidth + iconWidth, width);
-    }
-
-    Border border = getBorder();
-    if (border != null) {
-      Insets insets = border.getBorderInsets(this);
-      width += (insets.left + insets.right);
-    }
-
-    width += myComboIcon.getIconWidth();
-
-    return new Dimension(width, super.getPreferredSize().height);
+    return size;
   }
 
   private boolean isToDrawCombo() {
     return myLayout.isToDrawCombo();
+  }
+
+  @Override
+  protected void paintComponent(Graphics g) {
+    Color bgColor = getTabColor();
+    if (bgColor != null) {
+      int borderThickness = JBUIScale.scale(1);
+      Dimension size = getSize();
+      Rectangle rect = new Rectangle(0, borderThickness, size.width, size.height - 2 * borderThickness);
+      GraphicsExKt.fill2DRect((Graphics2D)g, rect, bgColor);
+    }
+    super.paintComponent(g);
   }
 
   @Override
@@ -114,8 +125,51 @@ public class ContentComboLabel extends BaseLabel {
     }
   }
 
+  @Nullable
   @Override
   public Content getContent() {
-    return myUi.myManager.getSelectedContent();
+    return myUi.getContentManager().getSelectedContent();
+  }
+
+  @Override
+  public AccessibleContext getAccessibleContext() {
+    if (accessibleContext == null) {
+      accessibleContext = new AccessibleContentComboLabel();
+    }
+    return accessibleContext;
+  }
+
+  private final class AccessibleContentComboLabel extends AccessibleBaseLabel implements AccessibleAction {
+    @Override
+    public AccessibleRole getAccessibleRole() {
+      return AccessibleRole.PUSH_BUTTON;
+    }
+
+    @Override
+    public AccessibleAction getAccessibleAction() {
+      return this;
+    }
+
+    // Implements AccessibleAction
+    @Override
+    public int getAccessibleActionCount() {
+      return 1;
+    }
+
+    @Override
+    public String getAccessibleActionDescription(int index) {
+      return index == 0 ? UIManager.getString("ComboBox.togglePopupText") : null;
+    }
+
+    @Override
+    public boolean doAccessibleAction(int index) {
+      if (index == 0) {
+        ToolWindowContentUi.toggleContentPopup(myUi, myUi.getContentManager());
+        return true;
+      }
+      else {
+        return false;
+      }
+    }
   }
 }

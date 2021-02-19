@@ -26,12 +26,6 @@ public class UseOfSunClassesInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("use.sun.classes.display.name");
-  }
-
-  @Override
-  @NotNull
   public String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message(
       "use.sun.classes.problem.descriptor");
@@ -55,7 +49,7 @@ public class UseOfSunClassesInspection extends BaseInspection {
       }
       final PsiClassType classType = (PsiClassType)deepComponentType;
       @NonNls final String className = classType.getCanonicalText();
-      if (className == null || !className.startsWith("sun.")) {
+      if (!className.startsWith("sun.")) {
         return;
       }
       final PsiTypeElement typeElement = variable.getTypeElement();
@@ -78,7 +72,7 @@ public class UseOfSunClassesInspection extends BaseInspection {
       }
       final PsiClassType classType = (PsiClassType)type;
       @NonNls final String className = classType.getCanonicalText();
-      if (className == null || !className.startsWith("sun.")) {
+      if (!className.startsWith("sun.")) {
         return;
       }
       registerNewExpressionError(newExpression);

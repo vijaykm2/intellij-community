@@ -15,6 +15,7 @@
  */
 package com.siyeh.ig.performance;
 
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.InspectionGadgetsBundle;
@@ -28,13 +29,6 @@ import java.util.HashSet;
 import java.util.Set;
 
 public class CollectionContainsUrlInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "collection.contains.url.display.name");
-  }
 
   @Override
   @NotNull
@@ -107,11 +101,11 @@ public class CollectionContainsUrlInspection extends BaseInspection {
     }
 
     private static ClassType getClassType(@Nullable PsiClass aClass) {
-      return isMapOrSet(aClass, new HashSet());
+      return isMapOrSet(aClass, new HashSet<>());
     }
 
     private static ClassType isMapOrSet(
-      @Nullable PsiClass aClass, Set<PsiClass> visitedClasses) {
+      @Nullable PsiClass aClass, Set<? super PsiClass> visitedClasses) {
       if (aClass == null) {
         return ClassType.OTHER;
       }
@@ -122,7 +116,7 @@ public class CollectionContainsUrlInspection extends BaseInspection {
       if (CommonClassNames.JAVA_UTIL_SET.equals(className)) {
         return ClassType.SET;
       }
-      else if (CommonClassNames.JAVA_UTIL_MAP.equals(className)) {
+      if (CommonClassNames.JAVA_UTIL_MAP.equals(className)) {
         return ClassType.MAP;
       }
       final PsiClass[] supers = aClass.getSupers();
@@ -138,9 +132,9 @@ public class CollectionContainsUrlInspection extends BaseInspection {
   }
 
   private static class UrlAddedVisitor
-    extends JavaRecursiveElementVisitor {
+    extends JavaRecursiveElementWalkingVisitor {
 
-    private boolean urlAdded = false;
+    private boolean urlAdded;
     private final PsiVariable variable;
     private final ClassType collectionType;
 
@@ -194,7 +188,7 @@ public class CollectionContainsUrlInspection extends BaseInspection {
       urlAdded = true;
     }
 
-    public boolean isUrlAdded() {
+    boolean isUrlAdded() {
       return urlAdded;
     }
   }
@@ -203,9 +197,10 @@ public class CollectionContainsUrlInspection extends BaseInspection {
 
     SET, MAP, OTHER;
 
+    @NotNull
     public String toString() {
       final String string = super.toString();
-      return string.charAt(0) + string.substring(1).toLowerCase();
+      return string.charAt(0) + StringUtil.toLowerCase(string.substring(1));
     }
   }
 }

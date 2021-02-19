@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2018 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,21 +15,19 @@
  */
 package com.siyeh.ipp.asserttoif;
 
-import com.intellij.codeInsight.AnnotationUtil;
+import com.intellij.codeInsight.Nullability;
+import com.intellij.codeInsight.NullabilityAnnotationInfo;
 import com.intellij.codeInsight.NullableNotNullManager;
 import com.intellij.psi.*;
-import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.ClassUtils;
-import com.siyeh.ig.psiutils.ParenthesesUtils;
-import com.siyeh.ig.psiutils.VariableAccessUtils;
+import com.siyeh.ig.psiutils.CommentTracker;
+import com.siyeh.ig.psiutils.ComparisonUtils;
 import com.siyeh.ipp.base.Intention;
 import com.siyeh.ipp.base.PsiElementPredicate;
 import org.jetbrains.annotations.NotNull;
-
-import java.util.List;
 
 /**
  * @author Bas Leijdekkers
@@ -53,11 +51,11 @@ public class ObjectsRequireNonNullIntention extends Intention {
       return;
     }
     final PsiVariable variable = (PsiVariable)target;
-    final List<String> notNulls = NullableNotNullManager.getInstance(element.getProject()).getNotNulls();
-    final PsiAnnotation annotation = AnnotationUtil.findAnnotation(variable, notNulls);
-    if (annotation != null) {
-      annotation.delete();
-    } else {
+    NullableNotNullManager manager = NullableNotNullManager.getInstance(element.getProject());
+    final NullabilityAnnotationInfo info = manager.findEffectiveNullabilityInfo(variable);
+    final PsiAnnotation annotation = info == null ? null : info.getAnnotation();
+    final CommentTracker commentTracker = new CommentTracker();
+    if (annotation == null) {
       final PsiStatement referenceStatement = PsiTreeUtil.getParentOfType(referenceExpression, PsiStatement.class);
       if (referenceStatement == null) {
         return;
@@ -82,10 +80,11 @@ public class ObjectsRequireNonNullIntention extends Intention {
       if (statementToDelete == null) {
         return;
       }
-      statementToDelete.delete();
+      commentTracker.delete(statementToDelete);
     }
-    PsiReplacementUtil
-      .replaceExpressionAndShorten(referenceExpression, "java.util.Objects.requireNonNull(" + referenceExpression.getText() + ")");
+    PsiReplacementUtil.replaceExpressionAndShorten(referenceExpression,
+                                                   "java.util.Objects.requireNonNull(" + commentTracker.text(referenceExpression) + ")",
+                                                   commentTracker);
   }
 
   private static class NullCheckedAssignmentPredicate implements PsiElementPredicate {
@@ -110,7 +109,9 @@ public class ObjectsRequireNonNullIntention extends Intention {
       if (ClassUtils.findClass("java.util.Objects", element) == null) {
         return false;
       }
-      if (NullableNotNullManager.isNotNull(variable)) {
+      final NullabilityAnnotationInfo info =
+        NullableNotNullManager.getInstance(variable.getProject()).findEffectiveNullabilityInfo(variable);
+      if (info != null && info.getNullability() == Nullability.NOT_NULL && !info.isExternal() && !info.isInferred()) {
         return true;
       }
       final PsiStatement referenceStatement = PsiTreeUtil.getParentOfType(referenceExpression, PsiStatement.class);
@@ -131,7 +132,7 @@ public class ObjectsRequireNonNullIntention extends Intention {
       return false;
     }
 
-    private static boolean isIfStatementNullCheck(PsiStatement statement, @NotNull PsiVariable variable) {
+    static boolean isIfStatementNullCheck(PsiStatement statement, @NotNull PsiVariable variable) {
       if (!(statement instanceof PsiIfStatement)) {
         return false;
       }
@@ -141,46 +142,37 @@ public class ObjectsRequireNonNullIntention extends Intention {
         return false;
       }
       final PsiStatement thenBranch = ifStatement.getThenBranch();
-      if (!IfStatementPredicate.isSimpleThrowStatement(thenBranch)) {
+      if (!isSimpleThrowStatement(thenBranch)) {
         return false;
       }
       final PsiExpression condition = ifStatement.getCondition();
-      return isNullComparison(condition, variable, true);
+      return ComparisonUtils.isNullComparison(condition, variable, true);
     }
 
-    private static boolean isNotNullAssertion(PsiStatement statement, @NotNull PsiVariable variable) {
+    static boolean isNotNullAssertion(PsiStatement statement, @NotNull PsiVariable variable) {
       if (!(statement instanceof PsiAssertStatement)) {
         return false;
       }
       final PsiAssertStatement assertStatement = (PsiAssertStatement)statement;
       final PsiExpression condition = assertStatement.getAssertCondition();
-      return isNullComparison(condition, variable, false);
+      return ComparisonUtils.isNullComparison(condition, variable, false);
     }
 
-    private static boolean isNullComparison(PsiExpression expression, @NotNull PsiVariable variable, boolean equal) {
-      expression = ParenthesesUtils.stripParentheses(expression);
-      if (!(expression instanceof PsiBinaryExpression)) {
-        return false;
+    public static boolean isSimpleThrowStatement(PsiStatement element) {
+      if (element instanceof PsiThrowStatement) {
+        return true;
       }
-      final PsiBinaryExpression binaryExpression = (PsiBinaryExpression)expression;
-      final IElementType tokenType = binaryExpression.getOperationTokenType();
-      if (equal) {
-        if (!JavaTokenType.EQEQ.equals(tokenType)) {
+      else if (element instanceof PsiBlockStatement) {
+        final PsiBlockStatement blockStatement = (PsiBlockStatement)element;
+        final PsiCodeBlock codeBlock = blockStatement.getCodeBlock();
+        final PsiStatement[] statements = codeBlock.getStatements();
+        if (statements.length != 1) {
           return false;
         }
+        final PsiStatement statement = statements[0];
+        return isSimpleThrowStatement(statement);
       }
-      else {
-        if (!JavaTokenType.NE.equals(tokenType)) {
-          return false;
-        }
-      }
-      final PsiExpression lhs = binaryExpression.getLOperand();
-      final PsiExpression rhs = binaryExpression.getROperand();
-      if (rhs == null) {
-        return false;
-      }
-      return PsiType.NULL.equals(rhs.getType()) && VariableAccessUtils.evaluatesToVariable(lhs, variable) ||
-             PsiType.NULL.equals(lhs.getType()) && VariableAccessUtils.evaluatesToVariable(rhs, variable);
+      return false;
     }
   }
 }

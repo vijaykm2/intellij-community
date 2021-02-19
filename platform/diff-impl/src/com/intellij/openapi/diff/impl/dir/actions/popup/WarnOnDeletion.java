@@ -18,29 +18,38 @@ package com.intellij.openapi.diff.impl.dir.actions.popup;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.ToggleAction;
+import com.intellij.openapi.diff.impl.dir.DirDiffTableModel;
 import com.intellij.openapi.project.DumbAware;
+import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Konstantin Bulenkov
  */
 public class WarnOnDeletion extends ToggleAction implements DumbAware {
-  private static final String PROPERTY_NAME = "dir.diff.do.not.show.warnings.when.deleting";
+  private static final @NonNls String PROPERTY_NAME = "dir.diff.do.not.show.warnings.when.deleting";
 
   @Override
-  public boolean isSelected(AnActionEvent e) {
+  public boolean isSelected(@NotNull AnActionEvent e) {
     return isWarnWhenDeleteItems();
   }
 
   @Override
-  public void setSelected(AnActionEvent e, boolean state) {
+  public void setSelected(@NotNull AnActionEvent e, boolean state) {
     setWarnWhenDeleteItems(state);
   }
 
+  @Override
+  public void update(@NotNull AnActionEvent e) {
+    final DirDiffTableModel model = SetOperationToBase.getModel(e);
+    e.getPresentation().setEnabled(model != null && model.isOperationsEnabled());
+  }
+
   public static boolean isWarnWhenDeleteItems() {
-    return !PropertiesComponent.getInstance().isTrueValue(PROPERTY_NAME);
+    return PropertiesComponent.getInstance().getBoolean(PROPERTY_NAME);
   }
 
   public static void setWarnWhenDeleteItems(boolean warn) {
-    PropertiesComponent.getInstance().setValue(PROPERTY_NAME, Boolean.valueOf(!warn).toString());
+    PropertiesComponent.getInstance().setValue(PROPERTY_NAME, warn);
   }
 }

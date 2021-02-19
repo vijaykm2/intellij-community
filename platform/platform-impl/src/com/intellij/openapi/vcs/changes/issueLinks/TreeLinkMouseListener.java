@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.issueLinks;
 
-import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.ui.AppUIUtil;
 import com.intellij.ui.ColoredTreeCellRenderer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -26,6 +13,7 @@ import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.lang.ref.WeakReference;
+import java.util.Objects;
 
 /**
  * @author yole
@@ -41,7 +29,7 @@ public class TreeLinkMouseListener extends LinkMouseListenerBase {
   protected void showTooltip(final JTree tree, final MouseEvent e, final HaveTooltip launcher) {
     final String text = tree.getToolTipText(e);
     final String newText = launcher == null ? null : launcher.getTooltip();
-    if (!Comparing.equal(text, newText)) {
+    if (!Objects.equals(text, newText)) {
       tree.setToolTipText(newText);
     }
   }
@@ -54,13 +42,12 @@ public class TreeLinkMouseListener extends LinkMouseListenerBase {
     HaveTooltip haveTooltip = null;
     final TreePath path = tree.getPathForLocation(e.getX(), e.getY());
     if (path != null) {
-      final Rectangle rectangle = tree.getPathBounds(path);
-      assert rectangle != null;
-      int dx = e.getX() - rectangle.x;
+      int dx = getRendererRelativeX(e, tree, path);
       final TreeNode treeNode = (TreeNode)path.getLastPathComponent();
-      if (myLastHitNode == null || myLastHitNode.get() != treeNode) {
+      AppUIUtil.targetToDevice(myRenderer, tree);
+      if (myLastHitNode == null || myLastHitNode.get() != treeNode || e.getButton() != MouseEvent.NOBUTTON) {
         if (doCacheLastNode()) {
-          myLastHitNode = new WeakReference<TreeNode>(treeNode);
+          myLastHitNode = new WeakReference<>(treeNode);
         }
         myRenderer.getTreeCellRendererComponent(tree, treeNode, false, false, treeNode.isLeaf(), tree.getRowForPath(path), false);
       }
@@ -73,11 +60,17 @@ public class TreeLinkMouseListener extends LinkMouseListenerBase {
     return tag;
   }
 
+  protected int getRendererRelativeX(@NotNull MouseEvent e, @NotNull JTree tree, @NotNull TreePath path) {
+    final Rectangle rectangle = tree.getPathBounds(path);
+    assert rectangle != null;
+    return e.getX() - rectangle.x;
+  }
+
   protected boolean doCacheLastNode() {
     return true;
   }
 
   public interface HaveTooltip {
-    String getTooltip();
+    @NlsContexts.Tooltip String getTooltip();
   }
 }

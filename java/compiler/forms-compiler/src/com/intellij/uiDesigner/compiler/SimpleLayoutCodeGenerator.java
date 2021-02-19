@@ -35,6 +35,7 @@ public class SimpleLayoutCodeGenerator extends LayoutCodeGenerator {
     myLayoutType = layoutType;
   }
 
+  @Override
   public void generateContainerLayout(final LwContainer lwContainer, final GeneratorAdapter generator, final int componentLocal) {
     generator.loadLocal(componentLocal);
 
@@ -48,10 +49,12 @@ public class SimpleLayoutCodeGenerator extends LayoutCodeGenerator {
     generator.invokeVirtual(ourContainerType, ourSetLayoutMethod);
   }
 
+  @Override
   public void generateComponentLayout(final LwComponent lwComponent,
                                       final GeneratorAdapter generator,
                                       final int componentLocal,
-                                      final int parentLocal) {
+                                      final int parentLocal,
+                                      final String formClassName) {
     generator.loadLocal(parentLocal);
     generator.loadLocal(componentLocal);
     generator.push((String) lwComponent.getCustomLayoutConstraints());

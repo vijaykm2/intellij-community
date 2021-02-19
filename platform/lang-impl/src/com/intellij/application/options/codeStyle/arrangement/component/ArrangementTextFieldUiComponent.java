@@ -30,7 +30,6 @@ import javax.swing.event.DocumentListener;
 
 /**
  * @author Denis Zhdanov
- * @since 3/12/13 11:18 AM
  */
 public class ArrangementTextFieldUiComponent extends AbstractArrangementUiComponent {
 
@@ -62,12 +61,7 @@ public class ArrangementTextFieldUiComponent extends AbstractArrangementUiCompon
 
   private void scheduleUpdate() {
     myAlarm.cancelAllRequests();
-    myAlarm.addRequest(new Runnable() {
-      @Override
-      public void run() {
-        fireStateChanged();
-      }
-    }, ArrangementConstants.TEXT_UPDATE_DELAY_MILLIS);
+    myAlarm.addRequest(() -> fireStateChanged(), ArrangementConstants.TEXT_UPDATE_DELAY_MILLIS);
   }
 
   @NotNull

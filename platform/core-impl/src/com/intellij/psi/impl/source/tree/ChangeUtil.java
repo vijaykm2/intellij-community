@@ -1,24 +1,9 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.tree;
 
 import com.intellij.lang.ASTFactory;
 import com.intellij.lang.ASTNode;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.pom.PomManager;
 import com.intellij.pom.PomModel;
 import com.intellij.pom.event.PomModelEvent;
@@ -35,30 +20,27 @@ import com.intellij.psi.impl.source.SourceTreeToPsiMap;
 import com.intellij.psi.impl.source.codeStyle.CodeEditUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.CharTable;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
-public class ChangeUtil {
+public final class ChangeUtil {
+
+  private static final Logger LOG = Logger.getInstance(ChangeUtil.class);
 
   public static void encodeInformation(TreeElement element) {
     encodeInformation(element, element);
   }
 
   private static void encodeInformation(TreeElement element, ASTNode original) {
-    DebugUtil.startPsiModification(null);
-    try {
-      encodeInformation(element, original, new HashMap<Object, Object>());
-    }
-    finally {
-      DebugUtil.finishPsiModification();
-    }
+    DebugUtil.performPsiModification(null, () -> encodeInformation(element, original, new HashMap<>()));
   }
 
   private static void encodeInformation(TreeElement element, ASTNode original, Map<Object, Object> state) {
-    for (TreeCopyHandler handler : Extensions.getExtensions(TreeCopyHandler.EP_NAME)) {
+    for (TreeCopyHandler handler : TreeCopyHandler.EP_NAME.getExtensionList()) {
       handler.encodeInformation(element, original, state);
     }
 
@@ -74,13 +56,7 @@ public class ChangeUtil {
   }
 
   public static TreeElement decodeInformation(TreeElement element) {
-    DebugUtil.startPsiModification(null);
-    try {
-      return decodeInformation(element, new HashMap<Object, Object>());
-    }
-    finally {
-      DebugUtil.finishPsiModification();
-    }
+    return DebugUtil.performPsiModification(null, () -> decodeInformation(element, new HashMap<>()));
   }
 
   private static TreeElement decodeInformation(TreeElement element, Map<Object, Object> state) {
@@ -90,15 +66,13 @@ public class ChangeUtil {
       child = child.getTreeNext();
     }
 
-    for (TreeCopyHandler handler : Extensions.getExtensions(TreeCopyHandler.EP_NAME)) {
-      final TreeElement handled = handler.decodeInformation(element, state);
-      if (handled != null) return handled;
-    }
-
-    return element;
+    return TreeCopyHandler.EP_NAME.getExtensionList().stream()
+      .map(handler -> handler.decodeInformation(element, state))
+      .filter(Objects::nonNull).findFirst().orElse(element);
   }
 
-  public static LeafElement copyLeafWithText(LeafElement original, String text) {
+  @NotNull
+  public static LeafElement copyLeafWithText(@NotNull LeafElement original, @NotNull String text) {
     LeafElement element = ASTFactory.leaf(original.getElementType(), text);
     original.copyCopyableDataTo(element);
     encodeInformation(element, original);
@@ -107,12 +81,14 @@ public class ChangeUtil {
     return element;
   }
 
+  @NotNull
   public static TreeElement copyElement(@NotNull TreeElement original, CharTable table) {
     CompositeElement treeParent = original.getTreeParent();
     return copyElement(original, treeParent == null ? null : treeParent.getPsi(), table);
   }
 
-  public static TreeElement copyElement(TreeElement original, final PsiElement context, CharTable table) {
+  @NotNull
+  public static TreeElement copyElement(@NotNull TreeElement original, final PsiElement context, CharTable table) {
     final TreeElement element = (TreeElement)original.clone();
     final PsiManager manager = original.getManager();
     DummyHolderFactory.createHolder(manager, element, context, table).getTreeElement();
@@ -130,11 +106,16 @@ public class ChangeUtil {
     if(indentation < 0) CodeEditUtil.setOldIndentation(original, -1);
   }
 
-  public static TreeElement copyToElement(PsiElement original) {
+  @NotNull
+  public static TreeElement copyToElement(@NotNull PsiElement original) {
     final DummyHolder holder = DummyHolderFactory.createHolder(original.getManager(), null, original.getLanguage());
     final FileElement holderElement = holder.getTreeElement();
     final TreeElement treeElement = generateTreeElement(original, holderElement.getCharTable(), original.getManager());
     //  TreeElement treePrev = treeElement.getTreePrev(); // This is hack to support bug used in formater
+    LOG.assertTrue(
+      treeElement != null,
+      "original element class: " + original.getClass().getName() + ", language: " + original.getLanguage()
+    );
     holderElement.rawAddChildren(treeElement);
     TreeUtil.clearCaches(holderElement);
     //  treeElement.setTreePrev(treePrev);
@@ -143,34 +124,29 @@ public class ChangeUtil {
   }
 
   @Nullable
-  public static TreeElement generateTreeElement(PsiElement original, CharTable table, final PsiManager manager) {
+  public static TreeElement generateTreeElement(@Nullable PsiElement original, @NotNull CharTable table, @NotNull final PsiManager manager) {
+    if (original == null) return null;
     PsiUtilCore.ensureValid(original);
     if (SourceTreeToPsiMap.hasTreeElement(original)) {
       return copyElement((TreeElement)SourceTreeToPsiMap.psiElementToTree(original), table);
     }
-    else {
-      for (TreeGenerator generator : Extensions.getExtensions(TreeGenerator.EP_NAME)) {
-        final TreeElement element = generator.generateTreeFor(original, table, manager);
-        if (element != null) return element;
-      }
-      return null;
-    }
+    return TreeGenerator.EP_NAME.getExtensionList().stream()
+      .map(generator -> generator.generateTreeFor(original, table, manager))
+      .filter(Objects::nonNull).findFirst().orElse(null);
   }
 
-  public static void prepareAndRunChangeAction(final ChangeAction action, final TreeElement changedElement){
+  public static void prepareAndRunChangeAction(@NotNull ChangeAction action, @NotNull TreeElement changedElement){
     final FileElement changedFile = TreeUtil.getFileElement(changedElement);
     final PsiManager manager = changedFile.getManager();
     final PomModel model = PomManager.getModel(manager.getProject());
-    final TreeAspect treeAspect = model.getModelAspect(TreeAspect.class);
-    model.runTransaction(new PomTransactionBase(changedElement.getPsi(), treeAspect) {
+    model.runTransaction(new PomTransactionBase(changedElement.getPsi()) {
       @Override
-      public PomModelEvent runInner() {
-        final PomModelEvent event = new PomModelEvent(model);
-        final TreeChangeEvent destinationTreeChange = new TreeChangeEventImpl(treeAspect, changedFile);
-        event.registerChangeSet(treeAspect, destinationTreeChange);
+      public @NotNull PomModelEvent runInner() {
+        TreeChangeEvent destinationTreeChange = new TreeChangeEventImpl(model.getModelAspect(TreeAspect.class), changedFile);
+        PomModelEvent event = new PomModelEvent(model, destinationTreeChange);
         action.makeChange(destinationTreeChange);
 
-        TreeUtil.clearCaches(changedElement);
+        changedElement.clearCaches();
         if (changedElement instanceof CompositeElement) {
           ((CompositeElement) changedElement).subtreeChanged();
         }
@@ -179,7 +155,8 @@ public class ChangeUtil {
     });
   }
 
+  @FunctionalInterface
   public interface ChangeAction{
-    void makeChange(TreeChangeEvent destinationTreeChange);
+    void makeChange(@NotNull TreeChangeEvent destinationTreeChange);
   }
 }

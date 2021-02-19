@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,17 @@
  */
 package com.intellij.debugger.settings;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.openapi.options.ConfigurableUi;
+import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.border.Border;
 import java.awt.*;
+
+import static java.awt.GridBagConstraints.*;
 
 class JavaHotSwapConfigurableUi implements ConfigurableUi<DebuggerSettings> {
   private JCheckBox myHotswapInBackground;
@@ -81,16 +85,16 @@ class JavaHotSwapConfigurableUi implements ConfigurableUi<DebuggerSettings> {
   public JComponent getComponent() {
     final JPanel panel = new JPanel(new GridBagLayout());
 
-    myCbCompileBeforeHotswap = new JCheckBox(DebuggerBundle.message("label.debugger.hotswap.configurable.compile.before.hotswap"));
-    myCbHangWarningEnabled = new JCheckBox(DebuggerBundle.message("label.debugger.hotswap.configurable.enable.vm.hang.warning"));
-    myHotswapInBackground = new JCheckBox(DebuggerBundle.message("label.debugger.hotswap.configurable.hotswap.background"));
-    myRbAlways = new JRadioButton(DebuggerBundle.message("label.debugger.hotswap.configurable.always"));
-    myRbNever = new JRadioButton(DebuggerBundle.message("label.debugger.hotswap.configurable.never"));
-    myRbAsk = new JRadioButton(DebuggerBundle.message("label.debugger.hotswap.configurable.ask"));
+    myCbCompileBeforeHotswap = new JCheckBox(JavaDebuggerBundle.message("label.debugger.hotswap.configurable.compile.before.hotswap"));
+    myCbHangWarningEnabled = new JCheckBox(JavaDebuggerBundle.message("label.debugger.hotswap.configurable.enable.vm.hang.warning"));
+    myHotswapInBackground = new JCheckBox(JavaDebuggerBundle.message("label.debugger.hotswap.configurable.hotswap.background"));
+    myRbAlways = new JRadioButton(JavaDebuggerBundle.message("label.debugger.hotswap.configurable.always"));
+    myRbNever = new JRadioButton(JavaDebuggerBundle.message("label.debugger.hotswap.configurable.never"));
+    myRbAsk = new JRadioButton(JavaDebuggerBundle.message("label.debugger.hotswap.configurable.ask"));
 
-    panel.add(myCbCompileBeforeHotswap, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.NONE, new Insets(0, 0, 0, 0), 0, 0));
-    panel.add(myCbHangWarningEnabled, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.NONE, new Insets(4, 0, 0, 0), 0, 0));
-    panel.add(myHotswapInBackground, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.NONE, new Insets(4, 0, 0, 0), 0, 0));
+    panel.add(myCbCompileBeforeHotswap, new GridBagConstraints(0, RELATIVE, 1, 1, 1.0, 0.0, NORTHWEST, NONE, JBUI.emptyInsets(), 0, 0));
+    panel.add(myCbHangWarningEnabled, new GridBagConstraints(0, RELATIVE, 1, 1, 1.0, 0.0, NORTHWEST, NONE, JBUI.insetsTop(4), 0, 0));
+    panel.add(myHotswapInBackground, new GridBagConstraints(0, RELATIVE, 1, 1, 1.0, 0.0, NORTHWEST, NONE, JBUI.insetsTop(4), 0, 0));
     
     int cbLeftOffset = 0;
     final Border border = myCbCompileBeforeHotswap.getBorder();
@@ -106,13 +110,16 @@ class JavaHotSwapConfigurableUi implements ConfigurableUi<DebuggerSettings> {
     group.add(myRbNever);
     group.add(myRbAsk);
     final Box box = Box.createHorizontalBox();
+    box.add(Box.createRigidArea(JBUI.size(UIUtil.DEFAULT_HGAP, 0)));
     box.add(myRbAlways);
+    box.add(Box.createRigidArea(JBUI.size(UIUtil.DEFAULT_HGAP, 0)));
     box.add(myRbNever);
+    box.add(Box.createRigidArea(JBUI.size(UIUtil.DEFAULT_HGAP, 0)));
     box.add(myRbAsk);
     final JPanel reloadPanel = new JPanel(new BorderLayout());
     reloadPanel.add(box, BorderLayout.CENTER);
-    reloadPanel.add(new JLabel(DebuggerBundle.message("label.debugger.hotswap.configurable.reload.classes")), BorderLayout.WEST);
-    panel.add(reloadPanel, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1.0, 1.0, GridBagConstraints.NORTHWEST, GridBagConstraints.NONE, new Insets(4, cbLeftOffset, 0, 0), 0, 0));
+    reloadPanel.add(new JLabel(JavaDebuggerBundle.message("label.debugger.hotswap.configurable.reload.classes")), BorderLayout.WEST);
+    panel.add(reloadPanel, new GridBagConstraints(0, RELATIVE, 1, 1, 1.0, 1.0, NORTHWEST, NONE, JBUI.insets(4, cbLeftOffset, 0, 0), 0, 0));
 
     return panel;
   }

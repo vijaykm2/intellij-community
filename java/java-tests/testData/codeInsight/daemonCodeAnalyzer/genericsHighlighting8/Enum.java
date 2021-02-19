@@ -38,7 +38,7 @@ enum Operation {
   <error descr="'valueOf(String)' is already defined in 'Operation'">void valueOf(String s)</error> {}
 }
 
-class exte extends <error descr="Cannot inherit from final 'Operation'">Operation</error> {
+<error descr="There is no default constructor available in 'Operation'">class exte extends <error descr="Cannot inherit from enum 'Operation'">Operation</error></error> {
 }
 
 class use {
@@ -115,8 +115,8 @@ class X extends <error descr="Classes cannot directly extend 'java.lang.Enum'">E
 
 enum StaticInEnumConstantInitializer {
     AN {
-        <error descr="Inner classes cannot have static declarations"><error descr="Modifier 'static' not allowed here">static</error></error> class s { }
-        private <error descr="Inner classes cannot have static declarations">static</error> final String t = String.valueOf(1);
+        <error descr="Static declarations in inner classes are not supported at language level '8'">static</error> class s { }
+        private <error descr="Static declarations in inner classes are not supported at language level '8'">static</error> final String t = String.valueOf(1);
     };
 }
 
@@ -124,14 +124,14 @@ interface Barz {
     void baz();
 }
 
-enum Fooz implements Barz {
-    <error descr="Class 'Fooz' must implement abstract method 'baz()' in 'Barz'">FOO</error>;
+<error descr="Class 'Fooz' must either be declared abstract or implement abstract method 'baz()' in 'Barz'">enum Fooz implements Barz</error> {
+    FOO;
 }
 
 ///////////////////////
 class sss {
  void f() {
-   <error descr="Enum must not be local">enum EEEE</error> { EE, YY };
+   <error descr="Local enums are not supported at language level '8'">enum</error> EEEE { EE, YY };
  }
 }
 
@@ -190,7 +190,7 @@ class NestedEnums {
   enum E1 { }
 
   class C2 {
-    <error descr="Inner classes cannot have static declarations">enum E2</error> { }
+    <error descr="Static declarations in inner classes are not supported at language level '8'">enum E2</error> { }
   }
 
   static class C3 {
@@ -199,7 +199,7 @@ class NestedEnums {
 
   {
     new C3() {
-      <error descr="Inner classes cannot have static declarations">enum E2</error> { }
+      <error descr="Static declarations in inner classes are not supported at language level '8'">enum E2</error> { }
     };
   }
 }

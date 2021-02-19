@@ -1,51 +1,54 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options.newEditor;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.plugins.PluginManagerCore;
+import com.intellij.ide.projectView.PresentationData;
+import com.intellij.ide.ui.UISettings;
+import com.intellij.ide.util.treeView.AbstractTreeStructure;
+import com.intellij.ide.util.treeView.AbstractTreeUi;
 import com.intellij.ide.util.treeView.NodeDescriptor;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.extensions.PluginDescriptor;
+import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.options.*;
 import com.intellij.openapi.options.ex.ConfigurableWrapper;
 import com.intellij.openapi.options.ex.SortedConfigurableGroup;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.Pair;
 import com.intellij.ui.*;
 import com.intellij.ui.components.GradientViewport;
+import com.intellij.ui.render.RenderingUtil;
+import com.intellij.ui.scale.JBUIScale;
+import com.intellij.ui.tree.ui.Control;
+import com.intellij.ui.tree.ui.DefaultControl;
 import com.intellij.ui.treeStructure.CachingSimpleNode;
 import com.intellij.ui.treeStructure.SimpleNode;
 import com.intellij.ui.treeStructure.SimpleTree;
 import com.intellij.ui.treeStructure.SimpleTreeStructure;
 import com.intellij.ui.treeStructure.filtered.FilteringTreeBuilder;
 import com.intellij.ui.treeStructure.filtered.FilteringTreeStructure;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.ui.*;
 import com.intellij.util.ui.tree.TreeUtil;
 import com.intellij.util.ui.tree.WideSelectionTreeUI;
 import com.intellij.util.ui.update.MergingUpdateQueue;
 import com.intellij.util.ui.update.Update;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.concurrency.AsyncPromise;
+import org.jetbrains.concurrency.Promise;
+import org.jetbrains.concurrency.Promises;
 
+import javax.accessibility.Accessible;
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
 import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
 import javax.swing.event.TreeExpansionListener;
-import javax.swing.event.TreeSelectionEvent;
-import javax.swing.event.TreeSelectionListener;
 import javax.swing.plaf.TreeUI;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreeCellRenderer;
@@ -55,42 +58,37 @@ import java.awt.*;
 import java.awt.datatransfer.Transferable;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
-import java.awt.event.KeyEvent;
+import java.awt.event.InputEvent;
 import java.awt.event.MouseEvent;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.*;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
-/**
- * @author Sergey.Malenkov
- */
-final class SettingsTreeView extends JComponent implements Disposable, OptionsEditorColleague {
+public class SettingsTreeView extends JComponent implements Accessible, Disposable, OptionsEditorColleague {
   private static final int ICON_GAP = 5;
   private static final String NODE_ICON = "settings.tree.view.icon";
-  private static final Color WRONG_CONTENT = JBColor.RED;
-  private static final Color MODIFIED_CONTENT = JBColor.BLUE;
-  public static final Color FOREGROUND = new JBColor(Gray.x1A, Gray.xBB);
+  private static final Color WRONG_CONTENT = JBColor.namedColor("Tree.errorForeground", JBColor.RED);
+  private static final Color MODIFIED_CONTENT = JBColor.namedColor("Tree.modifiedItemForeground", JBColor.BLUE);
 
   final SimpleTree myTree;
-  final FilteringTreeBuilder myBuilder;
+  private final MyBuilder myBuilder;
 
   private final SettingsFilter myFilter;
-  private final MyRoot myRoot;
   private final JScrollPane myScroller;
-  private final IdentityHashMap<Configurable, MyNode> myConfigurableToNodeMap = new IdentityHashMap<Configurable, MyNode>();
-  private final IdentityHashMap<UnnamedConfigurable, ConfigurableWrapper> myConfigurableToWrapperMap
-    = new IdentityHashMap<UnnamedConfigurable, ConfigurableWrapper>();
+  private final Map<Configurable, MyNode> myConfigurableToNodeMap = new IdentityHashMap<>();
   private final MergingUpdateQueue myQueue = new MergingUpdateQueue("SettingsTreeView", 150, false, this, this, this)
     .setRestartTimerOnAdd(true);
 
-  private Configurable myQueuedConfigurable;
+  private final MyRoot myRoot;
 
-  SettingsTreeView(SettingsFilter filter, ConfigurableGroup... groups) {
+  private Configurable myQueuedConfigurable;
+  private MyControl myControl;
+
+  public SettingsTreeView(@NotNull SettingsFilter filter, @NotNull List<? extends ConfigurableGroup> groups) {
     myFilter = filter;
-    myRoot = new MyRoot(groups);
     myTree = new MyTree();
-    myTree.putClientProperty(WideSelectionTreeUI.TREE_TABLE_TREE_KEY, Boolean.TRUE);
+    myTree.putClientProperty(RenderingUtil.ALWAYS_PAINT_SELECTION_AS_FOCUSED, true);
     myTree.setBackground(UIUtil.SIDE_PANEL_BACKGROUND);
     myTree.getInputMap().clear();
     TreeUtil.installActions(myTree);
@@ -101,23 +99,15 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
 
     myTree.setCellRenderer(new MyRenderer());
     myTree.setRootVisible(false);
-    myTree.setShowsRootHandles(false);
     myTree.setExpandableItemsEnabled(false);
     RelativeFont.BOLD.install(myTree);
+    setComponentPopupMenuTo(myTree);
 
     myTree.setTransferHandler(new TransferHandler() {
       @Nullable
       @Override
       protected Transferable createTransferable(JComponent c) {
-        MyNode node = extractNode(myTree.getPathForRow(myTree.getLeadSelectionRow()));
-        if (node != null) {
-          StringBuilder sb = new StringBuilder("File | Settings");
-          for (String name : getPathNames(node)) {
-            sb.append(" | ").append(name);
-          }
-          return new TextTransferable(sb.toString());
-        }
-        return null;
+        return SettingsTreeView.createTransferable(myTree.getSelectionPath());
       }
 
       @Override
@@ -137,12 +127,12 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
         }
         if (myHeader == null) {
           myHeader = new JLabel();
-          myHeader.setForeground(FOREGROUND);
-          myHeader.setIconTextGap(ICON_GAP);
-          myHeader.setBorder(BorderFactory.createEmptyBorder(1, 10 + getLeftMargin(0), 0, 0));
+          myHeader.setForeground(UIUtil.getTreeForeground());
+          myHeader.setIconTextGap(JBUIScale.scale(ICON_GAP));
+          myHeader.setBorder(JBUI.Borders.empty(2, 10 + getLeftMargin(0), 0, 0));
         }
         myHeader.setFont(myTree.getFont());
-        myHeader.setIcon(myTree.getEmptyHandle());
+        myHeader.setIcon(getIcon(null, false));
         int height = myHeader.getPreferredSize().height;
         String group = findGroupNameAt(0, height + 3);
         if (group == null || !group.equals(findGroupNameAt(0, 0))) {
@@ -152,10 +142,10 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
         return myHeader;
       }
     });
-    myScroller.getVerticalScrollBar().setUI(ButtonlessScrollBarUI.createTransparent());
     myScroller.setBackground(UIUtil.SIDE_PANEL_BACKGROUND);
     myScroller.getViewport().setBackground(UIUtil.SIDE_PANEL_BACKGROUND);
     myScroller.getVerticalScrollBar().setBackground(UIUtil.SIDE_PANEL_BACKGROUND);
+    myScroller.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
     add(myScroller);
 
     myTree.addComponentListener(new ComponentAdapter() {
@@ -175,33 +165,127 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
       }
     });
 
-    myTree.getSelectionModel().addTreeSelectionListener(new TreeSelectionListener() {
-      public void valueChanged(TreeSelectionEvent event) {
-        MyNode node = extractNode(event.getNewLeadSelectionPath());
-        select(node == null ? null : node.myConfigurable);
-      }
+    myTree.getSelectionModel().addTreeSelectionListener(event -> {
+      MyNode node = extractNode(event.getNewLeadSelectionPath());
+      select(node == null ? null : node.myConfigurable);
     });
-
+    myRoot = new MyRoot(groups);
     myBuilder = new MyBuilder(new SimpleTreeStructure.Impl(myRoot));
     myBuilder.setFilteringMerge(300, null);
     Disposer.register(this, myBuilder);
+
+    myTree.getAccessibleContext().setAccessibleName(UIBundle.message("settings.tree.settings.categories.accessible.name"));
+  }
+
+  @Override
+  public void updateUI() {
+    super.updateUI();
+    myControl = null;
+  }
+
+  private Icon getIcon(@Nullable DefaultMutableTreeNode node, boolean selected) {
+    if (myControl == null) myControl = new MyControl();
+    if (node == null || 0 == node.getChildCount()) return myControl.empty;
+    return myTree.isExpanded(new TreePath(node.getPath())) ? myControl.expanded.apply(selected) : myControl.collapsed.apply(selected);
+  }
+
+  private static final class MyControl {
+    private final Control control = new DefaultControl();
+    private final Function<Boolean, Icon> collapsed = selected -> new MyIcon(false, () -> selected);
+    private final Function<Boolean, Icon> expanded = selected -> new MyIcon(true, () -> selected);
+    private final Icon empty = new MyIcon(null, () -> false);
+
+    private final class MyIcon implements Icon {
+      private final Boolean expanded;
+      private final Supplier<Boolean> selected;
+
+      private MyIcon(@Nullable Boolean expanded, Supplier<Boolean> selected) {
+        this.expanded = expanded;
+        this.selected = selected;
+      }
+
+      @Override
+      public int getIconWidth() {
+        return control.getWidth();
+      }
+
+      @Override
+      public int getIconHeight() {
+        return control.getHeight();
+      }
+
+      @Override
+      public void paintIcon(Component c, Graphics g, int x, int y) {
+        if (expanded != null) control.paint(c, g, x, y, getIconWidth(), getIconHeight(), expanded, selected.get());
+      }
+    }
+  }
+
+  private static void setComponentPopupMenuTo(JTree tree) {
+    tree.setComponentPopupMenu(new JPopupMenu() {
+      @Nullable
+      private Collection<String> names;
+
+      @Override
+      public void show(Component invoker, int x, int y) {
+        names = null;
+
+        if (invoker != tree) return;
+        TreePath path = tree.getClosestPathForLocation(x, y);
+        names = getPathNames(extractNode(path));
+        if (names.isEmpty()) {
+          return;
+        }
+
+        Rectangle bounds = tree.getPathBounds(path);
+        if (bounds == null || bounds.y > y) return;
+        bounds.y += bounds.height;
+        if (bounds.y < y) return;
+        super.show(invoker, x, bounds.y);
+      }
+
+      {
+        for (Action action : CopySettingsPathAction.createSwingActions(() -> names)) {
+          add(action);
+        }
+      }
+    });
+  }
+
+  @Nullable
+  Transferable createTransferable(@Nullable InputEvent event) {
+    if (event instanceof MouseEvent) {
+      MouseEvent mouse = (MouseEvent)event;
+      Point location = mouse.getLocationOnScreen();
+      SwingUtilities.convertPointFromScreen(location, myTree);
+      return createTransferable(myTree.getClosestPathForLocation(location.x, location.y));
+    }
+    return createTransferable(myTree.getSelectionPath());
+  }
+
+  @Nullable
+  private static Transferable createTransferable(@Nullable TreePath path) {
+    return CopySettingsPathAction.createTransferable(getPathNames(extractNode(path)));
   }
 
   @NotNull
-  String[] getPathNames(Configurable configurable) {
+  Collection<@NlsContexts.ConfigurableName String> getPathNames(Configurable configurable) {
     return getPathNames(findNode(configurable));
   }
 
-  private static String[] getPathNames(MyNode node) {
-    ArrayDeque<String> path = new ArrayDeque<String>();
+  @NotNull
+  private static Collection<@NlsContexts.ConfigurableName String> getPathNames(@Nullable MyNode node) {
+    if (node == null) {
+      return Collections.emptyList();
+    }
+
+    ArrayDeque<String> path = new ArrayDeque<>();
     while (node != null) {
       path.push(node.myDisplayName);
       SimpleNode parent = node.getParent();
-      node = parent instanceof MyNode
-             ? (MyNode)parent
-             : null;
+      node = parent instanceof MyNode ? (MyNode)parent : null;
     }
-    return ArrayUtil.toStringArray(path);
+    return path;
   }
 
   static Configurable getConfigurable(SimpleNode node) {
@@ -212,61 +296,52 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
 
   @Nullable
   MyNode findNode(Configurable configurable) {
-    ConfigurableWrapper wrapper = myConfigurableToWrapperMap.get(configurable);
-    return myConfigurableToNodeMap.get(wrapper != null ? wrapper : configurable);
-  }
-
-  @Nullable
-  SearchableConfigurable findConfigurableById(@NotNull String id) {
-    for (Configurable configurable : myConfigurableToNodeMap.keySet()) {
-      if (configurable instanceof SearchableConfigurable) {
-        SearchableConfigurable searchable = (SearchableConfigurable)configurable;
-        if (id.equals(searchable.getId())) {
-          return searchable;
-        }
-      }
-    }
-    return null;
-  }
-
-  @Nullable
-  <T extends UnnamedConfigurable> T findConfigurable(@NotNull Class<T> type) {
-    for (UnnamedConfigurable configurable : myConfigurableToNodeMap.keySet()) {
-      if (configurable instanceof ConfigurableWrapper) {
-        ConfigurableWrapper wrapper = (ConfigurableWrapper)configurable;
-        configurable = wrapper.getConfigurable();
-        myConfigurableToWrapperMap.put(configurable, wrapper);
-      }
-      if (type.isInstance(configurable)) {
-        return type.cast(configurable);
-      }
-    }
-    return null;
+    return myConfigurableToNodeMap.get(configurable);
   }
 
   @Nullable
   Project findConfigurableProject(@Nullable Configurable configurable) {
+    MyNode node = findNode(configurable);
+    return node == null ? null : findConfigurableProject(node);
+  }
+
+  @Nullable
+  private static Project findConfigurableProject(@NotNull MyNode node) {
+    Configurable configurable = node.myConfigurable;
+    Project project = node.getProject();
+    Configurable.VariableProjectAppLevel wrapped = ConfigurableWrapper.cast(Configurable.VariableProjectAppLevel.class, configurable);
+    if (wrapped != null) return wrapped.isProjectLevel() ? project : null;
+    if (configurable instanceof ConfigurableWrapper) return project;
+    if (configurable instanceof SortedConfigurableGroup) return project;
+
+    SimpleNode parent = node.getParent();
+    return parent instanceof MyNode
+           ? findConfigurableProject((MyNode)parent)
+           : null;
+  }
+
+  @Nullable
+  private static Project prepareProject(CachingSimpleNode parent, Configurable configurable) {
     if (configurable instanceof ConfigurableWrapper) {
       ConfigurableWrapper wrapper = (ConfigurableWrapper)configurable;
       return wrapper.getExtensionPoint().getProject();
     }
-    return findConfigurableProject(findNode(configurable));
-  }
-
-  @Nullable
-  private static Project findConfigurableProject(@Nullable MyNode node) {
-    if (node != null) {
-      Configurable configurable = node.myConfigurable;
-      if (configurable instanceof ConfigurableWrapper) {
-        ConfigurableWrapper wrapper = (ConfigurableWrapper)configurable;
-        return wrapper.getExtensionPoint().getProject();
-      }
-      SimpleNode parent = node.getParent();
-      if (parent instanceof MyNode) {
-        return findConfigurableProject((MyNode)parent);
+    if (configurable instanceof SortedConfigurableGroup) {
+      SortedConfigurableGroup group = (SortedConfigurableGroup)configurable;
+      Configurable[] configurables = group.getConfigurables();
+      if (configurables.length != 0) {
+        Project project = prepareProject(parent, configurables[0]);
+        if (project != null) {
+          for (int i = 1; i < configurables.length; i++) {
+            if (project != prepareProject(parent, configurables[i])) {
+              return null;
+            }
+          }
+        }
+        return project;
       }
     }
-    return null;
+    return parent == null ? null : parent.getProject();
   }
 
   private static int getLeftMargin(int level) {
@@ -274,14 +349,14 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
   }
 
   @Nullable
-  private String findGroupNameAt(int x, int y) {
+  private @NlsContexts.ConfigurableName String findGroupNameAt(@SuppressWarnings("SameParameterValue") int x, int y) {
     TreePath path = myTree.getClosestPathForLocation(x - myTree.getX(), y - myTree.getY());
     while (path != null) {
       MyNode node = extractNode(path);
       if (node == null) {
         return null;
       }
-      if (myRoot == node.getParent()) {
+      if (node.getParent() instanceof MyRoot) {
         return node.myDisplayName;
       }
       path = path.getParentPath();
@@ -313,135 +388,155 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
     myScroller.setBounds(0, 0, getWidth(), getHeight());
   }
 
-  void selectFirst() {
-    for (ConfigurableGroup eachGroup : myRoot.myGroups) {
-      Configurable[] kids = eachGroup.getConfigurables();
-      if (kids.length > 0) {
-        select(kids[0]);
-        return;
-      }
-    }
-  }
-
-  ActionCallback select(@Nullable final Configurable configurable) {
+  @NotNull
+  Promise<? super Object> select(@Nullable Configurable configurable) {
     if (myBuilder.isSelectionBeingAdjusted()) {
-      return new ActionCallback.Rejected();
+      return Promises.rejectedPromise();
     }
-    final ActionCallback callback = new ActionCallback();
+
+    AsyncPromise<? super Object> promise = new AsyncPromise<>();
     myQueuedConfigurable = configurable;
     myQueue.queue(new Update(this) {
+      @Override
       public void run() {
-        if (configurable == myQueuedConfigurable) {
-          if (configurable == null) {
-            fireSelected(null, callback);
-          }
-          else {
-            myBuilder.getReady(this).doWhenDone(new Runnable() {
-              @Override
-              public void run() {
-                if (configurable != myQueuedConfigurable) return;
+        if (configurable != myQueuedConfigurable) {
+          return;
+        }
 
-                MyNode editorNode = findNode(configurable);
-                FilteringTreeStructure.FilteringNode editorUiNode = myBuilder.getVisibleNodeFor(editorNode);
-                if (editorUiNode == null) return;
+        if (configurable == null) {
+          fireSelected(null)
+            .processed(promise);
+        }
+        else {
+          myBuilder.getReady(this).doWhenDone(() -> {
+            if (configurable != myQueuedConfigurable) return;
 
-                if (!myBuilder.getSelectedElements().contains(editorUiNode)) {
-                  myBuilder.select(editorUiNode, new Runnable() {
-                    public void run() {
-                      fireSelected(configurable, callback);
-                    }
-                  });
-                }
-                else {
-                  myBuilder.scrollSelectionToVisible(new Runnable() {
-                    public void run() {
-                      fireSelected(configurable, callback);
-                    }
-                  }, false);
-                }
-              }
-            });
-          }
+            MyNode editorNode = findNode(configurable);
+            FilteringTreeStructure.FilteringNode editorUiNode = myBuilder.getVisibleNodeFor(editorNode);
+            if (editorUiNode == null) return;
+
+            @SuppressWarnings("CodeBlock2Expr")
+            Runnable handler = () -> {
+              fireSelected(configurable)
+                .processed(promise);
+            };
+
+            if (myBuilder.getSelectedElements().contains(editorUiNode)) {
+              myBuilder.scrollSelectionToVisible(handler, false);
+            }
+            else {
+              myBuilder.select(editorUiNode, handler);
+            }
+          });
         }
       }
 
       @Override
       public void setRejected() {
         super.setRejected();
-        callback.setRejected();
+        promise.cancel();
       }
     });
-    return callback;
+    return promise;
   }
 
-  private void fireSelected(Configurable configurable, ActionCallback callback) {
-    ConfigurableWrapper wrapper = myConfigurableToWrapperMap.get(configurable);
-    myFilter.myContext.fireSelected(wrapper != null ? wrapper : configurable, this).doWhenProcessed(callback.createSetDoneRunnable());
+  @NotNull
+  private Promise<? super Object> fireSelected(Configurable configurable) {
+    return myFilter.myContext.fireSelected(configurable, this);
   }
 
   @Override
   public void dispose() {
     myQueuedConfigurable = null;
+    // help GC and avoid leak on dynamic plugin reload (if some configurable hold language or something plugin-specific)
+    myConfigurableToNodeMap.clear();
   }
 
+  @NotNull
   @Override
-  public ActionCallback onSelected(@Nullable Configurable configurable, Configurable oldConfigurable) {
+  public Promise<? super Object> onSelected(@Nullable Configurable configurable, Configurable oldConfigurable) {
     return select(configurable);
   }
 
+  @NotNull
   @Override
-  public ActionCallback onModifiedAdded(Configurable configurable) {
+  public Promise<? super Object> onModifiedAdded(Configurable configurable) {
     myTree.repaint();
-    return new ActionCallback.Done();
+    return Promises.resolvedPromise();
   }
 
+  @NotNull
   @Override
-  public ActionCallback onModifiedRemoved(Configurable configurable) {
+  public Promise<? super Object> onModifiedRemoved(Configurable configurable) {
     myTree.repaint();
-    return new ActionCallback.Done();
+    return Promises.resolvedPromise();
   }
 
+  @NotNull
   @Override
-  public ActionCallback onErrorsChanged() {
-    return new ActionCallback.Done();
+  public Promise<? super Object> onErrorsChanged() {
+    return Promises.resolvedPromise();
   }
 
   private final class MyRoot extends CachingSimpleNode {
-    private final ConfigurableGroup[] myGroups;
+    private final List<? extends ConfigurableGroup> myGroups;
 
-    private MyRoot(ConfigurableGroup[] groups) {
+    private MyRoot(@NotNull List<? extends ConfigurableGroup> groups) {
       super(null);
       myGroups = groups;
     }
 
     @Override
     protected SimpleNode[] buildChildren() {
-      if (myGroups == null || myGroups.length == 0) {
+      if (myGroups == null || myGroups.isEmpty()) {
         return NO_CHILDREN;
       }
-      ArrayList<MyNode> list = new ArrayList<MyNode>();
+      ArrayList<MyNode> list = new ArrayList<>();
       for (ConfigurableGroup group : myGroups) {
         for (Configurable configurable : group.getConfigurables()) {
           list.add(new MyNode(this, configurable, 0));
         }
       }
-      return list.toArray(new SimpleNode[list.size()]);
+      return list.toArray(new SimpleNode[0]);
     }
   }
 
   private final class MyNode extends CachingSimpleNode {
     private final Configurable.Composite myComposite;
     private final Configurable myConfigurable;
-    private final String myDisplayName;
+    private final @NlsContexts.ConfigurableName String myDisplayName;
     private final int myLevel;
+    private ConfigurableTreeRenderer myRenderer;
+    private boolean myPrepareRenderer = true;
 
     private MyNode(CachingSimpleNode parent, Configurable configurable, int level) {
-      super(parent);
+      super(prepareProject(parent, configurable), parent);
       myComposite = configurable instanceof Configurable.Composite ? (Configurable.Composite)configurable : null;
       myConfigurable = configurable;
       String name = configurable.getDisplayName();
-      myDisplayName = name != null ? name.replace("\n", " ") : "{ " + configurable.getClass().getSimpleName() + " }";
+      myDisplayName = name != null ? name.replace("\n", " ") : "{ " + configurable.getClass().getSimpleName() + " }";  // NON-NLS (safe)
       myLevel = level;
+    }
+
+    @Nullable
+    public ConfigurableTreeRenderer getRenderer() {
+      if (myPrepareRenderer) {
+        myPrepareRenderer = false;
+        if (myConfigurable instanceof ConfigurableTreeRenderer) {
+          myRenderer = (ConfigurableTreeRenderer)myConfigurable;
+        }
+        else if (myConfigurable instanceof ConfigurableWrapper) {
+          ConfigurableWrapper wrapper = (ConfigurableWrapper)myConfigurable;
+          UnnamedConfigurable configurable = wrapper.getRawConfigurable();
+          if (configurable instanceof ConfigurableTreeRenderer) {
+            myRenderer = (ConfigurableTreeRenderer)configurable;
+          }
+          else {
+            myRenderer = wrapper.getExtensionPoint().createTreeRenderer();
+          }
+        }
+      }
+      return myRenderer;
     }
 
     @Override
@@ -453,7 +548,7 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
         return NO_CHILDREN;
       }
       Configurable[] configurables = myComposite.getConfigurables();
-      if (configurables == null || configurables.length == 0) {
+      if (configurables.length == 0) {
         return NO_CHILDREN;
       }
       SimpleNode[] result = new SimpleNode[configurables.length];
@@ -467,25 +562,52 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
     }
 
     @Override
+    protected void update(@NotNull PresentationData presentation) {
+      super.update(presentation);
+      presentation.addText(myDisplayName, getPlainAttributes());
+    }
+
+    @Override
     public boolean isAlwaysLeaf() {
       return myComposite == null;
     }
   }
 
-  private final class MyRenderer extends JPanel implements TreeCellRenderer {
-    private final JLabel myTextLabel = new ErrorLabel();
-    private final JLabel myNodeIcon = new JLabel();
-    private final JLabel myProjectIcon = new JLabel();
+  private final class MyRenderer extends CellRendererPanel implements TreeCellRenderer {
+    final SimpleColoredComponent myTextLabel = new SimpleColoredComponent();
+    final JLabel myNodeIcon = new JLabel();
+    final JLabel myProjectIcon = new JLabel();
+    Pair<Component, ConfigurableTreeRenderer.Layout> myRenderInfo;
 
-    public MyRenderer() {
-      super(new BorderLayout(ICON_GAP, 0));
+    MyRenderer() {
+      setLayout(new BorderLayout(JBUIScale.scale(ICON_GAP - 1), 0));
       myNodeIcon.setName(NODE_ICON);
+      myTextLabel.setOpaque(false);
+      myTextLabel.setIpad(JBInsets.create(1, 0));
       add(BorderLayout.CENTER, myTextLabel);
       add(BorderLayout.WEST, myNodeIcon);
       add(BorderLayout.EAST, myProjectIcon);
-      setBorder(BorderFactory.createEmptyBorder(1, 10, 3, 10));
+      setBorder(JBUI.Borders.empty(1, 10, 3, 10));
     }
 
+    @Override
+    public AccessibleContext getAccessibleContext() {
+      if (accessibleContext == null) {
+        accessibleContext = new MyAccessibleContext();
+      }
+      return accessibleContext;
+    }
+
+    // TODO: consider making MyRenderer a subclass of SimpleColoredComponent.
+    // This should eliminate the need to add this accessibility stuff.
+    private class MyAccessibleContext extends JPanel.AccessibleJPanel {
+      @Override
+      public String getAccessibleName() {
+        return myTextLabel.getCharSequence(true).toString();
+      }
+    }
+
+    @Override
     public Component getTreeCellRendererComponent(JTree tree,
                                                   Object value,
                                                   boolean selected,
@@ -493,22 +615,17 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
                                                   boolean leaf,
                                                   int row,
                                                   boolean focused) {
-      myTextLabel.setFont(UIUtil.getLabelFont());
+      myTextLabel.clear();
       setPreferredSize(null);
 
       MyNode node = extractNode(value);
-      if (node == null) {
-        myTextLabel.setText(value.toString());
-      }
-      else {
-        myTextLabel.setText(node.myDisplayName);
-        // show groups in bold
-        if (myRoot == node.getParent()) {
-          myTextLabel.setFont(myTree.getFont());
-        }
-      }
+      boolean isGroup = node != null && node.getParent() instanceof MyRoot;
+      String name = node != null ? node.myDisplayName : String.valueOf(value);
+      myTextLabel.append(name, isGroup ? SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES : SimpleTextAttributes.REGULAR_ATTRIBUTES);
+      myTextLabel.setFont(isGroup ? myTree.getFont() : StartupUiUtil.getLabelFont());
+
       // update font color for modified configurables
-      myTextLabel.setForeground(selected ? UIUtil.getTreeSelectionForeground() : FOREGROUND);
+      myTextLabel.setForeground(selected ? UIUtil.getTreeSelectionForeground(true) : UIUtil.getTreeForeground());
       if (!selected && node != null) {
         Configurable configurable = node.myConfigurable;
         if (configurable != null) {
@@ -523,50 +640,42 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
       // configure project icon
       Project project = null;
       if (node != null) {
-        SimpleNode parent = node.getParent();
-        if (parent instanceof MyNode) {
-          if (myRoot == parent.getParent()) {
-            project = findConfigurableProject(node); // show icon for top-level nodes
-            if (node.myConfigurable instanceof SortedConfigurableGroup) { // special case for custom subgroups (build.tools)
-              Configurable[] configurables = ((SortedConfigurableGroup)node.myConfigurable).getConfigurables();
-              if (configurables != null) { // assume that all configurables have the same project
-                project = findConfigurableProject(configurables[0]);
-              }
-            }
-          }
-          else if (((MyNode)parent).myConfigurable instanceof SortedConfigurableGroup) {
-            if (((MyNode)node.getParent()).myConfigurable instanceof SortedConfigurableGroup) {
-              project = findConfigurableProject(node); // special case for custom subgroups
-            }
-          }
-        }
+        project = findConfigurableProject(node);
       }
-      if (project != null) {
-        myProjectIcon.setIcon(selected
-                              ? AllIcons.General.ProjectConfigurableSelected
-                              : AllIcons.General.ProjectConfigurable);
-        myProjectIcon.setToolTipText(OptionsBundle.message(project.isDefault()
-                                                           ? "configurable.default.project.tooltip"
-                                                           : "configurable.current.project.tooltip"));
-        myProjectIcon.setVisible(true);
+      Configurable configurable = null;
+      if (node != null) {
+        configurable = node.myConfigurable;
       }
-      else {
-        myProjectIcon.setVisible(false);
-      }
+      setProjectIcon(myProjectIcon, configurable, project, selected);
+      prepareRenderer(node != null, node, configurable, selected);
       // configure node icon
       Icon nodeIcon = null;
-      if (node != null) {
-        if (0 == node.getChildCount()) {
-          nodeIcon = myTree.getEmptyHandle();
-        }
-        else if (value instanceof DefaultMutableTreeNode) {
-          DefaultMutableTreeNode treeNode = (DefaultMutableTreeNode)value;
-          nodeIcon = myTree.isExpanded(new TreePath(treeNode.getPath()))
-                     ? myTree.getExpandedHandle()
-                     : myTree.getCollapsedHandle();
-        }
+      if (value instanceof DefaultMutableTreeNode) {
+        nodeIcon = getIcon((DefaultMutableTreeNode)value, selected);
       }
       myNodeIcon.setIcon(nodeIcon);
+      if (node != null && UISettings.getInstance().getShowInplaceCommentsInternal()) {
+        @NonNls String id = node.myConfigurable instanceof ConfigurableWrapper ? ((ConfigurableWrapper)node.myConfigurable).getId() :
+                            node.myConfigurable instanceof SearchableConfigurable ? ((SearchableConfigurable)node.myConfigurable).getId() :
+                            node.myConfigurable.getClass().getSimpleName();
+        PluginDescriptor plugin;
+        if (node.myConfigurable instanceof ConfigurableWrapper) {
+          plugin = ((ConfigurableWrapper)node.myConfigurable).getExtensionPoint().getPluginDescriptor();
+        }
+        else {
+          plugin = null;
+        }
+        PluginId pluginId = plugin == null ? null : plugin.getPluginId();
+        String pluginName;
+        if (pluginId == null || PluginManagerCore.CORE_ID == pluginId) {
+          pluginName = null;
+        }
+        else {
+          pluginName = plugin.getName();
+        }
+        myTextLabel.append("   ", SimpleTextAttributes.REGULAR_ATTRIBUTES, false);
+        myTextLabel.append(pluginName == null ? id : id + " (" + pluginName + ")", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES, false);
+      }
       // calculate minimum size
       if (node != null && tree.isVisible()) {
         int width = getLeftMargin(node.myLevel) + getPreferredSize().width;
@@ -588,7 +697,63 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
           view.repaint();
         }
       }
+
       return this;
+    }
+
+    private void prepareRenderer(boolean visible, MyNode node, @Nullable UnnamedConfigurable configurable, boolean selected) {
+      myRenderInfo = null;
+      if (visible) {
+        ConfigurableTreeRenderer renderer = node.getRenderer();
+        if (renderer != null) {
+          if (configurable instanceof ConfigurableWrapper) {
+            configurable = ((ConfigurableWrapper)configurable).getRawConfigurable();
+          }
+          myRenderInfo = renderer.getDecorator(myTree, configurable, selected);
+        }
+      }
+    }
+
+    @Override
+    protected void paintChildren(Graphics g) {
+      super.paintChildren(g);
+
+      if (myRenderInfo != null) {
+        Rectangle bounds = new Rectangle(0, 0, getWidth(), getHeight());
+        JBInsets.removeFrom(bounds, getInsets());
+
+        Rectangle text = myTextLabel.getBounds();
+        int baseline = myTextLabel.getBaseline(text.width, text.height);
+
+        if (myProjectIcon.getIcon() == null) {
+          myProjectIcon.setIcon(AllIcons.General.ProjectConfigurable);
+        }
+        Dimension icon = myProjectIcon.getPreferredSize();
+        Rectangle right = new Rectangle(bounds.x + bounds.width - icon.width, bounds.y, icon.width, icon.height);
+
+        myRenderInfo.second.layoutBeforePaint(myRenderInfo.first, bounds, text, right, baseline);
+
+        Rectangle paintBounds = myRenderInfo.first.getBounds();
+        Graphics2D g2 = (Graphics2D)g.create(paintBounds.x, paintBounds.y, paintBounds.width, paintBounds.height);
+        myRenderInfo.first.paint(g2);
+        g2.dispose();
+
+        myRenderInfo = null;
+      }
+    }
+  }
+
+  @SuppressWarnings("unused")
+  protected void setProjectIcon(JLabel projectIcon, Configurable configurable, @Nullable Project project, boolean selected) {
+    if (project != null) {
+      projectIcon.setIcon(AllIcons.General.ProjectConfigurable);
+      projectIcon.setToolTipText(project.isDefault()
+                                 ? IdeUICustomization.getInstance().projectMessage("configurable.default.project.tooltip")
+                                 : IdeUICustomization.getInstance().projectMessage("configurable.current.project.tooltip"));
+      projectIcon.setVisible(true);
+    }
+    else {
+      projectIcon.setVisible(false);
     }
   }
 
@@ -623,11 +788,7 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
     @Override
     public void setUI(TreeUI ui) {
       super.setUI(ui instanceof MyTreeUi ? ui : new MyTreeUi());
-    }
-
-    @Override
-    protected boolean isCustomUI() {
-      return true;
+      setRowHeight(UIManager.getInt("SettingsTree.rowHeight"));
     }
 
     @Override
@@ -637,27 +798,6 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
     @Override
     public boolean getScrollableTracksViewportWidth() {
       return true;
-    }
-
-
-    @Override
-    public void processKeyEvent(KeyEvent e) {
-      TreePath path = myTree.getSelectionPath();
-      if (path != null) {
-        if (e.getKeyCode() == KeyEvent.VK_LEFT) {
-          if (isExpanded(path)) {
-            collapsePath(path);
-            return;
-          }
-        }
-        else if (e.getKeyCode() == KeyEvent.VK_RIGHT) {
-          if (isCollapsed(path)) {
-            expandPath(path);
-            return;
-          }
-        }
-      }
-      super.processKeyEvent(e);
     }
 
     @Override
@@ -670,8 +810,17 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
   }
 
   private static final class MyTreeUi extends WideSelectionTreeUI {
+    @Override
+    public Rectangle getPathBounds(JTree tree, TreePath path) {
+      Rectangle bounds = super.getPathBounds(tree, path);
+      if (bounds != null) {
+        bounds.width = Math.max(bounds.width, tree.getWidth() - bounds.x);
+      }
+      return bounds;
+    }
+
     boolean processMouseEvent(MouseEvent event) {
-      if (super.tree instanceof SimpleTree) {
+      if (tree instanceof SimpleTree) {
         SimpleTree tree = (SimpleTree)super.tree;
 
         boolean toggleNow = MouseEvent.MOUSE_RELEASED == event.getID()
@@ -680,7 +829,9 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
 
         if (toggleNow || MouseEvent.MOUSE_PRESSED == event.getID()) {
           Component component = tree.getDeepestRendererComponentAt(event.getX(), event.getY());
-          if (component != null && NODE_ICON.equals(component.getName())) {
+          if (component instanceof JLabel && NODE_ICON.equals(component.getName())) {
+            MyControl.MyIcon icon = ObjectUtils.tryCast(((JLabel)component).getIcon(), MyControl.MyIcon.class);
+            if (icon == null || icon.expanded == null) return false; // do not consume the mouse event for a leaf node
             if (toggleNow) {
               toggleExpandState(tree.getPathForLocation(event.getX(), event.getY()));
             }
@@ -736,10 +887,9 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
                             boolean isLeaf) {
       if (tree != null) {
         bounds.width = tree.getWidth();
-        Container parent = tree.getParent();
-        if (parent instanceof JViewport) {
-          JViewport viewport = (JViewport)parent;
-          bounds.width = viewport.getWidth() - viewport.getViewPosition().x;
+        JViewport viewport = ComponentUtil.getViewport(tree);
+        if (viewport != null) {
+          bounds.width = viewport.getWidth() - viewport.getViewPosition().x - insets.right / 2;
         }
         bounds.width -= bounds.x;
       }
@@ -748,7 +898,7 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
 
     @Override
     protected int getRowX(int row, int depth) {
-      return getLeftMargin(depth - 1);
+      return JBUIScale.scale(getLeftMargin(depth - 1));
     }
   }
 
@@ -758,13 +908,15 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
     boolean myRefilteringNow;
     boolean myWasHoldingFilter;
 
-    public MyBuilder(SimpleTreeStructure structure) {
+    MyBuilder(SimpleTreeStructure structure) {
       super(myTree, myFilter, structure, null);
       myTree.addTreeExpansionListener(new TreeExpansionListener() {
+        @Override
         public void treeExpanded(TreeExpansionEvent event) {
           invalidateExpansions();
         }
 
+        @Override
         public void treeCollapsed(TreeExpansionEvent event) {
           invalidateExpansions();
         }
@@ -792,11 +944,13 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
       return false;
     }
 
+    @NotNull
     @Override
-    protected ActionCallback refilterNow(Object preferredSelection, boolean adjustSelection) {
-      final List<Object> toRestore = new ArrayList<Object>();
+    protected Promise<?> refilterNow(Object preferredSelection, boolean adjustSelection) {
+      final List<Object> toRestore = new ArrayList<>();
       if (myFilter.myContext.isHoldingFilter() && !myWasHoldingFilter && myToExpandOnResetFilter == null) {
-        myToExpandOnResetFilter = myBuilder.getUi().getExpandedElements();
+        AbstractTreeUi ui = myBuilder.getUi();
+        myToExpandOnResetFilter = ui == null ? null : ui.getExpandedElements();
       }
       else if (!myFilter.myContext.isHoldingFilter() && myWasHoldingFilter && myToExpandOnResetFilter != null) {
         toRestore.addAll(myToExpandOnResetFilter);
@@ -805,25 +959,19 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
 
       myWasHoldingFilter = myFilter.myContext.isHoldingFilter();
 
-      ActionCallback result = super.refilterNow(preferredSelection, adjustSelection);
       myRefilteringNow = true;
-      return result.doWhenDone(new Runnable() {
-        public void run() {
+      return super.refilterNow(preferredSelection, adjustSelection)
+        .onSuccess(o -> {
           myRefilteringNow = false;
           if (!myFilter.myContext.isHoldingFilter() && getSelectedElements().isEmpty()) {
             restoreExpandedState(toRestore);
           }
-        }
-      });
+        });
     }
 
     private void restoreExpandedState(List<Object> toRestore) {
-      TreePath[] selected = myTree.getSelectionPaths();
-      if (selected == null) {
-        selected = new TreePath[0];
-      }
-
-      List<TreePath> toCollapse = new ArrayList<TreePath>();
+      List<TreePath> selected = TreeUtil.collectSelectedPaths(myTree);
+      List<TreePath> toCollapse = new ArrayList<>();
 
       for (int eachRow = 0; eachRow < myTree.getRowCount(); eachRow++) {
         if (!myTree.isExpanded(eachRow)) continue;
@@ -846,5 +994,42 @@ final class SettingsTreeView extends JComponent implements Disposable, OptionsEd
         myTree.collapsePath(each);
       }
     }
+  }
+
+  @Override
+  public AccessibleContext getAccessibleContext() {
+    if (accessibleContext == null) {
+      accessibleContext = new AccessibleSettingsTreeView();
+    }
+    return accessibleContext;
+  }
+
+  protected class AccessibleSettingsTreeView extends AccessibleJComponent {
+    @Override
+    public AccessibleRole getAccessibleRole() {
+      return AccessibleRole.PANEL;
+    }
+  }
+
+  void reloadWithSelection(@Nullable Configurable toSelect) {
+    myRoot.cleanUpCache();
+    myQueuedConfigurable = null;
+    myQueue.cancelAllUpdates();
+    myConfigurableToNodeMap.clear();
+    AbstractTreeUi ui = myBuilder.getUi();
+    if (ui == null) return;
+
+    //remove expansion and selection (to avoid stuck old elements) before cleanup
+    myTree.getSelectionModel().clearSelection();
+    myTree.collapsePath(new TreePath(myTree.getModel().getRoot()));
+
+    myBuilder.cleanUp();
+    ui.getUpdater().reset();
+    AbstractTreeStructure structure = ui.getTreeStructure();
+    if (structure instanceof FilteringTreeStructure) {
+      ((FilteringTreeStructure)structure).rebuild();
+    }
+    MyNode node = findNode(toSelect);
+    myBuilder.refilterNow(node, true);
   }
 }

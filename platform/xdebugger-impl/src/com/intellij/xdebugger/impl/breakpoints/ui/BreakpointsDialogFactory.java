@@ -1,29 +1,17 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.breakpoints.ui;
 
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.Balloon;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointUtil;
 import org.jetbrains.annotations.Nullable;
 
 public class BreakpointsDialogFactory {
 
-  private Project myProject;
+  private final Project myProject;
   private Balloon myBalloonToHide;
   private Object myBreakpoint;
   private BreakpointsDialog myDialogShowing;
@@ -33,21 +21,40 @@ public class BreakpointsDialogFactory {
     myProject = project;
   }
 
-  public void setBalloonToHide(Balloon balloonToHide, Object breakpoint) {
+  public void setBalloonToHide(final Balloon balloonToHide, Object breakpoint) {
     myBalloonToHide = balloonToHide;
     myBreakpoint = breakpoint;
+    Disposer.register(myBalloonToHide, new Disposable() {
+      @Override
+      public void dispose() {
+        if (myBalloonToHide == balloonToHide) {
+          myBalloonToHide = null;
+          myBreakpoint = null;
+        }
+      }
+    });
   }
 
   public static BreakpointsDialogFactory getInstance(Project project) {
     return ServiceManager.getService(project, BreakpointsDialogFactory.class);
   }
 
-  public boolean isBreakpointPopupShowing() {
-    return (myBalloonToHide != null && !myBalloonToHide.isDisposed()) || myDialogShowing != null;
+  public boolean popupRequested(Object breakpoint) {
+    if (myBalloonToHide != null && !myBalloonToHide.isDisposed()) {
+      return true;
+    }
+    if (myDialogShowing != null) {
+      myDialogShowing.selectBreakpoint(breakpoint, true);
+      myDialogShowing.toFront();
+      return true;
+    }
+    return false;
   }
 
   public void showDialog(@Nullable Object initialBreakpoint) {
-    if (myDialogShowing != null) {
+    if (myDialogShowing != null && myDialogShowing.getWindow().isDisplayable()) { // workaround for IDEA-197804
+      myDialogShowing.selectBreakpoint(initialBreakpoint, true);
+      myDialogShowing.toFront();
       return;
     }
 

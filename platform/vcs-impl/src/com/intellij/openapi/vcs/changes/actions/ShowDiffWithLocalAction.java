@@ -1,87 +1,106 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.actions;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.AnActionExtensionProvider;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.vcs.VcsBundle;
+import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.VcsActions;
 import com.intellij.openapi.vcs.VcsDataKeys;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vcs.changes.ContentRevision;
 import com.intellij.openapi.vcs.changes.CurrentContentRevision;
 import com.intellij.openapi.vcs.changes.committed.CommittedChangesBrowserUseCase;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.ListSelection;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.vcsUtil.VcsUtil;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
 import java.util.List;
 
-import static com.intellij.openapi.vcs.changes.actions.diff.ShowDiffAction.*;
+import static com.intellij.openapi.vcs.changes.actions.diff.ShowDiffAction.showDiffForChange;
 
-/**
- * @author yole
- */
-public class ShowDiffWithLocalAction extends AnAction implements DumbAware {
+// via openapi.vcs.history.actions.ShowDiffBeforeWithLocalAction.ExtensionProvider
+// Extending AnAction is left for compatibility with plugins that instantiate this class directly (instead of using ActionManager).
+public class ShowDiffWithLocalAction extends AnAction implements DumbAware, AnActionExtensionProvider {
+  private final boolean myUseBeforeVersion;
+
+  @SuppressWarnings("unused")
   public ShowDiffWithLocalAction() {
-    super(VcsBundle.message("show.diff.with.local.action.text"),
-          VcsBundle.message("show.diff.with.local.action.description"),
-          AllIcons.Actions.DiffWithCurrent);
+    this(false);
+    getTemplatePresentation().setIcon(AllIcons.Actions.Diff);
   }
 
-  public void actionPerformed(AnActionEvent e) {
-    Project project = e.getData(CommonDataKeys.PROJECT);
+  public ShowDiffWithLocalAction(boolean useBeforeVersion) {
+    myUseBeforeVersion = useBeforeVersion;
+    ActionUtil.copyFrom(this, useBeforeVersion ? VcsActions.DIFF_BEFORE_WITH_LOCAL : VcsActions.DIFF_AFTER_WITH_LOCAL);
+  }
+
+  @Override
+  public boolean isActive(@NotNull AnActionEvent e) {
+    return e.getData(VcsDataKeys.CHANGES_SELECTION) != null;
+  }
+
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    Project project = e.getRequiredData(CommonDataKeys.PROJECT);
     if (ChangeListManager.getInstance(project).isFreezedWithNotification(null)) return;
-    Change[] changes = e.getData(VcsDataKeys.CHANGES);
-    assert changes != null;
-    List<Change> changesToLocal = new ArrayList<Change>();
-    for(Change change: changes) {
-      ContentRevision afterRevision = change.getAfterRevision();
-      if (afterRevision != null && isValidAfterRevision(afterRevision)) {
-        changesToLocal.add(new Change(afterRevision, CurrentContentRevision.create(afterRevision.getFile())));
-      }
-    }
+    ListSelection<Change> selection = e.getRequiredData(VcsDataKeys.CHANGES_SELECTION);
+
+    ListSelection<Change> changesToLocal = selection.map(change -> getChangeWithLocal(change));
+
     if (!changesToLocal.isEmpty()) {
-      showDiffForChange(project, changesToLocal, 0);
+      showDiffForChange(project, changesToLocal);
     }
   }
 
-  public void update(final AnActionEvent e) {
+  @Override
+  public void update(@NotNull final AnActionEvent e) {
     Project project = e.getData(CommonDataKeys.PROJECT);
-    Change[] changes = e.getData(VcsDataKeys.CHANGES);
+    ListSelection<Change> selection = e.getData(VcsDataKeys.CHANGES_SELECTION);
+    boolean isInAir = CommittedChangesBrowserUseCase.IN_AIR.equals(e.getData(CommittedChangesBrowserUseCase.DATA_KEY));
 
-    e.getPresentation().setEnabled(project != null && changes != null &&
-                                   (! CommittedChangesBrowserUseCase.IN_AIR
-                                     .equals(CommittedChangesBrowserUseCase.DATA_KEY.getData(e.getDataContext()))) &&
-                                   anyHasAfterRevision(changes));
+    e.getPresentation().setEnabled(project != null && selection != null && !isInAir && canShowDiff(selection.getList()));
   }
 
-  private static boolean isValidAfterRevision(final ContentRevision afterRevision) {
-    return afterRevision != null && !afterRevision.getFile().isNonLocal() && !afterRevision.getFile().isDirectory();
+  @Nullable
+  private Change getChangeWithLocal(@NotNull Change c) {
+    ContentRevision revision = myUseBeforeVersion ? c.getBeforeRevision() : c.getAfterRevision();
+    ContentRevision otherRevision = myUseBeforeVersion ? c.getAfterRevision() : c.getBeforeRevision();
+
+    VirtualFile file = getLocalVirtualFileFor(revision);
+    if (file == null) file = getLocalVirtualFileFor(otherRevision); // handle renames gracefully
+
+    ContentRevision localRevision = file != null ? CurrentContentRevision.create(VcsUtil.getFilePath(file)) : null;
+    if (revision == null && localRevision == null) return null;
+
+    return new Change(revision, localRevision);
   }
 
-  private static boolean anyHasAfterRevision(final Change[] changes) {
-    for(Change c: changes) {
-      if (isValidAfterRevision(c.getAfterRevision())) {
-        return true;
-      }
+  private boolean canShowDiff(@NotNull List<? extends Change> changes) {
+    return ContainerUtil.exists(changes, c -> getChangeWithLocal(c) != null);
+  }
+
+  @Nullable
+  private static VirtualFile getLocalVirtualFileFor(@Nullable ContentRevision revision) {
+    if (revision == null) return null;
+    FilePath filePath = revision.getFile();
+    if (filePath.isNonLocal() || filePath.isDirectory()) return null;
+    return filePath.getVirtualFile();
+  }
+
+  @SuppressWarnings("ComponentNotRegistered") // via openapi.vcs.history.actions.ShowDiffBeforeWithLocalAction.ExtensionProvider
+  public static class ShowDiffBeforeWithLocalAction extends ShowDiffWithLocalAction {
+    public ShowDiffBeforeWithLocalAction() {
+      super(true);
     }
-    return false;
   }
 }

@@ -1,24 +1,8 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.commandLine;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -27,11 +11,14 @@ import org.jetbrains.idea.svn.SvnApplicationSettings;
 import org.jetbrains.idea.svn.SvnProgressCanceller;
 import org.jetbrains.idea.svn.SvnUtil;
 import org.jetbrains.idea.svn.SvnVcs;
+import org.jetbrains.idea.svn.api.Url;
 import org.jetbrains.idea.svn.auth.AuthenticationService;
-import org.tmatesoft.svn.core.SVNURL;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
+
+import static org.jetbrains.idea.svn.SvnBundle.message;
 
 /**
  * @author Konstantin Kolosovsky.
@@ -44,7 +31,6 @@ public class CommandRuntime {
   @NotNull private final SvnVcs myVcs;
   @NotNull private final List<CommandRuntimeModule> myModules;
   private final String exePath;
-  @NotNull private final String executableLocale;
 
   public CommandRuntime(@NotNull SvnVcs vcs, @NotNull AuthenticationService authenticationService) {
     myVcs = vcs;
@@ -52,9 +38,8 @@ public class CommandRuntime {
 
     SvnApplicationSettings settings = SvnApplicationSettings.getInstance();
     exePath = settings.getCommandLinePath();
-    executableLocale = Registry.stringValue(SvnExecutableChecker.SVN_EXECUTABLE_LOCALE_REGISTRY_KEY);
 
-    myModules = ContainerUtil.newArrayList();
+    myModules = new ArrayList<>();
     myModules.add(new CommandParametersResolutionModule(this));
     myModules.add(new ProxyModule(this));
     myModules.add(new SshTunnelRuntimeModule(this));
@@ -80,6 +65,10 @@ public class CommandRuntime {
 
   @NotNull
   public CommandExecutor runLocal(@NotNull Command command, int timeout) throws SvnBindException {
+    if (command.getWorkingDirectory() == null) {
+      command.setWorkingDirectory(CommandParametersResolutionModule.getDefaultWorkingDirectory(myVcs.getProject()));
+    }
+
     CommandExecutor executor = newExecutor(command);
 
     executor.run(timeout);
@@ -88,7 +77,7 @@ public class CommandRuntime {
     return executor;
   }
 
-  private void onStart(@NotNull Command command) throws SvnBindException {
+  private void onStart(@NotNull Command command) {
     // TODO: Actually command handler should be used as canceller, but currently all handlers use same cancel logic -
     // TODO: - just check progress indicator
     command.setCanceller(new SvnProgressCanceller());
@@ -133,7 +122,7 @@ public class CommandRuntime {
       LOG.info("Command - " + executor.getCommandText());
       LOG.info("Command output - " + executor.getOutput());
 
-      throw new SvnBindException("Svn process exited with error code: " + exitCode);
+      throw new SvnBindException(message("error.svn.exited.with.error.code", exitCode));
     }
 
     return false;
@@ -148,9 +137,7 @@ public class CommandRuntime {
     // "infinite" times despite it was cancelled.
     if (!executor.checkCancelled() && callback != null) {
       if (callback.getCredentials(errText)) {
-        if (myAuthenticationService.getSpecialConfigDir() != null) {
-          command.setConfigDir(myAuthenticationService.getSpecialConfigDir());
-        }
+        command.setConfigDir(myAuthenticationService.getSpecialConfigDir().toFile());
         callback.updateParameters(command);
         return true;
       }
@@ -181,8 +168,8 @@ public class CommandRuntime {
   }
 
   @Nullable
-  private AuthCallbackCase createCallback(@NotNull final String errText, @Nullable final SVNURL url, boolean isUnderTerminal) {
-    List<AuthCallbackCase> authCases = ContainerUtil.newArrayList();
+  private AuthCallbackCase createCallback(@NotNull final String errText, @Nullable final Url url, boolean isUnderTerminal) {
+    List<AuthCallbackCase> authCases = new ArrayList<>();
 
     if (isUnderTerminal) {
       // Subversion client does not prompt for proxy credentials (just fails with error) even in terminal mode. So we handle this case the
@@ -198,20 +185,16 @@ public class CommandRuntime {
       authCases.add(new CertificateCallbackCase(myAuthenticationService, url));
       authCases.add(new ProxyCallback(myAuthenticationService, url));
       authCases.add(new TwoWaySslCallback(myAuthenticationService, url));
+      authCases.add(new ServerUnavailableCallback(myAuthenticationService, url));
       authCases.add(new UsernamePasswordCallback(myAuthenticationService, url));
     }
 
-    return ContainerUtil.find(authCases, new Condition<AuthCallbackCase>() {
-      @Override
-      public boolean value(AuthCallbackCase authCase) {
-        return authCase.canHandle(errText);
-      }
-    });
+    return ContainerUtil.find(authCases, authCase -> authCase.canHandle(errText));
   }
 
   private void cleanup(@NotNull CommandExecutor executor, @NotNull File workingDirectory) throws SvnBindException {
     if (executor.getCommandName().isWriteable()) {
-      File wcRoot = SvnUtil.getWorkingCopyRootNew(workingDirectory);
+      File wcRoot = SvnUtil.getWorkingCopyRoot(workingDirectory);
 
       // not all commands require cleanup - for instance, some commands operate only with repository - like "svn info <url>"
       // TODO: check if we could "configure" commands (or make command to explicitly ask) if cleanup is required - not to search
@@ -233,7 +216,7 @@ public class CommandRuntime {
 
     if (!myVcs.getSvnConfiguration().isRunUnderTerminal() || isLocal(command)) {
       command.putIfNotPresent("--non-interactive");
-      executor = new CommandExecutor(exePath, executableLocale, command);
+      executor = new CommandExecutor(exePath, command);
     }
     else {
       // do not explicitly specify "--force-interactive" as it is not supported in svn 1.7 - commands will be interactive by default as
@@ -250,8 +233,8 @@ public class CommandRuntime {
   @NotNull
   private TerminalExecutor newTerminalExecutor(@NotNull Command command) {
     return SystemInfo.isWindows
-           ? new WinTerminalExecutor(exePath, executableLocale, command)
-           : new TerminalExecutor(exePath, executableLocale, command);
+           ? new WinTerminalExecutor(exePath, command)
+           : new TerminalExecutor(exePath, command);
   }
 
   public static boolean isLocal(@NotNull Command command) {

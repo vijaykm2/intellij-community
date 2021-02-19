@@ -15,6 +15,7 @@
  */
 package com.intellij.openapi.editor;
 
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,30 +28,21 @@ import org.jetbrains.annotations.Nullable;
 public interface FoldingModel {
   /**
    * Adds a fold region for the specified range of the document. This method must be called
-   * from the <code>Runnable</code> passed to {@link #runBatchFoldingOperation(Runnable)}.
+   * from the {@code Runnable} passed to {@link #runBatchFoldingOperation(Runnable)}.
    * The region is initially not folded.
    *
    * @param startOffset     the start offset of the region to fold.
    * @param endOffset       the end offset of the region to fold.
    * @param placeholderText the text to display instead of the region contents when the region is folded.
-   * @return the fold region, or <code>null</code> if folding is currently disabled or corresponding region cannot be added (e.g. if it
+   * @return the fold region, or {@code null} if folding is currently disabled or corresponding region cannot be added (e.g. if it
    * intersects with another existing region)
    */
   @Nullable
   FoldRegion addFoldRegion(int startOffset, int endOffset, @NotNull String placeholderText);
 
   /**
-   * Tries to add given region to the folding model. This method must be called
-   * from the <code>Runnable</code> passed to {@link #runBatchFoldingOperation(Runnable)}.
-   *
-   * @return <code>true</code>, if region was added successfully, <code>false</code> if the region cannot be added, e.g. if it
-   * intersects with another existing region
-   */
-  boolean addFoldRegion(@NotNull FoldRegion region);
-
-  /**
    * Removes the specified fold region. This method must be called
-   * from the <code>Runnable</code> passed to {@link #runBatchFoldingOperation(Runnable)}.
+   * from the {@code Runnable} passed to {@link #runBatchFoldingOperation(Runnable)}.
    *
    * @param region the region to remove.
    */
@@ -62,8 +54,7 @@ public interface FoldingModel {
    *
    * @return the array of fold regions, or an empty array if folding is currently disabled.
    */
-  @NotNull
-  FoldRegion[] getAllFoldRegions();
+  FoldRegion @NotNull [] getAllFoldRegions();
 
   /**
    * Checks if the specified offset in the document belongs to a folded region. The region must contain given offset or be located right
@@ -79,7 +70,7 @@ public interface FoldingModel {
   boolean isOffsetCollapsed(int offset);
 
   /**
-   * Returns collapsed folded region at a given offset or <code>null</code> if there's no such region. Returned region will satisfy the
+   * Returns collapsed folded region at a given offset or {@code null} if there's no such region. Returned region will satisfy the
    * following condition: region.getStartOffset() <= offset < region.getEndOffset()
    * <br>
    * This method can return incorrect data if it's invoked in the context of {@link #runBatchFoldingOperation(Runnable)} invocation.
@@ -90,7 +81,7 @@ public interface FoldingModel {
   FoldRegion getCollapsedRegionAtOffset(int offset);
 
   /**
-   * Returns fold region with given boundaries, if it exists, or <code>null</code> otherwise. 
+   * Returns fold region with given boundaries, if it exists, or {@code null} otherwise.
    */
   @Nullable
   FoldRegion getFoldRegion(int startOffset, int endOffset);
@@ -101,17 +92,31 @@ public interface FoldingModel {
    *
    * @param operation the operation to execute.
    */
-  void runBatchFoldingOperation(@NotNull Runnable operation);
+  default void runBatchFoldingOperation(@NotNull Runnable operation) {
+    runBatchFoldingOperation(operation, true, true);
+  }
 
   /**
-   * Runs an operation which is allowed to modify fold regions in the editor by calling
-   * {@link #addFoldRegion(int, int, String)} and {@link #removeFoldRegion(FoldRegion)}.
-   *
-   * @param operation                    the operation to execute.
-   * @param moveCaretFromCollapsedRegion flag that identifies whether caret position should be changed if it's located inside
-   *                                     collapsed fold region after the operation
+   * @deprecated Passing {@code false} for {@code moveCaretFromCollapsedRegion} might leave caret in an inconsistent state
+   * after the operation. Use {@link #runBatchFoldingOperation(Runnable)} instead.
    */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   void runBatchFoldingOperation(@NotNull Runnable operation, boolean moveCaretFromCollapsedRegion);
 
-  void runBatchFoldingOperationDoNotCollapseCaret(@NotNull Runnable operation);
+  default void runBatchFoldingOperationDoNotCollapseCaret(@NotNull Runnable operation) {
+    runBatchFoldingOperation(operation, false, true);
+  }
+
+  /**
+   * Performs folding model changes (creation/deletion/expanding/collapsing of fold regions).
+   *
+   * @param allowMovingCaret If {@code false}, requests to collapse a region containing caret won't be processed. If {@code true} -
+   *                         corresponding operation will be performed with caret automatically moved to the region's start offset
+   *                         (original caret position is remembered and is restored on region expansion).
+   * @param keepRelativeCaretPosition If {@code true}, editor scrolling position will be adjusted after the operation, so that vertical
+   *                                  caret position will remain unchanged (if caret is not visible at operation start, top left corner
+   *                                  of editor will be used as an anchor instead). If {@code false}, no scrolling adjustment will be done.
+   */
+  void runBatchFoldingOperation(@NotNull Runnable operation, boolean allowMovingCaret, boolean keepRelativeCaretPosition);
 }

@@ -15,16 +15,13 @@
  */
 package com.intellij.openapi.roots.ui.configuration.artifacts.nodes;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.packaging.elements.ComplexPackagingElement;
 import com.intellij.packaging.elements.CompositePackagingElement;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 
-/**
- * @author nik
- */
 public class PackagingNodeSource {
   private final ComplexPackagingElement<?> mySourceElement;
   private final PackagingElementNode<?> mySourceParentNode;
@@ -34,7 +31,7 @@ public class PackagingNodeSource {
   public PackagingNodeSource(@NotNull ComplexPackagingElement<?> sourceElement,
                              @NotNull PackagingElementNode<?> sourceParentNode,
                              @NotNull CompositePackagingElement<?> sourceParentElement,
-                             @Nullable Collection<PackagingNodeSource> parentSources) {
+                             @NotNull Collection<PackagingNodeSource> parentSources) {
     mySourceElement = sourceElement;
     mySourceParentNode = sourceParentNode;
     mySourceParentElement = sourceParentElement;
@@ -56,11 +53,12 @@ public class PackagingNodeSource {
     return mySourceParentElement;
   }
 
+  @NotNull
   public Collection<PackagingNodeSource> getParentSources() {
     return myParentSources;
   }
 
-  public String getPresentableName() {
+  public @NlsSafe String getPresentableName() {
     return mySourceElement.createPresentation(mySourceParentNode.getContext()).getPresentableName();
   }
 }

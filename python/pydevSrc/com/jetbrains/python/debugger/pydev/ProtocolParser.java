@@ -1,20 +1,23 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger.pydev;
 
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.io.URLUtil;
 import com.jetbrains.python.debugger.*;
 import com.thoughtworks.xstream.io.naming.NoNameCoder;
 import com.thoughtworks.xstream.io.xml.XppReader;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.xmlpull.mxp1.MXParser;
 
 import java.io.StringReader;
-import java.io.UnsupportedEncodingException;
-import java.net.URLDecoder;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 
 
-public class ProtocolParser {
+public final class ProtocolParser {
 
   private ProtocolParser() {
   }
@@ -25,33 +28,132 @@ public class ProtocolParser {
     if (!"call_signature".equals(reader.getNodeName())) {
       throw new PyDebuggerException("Expected <call_signature>, found " + reader.getNodeName());
     }
-    final String file = readString(reader, "file", "");
+    String file = reader.getAttribute("file");
+    if (file == null) file = "";
     final String name = readString(reader, "name", "");
     PySignature signature = new PySignature(file, name);
 
     while (reader.hasMoreChildren()) {
       reader.moveDown();
-      if (!"arg".equals(reader.getNodeName())) {
-        throw new PyDebuggerException("Expected <arg>, found " + reader.getNodeName());
+      if ("arg".equals(reader.getNodeName())) {
+        signature.addArgument(readString(reader, "name", ""), readString(reader, "type", ""));
       }
-      signature.addArgument(readString(reader, "name", ""), readString(reader, "type", ""));
+      else if ("return".equals(reader.getNodeName())) {
+        signature.addReturnType(readString(reader, "type", ""));
+      }
+      else {
+        throw new PyDebuggerException("Expected <arg> or <return>, found " + reader.getNodeName());
+      }
+
       reader.moveUp();
     }
 
     return signature;
   }
 
-  public static String parseSourceContent(String payload) throws PyDebuggerException {
-    return payload;
+  public static PyConcurrencyEvent parseConcurrencyEvent(String payload,
+                                                         final PyPositionConverter positionConverter) throws PyDebuggerException {
+    final XppReader reader = openReader(payload, true);
+    reader.moveDown();
+    String eventName = reader.getNodeName();
+    boolean isAsyncio;
+    if (eventName.equals("threading_event")) {
+      isAsyncio = false;
+    }
+    else if (eventName.equals("asyncio_event")) {
+      isAsyncio = true;
+    }
+    else {
+      throw new PyDebuggerException("Expected <threading_event> or <asyncio_event>, found " + reader.getNodeName());
+    }
+
+    final long time = Long.parseLong(readString(reader, "time", ""));
+    final String name = readString(reader, "name", "");
+    final String thread_id = readString(reader, "thread_id", "");
+    final String type = readString(reader, "type", "");
+    PyConcurrencyEvent threadingEvent;
+    if (type.equals("lock")) {
+      String lock_id = readString(reader, "lock_id", "0");
+      threadingEvent = new PyLockEvent(time, thread_id, name, lock_id, isAsyncio);
+    }
+    else if (type.equals("thread")) {
+      String parentThread = readString(reader, "parent", "");
+      if (!parentThread.isEmpty()) {
+        threadingEvent = new PyThreadEvent(time, thread_id, name, parentThread, isAsyncio);
+      }
+      else {
+        threadingEvent = new PyThreadEvent(time, thread_id, name, isAsyncio);
+      }
+    }
+    else {
+      throw new PyDebuggerException("Unknown type " + type);
+    }
+
+    final String eventType = readString(reader, "event", "");
+    if (eventType.equals("__init__")) {
+      threadingEvent.setType(PyConcurrencyEvent.EventType.CREATE);
+    }
+    else if (eventType.equals("start")) {
+      threadingEvent.setType(PyConcurrencyEvent.EventType.START);
+    }
+    else if (eventType.equals("join")) {
+      threadingEvent.setType(PyConcurrencyEvent.EventType.JOIN);
+    }
+    else if (eventType.equals("stop")) {
+      threadingEvent.setType(PyConcurrencyEvent.EventType.STOP);
+    }
+    else if (eventType.equals("acquire_begin") || eventType.equals("__enter___begin")
+             || (eventType.equals("get_begin")) || (eventType.equals("put_begin"))) {
+      threadingEvent.setType(PyConcurrencyEvent.EventType.ACQUIRE_BEGIN);
+    }
+    else if (eventType.equals("acquire_end") || eventType.equals("__enter___end")
+             || (eventType.equals("get_end")) || (eventType.equals("put_end"))) {
+      threadingEvent.setType(PyConcurrencyEvent.EventType.ACQUIRE_END);
+    }
+    else if (eventType.startsWith("release") || eventType.startsWith("__exit__")) {
+      // we record release begin and end on the Python side, but it is not important info
+      // for user. Maybe use it later
+      threadingEvent.setType(PyConcurrencyEvent.EventType.RELEASE);
+    }
+    else {
+      throw new PyDebuggerException("Unknown event " + eventType);
+    }
+
+    threadingEvent.setFileName(readString(reader, "file", ""));
+    threadingEvent.setLine(Integer.parseInt(readString(reader, "line", "")) - 1);
+    reader.moveUp();
+
+    final List<PyStackFrameInfo> frames = new LinkedList<>();
+    while (reader.hasMoreChildren()) {
+      reader.moveDown();
+      frames.add(parseFrame(reader, thread_id, positionConverter));
+      reader.moveUp();
+    }
+    threadingEvent.setFrames(frames);
+    return threadingEvent;
   }
 
-  public static String decode(final String value) throws PyDebuggerException {
-    try {
-      return URLDecoder.decode(value, "UTF-8");
+  public static boolean parseInputCommand(String payload) {
+    return payload.equals("True");
+  }
+
+  public static Pair<Boolean, String> parseSetNextStatementCommand(String payload) throws PyDebuggerException {
+    String[] values = payload.split("\t");
+    if (values.length > 0) {
+      boolean success = values[0].equals("True");
+      String errorMessage = "Error";
+      if (values.length > 1) {
+        errorMessage = errorMessage + ": " + values[1];
+      }
+      return new Pair<>(success, errorMessage);
     }
-    catch (UnsupportedEncodingException e) {
-      throw new PyDebuggerException("Unable to decode: " + value + ", reason: " + e.getMessage());
+    else {
+      throw new PyDebuggerException("Unable to parse value: " + payload);
     }
+  }
+
+  public static String parseSourceContent(String payload) {
+    return payload;
   }
 
   public static String encodeExpression(final String expression) {
@@ -81,11 +183,11 @@ public class ProtocolParser {
     final String name = readString(reader, "name", "");
     final int stopReason = readInt(reader, "stop_reason", 0);
     String message = readString(reader, "message", "None");
-    if ("None".equals(message)) {
+    if ("None".equals(message) || message.isEmpty()) {
       message = null;
     }
 
-    final List<PyStackFrameInfo> frames = new LinkedList<PyStackFrameInfo>();
+    final List<PyStackFrameInfo> frames = new LinkedList<>();
     while (reader.hasMoreChildren()) {
       reader.moveDown();
       frames.add(parseFrame(reader, id, positionConverter));
@@ -108,10 +210,10 @@ public class ProtocolParser {
 
     final String id = readString(reader, "id", null);
     final String name = readString(reader, "name", null);
-    final String file = readString(reader, "file", null);
+    final String file = reader.getAttribute("file");
     final int line = readInt(reader, "line", 0);
 
-    return new PyStackFrameInfo(threadId, id, name, positionConverter.create(file, line));
+    return new PyStackFrameInfo(threadId, id, name, positionConverter.convertPythonToFrame(file, line));
   }
 
   @NotNull
@@ -123,7 +225,7 @@ public class ProtocolParser {
 
   @NotNull
   public static List<PyDebugValue> parseReferrers(final String text, final PyFrameAccessor frameAccessor) throws PyDebuggerException {
-    final List<PyDebugValue> values = new LinkedList<PyDebugValue>();
+    final List<PyDebugValue> values = new LinkedList<>();
 
     final XppReader reader = openReader(text, false);
 
@@ -149,7 +251,7 @@ public class ProtocolParser {
 
   @NotNull
   public static List<PyDebugValue> parseValues(final String text, final PyFrameAccessor frameAccessor) throws PyDebuggerException {
-    final List<PyDebugValue> values = new LinkedList<PyDebugValue>();
+    final List<PyDebugValue> values = new LinkedList<>();
 
     final XppReader reader = openReader(text, false);
     while (reader.hasMoreChildren()) {
@@ -168,40 +270,89 @@ public class ProtocolParser {
 
     final String name = readString(reader, "name", null);
     final String type = readString(reader, "type", null);
+    final String qualifier = readString(reader, "qualifier", ""); //to be able to get the fully qualified type if necessary
+
     String value = readString(reader, "value", null);
     final String isContainer = readString(reader, "isContainer", "");
+    final String isReturnedValue = readString(reader, "isRetVal", "");
+    final String isIPythonHidden = readString(reader, "isIPythonHidden", "");
     final String isErrorOnEval = readString(reader, "isErrorOnEval", "");
+    String shape = readString(reader, "shape", "");
 
     if (value.startsWith(type + ": ")) {  // drop unneeded prefix
       value = value.substring(type.length() + 2);
     }
-
-    return new PyDebugValue(name, type, value, "True".equals(isContainer), "True".equals(isErrorOnEval), frameAccessor);
+    if (shape.isEmpty()) shape = null;
+    return new PyDebugValue(name, type, qualifier, value, "True".equals(isContainer), shape, "True".equals(isReturnedValue),
+                            "True".equals(isIPythonHidden), "True".equals(isErrorOnEval), frameAccessor);
   }
 
   public static ArrayChunk parseArrayValues(final String text, final PyFrameAccessor frameAccessor) throws PyDebuggerException {
     final XppReader reader = openReader(text, false);
-    ArrayChunk result = null;
+    ArrayChunkBuilder result = new ArrayChunkBuilder();
     if (reader.hasMoreChildren()) {
       reader.moveDown();
       if (!"array".equals(reader.getNodeName())) {
         throw new PyDebuggerException("Expected <array> at first node, found " + reader.getNodeName());
       }
       String slice = readString(reader, "slice", null);
-      int rows = readInt(reader, "rows", null);
-      int cols = readInt(reader, "cols", null);
-      String format = "%" + readString(reader, "format", null);
-      String type = readString(reader, "type", null);
-      String max = readString(reader, "max", null);
-      String min = readString(reader, "min", null);
-      result =
-        new ArrayChunk(new PyDebugValue(slice, null, null, false, false, frameAccessor), slice, rows, cols, max, min, format, type, null);
+      result.setSlicePresentation(slice);
+      result.setRows(readInt(reader, "rows", null));
+      result.setColumns(readInt(reader, "cols", null));
+      result.setFormat("%" + readString(reader, "format", null));
+      result.setType(readString(reader, "type", null));
+      result.setMax(readString(reader, "max", null));
+      result.setMin(readString(reader, "min", null));
+      result.setValue(new PyDebugValue(slice, null, null, null, false, null, false, false, false, frameAccessor));
       reader.moveUp();
+    }
+    if ("headerdata".equals(reader.peekNextChild())) {
+      parseArrayHeaderData(reader, result);
     }
 
     Object[][] data = parseArrayValues(reader, frameAccessor);
-    return new ArrayChunk(result.getValue(), result.getSlicePresentation(), result.getRows(), result.getColumns(), result.getMax(),
-                          result.getMin(), result.getFormat(), result.getType(), data);
+    result.setData(data);
+    return result.createArrayChunk();
+  }
+
+  public static @NotNull List<Pair<String, Boolean>> parseSmartStepIntoVariants(String text) throws PyDebuggerException {
+    XppReader reader = openReader(text, false);
+    List<Pair<String, Boolean>> variants = new ArrayList<>();
+    while (reader.hasMoreChildren()) {
+      reader.moveDown();
+      String variantName = read(reader, "name", true);
+      Boolean isVisited = read(reader, "isVisited", true).equals("true");
+      variants.add(Pair.create(variantName, isVisited));
+      reader.moveUp();
+    }
+    return variants;
+  }
+
+  private static void parseArrayHeaderData(XppReader reader, ArrayChunkBuilder result) throws PyDebuggerException {
+    List<String> rowHeaders = new ArrayList<>();
+    List<ArrayChunk.ColHeader> colHeaders = new ArrayList<>();
+    reader.moveDown();
+    while (reader.hasMoreChildren()) {
+      reader.moveDown();
+      if ("colheader".equals(reader.getNodeName())) {
+        colHeaders.add(new ArrayChunk.ColHeader(
+          readString(reader, "label", null),
+          readString(reader, "type", null),
+          readString(reader, "format", null),
+          readString(reader, "max", null),
+          readString(reader, "min", null)));
+      }
+      else if ("rowheader".equals(reader.getNodeName())) {
+        rowHeaders.add(readString(reader, "label", null));
+      }
+      else {
+        throw new PyDebuggerException("Invalid node name" + reader.getNodeName());
+      }
+      reader.moveUp();
+    }
+    result.setColHeaders(colHeaders);
+    result.setRowLabels(rowHeaders);
+    reader.moveUp();
   }
 
   public static Object[][] parseArrayValues(final XppReader reader, final PyFrameAccessor frameAccessor) throws PyDebuggerException {
@@ -218,7 +369,8 @@ public class ProtocolParser {
     }
 
     if (rows <= 0 || cols <= 0) {
-      throw new PyDebuggerException("Array xml: bad rows or columns number: (" + rows + ", " + cols + ")");
+      return null;
+      //throw new PyDebuggerException("Array xml: bad rows or columns number: (" + rows + ", " + cols + ")");
     }
     Object[][] values = new Object[rows][cols];
 
@@ -251,6 +403,12 @@ public class ProtocolParser {
     return values;
   }
 
+  public static String parseWarning(final String text) throws PyDebuggerException {
+    final XppReader reader = openReader(text, true);
+    reader.moveDown();
+    return readString(reader, "id", null);
+  }
+
   private static XppReader openReader(final String text, final boolean checkForContent) throws PyDebuggerException {
     final XppReader reader = new XppReader(new StringReader(text), new MXParser(), new NoNameCoder());
     if (checkForContent && !reader.hasMoreChildren()) {
@@ -260,33 +418,14 @@ public class ProtocolParser {
   }
 
   private static String readString(final XppReader reader, final String name, final String fallback) throws PyDebuggerException {
-    final String value;
-    try {
-      value = read(reader, name);
-    }
-    catch (PyDebuggerException e) {
-      if (fallback != null) {
-        return fallback;
-      }
-      else {
-        throw e;
-      }
-    }
-    return decode(value);
+    final String value = read(reader, name, fallback == null);
+    return value == null ? fallback : value;
   }
 
   private static int readInt(final XppReader reader, final String name, final Integer fallback) throws PyDebuggerException {
-    final String value;
-    try {
-      value = read(reader, name);
-    }
-    catch (PyDebuggerException e) {
-      if (fallback != null) {
-        return fallback;
-      }
-      else {
-        throw e;
-      }
+    final String value = read(reader, name, fallback == null);
+    if (value == null) {
+      return fallback;
     }
     try {
       return Integer.parseInt(value);
@@ -296,11 +435,12 @@ public class ProtocolParser {
     }
   }
 
-  private static String read(final XppReader reader, final String name) throws PyDebuggerException {
+  @Contract("_, _, true -> !null")
+  private static String read(final XppReader reader, final String name, boolean isRequired) throws PyDebuggerException {
     final String value = reader.getAttribute(name);
-    if (value == null) {
+    if (value == null && isRequired) {
       throw new PyDebuggerException("Attribute not found: " + name);
     }
-    return value;
+    return value == null ? null : URLUtil.decode(value);
   }
 }

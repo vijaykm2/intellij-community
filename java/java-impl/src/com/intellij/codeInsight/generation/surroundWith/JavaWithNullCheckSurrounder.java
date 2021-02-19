@@ -17,17 +17,18 @@
 package com.intellij.codeInsight.generation.surroundWith;
 
 import com.intellij.codeInsight.CodeInsightUtilCore;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
+import com.intellij.psi.util.FileTypeUtils;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.psi.util.FileTypeUtils;
 import org.jetbrains.annotations.NonNls;
 
-class JavaWithNullCheckSurrounder extends JavaExpressionSurrounder{
+public class JavaWithNullCheckSurrounder extends JavaExpressionSurrounder{
   @Override
   public boolean isApplicable(PsiExpression expr) {
     PsiType type = expr.getType();
@@ -44,7 +45,7 @@ class JavaWithNullCheckSurrounder extends JavaExpressionSurrounder{
   @Override
   public TextRange surroundExpression(Project project, Editor editor, PsiExpression expr) throws IncorrectOperationException {
     PsiManager manager = expr.getManager();
-    PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(manager.getProject());
     CodeStyleManager codeStyleManager = CodeStyleManager.getInstance(project);
 
     @NonNls String text = "if(a != null){\nst;\n}";
@@ -65,6 +66,6 @@ class JavaWithNullCheckSurrounder extends JavaExpressionSurrounder{
 
   @Override
   public String getTemplateDescription() {
-    return "if (expr != null) {...}";
+    return JavaBundle.message("null.check.surrounder.description");
   }
 }

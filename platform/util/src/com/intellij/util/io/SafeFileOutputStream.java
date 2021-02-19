@@ -1,140 +1,166 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.io;
 
-import com.intellij.CommonBundle;
+import com.intellij.UtilBundle;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.io.FileSystemUtil;
+import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.util.concurrency.AppExecutorUtil;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.*;
+import java.nio.file.attribute.DosFileAttributeView;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 
 /**
- * @author max
+ * <p>Attempts to prevent data loss if OS crash happens during write.</p>
+ *
+ * <p>The class creates a backup copy before overwriting the target file, and issues {@code fsync()} afterwards. The behavior is based
+ * on an assumption that after a crash either a target remains unmodified (i.e. unfinished write doesn't reach the disc),
+ * or a backup file exists along with a partially overwritten target file.</p>
+ *
+ * <p><b>The class is not thread-safe</b>; expected to be used within try-with-resources or an equivalent statement.</p>
  */
 public class SafeFileOutputStream extends OutputStream {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.util.io.SafeFileOutputStream");
+  private static final String DEFAULT_BACKUP_EXT = "~";
+  private static final CopyOption[] BACKUP_COPY = {StandardCopyOption.REPLACE_EXISTING};
+  private static final OpenOption[] MAIN_WRITE = {StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.SYNC};
+  private static final OpenOption[] BACKUP_READ = {StandardOpenOption.DELETE_ON_CLOSE};
 
-  private static final String EXTENSION_BAK = "___jb_bak___";
-  private static final String EXTENSION_OLD = "___jb_old___";
+  private final Path myTarget;
+  private final String myBackupExt;
+  private final @Nullable Future<Path> myBackupFuture;
+  private final BufferExposingByteArrayOutputStream myBuffer;
+  private boolean myClosed = false;
 
-  private final File myTargetFile;
-  private final boolean myPreserveAttributes;
-  private final File myBackDoorFile;
-  private final OutputStream myBackDoorStream;
-  private boolean failed = false;
-
-  public SafeFileOutputStream(File target) throws FileNotFoundException {
-    this(target, false);
+  public SafeFileOutputStream(@NotNull File target) {
+    this(target.toPath(), DEFAULT_BACKUP_EXT);
   }
 
-  public SafeFileOutputStream(File target, boolean preserveAttributes) throws FileNotFoundException {
-    myTargetFile = target;
-    myPreserveAttributes = preserveAttributes;
-    myBackDoorFile = new File(myTargetFile.getParentFile(), myTargetFile.getName() + EXTENSION_BAK);
-    //noinspection IOResourceOpenedButNotSafelyClosed
-    myBackDoorStream = new FileOutputStream(myBackDoorFile);
+  public SafeFileOutputStream(@NotNull File target, @NotNull String backupExt) {
+    this(target.toPath(), backupExt);
   }
 
-  @Override
-  public void write(byte[] b) throws IOException {
-    try {
-      myBackDoorStream.write(b);
+  public SafeFileOutputStream(@NotNull Path target) {
+    this(target, DEFAULT_BACKUP_EXT);
+  }
+
+  public SafeFileOutputStream(@NotNull Path target, @NotNull String backupExt) {
+    myTarget = target;
+    myBackupExt = backupExt;
+    myBackupFuture = Files.exists(target) ? AppExecutorUtil.getAppExecutorService().submit(this::backup) : null;
+    myBuffer = new BufferExposingByteArrayOutputStream();
+  }
+
+  private Path backup() throws IOException {
+    Path backup = myTarget.getFileSystem().getPath(myTarget + myBackupExt);
+    Files.copy(myTarget, backup, BACKUP_COPY);
+    if (SystemInfo.isWindows) {
+      DosFileAttributeView dosView = Files.getFileAttributeView(backup, DosFileAttributeView.class);
+      if (dosView != null && dosView.readAttributes().isReadOnly()) {
+        dosView.setReadOnly(false);
+      }
     }
-    catch (IOException e) {
-      LOG.warn(e);
-      failed = true;
-      throw e;
-    }
+    return backup;
   }
+
 
   @Override
   public void write(int b) throws IOException {
-    try {
-      myBackDoorStream.write(b);
-    }
-    catch (IOException e) {
-      LOG.warn(e);
-      failed = true;
-      throw e;
-    }
+    myBuffer.write(b);
   }
 
   @Override
   public void write(byte[] b, int off, int len) throws IOException {
-    try {
-      myBackDoorStream.write(b, off, len);
-    }
-    catch (IOException e) {
-      LOG.warn(e);
-      failed = true;
-      throw e;
-    }
+    myBuffer.write(b, off, len);
   }
 
-  @Override
-  public void flush() throws IOException {
-    try {
-      myBackDoorStream.flush();
-    }
-    catch (IOException e) {
-      LOG.warn(e);
-      failed = true;
-      throw e;
-    }
+  public void abort() throws IOException {
+    myClosed = true;
+    deleteBackup(waitForBackup());
   }
 
   @Override
   public void close() throws IOException {
+    if (myClosed) return;
+    myClosed = true;
+
+    @Nullable Path backup = waitForBackup();
+    OutputStream sink = openFile();
     try {
-      myBackDoorStream.close();
+      writeData(sink);
+      deleteBackup(backup);
     }
     catch (IOException e) {
-      LOG.warn(e);
-      FileUtil.delete(myBackDoorFile);
-      throw e;
+      restoreFromBackup(backup, e);
     }
+  }
 
-    if (failed) {
-      throw new IOException(CommonBundle.message("safe.write.failed", myTargetFile, myBackDoorFile.getName()));
-    }
-
-    final File oldFile = new File(myTargetFile.getParent(), myTargetFile.getName() + EXTENSION_OLD);
+  private @Nullable Path waitForBackup() throws IOException {
+    if (myBackupFuture == null) return null;
     try {
-      FileUtil.rename(myTargetFile, oldFile);
+      return myBackupFuture.get();
+    }
+    catch (InterruptedException | CancellationException e) {
+      throw new IllegalStateException(e);
+    }
+    catch (ExecutionException e) {
+      throw new IOException(UtilBundle.message("safe.write.backup", myTarget, myTarget.getFileName() + myBackupExt), e.getCause());
+    }
+  }
+
+  private OutputStream openFile() throws IOException {
+    try {
+      return Files.newOutputStream(myTarget, MAIN_WRITE);
     }
     catch (IOException e) {
-      LOG.warn(e);
-      throw new IOException(CommonBundle.message("safe.write.rename.original", myTargetFile, myBackDoorFile.getName()));
+      throw new IOException(UtilBundle.message("safe.write.open", myTarget), e);
+    }
+  }
+
+  private void writeData(OutputStream sink) throws IOException {
+    try (OutputStream out = sink) {
+      out.write(myBuffer.getInternalBuffer(), 0, myBuffer.size());
+    }
+  }
+
+  private static void deleteBackup(Path backup) {
+    if (backup != null) {
+      try {
+        Files.delete(backup);
+      }
+      catch (IOException e) {
+        Logger.getInstance(SafeFileOutputStream.class).warn("cannot delete a backup file " + backup, e);
+      }
+    }
+  }
+
+  private void restoreFromBackup(@Nullable Path backup, IOException e) throws IOException {
+    if (backup == null) {
+      throw new IOException(UtilBundle.message("safe.write.junk", myTarget), e);
     }
 
-    try {
-      FileUtil.rename(myBackDoorFile, myTargetFile);
+    boolean restored = true;
+    try (InputStream in = Files.newInputStream(backup, BACKUP_READ); OutputStream out = Files.newOutputStream(myTarget, MAIN_WRITE)) {
+      FileUtil.copy(in, out);
     }
-    catch (IOException e) {
-      LOG.warn(e);
-      throw new IOException(CommonBundle.message("safe.write.rename.backup", myTargetFile, oldFile.getName(), myBackDoorFile.getName()));
+    catch (IOException ex) {
+      restored = false;
+      e.addSuppressed(ex);
     }
-
-    if (myPreserveAttributes) {
-      FileSystemUtil.clonePermissions(oldFile.getPath(), myTargetFile.getPath());
+    if (restored) {
+      throw new IOException(UtilBundle.message("safe.write.restored", myTarget), e);
     }
-
-    if (!FileUtil.delete(oldFile)) {
-      throw new IOException(CommonBundle.message("safe.write.drop.temp", oldFile));
+    else {
+      throw new IOException(UtilBundle.message("safe.write.junk.backup", myTarget, backup.getFileName()), e);
     }
   }
 }

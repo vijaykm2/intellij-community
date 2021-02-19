@@ -17,59 +17,54 @@
 package com.intellij.openapi.vcs;
 
 import com.intellij.openapi.util.io.FileUtil;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import com.intellij.openapi.util.text.StringUtil;
+import org.jetbrains.annotations.*;
+
+import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * @author yole
  */
 public class VcsDirectoryMapping {
-  public static final String PROJECT_CONSTANT = "<Project>";
+  public static final String DEFAULT_MAPPING_DIR = "";
+
+  public static final Supplier<@Nls String> PROJECT_CONSTANT = VcsBundle.messagePointer("label.project.vcs.root.mapping");
   public static final VcsDirectoryMapping[] EMPTY_ARRAY = new VcsDirectoryMapping[0];
-  private String myDirectory;
-  // for reliable comparison
-  private String mySystemIdependentPath;
-  private String myVcs;
+
+  @NotNull private final String myDirectory;
+  private final String myVcs;
   private VcsRootSettings myRootSettings;
 
-  public VcsDirectoryMapping() {
-    this(null, null, null);
-  }
-
-  public VcsDirectoryMapping(@NotNull final String directory, final String vcs) {
+  /**
+   * Empty string as 'directory' denotes "default mapping" aka "&lt;Project&gt;".
+   * Such mapping will use {@link com.intellij.openapi.vcs.impl.DefaultVcsRootPolicy} to
+   * find actual vcs roots that cover project files.
+   */
+  public VcsDirectoryMapping(@NotNull String directory, @Nullable String vcs) {
     this(directory, vcs, null);
   }
 
-  public VcsDirectoryMapping(@Nullable String directory, @Nullable String vcs, @Nullable VcsRootSettings rootSettings) {
-    if (directory != null) setDirectory(directory);
-    myVcs = vcs;
+  public VcsDirectoryMapping(@NotNull String directory, @Nullable String vcs, @Nullable VcsRootSettings rootSettings) {
+    myDirectory = FileUtil.normalize(directory);
+    myVcs = StringUtil.notNullize(vcs);
     myRootSettings = rootSettings;
   }
 
   @NotNull
+  public static VcsDirectoryMapping createDefault(@NotNull String vcs) {
+    return new VcsDirectoryMapping(DEFAULT_MAPPING_DIR, vcs);
+  }
+
+  @NotNull
+  @SystemIndependent
   public String getDirectory() {
     return myDirectory;
   }
 
-  private void initSystemIndependentPath() {
-    mySystemIdependentPath = FileUtil.toSystemIndependentName(myDirectory);
-  }
-
-  public String systemIndependentPath() {
-    return mySystemIdependentPath;
-  }
-
+  @NotNull
   public String getVcs() {
     return myVcs;
-  }
-
-  public void setVcs(final String vcs) {
-    myVcs = vcs;
-  }
-
-  public void setDirectory(@NotNull final String directory) {
-    myDirectory = directory;
-    initSystemIndependentPath();
   }
 
   /**
@@ -86,14 +81,27 @@ public class VcsDirectoryMapping {
   /**
    * Sets the VCS-specific settings for the given mapping.
    *
-   * @param rootSettings the VCS-specific settings.
+   * @param rootSettings the VCS-specific settings
+   * @deprecated Use constructor parameter
    */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public void setRootSettings(final VcsRootSettings rootSettings) {
     myRootSettings = rootSettings;
   }
 
+  /**
+   * @return if this mapping denotes "default mapping" aka "&lt;Project&gt;".
+   */
   public boolean isDefaultMapping() {
     return myDirectory.length() == 0;
+  }
+
+  /**
+   * @return if this mapping denotes "no vcs" aka "&lt;none&gt;".
+   */
+  public boolean isNoneMapping() {
+    return myVcs.isEmpty();
   }
 
   public boolean equals(final Object o) {
@@ -102,22 +110,22 @@ public class VcsDirectoryMapping {
 
     final VcsDirectoryMapping mapping = (VcsDirectoryMapping)o;
 
-    if (myDirectory != null ? !myDirectory.equals(mapping.myDirectory) : mapping.myDirectory != null) return false;
-    if (myVcs != null ? !myVcs.equals(mapping.myVcs) : mapping.myVcs != null) return false;
-    if (myRootSettings != null ? !myRootSettings.equals(mapping.myRootSettings) : mapping.myRootSettings != null) return false;
+    if (!myDirectory.equals(mapping.myDirectory)) return false;
+    if (!Objects.equals(myVcs, mapping.myVcs)) return false;
+    if (!Objects.equals(myRootSettings, mapping.myRootSettings)) return false;
 
     return true;
   }
 
   public int hashCode() {
     int result;
-    result = (myDirectory != null ? myDirectory.hashCode() : 0);
+    result = myDirectory.hashCode();
     result = 31 * result + (myVcs != null ? myVcs.hashCode() : 0);
     return result;
   }
 
   @Override
   public String toString() {
-    return isDefaultMapping() ? PROJECT_CONSTANT : myDirectory;
+    return isDefaultMapping() ? PROJECT_CONSTANT.get() : myDirectory;
   }
 }

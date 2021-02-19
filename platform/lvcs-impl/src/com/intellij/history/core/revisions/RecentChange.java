@@ -16,6 +16,9 @@
 
 package com.intellij.history.core.revisions;
 
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.util.text.DateFormatUtil;
+
 public class RecentChange {
   private final Revision myBefore;
   private final Revision myAfter;
@@ -33,11 +36,17 @@ public class RecentChange {
     return myAfter;
   }
 
+  @NlsContexts.Label
   public String getChangeName() {
     return myAfter.getChangeSetName();
   }
 
   public long getTimestamp() {
     return myAfter.getTimestamp();
+  }
+
+  @Override
+  public String toString() {
+    return getChangeName() + "[" + DateFormatUtil.formatDateTime(getTimestamp()) + "]";
   }
 }

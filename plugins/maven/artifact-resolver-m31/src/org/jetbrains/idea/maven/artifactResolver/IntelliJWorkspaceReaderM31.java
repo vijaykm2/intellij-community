@@ -47,20 +47,18 @@ public class IntelliJWorkspaceReaderM31 implements WorkspaceReader {
     return o instanceof IntelliJWorkspaceReaderM31;
   }
 
+  @Override
   public WorkspaceRepository getRepository() {
     return myWorkspaceRepository;
   }
 
+  @Override
   public File findArtifact(Artifact artifact) {
-    String type = artifact.getExtension();
-    if ("jar".equals(type) && "tests".equals(artifact.getClassifier())) {
-      type = "test-jar";
-    }
-
-    return MavenModuleMap.getInstance().findArtifact(artifact.getGroupId(), artifact.getArtifactId(), type,
-                                                     artifact.getBaseVersion());
+    return MavenModuleMap.getInstance().findArtifact(
+      artifact.getGroupId(), artifact.getArtifactId(), artifact.getExtension(), artifact.getClassifier(), artifact.getBaseVersion());
   }
 
+  @Override
   public List<String> findVersions(Artifact artifact) {
     return Collections.emptyList();
   }

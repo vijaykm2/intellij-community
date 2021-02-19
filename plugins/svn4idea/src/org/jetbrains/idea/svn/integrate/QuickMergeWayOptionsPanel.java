@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,17 +17,12 @@ package org.jetbrains.idea.svn.integrate;
 
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.MultiLineLabelUI;
+import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
-/**
- * Created with IntelliJ IDEA.
- * User: Irina.Chernushina
- * Date: 3/29/13
- * Time: 7:27 PM
- */
 public class QuickMergeWayOptionsPanel {
   private JButton myMergeAllButton;
   private JButton myQuickManualSelectButton;
@@ -51,18 +46,15 @@ public class QuickMergeWayOptionsPanel {
     myShowsAllRevisionsFromLabel.setUI(new MultiLineLabelUI());
     myFindsWhereOneOfLabel.setUI(new MultiLineLabelUI());
 
-    myAllNotMergedRevisionsLabel.setBorder(BorderFactory.createEmptyBorder(0,0,10,0));
-    myShowsAllRevisionsFromLabel.setBorder(BorderFactory.createEmptyBorder(0,0,10,0));
-    myFindsWhereOneOfLabel.setBorder(BorderFactory.createEmptyBorder(0,0,10,0));
+    myAllNotMergedRevisionsLabel.setBorder(JBUI.Borders.emptyBottom(10));
+    myShowsAllRevisionsFromLabel.setBorder(JBUI.Borders.emptyBottom(10));
+    myFindsWhereOneOfLabel.setBorder(JBUI.Borders.emptyBottom(10));
   }
 
-  private ActionListener setCodeAndClose(final QuickMergeContentsVariants variant) {
-    return new ActionListener() {
-      @Override
-      public void actionPerformed(ActionEvent e) {
-        myVariant = variant;
-        close();
-      }
+  private ActionListener setCodeAndClose(@NotNull QuickMergeContentsVariants variant) {
+    return e -> {
+      myVariant = variant;
+      close();
     };
   }
 
@@ -74,6 +66,7 @@ public class QuickMergeWayOptionsPanel {
     myWrapper = wrapper;
   }
 
+  @NotNull
   public QuickMergeContentsVariants getVariant() {
     return myVariant;
   }

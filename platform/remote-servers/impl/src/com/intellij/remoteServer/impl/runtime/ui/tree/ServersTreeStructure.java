@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.remoteServer.impl.runtime.ui.tree;
 
 import com.intellij.execution.Executor;
@@ -9,9 +10,7 @@ import com.intellij.execution.impl.RunDialog;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.projectView.PresentationData;
-import com.intellij.ide.projectView.TreeStructureProvider;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
-import com.intellij.ide.util.treeView.AbstractTreeStructureBase;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.options.ShowSettingsUtil;
 import com.intellij.openapi.project.Project;
@@ -19,20 +18,19 @@ import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.ListPopup;
 import com.intellij.openapi.ui.popup.PopupStep;
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep;
-import com.intellij.openapi.util.Condition;
-import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.remoteServer.CloudBundle;
 import com.intellij.remoteServer.ServerType;
 import com.intellij.remoteServer.configuration.RemoteServer;
-import com.intellij.remoteServer.configuration.RemoteServersManager;
 import com.intellij.remoteServer.configuration.ServerConfiguration;
 import com.intellij.remoteServer.configuration.deployment.DeploymentConfigurationManager;
+import com.intellij.remoteServer.configuration.deployment.SingletonDeploymentSourceType;
 import com.intellij.remoteServer.impl.configuration.SingleRemoteServerConfigurable;
 import com.intellij.remoteServer.impl.configuration.deployment.DeployToServerRunConfiguration;
 import com.intellij.remoteServer.impl.runtime.deployment.DeploymentTaskImpl;
 import com.intellij.remoteServer.impl.runtime.log.DeploymentLogManagerImpl;
-import com.intellij.remoteServer.impl.runtime.log.LoggingHandlerImpl;
-import com.intellij.remoteServer.impl.runtime.ui.RemoteServersViewContributor;
+import com.intellij.remoteServer.impl.runtime.log.LoggingHandlerBase;
 import com.intellij.remoteServer.runtime.ConnectionStatus;
 import com.intellij.remoteServer.runtime.Deployment;
 import com.intellij.remoteServer.runtime.ServerConnection;
@@ -54,17 +52,11 @@ import java.util.*;
 /**
  * @author michael.golubev
  */
-public class ServersTreeStructure extends AbstractTreeStructureBase {
+public final class ServersTreeStructure {
   // 1st level: servers (RunnerAndConfigurationSettings (has CommonStrategy (extends RunConfiguration)) or RemoteServer)
   // 2nd level: deployments (DeploymentModel or Deployment)
 
-  private final ServersTreeRootNode myRootElement;
-  private final Project myProject;
-
-  public ServersTreeStructure(@NotNull Project project) {
-    super(project);
-    myProject = project;
-    myRootElement = new ServersTreeRootNode();
+  private ServersTreeStructure() {
   }
 
   public static Icon getServerNodeIcon(@NotNull Icon itemIcon, @Nullable Icon statusIcon) {
@@ -78,91 +70,57 @@ public class ServersTreeStructure extends AbstractTreeStructureBase {
     return icon;
   }
 
-  @Override
-  public List<TreeStructureProvider> getProviders() {
-    return Collections.emptyList();
-  }
-
-  @NotNull
-  Project doGetProject() {
-    return myProject;
-  }
-
-  @Override
-  public Object getRootElement() {
-    return myRootElement;
-  }
-
-  @Override
-  public void commit() {
-  }
-
-  @Override
-  public boolean hasSomethingToCommit() {
-    return false;
-  }
-
   public interface LogProvidingNode {
     @Nullable
-    LoggingHandlerImpl getLoggingHandler();
+    JComponent getComponent();
 
-    @NotNull String getLogId();
+    @NotNull
+    String getLogId();
   }
 
-  public class ServersTreeRootNode extends AbstractTreeNode<Object> {
-    public ServersTreeRootNode() {
-      super(doGetProject(), new Object());
+  public static class RemoteServerNode extends AbstractTreeNode<RemoteServer<?>> implements ServerNode {
+    private final DeploymentNodeProducer myNodeProducer;
+
+    public RemoteServerNode(Project project, @NotNull RemoteServer<?> server, @NotNull DeploymentNodeProducer nodeProducer) {
+      super(project, server);
+      myNodeProducer = nodeProducer;
+    }
+
+    @NotNull
+    public RemoteServer<?> getServer() {
+      return getValue();
     }
 
     @NotNull
     @Override
-    public Collection<? extends AbstractTreeNode> getChildren() {
-      List<AbstractTreeNode<?>> result = new ArrayList<AbstractTreeNode<?>>();
-      for (RemoteServersViewContributor contributor : RemoteServersViewContributor.EP_NAME.getExtensions()) {
-        result.addAll(contributor.createServerNodes(doGetProject()));
-      }
-      for (RemoteServer<?> server : RemoteServersManager.getInstance().getServers()) {
-        result.add(new RemoteServerNode(server));
-      }
-      return result;
-    }
-
-    @Override
-    protected void update(PresentationData presentation) {
-    }
-  }
-
-  public class RemoteServerNode extends AbstractTreeNode<RemoteServer<?>> implements ServerNode {
-    public RemoteServerNode(RemoteServer<?> server) {
-      super(doGetProject(), server);
-    }
-
-    @NotNull
-    @Override
-    public Collection<? extends AbstractTreeNode> getChildren() {
-      ServerConnection<?> connection = getConnection();
+    public Collection<? extends AbstractTreeNode<?>> getChildren() {
+      final ServerConnection<?> connection = getConnection();
       if (connection == null) {
         return Collections.emptyList();
       }
-      List<AbstractTreeNode> children = new ArrayList<AbstractTreeNode>();
+
+      final List<AbstractTreeNode<?>> children = new ArrayList<>();
       for (Deployment deployment : connection.getDeployments()) {
-        children.add(new DeploymentNodeImpl(connection, this, deployment));
+        if (deployment.getParentRuntime() == null) {
+          children.add(myNodeProducer.createDeploymentNode(connection, this, deployment));
+        }
       }
       return children;
     }
 
     @Override
-    protected void update(PresentationData presentation) {
-      RemoteServer<?> server = getValue();
-      ServerConnection connection = getConnection();
+    protected void update(@NotNull PresentationData presentation) {
+      RemoteServer<?> server = getServer();
+      ServerConnection<?> connection = getConnection();
       presentation.setPresentableText(server.getName());
-      presentation.setIcon(getServerNodeIcon(server.getType().getIcon(), connection != null ? getStatusIcon(connection.getStatus()) : null));
+      presentation
+        .setIcon(getServerNodeIcon(server.getType().getIcon(), connection != null ? getStatusIcon(connection.getStatus()) : null));
       presentation.setTooltip(connection != null ? connection.getStatusText() : null);
     }
 
     @Nullable
     private ServerConnection<?> getConnection() {
-      return ServerConnectionManager.getInstance().getConnection(getValue());
+      return ServerConnectionManager.getInstance().getConnection(getServer());
     }
 
     public boolean isConnected() {
@@ -170,56 +128,69 @@ public class ServersTreeStructure extends AbstractTreeStructureBase {
       return connection != null && connection.getStatus() == ConnectionStatus.CONNECTED;
     }
 
-    public void deploy(AnActionEvent e) {
-      doDeploy(e, DefaultRunExecutor.getRunExecutorInstance(), "Deploy Configuration", true);
+    public void deploy(@NotNull AnActionEvent e) {
+      doDeploy(e, DefaultRunExecutor.getRunExecutorInstance(),
+               CloudBundle.message("ServersTreeStructure.RemoteServerNode.popup.title.deploy.configuration"), true);
     }
 
-    public void deployWithDebug(AnActionEvent e) {
-      doDeploy(e, DefaultDebugExecutor.getDebugExecutorInstance(), "Deploy and Debug Configuration", false);
+    public void deployWithDebug(@NotNull AnActionEvent e) {
+      doDeploy(e, DefaultDebugExecutor.getDebugExecutorInstance(),
+               CloudBundle.message("ServersTreeStructure.RemoteServerNode.popup.title.deploy.debug.configuration"), false);
     }
 
-    public void doDeploy(AnActionEvent e, final Executor executor, String popupTitle, boolean canCreate) {
-      final RemoteServer<?> server = getValue();
+    public void doDeploy(@NotNull AnActionEvent e, final Executor executor, @NlsContexts.PopupTitle String popupTitle, boolean canCreate) {
+      final RemoteServer<?> server = getServer();
       final ServerType<? extends ServerConfiguration> serverType = server.getType();
-      final DeploymentConfigurationManager configurationManager = DeploymentConfigurationManager.getInstance(doGetProject());
-      final List<RunnerAndConfigurationSettings> list = new ArrayList<RunnerAndConfigurationSettings>(ContainerUtil.filter(
-        configurationManager.getDeploymentConfigurations(serverType),
-        new Condition<RunnerAndConfigurationSettings>() {
-          @Override
-          public boolean value(RunnerAndConfigurationSettings settings) {
-            DeployToServerRunConfiguration configuration =
-              (DeployToServerRunConfiguration)settings.getConfiguration();
-            return StringUtil.equals(server.getName(), configuration.getServerName());
-          }
-        }
-      ));
+      final DeploymentConfigurationManager configurationManager = DeploymentConfigurationManager.getInstance(myProject);
+
+      final List<Object> runConfigsAndTypes = new LinkedList<>();
+      final List<RunnerAndConfigurationSettings> runConfigs =
+        ContainerUtil.filter(configurationManager.getDeploymentConfigurations(serverType), settings -> {
+          DeployToServerRunConfiguration<?, ?> configuration = (DeployToServerRunConfiguration<?, ?>)settings.getConfiguration();
+          return StringUtil.equals(server.getName(), configuration.getServerName());
+        });
+      runConfigsAndTypes.addAll(runConfigs);
+
       if (canCreate) {
-        list.add(null);
+        runConfigsAndTypes.addAll(server.getType().getSingletonDeploymentSourceTypes());
+        if (server.getType().mayHaveProjectSpecificDeploymentSources()) {
+          runConfigsAndTypes.add(null);
+        }
       }
+
       ListPopup popup =
-        JBPopupFactory.getInstance().createListPopup(new BaseListPopupStep<RunnerAndConfigurationSettings>(popupTitle, list) {
+        JBPopupFactory.getInstance().createListPopup(new BaseListPopupStep<>(popupTitle, runConfigsAndTypes) {
           @Override
-          public Icon getIconFor(RunnerAndConfigurationSettings value) {
-            return value != null ? serverType.getIcon() : null;
+          public Icon getIconFor(Object runConfigOrSourceType) {
+            return runConfigOrSourceType != null ? serverType.getIcon() : null;
           }
 
           @NotNull
           @Override
-          public String getTextFor(RunnerAndConfigurationSettings value) {
-            return value != null ? value.getName() : "Create...";
+          public String getTextFor(Object runConfigOrSourceType) {
+            if (runConfigOrSourceType instanceof RunnerAndConfigurationSettings) {
+              return ((RunnerAndConfigurationSettings)runConfigOrSourceType).getName();
+            }
+            if (runConfigOrSourceType instanceof SingletonDeploymentSourceType) {
+              String displayName = ((SingletonDeploymentSourceType)runConfigOrSourceType).getPresentableName();
+              return CloudBundle.message("create.new.deployment.configuration.for.singleton.type", displayName);
+            }
+            return CloudBundle.message("create.new.deployment.configuration.generic");
           }
 
           @Override
-          public PopupStep onChosen(final RunnerAndConfigurationSettings selectedValue, boolean finalChoice) {
-            return doFinalStep(new Runnable() {
-              @Override
-              public void run() {
-                if (selectedValue != null) {
-                  ProgramRunnerUtil.executeConfiguration(doGetProject(), selectedValue, executor);
-                }
-                else {
-                  configurationManager.createAndRunConfiguration(serverType, RemoteServerNode.this.getValue());
-                }
+          public PopupStep<?> onChosen(Object selectedRunConfigOrSourceType, boolean finalChoice) {
+            return doFinalStep(() -> {
+              if (selectedRunConfigOrSourceType instanceof RunnerAndConfigurationSettings) {
+                ProgramRunnerUtil.executeConfiguration((RunnerAndConfigurationSettings)selectedRunConfigOrSourceType, executor);
+              }
+              else if (selectedRunConfigOrSourceType instanceof SingletonDeploymentSourceType) {
+                SingletonDeploymentSourceType sourceType = (SingletonDeploymentSourceType)selectedRunConfigOrSourceType;
+                configurationManager.createAndRunConfiguration(serverType, RemoteServerNode.this.getValue(), sourceType);
+              }
+              else {
+                assert selectedRunConfigOrSourceType == null;
+                configurationManager.createAndRunConfiguration(serverType, RemoteServerNode.this.getValue(), null);
               }
             });
           }
@@ -233,39 +204,54 @@ public class ServersTreeStructure extends AbstractTreeStructureBase {
     }
 
     public void editConfiguration() {
-      ShowSettingsUtil.getInstance().editConfigurable(doGetProject(), new SingleRemoteServerConfigurable(getValue(), null, false));
+      ShowSettingsUtil.getInstance().editConfigurable(myProject, new SingleRemoteServerConfigurable(getValue(), null, false));
     }
 
     @Nullable
-    private Icon getStatusIcon(final ConnectionStatus status) {
+    private static Icon getStatusIcon(final ConnectionStatus status) {
       switch (status) {
-        case CONNECTED: return RemoteServersIcons.ResumeScaled;
-        case DISCONNECTED: return RemoteServersIcons.SuspendScaled;
-        default: return null;
+        case CONNECTED:
+          return RemoteServersIcons.ResumeScaled;
+        case DISCONNECTED:
+          return RemoteServersIcons.SuspendScaled;
+        default:
+          return null;
       }
     }
   }
 
-  public class DeploymentNodeImpl extends AbstractTreeNode<Deployment> implements LogProvidingNode, DeploymentNode {
+  public static class DeploymentNodeImpl extends AbstractTreeNode<Deployment> implements LogProvidingNode, DeploymentNode {
     private final ServerConnection<?> myConnection;
-    private final RemoteServerNode myParentNode;
+    private final RemoteServerNode myServerNode;
+    private final DeploymentNodeProducer myNodeProducer;
 
-    private DeploymentNodeImpl(@NotNull ServerConnection<?> connection, @NotNull RemoteServerNode parentNode, Deployment value) {
-      super(doGetProject(), value);
+    public DeploymentNodeImpl(Project project,
+                              @NotNull ServerConnection<?> connection,
+                              @NotNull RemoteServerNode serverNode,
+                              @NotNull Deployment value,
+                              @NotNull DeploymentNodeProducer nodeProducer) {
+      super(project, value);
       myConnection = connection;
-      myParentNode = parentNode;
+      myServerNode = serverNode;
+      myNodeProducer = nodeProducer;
+    }
+
+    @NotNull
+    public Deployment getDeployment() {
+      return getValue();
     }
 
     @NotNull
     @Override
-    public ServerNode getServerNode() {
-      return myParentNode;
+    public RemoteServerNode getServerNode() {
+      return myServerNode;
     }
 
     @Override
     public boolean isDeployActionVisible() {
       DeploymentTask<?> deploymentTask = getValue().getDeploymentTask();
-      return deploymentTask instanceof DeploymentTaskImpl<?> && ((DeploymentTaskImpl)deploymentTask).getExecutionEnvironment().getRunnerAndConfigurationSettings() != null;
+      return deploymentTask instanceof DeploymentTaskImpl<?> && deploymentTask
+                                                                  .getExecutionEnvironment().getRunnerAndConfigurationSettings() != null;
     }
 
     @Override
@@ -279,19 +265,19 @@ public class ServersTreeStructure extends AbstractTreeStructureBase {
     }
 
     public void doDeploy(Executor executor) {
-      DeploymentTask<?> deploymentTask = getValue().getDeploymentTask();
+      DeploymentTask<?> deploymentTask = getDeployment().getDeploymentTask();
       if (deploymentTask != null) {
-        ExecutionEnvironment environment = ((DeploymentTaskImpl)deploymentTask).getExecutionEnvironment();
+        ExecutionEnvironment environment = deploymentTask.getExecutionEnvironment();
         RunnerAndConfigurationSettings settings = environment.getRunnerAndConfigurationSettings();
         if (settings != null) {
-          ProgramRunnerUtil.executeConfiguration(doGetProject(), settings, executor);
+          ProgramRunnerUtil.executeConfiguration(settings, executor);
         }
       }
     }
 
     @Override
     public boolean isDebugActionVisible() {
-      return myParentNode.getValue().getType().createDebugConnector() != null;
+      return myServerNode.getServer().getType().createDebugConnector() != null;
     }
 
     @Override
@@ -301,40 +287,40 @@ public class ServersTreeStructure extends AbstractTreeStructureBase {
 
     @Override
     public boolean isUndeployActionEnabled() {
-      DeploymentRuntime runtime = getValue().getRuntime();
+      DeploymentRuntime runtime = getDeployment().getRuntime();
       return runtime != null && runtime.isUndeploySupported();
     }
 
     @Override
     public void undeploy() {
-      DeploymentRuntime runtime = getValue().getRuntime();
+      DeploymentRuntime runtime = getDeployment().getRuntime();
       if (runtime != null) {
-        getConnection().undeploy(getValue(), runtime);
+        getConnection().undeploy(getDeployment(), runtime);
       }
     }
 
     public boolean isEditConfigurationActionVisible() {
-      return getValue().getDeploymentTask() != null;
+      return getDeployment().getDeploymentTask() != null;
     }
 
     public void editConfiguration() {
-      DeploymentTask<?> task = getValue().getDeploymentTask();
+      DeploymentTask<?> task = getDeployment().getDeploymentTask();
       if (task != null) {
-        RunnerAndConfigurationSettings settings = ((DeploymentTaskImpl)task).getExecutionEnvironment().getRunnerAndConfigurationSettings();
+        RunnerAndConfigurationSettings settings = task.getExecutionEnvironment().getRunnerAndConfigurationSettings();
         if (settings != null) {
-          RunDialog.editConfiguration(doGetProject(), settings, "Edit Deployment Configuration");
+          RunDialog.editConfiguration(myProject, settings, CloudBundle.message("dialog.title.edit.deployment.configuration"));
         }
       }
     }
 
     @Override
     public boolean isDeployed() {
-      return getValue().getStatus() == DeploymentStatus.DEPLOYED;
+      return getDeployment().getStatus() == DeploymentStatus.DEPLOYED;
     }
 
     @Override
     public String getDeploymentName() {
-      return getValue().getName();
+      return getDeployment().getName();
     }
 
     public ServerConnection<?> getConnection() {
@@ -343,18 +329,20 @@ public class ServersTreeStructure extends AbstractTreeStructureBase {
 
     @Nullable
     @Override
-    public LoggingHandlerImpl getLoggingHandler() {
+    public JComponent getComponent() {
       DeploymentLogManagerImpl logManager = getLogManager();
-      return logManager != null && logManager.isMainHandlerVisible() ? logManager.getMainLoggingHandler() : null;
+      return logManager != null && logManager.isMainHandlerVisible()
+             ? logManager.getMainLoggingHandler().getConsole().getComponent()
+             : null;
     }
 
     @Nullable
-    private DeploymentLogManagerImpl getLogManager() {
-      return (DeploymentLogManagerImpl)myConnection.getLogManager(getValue());
+    protected DeploymentLogManagerImpl getLogManager() {
+      return (DeploymentLogManagerImpl)myConnection.getLogManager(myProject, getDeployment());
     }
 
     public String getId() {
-      return myParentNode.getName() + ";deployment" + getValue().getName();
+      return myServerNode.getName() + ";deployment" + getDeployment().getName();
     }
 
     @NotNull
@@ -365,67 +353,76 @@ public class ServersTreeStructure extends AbstractTreeStructureBase {
 
     @NotNull
     @Override
-    public Collection<? extends AbstractTreeNode> getChildren() {
-      DeploymentLogManagerImpl logManager = (DeploymentLogManagerImpl)getConnection().getLogManager(getValue());
-      if (logManager != null) {
-        Map<String,LoggingHandlerImpl> handlers = logManager.getAdditionalLoggingHandlers();
-        List<AbstractTreeNode> nodes = new ArrayList<AbstractTreeNode>();
-        for (Map.Entry<String, LoggingHandlerImpl> entry : handlers.entrySet()) {
-          nodes.add(new DeploymentLogNode(Pair.create(entry.getValue(), entry.getKey()), this));
-        }
-        return nodes;
+    public Collection<? extends AbstractTreeNode<?>> getChildren() {
+      List<AbstractTreeNode<?>> result = new ArrayList<>();
+      collectDeploymentChildren(result);
+      collectLogChildren(result);
+      return result;
+    }
+
+    protected void collectDeploymentChildren(List<AbstractTreeNode<?>> children) {
+      ServerConnection<?> connection = getConnection();
+      if (connection == null) {
+        return;
       }
-      return Collections.emptyList();
+      for (Deployment deployment : connection.getDeployments()) {
+        DeploymentRuntime parent = deployment.getParentRuntime();
+        if (parent != null && parent == getDeployment().getRuntime()) {
+          children.add(myNodeProducer.createDeploymentNode(connection, myServerNode, deployment));
+        }
+      }
+    }
+
+    protected void collectLogChildren(List<AbstractTreeNode<?>> children) {
+      ServerConnection<?> connection = getConnection();
+      if (connection == null) {
+        return;
+      }
+      DeploymentLogManagerImpl logManager = (DeploymentLogManagerImpl)connection.getLogManager(myProject, getDeployment());
+      if (logManager != null) {
+        for (LoggingHandlerBase loggingComponent : logManager.getAdditionalLoggingHandlers()) {
+          children.add(new DeploymentLogNode(myProject, loggingComponent, this));
+        }
+      }
     }
 
     @Override
-    protected void update(PresentationData presentation) {
-      Deployment deployment = getValue();
-      presentation.setIcon(getStatusIcon(deployment.getStatus()));
-      presentation.setPresentableText(deployment.getName());
+    protected void update(@NotNull PresentationData presentation) {
+      Deployment deployment = getDeployment();
+      presentation.setIcon(deployment.getStatus().getIcon());
+      presentation.setPresentableText(deployment.getPresentableName());
       presentation.setTooltip(deployment.getStatusText());
-    }
-
-    @Nullable
-    private Icon getStatusIcon(DeploymentStatus status) {
-      switch (status) {
-        case DEPLOYED: return AllIcons.RunConfigurations.TestPassed;
-        case NOT_DEPLOYED: return AllIcons.RunConfigurations.TestIgnored;
-        case DEPLOYING: return AllIcons.RunConfigurations.TestInProgress4;
-        case UNDEPLOYING: return AllIcons.RunConfigurations.TestInProgress4;
-      }
-      return null;
     }
   }
 
-  public class DeploymentLogNode extends AbstractTreeNode<Pair<LoggingHandlerImpl, String>> implements ServersTreeNode, LogProvidingNode {
+  public static class DeploymentLogNode extends AbstractTreeNode<LoggingHandlerBase> implements ServersTreeNode, LogProvidingNode {
     @NotNull private final DeploymentNodeImpl myDeploymentNode;
 
-    public DeploymentLogNode(@NotNull Pair<LoggingHandlerImpl, String> value, @NotNull DeploymentNodeImpl deploymentNode) {
-      super(doGetProject(), value);
+    public DeploymentLogNode(Project project, @NotNull LoggingHandlerBase value, @NotNull DeploymentNodeImpl deploymentNode) {
+      super(project, value);
       myDeploymentNode = deploymentNode;
     }
 
     @NotNull
     @Override
-    public Collection<? extends AbstractTreeNode> getChildren() {
+    public Collection<? extends AbstractTreeNode<?>> getChildren() {
       return Collections.emptyList();
     }
 
     @Override
-    protected void update(PresentationData presentation) {
+    protected void update(@NotNull PresentationData presentation) {
       presentation.setIcon(AllIcons.Debugger.Console);
       presentation.setPresentableText(getLogName());
     }
 
     private String getLogName() {
-      return getValue().getSecond();
+      return getValue().getPresentableName();
     }
 
     @Nullable
     @Override
-    public LoggingHandlerImpl getLoggingHandler() {
-      return getValue().getFirst();
+    public JComponent getComponent() {
+      return getValue().getComponent();
     }
 
     @NotNull
@@ -433,5 +430,10 @@ public class ServersTreeStructure extends AbstractTreeStructureBase {
     public String getLogId() {
       return myDeploymentNode.getId() + ";log:" + getLogName();
     }
+  }
+
+  @FunctionalInterface
+  public interface DeploymentNodeProducer {
+    AbstractTreeNode<?> createDeploymentNode(ServerConnection<?> connection, RemoteServerNode serverNode, Deployment deployment);
   }
 }

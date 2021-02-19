@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,15 +20,8 @@ import com.intellij.psi.PsiReferenceProvider;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.scope.util.PsiScopesUtil;
 
-/**
- * Created by IntelliJ IDEA.
- * User: ik
- * Date: 27.03.2003
- * Time: 17:23:43
- * To change this template use Options | File Templates.
- */
 public abstract class GenericReferenceProvider extends PsiReferenceProvider {
-  private boolean mySoft = false;
+  private boolean mySoft;
 
   public void handleEmptyContext(PsiScopeProcessor processor, PsiElement position) {
     PsiScopesUtil.treeWalkUp(processor, position, null);

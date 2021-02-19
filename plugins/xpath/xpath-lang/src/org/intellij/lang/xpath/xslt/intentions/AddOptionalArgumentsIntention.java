@@ -26,6 +26,7 @@ import com.intellij.psi.xml.XmlTag;
 import org.intellij.lang.xpath.xslt.XsltSupport;
 import org.intellij.lang.xpath.xslt.psi.*;
 import org.intellij.lang.xpath.xslt.quickfix.AddWithParamFix;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.HashSet;
@@ -34,16 +35,19 @@ import java.util.Set;
 // Just a clever trick that makes use of the already existing quickfix and the completion for missing arguments.
 public class AddOptionalArgumentsIntention extends AddWithParamFix {
 
+    @Override
     @NotNull
     public String getFamilyName() {
-        return "Add optional Argument(s)";
+        return XPathBundle.message("intention.family.name.add.optional.argument");
     }
 
+    @Override
     @NotNull
     public String getText() {
         return getFamilyName();
     }
 
+    @Override
     public boolean isAvailableImpl(@NotNull Project project, Editor editor, PsiFile file) {
         if (!XsltSupport.isXsltFile(file)) return false;
 
@@ -60,7 +64,7 @@ public class AddOptionalArgumentsIntention extends AddWithParamFix {
         final XsltTemplate template = call.getTemplate();
         if (template == null) return false;
 
-        final Set<String> params = new HashSet<String>();
+        final Set<String> params = new HashSet<>();
         final XsltParameter[] parameters = template.getParameters();
         for (XsltParameter parameter : parameters) {
             if (parameter.hasDefault()) params.add(parameter.getName());

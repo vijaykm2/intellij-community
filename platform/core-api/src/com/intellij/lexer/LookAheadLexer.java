@@ -17,28 +17,27 @@ package com.intellij.lexer;
 
 import com.intellij.psi.tree.IElementType;
 import com.intellij.util.containers.ImmutableUserMap;
-import com.intellij.util.containers.Queue;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * @author peter
  */
-public abstract class LookAheadLexer extends LexerBase{
+public abstract class LookAheadLexer extends LexerBase {
   private int myLastOffset;
   private int myLastState;
 
   private final Lexer myBaseLexer;
   private int myTokenStart;
-  private final Queue<IElementType> myTypeCache;
-  private final Queue<Integer> myEndOffsetCache;
+  private final MutableRandomAccessQueue<IElementType> myTypeCache;
+  private final MutableRandomAccessQueue<Integer> myEndOffsetCache;
 
-  public LookAheadLexer(final Lexer baseLexer, int capacity) {
+  public LookAheadLexer(@NotNull Lexer baseLexer, int capacity) {
     myBaseLexer = baseLexer;
-    myTypeCache = new Queue<IElementType>(capacity);
-    myEndOffsetCache = new Queue<Integer>(capacity);
+    myTypeCache = new MutableRandomAccessQueue<>(capacity);
+    myEndOffsetCache = new MutableRandomAccessQueue<>(capacity);
   }
 
-  public LookAheadLexer(final Lexer baseLexer) {
+  public LookAheadLexer(@NotNull Lexer baseLexer) {
     this(baseLexer, 64);
   }
 
@@ -52,10 +51,11 @@ public abstract class LookAheadLexer extends LexerBase{
     myEndOffsetCache.addLast(endOffset);
   }
 
-  protected void lookAhead(Lexer baseLexer) {
+  protected void lookAhead(@NotNull Lexer baseLexer) {
     advanceLexer(baseLexer);
   }
 
+  @Override
   public void advance() {
     if (!myTypeCache.isEmpty()) {
       myTypeCache.pullFirst();
@@ -74,11 +74,13 @@ public abstract class LookAheadLexer extends LexerBase{
     assert !myTypeCache.isEmpty();
   }
 
+  @Override
   @NotNull
   public CharSequence getBufferSequence() {
     return myBaseLexer.getBufferSequence();
   }
 
+  @Override
   public int getBufferEnd() {
     return myBaseLexer.getBufferEnd();
   }
@@ -98,35 +100,49 @@ public abstract class LookAheadLexer extends LexerBase{
     return myTypeCache.set(index, token);
   }
 
+  protected final IElementType getCachedType(int index) {
+    return myTypeCache.get(index);
+  }
+
+  protected final int getCachedOffset(int index) {
+    return myEndOffsetCache.get(index);
+  }
+
+  @Override
   public int getState() {
     int offset = myTokenStart - myLastOffset;
     return myLastState | (offset << 16);
   }
 
+  @Override
   public int getTokenEnd() {
     return myEndOffsetCache.peekFirst();
   }
 
+  @Override
   public int getTokenStart() {
     return myTokenStart;
   }
 
+  @Override
   @NotNull
   public LookAheadLexerPosition getCurrentPosition() {
     return new LookAheadLexerPosition(this, ImmutableUserMap.EMPTY);
   }
 
+  @Override
   public final void restore(@NotNull final LexerPosition _position) {
-    restore((LookAheadLexerPosition) _position);
+    restore((LookAheadLexerPosition)_position);
   }
 
-  protected void restore(final LookAheadLexerPosition position) {
+  protected void restore(@NotNull LookAheadLexerPosition position) {
     start(myBaseLexer.getBufferSequence(), position.lastOffset, myBaseLexer.getBufferEnd(), position.lastState);
     for (int i = 0; i < position.advanceCount; i++) {
       advance();
     }
   }
 
+  @Override
   public IElementType getTokenType() {
     return myTypeCache.peekFirst();
   }
@@ -147,7 +163,7 @@ public abstract class LookAheadLexer extends LexerBase{
     final int advanceCount;
     final ImmutableUserMap customMap;
 
-    public LookAheadLexerPosition(final LookAheadLexer lookAheadLexer, final ImmutableUserMap map) {
+    public LookAheadLexerPosition(@NotNull LookAheadLexer lookAheadLexer, @NotNull ImmutableUserMap map) {
       customMap = map;
       lastOffset = lookAheadLexer.myLastOffset;
       lastState = lookAheadLexer.myLastState;
@@ -155,26 +171,28 @@ public abstract class LookAheadLexer extends LexerBase{
       advanceCount = lookAheadLexer.myTypeCache.size() - 1;
     }
 
+    @NotNull
     public ImmutableUserMap getCustomMap() {
       return customMap;
     }
 
+    @Override
     public int getOffset() {
       return tokenStart;
     }
 
+    @Override
     public int getState() {
       return lastState;
     }
   }
 
-  protected final void advanceLexer( Lexer lexer ) {
+  protected final void advanceLexer(@NotNull Lexer lexer) {
     advanceAs(lexer, lexer.getTokenType());
   }
 
-  protected final void advanceAs(Lexer lexer, IElementType type) {
+  protected final void advanceAs(@NotNull Lexer lexer, IElementType type) {
     addToken(type);
     lexer.advance();
   }
-
 }

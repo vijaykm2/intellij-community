@@ -1,39 +1,29 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
+import com.intellij.core.JavaPsiBundle;
+import com.intellij.openapi.util.NullUtils;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
-import com.intellij.util.Function;
-import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Intersection types arise in a process of computing least upper bound.
  *
  * @author ven
  */
-public class PsiIntersectionType extends PsiType.Stub {
+public final class PsiIntersectionType extends PsiType.Stub {
   private final PsiType[] myConjuncts;
 
-  private PsiIntersectionType(@NotNull PsiType[] conjuncts) {
-    super(PsiAnnotation.EMPTY_ARRAY);
+  private PsiIntersectionType(PsiType @NotNull [] conjuncts) {
+    super(TypeAnnotationProvider.EMPTY);
+    if (NullUtils.hasNull((Object[])conjuncts)) throw new IllegalArgumentException("Null conjunct");
     myConjuncts = conjuncts;
   }
 
@@ -48,7 +38,7 @@ public class PsiIntersectionType extends PsiType.Stub {
   }
 
   @NotNull
-  public static PsiType createIntersection(boolean flatten, PsiType... conjuncts) {
+  public static PsiType createIntersection(boolean flatten, PsiType @NotNull ... conjuncts) {
     assert conjuncts.length > 0;
     if (flatten) {
       conjuncts = flattenAndRemoveDuplicates(conjuncts);
@@ -57,17 +47,17 @@ public class PsiIntersectionType extends PsiType.Stub {
     return new PsiIntersectionType(conjuncts);
   }
 
-  private static PsiType[] flattenAndRemoveDuplicates(PsiType[] conjuncts) {
+  private static PsiType @NotNull [] flattenAndRemoveDuplicates(PsiType @NotNull [] conjuncts) {
     try {
-      Set<PsiType> flattened = flatten(conjuncts, ContainerUtil.<PsiType>newLinkedHashSet());
-      return flattened.toArray(createArray(flattened.size()));
+      final Set<PsiType> flattenConjuncts = flatten(conjuncts, new LinkedHashSet<>());
+      return flattenConjuncts.toArray(createArray(flattenConjuncts.size()));
     }
     catch (NoSuchElementException e) {
       throw new RuntimeException(Arrays.toString(conjuncts), e);
     }
   }
 
-  private static Set<PsiType> flatten(PsiType[] conjuncts, Set<PsiType> types) {
+  public static @NotNull Set<PsiType> flatten(PsiType @NotNull [] conjuncts, Set<PsiType> types) {
     for (PsiType conjunct : conjuncts) {
       if (conjunct instanceof PsiIntersectionType) {
         PsiIntersectionType type = (PsiIntersectionType)conjunct;
@@ -85,8 +75,7 @@ public class PsiIntersectionType extends PsiType.Stub {
         for (PsiType existing : array) {
           if (type != existing) {
             final boolean allowUncheckedConversion = type instanceof PsiClassType && ((PsiClassType)type).isRaw();
-            if (TypeConversionUtil.isAssignable(type, existing, allowUncheckedConversion) ||
-                TypeConversionUtil.isAssignable(GenericsUtil.eliminateWildcards(type), GenericsUtil.eliminateWildcards(existing), allowUncheckedConversion)) {
+            if (TypeConversionUtil.isAssignable(type, existing, allowUncheckedConversion)) {
               iterator.remove();
               break;
             }
@@ -100,20 +89,14 @@ public class PsiIntersectionType extends PsiType.Stub {
     return types;
   }
 
-  @NotNull
-  public PsiType[] getConjuncts() {
+  public PsiType @NotNull [] getConjuncts() {
     return myConjuncts;
   }
 
   @NotNull
   @Override
-  public String getPresentableText() {
-    return StringUtil.join(myConjuncts, new Function<PsiType, String>() {
-      @Override
-      public String fun(PsiType psiType) {
-        return psiType.getPresentableText();
-      }
-    }, " & ");
+  public String getPresentableText(final boolean annotated) {
+    return StringUtil.join(myConjuncts, psiType -> psiType.getPresentableText(annotated), " & ");
   }
 
   @NotNull
@@ -125,12 +108,7 @@ public class PsiIntersectionType extends PsiType.Stub {
   @NotNull
   @Override
   public String getInternalCanonicalText() {
-    return StringUtil.join(myConjuncts, new Function<PsiType, String>() {
-      @Override
-      public String fun(PsiType psiType) {
-        return psiType.getInternalCanonicalText();
-      }
-    }, " & ");
+    return StringUtil.join(myConjuncts, psiType -> psiType.getInternalCanonicalText(), " & ");
   }
 
   @Override
@@ -157,15 +135,16 @@ public class PsiIntersectionType extends PsiType.Stub {
   }
 
   @Override
-  @NotNull
-  public PsiType[] getSuperTypes() {
+  public PsiType @NotNull [] getSuperTypes() {
     return myConjuncts;
   }
 
+  @NotNull
   public PsiType getRepresentative() {
     return myConjuncts[0];
   }
 
+  @Override
   public boolean equals(final Object obj) {
     if (this == obj) return true;
     if (!(obj instanceof PsiIntersectionType)) return false;
@@ -180,17 +159,31 @@ public class PsiIntersectionType extends PsiType.Stub {
     return true;
   }
 
+  @Override
   public int hashCode() {
     return myConjuncts[0].hashCode();
   }
 
   @Override
   public String toString() {
-    StringBuilder sb = new StringBuilder("PsiIntersectionType: ");
-    for (int i = 0; i < myConjuncts.length; i++) {
-      if (i > 0) sb.append(", ");
-      sb.append(myConjuncts[i].getPresentableText());
+    return Arrays.stream(myConjuncts).map(PsiType::getPresentableText).collect(Collectors.joining(", ", "PsiIntersectionType: ", ""));
+  }
+
+  public @Nls String getConflictingConjunctsMessage() {
+    final PsiType[] conjuncts = getConjuncts();
+    for (int i = 0; i < conjuncts.length; i++) {
+      PsiClass conjunct = PsiUtil.resolveClassInClassTypeOnly(conjuncts[i]);
+      if (conjunct != null && !conjunct.isInterface()) {
+        for (int i1 = i + 1; i1 < conjuncts.length; i1++) {
+          PsiClass oppositeConjunct = PsiUtil.resolveClassInClassTypeOnly(conjuncts[i1]);
+          if (oppositeConjunct != null && !oppositeConjunct.isInterface()) {
+            if (!conjunct.isInheritor(oppositeConjunct, true) && !oppositeConjunct.isInheritor(conjunct, true)) {
+              return JavaPsiBundle.message("conflicting.conjuncts", conjuncts[i].getPresentableText(), conjuncts[i1].getPresentableText());
+            }
+          }
+        }
+      }
     }
-    return sb.toString();
+    return null;
   }
 }

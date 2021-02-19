@@ -32,7 +32,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class PsiLabeledStatementImpl extends CompositePsiElement implements PsiLabeledStatement, Constants {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiLabeledStatementImpl");
+  private static final Logger LOG = Logger.getInstance(PsiLabeledStatementImpl.class);
 
   public PsiLabeledStatementImpl() {
     super(LABELED_STATEMENT);
@@ -68,7 +68,7 @@ public class PsiLabeledStatementImpl extends CompositePsiElement implements PsiL
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
     if (i == IDENTIFIER) {
@@ -95,13 +95,14 @@ public class PsiLabeledStatementImpl extends CompositePsiElement implements PsiL
     }
   }
 
+  @Override
   public String toString() {
     return "PsiLabeledStatement";
   }
 
   @Override
   public boolean processDeclarations(@NotNull PsiScopeProcessor processor, @NotNull ResolveState state, PsiElement lastParent, @NotNull PsiElement place) {
-    if (lastParent != null && lastParent.getParent() != this){
+    if (lastParent == null || lastParent.getParent() != this){
       PsiElement[] children = getChildren();
       for (PsiElement aChildren : children) {
         if (!aChildren.processDeclarations(processor, state, null, place)) {
@@ -112,6 +113,7 @@ public class PsiLabeledStatementImpl extends CompositePsiElement implements PsiL
     return true;
   }
 
+  @NotNull
   @Override
   public String getName() {
     return getLabelIdentifier().getText();

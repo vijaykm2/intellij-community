@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.vcs.changes;
 
@@ -31,16 +17,16 @@ import java.util.Map;
 /**
  * @author Konstantin Bulenkov
  */
-public class PsiChangeTracker {
+public final class PsiChangeTracker {
   private PsiChangeTracker() {
   }
 
   public static <T extends PsiElement> Map<T, FileStatus> getElementsChanged(PsiElement file,
                                                                              PsiElement oldFile,
                                                                              final PsiFilter<T> filter) {
-    final HashMap<T, FileStatus> result = new HashMap<T, FileStatus>();
-    final List<T> oldElements = new ArrayList<T>();
-    final List<T> elements = new ArrayList<T>();
+    final HashMap<T, FileStatus> result = new HashMap<>();
+    final List<T> oldElements = new ArrayList<>();
+    final List<T> elements = new ArrayList<>();
 
     if (file == null) {
       oldFile.accept(filter.createVisitor(oldElements));
@@ -73,9 +59,9 @@ public class PsiChangeTracker {
     return result;
   }
 
-  private static <T extends PsiElement> Map<T, FileStatus> calculateStatuses(List<T> elements,
-                                                                             List<T> oldElements,
-                                                                             Map<T, FileStatus> result, PsiFilter<T> filter) {
+  private static <T extends PsiElement> Map<T, FileStatus> calculateStatuses(List<? extends T> elements,
+                                                                             List<? extends T> oldElements,
+                                                                             Map<T, FileStatus> result, PsiFilter<? super T> filter) {
     for (T element : elements) {
       T e = null;
       for (T oldElement : oldElements) {

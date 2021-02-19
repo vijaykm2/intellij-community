@@ -16,9 +16,8 @@
 package com.intellij.openapi.vcs;
 
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
@@ -28,17 +27,14 @@ import java.util.Map;
  */
 public abstract class VcsCheckoutProcessor {
 
-  public static final ExtensionPointName<VcsCheckoutProcessor> EXTENSION_POINT_NAME = new ExtensionPointName<VcsCheckoutProcessor>("com.intellij.vcs.checkoutProcessor");
+  public static final ExtensionPointName<VcsCheckoutProcessor> EXTENSION_POINT_NAME =
+    new ExtensionPointName<>("com.intellij.vcs.checkoutProcessor");
 
-  public static VcsCheckoutProcessor getProcessor(final @NotNull String protocol) {
-    return ContainerUtil.find(EXTENSION_POINT_NAME.getExtensions(), new Condition<VcsCheckoutProcessor>() {
-      @Override
-      public boolean value(VcsCheckoutProcessor processor) {
-        return protocol.equals(processor.getId());
-      }
-    });
+  public static VcsCheckoutProcessor getProcessor(final @NotNull @NonNls String protocol) {
+    return EXTENSION_POINT_NAME.findFirstSafe(processor -> protocol.equals(processor.getId()));
   }
 
+  @NonNls
   @NotNull
   public abstract String getId();
 

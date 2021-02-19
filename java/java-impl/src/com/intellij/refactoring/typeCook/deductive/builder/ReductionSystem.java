@@ -23,6 +23,7 @@ import com.intellij.refactoring.typeCook.Settings;
 import com.intellij.refactoring.typeCook.Util;
 import com.intellij.refactoring.typeCook.deductive.PsiTypeVariableFactory;
 import com.intellij.refactoring.typeCook.deductive.resolver.Binding;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NonNls;
 
 import java.util.*;
@@ -31,7 +32,7 @@ import java.util.*;
  * @author db
  */
 public class ReductionSystem {
-  final Set<Constraint> myConstraints = new HashSet<Constraint>();
+  final Set<Constraint> myConstraints = new HashSet<>();
   final Set<PsiElement> myElements;
   final Map<PsiTypeCastExpression, PsiType> myCastToOperandType;
   final Map<PsiElement, PsiType> myTypes;
@@ -52,7 +53,7 @@ public class ReductionSystem {
     myTypeVariableFactory = factory;
     myBoundVariables = null;
     mySettings = settings;
-    myCastToOperandType = new HashMap<PsiTypeCastExpression, PsiType>();
+    myCastToOperandType = new HashMap<>();
   }
 
   public Project getProject() {
@@ -77,9 +78,7 @@ public class ReductionSystem {
     if ((Util.bindsTypeVariables(left) || Util.bindsTypeVariables(right))
     ) {
       final Subtype c = new Subtype(left, right);
-      if (!myConstraints.contains(c)) {
-        myConstraints.add(c);
-      }
+      myConstraints.add(c);
     }
   }
 
@@ -93,9 +92,9 @@ public class ReductionSystem {
     return memberString(method) + "#" + var.getName();
   }
 
-  @SuppressWarnings({"StringConcatenationInsideStringBufferAppend"})
+  @SuppressWarnings("StringConcatenationInsideStringBufferAppend")
   public String toString() {
-    @NonNls StringBuffer buffer = new StringBuffer();
+    @NonNls StringBuilder buffer = new StringBuilder();
 
     buffer.append("Victims:\n");
 
@@ -107,12 +106,12 @@ public class ReductionSystem {
       }
 
       if (element instanceof PsiParameter) {
-        final PsiParameter parm = (PsiParameter)element;
-        final PsiElement declarationScope = parm.getDeclarationScope();
+        final PsiParameter param = (PsiParameter)element;
+        final PsiElement declarationScope = param.getDeclarationScope();
         if (declarationScope instanceof PsiMethod) {
           final PsiMethod method = (PsiMethod)declarationScope;
 
-          buffer.append("   parameter " + method.getParameterList().getParameterIndex(parm) + " of " + memberString(method));
+          buffer.append("   parameter " + method.getParameterList().getParameterIndex(param) + " of " + memberString(method));
         }
         else {
           buffer.append("   parameter of foreach");
@@ -164,14 +163,14 @@ public class ReductionSystem {
   public ReductionSystem[] isolate() {
     class Node {
       int myComponent = -1;
-      Constraint myConstraint;
-      Set<Node> myNeighbours = new HashSet<Node>();
+      final Constraint myConstraint;
+      final Set<Node> myNeighbours = new HashSet<>();
 
-      public Node() {
+      Node() {
         myConstraint = null;
       }
 
-      public Node(final Constraint c) {
+      Node(final Constraint c) {
         myConstraint = c;
       }
 
@@ -189,7 +188,7 @@ public class ReductionSystem {
 
     final Node[] typeVariableNodes = new Node[myTypeVariableFactory.getNumber()];
     final Node[] constraintNodes = new Node[myConstraints.size()];
-    final Map<Constraint, Set<PsiTypeVariable>> boundVariables = new HashMap<Constraint, Set<PsiTypeVariable>>();
+    final Map<Constraint, Set<PsiTypeVariable>> boundVariables = new HashMap<>();
 
     for (int i = 0; i < typeVariableNodes.length; i++) {
       typeVariableNodes[i] = new Node();
@@ -207,7 +206,7 @@ public class ReductionSystem {
       int l = 0;
 
       for (final Constraint constraint : myConstraints) {
-        final Set<PsiTypeVariable> boundVars = new LinkedHashSet<PsiTypeVariable>();
+        final Set<PsiTypeVariable> boundVars = new LinkedHashSet<>();
         final Node constraintNode = constraintNodes[l++];
 
         new Object() {
@@ -289,7 +288,7 @@ public class ReductionSystem {
         final int component = currComponent;
         new Object() {
           void selectComponent(final Node n) {
-            final LinkedList<Node> frontier = new LinkedList<Node>();
+            final LinkedList<Node> frontier = new LinkedList<>();
 
             frontier.addFirst(n);
 
@@ -355,22 +354,7 @@ public class ReductionSystem {
       data[i++] = Util.getType(element).getCanonicalText() + "\\n" + elementString(element);
     }
 
-    Arrays.sort(data,
-                new Comparator<String>() {
-                  public int compare(String x, String y) {
-                    return x.compareTo(y);
-                  }
-                });
-
-
-    final StringBuffer repr = new StringBuffer();
-
-    for (String aData : data) {
-      repr.append(aData);
-      repr.append("\n");
-    }
-
-    return repr.toString();
+    return StreamEx.of(data).sorted().map(aData -> aData + "\n").joining();
   }
 
   @NonNls private static
@@ -451,7 +435,7 @@ public class ReductionSystem {
             theSubst = theSubst.put(parm, substitute(type));
           }
 
-          return JavaPsiFacade.getInstance(aClass.getProject()).getElementFactory().createType(aClass, theSubst);
+          return JavaPsiFacade.getElementFactory(aClass.getProject()).createType(aClass, theSubst);
         }
         else {
           return t;
@@ -472,22 +456,7 @@ public class ReductionSystem {
       }
     }
 
-    Arrays.sort(data,
-                new Comparator<String>() {
-                  public int compare(String x, String y) {
-                    return x.compareTo(y);
-                  }
-                });
-
-
-    final StringBuffer repr = new StringBuffer();
-
-    for (String aData : data) {
-      repr.append(aData);
-      repr.append("\n");
-    }
-
-    return repr.toString();
+    return StreamEx.of(data).sorted().map(aData -> aData + "\n").joining();
   }
 
   public Settings getSettings() {

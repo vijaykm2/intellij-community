@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2008 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2019 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,12 +22,12 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ig.psiutils.CommentTracker;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -46,13 +46,6 @@ public class UnqualifiedStaticUsageInspection extends BaseInspection implements 
    * @noinspection PublicField
    */
   public boolean m_ignoreStaticAccessFromStaticContext = false;
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "unqualified.static.usage.display.name");
-  }
 
   @Override
   @NotNull
@@ -123,12 +116,11 @@ public class UnqualifiedStaticUsageInspection extends BaseInspection implements 
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Qualify static access";
+      return InspectionGadgetsBundle.message("unqualified.static.access.fix.family.name");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiReferenceExpression expression =
         (PsiReferenceExpression)descriptor.getPsiElement();
       final PsiMember member = (PsiMember)expression.resolve();
@@ -136,8 +128,8 @@ public class UnqualifiedStaticUsageInspection extends BaseInspection implements 
       final PsiClass containingClass = member.getContainingClass();
       assert containingClass != null;
       final String className = containingClass.getName();
-      final String text = expression.getText();
-      PsiReplacementUtil.replaceExpression(expression, className + '.' + text);
+      CommentTracker commentTracker = new CommentTracker();
+      PsiReplacementUtil.replaceExpression(expression, className + '.' + commentTracker.text(expression), commentTracker);
     }
   }
 
@@ -180,26 +172,19 @@ public class UnqualifiedStaticUsageInspection extends BaseInspection implements 
       registerError(expression, expression);
     }
 
-    private boolean isUnqualifiedStaticAccess(
-      PsiReferenceExpression expression) {
+    private boolean isUnqualifiedStaticAccess(PsiReferenceExpression expression) {
       if (m_ignoreStaticAccessFromStaticContext) {
-        final PsiMember member =
-          PsiTreeUtil.getParentOfType(expression,
-                                      PsiMember.class);
-        if (member != null &&
-            member.hasModifierProperty(PsiModifier.STATIC)) {
+        final PsiMember member = PsiTreeUtil.getParentOfType(expression, PsiMember.class);
+        if (member != null && member.hasModifierProperty(PsiModifier.STATIC)) {
           return false;
         }
       }
-      final PsiExpression qualifierExpression =
-        expression.getQualifierExpression();
+      final PsiExpression qualifierExpression = expression.getQualifierExpression();
       if (qualifierExpression != null) {
         return false;
       }
-      final JavaResolveResult resolveResult =
-        expression.advancedResolve(false);
-      final PsiElement currentFileResolveScope =
-        resolveResult.getCurrentFileResolveScope();
+      final JavaResolveResult resolveResult = expression.advancedResolve(false);
+      final PsiElement currentFileResolveScope = resolveResult.getCurrentFileResolveScope();
       if (currentFileResolveScope instanceof PsiImportStaticStatement) {
         return false;
       }
@@ -209,9 +194,11 @@ public class UnqualifiedStaticUsageInspection extends BaseInspection implements 
         return false;
       }
       final PsiMember member = (PsiMember)element;
-      if (member instanceof PsiEnumConstant &&
-          expression.getParent() instanceof PsiSwitchLabelStatement) {
-        return false;
+      if (member instanceof PsiEnumConstant) {
+        PsiElement parent = expression.getParent();
+        if (parent instanceof PsiExpressionList && parent.getParent() instanceof PsiSwitchLabelStatementBase) {
+          return false;
+        }
       }
       return member.hasModifierProperty(PsiModifier.STATIC);
     }

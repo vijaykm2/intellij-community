@@ -1,25 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.push;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -86,15 +72,18 @@ import java.util.regex.Pattern;
  *     For a failed ref, the reason for failure is described.
  * </pre>
  */
-public class GitPushNativeResultParser {
+public final class GitPushNativeResultParser {
 
   private static final Logger LOG = Logger.getInstance(GitPushNativeResultParser.class);
-  private static final Pattern PATTERN = Pattern.compile("^.*([ +\\-\\*!=])\\s(\\S+):(\\S+)\\s(\\S+).*$");
+  private static final Pattern PATTERN = Pattern.compile("^.*([ +\\-\\*!=])\t" +   // flag
+                                                         "(\\S+):(\\S+)\t" +       // from:to
+                                                         "([^(]+)" +               // summary maybe with a trailing space
+                                                         "(?:\\((.+)\\))?.*$");    // reason
   private static final Pattern RANGE = Pattern.compile("[0-9a-f]+[\\.]{2,3}[0-9a-f]+");
 
   @NotNull
   public static List<GitPushNativeResult> parse(@NotNull List<String> output) {
-    List<GitPushNativeResult> results = ContainerUtil.newArrayList();
+    List<GitPushNativeResult> results = new ArrayList<>();
     for (String line : output) {
       Matcher matcher = PATTERN.matcher(line);
       if (matcher.matches()) {
@@ -109,7 +98,8 @@ public class GitPushNativeResultParser {
     String flag = matcher.group(1);
     String from = matcher.group(2);
     String to = matcher.group(3);
-    String summary = matcher.group(4);
+    String summary = matcher.group(4).trim(); // the summary can have a trailing space (to simplify the regexp)
+    @Nullable String reason = matcher.group(5);
 
     GitPushNativeResult.Type type = parseType(flag);
     if (type == null) {
@@ -120,7 +110,7 @@ public class GitPushNativeResultParser {
       return null;
     }
     String range = RANGE.matcher(summary).matches() ? summary : null;
-    return new GitPushNativeResult(type, from, range);
+    return new GitPushNativeResult(type, from, reason, range);
   }
 
   private static GitPushNativeResult.Type parseType(String flag) {

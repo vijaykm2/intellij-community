@@ -18,8 +18,8 @@ package com.jetbrains.python;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.jetbrains.python.fixtures.PyTestCase;
 import com.jetbrains.python.inspections.PyInspection;
-import com.jetbrains.python.inspections.PyUnusedLocalInspection;
 import com.jetbrains.python.inspections.unresolvedReference.PyUnresolvedReferencesInspection;
+import com.jetbrains.python.inspections.unusedLocal.PyUnusedLocalInspection;
 
 import java.util.List;
 
@@ -61,7 +61,7 @@ public class PySuppressInspectionsTest extends PyTestCase {
   public void testSuppressForStatement() {
     myFixture.configureByFile("inspections/suppress/suppressForStatement.py");
     myFixture.enableInspections(PyUnresolvedReferencesInspection.class);
-    final List<IntentionAction> intentions = myFixture.filterAvailableIntentions("Suppress for statement");
+    final List<IntentionAction> intentions = myFixture.filterAvailableIntentions("Suppress for a statement");
     assertEquals(3, intentions.size());  // Rename reference, Ignore unresolved reference, Mark all unresolved attributes
     final IntentionAction suppressAction = intentions.get(0);
     myFixture.launchAction(suppressAction);

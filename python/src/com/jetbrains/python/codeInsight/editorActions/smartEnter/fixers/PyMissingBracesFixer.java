@@ -20,13 +20,12 @@ import com.intellij.psi.PsiElement;
 import com.intellij.util.IncorrectOperationException;
 import com.jetbrains.python.codeInsight.editorActions.smartEnter.PySmartEnterProcessor;
 import com.jetbrains.python.psi.*;
+import com.jetbrains.python.psi.impl.PyPsiUtils;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * Created by IntelliJ IDEA.
  * Author: Alexey.Ivanov
- * Date:   15.04.2010
- * Time:   17:55:46
  */
 public class PyMissingBracesFixer extends PyFixer<PyElement> {
   public PyMissingBracesFixer() {
@@ -37,7 +36,7 @@ public class PyMissingBracesFixer extends PyFixer<PyElement> {
   public void doApply(@NotNull Editor editor, @NotNull PySmartEnterProcessor processor, @NotNull PyElement psiElement)
     throws IncorrectOperationException {
     if (psiElement instanceof PySetLiteralExpression || psiElement instanceof PyDictLiteralExpression) {
-      final PsiElement lastChild = PyUtil.getFirstNonCommentBefore(psiElement.getLastChild());
+      final PsiElement lastChild = PyPsiUtils.getPrevNonCommentSibling(psiElement.getLastChild(), false);
       if (lastChild != null && !"}".equals(lastChild.getText())) {
         editor.getDocument().insertString(lastChild.getTextRange().getEndOffset(), "}");
       }
@@ -45,7 +44,7 @@ public class PyMissingBracesFixer extends PyFixer<PyElement> {
     else if (psiElement instanceof PyListLiteralExpression ||
              psiElement instanceof PySliceExpression ||
              psiElement instanceof PySubscriptionExpression) {
-      final PsiElement lastChild = PyUtil.getFirstNonCommentBefore(psiElement.getLastChild());
+      final PsiElement lastChild = PyPsiUtils.getPrevNonCommentSibling(psiElement.getLastChild(), false);
       if (lastChild != null && !"]".equals(lastChild.getText())) {
         editor.getDocument().insertString(lastChild.getTextRange().getEndOffset(), "]");
       }

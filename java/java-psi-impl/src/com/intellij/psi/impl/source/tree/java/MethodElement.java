@@ -17,8 +17,6 @@ package com.intellij.psi.impl.source.tree.java;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiMethod;
 import com.intellij.psi.TokenType;
 import com.intellij.psi.impl.PsiImplUtil;
 import com.intellij.psi.impl.source.Constants;
@@ -29,7 +27,7 @@ import com.intellij.util.CharTable;
 import org.jetbrains.annotations.NotNull;
 
 public class MethodElement extends CompositeElement implements Constants {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.MethodElement");
+  private static final Logger LOG = Logger.getInstance(MethodElement.class);
 
   public MethodElement() {
     super(METHOD);
@@ -57,13 +55,6 @@ public class MethodElement extends CompositeElement implements Constants {
   }
 
   @Override
-  public ASTNode copyElement() {
-    CharTable table = SharedImplUtil.findCharTableByTree(this);
-    final PsiClass psiClass = ((PsiMethod)getPsi()).getContainingClass();
-    return psiClass != null ? ChangeUtil.copyElement(this, psiClass.getTypeParameterList(), table) : super.copyElement();
-  }
-
-  @Override
   public void deleteChildInternal(@NotNull ASTNode child) {
     if (child.getElementType() == CODE_BLOCK) {
       final ASTNode prevWS = TreeUtil.prevLeaf(child);
@@ -74,6 +65,9 @@ public class MethodElement extends CompositeElement implements Constants {
       final CharTable treeCharTab = SharedImplUtil.findCharTableByTree(this);
       LeafElement semicolon = Factory.createSingleLeafElement(SEMICOLON, ";", 0, 1, treeCharTab, getManager());
       addInternal(semicolon, semicolon, null, Boolean.TRUE);
+    }
+    else if (child.getElementType() == PARAMETER_LIST) {
+      throw new IllegalArgumentException("Deleting parameter list is prohibited");
     }
     else {
       super.deleteChildInternal(child);
@@ -120,7 +114,7 @@ public class MethodElement extends CompositeElement implements Constants {
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
     if (i == JavaDocElementType.DOC_COMMENT) {

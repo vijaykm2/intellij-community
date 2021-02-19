@@ -16,6 +16,7 @@
 package org.jetbrains.idea.maven.dom.generate;
 
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.util.Function;
 import com.intellij.util.xml.DomElement;
 import org.jetbrains.annotations.NonNls;
@@ -34,30 +35,18 @@ public class MavenGenerateDomActionGroup extends DefaultActionGroup {
 
     addSeparator();
     add(createAction(MavenDomBundle.message("generate.dependency.template"), MavenDomDependency.class, "maven-dependency",
-                     new Function<MavenDomProjectModel, DomElement>() {
-                       public DomElement fun(MavenDomProjectModel mavenDomProjectModel) {
-                         return mavenDomProjectModel.getDependencies();
-                       }
-                     }));
+                     mavenDomProjectModel -> mavenDomProjectModel.getDependencies()));
     add(createAction(MavenDomBundle.message("generate.plugin.template"), MavenDomPlugin.class, "maven-plugin",
-                     new Function<MavenDomProjectModel, DomElement>() {
-                       public DomElement fun(MavenDomProjectModel mavenDomProjectModel) {
-                         return mavenDomProjectModel.getBuild().getPlugins();
-                       }
-                     }));
+                     mavenDomProjectModel -> mavenDomProjectModel.getBuild().getPlugins()));
 
     add(createAction(MavenDomBundle.message("generate.repository.template"), MavenDomRepository.class, "maven-repository",
-                     new Function<MavenDomProjectModel, DomElement>() {
-                       public DomElement fun(MavenDomProjectModel mavenDomProjectModel) {
-                         return mavenDomProjectModel.getRepositories();
-                       }
-                     }));
+                     mavenDomProjectModel -> mavenDomProjectModel.getRepositories()));
 
     addSeparator();
     add(new GenerateParentAction());
   }
 
-  private static MavenGenerateTemplateAction createAction(String actionDescription,
+  private static MavenGenerateTemplateAction createAction(@NlsContexts.DetailedDescription String actionDescription,
                                                           final Class<? extends DomElement> aClass,
                                                           @NonNls @Nullable String mappingId,
                                                           @NotNull Function<MavenDomProjectModel, DomElement> parentFunction) {

@@ -1,29 +1,13 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.navigation.ItemPresentation;
 import com.intellij.navigation.ItemPresentationProviders;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.Queryable;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.*;
-import com.intellij.psi.impl.cache.TypeInfo;
 import com.intellij.psi.impl.java.stubs.JavaStubElementTypes;
 import com.intellij.psi.impl.java.stubs.PsiFieldStub;
 import com.intellij.psi.impl.source.codeStyle.CodeEditUtil;
@@ -32,26 +16,24 @@ import com.intellij.psi.impl.source.tree.*;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.search.SearchScope;
+import com.intellij.psi.stub.JavaStubImplUtil;
 import com.intellij.psi.stubs.IStubElementType;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.reference.SoftReference;
-import com.intellij.ui.RowIcon;
+import com.intellij.testFramework.LightVirtualFile;
+import com.intellij.ui.IconManager;
+import com.intellij.ui.icons.RowIcon;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.PlatformIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.lang.ref.Reference;
+import java.util.*;
 
 public class PsiFieldImpl extends JavaStubPsiElement<PsiFieldStub> implements PsiField, PsiVariableEx, Queryable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.PsiFieldImpl");
-
-  private volatile SoftReference<PsiType> myCachedType = null;
-  private volatile Object myCachedInitializerValue = null; // PsiExpression on constant value for literal
+  private volatile Reference<PsiType> myCachedType;
 
   public PsiFieldImpl(final PsiFieldStub stub) {
     this(stub, JavaStubElementTypes.FIELD);
@@ -72,7 +54,6 @@ public class PsiFieldImpl extends JavaStubPsiElement<PsiFieldStub> implements Ps
   }
 
   private void dropCached() {
-    myCachedInitializerValue = null;
     myCachedType = null;
   }
 
@@ -110,7 +91,7 @@ public class PsiFieldImpl extends JavaStubPsiElement<PsiFieldStub> implements Ps
   @Override
   @NotNull
   public String getName() {
-    final PsiFieldStub stub = getStub();
+    final PsiFieldStub stub = getGreenStub();
     if (stub != null) {
       return stub.getName();
     }
@@ -125,26 +106,22 @@ public class PsiFieldImpl extends JavaStubPsiElement<PsiFieldStub> implements Ps
 
   @Override
   @NotNull
+  @SuppressWarnings("Duplicates")
   public PsiType getType() {
-    final PsiFieldStub stub = getStub();
+    PsiFieldStub stub = getStub();
     if (stub != null) {
       PsiType type = SoftReference.dereference(myCachedType);
-      if (type != null) return type;
-
-      String typeText = TypeInfo.createTypeText(stub.getType(true));
-      try {
-        type = JavaPsiFacade.getInstance(getProject()).getParserFacade().createTypeFromText(typeText, this);
-        myCachedType = new SoftReference<PsiType>(type);
-        return type;
+      if (type == null) {
+        type = JavaSharedImplUtil.createTypeFromStub(this, stub.getType());
+        myCachedType = new SoftReference<>(type);
       }
-      catch (IncorrectOperationException e) {
-        LOG.error(e);
-        return null;
-      }
+      return type;
     }
 
     myCachedType = null;
-    return JavaSharedImplUtil.getType(getTypeElement(), getNameIdentifier());
+    PsiTypeElement typeElement = getTypeElement();
+    assert typeElement != null : Arrays.toString(getChildren());
+    return JavaSharedImplUtil.getType(typeElement, getNameIdentifier());
   }
 
   @Override
@@ -192,7 +169,7 @@ public class PsiFieldImpl extends JavaStubPsiElement<PsiFieldStub> implements Ps
   private PsiField findFirstFieldInDeclaration() {
     if (getSelfModifierList() != null) return this;
 
-    final PsiFieldStub stub = getStub();
+    final PsiFieldStub stub = getGreenStub();
     if (stub != null) {
       final List siblings = stub.getParentStub().getChildrenStubs();
       final int idx = siblings.indexOf(stub);
@@ -230,9 +207,45 @@ public class PsiFieldImpl extends JavaStubPsiElement<PsiFieldStub> implements Ps
     return (PsiExpression)getNode().findChildByRoleAsPsiElement(ChildRole.INITIALIZER);
   }
 
+  /**
+   * Avoids stub-to-AST switch if possible.
+   * @return Light generated initializer literal expression if it was stored in stubs, the regular initializer otherwise
+   */
+  @Nullable
+  public static PsiExpression getDetachedInitializer(@NotNull PsiVariable variable) {
+    return variable instanceof PsiFieldImpl ? ((PsiFieldImpl)variable).getDetachedInitializer() : variable.getInitializer();
+  }
+
+  @Nullable
+  private PsiExpression getDetachedInitializer() {
+    final PsiFieldStub stub = getGreenStub();
+    PsiExpression initializer;
+    if (stub == null) {
+      initializer = getInitializer();
+    }
+    else {
+      String initializerText = stub.getInitializerText();
+      if (StringUtil.isEmpty(initializerText)) {
+        return null;
+      }
+
+      if (PsiFieldStub.INITIALIZER_NOT_STORED.equals(initializerText) ||
+          PsiFieldStub.INITIALIZER_TOO_LONG.equals(initializerText)) {
+        initializer = getInitializer();
+      }
+      else {
+        PsiJavaParserFacade parserFacade = JavaPsiFacade.getInstance(getProject()).getParserFacade();
+        initializer = parserFacade.createExpressionFromText(initializerText, this);
+        ((LightVirtualFile)initializer.getContainingFile().getViewProvider().getVirtualFile()).setWritable(false);
+      }
+    }
+
+    return initializer;
+  }
+
   @Override
   public boolean hasInitializer() {
-    PsiFieldStub stub = getStub();
+    PsiFieldStub stub = getGreenStub();
     if (stub != null) {
       return stub.getInitializerText() != null;
     }
@@ -242,7 +255,8 @@ public class PsiFieldImpl extends JavaStubPsiElement<PsiFieldStub> implements Ps
 
   @Override
   public Icon getElementIcon(final int flags) {
-    final RowIcon baseIcon = ElementPresentationUtil.createLayeredIcon(PlatformIcons.FIELD_ICON, this, false);
+    final RowIcon baseIcon =
+      IconManager.getInstance().createLayeredIcon(this, PlatformIcons.FIELD_ICON, ElementPresentationUtil.getFlags(this, false));
     return ElementPresentationUtil.addVisibilityIcon(this, flags, baseIcon);
   }
 
@@ -256,62 +270,19 @@ public class PsiFieldImpl extends JavaStubPsiElement<PsiFieldStub> implements Ps
   }
 
   @Nullable
-  private Object _computeConstantValue(Set<PsiVariable> visitedVars) {
-    Object cachedInitializerValue = myCachedInitializerValue;
-    if (cachedInitializerValue != null && !(cachedInitializerValue instanceof PsiExpression)){
-      return cachedInitializerValue;
-    }
-
+  private Object _computeConstantValue(@Nullable Set<PsiVariable> visitedVars) {
     PsiType type = getType();
     // javac rejects all non primitive and non String constants, although JLS states constants "variables whose initializers are constant expressions"
     if (!(type instanceof PsiPrimitiveType) && !type.equalsToText("java.lang.String")) return null;
 
-    PsiExpression initializer;
-    if (cachedInitializerValue != null) {
-      initializer = (PsiExpression)cachedInitializerValue;
-    }
-    else{
-      final PsiFieldStub stub = getStub();
-      if (stub == null) {
-        initializer = getInitializer();
-        if (initializer == null) return null;
-      }
-      else{
-        String initializerText = stub.getInitializerText();
-        if (StringUtil.isEmpty(initializerText)) return null;
-
-        if (PsiFieldStub.INITIALIZER_NOT_STORED.equals(initializerText)) return null;
-        if (PsiFieldStub.INITIALIZER_TOO_LONG.equals(initializerText)) {
-          getNode();
-          return computeConstantValue(visitedVars);
-        }
-
-        final PsiJavaParserFacade parserFacade = JavaPsiFacade.getInstance(getProject()).getParserFacade();
-        initializer = parserFacade.createExpressionFromText(initializerText, this);
-      }
-    }
-
-    Object result = PsiConstantEvaluationHelperImpl.computeCastTo(initializer, type, visitedVars);
-
-    if (initializer instanceof PsiLiteralExpression){
-      myCachedInitializerValue = result;
-    }
-    else{
-      myCachedInitializerValue = initializer;
-    }
-
-
-    return result;
+    PsiExpression initializer = getDetachedInitializer();
+    if (initializer == null) return null;
+    return PsiConstantEvaluationHelperImpl.computeCastTo(initializer, type, visitedVars);
   }
 
   @Override
   public Object computeConstantValue() {
-    Object cachedInitializerValue = myCachedInitializerValue;
-    if (cachedInitializerValue != null && !(cachedInitializerValue instanceof PsiExpression)){
-      return cachedInitializerValue;
-    }
-
-    return computeConstantValue(new HashSet<PsiVariable>(2));
+    return computeConstantValue(new HashSet<>(2));
   }
 
   @Override
@@ -323,16 +294,14 @@ public class PsiFieldImpl extends JavaStubPsiElement<PsiFieldStub> implements Ps
 
   @Override
   public boolean isDeprecated() {
-    final PsiFieldStub stub = getStub();
-    if (stub != null) {
-      return stub.isDeprecated() || stub.hasDeprecatedAnnotation() && PsiImplUtil.isDeprecatedByAnnotation(this);
-    }
-
-    return PsiImplUtil.isDeprecatedByDocTag(this) || PsiImplUtil.isDeprecatedByAnnotation(this);
+    return JavaStubImplUtil.isMemberDeprecated(this, getGreenStub());
   }
 
   @Override
   public PsiDocComment getDocComment(){
+    final PsiFieldStub stub = getGreenStub();
+    if (stub != null && !stub.hasDocComment()) return null;
+
     CompositeElement treeElement = getNode();
     if (getTypeElement() != null) {
       PsiElement element = treeElement.findChildByRoleAsPsiElement(ChildRole.DOC_COMMENT);
@@ -393,7 +362,8 @@ public class PsiFieldImpl extends JavaStubPsiElement<PsiFieldStub> implements Ps
     return true;
   }
 
-  public String toString(){
+  @Override
+  public String toString() {
     return "PsiField:" + getName();
   }
 
@@ -431,7 +401,7 @@ public class PsiFieldImpl extends JavaStubPsiElement<PsiFieldStub> implements Ps
   }
 
   @Override
-  public void putInfo(@NotNull Map<String, String> info) {
+  public void putInfo(@NotNull Map<? super String, ? super String> info) {
     info.put("fieldName", getName());
   }
 
@@ -439,5 +409,4 @@ public class PsiFieldImpl extends JavaStubPsiElement<PsiFieldStub> implements Ps
   protected boolean isVisibilitySupported() {
     return true;
   }
-
 }

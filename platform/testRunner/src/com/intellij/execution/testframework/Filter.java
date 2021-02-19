@@ -22,18 +22,13 @@ import java.util.Collection;
 import java.util.List;
 
 public abstract class Filter<T extends AbstractTestProxy> {
-  /**
-   * All instances (and subclasses's instances) should be singletons.
-   *
-   * @see com.intellij.execution.junit2.TestProxy#selectChildren
-   */
   protected Filter() {
   }
 
   public abstract boolean shouldAccept(T test);
 
   public List<T> select(final List<? extends T> tests) {
-    final List<T> result = new ArrayList<T>();
+    final List<T> result = new ArrayList<>();
     for (final T test : tests) {
       if (shouldAccept(test)) result.add(test);
     }
@@ -95,6 +90,13 @@ public abstract class Filter<T extends AbstractTestProxy> {
     }
   };
 
+  public static final Filter HAS_PASSED = new Filter() {
+    @Override
+    public boolean shouldAccept(final AbstractTestProxy test) {
+      return test.hasPassedTests();
+    }
+  };
+
   public static final Filter FAILED_OR_INTERRUPTED = new Filter() {
     @Override
     public boolean shouldAccept(final AbstractTestProxy test) {
@@ -120,11 +122,26 @@ public abstract class Filter<T extends AbstractTestProxy> {
     }
   });
 
+  public static final Filter HIDE_SUCCESSFUL_CONFIGS = new Filter() {
+    @Override
+    public boolean shouldAccept(AbstractTestProxy test) {
+      final List<? extends AbstractTestProxy> children = test.getChildren();
+      if (!children.isEmpty()) {
+        for (AbstractTestProxy proxy : children) {
+          if (!proxy.isConfig() || !proxy.isPassed()) return true;
+        }
+        return false;
+      }
+
+      return !(test.isConfig() && test.isPassed());
+    }
+  };
+
   private static class AndFilter extends Filter {
     private final Filter myFilter1;
     private final Filter myFilter2;
 
-    public AndFilter(final Filter filter1, final Filter filter2) {
+    AndFilter(final Filter filter1, final Filter filter2) {
       myFilter1 = filter1;
       myFilter2 = filter2;
     }
@@ -138,7 +155,7 @@ public abstract class Filter<T extends AbstractTestProxy> {
   private static class NotFilter extends Filter {
     private final Filter myFilter;
 
-    public NotFilter(final Filter filter) {
+    NotFilter(final Filter filter) {
       myFilter = filter;
     }
 
@@ -152,7 +169,7 @@ public abstract class Filter<T extends AbstractTestProxy> {
     private final Filter myFilter1;
     private final Filter myFilter2;
 
-    public OrFilter(final Filter filter1, final Filter filter2) {
+    OrFilter(final Filter filter1, final Filter filter2) {
       myFilter1 = filter1;
       myFilter2 = filter2;
     }

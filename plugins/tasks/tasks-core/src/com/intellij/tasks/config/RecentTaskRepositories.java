@@ -1,74 +1,66 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.config;
 
-import com.intellij.openapi.components.*;
-import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.tasks.TaskRepository;
+import com.intellij.tasks.TaskRepositoryType;
 import com.intellij.tasks.impl.TaskManagerImpl;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xmlb.XmlSerializer;
-import gnu.trove.THashSet;
-import gnu.trove.TObjectHashingStrategy;
+import it.unimi.dsi.fastutil.Hash;
+import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet;
 import org.jdom.Element;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Set;
+import java.util.*;
 
 /**
  * @author Dmitry Avdeev
  */
-@State(
-  name = "RecentTaskRepositories",
-  storages = {
-    @Storage(
-      file = StoragePathMacros.APP_CONFIG + "/other.xml"
-    )}
-)
-public class RecentTaskRepositories implements PersistentStateComponent<Element> {
+@State(name = "RecentTaskRepositories", storages = @Storage("other.xml"))
+public final class RecentTaskRepositories implements PersistentStateComponent<Element>, Disposable {
+  private final Set<TaskRepository> myRepositories = new ObjectOpenCustomHashSet<>(HASHING_STRATEGY);
 
-  private final Set<TaskRepository> myRepositories = new THashSet<TaskRepository>(HASHING_STRATEGY);
-
-  private static final TObjectHashingStrategy<TaskRepository> HASHING_STRATEGY = new TObjectHashingStrategy<TaskRepository>() {
-    public int computeHashCode(TaskRepository object) {
-      return object.getUrl() == null ? 0 : object.getUrl().hashCode();
+  private static final Hash.Strategy<TaskRepository> HASHING_STRATEGY = new Hash.Strategy<>() {
+    @Override
+    public int hashCode(@Nullable TaskRepository object) {
+      return object == null || object.getUrl() == null ? 0 : object.getUrl().hashCode();
     }
 
+    @Override
     public boolean equals(TaskRepository o1, TaskRepository o2) {
-      return Comparing.equal(o1.getUrl(), o2.getUrl());
+      return o1 == o2 || (o1 != null && o2 != null && Objects.equals(o1.getUrl(), o2.getUrl()));
     }
   };
 
+  public RecentTaskRepositories() {
+    // remove repositories pertaining to non-existent types
+    TaskRepositoryType.addEPListChangeListener(this, () -> {
+      List<Class<?>> possibleRepositoryClasses = TaskRepositoryType.getRepositoryClasses();
+      myRepositories.removeIf(repository -> {
+        return !ContainerUtil.exists(possibleRepositoryClasses, clazz -> clazz.isAssignableFrom(repository.getClass()));
+      });
+    });
+  }
+
   public static RecentTaskRepositories getInstance() {
-    return ServiceManager.getService(RecentTaskRepositories.class);
+    return ApplicationManager.getApplication().getService(RecentTaskRepositories.class);
   }
 
   public Set<TaskRepository> getRepositories() {
-    return new THashSet<TaskRepository>(ContainerUtil.findAll(myRepositories, new Condition<TaskRepository>() {
-      public boolean value(TaskRepository repository) {
-        return !StringUtil.isEmptyOrSpaces(repository.getUrl());
-      }
+    return new ObjectOpenCustomHashSet<>(ContainerUtil.findAll(myRepositories, repository -> {
+      return !StringUtil.isEmptyOrSpaces(repository.getUrl());
     }), HASHING_STRATEGY);
   }
 
   public void addRepositories(Collection<TaskRepository> repositories) {
-    Collection<TaskRepository> old = new ArrayList<TaskRepository>(myRepositories);
+    Collection<TaskRepository> old = new ArrayList<>(myRepositories);
     myRepositories.clear();
     if (doAddReps(repositories)) return;
     doAddReps(old);
@@ -86,12 +78,17 @@ public class RecentTaskRepositories implements PersistentStateComponent<Element>
     return false;
   }
 
+  @Override
   public Element getState() {
-    return XmlSerializer.serialize(myRepositories.toArray(new TaskRepository[myRepositories.size()]));
+    return XmlSerializer.serialize(myRepositories.toArray(new TaskRepository[0]));
   }
 
-  public void loadState(Element state) {
+  @Override
+  public void loadState(@NotNull Element state) {
     myRepositories.clear();
     myRepositories.addAll(TaskManagerImpl.loadRepositories(state));
   }
+
+  @Override
+  public void dispose() {}
 }

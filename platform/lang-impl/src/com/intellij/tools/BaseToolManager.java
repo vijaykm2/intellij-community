@@ -1,82 +1,48 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tools;
 
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
-import com.intellij.openapi.components.ExportableApplicationComponent;
-import com.intellij.openapi.components.RoamingType;
+import com.intellij.openapi.options.SchemeManager;
+import com.intellij.openapi.options.SchemeManagerFactory;
 import com.intellij.openapi.options.SchemeProcessor;
-import com.intellij.openapi.options.SchemesManager;
-import com.intellij.openapi.options.SchemesManagerFactory;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.SmartList;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public abstract class BaseToolManager<T extends Tool> implements ExportableApplicationComponent {
-  @NotNull private final ActionManagerEx myActionManager;
-  private final SchemesManager<ToolsGroup<T>, ToolsGroup<T>> mySchemesManager;
+public abstract class BaseToolManager<T extends Tool> implements Disposable {
+  private final SchemeManagerFactory myFactory;
+  private final SchemeManager<ToolsGroup<T>> mySchemeManager;
 
-  public BaseToolManager(@NotNull ActionManagerEx actionManagerEx, SchemesManagerFactory factory) {
-    myActionManager = actionManagerEx;
-
-    mySchemesManager = factory.createSchemesManager(getSchemesPath(), createProcessor(), RoamingType.PER_USER);
-    mySchemesManager.loadSchemes();
-    registerActions();
+  public BaseToolManager(@NotNull SchemeManagerFactory factory, @NotNull String schemePath, @NotNull String presentableName) {
+    myFactory = factory;
+    //noinspection AbstractMethodCallInConstructor
+    mySchemeManager = factory.create(schemePath, createProcessor(), presentableName);
+    mySchemeManager.loadSchemes();
   }
 
-  protected abstract String getSchemesPath();
+  protected abstract SchemeProcessor<ToolsGroup<T>, ToolsGroup<T>> createProcessor();
 
-  protected abstract SchemeProcessor<ToolsGroup<T>> createProcessor();
+  @Nullable
+  protected ActionManagerEx getActionManager() {
+    return ActionManagerEx.getInstanceEx();
+  }
 
   @Nullable
   public static String convertString(String s) {
     return StringUtil.nullize(s, true);
   }
 
-  @Override
-  @NotNull
-  public File[] getExportFiles() {
-    return new File[]{mySchemesManager.getRootDirectory()};
-  }
-
-  @Override
-  @NotNull
-  public String getPresentableName() {
-    return ToolsBundle.message("tools.settings");
-  }
-
-  @Override
-  public void disposeComponent() {
-  }
-
-  @Override
-  public void initComponent() {
-  }
-
   public List<T> getTools() {
-    List<T> result = new SmartList<T>();
-    for (ToolsGroup<T> group : mySchemesManager.getAllSchemes()) {
+    List<T> result = new SmartList<>();
+    for (ToolsGroup<T> group : mySchemeManager.getAllSchemes()) {
       result.addAll(group.getElements());
     }
     return result;
@@ -84,7 +50,7 @@ public abstract class BaseToolManager<T extends Tool> implements ExportableAppli
 
   @NotNull
   public List<T> getTools(@NotNull String group) {
-    ToolsGroup<T> groupByName = mySchemesManager.findSchemeByName(group);
+    ToolsGroup<T> groupByName = mySchemeManager.findSchemeByName(group);
     if (groupByName == null) {
       return Collections.emptyList();
     }
@@ -93,38 +59,29 @@ public abstract class BaseToolManager<T extends Tool> implements ExportableAppli
     }
   }
 
-  public String getGroupByActionId(String actionId) {
-    for (T tool : getTools()) {
-      if (Comparing.equal(actionId, tool.getActionId())) {
-        return tool.getGroup();
-      }
-    }
-    return null;
-  }
-
   public List<ToolsGroup<T>> getGroups() {
-    return mySchemesManager.getAllSchemes();
+    return mySchemeManager.getAllSchemes();
   }
 
-  public void setTools(ToolsGroup[] tools) {
-    mySchemesManager.clearAllSchemes();
-    for (ToolsGroup newGroup : tools) {
-      mySchemesManager.addNewScheme(newGroup, true);
+  public void setTools(@NotNull List<ToolsGroup<T>> tools) {
+    mySchemeManager.setSchemes(tools);
+    registerActions(getActionManager());
+  }
+
+  protected final void registerActions(@Nullable ActionManager actionManager) {
+    if (actionManager == null) {
+      return;
     }
-    registerActions();
-  }
 
-  void registerActions() {
-    unregisterActions();
+    unregisterActions(actionManager);
 
     // register
     // to prevent exception if 2 or more targets have the same name
-    Set<String> registeredIds = new THashSet<String>();
-    List<T> tools = getTools();
-    for (T tool : tools) {
+    Set<String> registeredIds = new HashSet<>();
+    for (T tool : getTools()) {
       String actionId = tool.getActionId();
       if (registeredIds.add(actionId)) {
-        myActionManager.registerAction(actionId, createToolAction(tool));
+        actionManager.registerAction(actionId, createToolAction(tool));
       }
     }
   }
@@ -136,10 +93,18 @@ public abstract class BaseToolManager<T extends Tool> implements ExportableAppli
 
   protected abstract String getActionIdPrefix();
 
-  private void unregisterActions() {
-    // unregister Tool actions
-    for (String oldId : myActionManager.getActionIds(getActionIdPrefix())) {
-      myActionManager.unregisterAction(oldId);
+  protected void unregisterActions(@Nullable ActionManager actionManager) {
+    if (actionManager == null) {
+      return;
     }
+
+    for (String oldId : actionManager.getActionIdList(getActionIdPrefix())) {
+      actionManager.unregisterAction(oldId);
+    }
+  }
+
+  @Override
+  public void dispose() {
+    myFactory.dispose(mySchemeManager);
   }
 }

@@ -1,24 +1,12 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.cmdline;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.io.FileSystemUtil;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.ConcurrencyUtil;
+import com.intellij.util.TimeoutUtil;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -27,21 +15,19 @@ import io.netty.handler.codec.protobuf.ProtobufDecoder;
 import io.netty.handler.codec.protobuf.ProtobufEncoder;
 import io.netty.handler.codec.protobuf.ProtobufVarint32FrameDecoder;
 import io.netty.handler.codec.protobuf.ProtobufVarint32LengthFieldPrepender;
-import org.apache.log4j.Level;
-import org.apache.log4j.PropertyConfigurator;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.api.CmdlineProtoUtil;
 import org.jetbrains.jps.api.CmdlineRemoteProto;
-import org.jetbrains.jps.api.GlobalOptions;
 import org.jetbrains.jps.builders.BuildTarget;
+import org.jetbrains.jps.builders.JpsBuildBundle;
+import org.jetbrains.jps.builders.PreloadedDataExtension;
 import org.jetbrains.jps.incremental.BuilderRegistry;
 import org.jetbrains.jps.incremental.MessageHandler;
 import org.jetbrains.jps.incremental.Utils;
 import org.jetbrains.jps.incremental.fs.BuildFSState;
 import org.jetbrains.jps.incremental.messages.BuildMessage;
 import org.jetbrains.jps.incremental.storage.BuildTargetsState;
+import org.jetbrains.jps.service.JpsServiceManager;
 import org.jetbrains.jps.service.SharedThreadPool;
 
 import java.io.*;
@@ -51,21 +37,16 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 4/16/12
  */
 @SuppressWarnings("UseOfSystemOutOrSystemErr")
-public class BuildMain {
+public final class BuildMain {
   private static final String PRELOAD_PROJECT_PATH = "preload.project.path";
   private static final String PRELOAD_CONFIG_PATH = "preload.config.path";
-  
-  private static final String LOG_CONFIG_FILE_NAME = "build-log.properties";
-  private static final String LOG_FILE_NAME = "build.log";
-  private static final String DEFAULT_LOGGER_CONFIG = "defaultLogConfig.properties";
-  private static final String LOG_FILE_MACRO = "$LOG_FILE_PATH$";
+
   private static final Logger LOG;
   static {
-    initLoggers();
-    LOG = Logger.getInstance("#org.jetbrains.jps.cmdline.BuildMain");
+    LogSetup.initLoggers();
+    LOG = Logger.getInstance(BuildMain.class);
   }
 
   private static final int HOST_ARG = 0;
@@ -74,89 +55,83 @@ public class BuildMain {
   private static final int SYSTEM_DIR_ARG = SESSION_ID_ARG + 1;
 
   private static NioEventLoopGroup ourEventLoopGroup;
-  @Nullable 
+  @Nullable
   private static PreloadedData ourPreloadedData;
 
-  public static void main(String[] args){
-    final long processStart = System.currentTimeMillis();
-    final String startMessage = "Build process started. Classpath: " + System.getProperty("java.class.path");
-    System.out.println(startMessage);
-    LOG.info(startMessage);
-    
-    final String host = args[HOST_ARG];
-    final int port = Integer.parseInt(args[PORT_ARG]);
-    final UUID sessionId = UUID.fromString(args[SESSION_ID_ARG]);
-    @SuppressWarnings("ConstantConditions")
-    final File systemDir = new File(FileUtil.toCanonicalPath(args[SYSTEM_DIR_ARG]));
-    Utils.setSystemRoot(systemDir);
+  public static void main(String[] args) {
+    try {
+      final long processStart = System.nanoTime();
+      final String startMessage = "Build process started. Classpath: " + System.getProperty("java.class.path");
+      System.out.println(startMessage);
+      LOG.info(StringUtil.repeatSymbol('=', 50));
+      LOG.info(startMessage);
 
-    final long connectStart = System.currentTimeMillis();
-    // IDEA-123132, let's try again
-    for (int attempt = 0; attempt < 3; attempt++) {
-      try {
-        ourEventLoopGroup = new NioEventLoopGroup(1, SharedThreadPool.getInstance());
-        break;
-      }
-      catch (IllegalStateException e) {
-        if (attempt == 2) {
-          printErrorAndExit(host, port, e);
-          return;
-        }
-        else {
-          LOG.warn("Cannot create event loop, attempt #" + attempt, e);
-          try {
-            //noinspection BusyWait
-            Thread.sleep(10 * (attempt + 1));
-          }
-          catch (InterruptedException ignored) {
-          }
-        }
-      }
-    }
+      final String host = args[HOST_ARG];
+      final int port = Integer.parseInt(args[PORT_ARG]);
+      final UUID sessionId = UUID.fromString(args[SESSION_ID_ARG]);
+      final File systemDir = new File(FileUtil.toCanonicalPath(args[SYSTEM_DIR_ARG]));
+      Utils.setSystemRoot(systemDir);
 
-    final Bootstrap bootstrap = new Bootstrap().group(ourEventLoopGroup).channel(NioSocketChannel.class).handler(new ChannelInitializer() {
-      @Override
-      protected void initChannel(Channel channel) throws Exception {
-        channel.pipeline().addLast(new ProtobufVarint32FrameDecoder(),
-                                   new ProtobufDecoder(CmdlineRemoteProto.Message.getDefaultInstance()),
-                                   new ProtobufVarint32LengthFieldPrepender(),
-                                   new ProtobufEncoder(),
-                                   new MyMessageHandler(sessionId));
-      }
-    }).option(ChannelOption.TCP_NODELAY, true).option(ChannelOption.SO_KEEPALIVE, true);
-
-    final ChannelFuture future = bootstrap.connect(new InetSocketAddress(host, port)).awaitUninterruptibly();
-
-    
-    final boolean success = future.isSuccess();
-    if (success) {
-      LOG.info("Connection to IDE established in " + (System.currentTimeMillis() - connectStart) + " ms");
-
-      final String projectPathToPreload = System.getProperty(PRELOAD_PROJECT_PATH, null);
-      final String globalsPathToPreload = System.getProperty(PRELOAD_CONFIG_PATH, null); 
-      if (projectPathToPreload != null && globalsPathToPreload != null) {
-        final PreloadedData data = new PreloadedData();
-        ourPreloadedData = data;
+      final long connectStart = System.nanoTime();
+      // IDEA-123132, let's try again
+      for (int attempt = 0; attempt < 3; attempt++) {
         try {
-          FileSystemUtil.getAttributes(projectPathToPreload); // this will pre-load all FS optimizations
+          ourEventLoopGroup = new NioEventLoopGroup(1, ConcurrencyUtil.newNamedThreadFactory("JPS event loop"));
+          break;
+        }
+        catch (IllegalStateException e) {
+          if (attempt == 2) {
+            printErrorAndExit(host, port, e);
+            return;
+          }
+          else {
+            LOG.warn("Cannot create event loop, attempt #" + attempt, e);
+            TimeoutUtil.sleep(10 * (attempt + 1));
+          }
+        }
+      }
 
-          final BuildRunner runner = new BuildRunner(new JpsModelLoaderImpl(projectPathToPreload, globalsPathToPreload, null));
-          data.setRunner(runner);
+      final Bootstrap bootstrap = new Bootstrap().group(ourEventLoopGroup).channel(NioSocketChannel.class).handler(new ChannelInitializer() {
+        @Override
+        protected void initChannel(Channel channel) {
+          channel.pipeline().addLast(new ProtobufVarint32FrameDecoder(),
+                                     new ProtobufDecoder(CmdlineRemoteProto.Message.getDefaultInstance()),
+                                     new ProtobufVarint32LengthFieldPrepender(),
+                                     new ProtobufEncoder(),
+                                     new MyMessageHandler(sessionId));
+        }
+      }).option(ChannelOption.TCP_NODELAY, true).option(ChannelOption.SO_KEEPALIVE, true);
 
-          final File dataStorageRoot = Utils.getDataStorageRoot(projectPathToPreload);
-          final BuildFSState fsState = new BuildFSState(false);
-          final ProjectDescriptor pd = runner.load(new MessageHandler() {
-            @Override
-            public void processMessage(BuildMessage msg) {
-              data.addMessage(msg);
-            }
-          }, dataStorageRoot, fsState);
-          data.setProjectDescriptor(pd);
-          
+      final ChannelFuture future = bootstrap.connect(new InetSocketAddress(host, port)).awaitUninterruptibly();
+
+
+      final boolean success = future.isSuccess();
+      if (success) {
+        LOG.info("Connection to IDE established in " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - connectStart) + " ms");
+
+        final String projectPathToPreload = System.getProperty(PRELOAD_PROJECT_PATH, null);
+        final String globalsPathToPreload = System.getProperty(PRELOAD_CONFIG_PATH, null);
+        if (projectPathToPreload != null && globalsPathToPreload != null) {
+          final PreloadedData data = new PreloadedData();
+          ourPreloadedData = data;
           try {
+            FileSystemUtil.getAttributes(projectPathToPreload); // this will pre-load all FS optimizations
+
+            final BuildRunner runner = new BuildRunner(new JpsModelLoaderImpl(projectPathToPreload, globalsPathToPreload, false, null));
+            data.setRunner(runner);
+
+            final File dataStorageRoot = Utils.getDataStorageRoot(projectPathToPreload);
+            final BuildFSState fsState = new BuildFSState(false);
+            final ProjectDescriptor pd = runner.load(new MessageHandler() {
+              @Override
+              public void processMessage(BuildMessage msg) {
+                data.addMessage(msg);
+              }
+            }, dataStorageRoot, fsState);
+            data.setProjectDescriptor(pd);
+
             final File fsStateFile = new File(dataStorageRoot, BuildSession.FS_STATE_FILE);
-            final DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(fsStateFile)));
-            try {
+            try (DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(fsStateFile)))) {
               final int version = in.readInt();
               if (version == BuildFSState.VERSION) {
                 final long savedOrdinal = in.readLong();
@@ -166,39 +141,43 @@ public class BuildMain {
                 data.setHasHasWorkToDo(hasWorkToDo);
               }
             }
-            finally {
-              in.close();
+            catch (FileNotFoundException ignored) {
             }
-          }
-          catch (FileNotFoundException ignored) {
-          }
-          catch (IOException e) {
-            LOG.info("Error pre-loading FS state", e);
-            fsState.clearAll();
-          }
+            catch (IOException e) {
+              LOG.info("Error pre-loading FS state", e);
+              fsState.clearAll();
+            }
 
-          // preloading target configurations
-          final BuildTargetsState targetsState = pd.getTargetsState();
-          for (BuildTarget<?> target : pd.getBuildTargetIndex().getAllTargets()) {
-            targetsState.getTargetConfiguration(target);
+            // preloading target configurations and pre-calculating target dirty state
+            final BuildTargetsState targetsState = pd.getTargetsState();
+            for (BuildTarget<?> target : pd.getBuildTargetIndex().getAllTargets()) {
+              targetsState.getTargetConfiguration(target).isTargetDirty(pd);
+            }
+
+            //noinspection ResultOfMethodCallIgnored
+            BuilderRegistry.getInstance();
+
+            JpsServiceManager.getInstance().getExtensions(PreloadedDataExtension.class).forEach(ext-> ext.preloadData(data));
+
+            LOG.info("Pre-loaded process ready in " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - processStart) + " ms");
           }
-
-          BuilderRegistry.getInstance();
-
-          LOG.info("Pre-loaded process ready in " + (System.currentTimeMillis() - processStart) + " ms");
+          catch (Throwable e) {
+            LOG.info("Failed to pre-load project " + projectPathToPreload, e);
+            // just failed to preload the project, the situation will be handled later, when real build starts
+          }
         }
-        catch (Throwable e) {
-          LOG.info("Failed to pre-load project " + projectPathToPreload, e);
-          // just failed to preload the project, the situation will be handled later, when real build starts
+        else if (projectPathToPreload != null || globalsPathToPreload != null){
+          LOG.info("Skipping project pre-loading step: both paths to project configuration files and path to global settings must be specified");
         }
+        future.channel().writeAndFlush(CmdlineProtoUtil.toMessage(sessionId, CmdlineProtoUtil.createParamRequest()));
       }
-      else if (projectPathToPreload != null || globalsPathToPreload != null){
-        LOG.info("Skipping project pre-loading step: both paths to project configuration files and path to global settings must be specified");
+      else {
+        printErrorAndExit(host, port, future.cause());
       }
-      future.channel().writeAndFlush(CmdlineProtoUtil.toMessage(sessionId, CmdlineProtoUtil.createParamRequest()));
     }
-    else {
-      printErrorAndExit(host, port, future.cause());
+    catch (Throwable e) {
+      LOG.error(e);
+      throw e;
     }
   }
 
@@ -211,7 +190,7 @@ public class BuildMain {
     System.exit(-1);
   }
 
-  private static class MyMessageHandler extends SimpleChannelInboundHandler<CmdlineRemoteProto.Message> {
+  private static final class MyMessageHandler extends SimpleChannelInboundHandler<CmdlineRemoteProto.Message> {
     private final UUID mySessionId;
     private volatile BuildSession mySession;
 
@@ -220,7 +199,7 @@ public class BuildMain {
     }
 
     @Override
-    public void channelRead0(final ChannelHandlerContext context, CmdlineRemoteProto.Message message) throws Exception {
+    public void channelRead0(final ChannelHandlerContext context, CmdlineRemoteProto.Message message) {
       final CmdlineRemoteProto.Message.Type type = message.getType();
       final Channel channel = context.channel();
 
@@ -233,21 +212,18 @@ public class BuildMain {
               final CmdlineRemoteProto.Message.ControllerMessage.FSEvent delta = controllerMessage.hasFsEvent()? controllerMessage.getFsEvent() : null;
               final BuildSession session = new BuildSession(mySessionId, channel, controllerMessage.getParamsMessage(), delta, ourPreloadedData);
               mySession = session;
-              SharedThreadPool.getInstance().executeOnPooledThread(new Runnable() {
-                @Override
-                public void run() {
-                  //noinspection finally
+              SharedThreadPool.getInstance().execute(() -> {
+                //noinspection finally
+                try {
                   try {
-                    try {
-                      session.run();
-                    }
-                    finally {
-                      channel.close();
-                    }
+                    session.run();
                   }
                   finally {
-                    System.exit(0);
+                    channel.close();
                   }
+                }
+                finally {
+                  System.exit(0);
                 }
               });
             }
@@ -266,10 +242,7 @@ public class BuildMain {
           }
 
           case CONSTANT_SEARCH_RESULT: {
-            final BuildSession session = mySession;
-            if (session != null) {
-              session.processConstantSearchResult(controllerMessage.getConstantSearchResult());
-            }
+            // ignored, functionality deprecated
             return;
           }
 
@@ -295,6 +268,9 @@ public class BuildMain {
               if (pd != null) {
                 pd.release();
               }
+
+              JpsServiceManager.getInstance().getExtensions(PreloadedDataExtension.class).forEach(ext-> ext.discardPreloadedData(preloaded));
+
               System.exit(0);
             }
             return;
@@ -303,7 +279,8 @@ public class BuildMain {
       }
 
       channel.writeAndFlush(
-        CmdlineProtoUtil.toMessage(mySessionId, CmdlineProtoUtil.createFailure("Unsupported message type: " + type.name(), null)));
+        CmdlineProtoUtil.toMessage(mySessionId,
+                                   CmdlineProtoUtil.createFailure(JpsBuildBundle.message("build.message.unsupported.message.type.0", type.name()), null)));
     }
 
     @Override
@@ -325,101 +302,6 @@ public class BuildMain {
           }
         }.start();
       }
-    }
-  }
-
-  private static void initLoggers() {
-    try {
-      final String logDir = System.getProperty(GlobalOptions.LOG_DIR_OPTION, null);
-      final File configFile = logDir != null? new File(logDir, LOG_CONFIG_FILE_NAME) : new File(LOG_CONFIG_FILE_NAME);
-      ensureLogConfigExists(configFile);
-      String text = FileUtil.loadFile(configFile);
-      final String logFile = logDir != null? new File(logDir, LOG_FILE_NAME).getAbsolutePath() : LOG_FILE_NAME;
-      text = StringUtil.replace(text, LOG_FILE_MACRO, StringUtil.replace(logFile, "\\", "\\\\"));
-      PropertyConfigurator.configure(new ByteArrayInputStream(text.getBytes("UTF-8")));
-    }
-    catch (IOException e) {
-      System.err.println("Failed to configure logging: ");
-      //noinspection UseOfSystemOutOrSystemErr
-      e.printStackTrace(System.err);
-    }
-
-    Logger.setFactory(MyLoggerFactory.class);
-  }
-
-  private static void ensureLogConfigExists(final File logConfig) throws IOException {
-    if (!logConfig.exists()) {
-      FileUtil.createIfDoesntExist(logConfig);
-      @SuppressWarnings("IOResourceOpenedButNotSafelyClosed")
-      final InputStream in = BuildMain.class.getResourceAsStream("/" + DEFAULT_LOGGER_CONFIG);
-      if (in != null) {
-        try {
-          final FileOutputStream out = new FileOutputStream(logConfig);
-          try {
-            FileUtil.copy(in, out);
-          }
-          finally {
-            out.close();
-          }
-        }
-        finally {
-          in.close();
-        }
-      }
-    }
-  }
-
-  private static class MyLoggerFactory implements Logger.Factory {
-    @Override
-    public Logger getLoggerInstance(String category) {
-      final org.apache.log4j.Logger logger = org.apache.log4j.Logger.getLogger(category);
-
-      return new Logger() {
-        @Override
-        public boolean isDebugEnabled() {
-          return logger.isDebugEnabled();
-        }
-
-        @Override
-        public void debug(@NonNls String message) {
-          logger.debug(message);
-        }
-
-        @Override
-        public void debug(@Nullable Throwable t) {
-          logger.debug("", t);
-        }
-
-        @Override
-        public void debug(@NonNls String message, @Nullable Throwable t) {
-          logger.debug(message, t);
-        }
-
-        @Override
-        public void error(@NonNls String message, @Nullable Throwable t, @NotNull @NonNls String... details) {
-          logger.error(message, t);
-        }
-
-        @Override
-        public void info(@NonNls String message) {
-          logger.info(message);
-        }
-
-        @Override
-        public void info(@NonNls String message, @Nullable Throwable t) {
-          logger.info(message, t);
-        }
-
-        @Override
-        public void warn(@NonNls String message, @Nullable Throwable t) {
-          logger.warn(message, t);
-        }
-
-        @Override
-        public void setLevel(Level level) {
-          logger.setLevel(level);
-        }
-      };
     }
   }
 }

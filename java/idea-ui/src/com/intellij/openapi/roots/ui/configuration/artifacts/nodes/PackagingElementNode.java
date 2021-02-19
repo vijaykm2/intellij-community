@@ -30,20 +30,16 @@ import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.treeStructure.SimpleNode;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.SmartList;
-import com.intellij.util.StringBuilderSpinAllocator;
 import com.intellij.xml.util.XmlStringUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/**
- * @author nik
- */
 public class PackagingElementNode<E extends PackagingElement<?>> extends ArtifactsTreeNode {
   private final List<E> myPackagingElements;
-  private final Map<PackagingElement<?>, CompositePackagingElement<?>> myParentElements = new HashMap<PackagingElement<?>, CompositePackagingElement<?>>(1);
-  private final MultiValuesMap<PackagingElement<?>, PackagingNodeSource> myNodeSources = new MultiValuesMap<PackagingElement<?>, PackagingNodeSource>();
+  private final Map<PackagingElement<?>, CompositePackagingElement<?>> myParentElements = new HashMap<>(1);
+  private final MultiValuesMap<PackagingElement<?>, PackagingNodeSource> myNodeSources = new MultiValuesMap<>();
   private final CompositePackagingElementNode myParentNode;
 
   public PackagingElementNode(@NotNull E packagingElement, ArtifactEditorContext context, @Nullable CompositePackagingElementNode parentNode,
@@ -53,7 +49,7 @@ public class PackagingElementNode<E extends PackagingElement<?>> extends Artifac
     myParentNode = parentNode;
     myParentElements.put(packagingElement, parentElement);
     myNodeSources.putAll(packagingElement, nodeSources);
-    myPackagingElements = new SmartList<E>();
+    myPackagingElements = new SmartList<>();
     doAddElement(packagingElement);
   }
 
@@ -80,9 +76,8 @@ public class PackagingElementNode<E extends PackagingElement<?>> extends Artifac
     return myPackagingElements.size() == 1 ? myPackagingElements.get(0) : null;
   }
 
-  @NotNull
   @Override
-  public Object[] getEqualityObjects() {
+  public Object @NotNull [] getEqualityObjects() {
     return ArrayUtil.toObjectArray(myPackagingElements);
   }
 
@@ -96,25 +91,19 @@ public class PackagingElementNode<E extends PackagingElement<?>> extends Artifac
   }
 
   @Override
-  protected void update(PresentationData presentation) {
+  protected void update(@NotNull PresentationData presentation) {
     final Collection<ArtifactProblemDescription> problems = ((ArtifactEditorImpl)myContext.getThisArtifactEditor()).getValidationManager().getProblems(this);
     if (problems == null || problems.isEmpty()) {
       super.update(presentation);
       return;
     }
-    StringBuilder buffer = StringBuilderSpinAllocator.alloc();
-    final String tooltip;
+    StringBuilder buffer = new StringBuilder();
     boolean isError = false;
-    try {
-      for (ArtifactProblemDescription problem : problems) {
-        isError |= problem.getSeverity() == ProjectStructureProblemType.Severity.ERROR;
-        buffer.append(problem.getMessage(false)).append("<br>");
-      }
-      tooltip = XmlStringUtil.wrapInHtml(buffer);
+    for (ArtifactProblemDescription problem : problems) {
+      isError |= problem.getSeverity() == ProjectStructureProblemType.Severity.ERROR;
+      buffer.append(problem.getMessage(false)).append("<br>");
     }
-    finally {
-      StringBuilderSpinAllocator.dispose(buffer);
-    }
+    final String tooltip = XmlStringUtil.wrapInHtml(buffer);
 
     getElementPresentation().render(presentation, addErrorHighlighting(isError, SimpleTextAttributes.REGULAR_ATTRIBUTES),
                                     addErrorHighlighting(isError, SimpleTextAttributes.GRAY_ATTRIBUTES));
@@ -128,7 +117,7 @@ public class PackagingElementNode<E extends PackagingElement<?>> extends Artifac
     return SimpleTextAttributes.fromTextAttributes(textAttributes);
   }
 
-  void addElement(PackagingElement<?> element, CompositePackagingElement parentElement, Collection<PackagingNodeSource> nodeSource) {
+  void addElement(PackagingElement<?> element, CompositePackagingElement parentElement, Collection<? extends PackagingNodeSource> nodeSource) {
     doAddElement((E)element);
     myParentElements.put(element, parentElement);
     myNodeSources.putAll(element, nodeSource);
@@ -142,30 +131,16 @@ public class PackagingElementNode<E extends PackagingElement<?>> extends Artifac
   @NotNull
   public Collection<PackagingNodeSource> getNodeSource(@NotNull PackagingElement<?> element) {
     final Collection<PackagingNodeSource> nodeSources = myNodeSources.get(element);
-    return nodeSources != null ? nodeSources : Collections.<PackagingNodeSource>emptyList();
+    return nodeSources != null ? nodeSources : Collections.emptyList();
   }
 
   public ArtifactEditorContext getContext() {
     return myContext;
   }
 
-  @Nullable
-  public CompositePackagingElementNode findCompositeChild(@NotNull String name) {
-    final SimpleNode[] children = getChildren();
-    for (SimpleNode child : children) {
-      if (child instanceof CompositePackagingElementNode) {
-        final CompositePackagingElementNode composite = (CompositePackagingElementNode)child;
-        if (name.equals(composite.getFirstElement().getName())) {
-          return composite;
-        }
-      }
-    }
-    return null;
-  }
 
-
-  public List<PackagingElementNode<?>> getNodesByPath(List<PackagingElement<?>> pathToPlace) {
-    List<PackagingElementNode<?>> result = new ArrayList<PackagingElementNode<?>>();
+  public List<PackagingElementNode<?>> getNodesByPath(List<? extends PackagingElement<?>> pathToPlace) {
+    List<PackagingElementNode<?>> result = new ArrayList<>();
     PackagingElementNode<?> current = this;
     int i = 0;
     result.add(current);

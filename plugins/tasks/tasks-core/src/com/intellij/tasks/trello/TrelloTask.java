@@ -35,8 +35,8 @@ import java.util.List;
 public class TrelloTask extends Task {
   private static final TrelloIconBuilder ourIconBuilder = new TrelloIconBuilder(16);
 
-  private TrelloCard myCard;
-  private TaskRepository myRepository;
+  private final TrelloCard myCard;
+  private final TaskRepository myRepository;
 
 
   public TrelloTask(TrelloCard card, TaskRepository repository) {
@@ -62,11 +62,10 @@ public class TrelloTask extends Task {
     return myCard.getDescription();
   }
 
-  @NotNull
   @Override
-  public Comment[] getComments() {
+  public Comment @NotNull [] getComments() {
     List<TrelloCommentAction> comments = myCard.getComments();
-    return comments.toArray(new Comment[comments.size()]);
+    return comments.toArray(Comment.EMPTY_ARRAY);
   }
 
   @NotNull
@@ -119,5 +118,11 @@ public class TrelloTask extends Task {
   @Override
   public TaskRepository getRepository() {
     return myRepository;
+  }
+
+  @NotNull
+  @Override
+  public String getNumber() {
+    return myCard.getIdShort();
   }
 }

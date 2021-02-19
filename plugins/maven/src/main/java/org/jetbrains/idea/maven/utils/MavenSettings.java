@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,80 +32,74 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class MavenSettings implements SearchableConfigurable.Parent {
-  public static final String DISPLAY_NAME = "Maven";
-
-  private final Project myProject;
   private final Configurable myConfigurable;
   private final List<Configurable> myChildren;
 
-  public MavenSettings(Project project) {
-    myProject = project;
+  public MavenSettings(@NotNull Project project) {
 
-    myConfigurable = new MavenGeneralConfigurable() {
-      protected MavenGeneralSettings getState() {
-        return MavenProjectsManager.getInstance(myProject).getGeneralSettings();
-      }
-    };
+    myConfigurable = new MavenGeneralConfigurable(project);
 
-    myChildren = new ArrayList<Configurable>();
-    myChildren.add(new MavenImportingConfigurable(myProject));
-    myChildren.add(new MavenIgnoredFilesConfigurable(myProject));
+    myChildren = new ArrayList<>();
+    myChildren.add(new MavenImportingConfigurable(project));
+    myChildren.add(new MavenIgnoredFilesConfigurable(project));
 
     myChildren.add(new MyMavenRunnerConfigurable(project));
 
     myChildren.add(new MavenTestRunningConfigurable(project));
 
-    if (!myProject.isDefault()) {
-      myChildren.add(new MavenRepositoriesConfigurable(myProject));
+    if (!project.isDefault()) {
+      myChildren.add(new MavenRepositoriesConfigurable(project));
     }
   }
 
+  @Override
   public boolean hasOwnContent() {
     return true;
   }
 
-  public boolean isVisible() {
-    return true;
-  }
-
-  public Runnable enableSearch(String option) {
-    return null;
-  }
-
+  @Override
   public JComponent createComponent() {
     return myConfigurable.createComponent();
   }
 
+  @Override
   public boolean isModified() {
     return myConfigurable.isModified();
   }
 
+  @Override
   public void apply() throws ConfigurationException {
     myConfigurable.apply();
   }
 
+  @Override
   public void reset() {
     myConfigurable.reset();
   }
 
+  @Override
   public void disposeUIResources() {
     myConfigurable.disposeUIResources();
   }
 
-  public Configurable[] getConfigurables() {
-    return myChildren.toArray(new Configurable[myChildren.size()]);
+  @Override
+  public Configurable @NotNull [] getConfigurables() {
+    return myChildren.toArray(new Configurable[0]);
   }
 
+  @Override
   @NotNull
   public String getId() {
     return MavenSettings.class.getSimpleName();
   }
 
+  @Override
   @Nls
   public String getDisplayName() {
-    return DISPLAY_NAME;
+    return MavenProjectBundle.message("configurable.MavenSettings.display.name");
   }
 
+  @Override
   public String getHelpTopic() {
     return myConfigurable.getHelpTopic();
   }
@@ -115,6 +109,7 @@ public class MavenSettings implements SearchableConfigurable.Parent {
       super(project, false);
     }
 
+    @Override
     protected MavenRunnerSettings getState() {
       return MavenRunner.getInstance(myProject).getState();
     }

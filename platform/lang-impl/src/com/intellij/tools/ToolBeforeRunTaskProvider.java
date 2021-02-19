@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,11 @@
 package com.intellij.tools;
 
 import com.intellij.execution.configurations.RunConfiguration;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.util.Key;
+import org.jetbrains.annotations.NotNull;
 
-public class ToolBeforeRunTaskProvider extends AbstractToolBeforeRunTaskProvider<ToolBeforeRunTask> {
+public class ToolBeforeRunTaskProvider extends AbstractToolBeforeRunTaskProvider<ToolBeforeRunTask> implements DumbAware {
   static final Key<ToolBeforeRunTask> ID = Key.create("ToolBeforeRunTask");
 
   @Override
@@ -32,7 +34,7 @@ public class ToolBeforeRunTaskProvider extends AbstractToolBeforeRunTaskProvider
   }
 
   @Override
-  public ToolBeforeRunTask createTask(RunConfiguration runConfiguration) {
+  public ToolBeforeRunTask createTask(@NotNull RunConfiguration runConfiguration) {
     return new ToolBeforeRunTask();
   }
 

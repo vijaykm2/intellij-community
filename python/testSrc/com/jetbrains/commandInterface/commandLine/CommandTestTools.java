@@ -55,17 +55,17 @@ final class CommandTestTools {
     EasyMock.expect(command.getName()).andReturn("command").anyTimes();
     EasyMock.expect(command.getHelp(true)).andReturn(new Help("some_text")).anyTimes();
     EasyMock.expect(command.getHelp(false)).andReturn(new Help("some_text")).anyTimes();
-    final List<Option> options = new ArrayList<Option>();
+    final List<Option> options = new ArrayList<>();
 
 
     final Pair<List<String>, Boolean> argument = Pair.create(Collections.singletonList("available_argument"), true);
     options.add(new Option(Pair.create(1, new Argument(new Help("option argument"), argument)), new Help(""),
-                                       Collections.<String>emptyList(),
+                                       Collections.emptyList(),
                                        Collections.singletonList("--available-option")));
 
 
     options.add(new Option(null, new Help(""),
-                           Collections.<String>emptyList(),
+                           Collections.emptyList(),
                            Collections.singletonList("--option-no-argument")));
 
     EasyMock.expect(command.getOptions()).andReturn(options).anyTimes();
@@ -86,12 +86,7 @@ final class CommandTestTools {
    * Hack to register file type (not registered for some reason?)
    */
   static void initFileType() {
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      @Override
-      public void run() {
-        FileTypeManager.getInstance().associateExtension(CommandLineFileType.INSTANCE, CommandLineFileType.EXTENSION);
-      }
-    });
+    ApplicationManager.getApplication().runWriteAction(() -> FileTypeManager.getInstance().associateExtension(CommandLineFileType.INSTANCE, CommandLineFileType.EXTENSION));
   }
 
   /**
@@ -105,7 +100,7 @@ final class CommandTestTools {
   static CommandLineFile createFileByText(@NotNull final CodeInsightTestFixture testFixture, @NotNull final String text) {
     final CommandLineFile file =
       (CommandLineFile)testFixture.configureByText(CommandLineFileType.INSTANCE, text);
-    file.setCommandsAndDefaultExecutor(createCommands(), null);
+    file.setCommands(createCommands());
     return file;
   }
 }

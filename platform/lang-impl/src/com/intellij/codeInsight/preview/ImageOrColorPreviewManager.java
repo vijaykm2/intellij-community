@@ -1,31 +1,15 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.preview;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.event.EditorFactoryEvent;
 import com.intellij.openapi.editor.event.EditorFactoryListener;
 import com.intellij.openapi.editor.event.EditorMouseEvent;
 import com.intellij.openapi.editor.event.EditorMouseMotionListener;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
@@ -35,8 +19,8 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.util.Alarm;
+import com.intellij.util.SlowOperations;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.WeakHashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -49,7 +33,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
 
-public class ImageOrColorPreviewManager implements Disposable, EditorMouseMotionListener {
+final class ImageOrColorPreviewManager implements Disposable, EditorMouseMotionListener, EditorFactoryListener {
   private static final Logger LOG = Logger.getInstance(ImageOrColorPreviewManager.class);
 
   private static final Key<KeyListener> EDITOR_LISTENER_ADDED = Key.create("previewManagerListenerAdded");
@@ -63,29 +47,24 @@ public class ImageOrColorPreviewManager implements Disposable, EditorMouseMotion
   @Nullable
   private Collection<PsiElement> myElements;
 
-  public ImageOrColorPreviewManager(EditorFactory editorFactory) {
-    // we don't use multicaster because we don't want to serve all editors - only supported
-    editorFactory.addEditorFactoryListener(new EditorFactoryListener() {
-      @Override
-      public void editorCreated(@NotNull EditorFactoryEvent event) {
-        registerListeners(event.getEditor());
-      }
+  @Override
+  public void editorCreated(@NotNull EditorFactoryEvent event) {
+    registerListeners(event.getEditor());
+  }
 
-      @Override
-      public void editorReleased(@NotNull EditorFactoryEvent event) {
-        Editor editor = event.getEditor();
-        if (editor.isOneLineMode()) {
-          return;
-        }
+  @Override
+  public void editorReleased(@NotNull EditorFactoryEvent event) {
+    Editor editor = event.getEditor();
+    if (editor.isOneLineMode()) {
+      return;
+    }
 
-        KeyListener keyListener = EDITOR_LISTENER_ADDED.get(editor);
-        if (keyListener != null) {
-          EDITOR_LISTENER_ADDED.set(editor, null);
-          editor.getContentComponent().removeKeyListener(keyListener);
-          editor.removeEditorMouseMotionListener(ImageOrColorPreviewManager.this);
-        }
-      }
-    }, this);
+    KeyListener keyListener = EDITOR_LISTENER_ADDED.get(editor);
+    if (keyListener != null) {
+      EDITOR_LISTENER_ADDED.set(editor, null);
+      editor.getContentComponent().removeKeyListener(keyListener);
+      editor.removeEditorMouseMotionListener(this);
+    }
   }
 
   private void registerListeners(final Editor editor) {
@@ -113,8 +92,9 @@ public class ImageOrColorPreviewManager implements Disposable, EditorMouseMotion
           if (pointerInfo != null) {
             Point location = pointerInfo.getLocation();
             SwingUtilities.convertPointFromScreen(location, editor.getContentComponent());
+            int offset = editor.logicalPositionToOffset(editor.xyToLogicalPosition(location));
             alarm.cancelAllRequests();
-            alarm.addRequest(new PreviewRequest(location, editor, true), 100);
+            alarm.addRequest(new PreviewRequest(editor, offset, true), 100);
           }
         }
       }
@@ -126,7 +106,7 @@ public class ImageOrColorPreviewManager implements Disposable, EditorMouseMotion
 
   private static boolean isSupportedFile(PsiFile psiFile) {
     for (PsiFile file : psiFile.getViewProvider().getAllFiles()) {
-      for (ElementPreviewProvider provider : Extensions.getExtensions(ElementPreviewProvider.EP_NAME)) {
+      for (ElementPreviewProvider provider : ElementPreviewProvider.EP_NAME.getExtensionList()) {
         if (provider.isSupportedFile(file)) {
           return true;
         }
@@ -136,7 +116,7 @@ public class ImageOrColorPreviewManager implements Disposable, EditorMouseMotion
   }
 
   @NotNull
-  private static Collection<PsiElement> getPsiElementsAt(Point point, Editor editor) {
+  private static Collection<PsiElement> getPsiElementsAt(Editor editor, int offset) {
     if (editor.isDisposed()) {
       return Collections.emptySet();
     }
@@ -153,8 +133,7 @@ public class ImageOrColorPreviewManager implements Disposable, EditorMouseMotion
       return Collections.emptySet();
     }
 
-    final Set<PsiElement> elements = Collections.newSetFromMap(new WeakHashMap<PsiElement, Boolean>());
-    final int offset = editor.logicalPositionToOffset(editor.xyToLogicalPosition(point));
+    final Set<PsiElement> elements = ContainerUtil.createWeakSet();
     if (documentManager.isCommitted(document)) {
       ContainerUtil.addIfNotNull(elements, InjectedLanguageUtil.findElementAtNoCommit(psiFile, offset));
     }
@@ -179,51 +158,43 @@ public class ImageOrColorPreviewManager implements Disposable, EditorMouseMotion
     }
 
     alarm.cancelAllRequests();
-    Point point = event.getMouseEvent().getPoint();
-    if (myElements == null && event.getMouseEvent().isShiftDown()) {
-      alarm.addRequest(new PreviewRequest(point, editor, false), 100);
+    Collection<PsiElement> elements = myElements;
+    if (elements == null && event.getMouseEvent().isShiftDown()) {
+      alarm.addRequest(new PreviewRequest(editor, event.getOffset(), false), 100);
     }
-    else {
-      Collection<PsiElement> elements = myElements;
-      if (!getPsiElementsAt(point, editor).equals(elements)) {
-        myElements = null;
-        for (ElementPreviewProvider provider : Extensions.getExtensions(ElementPreviewProvider.EP_NAME)) {
-          try {
-            if (elements != null) {
-              for (PsiElement element : elements) {
-                provider.hide(element, editor);
-              }
-            } else {
-              provider.hide(null, editor);
-            }
+    else if (elements != null && !SlowOperations.allowSlowOperations(() -> getPsiElementsAt(editor, event.getOffset()).equals(elements))) {
+      myElements = null;
+      for (ElementPreviewProvider provider : ElementPreviewProvider.EP_NAME.getExtensionList()) {
+        try {
+          for (PsiElement element : elements) {
+            provider.hide(element, editor);
           }
-          catch (Exception e) {
-            LOG.error(e);
-          }
+        }
+        catch (Exception e) {
+          LOG.error(e);
         }
       }
     }
   }
 
-  @Override
-  public void mouseDragged(EditorMouseEvent e) {
-    // nothing
-  }
-
   private final class PreviewRequest implements Runnable {
-    private final Point point;
     private final Editor editor;
+    private final int offset;
     private final boolean keyTriggered;
 
-    public PreviewRequest(Point point, Editor editor, boolean keyTriggered) {
-      this.point = point;
+    PreviewRequest(Editor editor, int offset, boolean keyTriggered) {
       this.editor = editor;
+      this.offset = offset;
       this.keyTriggered = keyTriggered;
     }
 
     @Override
     public void run() {
-      Collection<PsiElement> elements = getPsiElementsAt(point, editor);
+      SlowOperations.allowSlowOperations(() -> doRun());
+    }
+
+    private void doRun() {
+      Collection<PsiElement> elements = getPsiElementsAt(editor, offset);
       if (elements.equals(myElements)) return;
       for (PsiElement element : elements) {
         if (element == null || !element.isValid()) {
@@ -238,7 +209,10 @@ public class ImageOrColorPreviewManager implements Disposable, EditorMouseMotion
           if (!provider.isSupportedFile(element.getContainingFile())) continue;
 
           try {
-            provider.show(element, editor, point, keyTriggered);
+            provider.show(element, editor, editor.offsetToXY(offset), keyTriggered);
+          }
+          catch (ProcessCanceledException e) {
+            throw e;
           }
           catch (Exception e) {
             LOG.error(e);

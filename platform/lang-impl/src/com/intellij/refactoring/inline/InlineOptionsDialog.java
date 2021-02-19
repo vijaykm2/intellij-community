@@ -1,37 +1,34 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.inline;
 
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts.BorderTitle;
+import com.intellij.openapi.util.NlsContexts.Label;
+import com.intellij.openapi.util.NlsContexts.RadioButton;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiNameIdentifierOwner;
+import com.intellij.psi.PsiReference;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiSearchHelper;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.refactoring.ui.RefactoringDialog;
 import com.intellij.refactoring.util.RadioUpDownListener;
+import com.intellij.ui.scale.JBUIScale;
+import com.intellij.util.Query;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import java.awt.event.ItemEvent;
-import java.awt.event.ItemListener;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.util.function.Function;
+import java.util.function.Predicate;
 
 public abstract class InlineOptionsDialog extends RefactoringDialog implements InlineOptions {
   protected JRadioButton myRbInlineAll;
+  @Nullable protected JRadioButton myKeepTheDeclaration;
   protected JRadioButton myRbInlineThisOnly;
   protected boolean myInvokedOnReference;
   protected final PsiElement myElement;
@@ -54,9 +51,18 @@ public abstract class InlineOptionsDialog extends RefactoringDialog implements I
   }
 
   @Override
+  public boolean isKeepTheDeclaration() {
+    if (myKeepTheDeclaration != null) {
+      return myKeepTheDeclaration.isSelected();
+    }
+    return false;
+  }
+
+  @NotNull
+  @Override
   protected JComponent createCenterPanel() {
     JPanel optionsPanel = new JPanel();
-    optionsPanel.setBorder(new EmptyBorder(10, 0, 0, 0));
+    optionsPanel.setBorder(new EmptyBorder(JBUIScale.scale(10), 0, 0, 0));
     optionsPanel.setLayout(new BoxLayout(optionsPanel, BoxLayout.Y_AXIS));
 
     myRbInlineAll = new JRadioButton();
@@ -64,55 +70,95 @@ public abstract class InlineOptionsDialog extends RefactoringDialog implements I
     myRbInlineAll.setSelected(true);
     myRbInlineThisOnly = new JRadioButton();
     myRbInlineThisOnly.setText(getInlineThisText());
-
+    final boolean writable = allowInlineAll();
     optionsPanel.add(myRbInlineAll);
+    String keepDeclarationText = getKeepTheDeclarationText();
+    if (keepDeclarationText != null && writable) {
+      myKeepTheDeclaration = new JRadioButton();
+      myKeepTheDeclaration.setText(keepDeclarationText);
+      optionsPanel.add(myKeepTheDeclaration);
+    }
+
     optionsPanel.add(myRbInlineThisOnly);
     ButtonGroup bg = new ButtonGroup();
-    bg.add(myRbInlineAll);
-    bg.add(myRbInlineThisOnly);
-    new RadioUpDownListener(myRbInlineAll, myRbInlineThisOnly);
+    final JRadioButton[] buttons = myKeepTheDeclaration != null
+                                   ? new JRadioButton[] {myRbInlineAll, myKeepTheDeclaration, myRbInlineThisOnly}
+                                   : new JRadioButton[] {myRbInlineAll, myRbInlineThisOnly};
+    for (JRadioButton button : buttons) {
+      bg.add(button);
+    }
+    new RadioUpDownListener(buttons);
 
     myRbInlineThisOnly.setEnabled(myInvokedOnReference);
-    final boolean writable = myElement.isWritable();
     myRbInlineAll.setEnabled(writable);
     if(myInvokedOnReference) {
       if (canInlineThisOnly()) {
         myRbInlineAll.setSelected(false);
         myRbInlineAll.setEnabled(false);
+
+        if (myKeepTheDeclaration != null) {
+          myKeepTheDeclaration.setSelected(false);
+          myKeepTheDeclaration.setEnabled(false);
+        }
+
         myRbInlineThisOnly.setSelected(true);
       } else {
         if (writable) {
           final boolean inlineThis = isInlineThis();
           myRbInlineThisOnly.setSelected(inlineThis);
-          myRbInlineAll.setSelected(!inlineThis);
+          if (myKeepTheDeclaration != null) myKeepTheDeclaration.setSelected(!inlineThis && isKeepTheDeclarationByDefault());
+          myRbInlineAll.setSelected(!inlineThis && !isKeepTheDeclarationByDefault());
         }
         else {
           myRbInlineAll.setSelected(false);
+          if (myKeepTheDeclaration != null) {
+            myKeepTheDeclaration.setSelected(false);
+          }
           myRbInlineThisOnly.setSelected(true);
         }
       }
     }
     else {
-      myRbInlineAll.setSelected(true);
+      boolean keepTheDeclarationByDefault = isKeepTheDeclarationByDefault();
+      myRbInlineAll.setSelected(!keepTheDeclarationByDefault);
+      if (myKeepTheDeclaration != null) {
+        myKeepTheDeclaration.setSelected(keepTheDeclarationByDefault);
+      }
       myRbInlineThisOnly.setSelected(false);
     }
 
-    getPreviewAction().setEnabled(myRbInlineAll.isSelected());
-    myRbInlineAll.addItemListener(
-      new ItemListener() {
-        @Override
-        public void itemStateChanged(ItemEvent e) {
-          boolean enabled = myRbInlineAll.isSelected();
-          getPreviewAction().setEnabled(enabled);
-        }
+    getPreviewAction().setEnabled(myRbInlineAll.isSelected() || myKeepTheDeclaration != null && myKeepTheDeclaration.isSelected());
+    final ActionListener previewListener = new ActionListener() {
+      @Override
+      public void actionPerformed(ActionEvent e) {
+        boolean enabled = myRbInlineAll.isSelected() || myKeepTheDeclaration != null && myKeepTheDeclaration.isSelected();
+        getPreviewAction().setEnabled(enabled);
       }
-    );
+    };
+    for (JRadioButton button : buttons) {
+      button.addActionListener(previewListener);
+    }
+
+
     return optionsPanel;
   }
 
+  protected boolean allowInlineAll() {
+    return myElement.isWritable();
+  }
+
+  @Label
   protected abstract String getNameLabelText();
+  @BorderTitle
   protected abstract String getBorderTitle();
+  @RadioButton
   protected abstract String getInlineAllText();
+  @RadioButton
+  protected String getKeepTheDeclarationText() {return null;}
+  protected boolean isKeepTheDeclarationByDefault() {
+    return false;
+  }
+  @RadioButton
   protected abstract String getInlineThisText();
   protected abstract boolean isInlineThis();
   protected boolean canInlineThisOnly() {
@@ -124,14 +170,34 @@ public abstract class InlineOptionsDialog extends RefactoringDialog implements I
     return myRbInlineThisOnly.isSelected() ? myRbInlineThisOnly : myRbInlineAll;
   }
 
+
+  protected boolean ignoreOccurrence(PsiReference reference) {
+    return false;
+  }
+
   protected static int initOccurrencesNumber(PsiNameIdentifierOwner nameIdentifierOwner) {
+    return getNumberOfOccurrences(nameIdentifierOwner, reference -> true);
+  }
+
+  protected int getNumberOfOccurrences(PsiNameIdentifierOwner nameIdentifierOwner) {
+    return getNumberOfOccurrences(nameIdentifierOwner, this::ignoreOccurrence);
+  }
+
+  protected static int getNumberOfOccurrences(PsiNameIdentifierOwner nameIdentifierOwner,
+                                              Predicate<? super PsiReference> ignoreOccurrence) {
+    return getNumberOfOccurrences(nameIdentifierOwner, ignoreOccurrence, scope -> ReferencesSearch.search(nameIdentifierOwner, scope));
+  }
+
+  protected static int getNumberOfOccurrences(PsiNameIdentifierOwner nameIdentifierOwner,
+                                              Predicate<? super PsiReference> ignoreOccurrence,
+                                              Function<? super GlobalSearchScope, ? extends Query<PsiReference>> searcher) {
     final ProgressManager progressManager = ProgressManager.getInstance();
-    final PsiSearchHelper searchHelper = PsiSearchHelper.SERVICE.getInstance(nameIdentifierOwner.getProject());
+    final PsiSearchHelper searchHelper = PsiSearchHelper.getInstance(nameIdentifierOwner.getProject());
     final GlobalSearchScope scope = GlobalSearchScope.projectScope(nameIdentifierOwner.getProject());
     final String name = nameIdentifierOwner.getName();
     final boolean isCheapToSearch =
      name != null && searchHelper.isCheapEnoughToSearch(name, scope, null, progressManager.getProgressIndicator()) != PsiSearchHelper.SearchCostResult.TOO_MANY_OCCURRENCES;
-    return isCheapToSearch ? ReferencesSearch.search(nameIdentifierOwner).findAll().size() : - 1;
+    return isCheapToSearch ? (int)searcher.apply(scope).findAll().stream().filter(ignoreOccurrence).count() : - 1;
   }
 
 }

@@ -1,44 +1,21 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.projectWizard;
 
-import com.intellij.ide.util.projectWizard.SettingsStep;
-import com.intellij.ide.util.projectWizard.WizardContext;
 import com.intellij.openapi.ui.LabeledComponent;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 import javax.swing.*;
+import java.util.ArrayList;
 import java.util.List;
 
 public class WebProjectSettingsStepWrapper implements SettingsStep {
-  private static final Function<Pair<String, JComponent>, LabeledComponent> PAIR_LABELED_COMPONENT_FUNCTION =
-    new Function<Pair<String, JComponent>, LabeledComponent>() {
-      @Override
-      public LabeledComponent fun(Pair<String, JComponent> pair) {
-        return LabeledComponent.create(pair.getSecond(), pair.getFirst());
-      }
-    };
-
-  private final List<Pair<String, JComponent>> myFields = ContainerUtil.newArrayList();
-  private final List<JComponent> myComponents = ContainerUtil.newArrayList();
+  private final List<Pair<String, JComponent>> myFields = new ArrayList<>();
+  private final List<JComponent> myComponents = new ArrayList<>();
 
   public List<JComponent> getComponents() {
     return myComponents;
@@ -50,12 +27,12 @@ public class WebProjectSettingsStepWrapper implements SettingsStep {
     return null;
   }
 
-  public List<LabeledComponent> getFields() {
-    return ContainerUtil.map(myFields, PAIR_LABELED_COMPONENT_FUNCTION);
+  public List<LabeledComponent<? extends JComponent>> getFields() {
+    return ContainerUtil.map(myFields, (Pair<@NotNull @Nls String, @NotNull JComponent> pair) -> LabeledComponent.create(pair.second, pair.first));
   }
 
   @Override
-  public void addSettingsField(@NotNull String label, @NotNull JComponent field) {
+  public void addSettingsField(@NotNull @NlsContexts.Label String label, @NotNull JComponent field) {
     myFields.add(Pair.create(label, field));
   }
 
@@ -66,12 +43,12 @@ public class WebProjectSettingsStepWrapper implements SettingsStep {
 
   @Override
   public void addExpertPanel(@NotNull JComponent panel) {
-    throw new NotImplementedException();
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public void addExpertField(@NotNull String label, @NotNull JComponent field) {
-    throw new NotImplementedException();
+  public void addExpertField(@NotNull @NlsContexts.Label String label, @NotNull JComponent field) {
+    throw new UnsupportedOperationException();
   }
 
   @Override

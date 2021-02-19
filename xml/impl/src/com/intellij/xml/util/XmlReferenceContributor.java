@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -112,10 +112,9 @@ public class XmlReferenceContributor extends PsiReferenceContributor {
     registrar.registerReferenceProvider(xmlAttributeValue().withLocalName("source")
                                           .withSuperParent(2, xmlTag().withLocalName("documentation").withNamespace(XmlUtil.SCHEMA_URIS)),
                                         new PsiReferenceProvider() {
-                                          @NotNull
                                           @Override
-                                          public PsiReference[] getReferencesByElement(@NotNull PsiElement element,
-                                                                                       @NotNull ProcessingContext context) {
+                                          public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element,
+                                                                                                 @NotNull ProcessingContext context) {
                                             return new PsiReference[] { new WebReference(element) };
                                           }
                                         });

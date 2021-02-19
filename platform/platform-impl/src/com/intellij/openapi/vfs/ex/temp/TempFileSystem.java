@@ -1,64 +1,51 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.ex.temp;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.util.io.BufferExposingByteArrayInputStream;
 import com.intellij.openapi.util.io.FileAttributes;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
+import com.intellij.openapi.vfs.VirtualFilePointerCapableFileSystem;
 import com.intellij.openapi.vfs.impl.local.LocalFileSystemBase;
-import com.intellij.openapi.vfs.newvfs.ManagingFS;
-import com.intellij.openapi.vfs.newvfs.RefreshQueue;
-import com.intellij.openapi.vfs.newvfs.VfsImplUtil;
 import com.intellij.openapi.vfs.newvfs.impl.FakeVirtualFile;
 import com.intellij.openapi.vfs.newvfs.persistent.FSRecords;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.LocalTimeCounter;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.*;
-import java.util.ArrayList;
+import java.nio.file.Path;
 import java.util.Collection;
-import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 
-/**
- * @author max
- */
-public class TempFileSystem extends LocalFileSystemBase {
+public class TempFileSystem extends LocalFileSystemBase implements VirtualFilePointerCapableFileSystem {
+  private static final String TEMP_PROTOCOL = "temp";
+
   private final FSItem myRoot = new FSDir(null, "/");
 
   @SuppressWarnings("MethodOverridesStaticMethodOfSuperclass")
   public static TempFileSystem getInstance() {
-    return ApplicationManager.getApplication().getComponent(TempFileSystem.class);
+    return (TempFileSystem)VirtualFileManager.getInstance().getFileSystem(TEMP_PROTOCOL);
   }
 
-  @NotNull
   @Override
-  protected String extractRootPath(@NotNull final String path) {
+  protected @NotNull String extractRootPath(@NotNull String normalizedPath) {
     return "/";
   }
 
-  @Nullable
-  private FSItem convert(VirtualFile file) {
-    final VirtualFile parentFile = file.getParent();
+  @Override
+  public @Nullable Path getNioPath(@NotNull VirtualFile file) {
+    return null;
+  }
+
+  private @Nullable FSItem convert(VirtualFile file) {
+    VirtualFile parentFile = file.getParent();
     if (parentFile == null) return myRoot;
 
     FSItem parentItem = convert(parentFile);
@@ -69,54 +56,55 @@ public class TempFileSystem extends LocalFileSystemBase {
     return parentItem.findChild(file.getName());
   }
 
-  @Override
-  @NotNull
-  public VirtualFile createChildDirectory(Object requestor, @NotNull VirtualFile parent, @NotNull String dir) throws IOException {
-    final FSItem fsItem = convert(parent);
-    assert fsItem != null && fsItem.isDirectory();
+  private FSDir convertDirectory(VirtualFile parent) {
+    FSItem fsItem = convert(parent);
+    if (fsItem == null) {
+      FSRecords.invalidateCaches();
+      throw new IllegalStateException("cannot find parent directory: " + parent.getPath());
+    }
+    assert fsItem.isDirectory() : "parent is not a directory: " + parent.getPath();
+    return (FSDir)fsItem;
+  }
 
-    final FSDir fsDir = (FSDir)fsItem;
-    final FSItem existingDir = fsDir.findChild(dir);
+  @Override
+  public @NotNull VirtualFile createChildDirectory(Object requestor, @NotNull VirtualFile parent, @NotNull String dir) throws IOException {
+    FSDir fsDir = convertDirectory(parent);
+    FSItem existingDir = fsDir.findChild(dir);
     if (existingDir == null) {
       fsDir.addChild(new FSDir(fsDir, dir));
     }
     else if (!existingDir.isDirectory()) {
       throw new IOException("Directory already contains a file named " + dir);
     }
-
     return new FakeVirtualFile(parent, dir);
   }
 
-  @NotNull
   @Override
-  public VirtualFile createChildFile(Object requestor, @NotNull VirtualFile parent, @NotNull String file) throws IOException {
-    final FSItem fsItem = convert(parent);
-    if (fsItem == null) {
-      FSRecords.invalidateCaches();
-      throw new IllegalStateException("cannot find parent directory: " + parent.getPath());
-    }
-    assert fsItem.isDirectory() : "parent is not a directory: " + parent.getPath();
+  public @NotNull VirtualFile createChildFile(Object requestor, @NotNull VirtualFile parent, @NotNull String name) {
+    FSDir fsDir = convertDirectory(parent);
 
-    final FSDir fsDir = (FSDir)fsItem;
+    assert fsDir.findChild(name) == null : "File " + name + " already exists in " + parent.getPath();
+    fsDir.addChild(new FSFile(fsDir, name));
 
-    assert fsDir.findChild(file) == null : "File " + file + " already exists in " + parent.getPath();
-    fsDir.addChild(new FSFile(fsDir, file));
-
-    return new FakeVirtualFile(parent, file);
+    return new FakeVirtualFile(parent, name);
   }
 
-  @NotNull
+  public @Nullable VirtualFile findModelChild(@NotNull VirtualFile parent, @NotNull String name) {
+    FSItem child = convertDirectory(parent).findChild(name);
+    return child == null ? null : new FakeVirtualFile(parent, name);
+  }
+
   @Override
-  public VirtualFile copyFile(Object requestor,
-                              @NotNull VirtualFile file,
-                              @NotNull VirtualFile newParent,
-                              @NotNull String copyName) throws IOException {
+  public @NotNull VirtualFile copyFile(Object requestor,
+                                       @NotNull VirtualFile file,
+                                       @NotNull VirtualFile newParent,
+                                       @NotNull String copyName) throws IOException {
     return VfsUtilCore.copyFile(requestor, file, newParent, copyName);
   }
 
   @Override
-  public void deleteFile(final Object requestor, @NotNull final VirtualFile file) throws IOException {
-    final FSItem fsItem = convert(file);
+  public void deleteFile(Object requestor, @NotNull VirtualFile file) {
+    FSItem fsItem = convert(file);
     if (fsItem == null) {
       FSRecords.invalidateCaches();
       throw new IllegalStateException("failed to delete file " + file.getPath());
@@ -125,108 +113,103 @@ public class TempFileSystem extends LocalFileSystemBase {
   }
 
   @Override
-  public void moveFile(final Object requestor, @NotNull final VirtualFile file, @NotNull final VirtualFile newParent) throws IOException {
-    final FSItem fsItem = convert(file);
+  public void moveFile(Object requestor, @NotNull VirtualFile file, @NotNull VirtualFile newParent) throws IOException {
+    FSItem fsItem = convert(file);
     assert fsItem != null : "failed to move file " + file.getPath();
-    final FSItem newParentItem = convert(newParent);
+    FSItem newParentItem = convert(newParent);
     assert newParentItem != null && newParentItem.isDirectory() : "failed to find move target " + file.getPath();
     FSDir newDir = (FSDir)newParentItem;
     if (newDir.findChild(file.getName()) != null) {
       throw new IOException("Directory already contains a file named " + file.getName());
     }
-
     fsItem.getParent().removeChild(fsItem);
     newDir.addChild(fsItem);
     fsItem.myParent = newDir;
   }
 
   @Override
-  public void renameFile(final Object requestor, @NotNull final VirtualFile file, @NotNull final String newName) throws IOException {
-    final FSItem fsItem = convert(file);
-    assert fsItem != null;
+  public void renameFile(Object requestor, @NotNull VirtualFile file, @NotNull String newName) {
+    FSItem fsItem = convert(file);
+    assert fsItem != null : file;
     fsItem.setName(newName);
   }
 
   @Override
-  @NotNull
-  public String getProtocol() {
-    return "temp";
+  public @NotNull String getProtocol() {
+    return TEMP_PROTOCOL;
   }
 
   @Override
-  public boolean exists(@NotNull final VirtualFile fileOrDirectory) {
+  public boolean exists(@NotNull VirtualFile fileOrDirectory) {
     return convert(fileOrDirectory) != null;
   }
 
   @Override
-  @NotNull
-  public String[] list(@NotNull final VirtualFile file) {
-    final FSItem fsItem = convert(file);
-    assert fsItem != null;
+  public String @NotNull [] list(@NotNull VirtualFile file) {
+    FSItem fsItem = convert(file);
+    assert fsItem != null : file;
     return fsItem.list();
   }
 
   @Override
-  public boolean isDirectory(@NotNull final VirtualFile file) {
+  public @NotNull String getCanonicallyCasedName(@NotNull VirtualFile file) {
+    return file.getName();
+  }
+
+  @Override
+  public boolean isDirectory(@NotNull VirtualFile file) {
     return convert(file) instanceof FSDir;
   }
 
   @Override
-  public long getTimeStamp(@NotNull final VirtualFile file) {
-    final FSItem fsItem = convert(file);
-    assert fsItem != null : "cannot find item for path " + file.getPath();
+  public long getTimeStamp(@NotNull VirtualFile file) {
+    FSItem fsItem = convert(file);
+    assert fsItem != null : file;
     return fsItem.myTimestamp;
   }
 
   @Override
-  public void setTimeStamp(@NotNull final VirtualFile file, final long timeStamp) {
-    final FSItem fsItem = convert(file);
-    assert fsItem != null;
+  public void setTimeStamp(@NotNull VirtualFile file, long timeStamp) {
+    FSItem fsItem = convert(file);
+    assert fsItem != null : file;
     fsItem.myTimestamp = timeStamp > 0 ? timeStamp : LocalTimeCounter.currentTime();
   }
 
   @Override
-  public boolean isWritable(@NotNull final VirtualFile file) {
-    final FSItem fsItem = convert(file);
-    assert fsItem != null;
+  public boolean isWritable(@NotNull VirtualFile file) {
+    FSItem fsItem = convert(file);
+    assert fsItem != null: file;
     return fsItem.myWritable;
   }
 
   @Override
-  public void setWritable(@NotNull final VirtualFile file, final boolean writableFlag) throws IOException {
-    final FSItem fsItem = convert(file);
-    assert fsItem != null;
+  public void setWritable(@NotNull VirtualFile file, boolean writableFlag) {
+    FSItem fsItem = convert(file);
+    assert fsItem != null : file;
     fsItem.myWritable = writableFlag;
   }
 
   @Override
-  @NotNull
-  public byte[] contentsToByteArray(@NotNull final VirtualFile file) throws IOException {
-    final FSItem fsItem = convert(file);
+  public byte @NotNull [] contentsToByteArray(@NotNull VirtualFile file) throws IOException {
+    FSItem fsItem = convert(file);
     if (fsItem == null) throw new FileNotFoundException("Cannot find temp for " + file.getPath());
     assert fsItem instanceof FSFile : fsItem;
     return ((FSFile)fsItem).myContent;
   }
 
   @Override
-  @NotNull
-  public InputStream getInputStream(@NotNull final VirtualFile file) throws IOException {
+  public @NotNull InputStream getInputStream(@NotNull VirtualFile file) throws IOException {
     return new BufferExposingByteArrayInputStream(contentsToByteArray(file));
   }
 
   @Override
-  @NotNull
-  public OutputStream getOutputStream(@NotNull final VirtualFile file,
-                                      final Object requestor,
-                                      final long modStamp,
-                                      final long timeStamp) throws IOException {
+  public @NotNull OutputStream getOutputStream(@NotNull VirtualFile file, Object requestor, long modStamp, long timeStamp) throws IOException {
     return new ByteArrayOutputStream() {
       @Override
       public void close() throws IOException {
         super.close();
-        final FSItem fsItem = convert(file);
-        assert fsItem instanceof FSFile;
-
+        FSItem fsItem = convert(file);
+        assert fsItem instanceof FSFile : fsItem;
         ((FSFile)fsItem).myContent = toByteArray();
         setTimeStamp(file, modStamp);
       }
@@ -234,27 +217,7 @@ public class TempFileSystem extends LocalFileSystemBase {
   }
 
   @Override
-  public void refresh(final boolean asynchronous) {
-    RefreshQueue.getInstance().refresh(asynchronous, true, null, ManagingFS.getInstance().getRoots(this));
-  }
-
-  @Override
-  public VirtualFile findFileByPath(@NotNull @NonNls String path) {
-    return VfsImplUtil.findFileByPath(this, path);
-  }
-
-  @Override
-  public VirtualFile findFileByPathIfCached(@NotNull @NonNls String path) {
-    return VfsImplUtil.findFileByPathIfCached(this, path);
-  }
-
-  @Override
-  public VirtualFile refreshAndFindFileByPath(@NotNull String path) {
-    return VfsImplUtil.refreshAndFindFileByPath(this, path);
-  }
-
-  @Override
-  public long getLength(@NotNull final VirtualFile file) {
+  public long getLength(@NotNull VirtualFile file) {
     try {
       return contentsToByteArray(file).length;
     }
@@ -269,7 +232,7 @@ public class TempFileSystem extends LocalFileSystemBase {
     private long myTimestamp;
     private boolean myWritable;
 
-    protected FSItem(final FSDir parent, final String name) {
+    FSItem(@Nullable FSDir parent, @NotNull String name) {
       myParent = parent;
       myName = name;
       myTimestamp = LocalTimeCounter.currentTime();
@@ -278,21 +241,22 @@ public class TempFileSystem extends LocalFileSystemBase {
 
     public abstract boolean isDirectory();
 
-    @Nullable
-    public FSItem findChild(final String name) {
+    public @Nullable FSItem findChild(@NotNull String name) {
       return null;
     }
 
-    public void setName(final String name) {
+    void setName(@NotNull String name) {
+      myParent.myChildren.remove(myName);
       myName = name;
+      myParent.myChildren.put(name, this);
     }
 
     public FSDir getParent() {
       return myParent;
     }
 
-    public String[] list() {
-      return ArrayUtil.EMPTY_STRING_ARRAY;
+    public String @NotNull [] list() {
+      return ArrayUtilRt.EMPTY_STRING_ARRAY;
     }
 
     @Override
@@ -302,22 +266,15 @@ public class TempFileSystem extends LocalFileSystemBase {
   }
 
   private static class FSDir extends FSItem {
-    private final List<FSItem> myChildren = new ArrayList<FSItem>();
+    private final Map<String, FSItem> myChildren = new LinkedHashMap<>();
 
-    public FSDir(final FSDir parent, final String name) {
+    FSDir(@Nullable FSDir parent, @NotNull String name) {
       super(parent, name);
     }
 
     @Override
-    @Nullable
-    public FSItem findChild(final String name) {
-      for (FSItem child : myChildren) {
-        if (name.equals(child.myName)) {
-          return child;
-        }
-      }
-
-      return null;
+    public @Nullable FSItem findChild(@NotNull String name) {
+      return myChildren.get(name);
     }
 
     @Override
@@ -325,33 +282,29 @@ public class TempFileSystem extends LocalFileSystemBase {
       return true;
     }
 
-    public void addChild(final FSItem item) {
-      myChildren.add(item);
+    void addChild(@NotNull FSItem item) {
+      myChildren.put(item.myName, item);
     }
 
-    public void removeChild(final FSItem fsItem) {
+    void removeChild(@NotNull FSItem fsItem) {
       if (fsItem.myName.equals("src") && getParent() == null) {
         throw new RuntimeException("removing src directory");
       }
-      myChildren.remove(fsItem);
+      myChildren.remove(fsItem.myName);
     }
 
     @Override
-    public String[] list() {
-      String[] names = ArrayUtil.newStringArray(myChildren.size());
-      for (int i = 0; i < names.length; i++) {
-        names[i] = myChildren.get(i).myName;
-      }
-      return names;
+    public String @NotNull [] list() {
+      return ArrayUtilRt.toStringArray(myChildren.keySet());
     }
   }
 
   private static class FSFile extends FSItem {
-    public FSFile(final FSDir parent, final String name) {
+    FSFile(@NotNull FSDir parent, @NotNull String name) {
       super(parent, name);
     }
 
-    private byte[] myContent = new byte[0];
+    private byte[] myContent = ArrayUtil.EMPTY_BYTE_ARRAY;
 
     @Override
     public boolean isDirectory() {
@@ -360,35 +313,23 @@ public class TempFileSystem extends LocalFileSystemBase {
   }
 
   @Override
-  public FileAttributes getAttributes(@NotNull final VirtualFile file) {
-    final FSItem item = convert(file);
+  public FileAttributes getAttributes(@NotNull VirtualFile file) {
+    FSItem item = convert(file);
     if (item == null) return null;
-    final long length = item instanceof FSFile ? ((FSFile)item).myContent.length : 0;
-    return new FileAttributes(item.isDirectory(), false, false, false, length, item.myTimestamp, item.myWritable);
+    long length = item instanceof FSFile ? ((FSFile)item).myContent.length : 0;
+    // let's make TempFileSystem case-sensitive
+    return new FileAttributes(item.isDirectory(), false, false, false, length, item.myTimestamp, item.myWritable, FileAttributes.CaseSensitivity.SENSITIVE);
   }
 
-  @NotNull
   @Override
-  public Set<WatchRequest> addRootsToWatch(@NotNull Collection<String> rootPaths, boolean watchRecursively) {
+  public @NotNull Set<WatchRequest> replaceWatchedRoots(@NotNull Collection<WatchRequest> watchRequests,
+                                                        @Nullable Collection<String> recursiveRoots,
+                                                        @Nullable Collection<String> flatRoots) {
     throw new IncorrectOperationException();
   }
 
   @Override
-  public void removeWatchedRoots(@NotNull Collection<WatchRequest> watchRequests) {
-    throw new IncorrectOperationException();
-  }
-
-  @NotNull
-  @Override
-  public Set<WatchRequest> replaceWatchedRoots(@NotNull Collection<WatchRequest> watchRequests,
-                                               @Nullable Collection<String> recursiveRoots,
-                                               @Nullable Collection<String> flatRoots) {
-    throw new IncorrectOperationException();
-  }
-
-  @Nullable
-  @Override
-  protected String normalize(@NotNull String path) {
+  protected @NotNull String normalize(@NotNull String path) {
     return path;
   }
 }

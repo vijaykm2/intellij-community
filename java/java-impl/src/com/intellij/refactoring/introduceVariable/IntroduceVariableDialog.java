@@ -1,28 +1,17 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.introduceVariable;
 
-import com.intellij.openapi.help.HelpManager;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
-import com.intellij.psi.JavaPsiFacade;
+import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.PsiExpression;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiNameHelper;
 import com.intellij.psi.PsiType;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.codeStyle.SuggestedNameInfo;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.JavaRefactoringSettings;
@@ -30,7 +19,7 @@ import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.ui.*;
 import com.intellij.ui.NonFocusableCheckBox;
 import com.intellij.ui.StateRestoringCheckBox;
-import org.jetbrains.annotations.NotNull;
+import com.intellij.util.ui.JBUI;
 
 import javax.swing.*;
 import java.awt.*;
@@ -39,42 +28,45 @@ import java.awt.event.ItemListener;
 
 class IntroduceVariableDialog extends DialogWrapper implements IntroduceVariableSettings {
   private final Project myProject;
+  private final PsiFile myFile;
   private final PsiExpression myExpression;
   private final int myOccurrencesCount;
-  private final boolean myAnyLValueOccurences;
+  private final boolean myAnyLValueOccurrences;
   private final boolean myDeclareFinalIfAll;
   private final TypeSelectorManager myTypeSelectorManager;
   private final IntroduceVariableHandler.Validator myValidator;
 
   private NameSuggestionsField myNameField;
   private JCheckBox myCbReplaceAll;
-  private StateRestoringCheckBox myCbReplaceWrite = null;
+  private StateRestoringCheckBox myCbReplaceWrite;
   private JCheckBox myCbFinal;
   private boolean myCbFinalState;
+  private JCheckBox myCbVarType;
   private TypeSelector myTypeSelector;
   private NameSuggestionsManager myNameSuggestionsManager;
-  private static final String REFACTORING_NAME = RefactoringBundle.message("introduce.variable.title");
   private NameSuggestionsField.DataChanged myNameChangedListener;
   private ItemListener myReplaceAllListener;
   private ItemListener myFinalListener;
 
-  public IntroduceVariableDialog(Project project,
-                                 PsiExpression expression, int occurrencesCount, boolean anyLValueOccurences,
+  IntroduceVariableDialog(Project project,
+                                 PsiExpression expression, int occurrencesCount, boolean anyLValueOccurrences,
                                  boolean declareFinalIfAll, TypeSelectorManager typeSelectorManager,
                                  IntroduceVariableHandler.Validator validator) {
     super(project, true);
     myProject = project;
     myExpression = expression;
     myOccurrencesCount = occurrencesCount;
-    myAnyLValueOccurences = anyLValueOccurences;
+    myAnyLValueOccurrences = anyLValueOccurrences;
     myDeclareFinalIfAll = declareFinalIfAll;
     myTypeSelectorManager = typeSelectorManager;
     myValidator = validator;
+    myFile = expression.getContainingFile();
 
-    setTitle(REFACTORING_NAME);
+    setTitle(getRefactoringName());
     init();
   }
 
+  @Override
   protected void dispose() {
     myNameField.removeDataChangedListener(myNameChangedListener);
     if (myCbReplaceAll != null) {
@@ -84,31 +76,31 @@ class IntroduceVariableDialog extends DialogWrapper implements IntroduceVariable
     super.dispose();
   }
 
-  @NotNull
-  protected Action[] createActions() {
-    return new Action[]{getOKAction(), getCancelAction(), getHelpAction()};
-  }
-
+  @Override
   protected void init() {
     super.init();
     updateOkStatus();
   }
 
-  public String getEnteredName() {
+  @Override
+  public @NlsSafe String getEnteredName() {
     return myNameField.getEnteredName();
   }
 
+  @Override
   public boolean isReplaceAllOccurrences() {
     if (myOccurrencesCount <= 1) return false;
     return myCbReplaceAll.isSelected();
   }
 
+  @Override
   public boolean isDeclareFinal() {
     return myCbFinal.isSelected();
   }
 
+  @Override
   public boolean isReplaceLValues() {
-    if (myOccurrencesCount <= 1 || !myAnyLValueOccurences || myCbReplaceWrite == null) {
+    if (myOccurrencesCount <= 1 || !myAnyLValueOccurrences || myCbReplaceWrite == null) {
       return true;
     }
     else {
@@ -116,23 +108,26 @@ class IntroduceVariableDialog extends DialogWrapper implements IntroduceVariable
     }
   }
 
+  @Override
+  public boolean isDeclareVarType() {
+    return myCbVarType.isVisible() && myCbVarType.isEnabled() && myCbVarType.isSelected();
+  }
+
+  @Override
   public PsiType getSelectedType() {
     return myTypeSelector.getSelectedType();
   }
 
+  @Override
   protected JComponent createNorthPanel() {
     myNameField = new NameSuggestionsField(myProject);
-    myNameChangedListener = new NameSuggestionsField.DataChanged() {
-      public void dataChanged() {
-        updateOkStatus();
-      }
-    };
+    myNameChangedListener = () -> updateOkStatus();
     myNameField.addDataChangedListener(myNameChangedListener);
 
     JPanel panel = new JPanel(new GridBagLayout());
     GridBagConstraints gbConstraints = new GridBagConstraints();
 
-    gbConstraints.insets = new Insets(4, 4, 4, 4);
+    gbConstraints.insets = JBUI.insets(4);
     gbConstraints.anchor = GridBagConstraints.WEST;
     gbConstraints.fill = GridBagConstraints.BOTH;
 
@@ -141,7 +136,7 @@ class IntroduceVariableDialog extends DialogWrapper implements IntroduceVariable
     gbConstraints.weighty = 0;
     gbConstraints.gridx = 0;
     gbConstraints.gridy = 0;
-    JLabel type = new JLabel(RefactoringBundle.message("variable.of.type"));
+    JLabel type = new JLabel(JavaRefactoringBundle.message("variable.of.type"));
     panel.add(type, gbConstraints);
 
     gbConstraints.gridx++;
@@ -165,6 +160,7 @@ class IntroduceVariableDialog extends DialogWrapper implements IntroduceVariable
 
     myNameSuggestionsManager = new NameSuggestionsManager(myTypeSelector, myNameField,
             new NameSuggestionsGenerator() {
+              @Override
               public SuggestedNameInfo getSuggestedNameInfo(PsiType type) {
                 return IntroduceVariableBase.getSuggestedName(type, myExpression);
               }
@@ -174,6 +170,7 @@ class IntroduceVariableDialog extends DialogWrapper implements IntroduceVariable
     return panel;
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     JPanel panel = new JPanel(new GridBagLayout());
     GridBagConstraints gbConstraints = new GridBagConstraints();
@@ -183,7 +180,7 @@ class IntroduceVariableDialog extends DialogWrapper implements IntroduceVariable
     gbConstraints.gridwidth = 1;
     gbConstraints.gridx = 0;
     gbConstraints.gridy = 0;
-    gbConstraints.insets = new Insets(0, 0, 0, 0);
+    gbConstraints.insets = JBUI.emptyInsets();
 
     if (myOccurrencesCount > 1) {
       myCbReplaceAll = new NonFocusableCheckBox();
@@ -191,16 +188,17 @@ class IntroduceVariableDialog extends DialogWrapper implements IntroduceVariable
 
       panel.add(myCbReplaceAll, gbConstraints);
       myReplaceAllListener = new ItemListener() {
+        @Override
         public void itemStateChanged(ItemEvent e) {
           updateControls();
         }
       };
       myCbReplaceAll.addItemListener(myReplaceAllListener);
 
-      if (myAnyLValueOccurences) {
+      if (myAnyLValueOccurrences) {
         myCbReplaceWrite = new StateRestoringCheckBox();
-        myCbReplaceWrite.setText(RefactoringBundle.message("replace.write.access.occurrences"));
-        gbConstraints.insets = new Insets(0, 8, 0, 0);
+        myCbReplaceWrite.setText(JavaRefactoringBundle.message("replace.write.access.occurrences"));
+        gbConstraints.insets = JBUI.insetsLeft(8);
         gbConstraints.gridy++;
         panel.add(myCbReplaceWrite, gbConstraints);
         myCbReplaceWrite.addItemListener(myReplaceAllListener);
@@ -208,16 +206,17 @@ class IntroduceVariableDialog extends DialogWrapper implements IntroduceVariable
     }
 
     myCbFinal = new NonFocusableCheckBox();
-    myCbFinal.setText(RefactoringBundle.message("declare.final"));
+    myCbFinal.setText(JavaRefactoringBundle.message("declare.final"));
     final Boolean createFinals = JavaRefactoringSettings.getInstance().INTRODUCE_LOCAL_CREATE_FINALS;
     myCbFinalState = createFinals == null ?
-                     CodeStyleSettingsManager.getSettings(myProject).GENERATE_FINAL_LOCALS :
+                     JavaCodeStyleSettings.getInstance(myFile).GENERATE_FINAL_LOCALS :
                      createFinals.booleanValue();
 
-    gbConstraints.insets = new Insets(0, 0, 0, 0);
+    gbConstraints.insets = JBUI.emptyInsets();
     gbConstraints.gridy++;
     panel.add(myCbFinal, gbConstraints);
     myFinalListener = new ItemListener() {
+      @Override
       public void itemStateChanged(ItemEvent e) {
         if (myCbFinal.isEnabled()) {
           myCbFinalState = myCbFinal.isSelected();
@@ -225,6 +224,24 @@ class IntroduceVariableDialog extends DialogWrapper implements IntroduceVariable
       }
     };
     myCbFinal.addItemListener(myFinalListener);
+
+    myCbVarType = new NonFocusableCheckBox(JavaRefactoringBundle.message("declare.var.type"));
+    boolean toVarType = IntroduceVariableBase.canBeExtractedWithoutExplicitType(myExpression);
+    if (toVarType) {
+      myTypeSelector.addItemListener(new ItemListener() {
+        @Override
+        public void itemStateChanged(ItemEvent e) {
+          if (e.getStateChange() == ItemEvent.SELECTED) {
+            myCbVarType.setEnabled(Comparing.equal(myTypeSelector.getSelectedType(), myExpression.getType()));
+          }
+        }
+      });
+    }
+    myCbVarType.setVisible(toVarType);
+    myCbVarType.setSelected(IntroduceVariableBase.createVarType());
+
+    gbConstraints.gridy++;
+    panel.add(myCbVarType, gbConstraints);
 
     updateControls();
 
@@ -257,14 +274,22 @@ class IntroduceVariableDialog extends DialogWrapper implements IntroduceVariable
       myCbFinal.setEnabled(true);
       myCbFinal.setSelected(myCbFinalState);
     }
+
+    if (myCbVarType != null) {
+      myCbVarType.setEnabled(Comparing.equal(myTypeSelector.getSelectedType(), myExpression.getType()));
+    }
   }
 
+  @Override
   protected void doOKAction() {
     if (!myValidator.isOK(this)) return;
     myNameSuggestionsManager.nameSelected();
     myTypeSelectorManager.typeSelected(getSelectedType());
     if (myCbFinal.isEnabled()) {
       JavaRefactoringSettings.getInstance().INTRODUCE_LOCAL_CREATE_FINALS = myCbFinal.isSelected();
+    }
+    if (myCbVarType.isVisible() && myCbVarType.isEnabled()) {
+      JavaRefactoringSettings.getInstance().INTRODUCE_LOCAL_CREATE_VAR_TYPE = myCbVarType.isSelected();
     }
     super.doOKAction();
   }
@@ -274,11 +299,17 @@ class IntroduceVariableDialog extends DialogWrapper implements IntroduceVariable
     setOKActionEnabled(PsiNameHelper.getInstance(myProject).isIdentifier(text));
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return myNameField.getFocusableComponent();
   }
 
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(HelpID.INTRODUCE_VARIABLE);
+  @Override
+  protected String getHelpId() {
+    return HelpID.INTRODUCE_VARIABLE;
+  }
+
+  private static @NlsContexts.DialogTitle String getRefactoringName() {
+    return RefactoringBundle.message("introduce.variable.title");
   }
 }

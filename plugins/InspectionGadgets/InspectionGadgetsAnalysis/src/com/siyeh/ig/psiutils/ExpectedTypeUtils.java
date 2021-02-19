@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,20 +15,25 @@
  */
 package com.siyeh.ig.psiutils;
 
+import com.intellij.codeInsight.ExceptionUtil;
+import com.intellij.lang.java.parser.ExpressionParser;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
+import com.intellij.psi.infos.MethodCandidateInfo;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiTypesUtil;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashSet;
 import java.util.Set;
 
-public class ExpectedTypeUtils {
+public final class ExpectedTypeUtils {
 
   private ExpectedTypeUtils() {}
 
@@ -54,16 +59,11 @@ public class ExpectedTypeUtils {
 
   private static class ExpectedTypeVisitor extends JavaElementVisitor {
 
-    /**
-     * @noinspection StaticCollection
-     */
-    private static final Set<IElementType> arithmeticOps = new THashSet<IElementType>(5);
+    private static final Set<IElementType> arithmeticOps = new THashSet<>(5);
 
-    private static final Set<IElementType> booleanOps = new THashSet<IElementType>(5);
+    private static final Set<IElementType> booleanOps = new THashSet<>(5);
 
-    private static final Set<IElementType> shiftOps = new THashSet<IElementType>(3);
-
-    private static final Set<IElementType> operatorAssignmentOps = new THashSet<IElementType>(11);
+    private static final Set<IElementType> operatorAssignmentOps = new THashSet<>(11);
 
     static {
       arithmeticOps.add(JavaTokenType.PLUS);
@@ -77,10 +77,6 @@ public class ExpectedTypeUtils {
       booleanOps.add(JavaTokenType.XOR);
       booleanOps.add(JavaTokenType.OROR);
       booleanOps.add(JavaTokenType.OR);
-
-      shiftOps.add(JavaTokenType.LTLT);
-      shiftOps.add(JavaTokenType.GTGT);
-      shiftOps.add(JavaTokenType.GTGTGT);
 
       operatorAssignmentOps.add(JavaTokenType.PLUSEQ);
       operatorAssignmentOps.add(JavaTokenType.MINUSEQ);
@@ -120,7 +116,10 @@ public class ExpectedTypeUtils {
 
     @Override
     public void visitVariable(@NotNull PsiVariable variable) {
-      expectedType = variable.getType();
+      final PsiTypeElement typeElement = variable.getTypeElement();
+      if (typeElement != null && !typeElement.isInferredType()) {
+        expectedType = variable.getType();
+      }
     }
 
     @Override
@@ -173,7 +172,7 @@ public class ExpectedTypeUtils {
         expectedType = type;
       }
       else if (isShiftOperation(tokenType)) {
-        expectedType = unaryNumericPromotion(wrappedExpressionType);
+        expectedType = TypeUtils.unaryNumericPromotion(wrappedExpressionType);
       }
       else if (ComparisonUtils.isEqualityComparison(polyadicExpression)) {
         final PsiExpression operand1 = operands[0];
@@ -229,32 +228,8 @@ public class ExpectedTypeUtils {
       return null;
     }
 
-    /**
-     * JLS 5.6.1 Unary Numeric Promotion
-     */
-    private static PsiType unaryNumericPromotion(PsiType type) {
-      if (type == null) {
-        return null;
-      }
-      if (type.equalsToText("java.lang.Byte") || type.equalsToText("java.lang.Short") ||
-          type.equalsToText("java.lang.Character") || type.equalsToText("java.lang.Integer") ||
-          type.equals(PsiType.BYTE) || type.equals(PsiType.SHORT) || type.equals(PsiType.CHAR)) {
-        return PsiType.INT;
-      }
-      else if (type.equalsToText("java.lang.Long")) {
-        return PsiType.LONG;
-      }
-      else if (type.equalsToText("java.lang.Float")) {
-        return PsiType.FLOAT;
-      }
-      else if (type.equalsToText("java.lang.Double")) {
-        return PsiType.DOUBLE;
-      }
-      return type;
-    }
-
     @Override
-    public void visitPrefixExpression(@NotNull PsiPrefixExpression expression) {
+    public void visitUnaryExpression(@NotNull PsiUnaryExpression expression) {
       final PsiType type = expression.getType();
       if (type instanceof PsiPrimitiveType) {
         expectedType = type;
@@ -265,19 +240,17 @@ public class ExpectedTypeUtils {
     }
 
     @Override
-    public void visitPostfixExpression(@NotNull PsiPostfixExpression expression) {
-      final PsiType type = expression.getType();
-      if (type instanceof PsiPrimitiveType) {
-        expectedType = type;
-      }
-      else {
-        expectedType = PsiPrimitiveType.getUnboxedType(type);
-      }
+    public void visitSwitchExpression(PsiSwitchExpression expression) {
+      visitSwitchBlock(expression);
     }
 
     @Override
     public void visitSwitchStatement(PsiSwitchStatement statement) {
-      final PsiExpression expression = statement.getExpression();
+      visitSwitchBlock(statement);
+    }
+
+    private void visitSwitchBlock(PsiSwitchBlock switchBlock) {
+      final PsiExpression expression = switchBlock.getExpression();
       if (expression == null) {
         return;
       }
@@ -288,6 +261,29 @@ public class ExpectedTypeUtils {
       }
       else {
         expectedType = type;
+      }
+    }
+
+    @Override
+    public void visitExpressionStatement(PsiExpressionStatement statement) {
+      final PsiElement parent = statement.getParent();
+      if (!(parent instanceof PsiSwitchLabeledRuleStatement)) {
+        return;
+      }
+      final PsiSwitchLabeledRuleStatement switchLabeledRuleStatement = (PsiSwitchLabeledRuleStatement)parent;
+      final PsiSwitchBlock block = switchLabeledRuleStatement.getEnclosingSwitchBlock();
+      if (!(block instanceof PsiSwitchExpression)) {
+        return;
+      }
+      final PsiSwitchExpression switchExpression = (PsiSwitchExpression)block;
+      expectedType = switchExpression.getType();
+    }
+
+    @Override
+    public void visitYieldStatement(PsiYieldStatement statement) {
+      PsiSwitchExpression expression = statement.findEnclosingExpression();
+      if (expression != null) {
+        expectedType = expression.getType();
       }
     }
 
@@ -352,7 +348,7 @@ public class ExpectedTypeUtils {
       final IElementType tokenType = assignment.getOperationTokenType();
       final PsiExpression lExpression = assignment.getLExpression();
       final PsiType lType = lExpression.getType();
-      if (rExpression != null && wrappedExpression.equals(rExpression)) {
+      if (wrappedExpression.equals(rExpression)) {
         if (lType == null) {
           expectedType = null;
         }
@@ -400,13 +396,7 @@ public class ExpectedTypeUtils {
 
     @Override
     public void visitReturnStatement(@NotNull PsiReturnStatement returnStatement) {
-      final PsiElement method = PsiTreeUtil.getParentOfType(returnStatement, PsiMethod.class, PsiLambdaExpression.class);
-      if (method instanceof PsiMethod) {
-        expectedType = ((PsiMethod)method).getReturnType();
-      }
-      else if (method instanceof PsiLambdaExpression) {
-        expectedType = LambdaUtil.getFunctionalInterfaceReturnType((PsiLambdaExpression)method);
-      }
+      expectedType = PsiTypesUtil.getMethodReturnType(returnStatement);
     }
 
     @Override
@@ -453,6 +443,7 @@ public class ExpectedTypeUtils {
       for (PsiExpression arrayDimension : arrayDimensions) {
         if (wrappedExpression.equals(arrayDimension)) {
           expectedType = PsiType.INT;
+          break;
         }
       }
     }
@@ -460,8 +451,8 @@ public class ExpectedTypeUtils {
     @NotNull
     private static JavaResolveResult findCalledMethod(PsiExpressionList expressionList) {
       final PsiElement parent = expressionList.getParent();
-      if (parent instanceof PsiCallExpression) {
-        final PsiCallExpression call = (PsiCallExpression)parent;
+      if (parent instanceof PsiCall) {
+        final PsiCall call = (PsiCall)parent;
         return call.resolveMethodGenerics();
       }
       else if (parent instanceof PsiAnonymousClass) {
@@ -511,6 +502,10 @@ public class ExpectedTypeUtils {
             returnType = null;
           }
           final PsiMethod method = (PsiMethod)element;
+          final PsiClass methodContainingClass = method.getContainingClass();
+          if (methodContainingClass == null) {
+            return;
+          }
           final PsiMethod superMethod = findDeepestVisibleSuperMethod(method, returnType, referenceExpression);
           final PsiClass aClass;
           if (superMethod != null) {
@@ -518,13 +513,10 @@ public class ExpectedTypeUtils {
             if (aClass == null) {
               return;
             }
-            substitutor = TypeConversionUtil.getSuperClassSubstitutor(aClass, method.getContainingClass(), substitutor);
+            substitutor = TypeConversionUtil.getSuperClassSubstitutor(aClass, methodContainingClass, substitutor);
           }
           else {
-            aClass = method.getContainingClass();
-            if (aClass == null) {
-              return;
-            }
+            aClass = methodContainingClass;
           }
           final PsiElementFactory factory = psiFacade.getElementFactory();
           expectedType = factory.createType(aClass, substitutor);
@@ -550,9 +542,12 @@ public class ExpectedTypeUtils {
       if (aClass == null) {
         return null;
       }
+      final PsiReferenceList throwsList = method.getThrowsList();
+      final HashSet<PsiClassType> thrownTypes = ContainerUtil.newHashSet(throwsList.getReferencedTypes());
       final PsiMethod[] superMethods = aClass.findMethodsBySignature(method, true);
       PsiMethod topSuper = null;
       PsiClass topSuperContainingClass = null;
+      methodLoop:
       for (PsiMethod superMethod : superMethods) {
         final PsiClass superClass = superMethod.getContainingClass();
         if (superClass == null) {
@@ -575,6 +570,13 @@ public class ExpectedTypeUtils {
         }
         if (topSuper != null && superClass.isInheritor(topSuperContainingClass, true)) {
           continue;
+        }
+        final PsiReferenceList superThrowsList = superMethod.getThrowsList();
+        final PsiClassType[] superThrownTypes = superThrowsList.getReferencedTypes();
+        for (PsiClassType superThrownType : superThrownTypes) {
+          if (!ExceptionUtil.isUncheckedException(superThrownType) && !thrownTypes.contains(superThrownType)) {
+            continue methodLoop;
+          }
         }
         topSuper = superMethod;
         topSuperContainingClass = superClass;
@@ -612,7 +614,7 @@ public class ExpectedTypeUtils {
     }
 
     private static boolean isShiftOperation(@NotNull IElementType sign) {
-      return shiftOps.contains(sign);
+      return ExpressionParser.SHIFT_OPS.contains(sign);
     }
 
     private static boolean isOperatorAssignmentOperation(@NotNull IElementType sign) {
@@ -625,38 +627,26 @@ public class ExpectedTypeUtils {
 
     @Nullable
     private static PsiType getTypeOfParameter(@NotNull JavaResolveResult result, int parameterPosition) {
+      if (parameterPosition < 0 ) {
+        return null;
+      }
       final PsiMethod method = (PsiMethod)result.getElement();
       if (method == null) {
         return null;
       }
-      final PsiSubstitutor substitutor = result.getSubstitutor();
       final PsiParameterList parameterList = method.getParameterList();
-      if (parameterPosition < 0) {
+      final PsiParameter[] parameters = parameterList.getParameters();
+      if (parameters.length == 0) {
         return null;
       }
-      final int parametersCount = parameterList.getParametersCount();
-      final PsiParameter[] parameters;
-      if (parameterPosition >= parametersCount) {
-        final int lastParameterPosition = parametersCount - 1;
-        if (lastParameterPosition < 0) {
-          return null;
-        }
-        parameters = parameterList.getParameters();
-        final PsiParameter lastParameter = parameters[lastParameterPosition];
-        if (lastParameter.isVarArgs()) {
-          final PsiArrayType arrayType = (PsiArrayType)lastParameter.getType();
-          return substitutor.substitute(arrayType.getComponentType());
-        }
+      final boolean isVarargs = result instanceof MethodCandidateInfo &&
+                                ((MethodCandidateInfo)result).getApplicabilityLevel() == MethodCandidateInfo.ApplicabilityLevel.VARARGS;
+      final PsiType parameterType = PsiTypesUtil.getParameterType(parameters, parameterPosition, isVarargs);
+      final PsiSubstitutor substitutor = result.getSubstitutor();
+      final PsiType type = GenericsUtil.getVariableTypeByExpressionType(substitutor.substitute(parameterType));
+      if (type == null) {
         return null;
       }
-      parameters = parameterList.getParameters();
-      final PsiParameter parameter = parameters[parameterPosition];
-      final PsiType parameterType = parameter.getType();
-      if (parameter.isVarArgs()) {
-        final PsiArrayType arrayType = (PsiArrayType)parameterType;
-        return substitutor.substitute(arrayType.getComponentType());
-      }
-      final PsiType type = substitutor.substitute(parameterType);
       final TypeStringCreator typeStringCreator = new TypeStringCreator();
       type.accept(typeStringCreator);
       if (typeStringCreator.isModified()) {
@@ -684,13 +674,13 @@ public class ExpectedTypeUtils {
       private boolean modified = false;
 
       @Override
-      public Object visitType(PsiType type) {
+      public Object visitType(@NotNull PsiType type) {
         typeString.append(type.getCanonicalText());
         return super.visitType(type);
       }
 
       @Override
-      public Object visitWildcardType(PsiWildcardType wildcardType) {
+      public Object visitWildcardType(@NotNull PsiWildcardType wildcardType) {
         if (wildcardType.isExtends()) {
           final PsiType extendsBound = wildcardType.getExtendsBound();
           if (extendsBound instanceof PsiClassType) {
@@ -706,7 +696,7 @@ public class ExpectedTypeUtils {
       }
 
       @Override
-      public Object visitClassType(PsiClassType classType) {
+      public Object visitClassType(@NotNull PsiClassType classType) {
         final PsiClassType rawType = classType.rawType();
         typeString.append(rawType.getCanonicalText());
         final PsiType[] parameterTypes = classType.getParameters();

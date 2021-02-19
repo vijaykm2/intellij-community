@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.impl.http;
 
 import com.intellij.openapi.Disposable;
@@ -21,25 +7,22 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.ex.http.HttpVirtualFileListener;
 import com.intellij.util.EventDispatcher;
 import com.intellij.util.Url;
-import gnu.trove.THashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * @author nik
- */
-public class RemoteFileManagerImpl extends RemoteFileManager implements Disposable {
+public final class RemoteFileManagerImpl extends RemoteFileManager implements Disposable {
   private final LocalFileStorage myStorage;
 
-  private final Map<Url, HttpVirtualFileImpl> remoteFiles = new THashMap<Url, HttpVirtualFileImpl>();
-  private final Map<Url, HttpVirtualFileImpl> remoteDirectories = new THashMap<Url, HttpVirtualFileImpl>();
+  private final Map<Url, HttpVirtualFileImpl> remoteFiles = new HashMap<>();
+  private final Map<Url, HttpVirtualFileImpl> remoteDirectories = new HashMap<>();
 
   private final EventDispatcher<HttpVirtualFileListener> myDispatcher = EventDispatcher.create(HttpVirtualFileListener.class);
-  private final List<RemoteContentProvider> myProviders = new ArrayList<RemoteContentProvider>();
+  private final List<RemoteContentProvider> myProviders = new ArrayList<>();
   private final DefaultRemoteContentProvider myDefaultRemoteContentProvider;
 
   public RemoteFileManagerImpl() {
@@ -106,14 +89,8 @@ public class RemoteFileManagerImpl extends RemoteFileManager implements Disposab
   }
 
   @Override
-  public void addFileListener(@NotNull final HttpVirtualFileListener listener, @NotNull final Disposable parentDisposable) {
-    addFileListener(listener);
-    Disposer.register(parentDisposable, new Disposable() {
-      @Override
-      public void dispose() {
-        removeFileListener(listener);
-      }
-    });
+  public void addFileListener(@NotNull HttpVirtualFileListener listener, @NotNull Disposable parentDisposable) {
+    myDispatcher.addListener(listener, parentDisposable);
   }
 
   @Override
@@ -137,12 +114,12 @@ public class RemoteFileManagerImpl extends RemoteFileManager implements Disposab
   private class MyDownloadingListener extends FileDownloadingAdapter {
     private final HttpVirtualFileImpl myFile;
 
-    public MyDownloadingListener(final HttpVirtualFileImpl file) {
+    MyDownloadingListener(final HttpVirtualFileImpl file) {
       myFile = file;
     }
 
     @Override
-    public void fileDownloaded(final VirtualFile localFile) {
+    public void fileDownloaded(@NotNull final VirtualFile localFile) {
       fireFileDownloaded(myFile);
     }
   }

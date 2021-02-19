@@ -1,34 +1,18 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.facet.impl.invalid;
 
 import com.intellij.facet.ui.FacetEditorContext;
 import com.intellij.facet.ui.FacetEditorTab;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.ui.ex.MultiLineLabel;
+import com.intellij.openapi.util.NlsContexts;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
-/**
- * @author nik
- */
 public class InvalidFacetEditor extends FacetEditorTab {
-  private final String myErrorMessage;
+  private final @NlsContexts.DialogMessage String myErrorMessage;
   private JPanel myMainPanel;
   private MultiLineLabel myDescriptionLabel;
   private JCheckBox myIgnoreCheckBox;
@@ -36,7 +20,7 @@ public class InvalidFacetEditor extends FacetEditorTab {
   private final InvalidFacetManager myInvalidFacetManager;
   private final InvalidFacet myFacet;
 
-  public InvalidFacetEditor(FacetEditorContext context, String errorMessage) {
+  public InvalidFacetEditor(FacetEditorContext context, @NlsContexts.DialogMessage String errorMessage) {
     myErrorMessage = errorMessage;
     myFacet = (InvalidFacet)context.getFacet();
     myInvalidFacetManager = InvalidFacetManager.getInstance(context.getProject());
@@ -55,7 +39,7 @@ public class InvalidFacetEditor extends FacetEditorTab {
   @NotNull
   @Override
   public JComponent createComponent() {
-    myIconLabel.setIcon(AllIcons.RunConfigurations.ConfigurationWarning);
+    myIconLabel.setIcon(AllIcons.General.BalloonError);
     myDescriptionLabel.setText(myErrorMessage);
     return myMainPanel;
   }
@@ -73,10 +57,5 @@ public class InvalidFacetEditor extends FacetEditorTab {
   @Override
   public void apply() {
     myInvalidFacetManager.setIgnored(myFacet, myIgnoreCheckBox.isSelected());
-
-  }
-
-  @Override
-  public void disposeUIResources() {
   }
 }

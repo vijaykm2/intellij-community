@@ -1,26 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.ui;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.ui.components.panels.NonOpaquePanel;
 import com.intellij.ui.components.panels.Wrapper;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.xml.util.XmlStringUtil;
@@ -30,7 +15,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
-import java.awt.geom.GeneralPath;
 import java.util.ArrayList;
 
 public class DetailsComponent {
@@ -61,61 +45,7 @@ public class DetailsComponent {
   public DetailsComponent(boolean detailsEnabled, boolean paintBorder) {
     myDetailsEnabled = detailsEnabled;
     myPaintBorder = paintBorder;
-    myComponent = new JPanel(new BorderLayout()) {
-      @Override
-      protected void paintComponent(final Graphics g) {
-        if (NullableComponent.Check.isNull(myContent) || !myDetailsEnabled) return;
-
-        GraphicsConfig c = null;
-        Insets insets = null;
-        final int leftX;
-        final int rightX;
-        final int rightY;
-        if (!Registry.is("ide.new.settings.dialog")) {
-          c = new GraphicsConfig(g);
-          c.setAntialiasing(true);
-
-          insets = getInsets();
-          if (insets == null) {
-            insets = new Insets(0, 0, 0, 0);
-          }
-
-          g.setColor(UIUtil.getFocusedFillColor());
-
-          final Rectangle banner = myBanner.getBounds();
-          final GeneralPath header = new GeneralPath();
-
-          leftX = insets.left;
-          final int leftY = insets.top;
-          rightX = insets.left + getWidth() - 1 - insets.right;
-          rightY = banner.y + banner.height;
-
-          header.moveTo(leftX, rightY);
-          int arc = 8;
-          header.lineTo(leftX, leftY + arc);
-          header.quadTo(leftX, leftY, leftX + arc, leftY);
-          header.lineTo(rightX - arc, leftY);
-          header.quadTo(rightX, leftY, rightX, leftY + arc);
-          header.lineTo(rightX, rightY);
-          header.closePath();
-
-          c.getG().fill(header);
-
-          g.setColor(UIUtil.getFocusedBoundsColor());
-
-          c.getG().draw(header);
-
-
-          if (myPaintBorder) {
-            final int down = getHeight() - insets.top - insets.bottom - 1;
-            g.drawLine(leftX, rightY, leftX, down);
-            g.drawLine(rightX, rightY, rightX, down);
-            g.drawLine(leftX, down, rightX, down);
-          }
-          c.restore();
-        }
-      }
-    };
+    myComponent = new NonOpaquePanel(new BorderLayout());
 
     myComponent.setOpaque(false);
     myContentGutter.setOpaque(false);
@@ -192,20 +122,20 @@ public class DetailsComponent {
     myBannerLabel.forProject(project);
   }
 
-  public void setPrefix(@Nullable String... prefix) {
+  public void setPrefix(String @Nullable ... prefix) {
     myPrefix = prefix;
     if (myText != null) {
       setText(myText);
     }
   }
 
-  public void setText(@Nullable String... text) {
+  public void setText(String @Nullable ... text) {
     myText = text;
     update();
   }
 
   public void update() {
-    ArrayList<String> strings = new ArrayList<String>();
+    ArrayList<String> strings = new ArrayList<>();
     if (myPrefix != null) {
       ContainerUtil.addAll(strings, myPrefix);
     }
@@ -214,13 +144,13 @@ public class DetailsComponent {
       ContainerUtil.addAll(strings, myText);
     }
 
-    myBannerText = ArrayUtil.toStringArray(strings);
+    myBannerText = ArrayUtilRt.toStringArray(strings);
 
     updateBanner();
   }
 
   private void updateBanner() {
-    myBannerLabel.setText(NullableComponent.Check.isNull(myContent) || myBannerText == null ? ArrayUtil.EMPTY_STRING_ARRAY : myBannerText);
+    myBannerLabel.setText(NullableComponent.Check.isNull(myContent) || myBannerText == null ? ArrayUtilRt.EMPTY_STRING_ARRAY : myBannerText);
 
     myBannerLabel.revalidate();
     myBannerLabel.repaint();
@@ -270,7 +200,7 @@ public class DetailsComponent {
   }
 
   private class MyWrapper extends Wrapper implements NullableComponent {
-    public MyWrapper(final JComponent c) {
+    MyWrapper(final JComponent c) {
       super(c == null || NullableComponent.Check.isNull(c) ? myEmptyContentLabel : c);
     }
 

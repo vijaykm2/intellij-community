@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 package com.intellij.openapi.options;
 
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts.TabTitle;
 import com.intellij.openapi.util.Pair;
 import org.jetbrains.annotations.NotNull;
 
@@ -24,9 +25,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class SettingsEditorGroup<T> extends SettingsEditor<T> {
-  private final List<Pair<String, SettingsEditor<T>>> myEditors = new ArrayList<Pair<String, SettingsEditor<T>>>();
+  private final List<Pair<@TabTitle String, SettingsEditor<T>>> myEditors = new ArrayList<>();
 
-  public void addEditor(String name, SettingsEditor<T> editor) {
+  public void addEditor(@TabTitle String name, SettingsEditor<T> editor) {
     Disposer.register(this, editor);
     myEditors.add(Pair.create(name, editor));
   }
@@ -38,13 +39,16 @@ public class SettingsEditorGroup<T> extends SettingsEditor<T> {
     myEditors.addAll(group.myEditors);
   }
 
-  public List<Pair<String, SettingsEditor<T>>> getEditors() {
+  public List<Pair<@TabTitle String, SettingsEditor<T>>> getEditors() {
     return myEditors;
   }
 
-  public void resetEditorFrom(T t) {}
-  public void applyEditorTo(T t) throws ConfigurationException {}
+  @Override
+  public void resetEditorFrom(@NotNull T t) {}
+  @Override
+  public void applyEditorTo(@NotNull T t) throws ConfigurationException {}
 
+  @Override
   @NotNull
   public JComponent createEditor() {
     throw new UnsupportedOperationException("This method should never be called!");

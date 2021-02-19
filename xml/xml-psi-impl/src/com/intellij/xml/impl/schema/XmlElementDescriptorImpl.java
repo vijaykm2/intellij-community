@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.impl.schema;
 
 import com.intellij.codeInsight.daemon.Validator;
-import com.intellij.psi.ElementManipulators;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiInvalidElementAccessException;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.meta.PsiWritableMetaData;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -26,7 +13,7 @@ import com.intellij.psi.xml.*;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.xml.*;
-import com.intellij.xml.util.XmlEnumeratedValueReference;
+import com.intellij.xml.util.XmlEnumeratedReferenceSet;
 import com.intellij.xml.util.XmlUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -36,9 +23,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- * @author Mike
- */
 public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
   implements XmlElementDescriptor, PsiWritableMetaData, Validator<XmlTag>,
                                                  XmlElementDescriptorAwareAboutChildren {
@@ -77,13 +61,8 @@ public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
 
         if (namespacePrefix != null && namespacePrefix.length() > 0) {
           final XmlTag rootTag = ((XmlFile)myDescriptorTag.getContainingFile()).getRootTag();
-          String elementFormDefault;
-
-          if (rootTag != null && 
-              ( NONQUALIFIED_ATTR_VALUE.equals(elementFormDefault = rootTag.getAttributeValue(ELEMENT_FORM_DEFAULT)) || elementFormDefault == null /*unqualified is default*/) &&
-              tag.getNamespaceByPrefix("").isEmpty()
-            && myDescriptorTag.getParentTag() != rootTag
-             ) {
+          if (!isQualifiedForm() && tag.getNamespaceByPrefix("").isEmpty()
+            && myDescriptorTag.getParentTag() != rootTag) {
             value = XmlUtil.findLocalNameByQualifiedName(value);
           } else {
             value = namespacePrefix + ":" + XmlUtil.findLocalNameByQualifiedName(value);
@@ -133,7 +112,7 @@ public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
   }
 
   @Override
-  public Object[] getDependences(){
+  public Object @NotNull [] getDependencies(){
     return new Object[]{myDescriptorTag};
   }
 
@@ -151,7 +130,7 @@ public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
         if (nsDescriptor == null) nsDescriptor = previousDescriptor;
       }
     }
-    
+
     return nsDescriptor;
   }
 
@@ -198,6 +177,19 @@ public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
         if (originalElement != null && originalElement != this) {
           type = originalElement.getType(context);
         }
+      }
+    }
+    else if (context instanceof XmlTag && nsDescriptor instanceof XmlNSDescriptorImpl) {
+      // check for redefined descriptor
+      XmlTag tag = (XmlTag)context;
+      if (!tag.getNamespace().equals(((XmlNSDescriptorImpl)nsDescriptor).getDefaultNamespace())) {
+          XmlNSDescriptor descriptor = tag.getNSDescriptor(tag.getNamespace(), true);
+          if (descriptor != nsDescriptor && descriptor instanceof XmlNSTypeDescriptorProvider) {
+            TypeDescriptor typeDescriptor = ((XmlNSTypeDescriptorProvider)descriptor).getTypeDescriptor(myDescriptorTag);
+            if (typeDescriptor != null && typeDescriptor.getDeclaration() != type.getDeclaration()) {
+              return typeDescriptor;
+            }
+          }
       }
     }
     return type;
@@ -254,7 +246,7 @@ public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
       if (context instanceof XmlTag && elements.length > 0) {
         String[] namespaces = ((XmlTag)context).knownNamespaces();
         if (namespaces.length > 1) {
-          List<XmlElementDescriptor> result = new ArrayList<XmlElementDescriptor>(Arrays.asList(elements));
+          List<XmlElementDescriptor> result = new ArrayList<>(Arrays.asList(elements));
           for (String namespace : namespaces) {
             if (namespace.equals(typeDescriptor.getNsDescriptor().getDefaultNamespace())) {
               continue;
@@ -269,7 +261,7 @@ public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
               }
             }
           }
-          return result.toArray(new XmlElementDescriptor[result.size()]);
+          return result.toArray(XmlElementDescriptor.EMPTY_ARRAY);
         }
       }
       return elements;
@@ -339,7 +331,7 @@ public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
                              context.getNamespaceByPrefix(namespacePrefix);
 
     XmlAttributeDescriptor attribute = getAttribute(localName, namespace, context, attributeName);
-    
+
     if (attribute instanceof AnyXmlAttributeDescriptor) {
       final ComplexTypeDescriptor.CanContainAttributeType containAttributeType =
         ((AnyXmlAttributeDescriptor)attribute).getCanContainAttributeType();
@@ -426,7 +418,7 @@ public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
       final XmlElementDescriptorImpl element = (XmlElementDescriptorImpl)element1;
       final String namespaceByContext = element.getNamespaceByContext(context);
 
-      if (element.getName().equals(localName)) {
+      if (StringUtil.equals(element.getName(), localName)) {
         if (namespace == null ||
             namespace.equals(namespaceByContext) ||
             namespaceByContext.equals(XmlUtil.EMPTY_URI) ||
@@ -507,14 +499,19 @@ public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
 
   @Override
   public String getDefaultName() {
-    final PsiFile psiFile = myDescriptorTag.getContainingFile();
-    XmlTag rootTag = psiFile instanceof XmlFile ?((XmlFile)psiFile).getRootTag():null;
+    return isQualifiedForm() ? getQualifiedName() : getName();
+  }
 
-    if (rootTag != null && QUALIFIED_ATTR_VALUE.equals(rootTag.getAttributeValue(ELEMENT_FORM_DEFAULT))) {
-      return getQualifiedName();
+  private boolean isQualifiedForm() {
+    String value = myDescriptorTag.getAttributeValue("form");
+    if (value == null) {
+      final PsiFile psiFile = myDescriptorTag.getContainingFile();
+      XmlTag rootTag = psiFile instanceof XmlFile ?((XmlFile)psiFile).getRootTag():null;
+      if (rootTag != null) {
+        value = rootTag.getAttributeValue(ELEMENT_FORM_DEFAULT);
+      }
     }
-
-    return getName();
+    return QUALIFIED_ATTR_VALUE.equals(value);
   }
 
   public boolean isAbstract() {
@@ -547,28 +544,32 @@ public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
     XmlTagValue value = xmlTag.getValue();
     XmlText[] elements = value.getTextElements();
     if (elements.length == 0 || xmlTag.getSubTags().length > 0) return PsiReference.EMPTY_ARRAY;
-    return new PsiReference[] {
-      new XmlEnumeratedValueReference(xmlTag, this, ElementManipulators.getValueTextRange(xmlTag))
-    };
+    return new XmlEnumeratedReferenceSet(xmlTag, this).getPsiReferences();
   }
 
   @Override
   public boolean allowElementsFromNamespace(final String namespace, final XmlTag context) {
     final TypeDescriptor type = getType(context);
-    
+
     if (type instanceof ComplexTypeDescriptor) {
       final ComplexTypeDescriptor typeDescriptor = (ComplexTypeDescriptor)type;
       return typeDescriptor.canContainTag("a", namespace, context) ||
              typeDescriptor.getNsDescriptor().hasSubstitutions() ||
-             XmlUtil.nsFromTemplateFramework(namespace)
-        ;
+             XmlUtil.nsFromTemplateFramework(namespace);
     }
     return false;
   }
 
   @Override
   public String toString() {
-    return getName() + " (" + getNamespace() + ")";
+    String namespace;
+    try {
+      namespace = getNamespace();
+    }
+    catch (PsiInvalidElementAccessException e) {
+      namespace = "!!!Invalid!!!";
+    }
+    return getName() + " (" + namespace + ")";
   }
 
   @Override

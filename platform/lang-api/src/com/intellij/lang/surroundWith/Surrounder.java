@@ -17,8 +17,10 @@ package com.intellij.lang.surroundWith;
 
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
+import com.intellij.util.ArrayFactory;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -30,11 +32,15 @@ import org.jetbrains.annotations.Nullable;
  * @see SurroundDescriptor
  */
 public interface Surrounder {
+  Surrounder[] EMPTY_ARRAY = new Surrounder[0];
+  ArrayFactory<Surrounder> myArrayFactory = count -> count == 0 ? EMPTY_ARRAY : new Surrounder[count];
+
   /**
    * Returns the user-visible name of the Surround With template.
    *
    * @return the template name
    */
+  @NlsActions.ActionText
   String getTemplateDescription();
 
   /**
@@ -43,7 +49,7 @@ public interface Surrounder {
    * @param elements the elements to be surrounded
    * @return true if the template is applicable to the elements, false otherwise.
    */
-  boolean isApplicable(@NotNull PsiElement[] elements);
+  boolean isApplicable(PsiElement @NotNull [] elements);
 
   /**
    * Performs the Surround With action on the specified range of elements.
@@ -56,5 +62,5 @@ public interface Surrounder {
   @Nullable
   TextRange surroundElements(@NotNull Project project,
                              @NotNull Editor editor,
-                             @NotNull PsiElement[] elements) throws IncorrectOperationException;
+                             PsiElement @NotNull [] elements) throws IncorrectOperationException;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 package com.intellij.tasks.trello.model;
 
 import com.google.gson.annotations.SerializedName;
-import com.intellij.util.Function;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xmlb.annotations.Attribute;
 import org.jetbrains.annotations.NotNull;
@@ -31,16 +31,17 @@ import java.util.Set;
 import static com.intellij.tasks.trello.model.TrelloLabel.LabelColor;
 
 /**
- * @author Mikhail Golubev
+ * This is a stub definition intended to be used with Google GSON. Its fields are initialized reflectively.
  */
 @SuppressWarnings("UnusedDeclaration")
 public class TrelloCard extends TrelloModel {
 
-  public static final String REQUIRED_FIELDS = "closed,desc,idMembers,idBoard,idList,labels,name,url,dateLastActivity";
+  public static final String REQUIRED_FIELDS = "closed,desc,idMembers,idBoard,idList,idShort,labels,name,url,dateLastActivity";
 
-  private String idBoard, idList;
+  private String idBoard, idList, idShort;
   private List<String> idMembers;
-  private String name;
+  @NotNull
+  private String name = "";
   @SerializedName("desc")
   private String description;
   private String url;
@@ -48,10 +49,10 @@ public class TrelloCard extends TrelloModel {
   private Date dateLastActivity;
   private List<TrelloLabel> labels;
   @SerializedName("actions")
-  private List<TrelloCommentAction> comments = ContainerUtil.emptyList();
+  private final List<TrelloCommentAction> comments = ContainerUtil.emptyList();
   /**
    * This field is not part of card representation downloaded from server
-   * and set explicitly in {@code com.intellij.tasks.trello.TrelloRepository}
+   * and set explicitly in {@link com.intellij.tasks.trello.TrelloRepository}
    */
   private boolean isVisible = true;
 
@@ -78,6 +79,11 @@ public class TrelloCard extends TrelloModel {
   }
 
   @NotNull
+  public String getIdShort() {
+    return idShort;
+  }
+
+  @NotNull
   public List<String> getIdMembers() {
     return idMembers;
   }
@@ -85,7 +91,7 @@ public class TrelloCard extends TrelloModel {
   @NotNull
   @Attribute("name")
   @Override
-  public String getName() {
+  public @NlsSafe String getName() {
     return name;
   }
 
@@ -95,7 +101,7 @@ public class TrelloCard extends TrelloModel {
   }
 
   @NotNull
-  public String getDescription() {
+  public @NlsSafe String getDescription() {
     return description;
   }
 
@@ -126,13 +132,11 @@ public class TrelloCard extends TrelloModel {
     if (labels == null || labels.isEmpty()) {
       return EnumSet.noneOf(LabelColor.class);
     }
-    return EnumSet.copyOf(ContainerUtil.mapNotNull(labels, new Function<TrelloLabel, LabelColor>() {
-      @Override
-      public LabelColor fun(TrelloLabel label) {
-        final LabelColor color = label.getColor();
-        return color == LabelColor.NO_COLOR ? null : color;
-      }
-    }));
+    final List<LabelColor> labelColors = ContainerUtil.mapNotNull(labels, label -> {
+      final LabelColor color = label.getColor();
+      return color == LabelColor.NO_COLOR ? null : color;
+    });
+    return labelColors.isEmpty() ? EnumSet.noneOf(LabelColor.class) : EnumSet.copyOf(labelColors);
   }
 
   public boolean isVisible() {

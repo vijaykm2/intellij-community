@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,15 +15,15 @@
  */
 package git4idea.crlf;
 
-import com.intellij.ide.BrowserUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.util.text.HtmlBuilder;
+import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.ui.components.JBCheckBox;
 import com.intellij.ui.components.JBLabel;
-import com.intellij.ui.components.labels.LinkLabel;
-import com.intellij.ui.components.labels.LinkListener;
 import com.intellij.util.ui.GridBag;
 import com.intellij.util.ui.UIUtil;
+import git4idea.i18n.GitBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -51,40 +51,31 @@ public class GitCrlfDialog extends DialogWrapper {
   public GitCrlfDialog(@Nullable Project project) {
     super(project, false);
 
-    setOKButtonText("Fix and Commit");
-    setCancelButtonText("Cancel");
-    setTitle("Line Separators Warning");
+    setOKButtonText(GitBundle.message("button.crlf.fix.dialog.fix.and.commit"));
+    setTitle(GitBundle.message("title.crlf.fix.dialog"));
     getCancelAction().putValue(DialogWrapper.FOCUSED_ACTION, true);
 
     init();
   }
 
-  @NotNull
   @Override
-  protected Action[] createActions() {
-    return new Action[] { getHelpAction(), getOKAction(), getCancelAction(), new DialogWrapperExitAction("Commit As Is", DONT_SET) };
+  protected Action @NotNull [] createActions() {
+    DialogWrapperExitAction skipButton = new DialogWrapperExitAction(GitBundle.message("button.crlf.fix.dialog.commit.as.is"), DONT_SET);
+    return new Action[]{getHelpAction(), getOKAction(), skipButton, getCancelAction()};
   }
 
   @Override
   protected JComponent createCenterPanel() {
-    JLabel description = new JBLabel(
-      "<html>You are about to commit CRLF line separators to the Git repository.<br/>" +
-      "It is recommended to set core.autocrlf Git attribute to <code>" + RECOMMENDED_VALUE +
-      "</code> to avoid line separator issues.</html>");
-
-    JLabel additionalDescription = new JBLabel(
-      "<html>Fix and Commit: <code>git config --global core.autocrlf " + RECOMMENDED_VALUE + "</code> will be called,<br/>" +
-      "Commit as Is: the config value won't be set.</html>", UIUtil.ComponentStyle.SMALL);
-
-    JLabel readMore = new LinkLabel("Read more", null, new LinkListener() {
-      @Override
-      public void linkSelected(LinkLabel aSource, Object aLinkData) {
-        BrowserUtil.browse("https://help.github.com/articles/dealing-with-line-endings");
-      }
-    });
+    String warningText = new HtmlBuilder()
+      .appendRaw(GitBundle.message("text.crlf.fix.dialog.description.warning",
+                                   HtmlChunk.text(ATTRIBUTE_KEY).code(), HtmlChunk.text(RECOMMENDED_VALUE).code()))
+      .wrapWithHtmlBody().toString();
+    String proposedFixText = new HtmlBuilder()
+      .appendRaw(GitBundle.message("text.crlf.fix.dialog.description.proposed.fix", HtmlChunk.text(SUGGESTED_FIX).code()))
+      .wrapWithHtmlBody().toString();
 
     JLabel icon = new JLabel(UIUtil.getWarningIcon(), SwingConstants.LEFT);
-    myDontWarn = new JBCheckBox("Don't warn again");
+    myDontWarn = new JBCheckBox(GitBundle.message("checkbox.dont.warn.again"));
     myDontWarn.setMnemonic('w');
 
     JPanel rootPanel = new JPanel(new GridBagLayout());
@@ -94,13 +85,11 @@ public class GitCrlfDialog extends DialogWrapper {
       .setDefaultFill(GridBagConstraints.HORIZONTAL);
 
     rootPanel.add(icon, g.nextLine().next().coverColumn(4));
-    rootPanel.add(description, g.next());
-    rootPanel.add(readMore, g.nextLine().next().next());
-    rootPanel.add(additionalDescription, g.nextLine().next().next().pady(DEFAULT_HGAP));
-    rootPanel.add(myDontWarn,  g.nextLine().next().next().insets(0, 0, 0, 0));
+    rootPanel.add(new JBLabel(warningText), g.next());
+    rootPanel.add(new JBLabel(proposedFixText), g.nextLine().next().next().pady(DEFAULT_HGAP));
+    rootPanel.add(myDontWarn, g.nextLine().next().next().insets(0, 0, 0, 0));
 
     return rootPanel;
-
   }
 
   public boolean dontWarnAgain() {

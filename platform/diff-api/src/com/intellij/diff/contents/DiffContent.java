@@ -18,15 +18,20 @@ package com.intellij.diff.contents;
 import com.intellij.diff.requests.DiffRequest;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.fileTypes.FileType;
-import org.jetbrains.annotations.CalledInAwt;
+import com.intellij.openapi.util.UserDataHolder;
+import com.intellij.pom.Navigatable;
+import com.intellij.util.ObjectUtils;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * Represents some data that probably can be compared with some other.
  *
- * @see DiffRequest
+ * @see com.intellij.diff.requests.ContentDiffRequest
+ * @see com.intellij.diff.DiffContentFactory
  */
-public interface DiffContent {
+public interface DiffContent extends UserDataHolder {
   @Nullable
   FileType getContentType();
 
@@ -34,11 +39,21 @@ public interface DiffContent {
    * Provides a way to open related content in editor
    */
   @Nullable
-  OpenFileDescriptor getOpenFileDescriptor();
+  default Navigatable getNavigatable() { return null; }
 
-  /*
-   * @See DiffRequest.onAssigned()
+  /**
+   * @see DiffRequest#onAssigned(boolean)
    */
-  @CalledInAwt
-  void onAssigned(boolean isAssigned);
+  @RequiresEdt
+  default void onAssigned(boolean isAssigned) { }
+
+  /**
+   * @deprecated isn't called by the platform anymore
+   */
+  @Nullable
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  default OpenFileDescriptor getOpenFileDescriptor() {
+    return ObjectUtils.tryCast(getNavigatable(), OpenFileDescriptor.class);
+  }
 }

@@ -1,22 +1,10 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.util.ArrayFactory;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -24,53 +12,66 @@ import org.jetbrains.annotations.Nullable;
 /**
  * A reference to a PSI element. For example, the variable name used in an expression.
  * The "Go to Declaration" action can be used to go from a reference to the element it references.
- * Generally returned from {@link PsiElement#getReferences()} and {@link com.intellij.psi.PsiReferenceService#getReferences},
- * but may be contributed to some elements by third party plugins via {@link com.intellij.psi.PsiReferenceContributor}
+ * <p>
+ * Generally returned from {@link PsiElement#getReferences()} and {@link PsiReferenceService#getReferences},
+ * but may be contributed to some elements by third party plugins via {@link PsiReferenceContributor}.
  *
  * @see PsiPolyVariantReference
  * @see PsiElement#getReference()
  * @see PsiElement#getReferences()
- * @see com.intellij.psi.PsiReferenceService#getReferences(PsiElement, com.intellij.psi.PsiReferenceService.Hints)
- * @see com.intellij.psi.PsiReferenceBase
- * @see com.intellij.psi.PsiReferenceContributor
- * @see com.intellij.psi.search.searches.ReferencesSearch
+ * @see PsiReferenceService#getReferences(PsiElement, PsiReferenceService.Hints)
+ * @see PsiReferenceBase
+ * @see PsiReferenceContributor
  */
-
 public interface PsiReference {
-  /**
-   * The empty array of PSI references which can be reused to avoid unnecessary allocations.
-   */
+
   PsiReference[] EMPTY_ARRAY = new PsiReference[0];
 
-  ArrayFactory<PsiReference> ARRAY_FACTORY = new ArrayFactory<PsiReference>() {
-    @NotNull
-    @Override
-    public PsiReference[] create(final int count) {
-      return count == 0 ? EMPTY_ARRAY : new PsiReference[count];
-    }
-  };
+  ArrayFactory<PsiReference> ARRAY_FACTORY = count -> count == 0 ? EMPTY_ARRAY : new PsiReference[count];
 
   /**
    * Returns the underlying (referencing) element of the reference.
    *
    * @return the underlying element of the reference.
    */
+  @NotNull
   PsiElement getElement();
 
   /**
    * Returns the part of the underlying element which serves as a reference, or the complete
    * text range of the element if the entire element is a reference.
+   * <p/>
+   * Sample: PsiElement representing a fully qualified name with multiple dedicated PsiReferences, each bound
+   * to the range it resolves to (skipping the '.' separator).
+   * <pre>
+   * PsiElement text: qualified.LongName
+   * PsiReferences:   [Ref1---]X[Ref2--]
+   * </pre>
+   * where {@code Ref1} would resolve to a "namespace" and {@code Ref2} to an "element".
    *
    * @return Relative range in element
    */
+  @NotNull
   TextRange getRangeInElement();
+
+  /**
+   * @return range in the {@link PsiElement#getContainingFile containing file} of the {@link #getElement element}
+   * which is considered a reference
+   * @see #getRangeInElement
+   */
+  @NotNull
+  default TextRange getAbsoluteRange() {
+    return getRangeInElement().shiftRight(getElement().getTextRange().getStartOffset());
+  }
 
   /**
    * Returns the element which is the target of the reference.
    *
-   * @return the target element, or null if it was not possible to resolve the reference to a valid target.
+   * @return the target element, or {@code null} if it was not possible to resolve the reference to a valid target.
+   * @see PsiPolyVariantReference#multiResolve(boolean)
    */
-  @Nullable PsiElement resolve();
+  @Nullable
+  PsiElement resolve();
 
   /**
    * Returns the name of the reference target element which does not depend on import statements
@@ -79,8 +80,7 @@ public interface PsiReference {
    *
    * @return the canonical text of the reference.
    */
-  @NotNull
-  String getCanonicalText();
+  @NotNull @NlsSafe String getCanonicalText();
 
   /**
    * Called when the reference target element has been renamed, in order to change the reference
@@ -90,7 +90,7 @@ public interface PsiReference {
    * @return the new underlying element of the reference.
    * @throws IncorrectOperationException if the rename cannot be handled for some reason.
    */
-  PsiElement handleElementRename(String newElementName) throws IncorrectOperationException;
+  PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException;
 
   /**
    * Changes the reference so that it starts to point to the specified element. This is called,
@@ -107,30 +107,32 @@ public interface PsiReference {
    * Checks if the reference targets the specified element.
    *
    * @param element the element to check target for.
-   * @return true if the reference targets that element, false otherwise.
+   * @return {@code true} if the reference targets that element, {@code false} otherwise.
    */
-  boolean isReferenceTo(PsiElement element);
+  boolean isReferenceTo(@NotNull PsiElement element);
 
   /**
-   * Returns the array of String, {@link PsiElement} and/or {@link LookupElement}
+   * Returns the array of String, {@link PsiElement} and/or {@link com.intellij.codeInsight.lookup.LookupElement}
    * instances representing all identifiers that are visible at the location of the reference. The contents
    * of the returned array is used to build the lookup list for basic code completion. (The list
    * of visible identifiers may not be filtered by the completion prefix string - the
-   * filtering is performed later by IDEA core.)
+   * filtering is performed later by the IDE.)
+   * <p>
+   * This method is default since 2018.3.
    *
    * @return the array of available identifiers.
    */
-  @SuppressWarnings("JavadocReference")
-  @NotNull
-  Object[] getVariants();
+  default Object @NotNull [] getVariants() {
+    return ArrayUtilRt.EMPTY_OBJECT_ARRAY;
+  }
 
   /**
-   * Returns false if the underlying element is guaranteed to be a reference, or true
+   * Returns {@code false} if the underlying element is guaranteed to be a reference, or {@code true}
    * if the underlying element is a possible reference which should not be reported as
    * an error if it fails to resolve. For example, a text in an XML file which looks
    * like a full-qualified Java class name is a soft reference.
    *
-   * @return true if the reference is soft, false otherwise.
+   * @return {@code true} if the reference is soft, {@code false} otherwise.
    */
   boolean isSoft();
 }

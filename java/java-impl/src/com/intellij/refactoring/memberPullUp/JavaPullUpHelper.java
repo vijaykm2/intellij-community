@@ -1,32 +1,15 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.memberPullUp;
 
 import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.ChangeContextUtil;
 import com.intellij.codeInsight.PsiEquivalenceUtil;
-import com.intellij.codeInsight.intention.AddAnnotationFix;
+import com.intellij.codeInsight.generation.OverrideImplementUtil;
 import com.intellij.lang.Language;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Key;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.searches.OverridingMethodsSearch;
 import com.intellij.psi.search.searches.ReferencesSearch;
@@ -42,14 +25,11 @@ import com.intellij.refactoring.util.classMembers.ClassMemberReferencesVisitor;
 import com.intellij.refactoring.util.classMembers.MemberInfo;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.VisibilityUtil;
-import com.intellij.util.containers.HashMap;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/**
- * Created by Max Medvedev on 10/3/13
- */
 public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
   private static final Logger LOG = Logger.getInstance(JavaPullUpHelper.class);
 
@@ -60,7 +40,7 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
   private final PsiClass myTargetSuperClass;
   private final boolean myIsTargetInterface;
   private final DocCommentPolicy myJavaDocPolicy;
-  private Set<PsiMember> myMembersAfterMove = null;
+  private final Set<PsiMember> myMembersAfterMove;
   private final Set<PsiMember> myMembersToMove;
   private final Project myProject;
 
@@ -107,16 +87,23 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
 
     member.accept(new JavaRecursiveElementWalkingVisitor() {
       @Override
-      public void visitReferenceExpression(PsiReferenceExpression expression) {
-        final PsiExpression qualifierExpression = expression.getQualifierExpression();
+      public void visitReferenceElement(PsiJavaCodeReferenceElement reference) {
+        final PsiElement qualifierExpression = reference.getQualifier();
         if (qualifierExpression != null) {
           final Boolean preserveQualifier = qualifierExpression.getCopyableUserData(PRESERVE_QUALIFIER);
           if (preserveQualifier != null && !preserveQualifier) {
-            qualifierExpression.delete();
-            return;
+            PsiElement target = reference.resolve();
+            if (target != null) {
+              PsiJavaCodeReferenceElement copy = (PsiJavaCodeReferenceElement)reference.copy();
+              Objects.requireNonNull(copy.getQualifier()).delete();
+              if (copy.resolve() == target) {
+                qualifierExpression.delete();
+                return;
+              }
+            }
           }
         }
-        super.visitReferenceExpression(expression);
+        super.visitReferenceElement(reference);
       }
     });
 
@@ -167,10 +154,10 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
     PsiClass aClass = (PsiClass)info.getMember();
     if (Boolean.FALSE.equals(info.getOverrides())) {
       final PsiReferenceList sourceReferenceList = info.getSourceReferenceList();
-      LOG.assertTrue(sourceReferenceList != null);
-      PsiJavaCodeReferenceElement ref = mySourceClass.equals(sourceReferenceList.getParent()) ?
-                                        RefactoringUtil.removeFromReferenceList(sourceReferenceList, aClass) :
-                                        RefactoringUtil.findReferenceToClass(sourceReferenceList, aClass);
+      PsiJavaCodeReferenceElement ref = sourceReferenceList == null ? null :
+                                        mySourceClass.equals(sourceReferenceList.getParent()) ?
+                                          RefactoringUtil.removeFromReferenceList(sourceReferenceList, aClass) :
+                                          RefactoringUtil.findReferenceToClass(sourceReferenceList, aClass);
       if (ref != null && !myTargetSuperClass.isInheritor(aClass, false)) {
         RefactoringUtil.replaceMovedMemberTypeParameters(ref, PsiUtil.typeParametersIterable(mySourceClass), substitutor, elementFactory);
         final PsiReferenceList referenceList =
@@ -180,9 +167,11 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
       }
     }
     else {
-      RefactoringUtil.replaceMovedMemberTypeParameters(aClass, PsiUtil.typeParametersIterable(mySourceClass), substitutor, elementFactory);
-      fixReferencesToStatic(aClass);
-      final PsiMember movedElement = (PsiMember)myTargetSuperClass.add(convertClassToLanguage(aClass, myTargetSuperClass.getLanguage()));
+      PsiClass copy = (PsiClass)aClass.copy();
+      RefactoringUtil.renameConflictingTypeParameters(copy, myTargetSuperClass);
+      RefactoringUtil.replaceMovedMemberTypeParameters(copy, PsiUtil.typeParametersIterable(mySourceClass), substitutor, elementFactory);
+      fixReferencesToStatic(copy);
+      final PsiMember movedElement = (PsiMember)myTargetSuperClass.add(copy);
       myMembersAfterMove.add(movedElement);
       aClass.delete();
     }
@@ -219,13 +208,16 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
       }
     }
     PsiMethod methodCopy = (PsiMethod)method.copy();
+    RefactoringUtil.renameConflictingTypeParameters(methodCopy, myTargetSuperClass);
+    RefactoringUtil.replaceMovedMemberTypeParameters(methodCopy, PsiUtil.typeParametersIterable(mySourceClass), substitutor, elementFactory);
+
     Language language = myTargetSuperClass.getLanguage();
-    final PsiMethod superClassMethod = myTargetSuperClass.findMethodBySignature(methodCopy, false);
+    final PsiMethod superClassMethod = MethodSignatureUtil.findMethodBySuperSignature(myTargetSuperClass, method.getSignature(substitutor), false);
     if (superClassMethod != null && superClassMethod.findDeepestSuperMethods().length == 0 ||
         method.findSuperMethods(myTargetSuperClass).length == 0) {
       deleteOverrideAnnotationIfFound(methodCopy);
     }
-    boolean isOriginalMethodAbstract = method.hasModifierProperty(PsiModifier.ABSTRACT) || method.hasModifierProperty(PsiModifier.DEFAULT);
+    boolean isOriginalMethodAbstract = method.hasModifierProperty(PsiModifier.ABSTRACT);
     if (myIsTargetInterface || info.isToAbstract()) {
       ChangeContextUtil.clearContextInfo(method);
 
@@ -233,28 +225,25 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
         //pull as default
         RefactoringUtil.makeMethodDefault(methodCopy);
         isOriginalMethodAbstract = true;
-      } else {
+      }
+      else {
+        if (info.isToAbstract() && method.hasModifierProperty(PsiModifier.DEFAULT)) {
+          PsiUtil.setModifierProperty(methodCopy, PsiModifier.DEFAULT, false);
+        }
         RefactoringUtil.makeMethodAbstract(myTargetSuperClass, methodCopy);
       }
 
-      RefactoringUtil.replaceMovedMemberTypeParameters(methodCopy, PsiUtil.typeParametersIterable(mySourceClass), substitutor, elementFactory);
-
       myJavaDocPolicy.processCopiedJavaDoc(methodCopy.getDocComment(), method.getDocComment(), isOriginalMethodAbstract);
 
-      final PsiMember movedElement;
+      final PsiMethod movedElement;
       if (superClassMethod != null && superClassMethod.hasModifierProperty(PsiModifier.ABSTRACT)) {
-        movedElement = (PsiMember)superClassMethod.replace(convertMethodToLanguage(methodCopy, language));
+        movedElement = (PsiMethod)superClassMethod.replace(convertMethodToLanguage(methodCopy, language));
       }
       else {
         movedElement =
-          anchor != null ? (PsiMember)myTargetSuperClass.addBefore(methodCopy, anchor) : (PsiMember)myTargetSuperClass.add(methodCopy);
+          (PsiMethod)(anchor != null ? myTargetSuperClass.addBefore(methodCopy, anchor) : myTargetSuperClass.add(methodCopy));
       }
-      CodeStyleSettings styleSettings = CodeStyleSettingsManager.getSettings(method.getProject());
-      if (styleSettings.INSERT_OVERRIDE_ANNOTATION) {
-        if (PsiUtil.isLanguageLevel5OrHigher(mySourceClass) && !myIsTargetInterface || PsiUtil.isLanguageLevel6OrHigher(mySourceClass)) {
-          new AddAnnotationFix(Override.class.getName(), method).invoke(method.getProject(), null, mySourceClass.getContainingFile());
-        }
-      }
+      OverrideImplementUtil.annotateOnOverrideImplement(method, mySourceClass, movedElement);
       if (!PsiUtil.isLanguageLevel6OrHigher(mySourceClass) && myIsTargetInterface) {
         if (isOriginalMethodAbstract) {
           for (PsiMethod oMethod : OverridingMethodsSearch.search(method)) {
@@ -304,14 +293,6 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
     return JVMElementFactories.getFactory(language, field.getProject()).createField(field.getName(), field.getType());
   }
 
-  private static PsiClass convertClassToLanguage(PsiClass clazz, Language language) {
-    //if (clazz.getLanguage().equals(language)) {
-    //  return clazz;
-    //}
-    //PsiClass newClass = JVMElementFactories.getFactory(language, clazz.getProject()).createClass(clazz.getName());
-    return clazz;
-  }
-
   private static void deleteOverrideAnnotationIfFound(PsiMethod oMethod) {
     final PsiAnnotation annotation = AnnotationUtil.findAnnotation(oMethod, Override.class.getName());
     if (annotation != null) {
@@ -341,10 +322,13 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
       if (qualifierExpression instanceof PsiReferenceExpression && ((PsiReferenceExpression)qualifierExpression).resolve() == mySourceClass) {
         ((PsiReferenceExpression)qualifierExpression).bindToElement(myTargetSuperClass);
       }
+      else if (qualifierExpression == null && myTargetSuperClass.isInterface()) {
+        ((PsiReferenceExpression)element).setQualifierExpression(JavaPsiFacade.getElementFactory(myProject).createReferenceExpression(myTargetSuperClass));
+      }
     }
   }
 
-  private static class Initializer {
+  private static final class Initializer {
     public final PsiStatement initializer;
     public final Set<PsiField> movedFieldsUsed;
     public final Set<PsiParameter> usedParameters;
@@ -359,12 +343,12 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
   }
 
   private void tryToMoveInitializers(PsiMethod constructor, HashSet<PsiMethod> subConstructors, LinkedHashSet<PsiField> movedFields) throws IncorrectOperationException {
-    final LinkedHashMap<PsiField, Initializer> fieldsToInitializers = new LinkedHashMap<PsiField, Initializer>();
+    final LinkedHashMap<PsiField, Initializer> fieldsToInitializers = new LinkedHashMap<>();
     boolean anyFound = false;
 
     for (PsiField field : movedFields) {
       PsiStatement commonInitializer = null;
-      final ArrayList<PsiElement> fieldInitializersToRemove = new ArrayList<PsiElement>();
+      final ArrayList<PsiElement> fieldInitializersToRemove = new ArrayList<>();
       for (PsiMethod subConstructor : subConstructors) {
         commonInitializer = hasCommonInitializer(commonInitializer, subConstructor, field, fieldInitializersToRemove);
         if (commonInitializer == null) break;
@@ -385,20 +369,18 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
     {
       final Set<PsiField> initializedFields = fieldsToInitializers.keySet();
       Set<PsiField> unmovable = RefactoringUtil.transitiveClosure(
-              new RefactoringUtil.Graph<PsiField>() {
-                public Set<PsiField> getVertices() {
-                  return initializedFields;
-                }
+        new RefactoringUtil.Graph<>() {
+          @Override
+          public Set<PsiField> getVertices() {
+            return initializedFields;
+          }
 
-                public Set<PsiField> getTargets(PsiField source) {
-                  return fieldsToInitializers.get(source).movedFieldsUsed;
-                }
-              },
-              new Condition<PsiField>() {
-                public boolean value(PsiField object) {
-                  return !initializedFields.contains(object);
-                }
-              }
+          @Override
+          public Set<PsiField> getTargets(PsiField source) {
+            return fieldsToInitializers.get(source).movedFieldsUsed;
+          }
+        },
+              object -> !initializedFields.contains(object)
       );
 
       for (PsiField psiField : unmovable) {
@@ -415,16 +397,16 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
     }
 
 
-    ArrayList<PsiField> initializedFields = new ArrayList<PsiField>(fieldsToInitializers.keySet());
+    ArrayList<PsiField> initializedFields = new ArrayList<>(fieldsToInitializers.keySet());
 
-    Collections.sort(initializedFields, new Comparator<PsiField>() {
-      public int compare(PsiField field1, PsiField field2) {
-        Initializer i1 = fieldsToInitializers.get(field1);
-        Initializer i2 = fieldsToInitializers.get(field2);
-        if(i1.movedFieldsUsed.contains(field2)) return 1;
-        if(i2.movedFieldsUsed.contains(field1)) return -1;
-        return 0;
-      }
+    initializedFields.sort((field1, field2) -> {
+      Initializer i1 = fieldsToInitializers.get(field1);
+      Initializer i2 = fieldsToInitializers.get(field2);
+      if (i1.movedFieldsUsed.contains(field2)) return 1;
+      if (i2.movedFieldsUsed.contains(field1)) return -1;
+      if (i1.usedParameters.stream().anyMatch(p -> p.isVarArgs())) return 1;
+      if (i2.usedParameters.stream().anyMatch(p -> p.isVarArgs())) return -1;
+      return 0;
     });
 
     for (final PsiField initializedField : initializedFields) {
@@ -467,7 +449,7 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
         }
       }
 
-      final PsiElementFactory factory = JavaPsiFacade.getInstance(subConstructor.getProject()).getElementFactory();
+      final PsiElementFactory factory = JavaPsiFacade.getElementFactory(subConstructor.getProject());
       try {
         if (superCall == null) {
             PsiExpressionStatement statement =
@@ -488,7 +470,7 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
   }
 
   @Nullable
-  private PsiStatement hasCommonInitializer(PsiStatement commonInitializer, PsiMethod subConstructor, PsiField field, ArrayList<PsiElement> statementsToRemove) {
+  private PsiStatement hasCommonInitializer(PsiStatement commonInitializer, PsiMethod subConstructor, PsiField field, ArrayList<? super PsiElement> statementsToRemove) {
     final PsiCodeBlock body = subConstructor.getBody();
     if (body == null) return null;
     final PsiStatement[] statements = body.getStatements();
@@ -501,7 +483,7 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
     // no write usages afterwards.
     PsiStatement commonInitializerCandidate = null;
     for (PsiStatement statement : statements) {
-      final HashSet<PsiStatement> collectedStatements = new HashSet<PsiStatement>();
+      final HashSet<PsiStatement> collectedStatements = new HashSet<>();
       collectPsiStatements(statement, collectedStatements);
       boolean doLookup = true;
       for (PsiStatement collectedStatement : collectedStatements) {
@@ -554,7 +536,7 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
       }
       if (doLookup) {
         final PsiReference[] references =
-          ReferencesSearch.search(field, new LocalSearchScope(statement), false).toArray(new PsiReference[0]);
+          ReferencesSearch.search(field, new LocalSearchScope(statement), false).toArray(PsiReference.EMPTY_ARRAY);
         if (commonInitializerCandidate == null && references.length > 0) {
           return null;
         }
@@ -567,25 +549,19 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
     return commonInitializerCandidate;
   }
 
-  private static void collectPsiStatements(PsiElement root, Set<PsiStatement> collected) {
-    if (root instanceof PsiStatement){
-      collected.add((PsiStatement)root);
-    }
-
-    for (PsiElement element : root.getChildren()) {
-      collectPsiStatements(element, collected);
-    }
+  private static void collectPsiStatements(PsiElement root, Set<? super PsiStatement> collected) {
+    SyntaxTraverser.psiTraverser(root).filter(PsiStatement.class).addAllTo(collected);
   }
 
-  private static class ParametersAndMovedFieldsUsedCollector extends JavaRecursiveElementWalkingVisitor {
+  private static final class ParametersAndMovedFieldsUsedCollector extends JavaRecursiveElementWalkingVisitor {
     private final Set<PsiField> myMovedFields;
     private final Set<PsiField> myUsedFields;
 
-    private final Set<PsiParameter> myUsedParameters = new LinkedHashSet<PsiParameter>();
+    private final Set<PsiParameter> myUsedParameters = new LinkedHashSet<>();
 
     private ParametersAndMovedFieldsUsedCollector(HashSet<PsiField> movedFields) {
       myMovedFields = movedFields;
-      myUsedFields = new HashSet<PsiField>();
+      myUsedFields = new HashSet<>();
     }
 
     public Set<PsiParameter> getUsedParameters() {
@@ -647,7 +623,7 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
       }
     }
 
-    @Override public void visitElement(PsiElement element) {
+    @Override public void visitElement(@NotNull PsiElement element) {
       if (myIsMovable) {
         super.visitElement(element);
       }
@@ -655,15 +631,15 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
   }
 
   private HashMap<PsiMethod,HashSet<PsiMethod>> buildConstructorsToSubConstructorsMap(final PsiMethod[] constructors) {
-    final HashMap<PsiMethod,HashSet<PsiMethod>> constructorsToSubConstructors = new HashMap<PsiMethod, HashSet<PsiMethod>>();
+    final HashMap<PsiMethod,HashSet<PsiMethod>> constructorsToSubConstructors = new HashMap<>();
     for (PsiMethod constructor : constructors) {
-      final HashSet<PsiMethod> referencingSubConstructors = new HashSet<PsiMethod>();
+      final HashSet<PsiMethod> referencingSubConstructors = new HashSet<>();
       constructorsToSubConstructors.put(constructor, referencingSubConstructors);
       if (constructor != null) {
         // find references
         for (PsiReference reference : ReferencesSearch.search(constructor, new LocalSearchScope(mySourceClass), false)) {
           final PsiElement element = reference.getElement();
-          if (element != null && "super".equals(element.getText())) {
+          if ("super".equals(element.getText())) {
             PsiMethod parentMethod = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
             if (parentMethod != null && parentMethod.isConstructor()) {
               referencingSubConstructors.add(parentMethod);
@@ -673,12 +649,14 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
       }
 
       // check default constructor
-      if (constructor == null || constructor.getParameterList().getParametersCount() == 0) {
+      if (constructor == null || constructor.getParameterList().isEmpty()) {
         RefactoringUtil.visitImplicitSuperConstructorUsages(mySourceClass, new RefactoringUtil.ImplicitConstructorUsageVisitor() {
+          @Override
           public void visitConstructor(PsiMethod constructor, PsiMethod baseConstructor) {
             referencingSubConstructors.add(constructor);
           }
 
+          @Override
           public void visitClassWithoutConstructors(PsiClass aClass) {
           }
         }, myTargetSuperClass);
@@ -694,7 +672,7 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
     ArrayList<PsiJavaCodeReferenceElement> refs = collector.getReferences();
     ArrayList<PsiElement> members = collector.getReferees();
     ArrayList<PsiClass> classes = collector.getRefereeClasses();
-    PsiElementFactory factory = JavaPsiFacade.getInstance(classMember.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(classMember.getProject());
 
     for (int i = 0; i < refs.size(); i++) {
       PsiJavaCodeReferenceElement ref = refs.get(i);
@@ -702,29 +680,30 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
       PsiClass aClass = classes.get(i);
 
       if (namedElement instanceof PsiNamedElement) {
-        PsiReferenceExpression newRef =
-                (PsiReferenceExpression) factory.createExpressionFromText
-                ("a." + ((PsiNamedElement) namedElement).getName(),
-                        null);
-        PsiExpression qualifierExpression = newRef.getQualifierExpression();
-        assert qualifierExpression != null;
-        qualifierExpression = (PsiExpression)qualifierExpression.replace(factory.createReferenceExpression(aClass));
-        qualifierExpression.putCopyableUserData(PRESERVE_QUALIFIER, ref.isQualified());
+        PsiElement oldQualifier = ref.getQualifier();
+        if (oldQualifier != null) {
+          oldQualifier.delete();
+        }
+        String template = aClass.getQualifiedName() + "." + ref.getText();
+        PsiJavaCodeReferenceElement newRef = ref instanceof PsiReferenceExpression ?
+                                             (PsiReferenceExpression)factory.createExpressionFromText(template, null) :
+                                             factory.createReferenceFromText(template, null);
+        Objects.requireNonNull(newRef.getQualifier()).putCopyableUserData(PRESERVE_QUALIFIER, oldQualifier != null);
         ref.replace(newRef);
       }
     }
   }
 
-  private class StaticReferencesCollector extends ClassMemberReferencesVisitor {
+  private final class StaticReferencesCollector extends ClassMemberReferencesVisitor {
     private final ArrayList<PsiJavaCodeReferenceElement> myReferences;
     private final ArrayList<PsiElement> myReferees;
     private final ArrayList<PsiClass> myRefereeClasses;
 
     private StaticReferencesCollector() {
       super(mySourceClass);
-      myReferees = new ArrayList<PsiElement>();
-      myRefereeClasses = new ArrayList<PsiClass>();
-      myReferences = new ArrayList<PsiJavaCodeReferenceElement>();
+      myReferees = new ArrayList<>();
+      myRefereeClasses = new ArrayList<>();
+      myReferences = new ArrayList<>();
     }
 
     public ArrayList<PsiElement> getReferees() {
@@ -739,6 +718,7 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
       return myReferences;
     }
 
+    @Override
     protected void visitClassMemberReferenceElement(PsiMember classMember, PsiJavaCodeReferenceElement classMemberReference) {
       if (classMember.hasModifierProperty(PsiModifier.STATIC)) {
         if (!myMembersToMove.contains(classMember) &&
@@ -789,6 +769,7 @@ public class JavaPullUpHelper implements PullUpHelper<MemberInfo> {
 
     @Override
     public void visitReferenceExpression(PsiReferenceExpression expression) {
+      super.visitReferenceExpression(expression);
       if(expression.getQualifierExpression() instanceof PsiSuperExpression) {
         PsiElement resolved = expression.resolve();
         if (resolved == null || resolved instanceof PsiMethod && shouldFixSuper((PsiMethod) resolved)) {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,52 +17,84 @@
 package com.intellij.ide.actions;
 
 import com.intellij.ide.IdeView;
-import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.LangDataKeys;
+import com.intellij.openapi.application.WriteActionAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.InputValidator;
+import com.intellij.openapi.util.NlsActions;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * The base class for actions which create new file elements.
- *
- * @since 5.1
  */
-public abstract class CreateElementActionBase extends AnAction {
+public abstract class CreateElementActionBase extends CreateInDirectoryActionBase implements WriteActionAware {
 
   protected CreateElementActionBase() {
   }
 
-  protected CreateElementActionBase(String text, String description, Icon icon) {
+  protected CreateElementActionBase(@NlsActions.ActionText String text,
+                                    @NlsActions.ActionDescription String description,
+                                    Icon icon) {
     super(text, description, icon);
+  }
+
+  protected CreateElementActionBase(Supplier<String> dynamicText, Supplier<String> dynamicDescription, Icon icon) {
+    super(dynamicText, dynamicDescription, icon);
+  }
+
+
+  /**
+   * @return created elements. Never null.
+   * @deprecated use async variant
+   * {@link CreateElementActionBase#invokeDialog(Project, PsiDirectory, Consumer)} instead
+   */
+  @Deprecated
+  protected PsiElement @NotNull [] invokeDialog(Project project, PsiDirectory directory) {
+    return PsiElement.EMPTY_ARRAY;
+  }
+
+  /**
+   * Overloaded version of {@link CreateElementActionBase#invokeDialog(Project, PsiDirectory)}
+   * adapted for asynchronous calls
+   * @param elementsConsumer describes actions with created elements
+   */
+  protected void invokeDialog(@NotNull Project project, @NotNull PsiDirectory directory, @NotNull Consumer<PsiElement[]> elementsConsumer) {
+    elementsConsumer.accept(invokeDialog(project, directory));
   }
 
   /**
    * @return created elements. Never null.
    */
-  @NotNull
-  protected abstract PsiElement[] invokeDialog(Project project, PsiDirectory directory);
+  protected abstract PsiElement @NotNull [] create(@NotNull String newName, PsiDirectory directory) throws Exception;
 
-  /**
-   * @return created elements. Never null.
-   */
-  @NotNull
-  protected abstract PsiElement[] create(String newName, PsiDirectory directory) throws Exception;
-
+  @NlsContexts.DialogTitle
   protected abstract String getErrorTitle();
 
-  protected abstract String getCommandName();
+  /**
+   * @deprecated this method isn't called by the platform; {@link #getActionName(PsiDirectory, String)} is used instead.
+   */
+  @Deprecated
+  protected String getCommandName() {
+    return "";
+  }
 
+  @NlsContexts.Command
   protected abstract String getActionName(PsiDirectory directory, String newName);
 
   @Override
-  public final void actionPerformed(final AnActionEvent e) {
-    final IdeView view = e.getData(LangDataKeys.IDE_VIEW);
+  public final void actionPerformed(@NotNull final AnActionEvent e) {
+    final IdeView view = getIdeView(e);
     if (view == null) {
       return;
     }
@@ -70,54 +102,23 @@ public abstract class CreateElementActionBase extends AnAction {
     final Project project = e.getProject();
 
     final PsiDirectory dir = view.getOrChooseDirectory();
-    if (dir == null) return;
-    final PsiElement[] createdElements = invokeDialog(project, dir);
-
-    for (PsiElement createdElement : createdElements) {
-      view.selectElement(createdElement);
-    }
+    if (dir == null || project == null) return;
+    invokeDialog(project, dir, createdElements -> {
+      for (PsiElement createdElement : createdElements) {
+        view.selectElement(createdElement);
+      }
+    });
   }
 
-  @Override
-  public void update(final AnActionEvent e) {
-    final DataContext dataContext = e.getDataContext();
-    final Presentation presentation = e.getPresentation();
-
-    final boolean enabled = isAvailable(dataContext);
-
-    presentation.setVisible(enabled);
-    presentation.setEnabled(enabled);
-  }
-
-  @Override
-  public boolean isDumbAware() {
-    return false;
-  }
-
-  protected boolean isAvailable(final DataContext dataContext) {
-    final Project project = CommonDataKeys.PROJECT.getData(dataContext);
-    if (project == null) {
-      return false;
-    }
-
-    if (DumbService.getInstance(project).isDumb() && !isDumbAware()) {
-      return false;
-    }
-
-    final IdeView view = LangDataKeys.IDE_VIEW.getData(dataContext);
-    if (view == null || view.getDirectories().length == 0) {
-      return false;
-    }
-
-    return true;
+  @Nullable
+  protected IdeView getIdeView(@NotNull AnActionEvent e) {
+    return e.getData(LangDataKeys.IDE_VIEW);
   }
 
   public static String filterMessage(String message) {
     if (message == null) return null;
     @NonNls final String ioExceptionPrefix = "java.io.IOException:";
-    if (message.startsWith(ioExceptionPrefix)) {
-      message = message.substring(ioExceptionPrefix.length());
-    }
+    message = StringUtil.trimStart(message, ioExceptionPrefix);
     return message;
   }
 
@@ -140,8 +141,13 @@ public abstract class CreateElementActionBase extends AnAction {
     }
 
     @Override
-    public PsiElement[] create(String newName) throws Exception {
+    public PsiElement[] create(@NotNull String newName) throws Exception {
       return CreateElementActionBase.this.create(newName, myDirectory);
+    }
+
+    @Override
+    public boolean startInWriteAction() {
+      return CreateElementActionBase.this.startInWriteAction();
     }
 
     @Override

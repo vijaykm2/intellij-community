@@ -1,30 +1,14 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/**
- * created at Sep 12, 2001
- * @author Jeka
- */
 package com.intellij.refactoring.ui;
 
 import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.fileEditor.FileEditorLocation;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.text.HtmlBuilder;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.refactoring.RefactoringBundle;
@@ -32,30 +16,34 @@ import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usages.*;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.event.HyperlinkEvent;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.util.Collection;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.regex.Pattern;
 
 public class ConflictsDialog extends DialogWrapper{
   private static final int SHOW_CONFLICTS_EXIT_CODE = 4;
+  private static final int MAX_CONFLICTS_SHOWN = 20;
+  @NonNls private static final String EXPAND_LINK = "expand";
 
-  private final String[] myConflictDescriptions;
-  private MultiMap<PsiElement, String> myElementConflictDescription;
+  protected final String[] myConflictDescriptions;
+  protected MultiMap<PsiElement, String> myElementConflictDescription;
   private final Project myProject;
   private Runnable myDoRefactoringRunnable;
   private final boolean myCanShowConflictsInView;
-  private String myCommandName;
+  @NlsContexts.Command private String myCommandName;
 
   public ConflictsDialog(@NotNull Project project, @NotNull MultiMap<PsiElement, String> conflictDescriptions) {
     this(project, conflictDescriptions, null, true, true);
@@ -76,12 +64,9 @@ public class ConflictsDialog extends DialogWrapper{
     myProject = project;
     myDoRefactoringRunnable = doRefactoringRunnable;
     myCanShowConflictsInView = canShowConflictsInView;
-    final LinkedHashSet<String> conflicts = new LinkedHashSet<String>();
 
-    for (String conflict : conflictDescriptions.values()) {
-      conflicts.add(conflict);
-    }
-    myConflictDescriptions = ArrayUtil.toStringArray(conflicts);
+    final LinkedHashSet<String> conflicts = new LinkedHashSet<>(conflictDescriptions.values());
+    myConflictDescriptions = ArrayUtilRt.toStringArray(conflicts);
     myElementConflictDescription = conflictDescriptions;
     setTitle(RefactoringBundle.message("problems.detected.title"));
     setOKButtonText(RefactoringBundle.message("continue.button"));
@@ -89,12 +74,9 @@ public class ConflictsDialog extends DialogWrapper{
     init();
   }
 
-  @SuppressWarnings("deprecation")
-  @Deprecated
-  public ConflictsDialog(Project project, Collection<String> conflictDescriptions) {
-    this(project, ArrayUtil.toStringArray(conflictDescriptions));
-  }
-
+  /**
+   * @deprecated use other CTORs
+   */
   @Deprecated
   public ConflictsDialog(Project project, String... conflictDescriptions) {
     super(project, true);
@@ -107,8 +89,7 @@ public class ConflictsDialog extends DialogWrapper{
   }
 
   @Override
-  @NotNull
-  protected Action[] createActions(){
+  protected Action @NotNull [] createActions(){
     final Action okAction = getOKAction();
     boolean showUsagesButton = myElementConflictDescription != null && myCanShowConflictsInView;
 
@@ -132,17 +113,30 @@ public class ConflictsDialog extends DialogWrapper{
 
     panel.add(new JLabel(RefactoringBundle.message("the.following.problems.were.found")), BorderLayout.NORTH);
 
-    @NonNls StringBuilder buf = new StringBuilder();
-    for (String description : myConflictDescriptions) {
-      buf.append(description);
-      buf.append("<br><br>");
+    HtmlBuilder buf = new HtmlBuilder();
+
+    for (int i = 0; i < Math.min(myConflictDescriptions.length, MAX_CONFLICTS_SHOWN); i++) {
+      buf.appendRaw(myConflictDescriptions[i]).br().br();
     }
-    JEditorPane messagePane = new JEditorPane(UIUtil.HTML_MIME, buf.toString());
+
+    if (myConflictDescriptions.length > MAX_CONFLICTS_SHOWN) {
+      buf.appendLink(EXPAND_LINK, RefactoringBundle.message("show.more.conflicts.link"));
+    }
+
+    JEditorPane messagePane = new JEditorPane();
+    messagePane.setEditorKit(UIUtil.getHTMLEditorKit());
+    messagePane.setText(buf.toString());
     messagePane.setEditable(false);
     JScrollPane scrollPane = ScrollPaneFactory.createScrollPane(messagePane,
                                                                 ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS,
                                                                 ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
     scrollPane.setPreferredSize(JBUI.size(500, 400));
+    messagePane.addHyperlinkListener(e -> {
+      if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED && 
+          EXPAND_LINK.equals(e.getDescription())) {
+        messagePane.setText(StringUtil.join(myConflictDescriptions, "<br><br>"));
+      }
+    });
     panel.add(scrollPane, BorderLayout.CENTER);
 
     if (getOKAction().isEnabled()) {
@@ -152,12 +146,12 @@ public class ConflictsDialog extends DialogWrapper{
     return panel;
   }
 
-  public void setCommandName(String commandName) {
+  public void setCommandName(@NlsContexts.Command String commandName) {
     myCommandName = commandName;
   }
 
   private class CancelAction extends AbstractAction {
-    public CancelAction() {
+    CancelAction() {
       super(RefactoringBundle.message("cancel.button"));
       putValue(DEFAULT_ACTION,Boolean.TRUE);
     }
@@ -175,104 +169,93 @@ public class ConflictsDialog extends DialogWrapper{
   private class MyShowConflictsInUsageViewAction extends AbstractAction {
 
 
-    public MyShowConflictsInUsageViewAction() {
-      super("Show conflicts in view");
+    MyShowConflictsInUsageViewAction() {
+      super(RefactoringBundle.message("action.show.conflicts.in.view.text"));
     }
 
     @Override
     public void actionPerformed(ActionEvent e) {
       final UsageViewPresentation presentation = new UsageViewPresentation();
-      final String codeUsagesString = "Conflicts";
+      final String codeUsagesString = RefactoringBundle.message("conflicts.tab.name");
       presentation.setCodeUsagesString(codeUsagesString);
       presentation.setTabName(codeUsagesString);
       presentation.setTabText(codeUsagesString);
       presentation.setShowCancelButton(true);
 
-      final Usage[] usages = new Usage[myElementConflictDescription.size()];
-      int i = 0;
+      final ArrayList<Usage> usages = new ArrayList<>(myElementConflictDescription.values().size());
       for (final PsiElement element : myElementConflictDescription.keySet()) {
         if (element == null) {
-          usages[i++] = new DescriptionOnlyUsage();
+          usages.add(new DescriptionOnlyUsage());
           continue;
         }
         boolean isRead = false;
         boolean isWrite = false;
-        for (ReadWriteAccessDetector detector : Extensions.getExtensions(ReadWriteAccessDetector.EP_NAME)) {
-          if (detector.isReadWriteAccessible(element)) {
-            final ReadWriteAccessDetector.Access access = detector.getExpressionAccess(element);
-            isRead = access != ReadWriteAccessDetector.Access.Write;
-            isWrite = access != ReadWriteAccessDetector.Access.Read;
-            break;
-          }
+        ReadWriteAccessDetector detector = ReadWriteAccessDetector.findDetector(element);
+        if (detector != null) {
+          final ReadWriteAccessDetector.Access access = detector.getExpressionAccess(element);
+          isRead = access != ReadWriteAccessDetector.Access.Write;
+          isWrite = access != ReadWriteAccessDetector.Access.Read;
         }
 
-        usages[i++] = isRead || isWrite ? new ReadWriteAccessUsageInfo2UsageAdapter(new UsageInfo(element), isRead, isWrite) {
-          @NotNull
-          @Override
-          public UsagePresentation getPresentation() {
-            final UsagePresentation usagePresentation = super.getPresentation();
-            return MyShowConflictsInUsageViewAction.this.getPresentation(usagePresentation, element);
-          }
-        } : new UsageInfo2UsageAdapter(new UsageInfo(element)) {
-          @NotNull
-          @Override
-          public UsagePresentation getPresentation() {
-            final UsagePresentation usagePresentation = super.getPresentation();
-            return MyShowConflictsInUsageViewAction.this.getPresentation(usagePresentation, element);
-          }
-        };
+        for (final @NlsContexts.Tooltip String conflictDescription : myElementConflictDescription.get(element)) {
+          final UsagePresentation usagePresentation = new DescriptionOnlyUsage(conflictDescription).getPresentation();
+          Usage usage = isRead || isWrite ? new ReadWriteAccessUsageInfo2UsageAdapter(new UsageInfo(element), isRead, isWrite) {
+            @NotNull
+            @Override
+            public UsagePresentation getPresentation() {
+              return usagePresentation;
+            }
+          } : new UsageInfo2UsageAdapter(new UsageInfo(element)) {
+            @NotNull
+            @Override
+            public UsagePresentation getPresentation() {
+              return usagePresentation;
+            }
+          };
+          usages.add(usage);
+        }
       }
-      final UsageView usageView = UsageViewManager.getInstance(myProject).showUsages(UsageTarget.EMPTY_ARRAY, usages, presentation);
+      final UsageView usageView = UsageViewManager.getInstance(myProject)
+        .showUsages(UsageTarget.EMPTY_ARRAY, usages.toArray(Usage.EMPTY_ARRAY), presentation);
       Runnable doRefactoringRunnable = getDoRefactoringRunnable(usageView);
       if (doRefactoringRunnable != null) {
         usageView.addPerformOperationAction(
           doRefactoringRunnable,
-          myCommandName != null ? myCommandName : RefactoringBundle.message("retry.command"), "Unable to perform refactoring. There were changes in code after the usages have been found.", RefactoringBundle.message("usageView.doAction"));
+          myCommandName != null ? myCommandName : RefactoringBundle.message("retry.command"),
+          LangBundle.message("conflicts.dialog.message.unable.to.perform.refactoring.changes.in.code.after.usages.have.been.found"),
+          RefactoringBundle.message("usageView.doAction"));
       }
       close(SHOW_CONFLICTS_EXIT_CODE);
     }
 
-    private UsagePresentation getPresentation(final UsagePresentation usagePresentation, PsiElement element) {
-      final Collection<String> elementConflicts = new LinkedHashSet<String>(myElementConflictDescription.get(element));
-      final String conflictDescription = " (" + Pattern.compile("<[^<>]*>").matcher(StringUtil.join(elementConflicts, "\n")).replaceAll("") + ")";
-      return new UsagePresentation() {
-        @Override
-        @NotNull
-        public TextChunk[] getText() {
-          final TextChunk[] chunks = usagePresentation.getText();
-          return ArrayUtil
-            .append(chunks, new TextChunk(SimpleTextAttributes.GRAY_ITALIC_ATTRIBUTES.toTextAttributes(), conflictDescription));
-        }
-
-        @Override
-        @NotNull
-        public String getPlainText() {
-          return usagePresentation.getPlainText() + conflictDescription;
-        }
-
-        @Override
-        public Icon getIcon() {
-          return usagePresentation.getIcon();
-        }
-
-        @Override
-        public String getTooltipText() {
-          return usagePresentation.getTooltipText();
-        }
-      };
-    }
-
     private class DescriptionOnlyUsage implements Usage {
-      private final String myConflictDescription = Pattern.compile("<[^<>]*>").matcher(StringUtil.join(new LinkedHashSet<String>(myElementConflictDescription.get(null)), "\n")).replaceAll("");
+      private final @NlsContexts.Tooltip String myConflictDescription;
+
+      DescriptionOnlyUsage(@NotNull @NlsContexts.Tooltip String conflictDescription) {
+        //noinspection HardCodedStringLiteral
+        myConflictDescription = StringUtil.unescapeXmlEntities(conflictDescription)
+          .replaceAll("<code>", "")
+          .replaceAll("</code>", "")
+          .replaceAll("<b>", "")
+          .replaceAll("</b>", "");
+      }
+
+      DescriptionOnlyUsage() {
+        myConflictDescription = getEscapedDescription(StringUtil.join(new LinkedHashSet<>(myElementConflictDescription.get(null)), "\n"));
+      }
+
+      @Contract(pure = true)
+      private String getEscapedDescription(String conflictsMessage) {
+        return Pattern.compile("<[^<>]*>").matcher(conflictsMessage).replaceAll("");
+      }
 
       @Override
       @NotNull
       public UsagePresentation getPresentation() {
         return new UsagePresentation() {
           @Override
-          @NotNull
-          public TextChunk[] getText() {
-            return new TextChunk[0];
+          public TextChunk @NotNull [] getText() {
+            return new TextChunk[] {new TextChunk(SimpleTextAttributes.REGULAR_ATTRIBUTES.toTextAttributes(), myConflictDescription)};
           }
 
           @Override

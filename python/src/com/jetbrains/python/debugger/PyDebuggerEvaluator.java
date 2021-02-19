@@ -28,9 +28,7 @@ import org.jetbrains.annotations.Nullable;
 
 public class PyDebuggerEvaluator extends XDebuggerEvaluator {
 
-  private static final PyDebugValue NONE = new PyDebugValue("", "NoneType", "None", false, false, null, null);
-
-  private Project myProject;
+  private final Project myProject;
   private final PyFrameAccessor myDebugProcess;
 
   public PyDebuggerEvaluator(@NotNull Project project, @NotNull final PyFrameAccessor debugProcess) {
@@ -43,30 +41,31 @@ public class PyDebuggerEvaluator extends XDebuggerEvaluator {
     doEvaluate(expression, callback, true);
   }
 
-  private void doEvaluate(final String expr, final XEvaluationCallback callback, final boolean doTrunc) {
-    ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
-      @Override
-      public void run() {
-        String expression = expr.trim();
-        if (expression.isEmpty()) {
-          callback.evaluated(NONE);
-          return;
-        }
+  private PyDebugValue getNone() {
+    return new PyDebugValue("", "NoneType", null, "None", false, null, false, false, false, null, myDebugProcess);
+  }
 
-        final boolean isExpression = PyDebugSupportUtils.isExpression(myProject, expression);
-        try {
-          // todo: think on getting results from EXEC
-          final PyDebugValue value = myDebugProcess.evaluate(expression, !isExpression, doTrunc);
-          if (value.isErrorOnEval()) {
-            callback.errorOccurred("{" + value.getType() + "}" + value.getValue());
-          }
-          else {
-            callback.evaluated(value);
-          }
+  private void doEvaluate(final String expr, final XEvaluationCallback callback, final boolean doTrunc) {
+    ApplicationManager.getApplication().executeOnPooledThread(() -> {
+      String expression = expr.trim();
+      if (expression.isEmpty()) {
+        callback.evaluated(getNone());
+        return;
+      }
+
+      final boolean isExpression = PyDebugSupportUtils.isExpression(myProject, expression);
+      try {
+        // todo: think on getting results from EXEC
+        final PyDebugValue value = myDebugProcess.evaluate(expression, !isExpression, doTrunc);
+        if (value.isErrorOnEval()) {
+          callback.errorOccurred("{" + value.getType() + "}" + value.getValue()); //NON-NLS
         }
-        catch (PyDebuggerException e) {
-          callback.errorOccurred(e.getTracebackError());
+        else {
+          callback.evaluated(value);
         }
+      }
+      catch (PyDebuggerException e) {
+        callback.errorOccurred(e.getTracebackError());
       }
     });
   }

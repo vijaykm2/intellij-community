@@ -5,7 +5,7 @@ public class LogStatementGuardedByLogCondition {
     private static final Logger LOG = Logger.getLogger("log");
 
     void guarded(Object object) {
-        if (LOG.isDebug()) {
+        if (((LOG.isDebug()))) {
             if (true) {
                 if (true) {
                     LOG.debug("really expensive logging" + object);
@@ -17,7 +17,7 @@ public class LogStatementGuardedByLogCondition {
     void unguarded(Object object) {
         if (true) {
             if (true) {
-                LOG.debug("log log log " + object);
+                LOG.<warning descr="'debug()' logging calls not guarded by log condition">debug</warning>("log log log " + object);
             }
         }
     }
@@ -26,14 +26,18 @@ public class LogStatementGuardedByLogCondition {
         if (LOG.isTrace()) {
             if (true) {
                 if (true) {
-                    LOG.debug("really expensive logging" + object);
+                    LOG.<warning descr="'debug()' logging calls not guarded by log condition">debug</warning>("really expensive logging" + object);
                 }
             }
         }
     }
 
     void alternativeDebugMethodSignature(int i) {
-        LOG.debug(i, "asdfasdf");
+        LOG.<warning descr="'debug()' logging calls not guarded by log condition">debug</warning>(i, "asdfasdf");
+    }
+
+    void lambda(String s) {
+      LOG.finest(() -> "Could not parse: " + s);
     }
 
   static class Logger {
@@ -47,6 +51,8 @@ public class LogStatementGuardedByLogCondition {
     public void debug(int i, String s) {}
 
     public void trace(String s) {}
+
+    public void finest(java.util.function.Supplier<String> msgSupplier) {}
 
     public boolean isDebug() {
       return true;

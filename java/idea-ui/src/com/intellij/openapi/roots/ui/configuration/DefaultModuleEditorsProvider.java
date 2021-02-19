@@ -19,7 +19,6 @@ import com.intellij.openapi.module.JavaModuleType;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleConfigurationEditor;
 import com.intellij.openapi.module.ModuleType;
-import com.intellij.openapi.roots.ModifiableRootModel;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,17 +26,16 @@ import java.util.List;
 public class DefaultModuleEditorsProvider implements ModuleConfigurationEditorProvider {
   @Override
   public ModuleConfigurationEditor[] createEditors(ModuleConfigurationState state) {
-    ModifiableRootModel rootModel = state.getRootModel();
-    Module module = rootModel.getModule();
+    Module module = state.getCurrentRootModel().getModule();
     if (!(ModuleType.get(module) instanceof JavaModuleType)) {
       return ModuleConfigurationEditor.EMPTY;
     }
 
     String moduleName = module.getName();
-    List<ModuleConfigurationEditor> editors = new ArrayList<ModuleConfigurationEditor>();
+    List<ModuleConfigurationEditor> editors = new ArrayList<>();
     editors.add(new ContentEntriesEditor(moduleName, state));
     editors.add(new OutputEditor(state));
     editors.add(new ClasspathEditor(state));
-    return editors.toArray(new ModuleConfigurationEditor[editors.size()]);
+    return editors.toArray(ModuleConfigurationEditor.EMPTY);
   }
 }

@@ -25,8 +25,7 @@ public interface AirContentRevision {
   boolean isBinary();
   @Nullable
   String getContentAsString() throws VcsException;
-  @Nullable
-  byte[] getContentAsBytes() throws VcsException;
+  byte @Nullable [] getContentAsBytes() throws VcsException;
   
   @Nullable
   String getRevisionNumber();
@@ -34,5 +33,13 @@ public interface AirContentRevision {
   @NotNull
   PathDescription getPath();
 
-  Charset getCharset();
+  @Nullable
+  default Charset getCharset() {
+    return null;
+  }
+
+  @Nullable
+  default String getLineSeparator() {
+    return null;
+  }
 }

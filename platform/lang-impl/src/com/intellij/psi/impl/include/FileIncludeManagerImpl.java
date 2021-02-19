@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.include;
 
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.extensions.ExtensionPointListener;
+import com.intellij.openapi.extensions.PluginDescriptor;
 import com.intellij.openapi.fileTypes.FileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
@@ -38,9 +25,7 @@ import com.intellij.psi.util.ParameterizedCachedValue;
 import com.intellij.psi.util.ParameterizedCachedValueProvider;
 import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.containers.MultiMap;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -49,39 +34,31 @@ import java.util.*;
 /**
  * @author Dmitry Avdeev
  */
-public class FileIncludeManagerImpl extends FileIncludeManager {
-
+public final class FileIncludeManagerImpl extends FileIncludeManager implements Disposable {
   private final Project myProject;
   private final PsiManager myPsiManager;
   private final PsiFileFactory myPsiFileFactory;
-  private final CachedValuesManager myCachedValuesManager;
 
   private final IncludeCacheHolder myIncludedHolder = new IncludeCacheHolder("compile time includes", "runtime includes") {
     @Override
     protected VirtualFile[] computeFiles(final PsiFile file, final boolean compileTimeOnly) {
-      final Set<VirtualFile> files = new THashSet<VirtualFile>();
-      processIncludes(file, new Processor<FileIncludeInfo>() {
-        @Override
-        public boolean process(FileIncludeInfo info) {
-          if (compileTimeOnly != info.runtimeOnly) {
-            PsiFileSystemItem item = resolveFileInclude(info, file);
-            if (item != null) {
-              ContainerUtil.addIfNotNull(files, item.getVirtualFile());
-            }
+      final Set<VirtualFile> files = new HashSet<>();
+      processIncludes(file, info -> {
+        if (compileTimeOnly != info.runtimeOnly) {
+          PsiFileSystemItem item = resolveFileInclude(info, file);
+          if (item != null) {
+            ContainerUtil.addIfNotNull(files, item.getVirtualFile());
           }
-          return true;
         }
-
+        return true;
       });
       return VfsUtilCore.toVirtualFileArray(files);
     }
   };
-  private final Map<String, FileIncludeProvider> myProviderMap;
 
-  public void processIncludes(PsiFile file, Processor<FileIncludeInfo> processor) {
-    GlobalSearchScope scope = GlobalSearchScope.allScope(myProject);
-    List<FileIncludeInfoImpl> infoList = FileIncludeIndex.getIncludes(file.getVirtualFile(), scope);
-    for (FileIncludeInfoImpl info : infoList) {
+  public void processIncludes(PsiFile file, Processor<? super FileIncludeInfo> processor) {
+    List<FileIncludeInfo> infoList = FileIncludeIndex.getIncludes(file.getVirtualFile(), myProject);
+    for (FileIncludeInfo info : infoList) {
       if (!processor.process(info)) {
         return;
       }
@@ -91,51 +68,78 @@ public class FileIncludeManagerImpl extends FileIncludeManager {
   private final IncludeCacheHolder myIncludingHolder = new IncludeCacheHolder("compile time contexts", "runtime contexts") {
     @Override
     protected VirtualFile[] computeFiles(PsiFile context, boolean compileTimeOnly) {
-      final Set<VirtualFile> files = new THashSet<VirtualFile>();
-      processIncludingFiles(context, new Processor<Pair<VirtualFile, FileIncludeInfo>>() {
-        @Override
-        public boolean process(Pair<VirtualFile, FileIncludeInfo> virtualFileFileIncludeInfoPair) {
-          files.add(virtualFileFileIncludeInfoPair.first);
-          return true;
-        }
+      final Set<VirtualFile> files = new HashSet<>();
+      processIncludingFiles(context, virtualFileFileIncludeInfoPair -> {
+        files.add(virtualFileFileIncludeInfoPair.first);
+        return true;
       });
       return VfsUtilCore.toVirtualFileArray(files);
     }
   };
 
   @Override
-  public void processIncludingFiles(PsiFile context, Processor<Pair<VirtualFile, FileIncludeInfo>> processor) {
+  public void processIncludingFiles(PsiFile context, Processor<? super Pair<VirtualFile, FileIncludeInfo>> processor) {
     context = context.getOriginalFile();
     VirtualFile contextFile = context.getVirtualFile();
     if (contextFile == null) return;
-    MultiMap<VirtualFile,FileIncludeInfoImpl> infoList = FileIncludeIndex.getIncludingFileCandidates(context.getName(), GlobalSearchScope.allScope(myProject));
-    for (VirtualFile candidate : infoList.keySet()) {
-      PsiFile psiFile = myPsiManager.findFile(candidate);
-      if (psiFile == null || context.equals(psiFile)) continue;
-      for (FileIncludeInfo info : infoList.get(candidate)) {
-        PsiFileSystemItem item = resolveFileInclude(info, psiFile);
-        if (item != null && contextFile.equals(item.getVirtualFile())) {
-          if (!processor.process(Pair.create(candidate, info))) {
-            return;
+
+    String originalName = context.getName();
+    Collection<String> names = getPossibleIncludeNames(context, originalName);
+
+    GlobalSearchScope scope = GlobalSearchScope.allScope(myProject);
+    for (String name : names) {
+      MultiMap<VirtualFile,FileIncludeInfoImpl> infoList = FileIncludeIndex.getIncludingFileCandidates(name, scope);
+      for (VirtualFile candidate : infoList.keySet()) {
+        PsiFile psiFile = myPsiManager.findFile(candidate);
+        if (psiFile == null || context.equals(psiFile)) continue;
+        for (FileIncludeInfo info : infoList.get(candidate)) {
+          PsiFileSystemItem item = resolveFileInclude(info, psiFile);
+          if (item != null && contextFile.equals(item.getVirtualFile())) {
+            if (!processor.process(Pair.create(candidate, info))) {
+              return;
+            }
           }
         }
       }
     }
   }
 
-  public FileIncludeManagerImpl(Project project, PsiManager psiManager, PsiFileFactory psiFileFactory,
-                                CachedValuesManager cachedValuesManager) {
-    myProject = project;
-    myPsiManager = psiManager;
-    myPsiFileFactory = psiFileFactory;
-
-    FileIncludeProvider[] providers = Extensions.getExtensions(FileIncludeProvider.EP_NAME);
-    myProviderMap = new HashMap<String, FileIncludeProvider>(providers.length);
-    for (FileIncludeProvider provider : providers) {
-      FileIncludeProvider old = myProviderMap.put(provider.getId(), provider);
-      assert old == null;
+  @NotNull
+  private static Collection<String> getPossibleIncludeNames(@NotNull PsiFile context, @NotNull String originalName) {
+    Collection<String> names = new HashSet<>();
+    names.add(originalName);
+    for (FileIncludeProvider provider : FileIncludeProvider.EP_NAME.getExtensionList()) {
+      String newName = provider.getIncludeName(context, originalName);
+      if (newName != originalName) {
+        names.add(newName);
+      }
     }
-    myCachedValuesManager = cachedValuesManager;
+    return names;
+  }
+
+  private final Map<String, FileIncludeProvider> myProviderMap = new HashMap<>();
+
+  public FileIncludeManagerImpl(@NotNull Project project) {
+    myProject = project;
+    myPsiManager = PsiManager.getInstance(project);
+    myPsiFileFactory = PsiFileFactory.getInstance(myProject);
+
+    FileIncludeProvider.EP_NAME.getPoint().addExtensionPointListener(new ExtensionPointListener<>() {
+      @Override
+      public void extensionAdded(@NotNull FileIncludeProvider provider, @NotNull PluginDescriptor pluginDescriptor) {
+        FileIncludeProvider old = myProviderMap.put(provider.getId(), provider);
+        assert old == null;
+      }
+
+      @Override
+      public void extensionRemoved(@NotNull FileIncludeProvider provider, @NotNull PluginDescriptor pluginDescriptor) {
+        myProviderMap.remove(provider.getId());
+      }
+    }, true, this);
+  }
+
+  @Override
+  public void dispose() {
   }
 
   @Override
@@ -208,17 +212,16 @@ public class FileIncludeManagerImpl extends FileIncludeManager {
       RUNTIME_KEY = Key.create(runtimeKey);
     }
 
-    @NotNull
-    private VirtualFile[] getAllFiles(@NotNull VirtualFile file, boolean compileTimeOnly, boolean recursively) {
+    private VirtualFile @NotNull [] getAllFiles(@NotNull VirtualFile file, boolean compileTimeOnly, boolean recursively) {
       if (recursively) {
-        Set<VirtualFile> result = new HashSet<VirtualFile>();
+        Set<VirtualFile> result = new HashSet<>();
         getAllFilesRecursively(file, compileTimeOnly, result);
         return VfsUtilCore.toVirtualFileArray(result);
       }
       return getFiles(file, compileTimeOnly);
     }
 
-    private void getAllFilesRecursively(@NotNull VirtualFile file, boolean compileTimeOnly, Set<VirtualFile> result) {
+    private void getAllFilesRecursively(@NotNull VirtualFile file, boolean compileTimeOnly, Set<? super VirtualFile> result) {
       if (!result.add(file)) return;
       VirtualFile[] includes = getFiles(file, compileTimeOnly);
       if (includes.length != 0) {
@@ -234,9 +237,10 @@ public class FileIncludeManagerImpl extends FileIncludeManager {
         return VirtualFile.EMPTY_ARRAY;
       }
       if (compileTimeOnly) {
-        return myCachedValuesManager.getParameterizedCachedValue(psiFile, COMPILE_TIME_KEY, COMPILE_TIME_PROVIDER, false, psiFile);
+        return CachedValuesManager.getManager(myProject)
+          .getParameterizedCachedValue(psiFile, COMPILE_TIME_KEY, COMPILE_TIME_PROVIDER, false, psiFile);
       }
-      return myCachedValuesManager.getParameterizedCachedValue(psiFile, RUNTIME_KEY, RUNTIME_PROVIDER, false, psiFile);
+      return CachedValuesManager.getManager(myProject).getParameterizedCachedValue(psiFile, RUNTIME_KEY, RUNTIME_PROVIDER, false, psiFile);
     }
 
     protected abstract VirtualFile[] computeFiles(PsiFile file, boolean compileTimeOnly);
@@ -246,7 +250,7 @@ public class FileIncludeManagerImpl extends FileIncludeManager {
   private abstract static class IncludedFilesProvider implements ParameterizedCachedValueProvider<VirtualFile[], PsiFile> {
     private final boolean myRuntimeOnly;
 
-    public IncludedFilesProvider(boolean runtimeOnly) {
+    IncludedFilesProvider(boolean runtimeOnly) {
       myRuntimeOnly = runtimeOnly;
     }
 
@@ -256,7 +260,7 @@ public class FileIncludeManagerImpl extends FileIncludeManager {
     public CachedValueProvider.Result<VirtualFile[]> compute(PsiFile psiFile) {
       VirtualFile[] value = computeFiles(psiFile, myRuntimeOnly);
       // todo: we need "url modification tracker" for VirtualFile
-      List<Object> deps = new ArrayList<Object>(Arrays.asList(value));
+      List<Object> deps = new ArrayList<>(Arrays.asList(value));
       deps.add(psiFile);
       deps.add(VirtualFileManager.getInstance());
 

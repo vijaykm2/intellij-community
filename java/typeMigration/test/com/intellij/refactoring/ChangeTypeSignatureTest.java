@@ -1,28 +1,28 @@
-/*
- * User: anna
- * Date: 18-Mar-2008
- */
+// Copyright 2000-2017 JetBrains s.r.o.
+// Use of this source code is governed by the Apache 2.0 license that can be
+// found in the LICENSE file.
+
 package com.intellij.refactoring;
 
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.PsiImmediateClassType;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.refactoring.typeMigration.TypeMigrationLabeler;
 import com.intellij.refactoring.typeMigration.TypeMigrationProcessor;
 import com.intellij.refactoring.typeMigration.TypeMigrationRules;
-import com.intellij.testFramework.LightCodeInsightTestCase;
+import com.intellij.testFramework.LightJavaCodeInsightTestCase;
 import com.intellij.testFramework.PlatformTestUtil;
+import com.intellij.util.Functions;
 import org.jetbrains.annotations.NotNull;
 
-public class ChangeTypeSignatureTest extends LightCodeInsightTestCase {
+public class ChangeTypeSignatureTest extends LightJavaCodeInsightTestCase {
   @NotNull
   @Override
   protected String getTestDataPath() {
     return PlatformTestUtil.getCommunityPath() + "/java/typeMigration/testData";
   }
 
-  private void doTest(boolean success, String migrationTypeText) throws Exception {
+  private void doTest(boolean success, String migrationTypeText) {
     String dataPath = "/refactoring/changeTypeSignature/";
     configureByFile(dataPath + getTestName(false) + ".java");
     final PsiFile file = getFile();
@@ -35,10 +35,13 @@ public class ChangeTypeSignatureTest extends LightCodeInsightTestCase {
     PsiType migrationType = getJavaFacade().getElementFactory().createTypeFromText(migrationTypeText, null);
 
     try {
-      final TypeMigrationRules rules = new TypeMigrationRules(TypeMigrationLabeler.getElementType(parameterList));
-      rules.setMigrationRootType(PsiSubstitutor.EMPTY.put(superClass.getTypeParameters()[0], migrationType).substitute(new PsiImmediateClassType(superClass, PsiSubstitutor.EMPTY)));
+      final TypeMigrationRules rules = new TypeMigrationRules(getProject());
       rules.setBoundScope(GlobalSearchScope.projectScope(getProject()));
-      new TypeMigrationProcessor(getProject(), parameterList, rules).run();
+      new TypeMigrationProcessor(getProject(),
+                                 new PsiElement[]{parameterList},
+                                 Functions.constant(PsiSubstitutor.EMPTY.put(superClass.getTypeParameters()[0], migrationType).substitute(new PsiImmediateClassType(superClass, PsiSubstitutor.EMPTY))),
+                                 rules,
+                                 true).run();
       if (success) {
         checkResultByFile(dataPath + getTestName(false) + ".java.after");
       } else {
@@ -53,96 +56,91 @@ public class ChangeTypeSignatureTest extends LightCodeInsightTestCase {
     }
   }
 
-  private void doTest(boolean success) throws Exception {
+  private void doTest(boolean success) {
     doTest(success, CommonClassNames.JAVA_LANG_OBJECT);
   }
 
-  public void testListTypeArguments() throws Exception {
+  public void testListTypeArguments() {
     doTest(true);
   }
 
-  public void testFieldUsage() throws Exception {
+  public void testFieldUsage() {
     doTest(true);
   }
 
-  public void testFieldUsage1() throws Exception {
+  public void testFieldUsage1() {
     doTest(true);
   }
 
-  public void testReturnType() throws Exception {
+  public void testReturnType() {
     doTest(true);
   }
 
-  public void testReturnType1() throws Exception {
+  public void testReturnType1() {
     doTest(true);
   }
 
-  public void testReturnType2() throws Exception {
+  public void testReturnType2() {
     doTest(true);
   }
 
-  public void testPassedParameter() throws Exception {
+  public void testPassedParameter() {
     doTest(true);
   }
 
-  public void testPassedParameter1() throws Exception {
+  public void testPassedParameter1() {
     doTest(true, "java.lang.Integer");
   }
 
-  public void testPassedParameter2() throws Exception {
+  public void testPassedParameter2() {
     doTest(true);
   }
 
-  public void testUsedInSuper() throws Exception {
+  public void testUsedInSuper() {
     doTest(true);
   }
 
-  public void testCompositeReturnType() throws Exception {
+  public void testCompositeReturnType() {
     doTest(true);
   }
 
-  public void testTypeHierarchy() throws Exception {
+  public void testTypeHierarchy() {
     doTest(true);
   }
 
-  public void testTypeHierarchy1() throws Exception {
+  public void testTypeHierarchy1() {
     doTest(true);
   }
 
-  public void testTypeHierarchy2() throws Exception {
+  public void testTypeHierarchy2() {
     doTest(true);
   }
 
-  public void testTypeHierarchyFieldUsage() throws Exception {
+  public void testTypeHierarchyFieldUsage() {
     doTest(true);
   }
 
-  public void testTypeHierarchyFieldUsageConflict() throws Exception {
+  public void testTypeHierarchyFieldUsageConflict() {
     doTest(true);
   }
 
-  public void testParameterMigration() throws Exception {
+  public void testParameterMigration() {
     doTest(true);
   }
 
-  public void testParameterMigration1() throws Exception {
+  public void testParameterMigration1() {
     doTest(true, "java.lang.Integer");
   }
 
-  public void testParameterMigration2() throws Exception {
+  public void testParameterMigration2() {
     doTest(true, "java.lang.Integer");
   }
 
-  public void testFieldTypeMigration() throws Exception {
+  public void testFieldTypeMigration() {
     doTest(true, "java.lang.String");
   }
 
-  public void testMethodReturnTypeMigration() throws Exception {
+  public void testMethodReturnTypeMigration() {
     doTest(true, "java.lang.Integer");
-  }
-
-  @Override
-  protected boolean isRunInWriteAction() {
-    return false;
   }
 }

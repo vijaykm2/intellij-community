@@ -15,16 +15,17 @@
  */
 package org.jetbrains.plugins.gradle.service.settings;
 
-import com.intellij.openapi.externalSystem.service.settings.ExternalSystemSettingsControlCustomizer;
+import com.intellij.ide.util.projectWizard.WizardContext;
 import com.intellij.openapi.externalSystem.util.PaintAwarePanel;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.gradle.settings.GradleProjectSettings;
 
+import javax.swing.*;
+
 /**
  * @author Vladislav.Soroka
- * @since 2/24/2015
  */
 public interface GradleProjectSettingsControlBuilder {
 
@@ -41,19 +42,14 @@ public interface GradleProjectSettingsControlBuilder {
   GradleProjectSettings getInitialSettings();
 
   /**
-   * Add Gradle home components to the panel
-   */
-  IdeaGradleProjectSettingsControlBuilder addGradleHomeComponents(PaintAwarePanel content, int indentLevel);
-
-  /**
    * Add Gradle JDK component to the panel
    */
-  IdeaGradleProjectSettingsControlBuilder addGradleJdkComponents(PaintAwarePanel content, int indentLevel);
+  GradleProjectSettingsControlBuilder addGradleJdkComponents(JPanel content, int indentLevel);
 
   /**
    * Add Gradle distribution chooser component to the panel
    */
-  IdeaGradleProjectSettingsControlBuilder addGradleChooserComponents(PaintAwarePanel content, int indentLevel);
+  GradleProjectSettingsControlBuilder addGradleChooserComponents(JPanel content, int indentLevel);
 
   boolean validate(GradleProjectSettings settings) throws ConfigurationException;
 
@@ -65,14 +61,18 @@ public interface GradleProjectSettingsControlBuilder {
    */
   boolean isModified();
 
-  void reset(Project project, GradleProjectSettings settings, boolean isDefaultModuleCreation);
+  void reset(@Nullable Project project, GradleProjectSettings settings, boolean isDefaultModuleCreation);
+
+  default void reset(@Nullable Project project,
+                     GradleProjectSettings settings,
+                     boolean isDefaultModuleCreation,
+                     @Nullable WizardContext wizardContext) {
+    reset(project, settings, isDefaultModuleCreation);
+  }
 
   void createAndFillControls(PaintAwarePanel content, int indentLevel);
 
   void update(String linkedProjectPath, GradleProjectSettings settings, boolean isDefaultModuleCreation);
-
-  @Nullable
-  ExternalSystemSettingsControlCustomizer getExternalSystemSettingsControlCustomizer();
 
   void disposeUIResources();
 }

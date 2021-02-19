@@ -1,71 +1,57 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/*
- * User: anna
- * Date: 28-Apr-2010
- */
 package com.theoryinpractice.testng.configuration;
 
 import com.intellij.execution.CantRunException;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.testframework.SearchForTestsTask;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.registry.Registry;
-import com.intellij.openapi.vfs.CharsetToolkit;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.JarFileSystem;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileSystem;
+import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiMethod;
+import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.ClassUtil;
-import com.theoryinpractice.testng.model.IDEARemoteTestRunnerClient;
+import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.rt.testng.TestNGXmlSuiteHelper;
+import com.intellij.util.ObjectUtils;
+import com.theoryinpractice.testng.TestngBundle;
 import com.theoryinpractice.testng.model.TestData;
 import com.theoryinpractice.testng.model.TestNGTestObject;
 import com.theoryinpractice.testng.model.TestType;
 import com.theoryinpractice.testng.util.TestNGUtil;
-import org.jetbrains.annotations.Nullable;
-import org.testng.xml.*;
+import org.testng.xml.LaunchSuite;
+import org.testng.xml.Parser;
+import org.testng.xml.SuiteGenerator;
+import org.testng.xml.XmlSuite;
 
 import java.io.*;
 import java.net.ServerSocket;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 public class SearchingForTestsTask extends SearchForTestsTask {
-  private static final Logger LOG = Logger.getInstance("#" + SearchingForTestsTask.class.getName());
-  private final Map<PsiClass, Map<PsiMethod, List<String>>> myClasses;
+  private static final Logger LOG = Logger.getInstance(SearchingForTestsTask.class);
+  protected final Map<PsiClass, Map<PsiMethod, List<String>>> myClasses;
   private final TestData myData;
-  private final Project myProject;
   private final TestNGConfiguration myConfig;
   private final File myTempFile;
-  private final IDEARemoteTestRunnerClient myClient;
 
   public SearchingForTestsTask(ServerSocket serverSocket,
                                TestNGConfiguration config,
-                               File tempFile,
-                               IDEARemoteTestRunnerClient client) {
+                               File tempFile) {
     super(config.getProject(), serverSocket);
-    myClient = client;
     myData = config.getPersistantData();
-    myProject = config.getProject();
     myConfig = config;
     myTempFile = tempFile;
-    myClasses = new LinkedHashMap<PsiClass, Map<PsiMethod, List<String>>>();
+    myClasses = new LinkedHashMap<>();
   }
 
   @Override
@@ -84,7 +70,7 @@ public class SearchingForTestsTask extends SearchForTestsTask {
     }
 
     try {
-      FileUtil.writeToFile(myTempFile, "end".getBytes(), true);
+      FileUtil.writeToFile(myTempFile, "end".getBytes(StandardCharsets.UTF_8), true);
     }
     catch (IOException e) {
       LOG.error(e);
@@ -98,14 +84,10 @@ public class SearchingForTestsTask extends SearchForTestsTask {
   }
 
   @Override
-  protected void startListening() {
-    if (!Registry.is("testng_sm_runner")) myClient.startListening(myConfig);
-  }
-
   protected void logCantRunException(ExecutionException e) {
     try {
       final String message = "CantRunException" + e.getMessage() + "\n";
-      FileUtil.writeToFile(myTempFile, message.getBytes());
+      FileUtil.writeToFile(myTempFile, message.getBytes(StandardCharsets.UTF_8));
     }
     catch (IOException e1) {
       LOG.error(e1);
@@ -113,63 +95,48 @@ public class SearchingForTestsTask extends SearchForTestsTask {
   }
 
   private void composeTestSuiteFromClasses() {
-    Map<String, Map<String, List<String>>> map = new LinkedHashMap<String, Map<String, List<String>>>();
+    Map<String, Map<String, List<String>>> map = new LinkedHashMap<>();
 
     final boolean findTestMethodsForClass = shouldSearchForTestMethods();
 
     for (final Map.Entry<PsiClass, Map<PsiMethod, List<String>>> entry : myClasses.entrySet()) {
       final Map<PsiMethod, List<String>> depMethods = entry.getValue();
-      LinkedHashMap<String, List<String>> methods = new LinkedHashMap<String, List<String>>();
+      LinkedHashMap<String, List<String>> methods = new LinkedHashMap<>();
       for (Map.Entry<PsiMethod, List<String>> method : depMethods.entrySet()) {
         methods.put(method.getKey().getName(), method.getValue());
       }
       if (findTestMethodsForClass && depMethods.isEmpty()) {
         for (PsiMethod method : entry.getKey().getMethods()) {
           if (TestNGUtil.hasTest(method)) {
-            methods.put(method.getName(), Collections.<String>emptyList());
+            methods.put(method.getName(), Collections.emptyList());
           }
         }
       }
-      final String className = ApplicationManager.getApplication().runReadAction(
-        new Computable<String>() {
-          @Nullable
-          public String compute() {
-            return ClassUtil.getJVMClassName(entry.getKey());
-          }
-        }
-      );
+      final String className = ReadAction.compute(() -> ClassUtil.getJVMClassName(entry.getKey()));
       if (className != null) {
         map.put(className, methods);
       }
     }
     // We have groups we wish to limit to.
-    Collection<String> groupNames = null;
-    if (TestType.GROUP.getType().equals(myData.TEST_OBJECT)) {
-      String groupName = myData.getGroupName();
-      if (groupName != null && groupName.length() > 0) {
-        groupNames = new HashSet<String>(1);
-        groupNames.add(groupName);
-      }
-    }
+    Collection<String> groupNames = myConfig.calculateGroupNames();
 
     Map<String, String> testParams = buildTestParameters();
 
     int logLevel = 1;
     try {
       final Properties properties = new Properties();
-      properties.load(new ByteArrayInputStream(myConfig.getPersistantData().VM_PARAMETERS.getBytes()));
+      properties.load(new ByteArrayInputStream(myConfig.getVMParameters().getBytes(StandardCharsets.UTF_8)));
       final String verbose = properties.getProperty("-Dtestng.verbose");
       if (verbose != null) {
         logLevel = Integer.parseInt(verbose);
       }
     }
-    catch (Exception e) { //not a number
-      logLevel = 1;
+    catch (Exception ignore) { //not a number
     }
 
     File xmlFile;
     if (groupNames != null) {
-      final LinkedHashMap<String, Collection<String>> methodNames = new LinkedHashMap<String, Collection<String>>();
+      final LinkedHashMap<String, Collection<String>> methodNames = new LinkedHashMap<>();
       for (Map.Entry<String, Map<String, List<String>>> entry : map.entrySet()) {
         methodNames.put(entry.getKey(), entry.getValue().keySet());
       }
@@ -178,51 +145,57 @@ public class SearchingForTestsTask extends SearchForTestsTask {
       xmlFile = suite.save(new File(PathManager.getSystemPath()));
     }
     else {
-      final XmlSuite xmlSuite = new XmlSuite();
-      XmlTest xmlTest = new XmlTest(xmlSuite);
-      xmlTest.setName(myProject.getName());
-      xmlTest.setParameters(testParams);
-      List<XmlClass> xmlClasses = new ArrayList<XmlClass>();
-      int idx = 0;
-      for (String className : map.keySet()) {
-        final XmlClass xmlClass = new XmlClass(className, idx++, false);
-        final ArrayList<XmlInclude> includedMethods = new ArrayList<XmlInclude>();
-        final Map<String, List<String>> collection = map.get(className);
-        int mIdx = 0;
-        for (String methodName : collection.keySet()) {
-          final List<Integer> includes = new ArrayList<Integer>();
-          for (String include : collection.get(methodName)) {
-            try {
-              includes.add(Integer.parseInt(include));
-            }
-            catch (NumberFormatException e) {
-              LOG.error(e);
-            }
-          }
-          includedMethods.add(new XmlInclude(methodName, includes, mIdx++));
-        }
-        xmlClass.setIncludedMethods(includedMethods);
-        xmlClasses.add(xmlClass);
-      }
-      xmlTest.setXmlClasses(xmlClasses);
-      xmlFile = new File(PathManager.getSystemPath(), "temp-testng-customsuite.xml");
-      final String toXml = xmlSuite.toXml();
-      try {
-        FileUtil.writeToFile(xmlFile, toXml);
-      }
-      catch (IOException e) {
-        LOG.error(e);
-      }
+      xmlFile = TestNGXmlSuiteHelper.writeSuite(map, testParams, myProject.getName(),
+                                                PathManager.getSystemPath(),
+                                                new TestNGXmlSuiteHelper.Logger() {
+                                                  @Override
+                                                  public void log(Throwable e) {
+                                                    LOG.error(e);
+                                                  }
+                                                }, requireToDowngradeToHttp());
     }
     String path = xmlFile.getAbsolutePath() + "\n";
     try {
-      FileUtil.writeToFile(myTempFile, path.getBytes(CharsetToolkit.UTF8_CHARSET), true);
+      FileUtil.writeToFile(myTempFile, path.getBytes(StandardCharsets.UTF_8), true);
     }
     catch (IOException e) {
       LOG.error(e);
     }
   }
 
+  /**
+   * Old testng versions (< 7.0.0) would load dtd from internet iff the dtd is not exactly https://testng.org/testng-1.0.dtd
+   * Detect version from manifest is not possible now because manifest doesn't provide this information unfortunately
+   */
+  private boolean requireToDowngradeToHttp() {
+    GlobalSearchScope searchScope = ObjectUtils.notNull(myConfig.getSearchScope(), GlobalSearchScope.allScope(myProject));
+    PsiClass testMarker = JavaPsiFacade.getInstance(myProject).findClass(TestNGUtil.TEST_ANNOTATION_FQN, searchScope);
+    String version = getVersion(testMarker);
+    return version == null || StringUtil.compareVersionNumbers(version, "7.0.0") < 0;
+  }
+
+  private static String getVersion(PsiClass classFromCommon) {
+    VirtualFile virtualFile = PsiUtilCore.getVirtualFile(classFromCommon);
+    if (virtualFile != null) {
+      ProjectFileIndex index = ProjectFileIndex.SERVICE.getInstance(classFromCommon.getProject());
+      VirtualFile root = index.getClassRootForFile(virtualFile);
+      if (root != null) {
+        VirtualFileSystem fileSystem = root.getFileSystem();
+        if (fileSystem instanceof JarFileSystem) {
+          VirtualFile localFile = ((JarFileSystem)fileSystem).getLocalVirtualFileFor(root);
+          if (localFile != null) {
+            String name = localFile.getNameWithoutExtension();
+            if (name.startsWith("testng-")) {
+              return StringUtil.trimStart(name, "testng-");
+            }
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+  
   private boolean shouldSearchForTestMethods() {
     for (Map<PsiMethod, List<String>> methods : myClasses.values()) {
       if (!methods.isEmpty()) {
@@ -237,7 +210,7 @@ public class SearchingForTestsTask extends SearchForTestsTask {
     try {
       if (buildTestParams.isEmpty()) {
         String path = new File(myData.getSuiteName()).getAbsolutePath() + "\n";
-        FileUtil.writeToFile(myTempFile, path.getBytes(CharsetToolkit.UTF8_CHARSET), true);
+        FileUtil.writeToFile(myTempFile, path.getBytes(StandardCharsets.UTF_8), true);
         return;
       }
       final Parser parser = new Parser(myData.getSuiteName());
@@ -251,7 +224,7 @@ public class SearchingForTestsTask extends SearchForTestsTask {
         final String fileId =
           FileUtil.sanitizeFileName(myProject.getName() + '_' + suite.getName() + '_' + Integer.toHexString(suite.getName().hashCode()) + ".xml");
         final File suiteFile = new File(PathManager.getSystemPath(), fileId);
-        FileWriter fileWriter = new FileWriter(suiteFile);
+        FileWriter fileWriter = new FileWriter(suiteFile, StandardCharsets.UTF_8);
         try {
           fileWriter.write(suite.toXml());
         }
@@ -259,24 +232,21 @@ public class SearchingForTestsTask extends SearchForTestsTask {
           fileWriter.close();
         }
         String path = suiteFile.getAbsolutePath() + "\n";
-        FileUtil.writeToFile(myTempFile, path.getBytes(CharsetToolkit.UTF8_CHARSET), true);
+        FileUtil.writeToFile(myTempFile, path.getBytes(StandardCharsets.UTF_8), true);
       }
     }
     catch (Exception e) {
-      throw new CantRunException("Unable to parse suite: " + e.getMessage());
+      throw new CantRunException(TestngBundle.message("dialog.message.unable.to.parse.suite", e.getMessage()));
     }
   }
 
   protected void fillTestObjects(final Map<PsiClass, Map<PsiMethod, List<String>>> classes)
     throws CantRunException {
-    final TestNGTestObject testObject = TestNGTestObject.fromConfig(myConfig);
-    if (testObject != null) {
-      testObject.fillTestObjects(classes);
-    }
+    TestNGTestObject.fromConfig(myConfig).fillTestObjects(classes);
   }
 
   private Map<String, String> buildTestParameters() {
-    Map<String, String> testParams = new HashMap<String, String>();
+    Map<String, String> testParams = new HashMap<>();
 
     // Override with those from the test runner configuration
     if (myData.PROPERTIES_FILE != null) {
@@ -286,9 +256,7 @@ public class SearchingForTestsTask extends SearchForTestsTask {
         Properties properties = new Properties();
         try {
           properties.load(new FileInputStream(propertiesFile));
-          for (Map.Entry entry : properties.entrySet()) {
-            testParams.put((String)entry.getKey(), (String)entry.getValue());
-          }
+          properties.forEach((key, value) -> testParams.put((String)key, (String)value));
 
         }
         catch (IOException e) {

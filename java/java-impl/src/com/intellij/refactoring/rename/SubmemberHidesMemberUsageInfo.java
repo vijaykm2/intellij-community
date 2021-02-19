@@ -14,21 +14,13 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 05.06.2002
- * Time: 12:43:27
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.rename;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMethod;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.util.RefactoringUIUtil;
-import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.usageView.UsageViewUtil;
 
 public class SubmemberHidesMemberUsageInfo extends UnresolvableCollisionUsageInfo {
@@ -36,18 +28,19 @@ public class SubmemberHidesMemberUsageInfo extends UnresolvableCollisionUsageInf
     super(element, referencedElement);
   }
 
+  @Override
   public String getDescription() {
     String descr;
     if (!(getElement() instanceof PsiMethod)) {
-      descr = RefactoringBundle.message("0.will.hide.renamed.1",
+      descr = JavaRefactoringBundle.message("0.will.hide.renamed.1",
                                         RefactoringUIUtil.getDescription(getElement(), true),
                                         UsageViewUtil.getType(getElement()));
     }
     else {
-      descr = RefactoringBundle.message("0.will.override.renamed.1",
+      descr = JavaRefactoringBundle.message("0.will.override.renamed.1",
                                         RefactoringUIUtil.getDescription(getElement(), true),
                                         UsageViewUtil.getType(getElement()));
     }
-    return CommonRefactoringUtil.capitalize(descr);
+    return descr;
   }
 }

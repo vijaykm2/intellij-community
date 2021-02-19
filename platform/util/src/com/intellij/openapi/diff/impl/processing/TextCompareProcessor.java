@@ -26,6 +26,7 @@ import com.intellij.openapi.diff.impl.highlighting.Util;
 import com.intellij.openapi.diff.impl.string.DiffString;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.diff.FilesTooBigForDiffException;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -33,8 +34,15 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * @deprecated See {@link com.intellij.diff.comparison.ComparisonManager}
+ * <p>
+ * might produce wrong results - IDEA-75504
+ */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
 public class TextCompareProcessor {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.diff.impl.processing.Processor");
+  private static final Logger LOG = Logger.getInstance(TextCompareProcessor.class);
   @NotNull private final ComparisonPolicy myComparisonPolicy;
   @NotNull private final DiffPolicy myDiffPolicy;
   @NotNull private final HighlightMode myHighlightMode;
@@ -67,7 +75,7 @@ public class TextCompareProcessor {
 
     DiffFragment[] woFormattingBlocks = myDiffPolicy.buildFragments(diffText1, diffText2);
     DiffFragment[] step1lineFragments = new DiffCorrection.TrueLineBlocks(myComparisonPolicy).correctAndNormalize(woFormattingBlocks);
-    ArrayList<LineFragment> lineBlocks = new DiffFragmentsProcessor().process(step1lineFragments);
+    ArrayList<LineFragment> lineBlocks = processFragments(step1lineFragments);
 
     int badLinesCount = 0;
     if (myHighlightMode == HighlightMode.BY_WORD) {
@@ -77,7 +85,7 @@ public class TextCompareProcessor {
           DiffString subText1 = lineBlock.getText(diffText1, FragmentSide.SIDE1);
           DiffString subText2 = lineBlock.getText(diffText2, FragmentSide.SIDE2);
           ArrayList<LineFragment> subFragments = findSubFragments(subText1, subText2);
-          lineBlock.setChildren(new ArrayList<Fragment>(subFragments));
+          lineBlock.setChildren(new ArrayList<>(subFragments));
           lineBlock.adjustTypeFromChildrenTypes();
         }
         catch (FilesTooBigForDiffException ignore) {
@@ -109,6 +117,14 @@ public class TextCompareProcessor {
           subLine.setChildren(processInlineFragments(subLineFragments));
         }
       }
+    }
+    return collector.getFragments();
+  }
+
+  private static ArrayList<LineFragment> processFragments(DiffFragment[] fragments) {
+    LineFragmentsCollector collector = new LineFragmentsCollector();
+    for (DiffFragment fragment : fragments) {
+      collector.addDiffFragment(fragment);
     }
     return collector.getFragments();
   }

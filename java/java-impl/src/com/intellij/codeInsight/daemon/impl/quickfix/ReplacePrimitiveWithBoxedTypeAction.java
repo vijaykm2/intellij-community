@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
  */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
+import com.intellij.codeInsight.daemon.QuickFixBundle;
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.LocalQuickFixAndIntentionActionOnPsiElement;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
@@ -23,13 +25,10 @@ import com.intellij.psi.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
-* User: anna
-*/
 public class ReplacePrimitiveWithBoxedTypeAction extends LocalQuickFixAndIntentionActionOnPsiElement {
   private final String myPrimitiveName;
   private final String myBoxedTypeName;
-  private static final Logger LOG = Logger.getInstance("#" + ReplacePrimitiveWithBoxedTypeAction.class.getName());
+  private static final Logger LOG = Logger.getInstance(ReplacePrimitiveWithBoxedTypeAction.class);
 
   public ReplacePrimitiveWithBoxedTypeAction(@NotNull PsiTypeElement element, @NotNull String typeName, @NotNull String boxedTypeName) {
     super(element);
@@ -40,13 +39,13 @@ public class ReplacePrimitiveWithBoxedTypeAction extends LocalQuickFixAndIntenti
   @NotNull
   @Override
   public String getText() {
-    return "Convert '" + myPrimitiveName + "' to '" + myBoxedTypeName + "'";
+    return CommonQuickFixBundle.message("fix.replace.x.with.y", myPrimitiveName, myBoxedTypeName);
   }
 
   @NotNull
   @Override
   public String getFamilyName() {
-    return getText();
+    return QuickFixBundle.message("convert.primitive.to.boxed.type");
   }
 
   @Override
@@ -69,7 +68,7 @@ public class ReplacePrimitiveWithBoxedTypeAction extends LocalQuickFixAndIntenti
   @Override
   public void invoke(@NotNull Project project,
                      @NotNull PsiFile file,
-                     @Nullable("is null when called from inspection") Editor editor,
+                     @Nullable Editor editor,
                      @NotNull PsiElement startElement,
                      @NotNull PsiElement endElement) {
     final PsiType type = ((PsiTypeElement)startElement).getType();
@@ -86,10 +85,5 @@ public class ReplacePrimitiveWithBoxedTypeAction extends LocalQuickFixAndIntenti
     }
     LOG.assertTrue(boxedType != null);
     startElement.replace(JavaPsiFacade.getElementFactory(project).createTypeElement(boxedType));
-  }
-
-  @Override
-  public boolean startInWriteAction() {
-    return true;
   }
 }

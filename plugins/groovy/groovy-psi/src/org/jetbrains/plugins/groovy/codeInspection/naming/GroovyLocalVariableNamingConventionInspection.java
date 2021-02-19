@@ -17,6 +17,7 @@ package org.jetbrains.plugins.groovy.codeInspection.naming;
 
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyQuickFixFactory;
@@ -30,12 +31,6 @@ public class GroovyLocalVariableNamingConventionInspection extends ConventionIns
 
   private static final int DEFAULT_MIN_LENGTH = 4;
   private static final int DEFAULT_MAX_LENGTH = 32;
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Local variable naming convention";
-  }
 
   @Override
   protected GroovyFix buildFix(@NotNull PsiElement location) {
@@ -52,11 +47,11 @@ public class GroovyLocalVariableNamingConventionInspection extends ConventionIns
   public String buildErrorString(Object... args) {
     final String className = (String) args[0];
     if (className.length() < getMinLength()) {
-      return "Local variable name '#ref' is too short";
+      return GroovyBundle.message("inspection.message.local.variable.name.ref.too.short");
     } else if (className.length() > getMaxLength()) {
-      return "Local variable name '#ref' is too long";
+      return GroovyBundle.message("inspection.message.local.variable.name.ref.too.long");
     }
-    return "Local variable name '#ref' doesn't match regex '" + getRegex() + "' #loc";
+    return GroovyBundle.message("inspection.message.local.variable.name.ref.doesnt.match.regex", getRegex());
   }
 
   @Override
@@ -82,7 +77,7 @@ public class GroovyLocalVariableNamingConventionInspection extends ConventionIns
 
   private class NamingConventionsVisitor extends BaseInspectionVisitor {
     @Override
-    public void visitVariable(GrVariable grVariable) {
+    public void visitVariable(@NotNull GrVariable grVariable) {
       super.visitVariable(grVariable);
       if (grVariable instanceof GrField || grVariable instanceof GrParameter) {
         return;
@@ -95,7 +90,7 @@ public class GroovyLocalVariableNamingConventionInspection extends ConventionIns
     }
 
     @Override
-    public void visitParameter(GrParameter grParameter) {
+    public void visitParameter(@NotNull GrParameter grParameter) {
       super.visitParameter(grParameter);
       final String name = grParameter.getName();
       final PsiElement scope = grParameter.getDeclarationScope();

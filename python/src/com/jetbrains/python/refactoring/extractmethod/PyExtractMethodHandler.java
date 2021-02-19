@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.refactoring.extractmethod;
 
 import com.intellij.codeInsight.codeFragment.CannotCreateCodeFragmentException;
@@ -38,9 +24,6 @@ import com.jetbrains.python.refactoring.PyRefactoringUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author oleg
- */
 public class PyExtractMethodHandler implements RefactoringActionHandler {
   @Override
   public void invoke(@NotNull final Project project, final Editor editor, final PsiFile file, final DataContext dataContext) {
@@ -53,7 +36,7 @@ public class PyExtractMethodHandler implements RefactoringActionHandler {
   }
 
   @Override
-  public void invoke(@NotNull final Project project, @NotNull final PsiElement[] elements, final DataContext dataContext) {
+  public void invoke(@NotNull final Project project, final PsiElement @NotNull [] elements, final DataContext dataContext) {
   }
 
   private static void invokeOnEditor(final Project project, final Editor editor, final PsiFile file) {
@@ -75,8 +58,8 @@ public class PyExtractMethodHandler implements RefactoringActionHandler {
       }
     }
     // Pass comments and whitespaces
-    element1 = PyPsiUtils.getSignificantToTheRight(element1, false);
-    element2 = PyPsiUtils.getSignificantToTheLeft(element2, false);
+    element1 = PyPsiUtils.getNextSignificantLeaf(element1, false);
+    element2 = PyPsiUtils.getPrevSignificantLeaf(element2, false);
     if (element1 == null || element2 == null) {
       CommonRefactoringUtil.showErrorHint(project, editor,
                                           PyBundle.message("refactoring.extract.method.error.bad.selection"),
@@ -158,7 +141,7 @@ public class PyExtractMethodHandler implements RefactoringActionHandler {
 
     // return elements if they are really first and last elements of statements
     if (element1 == PsiTreeUtil.getDeepestFirst(statement1) &&
-        element2 == PyPsiUtils.getSignificantToTheLeft(PsiTreeUtil.getDeepestLast(statement2), !(element2 instanceof PsiComment))) {
+        element2 == PyPsiUtils.getPrevSignificantLeaf(PsiTreeUtil.getDeepestLast(statement2), !(element2 instanceof PsiComment))) {
       return Couple.of(statement1, statement2);
     }
     return null;

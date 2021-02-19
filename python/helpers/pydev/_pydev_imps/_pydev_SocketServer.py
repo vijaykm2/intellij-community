@@ -129,12 +129,12 @@ BaseServer:
 __version__ = "0.4"
 
 
-from _pydev_imps import _pydev_socket as socket
-from _pydev_imps import _pydev_select as select
+from _pydev_imps._pydev_saved_modules import socket
+from _pydev_imps._pydev_saved_modules import select
 import sys
 import os
 try:
-    import _pydev_threading as threading
+    from _pydev_imps._pydev_saved_modules import threading
 except ImportError:
     import dummy_threading as threading
 
@@ -197,7 +197,7 @@ class BaseServer:
         """Constructor.  May be extended, do not override."""
         self.server_address = server_address
         self.RequestHandlerClass = RequestHandlerClass
-        self.__is_shut_down = threading.Event()
+        self.__is_shut_down = threading.Event()  # @UndefinedVariable
         self.__shutdown_request = False
 
     def server_activate(self):
@@ -336,12 +336,12 @@ class BaseServer:
         The default is to print a traceback and continue.
 
         """
-        print '-'*40
-        print 'Exception happened during processing of request from',
-        print client_address
+        print('-'*40)
+        print('Exception happened during processing of request from')
+        print(client_address)
         import traceback
         traceback.print_exc() # XXX But this goes to stderr!
-        print '-'*40
+        print('-'*40)
 
 
 class TCPServer(BaseServer):
@@ -522,13 +522,13 @@ class ForkingMixIn:
         # that couldn't collide.
         for child in self.active_children:
             try:
-                pid, status = os.waitpid(child, os.WNOHANG)
+                pid, status = os.waitpid(child, os.WNOHANG)  # @UndefinedVariable
             except os.error:
                 pid = None
             if not pid: continue
             try:
                 self.active_children.remove(pid)
-            except ValueError, e:
+            except ValueError as e:
                 raise ValueError('%s. x=%d and list=%r' % (e.message, pid,
                                                            self.active_children))
 
@@ -542,7 +542,7 @@ class ForkingMixIn:
     def process_request(self, request, client_address):
         """Fork a new subprocess to process the request."""
         self.collect_children()
-        pid = os.fork()
+        pid = os.fork()  # @UndefinedVariable
         if pid:
             # Parent process
             if self.active_children is None:
@@ -587,7 +587,7 @@ class ThreadingMixIn:
 
     def process_request(self, request, client_address):
         """Start a new thread to process the request."""
-        t = threading.Thread(target = self.process_request_thread,
+        t = threading.Thread(target = self.process_request_thread,  # @UndefinedVariable
                              args = (request, client_address))
         t.daemon = self.daemon_threads
         t.start()
@@ -602,10 +602,10 @@ class ThreadingTCPServer(ThreadingMixIn, TCPServer): pass
 if hasattr(socket, 'AF_UNIX'):
 
     class UnixStreamServer(TCPServer):
-        address_family = socket.AF_UNIX
+        address_family = socket.AF_UNIX  # @UndefinedVariable
 
     class UnixDatagramServer(UDPServer):
-        address_family = socket.AF_UNIX
+        address_family = socket.AF_UNIX  # @UndefinedVariable
 
     class ThreadingUnixStreamServer(ThreadingMixIn, UnixStreamServer): pass
 

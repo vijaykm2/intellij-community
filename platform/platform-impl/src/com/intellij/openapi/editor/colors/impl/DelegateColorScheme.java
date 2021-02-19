@@ -17,16 +17,13 @@ package com.intellij.openapi.editor.colors.impl;
 
 import com.intellij.openapi.editor.colors.*;
 import com.intellij.openapi.editor.markup.TextAttributes;
-import com.intellij.openapi.options.FontSize;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
+import java.util.Properties;
 
-/**
- * User: spLeaner
- */
 public abstract class DelegateColorScheme implements EditorColorsScheme {
 
   private EditorColorsScheme myDelegate;
@@ -38,7 +35,7 @@ public abstract class DelegateColorScheme implements EditorColorsScheme {
   public EditorColorsScheme getDelegate() {
     return myDelegate;
   }
-
+  
   public void setDelegate(@NotNull EditorColorsScheme delegate) {
     myDelegate = delegate;
   }
@@ -54,7 +51,7 @@ public abstract class DelegateColorScheme implements EditorColorsScheme {
   }
 
   @Override
-  public void setAttributes(TextAttributesKey key, TextAttributes attributes) {
+  public void setAttributes(@NotNull TextAttributesKey key, TextAttributes attributes) {
     myDelegate.setAttributes(key, attributes);
   }
 
@@ -103,16 +100,6 @@ public abstract class DelegateColorScheme implements EditorColorsScheme {
   }
 
   @Override
-  public FontSize getQuickDocFontSize() {
-    return myDelegate.getQuickDocFontSize();
-  }
-
-  @Override
-  public void setQuickDocFontSize(@NotNull FontSize fontSize) {
-    myDelegate.setQuickDocFontSize(fontSize);
-  }
-
-  @Override
   public String getEditorFontName() {
     return myDelegate.getEditorFontName();
   }
@@ -122,6 +109,7 @@ public abstract class DelegateColorScheme implements EditorColorsScheme {
     myDelegate.setEditorFontName(fontName);
   }
 
+  @NotNull
   @Override
   public Font getFont(EditorFontType key) {
     return myDelegate.getFont(key);
@@ -196,5 +184,17 @@ public abstract class DelegateColorScheme implements EditorColorsScheme {
   @Override
   public void setConsoleLineSpacing(float lineSpacing) {
     myDelegate.setConsoleLineSpacing(lineSpacing);
+  }
+
+  @NotNull
+  @Override
+  public Properties getMetaProperties()  {
+    return myDelegate.getMetaProperties();
+  }
+
+  @NotNull
+  @Override
+  public String getDisplayName() {
+    return myDelegate.getDisplayName();
   }
 }

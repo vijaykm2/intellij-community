@@ -1,24 +1,22 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options;
 
+import com.intellij.ide.ui.UINumericRange;
+import com.intellij.openapi.extensions.BaseExtensionPointName;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import org.jetbrains.annotations.Nls;
+import com.intellij.openapi.extensions.ProjectExtensionPointName;
+import com.intellij.openapi.ui.ComboBox;
+import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.text.StringUtil;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import javax.swing.*;
+import java.awt.*;
+import java.util.Collection;
 
 /**
  * This interface represents a named configurable component that provides a Swing form
@@ -125,12 +123,11 @@ import org.jetbrains.annotations.Nullable;
  *
  * @see ConfigurableEP
  * @see SearchableConfigurable
+ * @see ShowSettingsUtil
  */
 public interface Configurable extends UnnamedConfigurable {
-
-  ExtensionPointName<ConfigurableEP<Configurable>> APPLICATION_CONFIGURABLE = ExtensionPointName.create("com.intellij.applicationConfigurable");
-
-  ExtensionPointName<ConfigurableEP<Configurable>> PROJECT_CONFIGURABLE = ExtensionPointName.create("com.intellij.projectConfigurable");
+  ExtensionPointName<ConfigurableEP<Configurable>> APPLICATION_CONFIGURABLE = new ExtensionPointName<>("com.intellij.applicationConfigurable");
+  ProjectExtensionPointName<ConfigurableEP<Configurable>> PROJECT_CONFIGURABLE = new ProjectExtensionPointName<>("com.intellij.projectConfigurable");
 
   /**
    * Returns the visible name of the configurable component.
@@ -140,7 +137,8 @@ public interface Configurable extends UnnamedConfigurable {
    *
    * @return the visible name of the configurable component
    */
-  @Nls(capitalization = Nls.Capitalization.Title)
+  @NlsContexts.ConfigurableName
+  @Contract(pure = true)
   String getDisplayName();
 
   /**
@@ -150,15 +148,9 @@ public interface Configurable extends UnnamedConfigurable {
    */
   @Nullable
   @NonNls
-  String getHelpTopic();
-
-  /**
-   * @deprecated
-   * This marker interface was intended to hide a configurable component from the Settings dialog.
-   * However, it makes no sense to register it as extension if you don't want to see it.
-   */
-  @Deprecated
-  interface Assistant extends Configurable {
+  @Contract(pure = true)
+  default String getHelpTopic() {
+    return null;
   }
 
   /**
@@ -167,8 +159,9 @@ public interface Configurable extends UnnamedConfigurable {
    * because it causes loading additional classes during the building a setting tree.
    * Use XML attributes instead if possible.
    */
+  @FunctionalInterface
   interface Composite {
-    Configurable[] getConfigurables();
+    Configurable @NotNull [] getConfigurables();
   }
 
   /**
@@ -185,5 +178,84 @@ public interface Configurable extends UnnamedConfigurable {
    */
   interface NoMargin {
     // see ConfigurableCardPanel#create(Configurable)
+  }
+
+  /**
+   * Allows to dynamically define if current configurable settings apply to current project or to the IDE and update "For current project"
+   * indicator accordingly.
+   */
+  interface VariableProjectAppLevel {
+    /**
+     * @return True if current settings apply to the current project (enable "For current project" indicator), false for application-level
+     *         (IDE) settings.
+     */
+    boolean isProjectLevel();
+  }
+
+  /**
+   * The interface is used for configurable that depends on some dynamic extension points.
+   * If a configurable implements the interface by default the configurable will re-created after adding / removing extensions for the EP.
+   *
+   * Examples: postfix template configurable. If we have added a plugin with new postfix templates we have to re-create the configurable
+   * (but only if the content of the configurable was loaded)
+   *
+   * @apiNote if the configurable is not marked as dynamic=true it must not initialize EP-depend resources in the constructor.
+   * This interface also can be used with {@link ConfigurableProvider}.
+   *
+   */
+  interface WithEpDependencies {
+    /**
+     * @return EPName-s that affect the configurable or configurable provider
+     */
+    @NotNull Collection<BaseExtensionPointName<?>> getDependencies();
+  }
+
+  default boolean isModified(@NotNull JTextField textField, @NotNull String value) {
+    return !StringUtil.equals(textField.getText().trim(), value);
+  }
+
+  default boolean isModified(@NotNull JTextField textField, int value, @NotNull UINumericRange range) {
+    try {
+      int currentValue = Integer.parseInt(textField.getText().trim());
+      return range.fit(currentValue) == currentValue && currentValue != value;
+    }
+    catch (NumberFormatException e) {
+      return false;
+    }
+  }
+
+  default boolean isModified(@NotNull JToggleButton toggleButton, boolean value) {
+    return toggleButton.isSelected() != value;
+  }
+
+  default <T> boolean isModified(@NotNull ComboBox<T> comboBox, T value) {
+    return !Comparing.equal(comboBox.getSelectedItem(), value);
+  }
+
+  interface TopComponentController {
+    TopComponentController EMPTY = new TopComponentController() {
+      @Override
+      public void setLeftComponent(@Nullable Component component) {}
+
+      @Override
+      public void showProgress(boolean start) {}
+
+      @Override
+      public void showProject(boolean hasProject) {}
+    };
+
+    void setLeftComponent(@Nullable Component component);
+
+    void showProgress(boolean start);
+
+    void showProject(boolean hasProject);
+  }
+
+  interface TopComponentProvider {
+    default boolean isAvailable() {
+      return true;
+    }
+
+    @NotNull Component getCenterComponent(@NotNull TopComponentController controller);
   }
 }

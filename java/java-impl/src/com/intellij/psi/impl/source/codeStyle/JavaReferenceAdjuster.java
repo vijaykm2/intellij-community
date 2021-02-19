@@ -1,25 +1,12 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.codeStyle;
 
+import com.intellij.application.options.CodeStyle;
+import com.intellij.codeInsight.AnnotationTargetUtil;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.codeStyle.ReferenceAdjuster;
 import com.intellij.psi.impl.PsiImplUtil;
@@ -30,6 +17,9 @@ import com.intellij.psi.impl.source.tree.*;
 import com.intellij.psi.jsp.JspFile;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
+import com.siyeh.ig.psiutils.CommentTracker;
+import com.siyeh.ig.psiutils.ImportUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,6 +32,13 @@ public class JavaReferenceAdjuster implements ReferenceAdjuster {
     IElementType elementType = element.getElementType();
     if ((elementType == JavaElementType.JAVA_CODE_REFERENCE || elementType == JavaElementType.REFERENCE_EXPRESSION) && !isAnnotated(element)) {
       IElementType parentType = element.getTreeParent().getElementType();
+      if (elementType == JavaElementType.REFERENCE_EXPRESSION) {
+        PsiReferenceExpression ref = (PsiReferenceExpression)element.getPsi();
+        if (ImportUtils.isAlreadyStaticallyImported(ref)) {
+          deQualifyImpl((PsiQualifiedReferenceElement)element);
+          return element;
+        }
+      }
       if (elementType == JavaElementType.JAVA_CODE_REFERENCE || incompleteCode ||
           parentType == JavaElementType.REFERENCE_EXPRESSION || parentType == JavaElementType.METHOD_REF_EXPRESSION) {
         PsiJavaCodeReferenceElement ref = (PsiJavaCodeReferenceElement)element.getPsi();
@@ -57,8 +54,8 @@ public class JavaReferenceAdjuster implements ReferenceAdjuster {
         boolean rightKind = true;
         if (elementType == JavaElementType.JAVA_CODE_REFERENCE) {
           PsiJavaCodeReferenceElementImpl impl = (PsiJavaCodeReferenceElementImpl)element;
-          int kind = impl.getKind(impl.getContainingFile());
-          rightKind = kind == PsiJavaCodeReferenceElementImpl.CLASS_NAME_KIND || kind == PsiJavaCodeReferenceElementImpl.CLASS_OR_PACKAGE_NAME_KIND;
+          PsiJavaCodeReferenceElementImpl.Kind kind = impl.getKindEnum(impl.getContainingFile());
+          rightKind = kind == PsiJavaCodeReferenceElementImpl.Kind.CLASS_NAME_KIND || kind == PsiJavaCodeReferenceElementImpl.Kind.CLASS_OR_PACKAGE_NAME_KIND;
         }
 
         if (rightKind) {
@@ -133,9 +130,9 @@ public class JavaReferenceAdjuster implements ReferenceAdjuster {
 
   @Override
   public ASTNode process(@NotNull ASTNode element, boolean addImports, boolean incompleteCode, Project project) {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(project);
+    final CodeStyleSettings settings = CodeStyle.getSettings(element.getPsi().getContainingFile());
     JavaCodeStyleSettings javaSettings = settings.getCustomSettings(JavaCodeStyleSettings.class);
-    return process(element, addImports, incompleteCode, javaSettings.useFqNamesInJavadocAlways(), settings.USE_FQ_CLASS_NAMES);
+    return process(element, addImports, incompleteCode, javaSettings.useFqNamesInJavadocAlways(), javaSettings.USE_FQ_CLASS_NAMES);
   }
 
   private static boolean isAnnotated(ASTNode element) {
@@ -154,7 +151,7 @@ public class JavaReferenceAdjuster implements ReferenceAdjuster {
     PsiModifierList modifierList = PsiImplUtil.findNeighbourModifierList(ref);
     if (modifierList != null) {
       for (PsiAnnotation annotation : modifierList.getAnnotations()) {
-        if (PsiImplUtil.findApplicableTarget(annotation, PsiAnnotation.TargetType.TYPE_USE) != null) {
+        if (AnnotationTargetUtil.findAnnotationTarget(annotation, PsiAnnotation.TargetType.TYPE_USE) != null) {
           return true;
         }
       }
@@ -165,7 +162,7 @@ public class JavaReferenceAdjuster implements ReferenceAdjuster {
 
   @Override
   public void processRange(@NotNull ASTNode element, int startOffset, int endOffset, boolean useFqInJavadoc, boolean useFqInCode) {
-    List<ASTNode> array = new ArrayList<ASTNode>();
+    List<ASTNode> array = new ArrayList<>();
     addReferencesInRange(array, element, startOffset, endOffset);
     for (ASTNode ref : array) {
       if (ref.getPsi().isValid()) {
@@ -176,12 +173,12 @@ public class JavaReferenceAdjuster implements ReferenceAdjuster {
 
   @Override
   public void processRange(@NotNull ASTNode element, int startOffset, int endOffset, Project project) {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(project);
+    final CodeStyleSettings settings = CodeStyle.getSettings(element.getPsi().getContainingFile());
     JavaCodeStyleSettings javaSettings = settings.getCustomSettings(JavaCodeStyleSettings.class);
-    processRange(element, startOffset, endOffset, javaSettings.useFqNamesInJavadocAlways(), settings.USE_FQ_CLASS_NAMES);
+    processRange(element, startOffset, endOffset, javaSettings.useFqNamesInJavadocAlways(), javaSettings.USE_FQ_CLASS_NAMES);
   }
 
-  private static void addReferencesInRange(List<ASTNode> array, ASTNode parent, int startOffset, int endOffset) {
+  private static void addReferencesInRange(List<? super ASTNode> array, ASTNode parent, int startOffset, int endOffset) {
     if (parent.getElementType() == JavaElementType.JAVA_CODE_REFERENCE || parent.getElementType() == JavaElementType.REFERENCE_EXPRESSION) {
       array.add(parent);
       return;
@@ -191,7 +188,9 @@ public class JavaReferenceAdjuster implements ReferenceAdjuster {
       JspFile jspFile = JspPsiUtil.getJspFile(parent.getPsi());
       if (jspFile != null) {
         JspClass jspClass = (JspClass)jspFile.getJavaClass();
-        addReferencesInRange(array, jspClass.getNode(), startOffset, endOffset);
+        if (jspClass != null) {
+          addReferencesInRange(array, jspClass.getNode(), startOffset, endOffset);
+        }
         return;
       }
     }
@@ -199,7 +198,7 @@ public class JavaReferenceAdjuster implements ReferenceAdjuster {
     addReferencesInRangeForComposite(array, parent, startOffset, endOffset);
   }
 
-  private static void addReferencesInRangeForComposite(List<ASTNode> array, ASTNode parent, int startOffset, int endOffset) {
+  private static void addReferencesInRangeForComposite(List<? super ASTNode> array, ASTNode parent, int startOffset, int endOffset) {
     int offset = 0;
     for (ASTNode child = parent.getFirstChildNode(); child != null; child = child.getTreeNext()) {
       int length = child.getTextLength();
@@ -236,7 +235,7 @@ public class JavaReferenceAdjuster implements ReferenceAdjuster {
         return reference;
       }
 
-      if (!CodeStyleSettingsManager.getSettings(reference.getProject()).INSERT_INNER_CLASS_IMPORTS) {
+        if (!JavaCodeStyleSettings.getInstance(reference.getContainingFile()).isInsertInnerClassImportsFor(refClass.getName())) {
         final PsiElement qualifier = reference.getQualifier();
         if (qualifier instanceof PsiQualifiedReferenceElement) {
           return getClassReferenceToShorten(parentClass, addImports, (PsiQualifiedReferenceElement)qualifier);
@@ -262,6 +261,21 @@ public class JavaReferenceAdjuster implements ReferenceAdjuster {
       if (psiReference instanceof PsiJavaCodeReferenceElement) {
         PsiElement parent = psiReference.getParent();
         if (parent instanceof PsiNewExpression || parent.getParent() instanceof PsiNewExpression) return true;
+
+        if (parent instanceof PsiTypeElement) {
+          final PsiClass containingClass = refClass.getContainingClass();
+          if (containingClass != null && containingClass.hasTypeParameters()) {
+            if (parent.getParent() instanceof PsiTypeTestPattern) {
+              return false;
+            }
+            if (!refClass.hasModifierProperty(PsiModifier.STATIC)) {
+              PsiModifierListOwner enclosingStaticElement = PsiUtil.getEnclosingStaticElement(psiReference, null);
+              if (enclosingStaticElement != null && !PsiTreeUtil.isAncestor(enclosingStaticElement, refClass, false)) {
+                return false;
+              }
+            }
+          }
+        }
       }
       return helper.resolveReferencedVariable(referenceText, psiReference) == null;
     }
@@ -272,18 +286,20 @@ public class JavaReferenceAdjuster implements ReferenceAdjuster {
   private static ASTNode replaceReferenceWithShort(PsiQualifiedReferenceElement reference) {
     ASTNode node = reference.getNode();
     assert node != null;
-    deQualifyImpl((CompositeElement)node);
+    deQualifyImpl(reference);
     return node;
   }
 
-  private static void deQualifyImpl(@NotNull CompositeElement reference) {
-    ASTNode qualifier = reference.findChildByRole(ChildRole.QUALIFIER);
+  private static void deQualifyImpl(PsiQualifiedReferenceElement reference) {
+    PsiElement qualifier = reference.getQualifier();
     if (qualifier != null) {
-      ASTNode firstChildNode = qualifier.getFirstChildNode();
+      ASTNode qNode = qualifier.getNode();
+      if (qNode == null) return;
+      ASTNode firstChildNode = qNode.getFirstChildNode();
       boolean markToReformatBefore = firstChildNode instanceof TreeElement && CodeEditUtil.isMarkedToReformatBefore((TreeElement)firstChildNode);
-      reference.deleteChildInternal(qualifier);
+      new CommentTracker().deleteAndRestoreComments(qualifier);
       if (markToReformatBefore) {
-        firstChildNode = reference.getFirstChildNode();
+        firstChildNode = reference.getNode().getFirstChildNode();
         if (firstChildNode != null) {
           CodeEditUtil.markToReformatBefore(firstChildNode, true);
         }

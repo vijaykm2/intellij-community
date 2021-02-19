@@ -15,22 +15,23 @@
  */
 package com.intellij.xml.util;
 
-import com.intellij.codeInsight.daemon.XmlErrorMessages;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.codeInspection.XmlSuppressableInspectionTool;
+import com.intellij.codeInspection.ex.UnfairLocalInspectionTool;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlAttributeValue;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.xml.analysis.XmlAnalysisBundle;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Dmitry Avdeev
  */
-public class XmlDuplicatedIdInspection extends XmlSuppressableInspectionTool {
+public class XmlDuplicatedIdInspection extends XmlSuppressableInspectionTool implements UnfairLocalInspectionTool {
 
   @NotNull
   @Override
@@ -65,7 +66,7 @@ public class XmlDuplicatedIdInspection extends XmlSuppressableInspectionTool {
 
   protected void checkValue(XmlAttributeValue value, XmlFile file, XmlRefCountHolder refHolder, XmlTag tag, ProblemsHolder holder) {
     if (refHolder.isValidatable(tag.getParent()) && refHolder.isDuplicateIdAttributeValue(value)) {
-      holder.registerProblem(value, XmlErrorMessages.message("duplicate.id.reference"), ProblemHighlightType.GENERIC_ERROR,
+      holder.registerProblem(value, XmlAnalysisBundle.message("xml.inspections.duplicate.id.reference"), ProblemHighlightType.GENERIC_ERROR,
                              ElementManipulators.getValueTextRange(value));
     }
   }

@@ -28,9 +28,10 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Arrays;
 import java.util.Collection;
 
-public class JavaFileTreeModel extends TextEditorBasedStructureViewModel implements StructureViewModel.ElementInfoProvider, PlaceHolder<String> {
-  private static final Collection<NodeProvider> NODE_PROVIDERS = Arrays.<NodeProvider>asList(new JavaInheritedMembersNodeProvider(),
-                                                                                             new JavaAnonymousClassesNodeProvider());
+public class JavaFileTreeModel extends TextEditorBasedStructureViewModel implements StructureViewModel.ElementInfoProvider, PlaceHolder {
+  private static final Collection<NodeProvider> NODE_PROVIDERS = Arrays.asList(new JavaInheritedMembersNodeProvider(),
+                                                                               new JavaAnonymousClassesNodeProvider(),
+                                                                               new JavaLambdaNodeProvider());
   private String myPlace;
 
   public JavaFileTreeModel(@NotNull PsiClassOwner file, @Nullable Editor editor) {
@@ -38,8 +39,7 @@ public class JavaFileTreeModel extends TextEditorBasedStructureViewModel impleme
   }
 
   @Override
-  @NotNull
-  public Filter[] getFilters() {
+  public Filter @NotNull [] getFilters() {
     return new Filter[]{new FieldsFilter(), new PublicElementsFilter()};
   }
 
@@ -50,8 +50,7 @@ public class JavaFileTreeModel extends TextEditorBasedStructureViewModel impleme
   }
 
   @Override
-  @NotNull
-  public Grouper[] getGroupers() {
+  public Grouper @NotNull [] getGroupers() {
     return new Grouper[]{new SuperTypesGrouper(), new PropertiesGrouper()};
   }
 
@@ -67,8 +66,7 @@ public class JavaFileTreeModel extends TextEditorBasedStructureViewModel impleme
   }
 
   @Override
-  @NotNull
-  public Sorter[] getSorters() {
+  public Sorter @NotNull [] getSorters() {
     return new Sorter[] {
       TreeStructureUtil.isInStructureViewPopup(this) ? KindSorter.POPUP_INSTANCE : KindSorter.INSTANCE,
       VisibilitySorter.INSTANCE,
@@ -89,8 +87,9 @@ public class JavaFileTreeModel extends TextEditorBasedStructureViewModel impleme
 
   @Override
   public boolean isAlwaysLeaf(StructureViewTreeElement element) {
-    Object value = element.getValue();
-    return value instanceof PsiMethod || value instanceof PsiField;
+    // Classes, anonymous classes and lambdas
+    // can be in anywhere, i.e. in fields, methods and blocks
+    return false;
   }
 
   @Override
@@ -112,14 +111,15 @@ public class JavaFileTreeModel extends TextEditorBasedStructureViewModel impleme
       if (element instanceof PsiClass) {
         return ((PsiClass)element).getQualifiedName() != null;
       }
+
+      return element instanceof PsiLambdaExpression;
     }
     return false;
   }
 
   @Override
-  @NotNull
-  protected Class[] getSuitableClasses() {
-    return new Class[]{PsiClass.class, PsiMethod.class, PsiField.class, PsiJavaFile.class};
+  protected Class @NotNull [] getSuitableClasses() {
+    return new Class[]{PsiClass.class, PsiMethod.class, PsiField.class, PsiLambdaExpression.class, PsiJavaFile.class};
   }
 
   @Override

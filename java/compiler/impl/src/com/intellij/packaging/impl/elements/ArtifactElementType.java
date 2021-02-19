@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.packaging.impl.elements;
 
 import com.intellij.icons.AllIcons;
-import com.intellij.openapi.compiler.CompilerBundle;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.packaging.artifacts.Artifact;
 import com.intellij.packaging.artifacts.ArtifactManager;
@@ -25,20 +11,20 @@ import com.intellij.packaging.elements.ComplexPackagingElementType;
 import com.intellij.packaging.elements.CompositePackagingElement;
 import com.intellij.packaging.impl.artifacts.ArtifactUtil;
 import com.intellij.packaging.ui.ArtifactEditorContext;
-import com.intellij.util.Processor;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
 
-/**
-* @author nik
-*/
 public class ArtifactElementType extends ComplexPackagingElementType<ArtifactPackagingElement> {
   public static final ArtifactElementType ARTIFACT_ELEMENT_TYPE = new ArtifactElementType();
 
   ArtifactElementType() {
-    super("artifact", CompilerBundle.message("element.type.name.artifact"));
+    super("artifact", JavaCompilerBundle.messagePointer("element.type.name.artifact"));
   }
 
   @Override
@@ -51,12 +37,14 @@ public class ArtifactElementType extends ComplexPackagingElementType<ArtifactPac
     return !getAvailableArtifacts(context, artifact, false).isEmpty();
   }
 
+  @Override
   @NotNull
   public List<? extends ArtifactPackagingElement> chooseAndCreate(@NotNull ArtifactEditorContext context, @NotNull Artifact artifact,
                                                                    @NotNull CompositePackagingElement<?> parent) {
     final Project project = context.getProject();
-    List<Artifact> artifacts = context.chooseArtifacts(getAvailableArtifacts(context, artifact, false), CompilerBundle.message("dialog.title.choose.artifacts"));
-    final List<ArtifactPackagingElement> elements = new ArrayList<ArtifactPackagingElement>();
+    List<Artifact> artifacts = context.chooseArtifacts(getAvailableArtifacts(context, artifact, false), JavaCompilerBundle
+      .message("dialog.title.choose.artifacts"));
+    final List<ArtifactPackagingElement> elements = new ArrayList<>();
     for (Artifact selected : artifacts) {
       elements.add(new ArtifactPackagingElement(project, ArtifactPointerManager.getInstance(project).createPointer(selected, context.getArtifactModel())));
     }
@@ -67,13 +55,11 @@ public class ArtifactElementType extends ComplexPackagingElementType<ArtifactPac
   public static List<? extends Artifact> getAvailableArtifacts(@NotNull final ArtifactEditorContext context,
                                                                @NotNull final Artifact artifact,
                                                                final boolean notIncludedOnly) {
-    final Set<Artifact> result = new HashSet<Artifact>(Arrays.asList(context.getArtifactModel().getArtifacts()));
+    final Set<Artifact> result = ContainerUtil.set(context.getArtifactModel().getArtifacts());
     if (notIncludedOnly) {
-      ArtifactUtil.processPackagingElements(artifact, ARTIFACT_ELEMENT_TYPE, new Processor<ArtifactPackagingElement>() {
-        public boolean process(ArtifactPackagingElement artifactPackagingElement) {
-          result.remove(artifactPackagingElement.findArtifact(context));
-          return true;
-        }
+      ArtifactUtil.processPackagingElements(artifact, ARTIFACT_ELEMENT_TYPE, artifactPackagingElement -> {
+        result.remove(artifactPackagingElement.findArtifact(context));
+        return true;
       }, context, true);
     }
     result.remove(artifact);
@@ -81,20 +67,18 @@ public class ArtifactElementType extends ComplexPackagingElementType<ArtifactPac
     while (iterator.hasNext()) {
       Artifact another = iterator.next();
       final boolean notContainThis =
-          ArtifactUtil.processPackagingElements(another, ARTIFACT_ELEMENT_TYPE, new Processor<ArtifactPackagingElement>() {
-            public boolean process(ArtifactPackagingElement element) {
-              return !artifact.getName().equals(element.getArtifactName());
-            }
-          }, context, true);
+          ArtifactUtil.processPackagingElements(another, ARTIFACT_ELEMENT_TYPE,
+                                                element -> !artifact.getName().equals(element.getArtifactName()), context, true);
       if (!notContainThis) {
         iterator.remove();
       }
     }
-    final ArrayList<Artifact> list = new ArrayList<Artifact>(result);
-    Collections.sort(list, ArtifactManager.ARTIFACT_COMPARATOR);
+    final ArrayList<Artifact> list = new ArrayList<>(result);
+    list.sort(ArtifactManager.ARTIFACT_COMPARATOR);
     return list;
   }
 
+  @Override
   @NotNull
   public ArtifactPackagingElement createEmpty(@NotNull Project project) {
     return new ArtifactPackagingElement(project);
@@ -102,6 +86,6 @@ public class ArtifactElementType extends ComplexPackagingElementType<ArtifactPac
 
   @Override
   public String getShowContentActionText() {
-    return "Show Content of Included Artifacts";
+    return JavaCompilerBundle.message("show.content.of.included.artifacts");
   }
 }

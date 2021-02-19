@@ -15,24 +15,29 @@
  */
 package com.intellij.refactoring.convertToInstanceMethod;
 
-import com.intellij.usageView.UsageInfo;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiCallExpression;
-import com.intellij.psi.PsiCall;
+import com.intellij.model.BranchableUsageInfo;
+import com.intellij.model.ModelBranch;
 import com.intellij.psi.PsiMethodCallExpression;
+import com.intellij.usageView.UsageInfo;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author dsl
  */
-class MethodCallUsageInfo extends UsageInfo {
+final class MethodCallUsageInfo extends UsageInfo implements BranchableUsageInfo {
   private final PsiMethodCallExpression myMethodCall;
 
-  public MethodCallUsageInfo(PsiMethodCallExpression methodCall) {
+  MethodCallUsageInfo(PsiMethodCallExpression methodCall) {
     super(methodCall);
     myMethodCall = methodCall;
   }
 
   public PsiMethodCallExpression getMethodCall() {
     return myMethodCall;
+  }
+
+  @Override
+  public @NotNull UsageInfo obtainBranchCopy(@NotNull ModelBranch branch) {
+    return new MethodCallUsageInfo(branch.obtainPsiCopy(myMethodCall));
   }
 }

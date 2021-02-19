@@ -16,7 +16,9 @@
 package com.intellij.openapi.vcs.update;
 
 import com.intellij.openapi.vcs.VcsException;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
@@ -48,4 +50,20 @@ public interface UpdateSession {
    * @return true if the operation was cancelled, false otherwise.
    */
   boolean isCanceled();
+
+  /**
+   * Returns additional information which should be displayed in the post-update notification, or {@code null}.
+   */
+  @Nullable
+  default String getAdditionalNotificationContent() {
+    return null;
+  }
+
+  /**
+   * Show notification with results of this UpdateSession, instead of the common standard notification and the standard file tree.
+   * @see UpdateEnvironment#hasCustomNotification()
+   */
+  @RequiresEdt
+  default void showNotification() {
+  }
 }

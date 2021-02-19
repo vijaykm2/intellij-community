@@ -15,9 +15,9 @@
  */
 package com.intellij.openapi.roots.ui.configuration.artifacts.actions;
 
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.roots.ui.configuration.artifacts.ArtifactEditorEx;
 import com.intellij.openapi.roots.ui.configuration.artifacts.LayoutTreeComponent;
 import com.intellij.openapi.roots.ui.configuration.artifacts.LayoutTreeSelection;
@@ -31,16 +31,14 @@ import com.intellij.packaging.impl.artifacts.ArtifactUtil;
 import com.intellij.packaging.impl.elements.ArtifactPackagingElement;
 import com.intellij.util.PathUtil;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 
-/**
- * @author nik
- */
 public class ExtractArtifactAction extends LayoutTreeActionBase {
   public ExtractArtifactAction(ArtifactEditorEx editor) {
-    super(ProjectBundle.message("action.name.extract.artifact"), editor);
+    super(JavaUiBundle.messagePointer("action.name.extract.artifact"), editor);
   }
 
   @Override
@@ -49,7 +47,7 @@ public class ExtractArtifactAction extends LayoutTreeActionBase {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final LayoutTreeComponent treeComponent = myArtifactEditor.getLayoutTreeComponent();
     final LayoutTreeSelection selection = treeComponent.getSelection();
     final CompositePackagingElement<?> parent = selection.getCommonParentElement();
@@ -73,17 +71,14 @@ public class ExtractArtifactAction extends LayoutTreeActionBase {
     final Project project = myArtifactEditor.getContext().getProject();
     final ModifiableArtifactModel model = myArtifactEditor.getContext().getOrCreateModifiableArtifactModel();
     final ModifiableArtifact artifact = model.addArtifact(dialog.getArtifactName(), dialog.getArtifactType());
-    treeComponent.editLayout(new Runnable() {
-      @Override
-      public void run() {
-        for (PackagingElement<?> element : selectedElements) {
-          artifact.getRootElement().addOrFindChild(ArtifactUtil.copyWithChildren(element, project));
-        }
-        for (PackagingElement element : selectedElements) {
-          parent.removeChild(element);
-        }
-        parent.addOrFindChild(new ArtifactPackagingElement(project, ArtifactPointerManager.getInstance(project).createPointer(artifact, myArtifactEditor.getContext().getArtifactModel())));
+    treeComponent.editLayout(() -> {
+      for (PackagingElement<?> element : selectedElements) {
+        artifact.getRootElement().addOrFindChild(ArtifactUtil.copyWithChildren(element, project));
       }
+      for (PackagingElement element : selectedElements) {
+        parent.removeChild(element);
+      }
+      parent.addOrFindChild(new ArtifactPackagingElement(project, ArtifactPointerManager.getInstance(project).createPointer(artifact, myArtifactEditor.getContext().getArtifactModel())));
     });
     treeComponent.rebuildTree();
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,27 +14,24 @@
  * limitations under the License.
  */
 
-/**
- * created at Sep 17, 2001
- * @author Jeka
- */
 package com.intellij.refactoring.move;
 
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.usageView.UsageViewBundle;
 import com.intellij.usageView.UsageViewDescriptor;
 import com.intellij.usageView.UsageViewUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 public class MoveMultipleElementsViewDescriptor implements UsageViewDescriptor {
   private final PsiElement[] myPsiElements;
-  private String myProcessedElementsHeader;
-  private final String myCodeReferencesText;
+  private @NlsContexts.ListItem String myProcessedElementsHeader;
+  private final @Nls String myCodeReferencesText;
 
-  public MoveMultipleElementsViewDescriptor(PsiElement[] psiElements,
-                                            String targetName) {
+  public MoveMultipleElementsViewDescriptor(PsiElement @NotNull [] psiElements, @NotNull String targetName) {
     myPsiElements = psiElements;
     if (psiElements.length == 1) {
       myProcessedElementsHeader = StringUtil.capitalize(
@@ -53,8 +50,7 @@ public class MoveMultipleElementsViewDescriptor implements UsageViewDescriptor {
   }
 
   @Override
-  @NotNull
-  public PsiElement[] getElements() {
+  public PsiElement @NotNull [] getElements() {
     return myPsiElements;
   }
 
@@ -63,6 +59,7 @@ public class MoveMultipleElementsViewDescriptor implements UsageViewDescriptor {
     return myProcessedElementsHeader;
   }
 
+  @NotNull
   @Override
   public String getCodeReferencesText(int usagesCount, int filesCount) {
     return myCodeReferencesText + UsageViewBundle.getReferencesString(usagesCount, filesCount);

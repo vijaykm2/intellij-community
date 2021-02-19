@@ -43,7 +43,7 @@ import java.util.List;
 public class MockPsiElement extends UserDataHolderBase implements PsiElement, Navigatable {
   private final String myText;
   private final Project myProject;
-  private final List<PsiElement> myDeclarations = new SmartList<PsiElement>();
+  private final List<PsiElement> myDeclarations = new SmartList<>();
   private Ref<PsiElement> myParent;
   private PsiManager myManager;
 
@@ -154,8 +154,7 @@ public class MockPsiElement extends UserDataHolderBase implements PsiElement, Na
   }
 
   @Override
-  @NotNull
-  public PsiElement[] getChildren() {
+  public PsiElement @NotNull [] getChildren() {
     throw new UnsupportedOperationException("Method getChildren is not yet implemented in " + getClass().getName());
   }
 
@@ -256,8 +255,7 @@ public class MockPsiElement extends UserDataHolderBase implements PsiElement, Na
   }
 
   @Override
-  @NotNull
-  public PsiReference[] getReferences() {
+  public PsiReference @NotNull [] getReferences() {
     throw new UnsupportedOperationException("Method getReferences is not yet implemented in " + getClass().getName());
   }
 
@@ -373,8 +371,7 @@ public class MockPsiElement extends UserDataHolderBase implements PsiElement, Na
   }
 
   @Override
-  @NotNull
-  public char[] textToCharArray() {
+  public char @NotNull [] textToCharArray() {
     throw new UnsupportedOperationException("Method textToCharArray is not yet implemented in " + getClass().getName());
   }
 

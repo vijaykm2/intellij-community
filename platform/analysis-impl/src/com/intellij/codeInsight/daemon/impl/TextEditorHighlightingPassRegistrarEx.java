@@ -27,10 +27,6 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-/**
- * User: anna
- * Date: 21-Jun-2006
- */
 public abstract class TextEditorHighlightingPassRegistrarEx extends TextEditorHighlightingPassRegistrar {
 
   public static TextEditorHighlightingPassRegistrarEx getInstanceEx(Project project) {
@@ -38,7 +34,7 @@ public abstract class TextEditorHighlightingPassRegistrarEx extends TextEditorHi
   }
 
   @NotNull
-  public abstract List<TextEditorHighlightingPass> instantiatePasses(@NotNull PsiFile psiFile, @NotNull Editor editor, @NotNull int[] passesToIgnore);
+  public abstract List<TextEditorHighlightingPass> instantiatePasses(@NotNull PsiFile psiFile, @NotNull Editor editor, int @NotNull [] passesToIgnore);
   @NotNull
   public abstract List<TextEditorHighlightingPass> instantiateMainPasses(@NotNull PsiFile psiFile,
                                                                          @NotNull Document document,

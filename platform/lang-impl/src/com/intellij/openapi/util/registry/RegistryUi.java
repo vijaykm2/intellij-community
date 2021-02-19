@@ -1,36 +1,32 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.util.registry;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.IdeBundle;
+import com.intellij.ide.ui.RegistryBooleanOptionDescriptor;
 import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
-import com.intellij.openapi.application.ex.ApplicationEx;
+import com.intellij.openapi.application.ApplicationNamesInfo;
+import com.intellij.openapi.application.Experiments;
+import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.ShadowAction;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.text.HtmlBuilder;
+import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.Strings;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.*;
+import com.intellij.ui.speedSearch.SpeedSearchUtil;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.PlatformIcons;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -38,17 +34,16 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
-import javax.swing.table.AbstractTableModel;
-import javax.swing.table.TableCellEditor;
-import javax.swing.table.TableCellRenderer;
-import javax.swing.table.TableColumn;
+import javax.swing.table.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * @author Kirill Kalishev
@@ -65,12 +60,14 @@ public class RegistryUi implements Disposable {
   private static final Icon RESTART_ICON = PlatformIcons.CHECK_ICON;
   private final RestoreDefaultsAction myRestoreDefaultsAction;
   private final MyTableModel myModel;
+  private final Map<String, String> myModifiedValuesRequiringRestart = new HashMap<>();
 
   public RegistryUi() {
     myContent.setLayout(new BorderLayout(UIUtil.DEFAULT_HGAP, UIUtil.DEFAULT_VGAP));
 
     myModel = new MyTableModel();
     myTable = new JBTable(myModel);
+    myTable.setShowGrid(false);
     myTable.setCellSelectionEnabled(true);
     myTable.setEnableAntialiasing(true);
     final MyRenderer r = new MyRenderer();
@@ -89,14 +86,16 @@ public class RegistryUi implements Disposable {
     c2.setCellRenderer(r);
     c2.setHeaderValue("Value");
     c2.setCellEditor(new MyEditor());
-    myTable.setStriped(true);
 
     myDescriptionLabel = new JTextArea(3, 50);
+    myDescriptionLabel.setMargin(JBUI.insets(2));
+    myDescriptionLabel.setWrapStyleWord(true);
+    myDescriptionLabel.setLineWrap(true);
     myDescriptionLabel.setEditable(false);
     final JScrollPane label = ScrollPaneFactory.createScrollPane(myDescriptionLabel);
     final JPanel descriptionPanel = new JPanel(new BorderLayout());
     descriptionPanel.add(label, BorderLayout.CENTER);
-    descriptionPanel.setBorder(IdeBorderFactory.createTitledBorder("Description", false));
+    descriptionPanel.setBorder(IdeBorderFactory.createTitledBorder(LangBundle.message("label.export.plugin.description"), false, JBUI.insetsTop(8)).setShowLine(false));
 
     myContent.add(ScrollPaneFactory.createScrollPane(myTable), BorderLayout.CENTER);
     myContent.add(descriptionPanel, BorderLayout.SOUTH);
@@ -106,19 +105,17 @@ public class RegistryUi implements Disposable {
       public void valueChanged(@NotNull ListSelectionEvent e) {
         if (e.getValueIsAdjusting()) return;
 
-        final int selected = myTable.getSelectedRow();
-        if (selected != -1) {
-          final RegistryValue value = myModel.getRegistryValue(selected);
-          String desc = value.getDescription();
+        int viewRow = myTable.getSelectedRow();
+        if (viewRow != -1) {
+          int modelRow = myTable.convertRowIndexToModel(viewRow);
+          RegistryValue value = myModel.getRegistryValue(modelRow);
+          String description = value.getDescription();
           if (value.isRestartRequired()) {
-            String required = " Requires IDE restart.";
-            if (desc.endsWith(".")) {
-              desc += required;
-            } else {
-              desc += "." + required;
-            }
+            myDescriptionLabel.setText(description + "\n" + IdeBundle.message("registry.key.requires.ide.restart.note"));
           }
-          myDescriptionLabel.setText(desc);
+          else {
+            myDescriptionLabel.setText(description);
+          }
         } else {
           myDescriptionLabel.setText(null);
         }
@@ -131,24 +128,27 @@ public class RegistryUi implements Disposable {
     tbGroup.add(new EditAction());
     tbGroup.add(new RevertAction());
 
-    final ActionToolbar tb = ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, tbGroup, true);
+    final ActionToolbar tb = ActionManager.getInstance().createActionToolbar("Registry", tbGroup, true);
     tb.setTargetComponent(myTable);
 
     myContent.add(tb.getComponent(), BorderLayout.NORTH);
     final TableSpeedSearch search = new TableSpeedSearch(myTable);
     search.setComparator(new SpeedSearchComparator(false));
+    search.setFilteringMode(true);
+    myTable.setRowSorter(new TableRowSorter<>(myTable.getModel()));
     myTable.addKeyListener(new KeyAdapter() {
       @Override
       public void keyPressed(@NotNull KeyEvent e) {
         if (e.getKeyCode() == KeyEvent.VK_SPACE) {
           int row = myTable.getSelectedRow();
           if (row != -1) {
-            RegistryValue rv = myModel.getRegistryValue(row);
+            int modelRow = myTable.convertRowIndexToModel(row);
+            RegistryValue rv = myModel.getRegistryValue(modelRow);
             if (rv.isBoolean()) {
-              rv.setValue(!rv.asBoolean());
+              setValue(rv, !rv.asBoolean());
               keyChanged(rv.getKey());
               for (int i : new int[]{0, 1, 2}) myModel.fireTableCellUpdated(row, i);
-              revaliateActions();
+              invalidateActions();
               if (search.isPopupActive()) search.hidePopup();
             }
           }
@@ -157,87 +157,86 @@ public class RegistryUi implements Disposable {
     });
   }
 
-  private class RevertAction extends AnAction {
+  private final class RevertAction extends AnAction {
 
     private RevertAction() {
-      new ShadowAction(this, ActionManager.getInstance().getAction("EditorDelete"), myTable);
+      new ShadowAction(this, ActionManager.getInstance().getAction("EditorDelete"), myTable, RegistryUi.this);
     }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setEnabled(!myTable.isEditing() && myTable.getSelectedRow() >= 0);
-      e.getPresentation().setText("Revert to Default");
-      e.getPresentation().setIcon(AllIcons.General.Remove);
+      e.getPresentation().setText(IdeBundle.messagePointer("action.presentation.RegistryUi.text"));
+      e.getPresentation().setIcon(AllIcons.General.Reset);
 
       if (e.getPresentation().isEnabled()) {
-        final RegistryValue rv = myModel.getRegistryValue(myTable.getSelectedRow());
+        RegistryValue rv = myModel.getRegistryValue(myTable.convertRowIndexToModel(myTable.getSelectedRow()));
         e.getPresentation().setEnabled(rv.isChangedFromDefault());
       }
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
-      final RegistryValue rv = myModel.getRegistryValue(myTable.getSelectedRow());
+    public void actionPerformed(@NotNull AnActionEvent e) {
+      final RegistryValue rv = myModel.getRegistryValue(myTable.convertRowIndexToModel(myTable.getSelectedRow()));
       rv.resetToDefault();
       myModel.fireTableCellUpdated(myTable.getSelectedRow(), 0);
       myModel.fireTableCellUpdated(myTable.getSelectedRow(), 1);
       myModel.fireTableCellUpdated(myTable.getSelectedRow(), 2);
-      revaliateActions();
+      invalidateActions();
     }
   }
 
-  private class EditAction extends AnAction {
+  private final class EditAction extends AnAction {
     private EditAction() {
-      new ShadowAction(this, ActionManager.getInstance().getAction(IdeActions.ACTION_EDIT_SOURCE), myTable);
+      new ShadowAction(this, ActionManager.getInstance().getAction(IdeActions.ACTION_EDIT_SOURCE), myTable, RegistryUi.this);
     }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setEnabled(!myTable.isEditing() && myTable.getSelectedRow() >= 0);
-      e.getPresentation().setText("Edit");
+      e.getPresentation().setText(IdeBundle.messagePointer("action.presentation.RegistryUi.text.edit"));
       e.getPresentation().setIcon(AllIcons.Actions.EditSource);
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       startEditingAtSelection();
     }
   }
 
   private void startEditingAtSelection() {
     myTable.editCellAt(myTable.getSelectedRow(), 2);
-    SwingUtilities.invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        if (myTable.isEditing()) {
-          myTable.getEditorComponent().requestFocus();
-        }
-      }
-    });
+    if (myTable.isEditing()) {
+      IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myTable.getEditorComponent(), true));
+    }
   }
 
-  private static class MyTableModel extends AbstractTableModel {
+
+  private static final class MyTableModel extends AbstractTableModel {
 
     private final List<RegistryValue> myAll;
 
     private MyTableModel() {
       myAll = Registry.getAll();
+      myAll.addAll(ContainerUtil.map(Experiments.EP_NAME.getExtensionList(), ExperimentalFeatureRegistryValueWrapper::new));
       final List<String> recent = getRecent();
 
-      Collections.sort(myAll, new Comparator<RegistryValue>() {
-        @Override
-        public int compare(@NotNull RegistryValue o1, @NotNull RegistryValue o2) {
-          final String key1 = o1.getKey();
-          final String key2 = o2.getKey();
-          final int i1 = recent.indexOf(key1);
-          final int i2 = recent.indexOf(key2);
-          final boolean c1 = i1 != -1;
-          final boolean c2 = i2 != -1;
-          if (c1 && !c2) return -1;
-          if (!c1 && c2) return 1;
-          if (c1 && c2) return i1 - i2;
-          return key1.compareToIgnoreCase(key2);
-        }
+      myAll.sort((o1, o2) -> {
+        final String key1 = o1.getKey();
+        boolean changed1 = o1.isChangedFromDefault();
+        boolean changed2 = o2.isChangedFromDefault();
+        if (changed1 && !changed2) return -1;
+        if (!changed1 && changed2) return 1;
+
+        final String key2 = o2.getKey();
+        final int i1 = recent.indexOf(key1);
+        final int i2 = recent.indexOf(key2);
+        final boolean c1 = i1 != -1;
+        final boolean c2 = i2 != -1;
+        if (c1 && !c2) return -1;
+        if (!c1 && c2) return 1;
+        if (c1) return i1 - i2;
+        return key1.compareToIgnoreCase(key2);
       });
     }
 
@@ -282,27 +281,43 @@ public class RegistryUi implements Disposable {
 
   private static List<String> getRecent() {
     String value = PropertiesComponent.getInstance().getValue(RECENT_PROPERTIES_KEY);
-    return StringUtil.isEmpty(value) ? new ArrayList<String>(0) : StringUtil.split(value, "=");
+    return StringUtil.isEmpty(value) ? new ArrayList<>(0) : StringUtil.split(value, "=");
   }
 
   private static void keyChanged(String key) {
     final List<String> recent = getRecent();
     recent.remove(key);
     recent.add(0, key);
-    final String newValue = StringUtil.join(recent, "=");
-    PropertiesComponent.getInstance().setValue(RECENT_PROPERTIES_KEY, newValue);
+    PropertiesComponent.getInstance().setValue(RECENT_PROPERTIES_KEY, StringUtil.join(recent, "="), "");
   }
 
   public boolean show() {
     DialogWrapper dialog = new DialogWrapper(true) {
       {
-        setTitle("Registry");
+        setTitle(LangBundle.message("dialog.title.registry"));
         setModal(true);
         init();
-        revaliateActions();
+        invalidateActions();
       }
 
       private AbstractAction myCloseAction;
+
+      @Nullable
+      @Override
+      protected JComponent createNorthPanel() {
+        if (ApplicationManager.getApplication().isInternal()) {
+          return null;
+        }
+        String warning = new HtmlBuilder().append(
+          HtmlChunk.tag("b").addText(
+            IdeBundle.message("registry.change.warning", ApplicationNamesInfo.getInstance().getFullProductName())
+          )
+        ).wrapWithHtmlBody().toString();
+        JLabel warningLabel = new JLabel(warning);
+        warningLabel.setIcon(UIUtil.getWarningIcon());
+        warningLabel.setForeground(JBColor.RED);
+        return warningLabel;
+      }
 
       @Override
       protected JComponent createCenterPanel() {
@@ -312,7 +327,7 @@ public class RegistryUi implements Disposable {
       @Override
       protected void dispose() {
         super.dispose();
-        RegistryUi.this.dispose();
+        Disposer.dispose(RegistryUi.this);
       }
 
       @Override
@@ -326,16 +341,15 @@ public class RegistryUi implements Disposable {
         return myTable;
       }
 
-      @NotNull
       @Override
-      protected Action[] createActions() {
+      protected Action @NotNull [] createActions() {
         return new Action[]{myRestoreDefaultsAction, myCloseAction};
       }
 
       @Override
       protected void createDefaultActions() {
         super.createDefaultActions();
-        myCloseAction = new AbstractAction("Close") {
+        myCloseAction = new AbstractAction(IdeBundle.message("registry.close.action.text")) {
           @Override
           public void actionPerformed(@NotNull ActionEvent e) {
             processClose();
@@ -360,92 +374,148 @@ public class RegistryUi implements Disposable {
   }
 
   private void processClose() {
-    if (Registry.getInstance().isRestartNeeded()) {
-      final ApplicationEx app = (ApplicationEx) ApplicationManager.getApplication();
-      final ApplicationInfo info = ApplicationInfo.getInstance();
+    if (!myModifiedValuesRequiringRestart.isEmpty()) {
+      RegistryBooleanOptionDescriptor.suggestRestart(myContent);
+    }
+  }
 
-      final int r = Messages.showOkCancelDialog(myContent, "You need to restart " + info.getVersionName() + " for the changes to take effect", "Restart Required",
-                                                app.isRestartCapable() ? "Restart Now" : "Shutdown Now",
-                                                app.isRestartCapable() ? "Restart Later": "Shutdown Later"
-          , Messages.getQuestionIcon());
+  private void setValue(@NotNull RegistryValue registryValue, boolean value) {
+    setValue(registryValue, Boolean.toString(value));
+  }
 
-
-      if (r == Messages.OK) {
-        ApplicationManager.getApplication().invokeLater(new Runnable() {
-          @Override
-          public void run() {
-            app.restart(true);
-          }
-        }, ModalityState.NON_MODAL);
+  private void setValue(@NotNull RegistryValue registryValue, @NotNull String value) {
+    boolean required = registryValue.isRestartRequired();
+    if (required) {
+      String key = registryValue.getKey();
+      if (!myModifiedValuesRequiringRestart.containsKey(key)) {
+        // store previous value that represent an initial value for this dialog
+        myModifiedValuesRequiringRestart.put(key, registryValue.asString());
+      }
+      else if (value.equals(myModifiedValuesRequiringRestart.get(key))) {
+        // remove stored value if it is equals to the new value
+        myModifiedValuesRequiringRestart.remove(key);
       }
     }
+    registryValue.setValue(value);
   }
 
   private void restoreDefaults() {
-    final int r = Messages.showYesNoDialog(myContent, "Are you sure you want to revert registry settings to default values?", "Revert To Defaults", Messages.getQuestionIcon());
+    String message = LangBundle.message("dialog.message.are.you.sure.you.want.to.revert.registry.settings.to.default.values");
+    int r = Messages.showYesNoDialog(myContent, message, LangBundle.message("dialog.title.revert.to.defaults"), Messages.getQuestionIcon());
     if (r == Messages.YES) {
       Registry.getInstance().restoreDefaults();
       myModel.fireChanged();
-      revaliateActions();
+      invalidateActions();
     }
   }
 
-  private void revaliateActions() {
+  private void invalidateActions() {
     myRestoreDefaultsAction.setEnabled(!Registry.getInstance().isInDefaultState());
   }
 
   @Override
-  public void dispose() {
+  public void dispose() { }
+
+  private static String[] getOptions(@NotNull RegistryValue value) {
+    String[] options = value.getOptions();
+    for (int i = 0; i < options.length; i++) {
+      options[i] = Strings.trimEnd(options[i], "*");
+    }
+    return options;
   }
 
   private static class MyRenderer implements TableCellRenderer {
-
     private final JLabel myLabel = new JLabel();
+    private final SimpleColoredComponent myComponent = new SimpleColoredComponent();
 
     @NotNull
     @Override
-    public Component getTableCellRendererComponent(@NotNull JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-      final RegistryValue v = ((MyTableModel)table.getModel()).getRegistryValue(row);
-      myLabel.setIcon(null);
-      myLabel.setText(null);
-      myLabel.setHorizontalAlignment(SwingConstants.LEFT);
-      Color fg = isSelected ? table.getSelectionForeground() : table.getForeground();
+    public Component getTableCellRendererComponent(@NotNull JTable table,
+                                                   Object value,
+                                                   boolean isSelected,
+                                                   boolean hasFocus,
+                                                   int row,
+                                                   int column) {
+      int modelRow = table.convertRowIndexToModel(row);
+      RegistryValue v = ((MyTableModel)table.getModel()).getRegistryValue(modelRow);
+
       Color bg = isSelected ? table.getSelectionBackground() : table.getBackground();
-      
+
       if (v != null) {
         switch (column) {
           case 0:
-            myLabel.setIcon(v.isRestartRequired() ? RESTART_ICON : null);
+            myLabel.setText(null);
+            if (v.isRestartRequired()) {
+              myLabel.setIcon(RESTART_ICON);
+              myLabel.setToolTipText(IdeBundle.message("registry.key.requires.ide.restart.note"));
+            }
+            else {
+              myLabel.setIcon(null);
+              myLabel.setToolTipText(null);
+            }
             myLabel.setHorizontalAlignment(SwingConstants.CENTER);
             break;
           case 1:
-            myLabel.setText(v.getKey());
-            break;
+            myComponent.clear();
+            myComponent.append(v.getKey(), getAttributes(v, isSelected));
+            myComponent.setBackground(bg);
+            SpeedSearchUtil.applySpeedSearchHighlighting(table, myComponent, true, hasFocus);
+            return myComponent;
           case 2:
             if (v.asColor(null) != null) {
+              myLabel.setText(null);
+              myLabel.setToolTipText(v.asString());
               myLabel.setIcon(createColoredIcon(v.asColor(null)));
-            } else if (v.isBoolean()) {
+              myLabel.setHorizontalAlignment(SwingConstants.LEFT);
+            }
+            else if (v.isBoolean()) {
               final JCheckBox box = new JCheckBox();
               box.setSelected(v.asBoolean());
               box.setBackground(bg);
               return box;
-            } else {
-              myLabel.setText(v.asString());
+            }
+            else if (v.isMultiValue()) {
+              String[] options = getOptions(v);
+              ComboBox<String> combo = new ComboBox<>(options);
+              combo.setSelectedItem(v.getSelectedOption());
+              return combo;
+            }
+            else {
+              myComponent.clear();
+              myComponent.setBackground(bg);
+              myComponent.append(v.asString(), getAttributes(v, isSelected));
+              if (v.isChangedFromDefault()) {
+                myComponent.append(" [" + Registry.getInstance().getBundleValue(v.getKey(), false) + "]",
+                                   SimpleTextAttributes.GRAYED_ATTRIBUTES);
+              }
+              SpeedSearchUtil.applySpeedSearchHighlighting(table, myComponent, true, hasFocus);
+              return myComponent;
             }
         }
 
         myLabel.setOpaque(true);
-
-        myLabel.setFont(myLabel.getFont().deriveFont(v.isChangedFromDefault() ? Font.BOLD : Font.PLAIN));
-        myLabel.setForeground(fg);
         myLabel.setBackground(bg);
       }
 
       return myLabel;
     }
+
+    @NotNull
+    private static SimpleTextAttributes getAttributes(RegistryValue value, boolean isSelected) {
+      boolean changedFromDefault = value.isChangedFromDefault();
+      if (isSelected) {
+        return new SimpleTextAttributes(changedFromDefault ? SimpleTextAttributes.STYLE_BOLD : SimpleTextAttributes.STYLE_PLAIN,
+                                        UIUtil.getListSelectionForeground(true));
+      }
+
+      if (changedFromDefault) {
+        return new SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, JBColor.blue);
+      }
+      return SimpleTextAttributes.REGULAR_ATTRIBUTES;
+    }
   }
 
-  private static final Map<Color, Icon> icons_cache = new HashMap<Color, Icon>();
+  private static final Map<Color, Icon> icons_cache = new HashMap<>();
   private static Icon createColoredIcon(Color color) {
     Icon icon = icons_cache.get(color);
     if (icon != null) return icon;
@@ -465,16 +535,18 @@ public class RegistryUi implements Disposable {
 
     private final JTextField myField = new JTextField();
     private final JCheckBox myCheckBox = new JCheckBox();
+    private ComboBox<String> myComboBox;
     private RegistryValue myValue;
 
     @Override
     @Nullable
     public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
-      myValue = ((MyTableModel)table.getModel()).getRegistryValue(row);
+      int modelRow = table.convertRowIndexToModel(row);
+      myValue = ((MyTableModel)table.getModel()).getRegistryValue(modelRow);
       if (myValue.asColor(null) != null) {
-        final Color color = ColorChooser.chooseColor(table, "Choose color", myValue.asColor(Color.WHITE));
+        final Color color = ColorChooser.chooseColor(table, IdeBundle.message("dialog.title.choose.color"), myValue.asColor(Color.WHITE));
         if (color != null) {
-          myValue.setValue(color.getRed() + "," + color.getGreen() + "," + color.getBlue());
+          setValue(myValue, color.getRed() + "," + color.getGreen() + "," + color.getBlue());
           keyChanged(myValue.getKey());
         }
         return null;
@@ -482,6 +554,10 @@ public class RegistryUi implements Disposable {
         myCheckBox.setSelected(myValue.asBoolean());
         myCheckBox.setBackground(table.getBackground());
         return myCheckBox;
+      } else if (myValue.isMultiValue()) {
+        myComboBox = new ComboBox<>(getOptions(myValue));
+        myComboBox.setSelectedItem(myValue.getSelectedOption());
+        return myComboBox;
       } else {
         myField.setText(myValue.asString());
         myField.setBorder(null);
@@ -494,13 +570,16 @@ public class RegistryUi implements Disposable {
     public boolean stopCellEditing() {
       if (myValue != null) {
         if (myValue.isBoolean()) {
-          myValue.setValue(myCheckBox.isSelected());
+          setValue(myValue, myCheckBox.isSelected());
+        } else if (myValue.isMultiValue()) {
+          String selected = (String)myComboBox.getSelectedItem();
+          myValue.setSelectedOption(selected);
         } else {
-          myValue.setValue(myField.getText().trim());
+          setValue(myValue, myField.getText().trim());
         }
         keyChanged(myValue.getKey());
       }
-      revaliateActions();
+      invalidateActions();
       return super.stopCellEditing();
     }
 
@@ -511,8 +590,8 @@ public class RegistryUi implements Disposable {
   }
 
   private class RestoreDefaultsAction extends AbstractAction {
-    public RestoreDefaultsAction() {
-      super("Restore Defaults");
+    RestoreDefaultsAction() {
+      super(IdeBundle.message("registry.restore.defaults.action.text"));
     }
 
     @Override

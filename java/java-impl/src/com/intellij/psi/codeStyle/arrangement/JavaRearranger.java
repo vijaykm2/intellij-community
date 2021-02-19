@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.codeStyle.arrangement;
 
 import com.intellij.ide.highlighter.JavaHighlightingColors;
@@ -38,13 +24,12 @@ import com.intellij.psi.codeStyle.arrangement.model.ArrangementCompositeMatchCon
 import com.intellij.psi.codeStyle.arrangement.model.ArrangementMatchCondition;
 import com.intellij.psi.codeStyle.arrangement.std.*;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.ContainerUtilRt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 import static com.intellij.psi.codeStyle.arrangement.std.StdArrangementTokens.EntryType.*;
 import static com.intellij.psi.codeStyle.arrangement.std.StdArrangementTokens.General.*;
@@ -54,7 +39,6 @@ import static com.intellij.psi.codeStyle.arrangement.std.StdArrangementTokens.Or
 
 /**
  * @author Denis Zhdanov
- * @since 7/20/12 2:31 PM
  */
 public class JavaRearranger implements Rearranger<JavaElementArrangementEntry>,
                                        ArrangementSectionRuleAwareSettings,
@@ -62,30 +46,30 @@ public class JavaRearranger implements Rearranger<JavaElementArrangementEntry>,
                                        ArrangementColorsAware {
 
   // Type
-  @NotNull private static final Set<ArrangementSettingsToken>                                SUPPORTED_TYPES     =
-    ContainerUtilRt.newLinkedHashSet(
+  @NotNull private static final Set<ArrangementSettingsToken> SUPPORTED_TYPES =
+    ContainerUtil.newLinkedHashSet(
       FIELD, INIT_BLOCK, CONSTRUCTOR, METHOD, CLASS, INTERFACE, ENUM, GETTER, SETTER, OVERRIDDEN
     );
   // Modifier
-  @NotNull private static final Set<ArrangementSettingsToken>                                SUPPORTED_MODIFIERS =
-    ContainerUtilRt.newLinkedHashSet(
+  @NotNull private static final Set<ArrangementSettingsToken> SUPPORTED_MODIFIERS =
+    ContainerUtil.newLinkedHashSet(
       PUBLIC, PROTECTED, PACKAGE_PRIVATE, PRIVATE, STATIC, FINAL, ABSTRACT, SYNCHRONIZED, TRANSIENT, VOLATILE
     );
-  @NotNull private static final List<ArrangementSettingsToken>                               SUPPORTED_ORDERS    =
-    ContainerUtilRt.newArrayList(KEEP, BY_NAME);
-  @NotNull private static final ArrangementSettingsToken                                     NO_TYPE             =
-    new ArrangementSettingsToken("NO_TYPE", "NO_TYPE");
+  @NotNull private static final List<ArrangementSettingsToken> SUPPORTED_ORDERS =
+    ContainerUtil.newArrayList(KEEP, BY_NAME);
+  @NotNull private static final ArrangementSettingsToken NO_TYPE = new ArrangementSettingsToken("NO_TYPE", "NO_TYPE");
+    //NON-NLS not visible in settings
   @NotNull
-  private static final          Map<ArrangementSettingsToken, Set<ArrangementSettingsToken>> MODIFIERS_BY_TYPE   =
-    ContainerUtilRt.newHashMap();
-  @NotNull private static final Collection<Set<ArrangementSettingsToken>>                    MUTEXES             =
-    ContainerUtilRt.newArrayList();
+  private static final Map<ArrangementSettingsToken, Set<ArrangementSettingsToken>> MODIFIERS_BY_TYPE =
+    new HashMap<>();
+  @NotNull private static final Collection<Set<ArrangementSettingsToken>> MUTEXES =
+    new ArrayList<>();
 
-  private static final Set<ArrangementSettingsToken> TYPES_WITH_DISABLED_ORDER = ContainerUtil.newHashSet();
-  private static final Set<ArrangementSettingsToken> TYPES_WITH_DISABLED_NAME_MATCH = ContainerUtil.newHashSet();
+  private static final Set<ArrangementSettingsToken> TYPES_WITH_DISABLED_ORDER = new HashSet<>();
+  private static final Set<ArrangementSettingsToken> TYPES_WITH_DISABLED_NAME_MATCH = new HashSet<>();
 
   static {
-    Set<ArrangementSettingsToken> visibilityModifiers = ContainerUtilRt.newHashSet(PUBLIC, PROTECTED, PACKAGE_PRIVATE, PRIVATE);
+    Set<ArrangementSettingsToken> visibilityModifiers = ContainerUtil.newHashSet(PUBLIC, PROTECTED, PACKAGE_PRIVATE, PRIVATE);
     MUTEXES.add(visibilityModifiers);
     MUTEXES.add(SUPPORTED_TYPES);
 
@@ -98,28 +82,20 @@ public class JavaRearranger implements Rearranger<JavaElementArrangementEntry>,
     MODIFIERS_BY_TYPE.put(METHOD, concat(commonModifiers, SYNCHRONIZED, ABSTRACT));
     MODIFIERS_BY_TYPE.put(CONSTRUCTOR, concat(commonModifiers, SYNCHRONIZED));
     MODIFIERS_BY_TYPE.put(FIELD, concat(commonModifiers, TRANSIENT, VOLATILE));
-    MODIFIERS_BY_TYPE.put(GETTER, ContainerUtilRt.<ArrangementSettingsToken>newHashSet());
-    MODIFIERS_BY_TYPE.put(SETTER, ContainerUtilRt.<ArrangementSettingsToken>newHashSet());
-    MODIFIERS_BY_TYPE.put(OVERRIDDEN, ContainerUtilRt.<ArrangementSettingsToken>newHashSet());
-    MODIFIERS_BY_TYPE.put(INIT_BLOCK, ContainerUtilRt.newHashSet(STATIC));
+    MODIFIERS_BY_TYPE.put(GETTER, new HashSet<>());
+    MODIFIERS_BY_TYPE.put(SETTER, new HashSet<>());
+    MODIFIERS_BY_TYPE.put(OVERRIDDEN, new HashSet<>());
+    MODIFIERS_BY_TYPE.put(INIT_BLOCK, ContainerUtil.newHashSet(STATIC));
 
     TYPES_WITH_DISABLED_ORDER.add(INIT_BLOCK);
 
     TYPES_WITH_DISABLED_NAME_MATCH.add(INIT_BLOCK);
   }
 
-  private static final Map<ArrangementSettingsToken, List<ArrangementSettingsToken>> GROUPING_RULES = ContainerUtilRt.newLinkedHashMap();
-
-  static {
-    GROUPING_RULES.put(GETTERS_AND_SETTERS, Collections.<ArrangementSettingsToken>emptyList());
-    GROUPING_RULES.put(OVERRIDDEN_METHODS, ContainerUtilRt.newArrayList(BY_NAME, KEEP));
-    GROUPING_RULES.put(DEPENDENT_METHODS, ContainerUtilRt.newArrayList(BREADTH_FIRST, DEPTH_FIRST));
-  }
-
   private static final StdArrangementRuleAliasToken VISIBILITY = new StdArrangementRuleAliasToken("visibility");
 
   static {
-    final ArrayList<StdArrangementMatchRule> visibility = new ArrayList<StdArrangementMatchRule>();
+    final ArrayList<StdArrangementMatchRule> visibility = new ArrayList<>();
     and(visibility, PUBLIC);
     and(visibility, PACKAGE_PRIVATE);
     and(visibility, PROTECTED);
@@ -130,8 +106,8 @@ public class JavaRearranger implements Rearranger<JavaElementArrangementEntry>,
   private static final StdArrangementExtendableSettings DEFAULT_SETTINGS;
 
   static {
-    List<ArrangementGroupingRule> groupingRules = ContainerUtilRt.newArrayList(new ArrangementGroupingRule(GETTERS_AND_SETTERS));
-    List<StdArrangementMatchRule> matchRules = ContainerUtilRt.newArrayList();
+    List<ArrangementGroupingRule> groupingRules = ContainerUtil.newArrayList(new ArrangementGroupingRule(GETTERS_AND_SETTERS));
+    List<StdArrangementMatchRule> matchRules = new ArrayList<>();
     ArrangementSettingsToken[] visibility = {PUBLIC, PROTECTED, PACKAGE_PRIVATE, PRIVATE};
     for (ArrangementSettingsToken modifier : visibility) {
       and(matchRules, FIELD, STATIC, FINAL, modifier);
@@ -157,16 +133,18 @@ public class JavaRearranger implements Rearranger<JavaElementArrangementEntry>,
     and(matchRules, CLASS, STATIC);
     and(matchRules, CLASS);
 
-    List<StdArrangementRuleAliasToken> aliasTokens = ContainerUtilRt.newArrayList();
+    List<StdArrangementRuleAliasToken> aliasTokens = new ArrayList<>();
     aliasTokens.add(VISIBILITY);
     DEFAULT_SETTINGS = StdArrangementExtendableSettings.createByMatchRules(groupingRules, matchRules, aliasTokens);
   }
 
-  private static final DefaultArrangementSettingsSerializer SETTINGS_SERIALIZER = new DefaultArrangementSettingsSerializer(DEFAULT_SETTINGS);
+  private static final DefaultArrangementSettingsSerializer SETTINGS_SERIALIZER =
+    new DefaultArrangementSettingsSerializer(DEFAULT_SETTINGS);
 
   @NotNull
-  private static Set<ArrangementSettingsToken> concat(@NotNull Set<ArrangementSettingsToken> base, ArrangementSettingsToken... modifiers) {
-    Set<ArrangementSettingsToken> result = ContainerUtilRt.newHashSet(base);
+  private static Set<ArrangementSettingsToken> concat(@NotNull Set<? extends ArrangementSettingsToken> base,
+                                                      ArrangementSettingsToken... modifiers) {
+    Set<ArrangementSettingsToken> result = new HashSet<>(base);
     Collections.addAll(result, modifiers);
     return result;
   }
@@ -175,9 +153,13 @@ public class JavaRearranger implements Rearranger<JavaElementArrangementEntry>,
     Collection<JavaArrangementPropertyInfo> properties = info.getProperties();
     for (JavaArrangementPropertyInfo propertyInfo : properties) {
       JavaElementArrangementEntry getter = propertyInfo.getGetter();
-      JavaElementArrangementEntry setter = propertyInfo.getSetter();
-      if (getter != null && setter != null && setter.getDependencies() == null) {
-        setter.addDependency(getter);
+      List<JavaElementArrangementEntry> setters = propertyInfo.getSetters();
+      if (getter != null) {
+        JavaElementArrangementEntry previous = getter;
+        for (JavaElementArrangementEntry setter : setters) {
+          setter.addDependency(previous);
+          previous = setter;
+        }
       }
     }
   }
@@ -209,7 +191,7 @@ public class JavaRearranger implements Rearranger<JavaElementArrangementEntry>,
   }
 
   private static void setupBreadthFirstDependency(@NotNull ArrangementEntryDependencyInfo info) {
-    Deque<ArrangementEntryDependencyInfo> toProcess = new ArrayDeque<ArrangementEntryDependencyInfo>();
+    Deque<ArrangementEntryDependencyInfo> toProcess = new ArrayDeque<>();
     toProcess.add(info);
     JavaElementArrangementEntry prev = info.getAnchorEntry();
     while (!toProcess.isEmpty()) {
@@ -242,15 +224,14 @@ public class JavaRearranger implements Rearranger<JavaElementArrangementEntry>,
   public Pair<JavaElementArrangementEntry, List<JavaElementArrangementEntry>> parseWithNew(
     @NotNull PsiElement root,
     @Nullable Document document,
-    @NotNull Collection<TextRange> ranges,
+    @NotNull Collection<? extends TextRange> ranges,
     @NotNull PsiElement element,
-    @NotNull ArrangementSettings settings)
-  {
+    @NotNull ArrangementSettings settings) {
     JavaArrangementParseInfo existingEntriesInfo = new JavaArrangementParseInfo();
-    root.accept(new JavaArrangementVisitor(existingEntriesInfo, document, ranges, settings));
+    root.accept(new JavaArrangementVisitor(existingEntriesInfo, document, ranges, settings, false));
 
     JavaArrangementParseInfo newEntryInfo = new JavaArrangementParseInfo();
-    element.accept(new JavaArrangementVisitor(newEntryInfo, document, Collections.singleton(element.getTextRange()), settings));
+    element.accept(new JavaArrangementVisitor(newEntryInfo, document, Collections.singleton(element.getTextRange()), settings, false));
     if (newEntryInfo.getEntries().size() != 1) {
       return null;
     }
@@ -261,12 +242,11 @@ public class JavaRearranger implements Rearranger<JavaElementArrangementEntry>,
   @Override
   public List<JavaElementArrangementEntry> parse(@NotNull PsiElement root,
                                                  @Nullable Document document,
-                                                 @NotNull Collection<TextRange> ranges,
-                                                 @NotNull ArrangementSettings settings)
-  {
+                                                 @NotNull Collection<? extends TextRange> ranges,
+                                                 @NotNull ArrangementSettings settings) {
     // Following entries are subject to arrangement: class, interface, field, method.
     JavaArrangementParseInfo parseInfo = new JavaArrangementParseInfo();
-    root.accept(new JavaArrangementVisitor(parseInfo, document, ranges, settings));
+    root.accept(new JavaArrangementVisitor(parseInfo, document, ranges, settings, true));
     for (ArrangementGroupingRule rule : settings.getGroupings()) {
       if (GETTERS_AND_SETTERS.equals(rule.getGroupingType())) {
         setupGettersAndSetters(parseInfo);
@@ -285,12 +265,12 @@ public class JavaRearranger implements Rearranger<JavaElementArrangementEntry>,
     return parseInfo.getEntries();
   }
 
-  public void setupFieldInitializationDependencies(@NotNull List<ArrangementEntryDependencyInfo> fieldDependencyRoots,
-                                                   @NotNull ArrangementSettings settings,
-                                                   @NotNull JavaArrangementParseInfo parseInfo)
-  {
+  private static void setupFieldInitializationDependencies(@NotNull List<? extends ArrangementEntryDependencyInfo> fieldDependencyRoots,
+                                                          @NotNull ArrangementSettings settings,
+                                                          @NotNull JavaArrangementParseInfo parseInfo) {
     Collection<JavaElementArrangementEntry> fields = parseInfo.getFields();
-    List<JavaElementArrangementEntry> arrangedFields = ArrangementEngine.arrange(fields, settings.getSections(), settings.getRulesSortedByPriority(), null);
+    List<JavaElementArrangementEntry> arrangedFields =
+      ArrangementEngine.arrange(fields, settings.getSections(), settings.getRulesSortedByPriority(), null);
 
     for (ArrangementEntryDependencyInfo root : fieldDependencyRoots) {
       JavaElementArrangementEntry anchorField = root.getAnchorEntry();
@@ -310,8 +290,7 @@ public class JavaRearranger implements Rearranger<JavaElementArrangementEntry>,
   public int getBlankLines(@NotNull CodeStyleSettings settings,
                            @Nullable JavaElementArrangementEntry parent,
                            @Nullable JavaElementArrangementEntry previous,
-                           @NotNull JavaElementArrangementEntry target)
-  {
+                           @NotNull JavaElementArrangementEntry target) {
     if (previous == null) {
       return -1;
     }
@@ -363,7 +342,7 @@ public class JavaRearranger implements Rearranger<JavaElementArrangementEntry>,
   @Nullable
   @Override
   public List<CompositeArrangementSettingsToken> getSupportedGroupingTokens() {
-    return ContainerUtilRt.newArrayList(
+    return ContainerUtil.newArrayList(
       new CompositeArrangementSettingsToken(GETTERS_AND_SETTERS),
       new CompositeArrangementSettingsToken(OVERRIDDEN_METHODS, BY_NAME, KEEP),
       new CompositeArrangementSettingsToken(DEPENDENT_METHODS, BREADTH_FIRST, DEPTH_FIRST)
@@ -373,7 +352,7 @@ public class JavaRearranger implements Rearranger<JavaElementArrangementEntry>,
   @Nullable
   @Override
   public List<CompositeArrangementSettingsToken> getSupportedMatchingTokens() {
-    return ContainerUtilRt.newArrayList(
+    return ContainerUtil.newArrayList(
       new CompositeArrangementSettingsToken(TYPE, SUPPORTED_TYPES),
       new CompositeArrangementSettingsToken(MODIFIER, SUPPORTED_MODIFIERS),
       new CompositeArrangementSettingsToken(StdArrangementTokens.Regexp.NAME),
@@ -419,20 +398,20 @@ public class JavaRearranger implements Rearranger<JavaElementArrangementEntry>,
     return MUTEXES;
   }
 
-  private static void and(@NotNull List<StdArrangementMatchRule> matchRules, @NotNull ArrangementSettingsToken... conditions) {
-      if (conditions.length == 1) {
-        matchRules.add(new StdArrangementMatchRule(new StdArrangementEntryMatcher(new ArrangementAtomMatchCondition(
-          conditions[0]
-        ))));
-        return;
-      }
-
-      ArrangementCompositeMatchCondition composite = new ArrangementCompositeMatchCondition();
-      for (ArrangementSettingsToken condition : conditions) {
-        composite.addOperand(new ArrangementAtomMatchCondition(condition));
-      }
-      matchRules.add(new StdArrangementMatchRule(new StdArrangementEntryMatcher(composite)));
+  private static void and(@NotNull List<? super StdArrangementMatchRule> matchRules, ArrangementSettingsToken @NotNull ... conditions) {
+    if (conditions.length == 1) {
+      matchRules.add(new StdArrangementMatchRule(new StdArrangementEntryMatcher(new ArrangementAtomMatchCondition(
+        conditions[0]
+      ))));
+      return;
     }
+
+    ArrangementCompositeMatchCondition composite = new ArrangementCompositeMatchCondition();
+    for (ArrangementSettingsToken condition : conditions) {
+      composite.addOperand(new ArrangementAtomMatchCondition(condition));
+    }
+    matchRules.add(new StdArrangementMatchRule(new StdArrangementEntryMatcher(composite)));
+  }
 
   @Nullable
   @Override
@@ -453,10 +432,10 @@ public class JavaRearranger implements Rearranger<JavaElementArrangementEntry>,
   }
 
   @Nullable
-  private static TextAttributes getAttributes(@NotNull EditorColorsScheme scheme, @NotNull TextAttributesKey ... keys) {
+  private static TextAttributes getAttributes(@NotNull EditorColorsScheme scheme, TextAttributesKey @NotNull ... keys) {
     TextAttributes result = null;
     for (TextAttributesKey key : keys) {
-      TextAttributes attributes = scheme.getAttributes(key);
+      TextAttributes attributes = scheme.getAttributes(key).clone();
       if (attributes == null) {
         continue;
       }

@@ -16,15 +16,15 @@
 package org.jetbrains.idea.maven.dom;
 
 import com.intellij.codeInsight.CodeInsightSettings;
-import com.intellij.codeInsight.TargetElementUtilBase;
+import com.intellij.codeInsight.TargetElementUtil;
 import com.intellij.codeInsight.documentation.DocumentationManager;
 import com.intellij.codeInsight.highlighting.HighlightUsagesHandler;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.lookup.LookupElement;
+import com.intellij.codeInsight.lookup.LookupElementPresentation;
 import com.intellij.find.findUsages.PsiElement2UsageTargetAdapter;
 import com.intellij.lang.documentation.DocumentationProvider;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.util.Comparing;
@@ -41,6 +41,7 @@ import com.intellij.psi.xml.XmlTag;
 import com.intellij.refactoring.rename.PsiElementRenameHandler;
 import com.intellij.refactoring.rename.RenameHandler;
 import com.intellij.refactoring.rename.RenameHandlerRegistry;
+import com.intellij.refactoring.rename.inplace.VariableInplaceRenameHandler;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.testFramework.MapDataContext;
 import com.intellij.testFramework.fixtures.CodeInsightTestFixture;
@@ -49,10 +50,9 @@ import com.intellij.testFramework.fixtures.IdeaTestFixtureFactory;
 import com.intellij.testFramework.fixtures.impl.CodeInsightTestFixtureImpl;
 import com.intellij.usages.UsageTarget;
 import com.intellij.usages.UsageTargetUtil;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashMap;
-import org.jetbrains.annotations.NonNls;
+import org.intellij.lang.annotations.Language;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.MavenImportingTestCase;
@@ -64,11 +64,20 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 public abstract class MavenDomTestCase extends MavenImportingTestCase {
   protected CodeInsightTestFixture myFixture;
-  private final Map<VirtualFile, Long> myConfigTimestamps = new THashMap<VirtualFile, Long>();
+  private final Map<VirtualFile, Long> myConfigTimestamps = new THashMap<>();
   private boolean myOriginalAutoCompletion;
+
+  protected static final Function<LookupElement, String> RENDERING_TEXT = li -> {
+    LookupElementPresentation presentation = new LookupElementPresentation();
+    li.renderElement(presentation);
+    return presentation.getItemText();
+  };
+
+  protected static final Function<LookupElement, String> LOOKUP_STRING = LookupElement::getLookupString;
 
   @Override
   protected void setUpFixtures() throws Exception {
@@ -86,64 +95,74 @@ public abstract class MavenDomTestCase extends MavenImportingTestCase {
 
   @Override
   protected void tearDownFixtures() throws Exception {
-    CodeInsightSettings.getInstance().AUTOCOMPLETE_ON_CODE_COMPLETION = myOriginalAutoCompletion;
-    myFixture.tearDown();
-    myFixture = null;
-    myConfigTimestamps.clear();
+    try {
+      CodeInsightSettings.getInstance().AUTOCOMPLETE_ON_CODE_COMPLETION = myOriginalAutoCompletion;
+      myConfigTimestamps.clear();
+
+      myFixture.tearDown();
+    }
+    finally {
+      myFixture = null;
+    }
   }
 
   protected PsiFile findPsiFile(VirtualFile f) {
     return PsiManager.getInstance(myProject).findFile(f);
   }
 
-  protected void configTest(VirtualFile f) throws IOException {
+  protected void configureProjectPom(@Language(value = "XML", prefix = "<project>", suffix = "</project>") String xml) {
+    VirtualFile file = createProjectPom(xml);
+    configTest(file);
+  }
+
+  protected void configTest(VirtualFile f) {
     if (Comparing.equal(myConfigTimestamps.get(f), f.getTimeStamp())) return;
     myFixture.configureFromExistingVirtualFile(f);
     myConfigTimestamps.put(f, f.getTimeStamp());
   }
 
-  protected void type(VirtualFile f, char c) throws IOException {
+  protected void type(VirtualFile f, char c) {
     configTest(f);
     myFixture.type(c);
   }
 
-  protected PsiReference getReferenceAtCaret(VirtualFile f) throws IOException {
+  protected PsiReference getReferenceAtCaret(VirtualFile f) {
     configTest(f);
     return findPsiFile(f).findReferenceAt(getEditorOffset(f));
   }
 
-  protected PsiReference getReferenceAt(VirtualFile f, int offset) throws IOException {
+  protected PsiReference getReferenceAt(VirtualFile f, int offset) {
     configTest(f);
     return findPsiFile(f).findReferenceAt(offset);
   }
 
-  protected PsiElement getElementAtCaret(VirtualFile f) throws IOException {
+  protected PsiElement getElementAtCaret(VirtualFile f) {
     configTest(f);
     return findPsiFile(f).findElementAt(getEditorOffset(f));
   }
 
-  protected Editor getEditor() throws IOException {
+  protected Editor getEditor() {
     return getEditor(myProjectPom);
   }
 
-  protected Editor getEditor(VirtualFile f) throws IOException {
+  protected Editor getEditor(VirtualFile f) {
     configTest(f);
     return myFixture.getEditor();
   }
 
-  protected int getEditorOffset() throws IOException {
+  protected int getEditorOffset() {
     return getEditorOffset(myProjectPom);
   }
 
-  protected int getEditorOffset(VirtualFile f) throws IOException {
+  protected int getEditorOffset(VirtualFile f) {
     return getEditor(f).getCaretModel().getOffset();
   }
 
-  protected PsiFile getTestPsiFile() throws IOException {
+  protected PsiFile getTestPsiFile() {
     return getTestPsiFile(myProjectPom);
   }
 
-  private PsiFile getTestPsiFile(VirtualFile f) throws IOException {
+  private PsiFile getTestPsiFile(VirtualFile f) {
     configTest(f);
     return myFixture.getFile();
   }
@@ -162,22 +181,22 @@ public abstract class MavenDomTestCase extends MavenImportingTestCase {
     return MavenDomUtil.findTag(model, path);
   }
 
-  protected void assertNoReferences(VirtualFile file, Class refClass) throws IOException {
+  protected void assertNoReferences(VirtualFile file, Class refClass) {
     PsiReference ref = getReferenceAtCaret(file);
     if (ref == null) return;
     PsiReference[] refs = ref instanceof PsiMultiReference ? ((PsiMultiReference)ref).getReferences() : new PsiReference[]{ref};
-    for (PsiReference each : refs) {
+    for (PsiReference each: refs) {
       assertFalse(each.toString(), refClass.isInstance(each));
     }
   }
 
-  protected void assertUnresolved(VirtualFile file) throws IOException {
+  protected void assertUnresolved(VirtualFile file) {
     PsiReference ref = getReferenceAtCaret(file);
     assertNotNull(ref);
     assertNull(ref.resolve());
   }
 
-  protected void assertUnresolved(VirtualFile file, String expectedText) throws IOException {
+  protected void assertUnresolved(VirtualFile file, String expectedText) {
     PsiReference ref = getReferenceAtCaret(file);
     assertNotNull(ref);
     assertNull(ref.resolve());
@@ -194,7 +213,9 @@ public abstract class MavenDomTestCase extends MavenImportingTestCase {
     int index = text.indexOf(referenceText);
     assert index >= 0;
 
-    assert text.indexOf(referenceText, index + referenceText.length()) == -1 : "Reference text '" + referenceText + "' occurs more than one times";
+    assert text.indexOf(referenceText, index + referenceText.length()) == -1 : "Reference text '" +
+                                                                               referenceText +
+                                                                               "' occurs more than one times";
 
     return getReferenceAt(file, index);
   }
@@ -212,7 +233,7 @@ public abstract class MavenDomTestCase extends MavenImportingTestCase {
 
     return getReferenceAt(file, k);
   }
-  
+
   @Nullable
   protected PsiElement resolveReference(VirtualFile file, @NotNull String referenceText) throws IOException {
     PsiReference ref = getReference(file, referenceText);
@@ -231,7 +252,7 @@ public abstract class MavenDomTestCase extends MavenImportingTestCase {
     assertEquals(expectedText, ref.getCanonicalText());
   }
 
-  private PsiReference doAssertResolved(VirtualFile file, PsiElement expected) throws IOException {
+  private PsiReference doAssertResolved(VirtualFile file, PsiElement expected) {
     assertNotNull("expected reference is null", expected);
 
     PsiReference ref = getReferenceAtCaret(file);
@@ -244,34 +265,64 @@ public abstract class MavenDomTestCase extends MavenImportingTestCase {
     return ref;
   }
 
-  protected void assertCompletionVariants(VirtualFile f, String... expected) throws IOException {
-    List<String> actual = getCompletionVariants(f);
+  protected void assertCompletionVariants(VirtualFile f, String... expected) {
+    assertCompletionVariants(f, LOOKUP_STRING, expected);
+  }
+
+  protected void assertCompletionVariants(VirtualFile f, Function<LookupElement, String> lookupElementStringFunction, String... expected) {
+    List<String> actual = getCompletionVariants(f, lookupElementStringFunction);
     assertUnorderedElementsAreEqual(actual, expected);
   }
 
-  protected void assertCompletionVariantsInclude(VirtualFile f, String... expected) throws IOException {
-    assertContain(getCompletionVariants(f), expected);
+  protected void assertCompletionVariants(CodeInsightTestFixture f, Function<LookupElement, String> lookupElementStringFunction, String... expected) {
+    List<String> actual = getCompletionVariants(f, lookupElementStringFunction);
+    assertUnorderedElementsAreEqual(actual, expected);
   }
 
-  protected void assertCompletionVariantsDoNotInclude(VirtualFile f, String... expected) throws IOException {
+  protected void assertCompletionVariantsInclude(VirtualFile f,
+                                                 String... expected) {
+    assertCompletionVariantsInclude(f, LOOKUP_STRING, expected);
+  }
+
+  protected void assertCompletionVariantsInclude(VirtualFile f,
+                                                 Function<LookupElement, String> lookupElementStringFunction,
+                                                 String... expected) {
+    assertContain(getCompletionVariants(f, lookupElementStringFunction), expected);
+  }
+
+  protected void assertCompletionVariantsDoNotInclude(VirtualFile f, String... expected) {
     assertDoNotContain(getCompletionVariants(f), expected);
   }
 
-  protected List<String> getCompletionVariants(VirtualFile f) throws IOException {
+  protected List<String> getCompletionVariants(VirtualFile f) {
+    return getCompletionVariants(f, li -> li.getLookupString());
+  }
+
+  protected List<String> getCompletionVariants(VirtualFile f, Function<LookupElement, String> lookupElementStringFunction) {
     configTest(f);
     LookupElement[] variants = myFixture.completeBasic();
 
-    List<String> result = new ArrayList<String>();
+    List<String> result = new ArrayList<>();
     for (LookupElement each : variants) {
-      result.add(each.getLookupString());
+      result.add(lookupElementStringFunction.apply(each));
     }
     return result;
   }
 
-  protected void assertDocumentation(String expectedText) throws IOException {
+  protected List<String> getCompletionVariants(CodeInsightTestFixture fixture, Function<LookupElement, String> lookupElementStringFunction) {
+    LookupElement[] variants = fixture.getLookupElements();
+
+    List<String> result = new ArrayList<>();
+    for (LookupElement each : variants) {
+      result.add(lookupElementStringFunction.apply(each));
+    }
+    return result;
+  }
+
+  protected void assertDocumentation(String expectedText) {
     PsiElement originalElement = getElementAtCaret(myProjectPom);
     PsiElement targetElement = DocumentationManager.getInstance(myProject)
-      .findTargetElement(getEditor(), getTestPsiFile(), originalElement);
+                                                   .findTargetElement(getEditor(), getTestPsiFile(), originalElement);
 
     DocumentationProvider provider = DocumentationManager.getProviderFromElement(targetElement);
     assertEquals(expectedText, provider.generateDoc(targetElement, originalElement));
@@ -283,15 +334,15 @@ public abstract class MavenDomTestCase extends MavenImportingTestCase {
     assertSame(targetElement, lookupElement);
   }
 
-  protected void checkHighlighting() throws IOException {
+  protected void checkHighlighting() {
     checkHighlighting(myProjectPom);
   }
 
-  protected void checkHighlighting(VirtualFile f) throws IOException {
+  protected void checkHighlighting(VirtualFile f) {
     checkHighlighting(f, true, false, true);
   }
 
-  protected void checkHighlighting(VirtualFile f, boolean checkWarnings, boolean checkInfos, boolean checkWeakWarnings) throws IOException {
+  protected void checkHighlighting(VirtualFile f, boolean checkWarnings, boolean checkInfos, boolean checkWeakWarnings) {
     configTest(myProjectPom);
     try {
       myFixture.testHighlighting(checkWarnings, checkInfos, checkWeakWarnings, f);
@@ -301,11 +352,11 @@ public abstract class MavenDomTestCase extends MavenImportingTestCase {
     }
   }
 
-  protected IntentionAction getIntentionAtCaret(String intentionName) throws IOException {
+  protected IntentionAction getIntentionAtCaret(String intentionName) {
     return getIntentionAtCaret(myProjectPom, intentionName);
   }
 
-  protected IntentionAction getIntentionAtCaret(VirtualFile pomFile, String intentionName) throws IOException {
+  protected IntentionAction getIntentionAtCaret(VirtualFile pomFile, String intentionName) {
     configTest(pomFile);
     try {
       List<IntentionAction> intentions = myFixture.getAvailableIntentions();
@@ -322,7 +373,7 @@ public abstract class MavenDomTestCase extends MavenImportingTestCase {
     assertEquals(createPomXml(expectedXml), getTestPsiFile(myProjectPom).getText());
   }
 
-  protected void doRename(final VirtualFile f, String value) throws IOException {
+  protected void doRename(final VirtualFile f, String value) {
     final MapDataContext context = createRenameDataContext(f, value);
     final RenameHandler renameHandler = RenameHandlerRegistry.getInstance().getRenameHandler(context);
     assertNotNull(renameHandler);
@@ -330,7 +381,15 @@ public abstract class MavenDomTestCase extends MavenImportingTestCase {
     invokeRename(context, renameHandler);
   }
 
-  protected void assertCannotRename() throws Exception {
+  protected void doInlineRename(final VirtualFile f, String value) {
+    final MapDataContext context = createRenameDataContext(f, value);
+    final RenameHandler renameHandler = RenameHandlerRegistry.getInstance().getRenameHandler(context);
+    assertNotNull(renameHandler);
+    assertInstanceOf(renameHandler, VariableInplaceRenameHandler.class);
+    CodeInsightTestUtil.doInlineRename((VariableInplaceRenameHandler)renameHandler, value, myFixture);
+  }
+
+  protected void assertCannotRename() {
     MapDataContext context = createRenameDataContext(myProjectPom, "new name");
     RenameHandler handler = RenameHandlerRegistry.getInstance().getRenameHandler(context);
     if (handler == null) return;
@@ -348,55 +407,45 @@ public abstract class MavenDomTestCase extends MavenImportingTestCase {
     renameHandler.invoke(myProject, PsiElement.EMPTY_ARRAY, context);
   }
 
-  private MapDataContext createDataContext(VirtualFile f) throws IOException {
+  private MapDataContext createDataContext(VirtualFile f) {
     MapDataContext context = new MapDataContext();
     context.put(CommonDataKeys.EDITOR, getEditor(f));
     context.put(CommonDataKeys.PSI_FILE, getTestPsiFile(f));
-    context.put(CommonDataKeys.PSI_ELEMENT, TargetElementUtilBase.findTargetElement(getEditor(f),
-                                                                              TargetElementUtilBase.REFERENCED_ELEMENT_ACCEPTED
-                                                                              | TargetElementUtilBase.ELEMENT_NAME_ACCEPTED));
+    context.put(CommonDataKeys.PSI_ELEMENT, TargetElementUtil.findTargetElement(getEditor(f),
+                                                                                TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED
+                                                                                | TargetElementUtil.ELEMENT_NAME_ACCEPTED));
     return context;
   }
 
-  private MapDataContext createRenameDataContext(VirtualFile f, String value) throws IOException {
+  private MapDataContext createRenameDataContext(VirtualFile f, String value) {
     MapDataContext context = createDataContext(f);
     context.put(PsiElementRenameHandler.DEFAULT_NAME, value);
     return context;
   }
 
-  protected void assertSearchResults(VirtualFile file, PsiElement... expected) throws IOException {
+  protected void assertSearchResults(VirtualFile file, PsiElement... expected) {
     assertUnorderedElementsAreEqual(search(file), expected);
   }
 
-  protected void assertSearchResultsInclude(VirtualFile file, PsiElement... expected) throws IOException {
+  protected void assertSearchResultsInclude(VirtualFile file, PsiElement... expected) {
     assertContain(search(file), expected);
   }
 
-  protected List<PsiElement> search(VirtualFile file) throws IOException {
+  protected List<PsiElement> search(VirtualFile file) {
     final MapDataContext context = createDataContext(file);
-    UsageTarget[] targets = UsageTargetUtil.findUsageTargets(new DataProvider() {
-      @Override
-      public Object getData(@NonNls String dataId) {
-        return context.getData(dataId);
-      }
-    });
+    UsageTarget[] targets = UsageTargetUtil.findUsageTargets(context::getData);
     PsiElement target = ((PsiElement2UsageTargetAdapter)targets[0]).getElement();
-    List<PsiReference> result = new ArrayList<PsiReference>(ReferencesSearch.search(target).findAll());
-    return ContainerUtil.map(result, new Function<PsiReference, PsiElement>() {
-      @Override
-      public PsiElement fun(PsiReference psiReference) {
-        return psiReference.getElement();
-      }
-    });
+    List<PsiReference> result = new ArrayList<>(ReferencesSearch.search(target).findAll());
+    return ContainerUtil.map(result, PsiReference::getElement);
   }
 
-  protected void assertHighlighted(VirtualFile file, HighlightInfo... expected) throws IOException {
+  protected void assertHighlighted(VirtualFile file, HighlightInfo... expected) {
     Editor editor = getEditor(file);
     HighlightUsagesHandler.invoke(myProject, editor, getTestPsiFile(file));
 
     RangeHighlighter[] highlighters = editor.getMarkupModel().getAllHighlighters();
-    List<HighlightInfo> actual = new ArrayList<HighlightInfo>();
-    for (RangeHighlighter each : highlighters) {
+    List<HighlightInfo> actual = new ArrayList<>();
+    for (RangeHighlighter each: highlighters) {
       if (!each.isValid()) continue;
       int offset = each.getStartOffset();
       PsiElement element = getTestPsiFile(file).findElementAt(offset);

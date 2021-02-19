@@ -16,18 +16,18 @@
 package org.zmlx.hg4idea.command;
 
 import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.VcsException;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.messages.MessageBus;
 import com.intellij.vcsUtil.VcsFileUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.zmlx.hg4idea.HgBundle;
 import org.zmlx.hg4idea.HgFile;
 import org.zmlx.hg4idea.HgVcs;
-import org.zmlx.hg4idea.HgVcsMessages;
 import org.zmlx.hg4idea.execution.HgCommandException;
 import org.zmlx.hg4idea.repo.HgRepository;
 import org.zmlx.hg4idea.util.HgEncodingUtil;
@@ -41,7 +41,7 @@ import java.util.Set;
 
 public abstract class HgCommitTypeCommand {
 
-  private static final String TEMP_FILE_NAME = ".hg4idea-commit.tmp";
+  private static final @NonNls String TEMP_FILE_NAME = ".hg4idea-commit.tmp";
 
   @NotNull protected final Project myProject;
   @NotNull protected final HgRepository myRepository;
@@ -70,33 +70,27 @@ public abstract class HgCommitTypeCommand {
       FileUtil.writeToFile(tempFile, myMessage.getBytes(myCharset));
     }
     catch (IOException e) {
-      throw new VcsException("Couldn't prepare commit message", e);
+      throw new VcsException(HgBundle.message("action.hg4idea.Commit.cant.prepare.commit.message.file"), e);
     }
     return tempFile;
   }
 
 
-  public void execute() throws HgCommandException, VcsException {
+  public void executeInCurrentThread() throws HgCommandException, VcsException {
     if (StringUtil.isEmptyOrSpaces(myMessage)) {
-      throw new HgCommandException(HgVcsMessages.message("hg4idea.commit.error.messageEmpty"));
+      throw new HgCommandException(HgBundle.message("hg4idea.commit.error.messageEmpty"));
     }
     if (myFiles.isEmpty()) {
-      executeChunked(Collections.<List<String>>emptyList());
+      executeChunked(Collections.emptyList());
     }
     else {
-      List<String> relativePaths = ContainerUtil.map2List(myFiles, new Function<HgFile, String>() {
-        @Override
-        public String fun(HgFile file) {
-          return file.getRelativePath();
-        }
-      });
-      List<List<String>> chunkedCommits = VcsFileUtil.chunkRelativePaths(relativePaths);
+      List<String> relativePaths = ContainerUtil.map2List(myFiles, file -> file.getRelativePath());
+      List<List<String>> chunkedCommits = VcsFileUtil.chunkArguments(relativePaths);
       executeChunked(chunkedCommits);
     }
     myRepository.update();
-    final MessageBus messageBus = myProject.getMessageBus();
-    messageBus.syncPublisher(HgVcs.REMOTE_TOPIC).update(myProject, null);
+    BackgroundTaskUtil.syncPublisher(myProject, HgVcs.REMOTE_TOPIC).update(myProject, null);
   }
 
-  protected abstract void executeChunked(@NotNull List<List<String>> chunkedCommits) throws HgCommandException, VcsException;
+  protected abstract void executeChunked(@NotNull List<List<String>> chunkedCommits) throws VcsException;
 }

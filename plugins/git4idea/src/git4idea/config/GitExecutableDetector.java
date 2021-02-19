@@ -1,70 +1,101 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.config;
 
-import com.intellij.execution.ExecutionException;
-import com.intellij.execution.configurations.GeneralCommandLine;
-import com.intellij.execution.process.CapturingProcessHandler;
-import com.intellij.execution.process.ProcessOutput;
+import com.google.common.annotations.VisibleForTesting;
+import com.intellij.execution.configurations.PathEnvironmentVariableUtil;
+import com.intellij.execution.wsl.WSLDistribution;
+import com.intellij.execution.wsl.WSLUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.CharsetToolkit;
+import com.intellij.util.ThreeState;
+import git4idea.i18n.GitBundle;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
-import java.io.FileFilter;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static git4idea.config.GitExecutableManager.runUnderProgressIfNeeded;
+
 /**
  * Tries to detect the path to Git executable.
- *
- * @author Kirill Likhodedov
  */
 public class GitExecutableDetector {
 
   private static final Logger LOG = Logger.getInstance(GitExecutableDetector.class);
-  private static final String[] UNIX_PATHS = { "/usr/local/bin",
-                                               "/usr/bin",
-                                               "/opt/local/bin",
-                                               "/opt/bin",
-                                               "/usr/local/git/bin"};
-  private static final String UNIX_EXECUTABLE = "git";
+  private static final @NonNls String[] UNIX_PATHS = {
+    "/usr/local/bin",
+    "/opt/local/bin",
+    "/usr/bin",
+    "/opt/bin",
+    "/usr/local/git/bin"};
 
-  private static final File WIN_ROOT = new File("C:"); // the constant is extracted to be able to create files in "Program Files" in tests
-  private static final String GIT_CMD = "git.cmd";
-  private static final String GIT_EXE = "git.exe";
+  private static final @NonNls String GIT = "git";
+  private static final @NonNls String UNIX_EXECUTABLE = GIT;
 
-  public static final String DEFAULT_WIN_GIT = GIT_EXE;
-  public static final String PATH_ENV = "PATH";
+  private static final File WIN_ROOT = new File("C:\\"); // the constant is extracted to be able to create files in "Program Files" in tests
+  private static final @NonNls String GIT_EXE = "git.exe";
 
-  @NotNull
-  public String detect() {
-    if (SystemInfo.isWindows) {
-      return detectForWindows();
+  private static final String WIN_EXECUTABLE = GIT_EXE;
+
+  @NotNull private final Object DETECTED_EXECUTABLE_LOCK = new Object();
+  @NotNull private final Map<WSLDistribution, String> myWslExecutables = new ConcurrentHashMap<>(); // concurrent to read without lock
+  @Nullable private volatile String myDetectedExecutable;
+  private boolean myDetectionComplete;
+
+  @Nullable
+  public String detect(@Nullable WSLDistribution distribution) {
+    return runUnderProgressIfNeeded(null, GitBundle.message("git.executable.detect.progress.title"), () -> {
+      synchronized (DETECTED_EXECUTABLE_LOCK) {
+        if (!myDetectionComplete) {
+          myDetectedExecutable = runDetect();
+          myDetectionComplete = true;
+        }
+        return getExecutable(distribution);
+      }
+    });
+  }
+
+  public void clear() {
+    synchronized (DETECTED_EXECUTABLE_LOCK) {
+      myWslExecutables.clear();
+      myDetectedExecutable = null;
+      myDetectionComplete = false;
     }
-    return detectForUnix();
+  }
+
+  @Nullable
+  public String getExecutable(@Nullable WSLDistribution projectWslDistribution) {
+    if (projectWslDistribution != null) {
+      String exec = myWslExecutables.get(projectWslDistribution);
+      if (exec != null) return exec;
+    }
+
+    return myDetectedExecutable;
+  }
+
+  @Nullable
+  private String runDetect() {
+    detectAvailableWsl();
+
+    File gitExecutableFromPath = PathEnvironmentVariableUtil.findInPath(SystemInfo.isWindows ? GIT_EXE : GIT, getPath(), null);
+    if (gitExecutableFromPath != null) return gitExecutableFromPath.getAbsolutePath();
+
+    return SystemInfo.isWindows ? detectForWindows() : detectForUnix();
   }
 
   @NotNull
+  public static String getDefaultExecutable() {
+    return SystemInfo.isWindows ? WIN_EXECUTABLE : UNIX_EXECUTABLE;
+  }
+
+  @Nullable
   private static String detectForUnix() {
     for (String p : UNIX_PATHS) {
       File f = new File(p, UNIX_EXECUTABLE);
@@ -72,17 +103,12 @@ public class GitExecutableDetector {
         return f.getPath();
       }
     }
-    return UNIX_EXECUTABLE;
+    return null;
   }
 
-  @NotNull
+  @Nullable
   private String detectForWindows() {
-    String exec = checkInPath();
-    if (exec != null) {
-      return exec;
-    }
-
-    exec = checkProgramFiles();
+    String exec = checkProgramFiles();
     if (exec != null) {
       return exec;
     }
@@ -92,52 +118,23 @@ public class GitExecutableDetector {
       return exec;
     }
 
-    return checkSoleExecutable();
-  }
+    exec = checkWsl();
+    if (exec != null) {
+      return exec;
+    }
 
-  /**
-   * Looks into the %PATH% and checks Git directories mentioned there.
-   * @return Git executable to be used or null if nothing interesting was found in the PATH.
-   */
-  @Nullable
-  private String checkInPath() {
-    String PATH = getPath();
-    if (PATH == null) {
-      return null;
-    }
-    List<String> pathEntries = StringUtil.split(PATH, ";");
-    for (String pathEntry : pathEntries) {
-      if (looksLikeGit(pathEntry)) {
-        return checkBinDir(new File(pathEntry));
-      }
-    }
     return null;
   }
 
-  private static boolean looksLikeGit(@NotNull String path) {
-    List<String> dirs = FileUtil.splitPath(path);
-    for (String dir : dirs) {
-      if (dir.toLowerCase().startsWith("git")) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   @Nullable
-  private static String checkProgramFiles() {
-    final String[] PROGRAM_FILES = { "Program Files", "Program Files (x86)" };
+  private String checkProgramFiles() {
+    final String[] PROGRAM_FILES = {"Program Files", "Program Files (x86)"};
 
     // collecting all potential msys distributives
-    List<File> distrs = new ArrayList<File>();
+    List<File> distrs = new ArrayList<>();
     for (String programFiles : PROGRAM_FILES) {
-      File pf = new File(WIN_ROOT, programFiles);
-      File[] children = pf.listFiles(new FileFilter() {
-        @Override
-        public boolean accept(File pathname) {
-          return pathname.isDirectory() && pathname.getName().toLowerCase().startsWith("git");
-        }
-      });
+      File pf = new File(getWinRoot(), programFiles);
+      File[] children = pf.listFiles(pathname -> pathname.isDirectory() && StringUtil.toLowerCase(pathname.getName()).startsWith("git"));
       if (!pf.exists() || children == null) {
         continue;
       }
@@ -145,7 +142,7 @@ public class GitExecutableDetector {
     }
 
     // greater is better => sorting in the descending order to match the best version first, when iterating
-    Collections.sort(distrs, Collections.reverseOrder(new VersionDirsComparator()));
+    distrs.sort(Collections.reverseOrder(new VersionDirsComparator()));
 
     for (File distr : distrs) {
       String exec = checkDistributive(distr);
@@ -157,10 +154,10 @@ public class GitExecutableDetector {
   }
 
   @Nullable
-  private static String checkCygwin() {
-    final String[] OTHER_WINDOWS_PATHS = { FileUtil.toSystemDependentName("cygwin/bin/git.exe") };
+  private String checkCygwin() {
+    final String[] OTHER_WINDOWS_PATHS = {FileUtil.toSystemDependentName("cygwin/bin/git.exe")};
     for (String otherPath : OTHER_WINDOWS_PATHS) {
-      File file = new File(WIN_ROOT, otherPath);
+      File file = new File(getWinRoot(), otherPath);
       if (file.exists()) {
         return file.getPath();
       }
@@ -168,12 +165,43 @@ public class GitExecutableDetector {
     return null;
   }
 
-  @NotNull
-  private String checkSoleExecutable() {
-    if (runs(GIT_CMD)) {
-      return GIT_CMD;
+  @Nullable
+  private String checkWsl() {
+    if (myWslExecutables.size() == 1) {
+      return myWslExecutables.values().iterator().next();
     }
-    return GIT_EXE;
+    return null;
+  }
+
+  private void detectAvailableWsl() {
+    if (!GitExecutableManager.supportWslExecutable()) return;
+
+    List<WSLDistribution> distributions = WSLUtil.getAvailableDistributions();
+    for (WSLDistribution distribution : distributions) {
+      String path = checkWslDistribution(distribution);
+      if (path != null) myWslExecutables.put(distribution, path);
+    }
+  }
+
+  @Nullable
+  private static String checkWslDistribution(@NotNull WSLDistribution distribution) {
+    if (WSLUtil.isWsl1(distribution) != ThreeState.NO) return null;
+
+    File root = distribution.getUNCRoot();
+    for (String p : UNIX_PATHS) {
+      File d = new File(root, p);
+      File f = new File(d, UNIX_EXECUTABLE);
+      if (f.exists()) {
+        return f.getPath();
+      }
+    }
+    return null;
+  }
+
+  @VisibleForTesting
+  @NotNull
+  protected File getWinRoot() {
+    return WIN_ROOT;
   }
 
   @Nullable
@@ -182,7 +210,7 @@ public class GitExecutableDetector {
       return null;
     }
 
-    final String[] binDirs = { "cmd", "bin" };
+    final String[] binDirs = {"cmd", "bin"};
     for (String binDir : binDirs) {
       String exec = checkBinDir(new File(gitDir, binDir));
       if (exec != null) {
@@ -199,36 +227,30 @@ public class GitExecutableDetector {
       return null;
     }
 
-    for (String exec : new String[]{ GIT_CMD, GIT_EXE }) {
-      File fe = new File(binDir, exec);
-      if (fe.exists()) {
-        return fe.getPath();
-      }
+    File fe = new File(binDir, GIT_EXE);
+    if (fe.exists()) {
+      return fe.getPath();
     }
 
     return null;
   }
 
-  /**
-   * Checks if it is possible to run the specified program.
-   * Made protected for tests not to start a process there.
-   */
-  protected boolean runs(@NotNull String exec) {
-    GeneralCommandLine commandLine = new GeneralCommandLine();
-    commandLine.setExePath(exec);
-    try {
-      CapturingProcessHandler handler = new CapturingProcessHandler(commandLine.createProcess(), CharsetToolkit.getDefaultSystemCharset());
-      ProcessOutput result = handler.runProcess((int)TimeUnit.SECONDS.toMillis(5));
-      return !result.isTimeout();
-    }
-    catch (ExecutionException e) {
-      return false;
-    }
+  @VisibleForTesting
+  @Nullable
+  protected String getPath() {
+    return PathEnvironmentVariableUtil.getPathVariableValue();
   }
 
   @Nullable
-  protected String getPath() {
-    return System.getenv(PATH_ENV);
+  public static String patchExecutablePath(@NotNull String path) {
+    if (SystemInfo.isWindows) {
+      File file = new File(path);
+      if (file.getName().equals("git-cmd.exe") || file.getName().equals("git-bash.exe")) {
+        File patchedFile = new File(file.getParent(), "bin/git.exe");
+        if (patchedFile.exists()) return patchedFile.getPath();
+      }
+    }
+    return null;
   }
 
   // Compare strategy: greater is better (if v1 > v2, then v1 is a better candidate for the Git executable)
@@ -236,8 +258,8 @@ public class GitExecutableDetector {
 
     @Override
     public int compare(File f1, File f2) {
-      String name1 = f1.getName().toLowerCase();
-      String name2 = f2.getName().toLowerCase();
+      String name1 = StringUtil.toLowerCase(f1.getName());
+      String name2 = StringUtil.toLowerCase(f2.getName());
 
       // C:\Program Files\Git is better candidate for _default_ than C:\Program Files\Git_1.8.0
       if (name1.equals("git")) {
@@ -270,8 +292,8 @@ public class GitExecutableDetector {
       }
 
       // probably some unrecognized format of Git directory naming => just compare lexicographically
-      String name1 = f1.getName().toLowerCase();
-      String name2 = f2.getName().toLowerCase();
+      String name1 = StringUtil.toLowerCase(f1.getName());
+      String name2 = StringUtil.toLowerCase(f2.getName());
       return name1.compareTo(name2);
     }
 

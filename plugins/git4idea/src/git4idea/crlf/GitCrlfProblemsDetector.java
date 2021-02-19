@@ -1,26 +1,12 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.crlf;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.fileEditor.impl.LoadTextUtil;
 import com.intellij.openapi.progress.ProgressIndicatorProvider;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import git4idea.GitPlatformFacade;
 import git4idea.GitUtil;
 import git4idea.attributes.GitAttribute;
 import git4idea.attributes.GitCheckAttrParser;
@@ -28,6 +14,7 @@ import git4idea.commands.Git;
 import git4idea.commands.GitCommandResult;
 import git4idea.config.GitConfigUtil;
 import git4idea.repo.GitRepository;
+import git4idea.repo.GitRepositoryManager;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
@@ -49,30 +36,27 @@ import java.util.*;
  *
  * @author Kirill Likhodedov
  */
-public class GitCrlfProblemsDetector {
+public final class GitCrlfProblemsDetector {
 
   private static final Logger LOG = Logger.getInstance(GitCrlfProblemsDetector.class);
   private static final String CRLF = "\r\n";
 
-  @NotNull private final Project myProject;
-  @NotNull private final GitPlatformFacade myPlatformFacade;
   @NotNull private final Git myGit;
+  @NotNull private final GitRepositoryManager myRepositoryManager;
 
   private final boolean myShouldWarn;
 
   @NotNull
-  public static GitCrlfProblemsDetector detect(@NotNull Project project, @NotNull GitPlatformFacade platformFacade,
-                                               @NotNull Git git, @NotNull Collection<VirtualFile> files) {
-    return new GitCrlfProblemsDetector(project, platformFacade, git, files);
+  public static GitCrlfProblemsDetector detect(@NotNull Project project, @NotNull Git git, @NotNull Collection<VirtualFile> files) {
+    return new GitCrlfProblemsDetector(project, git, files);
   }
 
-  private GitCrlfProblemsDetector(@NotNull Project project, @NotNull GitPlatformFacade platformFacade, @NotNull Git git,
+  private GitCrlfProblemsDetector(@NotNull Project project, @NotNull Git git,
                                   @NotNull Collection<VirtualFile> files) {
-    myProject = project;
-    myPlatformFacade = platformFacade;
+    myRepositoryManager = GitUtil.getRepositoryManager(project);
     myGit = git;
 
-    Map<VirtualFile, List<VirtualFile>> filesByRoots = sortFilesByRoots(files);
+    Map<VirtualFile, List<VirtualFile>> filesByRoots = GitUtil.sortFilesByGitRootIgnoringMissing(project, files);
 
     boolean shouldWarn = false;
     Collection<VirtualFile> rootsWithIncorrectAutoCrlf = getRootsWithIncorrectAutoCrlf(filesByRoots);
@@ -87,7 +71,7 @@ public class GitCrlfProblemsDetector {
   }
 
   private Map<VirtualFile, Collection<VirtualFile>> findFilesWithoutAttrs(Map<VirtualFile, Collection<VirtualFile>> filesByRoots) {
-    Map<VirtualFile, Collection<VirtualFile>> filesWithoutAttrsByRoot = new HashMap<VirtualFile, Collection<VirtualFile>>();
+    Map<VirtualFile, Collection<VirtualFile>> filesWithoutAttrsByRoot = new HashMap<>();
     for (Map.Entry<VirtualFile, Collection<VirtualFile>> entry : filesByRoots.entrySet()) {
       VirtualFile root = entry.getKey();
       Collection<VirtualFile> files = entry.getValue();
@@ -100,8 +84,8 @@ public class GitCrlfProblemsDetector {
   }
 
   @NotNull
-  private Collection<VirtualFile> findFilesWithoutAttrs(@NotNull VirtualFile root, @NotNull Collection<VirtualFile> files) {
-    GitRepository repository = myPlatformFacade.getRepositoryManager(myProject).getRepositoryForRoot(root);
+  private Collection<VirtualFile> findFilesWithoutAttrs(@NotNull VirtualFile root, @NotNull Collection<? extends VirtualFile> files) {
+    GitRepository repository = myRepositoryManager.getRepositoryForRoot(root);
     if (repository == null) {
       LOG.warn("Repository is null for " + root);
       return Collections.emptyList();
@@ -114,7 +98,7 @@ public class GitCrlfProblemsDetector {
     }
     GitCheckAttrParser parser = GitCheckAttrParser.parse(result.getOutput());
     Map<String, Collection<GitAttribute>> attributes = parser.getAttributes();
-    Collection<VirtualFile> filesWithoutAttrs = new ArrayList<VirtualFile>();
+    Collection<VirtualFile> filesWithoutAttrs = new ArrayList<>();
     for (VirtualFile file : files) {
       ProgressIndicatorProvider.checkCanceled();
       String relativePath = FileUtil.getRelativePath(root.getPath(), file.getPath(), '/');
@@ -127,9 +111,9 @@ public class GitCrlfProblemsDetector {
   }
 
   @NotNull
-  private Map<VirtualFile, Collection<VirtualFile>> findFilesWithCrlf(@NotNull Map<VirtualFile, List<VirtualFile>> allFilesByRoots,
-                                                                      @NotNull Collection<VirtualFile> rootsWithIncorrectAutoCrlf) {
-    Map<VirtualFile, Collection<VirtualFile>> filesWithCrlfByRoots = new HashMap<VirtualFile, Collection<VirtualFile>>();
+  private static Map<VirtualFile, Collection<VirtualFile>> findFilesWithCrlf(@NotNull Map<VirtualFile, List<VirtualFile>> allFilesByRoots,
+                                                                             @NotNull Collection<VirtualFile> rootsWithIncorrectAutoCrlf) {
+    Map<VirtualFile, Collection<VirtualFile>> filesWithCrlfByRoots = new HashMap<>();
     for (Map.Entry<VirtualFile, List<VirtualFile>> entry : allFilesByRoots.entrySet()) {
       VirtualFile root = entry.getKey();
       List<VirtualFile> files = entry.getValue();
@@ -144,11 +128,11 @@ public class GitCrlfProblemsDetector {
   }
 
   @NotNull
-  private Collection<VirtualFile> findFilesWithCrlf(@NotNull Collection<VirtualFile> files) {
-    Collection<VirtualFile> filesWithCrlf = new ArrayList<VirtualFile>();
+  private static Collection<VirtualFile> findFilesWithCrlf(@NotNull Collection<? extends VirtualFile> files) {
+    Collection<VirtualFile> filesWithCrlf = new ArrayList<>();
     for (VirtualFile file : files) {
       ProgressIndicatorProvider.checkCanceled();
-      String separator = myPlatformFacade.getLineSeparator(file, true);
+      String separator = LoadTextUtil.detectLineSeparator(file, true);
       if (CRLF.equals(separator)) {
         filesWithCrlf.add(file);
       }
@@ -158,7 +142,7 @@ public class GitCrlfProblemsDetector {
 
   @NotNull
   private Collection<VirtualFile> getRootsWithIncorrectAutoCrlf(@NotNull Map<VirtualFile, List<VirtualFile>> filesByRoots) {
-    Collection<VirtualFile> rootsWithIncorrectAutoCrlf = new ArrayList<VirtualFile>();
+    Collection<VirtualFile> rootsWithIncorrectAutoCrlf = new ArrayList<>();
     for (Map.Entry<VirtualFile, List<VirtualFile>> entry : filesByRoots.entrySet()) {
       VirtualFile root = entry.getKey();
       boolean autocrlf = isAutoCrlfSetRight(root);
@@ -170,7 +154,7 @@ public class GitCrlfProblemsDetector {
   }
 
   private boolean isAutoCrlfSetRight(@NotNull VirtualFile root) {
-    GitRepository repository = myPlatformFacade.getRepositoryManager(myProject).getRepositoryForRoot(root);
+    GitRepository repository = myRepositoryManager.getRepositoryForRoot(root);
     if (repository == null) {
       LOG.warn("Repository is null for " + root);
       return true;
@@ -178,11 +162,6 @@ public class GitCrlfProblemsDetector {
     GitCommandResult result = myGit.config(repository, GitConfigUtil.CORE_AUTOCRLF);
     String value = result.getOutputAsJoinedString();
     return value.equalsIgnoreCase("true") || value.equalsIgnoreCase("input");
-  }
-
-  @NotNull
-  private static Map<VirtualFile, List<VirtualFile>> sortFilesByRoots(@NotNull Collection<VirtualFile> files) {
-    return GitUtil.sortFilesByGitRootsIgnoringOthers(files);
   }
 
   public boolean shouldWarn() {

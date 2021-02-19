@@ -17,16 +17,17 @@ package com.intellij.openapi.vcs.changes;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.vcs.commit.ChangesViewCommitWorkflowHandler;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
 
 /**
 * @author irengrig
 */
-class DummyChangesView implements ChangesViewI {
-  public DummyChangesView(Project project) {
-  }
-
-  @Override
-  public void refreshChangesViewNodeAsync(VirtualFile file) {
+class DummyChangesView implements ChangesViewEx {
+  DummyChangesView(Project project) {
   }
 
   @Override
@@ -38,6 +39,10 @@ class DummyChangesView implements ChangesViewI {
   }
 
   @Override
+  public void selectChanges(@NotNull List<? extends Change> changes) {
+  }
+
+  @Override
   public void updateProgressText(String text, boolean isError) {
   }
 
@@ -46,6 +51,21 @@ class DummyChangesView implements ChangesViewI {
   }
 
   @Override
-  public void setShowFlattenMode(boolean state) {
+  public void setGrouping(@NotNull String groupingKey) {
+  }
+
+  @Override
+  public void refreshImmediately() {
+  }
+
+  @Nullable
+  @Override
+  public ChangesViewCommitWorkflowHandler getCommitWorkflowHandler() {
+    return null;
+  }
+
+  @Override
+  public boolean isAllowExcludeFromCommit() {
+    return false;
   }
 }

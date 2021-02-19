@@ -1,7 +1,5 @@
 // final Fields initialization
 import java.io.*;
-import java.net.*;
-import java.awt.event.*;
 
 class a  {
   /**
@@ -87,8 +85,8 @@ class Test {
     }
     private final String text;
     public Test() {
-      new ActionListener() {
-        public void actionPerformed(ActionEvent e) {
+      new Runnable() {
+        public void run() {
           doSomething(text);////
         }
       };
@@ -236,7 +234,7 @@ class IDEA100237 {
         }
     
         final Object baz = new Object() {
-            final int qux = bar.<error descr="Cannot resolve method 'hashCode()'">hashCode</error>() + 1;
+            final int qux = <error descr="Variable 'bar' might not have been initialized">bar</error>.hashCode() + 1;
         };
     }
 
@@ -275,5 +273,113 @@ class InitializedInClassInitializerUsedInTheFollowingFieldInitializer {
 
   {
     k = 1;
+  }
+}
+
+class AssignInAssert {
+  <error descr="Variable 'b' might not have been initialized">private final boolean b</error>;
+
+  AssignInAssert() {
+    assert b = true;
+  }
+}
+
+class DefiniteAssignmentInFinally {
+  private final String S;
+  {
+    try {
+      try {
+      } finally {
+        try {
+        } catch (Exception e) {
+        }
+      }
+    } finally {
+      S = null;
+    }
+  }
+}
+class StaticInitializerUsedInAnotherInstanceField {
+  private final int myEnumerationCacheConstant = ENUMERATION_CACHE_SIZE;
+  private static final int ourEnumerationCacheConstant = <error descr="Variable 'ENUMERATION_CACHE_SIZE' might not have been initialized">ENUMERATION_CACHE_SIZE</error>;
+
+  private static final int ENUMERATION_CACHE_SIZE;
+
+  static {
+    ENUMERATION_CACHE_SIZE = 0;
+  }
+}
+
+class StaticInitializedUsedInAnotherStaticField {
+  private static final String STRINGS1;
+  private static final String STRINGS2 = <error descr="Variable 'STRINGS1' might not have been initialized">STRINGS1</error>;
+
+  static {
+    STRINGS1 = "";
+  }
+}
+
+class InsideAnAnonymousClass {
+  static class Foo1 {
+    private final String _s;
+
+    public Foo1(String s) {
+      _s = s;
+    }
+
+    private final Bar _ss = new Bar(<error descr="Variable '_s' might not have been initialized">_s</error>) {
+    };
+  }
+
+  static class Foo2 {
+    private final String _s;
+
+    public Foo2(String s) {
+      _s = s;
+    }
+
+    private final Bar _ss = new Bar("") {
+      {
+        String inInitializer = <error descr="Variable '_s' might not have been initialized">_s</error>;
+      }
+    };
+  }
+
+  static class Foo3 {
+    private final String _s;
+
+    public Foo3(String s) {
+      _s = s;
+    }
+
+    private final Bar _ss = new Bar("") {
+      String inField = <error descr="Variable '_s' might not have been initialized">_s</error>;
+
+      void inMethod() {
+        String inMethodFoo = _s;
+      }
+    };
+  }
+
+  static class Foo4 {
+    private final String _s;
+
+    public Foo4(String s) {
+      _s = s;
+    }
+
+    private final Bar _ss = new Bar("") {
+      void inMethod() {
+        String inMethodFoo = _s;
+      }
+    };
+  }
+
+  static class Bar {
+    private final String _s;
+
+    public Bar(String s) {
+      _s = s;
+    }
   }
 }

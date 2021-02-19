@@ -1,41 +1,25 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.internal;
 
+import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.ScreenUtil;
+import com.intellij.ui.scale.JBUIScale;
 import org.jetbrains.annotations.NotNull;
 
+import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
-import javax.swing.Action;
-import javax.swing.JComponent;
 
-/**
- * @author Sergey.Malenkov
- */
 public class DumpScreenConfigurationAction extends DumbAwareAction {
   private static final Logger LOG = Logger.getInstance(DumpScreenConfigurationAction.class);
 
   @Override
-  public void actionPerformed(AnActionEvent event) {
+  public void actionPerformed(@NotNull AnActionEvent event) {
     new ScreenDialog(event).show();
   }
 
@@ -71,7 +55,7 @@ public class DumpScreenConfigurationAction extends DumbAwareAction {
   private static void append(StringBuilder sb, String name, Rectangle bounds) {
     sb.append(name);
     sb.append(": x=").append(bounds.x);
-    sb.append(", y=").append(bounds.x);
+    sb.append(", y=").append(bounds.y);
     sb.append(", width=").append(bounds.width);
     sb.append(", height=").append(bounds.height);
     sb.append("\n");
@@ -114,9 +98,8 @@ public class DumpScreenConfigurationAction extends DumbAwareAction {
       return new ScreenView();
     }
 
-    @NotNull
     @Override
-    protected Action[] createActions() {
+    protected Action @NotNull [] createActions() {
       return new Action[]{getOKAction(), getCancelAction()};
     }
 
@@ -140,11 +123,16 @@ public class DumpScreenConfigurationAction extends DumbAwareAction {
     private boolean update(GraphicsConfiguration configuration) {
       boolean updated = false;
       Rectangle outer = minimize(configuration.getBounds());
+      float sysScale = JBUIScale.sysScale(configuration);
+      outer.width *= sysScale;
+      outer.height *= sysScale;
       if (!myOuterBounds.equals(outer)) {
         myOuterBounds.setBounds(outer);
         updated = true;
       }
       Rectangle inner = minimize(ScreenUtil.getScreenRectangle(configuration));
+      inner.width *= sysScale;
+      inner.height *= sysScale;
       if (!myInnerBounds.equals(inner)) {
         myInnerBounds.setBounds(inner);
         updated = true;
@@ -154,7 +142,7 @@ public class DumpScreenConfigurationAction extends DumbAwareAction {
   }
 
   private static final class ScreenView extends JComponent {
-    private final ArrayList<ScreenInfo> myScreenList = new ArrayList<ScreenInfo>();
+    private final ArrayList<ScreenInfo> myScreenList = new ArrayList<>();
     private final Rectangle myBounds = new Rectangle();
 
     private boolean update() {
@@ -211,8 +199,7 @@ public class DumpScreenConfigurationAction extends DumbAwareAction {
       }
       g = g.create();
       if (g instanceof Graphics2D) {
-        Graphics2D g2d = (Graphics2D)g;
-        g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        UISettings.setupAntialiasing(g);
       }
       for (int i = 0; i < myScreenList.size(); i++) {
         ScreenInfo info = myScreenList.get(i);

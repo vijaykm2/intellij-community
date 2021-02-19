@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2012 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2019 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,10 @@ import com.intellij.psi.util.InheritanceUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class SerializationUtils {
+import static com.intellij.psi.CommonClassNames.SERIAL_VERSION_UID_FIELD_NAME;
+import static com.intellij.psi.PsiModifier.*;
+
+public final class SerializationUtils {
 
   private SerializationUtils() {}
 
@@ -37,14 +40,9 @@ public class SerializationUtils {
     if (implementsList == null) {
       return false;
     }
-    final PsiJavaCodeReferenceElement[] interfaces = implementsList.getReferenceElements();
-    for (PsiJavaCodeReferenceElement aInterfaces : interfaces) {
-      final PsiClass implemented = (PsiClass)aInterfaces.resolve();
-      if (implemented == null) {
-        continue;
-      }
-      final String name = implemented.getQualifiedName();
-      if (CommonClassNames.JAVA_IO_SERIALIZABLE.equals(name)) {
+    for (PsiJavaCodeReferenceElement aInterfaces : implementsList.getReferenceElements()) {
+      PsiElement implemented = aInterfaces.resolve();
+      if (implemented instanceof PsiClass && CommonClassNames.JAVA_IO_SERIALIZABLE.equals(((PsiClass)implemented).getQualifiedName())) {
         return true;
       }
     }
@@ -101,12 +99,39 @@ public class SerializationUtils {
     return MethodUtils.methodMatches(method, null, PsiType.VOID, "writeObject", type);
   }
 
+  public static boolean isReadObjectNoData(@NotNull PsiMethod method) {
+    return MethodUtils.methodMatches(method, null, PsiType.VOID, "readObjectNoData");
+  }
+
   public static boolean isReadResolve(@NotNull PsiMethod method) {
     return MethodUtils.simpleMethodMatches(method, null, CommonClassNames.JAVA_LANG_OBJECT, "readResolve");
   }
 
   public static boolean isWriteReplace(@NotNull PsiMethod method) {
     return MethodUtils.simpleMethodMatches(method, null, CommonClassNames.JAVA_LANG_OBJECT, "writeReplace");
+  }
+
+  public static boolean isReadExternal(@NotNull PsiMethod method) {
+    final PsiClassType type = TypeUtils.getType("java.io.ObjectInput", method);
+    return MethodUtils.methodMatches(method, null, PsiType.VOID, "readExternal", type);
+  }
+
+  public static boolean isWriteExternal(@NotNull PsiMethod method) {
+    final PsiClassType type = TypeUtils.getType("java.io.ObjectOutput", method);
+    return MethodUtils.methodMatches(method, null, PsiType.VOID, "writeExternal", type);
+  }
+
+  public static boolean isSerialVersionUid(@NotNull PsiField field) {
+    return isConstant(field) && field.getName().equals(SERIAL_VERSION_UID_FIELD_NAME) && field.getType().equals(PsiType.LONG);
+  }
+
+  public static boolean isSerialPersistentFields(@NotNull PsiField field) {
+    return isConstant(field) && field.getName().equals("serialPersistentFields") &&
+           field.getType().equalsToText("java.io.ObjectStreamField[]");
+  }
+
+  private static boolean isConstant(@NotNull PsiField field) {
+    return field.hasModifierProperty(PRIVATE) && field.hasModifierProperty(STATIC) && field.hasModifierProperty(FINAL);
   }
 
   public static boolean isProbablySerializable(PsiType type) {
@@ -122,8 +147,12 @@ public class SerializationUtils {
       return isProbablySerializable(componentType);
     }
     if (type instanceof PsiClassType) {
-      final PsiClassType classTYpe = (PsiClassType)type;
-      final PsiClass psiClass = classTYpe.resolve();
+      final PsiClassType classType = (PsiClassType)type;
+      final PsiClass psiClass = classType.resolve();
+      if (psiClass == null || psiClass.hasModifierProperty(PsiModifier.ABSTRACT)) {
+        // to avoid false positives
+        return true;
+      }
       if (isSerializable(psiClass)) {
         return true;
       }
@@ -132,7 +161,7 @@ public class SerializationUtils {
       }
       if (InheritanceUtil.isInheritor(psiClass, CommonClassNames.JAVA_UTIL_COLLECTION) ||
           InheritanceUtil.isInheritor(psiClass, CommonClassNames.JAVA_UTIL_MAP)) {
-        final PsiType[] parameters = classTYpe.getParameters();
+        final PsiType[] parameters = classType.getParameters();
         for (PsiType parameter : parameters) {
           if (!isProbablySerializable(parameter)) {
             return false;

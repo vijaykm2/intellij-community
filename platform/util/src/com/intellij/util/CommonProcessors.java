@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util;
 
-import com.intellij.util.containers.ContainerUtil;
-import gnu.trove.THashSet;
-import gnu.trove.TObjectHashingStrategy;
+import com.intellij.util.containers.FastUtilHashingStrategies;
+import com.intellij.util.containers.HashingStrategy;
+import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,9 +13,9 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * @author max
+ * Common {@link Processor} collect/find implementations.
  */
-public class CommonProcessors {
+public final class CommonProcessors {
   public static class CollectProcessor<T> implements Processor<T> {
     private final Collection<T> myCollection;
 
@@ -38,7 +24,7 @@ public class CommonProcessors {
     }
 
     public CollectProcessor() {
-      myCollection = new ArrayList<T>();
+      myCollection = new ArrayList<>();
     }
 
     @Override
@@ -53,8 +39,7 @@ public class CommonProcessors {
       return true;
     }
 
-    @NotNull
-    public T[] toArray(@NotNull T[] a) {
+    public T @NotNull [] toArray(T @NotNull [] a) {
       return myCollection.toArray(a);
     }
 
@@ -65,13 +50,8 @@ public class CommonProcessors {
   }
 
   @NotNull
-  public static <T> Processor<T> notNullProcessor(@NotNull final Processor<T> processor) {
-    return new Processor<T>() {
-      @Override
-      public boolean process(@NotNull T t) {
-        return processor.process(t);
-      }
-    };
+  public static <T> Processor<T> notNullProcessor(@NotNull final Processor<? super T> processor) {
+    return processor::process;
   }
 
 
@@ -79,7 +59,7 @@ public class CommonProcessors {
     private final Set<T> myCollection;
 
     public CollectUniquesProcessor() {
-      myCollection = new HashSet<T>();
+      myCollection = new HashSet<>();
     }
 
     @Override
@@ -88,8 +68,7 @@ public class CommonProcessors {
       return true;
     }
 
-    @NotNull
-    public T[] toArray(@NotNull T[] a) {
+    public T @NotNull [] toArray(T @NotNull [] a) {
       return myCollection.toArray(a);
     }
 
@@ -98,31 +77,39 @@ public class CommonProcessors {
       return myCollection;
     }
   }
+
   public static class UniqueProcessor<T> implements Processor<T> {
     private final Set<T> processed;
-    private final Processor<T> myDelegate;
+    private final Processor<? super T> myDelegate;
 
-    public UniqueProcessor(@NotNull Processor<T> delegate) {
-      this(delegate, ContainerUtil.<T>canonicalStrategy());
-    }
-    public UniqueProcessor(@NotNull Processor<T> delegate, @NotNull TObjectHashingStrategy<T> strategy) {
+    public UniqueProcessor(@NotNull Processor<? super T> delegate) {
       myDelegate = delegate;
-      processed = new THashSet<T>(strategy);
+      processed = new HashSet<>();
+    }
+
+    public UniqueProcessor(@NotNull Processor<? super T> delegate, @NotNull HashingStrategy<? super @NotNull T> strategy) {
+      myDelegate = delegate;
+      processed = new ObjectOpenCustomHashSet<>(FastUtilHashingStrategies.adaptAsNotNull(strategy));
     }
 
     @Override
     public boolean process(T t) {
+      // in case of exception do not mark the element as processed, we couldn't recover otherwise
       synchronized (processed) {
-        if (!processed.add(t)) {
+        if (processed.contains(t)) {
           return true;
         }
       }
-      return myDelegate.process(t);
+      boolean result = myDelegate.process(t);
+      synchronized (processed) {
+        processed.add(t);
+      }
+      return result;
     }
   }
 
   public abstract static class FindProcessor<T> implements Processor<T> {
-    private T myValue = null;
+    private T myValue;
 
     public boolean isFound() {
       return myValue != null;
@@ -146,7 +133,7 @@ public class CommonProcessors {
         myValue = t;
         return false;
       }
-      else return true;
+      return true;
     }
 
     protected abstract boolean accept(T t);
@@ -173,28 +160,30 @@ public class CommonProcessors {
     }
   }
 
-  private static final Processor FALSE = new Processor<Object>() {
-    @Override
-    public boolean process(Object t) {
-      return false;
-    }
-  };
-  private static final Processor TRUE = new Processor<Object>() {
-    @Override
-    public boolean process(Object t) {
+  /**
+   * @return processor processing all elements.
+   * Useful if you know that the processor shouldn't be stopped by client. It protects you from accidentally returning {@code false} value.
+   */
+  @NotNull
+  public static <T> Processor<T> processAll(@NotNull final Consumer<? super T> consumer) {
+    return t -> {
+      consumer.consume(t);
       return true;
-    }
-  };
+    };
+  }
+
+  private static final Processor<Object> FALSE = __ -> false;
+  private static final Processor<Object> TRUE = __ -> true;
 
   @NotNull
-  @SuppressWarnings({"unchecked"})
   public static <T> Processor<T> alwaysFalse() {
-    return FALSE;
+    //noinspection unchecked
+    return (Processor<T>)FALSE;
   }
 
   @NotNull
-  @SuppressWarnings({"unchecked"})
   public static <T> Processor<T> alwaysTrue() {
-    return TRUE;
+    //noinspection unchecked
+    return (Processor<T>)TRUE;
   }
 }

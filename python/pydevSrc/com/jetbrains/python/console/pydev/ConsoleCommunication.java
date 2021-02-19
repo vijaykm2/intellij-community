@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.console.pydev;
 
 import com.intellij.util.Function;
@@ -5,9 +6,6 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-/**
- * @author traff
- */
 public interface ConsoleCommunication {
   @NotNull
   List<PydevCompletionVariant> getCompletions(String text, String actualToken) throws Exception;
@@ -18,6 +16,8 @@ public interface ConsoleCommunication {
 
   boolean isExecuting();
 
+  boolean needsMore();
+
   void execInterpreter(ConsoleCodeFragment code, Function<InterpreterResponse, Object> callback);
 
   void interrupt();
@@ -26,6 +26,8 @@ public interface ConsoleCommunication {
 
   void notifyCommandExecuted(boolean more);
   void notifyInputRequested();
+
+  void notifyInputReceived();
 
   class ConsoleCodeFragment {
     private final String myText;

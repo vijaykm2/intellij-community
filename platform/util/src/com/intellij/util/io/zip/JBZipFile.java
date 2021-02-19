@@ -1,100 +1,83 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.io.zip;
 
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.ThreeState;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NotNull;
 
+import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.io.UnsupportedEncodingException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
 import java.util.zip.ZipException;
 
 /**
- * Replacement for <code>java.util.ZipFile</code>.
- * <p/>
- * <p>This class adds support for file name encodings other than UTF-8
- * (which is required to work on ZIP files created by native zip tools
- * and is able to skip a preamble like the one found in self
- * extracting archives.  Furthermore it returns instances of
- * <code>org.apache.tools.zip.ZipEntry</code> instead of
- * <code>java.util.zip.ZipEntry</code>.</p>
- * <p/>
- * <p>It doesn't extend <code>java.util.zip.ZipFile</code> as it would
- * have to reimplement all methods anyway.  Like
- * <code>java.util.ZipFile</code>, it uses RandomAccessFile under the
- * covers and supports compressed and uncompressed entries.</p>
- * <p/>
- * <p>The method signatures mimic the ones of
- * <code>java.util.zip.ZipFile</code>, with a couple of exceptions:
- * <p/>
+ * <h3>Overview</h3>
+ *
+ * <p>A replacement for {@code java.util.ZipFile}.</p>
+ *
+ * <p>This class adds support for file name encodings other than UTF-8 (which is required to work on ZIP files created by native tools),
+ * and is able to skip a preamble (like the one found in self-extracting archives).</p>
+ *
+ * <p>As a pure-Java implementation, the class is noticeably slower (up to 2x, depending on a configuration).
+ * On a positive side, the class doesn't crash a JVM when an archive is overwritten externally while open.</p>
+ *
+ * <h3>Implementation notes</h3>
+ *
+ * <p>It doesn't extend {@code java.util.zip.ZipFile} as it would have to re-implement all methods anyway. Like
+ * {@link java.util.zip.ZipFile}, it uses RandomAccessFile under the hood, and supports compressed and uncompressed entries.</p>
+ *
+ * <p>The method signatures mimic the ones of {@link java.util.zip.ZipFile}, with a couple of exceptions:
  * <ul>
- * <li>There is no getName method.</li>
- * <li>entries has been renamed to getEntries.</li>
- * <li>getEntries and getEntry return
- * <code>org.apache.tools.zip.ZipEntry</code> instances.</li>
- * <li>close is allowed to throw IOException.</li>
+ * <li>there is no {@code getName()} method</li>
+ * <li>{@code entries()} method is renamed to {@link #getEntries()}</li>
+ * <li>{@link #getEntries()} and {@link #getEntry(String)} methods return {@link JBZipEntry} instances instead of {@link java.util.zip.ZipEntry}</li>
+ * <li>{@link #close()} may throw {@link IOException}</li>
  * </ul>
+ * </p>
  */
-public class JBZipFile {
-  private static final int HASH_SIZE = 509;
+public class JBZipFile implements Closeable {
   static final int SHORT = 2;
   static final int WORD = 4;
+  static final int DWORD = 8;
+
+  private static final int HASH_SIZE = 509;
   private static final int NIBLET_MASK = 0x0f;
   private static final int BYTE_SHIFT = 8;
-  private static final int POS_0 = 0;
-  private static final int POS_1 = 1;
-  private static final int POS_2 = 2;
-  private static final int POS_3 = 3;
+  private static final Charset DEFAULT_CHARSET = StandardCharsets.UTF_8;
 
   /**
-   * Maps ZipEntrys to Longs, recording the offsets of the local
-   * file headers.
+   * A list of entries in the file.
    */
-  private final List<JBZipEntry> entries = new ArrayList<JBZipEntry>(HASH_SIZE);
+  private final List<JBZipEntry> entries = new ArrayList<>(HASH_SIZE);
 
   /**
-   * Maps String to ZipEntrys, name -> actual entry.
+   * A map of entry names.
    */
-  private final Map<String, JBZipEntry> nameMap = new HashMap<String, JBZipEntry>(HASH_SIZE);
+  private final Map<String, JBZipEntry> nameMap = new HashMap<>(HASH_SIZE);
 
   /**
-   * The encoding to use for filenames and the file comment.
-   * <p/>
-   * <p>For a list of possible values see <a
-   * href="http://java.sun.com/j2se/1.5.0/docs/guide/intl/encoding.doc.html">http://java.sun.com/j2se/1.5.0/docs/guide/intl/encoding.doc.html</a>.
-   * Defaults to the platform's default character encoding.</p>
+   * The encoding to use for filenames and the file comment
+   * (see <a href="http://java.sun.com/j2se/1.5.0/docs/guide/intl/encoding.doc.html">supported Encodings</a>).
+   * Defaults to the platform encoding.
    */
-  private final String encoding;
+  private final Charset myEncoding;
 
   /**
    * The actual data source.
    */
-  final RandomAccessFile archive;
+  final RandomAccessFile myArchive;
+
+  private boolean myIsZip64;
 
   private JBZipOutputStream myOutputStream;
-  private long currentcfdfoffset = 0;
+  private long currentCfdOffset;
+  private final boolean myIsReadonly;
+
 
   /**
    * Opens the given file for reading, assuming the platform's
@@ -104,7 +87,7 @@ public class JBZipFile {
    * @throws IOException if an error occurs while reading the file.
    */
   public JBZipFile(File f) throws IOException {
-    this(f, "UTF-8");
+    this(f, DEFAULT_CHARSET);
   }
 
   /**
@@ -115,7 +98,19 @@ public class JBZipFile {
    * @throws IOException if an error occurs while reading the file.
    */
   public JBZipFile(String name) throws IOException {
-    this(new File(name), "UTF-8");
+    this(new File(name), DEFAULT_CHARSET);
+  }
+
+  /**
+   * Opens the given file for reading, assuming the platform's
+   * native encoding for file names.
+   *
+   * @param f        file of the archive.
+   * @param readonly true to open file as readonly
+   * @throws IOException if an error occurs while reading the file.
+   */
+  public JBZipFile(@NotNull File f, boolean readonly) throws IOException {
+    this(f, DEFAULT_CHARSET, readonly);
   }
 
   /**
@@ -126,7 +121,7 @@ public class JBZipFile {
    * @param encoding the encoding to use for file names
    * @throws IOException if an error occurs while reading the file.
    */
-  public JBZipFile(String name, String encoding) throws IOException {
+  public JBZipFile(String name, @NotNull String encoding) throws IOException {
     this(new File(name), encoding);
   }
 
@@ -138,20 +133,60 @@ public class JBZipFile {
    * @param encoding the encoding to use for file names
    * @throws IOException if an error occurs while reading the file.
    */
-  public JBZipFile(File f, String encoding) throws IOException {
-    this.encoding = encoding;
-    archive = new RandomAccessFile(f, "rw");
+  public JBZipFile(File f, @NotNull String encoding) throws IOException {
+    this(f, Charset.forName(encoding));
+  }
+
+  /**
+   * Opens the given file for reading, assuming the specified
+   * encoding for file names.
+   *
+   * @param f        the archive.
+   * @param encoding the encoding to use for file names
+   * @throws IOException if an error occurs while reading the file.
+   */
+  public JBZipFile(File f, @NotNull Charset encoding) throws IOException {
+    this(f, encoding, false);
+  }
+
+  boolean isZip64() {
+    return myIsZip64;
+  }
+
+  /**
+   * Opens the given file for reading, assuming the specified
+   * encoding for file names.
+   *
+   * @param f        the archive.
+   * @param encoding the encoding to use for file names
+   * @param readonly true to open file as readonly
+   * @throws IOException if an error occurs while reading the file.
+   */
+  public JBZipFile(@NotNull File f,
+                   @NotNull Charset encoding,
+                   boolean readonly) throws IOException {
+    this(f, encoding, readonly, ThreeState.NO);
+  }
+
+  public JBZipFile(@NotNull File f,
+                   @NotNull Charset encoding,
+                   boolean readonly,
+                   @NotNull ThreeState isZip64) throws IOException {
+    myEncoding = encoding;
+    myIsReadonly = readonly;
+    myArchive = new RandomAccessFile(f, readonly ? "r" : "rw");
     try {
-      if (archive.length() > 0) {
-        populateFromCentralDirectory();
+      if (myArchive.length() > 0) {
+        populateFromCentralDirectory(isZip64);
       }
       else {
+        myIsZip64 = isZip64 == ThreeState.YES;
         getOutputStream(); // Ensure we'll write central directory when closed even if no single entry created.
       }
     }
-    catch (IOException e) {
+    catch (Throwable e) {
       try {
-        archive.close();
+        myArchive.close();
       }
       catch (IOException e2) {
         // swallow, throw the original exception instead
@@ -160,13 +195,20 @@ public class JBZipFile {
     }
   }
 
+  @Override
+  public String toString() {
+    return "JBZipFile{" +
+           "readonly=" + myIsReadonly +
+           '}';
+  }
+
   /**
    * The encoding to use for filenames and the file comment.
    *
    * @return null if using the platform's default character encoding.
    */
-  public String getEncoding() {
-    return encoding;
+  public Charset getEncoding() {
+    return myEncoding;
   }
 
   /**
@@ -174,17 +216,18 @@ public class JBZipFile {
    *
    * @throws IOException if an error occurs closing the archive.
    */
+  @Override
   public void close() throws IOException {
     if (myOutputStream != null) {
       if (entries.isEmpty()) {
-        final JBZipEntry empty = getOrCreateEntry("/empty.file.marker");
-        myOutputStream.putNextEntryBytes(empty, "empty".getBytes());
+        JBZipEntry empty = getOrCreateEntry("/empty.file.marker");
+        myOutputStream.putNextEntryBytes(empty, "empty".getBytes(StandardCharsets.US_ASCII));
       }
-      
+
       myOutputStream.finish();
-      archive.setLength(myOutputStream.written);
+      myArchive.setLength(myOutputStream.getWritten());
     }
-    archive.close();
+    myArchive.close();
   }
 
   /**
@@ -197,12 +240,12 @@ public class JBZipFile {
   }
 
   /**
-   * Returns a named entry - or <code>null</code> if no entry by
+   * Returns a named entry - or {@code null} if no entry by
    * that name exists.
    *
    * @param name name of the entry.
    * @return the ZipEntry corresponding to the given name - or
-   *         <code>null</code> if not present.
+   *         {@code null} if not present.
    */
   public JBZipEntry getEntry(String name) {
     return nameMap.get(name);
@@ -220,62 +263,62 @@ public class JBZipFile {
 
   private static final int CFH_LEN =
     /* version made by                 */ SHORT
-                                          /* version needed to extract       */ + SHORT
-                                          /* general purpose bit flag        */ + SHORT
-                                          /* compression method              */ + SHORT
-                                          /* last mod file time              */ + SHORT
-                                          /* last mod file date              */ + SHORT
-                                          /* crc-32                          */ + WORD
-                                          /* compressed size                 */ + WORD
-                                          /* uncompressed size               */ + WORD
-                                          /* filename length                 */ + SHORT
-                                          /* extra field length              */ + SHORT
-                                          /* file comment length             */ + SHORT
-                                          /* disk number start               */ + SHORT
-                                          /* internal file attributes        */ + SHORT
-                                          /* external file attributes        */ + WORD
-                                          /* relative offset of local header */ + WORD;
+    /* version needed to extract       */ + SHORT
+    /* general purpose bit flag        */ + SHORT
+    /* compression method              */ + SHORT
+    /* last mod file time              */ + SHORT
+    /* last mod file date              */ + SHORT
+    /* crc-32                          */ + WORD
+    /* compressed size                 */ + WORD
+    /* uncompressed size               */ + WORD
+    /* filename length                 */ + SHORT
+    /* extra field length              */ + SHORT
+    /* file comment length             */ + SHORT
+    /* disk number start               */ + SHORT
+    /* internal file attributes        */ + SHORT
+    /* external file attributes        */ + WORD
+    /* relative offset of local header */ + WORD;
 
   /**
    * Reads the central directory of the given archive and populates
    * the internal tables with ZipEntry instances.
    * <p/>
-   * <p>The ZipEntrys will know all data that can be obtained from
+   * <p>The ZipEntries will know all data that can be obtained from
    * the central directory alone, but not the data that requires the
    * local file header or additional data to be read.</p>
    */
-  private void populateFromCentralDirectory() throws IOException {
-    positionAtCentralDirectory();
+  private void populateFromCentralDirectory(@NotNull ThreeState isZip64) throws IOException {
+    positionAtCentralDirectory(isZip64);
 
     byte[] cfh = new byte[CFH_LEN];
 
     byte[] signatureBytes = new byte[WORD];
-    archive.readFully(signatureBytes);
+    myArchive.readFully(signatureBytes);
     long sig = ZipLong.getValue(signatureBytes);
-    final long cfhSig = ZipLong.getValue(JBZipOutputStream.CFH_SIG);
+    long cfhSig = ZipLong.getValue(JBZipOutputStream.CFH_SIG);
     while (sig == cfhSig) {
-      archive.readFully(cfh);
+      myArchive.readFully(cfh);
       int off = 0;
 
       int versionMadeBy = ZipShort.getValue(cfh, off);
       off += SHORT;
-      final int platform = (versionMadeBy >> BYTE_SHIFT) & NIBLET_MASK;
+      int platform = (versionMadeBy >> BYTE_SHIFT) & NIBLET_MASK;
 
       off += WORD; // skip version info and general purpose byte
 
-      final int method = ZipShort.getValue(cfh, off);
+      int method = ZipShort.getValue(cfh, off);
       off += SHORT;
 
       long time = DosTime.dosToJavaTime(ZipLong.getValue(cfh, off));
       off += WORD;
 
-      final long crc = ZipLong.getValue(cfh, off);
+      long crc = ZipLong.getValue(cfh, off);
       off += WORD;
 
-      final long compressedSize = ZipLong.getValue(cfh, off);
+      long compressedSize = ZipLong.getValue(cfh, off);
       off += WORD;
 
-      final long uncompressedSize = ZipLong.getValue(cfh, off);
+      long uncompressedSize = ZipLong.getValue(cfh, off);
       off += WORD;
 
       int fileNameLen = ZipShort.getValue(cfh, off);
@@ -289,10 +332,10 @@ public class JBZipFile {
 
       off += SHORT; // disk number
 
-      final int internalAttributes = ZipShort.getValue(cfh, off);
+      int internalAttributes = ZipShort.getValue(cfh, off);
       off += SHORT;
 
-      final long externalAttributes = ZipLong.getValue(cfh, off);
+      long externalAttributes = ZipLong.getValue(cfh, off);
       off += WORD;
 
       long localHeaderOffset = ZipLong.getValue(cfh, off);
@@ -312,7 +355,7 @@ public class JBZipFile {
       ze.setSize(uncompressedSize);
       ze.setInternalAttributes(internalAttributes);
       ze.setExternalAttributes(externalAttributes);
-      ze.setExtra(extra);
+      ze.readExtraFromCentralDirectoryBytes(extra);
       try {
         ze.setComment(comment);
       }
@@ -323,7 +366,7 @@ public class JBZipFile {
       nameMap.put(ze.getName(), ze);
       entries.add(ze);
 
-      archive.readFully(signatureBytes);
+      myArchive.readFully(signatureBytes);
       sig = ZipLong.getValue(signatureBytes);
     }
   }
@@ -331,95 +374,156 @@ public class JBZipFile {
   private byte[] readBytes(int count) throws IOException {
     if (count > 0) {
       byte[] bytes = new byte[count];
-      archive.readFully(bytes);
+      myArchive.readFully(bytes);
       return bytes;
     }
     else {
-      return ArrayUtil.EMPTY_BYTE_ARRAY;
+      return ArrayUtilRt.EMPTY_BYTE_ARRAY;
     }
   }
 
   private static final int MIN_EOCD_SIZE =
     /* end of central dir signature    */ WORD
-                                          /* number of this disk             */ + SHORT
-                                          /* number of the disk with the     */
-                                          /* start of the central directory  */ + SHORT
-                                          /* total number of entries in      */
-                                          /* the central dir on this disk    */ + SHORT
-                                          /* total number of entries in      */
-                                          /* the central dir                 */ + SHORT
-                                          /* size of the central directory   */ + WORD
-                                          /* offset of start of central      */
-                                          /* directory with respect to       */
-                                          /* the starting disk number        */ + WORD
-                                          /* zipfile comment length          */ + SHORT;
+    /* number of this disk             */ + SHORT
+    /* number of the disk with the     */
+    /* start of the central directory  */ + SHORT
+    /* total number of entries in      */
+    /* the central dir on this disk    */ + SHORT
+    /* total number of entries in      */
+    /* the central dir                 */ + SHORT
+    /* size of the central directory   */ + WORD
+    /* offset of start of central      */
+    /* directory with respect to       */
+    /* the starting disk number        */ + WORD
+    /* zipfile comment length          */ + SHORT;
 
   private static final int CFD_LOCATOR_OFFSET =
     /* end of central dir signature    */ WORD
-                                          /* number of this disk             */ + SHORT
-                                          /* number of the disk with the     */
-                                          /* start of the central directory  */ + SHORT
-                                          /* total number of entries in      */
-                                          /* the central dir on this disk    */ + SHORT
-                                          /* total number of entries in      */
-                                          /* the central dir                 */ + SHORT
-                                          /* size of the central directory   */ + WORD;
+    /* number of this disk             */ + SHORT
+    /* number of the disk with the     */
+    /* start of the central directory  */ + SHORT
+    /* total number of entries in      */
+    /* the central dir on this disk    */ + SHORT
+    /* total number of entries in      */
+    /* the central dir                 */ + SHORT
+    /* size of the central directory   */ + WORD;
+
+  private static final int ZIP64_EOCDL_LENGTH =
+    /* zip64 end of central dir locator sig */ WORD
+    /* number of the disk with the start    */
+    /* start of the zip64 end of            */
+    /* central directory                    */ + WORD
+    /* relative offset of the zip64         */
+    /* end of central directory record      */ + DWORD
+    /* total number of disks                */ + WORD;
+
+  private static final int ZIP64_EOCDL_LOCATOR_OFFSET =
+    /* zip64 end of central dir locator sig */ WORD
+    /* number of the disk with the start    */
+    /* start of the zip64 end of            */
+    /* central directory                    */ + WORD;
+
+  private static final int ZIP64_EOCD_CFD_LOCATOR_OFFSET =
+    /* zip64 end of central dir        */
+    /* signature                       */ WORD
+    /* size of zip64 end of central    */
+    /* directory record                */ + DWORD
+    /* version made by                 */ + SHORT
+    /* version needed to extract       */ + SHORT
+    /* number of this disk             */ + WORD
+    /* number of the disk with the     */
+    /* start of the central directory  */ + WORD
+    /* total number of entries in the  */
+    /* central directory on this disk  */ + DWORD
+    /* total number of entries in the  */
+    /* central directory               */ + DWORD
+    /* size of the central directory   */ + DWORD;
 
   /**
    * Searches for the &quot;End of central dir record&quot;, parses
    * it and positions the stream at the first central directory
    * record.
    */
-  private void positionAtCentralDirectory() throws IOException {
+  private void positionAtCentralDirectory(@NotNull ThreeState isZip64) throws IOException {
     boolean found = false;
-    long off = archive.length() - MIN_EOCD_SIZE;
+    long off = myArchive.length() - MIN_EOCD_SIZE;
     if (off >= 0) {
-      archive.seek(off);
+      myArchive.seek(off);
       byte[] sig = JBZipOutputStream.EOCD_SIG;
-      int curr = archive.read();
+      int curr = myArchive.read();
       while (curr != -1) {
-        if (curr == sig[POS_0]) {
-          curr = archive.read();
-          if (curr == sig[POS_1]) {
-            curr = archive.read();
-            if (curr == sig[POS_2]) {
-              curr = archive.read();
-              if (curr == sig[POS_3]) {
+        if (curr == sig[0]) {
+          curr = myArchive.read();
+          if (curr == sig[1]) {
+            curr = myArchive.read();
+            if (curr == sig[2]) {
+              curr = myArchive.read();
+              if (curr == sig[3]) {
                 found = true;
                 break;
               }
             }
           }
         }
-        archive.seek(--off);
-        curr = archive.read();
+        myArchive.seek(--off);
+        curr = myArchive.read();
       }
     }
     if (!found) {
       throw new ZipException("archive is not a ZIP archive");
     }
-    archive.seek(off + CFD_LOCATOR_OFFSET);
-    byte[] cfdOffset = new byte[WORD];
-    archive.readFully(cfdOffset);
-    currentcfdfoffset = ZipLong.getValue(cfdOffset);
-    archive.seek(currentcfdfoffset);
+
+    boolean searchForZip64EOCD = myArchive.getFilePointer() > ZIP64_EOCDL_LENGTH;
+    if (searchForZip64EOCD) {
+      myArchive.seek(myArchive.getFilePointer() - ZIP64_EOCDL_LENGTH - WORD);
+      myIsZip64 = Arrays.equals(readBytes(WORD), JBZipOutputStream.ZIP64_EOCD_LOC_SIG);
+    }
+
+    if (myIsZip64) {
+      assert !isZip64.equals(ThreeState.NO);
+
+      myArchive.skipBytes(ZIP64_EOCDL_LOCATOR_OFFSET - WORD);
+      myArchive.seek(ZipUInt64.getLongValue(readBytes(DWORD)));
+      if (!Arrays.equals(readBytes(WORD), JBZipOutputStream.ZIP64_EOCD_SIG)) {
+        throw new IOException("archive is not a ZIP64 archive");
+      }
+
+      myArchive.skipBytes(ZIP64_EOCD_CFD_LOCATOR_OFFSET
+                          - WORD /* signature has already been read */);
+      long value = ZipUInt64.getLongValue(readBytes(DWORD));
+      currentCfdOffset = value;
+      myArchive.seek(value);
+    }
+    else {
+      assert !isZip64.equals(ThreeState.YES);
+
+      myArchive.seek(off + CFD_LOCATOR_OFFSET);
+      byte[] cfdOffset = new byte[WORD];
+      myArchive.readFully(cfdOffset);
+      currentCfdOffset = ZipLong.getValue(cfdOffset);
+      myArchive.seek(currentCfdOffset);
+    }
   }
 
   /**
-   * Number of bytes in local file header up to the &quot;length of
-   * filename&quot; entry.
+   * Number of bytes in local file header up to the &quot;crc&quot; entry.
+   */
+  static final long LFH_OFFSET_FOR_CRC =
+    /* local file header signature     */ WORD
+    /* version needed to extract       */ + SHORT
+    /* general purpose bit flag        */ + SHORT
+    /* compression method              */ + SHORT
+    /* last mod file time              */ + SHORT
+    /* last mod file date              */ + SHORT;
+
+  /**
+   * Number of bytes in local file header up to the &quot;length of filename&quot; entry.
    */
   static final long LFH_OFFSET_FOR_FILENAME_LENGTH =
-    /* local file header signature     */ WORD
-                                          /* version needed to extract       */ + SHORT
-                                          /* general purpose bit flag        */ + SHORT
-                                          /* compression method              */ + SHORT
-                                          /* last mod file time              */ + SHORT
-                                          /* last mod file date              */ + SHORT
-                                          /* crc-32                          */ + WORD
-                                          /* compressed size                 */ + WORD
-                                          /* uncompressed size               */ + WORD;
-
+    LFH_OFFSET_FOR_CRC
+    /* crc-32                          */ + WORD
+    /* compressed size                 */ + WORD
+    /* uncompressed size               */ + WORD;
 
   /**
    * Retrieve a String from the given bytes using the encoding set
@@ -427,32 +531,62 @@ public class JBZipFile {
    *
    * @param bytes the byte array to transform
    * @return String obtained by using the given encoding
-   * @throws ZipException if the encoding cannot be recognized.
    */
-  String getString(byte[] bytes) throws ZipException {
-    if (encoding == null) {
-      return new String(bytes);
+  private String getString(byte[] bytes) {
+    if (myEncoding == null) {
+      return new String(bytes, Charset.defaultCharset());
     }
     else {
-      try {
-        return new String(bytes, encoding);
-      }
-      catch (UnsupportedEncodingException uee) {
-        throw new ZipException(uee.getMessage());
-      }
+      return new String(bytes, myEncoding);
     }
   }
 
+  /**
+   * Removes entry from the directory list.<br/>
+   * NB: it will NOT remove entry content from the stream, please call {@link JBZipFile#gc()} manually when you've finished modifying the
+   * archive.<br/>
+   * {@link JBZipFile#gc()} is not called on {@link JBZipFile#close()} due to potential performance impact of removing small entry from a
+   * big archive.
+   */
   public void eraseEntry(JBZipEntry entry) throws IOException {
     getOutputStream(); // Ensure OutputStream created, so we'll print out central directory at the end;
     entries.remove(entry);
     nameMap.remove(entry.getName());
   }
 
+  public void gc() throws IOException {
+    if (myOutputStream != null) {
+      myOutputStream = null;
+
+      final Map<JBZipEntry, byte[]> existingEntries = new LinkedHashMap<>();
+      for (JBZipEntry entry : entries) {
+        existingEntries.put(entry, entry.getData());
+      }
+
+      currentCfdOffset = 0;
+      nameMap.clear();
+      entries.clear();
+      for (Map.Entry<JBZipEntry, byte[]> entry : existingEntries.entrySet()) {
+        JBZipEntry zipEntry = getOrCreateEntry(entry.getKey().getName());
+        zipEntry.setComment(entry.getKey().getComment());
+        zipEntry.setExtra(ContainerUtil.filter(entry.getKey().getExtra(), f -> !(f instanceof Zip64ExtraField)));
+        zipEntry.setMethod(entry.getKey().getMethod());
+        zipEntry.setTime(entry.getKey().getTime());
+        zipEntry.setData(entry.getValue());
+      }
+    }
+  }
+
   JBZipOutputStream getOutputStream() throws IOException {
+    if (myIsReadonly) throw new IOException("Archive " + this + " is an empty file");
+
     if (myOutputStream == null) {
-      myOutputStream = new JBZipOutputStream(this, currentcfdfoffset);
+      myOutputStream = new JBZipOutputStream(this, currentCfdOffset);
     }
     return myOutputStream;
+  }
+
+  void ensureFlushed(long end) throws IOException {
+    if (myOutputStream != null) myOutputStream.ensureFlushed(end);
   }
 }

@@ -30,7 +30,7 @@ import com.intellij.psi.tree.ChildRoleBase;
 import org.jetbrains.annotations.NotNull;
 
 public class PsiReturnStatementImpl extends CompositePsiElement implements PsiReturnStatement, Constants {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiReturnStatementImpl");
+  private static final Logger LOG = Logger.getInstance(PsiReturnStatementImpl.class);
 
   public PsiReturnStatementImpl() {
     super(RETURN_STATEMENT);
@@ -60,7 +60,7 @@ public class PsiReturnStatementImpl extends CompositePsiElement implements PsiRe
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
     if (i == RETURN_KEYWORD) {
@@ -89,6 +89,7 @@ public class PsiReturnStatementImpl extends CompositePsiElement implements PsiRe
     }
   }
 
+  @Override
   public String toString() {
     return "PsiReturnStatement";
   }

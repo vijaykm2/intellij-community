@@ -15,6 +15,7 @@
  */
 package com.intellij.refactoring.extractSuperclass;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiMember;
@@ -30,7 +31,7 @@ import com.intellij.refactoring.util.DocCommentPolicy;
 import com.intellij.refactoring.util.classMembers.InterfaceContainmentVerifier;
 import com.intellij.refactoring.util.classMembers.MemberInfo;
 import com.intellij.refactoring.util.classMembers.UsesAndInterfacesDependencyMemberInfoModel;
-import com.intellij.util.ArrayUtil;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
@@ -38,19 +39,20 @@ import java.util.List;
 
 class ExtractSuperclassDialog extends JavaExtractSuperBaseDialog {
   private final InterfaceContainmentVerifier myContainmentVerifier = new InterfaceContainmentVerifier() {
+    @Override
     public boolean checkedInterfacesContain(PsiMethod psiMethod) {
-      return PullUpProcessor.checkedInterfacesContain(myMemberInfos, psiMethod);
+      return PullUpProcessor.checkedInterfacesContain(getMemberInfos(), psiMethod);
     }
   };
 
   public interface Callback {
+
     boolean checkConflicts(ExtractSuperclassDialog dialog);
   }
-
   private final Callback myCallback;
 
-  public ExtractSuperclassDialog(Project project, PsiClass sourceClass, List<MemberInfo> selectedMembers, Callback callback) {
-    super(project, sourceClass, selectedMembers, ExtractSuperclassHandler.REFACTORING_NAME);
+  ExtractSuperclassDialog(Project project, PsiClass sourceClass, List<MemberInfo> selectedMembers, Callback callback) {
+    super(project, sourceClass, selectedMembers, ExtractSuperclassHandler.getRefactoringName());
     myCallback = callback;
     init();
   }
@@ -59,10 +61,15 @@ class ExtractSuperclassDialog extends JavaExtractSuperBaseDialog {
     return myContainmentVerifier;
   }
 
+  private List<MemberInfo> getMemberInfos() {
+    return myMemberInfos;
+  }
+
+  @Override
   protected String getClassNameLabelText() {
     return isExtractSuperclass()
            ? RefactoringBundle.message("superclass.name")
-           : RefactoringBundle.message("extractSuper.rename.original.class.to");
+           : JavaRefactoringBundle.message("extractSuper.rename.original.class.to");
   }
 
   @Override
@@ -72,6 +79,8 @@ class ExtractSuperclassDialog extends JavaExtractSuperBaseDialog {
            : RefactoringBundle.message("package.for.original.class");
   }
 
+  @NotNull
+  @Override
   protected String getEntityName() {
     return RefactoringBundle.message("ExtractSuperClass.superclass");
   }
@@ -81,19 +90,20 @@ class ExtractSuperclassDialog extends JavaExtractSuperBaseDialog {
     return RefactoringBundle.message("extract.superclass.from");
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     JPanel panel = new JPanel(new BorderLayout());
-    final MemberSelectionPanel memberSelectionPanel = new MemberSelectionPanel(RefactoringBundle.message("members.to.form.superclass"),
+    final MemberSelectionPanel memberSelectionPanel = new MemberSelectionPanel(JavaRefactoringBundle.message("members.to.form.superclass.title"),
                                                                                myMemberInfos, RefactoringBundle.message("make.abstract"));
     panel.add(memberSelectionPanel, BorderLayout.CENTER);
     final MemberInfoModel<PsiMember, MemberInfo> memberInfoModel =
-      new UsesAndInterfacesDependencyMemberInfoModel<PsiMember, MemberInfo>(mySourceClass, null, false, myContainmentVerifier) {
+      new UsesAndInterfacesDependencyMemberInfoModel<>(mySourceClass, null, false, myContainmentVerifier) {
         @Override
         public Boolean isFixedAbstract(MemberInfo member) {
           return Boolean.TRUE;
         }
       };
-    memberInfoModel.memberInfoChanged(new MemberInfoChange<PsiMember, MemberInfo>(myMemberInfos));
+    memberInfoModel.memberInfoChanged(new MemberInfoChange<>(myMemberInfos));
     memberSelectionPanel.getTable().setMemberInfoModel(memberInfoModel);
     memberSelectionPanel.getTable().addMemberInfoChangeListener(memberInfoModel);
 
@@ -104,7 +114,7 @@ class ExtractSuperclassDialog extends JavaExtractSuperBaseDialog {
 
   @Override
   protected String getDocCommentPanelName() {
-    return RefactoringBundle.message("javadoc.for.abstracts");
+    return JavaRefactoringBundle.message("javadoc.for.abstracts");
   }
 
   @Override
@@ -131,7 +141,7 @@ class ExtractSuperclassDialog extends JavaExtractSuperBaseDialog {
   @Override
   protected ExtractSuperBaseProcessor createProcessor() {
     return new ExtractSuperClassProcessor(myProject, getTargetDirectory(), getExtractedSuperName(),
-                                          mySourceClass, ArrayUtil.toObjectArray(getSelectedMemberInfos(), MemberInfo.class), false,
+                                          mySourceClass, getSelectedMemberInfos().toArray(new MemberInfo[0]), false,
                                           new DocCommentPolicy(getDocCommentPolicy()));
   }
 

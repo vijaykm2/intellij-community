@@ -1,32 +1,21 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.accessStaticViaInstance;
 
-import com.intellij.codeInsight.daemon.JavaErrorMessages;
+import com.intellij.codeInsight.daemon.JavaErrorBundle;
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightMessageUtil;
 import com.intellij.codeInsight.daemon.impl.analysis.JavaHighlightUtil;
 import com.intellij.codeInsight.daemon.impl.quickfix.RemoveUnusedVariableUtil;
-import com.intellij.codeInspection.*;
+import com.intellij.codeInspection.AbstractBaseJavaLocalInspectionTool;
+import com.intellij.codeInspection.CleanupLocalInspectionTool;
+import com.intellij.codeInspection.LocalQuickFix;
+import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.psi.*;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 
-public class AccessStaticViaInstanceBase extends BaseJavaBatchLocalInspectionTool implements CleanupLocalInspectionTool {
+public class AccessStaticViaInstanceBase extends AbstractBaseJavaLocalInspectionTool implements CleanupLocalInspectionTool {
   @NonNls public static final String ACCESS_STATIC_VIA_INSTANCE = "AccessStaticViaInstance";
 
   @Override
@@ -35,11 +24,6 @@ public class AccessStaticViaInstanceBase extends BaseJavaBatchLocalInspectionToo
     return "";
   }
 
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionsBundle.message("access.static.via.instance");
-  }
 
   @Override
   @NotNull
@@ -84,11 +68,15 @@ public class AccessStaticViaInstanceBase extends BaseJavaBatchLocalInspectionToo
     }
     if (!((PsiMember)resolved).hasModifierProperty(PsiModifier.STATIC)) return;
 
-    String description = JavaErrorMessages.message("static.member.accessed.via.instance.reference",
-                                                   JavaHighlightUtil.formatType(qualifierExpression.getType()),
-                                                   HighlightMessageUtil.getSymbolName(resolved, result.getSubstitutor()));
+    //don't report warnings on compilation errors
+    PsiClass containingClass = ((PsiMember)resolved).getContainingClass();
+    if (containingClass != null && containingClass.isInterface()) return;
+
+    String description = JavaErrorBundle.message("static.member.accessed.via.instance.reference",
+                                                 JavaHighlightUtil.formatType(qualifierExpression.getType()),
+                                                 HighlightMessageUtil.getSymbolName(resolved, result.getSubstitutor()));
     if (!onTheFly) {
-      if (RemoveUnusedVariableUtil.checkSideEffects(qualifierExpression, null, new ArrayList<PsiElement>())) {
+      if (RemoveUnusedVariableUtil.checkSideEffects(qualifierExpression, null, new ArrayList<>())) {
         holder.registerProblem(expr, description);
         return;
       }

@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 20-Dec-2007
- */
 package com.intellij.codeInspection.lang;
 
 import com.intellij.codeInspection.HTMLComposer;
@@ -25,6 +21,7 @@ import com.intellij.codeInspection.reference.RefManager;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -43,6 +40,22 @@ public abstract class InspectionExtensionsFactory {
   @Nullable
   public abstract String getSuppressedInspectionIdsIn(@NotNull PsiElement element);
 
-  public abstract boolean isProjectConfiguredToRunInspections(@NotNull Project project, boolean online);
+  /**
+   * @deprecated use {@link #isProjectConfiguredToRunInspections(Project, boolean, Runnable)}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public boolean isProjectConfiguredToRunInspections(@NotNull Project project, boolean online) {
+    return true;
+  }
 
+  /**
+   * @return true to allow inspections run locally or false to stop it. The {@param rerunAction}
+   * can be used later to restart the same inspections once again (e.g. after the configuration is fixed by a user)
+   */
+  public boolean isProjectConfiguredToRunInspections(@NotNull Project project,
+                                                     boolean online,
+                                                     @NotNull Runnable rerunAction) {
+    return isProjectConfiguredToRunInspections(project, online);
+  }
 }

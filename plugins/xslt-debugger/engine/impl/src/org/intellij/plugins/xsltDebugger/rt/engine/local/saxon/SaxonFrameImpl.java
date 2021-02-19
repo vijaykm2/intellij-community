@@ -40,13 +40,11 @@ import java.io.StringWriter;
 import java.lang.reflect.Field;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.Properties;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 23.05.2007
- */
 class SaxonFrameImpl extends AbstractSaxonFrame<Debugger.StyleFrame, StyleElement> implements Debugger.StyleFrame {
 
   private static Field fGeneralUseAllowed;
@@ -78,13 +76,13 @@ class SaxonFrameImpl extends AbstractSaxonFrame<Debugger.StyleFrame, StyleElemen
   public List<Debugger.Variable> getVariables() {
     assert isValid();
 
-    final ArrayList<Debugger.Variable> variables = new ArrayList<Debugger.Variable>();
+    final ArrayList<Debugger.Variable> variables = new ArrayList<>();
     final Enumeration[] variableNames = myElement.getVariableNames();
 
     this.addVariables(myElement, variables, variableNames[0], true);
     this.addVariables(myElement, variables, variableNames[1], false);
 
-    Collections.sort(variables, VariableComparator.INSTANCE);
+    variables.sort(VariableComparator.INSTANCE);
 
     return variables;
   }
@@ -143,12 +141,12 @@ class SaxonFrameImpl extends AbstractSaxonFrame<Debugger.StyleFrame, StyleElemen
     private final Object myValue;
     private final Type myType;
 
-    public MyValue(Object value, String type) {
+    MyValue(Object value, String type) {
       myValue = value;
       myType = new ObjectType(type);
     }
 
-    public MyValue(Object value, int type) {
+    MyValue(Object value, int type) {
       myValue = value;
       myType = mapType(type);
     }
@@ -207,7 +205,7 @@ class SaxonFrameImpl extends AbstractSaxonFrame<Debugger.StyleFrame, StyleElemen
           return new MyValue(v.asString(), com.icl.saxon.expr.Value.STRING);
         }
 
-        final List<Node> list = new ArrayList<Node>();
+        final List<Node> list = new ArrayList<>();
         final NodeEnumeration nodeEnumeration = ((NodeSetValue)v).enumerate();
         while (nodeEnumeration.hasMoreElements()) {
           final NodeInfo node = nodeEnumeration.nextElement();
@@ -248,14 +246,16 @@ class SaxonFrameImpl extends AbstractSaxonFrame<Debugger.StyleFrame, StyleElemen
   private static class MyDummyElement extends StyleElement {
     private final StyleElement myElement;
 
-    public MyDummyElement(StyleElement element) {
+    MyDummyElement(StyleElement element) {
       myElement = element;
       substituteFor(element);
     }
 
+    @Override
     public void prepareAttributes() throws TransformerConfigurationException {
     }
 
+    @Override
     public void process(Context context) throws TransformerException {
     }
 

@@ -1,53 +1,41 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework;
 
 import com.intellij.lang.Language;
 import com.intellij.openapi.fileTypes.CharsetUtil;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeRegistry;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.LocalTimeCounter;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.util.ThreeState;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.*;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 
 /**
  * In-memory implementation of {@link VirtualFile}.
  */
 public class LightVirtualFile extends LightVirtualFileBase {
-  private CharSequence myContent = "";
+  private CharSequence myContent;
   private Language myLanguage;
 
   public LightVirtualFile() {
     this("");
   }
 
-  public LightVirtualFile(@NonNls @NotNull String name) {
+  public LightVirtualFile(@NlsSafe @NotNull String name) {
     this(name, "");
   }
 
-  public LightVirtualFile(@NonNls @NotNull String name, @NotNull CharSequence content) {
+  public LightVirtualFile(@NlsSafe @NotNull String name, @NotNull CharSequence content) {
     this(name, null, content, LocalTimeCounter.currentTime());
   }
 
-  public LightVirtualFile(@NotNull String name, final FileType fileType, @NotNull CharSequence text) {
+  public LightVirtualFile(@NlsSafe @NotNull String name, FileType fileType, @NotNull CharSequence text) {
     this(name, fileType, text, LocalTimeCounter.currentTime());
   }
 
@@ -56,24 +44,25 @@ public class LightVirtualFile extends LightVirtualFileBase {
     setCharset(original.getCharset());
   }
 
-  public LightVirtualFile(@NotNull String name, final FileType fileType, @NotNull CharSequence text, final long modificationStamp) {
+  public LightVirtualFile(@NlsSafe @NotNull String name, FileType fileType, @NotNull CharSequence text, long modificationStamp) {
     this(name, fileType, text, CharsetUtil.extractCharsetFromFileContent(null, null, fileType, text), modificationStamp);
   }
 
-  public LightVirtualFile(@NotNull String name,
-                          final FileType fileType,
-                          @NotNull CharSequence text,
+  public LightVirtualFile(@NlsSafe @NotNull String name,
+                          FileType fileType,
+                          @NlsSafe @NotNull CharSequence text,
                           Charset charset,
-                          final long modificationStamp) {
+                          long modificationStamp) {
     super(name, fileType, modificationStamp);
-    setContent(text);
+    myContent = text;
     setCharset(charset);
   }
 
-  public LightVirtualFile(@NotNull String name, final Language language, @NotNull CharSequence text) {
+  public LightVirtualFile(@NlsSafe @NotNull String name, @NotNull Language language, @NlsSafe @NotNull CharSequence text) {
     super(name, null, LocalTimeCounter.currentTime());
-    setContent(text);
+    myContent = text;
     setLanguage(language);
+    setCharset(StandardCharsets.UTF_8);
   }
 
   public Language getLanguage() {
@@ -84,27 +73,27 @@ public class LightVirtualFile extends LightVirtualFileBase {
     myLanguage = language;
     FileType type = language.getAssociatedFileType();
     if (type == null) {
-      type = FileTypeRegistry.getInstance().getFileTypeByFileName(getName());
+      type = FileTypeRegistry.getInstance().getFileTypeByFileName(getNameSequence());
     }
     setFileType(type);
   }
 
   @Override
-  public InputStream getInputStream() throws IOException {
+  public @NotNull InputStream getInputStream() throws IOException {
     return VfsUtilCore.byteStreamSkippingBOM(contentsToByteArray(), this);
   }
 
   @Override
-  @NotNull
-  public OutputStream getOutputStream(Object requestor, final long newModificationStamp, long newTimeStamp) throws IOException {
+  public @NotNull OutputStream getOutputStream(Object requestor, final long newModificationStamp, long newTimeStamp) throws IOException {
+    assertWritable();
     return VfsUtilCore.outputStreamAddingBOM(new ByteArrayOutputStream() {
       @Override
       public void close() {
-        setModificationStamp(newModificationStamp);
+        assert isWritable();
 
+        setModificationStamp(newModificationStamp);
         try {
-          String content = toString(getCharset().name());
-          setContent(content);
+          myContent = toString(getCharset().name());
         }
         catch (UnsupportedEncodingException e) {
           throw new RuntimeException(e);
@@ -114,26 +103,24 @@ public class LightVirtualFile extends LightVirtualFileBase {
   }
 
   @Override
-  @NotNull
-  public byte[] contentsToByteArray() throws IOException {
+  public byte @NotNull [] contentsToByteArray() throws IOException {
     final Charset charset = getCharset();
     final String s = getContent().toString();
-    return s.getBytes(charset.name());
+    return s.getBytes(charset);
   }
 
   public void setContent(Object requestor, @NotNull CharSequence content, boolean fireEvent) {
-    setContent(content);
+    assertWritable();
+    myContent = content;
     setModificationStamp(LocalTimeCounter.currentTime());
   }
 
-  private void setContent(@NotNull CharSequence content) {
-    //StringUtil.assertValidSeparators(content);
-    myContent = content;
+  public @NotNull CharSequence getContent() {
+    return myContent;
   }
 
-  @NotNull
-  public CharSequence getContent() {
-    return myContent;
+  public @NotNull ThreeState isTooLargeForIntelligence() {
+    return ThreeState.UNSURE;
   }
 
   @Override

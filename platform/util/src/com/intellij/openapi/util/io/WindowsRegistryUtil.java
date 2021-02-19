@@ -1,35 +1,25 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.util.io;
 
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-/**
- * User: Vassiliy.Kudryashov
- */
-public class WindowsRegistryUtil {
-  private WindowsRegistryUtil() {
-  }
+/** @deprecated please use {@link com.sun.jna.platform.win32.Advapi32 JNA} instead. */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2022.3")
+public final class WindowsRegistryUtil {
+  private WindowsRegistryUtil() { }
 
   @Nullable
   private static String trimToValue(@Nullable StringBuilder output) {
@@ -71,8 +61,8 @@ public class WindowsRegistryUtil {
 
   @NotNull
   public static List<String> readRegistryBranch(@NotNull String location) {
-    List<String> result = new ArrayList<String>();
-    StringBuilder output = readRegistry("reg query \"" + location + "\" /s");
+    List<String> result = new ArrayList<>();
+    StringBuilder output = doReadBranch(location);
     if (output != null) {
       for (int pos = output.indexOf(location); pos != -1; pos = output.indexOf(location, pos + location.length())) {
         int pos2 = output.indexOf("\r\n", pos + location.length());
@@ -88,49 +78,65 @@ public class WindowsRegistryUtil {
     return result;
   }
 
-  @Nullable
-  public static String readRegistryDefault(@NotNull String location) {
-    return trimToValue(readRegistry("reg query \"" + location + "\" /ve"));
+  @NotNull
+  public static List<String> readRegistryBranchValues(@NotNull String location) {
+    List<String> result = new ArrayList<>();
+    StringBuilder output = doReadBranch(location);
+    if (output != null) {
+      // there seem to be no way to get machine-readable list of value names.
+      // so we are trying to make pattern as precise as possible.
+      Pattern pattern = Pattern.compile("^\\s{4}(.+)\\s{4}REG_\\w+\\s{4}.+$", Pattern.MULTILINE);
+      Matcher m = pattern.matcher(output);
+      while(m.find()) {
+        result.add(m.group(1));
+      }
+    }
+    return result;
+  }
+
+  private static StringBuilder doReadBranch(@NotNull String location) {
+    return readRegistrySilently("reg query \"" + location + "\"");
   }
 
   @Nullable
-  public static String readRegistryValue(@NotNull String location, @NotNull String key) {
-    return trimToValue(readRegistry("reg query \"" + location + "\" /v " + key));
+  public static String readRegistryDefault(@NonNls @NotNull String location) {
+    return trimToValue(readRegistrySilently("reg query \"" + location + "\" /ve"));
   }
 
   @Nullable
-  private static StringBuilder readRegistry(String command) {
+  public static String readRegistryValue(@NonNls @NotNull String location, @NonNls @NotNull String key) {
+    return trimToValue(readRegistrySilently("reg query \"" + location + "\" /v " + key));
+  }
+
+  @Nullable
+  private static StringBuilder readRegistrySilently(@NonNls @NotNull String command) {
     try {
-      Process process = Runtime.getRuntime().exec(command);
-      StringBuilder output = null;
-      InputStream is = null;
-      ByteArrayOutputStream os = null;
-      try {
-        byte[] buffer = new byte[128];
-        is = process.getInputStream();
-        os = new ByteArrayOutputStream();
-        for (int length = is.read(buffer); length > 0; length = is.read(buffer)) {
-          os.write(buffer, 0, length);
-        }
-        output = new StringBuilder(new String(os.toByteArray()));
-      }
-      catch (IOException ignored) {
-
-      }
-      finally {
-        if (is != null) {
-          is.close();
-        }
-        if (os != null) {
-          os.close();
-        }
-        process.waitFor();
-      }
-
-      return output;
+      String text = readRegistry(command);
+      return new StringBuilder(text);
     }
     catch (Exception e) {
       return null;
+    }
+  }
+
+  @NotNull @ApiStatus.Internal
+  public static String readRegistry(@NonNls @NotNull String command) throws IOException, InterruptedException {
+    Process process = Runtime.getRuntime().exec(command);
+    InputStream is = null;
+    ByteArrayOutputStream os = null;
+    try {
+      byte[] buffer = new byte[128];
+      is = process.getInputStream();
+      os = new ByteArrayOutputStream();
+      for (int length = is.read(buffer); length > 0; length = is.read(buffer)) {
+        os.write(buffer, 0, length);
+      }
+      return new String(os.toByteArray(), StandardCharsets.UTF_8);
+    }
+    finally {
+      if (is != null) is.close();
+      if (os != null) os.close();
+      process.waitFor();
     }
   }
 }

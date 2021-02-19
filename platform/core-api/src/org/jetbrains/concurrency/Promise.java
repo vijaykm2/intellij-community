@@ -1,166 +1,157 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.concurrency;
 
-import com.intellij.openapi.util.ActionCallback;
-import com.intellij.openapi.util.AsyncResult;
 import com.intellij.util.Consumer;
 import com.intellij.util.Function;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collection;
+import java.lang.reflect.Method;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
-public abstract class Promise<T> {
-  public static final Promise<Void> DONE = new DonePromise<Void>(null);
-  public static final Promise<Void> REJECTED = new RejectedPromise<Void>(createError("rejected"));
-
-  @NotNull
-  public static RuntimeException createError(@NotNull String error) {
-    return new MessageError(error);
+/**
+ * The Promise represents the eventual completion (or failure) of an asynchronous operation, and its resulting value.
+ *
+ * A Promise is a proxy for a value not necessarily known when the promise is created.
+ * It allows you to associate handlers with an asynchronous action's eventual success value or failure reason.
+ * This lets asynchronous methods return values like synchronous methods: instead of immediately returning the final value,
+ * the asynchronous method returns a promise to supply the value at some point in the future.
+ *
+ * A Promise is in one of these states:
+ *
+ * <ul>
+ *   <li>pending: initial state, neither fulfilled nor rejected.</li>
+ *   <li>succeeded: meaning that the operation completed successfully.</li>
+ *   <li>rejected: meaning that the operation failed.</li>
+ * </ul>
+ */
+public interface Promise<T> {
+  enum State {
+    PENDING, SUCCEEDED, REJECTED
   }
 
-  public enum State {
-    PENDING, FULFILLED, REJECTED
-  }
-
+  /**
+   * @deprecated Use Promises.resolvedPromise
+   */
+  @Deprecated
   @NotNull
-  public static <T> Promise<T> resolve(T result) {
-    if (result == null) {
+  static <T> Promise<T> resolve(@Nullable T result) {
+    try {
+      Method method = Promise.class.getClassLoader().loadClass("org.jetbrains.concurrency.Promises").getMethod("resolvedPromise", Object.class);
+      method.setAccessible(true);
       //noinspection unchecked
-      return (Promise<T>)DONE;
+      return (Promise<T>)method.invoke(null, result);
     }
-    else {
-      return new DonePromise<T>(result);
-    }
-  }
-
-  @NotNull
-  public static <T> Promise<T> reject(@NotNull String error) {
-    return reject(createError(error));
-  }
-
-  @NotNull
-  public static <T> Promise<T> reject(@Nullable Throwable error) {
-    if (error == null) {
-      //noinspection unchecked
-      return (Promise<T>)REJECTED;
-    }
-    else {
-      return new RejectedPromise<T>(error);
+    catch (ReflectiveOperationException e) {
+      throw new RuntimeException(e);
     }
   }
 
+  /**
+   * Execute passed handler on promise resolve and return a promise with a transformed result value.
+   *
+   * <pre>
+   * {@code
+   *
+   * somePromise
+   *  .then(it -> transformOrProcessValue(it))
+   * }
+   * </pre>
+   */
   @NotNull
-  public static Promise<Void> all(@NotNull Collection<Promise<?>> promises) {
-    return all(promises, null);
+  <SUB_RESULT> Promise<SUB_RESULT> then(@NotNull Function<? super T, ? extends SUB_RESULT> done);
+
+  /**
+   * The same as {@link #then(Function)}, but handler can be asynchronous.
+   *
+   * <pre>
+   * {@code
+   *
+   * somePromise
+   *  .then(it -> transformOrProcessValue(it))
+   *  .thenAsync(it -> processValueAsync(it))
+   * }
+   * </pre>
+   */
+  @NotNull
+  <SUB_RESULT> Promise<SUB_RESULT> thenAsync(@NotNull Function<? super T, ? extends Promise<SUB_RESULT>> done);
+
+  /**
+   * Execute passed handler on promise resolve.
+   */
+  @NotNull
+  Promise<T> onSuccess(@NotNull java.util.function.Consumer<? super T> handler);
+
+  /**
+   * Execute passed handler on promise resolve.
+   * @deprecated Use {@link #onSuccess(java.util.function.Consumer)}
+   */
+  @Deprecated
+  @NotNull
+  default Promise<T> done(@NotNull Consumer<? super T> done) {
+    return onSuccess(it -> done.consume(it));
   }
 
+  /**
+   * Execute passed handler on promise reject.
+   */
   @NotNull
-  public static <T> Promise<T> all(@NotNull Collection<Promise<?>> promises, @Nullable T totalResult) {
-    if (promises.isEmpty()) {
-      //noinspection unchecked
-      return (Promise<T>)DONE;
-    }
+  Promise<T> onError(@NotNull java.util.function.Consumer<? super Throwable> rejected);
 
-    final AsyncPromise<T> totalPromise = new AsyncPromise<T>();
-    Consumer done = new CountDownConsumer<T>(promises.size(), totalPromise, totalResult);
-    Consumer<Throwable> rejected = new Consumer<Throwable>() {
-      @Override
-      public void consume(Throwable error) {
-        if (totalPromise.state == AsyncPromise.State.PENDING) {
-          totalPromise.setError(error);
-        }
-      }
-    };
-
-    for (Promise<?> promise : promises) {
-      //noinspection unchecked
-      promise.done(done);
-      promise.rejected(rejected);
-    }
-    return totalPromise;
+  /**
+   * @deprecated Use {@link #onError(java.util.function.Consumer)}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  @NotNull
+  default Promise<T> rejected(@NotNull Consumer<? super Throwable> rejected) {
+    return onError(it -> rejected.consume(it));
   }
 
+  /**
+   * Resolve or reject passed promise as soon as this promise resolved or rejected.
+   */
   @NotNull
-  public static Promise<Void> wrapAsVoid(@NotNull ActionCallback asyncResult) {
-    final AsyncPromise<Void> promise = new AsyncPromise<Void>();
-    asyncResult.doWhenDone(new Runnable() {
-      @Override
-      public void run() {
-        promise.setResult(null);
-      }
-    }).doWhenRejected(new Consumer<String>() {
-      @Override
-      public void consume(String error) {
-        promise.setError(createError(error));
-      }
-    });
-    return promise;
+  Promise<T> processed(@NotNull Promise<? super T> child);
+
+  /**
+   * Execute passed handler on promise resolve (result value will be passed),
+   * or on promise reject (null as result value will be passed).
+   */
+  @NotNull
+  Promise<T> onProcessed(@NotNull java.util.function.Consumer<? super T> processed);
+
+  /**
+   * Execute passed handler on promise resolve (result value will be passed),
+   * or on promise reject (null as result value will be passed).
+   *
+   * @deprecated use {@link #onProcessed(java.util.function.Consumer)}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  @NotNull
+  default Promise<T> processed(@NotNull Consumer<? super T> action) {
+    return onProcessed(it -> action.consume(it));
   }
 
+  /**
+   * Get promise state.
+   */
   @NotNull
-  public static <T> Promise<T> wrap(@NotNull AsyncResult<T> asyncResult) {
-    final AsyncPromise<T> promise = new AsyncPromise<T>();
-    asyncResult.doWhenDone(new Consumer<T>() {
-      @Override
-      public void consume(T result) {
-        promise.setResult(result);
-      }
-    }).doWhenRejected(new Consumer<String>() {
-      @Override
-      public void consume(String error) {
-        promise.setError(createError(error));
-      }
-    });
-    return promise;
+  State getState();
+
+  @Nullable
+  T blockingGet(int timeout, @NotNull TimeUnit timeUnit) throws TimeoutException, ExecutionException;
+
+  @Nullable
+  default T blockingGet(int timeout) throws TimeoutException, ExecutionException {
+    return blockingGet(timeout, TimeUnit.MILLISECONDS);
   }
 
-  @NotNull
-  public abstract Promise<T> done(@NotNull Consumer<T> done);
-
-  @NotNull
-  public abstract Promise<T> processed(@NotNull AsyncPromise<T> fulfilled);
-
-  @NotNull
-  public abstract Promise<T> rejected(@NotNull Consumer<Throwable> rejected);
-
-  public abstract Promise<T> processed(@NotNull Consumer<T> processed);
-
-  @NotNull
-  public abstract <SUB_RESULT> Promise<SUB_RESULT> then(@NotNull Function<T, SUB_RESULT> done);
-
-  @NotNull
-  public abstract <SUB_RESULT> Promise<SUB_RESULT> then(@NotNull AsyncFunction<T, SUB_RESULT> done);
-
-  @NotNull
-  public abstract State getState();
-
-  @SuppressWarnings("ExceptionClassNameDoesntEndWithException")
-  public static class MessageError extends RuntimeException {
-    public MessageError(@NotNull String error) {
-      super(error);
-    }
-
-    @NotNull
-    @Override
-    public final synchronized Throwable fillInStackTrace() {
-      return this;
-    }
+  default boolean isSucceeded() {
+    return getState() == State.SUCCEEDED;
   }
-
-  abstract void notify(@NotNull AsyncPromise<T> child);
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.resolve.reference.impl.providers;
 
 import com.intellij.openapi.project.Project;
@@ -23,79 +9,79 @@ import com.intellij.psi.scope.ElementClassHint;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.*;
-import com.intellij.util.NullableFunction;
 import com.intellij.util.ProcessingContext;
 import com.intellij.util.containers.ContainerUtil;
-import gnu.trove.THashMap;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Created by IntelliJ IDEA.
- * User: ik
- * Date: 27.03.2003
- * Time: 17:30:38
- * To change this template use Options | File Templates.
- */
 public class JavaClassReferenceProvider extends GenericReferenceProvider implements CustomizableReferenceProvider {
-
+  /** Tells reference provider to process only qualified class references (e.g. not resolve String as java.lang.String) */
   public static final CustomizationKey<Boolean> RESOLVE_QUALIFIED_CLASS_NAME =
-    new CustomizationKey<Boolean>(PsiBundle.message("qualified.resolve.class.reference.provider.option"));
-  public static final CustomizationKey<String[]> EXTEND_CLASS_NAMES = new CustomizationKey<String[]>("EXTEND_CLASS_NAMES");
-  public static final CustomizationKey<String> CLASS_TEMPLATE = new CustomizationKey<String>("CLASS_TEMPLATE");
-  public static final CustomizationKey<ClassKind> CLASS_KIND = new CustomizationKey<ClassKind>("CLASS_KIND");
-  public static final CustomizationKey<Boolean> INSTANTIATABLE = new CustomizationKey<Boolean>("INSTANTIATABLE");
-  public static final CustomizationKey<Boolean> CONCRETE = new CustomizationKey<Boolean>("CONCRETE");
-  public static final CustomizationKey<Boolean> NOT_INTERFACE = new CustomizationKey<Boolean>("NOT_INTERFACE");
-  public static final CustomizationKey<Boolean> NOT_ENUM= new CustomizationKey<Boolean>("NOT_ENUM");
-  public static final CustomizationKey<Boolean> ADVANCED_RESOLVE = new CustomizationKey<Boolean>("RESOLVE_ONLY_CLASSES");
-  public static final CustomizationKey<Boolean> JVM_FORMAT = new CustomizationKey<Boolean>("JVM_FORMAT");
-  public static final CustomizationKey<Boolean> ALLOW_DOLLAR_NAMES = new CustomizationKey<Boolean>("ALLOW_DOLLAR_NAMES");
-  public static final CustomizationKey<String> DEFAULT_PACKAGE = new CustomizationKey<String>("DEFAULT_PACKAGE");
-  @Nullable private Map<CustomizationKey, Object> myOptions;
+    new CustomizationKey<>("RESOLVE_QUALIFIED_CLASS_NAME");
+  public static final CustomizationKey<List<String>> SUPER_CLASSES = new CustomizationKey<>("SUPER_CLASSES");
+  public static final CustomizationKey<List<String>> IMPORTS = new CustomizationKey<>("IMPORTS");
+  public static final CustomizationKey<String> CLASS_TEMPLATE = new CustomizationKey<>("CLASS_TEMPLATE");
+  public static final CustomizationKey<ClassKind> CLASS_KIND = new CustomizationKey<>("CLASS_KIND");
+  public static final CustomizationKey<Boolean> INSTANTIATABLE = new CustomizationKey<>("INSTANTIATABLE");
+  public static final CustomizationKey<Boolean> CONCRETE = new CustomizationKey<>("CONCRETE");
+  public static final CustomizationKey<Boolean> NOT_INTERFACE = new CustomizationKey<>("NOT_INTERFACE");
+  public static final CustomizationKey<Boolean> NOT_ENUM = new CustomizationKey<>("NOT_ENUM");
+  public static final CustomizationKey<Boolean> ADVANCED_RESOLVE = new CustomizationKey<>("RESOLVE_ONLY_CLASSES");
+  public static final CustomizationKey<Boolean> JVM_FORMAT = new CustomizationKey<>("JVM_FORMAT");
+  public static final CustomizationKey<Boolean> ALLOW_DOLLAR_NAMES = new CustomizationKey<>("ALLOW_DOLLAR_NAMES");
+  public static final CustomizationKey<Boolean> ALLOW_WILDCARDS = new CustomizationKey<>("ALLOW_WILDCARDS");
+
+  /** @deprecated use {@link #SUPER_CLASSES} instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public static final CustomizationKey<String[]> EXTEND_CLASS_NAMES = new CustomizationKey<>("EXTEND_CLASS_NAMES");
+  /** @deprecated use {@link #IMPORTS} instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public static final CustomizationKey<String> DEFAULT_PACKAGE = new CustomizationKey<>("DEFAULT_PACKAGE");
+
+  @Nullable
+  private Map<CustomizationKey, Object> myOptions;
 
   private boolean myAllowEmpty;
 
-  private final ParameterizedCachedValueProvider<List<PsiElement>, Project> myProvider = new ParameterizedCachedValueProvider<List<PsiElement>, Project>() {
-      @Override
-      public CachedValueProvider.Result<List<PsiElement>> compute(Project project) {
-        final List<PsiElement> psiPackages = new ArrayList<PsiElement>();
-        final String defPackageName = DEFAULT_PACKAGE.getValue(myOptions);
-        if (StringUtil.isNotEmpty(defPackageName)) {
-          final PsiPackage defaultPackage = JavaPsiFacade.getInstance(project).findPackage(defPackageName);
-          if (defaultPackage != null) {
-            psiPackages.addAll(getSubPackages(defaultPackage));
-          }
-        }
-        final PsiPackage rootPackage = JavaPsiFacade.getInstance(project).findPackage("");
-        if (rootPackage != null) {
-          psiPackages.addAll(getSubPackages(rootPackage));
-        }
-        return CachedValueProvider.Result.createSingleDependency(psiPackages, PsiModificationTracker.MODIFICATION_COUNT);
-      }
-    };
+  private static final ParameterizedCachedValueProvider<List<PsiPackage>, Project> ourPackagesProvider = project -> {
+    PsiNameHelper nameHelper = PsiNameHelper.getInstance(project);
+    PsiPackage root = JavaPsiFacade.getInstance(project).findPackage("");
+    List<PsiPackage> psiPackages = root == null ? Collections.emptyList() :
+                                   ContainerUtil.filter(root.getSubPackages(),
+                                                        p -> nameHelper.isIdentifier(p.getName(), PsiUtil.getLanguageLevel(p)));
+    return CachedValueProvider.Result.createSingleDependency(psiPackages, PsiModificationTracker.MODIFICATION_COUNT);
+  };
 
-  private final Key<ParameterizedCachedValue<List<PsiElement>, Project>> myKey = Key.create("default packages");
+  private static final Key<ParameterizedCachedValue<List<PsiPackage>, Project>> ourPackagesKey = Key.create("default packages");
 
   public <T> void setOption(CustomizationKey<T> option, T value) {
     if (myOptions == null) {
-      myOptions = new THashMap<CustomizationKey, Object>();
+      myOptions = new HashMap<>();
     }
-    option.putValue(myOptions, value);
+    if (option == EXTEND_CLASS_NAMES) {
+      SUPER_CLASSES.putValue(myOptions, ContainerUtil.immutableList((String[])value));
+    }
+    else if (option == DEFAULT_PACKAGE) {
+      IMPORTS.putValue(myOptions, Collections.singletonList((String)value));
+    }
+    else {
+      option.putValue(myOptions, value);
+    }
   }
 
   @Nullable
-  public <T> T getOption(CustomizationKey<T> option) {
-    return myOptions == null ? null : (T)myOptions.get(option);
+  public <T> T getOption(@NotNull CustomizationKey<T> option) {
+    return myOptions == null ? null : option.getValue(myOptions);
   }
 
   @Nullable
-  public GlobalSearchScope getScope(Project project) {
+  public GlobalSearchScope getScope(@NotNull Project project) {
     return null;
   }
 
@@ -110,19 +96,17 @@ public class JavaClassReferenceProvider extends GenericReferenceProvider impleme
   }
 
   @Override
-  @NotNull
-  public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull final ProcessingContext context) {
+  public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
     return getReferencesByElement(element);
   }
 
-  public PsiReference[] getReferencesByElement(@NotNull PsiElement element) {
+  public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element) {
     final int offsetInElement = ElementManipulators.getOffsetInElement(element);
     final String text = ElementManipulators.getValueText(element);
     return getReferencesByString(text, element, offsetInElement);
   }
 
-  @NotNull
-  public PsiReference[] getReferencesByString(String str, @NotNull PsiElement position, int offsetInPosition) {
+  public PsiReference @NotNull [] getReferencesByString(String str, @NotNull PsiElement position, int offsetInPosition) {
     if (myAllowEmpty && StringUtil.isEmpty(str)) {
       return PsiReference.EMPTY_ARRAY;
     }
@@ -132,29 +116,21 @@ public class JavaClassReferenceProvider extends GenericReferenceProvider impleme
 
   @Override
   public void handleEmptyContext(PsiScopeProcessor processor, PsiElement position) {
-    final ElementClassHint hint = processor.getHint(ElementClassHint.KEY);
+    ElementClassHint hint = processor.getHint(ElementClassHint.KEY);
     if (position == null) return;
-    if (hint == null || hint.shouldProcess(ElementClassHint.DeclarationKind.PACKAGE) || hint.shouldProcess(ElementClassHint.DeclarationKind.CLASS)) {
-      final List<PsiElement> cachedPackages = getDefaultPackages(position.getProject());
-      for (final PsiElement psiPackage : cachedPackages) {
+    if (hint == null ||
+        hint.shouldProcess(ElementClassHint.DeclarationKind.PACKAGE) ||
+        hint.shouldProcess(ElementClassHint.DeclarationKind.CLASS)) {
+      List<PsiPackage> cachedPackages = getDefaultPackages(position.getProject());
+      for (PsiElement psiPackage : cachedPackages) {
         if (!processor.execute(psiPackage, ResolveState.initial())) return;
       }
     }
   }
 
-  protected List<PsiElement> getDefaultPackages(Project project) {
-    return CachedValuesManager.getManager(project).getParameterizedCachedValue(project, myKey, myProvider, false, project);
-  }
-
-  private static Collection<PsiPackage> getSubPackages(final PsiPackage defaultPackage) {
-    return ContainerUtil.mapNotNull(defaultPackage.getSubPackages(), new NullableFunction<PsiPackage, PsiPackage>() {
-      @Override
-      public PsiPackage fun(final PsiPackage psiPackage) {
-        final String packageName = psiPackage.getName();
-        return PsiNameHelper.getInstance(psiPackage.getProject())
-                 .isIdentifier(packageName, PsiUtil.getLanguageLevel(psiPackage)) ? psiPackage : null;
-      }
-    });
+  @NotNull
+  static List<PsiPackage> getDefaultPackages(@NotNull Project project) {
+    return CachedValuesManager.getManager(project).getParameterizedCachedValue(project, ourPackagesKey, ourPackagesProvider, false, project);
   }
 
   @Override
@@ -168,7 +144,7 @@ public class JavaClassReferenceProvider extends GenericReferenceProvider impleme
     return myOptions;
   }
 
-  public void setAllowEmpty(final boolean allowEmpty) {
+  public void setAllowEmpty(boolean allowEmpty) {
     myAllowEmpty = allowEmpty;
   }
 }

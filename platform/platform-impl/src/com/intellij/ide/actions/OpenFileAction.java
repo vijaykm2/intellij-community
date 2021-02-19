@@ -1,141 +1,208 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.GeneralSettings;
 import com.intellij.ide.IdeBundle;
+import com.intellij.ide.highlighter.ProjectFileType;
+import com.intellij.ide.impl.OpenProjectTask;
 import com.intellij.ide.impl.ProjectUtil;
+import com.intellij.ide.lightEdit.*;
+import com.intellij.ide.util.PsiNavigationSupport;
+import com.intellij.idea.ActionsBundle;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.application.ApplicationNamesInfo;
+import com.intellij.openapi.actionSystem.Presentation;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.fileChooser.FileChooser;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
 import com.intellij.openapi.fileChooser.PathChooserDialog;
 import com.intellij.openapi.fileChooser.impl.FileChooserUtil;
-import com.intellij.openapi.fileEditor.FileEditorManager;
-import com.intellij.openapi.fileEditor.FileEditorProvider;
-import com.intellij.openapi.fileEditor.OpenFileDescriptor;
-import com.intellij.openapi.fileEditor.ex.FileEditorProviderManager;
+import com.intellij.openapi.fileEditor.impl.NonProjectFileWritingAccessProvider;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.ex.FileTypeChooser;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ex.ProjectManagerEx;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.wm.impl.welcomeScreen.FlatWelcomeFrame;
 import com.intellij.openapi.wm.impl.welcomeScreen.NewWelcomeScreen;
 import com.intellij.platform.PlatformProjectOpenProcessor;
 import com.intellij.projectImport.ProjectAttachProcessor;
-import com.intellij.util.Consumer;
+import com.intellij.projectImport.ProjectOpenProcessor;
+import com.intellij.util.PlatformUtils;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.List;
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collections;
+import java.util.concurrent.CompletableFuture;
 
-public class OpenFileAction extends AnAction implements DumbAware {
+import static com.intellij.ide.lightEdit.LightEditFeatureUsagesUtil.OpenPlace.LightEditOpenAction;
+
+public class OpenFileAction extends AnAction implements DumbAware, LightEditCompatible {
   @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
-    final Project project = e.getProject();
-    final boolean showFiles = project != null || PlatformProjectOpenProcessor.getInstanceIfItExists() != null;
-    final FileChooserDescriptor descriptor = showFiles ? new ProjectOrFileChooserDescriptor() : new ProjectOnlyFileChooserDescriptor();
-    descriptor.putUserData(PathChooserDialog.PREFER_LAST_OVER_EXPLICIT, showFiles);
+    Project project = e.getProject();
+    boolean showFiles = project != null || PlatformProjectOpenProcessor.getInstanceIfItExists() != null;
+    FileChooserDescriptor descriptor = showFiles ? new ProjectOrFileChooserDescriptor() : new ProjectOnlyFileChooserDescriptor();
 
-    FileChooser.chooseFiles(descriptor, project, VfsUtil.getUserHomeDir(), new Consumer<List<VirtualFile>>() {
-      @Override
-      public void consume(final List<VirtualFile> files) {
-        for (VirtualFile file : files) {
-          if (!descriptor.isFileSelectable(file)) {
-            String message = IdeBundle.message("error.dir.contains.no.project", file.getPresentableUrl());
-            Messages.showInfoMessage(project, message, IdeBundle.message("title.cannot.open.project"));
-            return;
-          }
+    VirtualFile toSelect = null;
+    if (StringUtil.isNotEmpty(GeneralSettings.getInstance().getDefaultProjectDirectory())) {
+      toSelect = VfsUtil.findFileByIoFile(new File(GeneralSettings.getInstance().getDefaultProjectDirectory()), true);
+    }
+
+    descriptor.putUserData(PathChooserDialog.PREFER_LAST_OVER_EXPLICIT, toSelect == null && showFiles);
+
+    FileChooser.chooseFiles(descriptor, project, toSelect != null ? toSelect : getPathToSelect(), files -> {
+      for (VirtualFile file : files) {
+        if (!descriptor.isFileSelectable(file)) {
+          String message = IdeBundle.message("error.dir.contains.no.project", file.getPresentableUrl());
+          Messages.showInfoMessage(project, message, IdeBundle.message("title.cannot.open.project"));
+          return;
         }
-        doOpenFile(project, files);
+      }
+      for (VirtualFile file : files) {
+        doOpenFile(project, file);
       }
     });
+  }
+
+  public static class OnWelcomeScreen extends OpenFileAction {
+    @Override
+    public void update(@NotNull AnActionEvent e) {
+      Presentation presentation = e.getPresentation();
+      if (!NewWelcomeScreen.isNewWelcomeScreen(e)) {
+        presentation.setEnabledAndVisible(false);
+        return;
+      }
+      if (FlatWelcomeFrame.USE_TABBED_WELCOME_SCREEN) {
+        presentation.setIcon(AllIcons.Welcome.Open);
+        presentation.setSelectedIcon(AllIcons.Welcome.OpenSelected);
+        presentation.setText(ActionsBundle.message("action.Tabbed.WelcomeScreen.OpenProject.text"));
+      }
+      else {
+        presentation.setIcon(AllIcons.Actions.MenuOpen);
+      }
+    }
+  }
+
+  @Nullable
+  protected VirtualFile getPathToSelect() {
+    return VfsUtil.getUserHomeDir();
   }
 
   @Override
   public void update(@NotNull AnActionEvent e) {
     if (NewWelcomeScreen.isNewWelcomeScreen(e)) {
-      e.getPresentation().setIcon(AllIcons.Welcome.OpenProject);
+      e.getPresentation().setIcon(AllIcons.Actions.MenuOpen);
     }
   }
 
-  private static void doOpenFile(@Nullable Project project, @NotNull List<VirtualFile> result) {
-    for (VirtualFile file : result) {
-      if (file.isDirectory()) {
-        Project openedProject;
-        if (ProjectAttachProcessor.canAttachToProject()) {
-          openedProject = PlatformProjectOpenProcessor.doOpenProject(file, project, false, -1, null, false);
-        }
-        else {
-          openedProject = ProjectUtil.openOrImport(file.getPath(), project, false);
-        }
-        FileChooserUtil.setLastOpenedFile(openedProject, file);
+  private static void doOpenFile(@Nullable Project project, @NotNull VirtualFile file) {
+    Path filePath = file.toNioPath();
+    if (Files.isDirectory(filePath)) {
+      openExistingDir(filePath, project);
+      return;
+    }
+
+    // try to open as a project - unless the file is an .ipr of the current one
+    if ((project == null || !file.equals(project.getProjectFile())) && OpenProjectFileChooserDescriptor.isProjectFile(file)) {
+      int answer = shouldOpenNewProject(project, file);
+      if (answer == Messages.CANCEL) {
         return;
       }
-
-      // try to open as a project - unless the file is an .ipr of the current one
-      if ((project == null || !file.equals(project.getProjectFile())) && OpenProjectFileChooserDescriptor.isProjectFile(file)) {
-        Project openedProject = ProjectUtil.openOrImport(file.getPath(), project, false);
+      else if (answer == Messages.YES) {
+        Project openedProject = ProjectUtil.openOrImport(filePath, OpenProjectTask.withProjectToClose(project));
         if (openedProject != null) {
-          FileChooserUtil.setLastOpenedFile(openedProject, file);
-          return;
+          FileChooserUtil.setLastOpenedFile(openedProject, filePath);
         }
+        return;
       }
+    }
+    LightEditUtil.markUnknownFileTypeAsPlainTextIfNeeded(project, file);
 
-      FileType type = FileTypeChooser.getKnownFileTypeOrAssociate(file, project);
-      if (type == null) return;
+    FileType type = FileTypeChooser.getKnownFileTypeOrAssociate(file, project);
+    if (type == null) {
+      return;
+    }
 
-      if (project != null) {
-        openFile(file, project);
-      }
-      else {
-        PlatformProjectOpenProcessor processor = PlatformProjectOpenProcessor.getInstanceIfItExists();
-        if (processor != null) {
-          processor.doOpenProject(file, null, false);
-        }
-      }
+    if (project != null && !project.isDefault()) {
+      openFile(file, project);
+    }
+    else {
+      PlatformProjectOpenProcessor.createTempProjectAndOpenFile(filePath, OpenProjectTask.withProjectToClose(project));
     }
   }
 
-  public static void openFile(String filePath, @NotNull Project project) {
-    VirtualFile file = LocalFileSystem.getInstance().findFileByPath(filePath);
+  // public for testing
+  @ApiStatus.Internal
+  public static @NotNull CompletableFuture<@Nullable Project> openExistingDir(@NotNull Path file, @Nullable Project currentProject) {
+    boolean canAttach = ProjectAttachProcessor.canAttachToProject();
+    boolean preferAttach = currentProject != null && canAttach && PlatformUtils.isDataGrip() && !ProjectUtil.isValidProjectPath(file);
+    if (preferAttach && PlatformProjectOpenProcessor.attachToProject(currentProject, file, null)) {
+      return CompletableFuture.completedFuture(null);
+    }
+
+    CompletableFuture<Project> projectFuture;
+    if (canAttach) {
+      OpenProjectTask options = PlatformProjectOpenProcessor.createOptionsToOpenDotIdeaOrCreateNewIfNotExists(file, currentProject);
+      projectFuture = ProjectManagerEx.getInstanceEx().openProjectAsync(file, options);
+    }
+    else {
+      projectFuture = ProjectUtil.openOrImportAsync(file, OpenProjectTask.withProjectToClose(currentProject));
+    }
+
+    return projectFuture.thenApply(project -> {
+      if (!ApplicationManager.getApplication().isUnitTestMode()) {
+        FileChooserUtil.setLastOpenedFile(project, file);
+      }
+      return project;
+    });
+  }
+
+  @Messages.YesNoCancelResult
+  private static int shouldOpenNewProject(@Nullable Project project, @NotNull VirtualFile file) {
+    if (file.getFileType() instanceof ProjectFileType) {
+      return Messages.YES;
+    }
+
+    ProjectOpenProcessor provider = ProjectOpenProcessor.getImportProvider(file);
+    if (provider == null) {
+      return Messages.CANCEL;
+    }
+
+    return provider.askConfirmationForOpeningProject(file, project);
+  }
+
+  public static void openFile(@NotNull String filePath, @NotNull Project project) {
+    VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByPath(filePath);
     if (file != null && file.isValid()) {
       openFile(file, project);
     }
   }
 
-  public static void openFile(VirtualFile file, @NotNull Project project) {
-    FileEditorProvider[] providers = FileEditorProviderManager.getInstance().getProviders(project, file);
-    if (providers.length == 0) {
-      String message = IdeBundle.message("error.files.of.this.type.cannot.be.opened", ApplicationNamesInfo.getInstance().getProductName());
-      Messages.showErrorDialog(project, message, IdeBundle.message("title.cannot.open.file"));
-      return;
+  public static void openFile(@NotNull VirtualFile file, @NotNull Project project) {
+    NonProjectFileWritingAccessProvider.allowWriting(Collections.singletonList(file));
+    if (LightEdit.owns(project)) {
+      LightEditService.getInstance().openFile(file);
+      LightEditFeatureUsagesUtil.logFileOpen(project, LightEditOpenAction);
     }
-
-    OpenFileDescriptor descriptor = new OpenFileDescriptor(project, file);
-    FileEditorManager.getInstance(project).openTextEditor(descriptor, true);
+    else {
+      PsiNavigationSupport.getInstance().createNavigatable(project, file, -1).navigate(true);
+    }
   }
 
   private static class ProjectOnlyFileChooserDescriptor extends OpenProjectFileChooserDescriptor {
-    public ProjectOnlyFileChooserDescriptor() {
+    ProjectOnlyFileChooserDescriptor() {
       super(true);
       setTitle(IdeBundle.message("title.open.project"));
     }
@@ -146,7 +213,7 @@ public class OpenFileAction extends AnAction implements DumbAware {
     private final FileChooserDescriptor myStandardDescriptor =
       FileChooserDescriptorFactory.createSingleFileNoJarsDescriptor().withHideIgnored(false);
 
-    public ProjectOrFileChooserDescriptor() {
+    ProjectOrFileChooserDescriptor() {
       super(true);
       setTitle(IdeBundle.message("title.open.file.or.project"));
     }

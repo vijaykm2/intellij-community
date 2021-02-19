@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.palette;
 
 import com.intellij.ide.dnd.DnDDragStartBean;
@@ -21,11 +7,11 @@ import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataKey;
-import com.intellij.openapi.actionSystem.LangDataKeys;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.ResourceFileUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.IconLoader;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiFile;
@@ -56,7 +42,7 @@ import java.util.List;
  * @author Vladimir Kondratyev
  */
 public final class ComponentItem implements Cloneable, PaletteItem {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.uiDesigner.palette.ComponentItem");
+  private static final Logger LOG = Logger.getInstance(ComponentItem.class);
 
   public static final DataKey<ComponentItem> DATA_KEY = DataKey.create(ComponentItem.class.getName());
 
@@ -72,7 +58,7 @@ public final class ComponentItem implements Cloneable, PaletteItem {
   private Icon mySmallIcon;
   /**
    * @see #getIconPath()
-   * @see #setIconPath(java.lang.String)
+   * @see #setIconPath(String)
    */
   private String myIconPath;
   /**
@@ -133,6 +119,7 @@ public final class ComponentItem implements Cloneable, PaletteItem {
   }
 
   /** Creates deep copy of the object. You can edit any properties of the returned object. */
+  @Override
   public ComponentItem clone(){
     final ComponentItem result = new ComponentItem(
       myProject,
@@ -151,7 +138,7 @@ public final class ComponentItem implements Cloneable, PaletteItem {
 
   /**
    * @return string that represents path in the JAR file system that was used to load
-   * icon returned by {@link #getIcon()} method. This method can returns <code>null</code>.
+   * icon returned by {@link #getIcon()} method. This method can returns {@code null}.
    * It means that palette item has some "unknown" item.
    */
   @Nullable String getIconPath() {
@@ -159,8 +146,8 @@ public final class ComponentItem implements Cloneable, PaletteItem {
   }
 
   /**
-   * @param iconPath new path inside JAR file system. <code>null</code> means that
-   * <code>iconPath</code> is not specified and some "unknown" icon should be used
+   * @param iconPath new path inside JAR file system. {@code null} means that
+   * {@code iconPath} is not specified and some "unknown" icon should be used
    * to represent the {@link ComponentItem} in UI.
    */
   void setIconPath(@Nullable final String iconPath){
@@ -172,17 +159,18 @@ public final class ComponentItem implements Cloneable, PaletteItem {
 
   /**
    * @return item's icon. This icon is used to represent item at the toolbar.
-   * Note, that the method never returns <code>null</code>. It returns some
+   * Note, that the method never returns {@code null}. It returns some
    * default "unknown" icon for the items that has no specified icon in the XML.
    */
-  @NotNull public Icon getIcon() {
+  @NotNull
+  public Icon getIcon() {
     // Check cached value first
-    if(myIcon != null){
+    if (myIcon != null) {
       return myIcon;
     }
 
     // Create new icon
-    if(myIconPath != null && myIconPath.length() > 0) {
+    if (myIconPath != null && myIconPath.length() > 0) {
       final VirtualFile iconFile = ResourceFileUtil.findResourceFileInScope(myIconPath, myProject, GlobalSearchScope.allScope(myProject));
       if (iconFile != null) {
         try {
@@ -196,16 +184,15 @@ public final class ComponentItem implements Cloneable, PaletteItem {
         myIcon = IconLoader.findIcon(myIconPath);
       }
     }
-    if(myIcon == null){
+    if (myIcon == null) {
       myIcon = UIDesignerIcons.Unknown;
-     }
-    LOG.assertTrue(myIcon != null);
+    }
     return myIcon;
   }
 
   /**
    * @return small item's icon. This icon represents component in the
-   * component tree. The method never returns <code>null</code>. It returns some
+   * component tree. The method never returns {@code null}. It returns some
    * default "unknown" icon for the items that has no specified icon in the XML.
    */
   @NotNull public Icon getSmallIcon() {
@@ -235,7 +222,7 @@ public final class ComponentItem implements Cloneable, PaletteItem {
     return myClassName;
   }
 
-  public String getClassShortName() {
+  public @NlsSafe String getClassShortName() {
     final int lastDotIndex = myClassName.lastIndexOf('.');
     if (lastDotIndex != -1 && lastDotIndex != myClassName.length() - 1/*not the last char in class name*/) {
       return myClassName.substring(lastDotIndex + 1).replace('$', '.');
@@ -247,7 +234,7 @@ public final class ComponentItem implements Cloneable, PaletteItem {
 
   /**
    * @param className name of the class that will be instanteated when user drop
-   * item on the form. Cannot be <code>null</code>. If the class does not exist or
+   * item on the form. Cannot be {@code null}. If the class does not exist or
    * could not be instanteated (for example, class has no default constructor,
    * it's not a subclass of JComponent, etc) then placeholder component will be
    * added to the form.
@@ -256,7 +243,7 @@ public final class ComponentItem implements Cloneable, PaletteItem {
     myClassName = className;
   }
 
-  public String getToolTipText() {
+  public @NlsSafe String getToolTipText() {
     return myToolTipText != null ? myToolTipText : calcToolTipText(myClassName);
   }
 
@@ -268,12 +255,12 @@ public final class ComponentItem implements Cloneable, PaletteItem {
    * The method returns initial value of the property. Term
    * "initial" means that just after creation of RadComponent
    * all its properties are set into initial values.
-   * The method returns <code>null</code> if the
+   * The method returns {@code null} if the
    * initial property is not defined. Unfortunately we cannot
-   * put this method into the constuctor of <code>RadComponent</code>.
-   * The problem is that <code>RadComponent</code> is used in the
+   * put this method into the constuctor of {@code RadComponent}.
+   * The problem is that {@code RadComponent} is used in the
    * code genaration and code generation doesn't depend on any
-   * <code>ComponentItem</code>, so we need to initialize <code>RadComponent</code>
+   * {@code ComponentItem}, so we need to initialize {@code RadComponent}
    * in all places where it's needed explicitly.
    */
   public Object getInitialValue(final IntrospectedProperty property){
@@ -282,7 +269,7 @@ public final class ComponentItem implements Cloneable, PaletteItem {
 
   /**
    * Internal method. It should be used only to externalize initial item's values.
-   * This method never returns <code>null</code>.
+   * This method never returns {@code null}.
    */
   HashMap<String, StringDescriptor> getInitialValues(){
     return myPropertyName2initialValue;
@@ -345,6 +332,7 @@ public final class ComponentItem implements Cloneable, PaletteItem {
     return result;
   }
 
+  @Override
   public void customizeCellRenderer(ColoredListCellRenderer cellRenderer, boolean selected, boolean hasFocus) {
     cellRenderer.setIcon(getSmallIcon());
     if (myAnyComponent) {
@@ -357,16 +345,19 @@ public final class ComponentItem implements Cloneable, PaletteItem {
     }
   }
 
+  @Override
   @Nullable public DnDDragStartBean startDragging() {
     if (isAnyComponent()) return null;
     return new DnDDragStartBean(this);
   }
 
+  @Override
   @Nullable public ActionGroup getPopupActionGroup() {
     return (ActionGroup) ActionManager.getInstance().getAction("GuiDesigner.PaletteComponentPopupMenu");
   }
 
-  @Nullable public Object getData(Project project, String dataId) {
+  @Override
+  @Nullable public Object getData(Project project, @NotNull String dataId) {
     if (CommonDataKeys.PSI_ELEMENT.is(dataId)) {
       return JavaPsiFacade.getInstance(project).findClass(myClassName, GlobalSearchScope.allScope(project));
     }
@@ -426,7 +417,7 @@ public final class ComponentItem implements Cloneable, PaletteItem {
 
   public static ComponentItem createAnyComponentItem(final Project project) {
     ComponentItem result = new ComponentItem(project, "", null, null,
-                                             new GridConstraints(), new HashMap<String, StringDescriptor>(),
+                                             new GridConstraints(), new HashMap<>(),
                                              false, false, false);
     result.myAnyComponent = true;
     return result;
@@ -443,18 +434,21 @@ public final class ComponentItem implements Cloneable, PaletteItem {
   private static final class MySmallIcon implements Icon{
     private final Image myImage;
 
-    public MySmallIcon(@NotNull final Image delegate) {
+    MySmallIcon(@NotNull final Image delegate) {
       myImage = delegate;
     }
 
+    @Override
     public int getIconHeight() {
       return 18;
     }
 
+    @Override
     public int getIconWidth() {
       return 18;
     }
 
+    @Override
     public void paintIcon(final Component c, final Graphics g, final int x, final int y) {
       g.drawImage(myImage, 2, 2, 14, 14, c);
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2006-2011 Dave Griffith, Bas Leijdekkers
+ * Copyright 2006-2017 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,16 +36,8 @@ public class PackageWithTooManyClassesInspection extends BaseGlobalInspection {
   @SuppressWarnings({"PublicField"})
   public int limit = 10;
 
-  @NotNull
   @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "package.with.too.many.classes.display.name");
-  }
-
-  @Override
-  @Nullable
-  public CommonProblemDescriptor[] checkElement(
+  public CommonProblemDescriptor @Nullable [] checkElement(
     @NotNull RefEntity refEntity,
     @NotNull AnalysisScope analysisScope,
     @NotNull InspectionManager inspectionManager,
@@ -54,32 +46,21 @@ public class PackageWithTooManyClassesInspection extends BaseGlobalInspection {
       return null;
     }
     final List<RefEntity> children = refEntity.getChildren();
-    if (children == null) {
+    if (children.size() <= limit) {
       return null;
     }
-    int numClasses = 0;
-    for (RefEntity child : children) {
-      if (child instanceof RefClass) {
-        numClasses++;
-      }
-    }
+    final int numClasses = (int)children.stream().filter(c -> c instanceof RefClass).count();
     if (numClasses <= limit) {
       return null;
     }
     final String errorString = InspectionGadgetsBundle.message(
       "package.with.too.many.classes.problem.descriptor",
-      refEntity.getQualifiedName(), Integer.valueOf(numClasses),
-      Integer.valueOf(limit));
-    return new CommonProblemDescriptor[]{
-      inspectionManager.createProblemDescriptor(errorString)
-    };
+      refEntity.getQualifiedName(), Integer.valueOf(numClasses), Integer.valueOf(limit));
+    return new CommonProblemDescriptor[]{inspectionManager.createProblemDescriptor(errorString)};
   }
 
   @Override
   public JComponent createOptionsPanel() {
-    return new SingleIntegerFieldOptionsPanel(
-      InspectionGadgetsBundle.message(
-        "package.with.too.many.classes.max.option"),
-      this, "limit");
+    return new SingleIntegerFieldOptionsPanel(InspectionGadgetsBundle.message("package.with.too.many.classes.max.option"), this, "limit");
   }
 }

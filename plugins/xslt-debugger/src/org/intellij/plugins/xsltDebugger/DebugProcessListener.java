@@ -21,6 +21,7 @@ import com.intellij.execution.process.ProcessEvent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import org.intellij.plugins.xsltDebugger.rt.engine.DebuggerStoppedException;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * ProcessListener that manages the connection to the debugged XSLT-process
@@ -28,20 +29,22 @@ import org.intellij.plugins.xsltDebugger.rt.engine.DebuggerStoppedException;
 class DebugProcessListener extends ProcessAdapter {
   private final Project myProject;
   private final int myPort;
+  private final String myAccessToken;
 
-  public DebugProcessListener(Project project, int port) {
+  DebugProcessListener(Project project, int port, String accessToken) {
     myProject = project;
     myPort = port;
+    myAccessToken = accessToken;
   }
 
   @Override
-  public void startNotified(ProcessEvent event) {
-    final DebuggerConnector connector = new DebuggerConnector(myProject, event.getProcessHandler(), myPort);
+  public void startNotified(@NotNull ProcessEvent event) {
+    final DebuggerConnector connector = new DebuggerConnector(myProject, event.getProcessHandler(), myPort, myAccessToken);
     ApplicationManager.getApplication().executeOnPooledThread(connector);
   }
 
   @Override
-  public void processWillTerminate(ProcessEvent event, boolean willBeDestroyed) {
+  public void processWillTerminate(@NotNull ProcessEvent event, boolean willBeDestroyed) {
     try {
       final XsltDebuggerSession session = XsltDebuggerSession.getInstance(event.getProcessHandler());
       if (session != null) {
@@ -57,7 +60,7 @@ class DebugProcessListener extends ProcessAdapter {
   }
 
   @Override
-  public void processTerminated(ProcessEvent event) {
+  public void processTerminated(@NotNull ProcessEvent event) {
     super.processTerminated(event);
 
     final XsltDebuggerSession session = XsltDebuggerSession.getInstance(event.getProcessHandler());

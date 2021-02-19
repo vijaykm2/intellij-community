@@ -3,6 +3,7 @@
  */
 package com.intellij.mock;
 
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.util.Computable;
@@ -48,6 +49,11 @@ public class MockPsiDocumentManager extends PsiDocumentManager {
   }
 
   @Override
+  public boolean commitAllDocumentsUnderProgress() {
+    return true;
+  }
+
+  @Override
   public void performForCommittedDocument(@NotNull final Document document, @NotNull final Runnable action) {
     action.run();
   }
@@ -67,9 +73,14 @@ public class MockPsiDocumentManager extends PsiDocumentManager {
     return document.getModificationStamp();
   }
 
+  @Nullable
   @Override
-  @NotNull
-  public Document[] getUncommittedDocuments() {
+  public Document getLastCommittedDocument(@NotNull PsiFile file) {
+    return null;
+  }
+
+  @Override
+  public Document @NotNull [] getUncommittedDocuments() {
     throw new UnsupportedOperationException("Method getUncommittedDocuments is not yet implemented in " + getClass().getName());
   }
 
@@ -104,11 +115,6 @@ public class MockPsiDocumentManager extends PsiDocumentManager {
   }
 
   @Override
-  public void removeListener(@NotNull Listener listener) {
-    throw new UnsupportedOperationException("Method removeListener is not yet implemented in " + getClass().getName());
-  }
-
-  @Override
   public boolean isDocumentBlockedByPsi(@NotNull Document doc) {
     throw new UnsupportedOperationException("Method isDocumentBlockedByPsi is not yet implemented in " + getClass().getName());
   }
@@ -125,7 +131,18 @@ public class MockPsiDocumentManager extends PsiDocumentManager {
   }
 
   @Override
-  public void reparseFiles(@NotNull Collection<VirtualFile> files, boolean includeOpenFiles) {
+  public void reparseFiles(@NotNull Collection<? extends VirtualFile> files, boolean includeOpenFiles) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void performLaterWhenAllCommitted(@NotNull final Runnable runnable) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void performLaterWhenAllCommitted(@NotNull ModalityState modalityState,
+                                           @NotNull Runnable runnable) {
     throw new UnsupportedOperationException();
   }
 }

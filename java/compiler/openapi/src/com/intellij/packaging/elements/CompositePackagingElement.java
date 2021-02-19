@@ -1,22 +1,6 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.packaging.elements;
 
-import com.intellij.compiler.ant.Generator;
-import com.intellij.packaging.artifacts.ArtifactType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -25,11 +9,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author nik
- */
 public abstract class CompositePackagingElement<S> extends PackagingElement<S> implements RenameablePackagingElement {
-  private final List<PackagingElement<?>> myChildren = new ArrayList<PackagingElement<?>>();
+  private final List<PackagingElement<?>> myChildren = new ArrayList<>();
   private List<PackagingElement<?>> myUnmodifiableChildren;
 
   protected CompositePackagingElement(PackagingElementType type) {
@@ -66,7 +47,7 @@ public abstract class CompositePackagingElement<S> extends PackagingElement<S> i
   }
 
   public List<? extends PackagingElement<?>> addOrFindChildren(Collection<? extends PackagingElement<?>> children) {
-    List<PackagingElement<?>> added = new ArrayList<PackagingElement<?>>();
+    List<PackagingElement<?>> added = new ArrayList<>();
     for (PackagingElement<?> child : children) {
       added.add(addOrFindChild(child));
     }
@@ -102,18 +83,9 @@ public abstract class CompositePackagingElement<S> extends PackagingElement<S> i
     return myUnmodifiableChildren;
   }
 
+  @Override
   public boolean canBeRenamed() {
     return true;
-  }
-
-  protected List<? extends Generator> computeChildrenGenerators(PackagingElementResolvingContext resolvingContext,
-                                                                final AntCopyInstructionCreator copyInstructionCreator,
-                                                                final ArtifactAntGenerationContext generationContext, ArtifactType artifactType) {
-    final List<Generator> generators = new ArrayList<Generator>();
-    for (PackagingElement<?> child : myChildren) {
-      generators.addAll(child.computeAntInstructions(resolvingContext, copyInstructionCreator, generationContext, artifactType));
-    }
-    return generators;
   }
 
   public void removeAllChildren() {

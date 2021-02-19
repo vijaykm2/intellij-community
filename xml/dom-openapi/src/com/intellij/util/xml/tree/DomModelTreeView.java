@@ -50,13 +50,12 @@ import java.awt.*;
 
 public class DomModelTreeView extends Wrapper implements DataProvider, Disposable {
   public static final DataKey<DomModelTreeView> DATA_KEY = DataKey.create("DOM_MODEL_TREE_VIEW_KEY");
-  @Deprecated @NonNls public static String DOM_MODEL_TREE_VIEW_KEY = DATA_KEY.getName();
   @NonNls public static String DOM_MODEL_TREE_VIEW_POPUP = "DOM_MODEL_TREE_VIEW_POPUP";
 
   private final SimpleTree myTree;
   private final AbstractTreeBuilder myBuilder;
-  private DomManager myDomManager;
-  @Nullable private DomElement myRootElement;
+  private final DomManager myDomManager;
+  @Nullable private final DomElement myRootElement;
 
   public DomModelTreeView(@NotNull DomElement rootElement) {
     this(rootElement, rootElement.getManager(), new DomModelTreeStructure(rootElement));
@@ -73,7 +72,9 @@ public class DomModelTreeView extends Wrapper implements DataProvider, Disposabl
     ToolTipManager.sharedInstance().registerComponent(myTree);
     TreeUtil.installActions(myTree);
 
-    myBuilder = new AbstractTreeBuilder(myTree, (DefaultTreeModel)myTree.getModel(), treeStructure, WeightBasedComparator.INSTANCE, false);
+    myBuilder = new AbstractTreeBuilder(myTree, (DefaultTreeModel)myTree.getModel(), treeStructure, WeightBasedComparator.INSTANCE, false) {
+      // unique class to simplify search through the logs
+    };
     Disposer.register(this, myBuilder);
 
     myBuilder.setNodeDescriptorComparator(null);
@@ -136,13 +137,10 @@ public class DomModelTreeView extends Wrapper implements DataProvider, Disposabl
   private void queueUpdate(final VirtualFile file) {
     if (file == null) return;
     if (getProject().isDisposed()) return;
-    ApplicationManager.getApplication().invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        if (getProject().isDisposed()) return;
-        if (!file.isValid() || isRightFile(file)) {
-          myBuilder.updateFromRoot();
-        }
+    ApplicationManager.getApplication().invokeLater(() -> {
+      if (getProject().isDisposed()) return;
+      if (!file.isValid() || isRightFile(file)) {
+        myBuilder.updateFromRoot();
       }
     });
   }
@@ -189,7 +187,7 @@ public class DomModelTreeView extends Wrapper implements DataProvider, Disposabl
 
   @Override
   @Nullable
-  public Object getData(String dataId) {
+  public Object getData(@NotNull String dataId) {
     if (DATA_KEY.is(dataId)) {
       return this;
     }

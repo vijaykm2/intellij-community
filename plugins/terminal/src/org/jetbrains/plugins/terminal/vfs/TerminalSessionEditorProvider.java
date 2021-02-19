@@ -1,34 +1,20 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.terminal.vfs;
 
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorPolicy;
 import com.intellij.openapi.fileEditor.FileEditorProvider;
-import com.intellij.openapi.fileEditor.FileEditorState;
+import com.intellij.openapi.fileEditor.impl.FileEditorManagerImpl;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.vfs.VirtualFile;
-import org.jdom.Element;
+import com.intellij.terminal.JBTerminalWidget;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.terminal.LocalTerminalDirectRunner;
+import org.jetbrains.plugins.terminal.TerminalTabState;
+import org.jetbrains.plugins.terminal.TerminalUtil;
+import org.jetbrains.plugins.terminal.arrangement.TerminalWorkingDirectoryManager;
 
-/**
- * @author traff
- */
 public class TerminalSessionEditorProvider implements FileEditorProvider, DumbAware {
   @Override
   public boolean accept(@NotNull Project project, @NotNull VirtualFile file) {
@@ -38,23 +24,20 @@ public class TerminalSessionEditorProvider implements FileEditorProvider, DumbAw
   @NotNull
   @Override
   public FileEditor createEditor(@NotNull Project project, @NotNull VirtualFile file) {
-    return new TerminalSessionEditor(project, (TerminalSessionVirtualFileImpl)file);
-  }
+    if (file.getUserData(FileEditorManagerImpl.CLOSING_TO_REOPEN) != null) {
+      return new TerminalSessionEditor(project, (TerminalSessionVirtualFileImpl)file);
+    }
+    else {
+      TerminalSessionVirtualFileImpl terminalFile = (TerminalSessionVirtualFileImpl)file;
+      JBTerminalWidget widget = terminalFile.getTerminalWidget();
 
-  @Override
-  public void disposeEditor(@NotNull FileEditor editor) {
-    Disposer.dispose(editor);
-  }
-
-  @NotNull
-  @Override
-  public FileEditorState readState(@NotNull Element sourceElement, @NotNull Project project, @NotNull VirtualFile file) {
-    return FileEditorState.INSTANCE;
-  }
-
-  @Override
-  public void writeState(@NotNull FileEditorState state, @NotNull Project project, @NotNull Element targetElement) {
-
+      TerminalTabState tts = new TerminalTabState();
+      tts.myWorkingDirectory = TerminalWorkingDirectoryManager.getWorkingDirectory(widget, file.getName());
+      LocalTerminalDirectRunner runner = LocalTerminalDirectRunner.createTerminalRunner(project);
+      JBTerminalWidget newWidget = TerminalUtil.createTerminal(runner, tts, null);
+      TerminalSessionVirtualFileImpl newSessionVirtualFile = new TerminalSessionVirtualFileImpl(terminalFile.getName(), newWidget, terminalFile.getSettingsProvider());
+      return new TerminalSessionEditor(project, newSessionVirtualFile);
+    }
   }
 
   @NotNull

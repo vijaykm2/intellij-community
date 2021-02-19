@@ -16,7 +16,6 @@
 
 package org.intellij.plugins.relaxNG.model.annotation;
 
-import com.intellij.lang.annotation.Annotation;
 import com.intellij.lang.annotation.AnnotationHolder;
 import com.intellij.lang.annotation.Annotator;
 import com.intellij.lang.annotation.HighlightSeverity;
@@ -29,6 +28,7 @@ import com.intellij.util.SmartList;
 import com.intellij.util.xml.DomElement;
 import com.intellij.util.xml.highlighting.DomElementAnnotationHolder;
 import com.intellij.util.xml.highlighting.DomElementsAnnotator;
+import org.intellij.plugins.relaxNG.RelaxngBundle;
 import org.intellij.plugins.relaxNG.model.CommonElement;
 import org.intellij.plugins.relaxNG.model.Define;
 import org.intellij.plugins.relaxNG.model.Grammar;
@@ -43,31 +43,26 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/*
-* Created by IntelliJ IDEA.
-* User: sweinreuter
-* Date: 04.12.2007
-*/
 public final class ModelAnnotator implements Annotator, DomElementsAnnotator {
 
   @Override
   public void annotate(@NotNull PsiElement psiElement, @NotNull AnnotationHolder holder) {
     if (psiElement instanceof CommonElement) {
-      ((CommonElement)psiElement).accept(new MyAnnotator<PsiElement>(CommonAnnotationHolder.create(holder)));
+      ((CommonElement)psiElement).accept(new MyAnnotator<>(CommonAnnotationHolder.create(holder)));
     }
   }
 
   @Override
   public void annotate(DomElement element, DomElementAnnotationHolder holder) {
     if (element instanceof RngDomElement) {
-      ((RngDomElement)element).accept(new MyAnnotator<DomElement>(CommonAnnotationHolder.create(holder)));
+      ((RngDomElement)element).accept(new MyAnnotator<>(CommonAnnotationHolder.create(holder)));
     }
   }
 
-  private final class MyAnnotator<T> extends CommonElement.Visitor {
+  private static final class MyAnnotator<T> extends CommonElement.Visitor {
     private final CommonAnnotationHolder<T> myHolder;
 
-    public MyAnnotator(CommonAnnotationHolder<T> holder) {
+    MyAnnotator(CommonAnnotationHolder<T> holder) {
       myHolder = holder;
     }
 
@@ -77,10 +72,10 @@ public final class ModelAnnotator implements Annotator, DomElementsAnnotator {
       if (element != null) {
         final XmlFile xmlFile = (XmlFile)element.getContainingFile();
 
-        final List<Define> result = new SmartList<Define>();
+        final List<Define> result = new SmartList<>();
         final OverriddenDefineSearcher searcher = new OverriddenDefineSearcher(define, xmlFile, result);
 
-        final PsiElementProcessor.FindElement<XmlFile> processor = new PsiElementProcessor.FindElement<XmlFile>() {
+        final PsiElementProcessor.FindElement<XmlFile> processor = new PsiElementProcessor.FindElement<>() {
           @Override
           public boolean execute(@NotNull XmlFile file) {
             final Grammar grammar = GrammarFactory.getGrammar(file);
@@ -100,10 +95,9 @@ public final class ModelAnnotator implements Annotator, DomElementsAnnotator {
       }
     }
 
-    @SuppressWarnings({ "unchecked" })
-    private void createGutterAnnotation(CommonElement t, GutterIconRenderer renderer) {
-      final Annotation a = myHolder.createAnnotation((T)t, HighlightSeverity.INFORMATION, null);
-      a.setGutterIconRenderer(renderer);
+    @SuppressWarnings("unchecked")
+    private void createGutterAnnotation(CommonElement t, @NotNull GutterIconRenderer renderer) {
+      myHolder.createAnnotation(HighlightSeverity.INFORMATION, (T)t, null, renderer);
     }
 
     @Override
@@ -122,11 +116,13 @@ public final class ModelAnnotator implements Annotator, DomElementsAnnotator {
         final Set<Define> set = map.get(define.getName());
         if (set == null || set.size() == 0) {
           //noinspection unchecked
-          myHolder.createAnnotation((T)define, HighlightSeverity.ERROR, "Definition doesn't override anything from " + file.getName());
+          myHolder.createAnnotation(HighlightSeverity.ERROR, (T)define,
+                                    RelaxngBundle.message("relaxng.annotator.definition-doesnt-override-anything-from", file.getName()),
+                                    null);
           continue;
         }
 
-        final String message = "Overrides '" + define.getName() + "' in " + file.getName();
+        final String message = RelaxngBundle.message("relaxng.annotator.overrides.x.in.y", define.getName(), file.getName());
         createGutterAnnotation(define, new OverridingDefineRenderer(message, set));
       }
     }

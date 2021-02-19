@@ -1,147 +1,198 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.impl;
 
+import static com.intellij.vcs.log.impl.CustomVcsLogUiFactoryProvider.LOG_CUSTOM_UI_FACTORY_PROVIDER_EP;
+
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vcs.VcsRoot;
-import com.intellij.openapi.vcs.changes.ui.ChangesViewContentManager;
+import com.intellij.openapi.vcs.ui.VcsBalloonProblemNotifier;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.wm.IdeFocusManager;
-import com.intellij.openapi.wm.ToolWindowManager;
-import com.intellij.openapi.wm.ex.ToolWindowManagerListener;
-import com.intellij.openapi.wm.impl.ToolWindowImpl;
-import com.intellij.openapi.wm.impl.ToolWindowManagerImpl;
-import com.intellij.ui.content.Content;
-import com.intellij.ui.content.ContentManagerAdapter;
-import com.intellij.ui.content.ContentManagerEvent;
 import com.intellij.util.Consumer;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.MultiMap;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.vcs.log.VcsLogFilterCollection;
 import com.intellij.vcs.log.VcsLogProvider;
 import com.intellij.vcs.log.VcsLogRefresher;
-import com.intellij.vcs.log.VcsLogSettings;
-import com.intellij.vcs.log.data.VcsLogDataHolder;
-import com.intellij.vcs.log.data.VcsLogUiProperties;
-import com.intellij.vcs.log.data.VisiblePack;
+import com.intellij.vcs.log.data.VcsLogData;
+import com.intellij.vcs.log.data.VcsLogStatusBarProgress;
+import com.intellij.vcs.log.data.VcsLogStorage;
+import com.intellij.vcs.log.data.index.VcsLogModifiableIndex;
+import com.intellij.vcs.log.graph.PermanentGraph;
+import com.intellij.vcs.log.ui.MainVcsLogUi;
+import com.intellij.vcs.log.ui.VcsLogColorManager;
 import com.intellij.vcs.log.ui.VcsLogColorManagerImpl;
+import com.intellij.vcs.log.ui.VcsLogUiEx;
 import com.intellij.vcs.log.ui.VcsLogUiImpl;
-import com.intellij.vcs.log.ui.frame.VcsLogGraphTable;
+import com.intellij.vcs.log.util.VcsLogUtil;
+import com.intellij.vcs.log.visible.VcsLogFiltererImpl;
+import com.intellij.vcs.log.visible.VisiblePackRefresherImpl;
+import com.intellij.vcs.log.visible.filters.VcsLogFilterObject;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.CalledInAny;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
-import java.util.*;
-
 public class VcsLogManager implements Disposable {
-
-  public static final ExtensionPointName<VcsLogProvider> LOG_PROVIDER_EP = ExtensionPointName.create("com.intellij.logProvider");
   private static final Logger LOG = Logger.getInstance(VcsLogManager.class);
 
   @NotNull private final Project myProject;
-  @NotNull private final VcsLogSettings mySettings;
-  @NotNull private final VcsLogUiProperties myUiProperties;
+  @NotNull private final VcsLogTabsProperties myUiProperties;
+  @Nullable private final Consumer<? super Throwable> myRecreateMainLogHandler;
 
-  private volatile VcsLogUiImpl myUi;
+  @NotNull private final VcsLogData myLogData;
+  @NotNull private final VcsLogColorManagerImpl myColorManager;
+  @Nullable private VcsLogTabsWatcher myTabsLogRefresher;
+  @NotNull private final PostponableLogRefresher myPostponableRefresher;
+  @NotNull private final VcsLogStatusBarProgress myStatusBarProgress;
+  private boolean myDisposed;
+
+  public VcsLogManager(@NotNull Project project, @NotNull VcsLogTabsProperties uiProperties, @NotNull Collection<? extends VcsRoot> roots) {
+    this(project, uiProperties, findLogProviders(roots, project), true, null);
+  }
 
   public VcsLogManager(@NotNull Project project,
-                       @NotNull VcsLogSettings settings,
-                       @NotNull VcsLogUiProperties uiProperties) {
+                       @NotNull VcsLogTabsProperties uiProperties,
+                       @NotNull Map<VirtualFile, VcsLogProvider> logProviders,
+                       boolean scheduleRefreshImmediately,
+                       @Nullable Consumer<? super Throwable> recreateHandler) {
     myProject = project;
-    mySettings = settings;
     myUiProperties = uiProperties;
+    myRecreateMainLogHandler = recreateHandler;
+
+    MyFatalErrorsHandler fatalErrorsHandler = new MyFatalErrorsHandler();
+    myLogData = new VcsLogData(myProject, logProviders, fatalErrorsHandler, this);
+    myPostponableRefresher = new PostponableLogRefresher(myLogData);
+
+    refreshLogOnVcsEvents(logProviders, myPostponableRefresher, myLogData);
+
+    myColorManager = new VcsLogColorManagerImpl(logProviders.keySet());
+    myStatusBarProgress = new VcsLogStatusBarProgress(myProject, logProviders, myLogData.getProgress());
+
+    if (scheduleRefreshImmediately) {
+      scheduleInitialization();
+    }
+  }
+
+  @CalledInAny
+  void scheduleInitialization() {
+    myLogData.initialize();
+  }
+
+  @RequiresEdt
+  public boolean isLogVisible() {
+    return myPostponableRefresher.isLogVisible();
   }
 
   @NotNull
-  public JComponent initContent(@NotNull Collection<VcsRoot> roots, @Nullable String contentTabName) {
-    Disposer.register(myProject, this);
-
-    final Map<VirtualFile, VcsLogProvider> logProviders = findLogProviders(roots, myProject);
-
-    Consumer<VisiblePack> visiblePackConsumer = new Consumer<VisiblePack>() {
-      @Override
-      public void consume(final VisiblePack pack) {
-          UIUtil.invokeLaterIfNeeded(new Runnable() {
-            @Override
-            public void run() {
-              if (myUi != null && !Disposer.isDisposed(myUi)) {
-                myUi.setVisiblePack(pack);
-              }
-            }
-          });
-      }
-    };
-    final VcsLogDataHolder logDataHolder = new VcsLogDataHolder(myProject, this, logProviders, mySettings, myUiProperties, visiblePackConsumer);
-    myUi = new VcsLogUiImpl(logDataHolder, myProject, mySettings,
-                            new VcsLogColorManagerImpl(logProviders.keySet()), myUiProperties, logDataHolder.getFilterer());
-    myUi.addLogListener(logDataHolder.getContainingBranchesGetter()); // TODO: remove this after VcsLogDataHolder vs VcsLoUi dependency cycle is solved
-    VcsLogRefresher logRefresher;
-    if (contentTabName != null) {
-      logRefresher = new PostponableLogRefresher(myProject, logDataHolder, contentTabName);
-    }
-    else {
-      logRefresher = new VcsLogRefresher() {
-        @Override
-        public void refresh(@NotNull VirtualFile root) {
-          logDataHolder.refresh(Collections.singletonList(root));
-        }
-      };
-    }
-    refreshLogOnVcsEvents(logProviders, logRefresher);
-    logDataHolder.initialize();
-
-    // todo fix selection
-    final VcsLogGraphTable graphTable = myUi.getTable();
-    if (graphTable.getRowCount() > 0) {
-      IdeFocusManager.getInstance(myProject).requestFocus(graphTable, true).doWhenProcessed(new Runnable() {
-        @Override
-        public void run() {
-          graphTable.setRowSelectionInterval(0, 0);
-        }
-      });
-    }
-    return myUi.getMainFrame().getMainComponent();
+  public VcsLogData getDataManager() {
+    return myLogData;
   }
 
-  private static void refreshLogOnVcsEvents(@NotNull Map<VirtualFile, VcsLogProvider> logProviders, @NotNull VcsLogRefresher refresher) {
-    MultiMap<VcsLogProvider, VirtualFile> providers2roots = MultiMap.create();
-    for (Map.Entry<VirtualFile, VcsLogProvider> entry : logProviders.entrySet()) {
-      providers2roots.putValue(entry.getValue(), entry.getKey());
+  @NotNull
+  public VcsLogColorManagerImpl getColorManager() {
+    return myColorManager;
+  }
+
+  @NotNull
+  public VcsLogTabsProperties getUiProperties() {
+    return myUiProperties;
+  }
+
+  @NotNull
+  public MainVcsLogUi createLogUi(@NotNull String logId, @NotNull LogWindowKind kind) {
+    return createLogUi(getMainLogUiFactory(logId, null), kind, true);
+  }
+
+  @NotNull
+  MainVcsLogUi createLogUi(@NotNull String logId, @NotNull LogWindowKind kind, boolean isClosedOnDispose) {
+    return createLogUi(getMainLogUiFactory(logId, null), kind, isClosedOnDispose);
+  }
+
+  @NotNull
+  public VcsLogUiFactory<? extends MainVcsLogUi> getMainLogUiFactory(@NotNull String logId, @Nullable VcsLogFilterCollection filters) {
+    CustomVcsLogUiFactoryProvider factoryProvider = LOG_CUSTOM_UI_FACTORY_PROVIDER_EP.findFirstSafe(myProject, p -> p.isActive(this));
+    if (factoryProvider == null) {
+      return new MainVcsLogUiFactory(logId, filters, myUiProperties, myColorManager);
     }
+    return factoryProvider.createLogUiFactory(logId, this, filters);
+  }
+
+  @NotNull
+  private VcsLogTabsWatcher getTabsWatcher() {
+    LOG.assertTrue(!myDisposed);
+    if (myTabsLogRefresher == null) myTabsLogRefresher = new VcsLogTabsWatcher(myProject, myPostponableRefresher);
+    return myTabsLogRefresher;
+  }
+
+  @NotNull
+  public <U extends VcsLogUiEx> U createLogUi(@NotNull VcsLogUiFactory<U> factory, @NotNull LogWindowKind kind) {
+    return createLogUi(factory, kind, true);
+  }
+
+  @NotNull
+  private <U extends VcsLogUiEx> U createLogUi(@NotNull VcsLogUiFactory<U> factory,
+                                               @NotNull LogWindowKind kind,
+                                               boolean isClosedOnDispose) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    if (isDisposed()) {
+      LOG.error("Trying to create new VcsLogUi on a disposed VcsLogManager instance");
+      throw new ProcessCanceledException();
+    }
+
+    U ui = factory.createLogUi(myProject, myLogData);
+    Disposer.register(ui, getTabsWatcher().addTabToWatch(ui.getId(), ui.getRefresher(), kind, isClosedOnDispose));
+
+    return ui;
+  }
+
+  /*
+   * For diagnostic purposes only
+   */
+  @ApiStatus.Internal
+  @NonNls
+  public String getLogWindowsInformation() {
+    return StringUtil.join(myPostponableRefresher.getLogWindows(),
+                           window -> window.toString() + (window.isVisible() ? " (visible)" : ""), "\n");
+  }
+
+  private static void refreshLogOnVcsEvents(@NotNull Map<VirtualFile, VcsLogProvider> logProviders,
+                                            @NotNull VcsLogRefresher refresher,
+                                            @NotNull Disposable disposableParent) {
+    MultiMap<VcsLogProvider, VirtualFile> providers2roots = MultiMap.create();
+    logProviders.forEach((key, value) -> providers2roots.putValue(value, key));
 
     for (Map.Entry<VcsLogProvider, Collection<VirtualFile>> entry : providers2roots.entrySet()) {
-      entry.getKey().subscribeToRootRefreshEvents(entry.getValue(), refresher);
+      Disposable disposable = entry.getKey().subscribeToRootRefreshEvents(entry.getValue(), refresher);
+      Disposer.register(disposableParent, disposable);
     }
   }
 
   @NotNull
-  public static Map<VirtualFile, VcsLogProvider> findLogProviders(@NotNull Collection<VcsRoot> roots, @NotNull Project project) {
-    Map<VirtualFile, VcsLogProvider> logProviders = ContainerUtil.newHashMap();
-    VcsLogProvider[] allLogProviders = Extensions.getExtensions(LOG_PROVIDER_EP, project);
+  public static Map<VirtualFile, VcsLogProvider> findLogProviders(@NotNull Collection<? extends VcsRoot> roots, @NotNull Project project) {
+    if (roots.isEmpty()) return Collections.emptyMap();
+
+    Map<VirtualFile, VcsLogProvider> logProviders = new HashMap<>();
+    VcsLogProvider[] allLogProviders = VcsLogProvider.LOG_PROVIDER_EP.getExtensions(project);
     for (VcsRoot root : roots) {
       AbstractVcs vcs = root.getVcs();
       VirtualFile path = root.getPath();
-      if (vcs == null || path == null) {
-        LOG.error("Skipping invalid VCS root: " + root);
+      if (vcs == null) {
+        LOG.debug("Skipping invalid VCS root: " + root);
         continue;
       }
 
@@ -155,96 +206,139 @@ public class VcsLogManager implements Disposable {
     return logProviders;
   }
 
+  @RequiresEdt
+  void disposeUi() {
+    myDisposed = true;
+    LOG.assertTrue(ApplicationManager.getApplication().isDispatchThread());
+    if (myTabsLogRefresher != null) Disposer.dispose(myTabsLogRefresher);
+    Disposer.dispose(myStatusBarProgress);
+  }
+
   /**
-   * The instance of the {@link com.intellij.vcs.log.ui.VcsLogUiImpl} or null if the log was not initialized yet.
+   * Dispose VcsLogManager and execute some activity after it.
+   *
+   * @param callback activity to run after log is disposed. Is executed in background thread. null means execution of additional activity after dispose is not required.
    */
-  @Nullable
-  public VcsLogUiImpl getLogUi() {
-    return myUi;
+  @RequiresEdt
+  public void dispose(@Nullable Runnable callback) {
+    disposeUi();
+    ApplicationManager.getApplication().executeOnPooledThread(() -> {
+      Disposer.dispose(this);
+      if (callback != null) {
+        callback.run();
+      }
+    });
   }
 
   @Override
   public void dispose() {
-    myUi = null;
+    // since disposing log triggers flushing indexes on disk we do not want to do it in EDT
+    // disposing of VcsLogManager is done by manually executing dispose(@Nullable Runnable callback)
+    // the above method first disposes ui in EDT, than disposes everything else in background
+    LOG.assertTrue(!ApplicationManager.getApplication().isDispatchThread());
+    LOG.debug("Disposed Vcs Log for " + VcsLogUtil.getProvidersMapText(myLogData.getLogProviders()));
   }
 
-  private static class PostponableLogRefresher implements VcsLogRefresher, Disposable {
+  @RequiresEdt
+  public boolean isDisposed() {
+    return myDisposed;
+  }
 
-    private static final String TOOLWINDOW_ID = ChangesViewContentManager.TOOLWINDOW_ID;
-
-    @NotNull private final VcsLogDataHolder myDataHolder;
-    @NotNull private final ToolWindowManagerImpl myToolWindowManager;
-    @NotNull private final ToolWindowImpl myToolWindow;
-    @NotNull private final String myTabName;
-    @NotNull private final MyRefreshPostponedEventsListener myPostponedEventsListener;
-
-    @NotNull private final Set<VirtualFile> myRootsToRefresh = ContainerUtil.newConcurrentSet();
-
-    public PostponableLogRefresher(@NotNull Project project, @NotNull VcsLogDataHolder dataHolder, @NotNull String contentTabName) {
-      myDataHolder = dataHolder;
-      myToolWindowManager = (ToolWindowManagerImpl)ToolWindowManager.getInstance(project);
-      myToolWindow = (ToolWindowImpl)myToolWindowManager.getToolWindow(TOOLWINDOW_ID);
-      myTabName = contentTabName;
-
-      Disposer.register(dataHolder, this);
-
-      myPostponedEventsListener = new MyRefreshPostponedEventsListener();
-      myToolWindow.getContentManager().addContentManagerListener(myPostponedEventsListener);
-      myToolWindowManager.addToolWindowManagerListener(myPostponedEventsListener);
-    }
+  private class MyFatalErrorsHandler implements FatalErrorHandler {
+    private final AtomicBoolean myIsBroken = new AtomicBoolean(false);
 
     @Override
-    public void refresh(@NotNull VirtualFile root) {
-      if (isOurContentPaneShowing()) {
-        myDataHolder.refresh(Collections.singleton(root));
+    public void consume(@Nullable Object source, @NotNull Throwable e) {
+      if (myIsBroken.compareAndSet(false, true)) {
+        processError(source, e);
       }
       else {
-        myRootsToRefresh.add(root);
+        LOG.debug("Vcs Log storage is broken and is being recreated", e);
+      }
+    }
+
+    protected void processError(@Nullable Object source, @NotNull Throwable e) {
+      if (myRecreateMainLogHandler != null) {
+        ApplicationManager.getApplication().invokeLater(() -> myRecreateMainLogHandler.consume(e));
+      }
+      else {
+        LOG.error(e);
+      }
+
+      if (source instanceof VcsLogStorage) {
+        ((VcsLogModifiableIndex)myLogData.getIndex()).markCorrupted();
       }
     }
 
     @Override
-    public void dispose() {
-      myToolWindow.getContentManager().removeContentManagerListener(myPostponedEventsListener);
-      myToolWindowManager.removeToolWindowManagerListener(myPostponedEventsListener);
-    }
-
-    private boolean isOurContentPaneShowing() {
-      if (myToolWindowManager.isToolWindowRegistered(TOOLWINDOW_ID) && myToolWindow.isVisible()) {
-        Content content = myToolWindow.getContentManager().getSelectedContent();
-        return content != null && content.getTabName().equals(myTabName);
-      }
-      return false;
-    }
-
-    private void refreshPostponedRoots() {
-      Set<VirtualFile> toRefresh = new HashSet<VirtualFile>(myRootsToRefresh);
-      myRootsToRefresh.removeAll(toRefresh); // clear the set, but keep roots which could possibly arrive after collecting them in the var.
-      myDataHolder.refresh(toRefresh);
-    }
-
-    private class MyRefreshPostponedEventsListener extends ContentManagerAdapter implements ToolWindowManagerListener {
-
-      @Override
-      public void selectionChanged(ContentManagerEvent event) {
-        refreshRootsIfNeeded();
-      }
-
-      @Override
-      public void stateChanged() {
-        refreshRootsIfNeeded();
-      }
-
-      @Override
-      public void toolWindowRegistered(@NotNull String id) {
-      }
-
-      private void refreshRootsIfNeeded() {
-        if (isOurContentPaneShowing()) {
-          refreshPostponedRoots();
-        }
-      }
+    public void displayFatalErrorMessage(@Nls @NotNull String message) {
+      VcsBalloonProblemNotifier.showOverChangesView(myProject, message, MessageType.ERROR);
     }
   }
 
+  @FunctionalInterface
+  public interface VcsLogUiFactory<T extends VcsLogUiEx> {
+    @ApiStatus.OverrideOnly
+    T createLogUi(@NotNull Project project, @NotNull VcsLogData logData);
+  }
+
+  public abstract static class BaseVcsLogUiFactory<T extends VcsLogUiImpl> implements VcsLogUiFactory<T> {
+    @NotNull private final String myLogId;
+    @Nullable private final VcsLogFilterCollection myFilters;
+    @NotNull private final VcsLogTabsProperties myUiProperties;
+    @NotNull private final VcsLogColorManager myColorManager;
+
+    public BaseVcsLogUiFactory(@NotNull String logId, @Nullable VcsLogFilterCollection filters, @NotNull VcsLogTabsProperties uiProperties,
+                               @NotNull VcsLogColorManager colorManager) {
+      myLogId = logId;
+      myFilters = filters;
+      myUiProperties = uiProperties;
+      myColorManager = colorManager;
+    }
+
+    @Override
+    public T createLogUi(@NotNull Project project, @NotNull VcsLogData logData) {
+      MainVcsLogUiProperties properties = myUiProperties.createProperties(myLogId);
+      VcsLogFiltererImpl vcsLogFilterer = new VcsLogFiltererImpl(logData.getLogProviders(), logData.getStorage(),
+                                                                 logData.getTopCommitsCache(),
+                                                                 logData.getCommitDetailsGetter(), logData.getIndex());
+      PermanentGraph.SortType initialSortType = properties.get(MainVcsLogUiProperties.BEK_SORT_TYPE);
+      VcsLogFilterCollection initialFilters = myFilters == null ? VcsLogFilterObject.collection() : myFilters;
+      VisiblePackRefresherImpl refresher = new VisiblePackRefresherImpl(project, logData, initialFilters, initialSortType,
+                                                                        vcsLogFilterer, myLogId);
+      return createVcsLogUiImpl(myLogId, logData, properties, myColorManager, refresher, myFilters);
+    }
+
+    @NotNull
+    protected abstract T createVcsLogUiImpl(@NotNull String logId,
+                                            @NotNull VcsLogData logData,
+                                            @NotNull MainVcsLogUiProperties properties,
+                                            @NotNull VcsLogColorManager colorManager,
+                                            @NotNull VisiblePackRefresherImpl refresher,
+                                            @Nullable VcsLogFilterCollection filters);
+  }
+
+  private static class MainVcsLogUiFactory extends BaseVcsLogUiFactory<VcsLogUiImpl> {
+    MainVcsLogUiFactory(@NotNull String logId, @Nullable VcsLogFilterCollection filters, @NotNull VcsLogTabsProperties properties,
+                        @NotNull VcsLogColorManager colorManager) {
+      super(logId, filters, properties, colorManager);
+    }
+
+    @Override
+    @NotNull
+    protected VcsLogUiImpl createVcsLogUiImpl(@NotNull String logId,
+                                              @NotNull VcsLogData logData,
+                                              @NotNull MainVcsLogUiProperties properties,
+                                              @NotNull VcsLogColorManager colorManager,
+                                              @NotNull VisiblePackRefresherImpl refresher,
+                                              @Nullable VcsLogFilterCollection filters) {
+      return new VcsLogUiImpl(logId, logData, colorManager, properties, refresher, filters);
+    }
+  }
+
+  public enum LogWindowKind {
+    TOOL_WINDOW,
+    EDITOR,
+    STANDALONE
+  }
 }

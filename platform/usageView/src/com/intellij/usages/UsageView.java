@@ -1,24 +1,12 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.usages;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.DataKey;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.usageView.UsageInfo;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,24 +15,18 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
-/**
- * @author max
- */
 public interface UsageView extends Disposable {
   /**
-   * Returns {@link com.intellij.usages.UsageTarget} to look usages for
+   * Returns {@link UsageTarget} to look usages for
    */
   DataKey<UsageTarget[]> USAGE_TARGETS_KEY = DataKey.create("usageTarget");
-  @Deprecated String USAGE_TARGETS = USAGE_TARGETS_KEY.getName();
 
   /**
-   * Returns {@link com.intellij.usages.Usage} which are selected in usage view
+   * Returns {@link Usage} which are selected in usage view
    */
   DataKey<Usage[]> USAGES_KEY = DataKey.create("usages");
-  @Deprecated String USAGES = USAGES_KEY.getName();
 
   DataKey<UsageView> USAGE_VIEW_KEY = DataKey.create("UsageView.new");
-  @Deprecated String USAGE_VIEW = USAGE_VIEW_KEY.getName();
 
   DataKey<UsageInfo> USAGE_INFO_KEY = DataKey.create("UsageInfo");
   DataKey<SearchScope> USAGE_SCOPE = DataKey.create("UsageScope");
@@ -53,25 +35,45 @@ public interface UsageView extends Disposable {
 
   void appendUsage(@NotNull Usage usage);
   void removeUsage(@NotNull Usage usage);
-  void includeUsages(@NotNull Usage[] usages);
-  void excludeUsages(@NotNull Usage[] usages);
-  void selectUsages(@NotNull Usage[] usages);
+  void includeUsages(Usage @NotNull [] usages);
+  void excludeUsages(Usage @NotNull [] usages);
+  void selectUsages(Usage @NotNull [] usages);
 
   void close();
   boolean isSearchInProgress();
 
   /**
-   * @deprecated please specify mnemonic by prefixing the mnenonic character with an ampersand (&& for Mac-specific ampersands)
+   * @deprecated please specify mnemonic by prefixing the mnemonic character with an ampersand (&& for Mac-specific ampersands)
    */
-  void addButtonToLowerPane(@NotNull Runnable runnable, @NotNull String text, char mnemonic);
-  void addButtonToLowerPane(@NotNull Runnable runnable, @NotNull String text);
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  void addButtonToLowerPane(@NotNull Runnable runnable, @NlsContexts.Button @NotNull String text, char mnemonic);
+  void addButtonToLowerPane(@NotNull Runnable runnable, @NlsContexts.Button @NotNull String text);
+  void addButtonToLowerPane(@NotNull Action action);
 
-  void addPerformOperationAction(@NotNull Runnable processRunnable, String commandName, String cannotMakeString, @NotNull String shortDescription);
+  /**
+   * @deprecated see {@link UsageView#setRerunAction(Action)}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  default void setReRunActivity(@NotNull Runnable runnable) {}
+
+  /**
+   * @param rerunAction this action is used to provide non-standard search restart. Disabled action makes toolbar button disabled too.
+   */
+  default void setRerunAction(@NotNull Action rerunAction) {}
+
+  void setAdditionalComponent(@Nullable JComponent component);
+
+  void addPerformOperationAction(@NotNull Runnable processRunnable,
+                                 @Nullable @NlsContexts.Command String commandName,
+                                 @NotNull @NlsContexts.DialogMessage String cannotMakeString,
+                                 @NotNull @NlsContexts.Button String shortDescription);
 
   /**
    * @param checkReadOnlyStatus if false, check is performed inside processRunnable
    */
-  void addPerformOperationAction(@NotNull Runnable processRunnable, String commandName, String cannotMakeString, @NotNull String shortDescription, boolean checkReadOnlyStatus);
+  void addPerformOperationAction(@NotNull Runnable processRunnable, @Nullable String commandName, @NotNull String cannotMakeString, @NotNull String shortDescription, boolean checkReadOnlyStatus);
 
   @NotNull
   UsageViewPresentation getPresentation();
@@ -79,12 +81,22 @@ public interface UsageView extends Disposable {
   @NotNull
   Set<Usage> getExcludedUsages();
 
-  @Nullable
+  @NotNull
   Set<Usage> getSelectedUsages();
-  @NotNull Set<Usage> getUsages();
-  @NotNull List<Usage> getSortedUsages();
 
-  @NotNull JComponent getComponent();
+  @NotNull
+  Set<Usage> getUsages();
+
+  @NotNull
+  List<Usage> getSortedUsages();
+
+  @NotNull
+  JComponent getComponent();
+
+  @NotNull
+  default JComponent getPreferredFocusableComponent() {
+    return getComponent();
+  }
 
   int getUsagesCount();
 
@@ -93,5 +105,17 @@ public interface UsageView extends Disposable {
    * Reloads the whole tree model once instead of firing individual remove event for each node.
    * Useful for processing huge number of usages faster, e.g. during "find in path/replace all".
    */
-  void removeUsagesBulk(@NotNull Collection<Usage> usages);
+  void removeUsagesBulk(@NotNull Collection<? extends Usage> usages);
+
+  default void addExcludeListener(@NotNull Disposable disposable, @NotNull ExcludeListener listener) {}
+
+  @FunctionalInterface
+  interface ExcludeListener {
+    /**
+     *
+     * @param usages unmodifiable set or nodes that were excluded or included
+     * @param excluded if {@code true} usages were excluded otherwise they were included
+     */
+    void fireExcluded(@NotNull Set<? extends Usage> usages, boolean excluded);
+  }
 }

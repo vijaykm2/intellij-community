@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2010 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,16 +15,19 @@
  */
 package com.siyeh.ig.performance;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.ObjectUtils;
 import com.siyeh.HardcodedMethodConstants;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ig.psiutils.CommentTracker;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -36,13 +39,6 @@ public class UnnecessaryTemporaryOnConversionToStringInspection
   extends BaseInspection {
 
   @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "unnecessary.temporary.on.conversion.to.string.display.name");
-  }
-
-  @Override
   public boolean isEnabledByDefault() {
     return true;
   }
@@ -50,8 +46,7 @@ public class UnnecessaryTemporaryOnConversionToStringInspection
   @Override
   @NotNull
   public String buildErrorString(Object... infos) {
-    final String replacementString = calculateReplacementExpression(
-      (PsiMethodCallExpression)infos[0]);
+    final String replacementString = calculateReplacementExpression((PsiMethodCallExpression)infos[0], new CommentTracker());
     return InspectionGadgetsBundle.message(
       "unnecessary.temporary.on.conversion.from.string.problem.descriptor",
       replacementString);
@@ -59,51 +54,33 @@ public class UnnecessaryTemporaryOnConversionToStringInspection
 
   @Nullable
   @NonNls
-  static String calculateReplacementExpression(
-    PsiMethodCallExpression expression) {
-    final PsiReferenceExpression methodExpression =
-      expression.getMethodExpression();
-    final PsiExpression qualifier =
-      methodExpression.getQualifierExpression();
-    if (!(qualifier instanceof PsiNewExpression)) {
-      return null;
-    }
-    final PsiNewExpression newExpression = (PsiNewExpression)qualifier;
-    final PsiExpressionList argumentList = newExpression.getArgumentList();
-    if (argumentList == null) {
-      return null;
-    }
-    final PsiExpression[] expressions = argumentList.getExpressions();
-    if (expressions.length < 1) {
-      return null;
-    }
-    final PsiType type = newExpression.getType();
-    if (type == null) {
-      return null;
-    }
-    final PsiExpression argument = expressions[0];
-    final String argumentText = argument.getText();
+  static String calculateReplacementExpression(@NotNull PsiMethodCallExpression expression, @NotNull CommentTracker commentTracker) {
+    final PsiReferenceExpression methodExpression = expression.getMethodExpression();
+    final PsiNewExpression qualifier = ObjectUtils.tryCast(methodExpression.getQualifierExpression(), PsiNewExpression.class);
+    if (qualifier == null) return null;
+    final PsiExpressionList argumentList = qualifier.getArgumentList();
+    if (argumentList == null) return null;
+    final PsiExpression[] arguments = argumentList.getExpressions();
+    if (arguments.length != 1) return null;
+    final PsiType type = qualifier.getType();
+    if (type == null) return null;
+    final String argumentText = commentTracker.text(arguments[0]);
     final String qualifierType = type.getPresentableText();
     return qualifierType + ".toString(" + argumentText + ')';
   }
 
   @Override
   public InspectionGadgetsFix buildFix(Object... infos) {
-    final String replacement = calculateReplacementExpression(
-      (PsiMethodCallExpression)infos[0]);
-    final String name = InspectionGadgetsBundle.message(
-      "unnecessary.temporary.on.conversion.from.string.fix.name",
-      replacement);
+    final String replacement = calculateReplacementExpression((PsiMethodCallExpression)infos[0], new CommentTracker());
+    final String name = CommonQuickFixBundle.message("fix.replace.with.x", replacement);
     return new UnnecessaryTemporaryObjectFix(name);
   }
 
-  private static class UnnecessaryTemporaryObjectFix
-    extends InspectionGadgetsFix {
+  private static final class UnnecessaryTemporaryObjectFix extends InspectionGadgetsFix {
 
-    private final String m_name;
+    private final @IntentionName String m_name;
 
-    private UnnecessaryTemporaryObjectFix(
-      String name) {
+    private UnnecessaryTemporaryObjectFix(@IntentionName String name) {
       m_name = name;
     }
 
@@ -116,20 +93,16 @@ public class UnnecessaryTemporaryOnConversionToStringInspection
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Simplify";
+      return CommonQuickFixBundle.message("fix.simplify");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
-      final PsiMethodCallExpression expression =
-        (PsiMethodCallExpression)descriptor.getPsiElement();
-      final String newExpression =
-        calculateReplacementExpression(expression);
-      if (newExpression == null) {
-        return;
-      }
-      PsiReplacementUtil.replaceExpression(expression, newExpression);
+    public void doFix(Project project, ProblemDescriptor descriptor) {
+      final PsiMethodCallExpression expression = (PsiMethodCallExpression)descriptor.getPsiElement();
+      CommentTracker commentTracker = new CommentTracker();
+      final String newExpression = calculateReplacementExpression(expression, commentTracker);
+      if (newExpression == null) return;
+      PsiReplacementUtil.replaceExpression(expression, newExpression, commentTracker);
     }
   }
 
@@ -142,9 +115,8 @@ public class UnnecessaryTemporaryOnConversionToStringInspection
     extends BaseInspectionVisitor {
 
     /**
-     * @noinspection StaticCollection
      */
-    private static final Set<String> s_basicTypes = new HashSet<String>(8);
+    private static final Set<String> s_basicTypes = new HashSet<>(8);
 
     static {
       s_basicTypes.add(CommonClassNames.JAVA_LANG_BOOLEAN);

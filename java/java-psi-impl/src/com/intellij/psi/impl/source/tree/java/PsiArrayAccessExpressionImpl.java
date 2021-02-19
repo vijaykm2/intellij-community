@@ -20,12 +20,13 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.Constants;
 import com.intellij.psi.impl.source.tree.ChildRole;
-import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.ChildRoleBase;
+import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.util.PsiUtil;
 import org.jetbrains.annotations.NotNull;
 
 public class PsiArrayAccessExpressionImpl extends ExpressionPsiElement implements PsiArrayAccessExpression, Constants {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiArrayAccessExpressionImpl");
+  private static final Logger LOG = Logger.getInstance(PsiArrayAccessExpressionImpl.class);
 
   public PsiArrayAccessExpressionImpl() {
     super(ARRAY_ACCESS_EXPRESSION);
@@ -46,7 +47,9 @@ public class PsiArrayAccessExpressionImpl extends ExpressionPsiElement implement
   public PsiType getType() {
     PsiType arrayType = getArrayExpression().getType();
     if (!(arrayType instanceof PsiArrayType)) return null;
-    return GenericsUtil.getVariableTypeByExpressionType(((PsiArrayType)arrayType).getComponentType(), false);
+    final PsiType componentType = ((PsiArrayType)arrayType).getComponentType();
+    if (PsiUtil.isAccessedForWriting(this)) return componentType;
+    return PsiUtil.captureToplevelWildcards(componentType, this);
   }
 
   @Override
@@ -80,7 +83,7 @@ public class PsiArrayAccessExpressionImpl extends ExpressionPsiElement implement
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
     if (i == LBRACKET) {
@@ -109,6 +112,7 @@ public class PsiArrayAccessExpressionImpl extends ExpressionPsiElement implement
     }
   }
 
+  @Override
   public String toString() {
     return "PsiArrayAccessExpression:" + getText();
   }

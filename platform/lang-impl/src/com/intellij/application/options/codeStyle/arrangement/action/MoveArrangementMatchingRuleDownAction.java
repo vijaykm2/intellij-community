@@ -25,14 +25,14 @@ import java.util.List;
 
 /**
  * @author Denis Zhdanov
- * @since 9/28/12 1:20 PM
  */
 public class MoveArrangementMatchingRuleDownAction extends AbstractMoveArrangementRuleAction {
 
   public MoveArrangementMatchingRuleDownAction() {
-    getTemplatePresentation().setText(ApplicationBundle.message("arrangement.action.rule.move.down.text"));
-    getTemplatePresentation().setDescription(ApplicationBundle.message("arrangement.action.rule.move.down.description"));
+    getTemplatePresentation().setText(ApplicationBundle.messagePointer("arrangement.action.rule.move.down.text"));
+    getTemplatePresentation().setDescription(ApplicationBundle.messagePointer("arrangement.action.rule.move.down.description"));
     getTemplatePresentation().setIcon(IconUtil.getMoveDownIcon());
+    setEnabledInModalContext(true);
   }
 
   @Override

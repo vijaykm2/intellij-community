@@ -1,26 +1,14 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion;
 
+import com.intellij.codeInsight.daemon.impl.analysis.HighlightingFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.filters.FilterPositionUtil;
 import com.intellij.psi.impl.source.jsp.jspJava.JspClassLevelDeclarationStatement;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.ArrayUtil;
+import com.intellij.psi.util.PsiUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -28,15 +16,18 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author ik
- * @since 17.02.2003
- */
-public class ModifierChooser {
+public final class ModifierChooser {
   private static final String[][] CLASS_MODIFIERS = {
     {PsiKeyword.PUBLIC},
     {PsiKeyword.FINAL, PsiKeyword.ABSTRACT}
   };
+
+  private static final String[][] CLASS_MODIFIERS_WITH_SEALED = {
+    {PsiKeyword.PUBLIC},
+    {PsiKeyword.FINAL, PsiKeyword.ABSTRACT},
+    {PsiKeyword.FINAL, PsiKeyword.SEALED, PsiKeyword.NON_SEALED}
+  };
+
   private static final String[][] CLASS_MEMBER_MODIFIERS = {
     {PsiKeyword.PUBLIC, PsiKeyword.PROTECTED, PsiKeyword.PRIVATE},
     {PsiKeyword.STATIC},
@@ -47,43 +38,94 @@ public class ModifierChooser {
     {PsiKeyword.VOLATILE},
     {PsiKeyword.TRANSIENT}
   };
+
+  private static final String[][] CLASS_MEMBER_MODIFIERS_WITH_SEALED = {
+    {PsiKeyword.PUBLIC, PsiKeyword.PROTECTED, PsiKeyword.PRIVATE},
+    {PsiKeyword.STATIC},
+    {PsiKeyword.FINAL, PsiKeyword.ABSTRACT},
+    {PsiKeyword.SEALED, PsiKeyword.NON_SEALED},
+    {PsiKeyword.NATIVE},
+    {PsiKeyword.SYNCHRONIZED},
+    {PsiKeyword.STRICTFP},
+    {PsiKeyword.VOLATILE},
+    {PsiKeyword.TRANSIENT}
+  };
+
+  private static final String[][] INTERFACE_MEMBER_MODIFIERS_WITH_SEALED = {
+    {PsiKeyword.PUBLIC, PsiKeyword.PROTECTED, PsiKeyword.PRIVATE},
+    {PsiKeyword.STATIC, PsiKeyword.DEFAULT},
+    {PsiKeyword.FINAL, PsiKeyword.ABSTRACT},
+    {PsiKeyword.SEALED, PsiKeyword.NON_SEALED}
+  };
+
+  private static final String[][] INTERFACE_9_MEMBER_MODIFIERS = {
+    {PsiKeyword.PUBLIC, PsiKeyword.PROTECTED, PsiKeyword.PRIVATE},
+    {PsiKeyword.STATIC, PsiKeyword.DEFAULT},
+    {PsiKeyword.FINAL, PsiKeyword.ABSTRACT}
+  };
+
+  private static final String[][] INTERFACE_8_MEMBER_MODIFIERS = {
+    {PsiKeyword.PUBLIC, PsiKeyword.PROTECTED},
+    {PsiKeyword.STATIC, PsiKeyword.DEFAULT},
+    {PsiKeyword.FINAL, PsiKeyword.ABSTRACT}
+  };
+
   private static final String[][] INTERFACE_MEMBER_MODIFIERS = {
     {PsiKeyword.PUBLIC, PsiKeyword.PROTECTED},
-    {PsiKeyword.STATIC},
     {PsiKeyword.FINAL, PsiKeyword.ABSTRACT}
   };
 
   static String[] getKeywords(@NotNull PsiElement position) {
     final PsiModifierList list = findModifierList(position);
     if (list == null && !shouldSuggestModifiers(position)) {
-      return ArrayUtil.EMPTY_STRING_ARRAY;
+      return ArrayUtilRt.EMPTY_STRING_ARRAY;
     }
 
     PsiElement scope = position.getParent();
     while (scope != null) {
       if (scope instanceof PsiJavaFile) {
-        return addClassModifiers(list);
+        return addClassModifiers(list, scope);
       }
       if (scope instanceof PsiClass) {
-        return addMemberModifiers(list, ((PsiClass)scope).isInterface());
+        return addMemberModifiers(list, ((PsiClass)scope).isInterface(), scope);
       }
 
       scope = scope.getParent();
       if (scope instanceof PsiDirectory) break;
     }
-    return ArrayUtil.EMPTY_STRING_ARRAY;
+    return ArrayUtilRt.EMPTY_STRING_ARRAY;
   }
 
-  public static String[] addClassModifiers(PsiModifierList list) {
-    return addKeywords(list, CLASS_MODIFIERS);
+  public static String[] addClassModifiers(PsiModifierList list, @NotNull PsiElement scope) {
+    return addKeywords(list, HighlightingFeature.SEALED_CLASSES.isAvailable(scope) ? CLASS_MODIFIERS_WITH_SEALED : CLASS_MODIFIERS);
   }
 
-  public static String[] addMemberModifiers(PsiModifierList list, final boolean inInterface) {
-    return addKeywords(list, inInterface ? INTERFACE_MEMBER_MODIFIERS : CLASS_MEMBER_MODIFIERS);
+  public static String[] addMemberModifiers(PsiModifierList list, final boolean inInterface, @NotNull PsiElement position) {
+    return addKeywords(list, inInterface ? getInterfaceMemberModifiers(position) : getClassMemberModifiers(position));
+  }
+
+  private static String[][] getInterfaceMemberModifiers(@NotNull PsiElement list) {
+    if (HighlightingFeature.SEALED_CLASSES.isAvailable(list)) {
+      return INTERFACE_MEMBER_MODIFIERS_WITH_SEALED;
+    }
+    if (PsiUtil.isLanguageLevel9OrHigher(list)) {
+      return INTERFACE_9_MEMBER_MODIFIERS;
+    }
+    if (PsiUtil.isLanguageLevel8OrHigher(list)) {
+      return INTERFACE_8_MEMBER_MODIFIERS;
+    }
+    return INTERFACE_MEMBER_MODIFIERS;
+  }
+
+  private static String[][] getClassMemberModifiers(@NotNull PsiElement list) {
+    if (HighlightingFeature.SEALED_CLASSES.isAvailable(list)) {
+      return CLASS_MEMBER_MODIFIERS_WITH_SEALED;
+    }
+    return CLASS_MEMBER_MODIFIERS;
   }
 
   private static String[] addKeywords(PsiModifierList list, String[][] keywordSets) {
-    final List<String> ret = new ArrayList<String>();
+    final List<String> ret = new ArrayList<>();
     for (int i = 0; i < keywordSets.length; i++) {
       final String[] keywords = keywordSets[keywordSets.length - i - 1];
       boolean containModifierFlag = false;
@@ -99,7 +141,7 @@ public class ModifierChooser {
         ContainerUtil.addAll(ret, keywords);
       }
     }
-    return ArrayUtil.toStringArray(ret);
+    return ArrayUtilRt.toStringArray(ret);
   }
 
   @Nullable
@@ -113,12 +155,11 @@ public class ModifierChooser {
 
   private static boolean shouldSuggestModifiers(PsiElement element) {
     PsiElement parent = element.getParent();
-    while (parent != null && (parent instanceof PsiJavaCodeReferenceElement ||
-                              parent instanceof PsiErrorElement || parent instanceof PsiTypeElement ||
-                              parent instanceof PsiMethod || parent instanceof PsiVariable ||
-                              parent instanceof PsiDeclarationStatement || parent instanceof PsiImportList ||
-                              parent instanceof PsiDocComment ||
-                              element.getText().equals(parent.getText()))) {
+    while (parent instanceof PsiJavaCodeReferenceElement ||
+           parent instanceof PsiErrorElement || parent instanceof PsiTypeElement ||
+           parent instanceof PsiMethod || parent instanceof PsiVariable ||
+           parent instanceof PsiDeclarationStatement || parent instanceof PsiImportList ||
+           parent instanceof PsiDocComment) {
       parent = parent.getParent();
       if (parent instanceof JspClassLevelDeclarationStatement) {
         parent = parent.getContext();
@@ -127,14 +168,7 @@ public class ModifierChooser {
 
     if (parent == null) return false;
 
-    PsiElement prev = FilterPositionUtil.searchNonSpaceNonCommentBack(element);
-
-    if (parent instanceof PsiJavaFile || parent instanceof PsiClass) {
-      if (prev == null || JavaCompletionData.END_OF_BLOCK.isAcceptable(element, prev.getParent())) {
-        return true;
-      }
-    }
-
-    return false;
+    return (parent instanceof PsiJavaFile || parent instanceof PsiClass) &&
+           JavaKeywordCompletion.isEndOfBlock(element);
   }
 }

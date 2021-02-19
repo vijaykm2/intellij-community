@@ -1,96 +1,99 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.usages.impl;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.usages.UsageTarget;
+import com.intellij.usages.UsageView;
 import com.intellij.usages.UsageViewPresentation;
-import com.intellij.usages.UsageViewSettings;
-import com.intellij.util.Consumer;
 import com.intellij.util.ui.UIUtil;
-import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreeNode;
 
-public class UsageViewTreeModelBuilder extends DefaultTreeModel {
-  private final RootGroupNode myRootNode;
-  private final DefaultMutableTreeNode myTargetsNode;
+public final class UsageViewTreeModelBuilder extends DefaultTreeModel {
+  private final GroupNode.Root myRootNode;
 
+  private final @Nullable TargetsRootNode myTargetsNode;
   private final UsageTarget[] myTargets;
-  private final UsageViewPresentation myPresentation;
   private UsageTargetNode[] myTargetNodes;
-  private final String myTargetsNodeText;
-  private final boolean myDetachedMode;
 
-  public UsageViewTreeModelBuilder(UsageViewPresentation presentation, UsageTarget[] targets) {
-    //noinspection HardCodedStringLiteral
-    super(new DefaultMutableTreeNode("temp root"));
-    myPresentation = presentation;
-    myRootNode = new RootGroupNode();
-    setRoot(myRootNode);
+  public UsageViewTreeModelBuilder(@NotNull UsageViewPresentation presentation, UsageTarget @NotNull [] targets) {
+    super(GroupNode.createRoot());
+    myRootNode = (GroupNode.Root)root;
 
+    String targetsNodeText = presentation.getTargetsNodeText();
+    myTargetsNode = targetsNodeText == null ? null : new TargetsRootNode(targetsNodeText);
     myTargets = targets;
-    myTargetsNodeText = presentation.getTargetsNodeText();
-    if (myTargetsNodeText != null) {
-      myTargetsNode = new TargetsRootNode(myTargetsNodeText);
+
+    UIUtil.invokeLaterIfNeeded(() -> {
       addTargetNodes();
-    }
-    else {
-      myTargetsNode = null;
-    }
-    myDetachedMode = presentation.isDetachedMode();
+      setRoot(myRootNode);
+    });
   }
 
-  public static class TargetsRootNode extends DefaultMutableTreeNode {
-    public TargetsRootNode(String name) {
-      super(name);
+  static final class TargetsRootNode extends Node {
+    private TargetsRootNode(@NotNull String name) {
+      setUserObject(name);
+    }
+
+    @Override
+    public String tree2string(int indent, @NotNull String lineSeparator) {
+      return null;
+    }
+
+    @Override
+    protected boolean isDataValid() {
+      return true;
+    }
+
+    @Override
+    protected boolean isDataReadOnly() {
+      return true;
+    }
+
+    @Override
+    protected boolean isDataExcluded() {
+      return false;
+    }
+
+    @NotNull
+    @Override
+    protected String getText(@NotNull UsageView view) {
+      return getUserObject().toString();
     }
   }
 
   private void addTargetNodes() {
-    if (myTargets.length == 0) return;
+    if (myTargetsNode == null || myTargets.length == 0) {
+      return;
+    }
+    ApplicationManager.getApplication().assertIsDispatchThread();
     myTargetNodes = new UsageTargetNode[myTargets.length];
     myTargetsNode.removeAllChildren();
     for (int i = 0; i < myTargets.length; i++) {
       UsageTarget target = myTargets[i];
-      UsageTargetNode targetNode = new UsageTargetNode(target, this);
+      UsageTargetNode targetNode = new UsageTargetNode(target);
       myTargetsNode.add(targetNode);
       myTargetNodes[i] = targetNode;
     }
-    myRootNode.addNode(myTargetsNode, new Consumer<Runnable>() {
-      @Override
-      public void consume(Runnable runnable) {
-        UIUtil.invokeLaterIfNeeded(runnable);
-      }
-    });
+    myRootNode.addTargetsNode(myTargetsNode, this);
+    reload(myTargetsNode);
   }
 
-  public UsageNode getFirstUsageNode() {
+  UsageNode getFirstUsageNode() {
     return (UsageNode)getFirstChildOfType(myRootNode, UsageNode.class);
   }
 
-  private static TreeNode getFirstChildOfType(TreeNode parent, final Class type) {
-    final int childCount = parent.getChildCount();
+  private static TreeNode getFirstChildOfType(@NotNull TreeNode parent, @NotNull Class<?> type) {
+    int childCount = parent.getChildCount();
     for (int idx = 0; idx < childCount; idx++) {
-      final TreeNode child = parent.getChildAt(idx);
+      TreeNode child = parent.getChildAt(idx);
       if (type.isAssignableFrom(child.getClass())) {
         return child;
       }
-      final TreeNode firstChildOfType = getFirstChildOfType(child, type);
+      TreeNode firstChildOfType = getFirstChildOfType(child, type);
       if (firstChildOfType != null) {
         return firstChildOfType;
       }
@@ -98,7 +101,7 @@ public class UsageViewTreeModelBuilder extends DefaultTreeModel {
     return null;
   }
 
-  public boolean areTargetsValid() {
+  boolean areTargetsValid() {
     if (myTargetNodes == null) return true;
     for (UsageTargetNode targetNode : myTargetNodes) {
       if (!targetNode.isValid()) return false;
@@ -106,29 +109,69 @@ public class UsageViewTreeModelBuilder extends DefaultTreeModel {
     return true;
   }
 
-  public void reset() {
+  void reset() {
     myRootNode.removeAllChildren();
-    if (myTargetsNodeText != null && myTargets.length > 0) {
-      addTargetNodes();
-    }
+    addTargetNodes();
+    reload(myRootNode);
   }
 
-  private class RootGroupNode extends GroupNode {
-    private RootGroupNode() {
-      super(null, 0, UsageViewTreeModelBuilder.this);
-    }
-
-    @NonNls
-    public String toString() {
-      return "Root "+super.toString();
-    }
+  @Override
+  @NotNull
+  public Object getRoot() {
+    return myRootNode;
   }
 
-  public boolean isDetachedMode() {
-    return myDetachedMode;
+  @Override
+  public void nodeChanged(TreeNode node) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    super.nodeChanged(node);
   }
 
-  public boolean isFilterDuplicatedLine() {
-    return myPresentation.isMergeDupLinesAvailable() && UsageViewSettings.getInstance().isFilterDuplicatedLine();
+  @Override
+  public void nodesWereInserted(TreeNode node, int[] childIndices) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    super.nodesWereInserted(node, childIndices);
+  }
+
+  @Override
+  public void nodesWereRemoved(TreeNode node, int[] childIndices, Object[] removedChildren) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    super.nodesWereRemoved(node, childIndices, removedChildren);
+  }
+
+  @Override
+  public void nodesChanged(TreeNode node, int[] childIndices) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    super.nodesChanged(node, childIndices);
+  }
+
+  @Override
+  public void nodeStructureChanged(TreeNode node) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    super.nodeStructureChanged(node);
+  }
+
+  @Override
+  protected void fireTreeNodesChanged(Object source, Object[] path, int[] childIndices, Object[] children) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    super.fireTreeNodesChanged(source, path, childIndices, children);
+  }
+
+  @Override
+  protected void fireTreeNodesInserted(Object source, Object[] path, int[] childIndices, Object[] children) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    super.fireTreeNodesInserted(source, path, childIndices, children);
+  }
+
+  @Override
+  protected void fireTreeNodesRemoved(Object source, Object[] path, int[] childIndices, Object[] children) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    super.fireTreeNodesRemoved(source, path, childIndices, children);
+  }
+
+  @Override
+  protected void fireTreeStructureChanged(Object source, Object[] path, int[] childIndices, Object[] children) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    super.fireTreeStructureChanged(source, path, childIndices, children);
   }
 }

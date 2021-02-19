@@ -1,12 +1,12 @@
 package com.siyeh.ig.bugs;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
-public class ClassNewInstanceInspectionTest extends LightInspectionTestCase {
+public class ClassNewInstanceInspectionTest extends LightJavaInspectionTestCase {
 
-  public void testClassNewInstance() throws Exception {
+  public void testClassNewInstance() {
     doTest();
   }
 

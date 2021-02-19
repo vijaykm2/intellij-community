@@ -16,16 +16,17 @@
 package com.siyeh.ig.junit;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Bas Leijdekkers
  */
-public class TestMethodIsPublicVoidNoArgInspectionTest extends LightInspectionTestCase {
+public class TestMethodIsPublicVoidNoArgInspectionTest extends LightJavaInspectionTestCase {
 
   public void testJUnit3TestMethodIsPublicVoidNoArg() { doTest(); }
   public void testJUnit4TestMethodIsPublicVoidNoArg() { doTest(); }
+  public void testJUnit4RunWith() { doTest(); }
 
   @Nullable
   @Override
@@ -40,7 +41,23 @@ public class TestMethodIsPublicVoidNoArgInspectionTest extends LightInspectionTe
       "public @interface Test {\n" +
       "    java.lang.Class<? extends java.lang.Throwable> expected() default org.junit.Test.None.class;" +
       "}",
+
+      "package org.junit.runner;" +
+      "@java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.RUNTIME)\n" +
+      "@java.lang.annotation.Target({java.lang.annotation.ElementType.TYPE})\n" +
+      "@java.lang.annotation.Inherited\n" +
+      "public @interface RunWith {\n" +
+      "    Class<? extends Runner> value();\n" +
+      "}",
+
+      "package org.junit.runner;" +
+      "public abstract class Runner {}",
+
       "package junit.framework;" +
-      "public abstract class TestCase {}"};
+      "public abstract class TestCase {}",
+
+      "package mockit;" +
+      "@Retention(value=RUNTIME) @Target(value={FIELD,PARAMETER})" +
+      "public @interface Mocked {}"};
   }
 }

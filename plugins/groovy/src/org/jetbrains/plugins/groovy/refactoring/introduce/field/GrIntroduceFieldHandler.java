@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.introduce.field;
 
 import com.intellij.openapi.util.Ref;
@@ -22,7 +8,7 @@ import com.intellij.psi.PsiModifier;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.introduce.inplace.OccurrencesChooser;
 import com.intellij.refactoring.introduceField.IntroduceFieldHandler;
-import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable;
@@ -36,15 +22,16 @@ import org.jetbrains.plugins.groovy.refactoring.introduce.*;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.jetbrains.annotations.Nls.Capitalization.Title;
+
 /**
  * @author Maxim.Medvedev
  */
 public class GrIntroduceFieldHandler extends GrIntroduceFieldHandlerBase<GrIntroduceFieldSettings> {
 
-  @NotNull
   @Override
-  protected String getRefactoringName() {
-    return IntroduceFieldHandler.REFACTORING_NAME;
+  protected @Nls(capitalization = Title) @NotNull String getRefactoringName() {
+    return IntroduceFieldHandler.getRefactoringNameText();
   }
 
   @NotNull
@@ -80,7 +67,7 @@ public class GrIntroduceFieldHandler extends GrIntroduceFieldHandlerBase<GrIntro
   }
 
   @Override
-  protected void checkOccurrences(@NotNull PsiElement[] occurrences) {
+  protected void checkOccurrences(PsiElement @NotNull [] occurrences) {
     //nothing to do
   }
 
@@ -98,7 +85,7 @@ public class GrIntroduceFieldHandler extends GrIntroduceFieldHandlerBase<GrIntro
 
   @Override
   protected GrAbstractInplaceIntroducer<GrIntroduceFieldSettings> getIntroducer(@NotNull GrIntroduceContext context,
-                                                                                OccurrencesChooser.ReplaceChoice choice) {
+                                                                                @NotNull OccurrencesChooser.ReplaceChoice choice) {
 
     final Ref<GrIntroduceContext> contextRef = Ref.create(context);
 
@@ -109,19 +96,18 @@ public class GrIntroduceFieldHandler extends GrIntroduceFieldHandlerBase<GrIntro
     return new GrInplaceFieldIntroducer(contextRef.get(), choice);
   }
 
-  @NotNull
   @Override
-  protected PsiElement[] findOccurrences(@NotNull GrExpression expression, @NotNull PsiElement scope) {
+  protected PsiElement @NotNull [] findOccurrences(@NotNull GrExpression expression, @NotNull PsiElement scope) {
     final PsiElement[] occurrences = super.findOccurrences(expression, scope);
     if (shouldBeStatic(expression, scope)) return occurrences;
 
-    List<PsiElement> filtered = new ArrayList<PsiElement>();
+    List<PsiElement> filtered = new ArrayList<>();
     for (PsiElement occurrence : occurrences) {
       if (!shouldBeStatic(occurrence, scope)) {
         filtered.add(occurrence);
       }
     }
-    return ContainerUtil.toArray(filtered, new PsiElement[filtered.size()]);
+    return filtered.toArray(PsiElement.EMPTY_ARRAY);
   }
 
   @Nullable

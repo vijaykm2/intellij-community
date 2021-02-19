@@ -15,8 +15,13 @@
  */
 package git4idea.history.browser;
 
-import git4idea.history.wholeTree.AbstractHash;
+import org.jetbrains.annotations.ApiStatus;
 
+/**
+ * @deprecated Use {@link com.intellij.vcs.log.Hash}
+ */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
 public class SHAHash {
   private final String myValue;
 
@@ -33,10 +38,6 @@ public class SHAHash {
 
   public String getValue() {
     return myValue;
-  }
-
-  public static SHAHash emulate(final AbstractHash abstractHash) {
-    return new SHAHash(abstractHash.getString(), false);
   }
 
   @Override

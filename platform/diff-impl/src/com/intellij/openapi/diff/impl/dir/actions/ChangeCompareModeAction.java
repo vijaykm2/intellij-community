@@ -16,18 +16,19 @@
 package com.intellij.openapi.diff.impl.dir.actions;
 
 import com.intellij.ide.diff.DirDiffSettings;
-import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.diff.impl.dir.DirDiffTableModel;
+import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.util.PlatformIcons;
 import com.intellij.util.ui.EmptyIcon;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
 /**
 * @author Konstantin Bulenkov
 */
-class ChangeCompareModeAction extends AnAction {
+class ChangeCompareModeAction extends DumbAwareAction {
   private final static Icon ON = PlatformIcons.CHECK_ICON;
   private final static Icon ON_SELECTED = PlatformIcons.CHECK_ICON_SELECTED;
   private final static Icon OFF = EmptyIcon.create(ON.getIconHeight());
@@ -36,19 +37,20 @@ class ChangeCompareModeAction extends AnAction {
   private final DirDiffSettings.CompareMode myMode;
 
   ChangeCompareModeAction(DirDiffTableModel model, DirDiffSettings.CompareMode mode) {
-    super(mode.getPresentableName(model.getSettings()));
+    super(mode.getPresentableName());
+    getTemplatePresentation().setIcon(OFF);
     myModel = model;
     myMode = mode;
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     myModel.setCompareMode(myMode);
     myModel.reloadModel(false);
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final boolean on = myModel.getCompareMode() == myMode;
     e.getPresentation().setIcon(on ? ON : OFF);
     e.getPresentation().setSelectedIcon(on ? ON_SELECTED : OFF);

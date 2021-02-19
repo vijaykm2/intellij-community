@@ -1,26 +1,24 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package icons;
 
-import com.intellij.openapi.util.IconLoader;
+import com.intellij.ui.IconManager;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
 /**
  * NOTE THIS FILE IS AUTO-GENERATED
- * DO NOT EDIT IT BY HAND, run build/scripts/icons.gant instead
+ * DO NOT EDIT IT BY HAND, run "Generate icon classes" configuration instead
  */
-public class AntIcons {
-  private static Icon load(String path) {
-    return IconLoader.getIcon(path, AntIcons.class);
+public final class AntIcons {
+  private static @NotNull Icon load(@NotNull String path, long cacheKey, int flags) {
+    return IconManager.getInstance().loadRasterizedIcon(path, AntIcons.class.getClassLoader(), cacheKey, flags);
   }
-
-  public static final Icon AntBuildXml = load("/icons/AntBuildXml.png"); // 16x16
-  public static final Icon AntInstallation = load("/icons/antInstallation.png"); // 16x16
-  public static final Icon Build = load("/icons/build.png"); // 16x16
-  public static final Icon ChangeView = load("/icons/changeView.png"); // 16x16
-  public static final Icon Message = load("/icons/message.png"); // 16x16
-  public static final Icon MetaTarget = load("/icons/metaTarget.png"); // 16x16
-  public static final Icon Properties = load("/icons/properties.png"); // 16x16
-  public static final Icon Target = load("/icons/target.png"); // 16x16
-  public static final Icon Task = load("/icons/task.png"); // 16x16
-  public static final Icon Verbose = load("/icons/verbose.png"); // 16x16
+  /** 16x16 */ public static final @NotNull Icon AntBuildXml = load("icons/AntBuildXml.svg", -8473302394186807329L, 2);
+  /** 16x16 */ public static final @NotNull Icon Build = load("icons/build.svg", 3667004201638782453L, 0);
+  /** 16x16 */ public static final @NotNull Icon LogDebug = load("icons/logDebug.svg", 5850755603949634467L, 0);
+  /** 16x16 */ public static final @NotNull Icon LogVerbose = load("icons/logVerbose.svg", 7862178940357318488L, 0);
+  /** 16x16 */ public static final @NotNull Icon MetaTarget = load("icons/metaTarget.svg", -6558471529747439394L, 0);
+  /** 16x16 */ public static final @NotNull Icon Task = load("icons/task.svg", -4529718741399480301L, 0);
+  /** 16x16 */ public static final @NotNull Icon Verbose = load("icons/verbose.svg", -1320469129638865964L, 2);
 }

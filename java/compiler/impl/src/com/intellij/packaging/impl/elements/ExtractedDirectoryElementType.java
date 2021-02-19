@@ -16,6 +16,7 @@
 package com.intellij.packaging.impl.elements;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.fileChooser.FileChooser;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.project.Project;
@@ -32,13 +33,10 @@ import javax.swing.*;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
-* @author nik
-*/
 public class ExtractedDirectoryElementType extends PackagingElementType<ExtractedDirectoryPackagingElement> {
 
   ExtractedDirectoryElementType() {
-    super("extracted-dir", "Extracted Directory");
+    super("extracted-dir", JavaCompilerBundle.messagePointer("extracted.directory.element.type.name"));
   }
 
   @Override
@@ -51,6 +49,7 @@ public class ExtractedDirectoryElementType extends PackagingElementType<Extracte
     return true;
   }
 
+  @Override
   @NotNull
   public List<? extends PackagingElement<?>> chooseAndCreate(@NotNull ArtifactEditorContext context, @NotNull Artifact artifact,
                                                                    @NotNull CompositePackagingElement<?> parent) {
@@ -62,7 +61,7 @@ public class ExtractedDirectoryElementType extends PackagingElementType<Extracte
       }
     };
     final VirtualFile[] files = FileChooser.chooseFiles(descriptor, context.getProject(), null);
-    final List<PackagingElement<?>> list = new ArrayList<PackagingElement<?>>();
+    final List<PackagingElement<?>> list = new ArrayList<>();
     final PackagingElementFactory factory = PackagingElementFactory.getInstance();
     for (VirtualFile file : files) {
       list.add(factory.createExtractedDirectory(file));
@@ -70,6 +69,7 @@ public class ExtractedDirectoryElementType extends PackagingElementType<Extracte
     return list;
   }
 
+  @Override
   @NotNull
   public ExtractedDirectoryPackagingElement createEmpty(@NotNull Project project) {
     return new ExtractedDirectoryPackagingElement();

@@ -19,9 +19,6 @@ package com.intellij.facet.ui.libraries;
 import javax.swing.*;
 import java.util.EventListener;
 
-/**
- * @author nik
- */
 public interface LibrariesValidationComponent {
 
   JComponent getComponent();
@@ -37,6 +34,6 @@ public interface LibrariesValidationComponent {
   void removeValidityListener(ValidityListener listener);
 
   interface ValidityListener extends EventListener {
-    void valididyChanged(boolean isValid);
+    void validityChanged(boolean isValid);
   }
 }

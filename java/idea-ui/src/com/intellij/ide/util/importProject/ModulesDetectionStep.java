@@ -1,21 +1,9 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.importProject;
 
+import com.intellij.CommonBundle;
 import com.intellij.ide.IdeBundle;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.util.projectWizard.AbstractStepWithProgress;
 import com.intellij.ide.util.projectWizard.importSources.DetectedProjectRoot;
 import com.intellij.ide.util.projectWizard.importSources.ProjectFromSourcesBuilder;
@@ -32,7 +20,6 @@ import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Jul 18, 2007
  */
 public class ModulesDetectionStep extends AbstractStepWithProgress<List<ModuleDescriptor>> {
   private final ProjectStructureDetector myDetector;
@@ -48,7 +35,7 @@ public class ModulesDetectionStep extends AbstractStepWithProgress<List<ModuleDe
                               ProjectDescriptor projectDescriptor, final ModuleInsight insight,
                               Icon icon,
                               @NonNls String helpId) {
-    super("Stop module analysis?");
+    super(JavaUiBundle.message("module.detection.dialog.message.stop.module.analysis"));
     myDetector = detector;
     myBuilder = builder;
     myProjectDescriptor = projectDescriptor;
@@ -57,24 +44,24 @@ public class ModulesDetectionStep extends AbstractStepWithProgress<List<ModuleDe
     myHelpId = helpId;
   }
 
+  @Override
   public void updateDataModel() {
     myProjectDescriptor.setModules(myModulesLayoutPanel.getChosenEntries());
   }
 
+  @Override
   protected JComponent createResultsPanel() {
-    myModulesLayoutPanel = new ModulesLayoutPanel(myInsight, new ModulesLayoutPanel.LibraryFilter() {
-      public boolean isLibraryChosen(final LibraryDescriptor libDescriptor) {
-        return myProjectDescriptor.isLibraryChosen(libDescriptor);
-      }
-    });
+    myModulesLayoutPanel = new ModulesLayoutPanel(myInsight, myProjectDescriptor::isLibraryChosen);
     return myModulesLayoutPanel;
   }
 
+  @Override
   protected String getProgressText() {
-    return "Searching for modules. Please wait.";
+    return JavaUiBundle.message("progress.text.searching.for.modules");
   }
 
-  int myPreviousStateHashCode = -1;
+  private int myPreviousStateHashCode = -1;
+  @Override
   protected boolean shouldRunProgress() {
     final int currentHash = calcStateHashCode();
     try {
@@ -101,10 +88,11 @@ public class ModulesDetectionStep extends AbstractStepWithProgress<List<ModuleDe
     return hash;
   }
 
+  @Override
   protected List<ModuleDescriptor> calculate() {
     myInsight.scanModules();
     final List<ModuleDescriptor> suggestedModules = myInsight.getSuggestedModules();
-    return suggestedModules != null? suggestedModules : Collections.<ModuleDescriptor>emptyList();
+    return suggestedModules != null? suggestedModules : Collections.emptyList();
   }
 
   @Override
@@ -115,12 +103,12 @@ public class ModulesDetectionStep extends AbstractStepWithProgress<List<ModuleDe
     }
 
     final List<ModuleDescriptor> modules = myModulesLayoutPanel.getChosenEntries();
-    final Map<String, ModuleDescriptor> errors = new LinkedHashMap<String, ModuleDescriptor>();
+    final Map<String, ModuleDescriptor> errors = new LinkedHashMap<>();
     for (ModuleDescriptor module : modules) {
       try {
         final String moduleFilePath = module.computeModuleFilePath();
         if (new File(moduleFilePath).exists()) {
-          errors.put(IdeBundle.message("warning.message.the.module.file.0.already.exist.and.will.be.overwritten", moduleFilePath), module);
+          errors.put(JavaUiBundle.message("warning.message.the.module.file.0.already.exist.and.will.be.overwritten", moduleFilePath), module);
         }
       }
       catch (InvalidDataException e) {
@@ -129,9 +117,12 @@ public class ModulesDetectionStep extends AbstractStepWithProgress<List<ModuleDe
     }
     if (!errors.isEmpty()) {
       final int answer = Messages.showYesNoCancelDialog(getComponent(),
-                                                        IdeBundle.message("warning.text.0.do.you.want.to.overwrite.these.files",
+                                                        JavaUiBundle.message("warning.text.0.do.you.want.to.overwrite.these.files",
                                                                           StringUtil.join(errors.keySet(), "\n"), errors.size()),
-                                                        IdeBundle.message("title.file.already.exists"), "Overwrite", "Reuse", "Cancel", Messages.getQuestionIcon());
+                                                        IdeBundle.message("title.file.already.exists"),
+                                                        CommonBundle.message("button.overwrite"),
+                                                        CommonBundle.message("button.reuse"),
+                                                        CommonBundle.message("button.without.mnemonics.cancel"), Messages.getQuestionIcon());
       if (answer == Messages.CANCEL) {
         return false;
       }
@@ -145,15 +136,18 @@ public class ModulesDetectionStep extends AbstractStepWithProgress<List<ModuleDe
     return true;
   }
 
+  @Override
   protected void onFinished(final List<ModuleDescriptor> moduleDescriptors, final boolean canceled) {
     myModulesLayoutPanel.rebuild();
   }
 
+  @Override
   @NonNls
   public String getHelpId() {
     return myHelpId;
   }
 
+  @Override
   public Icon getIcon() {
     return myIcon;
   }

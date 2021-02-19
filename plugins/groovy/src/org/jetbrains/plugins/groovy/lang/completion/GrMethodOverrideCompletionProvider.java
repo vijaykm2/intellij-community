@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.completion;
 
 import com.intellij.codeInsight.completion.*;
@@ -25,14 +11,15 @@ import com.intellij.psi.infos.CandidateInfo;
 import com.intellij.psi.util.PsiFormatUtil;
 import com.intellij.psi.util.PsiFormatUtilBase;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.ui.RowIcon;
+import com.intellij.ui.IconManager;
+import com.intellij.ui.icons.RowIcon;
 import com.intellij.util.ProcessingContext;
 import com.intellij.util.VisibilityUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.lang.completion.handlers.GroovyMethodOverrideHandler;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefinition;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefinitionBody;
-import org.jetbrains.plugins.groovy.overrideImplement.GroovyOverrideImplementExploreUtil;
+import org.jetbrains.plugins.groovy.util.GroovyOverrideImplementExploreUtil;
 
 import java.util.Collection;
 
@@ -42,7 +29,7 @@ import static com.intellij.patterns.PlatformPatterns.psiElement;
 class GrMethodOverrideCompletionProvider extends CompletionProvider<CompletionParameters> {
 
   private static final ElementPattern<PsiElement> PLACE = psiElement().withParent(GrTypeDefinitionBody.class).with(
-    new PatternCondition<PsiElement>("Not in extends/implements clause of inner class") {
+    new PatternCondition<>("Not in extends/implements clause of inner class") {
       @Override
       public boolean accepts(@NotNull PsiElement element, ProcessingContext context) {
         final GrTypeDefinition innerDefinition = PsiTreeUtil.getPrevSiblingOfType(element, GrTypeDefinition.class);
@@ -51,7 +38,7 @@ class GrMethodOverrideCompletionProvider extends CompletionProvider<CompletionPa
     }).andNot(psiComment());
 
   @Override
-  protected void addCompletions(@NotNull CompletionParameters parameters, ProcessingContext context, @NotNull CompletionResultSet result) {
+  protected void addCompletions(@NotNull CompletionParameters parameters, @NotNull ProcessingContext context, @NotNull CompletionResultSet result) {
     final PsiElement position = parameters.getPosition();
     final GrTypeDefinition currentClass = PsiTreeUtil.getParentOfType(position, GrTypeDefinition.class);
 
@@ -71,7 +58,7 @@ class GrMethodOverrideCompletionProvider extends CompletionProvider<CompletionPa
       final PsiMethod method = (PsiMethod)candidateInfo.getElement();
       if (method.isConstructor()) continue;
 
-      RowIcon icon = new RowIcon(2);
+      RowIcon icon = IconManager.getInstance().createRowIcon(2);
       icon.setIcon(method.getIcon(0), 0);
       icon.setIcon(toImplement ? AllIcons.Gutter.ImplementingMethod : AllIcons.Gutter.OverridingMethod, 1);
 

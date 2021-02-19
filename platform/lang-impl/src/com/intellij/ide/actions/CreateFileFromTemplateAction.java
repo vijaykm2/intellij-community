@@ -18,64 +18,91 @@ package com.intellij.ide.actions;
 import com.intellij.ide.fileTemplates.FileTemplate;
 import com.intellij.ide.fileTemplates.FileTemplateManager;
 import com.intellij.ide.fileTemplates.FileTemplateUtil;
+import com.intellij.ide.fileTemplates.actions.CreateFromTemplateActionBase;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDirectory;
-import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.SmartPointerManager;
+import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.util.IncorrectOperationException;
 import org.apache.velocity.runtime.parser.ParseException;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.util.Collections;
+import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * @author Dmitry Avdeev
  */
 public abstract class CreateFileFromTemplateAction extends CreateFromTemplateAction<PsiFile> {
 
-  public CreateFileFromTemplateAction(String text, String description, Icon icon) {
+  public CreateFileFromTemplateAction(@NlsActions.ActionText String text,
+                                      @NlsActions.ActionDescription String description, Icon icon) {
     super(text, description, icon);
   }
 
-  protected PsiFile createFileFromTemplate(String name, FileTemplate template, PsiDirectory dir) {
-    return createFileFromTemplate(name, template, dir, getDefaultTemplateProperty());
+  public CreateFileFromTemplateAction(@NotNull Supplier<String> dynamicText, @NotNull Supplier<String> dynamicDescription, Icon icon) {
+    super(dynamicText, dynamicDescription, icon);
   }
 
-  @SuppressWarnings("DialogTitleCapitalization")
+  protected PsiFile createFileFromTemplate(final String name, final FileTemplate template, final PsiDirectory dir) {
+    return createFileFromTemplate(name, template, dir, getDefaultTemplateProperty(), true);
+  }
+
   @Nullable
   public static PsiFile createFileFromTemplate(@Nullable String name,
                                                @NotNull FileTemplate template,
                                                @NotNull PsiDirectory dir,
-                                               @Nullable String defaultTemplateProperty) {
+                                               @Nullable String defaultTemplateProperty,
+                                               boolean openFile) {
+    return createFileFromTemplate(name, template, dir, defaultTemplateProperty, openFile, Collections.emptyMap());
+  }
+
+  @Nullable
+  public static PsiFile createFileFromTemplate(@Nullable String name,
+                                               @NotNull FileTemplate template,
+                                               @NotNull PsiDirectory dir,
+                                               @Nullable String defaultTemplateProperty,
+                                               boolean openFile,
+                                               @NotNull Map<String, String> liveTemplateDefaultValues) {
     if (name != null) {
       CreateFileAction.MkDirs mkdirs = new CreateFileAction.MkDirs(name, dir);
       name = mkdirs.newName;
       dir = mkdirs.directory;
     }
-    
-    PsiElement element;
+
     Project project = dir.getProject();
     try {
-      element = FileTemplateUtil.createFromTemplate(template, name, FileTemplateManager.getInstance(dir.getProject()).getDefaultProperties(project), dir);
-      final PsiFile psiFile = element.getContainingFile();
+      PsiFile psiFile = FileTemplateUtil.createFromTemplate(template, name, FileTemplateManager.getInstance(dir.getProject()).getDefaultProperties(), dir)
+        .getContainingFile();
+      SmartPsiElementPointer<PsiFile> pointer = SmartPointerManager.getInstance(project).createSmartPsiElementPointer(psiFile);
 
-      final VirtualFile virtualFile = psiFile.getVirtualFile();
+      VirtualFile virtualFile = psiFile.getVirtualFile();
       if (virtualFile != null) {
-        FileEditorManager.getInstance(project).openFile(virtualFile, true);
+        if (openFile) {
+          if (template.isLiveTemplateEnabled()) {
+            CreateFromTemplateActionBase.startLiveTemplate(psiFile, liveTemplateDefaultValues);
+          }
+          else {
+            FileEditorManager.getInstance(project).openFile(virtualFile, true);
+          }
+        }
         if (defaultTemplateProperty != null) {
           PropertiesComponent.getInstance(project).setValue(defaultTemplateProperty, template.getName());
         }
-        return psiFile;
+        return pointer.getElement();
       }
     }
     catch (ParseException e) {
-      Messages.showErrorDialog(project, "Error parsing Velocity template: " + e.getMessage(), "Create File from Template");
-      return null;
+      throw new IncorrectOperationException("Error parsing Velocity template: " + e.getMessage(), (Throwable)e);
     }
     catch (IncorrectOperationException e) {
       throw e;

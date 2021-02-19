@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 20-Dec-2007
- */
 package com.intellij.codeInspection.ex;
 
 import com.intellij.codeInspection.HTMLComposer;
@@ -63,7 +59,9 @@ public class JavaInspectionExtensionsFactory extends InspectionExtensionsFactory
   }
 
   @Override
-  public boolean isProjectConfiguredToRunInspections(@NotNull final Project project, final boolean online) {
-    return GlobalJavaInspectionContextImpl.isInspectionsEnabled(online, project);
+  public boolean isProjectConfiguredToRunInspections(@NotNull final Project project,
+                                                     final boolean online,
+                                                     @NotNull Runnable rerunAction) {
+    return GlobalJavaInspectionContextImpl.isInspectionsEnabled(online, project, rerunAction);
   }
 }

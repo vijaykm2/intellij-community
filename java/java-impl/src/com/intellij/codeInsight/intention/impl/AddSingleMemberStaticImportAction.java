@@ -1,52 +1,43 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * @author ven
  */
 package com.intellij.codeInsight.intention.impl;
 
-import com.intellij.codeInsight.CodeInsightBundle;
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.intention.BaseElementAtCaretIntentionAction;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
+import com.intellij.psi.impl.source.codeStyle.ImportHelper;
 import com.intellij.psi.impl.source.tree.java.PsiReferenceExpressionImpl;
 import com.intellij.psi.util.InheritanceUtil;
+import com.intellij.psi.util.MethodSignatureUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.IncorrectOperationException;
+import com.siyeh.ig.psiutils.CommentTracker;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Objects;
+
 public class AddSingleMemberStaticImportAction extends BaseElementAtCaretIntentionAction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.intention.impl.AddSingleMemberStaticImportAction");
-  private static final Key<PsiElement> TEMP_REFERENT_USER_DATA = new Key<PsiElement>("TEMP_REFERENT_USER_DATA");
+  private static final Logger LOG = Logger.getInstance(AddSingleMemberStaticImportAction.class);
+  private static final Key<PsiElement> TEMP_REFERENT_USER_DATA = new Key<>("TEMP_REFERENT_USER_DATA");
 
   @Override
   @NotNull
   public String getFamilyName() {
-    return CodeInsightBundle.message("intention.add.single.member.static.import.family");
+    return JavaBundle.message("intention.add.single.member.static.import.family");
   }
 
-  public static class ImportAvailability {
+  public static final class ImportAvailability {
     private final String qName;
     private final PsiMember resolved;
 
@@ -60,7 +51,7 @@ public class AddSingleMemberStaticImportAction extends BaseElementAtCaretIntenti
    * Allows to check if it's possible to perform static import for the target element.
    *
    * @param element     target element that is static import candidate
-   * @return            not-null qualified name of the class which method may be statically imported if any; <code>null</code> otherwise
+   * @return            not-null qualified name of the class which method may be statically imported if any; {@code null} otherwise
    */
   @Nullable
   public static ImportAvailability getStaticImportClass(@NotNull PsiElement element) {
@@ -75,30 +66,49 @@ public class AddSingleMemberStaticImportAction extends BaseElementAtCaretIntenti
         JavaResolveResult[] results = refExpr.multiResolve(false);
         for (JavaResolveResult result : results) {
           final PsiElement resolved = result.getElement();
-          if (resolved instanceof PsiMember && ((PsiModifierListOwner)resolved).hasModifierProperty(PsiModifier.STATIC)) {
+          if (resolved instanceof PsiMember && ((PsiModifierListOwner)resolved).hasModifierProperty(PsiModifier.STATIC) ||
+              resolved instanceof PsiClass) {
+            if (!PsiUtil.isAccessible((PsiMember)resolved, element.getContainingFile(), null)) return null;
             PsiClass aClass = getResolvedClass(element, (PsiMember)resolved);
-            if (aClass != null && !PsiTreeUtil.isAncestor(aClass, element, true) && !aClass.hasModifierProperty(PsiModifier.PRIVATE)) {
+            String qName = aClass != null ? aClass.getQualifiedName() : null;
+            if (aClass != null &&
+                qName != null &&
+                !PsiTreeUtil.isAncestor(aClass, element, true) &&
+                !aClass.hasModifierProperty(PsiModifier.PRIVATE) &&
+                !PsiUtil.isFromDefaultPackage(aClass)) {
               final PsiElement gParent = refExpr.getParent();
               if (gParent instanceof PsiMethodCallExpression) {
                 final PsiMethodCallExpression call = (PsiMethodCallExpression)gParent.copy();
                 final PsiElement qualifier = call.getMethodExpression().getQualifier();
                 if (qualifier == null) return null;
                 qualifier.delete();
-                final PsiMethod method = call.resolveMethod();
-                if (method != null && method.getContainingClass() != aClass)  return null;
+                final JavaResolveResult resolveResult = call.resolveMethodGenerics();
+                final PsiElement method = resolveResult.getElement();
+                if (method instanceof PsiMethod) {
+                  if (((PsiMethod)method).getContainingClass() != aClass) {
+                    final PsiElement currentFileResolveScope = resolveResult.getCurrentFileResolveScope();
+                    if (currentFileResolveScope instanceof PsiImportStaticStatement) {
+                      //don't hide another on-demand import and don't create ambiguity
+                      if (resolved instanceof PsiMethod && MethodSignatureUtil.areSignaturesEqual((PsiMethod)method, (PsiMethod)resolved)) {
+                        return null;
+                      }
+                    }
+                    else return null;
+                  }
+                }
+                else if (method == null && call.getMethodExpression().multiResolve(false).length > 0) {
+                  return null;
+                }
               }
               else {
-                final PsiJavaCodeReferenceElement copy = (PsiJavaCodeReferenceElement)refExpr.copy();
-                final PsiElement qualifier = copy.getQualifier();
-                if (qualifier == null) return null;
-                qualifier.delete();
+                PsiElement refNameElement = refExpr.getReferenceNameElement();
+                if (refNameElement == null) return null;
+                final PsiJavaCodeReferenceElement copy = JavaPsiFacade.getElementFactory(refNameElement.getProject())
+                  .createReferenceFromText(refNameElement.getText(), refExpr);
                 final PsiElement target = copy.resolve();
                 if (target != null && PsiTreeUtil.getParentOfType(target, PsiClass.class) != aClass) return null;
               }
-              String qName = aClass.getQualifiedName();
-              if (qName != null && !Comparing.strEqual(qName, aClass.getName())) {
-                return new ImportAvailability(qName + "." +refExpr.getReferenceName(), (PsiMember) resolved);
-              }
+              return new ImportAvailability(qName + "." +refExpr.getReferenceName(), (PsiMember) resolved);
             }
           }
         }
@@ -145,6 +155,9 @@ public class AddSingleMemberStaticImportAction extends BaseElementAtCaretIntenti
         if (qResolved instanceof PsiVariable) {
           aClass = PsiUtil.resolveClassInClassTypeOnly(((PsiVariable)qResolved).getType());
         }
+        else if (qResolved instanceof PsiClass) {
+          aClass = (PsiClass)qResolved;
+        }
       }
     }
     return aClass;
@@ -155,17 +168,24 @@ public class AddSingleMemberStaticImportAction extends BaseElementAtCaretIntenti
     ImportAvailability availability = getStaticImportClass(element);
     if (availability != null) {
       if (availability.resolved instanceof PsiClass) {
-        setText(CodeInsightBundle.message("intention.add.single.member.import.text", availability.qName));
+        setText(JavaBundle.message("intention.add.single.member.import.text", availability.qName));
       } else {
-        setText(CodeInsightBundle.message("intention.add.single.member.static.import.text", availability.qName));
+        PsiFile file = element.getContainingFile();
+        if (!(file instanceof PsiJavaFile)) return false;
+        PsiImportStatementBase existingImport =
+          findExistingImport(file, availability.resolved.getContainingClass(), StringUtil.getShortName(availability.qName));
+        if (existingImport != null && !existingImport.isOnDemand()) {
+          setText(JavaBundle.message("intention.use.single.member.static.import.text" , availability.qName));
+        }
+        else {
+          setText(JavaBundle.message("intention.add.single.member.static.import.text", availability.qName));
+        }
       }
     }
     return availability != null;
   }
 
   public static void invoke(PsiFile file, final PsiElement element) {
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
-
     final PsiJavaCodeReferenceElement refExpr = (PsiJavaCodeReferenceElement)element.getParent();
     final String referenceName = refExpr.getReferenceName();
     final JavaResolveResult[] targets = refExpr.multiResolve(false);
@@ -179,7 +199,7 @@ public class AddSingleMemberStaticImportAction extends BaseElementAtCaretIntenti
   }
 
   public static void bindAllClassRefs(final PsiFile file,
-                                      final PsiElement resolved,
+                                      @NotNull final PsiElement resolved,
                                       final String referenceName,
                                       final PsiClass resolvedClass) {
     file.accept(new JavaRecursiveElementWalkingVisitor() {
@@ -196,12 +216,12 @@ public class AddSingleMemberStaticImportAction extends BaseElementAtCaretIntenti
       }
     });
 
-    if (resolved != null && findExistingImport(file, resolvedClass, referenceName) == null) {
-      if (resolved instanceof PsiClass) {
-        ((PsiJavaFile) file).importClass((PsiClass) resolved);
-      } else {
-        PsiReferenceExpressionImpl.bindToElementViaStaticImport(resolvedClass, referenceName, ((PsiJavaFile)file).getImportList());
-      }
+    PsiImportStatementBase existingImport = findExistingImport(file, resolvedClass, referenceName);
+    if (existingImport == null && resolved instanceof PsiClass) {
+      ((PsiImportHolder) file).importClass((PsiClass) resolved);
+    }
+    else if (existingImport == null || existingImport.isOnDemand() && resolvedClass != null && ImportHelper.hasConflictingOnDemandImport((PsiJavaFile)file, resolvedClass, referenceName)) {
+      PsiReferenceExpressionImpl.bindToElementViaStaticImport(resolvedClass, referenceName, ((PsiJavaFile)file).getImportList());
     }
 
     file.accept(new JavaRecursiveElementVisitor() {
@@ -220,43 +240,34 @@ public class AddSingleMemberStaticImportAction extends BaseElementAtCaretIntenti
             PsiElement referent = reference.getUserData(TEMP_REFERENT_USER_DATA);
             if (!reference.isQualified()) {
               if (referent instanceof PsiMember && referent != reference.resolve()) {
-                PsiElementFactory factory = JavaPsiFacade.getInstance(reference.getProject()).getElementFactory();
                 try {
                   final PsiClass containingClass = ((PsiMember)referent).getContainingClass();
                   if (containingClass != null) {
-                    PsiReferenceExpression copy = (PsiReferenceExpression)factory.createExpressionFromText("A." + reference.getReferenceName(), null);
-                    reference = (PsiReferenceExpression)reference.replace(copy);
-                    ((PsiReferenceExpression)reference.getQualifier()).bindToElement(containingClass);
+                    reference = rebind(reference, containingClass);
                   }
                 }
                 catch (IncorrectOperationException e) {
                   LOG.error (e);
                 }
               }
-              reference.putUserData(TEMP_REFERENT_USER_DATA, null);
-            } else {
+            }
+            else if (referent == null ||
+                     referent instanceof PsiClass ||
+                     referent instanceof PsiMember && ((PsiMember)referent).hasModifierProperty(PsiModifier.STATIC)) {
               if (qualifierExpression instanceof PsiJavaCodeReferenceElement) {
                 PsiElement aClass = ((PsiJavaCodeReferenceElement)qualifierExpression).resolve();
                 if (aClass instanceof PsiVariable) {
                   aClass = PsiUtil.resolveClassInClassTypeOnly(((PsiVariable)aClass).getType());
                 }
                 if (aClass instanceof PsiClass && InheritanceUtil.isInheritorOrSelf((PsiClass)aClass, resolvedClass, true)) {
-                  boolean foundMemberByName = false;
-                  if (referent instanceof PsiMember) {
-                    final String memberName = ((PsiMember)referent).getName();
-                    final PsiClass containingClass = PsiTreeUtil.getParentOfType(reference, PsiClass.class);
-                    if (containingClass != null) {
-                      foundMemberByName |= containingClass.findFieldByName(memberName, true) != null;
-                      foundMemberByName |= containingClass.findMethodsByName(memberName, true).length > 0;
-                    }
+                  try {
+                    new CommentTracker().deleteAndRestoreComments(qualifierExpression);
                   }
-                  if (!foundMemberByName) {
-                    try {
-                      qualifierExpression.delete();
-                    }
-                    catch (IncorrectOperationException e) {
-                      LOG.error(e);
-                    }
+                  catch (IncorrectOperationException e) {
+                    LOG.error(e);
+                  }
+                  if (!Comparing.equal(reference.resolve(), referent)) {
+                    reference = rebind(reference, resolvedClass);
                   }
                 }
               }
@@ -269,6 +280,15 @@ public class AddSingleMemberStaticImportAction extends BaseElementAtCaretIntenti
         }
       }
     });
+  }
+
+  private static PsiJavaCodeReferenceElement rebind(PsiJavaCodeReferenceElement reference, PsiClass targetClass) {
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(reference.getProject());
+    PsiReferenceExpression copy = (PsiReferenceExpression)factory.createExpressionFromText("A." + reference.getReferenceName(), null);
+    reference = (PsiReferenceExpression)reference.replace(copy);
+    PsiReferenceExpression qualifier = Objects.requireNonNull((PsiReferenceExpression)reference.getQualifier());
+    qualifier.bindToElement(targetClass);
+    return reference;
   }
 
   @Override

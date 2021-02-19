@@ -25,19 +25,10 @@ import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class NewStringBufferWithCharArgumentInspection extends BaseInspection {
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "new.string.buffer.with.char.argument.display.name");
-  }
 
   @Override
   @NotNull
@@ -63,15 +54,10 @@ public class NewStringBufferWithCharArgumentInspection extends BaseInspection {
 
   private static class NewStringBufferWithCharArgumentFix
     extends InspectionGadgetsFix {
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "new.string.buffer.with.char.argument.quickfix");
     }

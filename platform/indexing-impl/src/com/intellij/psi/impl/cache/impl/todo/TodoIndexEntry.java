@@ -20,7 +20,6 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Jan 20, 2008
  */
 public class TodoIndexEntry {
   final String pattern;
@@ -44,5 +43,10 @@ public class TodoIndexEntry {
     int result = pattern.hashCode();
     result = 31 * result + (caseSensitive ? 1 : 0);
     return result;
+  }
+
+  @Override
+  public String toString() {
+    return "TodoIndexEntry[pattern=" + pattern + ", caseSensitive=" + caseSensitive + "]";
   }
 }

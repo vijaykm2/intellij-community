@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.runners;
 
 import com.intellij.execution.ExecutionException;
@@ -32,19 +18,29 @@ import org.jetbrains.annotations.Nullable;
  * configuration takes care of building a command line and the program runner takes care of how exactly it needs to be executed.
  *
  * A newly created program runner should be registered in a corresponding plugin.xml:
- *
+ * <pre>
  * &lt;extensions defaultExtensionNs="com.intellij"&gt;
  *   &lt;programRunner implementation="RunnerClassFQN"/&gt;
  * &lt;/extensions&gt;
- *
- * @param <Settings>
- * @see GenericProgramRunner
+ * </pre>
+ * @see AsyncProgramRunner
  */
 public interface ProgramRunner<Settings extends RunnerSettings> {
-  ExtensionPointName<ProgramRunner> PROGRAM_RUNNER_EP = ExtensionPointName.create("com.intellij.programRunner");
+  ExtensionPointName<ProgramRunner<? extends RunnerSettings>> PROGRAM_RUNNER_EP = new ExtensionPointName<>("com.intellij.programRunner");
 
   interface Callback {
     void processStarted(RunContentDescriptor descriptor);
+  }
+
+  @Nullable
+  static ProgramRunner<?> findRunnerById(@NotNull String id) {
+    return PROGRAM_RUNNER_EP.findFirstSafe(it -> id.equals(it.getRunnerId()));
+  }
+
+  @Nullable
+  static ProgramRunner<RunnerSettings> getRunner(@NotNull String executorId, @NotNull RunProfile settings) {
+    //noinspection unchecked
+    return (ProgramRunner<RunnerSettings>)PROGRAM_RUNNER_EP.findFirstSafe(it -> it.canRun(executorId, settings));
   }
 
   /**
@@ -52,7 +48,8 @@ public interface ProgramRunner<Settings extends RunnerSettings> {
    *
    * @return the program runner ID.
    */
-  @NotNull @NonNls
+  @NotNull
+  @NonNls
   String getRunnerId();
 
   /**
@@ -62,7 +59,7 @@ public interface ProgramRunner<Settings extends RunnerSettings> {
    * @param profile the configuration being run.
    * @return true if the runner can handle it, false otherwise.
    */
-  boolean canRun(@NotNull final String executorId, @NotNull final RunProfile profile);
+  boolean canRun(@NotNull String executorId, @NotNull RunProfile profile);
 
   /**
    * Creates a block of per-configuration settings used by this program runner.
@@ -71,16 +68,37 @@ public interface ProgramRunner<Settings extends RunnerSettings> {
    * @return the per-runner settings, or null if this runner doesn't use any per-runner settings.
    */
   @Nullable
-  Settings createConfigurationData(ConfigurationInfoProvider settingsProvider);
+  default Settings createConfigurationData(@NotNull ConfigurationInfoProvider settingsProvider) {
+    return null;
+  }
 
-  void checkConfiguration(RunnerSettings settings, @Nullable ConfigurationPerRunnerSettings configurationPerRunnerSettings)
-    throws RuntimeConfigurationException;
+  default void checkConfiguration(RunnerSettings settings, @Nullable ConfigurationPerRunnerSettings configurationPerRunnerSettings)
+    throws RuntimeConfigurationException {
+  }
 
-  void onProcessStarted(RunnerSettings settings, ExecutionResult executionResult);
+  /**
+   * @deprecated Not used by platform.
+   */
+  @SuppressWarnings("unused")
+  @Deprecated
+  default void onProcessStarted(RunnerSettings settings, ExecutionResult executionResult) {
+  }
 
   @Nullable
-  SettingsEditor<Settings> getSettingsEditor(Executor executor, RunConfiguration configuration);
+  default SettingsEditor<Settings> getSettingsEditor(Executor executor, RunConfiguration configuration) {
+    return null;
+  }
 
   void execute(@NotNull ExecutionEnvironment environment) throws ExecutionException;
-  void execute(@NotNull ExecutionEnvironment environment, @Nullable Callback callback) throws ExecutionException;
+
+  /**
+   * @deprecated Use {@link #execute(ExecutionEnvironment)} and {@link ExecutionEnvironment#setCallback(Callback)}
+   */
+  @Deprecated
+  default void execute(@NotNull ExecutionEnvironment environment, @Nullable Callback callback) throws ExecutionException {
+    if (callback != null) {
+      environment.setCallback(callback);
+    }
+    execute(environment);
+  }
 }

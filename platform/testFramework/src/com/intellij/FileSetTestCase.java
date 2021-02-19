@@ -1,19 +1,15 @@
-/*
- * Created by IntelliJ IDEA.
- * User: user
- * Date: Sep 22, 2002
- * Time: 2:45:20 PM
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+
 package com.intellij;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.testFramework.LightPlatformTestCase;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.ThrowableRunnable;
 import junit.framework.TestSuite;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.IOException;
@@ -26,7 +22,7 @@ public abstract class FileSetTestCase extends TestSuite {
   protected Project myProject;
   private Pattern myPattern;
 
-  public FileSetTestCase(String path) {
+  public FileSetTestCase(@NotNull String path) {
     File f = new File(path);
     if (f.isDirectory()) {
       myFiles = f.listFiles();
@@ -43,12 +39,17 @@ public abstract class FileSetTestCase extends TestSuite {
     addAllTests();
   }
 
+  protected FileSetTestCase(File @NotNull [] files) {
+    myFiles = files;
+    addAllTests();
+  }
+
   protected void setUp() {
 
   }
 
   protected void tearDown() {
-
+    myProject = null;
   }
 
   private void addAllTests() {
@@ -60,11 +61,6 @@ public abstract class FileSetTestCase extends TestSuite {
   }
 
   public abstract String transform(String testName, String[] data) throws Exception;
-
-  protected FileSetTestCase(File[] files) {
-    myFiles = files;
-    addAllTests();
-  }
 
   @Override
   public String getName() {
@@ -97,7 +93,7 @@ public abstract class FileSetTestCase extends TestSuite {
     private final File myTestFile;
     private final String myTestName;
 
-    public ActualTest(File testFile, String testName) {
+    ActualTest(File testFile, String testName) {
       myTestFile = testFile;
       myTestName = testName;
     }
@@ -120,16 +116,15 @@ public abstract class FileSetTestCase extends TestSuite {
     }
 
     @Override
-    protected void runTest() throws Throwable {
+    protected void runTestRunnable(@NotNull ThrowableRunnable<Throwable> testRunnable) throws Throwable {
       String content = loadFile(myTestFile);
       assertNotNull(content);
 
-      List<String> input = new ArrayList<String>();
-
-      int separatorIndex;
+      List<String> input = new ArrayList<>();
 
       content = StringUtil.replace(content, "\r", "");
 
+      int separatorIndex;
       while ((separatorIndex = content.indexOf(getDelimiter())) >= 0) {
         input.add(content.substring(0, separatorIndex));
         content = content.substring(separatorIndex);
@@ -138,25 +133,25 @@ public abstract class FileSetTestCase extends TestSuite {
 
       String result = content;
 
-      assertTrue("No data found in source file", input.size() > 0);
+      assertTrue("No data found in source file", !input.isEmpty());
 
       while (StringUtil.startsWithChar(result, '-') || StringUtil.startsWithChar(result, '\n') || StringUtil.startsWithChar(result, '\r')) {
         result = result.substring(1);
       }
-      final String transformed;
-      FileSetTestCase.this.myProject = getProject();
+      myProject = getProject();
       String testName = myTestFile.getName();
       final int dotIdx = testName.indexOf('.');
       if (dotIdx >= 0) {
         testName = testName.substring(0, dotIdx);
       }
 
-      transformed = StringUtil.replace(transform(testName, ArrayUtil.toStringArray(input)), "\r", "");
+      final String transformed = StringUtil.replace(transform(testName, ArrayUtilRt.toStringArray(input)), "\r", "");
       result = StringUtil.replace(result, "\r", "");
 
       assertEquals(result.trim(),transformed.trim());
     }
 
+    @NotNull
     @Override
     protected String getTestName(final boolean lowercaseFirstLetter) {
       return "";

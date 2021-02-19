@@ -15,8 +15,8 @@
  */
 package com.intellij.testIntegration.createTest;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.template.Template;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.text.StringUtil;
@@ -30,7 +30,6 @@ import com.intellij.testIntegration.TestFramework;
 import com.intellij.testIntegration.TestIntegrationUtils;
 import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.components.JBCheckBox;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.Nullable;
@@ -49,14 +48,14 @@ public class MissedTestsDialog extends DialogWrapper {
   private final PsiClass myTestClass;
   private final TestFramework myDescriptor;
   private MemberSelectionTable myTable;
-  private final JBCheckBox myIncludeInheritedCb = new JBCheckBox(CodeInsightBundle.message("intention.create.test.dialog.show.inherited"));
+  private final JBCheckBox myIncludeInheritedCb = new JBCheckBox(JavaBundle.message("intention.create.test.dialog.show.inherited"));
 
   public MissedTestsDialog(@Nullable Project project, PsiClass sourceClass, PsiClass testClass, TestFramework descriptor) {
     super(project, true);
     mySourceClass = sourceClass;
     myTestClass = testClass;
     myDescriptor = descriptor;
-    setTitle("Create Missed Tests");
+    setTitle(JavaBundle.message("dialog.title.create.missed.tests"));
     init();
   }
 
@@ -85,15 +84,10 @@ public class MissedTestsDialog extends DialogWrapper {
   }
 
   private void disableMethodsWithTests(List<MemberInfo> info) {
-    final Set<String> existingNames = new HashSet<String>();
+    final Set<String> existingNames = new HashSet<>();
     final String prefix = getTestPrefix(existingNames);
 
-    existingNames.addAll(ContainerUtil.map(myTestClass.getMethods(), new Function<PsiMethod, String>() {
-      @Override
-      public String fun(PsiMethod method) {
-        return StringUtil.decapitalize(StringUtil.trimStart(method.getName(), prefix));
-      }
-    }));
+    existingNames.addAll(ContainerUtil.map(myTestClass.getMethods(), method -> StringUtil.decapitalize(StringUtil.trimStart(method.getName(), prefix))));
 
 
     for (MemberInfo memberInfo : info) {
@@ -115,7 +109,7 @@ public class MissedTestsDialog extends DialogWrapper {
   private void updateMethodsTable() {
     List<MemberInfo> infos = TestIntegrationUtils.extractClassMethods(mySourceClass, myIncludeInheritedCb.isSelected());
 
-    Set<PsiMember> selectedMethods = new HashSet<PsiMember>();
+    Set<PsiMember> selectedMethods = new HashSet<>();
     for (MemberInfo each : myTable.getSelectedMemberInfos()) {
       selectedMethods.add(each.getMember());
     }

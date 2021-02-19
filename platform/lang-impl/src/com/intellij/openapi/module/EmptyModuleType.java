@@ -58,11 +58,7 @@ public class EmptyModuleType extends ModuleType<EmptyModuleBuilder> {
     return ProjectBundle.message("module.type.empty.description");
   }
 
-  @Override
-  public Icon getBigIcon() {
-    return AllIcons.Modules.Types.EmptyProjectType;
-  }
-
+  @NotNull
   @Override
   public Icon getNodeIcon(boolean isOpened) {
     return AllIcons.Nodes.Module;

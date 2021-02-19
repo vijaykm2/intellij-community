@@ -17,6 +17,8 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
 import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.roots.OrderRootType;
 import com.intellij.openapi.roots.libraries.ui.impl.LibraryRootsDetectorImpl;
+import com.intellij.openapi.roots.ui.configuration.libraryEditor.LibraryEditor;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -27,8 +29,6 @@ import java.util.List;
  * Allows to customize a library editor
  *
  * @see com.intellij.openapi.roots.libraries.LibraryType#createLibraryRootsComponentDescriptor
- *
- * @author nik
  */
 public abstract class LibraryRootsComponentDescriptor {
   /**
@@ -64,7 +64,6 @@ public abstract class LibraryRootsComponentDescriptor {
 
   /**
    * @return descriptor for the file chooser which will be shown when 'Attach Files' button is pressed
-   * @param libraryName
    */
   @NotNull
   public FileChooserDescriptor createAttachFilesChooserDescriptor(@Nullable String libraryName) {
@@ -74,6 +73,19 @@ public abstract class LibraryRootsComponentDescriptor {
     descriptor.setDescription(ProjectBundle.message("library.attach.files.description"));
     return descriptor;
   }
+
+  /**
+   * Creates a instance which will be notified when a root is removed in the library editor.
+   */
+  @NotNull
+  public RootRemovalHandler createRootRemovalHandler() {
+    return new RootRemovalHandler() {
+      @Override
+      public void onRootRemoved(@NotNull String rootUrl, @NotNull OrderRootType rootType, @NotNull LibraryEditor libraryEditor) {
+      }
+    };
+  }
+
 
   /**
    * @return descriptors for additional 'Attach' buttons in the library roots editor
@@ -89,7 +101,12 @@ public abstract class LibraryRootsComponentDescriptor {
     return OrderRootType.getAllTypes();
   }
 
+  @NlsActions.ActionText
   public String getAttachFilesActionName() {
     return ProjectBundle.message("button.text.attach.files");
+  }
+
+  public interface RootRemovalHandler {
+    void onRootRemoved(@NotNull String rootUrl, @NotNull OrderRootType rootType, @NotNull LibraryEditor libraryEditor);
   }
 }

@@ -15,6 +15,7 @@
  */
 package com.intellij.codeInsight.daemon;
 
+import com.intellij.openapi.util.NlsContexts;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,7 +28,10 @@ import javax.swing.*;
  *
  * Daemon code analyzer checks newly arrived gutter icon renderer against the old one and if they are equal, does not redraw the icon.
  * So it is highly advisable to override hashCode()/equals() methods to avoid icon flickering when old gutter renderer gets replaced with the new.
- * @see RangeHighlighter#setGutterIconRenderer(GutterIconRenderer)
+ *
+ * During indexing, methods are only invoked for renderers implementing {@link com.intellij.openapi.project.DumbAware}.
+ *
+ * @see com.intellij.openapi.editor.markup.RangeHighlighter#setGutterIconRenderer(com.intellij.openapi.editor.markup.GutterIconRenderer)
  */
 public interface GutterMark {
   /**
@@ -44,5 +48,6 @@ public interface GutterMark {
    * @return the tooltip text, or null if no tooltip is required.
    */
   @Nullable
+  @NlsContexts.Tooltip
   String getTooltipText();
 }

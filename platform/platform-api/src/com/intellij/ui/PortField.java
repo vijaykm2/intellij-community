@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ package com.intellij.ui;
 
 import javax.swing.*;
 
-public class PortField extends JSpinner {
+public class PortField extends JBIntSpinner {
   public PortField() {
     this(0);
   }
@@ -26,25 +26,13 @@ public class PortField extends JSpinner {
     this(value, 0);
   }
 
+  @Override
   public void setMin(int value) {
     ((SpinnerNumberModel)getModel()).setMinimum(value);
   }
 
   public PortField(int value, int min) {
-    setModel(new SpinnerNumberModel(value, min, 65535, 1));
-    setEditor(new NumberEditor(this, "#"));
-  }
-
-  public void setEditable(boolean value) {
-    ((NumberEditor)getEditor()).getTextField().setEditable(value);
-  }
-
-  public void setNumber(int value) {
-    setValue(value);
-  }
-
-  public int getNumber() {
-    return ((SpinnerNumberModel)getModel()).getNumber().intValue();
+    super(value, min, 65535);
   }
 
   public boolean isSpecified() {

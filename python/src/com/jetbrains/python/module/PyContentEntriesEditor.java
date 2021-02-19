@@ -1,30 +1,14 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.module;
 
+import com.intellij.facet.impl.ui.FacetErrorPanel;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.CustomShortcutSet;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ContentEntry;
-import com.intellij.openapi.roots.ContentFolder;
 import com.intellij.openapi.roots.ModifiableRootModel;
-import com.intellij.openapi.roots.impl.ContentEntryImpl;
 import com.intellij.openapi.roots.ui.configuration.*;
 import com.intellij.openapi.roots.ui.configuration.actions.ContentEntryEditingAction;
 import com.intellij.openapi.util.Comparing;
@@ -32,6 +16,8 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointer;
 import com.intellij.util.EventDispatcher;
+import com.intellij.util.PlatformIcons;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -42,19 +28,24 @@ import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import javax.swing.tree.TreeCellRenderer;
 import java.awt.*;
+import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
+import com.jetbrains.python.namespacePackages.PyNamespacePackagesService;
 
 public class PyContentEntriesEditor extends CommonContentEntriesEditor {
-  private final PyRootTypeProvider[] myRootTypeProviders;
+  private final List<PyRootTypeProvider> myRootTypeProviders;
   private final Module myModule;
   private Disposable myFilePointersDisposable;
   private MyContentEntryEditor myContentEntryEditor;
+  private final FacetErrorPanel myWarningPanel;
 
   public PyContentEntriesEditor(Module module, ModuleConfigurationState moduleConfigurationState,
-                                      JpsModuleSourceRootType<?>... rootTypes) {
-    super(module.getName(), moduleConfigurationState, rootTypes);
-    myRootTypeProviders = Extensions.getExtensions(PyRootTypeProvider.EP_NAME);
+                                boolean withBorders, JpsModuleSourceRootType<?>... rootTypes) {
+    super(module.getName(), moduleConfigurationState, withBorders, rootTypes);
+    myRootTypeProviders = PyRootTypeProvider.EP_NAME.getExtensionList();
     myModule = module;
+    myWarningPanel = new FacetErrorPanel();
     reset();
   }
 
@@ -70,7 +61,7 @@ public class PyContentEntriesEditor extends CommonContentEntriesEditor {
   @Override
   protected List<ContentEntry> addContentEntries(VirtualFile[] files) {
     List<ContentEntry> entries = super.addContentEntries(files);
-    addContentEntryPanels(entries.toArray(new ContentEntry[entries.size()]));
+    addContentEntryPanels(entries.toArray(new ContentEntry[0]));
     return entries;
   }
 
@@ -102,6 +93,10 @@ public class PyContentEntriesEditor extends CommonContentEntriesEditor {
     if (myFilePointersDisposable != null) {
       Disposer.dispose(myFilePointersDisposable);
     }
+
+    for (PyRootTypeProvider provider : myRootTypeProviders) {
+      provider.disposeUIResources(myModule);
+    }
   }
 
   @Override
@@ -124,7 +119,7 @@ public class PyContentEntriesEditor extends CommonContentEntriesEditor {
   }
 
   @Override
-  protected MyContentEntryEditor createContentEntryEditor(String contentEntryUrl) {
+  protected ContentEntryEditor createContentEntryEditor(String contentEntryUrl) {
     myContentEntryEditor = new MyContentEntryEditor(contentEntryUrl, getEditHandlers());
     return myContentEntryEditor;
   }
@@ -155,14 +150,18 @@ public class PyContentEntriesEditor extends CommonContentEntriesEditor {
     }
 
     @Override
-    public void deleteContentFolder(ContentEntry contentEntry, ContentFolder folder) {
-      for (PyRootTypeProvider provider : myRootTypeProviders) {
-        if (provider.isMine(folder)) {
-          removeRoot(contentEntry, folder.getUrl(), provider);
-          return;
+    public void deleteContentFolder(ContentEntry contentEntry, ContentFolderRef folderRef) {
+      if (folderRef instanceof ExternalContentFolderRef) {
+        String url = folderRef.getUrl();
+        for (PyRootTypeProvider provider : myRootTypeProviders) {
+          Collection<VirtualFilePointer> roots = provider.getRoots().get(contentEntry);
+          if (roots.stream().anyMatch(pointer -> pointer.getUrl().equals(url))) {
+            removeRoot(contentEntry, url, provider);
+            return;
+          }
         }
       }
-      super.deleteContentFolder(contentEntry, folder);
+      super.deleteContentFolder(contentEntry, folderRef);
     }
 
     public void removeRoot(@Nullable ContentEntry contentEntry, String folder, PyRootTypeProvider provider) {
@@ -171,7 +170,7 @@ public class PyContentEntriesEditor extends CommonContentEntriesEditor {
       }
       VirtualFilePointer root = getRoot(provider, folder);
       if (root != null) {
-        provider.removeRoot(contentEntry, root);
+        provider.removeRoot(contentEntry, root, getModel());
         fireUpdate();
       }
     }
@@ -183,7 +182,7 @@ public class PyContentEntriesEditor extends CommonContentEntriesEditor {
 
     public VirtualFilePointer getRoot(PyRootTypeProvider provider, @NotNull final String url) {
       for (VirtualFilePointer filePointer : provider.getRoots().get(getContentEntry())) {
-        if (Comparing.equal(filePointer.getUrl(), url)) {
+        if (Objects.equals(filePointer.getUrl(), url)) {
           return filePointer;
         }
       }
@@ -202,9 +201,9 @@ public class PyContentEntriesEditor extends CommonContentEntriesEditor {
 
       @Override
       @NotNull
-      protected ContentEntryImpl getContentEntry() {
+      protected ContentEntry getContentEntry() {
         //noinspection ConstantConditions
-        return (ContentEntryImpl)MyContentEntryEditor.this.getContentEntry();
+        return MyContentEntryEditor.this.getContentEntry();
       }
 
       @Override
@@ -212,10 +211,12 @@ public class PyContentEntriesEditor extends CommonContentEntriesEditor {
         super.addFolderGroupComponents();
         for (PyRootTypeProvider provider : myRootTypeProviders) {
           MultiMap<ContentEntry, VirtualFilePointer> roots = provider.getRoots();
-          if (!roots.get(getContentEntry()).isEmpty()) {
-            final JComponent sourcesComponent = createFolderGroupComponent(provider.getName() + " Folders",
-                                                                           provider.createFolders(getContentEntry()),
-                                                                           provider.getColor(), null);
+          Collection<VirtualFilePointer> pointers = roots.get(getContentEntry());
+          if (!pointers.isEmpty()) {
+            List<ExternalContentFolderRef> folderRefs = ContainerUtil.map(pointers, ExternalContentFolderRef::new);
+            final JComponent sourcesComponent = createFolderGroupComponent(provider.getRootsGroupTitle(),
+                                                                           folderRefs,
+                                                                           provider.getRootsGroupColor(), null);
             this.add(sourcesComponent, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1.0, 0.0, GridBagConstraints.NORTH,
                                                               GridBagConstraints.HORIZONTAL, new Insets(0, 0, 10, 0), 0, 0));
           }
@@ -234,7 +235,7 @@ public class PyContentEntriesEditor extends CommonContentEntriesEditor {
       }
     };
 
-    public MyContentEntryTreeEditor(Project project, List<ModuleSourceRootEditHandler<?>> handlers) {
+    MyContentEntryTreeEditor(Project project, List<ModuleSourceRootEditHandler<?>> handlers) {
       super(project, handlers);
     }
 
@@ -272,8 +273,8 @@ public class PyContentEntriesEditor extends CommonContentEntriesEditor {
     }
 
     @Override
-    protected TreeCellRenderer getContentEntryCellRenderer() {
-      return new ContentEntryTreeCellRenderer(this, getEditHandlers()) {
+    protected TreeCellRenderer getContentEntryCellRenderer(@NotNull ContentEntry contentEntry) {
+      return new ContentEntryTreeCellRenderer(this, contentEntry, getEditHandlers()) {
         @Override
         protected Icon updateIcon(final ContentEntry entry, final VirtualFile file, final Icon originalIcon) {
           for (PyRootTypeProvider provider : myRootTypeProviders) {
@@ -281,9 +282,25 @@ public class PyContentEntriesEditor extends CommonContentEntriesEditor {
               return provider.getIcon();
             }
           }
-          return super.updateIcon(entry, file, originalIcon);
+          // JavaModuleSourceRootEditHandler gives every directory under a source root a package icon.
+          // Since we use the same icon for explicit namespace package "roots", we forcibly replace icons
+          // for other "false" packages with the one for a plain directory to avoid confusion.
+          Icon defaultIcon = super.updateIcon(entry, file, originalIcon);
+          if (defaultIcon == PlatformIcons.PACKAGE_ICON) {
+            return PlatformIcons.FOLDER_ICON;
+          }
+          return defaultIcon;
         }
       };
     }
+  }
+
+  @Override
+  protected void addAdditionalSettingsToPanel(JPanel mainPanel) {
+    mainPanel.add(myWarningPanel.getComponent(), BorderLayout.SOUTH);
+  }
+
+  public FacetErrorPanel getWarningPanel() {
+    return myWarningPanel;
   }
 }

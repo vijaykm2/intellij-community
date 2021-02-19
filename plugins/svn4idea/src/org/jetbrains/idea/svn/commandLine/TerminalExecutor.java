@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,13 +19,13 @@ import com.intellij.execution.CommandLineUtil;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.configurations.PtyCommandLine;
-import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -35,8 +35,8 @@ public class TerminalExecutor extends CommandExecutor {
 
   private final List<InteractiveCommandListener> myInteractiveListeners = ContainerUtil.createLockFreeCopyOnWriteList();
 
-  public TerminalExecutor(@NotNull @NonNls String exePath, @NotNull String locale, @NotNull Command command) {
-    super(exePath, locale, command);
+  public TerminalExecutor(@NotNull @NonNls String exePath, @NotNull Command command) {
+    super(exePath, command);
   }
 
   public void addInteractiveListener(@NotNull InteractiveCommandListener listener) {
@@ -60,7 +60,7 @@ public class TerminalExecutor extends CommandExecutor {
   @NotNull
   @Override
   protected SvnProcessHandler createProcessHandler() {
-    return new TerminalProcessHandler(myProcess, needsUtf8Output(), false);
+    return new TerminalProcessHandler(myProcess, myCommandLine.getCommandLineString(), needsUtf8Output(), false);
   }
 
   /**
@@ -74,7 +74,7 @@ public class TerminalExecutor extends CommandExecutor {
     }
 
     ByteArrayOutputStream result = new ByteArrayOutputStream();
-    byte[] outputBytes = CharsetToolkit.getUtf8Bytes(getOutput());
+    byte[] outputBytes = getOutput().getBytes(StandardCharsets.UTF_8);
 
     result.write(outputBytes, 0, outputBytes.length);
 
@@ -103,7 +103,7 @@ public class TerminalExecutor extends CommandExecutor {
   @NotNull
   protected Process createProcess(@NotNull List<String> parameters) throws ExecutionException {
     try {
-      return ((PtyCommandLine)myCommandLine).startProcessWithPty(parameters, false);
+      return ((PtyCommandLine)myCommandLine).withConsoleMode(false).startProcessWithPty(parameters);
     }
     catch (IOException e) {
       throw new ExecutionException(e);

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.commandLine;
 
 import com.intellij.execution.ExecutionException;
@@ -20,7 +6,6 @@ import com.intellij.execution.process.ProcessWrapper;
 import com.intellij.execution.util.ExecUtil;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -49,14 +34,14 @@ public class WinTerminalExecutor extends TerminalExecutor {
   @Nullable private File myRedirectFile;
   @Nullable private FileInputStream myRedirectStream;
 
-  public WinTerminalExecutor(@NotNull @NonNls String exePath, @NotNull String locale, @NotNull Command command) {
-    super(exePath, locale, command);
+  public WinTerminalExecutor(@NotNull @NonNls String exePath, @NotNull Command command) {
+    super(exePath, command);
   }
 
   @NotNull
   @Override
   protected SvnProcessHandler createProcessHandler() {
-    return new WinTerminalProcessHandler(myProcess, needsUtf8Output(), needsBinaryOutput());
+    return new WinTerminalProcessHandler(myProcess, myCommandLine.getCommandLineString(), needsUtf8Output(), needsBinaryOutput());
   }
 
   @Override
@@ -102,7 +87,7 @@ public class WinTerminalExecutor extends TerminalExecutor {
   protected Process createProcess() throws ExecutionException {
     checkRedirectFile();
 
-    List<String> parameters = escapeArguments(buildParameters());
+    List<@NonNls String> parameters = escapeArguments(buildParameters());
     parameters.add(0, ExecUtil.getWindowsShellName());
     parameters.add(1, "/c");
     parameters.add(">>");
@@ -139,12 +124,7 @@ public class WinTerminalExecutor extends TerminalExecutor {
   @NotNull
   @Override
   protected List<String> escapeArguments(@NotNull List<String> arguments) {
-    return ContainerUtil.map(arguments, new Function<String, String>() {
-      @Override
-      public String fun(String argument) {
-        return needQuote(argument) && !isQuoted(argument) ? quote(argument) : argument;
-      }
-    });
+    return ContainerUtil.map(arguments, argument -> needQuote(argument) && !isQuoted(argument) ? quote(argument) : argument);
   }
 
   @NotNull

@@ -1,39 +1,21 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.process;
 
+import com.intellij.execution.Platform;
 import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.StatusBar;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Locale;
+public final class ProcessTerminatedListener extends ProcessAdapter {
+  protected static final String EXIT_CODE_ENTRY = "$EXIT_CODE$";
+  protected static final String EXIT_CODE_REGEX = "\\$EXIT_CODE\\$";
 
-/**
- * @author dyoma
- */
-public class ProcessTerminatedListener extends ProcessAdapter {
-  @NonNls protected static final String EXIT_CODE_ENTRY = "$EXIT_CODE$";
-  @NonNls protected static final String EXIT_CODE_REGEX = "\\$EXIT_CODE\\$";
-
-  private static final Key<ProcessTerminatedListener> KEY = new Key<ProcessTerminatedListener>("processTerminatedListener");
+  private static final Key<ProcessTerminatedListener> KEY = new Key<>("processTerminatedListener");
 
   private final String myProcessFinishedMessage;
   private final Project myProject;
@@ -64,35 +46,46 @@ public class ProcessTerminatedListener extends ProcessAdapter {
     attach(processHandler, null);
   }
 
-  public void processTerminated(ProcessEvent event) {
-    final ProcessHandler processHandler = event.getProcessHandler();
+  @Override
+  public void processTerminated(@NotNull ProcessEvent event) {
+    ProcessHandler processHandler = event.getProcessHandler();
     processHandler.removeProcessListener(this);
-    final String message = myProcessFinishedMessage.replaceAll(EXIT_CODE_REGEX, stringifyExitCode(event.getExitCode()));
+    @NlsSafe String message = myProcessFinishedMessage.replaceAll(EXIT_CODE_REGEX, stringifyExitCode(event.getExitCode()));
     processHandler.notifyTextAvailable(message, ProcessOutputTypes.SYSTEM);
-    if (myProject != null) ApplicationManager.getApplication().invokeLater(new Runnable(){
-      public void run() {
-        if (myProject.isDisposed()) return;
-        StatusBar.Info.set(message, myProject);
-      }
-    });
+    if (myProject != null) {
+      ApplicationManager.getApplication().invokeLater(() -> StatusBar.Info.set(message, myProject), myProject.getDisposed());
+    }
   }
 
   @NotNull
-  private static String stringifyExitCode(int exitCode) {
-    // Quote from http://support.microsoft.com/kb/308558:
-    //   If the result code has the "C0000XXX" format, the task did not complete successfully (the "C" indicates an error condition).
-    //   The most common "C" error code is "0xC000013A: The application terminated as a result of a CTRL+C".
-    if (SystemInfo.isWindows && exitCode >= 0xC0000000 && exitCode < 0xD0000000) {
-      StringBuilder result = new StringBuilder();
-      result.append(exitCode);
-      result.append(" (0x").append(Integer.toHexString(exitCode).toUpperCase(Locale.ENGLISH));
+  public static String stringifyExitCode(int exitCode) {
+    return stringifyExitCode(Platform.current(), exitCode);
+  }
+
+  @NotNull
+  public static String stringifyExitCode(@NotNull Platform platform, int exitCode) {
+    StringBuilder result = new StringBuilder();
+    result.append(exitCode);
+
+    if (platform == Platform.WINDOWS && exitCode >= 0xC0000000 && exitCode < 0xD0000000) {
+      // Quote from http://support.microsoft.com/kb/308558:
+      //   If the result code has the "C0000XXX" format, the task did not complete successfully (the "C" indicates an error condition).
+      //   The most common "C" error code is "0xC000013A: The application terminated as a result of a CTRL+C".
+      result.append(" (0x").append(StringUtil.toUpperCase(Integer.toHexString(exitCode)));
       if (exitCode == 0xC000013A) {
-        // reporting a detailed reason for a well-known exit code
         result.append(": interrupted by Ctrl+C");
       }
-      result.append(")");
-      return result.toString();
+      result.append(')');
     }
-    return String.valueOf(exitCode);
+    else if (platform == Platform.UNIX && exitCode >= 129 && exitCode <= 159) {
+      // "Exit Codes With Special Meanings" (http://www.tldp.org/LDP/abs/html/exitcodes.html)
+      @SuppressWarnings("SpellCheckingInspection") String[] signals = {
+        "HUP", "INT", "QUIT", "ILL", "TRAP", "ABRT", "EMT", "FPE", "KILL", "BUS", "SEGV", "SYS", "PIPE", "ALRM", "TERM", "URG",
+        "STOP", "TSTP", "CONT", "CHLD", "TTIN", "TTOU", "IO", "XCPU", "XFSZ", "VTALRM", "PROF", "WINCH", "INFO", "USR1", "USR2"};
+      int signal = exitCode - 128;
+      result.append(" (interrupted by signal ").append(signal).append(": SIG").append(signals[signal - 1]).append(')');
+    }
+
+    return result.toString();
   }
 }

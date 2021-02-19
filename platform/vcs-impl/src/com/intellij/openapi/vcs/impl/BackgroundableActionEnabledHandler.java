@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,30 +15,32 @@
  */
 package com.intellij.openapi.vcs.impl;
 
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.ApiStatus;
 
-import java.util.HashSet;
-import java.util.Set;
-
+/**
+ * @deprecated use {@link BackgroundableActionLock}
+ */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
 public class BackgroundableActionEnabledHandler {
-  private final Set<Object> myInProgress;
+  private final Project myProject;
+  private final VcsBackgroundableActions myAction;
 
-  public BackgroundableActionEnabledHandler() {
-    myInProgress = new HashSet<Object>();
+  BackgroundableActionEnabledHandler(Project project, VcsBackgroundableActions action) {
+    myProject = project;
+    myAction = action;
   }
 
   public void register(final Object path) {
-    ApplicationManager.getApplication().assertIsDispatchThread();
-    myInProgress.add(path);
+    BackgroundableActionLock.lock(myProject, myAction, path);
   }
 
   public boolean isInProgress(final Object path) {
-    ApplicationManager.getApplication().assertIsDispatchThread();
-    return myInProgress.contains(path);
+    return BackgroundableActionLock.isLocked(myProject, myAction, path);
   }
 
   public void completed(final Object path) {
-    ApplicationManager.getApplication().assertIsDispatchThread();
-    myInProgress.remove(path);
+    BackgroundableActionLock.unlock(myProject, myAction, path);
   }
 }

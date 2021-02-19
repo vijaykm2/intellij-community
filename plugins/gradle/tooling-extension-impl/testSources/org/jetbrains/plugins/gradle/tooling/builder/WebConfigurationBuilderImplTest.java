@@ -19,6 +19,7 @@ import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import org.gradle.tooling.model.DomainObjectSet;
 import org.gradle.tooling.model.idea.IdeaModule;
+import org.gradle.tooling.model.idea.IdeaProject;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.gradle.model.web.WebConfiguration;
 import org.junit.Test;
@@ -27,13 +28,11 @@ import java.util.List;
 import java.util.Set;
 
 import static org.jetbrains.plugins.gradle.model.web.WebConfiguration.WarModel;
-import static org.jetbrains.plugins.gradle.model.web.WebConfiguration.WebResource;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 
 /**
  * @author Vladislav.Soroka
- * @since 11/29/13
  */
 public class WebConfigurationBuilderImplTest extends AbstractModelBuilderTest {
 
@@ -42,15 +41,16 @@ public class WebConfigurationBuilderImplTest extends AbstractModelBuilderTest {
   }
 
   @Test
-  public void testDefaultWarModel() throws Exception {
-    DomainObjectSet<? extends IdeaModule> ideaModules = allModels.getIdeaProject().getModules();
+  public void testDefaultWarModel() {
+    DomainObjectSet<? extends IdeaModule> ideaModules = allModels.getModel(IdeaProject.class).getModules();
 
-    List<WebConfiguration> ideaModule = ContainerUtil.mapNotNull(ideaModules, new Function<IdeaModule, WebConfiguration>() {
-      @Override
-      public WebConfiguration fun(IdeaModule module) {
-        return allModels.getExtraProject(module, WebConfiguration.class);
-      }
-    });
+    List<WebConfiguration> ideaModule = ContainerUtil.mapNotNull(
+      ideaModules, new Function<IdeaModule, WebConfiguration>() {
+        @Override
+        public WebConfiguration fun(IdeaModule module) {
+          return allModels.getModel(module, WebConfiguration.class);
+        }
+      });
 
     assertEquals(1, ideaModule.size());
     WebConfiguration webConfiguration = ideaModule.get(0);
@@ -61,16 +61,16 @@ public class WebConfigurationBuilderImplTest extends AbstractModelBuilderTest {
 
     assertArrayEquals(
       new String[]{"MANIFEST.MF", "additionalWebInf", "rootContent"},
-      ContainerUtil.map2Array(warModel.getWebResources(), new Function<WebResource, Object>() {
+      ContainerUtil.map2Array(warModel.getWebResources(), new Function<WebConfiguration.WebResource, Object>() {
         @Override
-        public String fun(WebResource resource) {
+        public Object fun(WebConfiguration.WebResource resource) {
           return resource.getFile().getName();
         }
       }));
   }
 
   @Override
-  protected Set<Class> getModels() {
-    return ContainerUtil.<Class>set(WebConfiguration.class);
+  protected Set<Class<?>> getModels() {
+    return ContainerUtil.<Class<?>>set(WebConfiguration.class);
   }
 }

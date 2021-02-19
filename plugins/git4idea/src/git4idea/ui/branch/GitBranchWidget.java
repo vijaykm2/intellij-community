@@ -1,59 +1,60 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.ui.branch;
 
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.fileEditor.FileEditorManager;
-import com.intellij.openapi.fileEditor.FileEditorManagerEvent;
+import com.intellij.dvcs.DvcsUtil;
+import com.intellij.dvcs.branch.DvcsSyncSettings;
+import com.intellij.dvcs.repo.Repository;
+import com.intellij.dvcs.repo.VcsRepositoryMappingListener;
+import com.intellij.dvcs.ui.DvcsStatusWidget;
+import com.intellij.icons.AllIcons;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.ListPopup;
-import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.wm.StatusBar;
 import com.intellij.openapi.wm.StatusBarWidget;
-import com.intellij.openapi.wm.impl.status.EditorBasedWidget;
-import com.intellij.util.Consumer;
+import com.intellij.openapi.wm.StatusBarWidgetFactory;
+import com.intellij.openapi.wm.impl.status.widget.StatusBarWidgetsManager;
+import com.intellij.ui.LayeredIcon;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import git4idea.GitUtil;
+import git4idea.GitVcs;
+import git4idea.branch.GitBranchIncomingOutgoingManager;
 import git4idea.branch.GitBranchUtil;
 import git4idea.config.GitVcsSettings;
+import git4idea.i18n.GitBundle;
 import git4idea.repo.GitRepository;
-import git4idea.repo.GitRepositoryChangeListener;
+import git4idea.repo.GitRepositoryManager;
+import icons.DvcsImplIcons;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.awt.event.MouseEvent;
+import javax.swing.*;
 
 /**
  * Status bar widget which displays the current branch for the file currently open in the editor.
- * @author Kirill Likhodedov
  */
-public class GitBranchWidget extends EditorBasedWidget implements StatusBarWidget.MultipleTextValuesPresentation,
-                                                                  StatusBarWidget.Multiframe,
-                                                                  GitRepositoryChangeListener {
-  private static final Logger LOG = Logger.getInstance(GitBranchWidget.class);
-
+public class GitBranchWidget extends DvcsStatusWidget<GitRepository> {
+  private static final Icon INCOMING_LAYERED = new LayeredIcon(AllIcons.Vcs.Branch, DvcsImplIcons.IncomingLayer);
+  private static final Icon INCOMING_OUTGOING_LAYERED = new LayeredIcon(AllIcons.Vcs.Branch, DvcsImplIcons.IncomingOutgoingLayer);
+  private static final Icon OUTGOING_LAYERED = new LayeredIcon(AllIcons.Vcs.Branch, DvcsImplIcons.OutgoingLayer);
+  private static final @NonNls String ID = "git";
   private final GitVcsSettings mySettings;
-  private volatile String myText = "";
-  private volatile String myTooltip = "";
-  private final String myMaxString;
 
-  public GitBranchWidget(Project project) {
-    super(project);
-    project.getMessageBus().connect().subscribe(GitRepository.GIT_REPO_CHANGE, this);
+  public GitBranchWidget(@NotNull Project project) {
+    super(project, GitVcs.DISPLAY_NAME.get());
     mySettings = GitVcsSettings.getInstance(project);
-    myMaxString = "Git: Rebasing master";
+
+    project.getMessageBus().connect(this).subscribe(GitRepository.GIT_REPO_CHANGE, r -> updateLater());
+    project.getMessageBus().connect(this).subscribe(GitBranchIncomingOutgoingManager.GIT_INCOMING_OUTGOING_CHANGED, this::updateLater);
+  }
+
+  @Override
+  public @NotNull String ID() {
+    return ID;
   }
 
   @Override
@@ -61,121 +62,109 @@ public class GitBranchWidget extends EditorBasedWidget implements StatusBarWidge
     return new GitBranchWidget(getProject());
   }
 
-  @NotNull
+  @Nullable
   @Override
-  public String ID() {
-    return GitBranchWidget.class.getName();
+  @RequiresEdt
+  protected GitRepository guessCurrentRepository(@NotNull Project project) {
+    return DvcsUtil.guessCurrentRepositoryQuick(project, GitUtil.getRepositoryManager(project), mySettings.getRecentRootPath());
   }
 
+  @Nullable
   @Override
-  public WidgetPresentation getPresentation(@NotNull PlatformType type) {
-    return this;
-  }
-
-  @Override
-  public void selectionChanged(@NotNull FileEditorManagerEvent event) {
-    LOG.debug("selection changed");
-    update();
-  }
-
-  @Override
-  public void fileOpened(@NotNull FileEditorManager source, @NotNull VirtualFile file) {
-    LOG.debug("file opened");
-    update();
-  }
-
-  @Override
-  public void fileClosed(@NotNull FileEditorManager source, @NotNull VirtualFile file) {
-    LOG.debug("file closed");
-    update();
-  }
-
-  @Override
-  public void repositoryChanged(@NotNull GitRepository repository) {
-    LOG.debug("repository changed");
-    ApplicationManager.getApplication().invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        LOG.debug("update after repository change");
-        update();
+  protected Icon getIcon(@NotNull GitRepository repository) {
+    String currentBranchName = repository.getCurrentBranchName();
+    if (repository.getState() == Repository.State.NORMAL && currentBranchName != null) {
+      GitRepository indicatorRepo =
+        (GitRepositoryManager.getInstance(myProject).moreThanOneRoot() && mySettings.getSyncSetting() == DvcsSyncSettings.Value.DONT_SYNC)
+        ? repository
+        : null;
+      boolean hasIncoming = GitBranchIncomingOutgoingManager.getInstance(myProject).hasIncomingFor(indicatorRepo, currentBranchName);
+      boolean hasOutgoing = GitBranchIncomingOutgoingManager.getInstance(myProject).hasOutgoingFor(indicatorRepo, currentBranchName);
+      if (hasIncoming) {
+        return hasOutgoing ? INCOMING_OUTGOING_LAYERED : INCOMING_LAYERED;
       }
-    });
-  }
-
-  @Override
-  public ListPopup getPopupStep() {
-    Project project = getProject();
-    if (project == null) {
-      return null;
+      else if (hasOutgoing) return OUTGOING_LAYERED;
     }
-    GitRepository repo = GitBranchUtil.getCurrentRepository(project);
-    if (repo == null) {
-      return null;
-    }
-    update(); // update on click
-    return GitBranchPopup.getInstance(project, repo).asListPopup();
-  }
-
-  @Override
-  public String getSelectedValue() {
-    final String text = myText;
-    return StringUtil.isEmpty(text) ? "" : "Git: " + text;
+    return super.getIcon(repository);
   }
 
   @NotNull
   @Override
-  @Deprecated
-  public String getMaxValue() {
-    return myMaxString;
+  protected String getFullBranchName(@NotNull GitRepository repository) {
+    return GitBranchUtil.getDisplayableBranchText(repository);
   }
 
   @Override
-  public String getTooltipText() {
-    return myTooltip;
-  }
-
-  @Override
-  // have no effect since the click opens a list popup, and the consumer is not called for the MultipleTextValuesPresentation
-  public Consumer<MouseEvent> getClickConsumer() {
-    return new Consumer<MouseEvent>() {
-      public void consume(MouseEvent mouseEvent) {
-          update();
-      }
-    };
-  }
-
-  private void update() {
-    Project project = getProject();
-    if (project == null || project.isDisposed()) {
-      emptyTextAndTooltip();
-      return;
-    }
-
-    GitRepository repo = GitBranchUtil.getCurrentRepository(project);
-    if (repo == null) { // the file is not under version control => display nothing
-      emptyTextAndTooltip();
-      return;
-    }
-
-    int maxLength = myMaxString.length() - 1; // -1, because there are arrows indicating that it is a popup
-    myText = StringUtil.shortenTextWithEllipsis(GitBranchUtil.getDisplayableBranchText(repo), maxLength, 5);
-    myTooltip = getDisplayableBranchTooltip(repo);
-    myStatusBar.updateWidget(ID());
-    mySettings.setRecentRoot(repo.getRoot().getPath());
-  }
-
-  private void emptyTextAndTooltip() {
-    myText = "";
-    myTooltip = "";
+  protected boolean isMultiRoot(@NotNull Project project) {
+    return !GitUtil.justOneGitRepository(project);
   }
 
   @NotNull
-  private static String getDisplayableBranchTooltip(GitRepository repo) {
-    String text = GitBranchUtil.getDisplayableBranchText(repo);
-    if (!GitUtil.justOneGitRepository(repo.getProject())) {
-      return text + "\n" + "Root: " + repo.getRoot().getName();
-    }
-    return text;
+  @Override
+  protected ListPopup getPopup(@NotNull Project project, @NotNull GitRepository repository) {
+    return GitBranchPopup.getInstance(project, repository).asListPopup();
   }
 
+  @Override
+  protected void rememberRecentRoot(@NotNull String path) {
+    mySettings.setRecentRoot(path);
+  }
+
+  @Override
+  protected @NlsContexts.Tooltip @Nullable String getToolTip(@Nullable GitRepository repository) {
+    if (repository != null && repository.getState() == Repository.State.DETACHED) {
+      return GitBundle.message("git.status.bar.widget.tooltip.detached");
+    }
+    return super.getToolTip(repository);
+  }
+
+  public static class Listener implements VcsRepositoryMappingListener {
+    private final Project myProject;
+
+    public Listener(@NotNull Project project) {
+      myProject = project;
+    }
+
+    @Override
+    public void mappingChanged() {
+      myProject.getService(StatusBarWidgetsManager.class).updateWidget(Factory.class);
+    }
+  }
+
+  public static class Factory implements StatusBarWidgetFactory {
+    @Override
+    public @NotNull String getId() {
+      return ID;
+    }
+
+    @Override
+    public @Nls @NotNull String getDisplayName() {
+      return GitBundle.message("git.status.bar.widget.name");
+    }
+
+    @Override
+    public boolean isAvailable(@NotNull Project project) {
+      return !Registry.is("vcs.new.widget") && !GitRepositoryManager.getInstance(project).getRepositories().isEmpty();
+    }
+
+    @Override
+    public @NotNull StatusBarWidget createWidget(@NotNull Project project) {
+      return new GitBranchWidget(project);
+    }
+
+    @Override
+    public boolean isEnabledByDefault() {
+      return !Registry.is("ide.new.navbar", false);
+    }
+
+    @Override
+    public void disposeWidget(@NotNull StatusBarWidget widget) {
+      Disposer.dispose(widget);
+    }
+
+    @Override
+    public boolean canBeEnabledOn(@NotNull StatusBar statusBar) {
+      return true;
+    }
+  }
 }

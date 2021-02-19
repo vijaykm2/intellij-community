@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.uiDesigner.radComponents;
 
@@ -33,7 +19,6 @@ import com.intellij.uiDesigner.propertyInspector.properties.AbstractIntProperty;
 import com.intellij.uiDesigner.propertyInspector.properties.HorzAlignProperty;
 import com.intellij.uiDesigner.propertyInspector.properties.VertAlignProperty;
 import com.intellij.uiDesigner.propertyInspector.renderers.LabelPropertyRenderer;
-import com.intellij.uiDesigner.snapShooter.SnapshotContext;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -79,6 +64,7 @@ public class RadGridBagLayoutManager extends RadAbstractGridLayoutManager {
     super.changeContainerLayout(container);
   }
 
+  @Override
   public void writeChildConstraints(final XmlWriter writer, final RadComponent child) {
     writeGridConstraints(writer, child);
     if (child.getCustomLayoutConstraints() instanceof GridBagConstraints) {
@@ -172,11 +158,6 @@ public class RadGridBagLayoutManager extends RadAbstractGridLayoutManager {
   }
 
   @Override
-  public Property[] getContainerProperties(final Project project) {
-    return Property.EMPTY_ARRAY;
-  }
-
-  @Override
   public Property[] getComponentProperties(final Project project, final RadComponent component) {
     return new Property[]{
       new HorzAlignProperty(),
@@ -249,6 +230,7 @@ public class RadGridBagLayoutManager extends RadAbstractGridLayoutManager {
     return super.getDropLocation(container, location);
   }
 
+  @Override
   public void copyGridSection(final RadContainer source, final RadContainer destination, final Rectangle rc) {
     destination.setLayout(new GridBagLayout());
   }
@@ -287,14 +269,6 @@ public class RadGridBagLayoutManager extends RadAbstractGridLayoutManager {
     // do nothing here - setting visible to false would cause exceptions
   }
 
-  @Override
-  public void createSnapshotLayout(final SnapshotContext context,
-                                   final JComponent parent,
-                                   final RadContainer container,
-                                   final LayoutManager layout) {
-    container.setLayout(new GridBagLayout());
-  }
-
   public static Dimension getGridBagSize(final JComponent parent) {
     GridBagLayout gridBag = (GridBagLayout)parent.getLayout();
     gridBag.layoutContainer(parent);
@@ -313,7 +287,6 @@ public class RadGridBagLayoutManager extends RadAbstractGridLayoutManager {
     return new Dimension(colCount, rowCount);
   }
 
-  @Override
   public void addSnapshotComponent(final JComponent parent,
                                    final JComponent child,
                                    final RadContainer container,
@@ -477,10 +450,11 @@ public class RadGridBagLayoutManager extends RadAbstractGridLayoutManager {
   }
 
   private static class ComponentInsetsProperty extends AbstractInsetsProperty<RadComponent> {
-    public ComponentInsetsProperty() {
+    ComponentInsetsProperty() {
       super(null, "Insets");
     }
 
+    @Override
     public Insets getValue(final RadComponent component) {
       if (component.getCustomLayoutConstraints() instanceof GridBagConstraints) {
         final GridBagConstraints gbc = (GridBagConstraints)component.getCustomLayoutConstraints();
@@ -489,6 +463,7 @@ public class RadGridBagLayoutManager extends RadAbstractGridLayoutManager {
       return new Insets(0, 0, 0, 0);
     }
 
+    @Override
     protected void setValueImpl(final RadComponent component, final Insets value) throws Exception {
       if (component.getCustomLayoutConstraints() instanceof GridBagConstraints) {
         final GridBagConstraints cellConstraints = (GridBagConstraints)component.getCustomLayoutConstraints();
@@ -517,11 +492,12 @@ public class RadGridBagLayoutManager extends RadAbstractGridLayoutManager {
     private LabelPropertyRenderer<Double> myRenderer;
     private PropertyEditor<Double> myEditor;
 
-    public WeightProperty(final boolean isWeightX) {
+    WeightProperty(final boolean isWeightX) {
       super(null, isWeightX ? "Weight X" : "Weight Y");
       myIsWeightX = isWeightX;
     }
 
+    @Override
     public Double getValue(final RadComponent component) {
       if (component.getCustomLayoutConstraints() instanceof GridBagConstraints) {
         GridBagConstraints gbc = (GridBagConstraints)component.getCustomLayoutConstraints();
@@ -530,6 +506,7 @@ public class RadGridBagLayoutManager extends RadAbstractGridLayoutManager {
       return 0.0;
     }
 
+    @Override
     protected void setValueImpl(final RadComponent component, final Double value) throws Exception {
       if (component.getCustomLayoutConstraints() instanceof GridBagConstraints) {
         GridBagConstraints gbc = (GridBagConstraints)component.getCustomLayoutConstraints();
@@ -543,17 +520,19 @@ public class RadGridBagLayoutManager extends RadAbstractGridLayoutManager {
       }
     }
 
+    @Override
     @NotNull
     public PropertyRenderer<Double> getRenderer() {
       if (myRenderer == null) {
-        myRenderer = new LabelPropertyRenderer<Double>();
+        myRenderer = new LabelPropertyRenderer<>();
       }
       return myRenderer;
     }
 
+    @Override
     public PropertyEditor<Double> getEditor() {
       if (myEditor == null) {
-        myEditor = new PrimitiveTypeEditor<Double>(Double.class);
+        myEditor = new PrimitiveTypeEditor<>(Double.class);
       }
       return myEditor;
     }
@@ -572,11 +551,12 @@ public class RadGridBagLayoutManager extends RadAbstractGridLayoutManager {
   private static class IPadProperty extends AbstractIntProperty<RadComponent> {
     private final boolean myIsIpadX;
 
-    public IPadProperty(final boolean isIpadX) {
+    IPadProperty(final boolean isIpadX) {
       super(null, isIpadX ? "Ipad X" : "Ipad Y", 0);
       myIsIpadX = isIpadX;
     }
 
+    @Override
     public Integer getValue(final RadComponent component) {
       if (component.getCustomLayoutConstraints() instanceof GridBagConstraints) {
         GridBagConstraints gbc = (GridBagConstraints)component.getCustomLayoutConstraints();
@@ -585,6 +565,7 @@ public class RadGridBagLayoutManager extends RadAbstractGridLayoutManager {
       return 0;
     }
 
+    @Override
     protected void setValueImpl(final RadComponent component, final Integer value) throws Exception {
       if (component.getCustomLayoutConstraints() instanceof GridBagConstraints) {
         GridBagConstraints gbc = (GridBagConstraints)component.getCustomLayoutConstraints();

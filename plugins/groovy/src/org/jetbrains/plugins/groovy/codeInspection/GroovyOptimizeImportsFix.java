@@ -1,23 +1,12 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.codeInspection;
 
-import com.intellij.codeInsight.CodeInsightSettings;
+import com.intellij.codeInsight.CodeInsightWorkspaceSettings;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
-import com.intellij.codeInsight.daemon.impl.*;
+import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerEx;
+import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl;
+import com.intellij.codeInsight.daemon.impl.DaemonListeners;
+import com.intellij.codeInsight.daemon.impl.HighlightInfoType;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.application.ApplicationManager;
@@ -35,14 +24,15 @@ import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.DocumentUtil;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.Processor;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
+import org.jetbrains.plugins.groovy.codeInspection.local.GroovyPostHighlightingPass;
 import org.jetbrains.plugins.groovy.editor.GroovyImportOptimizer;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
 import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.imports.GrImportStatement;
 
-public class GroovyOptimizeImportsFix implements IntentionAction {
-  private static final Logger LOG = Logger.getInstance("#org.jetbrains.plugins.groovy.codeInspection.local.GroovyPostHighlightingPass");
+public final class GroovyOptimizeImportsFix implements IntentionAction {
+  private static final Logger LOG = Logger.getInstance(GroovyPostHighlightingPass.class);
   private final boolean onTheFly;
 
   public GroovyOptimizeImportsFix(boolean onTheFly) {
@@ -52,19 +42,19 @@ public class GroovyOptimizeImportsFix implements IntentionAction {
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
     final Runnable optimize = new GroovyImportOptimizer().processFile(file);
-    GroovyOptimizeImportsFix.invokeOnTheFlyImportOptimizer(optimize, file, editor);
+    invokeOnTheFlyImportOptimizer(optimize, file, editor);
   }
 
   @Override
   @NotNull
   public String getText() {
-    return GroovyInspectionBundle.message("optimize.all.imports");
+    return GroovyBundle.message("optimize.all.imports");
   }
 
   @Override
   @NotNull
   public String getFamilyName() {
-    return GroovyInspectionBundle.message("optimize.imports");
+    return GroovyBundle.message("optimize.imports");
   }
 
   @Override
@@ -78,7 +68,9 @@ public class GroovyOptimizeImportsFix implements IntentionAction {
   }
 
   private boolean timeToOptimizeImports(GroovyFile myFile, Editor editor) {
-    if (!CodeInsightSettings.getInstance().OPTIMIZE_IMPORTS_ON_THE_FLY) return false;
+    if (!CodeInsightWorkspaceSettings.getInstance(myFile.getProject()).isOptimizeImportsOnTheFly()) {
+      return false;
+    }
     if (onTheFly && editor != null) {
       // if we stand inside import statements, do not optimize
       final VirtualFile vfile = myFile.getVirtualFile();
@@ -103,7 +95,7 @@ public class GroovyOptimizeImportsFix implements IntentionAction {
     return !errors && DaemonListeners.canChangeFileSilently(myFile);
   }
 
-  private boolean containsErrorsPreventingOptimize(GroovyFile myFile, Document myDocument) {
+  private static boolean containsErrorsPreventingOptimize(GroovyFile myFile, Document myDocument) {
     // ignore unresolved imports errors
     final TextRange ignoreRange;
     final GrImportStatement[] imports = myFile.getImportStatements();
@@ -116,14 +108,11 @@ public class GroovyOptimizeImportsFix implements IntentionAction {
     }
 
     return !DaemonCodeAnalyzerEx
-      .processHighlights(myDocument, myFile.getProject(), HighlightSeverity.ERROR, 0, myDocument.getTextLength(), new Processor<HighlightInfo>() {
-        @Override
-        public boolean process(HighlightInfo error) {
-          int infoStart = error.getActualStartOffset();
-          int infoEnd = error.getActualEndOffset();
+      .processHighlights(myDocument, myFile.getProject(), HighlightSeverity.ERROR, 0, myDocument.getTextLength(), error -> {
+        int infoStart = error.getActualStartOffset();
+        int infoEnd = error.getActualEndOffset();
 
-          return ignoreRange.containsRange(infoStart, infoEnd) && error.type.equals(HighlightInfoType.WRONG_REF);
-        }
+        return ignoreRange.containsRange(infoStart, infoEnd) && error.type.equals(HighlightInfoType.WRONG_REF);
       });
   }
 
@@ -131,23 +120,20 @@ public class GroovyOptimizeImportsFix implements IntentionAction {
                                                    @NotNull final PsiFile file,
                                                    @NotNull final Editor editor) {
     final long stamp = editor.getDocument().getModificationStamp();
-    ApplicationManager.getApplication().invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        if (file.getProject().isDisposed() || editor.isDisposed() || editor.getDocument().getModificationStamp() != stamp) return;
-        //no need to optimize imports on the fly during undo/redo
-        final UndoManager undoManager = UndoManager.getInstance(editor.getProject());
-        if (undoManager.isUndoInProgress() || undoManager.isRedoInProgress()) return;
-        PsiDocumentManager.getInstance(file.getProject()).commitAllDocuments();
-        String beforeText = file.getText();
-        final long oldStamp = editor.getDocument().getModificationStamp();
-        DocumentUtil.writeInRunUndoTransparentAction(runnable);
-        if (oldStamp != editor.getDocument().getModificationStamp()) {
-          String afterText = file.getText();
-          if (Comparing.strEqual(beforeText, afterText)) {
-            String path = file.getViewProvider().getVirtualFile().getPath();
-            LOG.error("Import optimizer  hasn't optimized any imports", new Attachment(path, afterText));
-          }
+    Project project = file.getProject();
+    ApplicationManager.getApplication().invokeLater(() -> {
+      if (project.isDisposed() || editor.isDisposed() || editor.getDocument().getModificationStamp() != stamp) return;
+      //no need to optimize imports on the fly during undo/redo
+      if (UndoManager.getInstance(project).isUndoOrRedoInProgress()) return;
+      PsiDocumentManager.getInstance(project).commitAllDocuments();
+      String beforeText = file.getText();
+      final long oldStamp = editor.getDocument().getModificationStamp();
+      DocumentUtil.writeInRunUndoTransparentAction(runnable);
+      if (oldStamp != editor.getDocument().getModificationStamp()) {
+        String afterText = file.getText();
+        if (Comparing.strEqual(beforeText, afterText)) {
+          String path = file.getViewProvider().getVirtualFile().getPath();
+          LOG.error("Import optimizer  hasn't optimized any imports", new Attachment(path, afterText));
         }
       }
     });

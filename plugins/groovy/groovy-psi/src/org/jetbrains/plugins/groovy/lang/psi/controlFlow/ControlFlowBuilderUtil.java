@@ -1,189 +1,111 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.controlFlow;
 
-import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.Pair;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ArrayUtilRt;
-import gnu.trove.TIntHashSet;
-import gnu.trove.TObjectIntHashMap;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFileBase;
-import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
+import org.jetbrains.plugins.groovy.lang.psi.api.GrBlockLambdaBody;
+import org.jetbrains.plugins.groovy.lang.psi.api.GrInExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.formatter.GrControlStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.*;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrClosableBlock;
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrCodeBlock;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrOpenBlock;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.branch.GrBreakStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.clauses.GrCaseSection;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.*;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
 import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.imports.GrImportStatement;
-import org.jetbrains.plugins.groovy.lang.resolve.ResolveUtil;
-import org.jetbrains.plugins.groovy.lang.resolve.processors.PropertyResolverProcessor;
-import org.jetbrains.plugins.groovy.lang.resolve.processors.ResolverProcessor;
+import org.jetbrains.plugins.groovy.lang.psi.dataFlow.DFAEngine;
+import org.jetbrains.plugins.groovy.lang.psi.dataFlow.readWrite.ReadBeforeWriteInstance;
+import org.jetbrains.plugins.groovy.lang.psi.dataFlow.readWrite.ReadBeforeWriteSemilattice;
+import org.jetbrains.plugins.groovy.lang.psi.dataFlow.readWrite.ReadBeforeWriteState;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 /**
  * @author ven
  */
-public class ControlFlowBuilderUtil {
-  private static final Logger LOG = Logger.getInstance("org.jetbrains.plugins.groovy.lang.psi.controlFlow.ControlFlowBuilderUtil");
-
+public final class ControlFlowBuilderUtil {
   private ControlFlowBuilderUtil() {
   }
 
-  public static int[] postorder(Instruction[] flow) {
-    int[] result = new int[flow.length];
-    boolean[] visited = new boolean[flow.length];
-    for (int i = 0; i < result.length; i++) visited[i] = false;
-
-    int N = flow.length;
-    for (int i = 0; i < flow.length; i++) { //graph might not be connected
-      if (!visited[i]) N = doVisitForPostorder(flow[i], N, result, visited);
-    }
-
-    LOG.assertTrue(N == 0);
-    return result;
-  }
-
-  private static int doVisitForPostorder(Instruction curr, int currN, int[] postorder, boolean[] visited) {
-    visited[curr.num()] = true;
-    for (Instruction succ : curr.allSuccessors()) {
-      if (!visited[succ.num()]) {
-        currN = doVisitForPostorder(succ, currN, postorder, visited);
-      }
-    }
-    postorder[curr.num()] = --currN;
-    return currN;
+  private static @NotNull Pair<@Nullable ReadBeforeWriteState, @NotNull Object2IntMap<VariableDescriptor>>
+  getLastReadBeforeWriteState(Instruction[] flow, boolean onlyFirstRead) {
+    Object2IntMap<VariableDescriptor> index = buildVariablesIndex(flow);
+    DFAEngine<ReadBeforeWriteState> engine = new DFAEngine<>(
+      flow,
+      new ReadBeforeWriteInstance(index, onlyFirstRead),
+      ReadBeforeWriteSemilattice.INSTANCE
+    );
+    List<ReadBeforeWriteState> dfaResult = engine.performDFAWithTimeout();
+    ReadBeforeWriteState lastState = dfaResult == null ? null : dfaResult.get(dfaResult.size() - 1);
+    return Pair.create(lastState, index);
   }
 
   public static ReadWriteVariableInstruction[] getReadsWithoutPriorWrites(Instruction[] flow, boolean onlyFirstRead) {
-    List<ReadWriteVariableInstruction> result = new ArrayList<ReadWriteVariableInstruction>();
-    TObjectIntHashMap<String> namesIndex = buildNamesIndex(flow);
-
-    TIntHashSet[] definitelyAssigned = new TIntHashSet[flow.length];
-
-    int[] postorder = postorder(flow);
-    int[] invpostorder = invPostorder(postorder);
-
-    findReadsBeforeWrites(flow, definitelyAssigned, result, namesIndex, postorder, invpostorder, onlyFirstRead);
-    if (result.isEmpty()) return ReadWriteVariableInstruction.EMPTY_ARRAY;
-    return result.toArray(new ReadWriteVariableInstruction[result.size()]);
+    ReadBeforeWriteState lastState = getLastReadBeforeWriteState(flow, onlyFirstRead).first;
+    if (lastState == null) {
+      return null;
+    }
+    BitSet reads = lastState.getReads();
+    ArrayList<ReadWriteVariableInstruction> result = new ArrayList<>();
+    for (int i = reads.nextSetBit(0); i >= 0; i = reads.nextSetBit(i + 1)) {
+      if (i == Integer.MAX_VALUE) break;
+      result.add((ReadWriteVariableInstruction)flow[i]);
+    }
+    return result.toArray(ReadWriteVariableInstruction.EMPTY_ARRAY);
   }
 
-  private static int[] invPostorder(int[] postorder) {
-    int[] result = new int[postorder.length];
-    for (int i = 0; i < postorder.length; i++) {
-      result[postorder[i]] = i;
+  public static @NotNull Set<@NotNull VariableDescriptor> getDescriptorsWithoutWrites(Instruction @NotNull [] flow) {
+    Pair<ReadBeforeWriteState, Object2IntMap<VariableDescriptor>> dfaResult = getLastReadBeforeWriteState(flow, true);
+    ReadBeforeWriteState lastState = dfaResult.first;
+    if (lastState == null) {
+      return Collections.emptySet();
     }
-
+    BitSet reads = lastState.getReads();
+    BitSet writes = lastState.getWrites();
+    Set<VariableDescriptor> result = new HashSet<>();
+    for (int i = reads.nextSetBit(0); i >= 0; i = reads.nextSetBit(i + 1)) {
+      if (i == Integer.MAX_VALUE) break;
+      result.add(((ReadWriteVariableInstruction)flow[i]).getDescriptor());
+    }
+    Object2IntMap<VariableDescriptor> index = dfaResult.second;
+    for (Object2IntMap.Entry<VariableDescriptor> entry : index.object2IntEntrySet()) {
+      if (!writes.get(entry.getIntValue())) {
+        result.add(entry.getKey());
+      }
+    }
     return result;
   }
 
-  private static TObjectIntHashMap<String> buildNamesIndex(Instruction[] flow) {
-    TObjectIntHashMap<String> namesIndex = new TObjectIntHashMap<String>();
+  private static Object2IntMap<VariableDescriptor> buildVariablesIndex(Instruction[] flow) {
+    Object2IntMap<VariableDescriptor> variablesIndex = new Object2IntOpenHashMap<>();
+    variablesIndex.defaultReturnValue(-1);
     int idx = 0;
     for (Instruction instruction : flow) {
       if (instruction instanceof ReadWriteVariableInstruction) {
-        String name = ((ReadWriteVariableInstruction)instruction).getVariableName();
-        if (!namesIndex.contains(name)) {
-          namesIndex.put(name, idx++);
+        VariableDescriptor descriptor = ((ReadWriteVariableInstruction)instruction).getDescriptor();
+        if (!variablesIndex.containsKey(descriptor)) {
+          variablesIndex.put(descriptor, idx++);
         }
       }
     }
-    return namesIndex;
-  }
-
-  private static void findReadsBeforeWrites(Instruction[] flow, TIntHashSet[] definitelyAssigned,
-                                            List<ReadWriteVariableInstruction> result,
-                                            TObjectIntHashMap<String> namesIndex,
-                                            int[] postorder,
-                                            int[] invpostorder,
-                                            boolean onlyFirstRead) {
-    //skip instructions that are not reachable from the start
-    int start = ArrayUtil.find(invpostorder, 0);
-
-    for (int i = start; i < flow.length; i++) {
-      int j = invpostorder[i];
-      Instruction curr = flow[j];
-      if (curr instanceof ReadWriteVariableInstruction) {
-        ReadWriteVariableInstruction rw = (ReadWriteVariableInstruction)curr;
-        int name = namesIndex.get(rw.getVariableName());
-        TIntHashSet vars = definitelyAssigned[j];
-        if (rw.isWrite()) {
-          if (vars == null) {
-            vars = new TIntHashSet();
-            definitelyAssigned[j] = vars;
-          }
-          vars.add(name);
-        }
-        else {
-          if (vars == null || !vars.contains(name)) {
-            result.add(rw);
-            if (onlyFirstRead) {
-              if (vars == null) {
-                vars = new TIntHashSet();
-                definitelyAssigned[j] = vars;
-              }
-              vars.add(name);
-            }
-          }
-        }
-      }
-
-      for (Instruction succ : curr.allSuccessors()) {
-        if (postorder[succ.num()] > postorder[curr.num()]) {
-          TIntHashSet currDefinitelyAssigned = definitelyAssigned[curr.num()];
-          TIntHashSet succDefinitelyAssigned = definitelyAssigned[succ.num()];
-          if (currDefinitelyAssigned != null) {
-            int[] currArray = currDefinitelyAssigned.toArray();
-            if (succDefinitelyAssigned == null) {
-              succDefinitelyAssigned = new TIntHashSet();
-              succDefinitelyAssigned.addAll(currArray);
-              definitelyAssigned[succ.num()] = succDefinitelyAssigned;
-            }
-            else {
-              succDefinitelyAssigned.retainAll(currArray);
-            }
-          }
-          else {
-            if (succDefinitelyAssigned != null) {
-              succDefinitelyAssigned.clear();
-            }
-            else {
-              succDefinitelyAssigned = new TIntHashSet();
-              definitelyAssigned[succ.num()] = succDefinitelyAssigned;
-            }
-          }
-        }
-      }
-    }
+    return variablesIndex;
   }
 
   public static boolean isInstanceOfBinary(GrBinaryExpression binary) {
-    if (binary.getOperationTokenType() == GroovyTokenTypes.kIN) {
+    if (binary instanceof GrInExpression) {
       GrExpression left = binary.getLeftOperand();
       GrExpression right = binary.getRightOperand();
       if (left instanceof GrReferenceExpression && ((GrReferenceExpression)left).getQualifier() == null &&
@@ -232,13 +154,13 @@ public class ControlFlowBuilderUtil {
       if (pparent instanceof GrBlockStatement || pparent instanceof GrCatchClause || pparent instanceof GrLabeledStatement) {
         pparent = pparent.getParent();
       }
-      if (pparent instanceof GrIfStatement || pparent instanceof GrControlStatement || pparent instanceof GrTryCatchStatement) {
+      if (pparent instanceof GrControlStatement || pparent instanceof GrTryCatchStatement) {
         return isCertainlyReturnStatement((GrStatement)pparent);
       }
     }
 
-    else if (parent instanceof GrClosableBlock) {
-      return st == ArrayUtil.getLastElement(((GrClosableBlock)parent).getStatements());
+    else if (parent instanceof GrClosableBlock || parent instanceof GrBlockLambdaBody) {
+      return st == ArrayUtil.getLastElement(((GrCodeBlock)parent).getStatements());
     }
 
     else if (parent instanceof GroovyFileBase) {
@@ -287,21 +209,5 @@ public class ControlFlowBuilderUtil {
       }
     }
     return true;
-  }
-
-  @NotNull
-  public static GroovyResolveResult[] resolveNonQualifiedRefWithoutFlow(@NotNull GrReferenceExpression ref) {
-    LOG.assertTrue(!ref.isQualified());
-
-    final String referenceName = ref.getReferenceName();
-    final ResolverProcessor processor = new PropertyResolverProcessor(referenceName, ref);
-
-    ResolveUtil.treeWalkUp(ref, processor, false);
-    final GroovyResolveResult[] candidates = processor.getCandidates();
-    if (candidates.length != 0) {
-      return candidates;
-    }
-
-    return GroovyResolveResult.EMPTY_ARRAY;
   }
 }

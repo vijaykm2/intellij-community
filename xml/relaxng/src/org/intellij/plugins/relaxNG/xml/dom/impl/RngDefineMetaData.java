@@ -21,16 +21,12 @@ import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.xml.DomMetaData;
 import com.intellij.util.xml.GenericAttributeValue;
 import com.intellij.util.xml.GenericDomValue;
+import org.intellij.plugins.relaxNG.RelaxngBundle;
 import org.intellij.plugins.relaxNG.xml.dom.RngDefine;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 19.08.2007
- */
 public class RngDefineMetaData extends DomMetaData<RngDefine> {
 
   @Override
@@ -55,6 +51,6 @@ public class RngDefineMetaData extends DomMetaData<RngDefine> {
 
   @Override
   public String getTypeName() {
-    return "Pattern Definition";
+    return RelaxngBundle.message("relaxng.symbol.pattern-definition");
   }
 }

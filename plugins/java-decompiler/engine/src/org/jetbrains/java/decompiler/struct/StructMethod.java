@@ -1,22 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.decompiler.struct;
 
 import org.jetbrains.java.decompiler.code.*;
+import org.jetbrains.java.decompiler.struct.attr.StructCodeAttribute;
 import org.jetbrains.java.decompiler.struct.attr.StructGeneralAttribute;
+import org.jetbrains.java.decompiler.struct.attr.StructLocalVariableTableAttribute;
 import org.jetbrains.java.decompiler.struct.consts.ConstantPool;
 import org.jetbrains.java.decompiler.util.DataInputFullStream;
 import org.jetbrains.java.decompiler.util.VBStyleCollection;
@@ -24,6 +12,7 @@ import org.jetbrains.java.decompiler.util.VBStyleCollection;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.jetbrains.java.decompiler.code.CodeConstants.*;
 
@@ -37,81 +26,66 @@ import static org.jetbrains.java.decompiler.code.CodeConstants.*;
   }
 */
 public class StructMethod extends StructMember {
+  public static StructMethod create(DataInputFullStream in, ConstantPool pool, String clQualifiedName, int bytecodeVersion, boolean own) throws IOException {
+    int accessFlags = in.readUnsignedShort();
+    int nameIndex = in.readUnsignedShort();
+    int descriptorIndex = in.readUnsignedShort();
+
+    String[] values = pool.getClassElement(ConstantPool.METHOD, clQualifiedName, nameIndex, descriptorIndex);
+
+    Map<String, StructGeneralAttribute> attributes = readAttributes(in, pool);
+    StructCodeAttribute code = (StructCodeAttribute)attributes.remove(StructGeneralAttribute.ATTRIBUTE_CODE.name);
+    if (code != null) {
+      attributes.putAll(code.codeAttributes);
+    }
+
+    return new StructMethod(accessFlags, attributes, values[0], values[1], bytecodeVersion, own ? code : null);
+  }
 
   private static final int[] opr_iconst = {-1, 0, 1, 2, 3, 4, 5};
   private static final int[] opr_loadstore = {0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3};
   private static final int[] opcs_load = {opc_iload, opc_lload, opc_fload, opc_dload, opc_aload};
   private static final int[] opcs_store = {opc_istore, opc_lstore, opc_fstore, opc_dstore, opc_astore};
 
-  private final StructClass classStruct;
   private final String name;
   private final String descriptor;
-
-  private boolean containsCode = false;
-  private int localVariables = 0;
-  private int codeLength = 0;
-  private int codeFullLength = 0;
-  private InstructionSequence seq;
+  private final int bytecodeVersion;
+  private final int localVariables;
+  private final int codeLength;
+  private final int codeFullLength;
+  private InstructionSequence seq = null;
   private boolean expanded = false;
-  private VBStyleCollection<StructGeneralAttribute, String> codeAttributes;
 
-  public StructMethod(DataInputFullStream in, StructClass clStruct) throws IOException {
-    classStruct = clStruct;
-
-    accessFlags = in.readUnsignedShort();
-    int nameIndex = in.readUnsignedShort();
-    int descriptorIndex = in.readUnsignedShort();
-
-    ConstantPool pool = clStruct.getPool();
-    String[] values = pool.getClassElement(ConstantPool.METHOD, clStruct.qualifiedName, nameIndex, descriptorIndex);
-    name = values[0];
-    descriptor = values[1];
-
-    attributes = readAttributes(in, pool);
-    if (codeAttributes != null) {
-      attributes.addAllWithKey(codeAttributes);
-      codeAttributes = null;
+  private StructMethod(int accessFlags,
+                       Map<String, StructGeneralAttribute> attributes,
+                       String name,
+                       String descriptor,
+                       int bytecodeVersion,
+                       StructCodeAttribute code) {
+    super(accessFlags, attributes);
+    this.name = name;
+    this.descriptor = descriptor;
+    this.bytecodeVersion = bytecodeVersion;
+    if (code != null) {
+      this.localVariables = code.localVariables;
+      this.codeLength = code.codeLength;
+      this.codeFullLength = code.codeFullLength;
+    }
+    else {
+      this.localVariables = this.codeLength = this.codeFullLength = -1;
     }
   }
 
-  @Override
-  protected StructGeneralAttribute readAttribute(DataInputFullStream in, ConstantPool pool, String name) throws IOException {
-    if (StructGeneralAttribute.ATTRIBUTE_CODE.equals(name)) {
-      if (!classStruct.isOwn()) {
-        // skip code in foreign classes
-        in.discard(8);
-        in.discard(in.readInt());
-        in.discard(8 * in.readUnsignedShort());
-      }
-      else {
-        containsCode = true;
-        in.discard(6);
-        localVariables = in.readUnsignedShort();
-        codeLength = in.readInt();
-        in.discard(codeLength);
-        int excLength = in.readUnsignedShort();
-        in.discard(excLength * 8);
-        codeFullLength = codeLength + excLength * 8 + 2;
-      }
-
-      codeAttributes = readAttributes(in, pool);
-
-      return null;
-    }
-
-    return super.readAttribute(in, pool, name);
-  }
-
-  public void expandData() throws IOException {
-    if (containsCode && !expanded) {
-      byte[] code = classStruct.getLoader().loadBytecode(this, codeFullLength);
+  public void expandData(StructClass classStruct) throws IOException {
+    if (codeLength >= 0 && !expanded) {
+      byte[] code = classStruct.getLoader().loadBytecode(classStruct, this, codeFullLength);
       seq = parseBytecode(new DataInputFullStream(code), codeLength, classStruct.getPool());
       expanded = true;
     }
   }
 
-  public void releaseResources() throws IOException {
-    if (containsCode && expanded) {
+  public void releaseResources() {
+    if (codeLength >= 0 && expanded) {
       seq = null;
       expanded = false;
     }
@@ -119,12 +93,9 @@ public class StructMethod extends StructMember {
 
   @SuppressWarnings("AssignmentToForLoopParameter")
   private InstructionSequence parseBytecode(DataInputFullStream in, int length, ConstantPool pool) throws IOException {
-    VBStyleCollection<Instruction, Integer> instructions = new VBStyleCollection<Instruction, Integer>();
-
-    int bytecode_version = classStruct.getBytecodeVersion();
+    VBStyleCollection<Instruction, Integer> instructions = new VBStyleCollection<>();
 
     for (int i = 0; i < length; ) {
-
       int offset = i;
 
       int opcode = in.readUnsignedByte();
@@ -137,29 +108,29 @@ public class StructMethod extends StructMember {
         opcode = in.readUnsignedByte();
       }
 
-      List<Integer> operands = new ArrayList<Integer>();
+      List<Integer> operands = new ArrayList<>();
 
       if (opcode >= opc_iconst_m1 && opcode <= opc_iconst_5) {
-        operands.add(new Integer(opr_iconst[opcode - opc_iconst_m1]));
+        operands.add(opr_iconst[opcode - opc_iconst_m1]);
         opcode = opc_bipush;
       }
       else if (opcode >= opc_iload_0 && opcode <= opc_aload_3) {
-        operands.add(new Integer(opr_loadstore[opcode - opc_iload_0]));
+        operands.add(opr_loadstore[opcode - opc_iload_0]);
         opcode = opcs_load[(opcode - opc_iload_0) / 4];
       }
       else if (opcode >= opc_istore_0 && opcode <= opc_astore_3) {
-        operands.add(new Integer(opr_loadstore[opcode - opc_istore_0]));
+        operands.add(opr_loadstore[opcode - opc_istore_0]);
         opcode = opcs_store[(opcode - opc_istore_0) / 4];
       }
       else {
         switch (opcode) {
           case opc_bipush:
-            operands.add(new Integer(in.readByte()));
+            operands.add((int)in.readByte());
             i++;
             break;
           case opc_ldc:
           case opc_newarray:
-            operands.add(new Integer(in.readUnsignedByte()));
+            operands.add(in.readUnsignedByte());
             i++;
             break;
           case opc_sipush:
@@ -184,7 +155,7 @@ public class StructMethod extends StructMember {
             if (opcode != opc_sipush) {
               group = GROUP_JUMP;
             }
-            operands.add(new Integer(in.readShort()));
+            operands.add((int)in.readShort());
             i += 2;
             break;
           case opc_ldc_w:
@@ -200,7 +171,7 @@ public class StructMethod extends StructMember {
           case opc_anewarray:
           case opc_checkcast:
           case opc_instanceof:
-            operands.add(new Integer(in.readUnsignedShort()));
+            operands.add(in.readUnsignedShort());
             i += 2;
             if (opcode >= opc_getstatic && opcode <= opc_putfield) {
               group = GROUP_FIELDACCESS;
@@ -210,8 +181,8 @@ public class StructMethod extends StructMember {
             }
             break;
           case opc_invokedynamic:
-            if (classStruct.isVersionGE_1_7()) { // instruction unused in Java 6 and before
-              operands.add(new Integer(in.readUnsignedShort()));
+            if (bytecodeVersion >= CodeConstants.BYTECODE_JAVA_7) { // instruction unused in Java 6 and before
+              operands.add(in.readUnsignedShort());
               in.discard(2);
               group = GROUP_INVOCATION;
               i += 4;
@@ -229,11 +200,11 @@ public class StructMethod extends StructMember {
           case opc_astore:
           case opc_ret:
             if (wide) {
-              operands.add(new Integer(in.readUnsignedShort()));
+              operands.add(in.readUnsignedShort());
               i += 2;
             }
             else {
-              operands.add(new Integer(in.readUnsignedByte()));
+              operands.add(in.readUnsignedByte());
               i++;
             }
             if (opcode == opc_ret) {
@@ -242,49 +213,49 @@ public class StructMethod extends StructMember {
             break;
           case opc_iinc:
             if (wide) {
-              operands.add(new Integer(in.readUnsignedShort()));
-              operands.add(new Integer(in.readShort()));
+              operands.add(in.readUnsignedShort());
+              operands.add((int)in.readShort());
               i += 4;
             }
             else {
-              operands.add(new Integer(in.readUnsignedByte()));
-              operands.add(new Integer(in.readByte()));
+              operands.add(in.readUnsignedByte());
+              operands.add((int)in.readByte());
               i += 2;
             }
             break;
           case opc_goto_w:
           case opc_jsr_w:
             opcode = opcode == opc_jsr_w ? opc_jsr : opc_goto;
-            operands.add(new Integer(in.readInt()));
+            operands.add(in.readInt());
             group = GROUP_JUMP;
             i += 4;
             break;
           case opc_invokeinterface:
-            operands.add(new Integer(in.readUnsignedShort()));
-            operands.add(new Integer(in.readUnsignedByte()));
+            operands.add(in.readUnsignedShort());
+            operands.add(in.readUnsignedByte());
             in.discard(1);
             group = GROUP_INVOCATION;
             i += 4;
             break;
           case opc_multianewarray:
-            operands.add(new Integer(in.readUnsignedShort()));
-            operands.add(new Integer(in.readUnsignedByte()));
+            operands.add(in.readUnsignedShort());
+            operands.add(in.readUnsignedByte());
             i += 3;
             break;
           case opc_tableswitch:
             in.discard((4 - (i + 1) % 4) % 4);
             i += ((4 - (i + 1) % 4) % 4); // padding
-            operands.add(new Integer(in.readInt()));
+            operands.add(in.readInt());
             i += 4;
             int low = in.readInt();
-            operands.add(new Integer(low));
+            operands.add(low);
             i += 4;
             int high = in.readInt();
-            operands.add(new Integer(high));
+            operands.add(high);
             i += 4;
 
             for (int j = 0; j < high - low + 1; j++) {
-              operands.add(new Integer(in.readInt()));
+              operands.add(in.readInt());
               i += 4;
             }
             group = GROUP_SWITCH;
@@ -293,16 +264,16 @@ public class StructMethod extends StructMember {
           case opc_lookupswitch:
             in.discard((4 - (i + 1) % 4) % 4);
             i += ((4 - (i + 1) % 4) % 4); // padding
-            operands.add(new Integer(in.readInt()));
+            operands.add(in.readInt());
             i += 4;
             int npairs = in.readInt();
-            operands.add(new Integer(npairs));
+            operands.add(npairs);
             i += 4;
 
             for (int j = 0; j < npairs; j++) {
-              operands.add(new Integer(in.readInt()));
+              operands.add(in.readInt());
               i += 4;
-              operands.add(new Integer(in.readInt()));
+              operands.add(in.readInt());
               i += 4;
             }
             group = GROUP_SWITCH;
@@ -318,20 +289,23 @@ public class StructMethod extends StructMember {
         }
       }
 
-      int[] ops = new int[operands.size()];
-      for (int j = 0; j < operands.size(); j++) {
-        ops[j] = operands.get(j).intValue();
+      int[] ops = null;
+      if (!operands.isEmpty()) {
+        ops = new int[operands.size()];
+        for (int j = 0; j < operands.size(); j++) {
+          ops[j] = operands.get(j);
+        }
       }
 
-      Instruction instr = ConstantsUtil.getInstructionInstance(opcode, wide, group, bytecode_version, ops);
+      Instruction instr = Instruction.create(opcode, wide, group, bytecodeVersion, ops);
 
-      instructions.addWithKey(instr, new Integer(offset));
+      instructions.addWithKey(instr, offset);
 
       i++;
     }
 
     // initialize exception table
-    List<ExceptionHandler> lstHandlers = new ArrayList<ExceptionHandler>();
+    List<ExceptionHandler> lstHandlers = new ArrayList<>();
 
     int exception_count = in.readUnsignedShort();
     for (int i = 0; i < exception_count; i++) {
@@ -341,7 +315,6 @@ public class StructMethod extends StructMember {
       handler.handler = in.readUnsignedShort();
 
       int excclass = in.readUnsignedShort();
-      handler.class_index = excclass;
       if (excclass != 0) {
         handler.exceptionClass = pool.getPrimitiveConstant(excclass).getString();
       }
@@ -366,10 +339,6 @@ public class StructMethod extends StructMember {
     return seq;
   }
 
-  public StructClass getClassStruct() {
-    return classStruct;
-  }
-
   public String getName() {
     return name;
   }
@@ -378,8 +347,12 @@ public class StructMethod extends StructMember {
     return descriptor;
   }
 
+  public int getBytecodeVersion() {
+    return bytecodeVersion;
+  }
+
   public boolean containsCode() {
-    return containsCode;
+    return codeLength >= 0;
   }
 
   public int getLocalVariables() {
@@ -388,5 +361,14 @@ public class StructMethod extends StructMember {
 
   public InstructionSequence getInstructionSequence() {
     return seq;
+  }
+
+  public StructLocalVariableTableAttribute getLocalVariableAttr() {
+    return getAttribute(StructGeneralAttribute.ATTRIBUTE_LOCAL_VARIABLE_TABLE);
+  }
+
+  @Override
+  public String toString() {
+    return name;
   }
 }

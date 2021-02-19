@@ -25,27 +25,27 @@ import java.util.List;
  */
 public class SimpleCommit<CommitId> implements com.intellij.vcs.log.graph.GraphCommit<CommitId> {
   @NotNull
-  public static SimpleCommit<Integer> asIntegerCommit(@NotNull String commitHash, @NotNull String[] parentsHashes) {
+  public static SimpleCommit<Integer> asIntegerCommit(@NotNull String commitHash, String @NotNull [] parentsHashes) {
     int intCommitHash = CommitParser.createHash(commitHash);
-    List<Integer> parents = new ArrayList<Integer>();
+    List<Integer> parents = new ArrayList<>();
     for (String parentsHash : parentsHashes) {
       if (parentsHash.length() > 0) {
         parents.add(CommitParser.createHash(parentsHash));
       }
     }
-    return new SimpleCommit<Integer>(intCommitHash, parents, intCommitHash);
+    return new SimpleCommit<>(intCommitHash, parents, intCommitHash);
   }
 
   @NotNull
-  public static SimpleCommit<String> asStringCommit(@NotNull String commitHash, @NotNull String[] parentsHashes) {
+  public static SimpleCommit<String> asStringCommit(@NotNull String commitHash, String @NotNull [] parentsHashes) {
     int timestamp = CommitParser.createHash(commitHash);
-    List<String> parents = new ArrayList<String>();
+    List<String> parents = new ArrayList<>();
     for (String parentsHash : parentsHashes) {
       if (parentsHash.length() > 0) {
         parents.add(parentsHash);
       }
     }
-    return new SimpleCommit<String>(commitHash, parents, timestamp);
+    return new SimpleCommit<>(commitHash, parents, timestamp);
   }
 
   @NotNull private final CommitId myId;

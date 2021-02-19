@@ -17,13 +17,9 @@
 package com.intellij.openapi.vcs.changes.patch;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiDirectory;
-import com.intellij.psi.PsiFile;
 import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 
@@ -35,29 +31,6 @@ public class PsiPatchBaseDirectoryDetector extends PatchBaseDirectoryDetector {
 
   public PsiPatchBaseDirectoryDetector(final Project project) {
     myProject = project;
-  }
-
-  @Override
-  @Nullable
-  public Result detectBaseDirectory(final String patchFileName) {
-    String[] nameComponents = patchFileName.split("/");
-    String patchName = nameComponents[nameComponents.length - 1];
-    if (patchName.isEmpty()) {
-      return null;
-    }
-    final PsiFile[] psiFiles = FilenameIndex.getFilesByName(myProject, patchName, GlobalSearchScope.projectScope(myProject));
-    if (psiFiles.length == 1) {
-      PsiDirectory parent = psiFiles [0].getContainingDirectory();
-      for(int i=nameComponents.length-2; i >= 0; i--) {
-        if (!parent.getName().equals(nameComponents[i]) || Comparing.equal(parent.getVirtualFile(), myProject.getBaseDir())) {
-          return new Result(parent.getVirtualFile().getPresentableUrl(), i+1);
-        }
-        parent = parent.getParentDirectory();
-      }
-      if (parent == null) return null;
-      return new Result(parent.getVirtualFile().getPresentableUrl(), 0);
-    }
-    return null;
   }
 
   @Override

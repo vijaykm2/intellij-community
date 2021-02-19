@@ -16,24 +16,20 @@
 package org.jetbrains.plugins.groovy.inspections.secondUnsafeCall;
 
 import com.intellij.codeInsight.intention.IntentionAction;
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 import org.jetbrains.plugins.groovy.codeInspection.secondUnsafeCall.SecondUnsafeCallInspection;
 import org.jetbrains.plugins.groovy.util.TestUtils;
 
 import java.util.List;
 
-/**
- * User: Dmitry.Krasilschikov
- * Date: 15.11.2007
- */
-public class SecondUnsafeCallTest extends LightCodeInsightFixtureTestCase {
+public class SecondUnsafeCallTest extends LightJavaCodeInsightFixtureTestCase {
 
   @Override
   protected String getBasePath() {
     return TestUtils.getTestDataPath() + "groovy/inspections/secondUnsafeCall";
   }
 
-  public void doTest() throws Exception {
+  public void doTest() {
     final List<String> data = TestUtils.readInput(getTestDataPath() + "/" + getTestName(true) + ".test");
 
     myFixture.configureByText("a.groovy", data.get(0));
@@ -44,10 +40,10 @@ public class SecondUnsafeCallTest extends LightCodeInsightFixtureTestCase {
     myFixture.checkResult(data.get(1));
   }
 
-  public void test4Calls() throws Throwable { doTest(); }
-  public void testMethodCall() throws Throwable { doTest(); }
-  public void testMethodsCalls() throws Throwable { doTest(); }
-  public void testSecondUnsafeCall1() throws Throwable { doTest(); }
-  public void testVarInit() throws Throwable { doTest(); }
+  public void test4Calls() { doTest(); }
+  public void testMethodCall() { doTest(); }
+  public void testMethodsCalls() { doTest(); }
+  public void testSecondUnsafeCall1() { doTest(); }
+  public void testVarInit() { doTest(); }
 
 }

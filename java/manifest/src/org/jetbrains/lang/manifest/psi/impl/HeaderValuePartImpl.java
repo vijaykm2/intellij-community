@@ -26,7 +26,7 @@ package org.jetbrains.lang.manifest.psi.impl;
 
 import com.intellij.extapi.psi.ASTWrapperPsiElement;
 import com.intellij.lang.ASTNode;
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiReference;
@@ -47,12 +47,11 @@ public class HeaderValuePartImpl extends ASTWrapperPsiElement implements HeaderV
 
   public HeaderValuePartImpl(ASTNode node) {
     super(node);
-    myRepository = ServiceManager.getService(HeaderParserRepository.class);
+    myRepository = ApplicationManager.getApplication().getService(HeaderParserRepository.class);
   }
 
-  @NotNull
   @Override
-  public PsiReference[] getReferences() {
+  public PsiReference @NotNull [] getReferences() {
     return getUnwrappedText().isEmpty() ? PsiReference.EMPTY_ARRAY : myRepository.getReferences(this);
   }
 

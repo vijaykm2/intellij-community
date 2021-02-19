@@ -15,7 +15,10 @@
  */
 package com.siyeh.ig.serialization;
 
-import com.intellij.psi.*;
+import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiMethod;
+import com.intellij.psi.PsiModifier;
+import com.intellij.psi.PsiParameterList;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -35,12 +38,6 @@ public class SerializableWithUnconstructableAncestorInspection extends BaseInspe
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("serializable.with.unconstructable.ancestor.display.name");
-  }
-
-  @Override
-  @NotNull
   public String buildErrorString(Object... infos) {
     final PsiClass ancestor = (PsiClass)infos[0];
     return InspectionGadgetsBundle.message("serializable.with.unconstructable.ancestor.problem.descriptor", ancestor.getName());
@@ -55,14 +52,14 @@ public class SerializableWithUnconstructableAncestorInspection extends BaseInspe
 
     @Override
     public void visitClass(@NotNull PsiClass aClass) {
-      if (aClass.isInterface() || aClass.isAnnotationType()) {
+      if (aClass.isInterface() || aClass.isAnnotationType() || aClass.isRecord()) {
         return;
       }
       if (!SerializationUtils.isSerializable(aClass) || SerializationUtils.hasWriteReplace(aClass)) {
         return;
       }
       PsiClass ancestor = aClass.getSuperClass();
-      final Set<PsiClass> visitedClasses = new HashSet<PsiClass>(8);
+      final Set<PsiClass> visitedClasses = new HashSet<>(8);
       while (ancestor != null && SerializationUtils.isSerializable(ancestor)) {
         if (SerializationUtils.hasWriteReplace(ancestor)) {
           return;
@@ -84,7 +81,7 @@ public class SerializableWithUnconstructableAncestorInspection extends BaseInspe
       for (final PsiMethod constructor : aClass.getConstructors()) {
         hasConstructor = true;
         final PsiParameterList parameterList = constructor.getParameterList();
-        if (parameterList.getParametersCount() == 0 &&
+        if (parameterList.isEmpty() &&
             (constructor.hasModifierProperty(PsiModifier.PUBLIC) || constructor.hasModifierProperty(PsiModifier.PROTECTED))) {
           hasNoArgConstructor = true;
         }

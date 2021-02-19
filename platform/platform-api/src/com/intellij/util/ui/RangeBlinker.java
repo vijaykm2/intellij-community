@@ -27,17 +27,14 @@ import com.intellij.util.ArrayUtil;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author cdr
- */
 public class RangeBlinker {
   private final Editor myEditor;
   private int myTimeToLive;
-  private final List<Segment> myMarkers = new ArrayList<Segment>();
+  private final List<Segment> myMarkers = new ArrayList<>();
   private boolean show = true;
   private final Alarm myBlinkingAlarm = new Alarm();
   private final TextAttributes myAttributes;
-  private final List<RangeHighlighter> myAddedHighlighters = new ArrayList<RangeHighlighter>();
+  private final List<RangeHighlighter> myAddedHighlighters = new ArrayList<>();
 
   public RangeBlinker(Editor editor, final TextAttributes attributes, int timeToLive) {
     myAttributes = attributes;
@@ -45,7 +42,7 @@ public class RangeBlinker {
     myTimeToLive = timeToLive;
   }
 
-  public void resetMarkers(final List<Segment> markers) {
+  public void resetMarkers(final List<? extends Segment> markers) {
     removeHighlights();
     myMarkers.clear();
     stopBlinking();
@@ -85,14 +82,11 @@ public class RangeBlinker {
       removeHighlights();
     }
     stopBlinking();
-    myBlinkingAlarm.addRequest(new Runnable() {
-      @Override
-      public void run() {
-        if (myTimeToLive > 0 || show) {
-          myTimeToLive--;
-          show = !show;
-          startBlinking();
-        }
+    myBlinkingAlarm.addRequest(() -> {
+      if (myTimeToLive > 0 || show) {
+        myTimeToLive--;
+        show = !show;
+        startBlinking();
       }
     }, 400);
   }

@@ -25,11 +25,8 @@ import java.util.EventListener;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * @author nik
- */
 public abstract class JpsEventDispatcherBase implements JpsEventDispatcher {
-  private final Map<Class<?>, EventDispatcher<?>> myDispatchers = new HashMap<Class<?>, EventDispatcher<?>>();
+  private final Map<Class<?>, EventDispatcher<?>> myDispatchers = new HashMap<>();
 
   @NotNull
   @Override

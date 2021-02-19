@@ -1,25 +1,14 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl.synthetic;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.light.LightMethodBuilder;
 import com.intellij.psi.impl.light.LightReferenceListBuilder;
 import com.intellij.psi.impl.light.LightTypeParameterListBuilder;
+import com.intellij.psi.util.CachedValueProvider;
+import com.intellij.psi.util.CachedValuesManager;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -27,6 +16,7 @@ import org.jetbrains.plugins.groovy.extensions.NamedArgumentDescriptor;
 import org.jetbrains.plugins.groovy.lang.groovydoc.psi.api.GrDocComment;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyElementVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifier;
+import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifierFlags;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifierList;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.annotation.GrAnnotation;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrCodeBlock;
@@ -37,7 +27,7 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMe
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrReflectedMethod;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrTypeElement;
-import org.jetbrains.plugins.groovy.lang.psi.util.GdkMethodUtil;
+import org.jetbrains.plugins.groovy.lang.psi.impl.auxiliary.modifiers.GrModifierListUtil;
 import org.jetbrains.plugins.groovy.lang.psi.util.GrInnerClassConstructorUtil;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
@@ -90,32 +80,34 @@ public class GrReflectedMethodImpl extends LightMethodBuilder implements GrRefle
     final GrLightModifierList myModifierList = ((GrLightModifierList)getModifierList());
 
     for (String modifier : GrModifier.GROOVY_MODIFIERS) {
-      if (baseMethod.hasModifierProperty(modifier)) {
+      if (baseMethod.getModifierList().hasExplicitModifier(modifier)) {
         myModifierList.addModifier(modifier);
       }
     }
 
-    for (PsiElement modifier : baseMethod.getModifierList().getModifiers()) {
-      if (modifier instanceof GrAnnotation) {
-        final String qualifiedName = ((GrAnnotation)modifier).getQualifiedName();
-        if (qualifiedName != null) {
-          myModifierList.addAnnotation(qualifiedName);
-        }
-        else {
-          myModifierList.addAnnotation(((GrAnnotation)modifier).getShortName());
-        }
+    for (GrAnnotation annotation : baseMethod.getModifierList().getRawAnnotations()) {
+      final String qualifiedName = annotation.getQualifiedName();
+      if (qualifiedName != null) {
+        myModifierList.addAnnotation(qualifiedName);
+      }
+      else {
+        myModifierList.addAnnotation(annotation.getShortName());
       }
     }
 
     if (isCategoryMethod) {
       myModifierList.addModifier(PsiModifier.STATIC);
     }
+
+    if (mySkippedParameters.length != 0) {
+      myModifierList.removeModifier(GrModifierFlags.ABSTRACT_MASK);
+    }
   }
 
   private void initParameterList(GrParameter[] parameters, int optionalParams, PsiClassType categoryType) {
     final GrLightParameterListBuilder parameterList = (GrLightParameterListBuilder)getParameterList();
 
-    List<GrParameter> skipped = new ArrayList<GrParameter>();
+    List<GrParameter> skipped = new ArrayList<>();
 
     if (categoryType != null) {
       parameterList.addParameter(new GrLightParameter(CATEGORY_PARAMETER_NAME, categoryType, this));
@@ -134,7 +126,7 @@ public class GrReflectedMethodImpl extends LightMethodBuilder implements GrRefle
 
     LOG.assertTrue(optionalParams == 0);
 
-    mySkippedParameters = skipped.toArray(new GrParameter[skipped.size()]);
+    mySkippedParameters = skipped.toArray(GrParameter.EMPTY_ARRAY);
   }
 
   private GrLightParameter createLightParameter(GrParameter parameter) {
@@ -149,9 +141,8 @@ public class GrReflectedMethodImpl extends LightMethodBuilder implements GrRefle
     return myBaseMethod;
   }
 
-  @NotNull
   @Override
-  public GrParameter[] getSkippedParameters() {
+  public GrParameter @NotNull [] getSkippedParameters() {
     return mySkippedParameters;
   }
 
@@ -192,9 +183,8 @@ public class GrReflectedMethodImpl extends LightMethodBuilder implements GrRefle
     return myBaseMethod.getNamedParameters();
   }
 
-  @NotNull
   @Override
-  public GrReflectedMethod[] getReflectedMethods() {
+  public GrReflectedMethod @NotNull [] getReflectedMethods() {
     return GrReflectedMethod.EMPTY_ARRAY;
   }
 
@@ -210,7 +200,7 @@ public class GrReflectedMethodImpl extends LightMethodBuilder implements GrRefle
   }
 
   @Override
-  public GrParameter[] getParameters() {
+  public GrParameter @NotNull [] getParameters() {
     return getParameterList().getParameters();
   }
 
@@ -221,12 +211,12 @@ public class GrReflectedMethodImpl extends LightMethodBuilder implements GrRefle
   }
 
   @Override
-  public void accept(GroovyElementVisitor visitor) {
+  public void accept(@NotNull GroovyElementVisitor visitor) {
     visitor.visitMethod(this);
   }
 
   @Override
-  public void acceptChildren(GroovyElementVisitor visitor) {
+  public void acceptChildren(@NotNull GroovyElementVisitor visitor) {
     //todo
   }
 
@@ -237,7 +227,7 @@ public class GrReflectedMethodImpl extends LightMethodBuilder implements GrRefle
 
   @Override
   public String toString() {
-    return "reflected method";
+    return getName() + " (" + StringUtil.join(getParameters(), f -> f.getType().getPresentableText() + " " + f.getName(), ", ") + ")";
   }
 
   @NotNull
@@ -261,18 +251,15 @@ public class GrReflectedMethodImpl extends LightMethodBuilder implements GrRefle
     return myBaseMethod.isPhysical();
   }
 
-  @NotNull
-  public static GrReflectedMethod[] createReflectedMethods(GrMethod method) {
-    final PsiClassType categoryType = method.hasModifierProperty(PsiModifier.STATIC) ? null : getCategoryType(method);
-
-    final GrParameter[] parameters = method.getParameters();
-    return doCreateReflectedMethods(method, categoryType, parameters);
+  public static GrReflectedMethod @NotNull [] createReflectedMethods(GrMethod method) {
+    return CachedValuesManager.getCachedValue(method, () -> CachedValueProvider.Result.create(
+      doCreateReflectedMethods(method, null, method.getParameters()), method
+    ));
   }
 
-  @NotNull
-  private static GrReflectedMethod[] doCreateReflectedMethods(@NotNull GrMethod targetMethod,
-                                                              @Nullable PsiClassType categoryType,
-                                                              @NotNull GrParameter[] parameters) {
+  public static GrReflectedMethod @NotNull [] doCreateReflectedMethods(@NotNull GrMethod targetMethod,
+                                                                       @Nullable PsiClassType categoryType,
+                                                                       GrParameter @NotNull [] parameters) {
     int count = 0;
     for (GrParameter parameter : parameters) {
       if (parameter.isOptional()) count++;
@@ -295,7 +282,7 @@ public class GrReflectedMethodImpl extends LightMethodBuilder implements GrRefle
     if (aClass == null) return GrReflectedMethod.EMPTY_ARRAY;
 
     PsiClass enclosingClass = aClass.getContainingClass();
-    if (enclosingClass != null && !aClass.hasModifierProperty(PsiModifier.STATIC)) {
+    if (enclosingClass != null && !GrModifierListUtil.hasCodeModifierProperty(aClass, PsiModifier.STATIC)) {
       GrParameter[] parameters = GrInnerClassConstructorUtil
         .addEnclosingInstanceParam(method, enclosingClass, method.getParameterList().getParameters(), false);
       GrReflectedMethod[] reflectedMethods = doCreateReflectedMethods(method, null, parameters);
@@ -311,16 +298,14 @@ public class GrReflectedMethodImpl extends LightMethodBuilder implements GrRefle
     }
   }
 
-  @Nullable
-  private static PsiClassType getCategoryType(GrMethod method) {
-    final PsiClass containingClass = method.getContainingClass();
-    if (containingClass == null) return null;
-    return GdkMethodUtil.getCategoryType(containingClass);
-  }
-
   @NotNull
   @Override
   public PsiElement getPrototype() {
     return getBaseMethod();
+  }
+
+  @Override
+  public boolean hasBlock() {
+    return getBaseMethod().hasBlock();
   }
 }

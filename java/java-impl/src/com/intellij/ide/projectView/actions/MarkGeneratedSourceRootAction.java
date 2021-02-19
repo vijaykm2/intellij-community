@@ -16,12 +16,14 @@
 package com.intellij.ide.projectView.actions;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.module.JavaModuleType;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleType;
 import com.intellij.openapi.roots.ContentEntry;
 import com.intellij.openapi.roots.SourceFolder;
+import com.intellij.openapi.roots.ui.configuration.ModuleSourceRootEditHandler;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.model.java.JavaModuleSourceRootTypes;
@@ -29,15 +31,19 @@ import org.jetbrains.jps.model.java.JavaSourceRootProperties;
 import org.jetbrains.jps.model.java.JavaSourceRootType;
 import org.jetbrains.jps.model.java.JpsJavaExtensionService;
 
-/**
- * @author nik
- */
+import java.util.Locale;
+
 public class MarkGeneratedSourceRootAction extends MarkRootActionBase {
   public MarkGeneratedSourceRootAction() {
     Presentation presentation = getTemplatePresentation();
     presentation.setIcon(AllIcons.Modules.GeneratedSourceRoot);
-    presentation.setText("Generated Sources Root");
-    presentation.setDescription("Mark directory as a source root for generated files");
+
+    ModuleSourceRootEditHandler<JavaSourceRootProperties> handler = ModuleSourceRootEditHandler.getEditHandler(JavaSourceRootType.SOURCE);
+    if (handler == null) return;
+    
+    String typeName = handler.getFullRootTypeName();
+    presentation.setText(JavaBundle.message("action.text.generated.root.0", typeName));
+    presentation.setDescription(JavaBundle.message("action.description.mark.directory.as.a.0.for.generated.files", typeName.toLowerCase(Locale.getDefault())));
   }
 
   @Override
@@ -64,11 +70,11 @@ public class MarkGeneratedSourceRootAction extends MarkRootActionBase {
   private static boolean isJavaModule(Module module) {
     ModuleType moduleType = ModuleType.get(module);
     //this additional check can be removed when we get rid of PluginModuleType
-    return moduleType instanceof JavaModuleType || moduleType != null && "PLUGIN_MODULE".equals(moduleType.getId());
+    return moduleType instanceof JavaModuleType || "PLUGIN_MODULE".equals(moduleType.getId());
   }
 
   @Override
-  protected void modifyRoots(VirtualFile vFile, ContentEntry entry) {
+  protected void modifyRoots(@NotNull VirtualFile vFile, @NotNull ContentEntry entry) {
     JavaSourceRootProperties properties = JpsJavaExtensionService.getInstance().createSourceRootProperties("", true);
     entry.addSourceFolder(vFile, JavaSourceRootType.SOURCE, properties);
   }

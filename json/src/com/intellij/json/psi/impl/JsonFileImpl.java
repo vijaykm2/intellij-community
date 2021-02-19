@@ -1,26 +1,27 @@
 package com.intellij.json.psi.impl;
 
 import com.intellij.extapi.psi.PsiFileBase;
-import com.intellij.json.JsonLanguage;
 import com.intellij.json.psi.JsonFile;
 import com.intellij.json.psi.JsonValue;
+import com.intellij.lang.Language;
 import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.FileViewProvider;
 import com.intellij.psi.util.PsiTreeUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.List;
+
 public class JsonFileImpl extends PsiFileBase implements JsonFile {
 
-  public JsonFileImpl(FileViewProvider fileViewProvider) {
-    super(fileViewProvider, JsonLanguage.INSTANCE);
+  public JsonFileImpl(FileViewProvider fileViewProvider, Language language) {
+    super(fileViewProvider, language);
   }
 
   @NotNull
   @Override
   public FileType getFileType() {
-    return getViewProvider().getVirtualFile().getFileType();
+    return getViewProvider().getFileType();
   }
 
   @Nullable
@@ -29,9 +30,14 @@ public class JsonFileImpl extends PsiFileBase implements JsonFile {
     return PsiTreeUtil.getChildOfType(this, JsonValue.class);
   }
 
+  @NotNull
+  @Override
+  public List<JsonValue> getAllTopLevelValues() {
+    return PsiTreeUtil.getChildrenOfTypeAsList(this, JsonValue.class);
+  }
+
   @Override
   public String toString() {
-    final VirtualFile virtualFile = getVirtualFile();
-    return "JsonFile: " + (virtualFile != null? virtualFile.getName() : "<unknown>");
+    return "JsonFile: " + getName();
   }
 }

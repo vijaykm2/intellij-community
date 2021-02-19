@@ -1,24 +1,9 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.ui.configuration.projectRoot;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.impl.libraries.LibraryImpl;
-import com.intellij.openapi.roots.impl.libraries.LibraryTableBase;
+import com.intellij.openapi.roots.ProjectModelExternalSource;
+import com.intellij.openapi.roots.impl.libraries.LibraryEx;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTable;
 import com.intellij.openapi.roots.libraries.PersistentLibraryKind;
@@ -27,24 +12,15 @@ import com.intellij.openapi.roots.ui.configuration.libraryEditor.ExistingLibrary
 import com.intellij.openapi.roots.ui.configuration.libraryEditor.LibraryEditor;
 import com.intellij.openapi.roots.ui.configuration.libraryEditor.LibraryEditorListener;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.util.containers.ContainerUtil;
-import gnu.trove.THashMap;
-import gnu.trove.TObjectHashingStrategy;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/**
- * User: anna
- * Date: 04-Jun-2006
- */
-
-public class LibrariesModifiableModel implements LibraryTableBase.ModifiableModelEx {
+public final class LibrariesModifiableModel implements LibraryTable.ModifiableModel {
   //todo[nik] remove LibraryImpl#equals method instead of using identity maps
-  private final Map<Library, ExistingLibraryEditor> myLibrary2EditorMap =
-    ContainerUtil.<Library, ExistingLibraryEditor>newIdentityTroveMap();
-  private final Set<Library> myRemovedLibraries = ContainerUtil.<Library>newIdentityTroveSet();
+  private final Map<Library, ExistingLibraryEditor> myLibrary2EditorMap = new IdentityHashMap<>();
+  private final Set<Library> myRemovedLibraries = Collections.newSetFromMap(new IdentityHashMap<>());
 
   private LibraryTable.ModifiableModel myLibrariesModifiableModel;
   private final Project myProject;
@@ -57,15 +33,22 @@ public class LibrariesModifiableModel implements LibraryTableBase.ModifiableMode
     myLibraryEditorListener = libraryEditorListener;
   }
 
+  @NotNull
   @Override
   public Library createLibrary(String name) {
     return createLibrary(name, null);
   }
 
+  @NotNull
   @Override
-  public Library createLibrary(String name, @Nullable PersistentLibraryKind type) {
-    final Library library = ((LibraryTableBase.ModifiableModelEx)getLibrariesModifiableModel()).createLibrary(name, type);
-    //createLibraryEditor(library);                     \
+  public Library createLibrary(String name, @Nullable PersistentLibraryKind<?> type) {
+    return createLibrary(name, type, null);
+  }
+
+  @NotNull
+  @Override
+  public Library createLibrary(String name, @Nullable PersistentLibraryKind<?> type, @Nullable ProjectModelExternalSource externalSource) {
+    final Library library = getLibrariesModifiableModel().createLibrary(name, type, externalSource);
     final BaseLibrariesConfigurable configurable = ProjectStructureConfigurable.getInstance(myProject).getConfigurableFor(library);
     configurable.createLibraryNode(library);
     return library;
@@ -78,11 +61,12 @@ public class LibrariesModifiableModel implements LibraryTableBase.ModifiableMode
     removeLibraryEditor(library);
     final Library existingLibrary = myTable.getLibraryByName(library.getName());
     getLibrariesModifiableModel().removeLibrary(library);
+
+    final BaseLibrariesConfigurable configurable = ProjectStructureConfigurable.getInstance(myProject).getConfigurableFor(library);
+    configurable.removeLibraryNode(library);
+
     if (existingLibrary == library) {
       myRemovedLibraries.add(library);
-    } else {
-      // dispose uncommitted library
-      Disposer.dispose(library);
     }
   }
 
@@ -103,8 +87,7 @@ public class LibrariesModifiableModel implements LibraryTableBase.ModifiableMode
   }
 
   @Override
-  @NotNull
-  public Library[] getLibraries() {
+  public Library @NotNull [] getLibraries() {
     return getLibrariesModifiableModel().getLibraries();
   }
 
@@ -117,7 +100,7 @@ public class LibrariesModifiableModel implements LibraryTableBase.ModifiableMode
   }
 
   public void deferredCommit(){
-    final List<ExistingLibraryEditor> libraryEditors = new ArrayList<ExistingLibraryEditor>(myLibrary2EditorMap.values());
+    final List<ExistingLibraryEditor> libraryEditors = new ArrayList<>(myLibrary2EditorMap.values());
     myLibrary2EditorMap.clear();
     for (ExistingLibraryEditor libraryEditor : libraryEditors) {
       libraryEditor.commit(); // TODO: is seems like commit will recreate the editor, but it should not
@@ -139,10 +122,13 @@ public class LibrariesModifiableModel implements LibraryTableBase.ModifiableMode
   }
 
   public ExistingLibraryEditor getLibraryEditor(Library library){
-    final Library source = ((LibraryImpl)library).getSource();
-    if (source != null) {
-      return getLibraryEditor(source);
+    if (library instanceof LibraryEx) {
+      final Library source = ((LibraryEx)library).getSource();
+      if (source != null) {
+        return getLibraryEditor(source);
+      }
     }
+
     ExistingLibraryEditor libraryEditor = myLibrary2EditorMap.get(library);
     if (libraryEditor == null){
       libraryEditor = createLibraryEditor(library);
@@ -175,19 +161,19 @@ public class LibrariesModifiableModel implements LibraryTableBase.ModifiableMode
     return myLibrariesModifiableModel;
   }
 
-  public void disposeUncommittedLibraries() {
-    for (final Library library : new ArrayList<Library>(myLibrary2EditorMap.keySet())) {
-      final Library existingLibrary = myTable.getLibraryByName(library.getName());
-      if (existingLibrary != library) {
-        Disposer.dispose(library);
-      }
-
-      final ExistingLibraryEditor libraryEditor = myLibrary2EditorMap.get(library);
-      if (libraryEditor != null) {
-        Disposer.dispose(libraryEditor);
-      }
+  @Override
+  public void dispose() {
+    if (myLibrariesModifiableModel != null) {
+      Disposer.dispose(myLibrariesModifiableModel);
+      myLibrariesModifiableModel = null;
     }
+    disposeLibraryEditors();
+  }
 
+  private void disposeLibraryEditors() {
+    for (ExistingLibraryEditor libraryEditor : myLibrary2EditorMap.values()) {
+      Disposer.dispose(libraryEditor);
+    }
     myLibrary2EditorMap.clear();
   }
 }

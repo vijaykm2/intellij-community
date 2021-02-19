@@ -15,10 +15,12 @@
  */
 package org.jetbrains.java.generate.config;
 
+import org.jetbrains.annotations.NotNull;
+
 /**
  * Options for the various policies.
  */
-public class PolicyOptions {
+public final class PolicyOptions {
 
     private static final transient InsertWhere[] newMethodOptions = {InsertWhere.AT_CARET, InsertWhere.AFTER_EQUALS_AND_HASHCODE, InsertWhere.AT_THE_END_OF_A_CLASS};
 
@@ -30,7 +32,7 @@ public class PolicyOptions {
      * Gets the options for the the insert new method policy.
      * @return the options for the the insert new method policy.
      */
-    public static InsertWhere[] getNewMethodOptions() {
+    public static InsertWhere @NotNull [] getNewMethodOptions() {
         return newMethodOptions;
     }
 
@@ -38,7 +40,7 @@ public class PolicyOptions {
      * Gets the options for the the conflict resolution policy.
      * @return the options for the the conflict resolution policy.
      */
-    public static DuplicationPolicy[] getConflictOptions() {
+    public static DuplicationPolicy @NotNull [] getConflictOptions() {
         return conflictOptions;
     }
 }

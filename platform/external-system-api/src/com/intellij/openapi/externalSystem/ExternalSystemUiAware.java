@@ -16,6 +16,8 @@
 package com.intellij.openapi.externalSystem;
 
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
+import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -23,12 +25,16 @@ import javax.swing.*;
 
 /**
  * @author Denis Zhdanov
- * @since 5/15/13 12:37 PM
  */
 public interface ExternalSystemUiAware {
 
   @NotNull
-  String getProjectRepresentationName(@NotNull String targetProjectPath, @Nullable String rootProjectPath);
+  @Nls String getProjectRepresentationName(@NotNull String targetProjectPath, @Nullable String rootProjectPath);
+
+  @NotNull
+  default @Nls String getProjectRepresentationName(@NotNull Project project, @NotNull String targetProjectPath, @Nullable String rootProjectPath){
+    return getProjectRepresentationName(targetProjectPath, rootProjectPath);
+  }
 
   @Nullable
   FileChooserDescriptor getExternalProjectConfigDescriptor();

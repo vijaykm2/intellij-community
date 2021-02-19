@@ -1,22 +1,11 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.actions;
 
+import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import git4idea.i18n.GitBundle;
@@ -24,7 +13,6 @@ import git4idea.ui.GitUnstashDialog;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
-import java.util.Set;
 
 /**
  * Git unstash action
@@ -34,26 +22,34 @@ public class GitUnstash extends GitRepositoryAction {
   /**
    * {@inheritDoc}
    */
+  @Override
   @NotNull
   protected String getActionName() {
-    return GitBundle.getString("unstash.action.name");
+    return GitBundle.message("unstash.action.name");
+  }
+
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    AnAction showStashAction = ActionManager.getInstance().getAction("Git.Show.Stash");
+    AnActionEvent newEvent = AnActionEvent.createFromDataContext(e.getPlace(),
+                                                                 showStashAction.getTemplatePresentation().clone(),
+                                                                 e.getDataContext());
+    if (ActionUtil.lastUpdateAndCheckDumb(showStashAction, newEvent, true)) {
+      ActionUtil.performActionDumbAwareWithCallbacks(showStashAction, newEvent, newEvent.getDataContext());
+    } else {
+      super.actionPerformed(e);
+    }
   }
 
   /**
    * {@inheritDoc}
    */
+  @Override
   protected void perform(@NotNull final Project project,
                          @NotNull final List<VirtualFile> gitRoots,
-                         @NotNull final VirtualFile defaultRoot,
-                         final Set<VirtualFile> affectedRoots,
-                         final List<VcsException> exceptions) throws VcsException {
+                         @NotNull final VirtualFile defaultRoot) {
     final ChangeListManager changeListManager = ChangeListManager.getInstance(project);
-    if (changeListManager.isFreezedWithNotification("Can not unstash changes now")) return;
+    if (changeListManager.isFreezedWithNotification(GitBundle.message("unstash.error.can.not.unstash.changes.now"))) return;
     GitUnstashDialog.showUnstashDialog(project, gitRoots, defaultRoot);
-  }
-
-  @Override
-  protected boolean executeFinalTasksSynchronously() {
-    return false;
   }
 }

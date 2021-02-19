@@ -15,13 +15,10 @@
  */
 package com.jetbrains.python.intelliLang;
 
-import com.intellij.openapi.util.Ref;
-import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiLanguageInjectionHost;
 import com.jetbrains.python.patterns.PythonPatterns;
 import com.jetbrains.python.psi.PyElement;
 import org.intellij.plugins.intelliLang.inject.AbstractLanguageInjectionSupport;
-import org.intellij.plugins.intelliLang.inject.config.BaseInjection;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -38,9 +35,8 @@ public class PyLanguageInjectionSupport extends AbstractLanguageInjectionSupport
     return SUPPORT_ID;
   }
 
-  @NotNull
   @Override
-  public Class[] getPatternClasses() {
+  public Class @NotNull [] getPatternClasses() {
     return new Class[] { PythonPatterns.class };
   }
 
@@ -53,11 +49,5 @@ public class PyLanguageInjectionSupport extends AbstractLanguageInjectionSupport
   @Override
   public String getHelpId() {
     return "reference.settings.language.injection.generic.python";
-  }
-
-  @Nullable
-  @Override
-  public BaseInjection findCommentInjection(@NotNull PsiElement host, @Nullable Ref<PsiElement> commentRef) {
-    return super.findCommentInjection(host, commentRef);
   }
 }

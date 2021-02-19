@@ -22,27 +22,28 @@ import com.intellij.openapi.application.ApplicationBundle;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.util.IconUtil;
 import gnu.trove.TIntArrayList;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Denis Zhdanov
- * @since 8/26/12 7:41 PM
  */
 public class RemoveArrangementRuleAction extends AbstractArrangementRuleAction implements DumbAware {
 
   public RemoveArrangementRuleAction() {
-    getTemplatePresentation().setText(ApplicationBundle.message("arrangement.action.rule.remove.text"));
-    getTemplatePresentation().setDescription(ApplicationBundle.message("arrangement.action.rule.remove.description"));
+    getTemplatePresentation().setText(ApplicationBundle.messagePointer("arrangement.action.rule.remove.text"));
+    getTemplatePresentation().setDescription(ApplicationBundle.messagePointer("arrangement.action.rule.remove.description"));
     getTemplatePresentation().setIcon(IconUtil.getRemoveIcon());
+    setEnabledInModalContext(true);
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     ArrangementMatchingRulesControl control = getRulesControl(e);
     e.getPresentation().setEnabled(control != null && !control.getSelectedModelRows().isEmpty() && control.getEditingRow() == -1);
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     ArrangementMatchingRulesControl control = getRulesControl(e);
     if (control == null) {
       return;
@@ -56,13 +57,10 @@ public class RemoveArrangementRuleAction extends AbstractArrangementRuleAction i
     }
 
     final ArrangementMatchingRulesModel model = control.getModel();
-    control.runOperationIgnoreSelectionChange(new Runnable() {
-      @Override
-      public void run() {
-        for (int i = 0; i < rowsToRemove.size(); i++) {
-          int row = rowsToRemove.get(i);
-          model.removeRow(row);
-        } 
+    control.runOperationIgnoreSelectionChange(() -> {
+      for (int i = 0; i < rowsToRemove.size(); i++) {
+        int row = rowsToRemove.get(i);
+        model.removeRow(row);
       }
     });
   }

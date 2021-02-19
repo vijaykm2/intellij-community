@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.builders.java.dependencyView;
 
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.io.DataExternalizer;
 import com.intellij.util.io.DataInputOutputUtil;
 import org.jetbrains.annotations.NotNull;
@@ -30,9 +15,8 @@ import java.util.Set;
 
 /**
  * @author: db
- * Date: 14.02.11
  */
-class TypeRepr {
+public final class TypeRepr {
   private static final byte PRIMITIVE_TYPE = 0x0;
   private static final byte CLASS_TYPE = 0x1;
   private static final byte ARRAY_TYPE = 0x2;
@@ -44,8 +28,9 @@ class TypeRepr {
   interface AbstractType extends RW.Savable {
     AbstractType[] EMPTY_TYPE_ARRAY = new AbstractType[0];
 
-    void updateClassUsages(DependencyContext context, int owner, Set<UsageRepr.Usage> s);
+    void updateClassUsages(DependencyContext context, int owner, Set<? super UsageRepr.Usage> s);
     String getDescr(DependencyContext context);
+    @Override
     void save(DataOutput out);
   }
 
@@ -58,7 +43,7 @@ class TypeRepr {
     }
 
     @Override
-    public void updateClassUsages(final DependencyContext context, final int owner, final Set<UsageRepr.Usage> s) {
+    public void updateClassUsages(final DependencyContext context, final int owner, final Set<? super UsageRepr.Usage> s) {
 
     }
 
@@ -121,7 +106,7 @@ class TypeRepr {
     }
 
     @Override
-    public void updateClassUsages(final DependencyContext context, final int owner, final Set<UsageRepr.Usage> s) {
+    public void updateClassUsages(final DependencyContext context, final int owner, final Set<? super UsageRepr.Usage> s) {
       elementType.updateClassUsages(context, owner, s);
     }
 
@@ -157,6 +142,7 @@ class TypeRepr {
   }
 
   public static class ClassType implements AbstractType {
+    public static final ClassType[] EMPTY_ARRAY = new ClassType[0];
     public final int className;
 
     @Override
@@ -165,7 +151,7 @@ class TypeRepr {
     }
 
     @Override
-    public void updateClassUsages(final DependencyContext context, final int owner, final Set<UsageRepr.Usage> s) {
+    public void updateClassUsages(final DependencyContext context, final int owner, final Set<? super UsageRepr.Usage> s) {
       s.add(UsageRepr.createClassUsage(context, className));
     }
 
@@ -228,22 +214,30 @@ class TypeRepr {
   }
 
   public static AbstractType getType(final DependencyContext context, final int descr) {
-    final Type t = Type.getType(context.getValue(descr));
+    return getType(InternedString.create(context, descr));
+  }
+  public static AbstractType getType(final DependencyContext context, final String descr) {
+    return getType(InternedString.create(context, descr));
+  }
+
+  public static AbstractType getType(InternedString descr) {
+    final DependencyContext context = descr.getContext();
+    final Type t = Type.getType(descr.asString());
 
     switch (t.getSort()) {
       case Type.OBJECT:
-        return context.getType(new ClassType(context.get(StringUtil.replaceChar(t.getClassName(), '.', '/'))));
+        return context.getType(new ClassType(context.get(t.getClassName().replace('.', '/'))));
 
       case Type.ARRAY:
         return context.getType(new ArrayType(getType(context, t.getElementType())));
 
       default:
-        return context.getType(new PrimitiveType(descr));
+        return context.getType(new PrimitiveType(descr.asInt()));
     }
   }
 
   public static AbstractType getType(final DependencyContext context, final Type t) {
-    return getType(context, context.get(t.getDescriptor()));
+    return getType(context, t.getDescriptor());
   }
 
   public static AbstractType[] getType(final DependencyContext context, final Type[] t) {
@@ -255,6 +249,25 @@ class TypeRepr {
     }
 
     return r;
+  }
+
+  public static DataExternalizer<ClassType> classTypeExternalizer(final DependencyContext context) {
+    final DataExternalizer<AbstractType> delegate = externalizer(context);
+    return new DataExternalizer<ClassType>() {
+      @Override
+      public void save(@NotNull DataOutput out, ClassType value) throws IOException {
+        delegate.save(out, value);
+      }
+
+      @Override
+      public ClassType read(@NotNull DataInput in) throws IOException {
+        final AbstractType read = delegate.read(in);
+        if (read instanceof ClassType) {
+          return (ClassType)read;
+        }
+        throw new IOException("Expected: "+ ClassType.class.getName() + "; Actual: " + (read == null? "null" : read.getClass().getName()));
+      }
+    };
   }
 
   public static DataExternalizer<AbstractType> externalizer(final DependencyContext context) {
@@ -286,7 +299,7 @@ class TypeRepr {
               break;
 
             default :
-              System.out.println("Unknown type!");
+              System.out.println("Unknown type with tag " + tag);
           }
         }
 

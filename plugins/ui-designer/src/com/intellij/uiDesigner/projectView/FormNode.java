@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.projectView;
 
 import com.intellij.ide.IdeBundle;
@@ -24,7 +10,6 @@ import com.intellij.ide.projectView.impl.nodes.ClassTreeNode;
 import com.intellij.ide.projectView.impl.nodes.PsiFileNode;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.navigation.NavigationItemFileStatus;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.vcs.FileStatus;
@@ -32,6 +17,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.uiDesigner.GuiFormFileType;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
@@ -41,24 +27,27 @@ import java.util.Set;
 public class FormNode extends ProjectViewNode<Form>{
   private final Collection<BasePsiNode<? extends PsiElement>> myChildren;
 
-  public FormNode(Project project, Object value, ViewSettings viewSettings) {
+  public FormNode(Project project, @NotNull Object value, ViewSettings viewSettings) {
     this(project, (Form)value, viewSettings, getChildren(project, (Form) value, viewSettings));
   }
 
-  public FormNode(Project project, Form value, ViewSettings viewSettings, Collection<BasePsiNode<? extends PsiElement>> children) {
+  public FormNode(Project project, @NotNull Form value, ViewSettings viewSettings, Collection<BasePsiNode<? extends PsiElement>> children) {
     super(project, value, viewSettings);
     myChildren = children;
   }
 
+  @Override
   @NotNull
   public Collection<BasePsiNode<? extends PsiElement>> getChildren() {
     return myChildren;
   }
 
+  @Override
   public String getTestPresentation() {
     return "Form:" + getValue().getName();
   }
 
+  @Override
   public boolean contains(@NotNull VirtualFile file) {
     for (final AbstractTreeNode aMyChildren : myChildren) {
       ProjectViewNode treeNode = (ProjectViewNode)aMyChildren;
@@ -67,29 +56,44 @@ public class FormNode extends ProjectViewNode<Form>{
     return false;
   }
 
-  public void update(PresentationData presentation) {
+  @Override
+  public void update(@NotNull PresentationData presentation) {
     if (getValue() == null || !getValue().isValid()) {
       setValue(null);
     } else {
       presentation.setPresentableText(getValue().getName());
-      presentation.setIcon(StdFileTypes.GUI_DESIGNER_FORM.getIcon());
+      presentation.setIcon(GuiFormFileType.INSTANCE.getIcon());
     }
   }
 
+  @Override
+  protected boolean shouldPostprocess() {
+    return true;
+  }
+
+  @Override
+  public boolean someChildContainsFile(VirtualFile file) {
+    return contains(file);
+  }
+
+  @Override
   public void navigate(final boolean requestFocus) {
     getValue().navigate(requestFocus);
   }
 
+  @Override
   public boolean canNavigate() {
     final Form value = getValue();
     return value != null && value.canNavigate();
   }
 
+  @Override
   public boolean canNavigateToSource() {
     final Form value = getValue();
     return value != null && value.canNavigateToSource();
   }
 
+  @Override
   public String getToolTip() {
     return IdeBundle.message("tooltip.ui.designer.form");
   }
@@ -108,7 +112,7 @@ public class FormNode extends ProjectViewNode<Form>{
   }
 
   @Override
-  public boolean canHaveChildrenMatching(final Condition<PsiFile> condition) {
+  public boolean canHaveChildrenMatching(final Condition<? super PsiFile> condition) {
     for(BasePsiNode<? extends PsiElement> child: myChildren) {
       if (condition.value(child.getValue().getContainingFile())) {
         return true;
@@ -124,7 +128,7 @@ public class FormNode extends ProjectViewNode<Form>{
   }
 
   private static Collection<BasePsiNode<? extends PsiElement>> getChildren(final Project project, final Form form, final ViewSettings settings) {
-    final Set<BasePsiNode<? extends PsiElement>> children = new LinkedHashSet<BasePsiNode<? extends PsiElement>>();
+    final Set<BasePsiNode<? extends PsiElement>> children = new LinkedHashSet<>();
     children.add(new ClassTreeNode(project, form.getClassToBind(), settings));
     for (PsiFile formBoundToClass : form.getFormFiles()) {
       children.add(new PsiFileNode(project, formBoundToClass, settings));

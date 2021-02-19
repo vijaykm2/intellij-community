@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,37 +18,31 @@ package com.intellij.execution.filters;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.util.Consumer;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import java.util.List;
 
-/**
- * Created by IntelliJ IDEA.
- * User: Irina.Chernushina
- * Date: 8/3/11
- * Time: 4:50 PM
- */
 public interface FilterMixin {
   boolean shouldRunHeavy();
-  void applyHeavyFilter(Document copiedFragment, int startOffset, int startLineNumber, Consumer<AdditionalHighlight> consumer);
+  void applyHeavyFilter(@NotNull Document copiedFragment, int startOffset, int startLineNumber, @NotNull Consumer<? super AdditionalHighlight> consumer);
 
+  @NotNull
+  @Nls
   String getUpdateMessage();
 
-  abstract class AdditionalHighlight {
-    private final int myStart;
-    private final int myEnd;
-
+  class AdditionalHighlight extends Filter.Result {
     public AdditionalHighlight(int start, int end) {
-      myStart = start;
-      myEnd = end;
+      super(start, end, null);
     }
 
-    public int getStart() {
-      return myStart;
+    public AdditionalHighlight(@NotNull List<? extends Filter.ResultItem> resultItems) {
+      super(resultItems);
     }
 
-    public int getEnd() {
-      return myEnd;
+    @Nullable
+    public TextAttributes getTextAttributes(@Nullable final TextAttributes source) {
+      return null;
     }
-
-    public abstract TextAttributes getTextAttributes(@Nullable final TextAttributes source);
   }
 }

@@ -1,24 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.stubs;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -26,7 +10,6 @@ import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.stubs.StubIndex;
 import com.intellij.util.*;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashSet;
 import com.intellij.util.indexing.IdFilter;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -38,10 +21,9 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMe
 import org.jetbrains.plugins.groovy.lang.psi.impl.search.GrSourceFilterScope;
 import org.jetbrains.plugins.groovy.lang.psi.stubs.index.*;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
+
+import static com.intellij.psi.impl.java.stubs.index.JavaStubIndexKeys.CLASS_SHORT_NAMES;
 
 /**
  * @author ilyas
@@ -54,16 +36,16 @@ public class GroovyShortNamesCache extends PsiShortNamesCache {
   }
 
   public static GroovyShortNamesCache getGroovyShortNamesCache(Project project) {
-    return ObjectUtils.assertNotNull(ContainerUtil.findInstance(project.getExtensions(PsiShortNamesCache.EP_NAME), GroovyShortNamesCache.class));
+    return Objects
+      .requireNonNull(ContainerUtil.findInstance(PsiShortNamesCache.EP_NAME.getExtensionList(project), GroovyShortNamesCache.class));
   }
 
   @Override
-  @NotNull
-  public PsiClass[] getClassesByName(@NotNull @NonNls String name, @NotNull GlobalSearchScope scope) {
-    Collection<PsiClass> allClasses = new SmartList<PsiClass>();
-    processClassesWithName(name, new CommonProcessors.CollectProcessor<PsiClass>(allClasses), scope, null);
+  public @NotNull PsiClass @NotNull [] getClassesByName(@NotNull @NonNls String name, @NotNull GlobalSearchScope scope) {
+    Collection<PsiClass> allClasses = new SmartList<>();
+    processClassesWithName(name, Processors.cancelableCollectProcessor(allClasses), scope, null);
     if (allClasses.isEmpty()) return PsiClass.EMPTY_ARRAY;
-    return allClasses.toArray(new PsiClass[allClasses.size()]);
+    return allClasses.toArray(PsiClass.EMPTY_ARRAY);
   }
 
   public List<PsiClass> getScriptClassesByFQName(final String name, final GlobalSearchScope scope, final boolean srcOnly) {
@@ -74,7 +56,7 @@ public class GroovyShortNamesCache extends PsiShortNamesCache {
       return Collections.emptyList();
     }
 
-    final ArrayList<PsiClass> result = new ArrayList<PsiClass>();
+    final ArrayList<PsiClass> result = new ArrayList<>();
     for (GroovyFile file : files) {
       if (file.isScript()) {
         final PsiClass scriptClass = file.getScriptClass();
@@ -87,45 +69,27 @@ public class GroovyShortNamesCache extends PsiShortNamesCache {
   }
 
   @NotNull
-  public List<PsiClass> getClassesByFQName(@NotNull @NonNls String name, @NotNull GlobalSearchScope scope) {
-    final List<PsiClass> result = addClasses(name, scope, true);
-    if (result.isEmpty()) {
-      result.addAll(addClasses(name, scope, false));
-    }
-    if (result.isEmpty()) {
-      result.addAll(addClasses(name, GlobalSearchScope.projectScope(myProject), false));
-    }
-    return result;
-  }
+  public List<PsiClass> getClassesByFQName(String name, GlobalSearchScope scope, boolean inSource) {
+    final List<PsiClass> result = new ArrayList<>();
 
-  private List<PsiClass> addClasses(String name, GlobalSearchScope scope, boolean inSource) {
-    final List<PsiClass> result = new ArrayList<PsiClass>(getScriptClassesByFQName(name, scope, inSource));
-
-    for (PsiElement psiClass : StubIndex.getElements(GrFullClassNameIndex.KEY, name.hashCode(), myProject,
+    for (PsiClass psiClass : StubIndex.getElements(GrFullClassNameIndex.KEY, name.hashCode(), myProject,
                                                      inSource ? new GrSourceFilterScope(scope) : scope, PsiClass.class)) {
       //hashcode doesn't guarantee equals
-      if (name.equals(((PsiClass)psiClass).getQualifiedName())) {
-        result.add((PsiClass)psiClass);
+      if (name.equals(psiClass.getQualifiedName())) {
+        result.add(psiClass);
       }
     }
+    result.addAll(getScriptClassesByFQName(name, scope, inSource));
     return result;
   }
 
   @Override
-  @NotNull
-  public String[] getAllClassNames() {
-    return ArrayUtil.toStringArray(StubIndex.getInstance().getAllKeys(GrScriptClassNameIndex.KEY, myProject));
-  }
-
-
-  @Override
-  public void getAllClassNames(@NotNull HashSet<String> dest) {
-    dest.addAll(StubIndex.getInstance().getAllKeys(GrScriptClassNameIndex.KEY, myProject));
+  public @NotNull String @NotNull [] getAllClassNames() {
+    return ArrayUtilRt.toStringArray(StubIndex.getInstance().getAllKeys(GrScriptClassNameIndex.KEY, myProject));
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] getMethodsByName(@NonNls @NotNull String name, @NotNull GlobalSearchScope scope) {
+  public @NotNull PsiMethod @NotNull [] getMethodsByName(@NonNls @NotNull String name, @NotNull GlobalSearchScope scope) {
     final Collection<? extends PsiMethod> methods = StubIndex.getElements(GrMethodNameIndex.KEY, name, myProject,
                                                                           new GrSourceFilterScope(scope), GrMethod.class);
     final Collection<? extends PsiMethod> annMethods = StubIndex.getElements(GrAnnotationMethodNameIndex.KEY, name, myProject,
@@ -138,7 +102,7 @@ public class GroovyShortNamesCache extends PsiShortNamesCache {
   @Override
   public boolean processMethodsWithName(@NonNls @NotNull String name,
                                         @NotNull GlobalSearchScope scope,
-                                        @NotNull Processor<PsiMethod> processor) {
+                                        @NotNull Processor<? super PsiMethod> processor) {
     return processMethodsWithName(name, processor, scope, null);
   }
 
@@ -154,49 +118,34 @@ public class GroovyShortNamesCache extends PsiShortNamesCache {
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] getMethodsByNameIfNotMoreThan(@NonNls @NotNull String name, @NotNull GlobalSearchScope scope, int maxCount) {
+  public @NotNull PsiMethod @NotNull [] getMethodsByNameIfNotMoreThan(@NonNls @NotNull String name, @NotNull GlobalSearchScope scope, int maxCount) {
     return getMethodsByName(name, scope);
   }
 
-  @NotNull
   @Override
-  public PsiField[] getFieldsByNameIfNotMoreThan(@NonNls @NotNull String name, @NotNull GlobalSearchScope scope, int maxCount) {
+  public @NotNull PsiField @NotNull [] getFieldsByNameIfNotMoreThan(@NonNls @NotNull String name, @NotNull GlobalSearchScope scope, int maxCount) {
     return getFieldsByName(name, scope);
   }
 
   @Override
-  @NotNull
-  public String[] getAllMethodNames() {
+  public @NotNull String @NotNull [] getAllMethodNames() {
     Collection<String> keys = StubIndex.getInstance().getAllKeys(GrMethodNameIndex.KEY, myProject);
     keys.addAll(StubIndex.getInstance().getAllKeys(GrAnnotationMethodNameIndex.KEY, myProject));
-    return ArrayUtil.toStringArray(keys);
+    return ArrayUtilRt.toStringArray(keys);
   }
 
   @Override
-  public void getAllMethodNames(@NotNull HashSet<String> set) {
-    set.addAll(StubIndex.getInstance().getAllKeys(GrMethodNameIndex.KEY, myProject));
-  }
-
-  @Override
-  @NotNull
-  public PsiField[] getFieldsByName(@NotNull @NonNls String name, @NotNull GlobalSearchScope scope) {
+  public @NotNull PsiField @NotNull [] getFieldsByName(@NotNull @NonNls String name, @NotNull GlobalSearchScope scope) {
     final Collection<? extends PsiField> fields = StubIndex.getElements(GrFieldNameIndex.KEY, name, myProject,
                                                                         new GrSourceFilterScope(scope), GrField.class);
     if (fields.isEmpty()) return PsiField.EMPTY_ARRAY;
-    return fields.toArray(new PsiField[fields.size()]);
+    return fields.toArray(PsiField.EMPTY_ARRAY);
   }
 
   @Override
-  @NotNull
-  public String[] getAllFieldNames() {
+  public @NotNull String @NotNull [] getAllFieldNames() {
     Collection<String> fields = StubIndex.getInstance().getAllKeys(GrFieldNameIndex.KEY, myProject);
-    return ArrayUtil.toStringArray(fields);
-  }
-
-  @Override
-  public void getAllFieldNames(@NotNull HashSet<String> set) {
-    set.addAll(StubIndex.getInstance().getAllKeys(GrFieldNameIndex.KEY, myProject));
+    return ArrayUtilRt.toStringArray(fields);
   }
 
   @Override
@@ -213,6 +162,23 @@ public class GroovyShortNamesCache extends PsiShortNamesCache {
                                         @NotNull Processor<? super PsiClass> processor,
                                         @NotNull GlobalSearchScope scope,
                                         @Nullable IdFilter filter) {
+    return processClasses(name, processor, scope, filter) &&
+           processScriptClasses(name, processor, scope, filter);
+  }
+
+  private boolean processClasses(@NotNull String name,
+                                 @NotNull Processor<? super PsiClass> processor,
+                                 @NotNull GlobalSearchScope scope,
+                                 @Nullable IdFilter filter) {
+    return StubIndex.getInstance().processElements(
+      CLASS_SHORT_NAMES, name, myProject, new GrSourceFilterScope(scope), filter, PsiClass.class, processor
+    );
+  }
+
+  private boolean processScriptClasses(@NotNull String name,
+                                       @NotNull Processor<? super PsiClass> processor,
+                                       @NotNull GlobalSearchScope scope,
+                                       @Nullable IdFilter filter) {
     for (GroovyFile file : StubIndex.getElements(GrScriptClassNameIndex.KEY, name, myProject, new GrSourceFilterScope(scope), filter,
                                                  GroovyFile.class)) {
       PsiClass aClass = file.getScriptClass();

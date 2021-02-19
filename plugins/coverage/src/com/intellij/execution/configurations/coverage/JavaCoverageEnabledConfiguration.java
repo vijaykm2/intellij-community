@@ -1,19 +1,4 @@
-/*
- * Copyright 2000-2007 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.configurations.coverage;
 
 import com.intellij.coverage.CoverageRunner;
@@ -28,7 +13,7 @@ import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.classFilter.ClassFilter;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -44,7 +29,7 @@ import java.util.List;
  * @author ven
  */
 public class JavaCoverageEnabledConfiguration extends CoverageEnabledConfiguration {
-  private static final Logger LOG = Logger.getInstance("com.intellij.execution.configurations.coverage.JavaCoverageEnabledConfiguration");
+  private static final Logger LOG = Logger.getInstance(JavaCoverageEnabledConfiguration.class);
 
   private ClassFilter[] myCoveragePatterns;
 
@@ -55,17 +40,15 @@ public class JavaCoverageEnabledConfiguration extends CoverageEnabledConfigurati
   @NonNls private static final String COVERAGE_MERGE_ATTRIBUTE_NAME = "merge";
   @NonNls private static final String COVERAGE_MERGE_SUITE_ATT_NAME = "merge_suite";
 
-  private JavaCoverageEngine myCoverageProvider;
 
   public JavaCoverageEnabledConfiguration(final RunConfigurationBase configuration,
                                           final JavaCoverageEngine coverageProvider) {
     super(configuration);
-    myCoverageProvider = coverageProvider;
     setCoverageRunner(CoverageRunner.getInstance(IDEACoverageRunner.class));
   }
 
   @Nullable
-  public static JavaCoverageEnabledConfiguration getFrom(final RunConfigurationBase configuration) {
+  public static JavaCoverageEnabledConfiguration getFrom(@NotNull final RunConfigurationBase configuration) {
     final CoverageEnabledConfiguration coverageEnabledConfiguration = getOrCreate(configuration);
     if (coverageEnabledConfiguration instanceof JavaCoverageEnabledConfiguration) {
       return (JavaCoverageEnabledConfiguration)coverageEnabledConfiguration;
@@ -76,17 +59,18 @@ public class JavaCoverageEnabledConfiguration extends CoverageEnabledConfigurati
   public void appendCoverageArgument(RunConfigurationBase configuration, final SimpleJavaParameters javaParameters) {
     final CoverageRunner runner = getCoverageRunner();
     try {
-      if (runner != null && runner instanceof JavaCoverageRunner) {
+      if (runner instanceof JavaCoverageRunner) {
         final String path = getCoverageFilePath();
         assert path != null; // cannot be null here if runner != null
 
         String sourceMapPath = null;
-        if (myCoverageProvider.isSourceMapNeeded(configuration)) {
+        if (JavaCoverageEngine.isSourceMapNeeded(configuration)) {
           sourceMapPath = getSourceMapPath(path);
         }
 
         ((JavaCoverageRunner)runner).appendCoverageArgument(new File(path).getCanonicalPath(),
                                                             getPatterns(),
+                                                            getExcludePatterns(),
                                                             javaParameters,
                                                             isTrackPerTestCoverage() && !isSampling(),
                                                             isSampling(),
@@ -102,23 +86,28 @@ public class JavaCoverageEnabledConfiguration extends CoverageEnabledConfigurati
     return coverageDataFilePath + ".sourceMap";
   }
 
-  @NotNull
-  public JavaCoverageEngine getCoverageProvider() {
-    return myCoverageProvider;
-  }
-
-  public ClassFilter[] getCoveragePatterns() {
+  public ClassFilter @Nullable [] getCoveragePatterns() {
     return myCoveragePatterns;
   }
 
-  @Nullable
-  public String [] getPatterns() {
+  public String @Nullable [] getPatterns() {
     if (myCoveragePatterns != null) {
-      List<String> patterns = new ArrayList<String>();
+      List<String> patterns = new ArrayList<>();
       for (ClassFilter coveragePattern : myCoveragePatterns) {
-        if (coveragePattern.isEnabled()) patterns.add(coveragePattern.getPattern());
+        if (coveragePattern.isEnabled() && coveragePattern.isInclude()) patterns.add(coveragePattern.getPattern());
       }
-      return ArrayUtil.toStringArray(patterns);
+      return ArrayUtilRt.toStringArray(patterns);
+    }
+    return null;
+  }
+
+  public String @Nullable [] getExcludePatterns() {
+    if (myCoveragePatterns != null) {
+      List<String> patterns = new ArrayList<>();
+      for (ClassFilter coveragePattern : myCoveragePatterns) {
+        if (coveragePattern.isEnabled() && !coveragePattern.isInclude()) patterns.add(coveragePattern.getPattern());
+      }
+      return ArrayUtilRt.toStringArray(patterns);
     }
     return null;
   }
@@ -132,8 +121,7 @@ public class JavaCoverageEnabledConfiguration extends CoverageEnabledConfigurati
     super.readExternal(element);
 
     // merge with prev results
-    final String mergeAttribute = element.getAttributeValue(COVERAGE_MERGE_ATTRIBUTE_NAME);
-    myIsMergeWithPreviousResults = mergeAttribute != null && Boolean.valueOf(mergeAttribute).booleanValue();
+    myIsMergeWithPreviousResults = Boolean.parseBoolean(element.getAttributeValue(COVERAGE_MERGE_ATTRIBUTE_NAME));
 
     mySuiteToMergeWith = element.getAttributeValue(COVERAGE_MERGE_SUITE_ATT_NAME);
 
@@ -160,52 +148,31 @@ public class JavaCoverageEnabledConfiguration extends CoverageEnabledConfigurati
 
   @Override
   public void writeExternal(Element element) throws WriteExternalException {
-    // just for backward compatibility with settings format before "Huge Coverage Refactoring"
-    // see [IDEA-56800] ProjectRunConfigurationManager component: "coverage" extension: "merge" attribute is misplaced
-    // here we can't use super.writeExternal(...) due to differences in format between IDEA 10 and IDEA 9.x
-
-    // enabled
-    element.setAttribute(COVERAGE_ENABLED_ATTRIBUTE_NAME, String.valueOf(isCoverageEnabled()));
+    super.writeExternal(element);
 
     // merge with prev
-    element.setAttribute(COVERAGE_MERGE_ATTRIBUTE_NAME, String.valueOf(myIsMergeWithPreviousResults));
+    if (myIsMergeWithPreviousResults) {
+      element.setAttribute(COVERAGE_MERGE_ATTRIBUTE_NAME, String.valueOf(true));
+    }
 
     if (myIsMergeWithPreviousResults && mySuiteToMergeWith != null) {
       element.setAttribute(COVERAGE_MERGE_SUITE_ATT_NAME, mySuiteToMergeWith);
     }
 
-    // track per test
-    final boolean trackPerTestCoverage = isTrackPerTestCoverage();
-    if (!trackPerTestCoverage) {
-      element.setAttribute(TRACK_PER_TEST_COVERAGE_ATTRIBUTE_NAME, String.valueOf(trackPerTestCoverage));
-    }
-
-    // sampling
-    final boolean sampling = isSampling();
-    if (sampling) {
-      element.setAttribute(SAMPLING_COVERAGE_ATTRIBUTE_NAME, String.valueOf(sampling));
-    }
-
-    // test folders
-    final boolean trackTestFolders = isTrackTestFolders();
-    if (trackTestFolders) {
-      element.setAttribute(TRACK_TEST_FOLDERS, String.valueOf(trackTestFolders));
-    }
-
     // runner
     final CoverageRunner coverageRunner = getCoverageRunner();
-    final String runnerId = getRunnerId();
     if (coverageRunner != null) {
-      element.setAttribute(COVERAGE_RUNNER, coverageRunner.getId());
-    } else if (runnerId != null) {
-      element.setAttribute(COVERAGE_RUNNER, runnerId);
+      IDEACoverageRunner ideaRunner = CoverageRunner.EP_NAME.findExtension(IDEACoverageRunner.class);
+      if (ideaRunner != null && coverageRunner.getId().equals(ideaRunner.getId())) {
+        element.removeAttribute(COVERAGE_RUNNER);
+      }
     }
 
     // patterns
     if (myCoveragePatterns != null) {
       for (ClassFilter pattern : myCoveragePatterns) {
         @NonNls final Element patternElement = new Element(COVERAGE_PATTERN_ELEMENT_NAME);
-        DefaultJDOMExternalizer.writeExternal(pattern, patternElement);
+        pattern.writeExternal(patternElement);
         element.addContent(patternElement);
       }
     }

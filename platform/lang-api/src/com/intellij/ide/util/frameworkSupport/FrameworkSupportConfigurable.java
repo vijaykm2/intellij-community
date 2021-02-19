@@ -29,9 +29,6 @@ import javax.swing.*;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author nik
- */
 public abstract class FrameworkSupportConfigurable implements Disposable {
   private final EventDispatcher<FrameworkSupportConfigurableListener> myDispatcher = EventDispatcher.create(FrameworkSupportConfigurableListener.class);
 
@@ -41,7 +38,6 @@ public abstract class FrameworkSupportConfigurable implements Disposable {
   public abstract void addSupport(@NotNull Module module, @NotNull ModifiableRootModel model, final @Nullable Library library);
 
   public FrameworkVersion getSelectedVersion() {
-    //noinspection ConstantConditions
     return null;
   }
 

@@ -1,33 +1,40 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.ui.layout;
 
 import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.util.Pair;
 import com.intellij.ui.content.Content;
+import com.intellij.util.Producer;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import javax.swing.*;
+
 
 public interface LayoutViewOptions {
 
   String STARTUP = "startup";
 
+  LayoutViewOptions setTitleProducer(@Nullable Producer<@NotNull Pair<@Nullable Icon, @NotNull String>> titleProducer);
+
+  /**
+   * @deprecated use {@link #setTopLeftToolbar(ActionGroup, String)}
+   */
   @NotNull
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   LayoutViewOptions setTopToolbar(@NotNull ActionGroup actions, @NotNull String place);
+
+  @NotNull
+  LayoutViewOptions setTopLeftToolbar(@NotNull ActionGroup actions, @NotNull String place);
+
+  @NotNull
+  LayoutViewOptions setTopMiddleToolbar(@NotNull ActionGroup actions, @NotNull String place);
+
+  @NotNull
+  LayoutViewOptions setTopRightToolbar(@NotNull ActionGroup actions, @NotNull String place);
 
   @NotNull
   LayoutViewOptions setLeftToolbar(@NotNull ActionGroup leftToolbar, @NotNull String place);
@@ -50,8 +57,7 @@ public interface LayoutViewOptions {
   LayoutViewOptions setToFocus(@Nullable Content content, @NotNull String condition);
 
   AnAction getLayoutActions();
-  @NotNull
-  AnAction[] getLayoutActionsList();
+  AnAction @NotNull [] getLayoutActionsList();
 
   @NotNull
   LayoutViewOptions setTabPopupActions(@NotNull ActionGroup group);
@@ -59,6 +65,5 @@ public interface LayoutViewOptions {
   LayoutViewOptions setAdditionalFocusActions(@NotNull ActionGroup group);
 
   AnAction getSettingsActions();
-  @NotNull
-  AnAction[] getSettingsActionsList();
+  AnAction @NotNull [] getSettingsActionsList();
 }

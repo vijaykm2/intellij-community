@@ -1,45 +1,41 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.documentation;
 
-import com.intellij.psi.*;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.psi.PsiAnnotation;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiSubstitutor;
+import com.intellij.psi.PsiType;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.MethodSignature;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.Processor;
+import com.intellij.util.ArrayUtilRt;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.lang.psi.GrReferenceElement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.params.GrParameter;
 import org.jetbrains.plugins.groovy.lang.psi.impl.PsiImplUtil;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
+import org.jetbrains.plugins.groovy.transformations.impl.namedVariant.NamedParamData;
+import org.jetbrains.plugins.groovy.transformations.impl.namedVariant.NamedParamsUtil;
 
 import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
  * @author ven
  */
-public class GroovyPresentationUtil {
+public final class GroovyPresentationUtil {
   private static final int CONSTRAINTS_NUMBER = 2;
 
   public static void appendParameterPresentation(GrParameter parameter,
                                                  PsiSubstitutor substitutor,
                                                  TypePresentation typePresentation,
                                                  StringBuilder builder) {
+    if (presentNamedParameters(builder, parameter)) return;
+
     for (PsiAnnotation annotation : parameter.getModifierList().getAnnotations()) {
       builder.append(annotation.getText()).append(' ');
     }
@@ -63,45 +59,34 @@ public class GroovyPresentationUtil {
     }
     else {
       builder.append(parameter.getName());
-      final Set<String> structural = Collections.synchronizedSet(new LinkedHashSet<String>());
-      ReferencesSearch.search(parameter, parameter.getUseScope()).forEach(new Processor<PsiReference>() {
-        @Override
-        public boolean process(PsiReference ref) {
-          PsiElement parent = ref.getElement().getParent();
-          if (parent instanceof GrReferenceExpression) {
+      final Set<String> structural = Collections.synchronizedSet(new LinkedHashSet<>());
+      ReferencesSearch.search(parameter, parameter.getUseScope()).forEach(ref -> {
+        PsiElement parent = ref.getElement().getParent();
+        if (parent instanceof GrReferenceExpression) {
 
-            if (structural.size() >= CONSTRAINTS_NUMBER) { //handle too many constraints
-              structural.add("...");
-              return false;
-            }
-
-            StringBuilder builder1 = new StringBuilder();
-            builder1.append(((GrReferenceElement)parent).getReferenceName());
-            PsiType[] argTypes = PsiUtil.getArgumentTypes(parent, true);
-            if (argTypes != null) {
-              builder1.append("(");
-              if (argTypes.length > 0) {
-                builder1.append(argTypes.length);
-                if (argTypes.length == 1) {
-                  builder1.append(" arg");
-                }
-                else {
-                  builder1.append(" args");
-                }
-              }
-              builder1.append(')');
-            }
-
-            structural.add(builder1.toString());
+          if (structural.size() >= CONSTRAINTS_NUMBER) { //handle too many constraints
+            structural.add("...");
+            return false;
           }
 
-          return true;
+          StringBuilder builder1 = new StringBuilder();
+          builder1.append(((GrReferenceElement)parent).getReferenceName());
+          PsiType[] argTypes = PsiUtil.getArgumentTypes(parent, true);
+          if (argTypes != null) {
+            builder1.append("(");
+            builder1.append(GroovyBundle.message("parameter.hint.number.of.arguments", argTypes.length));
+            builder1.append(')');
+          }
+
+          structural.add(builder1.toString());
         }
+
+        return true;
       });
 
       if (!structural.isEmpty()) {
         builder.append(".");
-        String[] array = ArrayUtil.toStringArray(structural);
+        String[] array = ArrayUtilRt.toStringArray(structural);
         if (array.length > 1) builder.append("[");
         for (int i = 0; i < array.length; i++) {
           if (i > 0) builder.append(", ");
@@ -110,6 +95,12 @@ public class GroovyPresentationUtil {
         if (array.length > 1) builder.append("]");
       }
     }
+  }
+
+  private static boolean presentNamedParameters(@NotNull StringBuilder buffer, @NotNull GrParameter parameter) {
+    List<NamedParamData> pairs = NamedParamsUtil.collectNamedParams(parameter);
+    StringUtil.join(pairs, namedParam -> namedParam.getName() + ": " + namedParam.getType().getPresentableText(), ", ", buffer);
+    return !pairs.isEmpty();
   }
 
   public static String getSignaturePresentation(MethodSignature signature) {

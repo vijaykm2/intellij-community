@@ -14,14 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: May 16, 2002
- * Time: 6:16:03 PM
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.codeInsight.template.impl.actions;
 
 import com.intellij.codeInsight.CodeInsightBundle;
@@ -32,7 +24,7 @@ import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.actionSystem.EditorAction;
-import com.intellij.openapi.editor.actionSystem.EditorWriteActionHandler;
+import com.intellij.openapi.editor.actionSystem.EditorActionHandler;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,9 +34,10 @@ public class NextVariableAction extends EditorAction {
     setInjectedContext(true);
   }
 
-  private static class Handler extends EditorWriteActionHandler {
+  private static class Handler extends EditorActionHandler {
+
     @Override
-    public void executeWriteAction(Editor editor, @Nullable Caret caret, DataContext dataContext) {
+    protected void doExecute(@NotNull Editor editor, @Nullable Caret caret, DataContext dataContext) {
       TemplateState templateState = TemplateManagerImpl.getTemplateState(editor);
       assert templateState != null;
       CommandProcessor.getInstance().setCurrentCommandName(CodeInsightBundle.message("template.next.variable.command"));

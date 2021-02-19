@@ -26,17 +26,20 @@ import org.intellij.lang.xpath.psi.XPathBinaryExpression;
 import org.intellij.lang.xpath.psi.XPathExpression;
 import org.intellij.lang.xpath.psi.XPathFunctionCall;
 import org.intellij.lang.xpath.psi.XPathString;
-import org.jetbrains.annotations.Nls;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 public class HardwiredNamespacePrefix extends XPathInspection {
+    @Override
     public boolean isEnabledByDefault() {
         return true;
     }
 
+    @Override
     protected Visitor createVisitor(final InspectionManager manager, final boolean isOnTheFly) {
         return new Visitor(manager, isOnTheFly) {
+            @Override
             protected void checkExpression(XPathExpression expression) {
                 if (!(expression instanceof XPathBinaryExpression)) {
                     return;
@@ -48,15 +51,19 @@ public class HardwiredNamespacePrefix extends XPathInspection {
 
                     if (isNameComparison(lop, rop)) {
                         assert rop != null;
-                        final ProblemDescriptor p = manager.createProblemDescriptor(rop, "Hardwired namespace prefix", isOnTheFly,
-                                                                                    LocalQuickFix.EMPTY_ARRAY,
-                                ProblemHighlightType.GENERIC_ERROR_OR_WARNING);
+                        final ProblemDescriptor p =
+                          manager.createProblemDescriptor(rop,
+                                                          XPathBundle.message("inspection.message.hardwired.namespace.prefix"), isOnTheFly,
+                                                          LocalQuickFix.EMPTY_ARRAY,
+                                                          ProblemHighlightType.GENERIC_ERROR_OR_WARNING);
                         addProblem(p);
                     } else if (isNameComparison(rop, lop)) {
                         assert lop != null;
-                        final ProblemDescriptor p = manager.createProblemDescriptor(lop, "Hardwired namespace prefix", isOnTheFly,
-                                                                                    LocalQuickFix.EMPTY_ARRAY,
-                                ProblemHighlightType.GENERIC_ERROR_OR_WARNING);
+                        final ProblemDescriptor p =
+                          manager.createProblemDescriptor(lop,
+                                                          XPathBundle.message("inspection.message.hardwired.namespace.prefix"), isOnTheFly,
+                                                          LocalQuickFix.EMPTY_ARRAY,
+                                                          ProblemHighlightType.GENERIC_ERROR_OR_WARNING);
                         addProblem(p);
                     } else if (isNameFunctionCall(lop)) {
                         // TODO
@@ -85,18 +92,14 @@ public class HardwiredNamespacePrefix extends XPathInspection {
         return "name".equals(fc.getFunctionName());
     }
 
-    @Nls
-    @NotNull
-    public String getDisplayName() {
-        return "Hardwired Namespace Prefix";
-    }
-
+  @Override
     @NonNls
     @NotNull
     public String getShortName() {
         return "HardwiredNamespacePrefix";
     }
 
+  @Override
   protected boolean acceptsLanguage(Language language) {
     return language == XPathFileType.XPATH.getLanguage() || language == XPathFileType.XPATH2.getLanguage();
   }

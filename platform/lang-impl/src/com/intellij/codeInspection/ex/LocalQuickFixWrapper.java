@@ -1,71 +1,40 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInspection.ex;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
-import com.intellij.codeInspection.*;
+import com.intellij.codeInspection.BatchQuickFix;
+import com.intellij.codeInspection.CommonProblemDescriptor;
+import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.QuickFix;
 import com.intellij.codeInspection.reference.RefElement;
 import com.intellij.codeInspection.reference.RefEntity;
 import com.intellij.codeInspection.reference.RefManager;
 import com.intellij.codeInspection.ui.InspectionToolPresentation;
-import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
-import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.NlsActions;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiManager;
-import com.intellij.psi.util.PsiModificationTracker;
-import com.intellij.util.PairFunction;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
-/**
- * @author max
- */
 public class LocalQuickFixWrapper extends QuickFixAction {
   private final QuickFix myFix;
-  private String myText;
 
   public LocalQuickFixWrapper(@NotNull QuickFix fix, @NotNull InspectionToolWrapper toolWrapper) {
     super(fix.getName(), toolWrapper);
     myFix = fix;
-    myText = myFix.getName();
+    setText(StringUtil.escapeMnemonics(myFix.getName()));
   }
 
-  @Override
-  public void update(AnActionEvent e) {
-    super.update(e);
-    getTemplatePresentation().setText(myText);
-    e.getPresentation().setText(myText);
+  public void setText(@NotNull @NlsActions.ActionText String text) {
+    getTemplatePresentation().setText(text);
   }
-
-  @Override
-  public String getText(RefEntity where) {
-    return myText;
-  }
-
-  public void setText(@NotNull String text) {
-    myText = text;
-  }
-
 
   @Override
   protected boolean isProblemDescriptorsAcceptable() {
@@ -78,56 +47,40 @@ public class LocalQuickFixWrapper extends QuickFixAction {
   }
 
   @Nullable
-  protected QuickFix getWorkingQuickFix(@NotNull QuickFix[] fixes) {
-    final QuickFix exactResult = getWorkingQuickFix(fixes, true);
-    return exactResult != null ? exactResult : getWorkingQuickFix(fixes, false);
-  }
-  
-  @Nullable
-  protected QuickFix getWorkingQuickFix(@NotNull QuickFix[] fixes, boolean exact) {
+  private QuickFix getWorkingQuickFix(QuickFix @NotNull [] fixes) {
     for (QuickFix fix : fixes) {
-      if (!checkFix(exact, myFix, fix)) continue;
-      if (myFix instanceof IntentionWrapper && fix instanceof IntentionWrapper) {
-        if (!checkFix(exact, ((IntentionWrapper)myFix).getAction(), fix)) continue;
+      if (fix.getFamilyName().equals(myFix.getFamilyName())) {
+        return fix;
       }
-      return fix;
     }
     return null;
   }
 
-  private static <T> boolean checkFix(boolean exact, T thisFix, T fix) {
-    return exact ? thisFix.getClass() == fix.getClass() : thisFix.getClass().isInstance(fix);
-  }
-
   @Override
-  protected boolean applyFix(@NotNull RefEntity[] refElements) {
+  protected boolean applyFix(RefEntity @NotNull [] refElements) {
     return true;
   }
 
   @Override
   protected void applyFix(@NotNull final Project project,
                           @NotNull final GlobalInspectionContextImpl context,
-                          @NotNull final CommonProblemDescriptor[] descriptors,
-                          @NotNull final Set<PsiElement> ignoredElements) {
-    final PsiModificationTracker tracker = PsiManager.getInstance(project).getModificationTracker();
+                          final CommonProblemDescriptor @NotNull [] descriptors,
+                          @NotNull final Set<? super PsiElement> ignoredElements) {
     if (myFix instanceof BatchQuickFix) {
-      final List<PsiElement> collectedElementsToIgnore = new ArrayList<PsiElement>();
-      final Runnable refreshViews = new Runnable() {
-        @Override
-        public void run() {
-          DaemonCodeAnalyzer.getInstance(project).restart();
-          for (CommonProblemDescriptor descriptor : descriptors) {
-            ignore(ignoredElements, descriptor, getWorkingQuickFix(descriptor.getFixes()), context);
-          }
-
-          final RefManager refManager = context.getRefManager();
-          final RefElement[] refElements = new RefElement[collectedElementsToIgnore.size()];
-          for (int i = 0, collectedElementsToIgnoreSize = collectedElementsToIgnore.size(); i < collectedElementsToIgnoreSize; i++) {
-            refElements[i] = refManager.getReference(collectedElementsToIgnore.get(i));
-          }
-
-          removeElements(refElements, project, myToolWrapper);
+      final List<PsiElement> collectedElementsToIgnore = new ArrayList<>();
+      final Runnable refreshViews = () -> {
+        DaemonCodeAnalyzer.getInstance(project).restart();
+        for (CommonProblemDescriptor descriptor : descriptors) {
+          ignore(ignoredElements, descriptor, getWorkingQuickFix(descriptor.getFixes()) != null, context);
         }
+
+        final RefManager refManager = context.getRefManager();
+        final RefElement[] refElements = new RefElement[collectedElementsToIgnore.size()];
+        for (int i = 0, collectedElementsToIgnoreSize = collectedElementsToIgnore.size(); i < collectedElementsToIgnoreSize; i++) {
+          refElements[i] = refManager.getReference(collectedElementsToIgnore.get(i));
+        }
+
+        removeElements(refElements, project, myToolWrapper);
       };
 
       ((BatchQuickFix)myFix).applyFix(project, descriptors, collectedElementsToIgnore, refreshViews);
@@ -141,13 +94,10 @@ public class LocalQuickFixWrapper extends QuickFixAction {
       if (fixes != null) {
         final QuickFix fix = getWorkingQuickFix(fixes);
         if (fix != null) {
-          final long startCount = tracker.getModificationCount();
           //CCE here means QuickFix was incorrectly inherited, is there a way to signal (plugin) it is wrong?
           fix.applyFix(project, descriptor);
-          if (startCount != tracker.getModificationCount()) {
-            restart = true;
-            ignore(ignoredElements, descriptor, fix, context);
-          }
+          restart = true;
+          ignore(ignoredElements, descriptor, true, context);
         }
       }
     }
@@ -156,16 +106,37 @@ public class LocalQuickFixWrapper extends QuickFixAction {
     }
   }
 
-  private void ignore(@NotNull Set<PsiElement> ignoredElements,
+  @Override
+  protected boolean startInWriteAction() {
+    return myFix.startInWriteAction();
+  }
+
+  @Override
+  protected void performFixesInBatch(@NotNull Project project,
+                                     @NotNull List<CommonProblemDescriptor[]> descriptors,
+                                     @NotNull GlobalInspectionContextImpl context,
+                                     Set<? super PsiElement> ignoredElements) {
+    if (myFix instanceof BatchQuickFix) {
+      applyFix(project, context, BatchModeDescriptorsUtil.flattenDescriptors(descriptors), ignoredElements);
+    }
+    else {
+      super.performFixesInBatch(project, descriptors, context, ignoredElements);
+    }
+  }
+
+  private void ignore(@NotNull Collection<? super PsiElement> ignoredElements,
                       @NotNull CommonProblemDescriptor descriptor,
-                      @Nullable QuickFix fix,
+                      boolean hasFix,
                       @NotNull GlobalInspectionContextImpl context) {
-    if (fix != null) {
+    if (hasFix) {
       InspectionToolPresentation presentation = context.getPresentation(myToolWrapper);
-      presentation.ignoreProblem(descriptor, fix);
+      presentation.resolveProblem(descriptor);
     }
     if (descriptor instanceof ProblemDescriptor) {
-      ignoredElements.add(((ProblemDescriptor)descriptor).getPsiElement());
+      PsiElement element = ((ProblemDescriptor)descriptor).getPsiElement();
+      if (element != null) {
+        ignoredElements.add(element);
+      }
     }
   }
 }

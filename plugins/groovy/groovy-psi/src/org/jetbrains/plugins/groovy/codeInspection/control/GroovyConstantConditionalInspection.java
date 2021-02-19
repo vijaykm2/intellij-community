@@ -21,30 +21,14 @@ import com.intellij.psi.PsiElement;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
+import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
+import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
+import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrConditionalExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
-import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
-import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
-import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
 
 public class GroovyConstantConditionalInspection extends BaseInspection {
-
-    @Override
-    @NotNull
-    public String getGroupDisplayName() {
-        return CONTROL_FLOW;
-    }
-
-    @Override
-    @NotNull
-    public String getDisplayName() {
-        return "Constant conditional expression";
-    }
-
-    @Override
-    public boolean isEnabledByDefault() {
-        return true;
-    }
 
     @NotNull
     @Override
@@ -55,7 +39,7 @@ public class GroovyConstantConditionalInspection extends BaseInspection {
     @Override
     @NotNull
     public String buildErrorString(Object... args) {
-        return "'#ref' can be simplified #loc";
+        return GroovyBundle.message("inspection.message.ref.can.be.simplified");
     }
 
     static String calculateReplacementExpression(
@@ -81,12 +65,12 @@ public class GroovyConstantConditionalInspection extends BaseInspection {
 
         @Override
         @NotNull
-        public String getName() {
-            return "Simplify";
+        public String getFamilyName() {
+            return GroovyBundle.message("intention.family.name.simplify");
         }
 
         @Override
-        public void doFix(Project project, ProblemDescriptor descriptor)
+        public void doFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor)
                 throws IncorrectOperationException {
             final GrConditionalExpression expression =
                     (GrConditionalExpression) descriptor.getPsiElement();
@@ -100,8 +84,7 @@ public class GroovyConstantConditionalInspection extends BaseInspection {
             extends BaseInspectionVisitor {
 
         @Override
-        public void visitConditionalExpression(
-                GrConditionalExpression expression) {
+        public void visitConditionalExpression(@NotNull GrConditionalExpression expression) {
             super.visitConditionalExpression(expression);
             final GrExpression condition = expression.getCondition();
             final GrExpression thenExpression = expression.getThenBranch();

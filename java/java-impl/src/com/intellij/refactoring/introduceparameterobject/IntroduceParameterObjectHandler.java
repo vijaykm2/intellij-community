@@ -16,63 +16,56 @@
 package com.intellij.refactoring.introduceparameterobject;
 
 import com.intellij.ide.util.SuperMethodWarningUtil;
+import com.intellij.lang.ContextAwareActionHandler;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.actionSystem.LangDataKeys;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
-import com.intellij.openapi.editor.CaretModel;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.editor.ScrollingModel;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.RefactorJBundle;
 import com.intellij.refactoring.RefactoringActionHandler;
-import com.intellij.refactoring.RefactoringBundle;
+import com.intellij.refactoring.actions.RefactoringActionContextUtil;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import org.jetbrains.annotations.NotNull;
 
-public class IntroduceParameterObjectHandler implements RefactoringActionHandler {
-  private static final String REFACTORING_NAME = RefactorJBundle.message("introduce.parameter.object");
+public class IntroduceParameterObjectHandler implements RefactoringActionHandler, ContextAwareActionHandler {
+  @Override
+  public boolean isAvailableForQuickList(@NotNull Editor editor, @NotNull PsiFile file, @NotNull DataContext dataContext) {
+    final PsiMethod selectedMethod = getSelectedMethod(editor, file);
+    if (selectedMethod != null) {
+      final PsiMethod[] deepestSuperMethods = selectedMethod.findDeepestSuperMethods();
+      return deepestSuperMethods.length > 0 || getErrorMessage(selectedMethod) == null;
+    }
+    return false;
+  }
 
+  @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file, DataContext dataContext) {
     final ScrollingModel scrollingModel = editor.getScrollingModel();
     scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE);
-    final PsiElement element = CommonDataKeys.PSI_ELEMENT.getData(dataContext);
-    PsiMethod selectedMethod = null;
-    if (element instanceof PsiMethod) {
-      selectedMethod = (PsiMethod)element;
-    }
-    else if (element instanceof PsiParameter && ((PsiParameter)element).getDeclarationScope() instanceof PsiMethod){
-      selectedMethod = (PsiMethod)((PsiParameter)element).getDeclarationScope();
-    }
-    else {
-      final CaretModel caretModel = editor.getCaretModel();
-      final int position = caretModel.getOffset();
-      final PsiElement elementAt = file.findElementAt(position);
-      final PsiMethodCallExpression methodCallExpression =
-       PsiTreeUtil.getParentOfType(elementAt, PsiMethodCallExpression.class);
-      if (methodCallExpression != null) {
-        selectedMethod = methodCallExpression.resolveMethod();
-      } else {
-        final PsiParameterList parameterList = PsiTreeUtil.getParentOfType(elementAt, PsiParameterList.class);
-        if (parameterList != null && parameterList.getParent() instanceof PsiMethod) {
-          selectedMethod = (PsiMethod)parameterList.getParent();
-        }
-      }
-    }
+    PsiMethod selectedMethod = getSelectedMethod(editor, file);
     if (selectedMethod == null) {
       final String message = RefactorJBundle.message("cannot.perform.the.refactoring") +
-                             RefactorJBundle.message("the.caret.should.be.positioned.at.the.name.of.the.method.to.be.refactored");
-      CommonRefactoringUtil.showErrorHint(project, editor, message, REFACTORING_NAME, HelpID.IntroduceParameterObject);
+                             RefactorJBundle.message("the.caret.should.be.positioned.within.a.method.declaration.to.be.refactored");
+      CommonRefactoringUtil.showErrorHint(project, editor, message, getRefactoringName(), HelpID.IntroduceParameterObject);
       return;
     }
     invoke(project, selectedMethod, editor);
   }
 
-  public void invoke(@NotNull Project project, @NotNull PsiElement[] elements, DataContext dataContext) {
+  private static PsiMethod getSelectedMethod(Editor editor, PsiFile file) {
+    final int caret = editor.getCaretModel().getOffset();
+    final PsiElement elementAt = file.findElementAt(caret);
+    return RefactoringActionContextUtil.getJavaMethodHeader(elementAt);
+  }
+
+  @Override
+  public void invoke(@NotNull Project project, PsiElement @NotNull [] elements, DataContext dataContext) {
     if (elements.length != 1) {
       return;
     }
@@ -85,22 +78,32 @@ public class IntroduceParameterObjectHandler implements RefactoringActionHandler
   }
 
   private static void invoke(final Project project, final PsiMethod selectedMethod, Editor editor) {
-    PsiMethod newMethod = SuperMethodWarningUtil.checkSuperMethod(selectedMethod, RefactoringBundle.message("to.refactor"));
+    PsiMethod newMethod = SuperMethodWarningUtil.checkSuperMethod(selectedMethod);
     if (newMethod == null) return;
+    final String message = getErrorMessage(newMethod);
+    if (message != null) {
+      CommonRefactoringUtil.showErrorHint(project, editor, message, getRefactoringName(), HelpID.IntroduceParameterObject);
+      return;
+    }
     if (!CommonRefactoringUtil.checkReadOnlyStatus(project, newMethod)) return;
 
+    new IntroduceParameterObjectDialog(newMethod).show();
+  }
+
+  private static @NlsContexts.DialogMessage String getErrorMessage(PsiMethod newMethod) {
     final PsiParameter[] parameters = newMethod.getParameterList().getParameters();
     if (parameters.length == 0) {
-      final String message =
-        RefactorJBundle.message("cannot.perform.the.refactoring") + RefactorJBundle.message("method.selected.has.no.parameters");
-      CommonRefactoringUtil.showErrorHint(project, editor, message, REFACTORING_NAME, HelpID.IntroduceParameterObject);
-      return;
+     return RefactorJBundle.message("cannot.perform.the.refactoring") +
+            RefactorJBundle.message("method.selected.has.no.parameters");
     }
     if (newMethod instanceof PsiCompiledElement) {
-      CommonRefactoringUtil.showErrorHint(project, editor, RefactorJBundle.message("cannot.perform.the.refactoring") + RefactorJBundle.message(
-          "the.selected.method.cannot.be.wrapped.because.it.is.defined.in.a.non.project.class"), REFACTORING_NAME, HelpID.IntroduceParameterObject);
-      return;
+      return RefactorJBundle.message("cannot.perform.the.refactoring") +
+             RefactorJBundle.message("the.selected.method.cannot.be.wrapped.because.it.is.defined.in.a.non.project.class");
     }
-    new IntroduceParameterObjectDialog(newMethod).show();
+    return null;
+  }
+
+  private static @NlsContexts.DialogTitle String getRefactoringName() {
+    return RefactorJBundle.message("introduce.parameter.object");
   }
 }

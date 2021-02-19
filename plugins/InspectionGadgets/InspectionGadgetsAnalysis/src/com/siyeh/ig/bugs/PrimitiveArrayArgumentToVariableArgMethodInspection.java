@@ -1,5 +1,5 @@
 /*
- * Copyright 2006-2014 Dave Griffith, Bas Leijdekkers
+ * Copyright 2006-2017 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,22 +16,30 @@
 package com.siyeh.ig.bugs;
 
 import com.intellij.codeInsight.AnnotationUtil;
+import com.intellij.codeInsight.daemon.impl.quickfix.AddTypeCastFix;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
+import com.siyeh.ig.DelegatingFix;
+import com.siyeh.ig.InspectionGadgetsFix;
 import org.jetbrains.annotations.NotNull;
-
-import java.util.Arrays;
+import org.jetbrains.annotations.Nullable;
 
 public class PrimitiveArrayArgumentToVariableArgMethodInspection extends BaseInspection {
 
-  @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("primitive.array.argument.to.var.arg.method.display.name");
+  @Override
+  public String getID() {
+    return "PrimitiveArrayArgumentToVarargsMethod";
+  }
+
+  @Nullable
+  @Override
+  public String getAlternativeID() {
+    return "PrimitiveArrayArgumentToVariableArgMethod"; // keep old suppression working
   }
 
   @Override
@@ -50,6 +58,14 @@ public class PrimitiveArrayArgumentToVariableArgMethodInspection extends BaseIns
     return PsiUtil.isLanguageLevel5OrHigher(file);
   }
 
+  @Nullable
+  @Override
+  protected InspectionGadgetsFix buildFix(Object... infos) {
+    final PsiExpression argument = (PsiExpression)infos[0];
+    final PsiType type = (PsiType)infos[1];
+    return new DelegatingFix(new AddTypeCastFix(type, argument));
+  }
+
   @Override
   public BaseInspectionVisitor buildVisitor() {
     return new PrimitiveArrayArgumentToVariableArgVisitor();
@@ -58,9 +74,22 @@ public class PrimitiveArrayArgumentToVariableArgMethodInspection extends BaseIns
   private static class PrimitiveArrayArgumentToVariableArgVisitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitMethodCallExpression(@NotNull PsiMethodCallExpression call) {
-      super.visitMethodCallExpression(call);
+    public void visitEnumConstant(PsiEnumConstant enumConstant) {
+      super.visitEnumConstant(enumConstant);
+      visitCall(enumConstant);
+    }
+
+    @Override
+    public void visitCallExpression(PsiCallExpression callExpression) {
+      super.visitCallExpression(callExpression);
+      visitCall(callExpression);
+    }
+
+    private void visitCall(@NotNull PsiCall call) {
       final PsiExpressionList argumentList = call.getArgumentList();
+      if (argumentList == null) {
+        return;
+      }
       final PsiExpression[] arguments = argumentList.getExpressions();
       if (arguments.length == 0) {
         return;
@@ -72,7 +101,7 @@ public class PrimitiveArrayArgumentToVariableArgMethodInspection extends BaseIns
       }
       final JavaResolveResult result = call.resolveMethodGenerics();
       final PsiMethod method = (PsiMethod)result.getElement();
-      if (method == null || AnnotationUtil.isAnnotated(method, Arrays.asList("java.lang.invoke.MethodHandle.PolymorphicSignature"))) {
+      if (method == null || AnnotationUtil.isAnnotated(method, CommonClassNames.JAVA_LANG_INVOKE_MH_POLYMORPHIC, 0)) {
         return;
       }
       final PsiParameterList parameterList = method.getParameterList();
@@ -84,15 +113,15 @@ public class PrimitiveArrayArgumentToVariableArgMethodInspection extends BaseIns
       if (!lastParameter.isVarArgs()) {
         return;
       }
-      final PsiType parameterType = lastParameter.getType();
+      final PsiEllipsisType parameterType = (PsiEllipsisType)lastParameter.getType();
       if (isDeepPrimitiveArrayType(parameterType, result.getSubstitutor())) {
         return;
       }
-      registerError(lastArgument);
+      registerError(lastArgument, lastArgument, parameterType.getComponentType());
     }
   }
 
-  private static boolean isPrimitiveArrayType(PsiType type) {
+  static boolean isPrimitiveArrayType(PsiType type) {
     if (!(type instanceof PsiArrayType)) {
       return false;
     }
@@ -100,7 +129,7 @@ public class PrimitiveArrayArgumentToVariableArgMethodInspection extends BaseIns
     return TypeConversionUtil.isPrimitiveAndNotNull(componentType);
   }
 
-  private static boolean isDeepPrimitiveArrayType(PsiType type, PsiSubstitutor substitutor) {
+  static boolean isDeepPrimitiveArrayType(PsiType type, PsiSubstitutor substitutor) {
     if (!(type instanceof PsiEllipsisType)) {
       return false;
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,33 +16,28 @@
 
 package com.intellij.codeInsight.intention;
 
-import com.intellij.codeInspection.InspectionsBundle;
+import com.intellij.analysis.AnalysisBundle;
+import com.intellij.codeInspection.util.IntentionFamilyName;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Iconable;
 import com.intellij.psi.PsiFile;
-import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import java.util.List;
 
-/**
- * User: anna
- * Date: May 11, 2005
- */
-public final class EmptyIntentionAction implements IntentionAction, LowPriorityAction, Iconable {
-  private final String myName;
+public final class EmptyIntentionAction extends AbstractEmptyIntentionAction implements LowPriorityAction, Iconable {
+  private final @IntentionFamilyName String myName;
 
-  public EmptyIntentionAction(@NotNull String name) {
+  public EmptyIntentionAction(@NotNull @IntentionFamilyName String name) {
     myName = name;
   }
 
   @Override
   @NotNull
   public String getText() {
-    return InspectionsBundle.message("inspection.options.action.text", myName);
+    return AnalysisBundle.message("inspection.options.action.text", myName);
   }
 
   @Override
@@ -56,15 +51,6 @@ public final class EmptyIntentionAction implements IntentionAction, LowPriorityA
     return true; //edit inspection settings is always enabled
   }
 
-  @Override
-  public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-  }
-
-  @Override
-  public boolean startInWriteAction() {
-    return false;
-  }
-
   public boolean equals(final Object o) {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
@@ -76,12 +62,6 @@ public final class EmptyIntentionAction implements IntentionAction, LowPriorityA
 
   public int hashCode() {
     return myName.hashCode();
-  }
-
-  // used by TeamCity plugin
-  @Deprecated
-  public EmptyIntentionAction(@NotNull final String name, @NotNull List<IntentionAction> options) {
-    myName = name;
   }
 
   @Override

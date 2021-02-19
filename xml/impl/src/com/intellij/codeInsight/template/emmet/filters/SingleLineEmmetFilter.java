@@ -21,12 +21,9 @@ import com.intellij.codeInsight.template.impl.TemplateImpl;
 import com.intellij.lang.xml.XMLLanguage;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
+import com.intellij.xml.XmlBundle;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * User: zolotov
- * Date: 2/4/13
- */
 public class SingleLineEmmetFilter extends ZenCodingFilter {
   @NotNull
   @Override
@@ -61,6 +58,6 @@ public class SingleLineEmmetFilter extends ZenCodingFilter {
   @NotNull
   @Override
   public String getDisplayName() {
-    return "Single line";
+    return XmlBundle.message("emmet.filter.single.line");
   }
 }

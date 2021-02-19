@@ -18,20 +18,22 @@ package com.intellij.ui.popup.util;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.ColoredListCellRenderer;
 import com.intellij.ui.ColoredTreeCellRenderer;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
 /**
  * @author zajac
- * @since 11.05.2012
  */
 public class SplitterItem extends ItemWrapper {
-  private final String myText;
+  private final @Nls String myText;
 
-  public SplitterItem(String text) {
+  public SplitterItem(@Nls String text) {
     myText = text;
   }
 
+  @Nls
   public String getText() {
     return myText;
   }
@@ -51,6 +53,8 @@ public class SplitterItem extends ItemWrapper {
   }
 
   @Override
+  @Nullable
+  @Nls
   public String footerText() {
     return null;
   }

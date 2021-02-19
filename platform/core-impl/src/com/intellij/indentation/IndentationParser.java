@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.indentation;
 
 import com.intellij.lang.ASTNode;
@@ -26,9 +12,6 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author oleg
- */
 public abstract class IndentationParser implements PsiParser {
   @NotNull
   private final IElementType myEolTokenType;
@@ -38,14 +21,14 @@ public abstract class IndentationParser implements PsiParser {
   private final IElementType myBlockElementType;
   @NotNull
   private final IElementType myDocumentType;
-  private final List<IElementType> myContainerTypes;
+  private final List<? extends IElementType> myContainerTypes;
 
   public IndentationParser(
     @NotNull IElementType documentType,
     @NotNull final IElementType blockElementType,
     @NotNull final IElementType eolTokenType,
     @NotNull final IElementType indentTokenType,
-    final List<IElementType> containerTypes)
+    final List<? extends IElementType> containerTypes)
   {
     myDocumentType = documentType;
     myBlockElementType = blockElementType;
@@ -67,7 +50,7 @@ public abstract class IndentationParser implements PsiParser {
   @NotNull
   public final ASTNode parse(final IElementType root, final PsiBuilder builder) {
     final PsiBuilder.Marker fileMarker = builder.mark();
-    final ArrayList<PsiBuilder.Marker> containerMarkers = new ArrayList<PsiBuilder.Marker>();
+    final ArrayList<PsiBuilder.Marker> containerMarkers = new ArrayList<>();
     if (myContainerTypes != null) {
       for (IElementType ignored : myContainerTypes) {
         final PsiBuilder.Marker containerMarker = builder.mark();
@@ -79,12 +62,18 @@ public abstract class IndentationParser implements PsiParser {
       advanceLexer(builder);
     }
 
-    final Stack<BlockInfo> stack = new Stack<BlockInfo>();
-    stack.push(new BlockInfo(0, builder.mark(), builder.getTokenType()));
-
-    PsiBuilder.Marker startLineMarker = null;
     int currentIndent = 0;
     boolean eolSeen = false;
+
+    if (builder.getTokenType() == myIndentTokenType) {
+      currentIndent = builder.getTokenText().length();
+      advanceLexer(builder);
+    }
+
+    final Stack<BlockInfo> stack = new Stack<>();
+    stack.push(new BlockInfo(currentIndent, builder.mark(), builder.getTokenType()));
+
+    PsiBuilder.Marker startLineMarker = null;
 
     while (!builder.eof()) {
       final IElementType type = builder.getTokenType();
@@ -95,6 +84,7 @@ public abstract class IndentationParser implements PsiParser {
           startLineMarker = builder.mark();
         }
         eolSeen = true;
+        currentIndent = 0;
       }
       else {
         if (type == myIndentTokenType) {
@@ -105,6 +95,10 @@ public abstract class IndentationParser implements PsiParser {
           if (!eolSeen && !stack.isEmpty() && currentIndent > 0 && currentIndent < stack.peek().getIndent()) {
             // sometimes we do not have EOL between indents
             eolSeen = true;
+          }
+          if (isCustomTagDelimiter(type)) {
+            builder.advanceLexer();
+            stack.push(new BlockInfo(currentIndent, builder.mark(), type));
           }
           if (eolSeen) {
             if (startLineMarker != null) {
@@ -156,6 +150,10 @@ public abstract class IndentationParser implements PsiParser {
 
     fileMarker.done(root);
     return builder.getTreeBuilt();
+  }
+
+  protected boolean isCustomTagDelimiter(IElementType type) {
+    return false;
   }
 
   protected void closeBlock(final @NotNull PsiBuilder builder,

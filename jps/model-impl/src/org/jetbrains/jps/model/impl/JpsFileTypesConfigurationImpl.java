@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,15 +21,12 @@ import org.jetbrains.jps.model.JpsFileTypesConfiguration;
 import org.jetbrains.jps.model.ex.JpsElementBase;
 import org.jetbrains.jps.model.ex.JpsElementChildRoleBase;
 
-/**
- * @author nik
- */
 public class JpsFileTypesConfigurationImpl extends JpsElementBase<JpsFileTypesConfigurationImpl> implements JpsFileTypesConfiguration {
   public static final JpsElementChildRole<JpsFileTypesConfiguration> ROLE = JpsElementChildRoleBase.create("file types");
   private String myIgnoredPatternString;
 
   public JpsFileTypesConfigurationImpl() {
-    this("CVS;SCCS;RCS;rcs;.DS_Store;.svn;.pyc;.pyo;*.pyc;*.pyo;.git;*.hprof;_svn;.hg;*.lib;*~;__pycache__;.bundle;vssver.scc;vssver2.scc;*.rbc;");
+    this("CVS;.DS_Store;.svn;.pyc;.pyo;*.pyc;*.pyo;.git;*.hprof;_svn;.hg;*.lib;*~;__pycache__;.bundle;vssver.scc;vssver2.scc;*.rbc;");
   }
 
   private JpsFileTypesConfigurationImpl(String ignoredPatternString) {

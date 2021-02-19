@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2013 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,8 @@
  */
 package com.siyeh.ig.controlflow;
 
-import com.intellij.psi.*;
 import com.intellij.codeInspection.ui.SingleIntegerFieldOptionsPanel;
+import com.intellij.psi.*;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -31,12 +31,6 @@ public class SwitchStatementDensityInspection extends BaseInspection {
 
   @SuppressWarnings("PublicField")
   public int m_limit = DEFAULT_DENSITY_LIMIT;
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("switch.statement.density.display.name");
-  }
 
   @Override
   public JComponent createOptionsPanel() {
@@ -59,11 +53,20 @@ public class SwitchStatementDensityInspection extends BaseInspection {
 
     @Override
     public void visitSwitchStatement(@NotNull PsiSwitchStatement statement) {
-      final PsiCodeBlock body = statement.getBody();
+      checkSwitchBlock(statement);
+    }
+
+    @Override
+    public void visitSwitchExpression(PsiSwitchExpression expression) {
+      checkSwitchBlock(expression);
+    }
+
+    private void checkSwitchBlock(PsiSwitchBlock block) {
+      final PsiCodeBlock body = block.getBody();
       if (body == null) {
         return;
       }
-      final int branchCount = SwitchUtils.calculateBranchCount(statement);
+      final int branchCount = Math.abs(SwitchUtils.calculateBranchCount(block));
       if (branchCount == 0) {
         return;
       }
@@ -72,7 +75,7 @@ public class SwitchStatementDensityInspection extends BaseInspection {
       if (intDensity > m_limit) {
         return;
       }
-      registerStatementError(statement, Integer.valueOf(intDensity));
+      registerError(block.getFirstChild(), Integer.valueOf(intDensity));
     }
 
     private double calculateDensity(@NotNull PsiCodeBlock body, int branchCount) {
@@ -82,20 +85,19 @@ public class SwitchStatementDensityInspection extends BaseInspection {
     }
   }
 
-  private static class StatementCountVisitor extends JavaRecursiveElementVisitor {
-
-    private int statementCount = 0;
+  private static class StatementCountVisitor extends JavaRecursiveElementWalkingVisitor {
+    private int statementCount;
 
     @Override
     public void visitStatement(@NotNull PsiStatement statement) {
       super.visitStatement(statement);
-      if (statement instanceof PsiSwitchLabelStatement || statement instanceof PsiBreakStatement) {
+      if (statement instanceof PsiSwitchLabelStatementBase || statement instanceof PsiBreakStatement || statement instanceof PsiYieldStatement) {
         return;
       }
       statementCount++;
     }
 
-    public int getStatementCount() {
+    int getStatementCount() {
       return statementCount;
     }
   }

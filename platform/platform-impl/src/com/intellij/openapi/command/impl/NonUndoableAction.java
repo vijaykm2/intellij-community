@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,33 +18,38 @@ package com.intellij.openapi.command.impl;
 import com.intellij.openapi.command.undo.DocumentReference;
 import com.intellij.openapi.command.undo.UndoableAction;
 import com.intellij.openapi.diagnostic.Logger;
+import org.jetbrains.annotations.NotNull;
 
 class NonUndoableAction implements UndoableAction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.command.undo.NonUndoableAction");
+  private static final Logger LOG = Logger.getInstance(NonUndoableAction.class);
 
   private final DocumentReference[] myRefs;
   private final boolean myGlobal;
 
-  protected NonUndoableAction(DocumentReference ref, boolean isGlobal) {
+  NonUndoableAction(@NotNull DocumentReference ref, boolean isGlobal) {
     myGlobal = isGlobal;
     myRefs = new DocumentReference[]{ref};
     if (LOG.isDebugEnabled()) {
-      LOG.debug("global=" + isGlobal + "; doc=" + ref, new Throwable());
+      LOG.debug("global=" + isGlobal + "; doc=" + ref);
     }
   }
 
+  @Override
   public final void undo() {
     LOG.error("Cannot undo");
   }
 
+  @Override
   public void redo() {
     LOG.error("Cannot redo");
   }
 
+  @Override
   public DocumentReference[] getAffectedDocuments() {
     return myRefs;
   }
 
+  @Override
   public boolean isGlobal() {
     return myGlobal;
   }

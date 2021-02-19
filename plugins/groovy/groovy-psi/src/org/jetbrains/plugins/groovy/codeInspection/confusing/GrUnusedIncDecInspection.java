@@ -1,35 +1,20 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.codeInspection.confusing;
 
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemHighlightType;
+import com.intellij.codeInspection.util.IntentionFamilyName;
 import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.tree.IElementType;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
-import org.jetbrains.plugins.groovy.codeInspection.GroovyInspectionBundle;
 import org.jetbrains.plugins.groovy.codeInspection.utils.ControlFlowUtils;
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
 import org.jetbrains.plugins.groovy.lang.psi.GrControlFlowOwner;
@@ -51,41 +36,24 @@ import java.util.List;
  */
 public class GrUnusedIncDecInspection extends BaseInspection {
   private static final Logger LOG = Logger.getInstance(GrUnusedIncDecInspection.class);
+
+  @NotNull
+  @Override
+  public String getShortName() {
+    // used to enable inspection in tests
+    // remove when inspection class will match its short name
+    return "GroovyUnusedIncOrDec";
+  }
+
   @NotNull
   @Override
   protected BaseInspectionVisitor buildVisitor() {
     return new GrUnusedIncDecInspectionVisitor();
   }
 
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return GroovyInspectionBundle.message("groovy.dfa.issues");
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return GroovyInspectionBundle.message("unused.inc.dec");
-  }
-
-  @Override
-  @NonNls
-  @NotNull
-  public String getShortName() {
-    return "GroovyUnusedIncOrDec";
-  }
-
   private static class GrUnusedIncDecInspectionVisitor extends BaseInspectionVisitor {
     @Override
-    public void visitUnaryExpression(GrUnaryExpression expression) {
+    public void visitUnaryExpression(@NotNull GrUnaryExpression expression) {
       super.visitUnaryExpression(expression);
 
       IElementType opType = expression.getOperationTokenType();
@@ -129,29 +97,23 @@ public class GrUnusedIncDecInspection extends BaseInspection {
       if (allAreWrite) {
         if (expression.isPostfix() && PsiUtil.isExpressionUsed(expression)) {
           registerError(expression.getOperationToken(),
-                        GroovyInspectionBundle.message("unused.0", expression.getOperationToken().getText()),
+                        GroovyBundle.message("unused.0", expression.getOperationToken().getText()),
                         new LocalQuickFix[]{new ReplacePostfixIncWithPrefixFix(expression), new RemoveIncOrDecFix(expression)},
                         ProblemHighlightType.LIKE_UNUSED_SYMBOL);
         }
         else if (!PsiUtil.isExpressionUsed(expression)) {
           registerError(expression.getOperationToken(),
-                        GroovyInspectionBundle.message("unused.0", expression.getOperationToken().getText()), LocalQuickFix.EMPTY_ARRAY,
+                        GroovyBundle.message("unused.0", expression.getOperationToken().getText()), LocalQuickFix.EMPTY_ARRAY,
                         ProblemHighlightType.LIKE_UNUSED_SYMBOL);
         }
       }
     }
 
     private static class RemoveIncOrDecFix implements LocalQuickFix {
-      private final String myMessage;
+      private final @IntentionFamilyName String myMessage;
 
-      public RemoveIncOrDecFix(GrUnaryExpression expression) {
-        myMessage = GroovyInspectionBundle.message("remove.0", expression.getOperationToken().getText());
-      }
-
-      @NotNull
-      @Override
-      public String getName() {
-        return myMessage;
+      RemoveIncOrDecFix(GrUnaryExpression expression) {
+        myMessage = GroovyBundle.message("remove.0", expression.getOperationToken().getText());
       }
 
       @NotNull
@@ -170,16 +132,10 @@ public class GrUnusedIncDecInspection extends BaseInspection {
     }
 
     private static class ReplacePostfixIncWithPrefixFix implements LocalQuickFix {
-      private final String myMessage;
+      private final @IntentionFamilyName String myMessage;
 
-      public ReplacePostfixIncWithPrefixFix(GrUnaryExpression expression) {
-        myMessage = GroovyInspectionBundle.message("replace.postfix.0.with.prefix.0", expression.getOperationToken().getText());
-      }
-
-      @NotNull
-      @Override
-      public String getName() {
-        return myMessage;
+      ReplacePostfixIncWithPrefixFix(GrUnaryExpression expression) {
+        myMessage = GroovyBundle.message("replace.postfix.0.with.prefix.0", expression.getOperationToken().getText());
       }
 
       @NotNull
@@ -201,17 +157,11 @@ public class GrUnusedIncDecInspection extends BaseInspection {
     }
 
     private static class ReplaceIncDecWithBinary implements LocalQuickFix {
-      private final String myMessage;
+      private final @IntentionFamilyName String myMessage;
 
-      public ReplaceIncDecWithBinary(GrUnaryExpression expression) {
+      ReplaceIncDecWithBinary(GrUnaryExpression expression) {
         String opToken = expression.getOperationToken().getText();
-        myMessage = GroovyInspectionBundle.message("replace.0.with.1", opToken, opToken.substring(0, 1));
-      }
-
-      @NotNull
-      @Override
-      public String getName() {
-        return myMessage;
+        myMessage = GroovyBundle.message("replace.0.with.1", opToken, opToken.substring(0, 1));
       }
 
       @NotNull
@@ -224,7 +174,7 @@ public class GrUnusedIncDecInspection extends BaseInspection {
       public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
         GrUnaryExpression expr = findUnaryExpression(descriptor);
         GrExpression newExpr = GroovyPsiElementFactory.getInstance(project)
-          .createExpressionFromText(expr.getOperand().getText() + expr.getOperationToken().getText().substring(0, 1) + "1");
+          .createExpressionFromText(expr.getOperand().getText() + expr.getOperationToken().getText().charAt(0) + "1");
         expr.replaceWithExpression(newExpr, true);
       }
     }

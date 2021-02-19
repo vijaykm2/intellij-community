@@ -15,6 +15,7 @@
  */
 package com.intellij.psi.meta;
 
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -23,6 +24,8 @@ import javax.swing.*;
  * @author peter
  */
 public interface PsiPresentableMetaData extends PsiMetaData {
+  @Nullable
+  @Nls
   String getTypeName();
 
   @Nullable

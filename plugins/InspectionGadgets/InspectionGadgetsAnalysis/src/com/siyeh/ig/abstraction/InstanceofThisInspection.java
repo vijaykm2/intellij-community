@@ -20,20 +20,22 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
+import com.siyeh.ig.callMatcher.CallMatcher;
+import com.siyeh.ig.psiutils.ExpressionUtils;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 
 public class InstanceofThisInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("instanceof.check.for.this.display.name");
-  }
+  private static final CallMatcher OBJECT_GET_CLASS =
+    CallMatcher.exactInstanceCall(CommonClassNames.JAVA_LANG_OBJECT, "getClass").parameterCount(0);
 
   @Override
   @NotNull
   public String buildErrorString(Object... infos) {
-    return InspectionGadgetsBundle.message("instanceof.check.for.this.problem.descriptor");
+
+    return InspectionGadgetsBundle.message(infos[0] instanceof PsiInstanceOfExpression
+                                           ? "instanceof.check.for.this.problem.descriptor"
+                                           : "instanceof.check.for.this.equality.problem.descriptor");
   }
 
   @Override
@@ -42,6 +44,19 @@ public class InstanceofThisInspection extends BaseInspection {
   }
 
   private static class InstanceofThisVisitor extends BaseInspectionVisitor {
+    @Override
+    public void visitMethodCallExpression(PsiMethodCallExpression call) {
+      if (OBJECT_GET_CLASS.test(call)) {
+        PsiExpression qualifier = ExpressionUtils.getEffectiveQualifier(call.getMethodExpression());
+        if (qualifier != null && StreamEx.of(ExpressionUtils.nonStructuralChildren(qualifier)).select(PsiThisExpression.class)
+                .anyMatch(thisExpression -> thisExpression.getQualifier() == null)) {
+          PsiExpression compared = ExpressionUtils.getExpressionComparedTo(call);
+          if (compared instanceof PsiClassObjectAccessExpression) {
+            registerError(qualifier.isPhysical() ? qualifier : call, call);
+          }
+        }
+      }
+    }
 
     @Override
     public void visitThisExpression(@NotNull PsiThisExpression thisValue) {
@@ -55,7 +70,7 @@ public class InstanceofThisInspection extends BaseInspection {
       if (!(parent instanceof PsiInstanceOfExpression)) {
         return;
       }
-      registerError(thisValue);
+      registerError(thisValue, parent);
     }
   }
 }

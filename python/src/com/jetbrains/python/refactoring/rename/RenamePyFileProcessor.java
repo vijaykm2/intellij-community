@@ -1,30 +1,18 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.refactoring.rename;
 
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiPolyVariantReference;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.ResolveResult;
+import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.rename.RenamePsiFileProcessor;
 import com.intellij.refactoring.rename.UnresolvableCollisionUsageInfo;
 import com.intellij.usageView.UsageInfo;
+import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.psi.PyFile;
 import com.jetbrains.python.psi.PyImportElement;
@@ -47,7 +35,7 @@ public class RenamePyFileProcessor extends RenamePsiFileProcessor {
   }
 
   @Override
-  public PsiElement substituteElementToRename(PsiElement element, @Nullable Editor editor) {
+  public PsiElement substituteElementToRename(@NotNull PsiElement element, @Nullable Editor editor) {
     final PyFile file = (PyFile) element;
     if (file.getName().equals(PyNames.INIT_DOT_PY) && editor != null) {
       return file.getParent();
@@ -57,9 +45,11 @@ public class RenamePyFileProcessor extends RenamePsiFileProcessor {
 
   @NotNull
   @Override
-  public Collection<PsiReference> findReferences(PsiElement element) {
-    final List<PsiReference> results = new ArrayList<PsiReference>();
-    for (PsiReference reference : super.findReferences(element)) {
+  public Collection<PsiReference> findReferences(@NotNull PsiElement element,
+                                                 @NotNull SearchScope searchScope,
+                                                 boolean searchInCommentsAndStrings) {
+    final List<PsiReference> results = new ArrayList<>();
+    for (PsiReference reference : super.findReferences(element, searchScope, searchInCommentsAndStrings)) {
       if (isNotAliasedInImportElement(reference)) {
         results.add(reference);
       }
@@ -68,21 +58,21 @@ public class RenamePyFileProcessor extends RenamePsiFileProcessor {
   }
 
   @Override
-  public void findCollisions(PsiElement element,
-                             final String newName,
-                             Map<? extends PsiElement, String> allRenames,
-                             List<UsageInfo> result) {
-    final String newFileName = FileUtil.getNameWithoutExtension(newName);
+  public void findCollisions(@NotNull PsiElement element,
+                             @NotNull final String newName,
+                             @NotNull Map<? extends PsiElement, String> allRenames,
+                             @NotNull List<UsageInfo> result) {
+    final String newFileName = FileUtilRt.getNameWithoutExtension(newName);
     if (!PyNames.isIdentifier(newFileName)) {
-      final List<UsageInfo> usages = new ArrayList<UsageInfo>(result);
+      final List<UsageInfo> usages = new ArrayList<>(result);
       for (UsageInfo usageInfo : usages) {
         final PyImportStatementBase importStatement = PsiTreeUtil.getParentOfType(usageInfo.getElement(), PyImportStatementBase.class);
         if (importStatement != null) {
           result.add(new UnresolvableCollisionUsageInfo(importStatement, element) {
             @Override
             public String getDescription() {
-              return "The name '" + newFileName + "' is not a valid Python identifier. Cannot update import statement in '" +
-                     importStatement.getContainingFile().getName() + "'";
+              return PyBundle
+                .message("refactoring.rename.not.valid.identifier", newFileName, importStatement.getContainingFile().getName());
             }
           });
         }
@@ -101,5 +91,11 @@ public class RenamePyFileProcessor extends RenamePsiFileProcessor {
       }
     }
     return true;
+  }
+
+  @Nullable
+  @Override
+  public String getHelpID(PsiElement element) {
+    return "procedures.refactoring.renameRefactorings";
   }
 }

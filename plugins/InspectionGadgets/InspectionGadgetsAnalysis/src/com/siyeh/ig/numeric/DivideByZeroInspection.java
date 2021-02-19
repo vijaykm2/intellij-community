@@ -15,16 +15,28 @@
  */
 package com.siyeh.ig.numeric;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
+import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.dataFlow.CommonDataflow;
+import com.intellij.codeInspection.dataFlow.types.DfType;
+import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.ConstantExpressionUtil;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
+import com.siyeh.ig.InspectionGadgetsFix;
+import com.siyeh.ig.psiutils.CommentTracker;
+import org.intellij.lang.annotations.Pattern;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 public class DivideByZeroInspection extends BaseInspection {
 
+  @Pattern(VALID_ID_PATTERN)
   @Override
   @NotNull
   public String getID() {
@@ -33,14 +45,23 @@ public class DivideByZeroInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("divide.by.zero.display.name");
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message("divide.by.zero.problem.descriptor");
+  }
+
+  @Nullable
+  @Override
+  protected InspectionGadgetsFix buildFix(Object... infos) {
+    if (infos.length > 0 && infos[0] instanceof PsiBinaryExpression) {
+      PsiBinaryExpression binOp = (PsiBinaryExpression)infos[0];
+      if (binOp.getOperationTokenType().equals(JavaTokenType.DIV) && isZero(binOp.getLOperand())) {
+        PsiType type = binOp.getType();
+        if (PsiType.DOUBLE.equals(type) || PsiType.FLOAT.equals(type)) {
+          return new ReplaceWithNaNFix();
+        }
+      }
+    }
+    return null;
   }
 
   @Override
@@ -61,7 +82,7 @@ public class DivideByZeroInspection extends BaseInspection {
       for (int i = 1; i < operands.length; i++) {
         final PsiExpression operand = operands[i];
         if (isZero(operand)) {
-          registerError(operand);
+          registerError(operand, expression);
           return;
         }
       }
@@ -80,14 +101,35 @@ public class DivideByZeroInspection extends BaseInspection {
       }
       registerError(expression);
     }
+  }
 
-    private static boolean isZero(PsiExpression expression) {
-      final Object value = ConstantExpressionUtil.computeCastTo(expression, PsiType.DOUBLE);
-      if (!(value instanceof Double)) {
-        return false;
-      }
+  private static boolean isZero(PsiExpression expression) {
+    final Object value = ConstantExpressionUtil.computeCastTo(expression, PsiType.DOUBLE);
+    if (value instanceof Double) {
       final double constantValue = ((Double)value).doubleValue();
-      return constantValue == 0.0 || constantValue == -0.0;
+      return constantValue == 0.0;
+    }
+    DfType dfType = CommonDataflow.getDfType(expression);
+    Number val = dfType.getConstantOfType(Number.class);
+    return val != null && val.doubleValue() == 0.0;
+  }
+
+  private static class ReplaceWithNaNFix extends InspectionGadgetsFix {
+    @Override
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
+      PsiBinaryExpression division = PsiTreeUtil.getNonStrictParentOfType(descriptor.getStartElement(), PsiBinaryExpression.class);
+      if (division == null) return;
+      PsiType type = division.getType();
+      if (!(type instanceof PsiPrimitiveType)) return;
+      String className = ((PsiPrimitiveType)type).getBoxedTypeName();
+      new CommentTracker().replaceAndRestoreComments(division, className+".NaN");
+    }
+
+    @Nls(capitalization = Nls.Capitalization.Sentence)
+    @NotNull
+    @Override
+    public String getFamilyName() {
+      return CommonQuickFixBundle.message("fix.replace.with.x", "NaN");
     }
   }
 }

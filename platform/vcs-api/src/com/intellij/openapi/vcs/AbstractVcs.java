@@ -1,101 +1,61 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs;
 
-import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.diff.impl.patch.formove.FilePathComparator;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.UnnamedConfigurable;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vcs.annotate.AnnotationProvider;
-import com.intellij.openapi.vcs.annotate.VcsCacheableAnnotationProvider;
-import com.intellij.openapi.vcs.changes.ChangeListEditHandler;
 import com.intellij.openapi.vcs.changes.ChangeProvider;
 import com.intellij.openapi.vcs.changes.CommitExecutor;
-import com.intellij.openapi.vcs.changes.VcsModifiableDirtyScope;
+import com.intellij.openapi.vcs.changes.LocalChangeList;
 import com.intellij.openapi.vcs.checkin.CheckinEnvironment;
 import com.intellij.openapi.vcs.diff.DiffProvider;
 import com.intellij.openapi.vcs.diff.RevisionSelector;
-import com.intellij.openapi.vcs.history.VcsAnnotationCachedProxy;
 import com.intellij.openapi.vcs.history.VcsHistoryProvider;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
-import com.intellij.openapi.vcs.impl.IllegalStateProxy;
+import com.intellij.openapi.vcs.impl.VcsDescriptor;
+import com.intellij.openapi.vcs.impl.projectlevelman.AllVcsesI;
 import com.intellij.openapi.vcs.merge.MergeProvider;
 import com.intellij.openapi.vcs.rollback.RollbackEnvironment;
 import com.intellij.openapi.vcs.update.UpdateEnvironment;
 import com.intellij.openapi.vcs.versionBrowser.CommittedChangeList;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.ThrowableRunnable;
-import com.intellij.util.containers.Convertor;
+import com.intellij.util.ThreeState;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.ui.VcsSynchronousProgressWrapper;
-import org.jetbrains.annotations.CalledInAwt;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * The base class for a version control system integrated with IDEA.
  *
  * @see ProjectLevelVcsManager
  */
-public abstract class AbstractVcs<ComList extends CommittedChangeList> extends StartedActivated {
-  // true is default
-  private static final String USE_ANNOTATION_CACHE = "vcs.use.annotation.cache";
-
+public abstract class AbstractVcs extends StartedActivated {
   @NonNls protected static final String ourIntegerPattern = "\\d+";
 
   @NotNull
   protected final Project myProject;
   private final String myName;
   private final VcsKey myKey;
-  private VcsShowSettingOption myUpdateOption;
-  private VcsShowSettingOption myStatusOption;
 
   private CheckinEnvironment myCheckinEnvironment;
   private UpdateEnvironment myUpdateEnvironment;
   private RollbackEnvironment myRollbackEnvironment;
-  private static boolean ourUseAnnotationCache;
 
-  static {
-    final String property = System.getProperty(USE_ANNOTATION_CACHE);
-    ourUseAnnotationCache = true;
-    if (property != null) {
-      ourUseAnnotationCache = Boolean.valueOf(property);
-    }
-  }
-
-  public AbstractVcs(@NotNull Project project, final String name) {
-    super(project);
-
+  public AbstractVcs(@NotNull Project project, @NonNls String name) {
     myProject = project;
     myName = name;
     myKey = new VcsKey(myName);
-  }
-
-  // for tests only
-  protected AbstractVcs(@NotNull Project project, String name, VcsKey key) {
-    super();
-    myProject = project;
-    myName = name;
-    myKey = key;
   }
 
   // acts as adapter
@@ -104,7 +64,7 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
   }
 
   @Override
-  protected void shutdown() throws VcsException {
+  protected void shutdown() {
   }
 
   @Override
@@ -120,10 +80,68 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
     return myName;
   }
 
-  @NonNls
+  /**
+   * Returns the name of the VCS as it should be displayed in the UI.
+   * @see #getShortName()
+   */
+  @Nls
+  @NotNull
   public abstract String getDisplayName();
 
-  public abstract Configurable getConfigurable();
+  /**
+   * Returns the short or abbreviated name of this VCS, which name can be used in those places in the UI where the space is limited.
+   * (e.g. it can be "SVN" for Subversion or "Hg" for Mercurial).<br/><br/>
+   * By default returns the same as {@link #getDisplayName()}.
+   */
+  @Nls
+  @NotNull
+  public String getShortName() {
+    return getDisplayName();
+  }
+
+  /**
+   * Returns the short or abbreviated name of this VCS, with mnemonic, which name can be used in menus and action names.
+   * (e.g. it can be "_SVN" for Subversion or "_Hg" for Mercurial).<br/><br/>
+   * Returns generic "VC_S" by default.
+   */
+  @Nls
+  @NotNull
+  public String getShortNameWithMnemonic() {
+    return VcsBundle.message("vcs.generic.name.with.mnemonic");
+  }
+
+  /**
+   * Allows to hide 'VCS' action group in 'Main Menu'.
+   * Takes effect for projects that have configured mappings for this VCS only.
+   *
+   * @return true if 'VCS' group should be hidden.
+   */
+  public boolean isWithCustomMenu() {
+    return false;
+  }
+
+  /**
+   * Allows to hide 'Local Changes' toolwindow tab, as well as disable changelists.
+   * Takes effect for projects that have configured mappings for this VCS only.
+   *
+   * @return true if 'Local Changes' tab should be hidden.
+   */
+  public boolean isWithCustomLocalChanges() {
+    return false;
+  }
+
+  /**
+   * @return Custom value for {@link com.intellij.openapi.vcs.actions.CompareWithTheSameVersionAction} action text.
+   */
+  @NlsActions.ActionText
+  @Nullable
+  public String getCompareWithTheSameVersionActionName() {
+    return null;
+  }
+
+  public Configurable getConfigurable() {
+    return null;
+  }
 
   @Nullable
   public TransactionProvider getTransactionProvider() {
@@ -149,9 +167,6 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
     return null;
   }
 
-  public void directoryMappingChanged() {
-  }
-
   public boolean markExternalChangesAsUpToDate() {
     return false;
   }
@@ -161,13 +176,10 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
    */
   @Nullable
   protected CheckinEnvironment createCheckinEnvironment() {
-    return IllegalStateProxy.create(CheckinEnvironment.class);
+    return null;
   }
 
   /**
-   * !!! concrete VCS should define {@link #createCheckinEnvironment} method
-   * this method wraps created environment with a listener
-   *
    * Returns the interface for performing checkin / commit / submit operations.
    *
    * @return the checkin interface, or null if checkins are not supported by the VCS.
@@ -182,13 +194,10 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
    */
   @Nullable
   protected RollbackEnvironment createRollbackEnvironment() {
-    return IllegalStateProxy.create(RollbackEnvironment.class);
+    return null;
   }
 
   /**
-   * !!! concrete VCS should define {@link #createRollbackEnvironment()} method
-   * this method wraps created environment with a listener
-   *
    * @return the rollback interface, or null if rollbacks are not supported by the VCS.
    */
   @Nullable
@@ -215,13 +224,10 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
    */
   @Nullable
   protected UpdateEnvironment createUpdateEnvironment() {
-    return IllegalStateProxy.create(UpdateEnvironment.class);
+    return null;
   }
 
   /**
-   * !!! concrete VCS should define {@link #createUpdateEnvironment()} method
-   * this method wraps created environment with a listener
-   *
    * @return the update interface, or null if the updates are not supported by the VCS.
    */
   @Nullable
@@ -235,7 +241,9 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
    *
    * @param filePath the path to check.
    * @return true if the path is managed by this VCS, false otherwise.
+   * @deprecated Use {@link VcsRootChecker} instead.
    */
+  @Deprecated
   public boolean fileIsUnderVcs(FilePath filePath) {
     return true;
   }
@@ -249,41 +257,53 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
    * @return true if the corresponding file exists in the repository, false otherwise.
    */
   public boolean fileExistsInVcs(FilePath path) {
-    final VirtualFile virtualFile = path.getVirtualFile();
+    VirtualFile virtualFile = path.getVirtualFile();
     if (virtualFile != null) {
-      final FileStatus fileStatus = FileStatusManager.getInstance(myProject).getStatus(virtualFile);
+      FileStatus fileStatus = FileStatusManager.getInstance(myProject).getStatus(virtualFile);
       return fileStatus != FileStatus.UNKNOWN && fileStatus != FileStatus.ADDED;
     }
     return true;
-  }
-
-  public boolean needsLastUnchangedContent() {
-    return false;
   }
 
   /**
    * This method is called when user invokes "Enable VCS Integration" and selects a particular VCS.
    * By default it sets up a single mapping {@code <Project> -> selected VCS}.
    */
-  @CalledInAwt
+  @RequiresEdt
   public void enableIntegration() {
     ProjectLevelVcsManager vcsManager = ProjectLevelVcsManager.getInstance(myProject);
     if (vcsManager != null) {
-      vcsManager.setDirectoryMappings(Arrays.asList(new VcsDirectoryMapping("", getName())));
+      vcsManager.setDirectoryMappings(Collections.singletonList(VcsDirectoryMapping.createDefault(getName())));
     }
+  }
+
+  /**
+   * Invoked when a changelist is deleted explicitly by user or implicitly (e.g. after default changelist switch
+   * when the previous one was empty).
+   * @param list change list that's about to be removed
+   * @param explicitly whether it's a result of explicit Delete action, or just after switching the active changelist.
+   * @return UNSURE if the VCS has nothing to say about this changelist.
+   * YES or NO if the changelist has to be removed or not, and no further confirmations are needed about this changelist
+   * (in particular, the VCS can show a confirmation to the user by itself)
+   */
+  @RequiresEdt
+  @NotNull
+  public ThreeState mayRemoveChangeList(@NotNull LocalChangeList list, boolean explicitly) {
+    return ThreeState.UNSURE;
   }
 
   public boolean isTrackingUnchangedContent() {
     return false;
   }
 
-  public static boolean fileInVcsByFileStatus(final Project project, final FilePath path) {
-    final VirtualFile virtualFile = path.getVirtualFile();
-    if (virtualFile != null) {
-      final FileStatus fileStatus = FileStatusManager.getInstance(project).getStatus(virtualFile);
-      return fileStatus != FileStatus.UNKNOWN && fileStatus != FileStatus.ADDED && fileStatus != FileStatus.IGNORED;
-    }
-    return true;
+  public static boolean fileInVcsByFileStatus(@NotNull Project project, @NotNull FilePath path) {
+    VirtualFile file = path.getVirtualFile();
+    return file == null || fileInVcsByFileStatus(project, file);
+  }
+
+  public static boolean fileInVcsByFileStatus(@NotNull Project project, @NotNull VirtualFile file) {
+    FileStatus status = FileStatusManager.getInstance(project).getStatus(file);
+    return status != FileStatus.UNKNOWN && status != FileStatus.ADDED && status != FileStatus.IGNORED;
   }
 
   /**
@@ -307,24 +327,15 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
     return null;
   }
 
-  public VcsShowSettingOption getUpdateOptions() {
-    return myUpdateOption;
-  }
-
-
-  public VcsShowSettingOption getStatusOptions() {
-    return myStatusOption;
-  }
-
   public void loadSettings() {
     final ProjectLevelVcsManager vcsManager = ProjectLevelVcsManager.getInstance(myProject);
 
     if (getUpdateEnvironment() != null) {
-      myUpdateOption = vcsManager.getStandardOption(VcsConfiguration.StandardOption.UPDATE, this);
+      vcsManager.getStandardOption(VcsConfiguration.StandardOption.UPDATE, this);
     }
 
     if (getStatusEnvironment() != null) {
-      myStatusOption = vcsManager.getStandardOption(VcsConfiguration.StandardOption.STATUS, this);
+      vcsManager.getStandardOption(VcsConfiguration.StandardOption.STATUS, this);
     }
   }
 
@@ -336,7 +347,6 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
    * Returns the interface for selecting file version numbers.
    *
    * @return the revision selector implementation, or null if none is provided.
-   * @since 5.0.2
    */
   @Nullable
   public RevisionSelector getRevisionSelector() {
@@ -354,16 +364,15 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
     return null;
   }
 
-  @Nullable
-  public CommittedChangesProvider getCommittedChangesProvider() {
+  public @Nullable CommittedChangesProvider<? extends CommittedChangeList, ?> getCommittedChangesProvider() {
     return null;
   }
 
   @Nullable
-  public final CachingCommittedChangesProvider getCachingCommittedChangesProvider() {
-    CommittedChangesProvider provider = getCommittedChangesProvider();
+  public final CachingCommittedChangesProvider<? extends CommittedChangeList, ?> getCachingCommittedChangesProvider() {
+    CommittedChangesProvider<? extends CommittedChangeList, ?> provider = getCommittedChangesProvider();
     if (provider instanceof CachingCommittedChangesProvider) {
-      return (CachingCommittedChangesProvider)provider;
+      return (CachingCommittedChangesProvider<? extends CommittedChangeList, ?>)provider;
     }
     return null;
   }
@@ -393,6 +402,7 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
   /**
    * @return null if does not support revision parsing
    */
+  @NonNls
   @Nullable
   public String getRevisionPattern() {
     return null;
@@ -404,18 +414,12 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
    * This method is used for VCS autodetection during initial project creation and VCS configuration.
    *
    * @param dir the directory to check.
-   * @return <code>true</code> if directory is managed by this VCS
+   * @return {@code true} if directory is managed by this VCS
+   * @deprecated Use {@link VcsRootChecker} instead.
    */
+  @Deprecated
   public boolean isVersionedDirectory(VirtualFile dir) {
     return false;
-  }
-
-  /**
-   * If VCS does not implement detection whether directory is versioned ({@link #isVersionedDirectory(VirtualFile)}),
-   * it should return <code>false</code>. Otherwise return <code>true</code>
-   */
-  public boolean supportsVersionedStateDetection() {
-    return true;
   }
 
   /**
@@ -448,6 +452,31 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
   }
 
   /**
+   * This switch disables platform support for "default mapping" aka "&lt;Project&gt;".
+   * <p>
+   * If enabled, platform will do nothing. All roots from {@link com.intellij.openapi.vcs.impl.DefaultVcsRootPolicy} will be registered as vcs root.
+   * Vcs can try using {@link RootsConvertor} to process roots itself.
+   * <p>
+   * If disabled, platform will use {@link VcsRootChecker} or {@link com.intellij.openapi.vcs.impl.VcsEP#administrativeAreaName} to find actual vcs roots.
+   * If vcs does not implement these EP, no vcs roots will be registered for "default mapping".
+   *
+   * @see ProjectLevelVcsManager
+   * @see com.intellij.openapi.vcs.impl.projectlevelman.NewMappings
+   */
+  public boolean needsLegacyDefaultMappings() {
+    if (getCustomConvertor() != null) return true;
+
+    for (VcsRootChecker checker : VcsRootChecker.EXTENSION_POINT_NAME.getExtensionList()) {
+      if (checker.getSupportedVcs().equals(getKeyInstanceMethod())) return false;
+    }
+
+    VcsDescriptor descriptor = AllVcsesI.getInstance(myProject).getDescriptor(myName);
+    if (descriptor != null && descriptor.hasVcsDirPattern()) return false;
+
+    return true;
+  }
+
+  /**
    * Returns the implementation of the merge provider which is used to load the revisions to be merged
    * for a particular file.
    *
@@ -458,30 +487,16 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
     return null;
   }
 
-  /**
-   * List of actions that would be added to local changes browser if there are any changes for this VCS
-   */
-  @Nullable
-  public List<AnAction> getAdditionalActionsForLocalChange() {
-    return null;
-  }
-
-  @Nullable
-  public ChangeListEditHandler getEditHandler() {
-    return null;
-  }
-
   public boolean allowsNestedRoots() {
     return false;
   }
 
-  public <S> List<S> filterUniqueRoots(final List<S> in, final Convertor<S, VirtualFile> convertor) {
-    new FilterDescendantVirtualFileConvertible(convertor, FilePathComparator.getInstance()).doFilter(in);
-    return in;
-  }
-
-  public static <S> List<S> filterUniqueRootsDefault(final List<S> in, final Convertor<S, VirtualFile> convertor) {
-    new FilterDescendantVirtualFileConvertible(convertor, FilePathComparator.getInstance()).doFilter(in);
+  @NotNull
+  @Deprecated
+  public <S> List<S> filterUniqueRoots(@NotNull List<S> in, @NotNull Function<? super S, ? extends VirtualFile> convertor) {
+    if (!allowsNestedRoots()) {
+      new FilterDescendantVirtualFileConvertible<>(convertor, FilePathComparator.getInstance()).doFilter(in);
+    }
     return in;
   }
 
@@ -490,17 +505,12 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
     return null;
   }
 
-  // for VCSes, that tracks their dirty scopes themselves - for instance, P4
-  public VcsModifiableDirtyScope adjustDirtyScope(final VcsModifiableDirtyScope scope) {
-    return scope;
-  }
-
   @NotNull
   public Project getProject() {
     return myProject;
   }
 
-  protected static VcsKey createKey(final String name) {
+  protected static VcsKey createKey(@NonNls String name) {
     return new VcsKey(name);
   }
 
@@ -512,18 +522,13 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
     return VcsType.centralized;
   }
 
-  // todo ?
-  public boolean checkImmediateParentsBeforeCommit() {
-    return false;
-  }
-
   @Nullable
-  protected VcsOutgoingChangesProvider<ComList> getOutgoingProviderImpl() {
+  protected VcsOutgoingChangesProvider<CommittedChangeList> getOutgoingProviderImpl() {
     return null;
   }
 
   @Nullable
-  public final VcsOutgoingChangesProvider<ComList> getOutgoingChangesProvider() {
+  public final VcsOutgoingChangesProvider<CommittedChangeList> getOutgoingChangesProvider() {
     return VcsType.centralized.equals(getType()) ? null : getOutgoingProviderImpl();
   }
 
@@ -577,33 +582,19 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
     myRollbackEnvironment = rollbackEnvironment;
   }
 
-  public boolean reportsIgnoredDirectories() {
-    return true;
+  public void setupEnvironments() {
+    setCheckinEnvironment(createCheckinEnvironment());
+    setUpdateEnvironment(createUpdateEnvironment());
+    setRollbackEnvironment(createRollbackEnvironment());
   }
 
   @Nullable
-  public CommittedChangeList loadRevisions(final VirtualFile vf, final VcsRevisionNumber number) {
-    final CommittedChangeList[] list = new CommittedChangeList[1];
-    final ThrowableRunnable<VcsException> runnable = new ThrowableRunnable<VcsException>() {
-      @Override
-      public void run() throws VcsException {
-        final Pair<CommittedChangeList, FilePath> pair =
-          getCommittedChangesProvider().getOneList(vf, number);
-        if (pair != null) {
-          list[0] = pair.getFirst();
-        }
-      }
-    };
-    return VcsSynchronousProgressWrapper.wrap(runnable, getProject(), "Load revision contents") ? list[0] : null;
-  }
-
-  @Nullable
-  public AnnotationProvider getCachingAnnotationProvider() {
-    final AnnotationProvider ap = getAnnotationProvider();
-    if (ourUseAnnotationCache && ap instanceof VcsCacheableAnnotationProvider) {
-      return new VcsAnnotationCachedProxy(this, ProjectLevelVcsManager.getInstance(myProject).getVcsHistoryCache());
-    }
-    return ap;
+  public CommittedChangeList loadRevisions(VirtualFile vf, @NotNull VcsRevisionNumber number) {
+    return VcsSynchronousProgressWrapper.compute(() -> {
+      CommittedChangesProvider<? extends CommittedChangeList, ?> provider = getCommittedChangesProvider();
+      Pair<? extends CommittedChangeList, FilePath> pair = provider == null ? null : provider.getOneList(vf, number);
+      return pair == null ? null : pair.getFirst();
+    }, getProject(), VcsBundle.message("title.load.revision.contents"));
   }
 
   @Override
@@ -627,15 +618,21 @@ public abstract class AbstractVcs<ComList extends CommittedChangeList> extends S
     return true;
   }
 
-  /**
-   * compares different presentations of revision number (ex. in Perforce)
-   */
-  public boolean revisionsSame(@NotNull final VcsRevisionNumber number1, @NotNull final VcsRevisionNumber number2) {
-    return number1.equals(number2);
+  public boolean arePartialChangelistsSupported() {
+    return false;
   }
 
   public CheckoutProvider getCheckoutProvider() {
     return null;
+  }
+
+  @Override
+  public String toString() {
+    return getName();
+  }
+
+  public boolean needsCaseSensitiveDirtyScope() {
+    return false;
   }
 }
 

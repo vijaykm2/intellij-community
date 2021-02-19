@@ -17,7 +17,8 @@ package org.intellij.plugins.intelliLang.inject;
 
 import com.intellij.lang.Language;
 import com.intellij.lang.LanguageUtil;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,8 +28,11 @@ public final class InjectedLanguage {
   private static Map<String, Language> ourLanguageCache;
   private static int ourLanguageCount;
 
+  @NotNull
   private final String myID;
+  @NotNull
   private final String myPrefix;
+  @NotNull
   private final String mySuffix;
   private final boolean myDynamic;
 
@@ -68,7 +72,7 @@ public final class InjectedLanguage {
 
   @Nullable
   public static Language findLanguageById(@Nullable String langID) {
-    if (langID == null || langID.length() == 0) {
+    if (langID == null || langID.isEmpty()) {
       return null;
     }
     synchronized (InjectedLanguage.class) {
@@ -79,34 +83,32 @@ public final class InjectedLanguage {
     }
   }
 
-  @NotNull
-  public static String[] getAvailableLanguageIDs() {
+  public static String @NotNull [] getAvailableLanguageIDs() {
     synchronized (InjectedLanguage.class) {
       if (ourLanguageCache == null || ourLanguageCount != Language.getRegisteredLanguages().size()) {
         initLanguageCache();
       }
       final Set<String> keys = ourLanguageCache.keySet();
-      return ArrayUtil.toStringArray(keys);
+      return ArrayUtilRt.toStringArray(keys);
     }
   }
 
-  @NotNull
-  public static Language[] getAvailableLanguages() {
+  public static Language @NotNull [] getAvailableLanguages() {
     synchronized (InjectedLanguage.class) {
       if (ourLanguageCache == null || ourLanguageCount != Language.getRegisteredLanguages().size()) {
         initLanguageCache();
       }
       final Collection<Language> keys = ourLanguageCache.values();
-      return keys.toArray(new Language[keys.size()]);
+      return keys.toArray(new Language[0]);
     }
   }
 
   private static void initLanguageCache() {
-    ourLanguageCache = new HashMap<String, Language>();
+    ourLanguageCache = ContainerUtil.createWeakValueMap();
 
     Collection<Language> registeredLanguages;
     do {
-      registeredLanguages = new ArrayList<Language>(Language.getRegisteredLanguages());
+      registeredLanguages = new ArrayList<>(Language.getRegisteredLanguages());
       for (Language language : registeredLanguages) {
         if (LanguageUtil.isInjectableLanguage(language)) {
           ourLanguageCache.put(language.getID(), language);
@@ -123,11 +125,11 @@ public final class InjectedLanguage {
 
     final InjectedLanguage that = (InjectedLanguage)o;
 
-    return !(myID != null ? !myID.equals(that.myID) : that.myID != null);
+    return myID.equals(that.myID);
   }
 
   public int hashCode() {
-    return (myID != null ? myID.hashCode() : 0);
+    return myID.hashCode();
   }
 
   @Nullable

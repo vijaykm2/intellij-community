@@ -15,10 +15,13 @@
  */
 package com.intellij.openapi.compiler;
 
-public class CompilationStatusAdapter implements CompilationStatusListener {
-  public void compilationFinished(boolean aborted, int errors, int warnings, final CompileContext compileContext) {
-  }
+import org.jetbrains.annotations.ApiStatus;
 
-  public void fileGenerated(String outputRoot, String relativePath) {
-  }
+/**
+ * @deprecated Use {@link CompilationStatusListener} instead
+ */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+public class CompilationStatusAdapter implements CompilationStatusListener {
+
 }

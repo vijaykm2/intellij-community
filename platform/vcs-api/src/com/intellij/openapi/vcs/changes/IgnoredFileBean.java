@@ -1,105 +1,84 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * Created by IntelliJ IDEA.
- * User: yole
- * Date: 20.12.2006
- * Time: 15:24:28
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.LocalFileSystem;
-import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.newvfs.impl.NullVirtualFile;
+import com.intellij.util.PathUtilRt;
 import com.intellij.util.PatternUtil;
+import com.intellij.vcsUtil.VcsUtil;
+import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
-import java.util.regex.Matcher;
+import java.util.Objects;
+import java.util.regex.Pattern;
 
-public class IgnoredFileBean {
+public final class IgnoredFileBean implements IgnoredFileDescriptor {
   private final String myPath;
   private final String myFilenameIfFile;
   private final String myMask;
-  private final Matcher myMatcher;
+  private final Pattern myPattern;
   private final IgnoreSettingsType myType;
   private final Project myProject;
-  private volatile VirtualFile myCachedResolved;
+  private volatile FilePath myCachedResolved;
 
-  IgnoredFileBean(String path, IgnoreSettingsType type, Project project) {
+  IgnoredFileBean(@NotNull @NlsSafe String path, @NotNull IgnoreSettingsType type, @Nullable Project project) {
     myPath = path;
     myType = type;
-    if (IgnoreSettingsType.FILE.equals(type)) {
-      myFilenameIfFile = new File(path).getName();
-    }
-    else {
-      myFilenameIfFile = null;
-    }
+    myFilenameIfFile = IgnoreSettingsType.FILE.equals(type) ? PathUtilRt.getFileName(path) : null;
     myProject = project;
     myMask = null;
-    myMatcher = null;
+    myPattern = null;
   }
 
-  Project getProject() {
-    return myProject;
-  }
-
-  IgnoredFileBean(String mask) {
+  IgnoredFileBean(@NotNull @NonNls String mask) {
     myType = IgnoreSettingsType.MASK;
     myMask = mask;
-    if (mask == null) {
-      myMatcher = null;
-    }
-    else {
-      myMatcher = PatternUtil.fromMask(mask).matcher("");
-    }
+    myPattern = PatternUtil.fromMask(mask);
     myPath = null;
     myFilenameIfFile = null;
     myProject = null;
   }
 
   @Nullable
+  Project getProject() {
+    return myProject;
+  }
+
+  @Override
+  @Nullable
+  @NlsSafe
   public String getPath() {
     return myPath;
   }
 
+  @Override
   @Nullable
+  @NonNls
   public String getMask() {
     return myMask;
   }
 
+  @Override
+  @NotNull
   public IgnoreSettingsType getType() {
     return myType;
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(@Nullable Object o) {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
 
     IgnoredFileBean that = (IgnoredFileBean)o;
 
-    if (myPath != null ? !myPath.equals(that.myPath) : that.myPath != null) return false;
-    if (myMask != null ? !myMask.equals(that.myMask) : that.myMask != null) return false;
+    if (!Objects.equals(myPath, that.myPath)) return false;
+    if (!Objects.equals(myMask, that.myMask)) return false;
     if (myType != that.myType) return false;
 
     return true;
@@ -113,42 +92,46 @@ public class IgnoredFileBean {
     return result;
   }
 
-  public boolean matchesFile(VirtualFile file) {
+  @Override
+  public boolean matchesFile(@NotNull VirtualFile file) {
+    return matchesFile(VcsUtil.getFilePath(file));
+  }
+
+  @Override
+  public boolean matchesFile(@NotNull FilePath filePath) {
     if (myType == IgnoreSettingsType.MASK) {
-      myMatcher.reset(file.getName());
-      return myMatcher.matches();
+      return myPattern.matcher(filePath.getName()).matches();
     }
     else {
       // quick check for 'file' == exact match pattern
-      if (IgnoreSettingsType.FILE.equals(myType) && !StringUtil.equals(myFilenameIfFile, file.getNameSequence())) return false;
+      if (IgnoreSettingsType.FILE.equals(myType) && !StringUtil.equals(myFilenameIfFile, filePath.getName())) return false;
 
-      VirtualFile selector = resolve();
-      if (Comparing.equal(selector, NullVirtualFile.INSTANCE)) return false;
+      FilePath selector = resolve();
+      if (selector == null) return false;
 
       if (myType == IgnoreSettingsType.FILE) {
-        return Comparing.equal(selector, file);
+        return Comparing.equal(selector, filePath);
       }
       else {
         if ("./".equals(myPath)) {
           // special case for ignoring the project base dir (IDEADEV-16056)
-          return !file.isDirectory() && Comparing.equal(file.getParent(), selector);
+          return !filePath.isDirectory() && Comparing.equal(filePath.getParentPath(), selector);
         }
-        return VfsUtilCore.isAncestor(selector, file, false);
+        return FileUtil.startsWith(filePath.getPath(), selector.getPath());
       }
     }
   }
 
-  private VirtualFile resolve() {
+  @Nullable
+  private FilePath resolve() {
     if (myCachedResolved == null) {
-      VirtualFile resolved = doResolve();
-      myCachedResolved = resolved != null ? resolved : NullVirtualFile.INSTANCE;
+      myCachedResolved = doResolve();
     }
 
     return myCachedResolved;
   }
 
-  @Nullable
-  private VirtualFile doResolve() {
+  private @Nullable FilePath doResolve() {
     if (myProject == null || myProject.isDisposed()) {
       return null;
     }
@@ -156,13 +139,13 @@ public class IgnoredFileBean {
 
     String path = FileUtil.toSystemIndependentName(myPath);
     if (baseDir == null) {
-      return LocalFileSystem.getInstance().findFileByPath(path);
+      return VcsUtil.getFilePath(path);
     }
 
     VirtualFile resolvedRelative = baseDir.findFileByRelativePath(path);
-    if (resolvedRelative != null) return resolvedRelative;
+    if (resolvedRelative != null) return VcsUtil.getFilePath(resolvedRelative);
 
-    return LocalFileSystem.getInstance().findFileByPath(path);
+    return VcsUtil.getFilePath(path);
   }
 
   public void resetCache() {

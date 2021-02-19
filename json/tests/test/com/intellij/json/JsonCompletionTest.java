@@ -1,14 +1,15 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.json;
 
 import com.intellij.codeInsight.lookup.LookupElement;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 
 /**
  * @author Mikhail Golubev
  */
 public class JsonCompletionTest extends JsonTestCase {
   private static final String[] ALL_KEYWORDS = new String[]{"true", "false", "null"};
-  private static final String[] NOTHING = ArrayUtil.EMPTY_STRING_ARRAY;
+  private static final String[] NOTHING = ArrayUtilRt.EMPTY_STRING_ARRAY;
 
   private void doTest(String... variants) {
     myFixture.testCompletionVariants("completion/" + getTestName(false) + ".json", variants);
@@ -21,23 +22,31 @@ public class JsonCompletionTest extends JsonTestCase {
     myFixture.checkResultByFile("completion/" + getTestName(false) + "_after.json" );
   }
 
-  public void testInsideArrayElement1() throws Exception {
+  public void testInsideArrayElement1() {
     doTest(ALL_KEYWORDS);
   }
 
-  public void testInsideArrayElement2() throws Exception {
+  public void testInsideArrayElement2() {
     doTest(ALL_KEYWORDS);
   }
 
-  public void testInsidePropertyKey1() throws Exception {
+  public void testInsidePropertyKey1() {
     doTest(NOTHING);
   }
 
-  public void testInsidePropertyKey2() throws Exception {
+  public void testInsidePropertyKey2() {
     doTest(NOTHING);
   }
 
-  public void testInsidePropertyValue() throws Exception {
+  public void testInsideStringLiteral1() {
+    doTest(NOTHING);
+  }
+
+  public void testInsideStringLiteral2() {
+    doTest(NOTHING);
+  }
+
+  public void testInsidePropertyValue() {
     doTest(ALL_KEYWORDS);
   }
 

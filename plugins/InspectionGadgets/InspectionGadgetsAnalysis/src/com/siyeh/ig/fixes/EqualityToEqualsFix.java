@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2014 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,81 +15,110 @@
  */
 package com.siyeh.ig.fixes;
 
+import com.intellij.codeInsight.Nullability;
+import com.intellij.codeInsight.NullableNotNullManager;
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.dataFlow.NullabilityUtil;
+import com.intellij.codeInspection.util.IntentionFamilyName;
 import com.intellij.openapi.project.Project;
-import com.intellij.psi.JavaTokenType;
-import com.intellij.psi.PsiBinaryExpression;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiExpression;
-import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.*;
 import com.intellij.psi.util.PsiUtil;
-import com.siyeh.InspectionGadgetsBundle;
+import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class EqualityToEqualsFix extends InspectionGadgetsFix {
 
-  @Override
+  private final boolean myNegated;
+
+  /**
+   * @deprecated use {@link #buildFix(PsiBinaryExpression)} instead
+   */
+  @Deprecated
+  public EqualityToEqualsFix() {
+    this(true);
+  }
+
+  private EqualityToEqualsFix(boolean negated) {
+    myNegated = negated;
+  }
+
+  @Nullable
+  public static EqualityToEqualsFix buildFix(PsiBinaryExpression expression) {
+    final PsiExpression lhs = PsiUtil.skipParenthesizedExprDown(expression.getLOperand());
+    final Nullability nullability = NullabilityUtil.getExpressionNullability(expression.getLOperand(), true);
+    if (nullability == Nullability.NULLABLE) return null;
+    if (lhs instanceof PsiReferenceExpression) {
+      final PsiReferenceExpression referenceExpression = (PsiReferenceExpression)lhs;
+      final PsiElement target = referenceExpression.resolve();
+      if (target instanceof PsiModifierListOwner) {
+        NullableNotNullManager.getInstance(expression.getProject());
+        if (NullableNotNullManager.isNullable((PsiModifierListOwner)target)) {
+          return null;
+        }
+      }
+    }
+    return new EqualityToEqualsFix(JavaTokenType.NE.equals(expression.getOperationTokenType()));
+  }
+
+  public static InspectionGadgetsFix @NotNull [] buildEqualityFixes(PsiBinaryExpression expression) {
+    final List<InspectionGadgetsFix> result = new ArrayList<>(2);
+    ContainerUtil.addIfNotNull(result, buildFix(expression));
+    ContainerUtil.addIfNotNull(result, EqualityToSafeEqualsFix.buildFix(expression));
+    return result.toArray(InspectionGadgetsFix.EMPTY_ARRAY);
+  }
+
+  @Nls
   @NotNull
-  public String getFamilyName() {
-    return getName();
+  @Override
+  public String getName() {
+    return getFixName(myNegated);
+  }
+
+  @NotNull
+  public static @IntentionFamilyName String getFixName(boolean negated) {
+    return negated
+           ? CommonQuickFixBundle.message("fix.replace.x.with.y", "!=", "!equals()")
+           : CommonQuickFixBundle.message("fix.replace.x.with.y", "==", "equals()");
   }
 
   @Override
   @NotNull
-  public String getName() {
-    return InspectionGadgetsBundle.message(
-      "object.comparison.replace.quickfix");
+  public String getFamilyName() {
+    return getFixName(false);
   }
 
   @Override
   public void doFix(Project project, ProblemDescriptor descriptor) {
     final PsiElement comparisonToken = descriptor.getPsiElement();
-    final PsiBinaryExpression expression = (PsiBinaryExpression)
-      comparisonToken.getParent();
-    if (expression == null) {
+    final PsiElement parent = comparisonToken.getParent();
+    if (!(parent instanceof PsiBinaryExpression)) {
       return;
     }
-    boolean negated = false;
-    final IElementType tokenType = expression.getOperationTokenType();
-    if (JavaTokenType.NE.equals(tokenType)) {
-      negated = true;
-    }
-    final PsiExpression lhs = expression.getLOperand();
-    final PsiExpression strippedLhs =
-      ParenthesesUtils.stripParentheses(lhs);
-    if (strippedLhs == null) {
+    final PsiBinaryExpression expression = (PsiBinaryExpression)parent;
+    final PsiExpression lhs = PsiUtil.skipParenthesizedExprDown(expression.getLOperand());
+    final PsiExpression rhs = PsiUtil.skipParenthesizedExprDown(expression.getROperand());
+    if (lhs == null || rhs == null) {
       return;
     }
-    final PsiExpression rhs = expression.getROperand();
-    final PsiExpression strippedRhs =
-      ParenthesesUtils.stripParentheses(rhs);
-    if (strippedRhs == null) {
-      return;
+    CommentTracker commentTracker = new CommentTracker();
+    @NonNls final StringBuilder newExpression = new StringBuilder();
+    if (JavaTokenType.NE.equals(expression.getOperationTokenType())) {
+      newExpression.append('!');
     }
-    @NonNls final String expString;
-    if (PsiUtil.isLanguageLevel7OrHigher(expression)) {
-      expString = "java.util.Objects.equals(" + strippedLhs.getText() + ',' + strippedRhs.getText() + ')';
-    }
-    else if (ParenthesesUtils.getPrecedence(strippedLhs) >
-        ParenthesesUtils.METHOD_CALL_PRECEDENCE) {
-      expString = '(' + strippedLhs.getText() + ").equals(" +
-                  strippedRhs.getText() + ')';
-    }
-    else {
-      expString = strippedLhs.getText() + ".equals(" +
-                  strippedRhs.getText() + ')';
-    }
-    @NonNls final String newExpression;
-    if (negated) {
-      newExpression = '!' + expString;
-    }
-    else {
-      newExpression = expString;
-    }
-    PsiReplacementUtil.replaceExpressionAndShorten(expression, newExpression);
+    newExpression.append(commentTracker.text(lhs, ParenthesesUtils.METHOD_CALL_PRECEDENCE));
+    newExpression.append(".equals(").append(commentTracker.text(rhs)).append(')');
+
+    PsiReplacementUtil.replaceExpressionAndShorten(expression, newExpression.toString(), commentTracker);
   }
 }

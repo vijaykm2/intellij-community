@@ -26,13 +26,6 @@ public class NotifyWithoutCorrespondingWaitInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "notify.without.corresponding.wait.display.name");
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message(
       "notify.without.corresponding.wait.problem.descriptor");
@@ -88,18 +81,17 @@ public class NotifyWithoutCorrespondingWaitInspection extends BaseInspection {
   }
 
   private static class ContainsWaitVisitor
-    extends JavaRecursiveElementVisitor {
+    extends JavaRecursiveElementWalkingVisitor {
 
     private final PsiField target;
-    private boolean containsWait = false;
+    private boolean containsWait;
 
     ContainsWaitVisitor(PsiField target) {
-      super();
       this.target = target;
     }
 
     @Override
-    public void visitElement(PsiElement element) {
+    public void visitElement(@NotNull PsiElement element) {
       if (containsWait) {
         return;
       }
@@ -133,7 +125,7 @@ public class NotifyWithoutCorrespondingWaitInspection extends BaseInspection {
       containsWait = true;
     }
 
-    public boolean containsWait() {
+    boolean containsWait() {
       return containsWait;
     }
   }

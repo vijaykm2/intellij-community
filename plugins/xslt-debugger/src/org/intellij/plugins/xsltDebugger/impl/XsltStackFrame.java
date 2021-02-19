@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.xsltDebugger.impl;
 
 import com.intellij.openapi.vfs.VfsUtil;
@@ -9,6 +10,7 @@ import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.evaluation.XDebuggerEvaluator;
 import com.intellij.xdebugger.frame.*;
 import org.intellij.plugins.xsltDebugger.VMPausedException;
+import org.intellij.plugins.xsltDebugger.XsltDebuggerBundle;
 import org.intellij.plugins.xsltDebugger.XsltDebuggerSession;
 import org.intellij.plugins.xsltDebugger.rt.engine.Debugger;
 import org.intellij.plugins.xsltDebugger.rt.engine.DebuggerStoppedException;
@@ -52,9 +54,7 @@ public class XsltStackFrame extends XStackFrame {
       try {
         _customizePresentation(component);
       }
-      catch (VMPausedException ignore) {
-      }
-      catch (DebuggerStoppedException ignore) {
+      catch (VMPausedException | DebuggerStoppedException ignore) {
       }
     }
   }
@@ -62,9 +62,9 @@ public class XsltStackFrame extends XStackFrame {
   private void _customizePresentation(ColoredTextContainer component) {
     final Debugger.Frame frame = myFrame;
     if (frame instanceof Debugger.StyleFrame) {
-      component.append(((Debugger.StyleFrame)frame).getInstruction(), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+      component.append(((Debugger.StyleFrame)frame).getInstruction(), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES); //NON-NLS
     } else if (frame instanceof Debugger.SourceFrame) {
-      component.append(((Debugger.SourceFrame)frame).getXPath(), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+      component.append(((Debugger.SourceFrame)frame).getXPath(), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES); //NON-NLS
     }
     component.append(" ", SimpleTextAttributes.REGULAR_ATTRIBUTES);
 
@@ -78,10 +78,10 @@ public class XsltStackFrame extends XStackFrame {
 
         component.setToolTipText(file.getPresentableUrl());
       } else {
-        component.append(frame.getURI() + ":" + frame.getLineNumber(), SimpleTextAttributes.REGULAR_ATTRIBUTES);
+        component.append(frame.getURI() + ":" + frame.getLineNumber(), SimpleTextAttributes.REGULAR_ATTRIBUTES); //NON-NLS
       }
     } catch (Exception ignored) {
-      component.append(frame.getURI() + ":" + frame.getLineNumber(), SimpleTextAttributes.REGULAR_ATTRIBUTES);
+      component.append(frame.getURI() + ":" + frame.getLineNumber(), SimpleTextAttributes.REGULAR_ATTRIBUTES); //NON-NLS
     }
   }
 
@@ -99,7 +99,7 @@ public class XsltStackFrame extends XStackFrame {
         super.computeChildren(node);
       }
     } catch (VMPausedException ignored) {
-      node.setErrorMessage(VMPausedException.MESSAGE);
+      node.setErrorMessage(XsltDebuggerBundle.message("dialog.message.target.vm.not.responding"));
     }
   }
 
@@ -110,7 +110,7 @@ public class XsltStackFrame extends XStackFrame {
   private static class MyValue extends XValue {
     private final Debugger.Variable myVariable;
 
-    public MyValue(Debugger.Variable variable) {
+    MyValue(Debugger.Variable variable) {
       myVariable = variable;
     }
 
@@ -132,7 +132,7 @@ public class XsltStackFrame extends XStackFrame {
 
       final Value v = myVariable.getValue();
       if (v.getType() == Value.XPathType.STRING) {
-        node.setPresentation(icon, v.getType().getName(), "'" + String.valueOf(v.getValue()) + "'", false);
+        node.setPresentation(icon, v.getType().getName(), "'" + v.getValue() + "'", false);
       } else {
         final boolean hasChildren = myVariable.getValue().getValue() instanceof Value.NodeSet;
         node.setPresentation(icon, v.getType().getName(), String.valueOf(v.getValue()), hasChildren);
@@ -169,7 +169,7 @@ public class XsltStackFrame extends XStackFrame {
     private static class NodeValue extends XValue {
       private final Value.Node myNode;
 
-      public NodeValue(Value.Node n) {
+      NodeValue(Value.Node n) {
         myNode = n;
       }
 
@@ -188,7 +188,7 @@ public class XsltStackFrame extends XStackFrame {
   private static class MyEvaluator extends XDebuggerEvaluator {
     private final Debugger.StyleFrame myFrame;
 
-    public MyEvaluator(Debugger.StyleFrame frame) {
+    MyEvaluator(Debugger.StyleFrame frame) {
       myFrame = frame;
     }
 
@@ -203,7 +203,7 @@ public class XsltStackFrame extends XStackFrame {
         final Value eval = myFrame.eval(expression);
         callback.evaluated(new MyValue(new ExpressionResult(eval)));
       } catch (VMPausedException ignored) {
-        callback.errorOccurred(VMPausedException.MESSAGE);
+        callback.errorOccurred(XsltDebuggerBundle.message("dialog.message.target.vm.not.responding"));
       } catch (Debugger.EvaluationException e) {
         callback.errorOccurred(e.getMessage() != null ? e.getMessage() : e.toString());
       }
@@ -212,12 +212,11 @@ public class XsltStackFrame extends XStackFrame {
     private static class ExpressionResult implements Debugger.Variable {
       private final Value myValue;
 
-      public ExpressionResult(Value value) {
+      ExpressionResult(Value value) {
         myValue = value;
       }
 
       @Override
-      @SuppressWarnings({ "ConstantConditions" })
       public String getURI() {
         return null;
       }

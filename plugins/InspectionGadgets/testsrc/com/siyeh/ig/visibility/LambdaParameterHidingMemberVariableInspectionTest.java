@@ -16,12 +16,12 @@
 package com.siyeh.ig.visibility;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 
 /**
  * @author Bas Leijdekkers
  */
-public class LambdaParameterHidingMemberVariableInspectionTest extends LightInspectionTestCase {
+public class LambdaParameterHidingMemberVariableInspectionTest extends LightJavaInspectionTestCase {
   @Override
   protected InspectionProfileEntry getInspection() {
     return new LambdaParameterHidingMemberVariableInspection();
@@ -42,6 +42,26 @@ public class LambdaParameterHidingMemberVariableInspectionTest extends LightInsp
            "" +
            "  void m() {" +
            "    Function<String, String> f = (/*Lambda parameter 's' hides field in class 'X'*/s/**/) -> null;" +
+           "  }" +
+           "}");
+  }
+
+  public void testStatic() {
+    doTest("import java.util.function.Function;" +
+           "class X {" +
+           "  private String s;" +
+           "  static Function<String, String> m() {" +
+           "    return s -> null; " +
+           "  }" +
+           "}");
+  }
+
+  public void testStaticStatic() {
+    doTest("import java.util.function.Function;" +
+           "class X {" +
+           "  private static String s;" +
+           "  static Function<String, String> m() {" +
+           "    return /*Lambda parameter 's' hides field in class 'X'*/s/**/ -> null; " +
            "  }" +
            "}");
   }

@@ -1,80 +1,81 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.impl;
 
-import com.intellij.openapi.fileTypes.FileTypeRegistry;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.roots.*;
-import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileFilter;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.jps.model.java.JavaModuleSourceRootTypes;
 import org.jetbrains.jps.model.module.JpsModuleSourceRootType;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
+/**
+ * This is an internal class, {@link ModuleFileIndex} must be used instead.
+ */
+@ApiStatus.Internal
 public class ModuleFileIndexImpl extends FileIndexBase implements ModuleFileIndex {
+  @NotNull
   private final Module myModule;
-  private final ContentFilter myContentFilter;
 
-  public ModuleFileIndexImpl(Module module, DirectoryIndex directoryIndex) {
-    super(directoryIndex, FileTypeRegistry.getInstance(), module.getProject());
+  public ModuleFileIndexImpl(@NotNull Module module) {
+    super(DirectoryIndex.getInstance(module.getProject()));
+
     myModule = module;
-    myContentFilter = new ContentFilter();
   }
 
   @Override
-  public boolean iterateContent(@NotNull ContentIterator iterator) {
-    VirtualFile[] contentRoots = ModuleRootManager.getInstance(myModule).getContentRoots();
+  public boolean iterateContent(@NotNull ContentIterator processor, @Nullable VirtualFileFilter filter) {
+    Set<VirtualFile> contentRoots = getModuleRootsToIterate();
     for (VirtualFile contentRoot : contentRoots) {
-      VirtualFile parent = contentRoot.getParent();
-      if (parent != null) {
-        DirectoryInfo parentInfo = myDirectoryIndex.getInfoForFile(parent);
-        if (parentInfo.isInProject() && myModule.equals(parentInfo.getModule())) continue; // inner content - skip it
+      if (!iterateContentUnderDirectory(contentRoot, processor, filter)) {
+        return false;
       }
-
-      boolean finished = VfsUtilCore.iterateChildrenRecursively(contentRoot, myContentFilter, iterator);
-      if (!finished) return false;
     }
-
     return true;
   }
 
-  @Override
-  public boolean iterateContentUnderDirectory(@NotNull VirtualFile dir, @NotNull ContentIterator iterator) {
-    return VfsUtilCore.iterateChildrenRecursively(dir, myContentFilter, iterator);
+  public @NotNull Set<VirtualFile> getModuleRootsToIterate() {
+    return ReadAction.compute(() -> {
+      if (myModule.isDisposed()) {
+        return Collections.emptySet();
+      }
+
+      Set<VirtualFile> result = new LinkedHashSet<>();
+      ModuleRootManager moduleRootManager = ModuleRootManager.getInstance(myModule);
+      for (VirtualFile[] roots : Arrays.asList(moduleRootManager.getContentRoots(), moduleRootManager.getSourceRoots())) {
+        for (VirtualFile root : roots) {
+          DirectoryInfo info = getInfoForFileOrDirectory(root);
+          if (!info.isInProject(root)) continue;
+
+          VirtualFile parent = root.getParent();
+          if (parent != null) {
+            DirectoryInfo parentInfo = myDirectoryIndex.getInfoForFile(parent);
+            if (myModule.equals(parentInfo.getModule())) {
+              // inner content - skip it
+              continue;
+            }
+          }
+          result.add(root);
+        }
+      }
+      return result;
+    });
   }
 
   @Override
   public boolean isInContent(@NotNull VirtualFile fileOrDir) {
-    DirectoryInfo info = getInfoForFileOrDirectory(fileOrDir);
-    return info.isInProject() && myModule.equals(info.getModule());
+    return isInContent(fileOrDir, getInfoForFileOrDirectory(fileOrDir));
   }
 
   @Override
   public boolean isInSourceContent(@NotNull VirtualFile fileOrDir) {
     DirectoryInfo info = getInfoForFileOrDirectory(fileOrDir);
-    return info.isInModuleSource() && myModule.equals(info.getModule());
+    return info.isInModuleSource(fileOrDir) && myModule.equals(info.getModule());
   }
 
   @Override
@@ -91,71 +92,72 @@ public class ModuleFileIndexImpl extends FileIndexBase implements ModuleFileInde
   @Override
   public boolean isInTestSourceContent(@NotNull VirtualFile fileOrDir) {
     DirectoryInfo info = getInfoForFileOrDirectory(fileOrDir);
-    return info.isInModuleSource() && myModule.equals(info.getModule())
-           && JavaModuleSourceRootTypes.isTestSourceOrResource(myDirectoryIndex.getSourceRootType(info));
+    return info.isInModuleSource(fileOrDir) && myModule.equals(info.getModule()) && isTestSourcesRoot(info);
   }
 
   @Override
   public boolean isUnderSourceRootOfType(@NotNull VirtualFile fileOrDir, @NotNull Set<? extends JpsModuleSourceRootType<?>> rootTypes) {
     DirectoryInfo info = getInfoForFileOrDirectory(fileOrDir);
-    return info.isInModuleSource() && myModule.equals(info.getModule()) && rootTypes.contains(myDirectoryIndex.getSourceRootType(info));
+    return info.isInModuleSource(fileOrDir) && myModule.equals(info.getModule()) && rootTypes.contains(myDirectoryIndex.getSourceRootType(info));
+  }
+
+  @Override
+  protected boolean isScopeDisposed() {
+    return myModule.isDisposed();
   }
 
   @Nullable
-  static OrderEntry findOrderEntryWithOwnerModule(@NotNull Module ownerModule, @NotNull OrderEntry[] orderEntries) {
-    if (orderEntries.length < 10) {
-      for (OrderEntry entry : orderEntries) {
-        if (entry.getOwnerModule() == ownerModule) return entry;
+  public static OrderEntry findOrderEntryWithOwnerModule(@NotNull Module ownerModule, @NotNull List<? extends OrderEntry> orderEntries) {
+    if (orderEntries.size() < 10) {
+      for (OrderEntry orderEntry : orderEntries) {
+        if (orderEntry.getOwnerModule() == ownerModule) {
+          return orderEntry;
+        }
       }
       return null;
     }
-    int index = Arrays.binarySearch(orderEntries, new FakeOrderEntry(ownerModule), RootIndex.BY_OWNER_MODULE);
-    return index < 0 ? null : orderEntries[index];
+    int index = Collections.binarySearch(orderEntries, new FakeOrderEntry(ownerModule), RootIndex.BY_OWNER_MODULE);
+    return index < 0 ? null : orderEntries.get(index);
   }
 
   @NotNull
-  private static List<OrderEntry> findAllOrderEntriesWithOwnerModule(@NotNull Module ownerModule, @NotNull OrderEntry[] entries) {
-    if (entries.length == 0) return Collections.emptyList();
+  private static List<OrderEntry> findAllOrderEntriesWithOwnerModule(@NotNull Module ownerModule, @NotNull List<? extends OrderEntry> entries) {
+    if (entries.isEmpty()) return Collections.emptyList();
 
-    if (entries.length == 1) {
-      OrderEntry entry = entries[0];
-      return entry.getOwnerModule() == ownerModule ? Arrays.asList(entries) : Collections.<OrderEntry>emptyList();
+    if (entries.size() == 1) {
+      OrderEntry entry = entries.get(0);
+      return entry.getOwnerModule() == ownerModule ?
+             new ArrayList<>(entries) : Collections.emptyList();
     }
-    int index = Arrays.binarySearch(entries, new FakeOrderEntry(ownerModule), RootIndex.BY_OWNER_MODULE);
+    int index = Collections.binarySearch(entries, new FakeOrderEntry(ownerModule), RootIndex.BY_OWNER_MODULE);
     if (index < 0) {
       return Collections.emptyList();
     }
     int firstIndex = index;
-    while (firstIndex - 1 >= 0 && entries[firstIndex - 1].getOwnerModule() == ownerModule) {
+    while (firstIndex - 1 >= 0 && entries.get(firstIndex - 1).getOwnerModule() == ownerModule) {
       firstIndex--;
     }
     int lastIndex = index + 1;
-    while (lastIndex < entries.length && entries[lastIndex].getOwnerModule() == ownerModule) {
+    while (lastIndex < entries.size() && entries.get(lastIndex).getOwnerModule() == ownerModule) {
       lastIndex++;
     }
-
-    OrderEntry[] subArray = new OrderEntry[lastIndex - firstIndex];
-    System.arraycopy(entries, firstIndex, subArray, 0, lastIndex - firstIndex);
-
-    return Arrays.asList(subArray);
+    return new ArrayList<>(entries.subList(firstIndex, lastIndex));
   }
 
   private static class FakeOrderEntry implements OrderEntry {
     private final Module myOwnerModule;
 
-    public FakeOrderEntry(Module ownerModule) {
+    FakeOrderEntry(@NotNull Module ownerModule) {
       myOwnerModule = ownerModule;
     }
 
-    @NotNull
     @Override
-    public VirtualFile[] getFiles(OrderRootType type) {
+    public VirtualFile @NotNull [] getFiles(@NotNull OrderRootType type) {
       throw new IncorrectOperationException();
     }
 
-    @NotNull
     @Override
-    public String[] getUrls(OrderRootType rootType) {
+    public String @NotNull [] getUrls(@NotNull OrderRootType rootType) {
       throw new IncorrectOperationException();
     }
 
@@ -177,7 +179,7 @@ public class ModuleFileIndexImpl extends FileIndexBase implements ModuleFileInde
     }
 
     @Override
-    public <R> R accept(RootPolicy<R> policy, @Nullable R initialValue) {
+    public <R> R accept(@NotNull RootPolicy<R> policy, @Nullable R initialValue) {
       throw new IncorrectOperationException();
     }
 
@@ -192,16 +194,8 @@ public class ModuleFileIndexImpl extends FileIndexBase implements ModuleFileInde
     }
   }
 
-  private class ContentFilter implements VirtualFileFilter {
-    @Override
-    public boolean accept(@NotNull VirtualFile file) {
-      if (file.isDirectory()) {
-        DirectoryInfo info = myDirectoryIndex.getInfoForFile(file);
-        return info.isInProject() && myModule.equals(info.getModule());
-      }
-      else {
-        return !myFileTypeRegistry.isFileIgnored(file);
-      }
-    }
+  @Override
+  protected boolean isInContent(@NotNull VirtualFile file, @NotNull DirectoryInfo info) {
+    return ProjectFileIndexImpl.isFileInContent(file, info) && myModule.equals(info.getModule());
   }
 }

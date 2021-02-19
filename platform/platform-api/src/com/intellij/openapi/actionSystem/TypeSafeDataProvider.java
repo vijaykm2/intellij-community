@@ -14,18 +14,17 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: yole
- * Date: 23.10.2006
- * Time: 17:05:00
- */
 package com.intellij.openapi.actionSystem;
+
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @deprecated This API proved to be rather inconvenient
- * @see com.intellij.openapi.actionSystem.DataProvider
+ * @see DataProvider
  */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
 public interface TypeSafeDataProvider {
-  void calcData(DataKey key, DataSink sink);
+  void calcData(@NotNull DataKey key, @NotNull DataSink sink);
 }

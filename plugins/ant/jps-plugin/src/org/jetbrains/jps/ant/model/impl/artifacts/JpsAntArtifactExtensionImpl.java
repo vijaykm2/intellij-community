@@ -13,9 +13,6 @@ import org.jetbrains.jps.model.ex.JpsElementChildRoleBase;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author nik
- */
 public class JpsAntArtifactExtensionImpl extends JpsCompositeElementBase<JpsAntArtifactExtensionImpl> implements JpsAntArtifactExtension {
   public static final JpsElementChildRole<JpsAntArtifactExtension> PREPROCESSING_ROLE = JpsElementChildRoleBase.create("ant preprocessing");
   public static final JpsElementChildRole<JpsAntArtifactExtension> POSTPROCESSING_ROLE = JpsElementChildRoleBase.create("ant postprocessing");
@@ -62,7 +59,7 @@ public class JpsAntArtifactExtensionImpl extends JpsCompositeElementBase<JpsAntA
 
   @Override
   public List<BuildFileProperty> getAntProperties() {
-    final List<BuildFileProperty> properties = new ArrayList<BuildFileProperty>();
+    final List<BuildFileProperty> properties = new ArrayList<>();
     properties.add(new BuildFileProperty(ARTIFACT_OUTPUT_PATH_PROPERTY, getArtifact().getOutputPath()));
     properties.addAll(myProperties.myUserProperties);
     return properties;

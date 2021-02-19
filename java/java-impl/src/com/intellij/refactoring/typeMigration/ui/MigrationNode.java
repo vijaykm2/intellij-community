@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.typeMigration.ui;
 
 import com.intellij.ide.projectView.PresentationData;
@@ -30,7 +16,6 @@ import java.util.*;
 
 /**
  * @author anna
- * Date: 25-Mar-2008
  */
 public class MigrationNode extends AbstractTreeNode<TypeMigrationUsageInfo> implements DuplicateNodeRenderer.DuplicatableNode<MigrationNode> {
   private final TypeMigrationUsageInfo myInfo;
@@ -38,27 +23,24 @@ public class MigrationNode extends AbstractTreeNode<TypeMigrationUsageInfo> impl
   private List<MigrationNode> myCachedChildren;
   private final TypeMigrationLabeler myLabeler;
   private final PsiType myMigrationType;
-  private final TypeMigrationTreeBuilder myBuilder;
   private final HashMap<TypeMigrationUsageInfo, Set<MigrationNode>> myProcessed;
-  private final HashSet<TypeMigrationUsageInfo> myParents;
+  private final HashSet<? extends TypeMigrationUsageInfo> myParents;
 
   public MigrationNode(final Project project,
                        final TypeMigrationUsageInfo info,
                        final PsiType migrationType,
                        final TypeMigrationLabeler labeler,
-                       final TypeMigrationTreeBuilder builder,
-                       final HashSet<TypeMigrationUsageInfo> parents,
+                       final HashSet<? extends TypeMigrationUsageInfo> parents,
                        final HashMap<TypeMigrationUsageInfo, Set<MigrationNode>> processed) {
     super(project, info);
     myLabeler = labeler;
     myMigrationType = migrationType;
-    myBuilder = builder;
     myProcessed = processed;
     myParents = parents;
 
     Set<MigrationNode> alreadyAdded = myProcessed.get(info);
     if (alreadyAdded == null) {
-      alreadyAdded = new HashSet<MigrationNode>();
+      alreadyAdded = new HashSet<>();
       myProcessed.put(info, alreadyAdded);
       myInfo = info;
     }
@@ -74,17 +56,16 @@ public class MigrationNode extends AbstractTreeNode<TypeMigrationUsageInfo> impl
     return myInfo;
   }
 
+  @Override
   @NotNull
-  public Collection<? extends AbstractTreeNode> getChildren() {
+  public Collection<? extends AbstractTreeNode<?>> getChildren() {
     if (myCachedChildren == null) {
-      myCachedChildren = new ArrayList<MigrationNode>();
-      
+      myCachedChildren = new ArrayList<>();
+
       final PsiElement element = myInfo.getElement();
       if (element != null) {
-        myLabeler.setCurrentRoot(myInfo);
-
         try {
-          myLabeler.migrateRoot(element, myMigrationType, myLabeler.markRootUsages(element, myMigrationType));
+          myLabeler.setRootAndMigrate(myInfo, myMigrationType, myLabeler.markRootUsages(element, myMigrationType));
         }
         catch (TypeMigrationLabeler.MigrateException e) {
           //skip warning
@@ -97,11 +78,11 @@ public class MigrationNode extends AbstractTreeNode<TypeMigrationUsageInfo> impl
             final TypeMigrationUsageInfo info = root.getFirst();
 
             if (myParents.contains(info)) continue;
-            final HashSet<TypeMigrationUsageInfo> parents = new HashSet<TypeMigrationUsageInfo>(myParents);
+            final HashSet<TypeMigrationUsageInfo> parents = new HashSet<>(myParents);
             parents.add(info);
 
             final MigrationNode migrationNode =
-                new MigrationNode(getProject(), info, root.getSecond(), myLabeler, myBuilder, parents, myProcessed);
+                new MigrationNode(getProject(), info, root.getSecond(), myLabeler, parents, myProcessed);
 
             if (myInfo.isExcluded()) {
               info.setExcluded(true);
@@ -119,15 +100,13 @@ public class MigrationNode extends AbstractTreeNode<TypeMigrationUsageInfo> impl
     return myCachedChildren != null;
   }
 
-  protected void update(final PresentationData presentation) {
+  @Override
+  protected void update(@NotNull final PresentationData presentation) {
 
   }
 
+  @Override
   public MigrationNode getDuplicate() {
     return myDuplicatedNode;
-  }
-
-  public boolean hasDuplicate() {
-    return myDuplicatedNode != null;
   }
 }

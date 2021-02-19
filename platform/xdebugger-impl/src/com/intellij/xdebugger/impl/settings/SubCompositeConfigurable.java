@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,9 +26,10 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.util.Arrays;
 import java.util.List;
 
-abstract class SubCompositeConfigurable implements SearchableConfigurable.Parent {
+abstract class SubCompositeConfigurable implements SearchableConfigurable.Parent, SearchableConfigurable.Merged {
   protected DataViewsConfigurableUi root;
   protected Configurable[] children;
   protected JComponent rootComponent;
@@ -38,21 +39,10 @@ abstract class SubCompositeConfigurable implements SearchableConfigurable.Parent
     return true;
   }
 
-  @Override
-  public boolean isVisible() {
-    return true;
-  }
-
-  @Nullable
-  @Override
-  public Runnable enableSearch(String option) {
-    return null;
-  }
-
   @Nullable
   @Override
   public String getHelpTopic() {
-    getConfigurables();
+    buildConfigurables();
     return children != null && children.length == 1 ? children[0].getHelpTopic() : null;
   }
 
@@ -84,13 +74,26 @@ abstract class SubCompositeConfigurable implements SearchableConfigurable.Parent
   }
 
   @Override
-  public final Configurable[] getConfigurables() {
-    if (children == null) {
-      List<Configurable> configurables = DebuggerConfigurable.getConfigurables(getCategory());
-      children = configurables.toArray(new Configurable[configurables.size()]);
-    }
+  public final Configurable @NotNull [] getConfigurables() {
+    buildConfigurables();
     return isChildrenMerged() ? DebuggerConfigurable.EMPTY_CONFIGURABLES : children;
   }
+
+  @NotNull
+  @Override
+  public final List<Configurable> getMergedConfigurables() {
+    buildConfigurables();
+    return isChildrenMerged()
+           ? Arrays.asList(children)
+           : Arrays.asList(DebuggerConfigurable.EMPTY_CONFIGURABLES);
+  }
+
+  private void buildConfigurables() {
+    if (children != null) return;
+    List<Configurable> configurables = DebuggerConfigurable.getConfigurables(getCategory());
+    children = configurables.toArray(new Configurable[0]);
+  }
+
 
   @Nullable
   @Override
@@ -100,7 +103,7 @@ abstract class SubCompositeConfigurable implements SearchableConfigurable.Parent
         root = createRootUi();
       }
 
-      getConfigurables();
+      buildConfigurables();
       if (isChildrenMerged()) {
         if (children.length == 0) {
           rootComponent = root == null ? null : root.getComponent();
@@ -166,9 +169,7 @@ abstract class SubCompositeConfigurable implements SearchableConfigurable.Parent
   public final void apply() throws ConfigurationException {
     if (root != null) {
       root.apply(getSettings());
-      for (DebuggerConfigurableProvider provider : DebuggerConfigurableProvider.EXTENSION_POINT.getExtensions()) {
-        provider.generalApplied(getCategory());
-      }
+      DebuggerConfigurableProvider.EXTENSION_POINT.extensions().forEach(provider -> provider.generalApplied(getCategory()));
     }
 
     if (isChildrenMerged()) {

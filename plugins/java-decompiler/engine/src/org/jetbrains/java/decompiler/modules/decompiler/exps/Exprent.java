@@ -1,29 +1,10 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package org.jetbrains.java.decompiler.modules.decompiler.exps;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map.Entry;
-import java.util.Set;
-
 import org.jetbrains.java.decompiler.main.DecompilerContext;
-import org.jetbrains.java.decompiler.main.TextBuffer;
+import org.jetbrains.java.decompiler.util.TextBuffer;
 import org.jetbrains.java.decompiler.main.collectors.BytecodeMappingTracer;
 import org.jetbrains.java.decompiler.main.collectors.CounterContainer;
 import org.jetbrains.java.decompiler.modules.decompiler.vars.CheckTypesResult;
@@ -34,8 +15,13 @@ import org.jetbrains.java.decompiler.struct.match.MatchEngine;
 import org.jetbrains.java.decompiler.struct.match.MatchNode;
 import org.jetbrains.java.decompiler.struct.match.MatchNode.RuleValue;
 
-public class Exprent implements IMatchable {
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map.Entry;
+import java.util.Set;
 
+public class Exprent implements IMatchable {
   public static final int MULTIPLE_USES = 1;
   public static final int SIDE_EFFECTS_FREE = 2;
   public static final int BOTH_FLAGS = 3;
@@ -61,7 +47,7 @@ public class Exprent implements IMatchable {
 
   public Exprent(int type) {
     this.type = type;
-    this.id = DecompilerContext.getCounterContainer().getCounterAndIncrement(CounterContainer.EXPRENT_COUNTER);
+    this.id = DecompilerContext.getCounterContainer().getCounterAndIncrement(CounterContainer.EXPRESSION_COUNTER);
   }
 
   public int getPrecedence() {
@@ -77,19 +63,19 @@ public class Exprent implements IMatchable {
   }
 
   public CheckTypesResult checkExprTypeBounds() {
-    return new CheckTypesResult();
+    return null;
   }
 
   public boolean containsExprent(Exprent exprent) {
-    List<Exprent> listTemp = new ArrayList<Exprent>(getAllExprents(true));
-    listTemp.add(this);
-
-    for (Exprent lstExpr : listTemp) {
-      if (lstExpr.equals(exprent)) {
+    if (equals(exprent)) {
+      return true;
+    }
+    List<Exprent> lst = getAllExprents();
+    for (int i = lst.size() - 1; i >= 0; i--) {
+      if (lst.get(i).containsExprent(exprent)) {
         return true;
       }
     }
-
     return false;
   }
 
@@ -107,7 +93,7 @@ public class Exprent implements IMatchable {
     List<Exprent> lstAllExprents = getAllExprents(true);
     lstAllExprents.add(this);
 
-    Set<VarVersionPair> set = new HashSet<VarVersionPair>();
+    Set<VarVersionPair> set = new HashSet<>();
     for (Exprent expr : lstAllExprents) {
       if (expr.type == EXPRENT_VAR) {
         set.add(new VarVersionPair((VarExprent)expr));
@@ -133,65 +119,63 @@ public class Exprent implements IMatchable {
   public void addBytecodeOffsets(Collection<Integer> bytecodeOffsets) {
     if (bytecodeOffsets != null && !bytecodeOffsets.isEmpty()) {
       if (bytecode == null) {
-        bytecode = new HashSet<Integer>(bytecodeOffsets);
+        bytecode = new HashSet<>(bytecodeOffsets);
       }
       else {
         bytecode.addAll(bytecodeOffsets);
       }
     }
   }
-  
+
   // *****************************************************************************
   // IMatchable implementation
   // *****************************************************************************
-  
+
+  @Override
   public IMatchable findObject(MatchNode matchNode, int index) {
-    
-    if(matchNode.getType() != MatchNode.MATCHNODE_EXPRENT) {
+    if (matchNode.getType() != MatchNode.MATCHNODE_EXPRENT) {
       return null;
     }
 
     List<Exprent> lstAllExprents = getAllExprents();
-    
-    if(lstAllExprents == null || lstAllExprents.isEmpty()) {
+    if (lstAllExprents == null || lstAllExprents.isEmpty()) {
       return null;
     }
-    
+
     String position = (String)matchNode.getRuleValue(MatchProperties.EXPRENT_POSITION);
-    if(position != null) {
-      if(position.matches("-?\\d+")) {
+    if (position != null) {
+      if (position.matches("-?\\d+")) {
         return lstAllExprents.get((lstAllExprents.size() + Integer.parseInt(position)) % lstAllExprents.size()); // care for negative positions
       }
-    } else if(index < lstAllExprents.size()) { // use 'index' parameter
+    }
+    else if (index < lstAllExprents.size()) { // use 'index' parameter
       return lstAllExprents.get(index);
     }
 
     return null;
   }
 
+  @Override
   public boolean match(MatchNode matchNode, MatchEngine engine) {
-    
-    if(matchNode.getType() != MatchNode.MATCHNODE_EXPRENT) {
+    if (matchNode.getType() != MatchNode.MATCHNODE_EXPRENT) {
       return false;
     }
-    
-    for(Entry<MatchProperties, RuleValue> rule : matchNode.getRules().entrySet()) {
-      switch(rule.getKey()) {
-      case EXPRENT_TYPE:
-        if(this.type != ((Integer)rule.getValue().value).intValue()) {
-          return false;
-        }
-        break;
-      case EXPRENT_RET:
-        if(!engine.checkAndSetVariableValue((String)rule.getValue().value, this)) {
-          return false;
-        }
-        break;
+
+    for (Entry<MatchProperties, RuleValue> rule : matchNode.getRules().entrySet()) {
+      MatchProperties key = rule.getKey();
+      if (key == MatchProperties.EXPRENT_TYPE && this.type != (Integer)rule.getValue().value) {
+        return false;
       }
-      
+      if (key == MatchProperties.EXPRENT_RET && !engine.checkAndSetVariableValue((String)rule.getValue().value, this)) {
+        return false;
+      }
     }
-    
+
     return true;
   }
-  
+
+  @Override
+  public String toString() {
+    return toJava(0, BytecodeMappingTracer.DUMMY).toString();
+  }
 }

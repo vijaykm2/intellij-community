@@ -1,5 +1,6 @@
 package com.intellij.vcs.log;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 
@@ -10,7 +11,7 @@ import java.util.List;
  * These details will be shown in dedicated panels displayed near the log, and can be used for in-memory filtering.
  * <p/>
  * An instance of this object can be obtained via
- * {@link VcsLogObjectsFactory#createCommitMetadata(Hash, List, long, VirtualFile, String, String, String, String, String, String,long)
+ * {@link VcsLogObjectsFactory#createCommitMetadata(Hash, List, long, VirtualFile, String, String, String, String, String, String, long)
  * VcsLogObjectsFactory#createCommitMetadata}
  * <p/>
  * It is not recommended to create a custom implementation of this interface, but if you need it, <b>make sure to implement {@code equals()}
@@ -19,5 +20,6 @@ import java.util.List;
  */
 public interface VcsCommitMetadata extends VcsShortCommitDetails {
   @NotNull
+  @NlsSafe
   String getFullMessage();
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,21 +17,19 @@ package com.intellij.ide.actions;
 
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.options.ShowSettingsUtil;
 import com.intellij.openapi.options.ex.SingleConfigurableEditor;
-import com.intellij.openapi.options.newEditor.OptionsEditorDialog;
+import com.intellij.openapi.options.newEditor.SettingsDialog;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.roots.ui.configuration.ProjectStructureConfigurable;
-import com.intellij.openapi.util.registry.Registry;
 import org.jetbrains.annotations.NotNull;
 
 public class ShowStructureSettingsAction extends AnAction implements DumbAware {
+
   @Override
-  public void actionPerformed(AnActionEvent e) {
-    Project project = CommonDataKeys.PROJECT.getData(e.getDataContext());
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    Project project = e.getProject();
     if (project == null) {
       project = ProjectManager.getInstance().getDefaultProject();
     }
@@ -39,18 +37,12 @@ public class ShowStructureSettingsAction extends AnAction implements DumbAware {
   }
 
   static void showDialog(Project project) {
-    if (Registry.is("ide.new.project.settings")) {
-      new SingleConfigurableEditor(project, ProjectStructureConfigurable.getInstance(project), OptionsEditorDialog.DIMENSION_KEY) {
-        @NotNull
-        @Override
-        protected DialogStyle getStyle() {
-          return DialogStyle.COMPACT;
-        }
-      }.show();
-    }
-    else {
-      ShowSettingsUtil
-        .getInstance().editConfigurable(project, OptionsEditorDialog.DIMENSION_KEY, ProjectStructureConfigurable.getInstance(project));
-    }
+    new SingleConfigurableEditor(project, ProjectStructureConfigurable.getInstance(project), SettingsDialog.DIMENSION_KEY) {
+      @NotNull
+      @Override
+      protected DialogStyle getStyle() {
+        return DialogStyle.COMPACT;
+      }
+    }.show();
   }
 }

@@ -20,18 +20,14 @@ import com.intellij.ide.todo.nodes.SingleFileToDoNode;
 import com.intellij.ide.todo.nodes.ToDoRootNode;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.ide.util.treeView.NodeDescriptor;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 
 public final class CurrentFileTodosTreeStructure extends TodoTreeStructure{
-  private static final Logger LOG=Logger.getInstance("#com.intellij.ide.todo.CurrentFileTodosTreeStructure");
-  private static final Object[] ourEmptyArray=new Object[]{};
-
   /**
-   * Current <code>VirtualFile</code> for which the structure is built. If <code>myFile</code> is <code>null</code>
+   * Current {@code VirtualFile} for which the structure is built. If {@code myFile} is {@code null}
    * then the structure is empty (contains only root node).
    */
   private PsiFile myFile;
@@ -58,7 +54,7 @@ public final class CurrentFileTodosTreeStructure extends TodoTreeStructure{
   }
 
   /**
-   * Sets <code>file</code> for which the structure is built. Alter this method is invoked caches should
+   * Sets {@code file} for which the structure is built. Alter this method is invoked caches should
    * be validated.
    */
   public void setFile(PsiFile file){
@@ -78,10 +74,13 @@ public final class CurrentFileTodosTreeStructure extends TodoTreeStructure{
   @Override
   boolean isAutoExpandNode(NodeDescriptor descriptor){
     Object element=descriptor.getElement();
+    if (element instanceof AbstractTreeNode) {
+      element = ((AbstractTreeNode)element).getValue();
+    }
     if(element==myFile){
       return true;
     }else{
-      return super.isAutoExpandNode(descriptor);
+      return element == getRootElement() || element == mySummaryElement;
     }
   }
 

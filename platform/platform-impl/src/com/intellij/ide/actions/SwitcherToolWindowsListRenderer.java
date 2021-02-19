@@ -1,70 +1,93 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
+import com.intellij.openapi.actionSystem.ShortcutSet;
+import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.ui.GraphicsConfig;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.ToolWindow;
-import com.intellij.ui.ColoredListCellRenderer;
-import com.intellij.ui.SimpleTextAttributes;
-import com.intellij.ui.SpeedSearchBase;
+import com.intellij.ui.*;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.IconUtil;
 import com.intellij.util.PlatformIcons;
+import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.Map;
+import java.util.function.Supplier;
+
+import static com.intellij.ide.actions.Switcher.SwitcherPanel.RECENT_LOCATIONS;
+import static com.intellij.openapi.keymap.KeymapUtil.getActiveKeymapShortcuts;
 
 /**
  * @author Konstantin Bulenkov
  */
-class SwitcherToolWindowsListRenderer extends ColoredListCellRenderer {
+class SwitcherToolWindowsListRenderer extends ColoredListCellRenderer<Object> {
   private final SpeedSearchBase mySpeedSearch;
   private final Map<ToolWindow, String> shortcuts;
   private final boolean myPinned;
+  private Supplier<Boolean> myShowEdited;
+
   private boolean hide = false;
 
   SwitcherToolWindowsListRenderer(SpeedSearchBase speedSearch,
-                                  Map<ToolWindow, String> shortcuts, boolean pinned) {
+                                  Map<ToolWindow, String> shortcuts,
+                                  boolean pinned,
+                                  @NotNull Supplier<Boolean> showEdited) {
     mySpeedSearch = speedSearch;
     this.shortcuts = shortcuts;
     myPinned = pinned;
+    myShowEdited = showEdited;
   }
 
-  protected void customizeCellRenderer(JList list, Object value, int index, boolean selected, boolean hasFocus) {
-    hide = false;
-    setPaintFocusBorder(false);
-    if (value instanceof ToolWindow) {
-      final ToolWindow tw = (ToolWindow)value;
-      setIcon(getIcon(tw));
-      final String name;
+  @DirtyUI
+  @Override
+  protected void customizeCellRenderer(@NotNull JList<?> list,
+                                       Object value,
+                                       int index,
+                                       boolean selected,
+                                       boolean hasFocus) {
+    setBorder(value == RECENT_LOCATIONS
+              ? JBUI.Borders.customLine(selected ? getBackground() : new JBColor(Gray._220, Gray._80), 1, 0, 0, 0)
+              : JBUI.Borders.empty());
 
-      String stripeTitle = tw.getStripeTitle();
-      String shortcut = shortcuts.get(tw);
+    String nameToMatch = "";
+    if (value instanceof ToolWindow) {
+      ToolWindow tw = ((ToolWindow)value);
+      hide = false;
+      setPaintFocusBorder(false);
+      setIcon(getIcon(tw));
+
+      nameToMatch = tw.getStripeTitle();
+      @NlsSafe String shortcut = shortcuts.get(tw);
+      String name;
       if (myPinned || shortcut == null) {
-        name = stripeTitle;
-      } else {
+        name = nameToMatch;
+      }
+      else {
         append(shortcut, new SimpleTextAttributes(SimpleTextAttributes.STYLE_UNDERLINE, null));
-        name = ": " + stripeTitle;
+        name = ": " + nameToMatch;
       }
 
       append(name);
-      if (mySpeedSearch != null && mySpeedSearch.isPopupActive()) {
-        hide = mySpeedSearch.matchingFragments(stripeTitle) == null && !StringUtil.isEmpty(mySpeedSearch.getEnteredPrefix());
+    }
+    else if (value == RECENT_LOCATIONS) {
+      String label = Switcher.SwitcherPanel.getRecentLocationsLabel(myShowEdited);
+      nameToMatch = label;
+
+      ShortcutSet shortcuts = getActiveKeymapShortcuts(RecentLocationsAction.RECENT_LOCATIONS_ACTION_ID);
+      append(label);
+
+      if (!myShowEdited.get()) {
+        append(" ").append(KeymapUtil.getShortcutsText(shortcuts.getShortcuts()), SimpleTextAttributes.GRAY_ATTRIBUTES);
       }
+    }
+
+    if (mySpeedSearch != null && mySpeedSearch.isPopupActive()) {
+      hide = mySpeedSearch.matchingFragments(nameToMatch) == null && !StringUtil.isEmpty(mySpeedSearch.getEnteredPrefix());
     }
   }
 
@@ -84,7 +107,7 @@ class SwitcherToolWindowsListRenderer extends ColoredListCellRenderer {
       return PlatformIcons.UI_FORM_ICON;
     }
 
-    icon = IconUtil.toSize(icon, 16, 16);
+    icon = IconUtil.toSize(icon, JBUIScale.scale(16), JBUIScale.scale(16));
     return icon;
   }
 }

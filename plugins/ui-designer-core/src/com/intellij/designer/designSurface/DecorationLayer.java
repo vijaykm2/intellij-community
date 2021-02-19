@@ -15,6 +15,7 @@
  */
 package com.intellij.designer.designSurface;
 
+import com.intellij.designer.DesignerBundle;
 import com.intellij.designer.designSurface.tools.InputTool;
 import com.intellij.designer.model.RadComponent;
 import com.intellij.designer.model.RadComponentVisitor;
@@ -78,12 +79,12 @@ public class DecorationLayer extends JComponent {
       }
     }
     catch (Throwable e) {
-      myDesigner.showError("Paint operation", e);
+      myDesigner.showError(DesignerBundle.message("designer.error.paint.operation"), e);
     }
   }
 
   private void paintStaticDecorators(Graphics2D g) {
-    final List<StaticDecorator> decorators = new ArrayList<StaticDecorator>();
+    final List<StaticDecorator> decorators = new ArrayList<>();
     final List<RadComponent> selection = myArea.getSelection();
 
     myArea.getRootComponent().accept(new RadComponentVisitor() {

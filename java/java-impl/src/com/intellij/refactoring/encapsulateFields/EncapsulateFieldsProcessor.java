@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.encapsulateFields;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.lang.findUsages.DescriptiveNameUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
@@ -25,7 +12,6 @@ import com.intellij.psi.search.searches.ClassInheritorsSearch;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.*;
 import com.intellij.refactoring.BaseRefactoringProcessor;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.listeners.RefactoringEventData;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.refactoring.util.DocCommentPolicy;
@@ -35,8 +21,6 @@ import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewDescriptor;
 import com.intellij.usageView.UsageViewUtil;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -44,7 +28,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 
 public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.encapsulateFields.EncapsulateFieldsProcessor");
+  private static final Logger LOG = Logger.getInstance(EncapsulateFieldsProcessor.class);
 
   private PsiClass myClass;
   @NotNull
@@ -83,7 +67,7 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
   @Override
   protected RefactoringEventData getBeforeData() {
     RefactoringEventData data = new RefactoringEventData();
-    final List<PsiElement> fields = new ArrayList<PsiElement>();
+    final List<PsiElement> fields = new ArrayList<>();
     for (FieldDescriptor fieldDescriptor : myFieldDescriptors) {
       fields.add(fieldDescriptor.getField());
     }
@@ -93,9 +77,9 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
 
   @Nullable
   @Override
-  protected RefactoringEventData getAfterData(UsageInfo[] usages) {
+  protected RefactoringEventData getAfterData(UsageInfo @NotNull [] usages) {
     RefactoringEventData data = new RefactoringEventData();
-    List<PsiElement> elements = new ArrayList<PsiElement>();
+    List<PsiElement> elements = new ArrayList<>();
     if (myNameToGetter != null) {
       elements.addAll(myNameToGetter.values());
     }
@@ -106,26 +90,28 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
     return data;
   }
 
+  @Override
   @NotNull
-  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo[] usages) {
-    FieldDescriptor[] fields = new FieldDescriptor[myFieldDescriptors.length];
-    System.arraycopy(myFieldDescriptors, 0, fields, 0, myFieldDescriptors.length);
-    return new EncapsulateFieldsViewDescriptor(fields);
+  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo @NotNull [] usages) {
+    return new EncapsulateFieldsViewDescriptor(myFieldDescriptors.clone());
   }
 
+  @Override
+  @NotNull
   protected String getCommandName() {
-    return RefactoringBundle.message("encapsulate.fields.command.name", DescriptiveNameUtil.getDescriptiveName(myClass));
+    return JavaRefactoringBundle.message("encapsulate.fields.command.name", DescriptiveNameUtil.getDescriptiveName(myClass));
   }
 
-  protected boolean preprocessUsages(Ref<UsageInfo[]> refUsages) {
-    final MultiMap<PsiElement, String> conflicts = new MultiMap<PsiElement, String>();
+  @Override
+  protected boolean preprocessUsages(@NotNull Ref<UsageInfo[]> refUsages) {
+    final MultiMap<PsiElement, String> conflicts = new MultiMap<>();
 
     checkExistingMethods(conflicts, true);
     checkExistingMethods(conflicts, false);
     final Collection<PsiClass> classes = ClassInheritorsSearch.search(myClass).findAll();
     for (FieldDescriptor fieldDescriptor : myFieldDescriptors) {
-      final Set<PsiMethod> setters = new HashSet<PsiMethod>();
-      final Set<PsiMethod> getters = new HashSet<PsiMethod>();
+      final Set<PsiMethod> setters = new HashSet<>();
+      final Set<PsiMethod> getters = new HashSet<>();
 
       for (PsiClass aClass : classes) {
         final PsiMethod getterOverrider =
@@ -156,10 +142,10 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
             final boolean isGetter = !PsiUtil.isAccessedForWriting((PsiExpression)place);
             for (PsiMethod overridden : isGetter ? getters : setters) {
               if (InheritanceUtil.isInheritorOrSelf(myClass, ancestor, true)) {
-                conflicts.putValue(overridden, "There is already a " +
-                                               RefactoringUIUtil.getDescription(overridden, true) +
-                                               " which would hide generated " +
-                                               (isGetter ? "getter" : "setter") + " for " + place.getText());
+                String accessorExistsMessage = JavaRefactoringBundle.message("encapsulate.fields.existed.accessor.hides.generated",
+                                                                             RefactoringUIUtil.getDescription(overridden, true),
+                                                                             place.getText());
+                conflicts.putValue(overridden, accessorExistsMessage);
                 break;
               }
             }
@@ -173,8 +159,8 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
       PsiElement element = info.getElement();
       if (element != null) {
         PsiElement parent = element.getParent();
-        if (RefactoringUtil.isPlusPlusOrMinusMinus(parent) && !(parent.getParent() instanceof PsiExpressionStatement)) {
-          conflicts.putValue(parent, "Unable to proceed with postfix/prefix expression when it's result type is used");
+        if (PsiUtil.isIncrementDecrementOperation(parent) && !(parent.getParent() instanceof PsiExpressionStatement)) {
+          conflicts.putValue(parent, JavaRefactoringBundle.message("encapsulate.fields.expression.type.is.used"));
         }
       }
     }
@@ -206,9 +192,9 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
                                                           PsiFormatUtilBase.SHOW_TYPE
           );
           String message = isGetter ?
-                           RefactoringBundle.message("encapsulate.fields.getter.exists", CommonRefactoringUtil.htmlEmphasize(descr),
+                           JavaRefactoringBundle.message("encapsulate.fields.getter.exists", CommonRefactoringUtil.htmlEmphasize(descr),
                                                 CommonRefactoringUtil.htmlEmphasize(prototype.getName())) :
-                           RefactoringBundle.message("encapsulate.fields.setter.exists", CommonRefactoringUtil.htmlEmphasize(descr),
+                           JavaRefactoringBundle.message("encapsulate.fields.setter.exists", CommonRefactoringUtil.htmlEmphasize(descr),
                                                 CommonRefactoringUtil.htmlEmphasize(prototype.getName()));
           conflicts.putValue(existing, message);
         }
@@ -229,7 +215,9 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
                 }
 
                 if (InheritanceUtil.isInheritorOrSelf(inheritor, myClass, true)) {
-                  conflicts.putValue(existing, "There is already a " + RefactoringUIUtil.getDescription(existing, true) + " which would be hidden by generated " + (isGetter ? "getter" : "setter"));
+                  String accessorExistsMessage = JavaRefactoringBundle.message("encapsulate.fields.existed.accessor.hidden",
+                                                                               RefactoringUIUtil.getDescription(existing, true), isGetter);
+                  conflicts.putValue(existing, accessorExistsMessage);
                   break;
                 }
               }
@@ -241,12 +229,12 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
     }
   }
 
-  @NotNull protected UsageInfo[] findUsages() {
-    ArrayList<EncapsulateFieldUsageInfo> array = ContainerUtil.newArrayList();
+  @Override
+  protected UsageInfo @NotNull [] findUsages() {
+    ArrayList<EncapsulateFieldUsageInfo> array = new ArrayList<>();
     for (FieldDescriptor fieldDescriptor : myFieldDescriptors) {
       for (final PsiReference reference : ReferencesSearch.search(fieldDescriptor.getField())) {
         final PsiElement element = reference.getElement();
-        if (element == null) continue;
 
         final EncapsulateFieldHelper helper = EncapsulateFieldHelper.getHelper(element.getLanguage());
         if (helper != null) {
@@ -257,11 +245,12 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
         }
       }
     }
-    EncapsulateFieldUsageInfo[] usageInfos = array.toArray(new EncapsulateFieldUsageInfo[array.size()]);
+    EncapsulateFieldUsageInfo[] usageInfos = array.toArray(new EncapsulateFieldUsageInfo[0]);
     return UsageViewUtil.removeDuplicatedUsages(usageInfos);
   }
 
-  protected void refreshElements(PsiElement[] elements) {
+  @Override
+  protected void refreshElements(PsiElement @NotNull [] elements) {
     LOG.assertTrue(elements.length == myFieldDescriptors.length);
 
     for (int idx = 0; idx < elements.length; idx++) {
@@ -275,7 +264,8 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
     myClass = myFieldDescriptors[0].getField().getContainingClass();
   }
 
-  protected void performRefactoring(UsageInfo[] usages) {
+  @Override
+  protected void performRefactoring(UsageInfo @NotNull [] usages) {
     updateFieldVisibility();
     generateAccessors();
     processUsagesPerFile(usages);
@@ -291,11 +281,11 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
 
   private void generateAccessors() {
     // generate accessors
-    myNameToGetter = new HashMap<String, PsiMethod>();
-    myNameToSetter = new HashMap<String, PsiMethod>();
+    myNameToGetter = new HashMap<>();
+    myNameToSetter = new HashMap<>();
 
     for (FieldDescriptor fieldDescriptor : myFieldDescriptors) {
-      final DocCommentPolicy<PsiDocComment> commentPolicy = new DocCommentPolicy<PsiDocComment>(myDescriptor.getJavadocPolicy());
+      final DocCommentPolicy<PsiDocComment> commentPolicy = new DocCommentPolicy<>(myDescriptor.getJavadocPolicy());
 
       PsiField field = fieldDescriptor.getField();
       final PsiDocComment docComment = field.getDocComment();
@@ -321,14 +311,14 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
   }
 
   private void processUsagesPerFile(UsageInfo[] usages) {
-    Map<PsiFile, List<EncapsulateFieldUsageInfo>> usagesInFiles = new HashMap<PsiFile, List<EncapsulateFieldUsageInfo>>();
+    Map<PsiFile, List<EncapsulateFieldUsageInfo>> usagesInFiles = new HashMap<>();
     for (UsageInfo usage : usages) {
       PsiElement element = usage.getElement();
       if (element == null) continue;
       final PsiFile file = element.getContainingFile();
       List<EncapsulateFieldUsageInfo> usagesInFile = usagesInFiles.get(file);
       if (usagesInFile == null) {
-        usagesInFile = new ArrayList<EncapsulateFieldUsageInfo>();
+        usagesInFile = new ArrayList<>();
         usagesInFiles.put(file, usagesInFile);
       }
       usagesInFile.add(((EncapsulateFieldUsageInfo)usage));
@@ -336,11 +326,13 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
 
     for (List<EncapsulateFieldUsageInfo> usageInfos : usagesInFiles.values()) {
       //this is to avoid elements to become invalid as a result of processUsage
-      final EncapsulateFieldUsageInfo[] infos = usageInfos.toArray(new EncapsulateFieldUsageInfo[usageInfos.size()]);
+      final EncapsulateFieldUsageInfo[] infos = usageInfos.toArray(new EncapsulateFieldUsageInfo[0]);
       CommonRefactoringUtil.sortDepthFirstRightLeftOrder(infos);
 
       for (EncapsulateFieldUsageInfo info : infos) {
-        EncapsulateFieldHelper helper = EncapsulateFieldHelper.getHelper(info.getElement().getLanguage());
+        final PsiElement element = info.getElement();
+        if (element == null) continue;
+        EncapsulateFieldHelper helper = EncapsulateFieldHelper.getHelper(element.getLanguage());
         helper.processUsage(info,
                             myDescriptor,
                             myNameToSetter.get(info.getFieldDescriptor().getSetterName()),

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ant;
 
 import com.intellij.compiler.instrumentation.FailSafeClassReader;
@@ -36,17 +22,18 @@ import java.util.*;
 
 public class Javac2 extends Javac {
   public static final String PROPERTY_INSTRUMENTATION_INCLUDE_JAVA_RUNTIME = "javac2.instrumentation.includeJavaRuntime";
-  private ArrayList myFormFiles;
-  private List myNestedFormPathList;
+  private ArrayList<File> myFormFiles;
+  private List<PrefixedPath> myNestedFormPathList;
   private boolean instrumentNotNull = true;
-  private List<Regexp> myClassFilterAnnotationRegexpList = new ArrayList<Regexp>(0);
+  private String myNotNullAnnotations = "org.jetbrains.annotations.NotNull";
+  private final List<Regexp> myClassFilterAnnotationRegexpList = new ArrayList<Regexp>(0);
 
   public Javac2() {
   }
 
   /**
    * Check if Java classes should be actually compiled by the task. This method is overridden by
-   * {@link com.intellij.ant.InstrumentIdeaExtensions} task in order to suppress actual compilation
+   * {@link InstrumentIdeaExtensions} task in order to suppress actual compilation
    * of the java sources.
    *
    * @return true if the java classes are compiled, false if just instrumentation is performed.
@@ -76,6 +63,20 @@ public class Javac2 extends Javac {
   }
 
   /**
+   * @return semicolon-separated names of not-null annotations to be instrumented. Example: {@code "org.jetbrains.annotations.NotNull;javax.annotation.Nonnull"}
+   */
+  public String getNotNullAnnotations() {
+    return myNotNullAnnotations;
+  }
+
+  /**
+   * @param notNullAnnotations semicolon-separated names of not-null annotations to be instrumented. Example: {@code "org.jetbrains.annotations.NotNull;javax.annotation.Nonnull"}
+   */
+  public void setNotNullAnnotations(String notNullAnnotations) {
+    myNotNullAnnotations = notNullAnnotations;
+  }
+
+  /**
    * Allows to specify patterns of annotation class names to skip NotNull instrumentation on classes which have at least one
    * annotation matching at least one of the given patterns
    *
@@ -90,6 +91,7 @@ public class Javac2 extends Javac {
    *
    * @param v the option value
    */
+  @Override
   public void setDebugLevel(String v) {
     unsupportedOptionMessage("debugLevel");
     super.setDebugLevel(v);
@@ -100,6 +102,7 @@ public class Javac2 extends Javac {
    *
    * @param list the option value
    */
+  @Override
   public void setListfiles(boolean list) {
     unsupportedOptionMessage("listFiles");
     super.setListfiles(list);
@@ -110,6 +113,7 @@ public class Javac2 extends Javac {
    *
    * @param memoryInitialSize the option value
    */
+  @Override
   public void setMemoryInitialSize(String memoryInitialSize) {
     unsupportedOptionMessage("memoryInitialSize");
     super.setMemoryInitialSize(memoryInitialSize);
@@ -120,6 +124,7 @@ public class Javac2 extends Javac {
    *
    * @param memoryMaximumSize the option value
    */
+  @Override
   public void setMemoryMaximumSize(String memoryMaximumSize) {
     unsupportedOptionMessage("memoryMaximumSize");
     super.setMemoryMaximumSize(memoryMaximumSize);
@@ -130,6 +135,7 @@ public class Javac2 extends Javac {
    *
    * @param encoding the option value
    */
+  @Override
   public void setEncoding(String encoding) {
     unsupportedOptionMessage("encoding");
     super.setEncoding(encoding);
@@ -140,6 +146,7 @@ public class Javac2 extends Javac {
    *
    * @param optimize the option value
    */
+  @Override
   public void setOptimize(boolean optimize) {
     unsupportedOptionMessage("optimize");
     super.setOptimize(optimize);
@@ -150,6 +157,7 @@ public class Javac2 extends Javac {
    *
    * @param depend the option value
    */
+  @Override
   public void setDepend(boolean depend) {
     unsupportedOptionMessage("depend");
     super.setDepend(depend);
@@ -160,6 +168,7 @@ public class Javac2 extends Javac {
    *
    * @param f the option value
    */
+  @Override
   public void setFork(boolean f) {
     unsupportedOptionMessage("fork");
     super.setFork(f);
@@ -170,6 +179,7 @@ public class Javac2 extends Javac {
    *
    * @param forkExec the option value
    */
+  @Override
   public void setExecutable(String forkExec) {
     unsupportedOptionMessage("executable");
     super.setExecutable(forkExec);
@@ -180,6 +190,7 @@ public class Javac2 extends Javac {
    *
    * @param compiler the option value
    */
+  @Override
   public void setCompiler(String compiler) {
     unsupportedOptionMessage("compiler");
     super.setCompiler(compiler);
@@ -210,7 +221,7 @@ public class Javac2 extends Javac {
   public PrefixedPath createNestedformdirs() {
     PrefixedPath p = new PrefixedPath(getProject());
     if (myNestedFormPathList == null) {
-      myNestedFormPathList = new ArrayList();
+      myNestedFormPathList = new ArrayList<PrefixedPath>();
     }
     myNestedFormPathList.add(p);
     return p;
@@ -222,6 +233,7 @@ public class Javac2 extends Javac {
    * The overridden compile method that does not actually compiles java sources but only instruments
    * class files.
    */
+  @Override
   protected void compile() {
     // compile java
     if (areJavaClassesCompiled()) {
@@ -240,7 +252,6 @@ public class Javac2 extends Javac {
         final int instrumented = instrumentNotNull(getDestdir(), finder);
         log("Added @NotNull assertions to " + instrumented + " files", Project.MSG_INFO);
       }
-
     }
     finally {
       finder.releaseResources();
@@ -254,17 +265,16 @@ public class Javac2 extends Javac {
    */
   private void instrumentForms(final InstrumentationClassFinder finder) {
     // we instrument every file, because we cannot find which files should not be instrumented without dependency storage
-    final ArrayList formsToInstrument = myFormFiles;
+    final ArrayList<File> formsToInstrument = myFormFiles;
 
-    if (formsToInstrument.size() == 0) {
+    if (formsToInstrument.isEmpty()) {
       log("No forms to instrument found", Project.MSG_VERBOSE);
       return;
     }
 
-    final HashMap class2form = new HashMap();
+    final HashMap<String, File> class2form = new HashMap<String, File>();
 
-    for (int i = 0; i < formsToInstrument.size(); i++) {
-      final File formFile = (File)formsToInstrument.get(i);
+    for (File formFile : formsToInstrument) {
 
       log("compiling form " + formFile.getAbsolutePath(), Project.MSG_VERBOSE);
       final LwRootContainer rootContainer;
@@ -292,7 +302,7 @@ public class Javac2 extends Javac {
         continue;
       }
 
-      final File alreadyProcessedForm = (File)class2form.get(classToBind);
+      final File alreadyProcessedForm = class2form.get(classToBind);
       if (alreadyProcessedForm != null) {
         fireError(formFile.getAbsolutePath() +
                   ": " +
@@ -310,28 +320,28 @@ public class Javac2 extends Javac {
         int version;
         InputStream stream = new FileInputStream(classFile);
         try {
-          version = getClassFileVersion(new ClassReader(stream));
+          version = InstrumenterClassWriter.getClassFileVersion(new ClassReader(stream));
         }
         finally {
           stream.close();
         }
         AntNestedFormLoader formLoader = new AntNestedFormLoader(finder.getLoader(), myNestedFormPathList);
-        InstrumenterClassWriter classWriter = new InstrumenterClassWriter(getAsmClassWriterFlags(version), finder);
+        InstrumenterClassWriter classWriter = new InstrumenterClassWriter(InstrumenterClassWriter.getAsmClassWriterFlags(version), finder);
         final AsmCodeGenerator codeGenerator = new AsmCodeGenerator(rootContainer, finder, formLoader, false, classWriter);
         codeGenerator.patchFile(classFile);
         final FormErrorInfo[] warnings = codeGenerator.getWarnings();
 
-        for (int j = 0; j < warnings.length; j++) {
-          log(formFile.getAbsolutePath() + ": " + warnings[j].getErrorMessage(), Project.MSG_WARN);
+        for (FormErrorInfo warning : warnings) {
+          log(formFile.getAbsolutePath() + ": " + warning.getErrorMessage(), Project.MSG_WARN);
         }
         final FormErrorInfo[] errors = codeGenerator.getErrors();
         if (errors.length > 0) {
-          StringBuffer message = new StringBuffer();
-          for (int j = 0; j < errors.length; j++) {
+          StringBuilder message = new StringBuilder();
+          for (FormErrorInfo error : errors) {
             if (message.length() > 0) {
               message.append("\n");
             }
-            message.append(formFile.getAbsolutePath()).append(": ").append(errors[j].getErrorMessage());
+            message.append(formFile.getAbsolutePath()).append(": ").append(error.getErrorMessage());
           }
           fireError(message.toString());
         }
@@ -343,19 +353,12 @@ public class Javac2 extends Javac {
   }
 
   /**
-   * @return the flags for class writer
-   */
-  private static int getAsmClassWriterFlags(int version) {
-    return version >= Opcodes.V1_6 && version != Opcodes.V1_1 ? ClassWriter.COMPUTE_FRAMES : ClassWriter.COMPUTE_MAXS;
-  }
-
-  /**
    * Create class loader based on classpath, bootclasspath, and sourcepath.
    *
    * @return a URL classloader
    */
   private InstrumentationClassFinder buildClasspathClassLoader() {
-    final StringBuffer classPathBuffer = new StringBuffer();
+    final StringBuilder classPathBuffer = new StringBuilder();
     final Project project = getProject();
     final Path cp = new Path(project);
     appendPath(cp, getBootclasspath());
@@ -366,25 +369,24 @@ public class Javac2 extends Javac {
     if (getIncludeantruntime()) {
       cp.addExisting(cp.concatSystemClasspath("last"));
     }
-    boolean shouldInclude = getIncludejavaruntime();
-    if (!shouldInclude) {
+    boolean shouldIncludeJavaRuntime = getIncludejavaruntime();
+    if (!shouldIncludeJavaRuntime) {
       if (project != null) {
         final String propValue = project.getProperty(PROPERTY_INSTRUMENTATION_INCLUDE_JAVA_RUNTIME);
-        shouldInclude = !("false".equalsIgnoreCase(propValue) || "no".equalsIgnoreCase(propValue));
+        shouldIncludeJavaRuntime = !("false".equalsIgnoreCase(propValue) || "no".equalsIgnoreCase(propValue));
       }
       else {
-        shouldInclude = true;
+        shouldIncludeJavaRuntime = true;
       }
     }
-    if (shouldInclude) {
+    if (shouldIncludeJavaRuntime) {
       cp.addJavaRuntime();
     }
 
     cp.addExtdirs(getExtdirs());
 
     final String[] pathElements = cp.list();
-    for (int i = 0; i < pathElements.length; i++) {
-      final String pathElement = pathElements[i];
+    for (final String pathElement : pathElements) {
       classPathBuffer.append(File.pathSeparator);
       classPathBuffer.append(pathElement);
     }
@@ -393,13 +395,27 @@ public class Javac2 extends Javac {
     log("classpath=" + classPath, Project.MSG_VERBOSE);
 
     try {
-      return createInstrumentationClassFinder(classPath);
+      return createInstrumentationClassFinder(classPath, shouldIncludeJavaRuntime);
     }
     catch (MalformedURLException e) {
       fireError(e.getMessage());
       return null;
     }
   }
+
+  private static URL tryGetJrtURL() {
+    final String home = System.getProperty("java.home");
+    if (new File(home, "lib/jrt-fs.jar").isFile()) {
+      // this is a modular jdk where platform classes are stored in a jrt-fs image
+      try {
+        return InstrumentationClassFinder.createJDKPlatformUrl(home);
+      }
+      catch (MalformedURLException ignored) {
+      }
+    }
+    return null;
+  }
+
 
   /**
    * Append path to class path if the appened path is not empty and is not null
@@ -423,8 +439,7 @@ public class Javac2 extends Javac {
   private int instrumentNotNull(File dir, final InstrumentationClassFinder finder) {
     int instrumented = 0;
     final File[] files = dir.listFiles();
-    for (int i = 0; i < files.length; i++) {
-      File file = files[i];
+    for (File file : files) {
       final String name = file.getName();
       if (name.endsWith(".class")) {
         final String path = file.getPath();
@@ -432,14 +447,14 @@ public class Javac2 extends Javac {
         try {
           final FileInputStream inputStream = new FileInputStream(file);
           try {
-            ClassReader reader = new FailSafeClassReader(inputStream);
+            FailSafeClassReader reader = new FailSafeClassReader(inputStream);
 
-            int version = getClassFileVersion(reader);
-            
-            if (version >= Opcodes.V1_5 && !shouldBeSkippedByAnnotationPattern(reader)) {
-              ClassWriter writer = new InstrumenterClassWriter(getAsmClassWriterFlags(version), finder);
+            int version = InstrumenterClassWriter.getClassFileVersion(reader);
 
-              if (NotNullVerifyingInstrumenter.processClassFile(reader, writer)) {
+            if ((version & 0xFFFF) >= Opcodes.V1_5 && !shouldBeSkippedByAnnotationPattern(reader)) {
+              ClassWriter writer = new InstrumenterClassWriter(reader, InstrumenterClassWriter.getAsmClassWriterFlags(version), finder);
+
+              if (NotNullVerifyingInstrumenter.processClassFile(reader, writer, myNotNullAnnotations.split(";"))) {
                 final FileOutputStream fileOutputStream = new FileOutputStream(path);
                 try {
                   fileOutputStream.write(writer.toByteArray());
@@ -470,24 +485,14 @@ public class Javac2 extends Javac {
     return instrumented;
   }
 
-  private static int getClassFileVersion(ClassReader reader) {
-    final int[] classfileVersion = new int[1];
-    reader.accept(new ClassVisitor(Opcodes.ASM5) {
-      public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
-        classfileVersion[0] = version;
-      }
-    }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
-
-    return classfileVersion[0];
-  }
-
   private boolean shouldBeSkippedByAnnotationPattern(ClassReader reader) {
     if (myClassFilterAnnotationRegexpList.isEmpty()) {
       return false;
     }
 
-    final boolean[] result = new boolean[]{false};
-    reader.accept(new ClassVisitor(Opcodes.ASM5) {
+    final boolean[] result = {false};
+    reader.accept(new ClassVisitor(Opcodes.API_VERSION) {
+      @Override
       public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
         if (!result[0]) {
           String internalName = Type.getType(desc).getInternalName();
@@ -528,15 +533,16 @@ public class Javac2 extends Javac {
     return getClassOrInnerName(className.substring(0, position) + '$' + className.substring(position + 1));
   }
 
+  @Override
   protected void resetFileLists() {
     super.resetFileLists();
-    myFormFiles = new ArrayList();
+    myFormFiles = new ArrayList<File>();
   }
 
+  @Override
   protected void scanDir(final File srcDir, final File destDir, final String[] files) {
     super.scanDir(srcDir, destDir, files);
-    for (int i = 0; i < files.length; i++) {
-      final String file = files[i];
+    for (final String file : files) {
       if (file.endsWith(".form")) {
         log("Found form file " + file, Project.MSG_VERBOSE);
         myFormFiles.add(new File(srcDir, file));
@@ -544,36 +550,42 @@ public class Javac2 extends Javac {
     }
   }
 
-  private static InstrumentationClassFinder createInstrumentationClassFinder(final String classPath) throws MalformedURLException {
-    final ArrayList urls = new ArrayList();
+  private static InstrumentationClassFinder createInstrumentationClassFinder(final String classPath, boolean shouldIncludeJavaRuntime) throws MalformedURLException {
+    final ArrayList<URL> urls = new ArrayList<URL>();
+    if (shouldIncludeJavaRuntime) {
+      final URL jrt = tryGetJrtURL();
+      if (jrt != null) {
+        urls.add(jrt);
+      }
+    }
     for (StringTokenizer tokenizer = new StringTokenizer(classPath, File.pathSeparator); tokenizer.hasMoreTokens();) {
       final String s = tokenizer.nextToken();
       urls.add(new File(s).toURI().toURL());
     }
-    final URL[] urlsArr = (URL[])urls.toArray(new URL[urls.size()]);
+    final URL[] urlsArr = urls.toArray(new URL[0]);
     return new InstrumentationClassFinder(urlsArr);
   }
 
   private class AntNestedFormLoader implements NestedFormLoader {
     private final ClassLoader myLoader;
-    private final List myNestedFormPathList;
-    private final HashMap myFormCache = new HashMap();
+    private final List<PrefixedPath> myNestedFormPathList;
+    private final HashMap<String, LwRootContainer> myFormCache = new HashMap<String, LwRootContainer>();
 
-    public AntNestedFormLoader(final ClassLoader loader, List nestedFormPathList) {
+    AntNestedFormLoader(final ClassLoader loader, List nestedFormPathList) {
       myLoader = loader;
       myNestedFormPathList = nestedFormPathList;
     }
 
+    @Override
     public LwRootContainer loadForm(String formFilePath) throws Exception {
       if (myFormCache.containsKey(formFilePath)) {
-        return (LwRootContainer)myFormCache.get(formFilePath);
+        return myFormCache.get(formFilePath);
       }
 
-      String lowerFormFilePath = formFilePath.toLowerCase();
+      String lowerFormFilePath = formFilePath.toLowerCase(Locale.ENGLISH);
       log("Searching for form " + lowerFormFilePath, Project.MSG_VERBOSE);
-      for (Iterator iterator = myFormFiles.iterator(); iterator.hasNext();) {
-        File file = (File)iterator.next();
-        String name = file.getAbsolutePath().replace(File.separatorChar, '/').toLowerCase();
+      for (File file : myFormFiles) {
+        String name = file.getAbsolutePath().replace(File.separatorChar, '/').toLowerCase(Locale.ENGLISH);
         log("Comparing with " + name, Project.MSG_VERBOSE);
         if (name.endsWith(lowerFormFilePath)) {
           return loadForm(formFilePath, new FileInputStream(file));
@@ -581,8 +593,7 @@ public class Javac2 extends Javac {
       }
 
       if (myNestedFormPathList != null) {
-        for (int i = 0; i < myNestedFormPathList.size(); i++) {
-          PrefixedPath path = (PrefixedPath)myNestedFormPathList.get(i);
+        for (PrefixedPath path : myNestedFormPathList) {
           File formFile = path.findFile(formFilePath);
           if (formFile != null) {
             return loadForm(formFilePath, new FileInputStream(formFile));
@@ -602,6 +613,7 @@ public class Javac2 extends Javac {
       return container;
     }
 
+    @Override
     public String getClassToBindName(LwRootContainer container) {
       final String className = container.getClassToBind();
       String result = getClassOrInnerName(className.replace('.', '/'));

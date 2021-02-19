@@ -16,14 +16,16 @@
 package com.intellij.openapi.editor.actions;
 
 import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.actionSystem.EditorActionHandler;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Moves editor viewport one visual line up. Caret is also moved one line up if it becomes off-screen.
  * 
  * @author Denis Zhdanov
- * @since 1/13/12 1:21 PM
  */
 public class ScrollUpAndMoveAction extends InactiveEditorAction {
   
@@ -33,7 +35,7 @@ public class ScrollUpAndMoveAction extends InactiveEditorAction {
 
   private static class Handler extends EditorActionHandler {
     @Override
-    public void execute(Editor editor, DataContext dataContext) {
+    public void doExecute(@NotNull Editor editor, @Nullable Caret caret, DataContext dataContext) {
       EditorActionUtil.scrollRelatively(editor, -1, 0, true);
     }
   }

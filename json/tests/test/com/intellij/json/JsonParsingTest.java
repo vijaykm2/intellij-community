@@ -22,7 +22,7 @@ public class JsonParsingTest extends ParsingTestCase {
     doTest(true);
   }
 
-  public void testKeywords() throws Exception {
+  public void testKeywords() {
     doTest();
   }
 
@@ -71,7 +71,15 @@ public class JsonParsingTest extends ParsingTestCase {
     doTest();
   }
 
+  public void testExtendedIdentifierToken() {
+    doTest();
+  }
+
   // Moved from JavaScript
+
+  public void testSimple() {
+    doTest();
+  }
 
   public void testSimple1() {
     doTest();
@@ -82,6 +90,10 @@ public class JsonParsingTest extends ParsingTestCase {
   }
 
   public void testSimple4() {
+    doTest();
+  }
+
+  public void testReal() {
     doTest();
   }
 

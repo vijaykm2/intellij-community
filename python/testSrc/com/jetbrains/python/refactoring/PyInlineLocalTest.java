@@ -1,31 +1,17 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.refactoring;
 
-import com.intellij.codeInsight.TargetElementUtilBase;
+import com.intellij.codeInsight.TargetElementUtil;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.util.Comparing;
+import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.jetbrains.python.PythonLanguage;
 import com.jetbrains.python.fixtures.PyTestCase;
 import com.jetbrains.python.refactoring.inline.PyInlineLocalHandler;
+import java.util.Objects;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -46,14 +32,14 @@ public class PyInlineLocalTest extends PyTestCase {
 
   private boolean performRefactoring(@Nullable String expectedError) {
     try {
-      final PsiElement element = TargetElementUtilBase.findTargetElement(myFixture.getEditor(),
-                                                                         TargetElementUtilBase.getInstance().getReferenceSearchFlags());
+      final PsiElement element = TargetElementUtil.findTargetElement(myFixture.getEditor(),
+                                                                     TargetElementUtil.getInstance().getReferenceSearchFlags());
       final PyInlineLocalHandler handler = PyInlineLocalHandler.getInstance();
       handler.inlineElement(myFixture.getProject(), myFixture.getEditor(), element);
       if (expectedError != null) fail("expected error: '" + expectedError + "', got none");
     }
     catch (Exception e) {
-      if (!Comparing.equal(e.getMessage(), expectedError)) {
+      if (!Objects.equals(e.getMessage(), expectedError)) {
         e.printStackTrace();
       }
       assertEquals(expectedError, e.getMessage());
@@ -111,7 +97,7 @@ public class PyInlineLocalTest extends PyTestCase {
 
   // PY-12409
   public void testResultExceedsRightMargin() {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(myFixture.getProject());
+    final CodeStyleSettings settings = getCodeStyleSettings();
     final CommonCodeStyleSettings commonSettings = settings.getCommonSettings(PythonLanguage.getInstance());
 
     final int oldRightMargin = settings.getRightMargin(PythonLanguage.getInstance());
@@ -128,7 +114,7 @@ public class PyInlineLocalTest extends PyTestCase {
     }
   }
 
-  public void testOperatorPrecedence() throws Exception {
+  public void testOperatorPrecedence() {
     checkOperatorPrecedence("x = 10 ** 2", "power");
     checkOperatorPrecedence("x = 10 * 2", "multiplication");
     checkOperatorPrecedence("x = 10 / 2", "division");
@@ -146,18 +132,14 @@ public class PyInlineLocalTest extends PyTestCase {
   }
 
   // PY-15390
-  public void testMatMulPrecedence() throws Exception {
+  public void testMatMulPrecedence() {
     checkOperatorPrecedence("x = y @ z", "matrixMultiplication");
   }
 
-  private void checkOperatorPrecedence(@NotNull final String firstLine, @NotNull String resultPrefix) throws Exception {
+  private void checkOperatorPrecedence(@NotNull final String firstLine, @NotNull String resultPrefix) {
     myFixture.configureByFile("/refactoring/inlinelocal/operatorPrecedence/template.py");
-    WriteCommandAction.runWriteCommandAction(myFixture.getProject(), new Runnable() {
-      @Override
-      public void run() {
-        myFixture.getEditor().getDocument().insertString(0, firstLine + "\n");
-      }
-    });
+    WriteCommandAction.runWriteCommandAction(myFixture.getProject(), () -> myFixture.getEditor().getDocument().insertString(0, firstLine + "\n"));
+    PsiDocumentManager.getInstance(myFixture.getProject()).commitAllDocuments();
     performRefactoring(null);
     myFixture.checkResultByFile("/refactoring/inlinelocal/operatorPrecedence/" + resultPrefix + ".after.py");
     FileDocumentManager.getInstance().reloadFromDisk(myFixture.getDocument(myFixture.getFile()));

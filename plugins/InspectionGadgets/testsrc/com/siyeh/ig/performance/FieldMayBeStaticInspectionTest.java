@@ -13,21 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-/**
- * (c) 2015 Silent Forest AB
- * created: 18 February 2015
- */
 package com.siyeh.ig.performance;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Bas Leijdekkers
  */
-public class FieldMayBeStaticInspectionTest extends LightInspectionTestCase {
+public class FieldMayBeStaticInspectionTest extends LightJavaInspectionTestCase {
 
   public void testFieldMayBeStatic() {
     doTest();

@@ -15,18 +15,42 @@
  */
 package com.jetbrains.python.validation;
 
+import com.intellij.lang.annotation.HighlightSeverity;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.util.PsiTreeUtil;
+import com.jetbrains.python.PyBundle;
+import com.jetbrains.python.codeInsight.functionTypeComments.psi.PyParameterTypeList;
+import com.jetbrains.python.psi.PyParenthesizedExpression;
 import com.jetbrains.python.psi.PyStarExpression;
-import com.jetbrains.python.psi.PyTargetExpression;
+import com.jetbrains.python.psi.PyTupleExpression;
+import com.jetbrains.python.psi.PyYieldExpression;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author yole
  */
 public class StarAnnotator extends PyAnnotator {
   @Override
-  public void visitPyStarExpression(PyStarExpression node) {
+  public void visitPyStarExpression(@NotNull PyStarExpression node) {
     super.visitPyStarExpression(node);
-    if (!(node.getExpression() instanceof PyTargetExpression)) {
-      getHolder().createErrorAnnotation(node, "can use starred expression only as assignment target");
+    if (!node.isAssignmentTarget() && !allowedUnpacking(node) && !(node.getParent() instanceof PyParameterTypeList)) {
+      getHolder().newAnnotation(HighlightSeverity.ERROR, PyBundle.message("ANN.can.t.use.starred.expression.here")).create();
     }
+  }
+
+  private static boolean allowedUnpacking(@NotNull PyStarExpression starExpression) {
+    if (!starExpression.isUnpacking()) {
+      return false;
+    }
+
+    // Additional contexts where unpacking is prohibited depending on the language version are covered in CompatibilityVisitor.
+    final PsiElement parent = PsiTreeUtil.skipParentsOfType(starExpression, PyParenthesizedExpression.class);
+    if (parent instanceof PyTupleExpression) {
+      final PsiElement tupleParent = parent.getParent();
+      if (tupleParent instanceof PyYieldExpression && ((PyYieldExpression)tupleParent).isDelegating()) {
+        return false;
+      }
+    }
+    return true;
   }
 }

@@ -17,12 +17,11 @@ package com.intellij.refactoring.removemiddleman;
 
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.actionSystem.LangDataKeys;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.editor.ScrollingModel;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiFile;
@@ -38,30 +37,31 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Set;
 
 public class RemoveMiddlemanHandler implements RefactoringActionHandler {
-  private static final String REFACTORING_NAME = RefactorJBundle.message("remove.middleman");
   @NonNls static final String REMOVE_METHODS = "refactoring.removemiddleman.remove.methods";
 
   protected static String getRefactoringName() {
-    return REFACTORING_NAME;
+    return getRefactoringNameText();
   }
 
   protected static String getHelpID() {
     return HelpID.RemoveMiddleman;
   }
 
+  @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file, DataContext dataContext) {
     final ScrollingModel scrollingModel = editor.getScrollingModel();
     scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE);
     final PsiElement element = CommonDataKeys.PSI_ELEMENT.getData(dataContext);
     if (!(element instanceof PsiField)) {
       CommonRefactoringUtil.showErrorHint(project, editor, RefactorJBundle.message("cannot.perform.the.refactoring") + RefactorJBundle.message(
-          "the.caret.should.be.positioned.at.the.name.of.the.field.to.be.refactored"), null, getHelpID());
+          "the.caret.should.be.positioned.at.the.name.of.the.field.to.be.refactored"), getRefactoringNameText(), getHelpID());
       return;
     }
     invoke((PsiField)element, editor);
   }
 
-  public void invoke(@NotNull Project project, @NotNull PsiElement[] elements, DataContext dataContext) {
+  @Override
+  public void invoke(@NotNull Project project, PsiElement @NotNull [] elements, DataContext dataContext) {
     if (elements.length != 1) {
       return;
     }
@@ -77,7 +77,7 @@ public class RemoveMiddlemanHandler implements RefactoringActionHandler {
     if (delegating.isEmpty()) {
       final String message =
         RefactorJBundle.message("cannot.perform.the.refactoring") + RefactorJBundle.message("field.selected.is.not.used.as.a.delegate");
-      CommonRefactoringUtil.showErrorHint(project, editor, message, null, getHelpID());
+      CommonRefactoringUtil.showErrorHint(project, editor, message, getRefactoringNameText(), getHelpID());
       return;
     }
 
@@ -90,5 +90,9 @@ public class RemoveMiddlemanHandler implements RefactoringActionHandler {
       infos[i++] = memberInfo;
     }
     new RemoveMiddlemanDialog(field, infos).show();
+  }
+
+  private static @NlsContexts.DialogTitle String getRefactoringNameText() {
+    return RefactorJBundle.message("remove.middleman");
   }
 }

@@ -1,32 +1,17 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.generic;
 
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.io.StreamUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.tasks.Task;
 import com.intellij.tasks.TaskRepositorySubtype;
 import com.intellij.tasks.TaskRepositoryType;
 import com.intellij.tasks.impl.BaseRepositoryImpl;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.net.HTTPMethod;
-import com.intellij.util.xmlb.annotations.AbstractCollection;
 import com.intellij.util.xmlb.annotations.Tag;
+import com.intellij.util.xmlb.annotations.XCollection;
 import org.apache.commons.httpclient.Header;
 import org.apache.commons.httpclient.HttpMethod;
 import org.apache.commons.httpclient.HttpStatus;
@@ -37,6 +22,9 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 import static com.intellij.tasks.generic.GenericRepositoryUtil.concat;
@@ -48,7 +36,6 @@ import static com.intellij.tasks.generic.TemplateVariable.FactoryVariable;
  */
 @Tag("Generic")
 public class GenericRepository extends BaseRepositoryImpl {
-
   @NonNls public static final String SERVER_URL = "serverUrl";
   @NonNls public static final String USERNAME = "username";
   @NonNls public static final String PASSWORD = "password";
@@ -78,7 +65,6 @@ public class GenericRepository extends BaseRepositoryImpl {
   private final List<FactoryVariable> myPredefinedTemplateVariables = Arrays.asList(myServerTemplateVariable,
                                                                                     myUserNameTemplateVariable,
                                                                                     myPasswordTemplateVariable);
-
   private String myLoginURL = "";
   private String myTasksListUrl = "";
   private String mySingleTaskUrl;
@@ -87,11 +73,11 @@ public class GenericRepository extends BaseRepositoryImpl {
   private HTTPMethod myTasksListMethodType = HTTPMethod.GET;
   private HTTPMethod mySingleTaskMethodType = HTTPMethod.GET;
 
-  private ResponseType myResponseType = ResponseType.XML;
+  private ResponseType myResponseType = ResponseType.JSON;
 
-  private EnumMap<ResponseType, ResponseHandler> myResponseHandlersMap = new EnumMap<ResponseType, ResponseHandler>(ResponseType.class);
+  private EnumMap<ResponseType, ResponseHandler> myResponseHandlersMap = new EnumMap<>(ResponseType.class);
 
-  private List<TemplateVariable> myTemplateVariables = new ArrayList<TemplateVariable>();
+  private List<TemplateVariable> myTemplateVariables = new ArrayList<>();
 
   private String mySubtypeName;
   private boolean myDownloadTasksInSeparateRequests;
@@ -101,7 +87,7 @@ public class GenericRepository extends BaseRepositoryImpl {
    */
   @SuppressWarnings({"UnusedDeclaration"})
   public GenericRepository() {
-    // empty
+    resetToDefaults();
   }
 
   public GenericRepository(final TaskRepositoryType type) {
@@ -126,7 +112,7 @@ public class GenericRepository extends BaseRepositoryImpl {
     myTemplateVariables = other.getTemplateVariables();
     mySubtypeName = other.getSubtypeName();
     myDownloadTasksInSeparateRequests = other.getDownloadTasksInSeparateRequests();
-    myResponseHandlersMap = new EnumMap<ResponseType, ResponseHandler>(ResponseType.class);
+    myResponseHandlersMap = new EnumMap<>(ResponseType.class);
     for (Map.Entry<ResponseType, ResponseHandler> e : other.myResponseHandlersMap.entrySet()) {
       ResponseHandler handler = e.getValue().clone();
       handler.setRepository(this);
@@ -142,9 +128,9 @@ public class GenericRepository extends BaseRepositoryImpl {
     myLoginMethodType = HTTPMethod.GET;
     myTasksListMethodType = HTTPMethod.GET;
     mySingleTaskMethodType = HTTPMethod.GET;
-    myResponseType = ResponseType.XML;
-    myTemplateVariables = new ArrayList<TemplateVariable>();
-    myResponseHandlersMap = new EnumMap<ResponseType, ResponseHandler>(ResponseType.class);
+    myResponseType = ResponseType.JSON;
+    myTemplateVariables = new ArrayList<>();
+    myResponseHandlersMap = new EnumMap<>(ResponseType.class);
     myResponseHandlersMap.put(ResponseType.XML, getXmlResponseHandlerDefault());
     myResponseHandlersMap.put(ResponseType.JSON, getJsonResponseHandlerDefault());
     myResponseHandlersMap.put(ResponseType.TEXT, getTextResponseHandlerDefault());
@@ -162,9 +148,9 @@ public class GenericRepository extends BaseRepositoryImpl {
     if (!(o instanceof GenericRepository)) return false;
     if (!super.equals(o)) return false;
     GenericRepository that = (GenericRepository)o;
-    if (!Comparing.equal(getLoginUrl(), that.getLoginUrl())) return false;
-    if (!Comparing.equal(getTasksListUrl(), that.getTasksListUrl())) return false;
-    if (!Comparing.equal(getSingleTaskUrl(), that.getSingleTaskUrl())) return false;
+    if (!Objects.equals(getLoginUrl(), that.getLoginUrl())) return false;
+    if (!Objects.equals(getTasksListUrl(), that.getTasksListUrl())) return false;
+    if (!Objects.equals(getSingleTaskUrl(), that.getSingleTaskUrl())) return false;
     if (!Comparing.equal(getLoginMethodType(), that.getLoginMethodType())) return false;
     if (!Comparing.equal(getTasksListMethodType(), that.getTasksListMethodType())) return false;
     if (!Comparing.equal(getSingleTaskMethodType(), that.getSingleTaskMethodType())) return false;
@@ -221,7 +207,14 @@ public class GenericRepository extends BaseRepositoryImpl {
     }
     else {
       InputStream stream = method.getResponseBodyAsStream();
-      responseBody = stream == null ? "" : StreamUtil.readText(stream, CharsetToolkit.UTF8_CHARSET);
+      if (stream == null) {
+        responseBody = "";
+      }
+      else {
+        try (Reader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
+          responseBody = StreamUtil.readText(reader);
+        }
+      }
     }
     if (method.getStatusCode() != HttpStatus.SC_OK) {
       throw new Exception("Request failed with HTTP error: " + method.getStatusText());
@@ -363,17 +356,18 @@ public class GenericRepository extends BaseRepositoryImpl {
     return myResponseHandlersMap.get(myResponseType);
   }
 
-  @AbstractCollection(
+  @XCollection(
     elementTypes = {
       XPathResponseHandler.class,
       JsonPathResponseHandler.class,
       RegExResponseHandler.class
-    },
-    surroundWithTag = false
+    }
   )
   public List<ResponseHandler> getResponseHandlers() {
-    Collection<ResponseHandler> handlers = myResponseHandlersMap.values();
-    return new ArrayList<ResponseHandler>(handlers);
+    if (myResponseHandlersMap.isEmpty()) {
+      return Collections.emptyList();
+    }
+    return Collections.unmodifiableList(new ArrayList<>(myResponseHandlersMap.values()));
   }
 
   @SuppressWarnings("UnusedDeclaration")

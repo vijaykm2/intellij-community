@@ -16,30 +16,31 @@
 package org.intellij.plugins.intelliLang.inject.config;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.JDOMExternalizableStringList;
 import com.intellij.openapi.util.JDOMExternalizer;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.patterns.compiler.PatternCompiler;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiFormatUtil;
 import com.intellij.util.IncorrectOperationException;
-import gnu.trove.THashMap;
+import org.intellij.plugins.intelliLang.IntelliLangBundle;
 import org.intellij.plugins.intelliLang.inject.java.JavaLanguageInjectionSupport;
 import org.jdom.Element;
+import org.jdom.IllegalDataException;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-public class MethodParameterInjection extends BaseInjection {
+public final class MethodParameterInjection extends BaseInjection {
   @NotNull
   private String myClassName = "";
 
   @NotNull
-  private final Map<String, MethodInfo> myParameterMap = new THashMap<String, MethodInfo>();
+  private final Map<String, MethodInfo> myParameterMap = new HashMap<>();
 
   public MethodParameterInjection() {
     super(JavaLanguageInjectionSupport.JAVA_SUPPORT_ID);
@@ -54,7 +55,7 @@ public class MethodParameterInjection extends BaseInjection {
     myClassName = className;
   }
 
-  public void setMethodInfos(final Collection<MethodInfo> newInfos) {
+  public void setMethodInfos(final Collection<? extends MethodInfo> newInfos) {
     myParameterMap.clear();
     for (MethodInfo methodInfo : newInfos) {
       myParameterMap.put(methodInfo.getMethodSignature(), methodInfo);
@@ -65,6 +66,7 @@ public class MethodParameterInjection extends BaseInjection {
     return myParameterMap.values();
   }
 
+  @Override
   public MethodParameterInjection copyFrom(@NotNull BaseInjection o) {
     super.copyFrom(o);
     if (o instanceof MethodParameterInjection) {
@@ -78,12 +80,13 @@ public class MethodParameterInjection extends BaseInjection {
     return this;
   }
 
+  @Override
   protected void readExternalImpl(Element e) {
     if (e.getAttribute("injector-id") == null) {
       setClassName(JDOMExternalizer.readString(e, "CLASS"));
       //setApplyInHierarchy(JDOMExternalizer.readBoolean(e, "APPLY_IN_HIERARCHY"));
       readOldFormat(e);
-      final THashMap<String, String> map = new THashMap<String, String>();
+      final Map<String, String> map = new HashMap<>();
       JDOMExternalizer.readMap(e, map, null, "SIGNATURES");
       for (String s : map.keySet()) {
         final String fixedSignature = fixSignature(s, false);
@@ -97,8 +100,7 @@ public class MethodParameterInjection extends BaseInjection {
     try {
       list.readExternal(e);
     }
-    catch (InvalidDataException e1) {
-      // nothing
+    catch (IllegalDataException ignored) {
     }
     if (list.isEmpty()) return;
     final boolean[] selection = new boolean[list.size()];
@@ -148,10 +150,11 @@ public class MethodParameterInjection extends BaseInjection {
     return result;
   }
 
+  @Override
   @NotNull
   public String getDisplayName() {
     final String className = getClassName();
-    if (StringUtil.isEmpty(className)) return "<unnamed>";
+    if (StringUtil.isEmpty(className)) return IntelliLangBundle.message("method.param.injection.unnamed.placeholder");
     MethodInfo singleInfo = null;
     for (MethodInfo info : myParameterMap.values()) {
       if (info.isEnabled()) {
@@ -173,7 +176,6 @@ public class MethodParameterInjection extends BaseInjection {
   public static String fixSignature(final String signature, final boolean parameterNames) {
     @NonNls final StringBuilder sb = new StringBuilder();
     final StringTokenizer st = new StringTokenizer(signature, "(,)");
-    //noinspection ForLoopThatDoesntUseLoopVariable
     for (int i = 0; st.hasMoreTokens(); i++) {
       final String token = st.nextToken().trim();
       if (i > 1) sb.append(", ");
@@ -186,7 +188,7 @@ public class MethodParameterInjection extends BaseInjection {
           sb.append(token);
         }
         else {
-          sb.append(token.substring(0, idx));
+          sb.append(token, 0, idx);
         }
       }
       else {
@@ -216,7 +218,6 @@ public class MethodParameterInjection extends BaseInjection {
     if (type instanceof PsiPrimitiveType) return false;
     if (project.isDefault()) {
       @NonNls final String text = type.getPresentableText();
-      if (text == null) return false;
       return text.equals("java.lang.String") || text.equals("java.lang.String...") || text.equals("java.lang.String[]");
     }
     else {
@@ -240,7 +241,6 @@ public class MethodParameterInjection extends BaseInjection {
   public static String getParameterTypesString(final String signature) {
     @NonNls final StringBuilder sb = new StringBuilder();
     final StringTokenizer st = new StringTokenizer(signature, "(,)");
-    //noinspection ForLoopThatDoesntUseLoopVariable
     for (int i = 0; st.hasMoreTokens(); i++) {
       final String token = st.nextToken().trim();
       if (i > 1) sb.append(", ");
@@ -251,7 +251,7 @@ public class MethodParameterInjection extends BaseInjection {
       else {
         sb.append('\"');
         if ((idx = token.indexOf(' ')) > -1) {
-          sb.append(token.substring(0, idx));
+          sb.append(token, 0, idx);
         }
         else {
           sb.append(token);
@@ -277,16 +277,13 @@ public class MethodParameterInjection extends BaseInjection {
   }
 
   public static class MethodInfo {
-    @NotNull
-    final String methodSignature;
-    @NotNull
-    final String methodName;
-    @NotNull
-    final boolean[] paramFlags;
+    final @NotNull String methodSignature;
+    final @NotNull @NlsSafe String methodName;
+    final boolean @NotNull [] paramFlags;
 
     boolean returnFlag;
 
-    public MethodInfo(@NotNull final String methodSignature, @NotNull final boolean[] paramFlags, final boolean returnFlag) {
+    public MethodInfo(@NotNull final String methodSignature, final boolean @NotNull [] paramFlags, final boolean returnFlag) {
       this.methodSignature = methodSignature;
       this.paramFlags = paramFlags;
       this.returnFlag = returnFlag;
@@ -311,8 +308,7 @@ public class MethodParameterInjection extends BaseInjection {
       return methodName;
     }
 
-    @NotNull
-    public boolean[] getParamFlags() {
+    public boolean @NotNull [] getParamFlags() {
       return paramFlags;
     }
 
@@ -390,7 +386,7 @@ public class MethodParameterInjection extends BaseInjection {
   }
 
   public static List<String> getPatternString(final MethodParameterInjection injection) {
-    final ArrayList<String> list = new ArrayList<String>();
+    final ArrayList<String> list = new ArrayList<>();
     final String className = injection.getClassName();
     for (MethodParameterInjection.MethodInfo info : injection.getMethodInfos()) {
       final boolean[] paramFlags = info.getParamFlags();

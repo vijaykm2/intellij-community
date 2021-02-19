@@ -27,6 +27,7 @@ import org.jetbrains.annotations.NotNull;
 
 import static com.intellij.patterns.PlatformPatterns.psiElement;
 import static com.intellij.patterns.StandardPatterns.or;
+import static com.jetbrains.rest.completion.ReferenceCompletionContributor.getPrefix;
 
 /**
  * User : catherine
@@ -38,16 +39,20 @@ public class DirectiveCompletionContributor extends CompletionContributor {
 
   public DirectiveCompletionContributor() {
     extend(CompletionType.BASIC, DIRECTIVE_PATTERN,
-       new CompletionProvider<CompletionParameters>() {
-         @Override
-         protected void addCompletions(@NotNull CompletionParameters parameters,
-                                       ProcessingContext context,
-                                       @NotNull CompletionResultSet result) {
-           for (String tag : RestUtil.getDirectives()) {
-             result.addElement(LookupElementBuilder.create(tag));
-           }
-         }
-       }
-       );
+           new CompletionProvider<>() {
+             @Override
+             protected void addCompletions(@NotNull CompletionParameters parameters,
+                                           @NotNull ProcessingContext context,
+                                           @NotNull CompletionResultSet result) {
+               int offset = parameters.getOffset();
+               final String prefix = getPrefix(offset, parameters.getOriginalFile());
+               if (prefix.length() > 0) {
+                 result = result.withPrefixMatcher(prefix);
+               }
+               for (String tag : RestUtil.getDirectives()) {
+                 result.addElement(LookupElementBuilder.create(tag));
+               }
+             }
+           });
   }
 }

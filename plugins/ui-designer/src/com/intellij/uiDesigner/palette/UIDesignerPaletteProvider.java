@@ -1,27 +1,15 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.uiDesigner.palette;
 
 import com.intellij.ide.palette.PaletteGroup;
 import com.intellij.ide.palette.PaletteItemProvider;
-import com.intellij.openapi.fileTypes.StdFileTypes;
+import com.intellij.openapi.fileTypes.FileTypeRegistry;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.uiDesigner.GuiFormFileType;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
@@ -29,7 +17,7 @@ import java.beans.PropertyChangeSupport;
 /**
  * @author yole
  */
-public class UIDesignerPaletteProvider implements PaletteItemProvider {
+public final class UIDesignerPaletteProvider implements PaletteItemProvider {
   @NonNls private static final String PROPERTY_GROUPS = "groups";
 
   private final Project myProject;
@@ -44,13 +32,14 @@ public class UIDesignerPaletteProvider implements PaletteItemProvider {
     myPropertyChangeSupport.firePropertyChange(PROPERTY_GROUPS, null, null);
   }
 
+  @Override
   public PaletteGroup[] getActiveGroups(VirtualFile vFile) {
-    if (vFile.getFileType().equals(StdFileTypes.GUI_DESIGNER_FORM)) {
+    if (FileTypeRegistry.getInstance().isFileOfType(vFile, GuiFormFileType.INSTANCE)) {
       Palette palette = Palette.getInstance(myProject);
       if (myListener == null) {
         myListener = new Palette.Listener() {
           @Override
-          public void groupsChanged(Palette palette) {
+          public void groupsChanged(@NotNull Palette palette) {
             fireGroupsChanged();
           }
         };
@@ -61,10 +50,12 @@ public class UIDesignerPaletteProvider implements PaletteItemProvider {
     return PaletteGroup.EMPTY_ARRAY;
   }
 
+  @Override
   public void addListener(PropertyChangeListener listener) {
     myPropertyChangeSupport.addPropertyChangeListener(listener);
   }
 
+  @Override
   public void removeListener(PropertyChangeListener listener) {
     myPropertyChangeSupport.removePropertyChangeListener(listener);
   }

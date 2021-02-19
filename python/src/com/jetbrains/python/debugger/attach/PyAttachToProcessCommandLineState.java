@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger.attach;
 
 import com.intellij.execution.ExecutionException;
@@ -11,7 +12,7 @@ import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ExecutionEnvironmentBuilder;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
-import com.jetbrains.python.PythonHelpersLocator;
+import com.jetbrains.python.PythonHelper;
 import com.jetbrains.python.debugger.PyRemoteDebugProcess;
 import com.jetbrains.python.debugger.PyRemoteDebugProcessAware;
 import com.jetbrains.python.run.PythonConfigurationType;
@@ -21,11 +22,8 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.OutputStream;
 
-/**
- * @author traff
- */
-public class PyAttachToProcessCommandLineState extends PythonScriptCommandLineState {
-  private final static String ATTACH_PYDEVD = "pydev/pydevd_attach_to_process/attach_pydevd.py";
+public final class PyAttachToProcessCommandLineState extends PythonScriptCommandLineState {
+
 
   private PyAttachToProcessCommandLineState(PythonRunConfiguration runConfiguration,
                                             ExecutionEnvironment env) {
@@ -36,7 +34,7 @@ public class PyAttachToProcessCommandLineState extends PythonScriptCommandLineSt
     throws ExecutionException {
     PythonRunConfiguration conf =
       (PythonRunConfiguration)PythonConfigurationType.getInstance().getFactory().createTemplateConfiguration(project);
-    conf.setScriptName(PythonHelpersLocator.getHelperPath(ATTACH_PYDEVD));
+    conf.setScriptName(PythonHelper.ATTACH_DEBUGGER.asParamString());
     conf.setSdkHome(sdkPath);
     conf.setScriptParameters("--port " + port + " --pid " + pid);
 
@@ -63,7 +61,7 @@ public class PyAttachToProcessCommandLineState extends PythonScriptCommandLineSt
       myHandler = handler;
       myHandler.addProcessListener(new ProcessAdapter() {
         @Override
-        public void onTextAvailable(ProcessEvent event, Key outputType) {
+        public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
           PyRemoteDebugProcessHandler.this.notifyTextAvailable(event.getText(), outputType);
         }
       });
@@ -99,6 +97,7 @@ public class PyAttachToProcessCommandLineState extends PythonScriptCommandLineSt
       return null;
     }
 
+    @Override
     public void setRemoteDebugProcess(PyRemoteDebugProcess process) {
       myProcess = process;
     }

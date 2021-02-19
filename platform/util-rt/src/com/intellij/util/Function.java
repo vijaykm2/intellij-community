@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,37 +15,19 @@
  */
 package com.intellij.util;
 
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 
 /**
+ * Please use {@link java.util.function.Function} instead
+ *
  * @author max
- * @author Konstantin Bulenkov
+ * @see Functions for some common implementations
  */
-@SuppressWarnings({"unchecked"})
 public interface Function<Param, Result> {
   Result fun(Param param);
-
-  Function ID = new Function() {
-    public Object fun(final Object o) {
-      return o;
-    }
-  };
-
-  Function NULL = NullableFunction.NULL;
-
-  Function TO_STRING = new Function() {
-    public Object fun(Object o) {
-      return String.valueOf(o);
-    }
-  };
-
-  final class Self<P, R> implements Function<P, R> {
-    public R fun(P p) {
-      return (R)p;
-    }
-  }
 
   interface Mono<T> extends Function<T, T> {}
 
@@ -53,34 +35,25 @@ public interface Function<Param, Result> {
 
     private final Class<R> myResultClass;
 
-    public InstanceOf(Class<R> resultClass) {
+    public InstanceOf(@NotNull Class<R> resultClass) {
       myResultClass = resultClass;
     }
 
     @Nullable
     public R fun(P p) {
-      return p.getClass().isAssignableFrom(myResultClass) ? (R)p : null;
+      return myResultClass.isInstance(p) ? myResultClass.cast(p) : null;
     }
   }
 
-  final class First<P, R extends P> implements Function<P[], R> {
-    public R fun(P[] ps) {
-      return (R)ps[0];
+  final class First<P> implements Function<P[], P> {
+    public P fun(P[] ps) {
+      return ps[0];
     }
   }
 
-  final class FirstInCollection<P, R extends P> implements Function<Collection<P>, R> {
-    public R fun(Collection<P> ps) {
-      return (R)ps.iterator().next();
-    }
-  }
-
-  class Predefined {
-    public static <I,O> Function<I, O> NULL() {
-      return NULL;
-    }
-    public static <I,O> Function<I, O> TO_STRING() {
-      return TO_STRING;
+  final class FirstInCollection<P> implements Function<Collection<P>, P> {
+    public P fun(Collection<P> ps) {
+      return ps.iterator().next();
     }
   }
 }

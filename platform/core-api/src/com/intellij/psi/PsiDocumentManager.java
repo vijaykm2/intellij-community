@@ -1,24 +1,12 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -45,7 +33,7 @@ public abstract class PsiDocumentManager {
    * @return the document manager instance.
    */
   public static PsiDocumentManager getInstance(@NotNull Project project) {
-    return project.getComponent(PsiDocumentManager.class);
+    return project.getService(PsiDocumentManager.class);
   }
 
   /**
@@ -61,7 +49,7 @@ public abstract class PsiDocumentManager {
    * Returns the cached PSI file for the specified document.
    *
    * @param document the document for which the PSI file is requested.
-   * @return the PSI file instance, or <code>null</code> if there is currently no cached PSI tree for the file.
+   * @return the PSI file instance, or {@code null} if there is currently no cached PSI tree for the file.
    */
   @Nullable
   public abstract PsiFile getCachedPsiFile(@NotNull Document document);
@@ -70,7 +58,7 @@ public abstract class PsiDocumentManager {
    * Returns the document for the specified PSI file.
    *
    * @param file the file for which the document is requested.
-   * @return the document instance, or <code>null</code> if the file is binary or has no associated document.
+   * @return the document instance, or {@code null} if the file is binary or has no associated document.
    */
   @Nullable
   public abstract Document getDocument(@NotNull PsiFile file);
@@ -79,7 +67,7 @@ public abstract class PsiDocumentManager {
    * Returns the cached document for the specified PSI file.
    *
    * @param file the file for which the document is requested.
-   * @return the document instance, or <code>null</code> if there is currently no cached document for the file.
+   * @return the document instance, or {@code null} if there is currently no cached document for the file.
    */
   @Nullable
   public abstract Document getCachedDocument(@NotNull PsiFile file);
@@ -87,28 +75,38 @@ public abstract class PsiDocumentManager {
   /**
    * Commits (updates the PSI tree for) all modified but not committed documents.
    * Before a modified document is committed, accessing its PSI may return elements
-   * corresponding to original (unmodified) state of the document.
+   * corresponding to original (unmodified) state of the document.<p/>
+   *
+   * Should be called in UI thread in a write-safe context (see {@link com.intellij.openapi.application.TransactionGuard})
    */
   public abstract void commitAllDocuments();
 
   /**
+   * Commits all modified but not committed documents under modal dialog (see {@link PsiDocumentManager#commitAllDocuments()}
+   * Should be called in UI thread and outside of write-action
+   * @return true if the operation completed successfully, false if it was cancelled.
+   */
+  public abstract boolean commitAllDocumentsUnderProgress();
+
+  /**
    * If the document is committed, runs action synchronously, otherwise schedules to execute it right after it has been committed.
-   * @param document
-   * @param action
    */
   public abstract void performForCommittedDocument(@NotNull Document document, @NotNull Runnable action);
 
   /**
    * Updates the PSI tree for the specified document.
    * Before a modified document is committed, accessing its PSI may return elements
-   * corresponding to original (unmodified) state of the document.
+   * corresponding to original (unmodified) state of the document.<p/>
+   *
+   * For documents with event-system-enabled PSI ({@link FileViewProvider#isEventSystemEnabled()}), should be called in UI thread in a write-safe context (see {@link com.intellij.openapi.application.TransactionGuard}).
+   * For other documents, can be called in background thread with read access. It's the responsibility of the caller to properly synchronize
+   * that PSI and ensure no other threads are reading or modifying it concurrently.
    *
    * @param document the document to commit.
    */
   public abstract void commitDocument(@NotNull Document document);
 
   /**
-   * @param document
    * @return the document text that PSI should be based upon. For changed documents, it's their old text until the document is committed.
    * This sequence is immutable.
    * @see com.intellij.util.text.ImmutableCharSequence
@@ -126,20 +124,29 @@ public abstract class PsiDocumentManager {
   public abstract long getLastCommittedStamp(@NotNull Document document);
 
   /**
+   * Returns the document for specified PsiFile intended to be used when working with committed PSI, e.g. outside dispatch thread.
+   * @param file the file for which the document is requested.
+   * @return an immutable document corresponding to the current PSI state. For committed documents, the contents and timestamp are equal to
+   * the ones of {@link #getDocument(PsiFile)}. For uncommitted documents, the text is {@link #getLastCommittedText(Document)} and
+   * the modification stamp is {@link #getLastCommittedStamp(Document)}.
+   */
+  @Nullable
+  public abstract Document getLastCommittedDocument(@NotNull PsiFile file);
+
+  /**
    * Returns the list of documents which have been modified but not committed.
    *
    * @return the list of uncommitted documents.
-   * @see #commitDocument(com.intellij.openapi.editor.Document)
+   * @see #commitDocument(Document)
    */
-  @NotNull
-  public abstract Document[] getUncommittedDocuments();
+  public abstract Document @NotNull [] getUncommittedDocuments();
 
   /**
    * Checks if the specified document has been committed.
    *
    * @param document the document to check.
    * @return true if the document was modified but not committed, false otherwise
-   * @see #commitDocument(com.intellij.openapi.editor.Document)
+   * @see #commitDocument(Document)
    */
   public abstract boolean isUncommited(@NotNull Document document);
 
@@ -149,6 +156,15 @@ public abstract class PsiDocumentManager {
    * @return true if there are uncommitted documents, false otherwise
    */
   public abstract boolean hasUncommitedDocuments();
+
+  /**
+   * @return if any modified documents with event-system-enabled PSI have not been committed.
+   * @see FileViewProvider#isEventSystemEnabled()
+   */
+  @ApiStatus.Experimental
+  public boolean hasEventSystemEnabledUncommittedDocuments() {
+    return hasUncommitedDocuments();
+  }
 
   /**
    * Commits the documents and runs the specified operation, which does not return a value, in a read action.
@@ -174,7 +190,7 @@ public abstract class PsiDocumentManager {
    * @param files the files to reparse.
    * @param includeOpenFiles if true, the files opened in editor tabs will also be reparsed.
    */
-  public abstract void reparseFiles(@NotNull final Collection<VirtualFile> files, final boolean includeOpenFiles);
+  public abstract void reparseFiles(@NotNull final Collection<? extends VirtualFile> files, final boolean includeOpenFiles);
 
   /**
    * Listener for receiving notifications about creation of {@link Document} and {@link PsiFile} instances.
@@ -187,7 +203,7 @@ public abstract class PsiDocumentManager {
      * @param psiFile the file for which the document was created.
      * @see PsiDocumentManager#getDocument(PsiFile)
      */
-    void documentCreated(@NotNull Document document, PsiFile psiFile);
+    void documentCreated(@NotNull Document document, @Nullable PsiFile psiFile);
 
     /**
      * Called when a file instance is created for a document.
@@ -196,22 +212,16 @@ public abstract class PsiDocumentManager {
      * @param document the document for which the file was created.
      * @see PsiDocumentManager#getDocument(PsiFile)
      */
-    void fileCreated(@NotNull PsiFile file, @NotNull Document document);
+    default void fileCreated(@NotNull PsiFile file, @NotNull Document document) {
+    }
   }
 
   /**
-   * Adds a listener for receiving notifications about creation of {@link Document} and {@link PsiFile} instances.
-   *
-   * @param listener the listener to add.
+   * @deprecated Use message bus {@link PsiDocumentListener#TOPIC}.
    */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public abstract void addListener(@NotNull Listener listener);
-
-  /**
-   * Removes a listener for receiving notifications about creation of {@link Document} and {@link PsiFile} instances.
-   *
-   * @param listener the listener to add.
-   */
-  public abstract void removeListener(@NotNull Listener listener);
 
   /**
    * Checks if the PSI tree corresponding to the specified document has been modified and the changes have not
@@ -232,11 +242,26 @@ public abstract class PsiDocumentManager {
   public abstract void doPostponedOperationsAndUnblockDocument(@NotNull Document doc);
 
   /**
-   * Defer action until all documents are committed.
+   * Defer action until all documents with event-system-enabled PSI are committed.
    * Must be called from the EDT only.
    *
    * @param action to run when all documents committed
    * @return true if action was run immediately (i.e. all documents are already committed)
    */
   public abstract boolean performWhenAllCommitted(@NotNull Runnable action);
+
+  /**
+   * Same as {@link #performLaterWhenAllCommitted(ModalityState, Runnable)} using {@link ModalityState#defaultModalityState()}
+   */
+  public abstract void performLaterWhenAllCommitted(@NotNull Runnable runnable);
+
+  /**
+   * Schedule the runnable to be executed on Swing thread when all the documents with event-system-enabled PSI
+   * are committed at some later moment in a given modality state.
+   * The runnable is guaranteed to be invoked when no write action is running, and not immediately.
+   * If the project is disposed before such moment, the runnable is not run.
+   */
+  public abstract void performLaterWhenAllCommitted(@NotNull ModalityState modalityState, @NotNull Runnable runnable);
+
+
 }

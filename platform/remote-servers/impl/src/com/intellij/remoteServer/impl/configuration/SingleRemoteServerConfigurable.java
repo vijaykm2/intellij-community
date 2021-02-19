@@ -1,22 +1,17 @@
 package com.intellij.remoteServer.impl.configuration;
 
 import com.intellij.openapi.options.ConfigurationException;
-import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.ui.NamedConfigurable;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.remoteServer.CloudBundle;
 import com.intellij.remoteServer.RemoteServerConfigurable;
 import com.intellij.remoteServer.configuration.RemoteServer;
 import com.intellij.remoteServer.configuration.ServerConfiguration;
-import com.intellij.remoteServer.runtime.ServerConnection;
-import com.intellij.remoteServer.runtime.ServerConnectionManager;
-import com.intellij.remoteServer.runtime.ServerConnector;
-import com.intellij.remoteServer.runtime.deployment.ServerRuntimeInstance;
-import com.intellij.remoteServer.util.CloudDataLoader;
 import com.intellij.remoteServer.util.DelayedRunner;
 import com.intellij.ui.components.JBLabel;
-import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.xmlb.XmlSerializerUtil;
 import org.jetbrains.annotations.Nls;
@@ -25,18 +20,11 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.concurrent.atomic.AtomicReference;
 
-/**
- * @author nik
- */
 public class SingleRemoteServerConfigurable extends NamedConfigurable<RemoteServer<?>> {
-  private static final String HELP_TOPIC_ID = "reference.settings.clouds";
-
-
   private final RemoteServerConfigurable myConfigurable;
   private final RemoteServer<?> myServer;
-  private String myServerName;
+  private @NlsSafe String myServerName;
   private boolean myNew;
   private JPanel myMainPanel;
   private JPanel mySettingsPanel;
@@ -47,11 +35,9 @@ public class SingleRemoteServerConfigurable extends NamedConfigurable<RemoteServ
 
   private final RemoteServer<?> myInnerServer;
   private boolean myInnerApplied;
-  private boolean myUncheckedApply;
+  private boolean myAppliedButNeedsCheck;
 
   private boolean myConnected;
-
-  private CloudDataLoader myDataLoader = CloudDataLoader.NULL;
 
   public <C extends ServerConfiguration> SingleRemoteServerConfigurable(RemoteServer<C> server, Runnable treeUpdater, boolean isNew) {
     super(true, treeUpdater);
@@ -60,9 +46,9 @@ public class SingleRemoteServerConfigurable extends NamedConfigurable<RemoteServ
     myServerName = myServer.getName();
     C configuration = server.getConfiguration();
     C innerConfiguration = XmlSerializerUtil.createCopy(configuration);
-    myInnerServer = new RemoteServerImpl<C>("<temp inner server>", server.getType(), innerConfiguration);
+    myInnerServer = new RemoteServerImpl<>("<temp inner server>", server.getType(), innerConfiguration);
     myInnerApplied = false;
-    myUncheckedApply = false;
+    myAppliedButNeedsCheck = isNew || server.getType().canAutoDetectConfiguration();
 
     myConfigurable = createConfigurable(server, innerConfiguration);
 
@@ -74,9 +60,9 @@ public class SingleRemoteServerConfigurable extends NamedConfigurable<RemoteServ
         if (!myConfigurable.canCheckConnection()) return false;
 
         boolean modified = myConfigurable.isModified();
-        boolean result = modified || myUncheckedApply;
+        boolean result = modified || myAppliedButNeedsCheck;
         if (result) {
-          myUncheckedApply = false;
+          myAppliedButNeedsCheck = false;
 
           setConnectionStatus(false, false, "");
           myConnectionTester = null;
@@ -96,7 +82,7 @@ public class SingleRemoteServerConfigurable extends NamedConfigurable<RemoteServ
 
       @Override
       protected void run() {
-        setConnectionStatus(false, false, "Connecting...");
+        setConnectionStatus(false, false, CloudBundle.message("cloud.status.connecting"));
 
         myConnectionTester = new ConnectionTester();
         myConnectionTester.testConnection();
@@ -105,40 +91,17 @@ public class SingleRemoteServerConfigurable extends NamedConfigurable<RemoteServ
   }
 
   private static <C extends ServerConfiguration> RemoteServerConfigurable createConfigurable(RemoteServer<C> server, C configuration) {
-    try {
-      return server.getType().createServerConfigurable(configuration);
-    }
-    catch (UnsupportedOperationException e) {
-      return new DelegatingRemoteServerConfigurable(server.getType().createConfigurable(configuration));
-    }
+    return server.getType().createServerConfigurable(configuration);
   }
 
-  private void setConnectionStatus(boolean error, boolean connected, String text) {
-    boolean changed = myConnected != connected;
+  private void setConnectionStatus(boolean error, boolean connected, @NlsContexts.Label String text) {
     myConnected = connected;
     setConnectionStatusText(error, text);
-    if (changed) {
-      notifyDataLoader();
-    }
   }
 
-  protected void setConnectionStatusText(boolean error, String text) {
+  protected void setConnectionStatusText(boolean error, @NlsContexts.Label String text) {
     myConnectionStatusLabel.setText(UIUtil.toHtml(text));
     myConnectionStatusLabel.setVisible(StringUtil.isNotEmpty(text));
-  }
-
-  public void setDataLoader(CloudDataLoader dataLoader) {
-    myDataLoader = dataLoader;
-    notifyDataLoader();
-  }
-
-  private void notifyDataLoader() {
-    if (myConnected) {
-      myDataLoader.loadCloudData();
-    }
-    else {
-      myDataLoader.clearCloudData();
-    }
   }
 
   @Override
@@ -166,7 +129,7 @@ public class SingleRemoteServerConfigurable extends NamedConfigurable<RemoteServ
   @Nullable
   @Override
   public String getHelpTopic() {
-    return HELP_TOPIC_ID;
+    return myServer.getType().getHelpTopic();
   }
 
   @Override
@@ -184,8 +147,9 @@ public class SingleRemoteServerConfigurable extends NamedConfigurable<RemoteServ
     boolean uncheckedApply = myConfigurable.isModified();
     myConfigurable.apply();
     XmlSerializerUtil.copyBean(myInnerServer.getConfiguration(), myServer.getConfiguration());
+    myServer.setName(myServerName);
     myNew = false;
-    myUncheckedApply = uncheckedApply;
+    myAppliedButNeedsCheck = uncheckedApply;
     myInnerApplied = false;
   }
 
@@ -207,52 +171,24 @@ public class SingleRemoteServerConfigurable extends NamedConfigurable<RemoteServ
   }
 
   private class ConnectionTester {
+    private final RemoteServerConnectionTester myTester;
+
+    ConnectionTester() {
+      myTester = new RemoteServerConnectionTester(myInnerServer);
+    }
 
     public void testConnection() {
-      final ServerConnection connection = ServerConnectionManager.getInstance().createTemporaryConnection(myInnerServer);
-      final AtomicReference<Boolean> connectedRef = new AtomicReference<Boolean>(null);
-      final Semaphore semaphore = new Semaphore();
-      semaphore.down();
-      connection.connectIfNeeded(new ServerConnector.ConnectionCallback() {
+      myTester.testConnection(this::testFinished);
+    }
 
-        @Override
-        public void connected(@NotNull ServerRuntimeInstance serverRuntimeInstance) {
-          connectedRef.set(true);
-          semaphore.up();
-          connection.disconnect();
-        }
-
-        @Override
-        public void errorOccurred(@NotNull String errorMessage) {
-          connectedRef.set(false);
-          semaphore.up();
+    public void testFinished(boolean connected, @NotNull String connectionStatus) {
+      UIUtil.invokeLaterIfNeeded(() -> {
+        if (myConnectionTester == this) {
+          setConnectionStatus(!connected, connected,
+                              connected ? CloudBundle.message("cloud.status.connection.successful")
+                                        : CloudBundle.message("cloud.status.cannot.connect", connectionStatus));
         }
       });
-
-      new Task.Backgroundable(null, "Connecting...", true) {
-        @Override
-        public void run(@NotNull ProgressIndicator indicator) {
-          indicator.setIndeterminate(true);
-          while (!indicator.isCanceled()) {
-            if (semaphore.waitFor(500)) {
-              break;
-            }
-          }
-          final Boolean connected = connectedRef.get();
-          if (connected == null) {
-            return;
-          }
-          UIUtil.invokeLaterIfNeeded(new Runnable() {
-
-            @Override
-            public void run() {
-              if (myConnectionTester == ConnectionTester.this) {
-                setConnectionStatus(!connected, connected, connected ? "Connection successful" : "Cannot connect: " + connection.getStatusText());
-              }
-            }
-          });
-        }
-      }.queue();
     }
   }
 }

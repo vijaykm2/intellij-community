@@ -41,8 +41,12 @@ public class EmbeddedLazyParseableElementType extends ILazyParseableElementType 
   }
 
   public ASTNode parseAndGetTree(@NotNull PsiBuilder builder) {
-    final PsiParser parser = LanguageParserDefinitions.INSTANCE.forLanguage(getLanguage()).createParser(builder.getProject());
+    final PsiParser parser = getParser(builder);
     return parser.parse(this, builder);
+  }
+
+  protected PsiParser getParser(@NotNull PsiBuilder builder) {
+    return LanguageParserDefinitions.INSTANCE.forLanguage(getLanguage()).createParser(builder.getProject());
   }
 
   @Override
@@ -55,19 +59,23 @@ public class EmbeddedLazyParseableElementType extends ILazyParseableElementType 
     final ParserDefinition parserDefinition = LanguageParserDefinitions.INSTANCE.forLanguage(language);
     final Lexer lexer = createLexer(chameleon, project, psi.getLanguage());
 
-    final PsiBuilder builder = getBuilder(chameleon, project, parserDefinition, lexer);
+    final PsiBuilder builder = getBuilder(chameleon, project, parserDefinition, lexer, chameleon.getChars());
 
     return parseAndGetTree(builder).getFirstChildNode();
   }
 
-  public PsiBuilder getBuilder(ASTNode chameleon, Project project, ParserDefinition parserDefinition, Lexer lexer) {
+  public PsiBuilder getBuilder(ASTNode chameleon,
+                               Project project,
+                               ParserDefinition parserDefinition,
+                               Lexer lexer,
+                               CharSequence chars) {
     final PsiBuilder builder;
     if (lexer instanceof MasqueradingLexer) {
       builder =
-        new MasqueradingPsiBuilderAdapter(project, parserDefinition, ((MasqueradingLexer)lexer), chameleon, chameleon.getChars());
+        new MasqueradingPsiBuilderAdapter(project, parserDefinition, ((MasqueradingLexer)lexer), chameleon, chars);
     }
     else {
-      builder = new PsiBuilderImpl(project, parserDefinition, lexer, chameleon, chameleon.getChars());
+      builder = new PsiBuilderImpl(project, parserDefinition, lexer, chameleon, chars);
     }
     return builder;
   }

@@ -15,16 +15,16 @@
  */
 package org.jetbrains.java.generate;
 
+import com.intellij.codeInsight.CodeInsightActionHandler;
+import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.generation.PsiElementClassMember;
 import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.ide.util.MemberChooser;
-import com.intellij.openapi.Disposable;
-import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.actionSystem.EditorWriteActionHandler;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.ShowSettingsUtil;
@@ -32,14 +32,18 @@ import com.intellij.openapi.options.TabbedConfigurable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.DialogWrapper;
-import com.intellij.openapi.util.Disposer;
 import com.intellij.psi.*;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
+import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.ui.JBColor;
+import com.intellij.ui.SimpleListCellRenderer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.generate.tostring.GenerateToStringClassFilter;
 import org.jetbrains.java.generate.config.Config;
+import org.jetbrains.java.generate.config.ConflictResolutionPolicy;
 import org.jetbrains.java.generate.template.TemplateResource;
 import org.jetbrains.java.generate.template.toString.ToStringTemplatesManager;
 import org.jetbrains.java.generate.view.TemplatesPanel;
@@ -50,94 +54,123 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
 /**
  * The action-handler that does the code generation.
  */
-public class GenerateToStringActionHandlerImpl extends EditorWriteActionHandler implements GenerateToStringActionHandler {
-    private static final Logger logger = Logger.getInstance("#GenerateToStringActionHandlerImpl");
+public class GenerateToStringActionHandlerImpl implements GenerateToStringActionHandler, CodeInsightActionHandler {
+    private static final Logger LOG = Logger.getInstance(GenerateToStringActionHandlerImpl.class);
 
-    public void executeWriteAction(Editor editor, DataContext dataContext) {
-        final Project project = CommonDataKeys.PROJECT.getData(dataContext);
-        assert project != null;
+    @Override
+    public boolean startInWriteAction() {
+        return false;
+    }
 
-        PsiClass clazz = getSubjectClass(editor, dataContext);
+    @Override
+    public void invoke(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file) {
+        PsiClass clazz = getSubjectClass(editor, file);
         assert clazz != null;
 
         doExecuteAction(project, clazz, editor);
     }
 
 
+    @Override
     public void executeActionQuickFix(final Project project, final PsiClass clazz) {
         doExecuteAction(project, clazz, null);
     }
 
     private static void doExecuteAction(@NotNull final Project project, @NotNull final PsiClass clazz, final Editor editor) {
-        logger.debug("+++ doExecuteAction - START +++");
+        if (!FileModificationService.getInstance().preparePsiElementsForWrite(clazz)) {
+            return;
+        }
+        LOG.debug("+++ doExecuteAction - START +++");
 
-        if (logger.isDebugEnabled()) {
-            logger.debug("Current project " + project.getName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Current project " + project.getName());
         }
 
         final PsiElementClassMember[] dialogMembers = buildMembersToShow(clazz);
 
         final MemberChooserHeaderPanel header = new MemberChooserHeaderPanel(clazz);
-        logger.debug("Displaying member chooser dialog");
-        ApplicationManager.getApplication().invokeLater(new Runnable() {
-            public void run() {
-              if (project.isDisposed()) return;
-                final MemberChooser<PsiElementClassMember> chooser =
-                    new MemberChooser<PsiElementClassMember>(dialogMembers, true, true, project, PsiUtil.isLanguageLevel5OrHigher(clazz), header) {
-                        @Nullable
-                        @Override
-                        protected String getHelpId() {
-                            return "editing.altInsert.tostring";
-                        }
-                    };
-                chooser.setTitle("Generate toString()");
+        LOG.debug("Displaying member chooser dialog");
 
-                chooser.setCopyJavadocVisible(false);
-                chooser.selectElements(dialogMembers);
-                header.setChooser(chooser);
-                chooser.show();
+        final MemberChooser<PsiElementClassMember> chooser =
+          new MemberChooser<>(dialogMembers, true, true, project, PsiUtil.isLanguageLevel5OrHigher(clazz), header) {
+            @Override
+            protected @NotNull String getHelpId() {
+              return "editing.altInsert.tostring";
+            }
 
-                if (DialogWrapper.OK_EXIT_CODE == chooser.getExitCode()) {
-                    Collection<PsiMember> selectedMembers = GenerationUtil.convertClassMembersToPsiMembers(chooser.getSelectedElements());
+            @Override
+            protected boolean isInsertOverrideAnnotationSelected() {
+              return JavaCodeStyleSettings.getInstance(clazz.getContainingFile()).INSERT_OVERRIDE_ANNOTATION;
+            }
+          };
+        //noinspection DialogTitleCapitalization
+        chooser.setTitle(JavaBundle.message("generate.tostring.title"));
 
-                    final TemplateResource template = header.getSelectedTemplate();
-                    ToStringTemplatesManager.getInstance().setDefaultTemplate(template);
+        chooser.setCopyJavadocVisible(false);
+        chooser.selectElements(getPreselection(clazz, dialogMembers));
+        header.setChooser(chooser);
 
-                    if (template.isValidTemplate()) {
-                        GenerateToStringWorker.executeGenerateActionLater(clazz, editor, selectedMembers, template,
-                                                                          chooser.isInsertOverrideAnnotation());
-                    }
-                    else {
-                        HintManager.getInstance().showErrorHint(editor, "toString() template '" + template.getFileName() + "' is invalid");
-                    }
+        if (ApplicationManager.getApplication().isUnitTestMode()) {
+          chooser.close(DialogWrapper.OK_EXIT_CODE);
+        }
+        else {
+          chooser.show();
+        }
+        if (DialogWrapper.OK_EXIT_CODE == chooser.getExitCode()) {
+            Collection<PsiMember> selectedMembers = GenerationUtil.convertClassMembersToPsiMembers(chooser.getSelectedElements());
+
+            final TemplateResource template = header.getSelectedTemplate();
+            ToStringTemplatesManager.getInstance().setDefaultTemplate(template);
+
+            if (template.isValidTemplate()) {
+                final GenerateToStringWorker worker = new GenerateToStringWorker(clazz, editor, chooser.isInsertOverrideAnnotation());
+                // decide what to do if the method already exists
+                ConflictResolutionPolicy resolutionPolicy = worker.exitsMethodDialog(template);
+                try {
+                    WriteCommandAction.runWriteCommandAction(project, JavaBundle.message("command.name.generate.tostring"), null,
+                                                             () -> worker.execute(selectedMembers, template, resolutionPolicy));
+                }
+                catch (Exception e) {
+                    GenerationUtil.handleException(project, e);
                 }
             }
-        });
+            else {
+                HintManager.getInstance().showErrorHint(editor,
+                                                        JavaBundle.message("hint.text.tostring.template.invalid", template.getFileName()));
+            }
+        }
 
-        logger.debug("+++ doExecuteAction - END +++");
+        LOG.debug("+++ doExecuteAction - END +++");
     }
 
-    public static void updateDialog(PsiClass clazz, MemberChooser<PsiElementClassMember> dialog) {
+    private static PsiElementClassMember[] getPreselection(@NotNull PsiClass clazz, PsiElementClassMember[] dialogMembers) {
+        return Arrays.stream(dialogMembers)
+          .filter(member -> member.getElement().getContainingClass() == clazz)
+          .toArray(PsiElementClassMember[]::new);
+    }
+
+    public static void updateDialog(PsiClass clazz, MemberChooser<? super PsiElementClassMember> dialog) {
         final PsiElementClassMember[] members = buildMembersToShow(clazz);
         dialog.resetElements(members);
-        dialog.selectElements(members);
+        dialog.selectElements(getPreselection(clazz, members));
     }
 
-    private static PsiElementClassMember[] buildMembersToShow(PsiClass clazz) {
+    public static PsiElementClassMember[] buildMembersToShow(PsiClass clazz) {
         Config config = GenerateToStringContext.getConfig();
-        PsiField[] filteredFields = GenerateToStringUtils.filterAvailableFields(clazz, config.getFilterPattern());
-        if (logger.isDebugEnabled()) logger.debug("Number of fields after filtering: " + filteredFields.length);
+        PsiField[] filteredFields = GenerateToStringUtils.filterAvailableFields(clazz, true, config.getFilterPattern());
+        if (LOG.isDebugEnabled()) LOG.debug("Number of fields after filtering: " + filteredFields.length);
         PsiMethod[] filteredMethods;
         if (config.enableMethods) {
             // filter methods as it is enabled from config
             filteredMethods = GenerateToStringUtils.filterAvailableMethods(clazz, config.getFilterPattern());
-            if (logger.isDebugEnabled()) logger.debug("Number of methods after filtering: " + filteredMethods.length);
+            if (LOG.isDebugEnabled()) LOG.debug("Number of methods after filtering: " + filteredMethods.length);
         } else {
           filteredMethods = PsiMethod.EMPTY_ARRAY;
         }
@@ -145,14 +178,8 @@ public class GenerateToStringActionHandlerImpl extends EditorWriteActionHandler 
         return GenerationUtil.combineToClassMemberList(filteredFields, filteredMethods);
     }
 
-    @Override
-    public boolean isEnabled(Editor editor, DataContext dataContext) {
-        return getSubjectClass(editor, dataContext) != null;
-    }
-
     @Nullable
-    private static PsiClass getSubjectClass(Editor editor, DataContext dataContext) {
-        PsiFile file = CommonDataKeys.PSI_FILE.getData(dataContext);
+    private static PsiClass getSubjectClass(Editor editor, final PsiFile file) {
         if (file == null) return null;
 
         int offset = editor.getCaretModel().getOffset();
@@ -174,7 +201,7 @@ public class GenerateToStringActionHandlerImpl extends EditorWriteActionHandler 
 
     public static class MemberChooserHeaderPanel extends JPanel {
         private MemberChooser<PsiElementClassMember> chooser;
-        private final JComboBox comboBox;
+        private final JComboBox<TemplateResource> comboBox;
 
         public void setChooser(MemberChooser chooser) {
             this.chooser = chooser;
@@ -184,28 +211,43 @@ public class GenerateToStringActionHandlerImpl extends EditorWriteActionHandler 
             super(new GridBagLayout());
 
             final Collection<TemplateResource> templates = ToStringTemplatesManager.getInstance().getAllTemplates();
-            final TemplateResource[] all = templates.toArray(new TemplateResource[templates.size()]);
+            final TemplateResource[] all = templates.toArray(new TemplateResource[0]);
 
-            final JButton settingsButton = new JButton("Settings");
+            final JButton settingsButton = new JButton(JavaBundle.message("button.text.settings"));
             settingsButton.setMnemonic(KeyEvent.VK_S);
 
-            comboBox = new ComboBox(all);
+            comboBox = new ComboBox<>(all);
+            final JavaPsiFacade instance = JavaPsiFacade.getInstance(clazz.getProject());
+            final GlobalSearchScope resolveScope = clazz.getResolveScope();
+          final ListCellRenderer<TemplateResource> renderer =
+            SimpleListCellRenderer.create((label, value, index) -> {
+              label.setText(value.getName());
+              final String className = value.getClassName();
+              if (className != null && instance.findClass(className, resolveScope) == null) {
+                setForeground(JBColor.RED);
+              }
+            });
+            comboBox.setRenderer(renderer);
             settingsButton.addActionListener(new ActionListener() {
+                @Override
                 public void actionPerformed(ActionEvent e) {
                   final TemplatesPanel ui = new TemplatesPanel(clazz.getProject());
-                  Disposable disposable = Disposer.newDisposable();
-                  Configurable composite = new TabbedConfigurable(disposable) {
+                  Configurable composite = new TabbedConfigurable() {
+                        @Override
+                        @NotNull
                         protected List<Configurable> createConfigurables() {
-                            List<Configurable> res = new ArrayList<Configurable>();
+                            List<Configurable> res = new ArrayList<>();
                             res.add(new GenerateToStringConfigurable(clazz.getProject()));
                             res.add(ui);
                             return res;
                         }
 
+                        @Override
                         public String getDisplayName() {
-                            return "toString() Generation Settings";
+                            return JavaBundle.message("generate.tostring.tab.title");
                         }
 
+                        @Override
                         public String getHelpTopic() {
                             return "editing.altInsert.tostring.settings";
                         }
@@ -223,18 +265,14 @@ public class GenerateToStringActionHandlerImpl extends EditorWriteActionHandler 
                         }
                     };
 
-                    ShowSettingsUtil.getInstance().editConfigurable(MemberChooserHeaderPanel.this, composite, new Runnable() {
-                        public void run() {
-                            ui.selectItem(ToStringTemplatesManager.getInstance().getDefaultTemplate());
-                        }
-                    });
-                  Disposer.dispose(disposable);
+                    ShowSettingsUtil.getInstance().editConfigurable(MemberChooserHeaderPanel.this, composite, () -> ui.selectItem(ToStringTemplatesManager.getInstance().getDefaultTemplate()));
+                  composite.disposeUIResources();
                 }
             });
 
             comboBox.setSelectedItem(ToStringTemplatesManager.getInstance().getDefaultTemplate());
 
-            final JLabel templatesLabel = new JLabel("Template: ");
+            final JLabel templatesLabel = new JLabel(JavaBundle.message("generate.tostring.template.label"));
             templatesLabel.setDisplayedMnemonic('T');
             templatesLabel.setLabelFor(comboBox);
 

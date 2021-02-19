@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2007 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 package com.siyeh.ig.abstraction;
 
 import com.intellij.psi.*;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -24,13 +25,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class ClassReferencesSubclassInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "class.references.subclass.display.name");
-  }
 
   @Override
   @NotNull
@@ -95,11 +89,7 @@ public class ClassReferencesSubclassInspection extends BaseInspection {
       }
       final PsiType type = typeElement.getType();
       final PsiType componentType = type.getDeepComponentType();
-      if (!(componentType instanceof PsiClassType)) {
-        return;
-      }
-      final PsiClassType classType = (PsiClassType)componentType;
-      final PsiClass aClass = classType.resolve();
+      final PsiClass aClass = PsiUtil.resolveClassInClassTypeOnly(componentType);
       if (aClass instanceof PsiTypeParameter) {
         return;
       }

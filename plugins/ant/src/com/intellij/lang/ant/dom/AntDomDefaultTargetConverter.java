@@ -30,15 +30,15 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Apr 16, 2010
  */
 public class AntDomDefaultTargetConverter extends Converter<TargetResolver.Result> implements CustomReferenceConverter<TargetResolver.Result>{
 
-  @NotNull 
-  public PsiReference[] createReferences(final GenericDomValue<TargetResolver.Result> value, PsiElement element, ConvertContext context) {
+  @Override
+  public PsiReference @NotNull [] createReferences(final GenericDomValue<TargetResolver.Result> value, PsiElement element, ConvertContext context) {
     return new PsiReference[] {new AntDomTargetReference(element)};
   }
 
+  @Override
   @Nullable
   public TargetResolver.Result fromString(@Nullable @NonNls String s, ConvertContext context) {
     final AntDomElement element = AntSupport.getInvocationAntDomElement(context);
@@ -48,7 +48,7 @@ public class AntDomDefaultTargetConverter extends Converter<TargetResolver.Resul
       final AntDomAnt antDomAnt = element.getParentOfType(AntDomAnt.class, false);
       if (antDomAnt != null) {
         final PsiFileSystemItem antFile = antDomAnt.getAntFilePath().getValue();
-        projectToSearchFrom = antFile instanceof PsiFile? AntSupport.getAntDomProjectForceAntFile((PsiFile)antFile) : null; 
+        projectToSearchFrom = antFile instanceof PsiFile? AntSupport.getAntDomProjectForceAntFile((PsiFile)antFile) : null;
       }
       else {
         projectToSearchFrom = project.getContextAntProject();
@@ -63,6 +63,7 @@ public class AntDomDefaultTargetConverter extends Converter<TargetResolver.Resul
     return null;
   }
 
+  @Override
   @Nullable
   public String toString(@Nullable TargetResolver.Result result, ConvertContext context) {
     return result != null? result.getRefsString() : null;

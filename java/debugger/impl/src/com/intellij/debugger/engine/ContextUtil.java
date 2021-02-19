@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,10 +19,11 @@ import com.intellij.debugger.SourcePosition;
 import com.intellij.debugger.engine.evaluation.DefaultCodeFragmentFactory;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.jdi.StackFrameProxy;
+import com.intellij.debugger.impl.PositionUtil;
 import com.intellij.debugger.jdi.LocalVariableProxyImpl;
 import com.intellij.debugger.jdi.StackFrameProxyImpl;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Key;
 import com.intellij.psi.*;
@@ -33,8 +34,8 @@ import org.jetbrains.annotations.Nullable;
 import java.util.List;
 
 public class ContextUtil {
-  public static final Key<Boolean> IS_JSP_IMPLICIT = new Key<Boolean>("JspImplicit");
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.impl.PositionUtil");
+  public static final Key<Boolean> IS_JSP_IMPLICIT = new Key<>("JspImplicit");
+  private static final Logger LOG = Logger.getInstance(PositionUtil.class);
 
   @Nullable
   public static SourcePosition getSourcePosition(@Nullable final StackFrameContext context) {
@@ -42,11 +43,11 @@ public class ContextUtil {
       return null;
     }
     DebugProcessImpl debugProcess = (DebugProcessImpl)context.getDebugProcess();
-    if(debugProcess == null) {
+    if (debugProcess == null) {
       return null;
     }
     final StackFrameProxy frameProxy = context.getFrameProxy();
-    if(frameProxy == null) {
+    if (frameProxy == null) {
       return null;
     }
     Location location = null;
@@ -56,17 +57,10 @@ public class ContextUtil {
     catch (Throwable e) {
       LOG.debug(e);
     }
-    final CompoundPositionManager positionManager = debugProcess.getPositionManager();
-    if (positionManager == null) {
-      // process already closed
+    if (location == null) {
       return null;
     }
-    try {
-      return positionManager.getSourcePosition(location);
-    }
-    catch (IndexNotReadyException ignored) {
-      return null;
-    }
+    return debugProcess.getPositionManager().getSourcePosition(location);
   }
 
   @Nullable
@@ -75,70 +69,69 @@ public class ContextUtil {
   }
 
   @Nullable
-  protected static PsiElement getContextElement(final StackFrameContext context, final SourcePosition position) {
-    if(LOG.isDebugEnabled()) {
+  public static PsiElement getContextElement(final StackFrameContext context, final SourcePosition position) {
+    if (LOG.isDebugEnabled()) {
       final SourcePosition sourcePosition = getSourcePosition(context);
       LOG.assertTrue(Comparing.equal(sourcePosition, position));
     }
 
-    final PsiElement element = getContextElement(position);
+    return ReadAction.compute(() -> {
+      final PsiElement element = getContextElement(position);
 
-    if(element == null) {
-      return null;
-    }
-
-    // further code is java specific, actually
-    if (element.getLanguage().getAssociatedFileType() != DefaultCodeFragmentFactory.getInstance().getFileType()) {
-      return element;
-    }
-
-    final StackFrameProxyImpl frameProxy = (StackFrameProxyImpl)context.getFrameProxy();
-
-    if(frameProxy == null) {
-      return element;
-    }
-
-    try {
-      List<LocalVariableProxyImpl> list = frameProxy.visibleVariables();
-
-      PsiResolveHelper resolveHelper = JavaPsiFacade.getInstance(element.getProject()).getResolveHelper();
-      StringBuilder buf = null;
-      for (LocalVariableProxyImpl localVariable : list) {
-        final String varName = localVariable.name();
-        if (resolveHelper.resolveReferencedVariable(varName, element) == null) {
-          if (buf == null) {
-            buf = new StringBuilder("{");
-          }
-          buf.append(localVariable.getVariable().typeName()).append(" ").append(varName).append(";");
-        }
+      if (element == null) {
+        return null;
       }
-      if (buf == null) {
+
+      // further code is java specific, actually
+      if (element.getLanguage().getAssociatedFileType() != DefaultCodeFragmentFactory.getInstance().getFileType()) {
         return element;
       }
 
-      buf.append('}');
+      final StackFrameProxyImpl frameProxy = (StackFrameProxyImpl)context.getFrameProxy();
 
-      final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(element.getProject()).getElementFactory();
-      final PsiCodeBlock codeBlockFromText = elementFactory.createCodeBlockFromText(buf.toString(), element);
+      if (frameProxy == null) {
+        return element;
+      }
 
-      final PsiStatement[] statements = codeBlockFromText.getStatements();
-      for (PsiStatement statement : statements) {
-        if (statement instanceof PsiDeclarationStatement) {
-          PsiDeclarationStatement declStatement = (PsiDeclarationStatement)statement;
-          PsiElement[] declaredElements = declStatement.getDeclaredElements();
-          for (PsiElement declaredElement : declaredElements) {
-            declaredElement.putUserData(IS_JSP_IMPLICIT, Boolean.TRUE);
+      try {
+        List<LocalVariableProxyImpl> list = frameProxy.visibleVariables();
+
+        PsiResolveHelper resolveHelper = JavaPsiFacade.getInstance(element.getProject()).getResolveHelper();
+        StringBuilder buf = null;
+        for (LocalVariableProxyImpl localVariable : list) {
+          final String varName = localVariable.name();
+          if (resolveHelper.resolveReferencedVariable(varName, element) == null) {
+            if (buf == null) {
+              buf = new StringBuilder("{");
+            }
+            buf.append(localVariable.getVariable().typeName()).append(" ").append(varName).append(";");
           }
         }
+        if (buf == null) {
+          return element;
+        }
+
+        buf.append('}');
+
+        final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(element.getProject());
+        final PsiCodeBlock codeBlockFromText = elementFactory.createCodeBlockFromText(buf.toString(), element);
+
+        final PsiStatement[] statements = codeBlockFromText.getStatements();
+        for (PsiStatement statement : statements) {
+          if (statement instanceof PsiDeclarationStatement) {
+            PsiDeclarationStatement declStatement = (PsiDeclarationStatement)statement;
+            PsiElement[] declaredElements = declStatement.getDeclaredElements();
+            for (PsiElement declaredElement : declaredElements) {
+              declaredElement.putUserData(IS_JSP_IMPLICIT, Boolean.TRUE);
+            }
+          }
+        }
+        return codeBlockFromText;
       }
-      return codeBlockFromText;
-    }
-    catch (IncorrectOperationException ignored) {
-      return element;
-    }
-    catch (EvaluateException ignored) {
-      return element;
-    }
+      catch (IncorrectOperationException | EvaluateException ignored) {
+        return element;
+      }
+    });
   }
 
   @Nullable

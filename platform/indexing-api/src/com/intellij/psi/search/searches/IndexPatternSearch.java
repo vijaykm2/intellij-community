@@ -1,29 +1,15 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.search.searches;
 
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.search.IndexPattern;
 import com.intellij.psi.search.IndexPatternOccurrence;
 import com.intellij.psi.search.IndexPatternProvider;
 import com.intellij.util.Query;
-import com.intellij.util.QueryFactory;
+import com.intellij.util.QueryExecutor;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -31,20 +17,32 @@ import org.jetbrains.annotations.NotNull;
  * of Java source files.
  *
  * @author yole
- * @since 5.1
  * @see IndexPatternProvider
  * @see com.intellij.psi.search.PsiTodoSearchHelper#findFilesWithTodoItems()
  */
-public abstract class IndexPatternSearch extends QueryFactory<IndexPatternOccurrence, IndexPatternSearch.SearchParameters> {
-  private static class Holder {
-    private static final IndexPatternSearch INDEX_PATTERN_SEARCH_INSTANCE = ServiceManager.getService(IndexPatternSearch.class);
+public abstract class IndexPatternSearch extends ExtensibleQueryFactory<IndexPatternOccurrence, IndexPatternSearch.SearchParameters> {
+  public static final ExtensionPointName<QueryExecutor<IndexPatternOccurrence, IndexPatternSearch.SearchParameters>> EP_NAME = ExtensionPointName.create("com.intellij.indexPatternSearch");
+  private static IndexPatternSearch ourInstance;
+
+  protected IndexPatternSearch() {
+    super(EP_NAME);
   }
 
-  public static class SearchParameters {
+  private static IndexPatternSearch getInstance() {
+    IndexPatternSearch result = ourInstance;
+    if (result == null) {
+      result = ApplicationManager.getApplication().getService(IndexPatternSearch.class);
+      ourInstance = result;
+    }
+    return result;
+  }
+
+  public static final class SearchParameters {
     private final PsiFile myFile;
     private final IndexPattern myPattern;
     private final IndexPatternProvider myPatternProvider;
     private final TextRange myRange;
+    private final boolean myMultiLine;
 
     public SearchParameters(@NotNull PsiFile file, @NotNull IndexPattern pattern) {
       this(file, pattern,null);
@@ -54,16 +52,25 @@ public abstract class IndexPatternSearch extends QueryFactory<IndexPatternOccurr
       myRange = range;
       myPatternProvider = null;
       myPattern = pattern;
+      myMultiLine = false;
     }
 
     public SearchParameters(@NotNull PsiFile file, @NotNull IndexPatternProvider patternProvider) {
-      this(file, patternProvider,null);
+      this(file, patternProvider,null, false);
+    }
+    public SearchParameters(@NotNull PsiFile file, @NotNull IndexPatternProvider patternProvider, boolean multiLine) {
+      this(file, patternProvider,null, multiLine);
     }
     public SearchParameters(@NotNull PsiFile file, @NotNull IndexPatternProvider patternProvider, TextRange range) {
+      this(file, patternProvider, range, false);
+    }
+
+    private SearchParameters(@NotNull PsiFile file, @NotNull IndexPatternProvider patternProvider, TextRange range, boolean multiLine) {
       myFile = file;
       myPatternProvider = patternProvider;
       myRange = range;
       myPattern = null;
+      myMultiLine = multiLine;
     }
 
     @NotNull
@@ -82,9 +89,10 @@ public abstract class IndexPatternSearch extends QueryFactory<IndexPatternOccurr
     public TextRange getRange() {
       return myRange;
     }
-  }
 
-  protected IndexPatternSearch() {
+    public boolean isMultiLine() {
+      return myMultiLine;
+    }
   }
 
   /**
@@ -98,7 +106,7 @@ public abstract class IndexPatternSearch extends QueryFactory<IndexPatternOccurr
   @NotNull
   public static Query<IndexPatternOccurrence> search(@NotNull PsiFile file, @NotNull IndexPattern pattern) {
     final SearchParameters parameters = new SearchParameters(file, pattern);
-    return Holder.INDEX_PATTERN_SEARCH_INSTANCE.createQuery(parameters);
+    return getInstance().createQuery(parameters);
   }
 
   /**
@@ -117,7 +125,7 @@ public abstract class IndexPatternSearch extends QueryFactory<IndexPatternOccurr
                                                      int startOffset,
                                                      int endOffset) {
     final SearchParameters parameters = new SearchParameters(file, pattern, new TextRange(startOffset, endOffset));
-    return Holder.INDEX_PATTERN_SEARCH_INSTANCE.createQuery(parameters);
+    return getInstance().createQuery(parameters);
   }
 
   /**
@@ -132,7 +140,25 @@ public abstract class IndexPatternSearch extends QueryFactory<IndexPatternOccurr
   @NotNull
   public static Query<IndexPatternOccurrence> search(@NotNull PsiFile file, @NotNull IndexPatternProvider patternProvider) {
     final SearchParameters parameters = new SearchParameters(file, patternProvider);
-    return Holder.INDEX_PATTERN_SEARCH_INSTANCE.createQuery(parameters);
+    return getInstance().createQuery(parameters);
+  }
+
+  /**
+   * Returns a query which can be used to process occurrences of any pattern from the
+   * specified provider in the specified file. The query is executed by parsing the
+   * contents of the file.
+   *
+   * @param file                 the file in which occurrences should be searched.
+   * @param patternProvider      the provider the patterns from which are searched.
+   * @param multiLineOccurrences whether continuation of occurrences on following lines should be detected
+   *                             (will be returned as {@link IndexPatternOccurrence#getAdditionalTextRanges()}
+   * @return the query instance.
+   */
+  @NotNull
+  public static Query<IndexPatternOccurrence> search(@NotNull PsiFile file, @NotNull IndexPatternProvider patternProvider,
+                                                     boolean multiLineOccurrences) {
+    final SearchParameters parameters = new SearchParameters(file, patternProvider, multiLineOccurrences);
+    return getInstance().createQuery(parameters);
   }
 
   /**
@@ -150,7 +176,7 @@ public abstract class IndexPatternSearch extends QueryFactory<IndexPatternOccurr
   public static Query<IndexPatternOccurrence> search(@NotNull PsiFile file, @NotNull IndexPatternProvider patternProvider,
                                                      int startOffset, int endOffset) {
     final SearchParameters parameters = new SearchParameters(file, patternProvider, new TextRange(startOffset, endOffset));
-    return Holder.INDEX_PATTERN_SEARCH_INSTANCE.createQuery(parameters);
+    return getInstance().createQuery(parameters);
   }
 
   /**
@@ -163,7 +189,7 @@ public abstract class IndexPatternSearch extends QueryFactory<IndexPatternOccurr
    * @return the number of pattern occurrences.
    */
   public static int getOccurrencesCount(@NotNull PsiFile file, @NotNull IndexPatternProvider patternProvider) {
-    return Holder.INDEX_PATTERN_SEARCH_INSTANCE.getOccurrencesCountImpl(file, patternProvider);
+    return getInstance().getOccurrencesCountImpl(file, patternProvider);
   }
 
   /**
@@ -176,7 +202,7 @@ public abstract class IndexPatternSearch extends QueryFactory<IndexPatternOccurr
    * @return the number of pattern occurrences.
    */
   public static int getOccurrencesCount(@NotNull PsiFile file, @NotNull IndexPattern pattern) {
-    return Holder.INDEX_PATTERN_SEARCH_INSTANCE.getOccurrencesCountImpl(file, pattern);
+    return getInstance().getOccurrencesCountImpl(file, pattern);
   }
 
   protected abstract int getOccurrencesCountImpl(@NotNull PsiFile file, @NotNull IndexPatternProvider provider);

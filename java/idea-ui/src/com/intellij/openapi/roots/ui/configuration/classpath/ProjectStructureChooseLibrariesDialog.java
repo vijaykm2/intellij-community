@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.ui.configuration.classpath;
 
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.projectView.PresentationData;
 import com.intellij.ide.util.treeView.NodeDescriptor;
 import com.intellij.openapi.application.Application;
@@ -25,9 +12,9 @@ import com.intellij.openapi.roots.libraries.LibraryTable;
 import com.intellij.openapi.roots.ui.configuration.libraries.LibraryPresentationManager;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.LibrariesModifiableModel;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.StructureConfigurableContext;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.ui.SimpleTextAttributes;
-import com.intellij.util.containers.Predicate;
 import com.intellij.util.ui.classpath.ChooseLibrariesFromTablesDialog;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -35,29 +22,24 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
+import java.util.function.Predicate;
 
-/**
- * @author nik
- */
 public class ProjectStructureChooseLibrariesDialog extends ChooseLibrariesFromTablesDialog {
   private final ClasspathPanel myClasspathPanel;
   private final StructureConfigurableContext myContext;
   private final Predicate<Library> myAcceptedLibraries;
-  private final List<Library> myCreatedModuleLibraries = new ArrayList<Library>();
+  private final List<Library> myCreatedModuleLibraries = new ArrayList<>();
   private JButton myCreateLibraryButton;
 
   public ProjectStructureChooseLibrariesDialog(ClasspathPanel classpathPanel,
                                                StructureConfigurableContext context,
                                                Predicate<Library> acceptedLibraries) {
-    super(classpathPanel.getComponent(), "Choose Libraries", classpathPanel.getProject(), true);
+    super(classpathPanel.getComponent(), JavaUiBundle.message("project.structure.dialog.title.choose.libraries"), classpathPanel.getProject(), true);
     myClasspathPanel = classpathPanel;
     myContext = context;
     myAcceptedLibraries = acceptedLibraries;
-    setOKButtonText("Add Selected");
+    setOKButtonText(JavaUiBundle.message("button.add.selected"));
     init();
   }
 
@@ -70,7 +52,7 @@ public class ProjectStructureChooseLibrariesDialog extends ChooseLibrariesFromTa
   @Override
   public void doCancelAction() {
     super.doCancelAction();
-    removeCreatedModuleLibraries(Collections.<Library>emptyList());
+    removeCreatedModuleLibraries(Collections.emptyList());
   }
 
   private void removeCreatedModuleLibraries(Collection<Library> selected) {
@@ -89,11 +71,10 @@ public class ProjectStructureChooseLibrariesDialog extends ChooseLibrariesFromTa
     super.collectChildren(element, result);
   }
 
-  @NotNull
   @Override
-  protected Library[] getLibraries(@NotNull LibraryTable table) {
+  protected Library @NotNull [] getLibraries(@NotNull LibraryTable table) {
     if (table.getTableLevel().equals(LibraryTableImplUtil.MODULE_LEVEL)) {
-      return myCreatedModuleLibraries.toArray(new Library[myCreatedModuleLibraries.size()]);
+      return myCreatedModuleLibraries.toArray(Library.EMPTY_ARRAY);
     }
     final LibrariesModifiableModel model = getLibrariesModifiableModel(table);
     if (model == null) return Library.EMPTY_ARRAY;
@@ -109,7 +90,7 @@ public class ProjectStructureChooseLibrariesDialog extends ChooseLibrariesFromTa
   protected boolean acceptsElement(Object element) {
     if (element instanceof Library) {
       final Library library = (Library)element;
-      return myAcceptedLibraries.apply(library);
+      return myAcceptedLibraries.test(library);
     }
     return true;
   }
@@ -122,12 +103,11 @@ public class ProjectStructureChooseLibrariesDialog extends ChooseLibrariesFromTa
         return model.getLibraryEditor(library).getName();
       }
     }
-    return library.getName();
+    return Objects.toString(library.getName());
   }
 
-  @NotNull
   @Override
-  protected Action[] createActions() {
+  protected Action @NotNull [] createActions() {
     if (SystemInfo.isMac) {
       return new Action[]{getCancelAction(), new CreateNewLibraryAction(), getOKAction()};
     }
@@ -152,7 +132,7 @@ public class ProjectStructureChooseLibrariesDialog extends ChooseLibrariesFromTa
 
   private static class LibraryEditorDescriptor extends LibrariesTreeNodeBase<Library> {
     protected LibraryEditorDescriptor(final Project project, final NodeDescriptor parentDescriptor, final Library element,
-                                      String libraryName, StructureConfigurableContext context) {
+                                      @NlsSafe String libraryName, StructureConfigurableContext context) {
       super(project, parentDescriptor, element);
       final PresentationData templatePresentation = getTemplatePresentation();
       Icon icon = LibraryPresentationManager.getInstance().getNamedLibraryIcon(element, context);
@@ -161,9 +141,9 @@ public class ProjectStructureChooseLibrariesDialog extends ChooseLibrariesFromTa
     }
   }
 
-  private class CreateNewLibraryAction extends DialogWrapperAction {
+  private final class CreateNewLibraryAction extends DialogWrapperAction {
     private CreateNewLibraryAction() {
-      super("New Library...");
+      super(JavaUiBundle.message("dialog.title.new.library"));
       putValue(MNEMONIC_KEY, KeyEvent.VK_N);
     }
 

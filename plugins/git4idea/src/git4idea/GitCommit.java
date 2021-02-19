@@ -16,22 +16,22 @@
 package git4idea;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.ThrowableComputable;
-import com.intellij.openapi.vcs.VcsException;
+import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.changes.Change;
+import com.intellij.openapi.vcs.changes.ChangesUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.Function;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.Hash;
+import com.intellij.vcs.log.VcsShortCommitDetails;
 import com.intellij.vcs.log.VcsUser;
 import com.intellij.vcs.log.impl.VcsChangesLazilyParsedDetails;
-import git4idea.history.GitChangesParser;
-import git4idea.history.GitLogStatusInfo;
+import com.intellij.vcs.log.impl.VcsFileStatusInfo;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Collection;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Represents a Git commit with its meta information (hash, author, message, etc.), its parents and the {@link Change changes}.
@@ -40,56 +40,55 @@ import java.util.List;
  */
 public final class GitCommit extends VcsChangesLazilyParsedDetails {
 
-  public GitCommit(Project project, @NotNull Hash hash, @NotNull List<Hash> parents, long commitTime, @NotNull VirtualFile root,
+  public GitCommit(@NotNull Project project, @NotNull Hash hash, @NotNull List<Hash> parents, long commitTime, @NotNull VirtualFile root,
                    @NotNull String subject, @NotNull VcsUser author, @NotNull String message, @NotNull VcsUser committer,
-                   long authorTime, @NotNull List<GitLogStatusInfo> reportedChanges) {
-    super(hash, parents, commitTime, root, subject, author, message, committer, authorTime,
-          new MyChangesComputable(new Data(project, root, reportedChanges, hash, commitTime, parents)));
-
+                   long authorTime,
+                   @NotNull List<List<VcsFileStatusInfo>> reportedChanges) {
+    super(project, hash, parents, commitTime, root, subject, author, message, committer, authorTime, reportedChanges,
+          new GitChangesParser());
   }
 
-  private static class MyChangesComputable implements ThrowableComputable<Collection<Change>, VcsException> {
+  @ApiStatus.Internal
+  @NotNull
+  public Set<FilePath> getAffectedPaths() {
+    Changes changesObject = getChangesObject();
+    if (changesObject instanceof UnparsedChanges) {
+      Set<FilePath> result = new HashSet<>();
 
-    private Data myData;
-    private Collection<Change> myChanges;
+      for (VcsFileStatusInfo statusInfo : ((UnparsedChanges)changesObject).getMergedStatuses()) {
+        result.add(GitContentRevision.createPath(getRoot(), statusInfo.getFirstPath()));
 
-    public MyChangesComputable(Data data) {
-      myData = data;
-    }
-
-    @Override
-    public Collection<Change> compute() throws VcsException {
-      if (myChanges == null) {
-        myChanges = GitChangesParser.parse(myData.project, myData.root, myData.changesOutput, myData.hash.asString(),
-                                           new Date(myData.time), ContainerUtil.map(myData.parents, new Function<Hash, String>() {
-            @Override
-            public String fun(Hash hash) {
-              return hash.asString();
-            }
-          }));
-        myData = null; // don't hold the not-yet-parsed string
+        String secondPath = statusInfo.getSecondPath();
+        if (secondPath != null) {
+          result.add(GitContentRevision.createPath(getRoot(), secondPath));
+        }
       }
-      return myChanges;
+
+      return result;
     }
 
+    Set<FilePath> result = new HashSet<>();
+    for (Change change : getChanges()) {
+      FilePath beforePath = ChangesUtil.getBeforePath(change);
+      if (beforePath != null) result.add(beforePath);
+      FilePath afterPath = ChangesUtil.getAfterPath(change);
+      if (afterPath != null) result.add(afterPath);
+    }
+    return result;
   }
 
-  private static class Data {
-    private final Project project;
-    private final VirtualFile root;
-    private final List<GitLogStatusInfo> changesOutput;
-    private final Hash hash;
-    private final long time;
-    private final List<Hash> parents;
-
-    public Data(Project project, VirtualFile root, List<GitLogStatusInfo> changesOutput, Hash hash, long time, List<Hash> parents) {
-      this.project = project;
-      this.root = root;
-      this.changesOutput = changesOutput;
-      this.hash = hash;
-      this.time = time;
-      this.parents = parents;
+  private static class GitChangesParser implements ChangesParser {
+    @Override
+    public List<Change> parseStatusInfo(@NotNull Project project,
+                                        @NotNull VcsShortCommitDetails commit,
+                                        @NotNull List<VcsFileStatusInfo> changes,
+                                        int parentIndex) {
+      String parentHash = null;
+      if (parentIndex < commit.getParents().size()) {
+        parentHash = commit.getParents().get(parentIndex).asString();
+      }
+      return git4idea.history.GitChangesParser.parse(project, commit.getRoot(), changes, commit.getId().asString(),
+                                                     new Date(commit.getCommitTime()), parentHash);
     }
   }
-
 }

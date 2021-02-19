@@ -1,15 +1,16 @@
 package com.intellij.codeInsight.editorActions.fillParagraph;
 
+import com.intellij.application.options.CodeStyle;
+import com.intellij.formatting.FormatterTagHandler;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.ex.util.EditorFacade;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.UnfairTextRange;
 import com.intellij.openapi.util.text.CharFilter;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
-import com.intellij.psi.impl.source.codeStyle.CodeFormatterFacade;
 import com.intellij.psi.tree.IElementType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -49,17 +50,18 @@ public class ParagraphFillHandler {
 
     final String replacementText = stringBuilder.toString();
 
-    CommandProcessor.getInstance().executeCommand(element.getProject(), new Runnable() {
-      @Override
-      public void run() {
-        document.replaceString(textRange.getStartOffset(), textRange.getEndOffset(),
-                               replacementText);
-        final CodeFormatterFacade codeFormatter = new CodeFormatterFacade(
-                                        CodeStyleSettingsManager.getSettings(element.getProject()), element.getLanguage());
-        codeFormatter.doWrapLongLinesIfNecessary(editor, element.getProject(), document,
-                                                 textRange.getStartOffset(),
-                                                 textRange.getStartOffset() + replacementText.length() + 1);
-      }
+    CommandProcessor.getInstance().executeCommand(element.getProject(), () -> {
+      document.replaceString(textRange.getStartOffset(), textRange.getEndOffset(),
+                             replacementText);
+      final PsiFile file = element.getContainingFile();
+      FormatterTagHandler formatterTagHandler = new FormatterTagHandler(CodeStyle.getSettings(file));
+      List<TextRange> enabledRanges = formatterTagHandler.getEnabledRanges(file.getNode(), TextRange.create(0, document.getTextLength()));
+
+      EditorFacade.getInstance().doWrapLongLinesIfNecessary(editor, element.getProject(), document,
+                                                            textRange.getStartOffset(),
+                                                            textRange.getStartOffset() + replacementText.length() + 1,
+                                                            enabledRanges,
+                                                            CodeStyle.getSettings(file).getRightMargin(element.getLanguage()));
     }, null, document);
 
   }
@@ -141,14 +143,13 @@ public class ParagraphFillHandler {
     return document.getLineEndOffset(lineNumber);
   }
 
-  @Nullable
-  private PsiElement getFirstElement(@NotNull final PsiElement element) {
+  private @NotNull PsiElement getFirstElement(@NotNull final PsiElement element) {
     final IElementType elementType = element.getNode().getElementType();
     PsiElement prevSibling = element.getPrevSibling();
     PsiElement result = element;
     while (prevSibling != null && (prevSibling.getNode().getElementType().equals(elementType) ||
                                    (atWhitespaceToken(prevSibling) &&
-                                   StringUtil.countChars(prevSibling.getText(), '\n') <= 1))) {
+                                    StringUtil.countChars(prevSibling.getText(), '\n') <= 1))) {
       String text = prevSibling.getText();
       final String prefix = getPrefix(element);
       final String postfix = getPostfix(element);
@@ -159,21 +160,21 @@ public class ParagraphFillHandler {
           StringUtil.isEmptyOrSpaces(text)) {
         break;
       }
-      if (prevSibling.getNode().getElementType().equals(elementType))
+      if (prevSibling.getNode().getElementType().equals(elementType)) {
         result = prevSibling;
+      }
       prevSibling = prevSibling.getPrevSibling();
     }
     return result;
   }
 
-  @Nullable
-  private PsiElement getLastElement(@NotNull final PsiElement element) {
+  private @NotNull PsiElement getLastElement(@NotNull final PsiElement element) {
     final IElementType elementType = element.getNode().getElementType();
     PsiElement nextSibling = element.getNextSibling();
     PsiElement result = element;
     while (nextSibling != null && (nextSibling.getNode().getElementType().equals(elementType) ||
                                    (atWhitespaceToken(nextSibling) &&
-                                   StringUtil.countChars(nextSibling.getText(), '\n') <= 1))) {
+                                    StringUtil.countChars(nextSibling.getText(), '\n') <= 1))) {
       String text = nextSibling.getText();
       final String prefix = getPrefix(element);
       final String postfix = getPostfix(element);
@@ -184,8 +185,9 @@ public class ParagraphFillHandler {
           StringUtil.isEmptyOrSpaces(text)) {
         break;
       }
-      if (nextSibling.getNode().getElementType().equals(elementType))
+      if (nextSibling.getNode().getElementType().equals(elementType)) {
         result = nextSibling;
+      }
       nextSibling = nextSibling.getNextSibling();
     }
     return result;

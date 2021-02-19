@@ -21,6 +21,7 @@ import com.intellij.ide.hierarchy.LanguageTypeHierarchy;
 import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.Presentation;
+import org.jetbrains.annotations.NotNull;
 
 public final class BrowseTypeHierarchyAction extends BrowseHierarchyActionBase {
   public BrowseTypeHierarchyAction() {
@@ -28,10 +29,10 @@ public final class BrowseTypeHierarchyAction extends BrowseHierarchyActionBase {
   }
 
   @Override
-  public final void update(final AnActionEvent event){
+  public final void update(@NotNull final AnActionEvent event){
     final Presentation presentation = event.getPresentation();
     if (!ActionPlaces.isMainMenuOrActionSearch(event.getPlace())) {
-      presentation.setText(IdeBundle.message("action.browse.type.hierarchy"));
+      presentation.setText(IdeBundle.messagePointer("action.browse.type.hierarchy"));
     }
     super.update(event);
   }

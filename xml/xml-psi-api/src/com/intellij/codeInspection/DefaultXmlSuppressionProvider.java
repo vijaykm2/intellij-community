@@ -1,22 +1,9 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 
 package com.intellij.codeInspection;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.openapi.command.undo.UndoUtil;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.project.Project;
@@ -29,7 +16,6 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.*;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -57,6 +43,7 @@ public class DefaultXmlSuppressionProvider extends XmlSuppressionProvider implem
   @Override
   public void suppressForFile(@NotNull PsiElement element, @NotNull String inspectionId) {
     final PsiFile file = element.getContainingFile();
+    if (!(file instanceof XmlFile)) return;
     final XmlDocument document = ((XmlFile)file).getDocument();
     final PsiElement anchor = document != null ? document.getRootTag() : file.findElementAt(0);
     assert anchor != null;
@@ -93,9 +80,15 @@ public class DefaultXmlSuppressionProvider extends XmlSuppressionProvider implem
   @Nullable
   protected PsiElement findSuppressionLeaf(PsiElement leaf, @Nullable final String id, int offset) {
     while (leaf != null && leaf.getTextOffset() >= offset) {
-      if (leaf instanceof PsiComment || leaf instanceof XmlProlog || leaf instanceof XmlText) {
-        @NonNls String text = leaf.getText();
-        if (isSuppressedFor(text, id)) return leaf;
+      if (isSuppressedInComment(leaf, id)) {
+        return leaf;
+      }
+      else if (leaf instanceof XmlText || leaf instanceof XmlProlog) {
+        for (PsiElement child : leaf.getChildren()) {
+          if (isSuppressedInComment(child, id)) {
+            return leaf;
+          }
+        }
       }
       leaf = leaf.getPrevSibling();
       if (leaf instanceof XmlTag) {
@@ -105,22 +98,22 @@ public class DefaultXmlSuppressionProvider extends XmlSuppressionProvider implem
     return null;
   }
 
-  private boolean isSuppressedFor(@NonNls final String text, @Nullable final String id) {
+  private boolean isSuppressedInComment(@NotNull PsiElement element, @Nullable String id) {
+    if (!(element instanceof PsiComment)) return false;
+
+    String text = element.getText();
     if (!text.contains(getPrefix())) {
       return false;
     }
     if (id == null) {
       return true;
     }
-    @NonNls final HashSet<String> parts = ContainerUtil.newHashSet(StringUtil.getWordsIn(text));
+    @NonNls final HashSet<String> parts = new HashSet<>(StringUtil.getWordsIn(text));
     return parts.contains(id) || parts.contains(XmlSuppressableInspectionTool.ALL);
   }
 
   protected void suppress(PsiFile file, final PsiElement suppressionElement, String inspectionId, final int offset) {
     final Project project = file.getProject();
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) {
-      return;
-    }
     final Document doc = PsiDocumentManager.getInstance(project).getDocument(file);
     assert doc != null;
 

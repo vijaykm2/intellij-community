@@ -1,7 +1,6 @@
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.protocolModelGenerator
 
-import gnu.trove.THashSet
-import gnu.trove.TObjectProcedure
 import org.jetbrains.protocolReader.FileUpdater
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
@@ -13,11 +12,9 @@ import java.nio.file.attribute.BasicFileAttributes
  * Records a list of files in the root directory and deletes files that were not re-generated.
  */
 class FileSet(private val rootDir: Path) {
-  SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
-  private val unusedFiles: THashSet<Path>
+  private val unusedFiles = HashSet<Path>()
 
   init {
-    unusedFiles = THashSet<Path>()
     Files.walkFileTree(rootDir, object : SimpleFileVisitor<Path>() {
       override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
         return if (Files.isHidden(dir)) FileVisitResult.SKIP_SUBTREE else FileVisitResult.CONTINUE
@@ -39,18 +36,15 @@ class FileSet(private val rootDir: Path) {
   }
 
   fun deleteOtherFiles() {
-    unusedFiles.forEach(object : TObjectProcedure<Path> {
-      override fun execute(path: Path): Boolean {
-        if (Files.deleteIfExists(path)) {
-          val parent = path.getParent()
-          Files.newDirectoryStream(parent).use { stream ->
-            if (!stream.iterator().hasNext()) {
-              Files.delete(parent)
-            }
+    for (it in unusedFiles) {
+      if (Files.deleteIfExists(it)) {
+        val parent = it.parent
+        Files.newDirectoryStream(parent).use { stream ->
+          if (!stream.iterator().hasNext()) {
+            Files.delete(parent)
           }
         }
-        return true
       }
-    })
+    }
   }
 }

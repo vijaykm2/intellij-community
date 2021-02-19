@@ -1,25 +1,12 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.uiDesigner.radComponents;
 
-import com.intellij.uiDesigner.UIFormXmlConstants;
-import com.intellij.uiDesigner.GuiDesignerConfiguration;
 import com.intellij.openapi.project.Project;
-import com.intellij.util.ArrayUtil;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.uiDesigner.GuiDesignerConfiguration;
+import com.intellij.uiDesigner.UIFormXmlConstants;
+import com.intellij.util.ArrayUtilRt;
 import com.jgoodies.forms.layout.FormLayout;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
@@ -31,10 +18,10 @@ import java.util.*;
 /**
  * @author yole
  */
-public class LayoutManagerRegistry {
-  @NonNls private static final Map<String, Class<? extends RadLayoutManager>> ourLayoutManagerRegistry = new HashMap<String, Class<? extends RadLayoutManager>>();
-  @NonNls private static final Map<Class, Class<? extends RadLayoutManager>> ourLayoutManagerClassRegistry = new HashMap<Class, Class<? extends RadLayoutManager>>();
-  @NonNls private static final Map<String, String> ourLayoutManagerDisplayNames = new HashMap<String, String>();
+public final class LayoutManagerRegistry {
+  @NonNls private static final Map<String, Class<? extends RadLayoutManager>> ourLayoutManagerRegistry = new HashMap<>();
+  @NonNls private static final Map<Class, Class<? extends RadLayoutManager>> ourLayoutManagerClassRegistry = new HashMap<>();
+  @NonNls private static final Map<String, String> ourLayoutManagerDisplayNames = new HashMap<>();
 
   private LayoutManagerRegistry() {
   }
@@ -61,23 +48,23 @@ public class LayoutManagerRegistry {
   }
 
   public static String[] getLayoutManagerNames() {
-    final String[] layoutManagerNames = ArrayUtil.toStringArray(ourLayoutManagerRegistry.keySet());
+    final String[] layoutManagerNames = ArrayUtilRt.toStringArray(ourLayoutManagerRegistry.keySet());
     Arrays.sort(layoutManagerNames);
     return layoutManagerNames;
   }
 
   public static String[] getNonDeprecatedLayoutManagerNames() {
-    ArrayList<String> layoutManagerNames = new ArrayList<String>();
+    ArrayList<String> layoutManagerNames = new ArrayList<>();
     for(String name: ourLayoutManagerRegistry.keySet()) {
       if (!name.equals(UIFormXmlConstants.LAYOUT_XY)) {
         layoutManagerNames.add(name);
       }
     }
     Collections.sort(layoutManagerNames);
-    return ArrayUtil.toStringArray(layoutManagerNames);
+    return ArrayUtilRt.toStringArray(layoutManagerNames);
   }
 
-  public static String getLayoutManagerDisplayName(String name) {
+  public static @NlsSafe String getLayoutManagerDisplayName(String name) {
     if (ourLayoutManagerDisplayNames.containsKey(name)) {
       return ourLayoutManagerDisplayNames.get(name);
     }

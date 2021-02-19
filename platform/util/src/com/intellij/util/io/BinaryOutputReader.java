@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,32 +24,47 @@ import java.io.InputStream;
 * @author Konstantin Kolosovsky.
 */
 public abstract class BinaryOutputReader extends BaseDataReader {
-
   @NotNull private final InputStream myStream;
-  @NotNull private final byte[] myBuffer = new byte[8192];
+  private final byte @NotNull [] myBuffer = new byte[8192];
 
-  public BinaryOutputReader(@NotNull InputStream stream, SleepingPolicy sleepingPolicy) {
+  public BinaryOutputReader(@NotNull InputStream stream, @NotNull SleepingPolicy sleepingPolicy) {
     super(sleepingPolicy);
     myStream = stream;
   }
 
   @Override
-  protected boolean readAvailable() throws IOException {
+  protected boolean readAvailableNonBlocking() throws IOException {
     byte[] buffer = myBuffer;
-
     boolean read = false;
-    while (myStream.available() > 0) {
-      int n = myStream.read(buffer);
-      if (n <= 0) break;
-      read = true;
 
-      onBinaryAvailable(buffer, n);
+    int n;
+    while (myStream.available() > 0 && (n = myStream.read(buffer)) >= 0) {
+      if (n > 0) {
+        read = true;
+        onBinaryAvailable(buffer, n);
+      }
     }
 
     return read;
   }
 
-  protected abstract void onBinaryAvailable(@NotNull byte[] data, int size);
+  @Override
+  protected final boolean readAvailableBlocking() throws IOException {
+    byte[] buffer = myBuffer;
+    boolean read = false;
+
+    int n;
+    while ((n = myStream.read(buffer)) >= 0) {
+      if (n > 0) {
+        read = true;
+        onBinaryAvailable(buffer, n);
+      }
+    }
+
+    return read;
+  }
+
+  protected abstract void onBinaryAvailable(byte @NotNull [] data, int size);
 
   @Override
   protected void close() throws IOException {

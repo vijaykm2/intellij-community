@@ -1,11 +1,15 @@
+// Copyright 2000-2017 JetBrains s.r.o.
+// Use of this source code is governed by the Apache 2.0 license that can be
+// found in the LICENSE file.
 package com.intellij.refactoring.typeMigration.intentions;
 
-import com.intellij.codeInsight.FileModificationService;
+import com.intellij.codeInsight.daemon.JavaErrorBundle;
 import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.codeInsight.intention.PsiElementBaseIntentionAction;
 import com.intellij.codeInsight.intention.impl.TypeExpression;
 import com.intellij.codeInsight.template.*;
 import com.intellij.codeInsight.template.impl.TemplateState;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -14,10 +18,12 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.refactoring.typeMigration.TypeMigrationBundle;
 import com.intellij.refactoring.typeMigration.TypeMigrationProcessor;
 import com.intellij.refactoring.typeMigration.TypeMigrationRules;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -25,7 +31,7 @@ import org.jetbrains.annotations.NotNull;
  */
 public class ChangeClassParametersIntention extends PsiElementBaseIntentionAction {
 
-  private static final Logger LOG = Logger.getInstance("#" + ChangeClassParametersIntention.class);
+  private static final Logger LOG = Logger.getInstance(ChangeClassParametersIntention.class);
 
   @NotNull
   @Override
@@ -36,7 +42,7 @@ public class ChangeClassParametersIntention extends PsiElementBaseIntentionActio
   @NotNull
   @Override
   public String getFamilyName() {
-    return "Change class type parameter";
+    return TypeMigrationBundle.message("change.class.type.parameter.family.name");
   }
 
   @Override
@@ -58,8 +64,6 @@ public class ChangeClassParametersIntention extends PsiElementBaseIntentionActio
 
   @Override
   public void invoke(@NotNull final Project project, final Editor editor, @NotNull final PsiElement element) throws IncorrectOperationException {
-    if (!FileModificationService.getInstance().preparePsiElementsForWrite(element)) return;
-
     final PsiTypeElement typeElement = PsiTreeUtil.getTopmostParentOfType(element, PsiTypeElement.class);
     final PsiReferenceParameterList parameterList = PsiTreeUtil.getParentOfType(typeElement, PsiReferenceParameterList.class);
     if (parameterList != null) {
@@ -77,7 +81,7 @@ public class ChangeClassParametersIntention extends PsiElementBaseIntentionActio
         final TemplateBuilderImpl templateBuilder = (TemplateBuilderImpl)TemplateBuilderFactory.getInstance().createTemplateBuilder(aClass);
 
         final String oldTypeText = typeElement.getText();
-        final String varName = "param";
+        final @NonNls String varName = "param";
         templateBuilder.replaceElement(typeElement, varName, new TypeExpression(project, new PsiType[]{typeElement.getType()}), true);
 
         final Template template = templateBuilder.buildInlineTemplate();
@@ -85,42 +89,51 @@ public class ChangeClassParametersIntention extends PsiElementBaseIntentionActio
           private String myNewType;
 
           @Override
-          public void beforeTemplateFinished(TemplateState state, Template template) {
+          public void beforeTemplateFinished(@NotNull TemplateState state, Template template) {
             final TextResult value = state.getVariableValue(varName);
             myNewType = value != null ? value.getText() : "";
             final int segmentsCount = state.getSegmentsCount();
             final Document document = state.getEditor().getDocument();
-            for (int i = 0; i < segmentsCount; i++) {
-              final TextRange segmentRange = state.getSegmentRange(i);
-              document.replaceString(segmentRange.getStartOffset(), segmentRange.getEndOffset(), oldTypeText);
-            }
+            ApplicationManager.getApplication().runWriteAction(() -> {
+              for (int i = 0; i < segmentsCount; i++) {
+                final TextRange segmentRange = state.getSegmentRange(i);
+                document.replaceString(segmentRange.getStartOffset(), segmentRange.getEndOffset(), oldTypeText);
+              }
+            });
           }
 
           @Override
-          public void templateFinished(Template template, boolean brokenOff) {
+          public void templateFinished(@NotNull Template template, boolean brokenOff) {
             if (!brokenOff) {
               final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(project);
               try {
                 final PsiType targetParam = elementFactory.createTypeFromText(myNewType, aClass);
-                final TypeMigrationRules myRules = new TypeMigrationRules(((PsiAnonymousClass)aClass).getBaseClassType());
+                if (!(targetParam instanceof PsiClassType)) {
+                  HintManager.getInstance().showErrorHint(editor,
+                                                          JavaErrorBundle.message("generics.type.argument.cannot.be.of.primitive.type"));
+                  return;
+                }
+                final PsiClassType classType = (PsiClassType)targetParam;
+                final PsiClass target = classType.resolve();
+                if (target == null) {
+                  HintManager.getInstance().showErrorHint(editor, JavaErrorBundle.message("cannot.resolve.symbol",
+                                                                                          classType.getPresentableText()));
+                  return;
+                }
+                final TypeMigrationRules myRules = new TypeMigrationRules(project);
                 final PsiSubstitutor substitutor = result.getSubstitutor().put(typeParameter, targetParam);
                 final PsiType targetClassType = elementFactory.createType(baseClass, substitutor);
-                myRules.setMigrationRootType(targetClassType);
                 myRules.setBoundScope(new LocalSearchScope(aClass));
-                new TypeMigrationProcessor(project, ((PsiAnonymousClass)aClass).getBaseClassReference().getParameterList(), myRules).run();
+                TypeMigrationProcessor.runHighlightingTypeMigration(project, editor, myRules,
+                                                                    ((PsiAnonymousClass)aClass).getBaseClassReference().getParameterList(), targetClassType);
               }
               catch (IncorrectOperationException e) {
-                HintManager.getInstance().showErrorHint(editor, "Incorrect type");
+                HintManager.getInstance().showErrorHint(editor, TypeMigrationBundle.message("change.class.parameter.incorrect.type.error.hint"));
               }
             }
           }
         });
       }
     }
-  }
-
-  @Override
-  public boolean startInWriteAction() {
-    return true;
   }
 }

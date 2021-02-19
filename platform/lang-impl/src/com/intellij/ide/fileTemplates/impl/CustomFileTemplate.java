@@ -19,7 +19,6 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 4/6/11
  */
 public final class CustomFileTemplate extends FileTemplateBase {
   private String myName;
@@ -39,6 +38,7 @@ public final class CustomFileTemplate extends FileTemplateBase {
   @Override
   public void setName(@NotNull String name) {
     myName = name;
+    updateChildrenNames();
   }
 
   @Override
@@ -50,6 +50,7 @@ public final class CustomFileTemplate extends FileTemplateBase {
   @Override
   public void setExtension(@NotNull String extension) {
     myExtension = extension;
+    updateChildrenNames();
   }
 
   @Override
@@ -58,6 +59,7 @@ public final class CustomFileTemplate extends FileTemplateBase {
     return "";  // todo: some default description?
   }
 
+  @NotNull
   @Override
   public CustomFileTemplate clone() {
     return (CustomFileTemplate)super.clone();

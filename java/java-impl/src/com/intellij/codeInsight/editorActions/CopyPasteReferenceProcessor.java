@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,13 @@ package com.intellij.codeInsight.editorActions;
 
 import com.intellij.codeInsight.CodeInsightSettings;
 import com.intellij.codeInsight.daemon.impl.CollectHighlightsUtil;
+import com.intellij.codeInsight.hint.HintManager;
+import com.intellij.codeInsight.hint.HintManagerImpl;
+import com.intellij.codeInsight.hint.HintUtil;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -25,21 +31,27 @@ import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
+import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.ui.LightweightHint;
 import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.event.HyperlinkEvent;
+import javax.swing.event.HyperlinkListener;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
 import java.awt.datatransfer.UnsupportedFlavorException;
 import java.io.IOException;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public abstract class CopyPasteReferenceProcessor<TRef extends PsiElement> extends CopyPastePostProcessor<ReferenceTransferableData> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.editorActions.CopyPasteReferenceProcessor");
+  private static final Logger LOG = Logger.getInstance(CopyPasteReferenceProcessor.class);
   
   @NotNull
   @Override
@@ -48,26 +60,25 @@ public abstract class CopyPasteReferenceProcessor<TRef extends PsiElement> exten
       return Collections.emptyList();
     }
 
-    if (file instanceof PsiCompiledFile) {
-      file = ((PsiCompiledFile) file).getDecompiledPsiFile();
-    }
     if (!(file instanceof PsiClassOwner)) {
       return Collections.emptyList();
     }
 
-    final ArrayList<ReferenceData> array = new ArrayList<ReferenceData>();
+    final ArrayList<ReferenceData> array = new ArrayList<>();
+    int refOffset = 0; // this is an offset delta for conversion from absolute offset to an offset inside clipboard contents
     for (int j = 0; j < startOffsets.length; j++) {
-      final int startOffset = startOffsets[j];
-      for (final PsiElement element : CollectHighlightsUtil.getElementsInRange(file, startOffset, endOffsets[j])) {
-        addReferenceData(file, startOffset, element, array);
+      refOffset += startOffsets[j];
+      for (final PsiElement element : CollectHighlightsUtil.getElementsInRange(file, startOffsets[j], endOffsets[j])) {
+        addReferenceData(file, refOffset, element, array);
       }
+      refOffset -= endOffsets[j] + 1; // 1 accounts for line break inserted between contents corresponding to different carets
     }
 
     if (array.isEmpty()) {
       return Collections.emptyList();
     }
     
-    return Collections.singletonList(new ReferenceTransferableData(array.toArray(new ReferenceData[array.size()])));
+    return Collections.singletonList(new ReferenceTransferableData(array.toArray(new ReferenceData[0])));
   }
 
   protected abstract void addReferenceData(PsiFile file, int startOffset, PsiElement element, ArrayList<ReferenceData> to);
@@ -83,9 +94,7 @@ public abstract class CopyPasteReferenceProcessor<TRef extends PsiElement> exten
           referenceData = (ReferenceTransferableData)content.getTransferData(flavor);
         }
       }
-      catch (UnsupportedFlavorException ignored) {
-      }
-      catch (IOException ignored) {
+      catch (UnsupportedFlavorException | IOException ignored) {
       }
     }
 
@@ -101,7 +110,7 @@ public abstract class CopyPasteReferenceProcessor<TRef extends PsiElement> exten
                                       final Editor editor,
                                       final RangeMarker bounds,
                                       int caretOffset,
-                                      Ref<Boolean> indented, final List<ReferenceTransferableData> values) {
+                                      Ref<? super Boolean> indented, final List<? extends ReferenceTransferableData> values) {
     if (DumbService.getInstance(project).isDumb()) {
       return;
     }
@@ -120,16 +129,39 @@ public abstract class CopyPasteReferenceProcessor<TRef extends PsiElement> exten
       askReferencesToRestore(project, refs, referenceData);
     }
     PsiDocumentManager.getInstance(project).commitAllDocuments();
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      @Override
-      public void run() {
-        restoreReferences(referenceData, refs);
+    ApplicationManager.getApplication().runWriteAction(() -> {
+      Set<String> imported = new TreeSet<>();
+      restoreReferences(referenceData, refs, imported);
+      if (CodeInsightSettings.getInstance().ADD_IMPORTS_ON_PASTE == CodeInsightSettings.YES && !imported.isEmpty()) {
+        String notificationText = JavaBundle.message("copy.paste.reference.notification", imported.size());
+        ApplicationManager.getApplication().invokeLater(
+          () -> showHint(editor, notificationText, e -> {
+            if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
+              reviewImports(project, file, imported);
+            }
+          }), ModalityState.NON_MODAL);
       }
     });
   }
 
+  protected abstract void removeImports(PsiFile file, Set<String> imports);
+
+  private void reviewImports(Project project, PsiFile file, Set<String> importedClasses) {
+    RestoreReferencesDialog dialog = new RestoreReferencesDialog(project, ArrayUtil.toObjectArray(importedClasses), false);
+    dialog.setTitle(JavaBundle.message("dialog.import.on.paste.title3"));
+    dialog.setExplanation(JavaBundle.message("dialog.paste.on.import.text3"));
+    if (dialog.showAndGet()) {
+      Object[] selectedElements = dialog.getSelectedElements();
+      if (selectedElements.length > 0) {
+        WriteCommandAction.runWriteCommandAction(project, "", null, () -> {
+          removeImports(file, Arrays.stream(selectedElements).map(o -> (String)o).collect(Collectors.toSet()));
+        });
+      }
+    }
+  }
+
   protected static void addReferenceData(final PsiElement element,
-                                final ArrayList<ReferenceData> array,
+                                final ArrayList<? super ReferenceData> array,
                                 final int startOffset,
                                 final String qClassName, @Nullable final String staticMemberName) {
     final TextRange range = element.getTextRange();
@@ -140,9 +172,9 @@ public abstract class CopyPasteReferenceProcessor<TRef extends PsiElement> exten
             qClassName, staticMemberName));
   }
 
-  protected abstract TRef[] findReferencesToRestore(PsiFile file,
-                                                                           RangeMarker bounds,
-                                                                           ReferenceData[] referenceData);
+  protected abstract TRef @NotNull [] findReferencesToRestore(PsiFile file,
+                                                              RangeMarker bounds,
+                                                              ReferenceData[] referenceData);
 
   protected PsiElement resolveReferenceIgnoreOverriding(PsiPolyVariantReference reference) {
     PsiElement referent = reference.resolve();
@@ -156,13 +188,14 @@ public abstract class CopyPasteReferenceProcessor<TRef extends PsiElement> exten
   }
 
   protected abstract void restoreReferences(ReferenceData[] referenceData,
-                                            TRef[] refs);
+                                            TRef[] refs,
+                                            Set<String> imported);
 
-  private static void askReferencesToRestore(Project project, PsiElement[] refs,
+  private static void askReferencesToRestore(Project project, PsiElement @NotNull [] refs,
                                       ReferenceData[] referenceData) {
     PsiManager manager = PsiManager.getInstance(project);
 
-    ArrayList<Object> array = new ArrayList<Object>();
+    ArrayList<Object> array = new ArrayList<>();
     Object[] refObjects = new Object[refs.length];
     for (int i = 0; i < referenceData.length; i++) {
       PsiElement ref = refs[i];
@@ -187,17 +220,7 @@ public abstract class CopyPasteReferenceProcessor<TRef extends PsiElement> exten
     if (array.isEmpty()) return;
 
     Object[] selectedObjects = ArrayUtil.toObjectArray(array);
-    Arrays.sort(
-      selectedObjects,
-      new Comparator<Object>() {
-        @Override
-        public int compare(Object o1, Object o2) {
-          String fqName1 = getFQName(o1);
-          String fqName2 = getFQName(o2);
-          return fqName1.compareToIgnoreCase(fqName2);
-        }
-      }
-    );
+    Arrays.sort(selectedObjects, (o1, o2) -> getFQName(o1).compareToIgnoreCase(getFQName(o2)));
 
     RestoreReferencesDialog dialog = new RestoreReferencesDialog(project, selectedObjects);
     dialog.show();
@@ -206,7 +229,7 @@ public abstract class CopyPasteReferenceProcessor<TRef extends PsiElement> exten
     for (int i = 0; i < referenceData.length; i++) {
       PsiElement ref = refs[i];
       if (ref != null) {
-        LOG.assertTrue(ref.isValid());
+        PsiUtilCore.ensureValid(ref);
         Object refObject = refObjects[i];
         boolean found = false;
         for (Object selected : selectedObjects) {
@@ -222,6 +245,14 @@ public abstract class CopyPasteReferenceProcessor<TRef extends PsiElement> exten
     }
   }
 
+  private static void showHint(@NotNull Editor editor, @NotNull @NlsContexts.HintText String info, HyperlinkListener hyperlinkListener) {
+    if (ApplicationManager.getApplication().isUnitTestMode()) return;
+    LightweightHint hint = new LightweightHint(HintUtil.createInformationLabel(info, hyperlinkListener, null, null));
+
+    int flags = HintManager.HIDE_BY_ANY_KEY | HintManager.HIDE_BY_TEXT_CHANGE;
+    HintManagerImpl.getInstanceImpl().showEditorHint(hint, editor, HintManager.UNDER, flags, 0, false);
+  }
+  
   private static String getFQName(Object element) {
     return element instanceof PsiClass ? ((PsiClass)element).getQualifiedName() : (String)element;
   }

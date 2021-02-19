@@ -19,17 +19,18 @@ import com.intellij.facet.Facet;
 import com.intellij.openapi.module.ModifiableModuleModel;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.LibraryOrderEntry;
 import com.intellij.openapi.roots.ModifiableRootModel;
 import com.intellij.openapi.roots.ModuleRootModel;
 import com.intellij.openapi.roots.OrderEntry;
-import com.intellij.openapi.roots.impl.ModuleLibraryOrderEntryImpl;
-import com.intellij.openapi.roots.impl.libraries.LibraryImpl;
+import com.intellij.openapi.roots.impl.OrderEntryUtil;
+import com.intellij.openapi.roots.impl.libraries.LibraryEx;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTable;
 import com.intellij.openapi.roots.ui.configuration.ChooseModulesDialog;
 import com.intellij.openapi.roots.ui.configuration.FacetsProvider;
 import com.intellij.openapi.roots.ui.configuration.ModulesProvider;
-import com.intellij.openapi.roots.ui.configuration.ProjectStructureConfigurable;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.packaging.artifacts.Artifact;
 import com.intellij.packaging.artifacts.ArtifactModel;
 import com.intellij.packaging.artifacts.ArtifactType;
@@ -46,9 +47,6 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author nik
- */
 public class ArtifactEditorContextImpl implements ArtifactEditorContext {
   private final ArtifactsStructureConfigurableContext myParent;
   private final ArtifactEditorEx myEditor;
@@ -108,36 +106,36 @@ public class ArtifactEditorContextImpl implements ArtifactEditorContext {
 
   @Override
   public void selectArtifact(@NotNull Artifact artifact) {
-    ProjectStructureConfigurable.getInstance(getProject()).select(artifact, true);
+    myParent.getProjectStructureConfigurable().select(artifact, true);
   }
 
   @Override
   public void selectFacet(@NotNull Facet<?> facet) {
-    ProjectStructureConfigurable.getInstance(getProject()).select(facet, true);
+    myParent.getProjectStructureConfigurable().select(facet, true);
   }
 
   @Override
   public void selectModule(@NotNull Module module) {
-    ProjectStructureConfigurable.getInstance(getProject()).select(module.getName(), null, true);
+    myParent.getProjectStructureConfigurable().select(module.getName(), null, true);
   }
 
   @Override
   public void selectLibrary(@NotNull Library library) {
     final LibraryTable table = library.getTable();
     if (table != null) {
-      ProjectStructureConfigurable.getInstance(getProject()).selectProjectOrGlobalLibrary(library, true);
+      myParent.getProjectStructureConfigurable().selectProjectOrGlobalLibrary(library, true);
     }
     else {
-      final Module module = ((LibraryImpl)library).getModule();
+      final Module module = ((LibraryEx)library).getModule();
       if (module != null) {
         final ModuleRootModel rootModel = myParent.getModulesProvider().getRootModel(module);
         final String libraryName = library.getName();
         for (OrderEntry entry : rootModel.getOrderEntries()) {
-          if (entry instanceof ModuleLibraryOrderEntryImpl) {
-            final ModuleLibraryOrderEntryImpl libraryEntry = (ModuleLibraryOrderEntryImpl)entry;
+          if (entry instanceof LibraryOrderEntry && OrderEntryUtil.isModuleLibraryOrderEntry(entry)) {
+            final LibraryOrderEntry libraryEntry = (LibraryOrderEntry)entry;
             if (libraryName != null && libraryName.equals(libraryEntry.getLibraryName())
                || libraryName == null && library.equals(libraryEntry.getLibrary())) {
-              ProjectStructureConfigurable.getInstance(getProject()).selectOrderEntry(module, libraryEntry);
+              myParent.getProjectStructureConfigurable().selectOrderEntry(module, libraryEntry);
               return;
             }
           }
@@ -147,9 +145,9 @@ public class ArtifactEditorContextImpl implements ArtifactEditorContext {
   }
 
   @Override
-  public List<Artifact> chooseArtifacts(final List<? extends Artifact> artifacts, final String title) {
+  public List<Artifact> chooseArtifacts(final List<? extends Artifact> artifacts, final @NlsContexts.DialogTitle String title) {
     ChooseArtifactsDialog dialog = new ChooseArtifactsDialog(getProject(), artifacts, title, null);
-    return dialog.showAndGet() ? dialog.getChosenElements() : Collections.<Artifact>emptyList();
+    return dialog.showAndGet() ? dialog.getChosenElements() : Collections.emptyList();
   }
 
 
@@ -194,14 +192,14 @@ public class ArtifactEditorContextImpl implements ArtifactEditorContext {
   }
 
   @Override
-  public List<Module> chooseModules(final List<Module> modules, final String title) {
+  public List<Module> chooseModules(final List<? extends Module> modules, final @NlsContexts.DialogTitle String title) {
     return new ChooseModulesDialog(getProject(), modules, title, null).showAndGetResult();
   }
 
   @Override
-  public List<Library> chooseLibraries(final String title) {
+  public List<Library> chooseLibraries(final @NlsContexts.DialogTitle String title) {
     final ChooseLibrariesFromTablesDialog dialog = ChooseLibrariesFromTablesDialog.createDialog(title, getProject(), false);
-    return dialog.showAndGet() ? dialog.getSelectedLibraries() : Collections.<Library>emptyList();
+    return dialog.showAndGet() ? dialog.getSelectedLibraries() : Collections.emptyList();
   }
 
   @Override

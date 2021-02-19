@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,16 +17,19 @@ package com.intellij.facet.impl.ui;
 
 import com.intellij.facet.Facet;
 import com.intellij.facet.FacetConfiguration;
-import com.intellij.facet.ui.FacetEditor;
-import com.intellij.facet.ui.FacetEditorContext;
-import com.intellij.facet.ui.FacetEditorTab;
+import com.intellij.facet.ui.*;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.UnnamedConfigurable;
 import com.intellij.openapi.options.UnnamedConfigurableGroup;
+import com.intellij.openapi.roots.ProjectModelExternalSource;
+import com.intellij.openapi.roots.ui.configuration.ModificationOfImportedModelWarningComponent;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.TabbedPaneWrapper;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -38,16 +41,13 @@ import java.awt.*;
 import java.util.HashSet;
 import java.util.Set;
 
-/**
- * @author nik
- */
 public class FacetEditorImpl extends UnnamedConfigurableGroup implements UnnamedConfigurable, FacetEditor {
   private final FacetEditorTab[] myEditorTabs;
   private final FacetErrorPanel myErrorPanel;
   private JComponent myComponent;
   private @Nullable TabbedPaneWrapper myTabbedPane;
   private final FacetEditorContext myContext;
-  private final Set<FacetEditorTab> myVisitedTabs = new HashSet<FacetEditorTab>();
+  private final Set<FacetEditorTab> myVisitedTabs = new HashSet<>();
   private int mySelectedTabIndex = 0;
   private final Disposable myDisposable = Disposer.newDisposable();
 
@@ -96,14 +96,30 @@ public class FacetEditorImpl extends UnnamedConfigurableGroup implements Unnamed
     }
     else if (myEditorTabs.length == 1) {
       editorComponent = myEditorTabs[0].createComponent();
-      UIUtil.addInsets(editorComponent, new Insets(0, 5, 0, 0));
+      UIUtil.addInsets(editorComponent, JBUI.insets(0, 5, 0, 0));
     }
     else {
       editorComponent = new JPanel();
     }
+    ProjectModelExternalSource externalSource = myContext.getFacet().getExternalSource();
+    if (externalSource != null) {
+      myErrorPanel.getValidatorsManager().registerValidator(new FacetEditorValidator() {
+        @NotNull
+        @Override
+        public ValidationResult check() {
+          if (isModified()) {
+            String text = ModificationOfImportedModelWarningComponent.getWarningText(
+              JavaUiBundle.message("facet.banner.text", myContext.getFacetName()), externalSource);
+            return new ValidationResult(text);
+          }
+          return ValidationResult.OK;
+        }
+      }, editorComponent);
+    }
+
 
     final JComponent errorComponent = myErrorPanel.getComponent();
-    UIUtil.addInsets(errorComponent, new Insets(0, 5, 5, 0));
+    UIUtil.addInsets(errorComponent, JBUI.insets(0, 5, 5, 0));
 
     final JPanel panel = new JPanel(new BorderLayout());
     panel.add(BorderLayout.CENTER, editorComponent);
@@ -116,11 +132,9 @@ public class FacetEditorImpl extends UnnamedConfigurableGroup implements Unnamed
     if (myVisitedTabs.add(selectedTab)) {
       final JComponent preferredFocusedComponent = selectedTab.getPreferredFocusedComponent();
       if (preferredFocusedComponent != null) {
-        ApplicationManager.getApplication().invokeLater(new Runnable() {
-          public void run() {
-            if (preferredFocusedComponent.isShowing()) {
-              preferredFocusedComponent.requestFocus();
-            }
+        ApplicationManager.getApplication().invokeLater(() -> {
+          if (preferredFocusedComponent.isShowing()) {
+            IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(preferredFocusedComponent, true));
           }
         });
       }

@@ -57,8 +57,7 @@ public class LightPackageReference extends LightElement implements PsiJavaCodeRe
   }
 
   @Override
-  @NotNull
-  public JavaResolveResult[] multiResolve(boolean incompleteCode){
+  public JavaResolveResult @NotNull [] multiResolve(boolean incompleteCode){
     final JavaResolveResult result = advancedResolve(incompleteCode);
     if(result != JavaResolveResult.EMPTY) return new JavaResolveResult[]{result};
     return JavaResolveResult.EMPTY_ARRAY;
@@ -96,7 +95,7 @@ public class LightPackageReference extends LightElement implements PsiJavaCodeRe
   }
 
   @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     //TODO?
     throw new UnsupportedOperationException();
   }
@@ -117,19 +116,19 @@ public class LightPackageReference extends LightElement implements PsiJavaCodeRe
     }
   }
 
+  @Override
   public String toString(){
     return "PsiJavaCodeReferenceElement:" + getText();
   }
 
   @Override
-  public boolean isReferenceTo(PsiElement element) {
+  public boolean isReferenceTo(@NotNull PsiElement element) {
     if (!(element instanceof PsiPackage)) return false;
     return getManager().areElementsEquivalent(resolve(), element);
   }
 
   @Override
-  @NotNull
-  public Object[] getVariants() {
+  public Object @NotNull [] getVariants() {
     throw new RuntimeException("Variants are not available for light references");
   }
 
@@ -168,11 +167,13 @@ public class LightPackageReference extends LightElement implements PsiJavaCodeRe
     }
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     return new TextRange(0, getTextLength());
   }
 
+  @NotNull
   @Override
   public PsiElement getElement() {
     return this;
@@ -184,8 +185,7 @@ public class LightPackageReference extends LightElement implements PsiJavaCodeRe
   }
 
   @Override
-  @NotNull
-  public PsiType[] getTypeParameters() {
+  public PsiType @NotNull [] getTypeParameters() {
     return PsiType.EMPTY_ARRAY;
   }
 

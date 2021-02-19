@@ -15,11 +15,11 @@
  */
 package com.intellij.lang.properties.references;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.lang.properties.PropertiesBundle;
 import com.intellij.lang.properties.psi.PropertiesFile;
 import com.intellij.openapi.application.ApplicationManager;
@@ -40,12 +40,10 @@ import java.util.Collection;
 import java.util.List;
 
 public class CreatePropertyFix implements IntentionAction, LocalQuickFix {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.i18n.I18nizeQuickFix");
+  private static final Logger LOG = Logger.getInstance(CreatePropertyFix.class);
   private final PsiAnchor myElement;
   private final String myKey;
   private final List<PropertiesFile> myPropertiesFiles;
-
-  public static final String NAME = PropertiesBundle.message("create.property.quickfix.text");
 
   public CreatePropertyFix() {
     this(null, null, null);
@@ -57,16 +55,19 @@ public class CreatePropertyFix implements IntentionAction, LocalQuickFix {
     myPropertiesFiles = propertiesFiles;
   }
 
+  @Override
   @NotNull
   public String getName() {
-    return NAME;
+    return getFixName();
   }
 
+  @Override
   @NotNull
   public String getFamilyName() {
     return getText();
   }
 
+  @Override
   public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
     PsiElement psiElement = descriptor.getPsiElement();
     if (isAvailable(project, null, null)) {
@@ -74,21 +75,23 @@ public class CreatePropertyFix implements IntentionAction, LocalQuickFix {
     }
   }
 
+  @Override
   @NotNull
   public String getText() {
-    return NAME;
+    return getFixName();
   }
 
+  @Override
   public boolean isAvailable(@NotNull Project project, @Nullable Editor editor, @Nullable PsiFile file) {
     return myElement != null && myElement.retrieve() != null;
   }
 
+  @Override
   public void invoke(@NotNull final Project project, @Nullable Editor editor, @NotNull PsiFile file) {
     invokeAction(project, file, myElement.retrieve(), myKey, myPropertiesFiles);
   }
 
-  @Nullable
-  private Couple<String> invokeAction(@NotNull final Project project,
+  private void invokeAction(@NotNull final Project project,
                                       @NotNull PsiFile file,
                                       @NotNull PsiElement psiElement,
                                       @Nullable final String suggestedKey,
@@ -98,18 +101,22 @@ public class CreatePropertyFix implements IntentionAction, LocalQuickFix {
 
     if (ApplicationManager.getApplication().isUnitTestMode()) {
       model = new I18nizeQuickFixModel() {
+        @Override
         public String getValue() {
           return "";
         }
 
+        @Override
         public String getKey() {
           return dialogCustomization.getSuggestedName();
         }
 
+        @Override
         public boolean hasValidData() {
           return true;
         }
 
+        @Override
         public Collection<PropertiesFile> getAllPropertiesFiles() {
           return propertiesFiles;
         }
@@ -118,14 +125,14 @@ public class CreatePropertyFix implements IntentionAction, LocalQuickFix {
       model = new I18nizeQuickFixDialog(
         project,
         file,
-        NAME, dialogCustomization
+        getFixName(), dialogCustomization
       );
     }
-    return doAction(project, psiElement, model);
+    doAction(project, psiElement, model);
   }
 
   protected static I18nizeQuickFixDialog.DialogCustomization createDefaultCustomization(String suggestedKey, List<PropertiesFile> propertiesFiles) {
-    return new I18nizeQuickFixDialog.DialogCustomization(NAME, false, true, propertiesFiles, suggestedKey == null ? "" : suggestedKey);
+    return new I18nizeQuickFixDialog.DialogCustomization(getFixName(), false, true, propertiesFiles, suggestedKey == null ? "" : suggestedKey);
   }
 
   protected Couple<String> doAction(Project project, PsiElement psiElement, I18nizeQuickFixModel model) {
@@ -143,7 +150,7 @@ public class CreatePropertyFix implements IntentionAction, LocalQuickFix {
 
   public static void createProperty(@NotNull final Project project,
                                     @NotNull final PsiElement psiElement,
-                                    @NotNull final Collection<PropertiesFile> selectedPropertiesFiles,
+                                    @NotNull final Collection<? extends PropertiesFile> selectedPropertiesFiles,
                                     @NotNull final String key,
                                     @NotNull final String value) {
     for (PropertiesFile selectedFile : selectedPropertiesFiles) {
@@ -151,23 +158,22 @@ public class CreatePropertyFix implements IntentionAction, LocalQuickFix {
     }
     UndoUtil.markPsiFileForUndo(psiElement.getContainingFile());
 
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      public void run() {
-        CommandProcessor.getInstance().executeCommand(project, new Runnable() {
-          public void run() {
-            try {
-              I18nUtil.createProperty(project, selectedPropertiesFiles, key, value);
-            }
-            catch (IncorrectOperationException e) {
-              LOG.error(e);
-            }
-          }
-        }, CodeInsightBundle.message("quickfix.i18n.command.name"), project);
+    ApplicationManager.getApplication().runWriteAction(() -> CommandProcessor.getInstance().executeCommand(project, () -> {
+      try {
+        I18nUtil.createProperty(project, selectedPropertiesFiles, key, value);
       }
-    });
+      catch (IncorrectOperationException e) {
+        LOG.error(e);
+      }
+    }, PropertiesBundle.message("quickfix.i18n.command.name"), project));
   }
 
+  @Override
   public boolean startInWriteAction() {
     return false;
+  }
+
+  public static @IntentionName String getFixName() {
+    return PropertiesBundle.message("create.property.quickfix.text");
   }
 }

@@ -1,28 +1,28 @@
-<idea-plugin version="2">
-  <name>Subversion Integration</name>
+<idea-plugin>
+  <name>Subversion</name>
   <id>Subversion</id>
-  <version>1.1</version>
-  <category>VCS Integration</category>
-  <description>For Subversion 1.7 and older versions</description>
+  <category>Version Controls</category>
+  <description>
+    <![CDATA[
+      Provides integration with Subversion VCS.<br/>
+      Supports Subversion 1.7 and above.<br/>
+      Requires command line svn client.
+      ]]>
+  </description>
   <depends>com.intellij.modules.vcs</depends>
   <vendor>JetBrains</vendor>
-  <resource-bundle>org.jetbrains.idea.svn.SvnBundle</resource-bundle>
-  <project-components>
-    <component>
-      <implementation-class>org.jetbrains.idea.svn.SvnFileUrlMappingImpl</implementation-class>
-      <option name="workspace" value="true"/>
-    </component>
-  </project-components>
+  <resource-bundle>messages.SvnBundle</resource-bundle>
 
   <actions>
 
     <action id="Subversion.ImportToSVNRepository" class="org.jetbrains.idea.svn.actions.ImportToRepositoryAction">
       <add-to-group group-id="Vcs.Import"/>
+      <add-to-group group-id="Vcs.Operations.Popup.NonVcsAware" relative-to-action="Start.Use.Vcs" anchor="before"/>
     </action>
     <action id="Subversion.BrowseSVNRepository" class="org.jetbrains.idea.svn.actions.BrowseRepositoryAction">
       <add-to-group group-id="Vcs.Browse"/>
     </action>
-    <action id="Subversion.ShareWholeProject" text="Share Project (Subversion)..." class="org.jetbrains.idea.svn.actions.ShareWholeProject">
+    <action id="Subversion.ShareWholeProject" class="org.jetbrains.idea.svn.actions.ShareWholeProject">
       <add-to-group group-id="Vcs.Import"/>
     </action>
 
@@ -33,24 +33,16 @@
 
 
     <action id="IntegrateChangeSetAction" class="org.jetbrains.idea.svn.actions.IntegrateChangeSetAction" popup="true"
-            icon="SvnIcons.IntegrateToBranch">
-      <add-to-group group-id="RepositoryChangesBrowserToolbar" anchor="last"/>
+            icon="AllIcons.Vcs.Merge">
+      <add-to-group group-id="Vcs.RepositoryChangesBrowserToolbar" anchor="last"/>
     </action>
 
     <action id="Subversion.TogglePropertiesDiff" class="com.intellij.openapi.actionSystem.EmptyAction" popup="true"
             icon="AllIcons.Actions.Preview"/>
 
-    <action id="PropertiesDiff" class="org.jetbrains.idea.svn.actions.ShowPropertiesDiffAction" popup="true" icon="SvnIcons.PropertiesDiff">
-      <add-to-group group-id="RepositoryChangesBrowserToolbar" anchor="last"/>
-    </action>
     <action id="EditCommitMessage" class="org.jetbrains.idea.svn.history.SvnEditCommitMessageAction" popup="true"
-            icon="AllIcons.Actions.Edit"
-            text="Edit Revision Comment" description="Edit revision comment. Previous message is rewritten.">
+            icon="AllIcons.Actions.Edit">
       <add-to-group group-id="CommittedChangesToolbar" anchor="last"/>
-    </action>
-
-    <action id="AlienPropertiesLocalDiff" class="org.jetbrains.idea.svn.actions.ShowPropertiesDiffWithLocalAlienAction" popup="true">
-      <add-to-group group-id="AlienCommitChangesDialog.AdditionalActions" anchor="last"/>
     </action>
 
     <group id="SubversionGroup">
@@ -65,9 +57,6 @@
       <separator/>
       <action id="Subversion.ShowProperties" class="org.jetbrains.idea.svn.actions.ShowPropertiesAction"/>
       <action id="Subversion.SetProperty" class="org.jetbrains.idea.svn.actions.SetPropertyAction"/>
-      <action id="ShowPropertiesDiffVsLocal" class="org.jetbrains.idea.svn.actions.ShowPropertiesDiffWithLocalAction"
-              icon="SvnIcons.PropertiesDiffWithLocal">
-      </action>
       <reference id="ChangesView.Revert"/>
       <action id="Subversion.Resolve" class="org.jetbrains.idea.svn.actions.ResolveAction"/>
       <action id="Subversion.MarkResolved" class="org.jetbrains.idea.svn.actions.MarkResolvedAction"/>
@@ -75,8 +64,8 @@
       <action id="Subversion.Clenaup" class="org.jetbrains.idea.svn.actions.CleanupAction"/>
       <separator/>
       <reference id="Show.Current.Revision"/>
-      <reference id="Compare.SameVersion" text="Compare with BASE revision"/>
-      <reference id="Compare.LastVersion" text="Compare with revision at HEAD"/>
+      <reference id="Compare.SameVersion"/>
+      <reference id="Compare.LastVersion"/>
       <reference id="Compare.Selected"/>
       <action id="Subversion.CompareWithBranch" class="org.jetbrains.idea.svn.diff.CompareWithBranchAction"/>
       <reference id="Vcs.ShowTabbedFileHistory"/>
@@ -92,12 +81,8 @@
       <separator/>
       <add-to-group group-id="SubversionFilePopupGroup" anchor="last"/>
     </group>
-    <action id="Subversion.MarkLocallyDeletedTreeResolved"
-            class="org.jetbrains.idea.svn.actions.MarkLocallyDeletedTreeConflictResolvedAction">
-      <add-to-group group-id="ChangesViewPopupMenu" anchor="after" relative-to-action="ChangesView.Diff"/>
-    </action>
     <reference id="Subversion.MarkTreeResolved">
-      <add-to-group group-id="ChangesViewPopupMenu" anchor="after" relative-to-action="ChangesView.Diff"/>
+      <add-to-group group-id="ChangesViewPopupMenu" anchor="after" relative-to-action="Diff.ShowDiff"/>
     </reference>
     <group id="SubversionUpdateActionGroup" class="org.jetbrains.idea.svn.actions.SubversionGroup">
       <reference ref="ChangesView.AddUnversioned"/>
@@ -109,47 +94,67 @@
     </group>
 
     <group id="IgnoreChoicesGroup" popup="true" class="org.jetbrains.idea.svn.actions.IgnoreActionGroup">
+      <add-to-group group-id="ChangesViewPopupMenu" anchor="after" relative-to-action="ChangesView.AddUnversioned"/>
       <add-to-group group-id="SubversionGroup" relative-to-action="ChangesView.AddUnversioned" anchor="after"/>
+      <add-to-group group-id="Unversioned.Files.Dialog.Popup" anchor="after" relative-to-action="$Delete"/>
     </group>
 
-    <action class="org.jetbrains.idea.svn.dialogs.MergeFromAction" id="Subversion.MergeFrom">
-      <add-to-group relative-to-action="Vcs.IntegrateProject" anchor="after" group-id="VcsGlobalGroup"/>
-    </action>
     <action class="org.jetbrains.idea.svn.actions.CleanupProjectAction" id="Subversion.CleanupProject">
-      <add-to-group group-id="VcsGlobalGroup" anchor="after" relative-to-action="Subversion.MergeFrom"/>
+      <add-to-group group-id="VcsGlobalGroup" anchor="after" relative-to-action="Vcs.IntegrateProject"/>
     </action>
+
+    <action id="Svn.Show.Working.Copies" class="org.jetbrains.idea.svn.actions.ShowSvnMapAction">
+      <add-to-group group-id="Vcs.Show.Toolwindow.Tab"/>
+    </action>
+    <group id="Svn.WorkingCopiesView.Toolbar">
+      <action id="Svn.RefreshWorkingCopies" class="org.jetbrains.idea.svn.dialogs.RefreshWorkingCopiesAction"
+              icon="AllIcons.Actions.Refresh" use-shortcut-of="Refresh"/>
+    </group>
   </actions>
 
   <extensions defaultExtensionNs="com.intellij">
+    <registryKey key="svn.use.incoming.optimization" defaultValue="false"
+                 description="Use remotely (in svn repository) changed files list to optimize incoming revisions processing"/>
+    <registryKey key="svn.lowest.supported.format.for.command.line" defaultValue="1.7.0"
+                 description="Lowest svn working copy format command line integration could be used with"/>
+    <registryKey key="svn.filter.unique.roots.by.url" defaultValue="false" description="Filter unique roots by obtaining repository urls"/>
+
     <vcsCheckinHandlerFactory implementation="org.jetbrains.idea.svn.checkin.SvnCheckinHandlerFactory"/>
-    <errorHandler implementation="com.intellij.diagnostic.ITNReporter"/>
     <checkoutProvider implementation="org.jetbrains.idea.svn.checkout.SvnCheckoutProvider"/>
-    <vcschangedetails implementation="org.jetbrains.idea.svn.treeConflict.TreeConflictDetailsProvider"/>
-    <vcschangedetails implementation="org.jetbrains.idea.svn.SvnPhantomChangeDetailsProvider"/>
-    <applicationService serviceInterface="org.jetbrains.idea.svn.SvnApplicationSettings"
-                        serviceImplementation="org.jetbrains.idea.svn.SvnApplicationSettings"/>
+    <applicationService serviceImplementation="org.jetbrains.idea.svn.SvnApplicationSettings"/>
     <projectService serviceImplementation="org.jetbrains.idea.svn.SvnConfiguration"/>
-    <projectService serviceInterface="org.jetbrains.idea.svn.branchConfig.SvnBranchConfigurationManager"
-                    serviceImplementation="org.jetbrains.idea.svn.branchConfig.SvnBranchConfigurationManager"/>
-    <projectService serviceInterface="org.jetbrains.idea.svn.history.LoadedRevisionsCache"
-                    serviceImplementation="org.jetbrains.idea.svn.history.LoadedRevisionsCache"/>
-    <projectService serviceInterface="org.jetbrains.idea.svn.mergeinfo.SvnMergeInfoCache"
-                    serviceImplementation="org.jetbrains.idea.svn.mergeinfo.SvnMergeInfoCache"/>
-    <projectService serviceInterface="org.jetbrains.idea.svn.branchConfig.SvnLoadedBranchesStorage"
-                    serviceImplementation="org.jetbrains.idea.svn.branchConfig.SvnLoadedBranchesStorage"/>
-    <applicationService serviceInterface="org.jetbrains.idea.svn.branchConfig.SvnBranchMapperManager"
-                        serviceImplementation="org.jetbrains.idea.svn.branchConfig.SvnBranchMapperManager"/>
-    <applicationService serviceInterface="org.jetbrains.idea.svn.dialogs.browserCache.SvnRepositoryCache"
-                        serviceImplementation="org.jetbrains.idea.svn.dialogs.browserCache.SvnRepositoryCache"/>
+    <projectService serviceInterface="org.jetbrains.idea.svn.SvnFileUrlMapping"
+                    serviceImplementation="org.jetbrains.idea.svn.SvnFileUrlMappingImpl"/>
+    <projectService serviceImplementation="org.jetbrains.idea.svn.branchConfig.SvnBranchConfigurationManager"/>
+    <projectService serviceImplementation="org.jetbrains.idea.svn.history.LoadedRevisionsCache"/>
+    <projectService serviceImplementation="org.jetbrains.idea.svn.mergeinfo.SvnMergeInfoCache"/>
+    <applicationService serviceImplementation="org.jetbrains.idea.svn.branchConfig.SvnBranchMapperManager"/>
+    <applicationService serviceImplementation="org.jetbrains.idea.svn.dialogs.browserCache.SvnRepositoryCache"/>
     <applicationService serviceInterface="org.jetbrains.idea.svn.dialogs.browserCache.Loader"
                         serviceImplementation="org.jetbrains.idea.svn.dialogs.browserCache.CacheLoader"/>
 
-    <search.topHitProvider implementation="org.jetbrains.idea.svn.SvnOptionsTopHitProvider"/>
+    <search.projectOptionsTopHitProvider implementation="org.jetbrains.idea.svn.SvnOptionsTopHitProvider"/>
     <vcs name="svn" vcsClass="org.jetbrains.idea.svn.SvnVcs" displayName="Subversion" administrativeAreaName=".svn, _svn"
-         crawlUpToCheckUnderVcs="true"/>
+         areChildrenValidMappings="true"/>
+    <projectConfigurable id="vcs.Subversion" key="configurable.name.svn.general" instance="org.jetbrains.idea.svn.SvnConfigurable$General"
+                         parentId="project.propVCSSupport.Mappings" groupWeight="-500">
+      <configurable id="vcs.Subversion.Presentation" instance="org.jetbrains.idea.svn.SvnConfigurable$Presentation"
+                    bundle="messages.SvnBundle" key="configurable.name.svn.presentation"/>
+      <configurable id="vcs.Subversion.Network" instance="org.jetbrains.idea.svn.SvnConfigurable$Network"
+                    bundle="messages.SvnBundle" key="configurable.name.svn.network"/>
+      <configurable id="vcs.Subversion.SSH" instance="org.jetbrains.idea.svn.SvnConfigurable$Ssh"
+                    bundle="messages.SvnBundle" key="configurable.name.svn.ssh"/>
+    </projectConfigurable>
     <vcsPopupProvider implementation="org.jetbrains.idea.svn.actions.SvnQuickListContentProvider"/>
 
-    <statistics.usagesCollector implementation="org.jetbrains.idea.svn.statistics.SvnWorkingCopyFormatUsagesCollector"/>
+    <statistics.projectUsagesCollector implementation="org.jetbrains.idea.svn.statistics.SvnStatisticsCollector"/>
+
+    <changesViewContent tabName="Subversion Working Copies Information"
+                        className="org.jetbrains.idea.svn.WorkingCopiesContent"
+                        predicateClassName="org.jetbrains.idea.svn.WorkingCopiesContent$VisibilityPredicate"
+                        displayNameSupplierClassName="org.jetbrains.idea.svn.WorkingCopiesContent$DisplayNameSupplier"/>
+
+    <vcs.branchStateProvider implementation="org.jetbrains.idea.svn.branchConfig.SvnBranchStateProvider"/>
 
     <openapi.vcs.changes.actions.diff.ChangeDiffViewerWrapperProvider
         implementation="org.jetbrains.idea.svn.difftool.SvnChangeDiffViewerProvider"/>
@@ -161,7 +166,7 @@
     <diff.DiffTool implementation="org.jetbrains.idea.svn.difftool.properties.SvnPropertiesDiffTool"/>
     <diff.DiffTool implementation="org.jetbrains.idea.svn.difftool.SvnPhantomChangeDiffRequestProvider$SvnPhantomDiffTool"/>
     <diff.DiffTool implementation="org.jetbrains.idea.svn.difftool.SvnTreeConflictDiffRequestProvider$SvnTreeConflictDiffTool"/>
-    <applicationService serviceInterface="org.jetbrains.idea.svn.difftool.SvnDiffSettingsHolder"
-                        serviceImplementation="org.jetbrains.idea.svn.difftool.SvnDiffSettingsHolder"/>
+    <applicationService serviceImplementation="org.jetbrains.idea.svn.difftool.SvnDiffSettingsHolder"/>
+    <notificationGroup id="Svn Roots Detection Errors" displayType="STICKY_BALLOON"/>
   </extensions>
 </idea-plugin>

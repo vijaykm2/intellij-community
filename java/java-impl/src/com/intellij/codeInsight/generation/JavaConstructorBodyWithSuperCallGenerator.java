@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,59 +15,57 @@
  */
 package com.intellij.codeInsight.generation;
 
+import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiParameter;
+import com.intellij.psi.PsiRecordComponent;
+import com.intellij.psi.util.JavaPsiRecordUtil;
+import com.intellij.psi.util.PsiTypesUtil;
+import com.intellij.util.ArrayUtil;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 
-/**
-* @author Max Medvedev
-*/
+import java.util.Collection;
+import java.util.Objects;
+
 public class JavaConstructorBodyWithSuperCallGenerator implements ConstructorBodyGenerator {
   @Override
   public void generateFieldInitialization(@NotNull StringBuilder buffer,
-                                          @NotNull PsiField[] fields,
-                                          @NotNull PsiParameter[] parameters) {
-    for (int i = 0, length = fields.length; i < length; i++) {
-      String fieldName = fields[i].getName();
-      String paramName = parameters[i].getName();
-      if (fieldName.equals(paramName)) {
-        buffer.append("this.");
-      }
-      buffer.append(fieldName);
-      buffer.append("=");
-      buffer.append(paramName);
-      buffer.append(";\n");
+                                          PsiField @NotNull [] fields,
+                                          PsiParameter @NotNull [] parameters,
+                                          @NotNull Collection<String> existingNames) {
+    if (fields.length > 0 && generateRecordDelegatingConstructor(buffer, fields, parameters)) {
+      return;
     }
+    ConstructorBodyGenerator.super.generateFieldInitialization(buffer, fields, parameters, existingNames);
+  }
+
+
+  private boolean generateRecordDelegatingConstructor(@NotNull StringBuilder buffer,
+                                                      PsiField @NotNull [] fields,
+                                                      PsiParameter @NotNull [] parameters) {
+    PsiRecordComponent component = JavaPsiRecordUtil.getComponentForField(fields[0]);
+    if (component == null) return false;
+    PsiClass recordClass = component.getContainingClass();
+    if (recordClass == null) return false;
+    PsiRecordComponent[] components = recordClass.getRecordComponents();
+    if (components.length > fields.length) {
+      buffer.append(StreamEx.of(components)
+                      .map(JavaPsiRecordUtil::getFieldForComponent)
+                      .peek(Objects::requireNonNull)
+                      .map(f -> {
+                        int index = ArrayUtil.indexOf(fields, f);
+                        return index >= 0 ? parameters[index].getName() : PsiTypesUtil.getDefaultValueOfType(f.getType(), true);
+                      })
+                      .joining(",", "this(", ")"));
+      appendSemicolon(buffer);
+      return true;
+    }
+    return false;
   }
 
   @Override
-  public void generateSuperCallIfNeeded(@NotNull StringBuilder buffer, @NotNull PsiParameter[] parameters) {
-    if (parameters.length > 0) {
-      buffer.append("super(");
-      for (int j = 0; j < parameters.length; j++) {
-        PsiParameter param = parameters[j];
-        buffer.append(param.getName());
-        if (j < parameters.length - 1) buffer.append(",");
-      }
-      buffer.append(");\n");
-    }
-  }
-
-  @Override
-  public StringBuilder start(StringBuilder buffer, @NotNull String name, @NotNull PsiParameter[] parameters) {
-    buffer.append("public ").append(name).append("(");
-    for (PsiParameter parameter : parameters) {
-      buffer.append(parameter.getType().getPresentableText()).append(' ').append(parameter.getName()).append(',');
-    }
-    if (parameters.length > 0) {
-      buffer.delete(buffer.length() - 1, buffer.length());
-    }
-    buffer.append("){\n");
-    return buffer;
-  }
-
-  @Override
-  public void finish(StringBuilder buffer) {
-    buffer.append('}');
+  public void appendSemicolon(@NotNull StringBuilder buffer) {
+    buffer.append(";");
   }
 }

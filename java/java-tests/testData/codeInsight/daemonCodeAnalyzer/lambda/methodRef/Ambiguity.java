@@ -1,19 +1,12 @@
 package todelete;
 
-/**
- * Created with IntelliJ IDEA.
- * User: Anna.Kozlova
- * Date: 9/26/12
- * Time: 1:18 PM
- * To change this template use File | Settings | File Templates.
- */
 class MyTest {
     interface Bar1 {
-        int _(String s);
+        int m(String s);
     }
 
     interface Bar2 {
-        int _(int s);
+        int m(int s);
     }
 
     void bar(Bar1 b1){}
@@ -29,17 +22,17 @@ class MyTest {
 
     {
         Bar1 b1 = MyTest :: foo;
-        bar<error descr="Ambiguous method call: both 'MyTest.bar(Bar1)' and 'MyTest.bar(Bar2)' match">(MyTest :: foo)</error>;
+        bar(MyTest :: <error descr="Reference to 'foo' is ambiguous, both 'foo(int)' and 'foo(String)' match">foo</error>);
     }
 }
 
 class MyTest1 {
     interface Bar1 {
-        int _(String s);
+        int m(String s);
     }
 
     interface Bar2 {
-        int _(int s);
+        int m(int s);
     }
 
     //void bar(Bar1 b1){}
@@ -54,18 +47,18 @@ class MyTest1 {
     }
 
     {
-        Bar1 b1 = MyTest2 :: <error descr="Cannot resolve method 'foo'">foo</error>;
+        Bar1 b1 = MyTest2 :: <error descr="Incompatible types: String is not convertible to int">foo</error>;
         bar(MyTest1 :: foo);
     }
 }
 
 class MyTest2 {
     interface Bar1 {
-        int _(String s);
+        int m(String s);
     }
 
     interface Bar2 {
-        int _(int s);
+        int m(int s);
     }
 
     void bar(Bar1 b1){}
@@ -80,18 +73,18 @@ class MyTest2 {
     }*/
 
     {
-        Bar1 b1 = MyTest2 :: <error descr="Cannot resolve method 'foo'">foo</error>;
+        Bar1 b1 = MyTest2 :: <error descr="Incompatible types: String is not convertible to int">foo</error>;
         bar(MyTest2 :: foo);
     }
 }
 
 class MyTest3 {
     interface Bar1 {
-        int _(String s);
+        int m(String s);
     }
 
     interface Bar2 {
-        int _(int s);
+        int m(int s);
     }
 
     //void bar(Bar1 b1){}
@@ -106,15 +99,15 @@ class MyTest3 {
     }
 
     {
-        Bar1 b1 = MyTest2 :: <error descr="Cannot resolve method 'foo'">foo</error>;
-        bar(MyTest3 :: <error descr="Cannot resolve method 'foo'">foo</error>);
+        Bar1 b1 = MyTest2 :: <error descr="Incompatible types: String is not convertible to int">foo</error>;
+        bar(MyTest3 :: <error descr="Incompatible types: int is not convertible to String">foo</error>);
     }
 }
 
 
 class MyTest4 {
     interface Bar1<T> {
-        int _(T s);
+        int m(T s);
     }
 
 
@@ -129,13 +122,13 @@ class MyTest4 {
     }
 
     {
-         bar(MyTest4:: <error descr="Cannot resolve method 'foo'">foo</error>);
+         bar(MyTest4:: <error descr="Reference to 'foo' is ambiguous, both 'foo(int)' and 'foo(String)' match">foo</error>);
     }
 }
 
 class MyTest5 {
     interface Bar1<T> {
-        int _(T s);
+        int m(T s);
     }
 
 
@@ -156,7 +149,7 @@ class MyTest5 {
 
 class MyTest6 {
     interface I {
-       void _(Integer i);
+       void m(Integer i);
     }
 
     static void foo(Number i) {}
@@ -165,13 +158,13 @@ class MyTest6 {
 
     public static void main(String[] args) {
         I s = MyTest6::foo;
-        s._(1);
+        s.m(1);
     }
 }
 
 class MyTest7 {
     interface I {
-       void _(Number i);
+       void m(Number i);
     }
 
     static void foo(Number i) {}
@@ -180,6 +173,6 @@ class MyTest7 {
 
     public static void main(String[] args) {
         I s = MyTest7::foo;
-        s._(1);
+        s.m(1);
     }
 }

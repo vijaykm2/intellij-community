@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testIntegration;
 
 import com.intellij.codeInsight.CodeInsightActionHandler;
@@ -24,6 +10,7 @@ import com.intellij.codeInsight.generation.actions.BaseGenerateAction;
 import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.ide.fileTemplates.FileTemplateDescriptor;
 import com.intellij.ide.fileTemplates.impl.AllFileTemplatesConfigurable;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -32,14 +19,12 @@ import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.popup.PopupChooserBuilder;
-import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.ui.popup.JBPopupFactory;
+import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
-import com.intellij.ui.components.JBList;
 import com.intellij.util.Consumer;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -52,7 +37,7 @@ import java.util.Iterator;
 import java.util.List;
 
 public class BaseGenerateTestSupportMethodAction extends BaseGenerateAction {
-  protected static final Logger LOG = Logger.getInstance("#" + BaseGenerateTestSupportMethodAction.class.getName());
+  protected static final Logger LOG = Logger.getInstance(BaseGenerateTestSupportMethodAction.class);
 
   public BaseGenerateTestSupportMethodAction(TestIntegrationUtils.MethodKind methodKind) {
     super(new MyHandler(methodKind));
@@ -69,19 +54,19 @@ public class BaseGenerateTestSupportMethodAction extends BaseGenerateAction {
       final List<TestFramework> frameworks = TestIntegrationUtils.findSuitableFrameworks(targetClass);
       final TestIntegrationUtils.MethodKind methodKind = ((MyHandler)getHandler()).myMethodKind;
       if (!frameworks.isEmpty()) {
-        return new AnAction("Edit Template") {
+        return new AnAction(JavaBundle.message("action.text.edit.template")) {
           @Override
-          public void actionPerformed(AnActionEvent e) {
-            chooseAndPerform(editor, frameworks, new Consumer<TestFramework>() {
-              @Override
-              public void consume(TestFramework framework) {
-                final FileTemplateDescriptor descriptor = methodKind.getFileTemplateDescriptor(framework);
-                if (descriptor != null) {
-                  final String fileName = descriptor.getFileName();
-                  AllFileTemplatesConfigurable.editCodeTemplate(FileUtil.getNameWithoutExtension(fileName), project);
-                } else {
-                  HintManager.getInstance().showErrorHint(editor, "No template found for " + framework.getName() + ":" + BaseGenerateTestSupportMethodAction.this.getTemplatePresentation().getText());
-                }
+          public void actionPerformed(@NotNull AnActionEvent e) {
+            chooseAndPerform(editor, frameworks, framework -> {
+              final FileTemplateDescriptor descriptor = methodKind.getFileTemplateDescriptor(framework);
+              if (descriptor != null) {
+                final String fileName = descriptor.getFileName();
+                AllFileTemplatesConfigurable.editCodeTemplate(FileUtilRt.getNameWithoutExtension(fileName), project);
+              } else {
+                String message = JavaBundle.message(
+                  "generate.test.support.method.error.no.template.found.for.framework", framework.getName(),
+                  BaseGenerateTestSupportMethodAction.this.getTemplatePresentation().getText());
+                HintManager.getInstance().showErrorHint(editor, message);
               }
             });
           }
@@ -100,7 +85,17 @@ public class BaseGenerateTestSupportMethodAction extends BaseGenerateAction {
   private static PsiClass findTargetClass(@NotNull Editor editor, @NotNull PsiFile file) {
     int offset = editor.getCaretModel().getOffset();
     PsiElement element = file.findElementAt(offset);
-    return PsiTreeUtil.getParentOfType(element, PsiClass.class, false) == null ? null : TestIntegrationUtils.findOuterClass(element);
+    PsiClass containingClass = PsiTreeUtil.getParentOfType(element, PsiClass.class, false);
+    if (containingClass == null) {
+      return null;
+    }
+    final List<TestFramework> frameworks = TestIntegrationUtils.findSuitableFrameworks(containingClass);
+    for (TestFramework framework : frameworks) {
+      if (framework instanceof JavaTestFramework && ((JavaTestFramework)framework).acceptNestedClasses()) {
+        return containingClass;
+      }
+    }
+    return TestIntegrationUtils.findOuterClass(element);
   }
 
   @Override
@@ -118,25 +113,22 @@ public class BaseGenerateTestSupportMethodAction extends BaseGenerateAction {
   protected boolean isValidForFile(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file) {
     if (file instanceof PsiCompiledElement) return false;
 
-    PsiDocumentManager.getInstance(project).commitAllDocuments();
-
     PsiClass targetClass = getTargetClass(editor, file);
     return targetClass != null && isValidForClass(targetClass);
   }
 
 
   protected boolean isValidFor(PsiClass targetClass, TestFramework framework) {
-    return true;
+    return ((MyHandler)getHandler()).myMethodKind.getFileTemplateDescriptor(framework) != null;
   }
 
-  private static void chooseAndPerform(Editor editor, List<TestFramework> frameworks, final Consumer<TestFramework> consumer) {
+  private static void chooseAndPerform(Editor editor, List<? extends TestFramework> frameworks, final Consumer<? super TestFramework> consumer) {
     if (frameworks.size() == 1) {
       consumer.consume(frameworks.get(0));
       return;
     }
 
-    final JList list = new JBList(frameworks.toArray(new TestFramework[frameworks.size()]));
-    list.setCellRenderer(new DefaultListCellRenderer() {
+    DefaultListCellRenderer cellRenderer = new DefaultListCellRenderer() {
       @Override
       public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
         Component result = super.getListCellRendererComponent(list, "", index, isSelected, cellHasFocus);
@@ -148,51 +140,37 @@ public class BaseGenerateTestSupportMethodAction extends BaseGenerateAction {
 
         return result;
       }
-    });
-
-
-    PopupChooserBuilder builder = new PopupChooserBuilder(list);
-    builder.setFilteringEnabled(new Function<Object, String>() {
-      @Override
-      public String fun(Object o) {
-        return ((TestFramework)o).getName();
-      }
-    });
-
-    builder
-      .setTitle("Choose Framework")
-      .setItemChoosenCallback(new Runnable() {
-        @Override
-        public void run() {
-          consumer.consume((TestFramework)list.getSelectedValue());
-        }
-      })
+    };
+    JBPopupFactory.getInstance()
+      .createPopupChooserBuilder(frameworks)
+      .setRenderer(cellRenderer)
+      .setNamerForFiltering(o -> o.getName())
+      .setTitle(JavaBundle.message("popup.title.choose.framework"))
+      .setItemChosenCallback(consumer)
       .setMovable(true)
       .createPopup().showInBestPositionFor(editor);
   }
 
-  private static class MyHandler implements CodeInsightActionHandler {
+  public static class MyHandler implements CodeInsightActionHandler {
     private final TestIntegrationUtils.MethodKind myMethodKind;
 
-    private MyHandler(TestIntegrationUtils.MethodKind methodKind) {
+    public MyHandler(TestIntegrationUtils.MethodKind methodKind) {
       myMethodKind = methodKind;
     }
 
+    @Override
     public void invoke(@NotNull Project project, @NotNull final Editor editor, @NotNull final PsiFile file) {
       final PsiClass targetClass = findTargetClass(editor, file);
-      final List<TestFramework> frameworks = new ArrayList<TestFramework>(TestIntegrationUtils.findSuitableFrameworks(targetClass));
+      final List<TestFramework> frameworks = new ArrayList<>(TestIntegrationUtils.findSuitableFrameworks(targetClass));
       for (Iterator<TestFramework> iterator = frameworks.iterator(); iterator.hasNext(); ) {
         if (myMethodKind.getFileTemplateDescriptor(iterator.next()) == null) {
           iterator.remove();
         }
       }
       if (frameworks.isEmpty()) return;
-      final Consumer<TestFramework> consumer = new Consumer<TestFramework>() {
-        @Override
-        public void consume(TestFramework framework) {
-          if (framework == null) return;
-          doGenerate(editor, file, targetClass, framework);
-        }
+      final Consumer<TestFramework> consumer = framework -> {
+        if (framework == null) return;
+        doGenerate(editor, file, targetClass, framework);
       };
 
       chooseAndPerform(editor, frameworks, consumer);
@@ -215,47 +193,49 @@ public class BaseGenerateTestSupportMethodAction extends BaseGenerateAction {
 
         if (alreadyExist instanceof PsiMethod) {
           editor.getCaretModel().moveToOffset(alreadyExist.getNavigationElement().getTextOffset());
-          HintManager.getInstance().showErrorHint(editor, "Method " + ((PsiMethod)alreadyExist).getName() + " already exists");
+          String message = JavaBundle.message("generate.test.support.method.error.method.already.exists", ((PsiMethod)alreadyExist).getName());
+          HintManager.getInstance().showErrorHint(editor, message);
           return;
         }
       }
 
       if (!CommonRefactoringUtil.checkReadOnlyStatus(file)) return;
 
-      WriteCommandAction.runWriteCommandAction(file.getProject(), new Runnable() {
-        @Override
-        public void run() {
-          try {
-            PsiDocumentManager.getInstance(file.getProject()).commitAllDocuments();
-            PsiMethod method = generateDummyMethod(editor, file);
-            if (method == null) return;
+      WriteCommandAction.runWriteCommandAction(file.getProject(), () -> {
+        try {
+          PsiDocumentManager.getInstance(file.getProject()).commitAllDocuments();
+          PsiMethod method = generateDummyMethod(file, editor, targetClass);
+          if (method == null) return;
 
-            TestIntegrationUtils.runTestMethodTemplate(myMethodKind, framework, editor, targetClass, method, "name", false, null);
-          }
-          catch (IncorrectOperationException e) {
-            HintManager.getInstance().showErrorHint(editor, "Cannot generate method: " + e.getMessage());
-            LOG.warn(e);
-          }
+          TestIntegrationUtils.runTestMethodTemplate(myMethodKind, framework, editor, targetClass, method, "name", false, null);
+        }
+        catch (IncorrectOperationException e) {
+          String message = JavaBundle.message("generate.test.support.method.error.cannot.generate.method", e.getMessage());
+          HintManager.getInstance().showErrorHint(editor, message);
+          LOG.warn(e);
         }
       });
     }
 
     @Nullable
-    private static PsiMethod generateDummyMethod(Editor editor, PsiFile file) throws IncorrectOperationException {
+    private static PsiMethod generateDummyMethod(PsiFile file, Editor editor, PsiClass targetClass) throws IncorrectOperationException {
       final PsiMethod method = TestIntegrationUtils.createDummyMethod(file);
       final PsiGenerationInfo<PsiMethod> info = OverrideImplementUtil.createGenerationInfo(method);
 
-      int offset = findOffsetToInsertMethodTo(editor, file);
+      int offset = findOffsetToInsertMethodTo(editor, file, targetClass);
       GenerateMembersUtil.insertMembersAtOffset(file, offset, Collections.singletonList(info));
 
       final PsiMethod member = info.getPsiMember();
       return member != null ? CodeInsightUtilCore.forcePsiPostprocessAndRestoreElement(member) : null;
     }
 
-    private static int findOffsetToInsertMethodTo(Editor editor, PsiFile file) {
+    private static int findOffsetToInsertMethodTo(Editor editor, PsiFile file, PsiClass targetClass) {
       int result = editor.getCaretModel().getOffset();
 
       PsiClass classAtCursor = PsiTreeUtil.getParentOfType(file.findElementAt(result), PsiClass.class, false);
+      if (classAtCursor == targetClass) {
+        return result;
+      }
 
       while (classAtCursor != null && !(classAtCursor.getParent() instanceof PsiFile)) {
         result = classAtCursor.getTextRange().getEndOffset();
@@ -265,6 +245,7 @@ public class BaseGenerateTestSupportMethodAction extends BaseGenerateAction {
       return result;
     }
 
+    @Override
     public boolean startInWriteAction() {
       return false;
     }

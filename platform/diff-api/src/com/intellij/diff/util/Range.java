@@ -22,6 +22,7 @@ public class Range {
   public final int end2;
 
   public Range(int start1, int end1, int start2, int end2) {
+    assert start1 <= end1 && start2 <= end2;
     this.start1 = start1;
     this.end1 = end1;
     this.start2 = start2;
@@ -55,5 +56,9 @@ public class Range {
   @Override
   public String toString() {
     return "[" + start1 + ", " + end1 + ") - [" + start2 + ", " + end2 + ")";
+  }
+
+  public boolean isEmpty() {
+    return start1 == end1 && start2 == end2;
   }
 }

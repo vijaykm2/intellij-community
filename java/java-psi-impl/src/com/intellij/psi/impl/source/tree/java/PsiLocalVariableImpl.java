@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.tree.java;
 
 import com.intellij.lang.ASTNode;
@@ -21,7 +7,6 @@ import com.intellij.navigation.ItemPresentationProviders;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.*;
-import com.intellij.psi.impl.source.Constants;
 import com.intellij.psi.impl.source.JavaDummyHolder;
 import com.intellij.psi.impl.source.SourceTreeToPsiMap;
 import com.intellij.psi.impl.source.codeStyle.CodeEditUtil;
@@ -32,28 +17,28 @@ import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.tree.ChildRoleBase;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.ui.RowIcon;
+import com.intellij.ui.IconManager;
+import com.intellij.ui.icons.RowIcon;
 import com.intellij.util.CharTable;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.PlatformIcons;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Set;
 
-public class PsiLocalVariableImpl extends CompositePsiElement implements PsiLocalVariable, PsiVariableEx, Constants {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiLocalVariableImpl");
+public class PsiLocalVariableImpl extends CompositePsiElement implements PsiLocalVariable, PsiVariableEx {
+  private static final Logger LOG = Logger.getInstance(PsiLocalVariableImpl.class);
 
-  private volatile String myCachedName = null;
+  private volatile String myCachedName;
 
-  @SuppressWarnings({"UnusedDeclaration"})
   public PsiLocalVariableImpl() {
-    this(LOCAL_VARIABLE);
+    this(JavaElementType.LOCAL_VARIABLE);
   }
 
-  protected PsiLocalVariableImpl(final IElementType type) {
+  PsiLocalVariableImpl(@NotNull IElementType type) {
     super(type);
   }
 
@@ -117,7 +102,7 @@ public class PsiLocalVariableImpl extends CompositePsiElement implements PsiLoca
   public PsiModifierList getModifierList() {
     final CompositeElement parent = getTreeParent();
     if (parent == null) return null;
-    final CompositeElement first = (CompositeElement)parent.findChildByType(LOCAL_VARIABLE);
+    final CompositeElement first = (CompositeElement)parent.findChildByType(JavaElementType.LOCAL_VARIABLE);
     return first != null ? (PsiModifierList)first.findChildByRoleAsPsiElement(ChildRole.MODIFIER_LIST) : null;
   }
 
@@ -139,7 +124,7 @@ public class PsiLocalVariableImpl extends CompositePsiElement implements PsiLoca
 
   @Override
   public Object computeConstantValue() {
-    return computeConstantValue(new THashSet<PsiVariable>());
+    return computeConstantValue(new HashSet<>());
   }
 
   @Override
@@ -181,12 +166,22 @@ public class PsiLocalVariableImpl extends CompositePsiElement implements PsiLoca
 
         ASTNode comma = PsiImplUtil.skipWhitespaceAndCommentsBack(variable.getTreePrev());
         if (comma != null && comma.getElementType() == JavaTokenType.COMMA) {
-          CodeEditUtil.removeChildren(statement, comma, variable.getTreePrev());
+          PsiElement lastWhitespaceAfterComma = comma.getPsi();
+          while (true) {
+            PsiElement nextSibling = lastWhitespaceAfterComma.getNextSibling();
+            if (nextSibling instanceof PsiWhiteSpace) {
+              lastWhitespaceAfterComma = nextSibling;
+            }
+            else {
+              break;
+            }
+          }
+          CodeEditUtil.removeChildren(statement, comma, lastWhitespaceAfterComma.getNode());
         }
 
         CodeEditUtil.removeChild(statement, variable);
         final CharTable charTableByTree = SharedImplUtil.findCharTableByTree(statement);
-        CompositeElement statement1 = Factory.createCompositeElement(DECLARATION_STATEMENT, charTableByTree, getManager());
+        CompositeElement statement1 = Factory.createCompositeElement(JavaElementType.DECLARATION_STATEMENT, charTableByTree, getManager());
         statement1.addChild(variable, null);
 
         ASTNode space = Factory.createSingleLeafElement(TokenType.WHITE_SPACE, " ", 0, 1, treeCharTab, getManager());
@@ -232,10 +227,10 @@ public class PsiLocalVariableImpl extends CompositePsiElement implements PsiLoca
         return null;
 
       case ChildRole.MODIFIER_LIST:
-        return findChildByType(MODIFIER_LIST);
+        return findChildByType(JavaElementType.MODIFIER_LIST);
 
       case ChildRole.TYPE:
-        return findChildByType(TYPE);
+        return findChildByType(JavaElementType.TYPE);
 
       case ChildRole.NAME:
         return findChildByType(JavaTokenType.IDENTIFIER);
@@ -252,13 +247,13 @@ public class PsiLocalVariableImpl extends CompositePsiElement implements PsiLoca
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
-    if (i == MODIFIER_LIST) {
+    if (i == JavaElementType.MODIFIER_LIST) {
       return ChildRole.MODIFIER_LIST;
     }
-    else if (i == TYPE) {
+    else if (i == JavaElementType.TYPE) {
       return getChildRole(child, ChildRole.TYPE);
     }
     else if (i == JavaTokenType.IDENTIFIER) {
@@ -307,6 +302,7 @@ public class PsiLocalVariableImpl extends CompositePsiElement implements PsiLoca
     return ItemPresentationProviders.getItemPresentation(this);
   }
 
+  @Override
   public String toString() {
     return "PsiLocalVariable:" + getName();
   }
@@ -318,14 +314,13 @@ public class PsiLocalVariableImpl extends CompositePsiElement implements PsiLoca
     if (parentElement instanceof PsiDeclarationStatement) {
       return new LocalSearchScope(parentElement.getParent());
     }
-    else {
-      return ResolveScopeManager.getElementUseScope(this);
-    }
+    return ResolveScopeManager.getElementUseScope(this);
   }
 
   @Override
   public Icon getElementIcon(final int flags) {
-    final RowIcon baseIcon = ElementPresentationUtil.createLayeredIcon(PlatformIcons.VARIABLE_ICON, this, false);
+    final RowIcon baseIcon =
+      IconManager.getInstance().createLayeredIcon(this, PlatformIcons.VARIABLE_ICON, ElementPresentationUtil.getFlags(this, false));
     return ElementPresentationUtil.addVisibilityIcon(this, flags, baseIcon);
   }
 

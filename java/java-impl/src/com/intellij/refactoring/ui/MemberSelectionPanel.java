@@ -14,16 +14,9 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 18.06.2002
- * Time: 13:19:44
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.ui;
 
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.PsiMember;
 import com.intellij.refactoring.util.classMembers.MemberInfo;
 import com.intellij.ui.ScrollPaneFactory;
@@ -39,7 +32,7 @@ public class MemberSelectionPanel extends AbstractMemberSelectionPanel<PsiMember
   /**
    * @param title if title contains 'm' - it would look and feel as mnemonic
    */
-  public MemberSelectionPanel(String title, List<MemberInfo> memberInfo, String abstractColumnHeader) {
+  public MemberSelectionPanel(@NlsContexts.Separator String title, List<MemberInfo> memberInfo, @NlsContexts.ColumnName String abstractColumnHeader) {
     super();
     setLayout(new BorderLayout());
 
@@ -49,10 +42,11 @@ public class MemberSelectionPanel extends AbstractMemberSelectionPanel<PsiMember
     add(scrollPane, BorderLayout.CENTER);
   }
 
-  protected MemberSelectionTable createMemberSelectionTable(List<MemberInfo> memberInfo, String abstractColumnHeader) {
+  protected MemberSelectionTable createMemberSelectionTable(List<MemberInfo> memberInfo, @NlsContexts.ColumnName String abstractColumnHeader) {
     return new MemberSelectionTable(memberInfo, abstractColumnHeader);
   }
 
+  @Override
   public MemberSelectionTable getTable() {
     return myTable;
   }

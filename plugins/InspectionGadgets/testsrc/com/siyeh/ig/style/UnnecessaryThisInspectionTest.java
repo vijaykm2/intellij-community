@@ -1,9 +1,9 @@
 package com.siyeh.ig.style;
 
 import com.intellij.codeInspection.LocalInspectionTool;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 
-public class UnnecessaryThisInspectionTest extends LightInspectionTestCase {
+public class UnnecessaryThisInspectionTest extends LightJavaInspectionTestCase {
 
   public void testSimpleField() {
     doTest("class A {" +
@@ -19,6 +19,15 @@ public class UnnecessaryThisInspectionTest extends LightInspectionTestCase {
            "  void x() {}" +
            "  void m() {" +
            "    /*'this' is unnecessary in this context*/this/**/.x();" +
+           "  }" +
+           "}");
+  }
+
+  public void testParenthesesMethod() {
+    doTest("class A {" +
+           "  void x() {}" +
+           "  void m() {" +
+           "    (/*'this' is unnecessary in this context*/this/**/).x();" +
            "  }" +
            "}");
   }
@@ -91,6 +100,7 @@ public class UnnecessaryThisInspectionTest extends LightInspectionTestCase {
    * IDEA-42154
    */
   public void testCatchBlockParameter() {
+    //noinspection EmptyTryBlock
     doTest("class A {" +
            "    private Throwable throwable = null;" +
            "    public void method() {" +
@@ -135,9 +145,22 @@ public class UnnecessaryThisInspectionTest extends LightInspectionTestCase {
 
 
   public void testLambdaMethodRefSelfRefs() {
+    //noinspection FunctionalExpressionCanBeFolded
     doTest("class Main {" +
            "    Runnable lambdaExpression = () -> System.out.println(this.lambdaExpression);" +
            "    Runnable methodReference = this.methodReference::run;" +
+           "}");
+  }
+  
+  public void testYield() {
+    doTest("class Main {\n" +
+           "  void test() {\n" +
+           "    this.yield();\n" +
+           "    /*'this' is unnecessary in this context*/this/**/.yield1();\n" +
+           "  }\n" +
+           "  \n" +
+           "  void yield() {}\n" +
+           "  void yield1() {}\n" +
            "}");
   }
 

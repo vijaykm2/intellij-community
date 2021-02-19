@@ -15,28 +15,23 @@
  */
 package com.jetbrains.python.inspections;
 
-import com.jetbrains.python.fixtures.PyTestCase;
+import com.jetbrains.python.fixtures.PyInspectionTestCase;
 import com.jetbrains.python.psi.LanguageLevel;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author yole
  */
-public class PyRedundantParenthesesInspectionTest extends PyTestCase {
-  public void doTest() {
-    myFixture.configureByFile("inspections/PyRedundantParenthesesInspection/" + getTestName(false) + ".py");
-    myFixture.enableInspections(PyRedundantParenthesesInspection.class);
-    myFixture.checkHighlighting(true, false, true);
+public class PyRedundantParenthesesInspectionTest extends PyInspectionTestCase {
+  @NotNull
+  @Override
+  protected Class<? extends PyInspection> getInspectionClass() {
+    return PyRedundantParenthesesInspection.class;
   }
 
-  public void doTest(LanguageLevel languageLevel) {
-    try {
-      setLanguageLevel(languageLevel);
-      myFixture.configureByFile("inspections/PyRedundantParenthesesInspection/" + getTestName(false) + ".py");
-      myFixture.enableInspections(PyRedundantParenthesesInspection.class);
-      myFixture.checkHighlighting(true, false, true);
-    } finally {
-      setLanguageLevel(null);
-    }
+  @Override
+  protected boolean isLowerCaseTestFile() {
+    return false;
   }
 
   public void testBooleanMultiline() {
@@ -72,15 +67,73 @@ public class PyRedundantParenthesesInspectionTest extends PyTestCase {
   }
 
   public void testYieldFrom() {       //PY-7410
-    doTest(LanguageLevel.PYTHON33);
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
   }
 
-  public void testYield() {       //PY-10420
-    doTest(LanguageLevel.PYTHON27);
+  public void testYieldExpression() {       //PY-10420
+    doTest();
   }
 
   public void testBinaryInBinary() {       //PY-10420
     doTest();
   }
 
+  // PY-31795
+  public void testSyntaxErrorInside() {
+    doTest();
+  }
+
+  // PY-31795
+  public void testSingleLeftParenthesis() {
+    doTest();
+  }
+
+  public void testParenthesizedTupleInReturn() {
+    doTest();
+  }
+
+  public void testParenthesizedTupleInYield() {
+    doTest();
+  }
+
+  // PY-33266
+  public void testNestedParentheses() {
+    doTest();
+  }
+
+  // PY-21530
+  public void testReferenceExpression() {
+    doTest();
+  }
+
+  // PY-20324
+  public void testParenthesizedTupleWithUnpackingInReturnBefore38() {
+    runWithLanguageLevel(LanguageLevel.PYTHON35, this::doTest);
+  }
+
+  // PY-35961
+  public void testParenthesizedTupleWithUnpackingInReturn() {
+    runWithLanguageLevel(LanguageLevel.PYTHON38, this::doTest);
+  }
+
+  // PY-20324
+  public void testParenthesizedTupleWithUnpackingInYieldBefore38() {
+    runWithLanguageLevel(LanguageLevel.PYTHON35, this::doTest);
+  }
+
+  // PY-35961
+  public void testParenthesizedTupleWithUnpackingInYield() {
+    runWithLanguageLevel(LanguageLevel.PYTHON38, this::doTest);
+  }
+
+  // PY-35961
+  public void testParenthesizedTupleWithUnpackingInYieldFrom() {
+    runWithLanguageLevel(LanguageLevel.PYTHON38, this::doTest);
+  }
+
+  // PY-34262
+  public void testReturnOneElementTuple() {
+    doTestByText("def foo():\n" +
+                 "  return (1, )");
+  }
 }

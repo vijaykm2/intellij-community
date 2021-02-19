@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import com.intellij.util.ui.ColumnInfo;
 import com.intellij.util.ui.ListTableModel;
 import com.intellij.util.ui.SortableColumnModel;
 import com.intellij.util.ui.TableViewModel;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -40,7 +41,7 @@ public class TableView<Item> extends BaseTableView implements ItemsProvider, Sel
   private boolean myInStopEditing = false;
 
   public TableView() {
-    this(new ListTableModel<Item>(ColumnInfo.EMPTY_ARRAY));
+    this(new ListTableModel<>(ColumnInfo.EMPTY_ARRAY));
   }
 
   public TableView(final ListTableModel<Item> model) {
@@ -55,10 +56,10 @@ public class TableView<Item> extends BaseTableView implements ItemsProvider, Sel
   }
 
   /**
-   * use {@link #setModelAndUpdateColumns(com.intellij.util.ui.ListTableModel<Item>)} instead
-   * @param model
+   * @deprecated use {@link #setModelAndUpdateColumns(ListTableModel<Item>)} instead
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public void setModel(final ListTableModel<Item> model) {
     setModelAndUpdateColumns(model);
   }
@@ -75,6 +76,10 @@ public class TableView<Item> extends BaseTableView implements ItemsProvider, Sel
 
   @Override
   public TableCellRenderer getCellRenderer(int row, int column) {
+    // Swing GUI designer sets default model (assert in setModel() not worked)
+    if (!(getModel() instanceof ListTableModel)) {
+      return super.getCellRenderer(row, column);
+    }
     final ColumnInfo<Item, ?> columnInfo = getListTableModel().getColumnInfos()[convertColumnIndexToModel(column)];
     final Item item = getRow(row);
     final TableCellRenderer renderer = columnInfo.getCustomizedRenderer(item, columnInfo.getRenderer(item));
@@ -169,7 +174,7 @@ public class TableView<Item> extends BaseTableView implements ItemsProvider, Sel
                               viewWidth) - allColumnWidth) / varCount;
 
     for (int i = 0 ; i < visibleColumnCount; i++) {
-      TableColumn column = columnModel.getColumn(i);
+       TableColumn column = columnModel.getColumn(i);
       int width = widths[i];
       if (sizeMode[i] == 1) {
         column.setMaxWidth(width);
@@ -212,7 +217,7 @@ public class TableView<Item> extends BaseTableView implements ItemsProvider, Sel
       return Collections.emptyList();
     }
 
-    List<Item> result = new SmartList<Item>();
+    List<Item> result = new SmartList<>();
     ListTableModel<Item> model = getListTableModel();
     for (int i = minSelectionIndex; i <= maxSelectionIndex; i++) {
       if (selectionModel.isSelectedIndex(i)) {

@@ -1,20 +1,8 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
+import com.intellij.openapi.wm.IdeFocusManager;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.ui.EditableModel;
 import com.intellij.util.ui.ElementProducer;
 import com.intellij.util.ui.ListTableModel;
@@ -27,6 +15,7 @@ import javax.swing.event.ListSelectionListener;
 import java.awt.*;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
+import java.util.Arrays;
 
 /**
  * @author Konstantin Bulenkov
@@ -57,7 +46,7 @@ class TableToolbarDecorator extends ToolbarDecorator {
   }
 
   @Override
-  protected JComponent getComponent() {
+  protected @NotNull JComponent getComponent() {
     return myTable;
   }
 
@@ -122,15 +111,12 @@ class TableToolbarDecorator extends ToolbarDecorator {
 
         TableUtil.updateScroller(table);
         //noinspection SSBasedInspection
-        SwingUtilities.invokeLater(new Runnable() {
-          @Override
-          public void run() {
-            final Component editorComponent = table.getEditorComponent();
-            if (editorComponent != null) {
-              final Rectangle bounds = editorComponent.getBounds();
-              table.scrollRectToVisible(bounds);
-              editorComponent.requestFocus();
-            }
+        SwingUtilities.invokeLater(() -> {
+          final Component editorComponent = table.getEditorComponent();
+          if (editorComponent != null) {
+            final Rectangle bounds = editorComponent.getBounds();
+            table.scrollRectToVisible(bounds);
+            IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(editorComponent, true));
           }
         });
 
@@ -143,52 +129,51 @@ class TableToolbarDecorator extends ToolbarDecorator {
       public void run(AnActionButton button) {
         if (TableUtil.doRemoveSelectedItems(table, tableModel, null)) {
           updateButtons();
-          table.requestFocus();
+          IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(table, true));
           TableUtil.updateScroller(table);
         }
       }
     };
 
-    myUpAction = new AnActionButtonRunnable() {
-      @Override
-      public void run(AnActionButton button) {        
-        final int row = table.getEditingRow();
-        final int col = table.getEditingColumn();
-        TableUtil.stopEditing(table);
-        final int[] indexes = table.getSelectedRows();
-        for (int index : indexes) {
-          if (0 < index && index < table.getModel().getRowCount()) {
-            tableModel.exchangeRows(index, index - 1);
-            table.setRowSelectionInterval(index - 1, index - 1);
-          }
-        }        
-        table.requestFocus();
-        if (row > 0 && col != -1) {
-          table.editCellAt(row - 1, col);
-        }
-      }
-    };
+    class MoveRunnable implements AnActionButtonRunnable {
+      final int delta;
 
-    myDownAction = new AnActionButtonRunnable() {
+      MoveRunnable(int delta) {
+        this.delta = delta;
+      }
+
       @Override
       public void run(AnActionButton button) {
-        final int row = table.getEditingRow();
-        final int col = table.getEditingColumn();
-
+        int row = table.getEditingRow();
+        int col = table.getEditingColumn();
+        int rowCount = table.getModel().getRowCount();
         TableUtil.stopEditing(table);
-        final int[] indexes = table.getSelectedRows();
-        for (int index : indexes) {
-          if (0 <= index && index < table.getModel().getRowCount() - 1) {
-            tableModel.exchangeRows(index, index + 1);
-            table.setRowSelectionInterval(index + 1, index + 1);
+        int[] idx = table.getSelectedRows();
+        Arrays.sort(idx);
+        if (delta > 0) {
+          idx = ArrayUtil.reverseArray(idx);
+        }
+
+        if (idx.length == 0) return;
+        if (idx[0] + delta < 0) return;
+        if (idx[idx.length - 1] + delta > rowCount) return;
+
+        for (int i = 0; i < idx.length; i++) {
+          tableModel.exchangeRows(idx[i], idx[i] + delta);
+          idx[i] += delta;
+        }
+        TableUtil.selectRows(table, idx);
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(table, true));
+        if (row != -1 && col != -1) {
+          int newEditingRow = row + delta;
+          if (newEditingRow != -1 && newEditingRow < rowCount) {
+            table.editCellAt(newEditingRow, col);
           }
         }
-        table.requestFocus();
-        if (row < table.getRowCount() - 1 && col != -1) {
-          table.editCellAt(row + 1, col);
-        }
       }
-    };
+    }
+    myUpAction = new MoveRunnable(-1);
+    myDownAction = new MoveRunnable(1);
   }
 
   @Override

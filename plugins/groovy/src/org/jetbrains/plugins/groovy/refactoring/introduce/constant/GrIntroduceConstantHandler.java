@@ -1,29 +1,16 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.introduce.constant;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.HelpID;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.introduce.inplace.OccurrencesChooser;
-import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyRecursiveElementVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrField;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable;
@@ -36,16 +23,16 @@ import org.jetbrains.plugins.groovy.refactoring.introduce.*;
 
 import java.util.*;
 
+import static org.jetbrains.annotations.Nls.Capitalization.Title;
+
 /**
  * @author Maxim.Medvedev
  */
 public class GrIntroduceConstantHandler extends GrIntroduceFieldHandlerBase<GrIntroduceConstantSettings> {
-  public static final String REFACTORING_NAME = "Introduce Constant";
 
-  @NotNull
   @Override
-  protected String getRefactoringName() {
-    return REFACTORING_NAME;
+  protected @Nls(capitalization = Title) @NotNull String getRefactoringName() {
+    return GroovyBundle.message("introduce.constant.title");
   }
 
   @NotNull
@@ -69,7 +56,7 @@ public class GrIntroduceConstantHandler extends GrIntroduceFieldHandlerBase<GrIn
   protected void checkVariable(@NotNull GrVariable variable) throws GrRefactoringError {
     final GrExpression initializer = variable.getInitializerGroovy();
     if (initializer == null) {
-      throw new GrRefactoringError(RefactoringBundle.message("variable.does.not.have.an.initializer", variable.getName()));
+      throw new GrRefactoringError(JavaRefactoringBundle.message("variable.does.not.have.an.initializer", variable.getName()));
     }
     checkExpression(initializer);
   }
@@ -80,7 +67,7 @@ public class GrIntroduceConstantHandler extends GrIntroduceFieldHandlerBase<GrIn
   }
 
   @Override
-  protected void checkOccurrences(@NotNull PsiElement[] occurrences) {
+  protected void checkOccurrences(PsiElement @NotNull [] occurrences) {
     if (hasLhs(occurrences)) {
       throw new GrRefactoringError(GroovyRefactoringBundle.message("selected.variable.is.used.for.write"));
     }
@@ -116,34 +103,34 @@ public class GrIntroduceConstantHandler extends GrIntroduceFieldHandlerBase<GrIn
   @NotNull
   @Override
   protected Map<OccurrencesChooser.ReplaceChoice, List<Object>> getOccurrenceOptions(@NotNull GrIntroduceContext context) {
-    HashMap<OccurrencesChooser.ReplaceChoice, List<Object>> map = ContainerUtil.newLinkedHashMap();
+    HashMap<OccurrencesChooser.ReplaceChoice, List<Object>> map = new LinkedHashMap<>();
 
     GrVariable localVar = resolveLocalVar(context);
     if (localVar != null) {
-      map.put(OccurrencesChooser.ReplaceChoice.ALL, Arrays.<Object>asList(context.getOccurrences()));
+      map.put(OccurrencesChooser.ReplaceChoice.ALL, Arrays.asList(context.getOccurrences()));
       return map;
     }
 
     if (context.getExpression() != null) {
-      map.put(OccurrencesChooser.ReplaceChoice.NO, Collections.<Object>singletonList(context.getExpression()));
+      map.put(OccurrencesChooser.ReplaceChoice.NO, Collections.singletonList(context.getExpression()));
     }
     else if (context.getStringPart() != null) {
-      map.put(OccurrencesChooser.ReplaceChoice.NO, Collections.<Object>singletonList(context.getStringPart()));
+      map.put(OccurrencesChooser.ReplaceChoice.NO, Collections.singletonList(context.getStringPart()));
     }
 
     PsiElement[] occurrences = context.getOccurrences();
     if (occurrences.length > 1) {
-      map.put(OccurrencesChooser.ReplaceChoice.ALL, Arrays.<Object>asList(occurrences));
+      map.put(OccurrencesChooser.ReplaceChoice.ALL, Arrays.asList(occurrences));
     }
     return map;
   }
 
-  private static class ConstantChecker extends GroovyRecursiveElementVisitor {
+  private static final class ConstantChecker extends GroovyRecursiveElementVisitor {
     private final PsiElement scope;
     private final GrExpression expr;
 
     @Override
-    public void visitReferenceExpression(GrReferenceExpression referenceExpression) {
+    public void visitReferenceExpression(@NotNull GrReferenceExpression referenceExpression) {
       final PsiElement resolved = referenceExpression.resolve();
       if (resolved instanceof PsiVariable) {
         if (!isStaticFinalField((PsiVariable)resolved)) {
@@ -153,7 +140,7 @@ public class GrIntroduceConstantHandler extends GrIntroduceFieldHandlerBase<GrIn
             }
           }
           else {
-            throw new GrRefactoringError(RefactoringBundle.message("selected.expression.cannot.be.a.constant.initializer"));
+            throw new GrRefactoringError(JavaRefactoringBundle.message("selected.expression.cannot.be.a.constant.initializer"));
           }
         }
       }
@@ -162,7 +149,7 @@ public class GrIntroduceConstantHandler extends GrIntroduceFieldHandlerBase<GrIn
         if (qualifier == null ||
             (qualifier instanceof GrReferenceExpression && ((GrReferenceExpression)qualifier).resolve() instanceof PsiClass)) {
           if (!((PsiMethod)resolved).hasModifierProperty(PsiModifier.STATIC)) {
-            throw new GrRefactoringError(RefactoringBundle.message("selected.expression.cannot.be.a.constant.initializer"));
+            throw new GrRefactoringError(JavaRefactoringBundle.message("selected.expression.cannot.be.a.constant.initializer"));
           }
         }
       }
@@ -173,7 +160,7 @@ public class GrIntroduceConstantHandler extends GrIntroduceFieldHandlerBase<GrIn
     }
 
     @Override
-    public void visitClosure(GrClosableBlock closure) {
+    public void visitClosure(@NotNull GrClosableBlock closure) {
       if (closure == expr) {
         super.visitClosure(closure);
       }

@@ -15,12 +15,11 @@
  */
 package com.intellij.psi.search.scope.packageSet;
 
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * User: anna
- */
 public class InvalidPackageSet extends AbstractPackageSet {
 
   public InvalidPackageSet(@NotNull String text) {
@@ -28,7 +27,7 @@ public class InvalidPackageSet extends AbstractPackageSet {
   }
 
   @Override
-  public boolean contains(VirtualFile file, NamedScopesHolder holder) {
+  public boolean contains(@NotNull VirtualFile file, @NotNull Project project, @Nullable NamedScopesHolder holder) {
     return false;
   }
 }

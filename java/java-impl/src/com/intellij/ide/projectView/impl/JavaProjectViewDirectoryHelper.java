@@ -1,32 +1,18 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.projectView.impl;
 
 import com.intellij.ide.projectView.ViewSettings;
 import com.intellij.ide.projectView.impl.nodes.PackageElement;
 import com.intellij.ide.projectView.impl.nodes.PackageUtil;
 import com.intellij.ide.projectView.impl.nodes.ProjectViewDirectoryHelper;
+import com.intellij.ide.projectView.impl.nodes.PsiFileSystemItemFilter;
 import com.intellij.ide.util.treeView.TreeViewUtil;
-import com.intellij.lang.LangBundle;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.impl.DirectoryIndex;
-import com.intellij.openapi.vfs.impl.jrt.JrtFileSystem;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.JavaDirectoryService;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiPackage;
+import com.intellij.util.FontUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -34,20 +20,24 @@ import java.util.Arrays;
 
 /**
  * @author anna
- * @since 23-Jan-2008
  */
-public class JavaProjectViewDirectoryHelper extends ProjectViewDirectoryHelper {
-  public JavaProjectViewDirectoryHelper(Project project, DirectoryIndex index) {
-    super(project, index);
+public final class JavaProjectViewDirectoryHelper extends ProjectViewDirectoryHelper {
+  public JavaProjectViewDirectoryHelper(Project project) {
+    super(project);
   }
 
+  @Nullable
   @Override
-  public String getLocationString(@NotNull final PsiDirectory directory) {
+  public String getLocationString(@NotNull PsiDirectory directory, boolean includeUrl, boolean includeRootType) {
+    String result = null;
     PsiPackage aPackage = JavaDirectoryService.getInstance().getPackage(directory);
     if (ProjectRootsUtil.isSourceRoot(directory) && aPackage != null) {   //package prefix
-      return aPackage.getQualifiedName();
+      result = StringUtil.nullize(aPackage.getQualifiedName(), true);
     }
-    return super.getLocationString(directory);
+    String baseString = super.getLocationString(directory, includeUrl, includeRootType);
+    if (result == null) return baseString;
+    if (baseString == null) return result;
+    return result  + "," + FontUtil.spaceAndThinSpace() + baseString;
   }
 
   @Override
@@ -60,13 +50,14 @@ public class JavaProjectViewDirectoryHelper extends ProjectViewDirectoryHelper {
            !aPackage.getQualifiedName().isEmpty();
   }
 
-  @Nullable
+  @Override
+  public boolean shouldHideProjectConfigurationFilesDirectory() {
+    return false;
+  }
+
+  @NotNull
   @Override
   public String getNodeName(final ViewSettings settings, final Object parentValue, final PsiDirectory directory) {
-    if (JrtFileSystem.isRoot(directory.getVirtualFile())) {
-      return LangBundle.message("jrt.node.short");
-    }
-
     PsiPackage aPackage = JavaDirectoryService.getInstance().getPackage(directory);
 
     PsiPackage parentPackage;
@@ -90,8 +81,11 @@ public class JavaProjectViewDirectoryHelper extends ProjectViewDirectoryHelper {
   }
 
   @Override
-  public boolean isEmptyMiddleDirectory(final PsiDirectory directory, final boolean strictlyEmpty) {
-    return JavaDirectoryService.getInstance().getPackage(directory) != null && TreeViewUtil.isEmptyMiddlePackage(directory, strictlyEmpty);
+  public boolean isEmptyMiddleDirectory(final PsiDirectory directory,
+                                        final boolean strictlyEmpty,
+                                        @Nullable PsiFileSystemItemFilter filter) {
+    return JavaDirectoryService.getInstance().getPackage(directory) != null &&
+           TreeViewUtil.isEmptyMiddlePackage(directory, strictlyEmpty, filter);
   }
 
   @Override

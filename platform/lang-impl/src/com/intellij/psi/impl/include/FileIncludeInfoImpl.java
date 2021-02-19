@@ -27,7 +27,7 @@ class FileIncludeInfoImpl extends FileIncludeInfo {
 
   public final String providerId;
 
-  public FileIncludeInfoImpl(@NotNull String path, int offset, boolean runtimeOnly, String providerId) {
+  FileIncludeInfoImpl(@NotNull String path, int offset, boolean runtimeOnly, String providerId) {
     super(new File(path).getName(), path, offset, runtimeOnly);
     this.providerId = providerId;
   }
@@ -56,5 +56,16 @@ class FileIncludeInfoImpl extends FileIncludeInfo {
     result = 31 * result + offset;
     result = 31 * result + (runtimeOnly ? 1 : 0);
     return result;
+  }
+
+  @Override
+  public String toString() {
+    return "FileIncludeInfoImpl{" +
+           "fileName='" + fileName + '\'' +
+           ", path='" + path + '\'' +
+           ", offset=" + offset +
+           ", runtimeOnly=" + runtimeOnly +
+           ", providerId='" + providerId + '\'' +
+           '}';
   }
 }

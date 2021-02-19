@@ -28,17 +28,9 @@ import com.intellij.psi.PsiReturnStatement;
 import com.intellij.psi.PsiThrowStatement;
 import com.intellij.psi.impl.source.tree.JavaElementType;
 import com.intellij.psi.tree.TokenSet;
-import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.text.CharArrayUtil;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Created by IntelliJ IDEA.
- * User: max
- * Date: Sep 8, 2003
- * Time: 2:48:47 PM
- * To change this template use Options | File Templates.
- */
 public class LeaveCodeBlockEnterProcessor implements EnterProcessor {
 
   private static final TokenSet CONTROL_FLOW_ELEMENT_TYPES = TokenSet.create(
@@ -74,10 +66,8 @@ public class LeaveCodeBlockEnterProcessor implements EnterProcessor {
         EditorActionManager actionManager = EditorActionManager.getInstance();
         EditorActionHandler actionHandler = actionManager.getActionHandler(IdeActions.ACTION_EDITOR_MOVE_LINE_END);
         final DataContext dataContext = DataManager.getInstance().getDataContext(editor.getComponent());
-        if (dataContext != null) {
-          actionHandler.execute(editor, dataContext);
-          return true;
-        }
+        actionHandler.execute(editor, editor.getCaretModel().getCurrentCaret(), dataContext);
+        return true;
       }
     }
     

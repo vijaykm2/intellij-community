@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2007 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,21 +15,16 @@
  */
 package com.siyeh.ig.errorhandling;
 
-import com.intellij.psi.*;
+import com.intellij.psi.PsiCodeBlock;
+import com.intellij.psi.PsiTryStatement;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
+import com.siyeh.ig.psiutils.ControlFlowUtils;
 import org.jetbrains.annotations.NotNull;
 
 public class NestedTryStatementInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "nested.try.statement.display.name");
-  }
 
   @Override
   @NotNull
@@ -49,9 +44,7 @@ public class NestedTryStatementInspection extends BaseInspection {
     @Override
     public void visitTryStatement(@NotNull PsiTryStatement statement) {
       super.visitTryStatement(statement);
-      final PsiTryStatement parentTry =
-        PsiTreeUtil.getParentOfType(statement,
-                                    PsiTryStatement.class);
+      final PsiTryStatement parentTry = PsiTreeUtil.getParentOfType(statement, PsiTryStatement.class);
       if (parentTry == null) {
         return;
       }
@@ -62,16 +55,9 @@ public class NestedTryStatementInspection extends BaseInspection {
       if (!PsiTreeUtil.isAncestor(tryBlock, statement, true)) {
         return;
       }
-      final PsiMember containingMethod =
-        PsiTreeUtil.getParentOfType(statement, PsiMember.class, true, PsiLambdaExpression.class, PsiClass.class);
-      final PsiMember containingContainingMethod =
-        PsiTreeUtil.getParentOfType(parentTry, PsiMember.class, true, PsiLambdaExpression.class, PsiClass.class);
-      if (containingMethod == null ||
-          containingContainingMethod == null ||
-          !containingMethod.equals(containingContainingMethod)) {
-        return;
+      if (ControlFlowUtils.isNestedElement(statement, PsiTryStatement.class)) {
+        registerStatementError(statement);
       }
-      registerStatementError(statement);
     }
   }
 }

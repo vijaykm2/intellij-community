@@ -1,162 +1,156 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl.status;
 
+import com.intellij.ide.ui.AntialiasingType;
+import com.intellij.ide.ui.UISettings;
+import com.intellij.openapi.util.IconLoader;
+import com.intellij.openapi.util.NlsContexts.StatusBarText;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.ui.Gray;
+import com.intellij.ui.components.panels.NonOpaquePanel;
+import com.intellij.ui.scale.JBUIScale;
+import com.intellij.util.ui.GraphicsUtil;
+import com.intellij.util.ui.JBFont;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.accessibility.Accessible;
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
 import javax.swing.*;
 import java.awt.*;
 
-public class TextPanel extends JComponent {
-  @Nullable private String  myText;
-  @Nullable private Color myCustomColor;
+public class TextPanel extends NonOpaquePanel implements Accessible {
+  @Nullable @Nls private String myText;
 
-  private Integer   myPrefHeight;
+  private Integer myPrefHeight;
   private Dimension myExplicitSize;
 
-  private boolean myDecorate = true;
-  private float myAlignment;
-  private int myRightPadding = JBUI.scale(14);
+  protected float myAlignment;
 
   protected TextPanel() {
-    setOpaque(false);
+    updateUI();
+  }
+
+  @Override
+  public void updateUI() {
+    GraphicsUtil.setAntialiasingType(this, AntialiasingType.getAAHintForSwingComponent());
+    Object value = UIManager.getDefaults().get(RenderingHints.KEY_FRACTIONALMETRICS);
+    if (value == null) value = RenderingHints.VALUE_FRACTIONALMETRICS_OFF;
+    putClientProperty(RenderingHints.KEY_FRACTIONALMETRICS, value);
   }
 
   @Override
   public Font getFont() {
-    return SystemInfo.isMac ? JBUI.Fonts.label(11) : JBUI.Fonts.label();
-  }
-
-  protected TextPanel(final boolean decorate) {
-    this();
-    myDecorate = decorate;
+    return SystemInfo.isMac ? JBUI.Fonts.label(11) : JBFont.label();
   }
 
   public void recomputeSize() {
-    final JLabel label = new JLabel("XXX");
+    final JLabel label = new JLabel("XXX"); //NON-NLS
     label.setFont(getFont());
     myPrefHeight = label.getPreferredSize().height;
   }
 
-  public void setDecorate(boolean decorate) {
-    myDecorate = decorate;
-  }
-
+  /**
+   * @deprecated no effect
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public void resetColor() {
-    myCustomColor = null;
-  }
-
-  public void setCustomColor(@Nullable Color customColor) {
-    myCustomColor = customColor;
   }
 
   @Override
   protected void paintComponent(final Graphics g) {
-    String s = getText();
-    final Rectangle bounds = getBounds();
-    if (UIUtil.isUnderDarcula()) {
-      g.setColor(UIUtil.getPanelBackground());
-      g.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
-    }
+    @Nls String s = getText();
+    int panelWidth = getWidth();
+    int panelHeight = getHeight();
     if (s == null) return;
-    final Insets insets = getInsets();
 
-    final Graphics2D g2 = (Graphics2D)g;
+    Graphics2D g2 = (Graphics2D)g;
     g2.setFont(getFont());
+    UISettings.setupAntialiasing(g);
 
-    UIUtil.applyRenderingHints(g2);
-
-    final FontMetrics fm = g2.getFontMetrics();
-    final int sWidth = fm.stringWidth(s);
-
-    int x = insets.left;
-    if (myAlignment == Component.CENTER_ALIGNMENT || myAlignment == Component.RIGHT_ALIGNMENT) {
-      x = myAlignment == Component.CENTER_ALIGNMENT ? (bounds.width - sWidth) / 2 : bounds.width - insets.right - sWidth;
+    Rectangle bounds = new Rectangle(panelWidth, panelHeight);
+    FontMetrics fm = g.getFontMetrics();
+    int textWidth = fm.stringWidth(s);
+    int x = textWidth > panelWidth ? getInsets().left : getTextX(g2);
+    int maxWidth = panelWidth - x - getInsets().right;
+    if (textWidth > maxWidth) {
+      s = truncateText(s, bounds, fm, new Rectangle(), new Rectangle(), maxWidth);
     }
 
-    final Rectangle textR = new Rectangle();
-    final Rectangle iconR = new Rectangle();
-    final Rectangle viewR = new Rectangle(bounds);
-    textR.x = textR.y = textR.width = textR.height = 0;
-
-    viewR.width -= insets.left;
-    viewR.width -= insets.right;
-
-    final int maxWidth = bounds.width - insets.left - insets.right;
-    if (sWidth > maxWidth) {
-      s = truncateText(s, bounds, fm, textR, iconR, maxWidth);
-    }
-
-    final int y = UIUtil.getStringY(s, bounds, g2);
-    if (SystemInfo.isMac && !UIUtil.isUnderDarcula() && myDecorate) {
-      g2.setColor(myCustomColor == null ? Gray._215 : myCustomColor);
-      g2.drawString(s, x, y + 1);
-    }
-
-    g2.setColor(myCustomColor == null ? getForeground() : myCustomColor);
+    int y = UIUtil.getStringY(s, bounds, g2);
+    Color foreground = isEnabled() ? getForeground() : UIUtil.getInactiveTextColor();
+    g2.setColor(foreground);
     g2.drawString(s, x, y);
   }
 
-  protected String truncateText(String text, Rectangle bounds, FontMetrics fm, Rectangle textR, Rectangle iconR, int maxWidth) {
-    return SwingUtilities.layoutCompoundLabel(fm, text, null, SwingConstants.CENTER, SwingConstants.CENTER, SwingConstants.CENTER,
-                                               SwingConstants.TRAILING,
-                                               bounds, iconR, textR, 0);
+  protected int getTextX(Graphics g) {
+    String text = getText();
+    Insets insets = getInsets();
+    if (text == null || myAlignment == Component.LEFT_ALIGNMENT) {
+      return insets.left;
+    }
+    if (myAlignment == Component.RIGHT_ALIGNMENT) {
+      FontMetrics fm = g.getFontMetrics();
+      int textWidth = fm.stringWidth(text);
+      return getWidth() - insets.right - textWidth;
+    }
+    if (myAlignment == Component.CENTER_ALIGNMENT) {
+      FontMetrics fm = g.getFontMetrics();
+      int textWidth = fm.stringWidth(text);
+      return (getWidth() - insets.left - insets.right - textWidth) / 2 + insets.left;
+    }
+    return insets.left;
+  }
+
+  @Nls
+  protected String truncateText(@Nls String text, Rectangle bounds, FontMetrics fm, Rectangle textR, Rectangle iconR, int maxWidth) {
+    return SwingUtilities.layoutCompoundLabel(this, fm, text, null, SwingConstants.CENTER, SwingConstants.CENTER, SwingConstants.CENTER,
+                                              SwingConstants.TRAILING,
+                                              bounds, iconR, textR, 0);
   }
 
   public void setTextAlignment(final float alignment) {
     myAlignment = alignment;
   }
 
-  private static String splitText(final JLabel label, final String text, final int widthLimit) {
-    final FontMetrics fontMetrics = label.getFontMetrics(label.getFont());
-
-    final String[] lines = UIUtil.splitText(text, fontMetrics, widthLimit, ' ');
-
-    final StringBuilder result = new StringBuilder();
-    for (int i = 0; i < lines.length; i++) {
-      final String line = lines[i];
-      if (i > 0) {
-        result.append('\n');
-      }
-      result.append(line);
-    }
-    return result.toString();
-  }
-
-  public final void setText(@Nullable String text) {
+  public final void setText(@Nullable @StatusBarText String text) {
     text = StringUtil.notNullize(text);
     if (text.equals(myText)) {
       return;
     }
 
+    String oldAccessibleName = null;
+    if (accessibleContext != null) {
+      oldAccessibleName = accessibleContext.getAccessibleName();
+    }
+
     myText = text;
+
+    if ((accessibleContext != null) && !StringUtil.equals(accessibleContext.getAccessibleName(), oldAccessibleName)) {
+      accessibleContext.firePropertyChange(
+        AccessibleContext.ACCESSIBLE_VISIBLE_DATA_PROPERTY,
+        oldAccessibleName,
+        accessibleContext.getAccessibleName());
+    }
+
     setPreferredSize(getPanelDimensionFromFontMetrics(myText));
     revalidate();
     repaint();
   }
 
+  @Nullable
+  @Nls
   public String getText() {
     return myText;
   }
 
+  @Override
   public Dimension getPreferredSize() {
     if (myExplicitSize != null) {
       return myExplicitSize;
@@ -166,14 +160,10 @@ public class TextPanel extends JComponent {
     return getPanelDimensionFromFontMetrics(text);
   }
 
-  public void setRightPadding(int rightPadding) {
-    myRightPadding = rightPadding;
-  }
-
-  private Dimension getPanelDimensionFromFontMetrics (String text) {
-    int width = (text == null) ? 0 : myRightPadding + getFontMetrics(getFont()).stringWidth(text);
+  private Dimension getPanelDimensionFromFontMetrics(String text) {
+    Insets insets = getInsets();
+    int width = insets.left + insets.right + (text != null ? getFontMetrics(getFont()).stringWidth(text) : 0);
     int height = (myPrefHeight == null) ? getMinimumSize().height : myPrefHeight;
-
     return new Dimension(width, height);
   }
 
@@ -187,5 +177,102 @@ public class TextPanel extends JComponent {
 
   public void setExplicitSize(@Nullable Dimension explicitSize) {
     myExplicitSize = explicitSize;
+  }
+
+  public static class WithIconAndArrows extends TextPanel {
+    private final static int GAP = JBUIScale.scale(2);
+    @Nullable private Icon myIcon;
+
+    @Override
+    protected void paintComponent(@NotNull final Graphics g) {
+      super.paintComponent(g);
+      Icon icon = myIcon == null || isEnabled() ? myIcon : IconLoader.getDisabledIcon(myIcon);
+      if (icon != null) {
+        icon.paintIcon(this, g, getIconX(g), getHeight() / 2 - icon.getIconHeight() / 2);
+      }
+    }
+
+    /**
+     * @deprecated arrows are not painted anymore
+     */
+    @Deprecated
+    @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+    protected boolean shouldPaintArrows() {
+      return false;
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
+      Dimension preferredSize = super.getPreferredSize();
+      if (myIcon == null) {
+        return preferredSize;
+      }
+      return new Dimension(Math.max(preferredSize.width + myIcon.getIconWidth(), getHeight()), preferredSize.height);
+    }
+
+    @Override
+    protected int getTextX(Graphics g) {
+      int x = super.getTextX(g);
+      if (myIcon == null || myAlignment == RIGHT_ALIGNMENT) {
+        return x;
+      }
+      if (myAlignment == CENTER_ALIGNMENT) {
+        return x + (myIcon.getIconWidth() + GAP) / 2;
+      }
+      if (myAlignment == LEFT_ALIGNMENT) {
+        return x + myIcon.getIconWidth() + GAP;
+      }
+      return x;
+    }
+
+    private int getIconX(Graphics g) {
+      int x = super.getTextX(g);
+      if (myIcon == null || getText() == null || myAlignment == LEFT_ALIGNMENT) {
+        return x;
+      }
+      if (myAlignment == CENTER_ALIGNMENT) {
+        return x - (myIcon.getIconWidth() + GAP) / 2;
+      }
+      if (myAlignment == RIGHT_ALIGNMENT) {
+        return x - myIcon.getIconWidth() - GAP;
+      }
+      return x;
+    }
+
+    public void setIcon(@Nullable Icon icon) {
+      myIcon = icon;
+    }
+
+    public boolean hasIcon() { return myIcon != null; }
+
+    public @Nullable Icon getIcon() { return myIcon; }
+  }
+
+  public static class ExtraSize extends TextPanel {
+    @Override
+    public Dimension getPreferredSize() {
+      Dimension size = super.getPreferredSize();
+      return new Dimension(size.width + 3, size.height);
+    }
+  }
+
+  @Override
+  public AccessibleContext getAccessibleContext() {
+    if (accessibleContext == null) {
+      accessibleContext = new AccessibleTextPanel();
+    }
+    return accessibleContext;
+  }
+
+  protected class AccessibleTextPanel extends AccessibleJComponent {
+    @Override
+    public AccessibleRole getAccessibleRole() {
+      return AccessibleRole.LABEL;
+    }
+
+    @Override
+    public String getAccessibleName() {
+      return myText;
+    }
   }
 }

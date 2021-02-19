@@ -1,26 +1,8 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.runners;
 
-import com.google.common.base.Function;
-import com.google.common.base.Predicate;
-import com.google.common.collect.FluentIterable;
+import com.intellij.build.events.BuildEventsNls;
 import com.intellij.execution.ExecutionException;
-import com.intellij.execution.ExecutionHelper;
-import com.intellij.execution.ExecutionManager;
 import com.intellij.execution.Executor;
 import com.intellij.execution.console.ConsoleExecuteAction;
 import com.intellij.execution.console.LanguageConsoleView;
@@ -28,21 +10,22 @@ import com.intellij.execution.console.ProcessBackedConsoleExecuteActionHandler;
 import com.intellij.execution.executors.DefaultRunExecutor;
 import com.intellij.execution.process.*;
 import com.intellij.execution.ui.RunContentDescriptor;
+import com.intellij.execution.ui.RunContentManager;
 import com.intellij.execution.ui.actions.CloseAction;
 import com.intellij.ide.CommonActionsManager;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.SideBorder;
-import com.intellij.util.NotNullFunction;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -52,7 +35,7 @@ import java.util.List;
  * @author oleg
  */
 public abstract class AbstractConsoleRunnerWithHistory<T extends LanguageConsoleView> {
-  private final String myConsoleTitle;
+  private final @Nls(capitalization = Nls.Capitalization.Title) String myConsoleTitle;
 
   private ProcessHandler myProcessHandler;
   private final String myWorkingDir;
@@ -64,7 +47,9 @@ public abstract class AbstractConsoleRunnerWithHistory<T extends LanguageConsole
 
   private ProcessBackedConsoleExecuteActionHandler myConsoleExecuteActionHandler;
 
-  public AbstractConsoleRunnerWithHistory(@NotNull Project project, @NotNull String consoleTitle, @Nullable String workingDir) {
+  public AbstractConsoleRunnerWithHistory(@NotNull Project project,
+                                          @NotNull @Nls(capitalization = Nls.Capitalization.Title) String consoleTitle,
+                                          @Nullable String workingDir) {
     myProject = project;
     myConsoleTitle = consoleTitle;
     myWorkingDir = workingDir;
@@ -78,47 +63,44 @@ public abstract class AbstractConsoleRunnerWithHistory<T extends LanguageConsole
   public void initAndRun() throws ExecutionException {
     // Create Server process
     final Process process = createProcess();
-    UIUtil.invokeLaterIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        initConsoleUI(process);
+    UIUtil.invokeLaterIfNeeded(() -> {
+      // Init console view
+      myConsoleView = createConsoleView();
+      if (myConsoleView instanceof JComponent) {
+        ((JComponent)myConsoleView).setBorder(new SideBorder(JBColor.border(), SideBorder.LEFT));
       }
+      myProcessHandler = createProcessHandler(process);
+
+      myConsoleExecuteActionHandler = createExecuteActionHandler();
+
+      ProcessTerminatedListener.attach(myProcessHandler);
+
+      myProcessHandler.addProcessListener(new ProcessAdapter() {
+        @Override
+        public void processTerminated(@NotNull ProcessEvent event) {
+          finishConsole();
+        }
+      });
+
+      // Attach to process
+      myConsoleView.attachToProcess(myProcessHandler);
+
+      // Runner creating
+      createContentDescriptorAndActions();
+
+      // Run
+      myProcessHandler.startNotify();
     });
   }
 
-  private void initConsoleUI(Process process) {
-    // Init console view
-    myConsoleView = createConsoleView();
-    if (myConsoleView instanceof JComponent) {
-      ((JComponent)myConsoleView).setBorder(new SideBorder(JBColor.border(), SideBorder.LEFT));
-    }
-    myProcessHandler = createProcessHandler(process);
-
-    myConsoleExecuteActionHandler = createExecuteActionHandler();
-
-    ProcessTerminatedListener.attach(myProcessHandler);
-
-    myProcessHandler.addProcessListener(new ProcessAdapter() {
-      @Override
-      public void processTerminated(ProcessEvent event) {
-        finishConsole();
-      }
-    });
-
-    // Attach to process
-    myConsoleView.attachToProcess(myProcessHandler);
-
-    // Runner creating
-    createContentDescriptorAndActions();
-
-    // Run
-    myProcessHandler.startNotify();
+  protected Executor getExecutor() {
+    return DefaultRunExecutor.getRunExecutorInstance();
   }
 
   protected void createContentDescriptorAndActions() {
-    final Executor defaultExecutor = DefaultRunExecutor.getRunExecutorInstance();
+    final Executor defaultExecutor = getExecutor();
     final DefaultActionGroup toolbarActions = new DefaultActionGroup();
-    final ActionToolbar actionToolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, toolbarActions, false);
+    final ActionToolbar actionToolbar = ActionManager.getInstance().createActionToolbar("ConsoleRunner", toolbarActions, false);
 
     // Runner creating
     final JPanel panel = new JPanel(new BorderLayout());
@@ -128,14 +110,9 @@ public abstract class AbstractConsoleRunnerWithHistory<T extends LanguageConsole
     actionToolbar.setTargetComponent(panel);
 
     final RunContentDescriptor contentDescriptor =
-      new RunContentDescriptor(myConsoleView, myProcessHandler, panel, constructConsoleTitle(myConsoleTitle));
+      new RunContentDescriptor(myConsoleView, myProcessHandler, panel, constructConsoleTitle(myConsoleTitle), getConsoleIcon());
 
-    contentDescriptor.setFocusComputable(new Computable<JComponent>() {
-      @Override
-      public JComponent compute() {
-        return getConsoleView().getConsoleEditor().getContentComponent();
-      }
-    });
+    contentDescriptor.setFocusComputable(() -> getConsoleView().getConsoleEditor().getContentComponent());
     contentDescriptor.setAutoFocusContent(isAutoFocusContent());
 
 
@@ -147,30 +124,13 @@ public abstract class AbstractConsoleRunnerWithHistory<T extends LanguageConsole
     showConsole(defaultExecutor, contentDescriptor);
   }
 
-  protected String constructConsoleTitle(final @NotNull String consoleTitle) {
-    if (shouldAddNumberToTitle()) {
-      List<String> activeConsoleNames = getActiveConsoleNames(consoleTitle);
-      int max = 0;
-      for (String name : activeConsoleNames) {
-        if (max == 0) {
-          max = 1;
-        }
-        try {
-          int num = Integer.parseInt(name.substring(consoleTitle.length() + 1, name.length() - 1));
-          if (num > max) {
-            max = num;
-          }
-        }
-        catch (Exception ignored) {
-          //skip
-        }
-      }
-      if (max >= 1) {
-        return consoleTitle + "(" + (max + 1) + ")";
-      }
-    }
+  @Nullable
+  protected Icon getConsoleIcon() {
+    return null;
+  }
 
-    return consoleTitle;
+  protected @BuildEventsNls.Title String constructConsoleTitle(final @NotNull @NlsContexts.TabTitle String consoleTitle) {
+    return new ConsoleTitleGen(myProject, consoleTitle, shouldAddNumberToTitle()).makeTitle();
   }
 
   public boolean isAutoFocusContent() {
@@ -183,7 +143,7 @@ public abstract class AbstractConsoleRunnerWithHistory<T extends LanguageConsole
 
   protected void showConsole(Executor defaultExecutor, @NotNull RunContentDescriptor contentDescriptor) {
     // Show in run toolwindow
-    ExecutionManager.getInstance(myProject).getContentManager().showRunContent(defaultExecutor, contentDescriptor);
+    RunContentManager.getInstance(myProject).showRunContent(defaultExecutor, contentDescriptor);
   }
 
   protected void finishConsole() {
@@ -197,11 +157,9 @@ public abstract class AbstractConsoleRunnerWithHistory<T extends LanguageConsole
 
   protected abstract OSProcessHandler createProcessHandler(final Process process);
 
-  public static void registerActionShortcuts(final List<AnAction> actions, final JComponent component) {
+  public static void registerActionShortcuts(final List<? extends AnAction> actions, final JComponent component) {
     for (AnAction action : actions) {
-      if (action.getShortcutSet() != null) {
-        action.registerCustomShortcutSet(action.getShortcutSet(), component);
-      }
+      action.registerCustomShortcutSet(action.getShortcutSet(), component);
     }
   }
 
@@ -209,7 +167,7 @@ public abstract class AbstractConsoleRunnerWithHistory<T extends LanguageConsole
                                               final Executor defaultExecutor,
                                               final RunContentDescriptor contentDescriptor) {
 
-    List<AnAction> actionList = ContainerUtil.newArrayList();
+    List<AnAction> actionList = new ArrayList<>();
 
     //stop
     actionList.add(createStopAction());
@@ -269,30 +227,5 @@ public abstract class AbstractConsoleRunnerWithHistory<T extends LanguageConsole
     return myConsoleExecuteActionHandler;
   }
 
-  protected List<String> getActiveConsoleNames(final String consoleTitle) {
-    return getActiveConsolesFromRunToolWindow(consoleTitle);
-  }
 
-  protected List<String> getActiveConsolesFromRunToolWindow(final String consoleTitle) {
-    List<RunContentDescriptor> consoles = ExecutionHelper.collectConsolesByDisplayName(myProject, new NotNullFunction<String, Boolean>() {
-      @NotNull
-      @Override
-      public Boolean fun(String dom) {
-        return dom.contains(consoleTitle);
-      }
-    });
-
-    return FluentIterable.from(consoles).filter(new Predicate<RunContentDescriptor>() {
-      @Override
-      public boolean apply(RunContentDescriptor input) {
-        ProcessHandler handler = input.getProcessHandler();
-        return handler != null && !handler.isProcessTerminated();
-      }
-    }).transform(new Function<RunContentDescriptor, String>() {
-      @Override
-      public String apply(RunContentDescriptor input) {
-        return input.getDisplayName();
-      }
-    }).toList();
-  }
 }

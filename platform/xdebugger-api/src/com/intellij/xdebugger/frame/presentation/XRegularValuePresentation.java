@@ -21,9 +21,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Renders a value using default color. If you only need to show {@code value} and {@code type}
  * use {@link com.intellij.xdebugger.frame.XValueNode#setPresentation(javax.swing.Icon, String, String, boolean) setPresentation} method instead
- *
- * @author nik
-*/
+ */
 public class XRegularValuePresentation extends XValuePresentation {
   private final String myType;
   private final String myValue;
@@ -39,6 +37,7 @@ public class XRegularValuePresentation extends XValuePresentation {
     mySeparator = separator;
   }
 
+  @Override
   public String getType() {
     return myType;
   }

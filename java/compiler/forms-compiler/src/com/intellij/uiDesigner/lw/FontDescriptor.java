@@ -16,7 +16,10 @@
 package com.intellij.uiDesigner.lw;
 
 import javax.swing.*;
-import java.awt.Font;
+import javax.swing.plaf.FontUIResource;
+import javax.swing.text.StyleContext;
+import java.awt.*;
+import java.util.Locale;
 
 /**
  * @author yole
@@ -63,9 +66,35 @@ public class FontDescriptor {
   }
 
   public Font getFont(Font defaultFont) {
-    return new Font(myFontName != null ? myFontName : defaultFont.getFontName(),
-                    myFontStyle >= 0 ? myFontStyle : defaultFont.getStyle(),
-                    myFontSize >= 0 ? myFontSize : defaultFont.getSize());
+    if (myFontName == null && defaultFont == null) {
+      return null;
+    }
+    String name = myFontName;
+    if (name == null || name.length() == 0) {
+      if (defaultFont == null) {
+        return null;
+      }
+      name = defaultFont.getName();
+    }
+    else {
+      if (!isValidFontName()) {
+        if (defaultFont == null) {
+          return null;
+        }
+        name = defaultFont.getName();
+      }
+    }
+
+    return getFontWithFallback(
+      new Font(name, myFontStyle >= 0 ? myFontStyle : defaultFont.getStyle(), myFontSize >= 0 ? myFontSize : defaultFont.getSize()));
+  }
+
+  private static Font getFontWithFallback(Font font) {
+    boolean isMac = System.getProperty("os.name", "").toLowerCase(Locale.ENGLISH).startsWith("mac");
+    Font fontWithFallback = isMac
+                            ? new Font(font.getFamily(), font.getStyle(), font.getSize())
+                            : new StyleContext().getFont(font.getFamily(), font.getStyle(), font.getSize());
+    return fontWithFallback instanceof FontUIResource ? fontWithFallback : new FontUIResource(fontWithFallback);
   }
 
   public String getSwingFont() {
@@ -74,13 +103,26 @@ public class FontDescriptor {
 
   public Font getResolvedFont(Font defaultFont) {
     if (mySwingFont != null) {
-      return UIManager.getFont(mySwingFont);
+      Font result = UIManager.getFont(mySwingFont);
+      return result == null ? defaultFont : result;
     }
     return getFont(defaultFont);
   }
 
+  private boolean isValidFontName() {
+    Font font = new Font(myFontName, Font.PLAIN, 10);
+    return font.canDisplay('a') && font.canDisplay('1');
+  }
+
+  public boolean isValid() {
+    if (mySwingFont == null) {
+      return myFontName == null || isValidFontName();
+    }
+    return UIManager.getFont(mySwingFont) != null;
+  }
+
   public boolean equals(Object obj) {
-    if (obj == null || !(obj instanceof FontDescriptor)) {
+    if (!(obj instanceof FontDescriptor)) {
       return false;
     }
     FontDescriptor rhs = (FontDescriptor) obj;

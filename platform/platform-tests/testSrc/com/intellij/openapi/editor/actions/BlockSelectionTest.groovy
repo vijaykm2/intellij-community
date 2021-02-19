@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,15 +17,15 @@ package com.intellij.openapi.editor.actions
 import com.intellij.ide.ClipboardSynchronizer
 import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.editor.LogicalPosition
-import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixtureTestCase
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
 
 import java.awt.datatransfer.StringSelection
 /**
  * @author peter
  */
-public class BlockSelectionTest extends LightPlatformCodeInsightFixtureTestCase {
+class BlockSelectionTest extends BasePlatformTestCase {
 
-  public void "test paste tabs into block selection"() {
+  void "test paste tabs into block selection"() {
     myFixture.configureByText "a.txt", """\
 <li></li>
 <li></li>
@@ -42,7 +42,7 @@ public class BlockSelectionTest extends LightPlatformCodeInsightFixtureTestCase 
 """
   }
 
-  public void "test paste single tabbed string into block selection"() {
+  void "test paste single tabbed string into block selection"() {
     myFixture.configureByText "a.txt", """\
 <li></li>
 <li></li>

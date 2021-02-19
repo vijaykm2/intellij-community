@@ -1,40 +1,27 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.settings;
 
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xdebugger.XDebuggerBundle;
-import com.intellij.xdebugger.breakpoints.XBreakpointType;
 import com.intellij.xdebugger.settings.DebuggerConfigurableProvider;
 import com.intellij.xdebugger.settings.DebuggerSettingsCategory;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.List;
 
 public class DebuggerConfigurable implements SearchableConfigurable.Parent {
-  public static final String DISPLAY_NAME = XDebuggerBundle.message("debugger.configurable.display.name");
-
   static final Configurable[] EMPTY_CONFIGURABLES = new Configurable[0];
   private static final DebuggerSettingsCategory[] MERGED_CATEGORIES = {DebuggerSettingsCategory.STEPPING, DebuggerSettingsCategory.HOTSWAP};
 
@@ -43,7 +30,7 @@ public class DebuggerConfigurable implements SearchableConfigurable.Parent {
 
   @Override
   public String getDisplayName() {
-    return DISPLAY_NAME;
+    return getDisplayNameText();
   }
 
   @Override
@@ -52,7 +39,7 @@ public class DebuggerConfigurable implements SearchableConfigurable.Parent {
   }
 
   @Override
-  public Configurable[] getConfigurables() {
+  public Configurable @NotNull [] getConfigurables() {
     compute();
 
     if (myChildren.length == 0 && myRootConfigurable instanceof SearchableConfigurable.Parent) {
@@ -68,7 +55,7 @@ public class DebuggerConfigurable implements SearchableConfigurable.Parent {
       return;
     }
 
-    List<Configurable> configurables = new SmartList<Configurable>();
+    List<Configurable> configurables = new SmartList<>();
     configurables.add(new DataViewsConfigurable());
 
     DebuggerConfigurableProvider[] providers = DebuggerConfigurableProvider.EXTENSION_POINT.getExtensions();
@@ -90,48 +77,42 @@ public class DebuggerConfigurable implements SearchableConfigurable.Parent {
         myChildren = EMPTY_CONFIGURABLES;
       }
       else {
-        Configurable[] generalConfigurables = mergedGeneralConfigurable.children;
-        Configurable[] mergedArray = new Configurable[generalConfigurables.length + 1];
-        System.arraycopy(generalConfigurables, 0, mergedArray, 0, generalConfigurables.length);
-        mergedArray[generalConfigurables.length] = firstConfigurable;
-        myRootConfigurable = new MergedCompositeConfigurable("", "", mergedArray);
+        Configurable[] mergedArray = ArrayUtil.append(mergedGeneralConfigurable.children, firstConfigurable);
+        myRootConfigurable = new MergedCompositeConfigurable(getId(), getDisplayName(), null, mergedArray);
         myChildren = firstConfigurable instanceof SearchableConfigurable.Parent ? ((Parent)firstConfigurable).getConfigurables() : EMPTY_CONFIGURABLES;
       }
     }
     else {
-      myChildren = configurables.toArray(new Configurable[configurables.size()]);
+      myChildren = configurables.toArray(new Configurable[0]);
       myRootConfigurable = mergedGeneralConfigurable;
     }
   }
 
-  private static void computeMergedConfigurables(@NotNull DebuggerConfigurableProvider[] providers, @NotNull List<Configurable> result) {
+  private static void computeMergedConfigurables(DebuggerConfigurableProvider @NotNull [] providers, @NotNull List<? super Configurable> result) {
     for (DebuggerSettingsCategory category : MERGED_CATEGORIES) {
       List<Configurable> configurables = getConfigurables(category, providers);
       if (!configurables.isEmpty()) {
-        String id = category.name().toLowerCase(Locale.ENGLISH);
+        String id = StringUtil.toLowerCase(category.name());
         result.add(new MergedCompositeConfigurable("debugger." + id, XDebuggerBundle.message("debugger." + id + ".display.name"),
-                                                   configurables.toArray(new Configurable[configurables.size()])));
+                                                   getDefaultCategoryHelpTopic(category), configurables.toArray(new Configurable[0])));
       }
     }
   }
 
   @Nullable
-  private static MergedCompositeConfigurable computeGeneralConfigurables(@NotNull DebuggerConfigurableProvider[] providers) {
+  private MergedCompositeConfigurable computeGeneralConfigurables(DebuggerConfigurableProvider @NotNull [] providers) {
     List<Configurable> rootConfigurables = getConfigurables(DebuggerSettingsCategory.GENERAL, providers);
     if (rootConfigurables.isEmpty()) {
       return null;
     }
 
-    Configurable[] mergedRootConfigurables = rootConfigurables.toArray(new Configurable[rootConfigurables.size()]);
+    Configurable[] mergedRootConfigurables = rootConfigurables.toArray(new Configurable[0]);
     // move unnamed to top
-    Arrays.sort(mergedRootConfigurables, new Comparator<Configurable>() {
-      @Override
-      public int compare(@NotNull Configurable o1, @NotNull Configurable o2) {
-        boolean c1e = StringUtil.isEmpty(o1.getDisplayName());
-        return c1e == StringUtil.isEmpty(o2.getDisplayName()) ? 0 : (c1e ? -1 : 1);
-      }
+    Arrays.sort(mergedRootConfigurables, (o1, o2) -> {
+      boolean c1e = StringUtil.isEmpty(o1.getDisplayName());
+      return c1e == StringUtil.isEmpty(o2.getDisplayName()) ? 0 : (c1e ? -1 : 1);
     });
-    return new MergedCompositeConfigurable("", "", mergedRootConfigurables);
+    return new MergedCompositeConfigurable(getId(), getDisplayName(), null, mergedRootConfigurables);
   }
 
   @Override
@@ -145,16 +126,6 @@ public class DebuggerConfigurable implements SearchableConfigurable.Parent {
   public boolean hasOwnContent() {
     compute();
     return myRootConfigurable != null;
-  }
-
-  @Override
-  public boolean isVisible() {
-    return XBreakpointType.EXTENSION_POINT_NAME.getExtensions().length != 0;
-  }
-
-  @Override
-  public Runnable enableSearch(final String option) {
-    return null;
   }
 
   @Override
@@ -195,17 +166,30 @@ public class DebuggerConfigurable implements SearchableConfigurable.Parent {
   }
 
   @NotNull
-  private static List<Configurable> getConfigurables(@NotNull DebuggerSettingsCategory category, @NotNull DebuggerConfigurableProvider[] providers) {
+  private static List<Configurable> getConfigurables(@NotNull DebuggerSettingsCategory category, DebuggerConfigurableProvider @NotNull [] providers) {
     List<Configurable> configurables = null;
     for (DebuggerConfigurableProvider provider : providers) {
       Collection<? extends Configurable> providerConfigurables = provider.getConfigurables(category);
       if (!providerConfigurables.isEmpty()) {
         if (configurables == null) {
-          configurables = new SmartList<Configurable>();
+          configurables = new SmartList<>();
         }
         configurables.addAll(providerConfigurables);
       }
     }
     return ContainerUtil.notNullize(configurables);
+  }
+
+  private static String getDefaultCategoryHelpTopic(DebuggerSettingsCategory category) {
+    switch (category) {
+      case STEPPING: return "reference.idesettings.debugger.stepping";
+      case HOTSWAP: return "reference.idesettings.debugger.hotswap";
+      default: return null;
+    }
+  }
+
+  @Nls
+  public static String getDisplayNameText() {
+    return XDebuggerBundle.message("debugger.configurable.display.name");
   }
 }

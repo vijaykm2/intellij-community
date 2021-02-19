@@ -17,6 +17,7 @@ package com.intellij.packaging.impl.ui;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.projectView.PresentationData;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.packaging.impl.elements.ExtractedDirectoryPackagingElement;
@@ -26,9 +27,6 @@ import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.PathUtil;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author nik
- */
 public class ExtractedDirectoryPresentation extends PackagingElementPresentation {
   private final String myJarPath;
   private final String myPathInJar;
@@ -40,10 +38,12 @@ public class ExtractedDirectoryPresentation extends PackagingElementPresentation
     myPathInJar = element.getPathInJar();
   }
 
+  @Override
   public String getPresentableName() {
     return PathUtil.getFileName(myJarPath) + myPathInJar;
   }
 
+  @Override
   public void render(@NotNull PresentationData presentationData, SimpleTextAttributes mainAttributes, SimpleTextAttributes commentAttributes) {
     presentationData.setIcon(AllIcons.Nodes.ExtractedFolder);
     final String parentPath = PathUtil.getParentPath(myJarPath);
@@ -54,7 +54,7 @@ public class ExtractedDirectoryPresentation extends PackagingElementPresentation
         commentAttributes = SimpleTextAttributes.ERROR_ATTRIBUTES;
       }
     }
-    presentationData.addText("Extracted '" + PathUtil.getFileName(myJarPath) + myPathInJar + "'", mainAttributes);
+    presentationData.addText(JavaCompilerBundle.message("label.extracted.dir.presentation", getPresentableName()), mainAttributes);
     presentationData.addText(" (" + parentPath + ")", commentAttributes);
   }
 

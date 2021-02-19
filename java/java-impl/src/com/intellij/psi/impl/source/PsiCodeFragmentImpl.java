@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,13 @@
  */
 package com.intellij.psi.impl.source;
 
+import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.lang.Language;
 import com.intellij.openapi.command.undo.BasicUndoableAction;
 import com.intellij.openapi.command.undo.UndoManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeManager;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
@@ -49,7 +49,7 @@ public class PsiCodeFragmentImpl extends PsiFileImpl implements JavaCodeFragment
   private boolean myPhysical;
   private PsiType myThisType;
   private PsiType mySuperType;
-  private LinkedHashMap<String, String> myPseudoImports = new LinkedHashMap<String, String>();
+  private LinkedHashMap<String, String> myPseudoImports = new LinkedHashMap<>();
   private VisibilityChecker myVisibilityChecker;
   private ExceptionHandler myExceptionHandler;
   private GlobalSearchScope myResolveScope;
@@ -63,7 +63,7 @@ public class PsiCodeFragmentImpl extends PsiFileImpl implements JavaCodeFragment
                              @Nullable PsiElement context) {
     super(TokenType.CODE_FRAGMENT,
           contentElementType,
-          ((PsiManagerEx)PsiManager.getInstance(project)).getFileManager().createFileViewProvider(
+          PsiManagerEx.getInstanceEx(project).getFileManager().createFileViewProvider(
             new LightVirtualFile(name, FileTypeManager.getInstance().getFileTypeByFileName(name), text), isPhysical)
     );
     myContext = context;
@@ -82,7 +82,7 @@ public class PsiCodeFragmentImpl extends PsiFileImpl implements JavaCodeFragment
     final PsiCodeFragmentImpl clone = (PsiCodeFragmentImpl)cloneImpl((FileElement)calcTreeElement().clone());
     clone.myPhysical = false;
     clone.myOriginalFile = this;
-    clone.myPseudoImports = new LinkedHashMap<String, String>(myPseudoImports);
+    clone.myPseudoImports = new LinkedHashMap<>(myPseudoImports);
     FileManager fileManager = ((PsiManagerEx)getManager()).getFileManager();
     SingleRootFileViewProvider cloneViewProvider = (SingleRootFileViewProvider)fileManager.createFileViewProvider(new LightVirtualFile(
       getName(),
@@ -93,7 +93,7 @@ public class PsiCodeFragmentImpl extends PsiFileImpl implements JavaCodeFragment
     return clone;
   }
 
-  private FileViewProvider myViewProvider = null;
+  private FileViewProvider myViewProvider;
 
   @Override
   @NotNull
@@ -103,20 +103,14 @@ public class PsiCodeFragmentImpl extends PsiFileImpl implements JavaCodeFragment
   }
 
   @Override
-  public boolean isValid() {
-    if (!super.isValid()) return false;
-    return myContext == null || myContext.isValid();
-  }
-
-  @Override
   @NotNull
   public FileType getFileType() {
-    return StdFileTypes.JAVA;
+    return JavaFileType.INSTANCE;
   }
 
   @Override
   public PsiElement getContext() {
-    return myContext;
+    return myContext != null && myContext.isValid() ? myContext : super.getContext();
   }
 
   @Override
@@ -213,7 +207,10 @@ public class PsiCodeFragmentImpl extends PsiFileImpl implements JavaCodeFragment
     }
 
     IElementType i = myContentElementType;
-    if (i == JavaElementType.TYPE_TEXT || i == JavaElementType.EXPRESSION_STATEMENT || i == JavaElementType.REFERENCE_TEXT) {
+    if (i == JavaElementType.TYPE_WITH_CONJUNCTIONS_TEXT ||
+        i == JavaElementType.TYPE_WITH_DISJUNCTIONS_TEXT ||
+        i == JavaElementType.EXPRESSION_STATEMENT ||
+        i == JavaElementType.REFERENCE_TEXT) {
       return true;
     }
     else {
@@ -227,12 +224,13 @@ public class PsiCodeFragmentImpl extends PsiFileImpl implements JavaCodeFragment
     }
   }
 
+  @Override
   public String toString() {
     return "PsiCodeFragment:" + getName();
   }
 
   @Override
-  public boolean importClass(PsiClass aClass) {
+  public boolean importClass(@NotNull PsiClass aClass) {
     final String className = aClass.getName();
     final String qName = aClass.getQualifiedName();
     if (qName == null) return false;
@@ -256,7 +254,7 @@ public class PsiCodeFragmentImpl extends PsiFileImpl implements JavaCodeFragment
     private final String myQName;
     private final LinkedHashMap<String, String> myPseudoImports;
 
-    public ImportClassUndoableAction(final String className,
+    ImportClassUndoableAction(final String className,
                                      final String qName,
                                      final Document document,
                                      final LinkedHashMap<String, String> pseudoImportsMap) {

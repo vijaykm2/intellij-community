@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.shell;
 
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.Executor;
+import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.configurations.JavaParameters;
 import com.intellij.execution.console.ConsoleHistoryController;
 import com.intellij.execution.console.LanguageConsoleView;
@@ -28,16 +15,12 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.projectRoots.JavaSdkType;
-import com.intellij.openapi.projectRoots.JdkUtil;
-import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.projectRoots.SdkTypeId;
-import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.util.Consumer;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.console.BuildAndRestartConsoleAction;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyFileImpl;
 
@@ -51,14 +34,15 @@ public class GroovyShellRunnerImpl extends AbstractConsoleRunnerWithHistory<Lang
 
   private final GroovyShellConfig myShellRunner;
   private final Module myModule;
-  private final Consumer<Module> myStarter = new Consumer<Module>() {
+  private final Consumer<Module> myStarter = new Consumer<>() {
     @Override
     public void consume(Module module) {
       doRunShell(myShellRunner, module);
     }
   };
+  private GeneralCommandLine myCommandLine;
 
-  public GroovyShellRunnerImpl(@NotNull String consoleTitle,
+  public GroovyShellRunnerImpl(@NotNull @Nls(capitalization = Nls.Capitalization.Title) String consoleTitle,
                                @NotNull GroovyShellConfig shellRunner,
                                @NotNull Module module) {
     super(module.getProject(), consoleTitle, shellRunner.getWorkingDirectory(module));
@@ -91,19 +75,14 @@ public class GroovyShellRunnerImpl extends AbstractConsoleRunnerWithHistory<Lang
   @Override
   protected Process createProcess() throws ExecutionException {
     JavaParameters javaParameters = myShellRunner.createJavaParameters(myModule);
-
-    final Sdk sdk = ModuleRootManager.getInstance(myModule).getSdk();
-    assert sdk != null;
-    SdkTypeId sdkType = sdk.getSdkType();
-    assert sdkType instanceof JavaSdkType;
-    final String exePath = ((JavaSdkType)sdkType).getVMExecutablePath(sdk);
-
-    return JdkUtil.setupJVMCommandLine(exePath, javaParameters, true).createProcess();
+    javaParameters.setUseDynamicClasspath(true);
+    myCommandLine = javaParameters.toCommandLine();
+    return myCommandLine.createProcess();
   }
 
   @Override
   protected OSProcessHandler createProcessHandler(Process process) {
-    return new OSProcessHandler(process);
+    return new OSProcessHandler(process, myCommandLine.getCommandLineString());
   }
 
   @NotNull
@@ -125,7 +104,7 @@ public class GroovyShellRunnerImpl extends AbstractConsoleRunnerWithHistory<Lang
     }
     catch (ExecutionException e) {
       LOG.info(e);
-      Messages.showErrorDialog(module.getProject(), e.getMessage(), "Cannot Run " + config.getTitle());
+      Messages.showErrorDialog(module.getProject(), e.getMessage(), GroovyBundle.message("shell.cannot.run.title"));
     }
   }
 }

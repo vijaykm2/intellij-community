@@ -29,25 +29,25 @@ def patched_reload(orig_reload):
 
 
 def patch_reload():
-    try:
+    if sys.version_info[0] >= 3:
+        import builtins # Py3
+    else:
         import __builtin__ as builtins
-    except ImportError:
-        import builtins
 
     if hasattr(builtins, "reload"):
         sys.builtin_orig_reload = builtins.reload
-        builtins.reload = patched_reload(sys.builtin_orig_reload)
+        builtins.reload = patched_reload(sys.builtin_orig_reload)  # @UndefinedVariable
         try:
             import imp
             sys.imp_orig_reload = imp.reload
-            imp.reload = patched_reload(sys.imp_orig_reload)
+            imp.reload = patched_reload(sys.imp_orig_reload)  # @UndefinedVariable
         except:
             pass
     else:
         try:
             import importlib
-            sys.importlib_orig_reload = importlib.reload
-            importlib.reload = patched_reload(sys.importlib_orig_reload)
+            sys.importlib_orig_reload = importlib.reload  # @UndefinedVariable
+            importlib.reload = patched_reload(sys.importlib_orig_reload)  # @UndefinedVariable
         except:
             pass
 
@@ -55,11 +55,11 @@ def patch_reload():
 
 
 def cancel_patches_in_sys_module():
-    sys.exc_info = sys.system_exc_info
-    try:
+    sys.exc_info = sys.system_exc_info  # @UndefinedVariable
+    if sys.version_info[0] >= 3:
+        import builtins # Py3
+    else:
         import __builtin__ as builtins
-    except ImportError:
-        import builtins
 
     if hasattr(sys, "builtin_orig_reload"):
         builtins.reload = sys.builtin_orig_reload

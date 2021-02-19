@@ -1,13 +1,11 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.maven.model.impl;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.JDOMUtil;
-import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.containers.ConcurrentFactoryMap;
-import com.intellij.util.containers.FactoryMap;
+import com.intellij.util.containers.FileCollectionFactory;
 import com.intellij.util.xmlb.XmlSerializer;
-import gnu.trove.THashMap;
-import org.jdom.Document;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.builders.storage.BuildDataPaths;
@@ -25,21 +23,11 @@ import org.jetbrains.jps.model.module.JpsModule;
 import java.io.File;
 import java.util.Map;
 
-/**
- * @author nik
- */
-public class JpsMavenExtensionServiceImpl extends JpsMavenExtensionService {
-  private static final Logger LOG = Logger.getInstance("#org.jetbrains.jps.maven.model.impl.JpsMavenExtensionServiceImpl");
-  private static final JpsElementChildRole<JpsSimpleElement<Boolean>> PRODUCTION_ON_TEST_ROLE = JpsElementChildRoleBase.create("production on test");
-  private final Map<File, MavenProjectConfiguration> myLoadedConfigs =
-    new THashMap<File, MavenProjectConfiguration>(FileUtil.FILE_HASHING_STRATEGY);
-  private final FactoryMap<File, Boolean> myConfigFileExists = new ConcurrentFactoryMap<File, Boolean>() {
-    @Nullable
-    @Override
-    protected Boolean create(File key) {
-      return key.exists();
-    }
-  };
+public final class JpsMavenExtensionServiceImpl extends JpsMavenExtensionService {
+  private static final Logger LOG = Logger.getInstance(JpsMavenExtensionServiceImpl.class);
+  private static final JpsElementChildRole<JpsSimpleElement<Boolean>> PRODUCTION_ON_TEST_ROLE = JpsElementChildRoleBase.create("maven production on test");
+  private final Map<File, MavenProjectConfiguration> myLoadedConfigs = FileCollectionFactory.createCanonicalFileMap();
+  private final Map<File, Boolean> myConfigFileExists = ConcurrentFactoryMap.createMap(key -> key.exists());
 
   public JpsMavenExtensionServiceImpl() {
     ResourcesBuilder.registerEnabler(new StandardResourceBuilderEnabler() {
@@ -108,8 +96,7 @@ public class JpsMavenExtensionServiceImpl extends JpsMavenExtensionService {
       if (config == null) {
         config = new MavenProjectConfiguration();
         try {
-          final Document document = JDOMUtil.loadDocument(configFile);
-          XmlSerializer.deserializeInto(config, document.getRootElement());
+          XmlSerializer.deserializeInto(config, JDOMUtil.load(configFile));
         }
         catch (Exception e) {
           LOG.info(e);

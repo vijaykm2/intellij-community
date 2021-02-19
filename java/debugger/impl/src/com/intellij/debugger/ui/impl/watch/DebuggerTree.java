@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * Class DebuggerTree
@@ -20,8 +6,8 @@
  */
 package com.intellij.debugger.ui.impl.watch;
 
-import com.intellij.debugger.DebuggerBundle;
 import com.intellij.debugger.DebuggerInvocationUtil;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.DebugProcessImpl;
 import com.intellij.debugger.engine.DebuggerUtils;
 import com.intellij.debugger.engine.SuspendContextImpl;
@@ -29,10 +15,9 @@ import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
 import com.intellij.debugger.engine.events.DebuggerCommandImpl;
 import com.intellij.debugger.engine.events.DebuggerContextCommandImpl;
-import com.intellij.debugger.engine.events.SuspendContextCommandImpl;
 import com.intellij.debugger.impl.DebuggerContextImpl;
-import com.intellij.debugger.impl.DebuggerSession;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
+import com.intellij.debugger.impl.PrioritizedTask;
 import com.intellij.debugger.jdi.*;
 import com.intellij.debugger.settings.NodeRendererSettings;
 import com.intellij.debugger.settings.ThreadsViewSettings;
@@ -45,21 +30,26 @@ import com.intellij.debugger.ui.tree.NodeDescriptor;
 import com.intellij.debugger.ui.tree.render.ArrayRenderer;
 import com.intellij.debugger.ui.tree.render.ChildrenBuilder;
 import com.intellij.debugger.ui.tree.render.ClassRenderer;
-import com.intellij.debugger.ui.tree.render.NodeRenderer;
 import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.SpeedSearchComparator;
 import com.intellij.ui.TreeSpeedSearch;
+import com.intellij.xdebugger.frame.XDebuggerTreeNodeHyperlink;
+import com.intellij.xdebugger.frame.XValueChildrenList;
 import com.intellij.xdebugger.settings.XDebuggerSettingsManager;
 import com.sun.jdi.*;
 import com.sun.jdi.event.Event;
 import com.sun.jdi.event.ExceptionEvent;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.TreeModelEvent;
@@ -67,7 +57,9 @@ import javax.swing.event.TreeModelListener;
 import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.event.MouseEvent;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.LinkedList;
 import java.util.List;
 
 public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvider {
@@ -148,7 +140,7 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
   }
 
   @Override
-  public Object getData(String dataId) {
+  public Object getData(@NotNull String dataId) {
     if (DATA_KEY.is(dataId)) {
       return this;
     }
@@ -310,7 +302,7 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
     expandPath(new TreePath(message.getPath()));
   }
 
-  public void showMessage(String messageText) {
+  public void showMessage(@NlsContexts.Label String messageText) {
     showMessage(new MessageDescriptor(messageText));
   }
 
@@ -324,21 +316,6 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
 
   protected abstract void build(DebuggerContextImpl context);
 
-  protected final void buildWhenPaused(DebuggerContextImpl context, RefreshDebuggerTreeCommand command) {
-    DebuggerSession session = context.getDebuggerSession();
-
-    if (ApplicationManager.getApplication().isUnitTestMode() || (session != null && session.getState() == DebuggerSession.STATE_PAUSED)) {
-      showMessage(MessageDescriptor.EVALUATING);
-      context.getDebugProcess().getManagerThread().schedule(command);
-    }
-    else {
-      showMessage(session != null? session.getStateDescription() : DebuggerBundle.message("status.debug.stopped"));
-      if (session == null || session.isStopped()) {
-        getNodeFactory().clearHistory(); // save memory by clearing references on JDI objects
-      }
-    }
-  }
-
   public void rebuild(final DebuggerContextImpl context) {
     ApplicationManager.getApplication().assertIsDispatchThread();
     final DebugProcessImpl process = context.getDebugProcess();
@@ -347,17 +324,7 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
     }
     myDebuggerContext = context;
     saveState();
-    process.getManagerThread().schedule(new DebuggerCommandImpl() {
-      @Override
-      protected void action() throws Exception {
-        getNodeFactory().setHistoryByContext(context);
-      }
-      @Override
-      public Priority getPriority() {
-        return Priority.NORMAL;
-      }
-    });
-
+    process.getManagerThread().schedule(PrioritizedTask.Priority.NORMAL, () -> getNodeFactory().setHistoryByContext(context));
     build(context);
   }
 
@@ -382,24 +349,6 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
     return myEditedNode != null ? null : super.createToolTip(e);
   }
 
-  protected abstract static class RefreshDebuggerTreeCommand extends SuspendContextCommandImpl {
-    private final DebuggerContextImpl myDebuggerContext;
-
-    @Override
-    public Priority getPriority() {
-      return Priority.NORMAL;
-    }
-
-    public RefreshDebuggerTreeCommand(DebuggerContextImpl context) {
-      super(context.getSuspendContext());
-      myDebuggerContext = context;
-    }
-
-    public final DebuggerContextImpl getDebuggerContext() {
-      return myDebuggerContext;
-    }
-  }
-
   public DebuggerContextImpl getDebuggerContext() {
     return myDebuggerContext;
   }
@@ -407,10 +356,14 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
   public abstract class BuildNodeCommand extends DebuggerContextCommandImpl {
     private final DebuggerTreeNodeImpl myNode;
 
-    protected final List<DebuggerTreeNodeImpl> myChildren = new LinkedList<DebuggerTreeNodeImpl>();
+    protected final List<DebuggerTreeNodeImpl> myChildren = new LinkedList<>();
 
     protected BuildNodeCommand(DebuggerTreeNodeImpl node) {
-      super(DebuggerTree.this.getDebuggerContext());
+      this(node, null);
+    }
+
+    protected BuildNodeCommand(DebuggerTreeNodeImpl node, ThreadReferenceProxyImpl thread) {
+      super(DebuggerTree.this.getDebuggerContext(), thread);
       myNode = node;
     }
 
@@ -424,15 +377,12 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
     }
 
     protected void updateUI(final boolean scrollToVisible) {
-      DebuggerInvocationUtil.swingInvokeLater(getProject(), new Runnable() {
-        @Override
-        public void run() {
-          myNode.removeAllChildren();
-          for (DebuggerTreeNodeImpl debuggerTreeNode : myChildren) {
-            myNode.add(debuggerTreeNode);
-          }
-          myNode.childrenChanged(scrollToVisible);
+      DebuggerInvocationUtil.swingInvokeLater(getProject(), () -> {
+        myNode.removeAllChildren();
+        for (DebuggerTreeNodeImpl debuggerTreeNode : myChildren) {
+          myNode.add(debuggerTreeNode);
         }
+        myNode.childrenChanged(scrollToVisible);
       });
     }
   }
@@ -486,7 +436,7 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
         try {
           buildVariables(stackDescriptor, evaluationContext);
           if (XDebuggerSettingsManager.getInstance().getDataViewSettings().isSortValues()) {
-            Collections.sort(myChildren, NodeManagerImpl.getNodeComparator());
+            myChildren.sort(NodeManagerImpl.getNodeComparator());
           }
         }
         catch (EvaluateException e) {
@@ -522,9 +472,9 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
         notifyCancelled();
       }
       catch (InternalException e) {
-        if (e.errorCode() == 35) {
+        if (e.errorCode() == JvmtiError.INVALID_SLOT) {
           myChildren.add(
-            myNodeManager.createMessageNode(new MessageDescriptor(DebuggerBundle.message("error.corrupt.debug.info", e.getMessage()))));
+            myNodeManager.createMessageNode(new MessageDescriptor(JavaDebuggerBundle.message("error.corrupt.debug.info", e.getMessage()))));
         }
         else {
           throw e;
@@ -545,31 +495,30 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
   }
 
   private class BuildValueNodeCommand extends BuildNodeCommand implements ChildrenBuilder {
-    public BuildValueNodeCommand(DebuggerTreeNodeImpl node) {
+    BuildValueNodeCommand(DebuggerTreeNodeImpl node) {
       super(node);
     }
 
     @Override
-    public void threadAction() {
+    public void threadAction(@NotNull SuspendContextImpl suspendContext) {
       final DebuggerTreeNodeImpl node = getNode();
       ValueDescriptorImpl descriptor = (ValueDescriptorImpl)node.getDescriptor();
-      try {
-        final NodeRenderer renderer = descriptor.getRenderer(getSuspendContext().getDebugProcess());
-        renderer.buildChildren(descriptor.getValue(), this, getDebuggerContext().createEvaluationContext());
-      }
-      catch (ObjectCollectedException e) {
-        final String message = e.getMessage();
-        DebuggerInvocationUtil.swingInvokeLater(getProject(), new Runnable() {
-          @Override
-          public void run() {
-            node.removeAllChildren();
-            node.add(getNodeFactory().createMessageNode(
-              new MessageDescriptor(DebuggerBundle.message("error.cannot.build.node.children.object.collected", message)))
-            );
-            node.childrenChanged(false);
+      descriptor.getRenderer(suspendContext.getDebugProcess())
+        .thenAccept(renderer -> {
+          try {
+            renderer.buildChildren(descriptor.getValue(), this, getDebuggerContext().createEvaluationContext());
+          }
+          catch (ObjectCollectedException e) {
+            final String message = e.getMessage();
+            DebuggerInvocationUtil.swingInvokeLater(getProject(), () -> {
+              node.removeAllChildren();
+              node.add(getNodeFactory().createMessageNode(
+                new MessageDescriptor(JavaDebuggerBundle.message("error.cannot.build.node.children.object.collected", message)))
+              );
+              node.childrenChanged(false);
+            });
           }
         });
-      }
     }
 
     @Override
@@ -589,13 +538,10 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
     }
 
     @Override
-    public void setRemaining(int remaining) {}
+    public void initChildrenArrayRenderer(ArrayRenderer renderer, int arrayLength) {}
 
     @Override
-    public void initChildrenArrayRenderer(ArrayRenderer renderer) {}
-
-    @Override
-    public void setChildren(final List<DebuggerTreeNode> children) {
+    public void setChildren(final List<? extends DebuggerTreeNode> children) {
       for (DebuggerTreeNode child : children) {
         if (child instanceof DebuggerTreeNodeImpl) {
           myChildren.add(((DebuggerTreeNodeImpl)child));
@@ -603,10 +549,37 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
       }
       updateUI(false);
     }
+
+    @Override
+    public void addChildren(@NotNull XValueChildrenList children, boolean last) {
+    }
+
+    @Override
+    public void tooManyChildren(int remaining) {
+    }
+
+    @Override
+    public void setAlreadySorted(boolean alreadySorted) {
+    }
+
+    @Override
+    public void setErrorMessage(@NotNull String errorMessage) {
+    }
+
+    @Override
+    public void setErrorMessage(@NotNull String errorMessage, @Nullable XDebuggerTreeNodeHyperlink link) {
+    }
+
+    @Override
+    public void setMessage(@NotNull String message,
+                           @Nullable Icon icon,
+                           @NotNull SimpleTextAttributes attributes,
+                           @Nullable XDebuggerTreeNodeHyperlink link) {
+    }
   }
 
   private class BuildStaticNodeCommand extends BuildNodeCommand {
-    public BuildStaticNodeCommand(DebuggerTreeNodeImpl node) {
+    BuildStaticNodeCommand(DebuggerTreeNodeImpl node) {
       super(node);
     }
 
@@ -629,8 +602,8 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
   }
 
   private class BuildThreadCommand extends BuildNodeCommand {
-    public BuildThreadCommand(DebuggerTreeNodeImpl threadNode) {
-      super(threadNode);
+    BuildThreadCommand(DebuggerTreeNodeImpl threadNode) {
+      super(threadNode, ((ThreadDescriptorImpl)threadNode.getDescriptor()).getThreadReference());
     }
 
     @Override
@@ -660,7 +633,7 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
             //    try {
             //      Thread.sleep(100000);
             //    } catch (InterruptedException e) {
-            //      e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+            //      e.printStackTrace();
             //    }
             //  }
           }
@@ -672,19 +645,19 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
 
   private class BuildThreadGroupCommand extends DebuggerCommandImpl {
     private final DebuggerTreeNodeImpl myNode;
-    protected final List<DebuggerTreeNodeImpl> myChildren = new LinkedList<DebuggerTreeNodeImpl>();
+    protected final List<DebuggerTreeNodeImpl> myChildren = new LinkedList<>();
 
-    public BuildThreadGroupCommand(DebuggerTreeNodeImpl node) {
+    BuildThreadGroupCommand(DebuggerTreeNodeImpl node) {
       myNode = node;
     }
 
     @Override
-    protected void action() throws Exception {
+    protected void action() {
       ThreadGroupDescriptorImpl groupDescriptor = (ThreadGroupDescriptorImpl)myNode.getDescriptor();
       ThreadGroupReferenceProxyImpl threadGroup = groupDescriptor.getThreadGroupReference();
 
-      List<ThreadReferenceProxyImpl> threads = new ArrayList<ThreadReferenceProxyImpl>(threadGroup.threads());
-      Collections.sort(threads, ThreadReferenceProxyImpl.ourComparator);
+      List<ThreadReferenceProxyImpl> threads = new ArrayList<>(threadGroup.threads());
+      threads.sort(ThreadReferenceProxyImpl.ourComparator);
 
       final DebuggerContextImpl debuggerContext = getDebuggerContext();
       final SuspendContextImpl suspendContext = debuggerContext.getSuspendContext();
@@ -706,7 +679,7 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
         }
       }
 
-      ArrayList<DebuggerTreeNodeImpl> threadNodes = new ArrayList<DebuggerTreeNodeImpl>();
+      ArrayList<DebuggerTreeNodeImpl> threadNodes = new ArrayList<>();
 
       for (ThreadReferenceProxyImpl thread : threads) {
         if (thread != null) {
@@ -726,15 +699,12 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
     }
 
     protected void updateUI(final boolean scrollToVisible) {
-      DebuggerInvocationUtil.swingInvokeLater(getProject(), new Runnable() {
-        @Override
-        public void run() {
-          myNode.removeAllChildren();
-          for (DebuggerTreeNodeImpl debuggerTreeNode : myChildren) {
-            myNode.add(debuggerTreeNode);
-          }
-          myNode.childrenChanged(scrollToVisible);
+      DebuggerInvocationUtil.swingInvokeLater(getProject(), () -> {
+        myNode.removeAllChildren();
+        for (DebuggerTreeNodeImpl debuggerTreeNode : myChildren) {
+          myNode.add(debuggerTreeNode);
         }
+        myNode.childrenChanged(scrollToVisible);
       });
     }
   }

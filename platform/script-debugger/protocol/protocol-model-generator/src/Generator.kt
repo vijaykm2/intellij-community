@@ -1,190 +1,214 @@
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.protocolModelGenerator
 
-import gnu.trove.THashMap
+import com.intellij.openapi.util.text.StringUtil
+import com.intellij.util.containers.ContainerUtil
+import com.intellij.util.containers.isNullOrEmpty
+import org.jetbrains.io.JsonReaderEx
 import org.jetbrains.jsonProtocol.*
-import org.jetbrains.protocolReader.FileUpdater
 import org.jetbrains.protocolReader.TextOutput
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.net.URL
 import java.nio.file.FileSystems
-import java.util.ArrayList
-import java.util.Collections
-import java.util.HashMap
-import java.util.HashSet
+import java.nio.file.Files
+import java.util.*
+
+fun main(args: Array<String>) {
+  val outputDir = args[0]
+  val roots = IntRange(3, args.size - 1).map {
+    val schemaUrl = args[it]
+    val bytes: ByteArray
+    if (schemaUrl.startsWith("http")) {
+      bytes = loadBytes(URL(schemaUrl).openStream())
+    }
+    else {
+      bytes = Files.readAllBytes(FileSystems.getDefault().getPath(schemaUrl))
+    }
+    val reader = JsonReaderEx(bytes.toString(Charsets.UTF_8))
+    reader.isLenient = true
+    ProtocolSchemaReaderImpl().parseRoot(reader)
+  }
+  val mergedRoot = if (roots.size == 1) roots[0] else object : ProtocolMetaModel.Root {
+    override val version: ProtocolMetaModel.Version?
+      get() = roots[0].version
+
+    override fun domains(): List<ProtocolMetaModel.Domain> {
+      return ContainerUtil.concat(roots.map { it.domains() })
+    }
+  }
+  Generator(outputDir, args[1], args[2], mergedRoot)
+}
+
+private fun loadBytes(stream: InputStream): ByteArray {
+  val buffer = ByteArrayOutputStream(Math.max(stream.available(), 16 * 1024))
+  val bytes = ByteArray(1024 * 20)
+  while (true) {
+    val n = stream.read(bytes, 0, bytes.size)
+    if (n <= 0) {
+      break
+    }
+    buffer.write(bytes, 0, n)
+  }
+  buffer.close()
+  return buffer.toByteArray()
+}
+
+internal class Naming(val inputPackage: String, val requestClassName: String) {
+  val params = ClassNameScheme.Output("", inputPackage)
+  val additionalParam = ClassNameScheme.Output("", inputPackage)
+  val outputTypedef: ClassNameScheme = ClassNameScheme.Output("Typedef", inputPackage)
+
+  val commandResult = ClassNameScheme.Input("Result", inputPackage)
+  val eventData = ClassNameScheme.Input("EventData", inputPackage)
+  val inputValue = ClassNameScheme.Input("Value", inputPackage)
+  val inputEnum = ClassNameScheme.Input("", inputPackage)
+  val inputTypedef = ClassNameScheme.Input("Typedef", inputPackage)
+
+  val commonTypedef = ClassNameScheme.Common("Typedef", inputPackage)
+}
 
 /**
  * Read metamodel and generates set of files with Java classes/interfaces for the protocol.
  */
-class Generator(outputDir: String, rootPackage: String, requestClassName: String) {
+internal class Generator(outputDir: String, rootPackage: String, requestClassName: String, metamodel: ProtocolMetaModel.Root) {
   val jsonProtocolParserClassNames = ArrayList<String>()
   val parserRootInterfaceItems = ArrayList<ParserRootInterfaceItem>()
   val typeMap = TypeMap()
 
-  val nestedTypeMap = THashMap<NamePath, StandaloneType>()
+  val nestedTypeMap = HashMap<NamePath, StandaloneType>()
 
-  private val fileSet: FileSet
-  val naming: Naming
+  private val fileSet = FileSet(FileSystems.getDefault().getPath(outputDir))
+  val naming = Naming(rootPackage, requestClassName)
 
   init {
-    fileSet = FileSet(FileSystems.getDefault().getPath(outputDir))
-    naming = Naming(rootPackage, requestClassName)
-  }
-
-  public class Naming(val inputPackage: String, val requestClassName: String) {
-    public val params: ClassNameScheme
-    public val additionalParam: ClassNameScheme
-    public val outputTypedef: ClassNameScheme
-
-    public val commandResult: ClassNameScheme.Input
-    public val eventData: ClassNameScheme.Input
-    public val inputValue: ClassNameScheme
-    public val inputEnum: ClassNameScheme
-    public val inputTypedef: ClassNameScheme
-
-    public val commonTypedef: ClassNameScheme
-
-    init {
-      params = ClassNameScheme.Output("", inputPackage)
-      additionalParam = ClassNameScheme.Output("", inputPackage)
-      outputTypedef = ClassNameScheme.Output("Typedef", inputPackage)
-      commonTypedef = ClassNameScheme.Common("Typedef", inputPackage)
-      commandResult = ClassNameScheme.Input("Result", inputPackage)
-      eventData = ClassNameScheme.Input("EventData", inputPackage)
-      inputValue = ClassNameScheme.Input("Value", inputPackage)
-      inputEnum = ClassNameScheme.Input("", inputPackage)
-      inputTypedef = ClassNameScheme.Input("Typedef", inputPackage)
-    }
-  }
-
-  fun go(metamodel: ProtocolMetaModel.Root) {
-    initializeKnownTypes()
-
     val domainList = metamodel.domains()
     val domainGeneratorMap = HashMap<String, DomainGenerator>()
-    for (domain in domainList) {
-      if (isDomainSkipped(domain)) {
-        System.out.println("Domain skipped: " + domain.domain())
-        continue
-      }
-      val domainGenerator = DomainGenerator(this, domain)
-      domainGeneratorMap.put(domain.domain(), domainGenerator)
-      domainGenerator.registerTypes()
-    }
 
     for (domain in domainList) {
-      if (!isDomainSkipped(domain)) {
-        System.out.println("Domain generated: " + domain.domain())
+      if (!INCLUDED_DOMAINS.contains(domain.domain())) {
+        System.out.println("Domain skipped: ${domain.domain()}")
+        continue
       }
+
+      val domainName = StringUtil.nullize(domain.domain())
+      val filePath = if (domainName != null) "${domainName.toLowerCase()}/$domainName.kt" else "protocol.kt"
+      val fileUpdater = fileSet.createFileUpdater(filePath)
+      val out = fileUpdater.out
+
+      out.append("// Generated source").newLine().append("package ").append(getPackageName(rootPackage, domain.domain())).newLine().newLine()
+      out.append("import org.jetbrains.jsonProtocol.*").newLine()
+      out.append("import org.jetbrains.io.JsonReaderEx").newLine()
+
+      val domainGenerator = DomainGenerator(this, domain, fileUpdater)
+      domainGeneratorMap.put(domain.domain(), domainGenerator)
+      domainGenerator.registerTypes()
+
+      out.newLine()
+
+      System.out.println("Domain generated: ${domain.domain()}")
     }
 
     typeMap.domainGeneratorMap = domainGeneratorMap
 
-    for (domainGenerator in domainGeneratorMap.values()) {
+    for (domainGenerator in domainGeneratorMap.values) {
       domainGenerator.generateCommandsAndEvents()
     }
 
+    val sharedFileUpdater = if (domainGeneratorMap.size == 1) {
+      domainGeneratorMap.values.first().fileUpdater
+    }
+    else {
+      val fileUpdater = fileSet.createFileUpdater("protocol.kt")
+      val out = fileUpdater.out
+      out.append("// Generated source").newLine().append("package ").append(rootPackage).newLine().newLine()
+      out.append("import org.jetbrains.jsonProtocol.*").newLine()
+      out.append("import org.jetbrains.io.JsonReaderEx").newLine()
+      fileUpdater
+    }
     typeMap.generateRequestedTypes()
-    generateParserInterfaceList()
-    generateParserRoot(parserRootInterfaceItems)
+    generateParserInterfaceList(sharedFileUpdater.out)
+    generateParserRoot(parserRootInterfaceItems, sharedFileUpdater.out)
     fileSet.deleteOtherFiles()
+
+    for (domainGenerator in domainGeneratorMap.values) {
+      domainGenerator.fileUpdater.update()
+    }
+
+    if (domainGeneratorMap.size != 1) {
+      sharedFileUpdater.update()
+    }
   }
 
-  fun resolveType(typedObject: ItemDescriptor, scope: ResolveAndGenerateScope): TypeDescriptor {
-    val optional = typedObject is ItemDescriptor.Named && (typedObject : ItemDescriptor.Named).optional()
-    return switchByType(typedObject, object : TypeVisitor<TypeDescriptor> {
-      override fun visitRef(refName: String): TypeDescriptor {
-        return TypeDescriptor(resolveRefType(scope.getDomainName(), refName, scope.getTypeDirection()), optional)
-      }
+  fun resolveType(itemDescriptor: ItemDescriptor, scope: ResolveAndGenerateScope): TypeDescriptor {
+    return switchByType(itemDescriptor, object : TypeVisitor<TypeDescriptor> {
+      override fun visitRef(refName: String) = TypeDescriptor(resolveRefType(scope.getDomainName(), refName, scope.getTypeDirection()), itemDescriptor)
 
-      override fun visitBoolean(): TypeDescriptor {
-        return TypeDescriptor(BoxableType.BOOLEAN, optional)
-      }
+      override fun visitBoolean() = TypeDescriptor(BoxableType.BOOLEAN, itemDescriptor)
 
       override fun visitEnum(enumConstants: List<String>): TypeDescriptor {
         assert(scope is MemberScope)
-        return TypeDescriptor((scope as MemberScope).generateEnum(typedObject.description(), enumConstants), optional)
+        return TypeDescriptor((scope as MemberScope).generateEnum(itemDescriptor.description, enumConstants), itemDescriptor)
       }
 
-      override fun visitString(): TypeDescriptor {
-        return TypeDescriptor(BoxableType.STRING, optional)
-      }
+      override fun visitString() = TypeDescriptor(BoxableType.STRING, itemDescriptor)
 
-      override fun visitInteger(): TypeDescriptor {
-        return TypeDescriptor(BoxableType.INT, optional)
-      }
+      override fun visitInteger() = TypeDescriptor(BoxableType.INT, itemDescriptor)
 
-      override fun visitNumber(): TypeDescriptor {
-        return TypeDescriptor(BoxableType.NUMBER, optional)
-      }
+      override fun visitNumber() = TypeDescriptor(BoxableType.NUMBER, itemDescriptor)
 
-      override fun visitMap(): TypeDescriptor {
-        return TypeDescriptor(BoxableType.MAP, optional)
-      }
+      override fun visitMap() = TypeDescriptor(BoxableType.MAP, itemDescriptor)
 
       override fun visitArray(items: ProtocolMetaModel.ArrayItemType): TypeDescriptor {
-        val type = scope.resolveType<ProtocolMetaModel.ArrayItemType>(items).type
-        return TypeDescriptor(ListType(type), optional, false, type == BoxableType.ANY_STRING)
+        val type = scope.resolveType(items).type
+        return TypeDescriptor(ListType(type), itemDescriptor, type == BoxableType.ANY_STRING)
       }
 
-      override fun visitObject(properties: List<ProtocolMetaModel.ObjectProperty>?): TypeDescriptor {
-        return TypeDescriptor(scope.generateNestedObject(typedObject.description(), properties), optional)
-      }
+      override fun visitObject(properties: List<ProtocolMetaModel.ObjectProperty>?) = TypeDescriptor(scope.generateNestedObject(itemDescriptor.description, properties), itemDescriptor)
 
-      override fun visitUnknown(): TypeDescriptor {
-        return TypeDescriptor(BoxableType.STRING, optional, false, true)
-      }
+      override fun visitUnknown() = TypeDescriptor(BoxableType.STRING, itemDescriptor, true)
     })
   }
 
-  private fun generateParserInterfaceList() {
-    val fileUpdater = startJavaFile(naming.inputPackage, PARSER_INTERFACE_LIST_CLASS_NAME + ".java")
-    // Write classes in stable order.
-    Collections.sort<String>(jsonProtocolParserClassNames)
+  private fun generateParserInterfaceList(out: TextOutput) {
+    // write classes in stable order
+    Collections.sort(jsonProtocolParserClassNames)
 
-    val out = fileUpdater.out
-    out.append("public class ").append(PARSER_INTERFACE_LIST_CLASS_NAME).openBlock()
-    out.append("public static final Class<?>[] LIST =").openBlock()
+    out.newLine().newLine().append("val PARSER_CLASSES = arrayOf(").newLine()
     for (name in jsonProtocolParserClassNames) {
-      out.append(name).append(".class,").newLine()
+      out.append("  ").append(name).append("::class.java")
+      if (name != jsonProtocolParserClassNames.last()) {
+        out.append(',')
+      }
+      out.newLine()
     }
-    out.closeBlock()
-    out.semi()
-    out.closeBlock()
-    fileUpdater.update()
+    out.append(')')
   }
 
-  private fun generateParserRoot(parserRootInterfaceItems: List<ParserRootInterfaceItem>) {
-    val fileUpdater = startJavaFile(naming.inputPackage, READER_INTERFACE_NAME + ".java")
-    // Write classes in stable order.
-    Collections.sort<ParserRootInterfaceItem>(parserRootInterfaceItems)
+  private fun generateParserRoot(parserRootInterfaceItems: MutableList<ParserRootInterfaceItem>, out: TextOutput) {
+    // write classes in stable order
+    parserRootInterfaceItems.sort()
 
-    val out = fileUpdater.out
-    out.append("public abstract class ").append(READER_INTERFACE_NAME).space().append("implements org.jetbrains.jsonProtocol.ResponseResultReader").openBlock()
+    out.newLine().newLine().append("interface ").append(READER_INTERFACE_NAME).append(" : org.jetbrains.jsonProtocol.ResponseResultReader").openBlock()
     for (item in parserRootInterfaceItems) {
       item.writeCode(out)
+      out.newLine()
     }
-    out.newLine().newLine().append("@Override").newLine().append("public Object readResult(String methodName, org.jetbrains.io.JsonReaderEx reader)")
-    out.openBlock()
-
-    var isNotFirst = false
-    for (item in parserRootInterfaceItems) {
-      if (isNotFirst) {
-        out.append("else ")
+    out.append("override fun readResult(methodName: String, reader: org.jetbrains.io.JsonReaderEx): Any? = ")
+    out.append("when (methodName)").block {
+      for (item in parserRootInterfaceItems) {
+        out.append('"')
+        if (!item.domain.isEmpty()) {
+          out.append(item.domain).append('.')
+        }
+        out.append(item.name).append('"').append(" -> ")
+        item.appendReadMethodName(out)
+        out.append("(reader)").newLine()
       }
-      else {
-        isNotFirst = true
-      }
-      out.append("if (methodName.equals(\"")
-      if (!item.domain.isEmpty()) {
-        out.append(item.domain).append('.')
-      }
-      out.append(item.name).append('"').append(")) return ")
-      item.appendReadMethodName(out)
-      out.append("(reader)").semi().newLine()
+      out.append("else -> null")
     }
-    out.append("else return null").semi()
-    out.closeBlock()
 
     out.closeBlock()
-    fileUpdater.update()
   }
 
   /**
@@ -204,84 +228,50 @@ class Generator(outputDir: String, rootPackage: String, requestClassName: String
     }
     return typeMap.resolve(domainName, shortName, direction)!!
   }
-
-  fun startJavaFile(nameScheme: ClassNameScheme, domain: ProtocolMetaModel.Domain, baseName: String): FileUpdater {
-    return startJavaFile(nameScheme.getPackageNameVirtual(domain.domain()), nameScheme.getShortName(baseName) + ".java")
-  }
-
-  public fun startJavaFile(packageName: String, filename: String): FileUpdater {
-    val fileUpdater = fileSet.createFileUpdater(packageName.replace('.', '/') + '/' + filename)
-    fileUpdater.out.append("// Generated source").newLine().append("package ").append(packageName).semi().newLine().newLine()
-    return fileUpdater
-  }
 }
 
-private val PARSER_INTERFACE_LIST_CLASS_NAME = "GeneratedReaderInterfaceList"
-val READER_INTERFACE_NAME = "ProtocolResponseReader"
+const val READER_INTERFACE_NAME: String = "ProtocolResponseReader"
 
-private fun isDomainSkipped(domain: ProtocolMetaModel.Domain): Boolean {
-  if (domain.domain() == "CSS" || domain.domain() == "Inspector") {
-    return false
-  }
-
-  // todo DOMDebugger
-  return domain.hidden() || domain.domain() == "DOMDebugger" || domain.domain() == "Timeline" || domain.domain() == "Input"
-}
+private val INCLUDED_DOMAINS = arrayOf("Mono", "CSS", "Debugger", "DOM", "Inspector", "Log", "Network", "Page", "Runtime", "ServiceWorker",
+                                       "Tracing", "Target", "Overlay", "Console", "DOMDebugger", "Profiler", "HeapProfiler", "NodeWorker")
 
 fun generateMethodNameSubstitute(originalName: String, out: TextOutput): String {
-  if (!BAD_METHOD_NAMES.contains(originalName)) {
+  if (originalName != "this") {
     return originalName
   }
-  out.append("@org.jetbrains.jsonProtocol.JsonField(name = \"").append(originalName).append("\")").newLine()
-  return "get" + Character.toUpperCase(originalName.charAt(0)) + originalName.substring(1)
+  out.append("@org.jetbrains.jsonProtocol.ProtocolName(\"").append(originalName).append("\")").newLine()
+  return "get${Character.toUpperCase(originalName.get(0))}${originalName.substring(1)}"
 }
 
 fun capitalizeFirstChar(s: String): String {
-  if (!s.isEmpty() && Character.isLowerCase(s.charAt(0))) {
-    return Character.toUpperCase(s.charAt(0)) + s.substring(1)
+  if (!s.isEmpty() && s.get(0).isLowerCase()) {
+    return s.get(0).toUpperCase() + s.substring(1)
   }
   return s
 }
 
 fun <R> switchByType(typedObject: ItemDescriptor, visitor: TypeVisitor<R>): R {
-  val refName = if (typedObject is ItemDescriptor.Referenceable) (typedObject : ItemDescriptor.Referenceable).ref() else null
+  val refName = if (typedObject is ItemDescriptor.Referenceable) typedObject.ref else null
   if (refName != null) {
     return visitor.visitRef(refName)
   }
-  val typeName = typedObject.type()
-  when (typeName) {
-    BOOLEAN_TYPE -> return visitor.visitBoolean()
-    STRING_TYPE -> {
-      if (typedObject.getEnum() != null) {
-        return visitor.visitEnum(typedObject.getEnum()!!)
-      }
-      return visitor.visitString()
-    }
-    INTEGER_TYPE, "int" -> return visitor.visitInteger()
-    NUMBER_TYPE -> return visitor.visitNumber()
-    ARRAY_TYPE -> return visitor.visitArray(typedObject.items())
+  val typeName = typedObject.type
+  return when (typeName) {
+    BOOLEAN_TYPE -> visitor.visitBoolean()
+    STRING_TYPE, BINARY_TYPE -> if (typedObject.enum == null) visitor.visitString() else visitor.visitEnum(typedObject.enum!!)
+    INTEGER_TYPE, "int" -> visitor.visitInteger()
+    NUMBER_TYPE -> visitor.visitNumber()
+    ARRAY_TYPE -> visitor.visitArray(typedObject.items!!)
     OBJECT_TYPE -> {
       if (typedObject !is ItemDescriptor.Type) {
-        return visitor.visitObject(null)
-      }
-
-      val properties = (typedObject : ItemDescriptor.Type).properties()
-      if (properties == null || properties.isEmpty()) {
-        return visitor.visitMap()
+        visitor.visitObject(null)
       }
       else {
-        return visitor.visitObject(properties)
+        val properties = typedObject.properties
+        return if (properties.isNullOrEmpty()) visitor.visitMap() else visitor.visitObject(properties)
       }
     }
-    ANY_TYPE -> return visitor.visitUnknown()
-    UNKNOWN_TYPE -> return visitor.visitUnknown()
+    ANY_TYPE, UNKNOWN_TYPE -> return visitor.visitUnknown()
+    else -> throw RuntimeException("Unrecognized type $typeName")
   }
-  throw RuntimeException("Unrecognized type " + typeName)
 }
-
-private fun initializeKnownTypes() {
-  // Code example:
-  // typeMap.getTypeData("Page", "Cookie").getInput().setJavaTypeName("Object");
-}
-
-private val BAD_METHOD_NAMES = HashSet(listOf("this"))

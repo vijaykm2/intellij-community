@@ -1,50 +1,52 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.net.ssl;
 
+import com.intellij.credentialStore.CredentialAttributes;
+import com.intellij.ide.passwordSafe.PasswordSafe;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.PathManager;
-import com.intellij.openapi.components.*;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.DialogWrapper;
-import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.io.StreamUtil;
-import com.intellij.openapi.util.registry.Registry;
-import com.intellij.util.xmlb.XmlSerializerUtil;
-import com.intellij.util.xmlb.annotations.AbstractCollection;
-import com.intellij.util.xmlb.annotations.Property;
-import com.intellij.util.xmlb.annotations.Tag;
+import com.intellij.openapi.util.NotNullLazyValue;
+import com.intellij.openapi.util.SystemInfoRt;
+import com.intellij.openapi.util.ThrowableComputable;
+import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.util.concurrency.AppExecutorUtil;
+import com.intellij.util.io.DigestUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.crypto.BadPaddingException;
-import javax.net.ssl.*;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
+import javax.net.ssl.KeyManager;
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
-import java.security.KeyManagementException;
-import java.security.KeyStore;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.util.LinkedHashSet;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
+import java.security.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.apache.http.conn.ssl.SSLConnectionSocketFactory.BROWSER_COMPATIBLE_HOSTNAME_VERIFIER;
-
 /**
  * {@code CertificateManager} is responsible for negotiation SSL connection with server
- * and deals with untrusted/self-singed/expired and other kinds of digital certificates.
+ * and deals with untrusted/self-signed/expired and other kinds of digital certificates.
  * <h1>Integration details:</h1>
  * If you're using httpclient-3.1 without custom {@code Protocol} instance for HTTPS you don't have to do anything
  * at all: default {@code HttpClient} will use "Default" {@code SSLContext}, which is set up by this component itself.
  * <p/>
  * However for httpclient-4.x you have several of choices:
- * <pre>
  * <ol>
  *  <li>Client returned by {@code HttpClients.createSystem()} will use "Default" SSL context as it does in httpclient-3.1.</li>
  *  <li>If you want to customize {@code HttpClient} using {@code HttpClients.custom()}, you can use the following methods of the builder
@@ -57,28 +59,17 @@ import static org.apache.http.conn.ssl.SSLConnectionSocketFactory.BROWSER_COMPAT
  *      </ol>
  *    </li>
  * </ol>
- * </pre>
  *
  * @author Mikhail Golubev
  */
-
-@State(
-  name = "CertificateManager",
-  storages = @Storage(file = StoragePathMacros.APP_CONFIG + "/other.xml")
-)
-public class CertificateManager implements ApplicationComponent, PersistentStateComponent<CertificateManager.Config> {
-
+@State(name = "CertificateManager", storages = @Storage("certificates.xml"), reportStatistic = false)
+public final class CertificateManager implements PersistentStateComponent<CertificateManager.Config> {
   @NonNls public static final String COMPONENT_NAME = "Certificate Manager";
-  @NonNls private static final String DEFAULT_PATH = FileUtil.join(PathManager.getSystemPath(), "tasks", "cacerts");
-  @NonNls private static final String DEFAULT_PASSWORD = "changeit";
+  @NonNls public static final String DEFAULT_PATH = String.join(File.separator, PathManager.getConfigPath(), "ssl", "cacerts");
+  @NonNls public static final String DEFAULT_PASSWORD = "changeit";
 
   private static final Logger LOG = Logger.getInstance(CertificateManager.class);
 
-  /**
-   * Special version of hostname verifier, that asks user whether he accepts certificate, which subject's common name
-   * doesn't match requested hostname.
-   */
-  public static final HostnameVerifier HOSTNAME_VERIFIER = new ConfirmingHostnameVerifier(BROWSER_COMPATIBLE_HOSTNAME_VERIFIER);
   /**
    * Used to check whether dialog is visible to prevent possible deadlock, e.g. when some external resource is loaded by
    * {@link java.awt.MediaTracker}.
@@ -86,60 +77,60 @@ public class CertificateManager implements ApplicationComponent, PersistentState
   static final long DIALOG_VISIBILITY_TIMEOUT = 5000; // ms
 
   public static CertificateManager getInstance() {
-    return (CertificateManager)ApplicationManager.getApplication().getComponent(COMPONENT_NAME);
+    return ApplicationManager.getApplication().getService(CertificateManager.class);
   }
 
-  private final String myCacertsPath;
-  private final String myPassword;
-  private final Config myConfig;
+  private Config myConfig = new Config();
 
-  private final ConfirmingTrustManager myTrustManager;
+  private final NotNullLazyValue<ConfirmingTrustManager> myTrustManager = NotNullLazyValue.atomicLazy(() -> {
+    return ConfirmingTrustManager.createForStorage(tryMigratingDefaultTruststore(), DEFAULT_PASSWORD);
+  });
 
-  /**
-   * Lazy initialized
-   */
-  private SSLContext mySslContext;
+  private static @NotNull String tryMigratingDefaultTruststore() {
+    final Path legacySystemPath = Paths.get(PathManager.getSystemPath(), "tasks", "cacerts");
+    final Path configPath = Paths.get(DEFAULT_PATH);
+    if (!Files.exists(configPath) && Files.exists(legacySystemPath)) {
+      LOG.info("Migrating the default truststore from " + legacySystemPath + " to " + configPath);
+      try {
+        Files.createDirectories(configPath.getParent());
+        try {
+          Files.move(legacySystemPath, configPath);
+        }
+        catch (FileAlreadyExistsException | NoSuchFileException ignored) {
+          // The legacy truststore is either already copied or missing for some reason - use the new location.
+        }
+      }
+      catch (IOException e) {
+        LOG.error("Cannot move the default truststore from " + legacySystemPath + " to " + configPath, e);
+        return legacySystemPath.toString();
+      }
+    }
+    return DEFAULT_PATH;
+  }
+
+  private final NotNullLazyValue<SSLContext> mySslContext = NotNullLazyValue.atomicLazy(this::calcSslContext);
 
   /**
    * Component initialization constructor
    */
   public CertificateManager() {
-    myCacertsPath = DEFAULT_PATH;
-    myPassword = DEFAULT_PASSWORD;
-    myConfig = new Config();
-    myTrustManager = ConfirmingTrustManager.createForStorage(myCacertsPath, myPassword);
-  }
-
-  @Override
-  public void initComponent() {
-    try {
-      // Don't do this: protocol created this way will ignore SSL tunnels. See IDEA-115708.
-      // Protocol.registerProtocol("https", CertificateManager.createDefault().createProtocol());
-      if (Registry.is("ide.certificate.manager")) {
+    AppExecutorUtil.getAppExecutorService().execute(() -> {
+      try {
+        // Don't do this: protocol created this way will ignore SSL tunnels. See IDEA-115708.
+        // Protocol.registerProtocol("https", CertificateManager.createDefault().createProtocol());
         SSLContext.setDefault(getSslContext());
-        LOG.debug("Default SSL context initialized");
+        LOG.info("Default SSL context initialized");
       }
-    }
-    catch (Exception e) {
-      LOG.error(e);
-    }
-  }
-
-  @Override
-  public void disposeComponent() {
-    // empty
-  }
-
-  @NotNull
-  @Override
-  public String getComponentName() {
-    return COMPONENT_NAME;
+      catch (Exception e) {
+        LOG.error(e);
+      }
+    });
   }
 
   /**
    * Creates special kind of {@code SSLContext}, which X509TrustManager first checks certificate presence in
    * in default system-wide trust store (usually located at {@code ${JAVA_HOME}/lib/security/cacerts} or specified by
-   * {@code javax.net.ssl.trustStore} property) and when in the one specified by field {@link #myCacertsPath}.
+   * {@code javax.net.ssl.trustStore} property) and when in the one specified by the constant {@link #DEFAULT_PATH}.
    * If certificate wasn't found in either, manager will ask user, whether it can be
    * accepted (like web-browsers do) and then, if it does, certificate will be added to specified trust store.
    * <p/>
@@ -151,37 +142,25 @@ public class CertificateManager implements ApplicationComponent, PersistentState
    *
    * @return instance of SSLContext with described behavior or default SSL context in case of error
    */
-  @NotNull
-  public synchronized SSLContext getSslContext() {
-    if (mySslContext == null) {
-      SSLContext context = getSystemSslContext();
-      if (Registry.is("ide.certificate.manager")) {
-        try {
-          // SSLContext context = SSLContext.getDefault();
-          // NOTE: existence of default trust manager can be checked here as
-          // assert systemManager.getAcceptedIssuers().length != 0
-          context.init(getDefaultKeyManagers(), new TrustManager[]{getTrustManager()}, null);
-        }
-        catch (KeyManagementException e) {
-          LOG.error(e);
-        }
-      }
-      else {
-        // IDEA-124057 Do not touch default context at all if certificate manager was disabled.
-
-        // For some reason passing `null` as first parameter of SSLContext#init is not enough to
-        // use -Djavax.net.ssl.keyStore VM parameters, although -Djavax.net.ssl.trustStore is used
-        // successfully. See this question on Stackoverflow for details
-        // http://stackoverflow.com/questions/23205266/java-key-store-is-not-found-when-default-ssl-context-is-redefined
-        context = getDefaultSslContext();
-      }
-      mySslContext = context;
-    }
-    return mySslContext;
+  public synchronized @NotNull SSLContext getSslContext() {
+    return mySslContext.getValue();
   }
 
-  @NotNull
-  public static SSLContext getSystemSslContext() {
+  private @NotNull SSLContext calcSslContext() {
+    SSLContext context = getSystemSslContext();
+    try {
+      // SSLContext context = SSLContext.getDefault();
+      // NOTE: existence of default trust manager can be checked here as
+      // assert systemManager.getAcceptedIssuers().length != 0
+      context.init(getDefaultKeyManagers(), new TrustManager[]{getTrustManager()}, null);
+    }
+    catch (KeyManagementException e) {
+      LOG.error(e);
+    }
+    return context;
+  }
+
+  public static @NotNull SSLContext getSystemSslContext() {
     // NOTE: SSLContext.getDefault() should not be called because it automatically creates
     // default context which can't be initialized twice
     try {
@@ -200,114 +179,106 @@ public class CertificateManager implements ApplicationComponent, PersistentState
     }
   }
 
-  @NotNull
-  private static SSLContext getDefaultSslContext() {
-    try {
-      return SSLContext.getDefault();
-    }
-    catch (NoSuchAlgorithmException e) {
-      LOG.error("Default SSL context not available. Using system instead.");
-      return getSystemSslContext();
-    }
-  }
-
   /**
    * Workaround for IDEA-124057. Manually find key store specified via VM options.
    *
    * @return key managers or {@code null} in case of any error
    */
-  @Nullable
-  public static KeyManager[] getDefaultKeyManagers() {
+  public static KeyManager @Nullable [] getDefaultKeyManagers() {
     String keyStorePath = System.getProperty("javax.net.ssl.keyStore");
-    if (keyStorePath != null) {
-      LOG.info("Loading custom key store specified with VM options: " + keyStorePath);
+    if (keyStorePath == null) {
+      return null;
+    }
+
+    LOG.info("Loading custom key store specified with VM options: " + keyStorePath);
+    try {
+      KeyManagerFactory factory = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+      KeyStore keyStore;
+      String keyStoreType = System.getProperty("javax.net.ssl.keyStoreType", KeyStore.getDefaultType());
       try {
-        KeyManagerFactory factory = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-        KeyStore keyStore;
-        String keyStoreType = System.getProperty("javax.net.ssl.keyStoreType", KeyStore.getDefaultType());
-        try {
-          keyStore = KeyStore.getInstance(keyStoreType);
-        }
-        catch (KeyStoreException e) {
-          if (e.getCause() instanceof NoSuchAlgorithmException) {
-            LOG.error("Wrong key store type: " + keyStoreType, e);
-            return null;
-          }
-          throw e;
-        }
-        String password = System.getProperty("javax.net.ssl.keyStorePassword", "");
-        InputStream inputStream = null;
-        try {
-          inputStream = new FileInputStream(keyStorePath);
-          keyStore.load(inputStream, password.toCharArray());
-          factory.init(keyStore, password.toCharArray());
-        }
-        catch (FileNotFoundException e) {
-          LOG.error("Key store file not found: " + keyStorePath);
+        keyStore = KeyStore.getInstance(keyStoreType);
+      }
+      catch (KeyStoreException e) {
+        if (e.getCause() instanceof NoSuchAlgorithmException) {
+          LOG.error("Wrong key store type: " + keyStoreType, e);
           return null;
         }
-        catch (Exception e) {
-          if (e.getCause() instanceof BadPaddingException) {
-            LOG.error("Wrong key store password: " + password, e);
-            return null;
+        throw e;
+      }
+
+      Path keyStoreFile = Paths.get(keyStorePath);
+      String password = System.getProperty("javax.net.ssl.keyStorePassword", "");
+      if (password.isEmpty() && SystemInfoRt.isMac) {
+        try {
+          String itemName = FileUtilRt.getNameWithoutExtension(keyStoreFile.getFileName().toString());
+          password = PasswordSafe.getInstance().getPassword(new CredentialAttributes(itemName, itemName));
+          if (password == null) {
+            password = "";
           }
-          throw e;
         }
-        finally {
-          StreamUtil.closeStream(inputStream);
+        catch (Throwable e) {
+          LOG.error("Cannot get password for " + keyStorePath, e);
         }
-        return factory.getKeyManagers();
+      }
+      try (InputStream inputStream = Files.newInputStream(keyStoreFile)) {
+        keyStore.load(inputStream, password.toCharArray());
+        factory.init(keyStore, password.toCharArray());
+      }
+      catch (NoSuchFileException e) {
+        LOG.error("Key store file not found: " + keyStorePath);
+        return null;
       }
       catch (Exception e) {
-        LOG.error(e);
+        if (e.getCause() instanceof BadPaddingException || e.getCause() instanceof UnrecoverableKeyException) {
+          LOG.error("Wrong key store password (sha-256): " + DigestUtil.sha256Hex(password.getBytes(StandardCharsets.UTF_8)), e);
+          return null;
+        }
+        throw e;
       }
+      return factory.getKeyManagers();
+    }
+    catch (Exception e) {
+      LOG.error(e);
     }
     return null;
   }
 
-  @NotNull
-  public String getCacertsPath() {
-    return myCacertsPath;
+  public @NotNull String getCacertsPath() {
+    return DEFAULT_PATH;
   }
 
-  @NotNull
-  public String getPassword() {
-    return myPassword;
+  public @NotNull String getPassword() {
+    return DEFAULT_PASSWORD;
   }
 
-  @NotNull
-  public ConfirmingTrustManager getTrustManager() {
-    return myTrustManager;
+  public @NotNull ConfirmingTrustManager getTrustManager() {
+    return myTrustManager.getValue();
   }
 
-  @NotNull
-  public ConfirmingTrustManager.MutableTrustManager getCustomTrustManager() {
-    return myTrustManager.getCustomManager();
+  public @NotNull ConfirmingTrustManager.MutableTrustManager getCustomTrustManager() {
+    return getTrustManager().getCustomManager();
   }
 
   public static boolean showAcceptDialog(final @NotNull Callable<? extends DialogWrapper> dialogFactory) {
     Application app = ApplicationManager.getApplication();
     final CountDownLatch proceeded = new CountDownLatch(1);
     final AtomicBoolean accepted = new AtomicBoolean();
-    final AtomicReference<DialogWrapper> dialogRef = new AtomicReference<DialogWrapper>();
-    Runnable showDialog = new Runnable() {
-      @Override
-      public void run() {
-        // skip if certificate was already rejected due to timeout or interrupt
-        if (proceeded.getCount() == 0) {
-          return;
-        }
-        try {
-          DialogWrapper dialog = dialogFactory.call();
-          dialogRef.set(dialog);
-          accepted.set(dialog.showAndGet());
-        }
-        catch (Exception e) {
-          LOG.error(e);
-        }
-        finally {
-          proceeded.countDown();
-        }
+    final AtomicReference<DialogWrapper> dialogRef = new AtomicReference<>();
+    Runnable showDialog = () -> {
+      // skip if certificate was already rejected due to timeout or interrupt
+      if (proceeded.getCount() == 0) {
+        return;
+      }
+      try {
+        DialogWrapper dialog = dialogFactory.call();
+        dialogRef.set(dialog);
+        accepted.set(dialog.showAndGet());
+      }
+      catch (Exception e) {
+        LOG.error(e);
+      }
+      finally {
+        proceeded.countDown();
       }
     };
     if (app.isDispatchThread()) {
@@ -339,35 +310,49 @@ public class CertificateManager implements ApplicationComponent, PersistentState
     return accepted.get();
   }
 
-  @NotNull
+  public <T, E extends Throwable> T runWithUntrustedCertificateStrategy(@NotNull ThrowableComputable<T, E> computable,
+                                                                        @NotNull UntrustedCertificateStrategy strategy) throws E {
+    ConfirmingTrustManager trustManager = getTrustManager();
+    trustManager.myUntrustedCertificateStrategy.set(strategy);
+    try {
+      return computable.compute();
+    }
+    finally {
+      trustManager.myUntrustedCertificateStrategy.remove();
+    }
+  }
+
   @Override
-  public Config getState() {
+  public @NotNull Config getState() {
     return myConfig;
   }
 
   @Override
-  public void loadState(Config state) {
-    XmlSerializerUtil.copyBean(state, myConfig);
+  public void loadState(@NotNull Config state) {
+    myConfig = state;
   }
 
-  public static class Config {
-    /**
-     * Ensure that request's hostname matches certificate's common name (CN).
-     */
-    public boolean CHECK_HOSTNAME = false;
-    /**
-     * Ensure that certificate is neither expired nor not yet eligible.
-     */
-    public boolean CHECK_VALIDITY = false;
-
-    @Tag("expired")
-    @Property(surroundWithTag = false)
-    @AbstractCollection(elementTag = "commonName")
-    public LinkedHashSet<String> BROKEN_CERTIFICATES = new LinkedHashSet<String>();
-
+  public static final class Config {
     /**
      * Do not show the dialog and accept untrusted certificates automatically.
      */
     public boolean ACCEPT_AUTOMATICALLY = false;
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+
+      Config config = (Config)o;
+
+      if (ACCEPT_AUTOMATICALLY != config.ACCEPT_AUTOMATICALLY) return false;
+
+      return true;
+    }
+
+    @Override
+    public int hashCode() {
+      return (ACCEPT_AUTOMATICALLY ? 1 : 0);
+    }
   }
 }

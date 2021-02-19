@@ -19,14 +19,15 @@ import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.highlighting.HighlightManager;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.colors.EditorColors;
-import com.intellij.openapi.editor.colors.EditorColorsManager;
-import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
+import com.intellij.psi.util.JavaElementKind;
 import com.intellij.psi.util.PsiExpressionTrimRenderer;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.PsiUtilCore;
@@ -38,7 +39,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class RemoveUnusedVariableFix implements IntentionAction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.daemon.impl.quickfix.RemoveUnusedVariableFix");
+  private static final Logger LOG = Logger.getInstance(RemoveUnusedVariableFix.class);
   private final PsiVariable myVariable;
 
   public RemoveUnusedVariableFix(PsiVariable variable) {
@@ -48,14 +49,13 @@ public class RemoveUnusedVariableFix implements IntentionAction {
   @Override
   @NotNull
   public String getText() {
-    return QuickFixBundle.message(myVariable instanceof PsiField ? "remove.unused.field" : "remove.unused.variable",
-                                  myVariable.getName());
+    return CommonQuickFixBundle.message("fix.remove.title.x", JavaElementKind.fromElement(myVariable).object(), myVariable.getName());
   }
 
   @Override
   @NotNull
   public String getFamilyName() {
-    return QuickFixBundle.message("remove.unused.variable.family");
+    return QuickFixBundle.message("remove.unused.element.family", JavaElementKind.VARIABLE.object());
   }
 
   @Override
@@ -63,7 +63,7 @@ public class RemoveUnusedVariableFix implements IntentionAction {
     return
       myVariable != null
       && myVariable.isValid()
-      && myVariable.getManager().isInProject(myVariable)
+      && BaseIntentionAction.canModify(myVariable)
       ;
   }
 
@@ -74,8 +74,8 @@ public class RemoveUnusedVariableFix implements IntentionAction {
   }
 
   private void removeVariableAndReferencingStatements(Editor editor) {
-    final List<PsiElement> references = new ArrayList<PsiElement>();
-    final List<PsiElement> sideEffects = new ArrayList<PsiElement>();
+    final List<PsiElement> references = new ArrayList<>();
+    final List<PsiElement> sideEffects = new ArrayList<>();
     final boolean[] canCopeWithSideEffects = {true};
     try {
       PsiElement context = myVariable instanceof PsiField ? ((PsiField)myVariable).getContainingClass() : PsiUtil.getVariableCodeBlock(myVariable, null);
@@ -98,25 +98,22 @@ public class RemoveUnusedVariableFix implements IntentionAction {
     final RemoveUnusedVariableUtil.RemoveMode
       deleteMode = showSideEffectsWarning(sideEffects, myVariable, editor, canCopeWithSideEffects[0]);
 
-    ApplicationManager.getApplication().runWriteAction(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          RemoveUnusedVariableUtil.deleteReferences(myVariable, references, deleteMode);
-        }
-        catch (IncorrectOperationException e) {
-          LOG.error(e);
-        }
+    ApplicationManager.getApplication().runWriteAction(() -> {
+      try {
+        RemoveUnusedVariableUtil.deleteReferences(myVariable, references, deleteMode);
+      }
+      catch (IncorrectOperationException e) {
+        LOG.error(e);
       }
     });
   }
 
-  public static RemoveUnusedVariableUtil.RemoveMode showSideEffectsWarning(List<PsiElement> sideEffects,
-                                           PsiVariable variable,
-                                           Editor editor,
-                                           boolean canCopeWithSideEffects,
-                                           @NonNls String beforeText,
-                                           @NonNls String afterText) {
+  public static RemoveUnusedVariableUtil.RemoveMode showSideEffectsWarning(List<? extends PsiElement> sideEffects,
+                                                                           PsiVariable variable,
+                                                                           Editor editor,
+                                                                           boolean canCopeWithSideEffects,
+                                                                           @NonNls String beforeText,
+                                                                           @NonNls String afterText) {
     if (sideEffects.isEmpty()) return RemoveUnusedVariableUtil.RemoveMode.DELETE_ALL;
     if (ApplicationManager.getApplication().isUnitTestMode()) {
       return canCopeWithSideEffects
@@ -126,9 +123,7 @@ public class RemoveUnusedVariableFix implements IntentionAction {
     Project project = editor.getProject();
     HighlightManager highlightManager = HighlightManager.getInstance(project);
     PsiElement[] elements = PsiUtilCore.toPsiElementArray(sideEffects);
-    EditorColorsManager manager = EditorColorsManager.getInstance();
-    TextAttributes attributes = manager.getGlobalScheme().getAttributes(EditorColors.SEARCH_RESULT_ATTRIBUTES);
-    highlightManager.addOccurrenceHighlights(editor, elements, attributes, true, null);
+    highlightManager.addOccurrenceHighlights(editor, elements, EditorColors.SEARCH_RESULT_ATTRIBUTES, true, null);
 
     SideEffectWarningDialog dialog = new SideEffectWarningDialog(project, false, variable, beforeText, afterText, canCopeWithSideEffects);
     dialog.show();
@@ -136,10 +131,10 @@ public class RemoveUnusedVariableFix implements IntentionAction {
     return RemoveUnusedVariableUtil.RemoveMode.values()[code];
   }
 
-  private static RemoveUnusedVariableUtil.RemoveMode showSideEffectsWarning(List<PsiElement> sideEffects,
-                                            PsiVariable variable,
-                                            Editor editor,
-                                            boolean canCopeWithSideEffects) {
+  private static RemoveUnusedVariableUtil.RemoveMode showSideEffectsWarning(List<? extends PsiElement> sideEffects,
+                                                                            PsiVariable variable,
+                                                                            Editor editor,
+                                                                            boolean canCopeWithSideEffects) {
     String text;
     if (sideEffects.isEmpty()) {
       text = "";

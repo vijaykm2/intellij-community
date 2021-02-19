@@ -15,53 +15,28 @@
  */
 package org.jetbrains.plugins.groovy.codeInspection;
 
-import com.intellij.codeInspection.InspectionManager;
-import com.intellij.codeInspection.InspectionProfileEntry;
-import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.LocalInspectionTool;
+import com.intellij.codeInspection.LocalInspectionToolSession;
 import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiElementVisitor;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.plugins.groovy.lang.psi.GroovyFileBase;
+import org.jetbrains.plugins.groovy.GroovyBundle;
+import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementVisitor;
 
-public abstract class BaseInspection extends GroovySuppressableInspectionTool {
-  private final String m_shortName = InspectionProfileEntry.getShortName(getClass().getSimpleName());
-
-  public static final String ASSIGNMENT_ISSUES = "Assignment issues";
-  public static final String CONFUSING_CODE_CONSTRUCTS = "Potentially confusing code constructs";
-  public static final String CONTROL_FLOW = "Control Flow";
-  public static final String PROBABLE_BUGS = "Probable bugs";
-  public static final String ERROR_HANDLING = "Error handling";
-  public static final String GPATH = "GPath inspections";
-  public static final String METHOD_METRICS = "Method Metrics";
-  public static final String THREADING_ISSUES = "Threading issues";
-  public static final String VALIDITY_ISSUES = "Validity issues";
-  public static final String ANNOTATIONS_ISSUES = "Annotations verifying";
-
-  @NotNull
-  @Override
-  public String[] getGroupPath() {
-    return new String[]{"Groovy", getGroupDisplayName()};
-  }
-
-  @Override
-  @NotNull
-  public String getShortName() {
-    return m_shortName;
-  }
-
-  @NotNull
-  protected BaseInspectionVisitor buildGroovyVisitor(@NotNull ProblemsHolder problemsHolder, boolean onTheFly) {
-    final BaseInspectionVisitor visitor = buildVisitor();
-    visitor.setProblemsHolder(problemsHolder);
-    visitor.setOnTheFly(onTheFly);
-    visitor.setInspection(this);
-    return visitor;
-  }
-
+public abstract class BaseInspection extends LocalInspectionTool {
+  /**
+   * @deprecated Use {@link #getProbableBugs()} instead
+   */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public static final String PROBABLE_BUGS = getProbableBugs();
 
   @Nullable
+  @InspectionMessage
   protected String buildErrorString(Object... args) {
     return null;
   }
@@ -75,26 +50,21 @@ public abstract class BaseInspection extends GroovySuppressableInspectionTool {
     return null;
   }
 
-  @Nullable
-  protected GroovyFix[] buildFixes(@NotNull PsiElement location) {
-    return null;
-  }
-
+  @NotNull
   @Override
-  @Nullable
-  public ProblemDescriptor[] checkFile(@NotNull PsiFile psiFile, @NotNull InspectionManager inspectionManager, boolean isOnTheFly) {
-    if (!(psiFile instanceof GroovyFileBase)) {
-      return super.checkFile(psiFile, inspectionManager, isOnTheFly);
-    }
-    final GroovyFileBase groovyFile = (GroovyFileBase) psiFile;
-
-    final ProblemsHolder problemsHolder = new ProblemsHolder(inspectionManager, psiFile, isOnTheFly);
-    final BaseInspectionVisitor visitor = buildGroovyVisitor(problemsHolder, isOnTheFly);
-    groovyFile.accept(visitor);
-    return problemsHolder.getResultsArray();
-
+  public PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder,
+                                        boolean isOnTheFly,
+                                        @NotNull LocalInspectionToolSession session) {
+    BaseInspectionVisitor visitor = buildVisitor();
+    visitor.initialize(this, holder, isOnTheFly);
+    return new GroovyPsiElementVisitor(visitor);
   }
 
   @NotNull
   protected abstract BaseInspectionVisitor buildVisitor();
+
+  @Nls(capitalization = Nls.Capitalization.Sentence)
+  public static String getProbableBugs() {
+    return GroovyBundle.message("inspection.bugs");
+  }
 }

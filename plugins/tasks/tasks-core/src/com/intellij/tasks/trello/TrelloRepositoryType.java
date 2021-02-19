@@ -17,11 +17,12 @@
 package com.intellij.tasks.trello;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.tasks.TaskBundle;
 import com.intellij.tasks.TaskRepository;
 import com.intellij.tasks.config.TaskRepositoryEditor;
 import com.intellij.tasks.impl.BaseRepositoryType;
 import com.intellij.util.Consumer;
-import icons.TasksIcons;
+import icons.TasksCoreIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -44,18 +45,18 @@ public class TrelloRepositoryType extends BaseRepositoryType<TrelloRepository> {
   @NotNull
   @Override
   public Icon getIcon() {
-    return TasksIcons.Trello;
+    return TasksCoreIcons.Trello;
   }
 
   @Nullable
   @Override
   public String getAdvertiser() {
-    return "<html><a href=" + CLIENT_AUTHORIZATION_URL + ">Where can I get authorization token?</a></html>";
+    return TaskBundle.message("html.a.href.0.where.can.i.get.authorization.token.a.html", CLIENT_AUTHORIZATION_URL);
   }
 
   @NotNull
   @Override
-  public TaskRepositoryEditor createEditor(TrelloRepository repository, Project project, Consumer<TrelloRepository> changeListener) {
+  public TaskRepositoryEditor createEditor(TrelloRepository repository, Project project, Consumer<? super TrelloRepository> changeListener) {
     return new TrelloRepositoryEditor(project, repository, changeListener);
   }
 

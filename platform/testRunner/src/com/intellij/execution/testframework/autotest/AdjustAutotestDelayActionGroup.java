@@ -15,6 +15,7 @@
  */
 package com.intellij.execution.testframework.autotest;
 
+import com.intellij.execution.testframework.TestRunnerBundle;
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.ide.DataManager;
 import com.intellij.openapi.actionSystem.*;
@@ -32,18 +33,18 @@ public class AdjustAutotestDelayActionGroup extends ActionGroup {
   private final DataContext myDataContext;
 
   public AdjustAutotestDelayActionGroup(@NotNull JComponent parent) {
-    super("Set AutoTest Delay", true);
+    super(TestRunnerBundle.message("action.AdjustAutotestDelayActionGroup.set.autotest.delay.text"), true);
     myDataContext = DataManager.getInstance().getDataContext(parent);
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     RunContentDescriptor descriptor = LangDataKeys.RUN_CONTENT_DESCRIPTOR.getData(myDataContext);
     boolean visible = false;
     if (descriptor != null) {
       for (AnAction action : descriptor.getRestartActions()) {
         if (action instanceof ToggleAutoTestAction) {
-          visible = true;
+          visible = ((ToggleAutoTestAction)action).isDelayApplicable();
           break;
         }
       }
@@ -51,9 +52,8 @@ public class AdjustAutotestDelayActionGroup extends ActionGroup {
     e.getPresentation().setVisible(visible);
   }
 
-  @NotNull
   @Override
-  public AnAction[] getChildren(@Nullable AnActionEvent e) {
+  public AnAction @NotNull [] getChildren(@Nullable AnActionEvent e) {
     final AnAction[] actions = new AnAction[MAX_DELAY];
     for (int i = 0; i < MAX_DELAY; i++) {
       actions[i] = new SetAutoTestDelayAction(i + 1);
@@ -64,19 +64,19 @@ public class AdjustAutotestDelayActionGroup extends ActionGroup {
   private static class SetAutoTestDelayAction extends ToggleAction {
     private final int myDelay;
 
-    public SetAutoTestDelayAction(int delay) {
-      super(delay + "s");
+    SetAutoTestDelayAction(int delay) {
+      super(TestRunnerBundle.message("action.seconds.text", delay));
       myDelay = delay * 1000;
     }
 
     @Override
-    public boolean isSelected(AnActionEvent e) {
+    public boolean isSelected(@NotNull AnActionEvent e) {
       Project project = e.getProject();
       return project != null && AutoTestManager.getInstance(project).getDelay() == myDelay;
     }
 
     @Override
-    public void setSelected(AnActionEvent e, boolean state) {
+    public void setSelected(@NotNull AnActionEvent e, boolean state) {
       Project project = e.getProject();
       if (project != null) {
         AutoTestManager.getInstance(project).setDelay(myDelay);

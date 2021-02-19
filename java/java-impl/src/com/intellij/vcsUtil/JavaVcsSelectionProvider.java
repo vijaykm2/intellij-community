@@ -15,26 +15,29 @@
  */
 package com.intellij.vcsUtil;
 
-import com.intellij.codeInsight.TargetElementUtilBase;
+import com.intellij.codeInsight.TargetElementUtil;
+import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vcs.VcsBundle;
-import com.intellij.openapi.vcs.actions.VcsContext;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author yole
  */
 public class JavaVcsSelectionProvider implements VcsSelectionProvider {
+  @Override
   @Nullable
-  public VcsSelection getSelection(final VcsContext context) {
-    final Editor editor = context.getEditor();
+  public VcsSelection getSelection(@NotNull DataContext context) {
+    final Editor editor = context.getData(CommonDataKeys.EDITOR);
     if (editor == null) return null;
-    PsiElement psiElement = TargetElementUtilBase.findTargetElement(editor, TargetElementUtilBase.ELEMENT_NAME_ACCEPTED);
+    PsiElement psiElement = TargetElementUtil.findTargetElement(editor, TargetElementUtil.ELEMENT_NAME_ACCEPTED);
     if (psiElement == null) {
       return null;
     }
@@ -80,6 +83,10 @@ public class JavaVcsSelectionProvider implements VcsSelectionProvider {
     }
 
     Document document = FileDocumentManager.getInstance().getDocument(virtualFile);
+    if (document == null) {
+      return null;
+    }
+
     return new VcsSelection(document, textRange, actionName);
   }
 }

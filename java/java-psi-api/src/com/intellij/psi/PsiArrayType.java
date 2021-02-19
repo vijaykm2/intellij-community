@@ -1,21 +1,9 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
+import com.intellij.lang.jvm.types.JvmArrayType;
 import com.intellij.psi.search.GlobalSearchScope;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -23,57 +11,69 @@ import org.jetbrains.annotations.NotNull;
  *
  * @author max
  */
-public class PsiArrayType extends PsiType.Stub {
+public class PsiArrayType extends PsiType.Stub implements JvmArrayType {
   private final PsiType myComponentType;
 
-  /**
-   * Creates an array type with the specified component type.
-   *
-   * @param componentType the type of the array component.
-   */
   public PsiArrayType(@NotNull PsiType componentType) {
-    this(componentType, PsiAnnotation.EMPTY_ARRAY);
+    this(componentType, TypeAnnotationProvider.EMPTY);
   }
 
-  public PsiArrayType(@NotNull PsiType componentType, @NotNull PsiAnnotation[] annotations) {
+  public PsiArrayType(@NotNull PsiType componentType, PsiAnnotation @NotNull [] annotations) {
     super(annotations);
+    myComponentType = componentType;
+  }
+
+  public PsiArrayType(@NotNull PsiType componentType, @NotNull TypeAnnotationProvider provider) {
+    super(provider);
     myComponentType = componentType;
   }
 
   @NotNull
   @Override
-  public String getPresentableText() {
-    return getText(myComponentType.getPresentableText(), "[]", false, true);
+  public String getPresentableText(boolean annotated) {
+    return getText(getDeepComponentType().getPresentableText(annotated), "[]", false, annotated);
   }
 
   @NotNull
   @Override
   public String getCanonicalText(boolean annotated) {
-    return getText(myComponentType.getCanonicalText(annotated), "[]", true, annotated);
+    return getText(getDeepComponentType().getCanonicalText(annotated), "[]", true, annotated);
   }
 
   @NotNull
   @Override
   public String getInternalCanonicalText() {
-    return getText(myComponentType.getInternalCanonicalText(), "[]", true, true);
+    return getText(getDeepComponentType().getInternalCanonicalText(), "[]", true, true);
   }
 
   protected String getText(@NotNull String prefix, @NotNull String suffix, boolean qualified, boolean annotated) {
-    StringBuilder sb = new StringBuilder(prefix.length() + suffix.length());
+    int dimensions = getArrayDimensions();
+    StringBuilder sb = new StringBuilder(prefix.length() + (dimensions - 1) * 2 + suffix.length());
     sb.append(prefix);
-    if (annotated) {
-      PsiAnnotation[] annotations = getAnnotations();
-      if (annotations.length != 0) {
-        sb.append(' ');
-        PsiNameHelper.appendAnnotations(sb, annotations, qualified);
+    PsiType current = this;
+    for (int i = 0; i < dimensions; i++) {
+      if (annotated) {
+        PsiAnnotation[] annotations = current.getAnnotations();
+        if (annotations.length != 0) {
+          sb.append(' ');
+          PsiNameHelper.appendAnnotations(sb, annotations, qualified);
+        }
+      }
+      if (i == dimensions - 1) {
+        sb.append(suffix);
+      } else {
+        sb.append("[]");
+        current = ((PsiArrayType)current).getComponentType();
       }
     }
-    sb.append(suffix);
     return sb.toString();
   }
 
   @Override
   public boolean isValid() {
+    for (PsiAnnotation annotation : getAnnotations()) {
+      if (!annotation.isValid()) return false;
+    }
     return myComponentType.isValid();
   }
 
@@ -93,8 +93,7 @@ public class PsiArrayType extends PsiType.Stub {
   }
 
   @Override
-  @NotNull
-  public PsiType[] getSuperTypes() {
+  public PsiType @NotNull [] getSuperTypes() {
     final PsiType[] superTypes = myComponentType.getSuperTypes();
     final PsiType[] result = createArray(superTypes.length);
     for (int i = 0; i < superTypes.length; i++) {
@@ -109,14 +108,20 @@ public class PsiArrayType extends PsiType.Stub {
    * @return the component type instance.
    */
   @NotNull
+  @Override
+  @Contract(pure = true)
   public PsiType getComponentType() {
     return myComponentType;
   }
 
+  @Override
   public boolean equals(Object obj) {
-    return obj != null && getClass().equals(obj.getClass()) && myComponentType.equals(((PsiArrayType)obj).getComponentType());
+    return obj instanceof PsiArrayType &&
+           (this instanceof PsiEllipsisType == obj instanceof PsiEllipsisType) &&
+           myComponentType.equals(((PsiArrayType)obj).getComponentType());
   }
 
+  @Override
   public int hashCode() {
     return myComponentType.hashCode() * 3;
   }

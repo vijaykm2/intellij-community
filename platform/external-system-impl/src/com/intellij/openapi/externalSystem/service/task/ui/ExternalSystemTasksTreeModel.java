@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service.task.ui;
 
 import com.intellij.execution.executors.DefaultRunExecutor;
@@ -23,8 +9,7 @@ import com.intellij.openapi.externalSystem.model.execution.ExternalTaskExecution
 import com.intellij.openapi.externalSystem.model.execution.ExternalTaskPojo;
 import com.intellij.openapi.externalSystem.model.project.ExternalProjectPojo;
 import com.intellij.openapi.externalSystem.util.ExternalSystemUiUtil;
-import com.intellij.util.containers.ContainerUtilRt;
-import gnu.trove.TObjectIntHashMap;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -36,30 +21,25 @@ import java.util.*;
 
 /**
  * @author Denis Zhdanov
- * @since 5/12/13 10:28 PM
  */
-public class ExternalSystemTasksTreeModel extends DefaultTreeModel {
-
-  @NotNull private static final Comparator<TreeNode> NODE_COMPARATOR = new Comparator<TreeNode>() {
-    @Override
-    public int compare(TreeNode t1, TreeNode t2) {
-      Object e1 = ((ExternalSystemNode<?>)t1).getDescriptor().getElement();
-      Object e2 = ((ExternalSystemNode<?>)t2).getDescriptor().getElement();
-      if (e1 instanceof ExternalProjectPojo) {
-        if (e2 instanceof ExternalTaskExecutionInfo) {
-          return 1;
-        }
-        else {
-          return ((ExternalProjectPojo)e1).getName().compareTo(((ExternalProjectPojo)e2).getName());
-        }
+public final class ExternalSystemTasksTreeModel extends DefaultTreeModel {
+  @NotNull private static final Comparator<TreeNode> NODE_COMPARATOR = (t1, t2) -> {
+    Object e1 = ((ExternalSystemNode<?>)t1).getDescriptor().getElement();
+    Object e2 = ((ExternalSystemNode<?>)t2).getDescriptor().getElement();
+    if (e1 instanceof ExternalProjectPojo) {
+      if (e2 instanceof ExternalTaskExecutionInfo) {
+        return 1;
       }
       else {
-        if (e2 instanceof ExternalProjectPojo) {
-          return -1;
-        }
-        else {
-          return getTaskName((ExternalTaskExecutionInfo)e1).compareTo(getTaskName((ExternalTaskExecutionInfo)e2));
-        }
+        return ((ExternalProjectPojo)e1).getName().compareTo(((ExternalProjectPojo)e2).getName());
+      }
+    }
+    else {
+      if (e2 instanceof ExternalProjectPojo) {
+        return -1;
+      }
+      else {
+        return getTaskName((ExternalTaskExecutionInfo)e1).compareTo(getTaskName((ExternalTaskExecutionInfo)e2));
       }
     }
   };
@@ -68,7 +48,7 @@ public class ExternalSystemTasksTreeModel extends DefaultTreeModel {
   @NotNull private final ProjectSystemId myExternalSystemId;
 
   public ExternalSystemTasksTreeModel(@NotNull ProjectSystemId externalSystemId) {
-    super(new ExternalSystemNode<String>(new ExternalSystemNodeDescriptor<String>("", "", "", null)));
+    super(new ExternalSystemNode<>(new ExternalSystemNodeDescriptor<>("", "", "", null)));
     myExternalSystemId = externalSystemId;
     myUiAware = ExternalSystemUiUtil.getUiAware(externalSystemId);
   }
@@ -106,7 +86,7 @@ public class ExternalSystemTasksTreeModel extends DefaultTreeModel {
     }
     ExternalProjectPojo element = new ExternalProjectPojo(project.getName(), project.getPath());
     ExternalSystemNodeDescriptor<ExternalProjectPojo> descriptor = descriptor(element, myUiAware.getProjectIcon());
-    ExternalSystemNode<ExternalProjectPojo> result = new ExternalSystemNode<ExternalProjectPojo>(descriptor);
+    ExternalSystemNode<ExternalProjectPojo> result = new ExternalSystemNode<>(descriptor);
     insertNodeInto(result, root);
     return result;
   }
@@ -117,7 +97,7 @@ public class ExternalSystemTasksTreeModel extends DefaultTreeModel {
    * @param payload target payload
    */
   public void pruneNodes(@NotNull Object payload) {
-    Deque<ExternalSystemNode<?>> toProcess = new ArrayDeque<ExternalSystemNode<?>>();
+    Deque<ExternalSystemNode<?>> toProcess = new ArrayDeque<>();
     toProcess.addFirst(getRoot());
     while (!toProcess.isEmpty()) {
       ExternalSystemNode<?> node = toProcess.removeLast();
@@ -133,20 +113,18 @@ public class ExternalSystemTasksTreeModel extends DefaultTreeModel {
   }
 
   public void ensureSubProjectsStructure(@NotNull ExternalProjectPojo topLevelProject,
-                                         @NotNull Collection<ExternalProjectPojo> subProjects) {
+                                         @NotNull Collection<? extends ExternalProjectPojo> subProjects) {
     ExternalSystemNode<ExternalProjectPojo> topLevelProjectNode = ensureProjectNodeExists(topLevelProject);
-    Map<String/*config path*/, ExternalProjectPojo> toAdd = ContainerUtilRt.newHashMap();
+    Map<String/*config path*/, ExternalProjectPojo> toAdd = new HashMap<>();
     for (ExternalProjectPojo subProject : subProjects) {
       toAdd.put(subProject.getPath(), subProject);
     }
     toAdd.remove(topLevelProject.getPath());
 
-    final TObjectIntHashMap<Object> taskWeights = new TObjectIntHashMap<Object>();
     for (int i = 0; i < topLevelProjectNode.getChildCount(); i++) {
       ExternalSystemNode<?> child = topLevelProjectNode.getChildAt(i);
       Object childElement = child.getDescriptor().getElement();
       if (childElement instanceof ExternalTaskExecutionInfo) {
-        taskWeights.put(childElement, subProjects.size() + i);
         continue;
       }
       if (toAdd.remove(((ExternalProjectPojo)childElement).getPath()) == null) {
@@ -159,13 +137,13 @@ public class ExternalSystemTasksTreeModel extends DefaultTreeModel {
       for (Map.Entry<String, ExternalProjectPojo> entry : toAdd.entrySet()) {
         ExternalProjectPojo
           element = new ExternalProjectPojo(entry.getValue().getName(), entry.getValue().getPath());
-        insertNodeInto(new ExternalSystemNode<ExternalProjectPojo>(descriptor(element, myUiAware.getProjectIcon())),
+        insertNodeInto(new ExternalSystemNode<>(descriptor(element, myUiAware.getProjectIcon())),
                        topLevelProjectNode);
       }
     }
   }
 
-  public void ensureTasks(@NotNull String externalProjectConfigPath, @NotNull Collection<ExternalTaskPojo> tasks) {
+  public void ensureTasks(@NotNull String externalProjectConfigPath, @NotNull Collection<? extends ExternalTaskPojo> tasks) {
     if (tasks.isEmpty()) {
       return;
     }
@@ -177,7 +155,7 @@ public class ExternalSystemTasksTreeModel extends DefaultTreeModel {
 //      ));
       return;
     }
-    Set<ExternalTaskExecutionInfo> toAdd = ContainerUtilRt.newHashSet();
+    Set<ExternalTaskExecutionInfo> toAdd = new HashSet<>();
     for (ExternalTaskPojo task : tasks) {
       toAdd.add(buildTaskInfo(task));
     }
@@ -196,7 +174,7 @@ public class ExternalSystemTasksTreeModel extends DefaultTreeModel {
     if (!toAdd.isEmpty()) {
       for (ExternalTaskExecutionInfo taskInfo : toAdd) {
         insertNodeInto(
-          new ExternalSystemNode<ExternalTaskExecutionInfo>(descriptor(taskInfo, taskInfo.getDescription(), myUiAware.getTaskIcon())),
+          new ExternalSystemNode<>(descriptor(taskInfo, taskInfo.getDescription(), myUiAware.getTaskIcon())),
           moduleNode);
       }
     }
@@ -239,10 +217,11 @@ public class ExternalSystemTasksTreeModel extends DefaultTreeModel {
   }
 
   @NotNull
-  private static <T> ExternalSystemNodeDescriptor<T> descriptor(@NotNull T element, @NotNull String description, @Nullable Icon icon) {
-    return new ExternalSystemNodeDescriptor<T>(element, element.toString(), description, icon);
+  private static <T> ExternalSystemNodeDescriptor<T> descriptor(@NotNull T element, @NotNull @Nls String description, @Nullable Icon icon) {
+    return new ExternalSystemNodeDescriptor<>(element, element.toString(), description, icon);
   }
 
+  @Override
   @NotNull
   public ExternalSystemNode<?> getRoot() {
     return (ExternalSystemNode<?>)super.getRoot();
@@ -253,6 +232,7 @@ public class ExternalSystemTasksTreeModel extends DefaultTreeModel {
     super.insertNodeInto(child, parent, index);
   }
 
+  @Override
   public void insertNodeInto(MutableTreeNode child, MutableTreeNode parent, int i) {
     insertNodeInto(child, parent);
   }

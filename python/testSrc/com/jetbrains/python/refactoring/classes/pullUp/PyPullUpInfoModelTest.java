@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.refactoring.classes.pullUp;
 
 import com.google.common.collect.Iterables;
@@ -8,6 +9,7 @@ import com.jetbrains.python.psi.PyClass;
 import com.jetbrains.python.psi.PyElement;
 import com.jetbrains.python.refactoring.classes.PyMemberInfoStorage;
 import com.jetbrains.python.refactoring.classes.membersManager.PyMemberInfo;
+import org.easymock.MockType;
 import org.easymock.internal.MocksControl;
 import org.hamcrest.Matchers;
 import org.jetbrains.annotations.NotNull;
@@ -32,7 +34,7 @@ public class PyPullUpInfoModelTest extends PyTestCase {
     myFixture.configureByFile("/refactoring/pullup/pyPullUpInfoModel.py");
     final PyClass childClass = getClassByName("ChildWithDependencies");
     final PyClass parentClass = getClassByName("SomeParent");
-    mySut = new PyPullUpInfoModel(childClass, new MocksControl(MocksControl.MockType.NICE).createMock(PyPullUpView.class));
+    mySut = new PyPullUpInfoModel(childClass, new MocksControl(MockType.NICE).createMock(PyPullUpView.class));
     mySut.setSuperClass(parentClass);
     myMemberInfos = new PyMemberInfoStorage(childClass).getClassMemberInfos(childClass);
   }
@@ -40,7 +42,7 @@ public class PyPullUpInfoModelTest extends PyTestCase {
   /**
    * Checks class field depends on class field
    */
-  public void testClassMemberDependencies() throws Exception {
+  public void testClassMemberDependencies() {
     checkMembers("CLASS_FIELD_DEPENDS_ON_CLASS_FIELD_FOO");
     Assert.assertThat("Class member dependencies failed", getErrorMemberNames(), Matchers.containsInAnyOrder("CLASS_FIELD_FOO"));
   }
@@ -48,7 +50,7 @@ public class PyPullUpInfoModelTest extends PyTestCase {
   /**
    * Checks instance field depends on class field
    */
-  public void testInstanceMemberDependencies() throws Exception {
+  public void testInstanceMemberDependencies() {
     checkMembers("self.depends_on_class_field_foo");
     Assert.assertThat("Instance member dependencies failed", getErrorMemberNames(), Matchers.containsInAnyOrder("CLASS_FIELD_FOO"));
   }
@@ -56,7 +58,7 @@ public class PyPullUpInfoModelTest extends PyTestCase {
   /**
    * Checks method depends on another class field
    */
-  public void testMethodMemberDependencies() throws Exception {
+  public void testMethodMemberDependencies() {
     checkMembers("method_depends_on_normal_method(self)");
     Assert.assertThat("Method dependencies failed", getErrorMemberNames(), Matchers.containsInAnyOrder("normal_method(self)"));
   }
@@ -64,7 +66,7 @@ public class PyPullUpInfoModelTest extends PyTestCase {
   /**
    * Checks method depends on method
    */
-  public void testMethodOnInstanceMemberDependencies() throws Exception {
+  public void testMethodOnInstanceMemberDependencies() {
     checkMembers("method_depends_on_instance_field_bar(self)");
     Assert.assertThat("Instance on member dependencies failed", getErrorMemberNames(), Matchers.containsInAnyOrder("self.instance_field_bar"));
   }
@@ -73,7 +75,7 @@ public class PyPullUpInfoModelTest extends PyTestCase {
    * Check dependnecies for properties, declared in old-style
    *
    */
-  public void testOldProperty() throws Exception {
+  public void testOldProperty() {
     checkMembers("method_depends_on_old_property(self)");
     Assert.assertThat("Method on old property dependency failed", getErrorMemberNames(), Matchers.containsInAnyOrder(
       "old_property",
@@ -85,7 +87,7 @@ public class PyPullUpInfoModelTest extends PyTestCase {
    *
    * Check dependnecies for properties, declared in new-style
    */
-  public void testNewProperty() throws Exception {
+  public void testNewProperty() {
     checkMembers("method_depends_on_new_property(self)");
     Assert.assertThat("Method on new property dependency failed", getErrorMemberNames(), Matchers.containsInAnyOrder("new_property", "new_property_2"));
   }
@@ -94,7 +96,7 @@ public class PyPullUpInfoModelTest extends PyTestCase {
   /**
    * All dependencies are met: new (destination) class has all of them
    */
-  public void testParentDependenciesOk() throws Exception {
+  public void testParentDependenciesOk() {
     checkMembers("CLASS_FIELD_DEPENDS_ON_PARENT_FIELD",
                  "method_depends_on_parent_method(self)",
                  "method_depends_on_parent_field(self)");
@@ -106,7 +108,7 @@ public class PyPullUpInfoModelTest extends PyTestCase {
    * New (destination) class has no members, required by member under refactoring.
    * Error should be displayed.
    */
-  public void testNoParentDependenciesOk() throws Exception {
+  public void testNoParentDependenciesOk() {
     mySut.setSuperClass(getClassByName("EmptyParent"));
     checkMembers("CLASS_FIELD_DEPENDS_ON_PARENT_FIELD",
                  "method_depends_on_parent_method(self)",
@@ -120,7 +122,7 @@ public class PyPullUpInfoModelTest extends PyTestCase {
    */
   @NotNull
   private List<String> getErrorMemberNames() {
-    final List<String> result = new ArrayList<String>();
+    final List<String> result = new ArrayList<>();
     for (final PyMemberInfo<PyElement> info : myMemberInfos) {
       if (mySut.checkForProblems(info) != MemberInfoModel.OK) {
         result.add(info.getDisplayName());
@@ -133,14 +135,14 @@ public class PyPullUpInfoModelTest extends PyTestCase {
    * Marks members to be moved (sets checkbox on them)
    * @param memberNames names of members to check
    */
-  private void checkMembers(@NotNull final String... memberNames) {
+  private void checkMembers(final String @NotNull ... memberNames) {
     for (final String memberName : memberNames) {
       Iterables.find(myMemberInfos, new NamePredicate(memberName)).setChecked(true);
     }
     mySut.memberInfoChanged(myMemberInfos);
   }
 
-  private static class NamePredicate extends NotNullPredicate<PyMemberInfo<?>> {
+  private static final class NamePredicate extends NotNullPredicate<PyMemberInfo<?>> {
     @NotNull
     private final String myNameToSearch;
 

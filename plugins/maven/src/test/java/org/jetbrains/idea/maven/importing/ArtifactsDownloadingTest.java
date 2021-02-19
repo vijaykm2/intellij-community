@@ -21,13 +21,14 @@ import org.jetbrains.idea.maven.model.MavenArtifact;
 import org.jetbrains.idea.maven.model.MavenId;
 import org.jetbrains.idea.maven.project.MavenArtifactDownloader;
 import org.jetbrains.idea.maven.project.MavenProject;
+import org.jetbrains.idea.maven.server.MavenServerManager;
 
 import java.io.File;
 import java.util.Arrays;
 import java.util.List;
 
 public class ArtifactsDownloadingTest extends ArtifactsDownloadingTestCase {
-  public void testJavadocsAndSources() throws Exception {
+  public void testJavadocsAndSources() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>" +
@@ -52,7 +53,7 @@ public class ArtifactsDownloadingTest extends ArtifactsDownloadingTestCase {
     assertTrue(javadoc.exists());
   }
 
-  public void testIgnoringOfflineSetting() throws Exception {
+  public void testIgnoringOfflineSetting() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>" +
@@ -90,7 +91,7 @@ public class ArtifactsDownloadingTest extends ArtifactsDownloadingTestCase {
     assertTrue(javadoc.exists());
   }
 
-  public void testDownloadingSpecificDependency() throws Exception {
+  public void testDownloadingSpecificDependency() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>" +
@@ -123,7 +124,7 @@ public class ArtifactsDownloadingTest extends ArtifactsDownloadingTestCase {
     assertFalse(new File(getRepositoryPath(), "/junit/junit/4.0/junit-4.0-javadoc.jar").exists());
   }
 
-  public void testReturningNotFoundArtifacts() throws Exception {
+  public void testReturningNotFoundArtifacts() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>" +
@@ -149,7 +150,7 @@ public class ArtifactsDownloadingTest extends ArtifactsDownloadingTestCase {
     assertUnorderedElementsAreEqual(unresolvedArtifacts.unresolvedDocs, new MavenId("lib", "xxx", "1"));
   }
 
-  public void testJavadocsAndSourcesForTestDeps() throws Exception {
+  public void testJavadocsAndSourcesForTestDeps() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>" +
@@ -252,31 +253,37 @@ public class ArtifactsDownloadingTest extends ArtifactsDownloadingTestCase {
     }
   }
 
-  public void testDownloadingPlugins() throws Exception {
-    importProject("<groupId>test</groupId>" +
-                  "<artifactId>project</artifactId>" +
-                  "<version>1</version>" +
+  public void testDownloadingPlugins() {
+    try {
+      importProject("<groupId>test</groupId>" +
+                    "<artifactId>project</artifactId>" +
+                    "<version>1</version>" +
 
-                  "<build>" +
-                  "  <plugins>" +
-                  "    <plugin>" +
-                  "      <groupId>org.apache.maven.plugins</groupId>" +
-                  "      <artifactId>maven-surefire-plugin</artifactId>" +
-                  "      <version>2.4.2</version>" +
-                  "    </plugin>" +
-                  "  </plugins>" +
-                  "</build>");
+                    "<build>" +
+                    "  <plugins>" +
+                    "    <plugin>" +
+                    "      <groupId>org.apache.maven.plugins</groupId>" +
+                    "      <artifactId>maven-surefire-plugin</artifactId>" +
+                    "      <version>2.4.2</version>" +
+                    "    </plugin>" +
+                    "  </plugins>" +
+                    "</build>");
 
-    File f = new File(getRepositoryPath(), "/org/apache/maven/plugins/maven-surefire-plugin/2.4.2/maven-surefire-plugin-2.4.2.jar");
-    assertFalse(f.exists());
+      File f = new File(getRepositoryPath(), "/org/apache/maven/plugins/maven-surefire-plugin/2.4.2/maven-surefire-plugin-2.4.2.jar");
+      assertFalse(f.exists());
 
-    resolvePlugins();
+      resolvePlugins();
 
-    assertTrue(f.exists());
+      assertTrue(f.exists());
+    }
+    finally {
+      // do not lock files by maven process
+      MavenServerManager.getInstance().shutdown(true);
+    }
   }
 
-  public void testDownloadBuildExtensionsOnResolve() throws Exception {
-    File f = new File(getRepositoryPath(), "/org/apache/maven/wagon/wagon/1.0-alpha-6/wagon-1.0-alpha-6.pom");
+  public void testDownloadBuildExtensionsOnResolve() {
+    File f = new File(getRepositoryPath(), "/org/apache/maven/wagon/wagon-ftp/2.10/wagon-ftp-2.10.pom");
     assertFalse(f.exists());
 
     importProject("<groupId>test</groupId>" +
@@ -287,8 +294,8 @@ public class ArtifactsDownloadingTest extends ArtifactsDownloadingTestCase {
                   "  <extensions>" +
                   "    <extension>" +
                   "      <groupId>org.apache.maven.wagon</groupId>" +
-                  "      <artifactId>wagon</artifactId>" +
-                  "      <version>1.0-alpha-6</version>" +
+                  "      <artifactId>wagon-ftp</artifactId>" +
+                  "      <version>2.10</version>" +
                   "    </extension>" +
                   "  </extensions>" +
                   "</build>");

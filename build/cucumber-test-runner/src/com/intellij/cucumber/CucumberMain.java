@@ -1,57 +1,103 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.cucumber;
 
+import com.intellij.TestCaseLoader;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Ref;
-import com.intellij.testFramework.UsefulTestCase;
-import com.intellij.util.ui.UIUtil;
-import cucumber.io.MultiLoader;
+import com.intellij.testFramework.TestRunnerUtil;
+import com.intellij.util.lang.UrlClassLoader;
+import com.intellij.util.ui.EdtInvocationManager;
 import cucumber.runtime.Runtime;
 import cucumber.runtime.RuntimeOptions;
+import cucumber.runtime.io.MultiLoader;
+import cucumber.runtime.io.Resource;
+import cucumber.runtime.io.ResourceLoaderClassFinder;
 
-/**
- * @author Dennis.Ushakov
- */
-public class CucumberMain {
+import java.io.File;
+import java.lang.reflect.InvocationTargetException;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+public final class CucumberMain {
+  private static final Logger LOG = Logger.getInstance(CucumberMain.class);
   static {
     // Radar #5755208: Command line Java applications need a way to launch without a Dock icon.
     System.setProperty("apple.awt.UIElement", "true");
   }
 
-  public static void main(final String[] args) {
-    final Ref<Throwable> errorRef = new Ref<Throwable>();
-    final Ref<Runtime> runtimeRef = new Ref<Runtime>();
+  public static void main(String[] args) {
+    int exitStatus;
     try {
-      UsefulTestCase.replaceIdeEventQueueSafely();
-      UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-        @Override
-        public void run() {
-          try {
-            final ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
-            RuntimeOptions runtimeOptions = new RuntimeOptions(System.getProperties(), args);
-            Runtime runtime = new Runtime(new MultiLoader(classLoader), classLoader, runtimeOptions);
-            runtimeRef.set(runtime);
-            runtime.writeStepdefsJson();
-            runtime.run();
-          }
-          catch (Throwable throwable) {
-            errorRef.set(throwable);
-            Logger.getInstance(CucumberMain.class).error(throwable);
-          }
+      ClassLoader original = Thread.currentThread().getContextClassLoader();
+      List<Path> files = new ArrayList<>();
+      for (String path : System.getProperty("java.class.path").split(File.pathSeparator)) {
+        if (!path.isEmpty()) {
+          files.add(Path.of(path));
+        }
+      }
+      UrlClassLoader loader = UrlClassLoader.build().files(files).parent(original.getParent())
+        .useCache()
+        .usePersistentClasspathIndexForLocalClassDirectories()
+        .autoAssignUrlsWithProtectionDomain()
+        .get();
+      Thread.currentThread().setContextClassLoader(loader);
+      exitStatus = (Integer)loader.loadClass(CucumberMain.class.getName())
+        .getMethod("run", String[].class, ClassLoader.class)
+        .invoke(null, args, loader);
+    }
+    catch (InvocationTargetException e) {
+      LOG.warn(e);
+      var targetException = e.getTargetException();
+      if (targetException instanceof AssertionError) {
+        exitStatus = 0;
+      }
+      else {
+        exitStatus = 1;
+      }
+    }
+    catch (Throwable e) {
+      LOG.warn(e);
+      exitStatus = 1;
+    }
+    System.exit(exitStatus);
+  }
+
+  public static int run(final String[] argv, final ClassLoader classLoader) {
+    final Ref<Throwable> errorRef = new Ref<>();
+    final Ref<Runtime> runtimeRef = new Ref<>();
+
+    try {
+      TestRunnerUtil.replaceIdeEventQueueSafely();
+      EdtInvocationManager.invokeAndWaitIfNeeded(() -> {
+        try {
+          RuntimeOptions runtimeOptions = new RuntimeOptions(new ArrayList<>(Arrays.asList(argv)));
+          MultiLoader resourceLoader = new MultiLoader(classLoader) {
+            @Override
+            public Iterable<Resource> resources(String path, String suffix) {
+              Iterable<Resource> resources = super.resources(path, suffix);
+              if (!TestCaseLoader.shouldBucketTests() || !".feature".equals(suffix)) {
+                return resources;
+              }
+
+              List<Resource> result = new ArrayList<>();
+              for (Resource resource : resources) {
+                if (TestCaseLoader.matchesCurrentBucket(resource.getPath())) {
+                  result.add(resource);
+                }
+              }
+              return result;
+            }
+          };
+          ResourceLoaderClassFinder classFinder = new ResourceLoaderClassFinder(resourceLoader, classLoader);
+          Runtime runtime = new Runtime(resourceLoader, classFinder, classLoader, runtimeOptions);
+          runtimeRef.set(runtime);
+          runtime.run();
+        }
+        catch (Throwable throwable) {
+          errorRef.set(throwable);
+          Logger.getInstance(CucumberMain.class).error(throwable);
         }
       });
     }
@@ -62,13 +108,11 @@ public class CucumberMain {
 
     final Throwable throwable = errorRef.get();
     if (throwable != null) {
-      throwable.printStackTrace();
+      LOG.error(throwable);
     }
-    System.err.println("Failed tests :");
     for (Throwable error : runtimeRef.get().getErrors()) {
-      error.printStackTrace();
-      System.err.println("=============================");
+      LOG.error(error);
     }
-    System.exit(throwable != null ? 1 : 0);
+    return throwable != null ? 1 : 0;
   }
 }

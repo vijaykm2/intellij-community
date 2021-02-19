@@ -1,63 +1,67 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.vcs.changes.ui;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.changes.*;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.SimpleTextAttributes;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.UIUtil;
+import com.intellij.xml.util.XmlStringUtil;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import static com.intellij.openapi.util.text.StringUtil.nullize;
+import static com.intellij.openapi.vcs.changes.ChangeListDataKt.getChangeListData;
+import static com.intellij.util.FontUtil.spaceAndThinSpace;
+import static one.util.streamex.StreamEx.of;
 
 /**
  * @author yole
  */
 public class ChangesBrowserChangeListNode extends ChangesBrowserNode<ChangeList> {
-  private final ChangeListDecorator[] myDecorators;
+  private final Project myProject;
   private final ChangeListManagerEx myClManager;
   private final ChangeListRemoteState myChangeListRemoteState;
 
   public ChangesBrowserChangeListNode(Project project, ChangeList userObject, final ChangeListRemoteState changeListRemoteState) {
     super(userObject);
+    myProject = project;
     myChangeListRemoteState = changeListRemoteState;
-    myClManager = (ChangeListManagerEx) ChangeListManager.getInstance(project);
-    myDecorators = project.getComponents(ChangeListDecorator.class);
+    myClManager = ChangeListManagerEx.getInstanceEx(project);
   }
 
   @Override
-  public void render(final ChangesBrowserNodeRenderer renderer, final boolean selected, final boolean expanded, final boolean hasFocus) {
+  public void render(@NotNull ChangesBrowserNodeRenderer renderer, final boolean selected, final boolean expanded, final boolean hasFocus) {
     if (userObject instanceof LocalChangeList) {
       final LocalChangeList list = ((LocalChangeList)userObject);
       renderer.appendTextWithIssueLinks(list.getName(),
              list.isDefault() ? SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES : SimpleTextAttributes.REGULAR_ATTRIBUTES);
+      if (getChangeListData(list) != null) {
+        renderer.append(" (i)", SimpleTextAttributes.GRAYED_ATTRIBUTES); //NON-NLS
+        renderer.setToolTipText(getTooltipText());
+      }
       appendCount(renderer);
-      for(ChangeListDecorator decorator: myDecorators) {
+      for (ChangeListDecorator decorator : ChangeListDecorator.getDecorators(myProject)) {
         decorator.decorateChangeList(list, renderer, selected, expanded, hasFocus);
       }
       final String freezed = myClManager.isFreezed();
       if (freezed != null) {
-        renderer.append(" " + freezed, SimpleTextAttributes.GRAYED_ATTRIBUTES);
-      } else if (myClManager.isInUpdate()) {
-        renderer.append(" " + VcsBundle.message("changes.nodetitle.updating"), SimpleTextAttributes.GRAYED_ATTRIBUTES);
+        renderer.append(spaceAndThinSpace() + freezed, SimpleTextAttributes.GRAYED_ATTRIBUTES);
       }
-      if (! myChangeListRemoteState.getState()) {
-        renderer.append(" ");
+      else if (myClManager.isInUpdate()) {
+        appendUpdatingState(renderer);
+      }
+      if (! myChangeListRemoteState.allUpToDate()) {
+        renderer.append(spaceAndThinSpace());
         renderer.append(VcsBundle.message("changes.nodetitle.have.outdated.files"), SimpleTextAttributes.ERROR_ATTRIBUTES);
       }
     }
@@ -65,6 +69,36 @@ public class ChangesBrowserChangeListNode extends ChangesBrowserNode<ChangeList>
       renderer.append(getUserObject().getName(), SimpleTextAttributes.SIMPLE_CELL_ATTRIBUTES);
       appendCount(renderer);
     }
+  }
+
+  @NlsContexts.Tooltip
+  @Nullable
+  private String getTooltipText() {
+    if (!(userObject instanceof LocalChangeList)) return null;
+    ChangeListData data = getChangeListData((LocalChangeList)userObject);
+    if (data == null) return null;
+
+    String dataInfo = data.getPresentation();
+    String message = cropMessageIfNeeded(((LocalChangeList)userObject).getComment());
+
+    @Nls StringBuilder sb = new StringBuilder();
+    if (!StringUtil.isEmpty(dataInfo)) sb.append(dataInfo);
+    if (!StringUtil.isEmpty(message)) {
+      if (sb.length() > 0) sb.append(UIUtil.BR).append(UIUtil.BR);
+      sb.append(message);
+    }
+    return nullize(sb.toString());
+  }
+
+  /**
+   * Get first 5 lines from the comment and add ellipsis if are smth else
+   */
+  @Nullable
+  private static String cropMessageIfNeeded(@Nullable String comment) {
+    if (comment == null) return null;
+    String[] lines = StringUtil.splitByLines(XmlStringUtil.escapeString(comment), false);
+    String croppedMessage = of(lines).limit(5).joining(UIUtil.BR);
+    return lines.length > 5 ? croppedMessage + "..." : croppedMessage;
   }
 
   @Override
@@ -92,30 +126,29 @@ public class ChangesBrowserChangeListNode extends ChangesBrowserNode<ChangeList>
     final LocalChangeList dropList = (LocalChangeList)getUserObject();
     dragOwner.moveChangesTo(dropList, dragBean.getChanges());
 
-    final List<VirtualFile> toUpdate = new ArrayList<VirtualFile>();
+    final List<FilePath> toUpdate = new ArrayList<>();
 
     addIfNotNull(toUpdate, dragBean.getUnversionedFiles());
     addIfNotNull(toUpdate, dragBean.getIgnoredFiles());
     if (! toUpdate.isEmpty()) {
-      dragOwner.addUnversionedFiles(dropList, toUpdate);
+      dragOwner.addUnversionedFiles(dropList, ContainerUtil.mapNotNull(toUpdate, FilePath::getVirtualFile));
     }
   }
 
-  private static void addIfNotNull(final List<VirtualFile> unversionedFiles1, final List<VirtualFile> ignoredFiles) {
+  private static void addIfNotNull(final List<? super FilePath> unversionedFiles, final List<? extends FilePath> ignoredFiles) {
     if (ignoredFiles != null) {
-      unversionedFiles1.addAll(ignoredFiles);
+      unversionedFiles.addAll(ignoredFiles);
     }
   }
 
+  @Override
   public int getSortWeight() {
-    if (userObject instanceof LocalChangeList && ((LocalChangeList)userObject).isDefault()) return 1;
-    return 2;
+    if (userObject instanceof LocalChangeList && ((LocalChangeList)userObject).isDefault()) return DEFAULT_CHANGE_LIST_SORT_WEIGHT;
+    return CHANGE_LIST_SORT_WEIGHT;
   }
 
-  public int compareUserObjects(final Object o2) {
-    if (o2 instanceof ChangeList) {
-      return getUserObject().getName().compareToIgnoreCase(((ChangeList)o2).getName());
-    }
-    return 0;
+  @Override
+  public int compareUserObjects(final ChangeList o2) {
+    return compareFileNames(getUserObject().getName(), o2.getName());
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2018 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@ package com.intellij.appengine;
 
 import com.intellij.appengine.facet.AppEngineFacet;
 import com.intellij.facet.FacetManager;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.application.ex.PathManagerEx;
 import com.intellij.openapi.module.Module;
@@ -33,9 +32,6 @@ import org.jetbrains.annotations.NonNls;
 
 import java.io.File;
 
-/**
- * @author nik
- */
 public abstract class AppEngineCodeInsightTestCase extends UsefulTestCase {
   @NonNls private static final String DEFAULT_VERSION = "1.3.7";
   private JavaModuleFixtureBuilder myModuleBuilder;
@@ -49,12 +45,7 @@ public abstract class AppEngineCodeInsightTestCase extends UsefulTestCase {
     myModuleBuilder = fixtureBuilder.addModule(JavaModuleFixtureBuilder.class);
     myProjectFixture = fixtureBuilder.getFixture();
     myCodeInsightFixture = createCodeInsightFixture(getBaseDirectoryPath());
-    new WriteAction() {
-      @Override
-      protected void run(final Result result) {
-        addAppEngineSupport(myProjectFixture.getModule());
-      }
-    }.execute();
+    WriteAction.runAndWait(() -> addAppEngineSupport(myProjectFixture.getModule()));
   }
 
   protected abstract String getBaseDirectoryPath();
@@ -72,8 +63,15 @@ public abstract class AppEngineCodeInsightTestCase extends UsefulTestCase {
 
   @Override
   protected void tearDown() throws Exception {
-    myCodeInsightFixture.tearDown();
-    super.tearDown();
+    try {
+      myCodeInsightFixture.tearDown();
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
   protected CodeInsightTestFixture createCodeInsightFixture(final String relativeTestDataPath) throws Exception {
@@ -85,14 +83,9 @@ public abstract class AppEngineCodeInsightTestCase extends UsefulTestCase {
     codeInsightFixture.setUp();
     final VirtualFile dir = LocalFileSystem.getInstance().refreshAndFindFileByPath(testDataPath);
     Assert.assertNotNull("Test data directory not found: " + testDataPath, dir);
-    VfsUtil.processFilesRecursively(dir, new CommonProcessors.CollectProcessor<VirtualFile>());
+    VfsUtil.processFilesRecursively(dir, new CommonProcessors.CollectProcessor<>());
     dir.refresh(false, true);
-    tempDir.copyAll(testDataPath, "", new VirtualFileFilter() {
-      @Override
-      public boolean accept(VirtualFile file) {
-        return !file.getName().contains("_after");
-      }
-    });
+    tempDir.copyAll(testDataPath, "", file -> !file.getName().contains("_after"));
     return codeInsightFixture;
   }
 

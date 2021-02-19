@@ -20,6 +20,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.LabeledComponent;
 import com.intellij.openapi.util.text.StringUtil;
+import com.jetbrains.python.PyBundle;
 
 import javax.swing.*;
 import java.awt.*;
@@ -39,11 +40,11 @@ public class SetupTaskDialog extends DialogWrapper {
   private static final String CURRENT_CARD_PROPERTY = "SetupTaskDialog.currentCard";
   private String myCurrentCard;
 
-  private JPanel myMainPanel;
-  private JButton myExpandCollapseButton;
-  private JPanel myOptionsPanel;
-  private Map<SetupTask.Option, JComponent> myOptionComponents = new LinkedHashMap<SetupTask.Option, JComponent>();
-  private JTextField myCommandLineField;
+  private final JPanel myMainPanel;
+  private final JButton myExpandCollapseButton;
+  private final JPanel myOptionsPanel;
+  private final Map<SetupTask.Option, JComponent> myOptionComponents = new LinkedHashMap<>();
+  private final JTextField myCommandLineField;
   private final LabeledComponent<JTextField> myCommandLinePanel;
 
   protected SetupTaskDialog(Project project, String taskName, List<SetupTask.Option> options) {
@@ -65,9 +66,9 @@ public class SetupTaskDialog extends DialogWrapper {
     }
 
     myCommandLineField = new JTextField(50);
-    myCommandLinePanel = LabeledComponent.create(myCommandLineField, "Command Line");
+    myCommandLinePanel = LabeledComponent.create(myCommandLineField, PyBundle.message("python.packaging.command.line"));
 
-    myExpandCollapseButton = new JButton("<< Collapse Options");
+    myExpandCollapseButton = new JButton(PyBundle.message("python.packaging.collapse.options"));
     myExpandCollapseButton.addActionListener(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
@@ -90,7 +91,7 @@ public class SetupTaskDialog extends DialogWrapper {
     }
 
     init();
-    setTitle("Run Setup Task " + taskName);
+    setTitle(PyBundle.message("python.packaging.run.setup.task.0", taskName));
   }
 
   private void showOptions() {
@@ -98,7 +99,7 @@ public class SetupTaskDialog extends DialogWrapper {
     myMainPanel.remove(myCommandLinePanel);
     myMainPanel.add(myOptionsPanel, new GridBagConstraints(0, 0, 1, 1, 1.0, 1.0, GridBagConstraints.WEST, GridBagConstraints.BOTH,
                                                            new Insets(0, 0, 0, 0), 4, 4));
-    myExpandCollapseButton.setText("<< Collapse Options");
+    myExpandCollapseButton.setText(PyBundle.message("python.packaging.collapse.options"));
   }
 
   private void showCommandLine() {
@@ -107,7 +108,7 @@ public class SetupTaskDialog extends DialogWrapper {
     myMainPanel.add(myCommandLinePanel, new GridBagConstraints(0, 0, 1, 1, 1.0, 1.0, GridBagConstraints.WEST, GridBagConstraints.BOTH,
                                                                new Insets(2, 0, 0, 0), 4, 4));
     myCommandLineField.setText(StringUtil.join(getCommandLine(), " "));
-    myExpandCollapseButton.setText("Expand Options >>");
+    myExpandCollapseButton.setText(PyBundle.message("python.packaging.expand.options"));
   }
 
   private void addComponent(GridBagConstraints constraints, SetupTask.Option option) {
@@ -145,13 +146,13 @@ public class SetupTaskDialog extends DialogWrapper {
     if (myCurrentCard.equals(CARD_COMMAND_LINE)) {
       return StringUtil.split(myCommandLineField.getText(), " ");
     }
-    List<String> result = new ArrayList<String>();
+    List<String> result = new ArrayList<>();
     for (Map.Entry<SetupTask.Option, JComponent> entry : myOptionComponents.entrySet()) {
       final SetupTask.Option option = entry.getKey();
       if (option.checkbox) {
         JCheckBox checkBox = (JCheckBox)entry.getValue();
         if (checkBox.isSelected() != option.negative) {
-          result.add(option.name);
+          result.add("--" + option.name);
         }
       }
       else {

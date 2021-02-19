@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.application.options.emmet;
 
 import com.intellij.codeInsight.template.emmet.filters.ZenCodingFilter;
@@ -23,7 +9,9 @@ import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.components.JBCheckBox;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.ui.components.JBTextField;
+import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.UIUtil;
 import com.intellij.xml.XmlBundle;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
@@ -34,8 +22,7 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 public class XmlEmmetConfigurable implements SearchableConfigurable, Disposable, Configurable.NoScroll {
   private JPanel myPanel;
@@ -43,8 +30,13 @@ public class XmlEmmetConfigurable implements SearchableConfigurable, Disposable,
   private JBCheckBox myEnablePreviewJBCheckBox;
   private JPanel myFiltersListPanel;
   private JBCheckBox myEnableHrefAutodetectJBCheckBox;
+  private JBCheckBox myAddEditPointAtTheEndOfTemplateJBCheckBox;
+  private JBTextField myBemElementSeparatorTextField;
+  private JBTextField myBemModifierSeparatorTextField;
+  private JBTextField myBemShortElementPrefixTextField;
+  private JPanel myBemPanel;
 
-  private Map<String, JBCheckBox> myFilterCheckboxes = ContainerUtil.newHashMap();
+  private Map<String, JBCheckBox> myFilterCheckboxes = new HashMap<>();
 
   public XmlEmmetConfigurable() {
     myEnableEmmetJBCheckBox.addActionListener(new ActionListener() {
@@ -54,27 +46,33 @@ public class XmlEmmetConfigurable implements SearchableConfigurable, Disposable,
         myEnablePreviewJBCheckBox.setEnabled(selected);
         myFiltersListPanel.setEnabled(selected);
         myEnableHrefAutodetectJBCheckBox.setEnabled(selected);
+        myAddEditPointAtTheEndOfTemplateJBCheckBox.setEnabled(selected);
+        UIUtil.setEnabled(myBemPanel, selected, true);
         for (JBCheckBox checkBox : myFilterCheckboxes.values()) {
           checkBox.setEnabled(selected);
         }
       }
     });
     myFiltersListPanel.setBorder(IdeBorderFactory.createTitledBorder(XmlBundle.message("emmet.filters.enabled.by.default")));
+    myBemPanel.setBorder(IdeBorderFactory.createTitledBorder(XmlBundle.message("emmet.bem.title")));
     createFiltersCheckboxes();
+
   }
 
   public void createFiltersCheckboxes() {
     final List<ZenCodingFilter> filters = ZenCodingFilter.getInstances();
     final GridBagLayout layoutManager = new GridBagLayout();
-    final GridBagConstraints constraints = new GridBagConstraints(0, 0, 1, 1, 1, 1, GridBagConstraints.NORTHWEST, GridBagConstraints.NONE, 
-                                                                  new Insets(0, 0, 0, 0), 0, 0);
+    final GridBagConstraints constraints = new GridBagConstraints(0, 0, 1, 1, 1, 1, GridBagConstraints.NORTHWEST, GridBagConstraints.NONE,
+                                                                  JBUI.emptyInsets(), 0, 0);
     myFiltersListPanel.setLayout(layoutManager);
-    for (int i = 0; i < filters.size(); i++) {
-      ZenCodingFilter filter = filters.get(i);
+    int added = 0;
+    for (ZenCodingFilter filter : filters) {
+      if (myFilterCheckboxes.containsKey(filter.getSuffix())) continue;
       final JBCheckBox checkBox = new JBCheckBox(filter.getDisplayName());
       myFilterCheckboxes.put(filter.getSuffix(), checkBox);
-      constraints.gridy = i;
+      constraints.gridy = added;
       myFiltersListPanel.add(checkBox, constraints);
+      added++;
     }
     myFiltersListPanel.revalidate();
   }
@@ -97,7 +95,11 @@ public class XmlEmmetConfigurable implements SearchableConfigurable, Disposable,
     return emmetOptions.isEmmetEnabled() != myEnableEmmetJBCheckBox.isSelected() ||
            emmetOptions.isPreviewEnabled() != myEnablePreviewJBCheckBox.isSelected() ||
            emmetOptions.isHrefAutoDetectEnabled() != myEnableHrefAutodetectJBCheckBox.isSelected() ||
-           !emmetOptions.getFiltersEnabledByDefault().equals(enabledFilters());
+           emmetOptions.isAddEditPointAtTheEndOfTemplate() != myAddEditPointAtTheEndOfTemplateJBCheckBox.isSelected() ||
+           !emmetOptions.getFiltersEnabledByDefault().equals(enabledFilters()) ||
+           !emmetOptions.getBemElementSeparator().equals(myBemElementSeparatorTextField.getText()) ||
+           !emmetOptions.getBemModifierSeparator().equals(myBemModifierSeparatorTextField.getText()) ||
+           !emmetOptions.getBemShortElementPrefix().equals(myBemShortElementPrefixTextField.getText());
   }
 
   @Override
@@ -106,9 +108,12 @@ public class XmlEmmetConfigurable implements SearchableConfigurable, Disposable,
     emmetOptions.setEmmetEnabled(myEnableEmmetJBCheckBox.isSelected());
     emmetOptions.setPreviewEnabled(myEnablePreviewJBCheckBox.isSelected());
     emmetOptions.setHrefAutoDetectEnabled(myEnableHrefAutodetectJBCheckBox.isSelected());
+    emmetOptions.setAddEditPointAtTheEndOfTemplate(myAddEditPointAtTheEndOfTemplateJBCheckBox.isSelected());
     emmetOptions.setFiltersEnabledByDefault(enabledFilters());
+    emmetOptions.setBemElementSeparator(myBemElementSeparatorTextField.getText());
+    emmetOptions.setBemModifierSeparator(myBemModifierSeparatorTextField.getText());
+    emmetOptions.setBemShortElementPrefix(myBemShortElementPrefixTextField.getText());
   }
-
 
   @Override
   public void reset() {
@@ -118,6 +123,12 @@ public class XmlEmmetConfigurable implements SearchableConfigurable, Disposable,
     myEnablePreviewJBCheckBox.setSelected(emmetOptions.isPreviewEnabled());
     myEnableHrefAutodetectJBCheckBox.setEnabled(emmetOptions.isEmmetEnabled());
     myEnableHrefAutodetectJBCheckBox.setSelected(emmetOptions.isHrefAutoDetectEnabled());
+    myAddEditPointAtTheEndOfTemplateJBCheckBox.setEnabled(emmetOptions.isEmmetEnabled());
+    myAddEditPointAtTheEndOfTemplateJBCheckBox.setSelected(emmetOptions.isAddEditPointAtTheEndOfTemplate());
+
+    myBemElementSeparatorTextField.setText(emmetOptions.getBemElementSeparator());
+    myBemModifierSeparatorTextField.setText(emmetOptions.getBemModifierSeparator());
+    myBemShortElementPrefixTextField.setText(emmetOptions.getBemShortElementPrefix());
 
     Set<String> enabledByDefault = emmetOptions.getFiltersEnabledByDefault();
     for (ZenCodingFilter filter : ZenCodingFilter.getInstances()) {
@@ -137,7 +148,7 @@ public class XmlEmmetConfigurable implements SearchableConfigurable, Disposable,
 
   @NotNull
   private Set<String> enabledFilters() {
-    Set<String> result = ContainerUtil.newHashSet();
+    Set<String> result = new HashSet<>();
     for (Map.Entry<String, JBCheckBox> checkbox : myFilterCheckboxes.entrySet()) {
       if (checkbox.getValue().isSelected()) {
         result.add(checkbox.getKey());
@@ -149,7 +160,7 @@ public class XmlEmmetConfigurable implements SearchableConfigurable, Disposable,
   @Nls
   @Override
   public String getDisplayName() {
-    return "HTML";
+    return XmlBundle.message("configurable.XmlEmmetConfigurable.display.name");
   }
 
   @Nullable
@@ -162,11 +173,5 @@ public class XmlEmmetConfigurable implements SearchableConfigurable, Disposable,
   @Override
   public String getId() {
     return "reference.idesettings.emmet.xml";
-  }
-
-  @Nullable
-  @Override
-  public Runnable enableSearch(String option) {
-    return null;
   }
 }

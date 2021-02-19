@@ -1,11 +1,19 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.migration;
 
-import com.siyeh.ig.IGInspectionTestCase;
+import com.intellij.codeInspection.InspectionProfileEntry;
+import com.siyeh.ig.LightJavaInspectionTestCase;
+import org.jetbrains.annotations.Nullable;
 
-public class WhileCanBeForeachInspectionTest extends IGInspectionTestCase {
+public class WhileCanBeForeachInspectionTest extends LightJavaInspectionTestCase {
 
-  public void test() throws Exception {
-    doTest("com/siyeh/igtest/migration/while_can_be_foreach",
-           new WhileCanBeForeachInspection());
+  public void testWhileCanBeForeach() {
+    doTest();
+  }
+
+  @Nullable
+  @Override
+  protected InspectionProfileEntry getInspection() {
+    return new WhileCanBeForeachInspection();
   }
 }

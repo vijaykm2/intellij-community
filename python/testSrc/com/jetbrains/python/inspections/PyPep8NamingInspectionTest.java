@@ -17,9 +17,6 @@ package com.jetbrains.python.inspections;
 
 import com.jetbrains.python.fixtures.PyTestCase;
 
-/**
- * User: ktisha
- */
 public class PyPep8NamingInspectionTest extends PyTestCase {
 
   public void testFunctionVariable() {
@@ -78,6 +75,44 @@ public class PyPep8NamingInspectionTest extends PyTestCase {
     doMultiFileTest();
   }
 
+  public void testIgnoreN801() {
+    doIgnoredErrorsTest("N801");
+  }
+
+  public void testIgnoreN802() {
+    doIgnoredErrorsTest("N802");
+  }
+
+  public void testIgnoreN803() {
+    doIgnoredErrorsTest("N803");
+  }
+
+  public void testIgnoreN806() {
+    doIgnoredErrorsTest("N806");
+  }
+
+  public void testIgnoreOnlyOneError() {
+    doIgnoredErrorsTest("N806");
+  }
+
+  // PY-17429
+  public void testContextManager() {
+    doTest();
+  }
+
+  public void testClassNameWithTwoUnderscores() {
+    doTest();
+  }
+  
+  // PY-19096
+  public void testContentManagerWithCamelCaseName() {
+    doTest();
+  }
+
+  public void testNamedTupleInsideFunction() {
+    doTest();
+  }
+
   public void testOverrideFromModule() {
     myFixture.configureByFiles("inspections/PyPep8NamingInspection/" + getTestName(true) + ".py",
                                "inspections/PyPep8NamingInspection/tmp1.py");
@@ -98,4 +133,11 @@ public class PyPep8NamingInspectionTest extends PyTestCase {
     myFixture.checkHighlighting(false, false, true);
   }
 
+  private void doIgnoredErrorsTest(String errorCode) {
+    myFixture.configureByFiles("inspections/PyPep8NamingInspection/ignored/" + getTestName(true) + ".py");
+    final PyPep8NamingInspection inspection = new PyPep8NamingInspection();
+    inspection.ignoredErrors.add(errorCode);
+    myFixture.enableInspections(inspection);
+    myFixture.checkHighlighting(false, false, true);
+  }
 }

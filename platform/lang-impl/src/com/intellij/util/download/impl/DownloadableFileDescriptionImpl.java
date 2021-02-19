@@ -15,15 +15,12 @@
  */
 package com.intellij.util.download.impl;
 
-import com.intellij.util.download.DownloadableFileDescription;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Conditions;
+import com.intellij.util.download.DownloadableFileDescription;
 import com.intellij.util.text.UniqueNameGenerator;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author nik
- */
 public class DownloadableFileDescriptionImpl implements DownloadableFileDescription {
   private final String myFileName;
   private final String myFileExtension;
@@ -56,12 +53,12 @@ public class DownloadableFileDescriptionImpl implements DownloadableFileDescript
   @NotNull
   @Override
   public String getDefaultFileName() {
-    return generateFileName(Conditions.<String>alwaysTrue());
+    return generateFileName(Conditions.alwaysTrue());
   }
 
   @NotNull
   @Override
-  public String generateFileName(@NotNull Condition<String> validator) {
+  public String generateFileName(@NotNull Condition<? super String> validator) {
     return UniqueNameGenerator.generateUniqueName("", myFileName, myFileExtension, "_", "", validator);
   }
 

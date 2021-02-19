@@ -15,22 +15,20 @@
  */
 package org.jetbrains.java.generate;
 
-import com.intellij.openapi.components.*;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.java.generate.config.Config;
 
 /**
  * Application context for this plugin.
  */
-@State(
-  name = "ToStringSettings",
-  storages = {
-    @Storage(
-      file = StoragePathMacros.APP_CONFIG + "/other.xml"
-    )}
-)
+@State(name = "ToStringSettings", storages = @Storage("other.xml"))
 public class GenerateToStringContext implements PersistentStateComponent<Config> {
     public static GenerateToStringContext getInstance() {
-        return ServiceManager.getService(GenerateToStringContext.class);
+      return ApplicationManager.getApplication().getService(GenerateToStringContext.class);
     }
 
     private Config config = new Config();
@@ -43,11 +41,13 @@ public class GenerateToStringContext implements PersistentStateComponent<Config>
         getInstance().config = newConfig;
     }
 
+    @Override
     public Config getState() {
         return config;
     }
 
-    public void loadState(Config state) {
+    @Override
+    public void loadState(@NotNull Config state) {
         config = state;
     }
 }

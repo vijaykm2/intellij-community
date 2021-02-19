@@ -1,26 +1,13 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.uiDesigner.compiler;
 
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.io.FileFilters;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import gnu.trove.THashMap;
-import gnu.trove.THashSet;
+import com.intellij.util.containers.FileCollectionFactory;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.ModuleChunk;
@@ -41,19 +28,20 @@ import org.jetbrains.jps.uiDesigner.model.JpsUiDesignerConfiguration;
 import org.jetbrains.jps.uiDesigner.model.JpsUiDesignerExtensionService;
 
 import java.io.File;
-import java.io.FilenameFilter;
 import java.io.IOException;
 import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 11/20/12
  */
-public class FormsBindingManager extends FormsBuilder {
+public final class FormsBindingManager extends FormsBuilder {
+  private static final @NlsSafe String BUILDER_NAME = "form-bindings";
+  private static final String JAVA_EXTENSION = ".java";
   private static final Key<Boolean> FORCE_FORMS_REBUILD_FLAG = Key.create("_forms_rebuild_flag_");
   private static final Key<Boolean> FORMS_REBUILD_FORCED = Key.create("_forms_rebuild_forced_flag_");
+
   public FormsBindingManager() {
-    super(BuilderCategory.SOURCE_PROCESSOR, "form-bindings");
+    super(BuilderCategory.SOURCE_PROCESSOR, BUILDER_NAME);
   }
 
   @Override
@@ -88,6 +76,7 @@ public class FormsBindingManager extends FormsBuilder {
     return new File(context.getProjectDescriptor().dataManager.getDataPaths().getDataStorageRoot(), "forms_rebuild_required");
   }
 
+  @NotNull
   @Override
   public List<String> getCompilableFileExtensions() {
     return Collections.singletonList(FORM_EXTENSION);
@@ -103,9 +92,9 @@ public class FormsBindingManager extends FormsBuilder {
       return exitCode;
     }
 
-    final Map<File, ModuleBuildTarget> filesToCompile = new THashMap<File, ModuleBuildTarget>(FileUtil.FILE_HASHING_STRATEGY);
-    final Map<File, ModuleBuildTarget> formsToCompile = new THashMap<File, ModuleBuildTarget>(FileUtil.FILE_HASHING_STRATEGY);
-    final Map<File, Collection<File>> srcToForms = new THashMap<File, Collection<File>>(FileUtil.FILE_HASHING_STRATEGY);
+    final Map<File, ModuleBuildTarget> filesToCompile = FileCollectionFactory.createCanonicalFileMap();
+    final Map<File, ModuleBuildTarget> formsToCompile = FileCollectionFactory.createCanonicalFileMap();
+    final Map<File, Collection<File>> srcToForms = FileCollectionFactory.createCanonicalFileMap();
 
     if (!JavaBuilderUtil.isForcedRecompilationAllJavaModules(context) && config.isInstrumentClasses() && FORCE_FORMS_REBUILD_FLAG.get(context, Boolean.FALSE)) {
       // force compilation of all forms, but only once per chunk
@@ -116,6 +105,7 @@ public class FormsBindingManager extends FormsBuilder {
     }
 
     dirtyFilesHolder.processDirtyFiles(new FileProcessor<JavaSourceRootDescriptor, ModuleBuildTarget>() {
+      @Override
       public boolean apply(ModuleBuildTarget target, File file, JavaSourceRootDescriptor descriptor) throws IOException {
         if (JAVA_SOURCES_FILTER.accept(file)) {
           filesToCompile.put(file, target);
@@ -128,8 +118,10 @@ public class FormsBindingManager extends FormsBuilder {
     });
 
     if (config.isInstrumentClasses()) {
-      final JpsJavaCompilerConfiguration configuration = JpsJavaExtensionService.getInstance().getOrCreateCompilerConfiguration(project);
+      final JpsJavaCompilerConfiguration configuration = JpsJavaExtensionService.getInstance().getCompilerConfiguration(project);
       final JpsCompilerExcludes excludes = configuration.getCompilerExcludes();
+
+      final FSOperations.DirtyFilesHolderBuilder<JavaSourceRootDescriptor, ModuleBuildTarget> holderBuilder = FSOperations.createDirtyFilesHolderBuilder(context, CompilationRound.CURRENT);
 
       // force compilation of bound source file if the form is dirty
       for (final Map.Entry<File, ModuleBuildTarget> entry : formsToCompile.entrySet()) {
@@ -139,7 +131,8 @@ public class FormsBindingManager extends FormsBuilder {
         for (File boundSource : sources) {
           if (!excludes.isExcluded(boundSource)) {
             addBinding(boundSource, form, srcToForms);
-            FSOperations.markDirty(context, CompilationRound.CURRENT, boundSource);
+            holderBuilder.markDirtyFile(target, boundSource);
+            context.getScope().markIndirectlyAffected(target, boundSource);
             filesToCompile.put(boundSource, target);
             exitCode = ExitCode.OK;
           }
@@ -157,13 +150,17 @@ public class FormsBindingManager extends FormsBuilder {
             final File formFile = new File(formPath);
             if (!excludes.isExcluded(formFile) && formFile.exists()) {
               addBinding(srcFile, formFile, srcToForms);
-              FSOperations.markDirty(context, CompilationRound.CURRENT, formFile);
+              holderBuilder.markDirtyFile(target, formFile);
+
+              context.getScope().markIndirectlyAffected(target, formFile);
               formsToCompile.put(formFile, target);
               exitCode = ExitCode.OK;
             }
           }
         }
       }
+
+      BuildOperations.cleanOutputsCorrespondingToChangedFiles(context, holderBuilder.create());
     }
 
     FORMS_TO_COMPILE.set(context, srcToForms.isEmpty()? null : srcToForms);
@@ -179,7 +176,7 @@ public class FormsBindingManager extends FormsBuilder {
               exitCode = ExitCode.OK;
               // now inform others about files just copied
               for (File file : generatedFiles) {
-                outputConsumer.registerOutputFile(target, file, Collections.<String>emptyList());
+                outputConsumer.registerOutputFile(target, file, Collections.emptyList());
               }
             }
           }
@@ -220,7 +217,7 @@ public class FormsBindingManager extends FormsBuilder {
       }
     }
 
-    final Set<File> candidates = new THashSet<File>(FileUtil.FILE_HASHING_STRATEGY);
+    final Set<File> candidates = FileCollectionFactory.createCanonicalFileSet();
     for (JavaSourceRootDescriptor rd : targetRoots) {
       candidates.addAll(findPossibleSourcesForClass(rd, className));
     }
@@ -256,16 +253,11 @@ public class FormsBindingManager extends FormsBuilder {
     if (containingDirectory == null) {
       return Collections.emptyList();
     }
-    final File[] files = containingDirectory.listFiles(new FilenameFilter() {
-      @Override
-      public boolean accept(File dir, String name) {
-        return name.endsWith(JAVA_EXTENSION);
-      }
-    });
+    final File[] files = containingDirectory.listFiles(FileFilters.withExtension("java"));
     if (files == null || files.length == 0) {
       return Collections.emptyList();
     }
-    return Arrays.asList(files); 
+    return Arrays.asList(files);
   }
 
   @NotNull

@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.introduceParameter
 
-import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.refactoring.IntroduceParameterRefactoring
-import gnu.trove.TIntArrayList
+import it.unimi.dsi.fastutil.ints.IntArrayList
 import org.jetbrains.plugins.groovy.LightGroovyTestCase
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod
 import org.jetbrains.plugins.groovy.refactoring.extract.closure.ExtractClosureFromClosureProcessor
@@ -27,14 +12,13 @@ import org.jetbrains.plugins.groovy.refactoring.introduce.parameter.GrIntroduceP
 import org.jetbrains.plugins.groovy.refactoring.introduce.parameter.GrIntroduceParameterSettings
 import org.jetbrains.plugins.groovy.refactoring.introduce.parameter.IntroduceParameterInfo
 import org.jetbrains.plugins.groovy.util.TestUtils
-
 /**
  * @author Max Medvedev
  */
-public abstract class ExtractClosureTest extends LightGroovyTestCase {
+abstract class ExtractClosureTest extends LightGroovyTestCase {
   @Override
   protected String getBasePath() {
-    return "${TestUtils.testDataPath}groovy/refactoring/extractMethod/";
+    return "${TestUtils.testDataPath}groovy/refactoring/extractMethod/"
   }
 
   protected void doTest(String before, String after, List<Integer> toRemove = [], List<Integer> notToUseAsParams = [], boolean forceReturn = true) {
@@ -45,7 +29,7 @@ public abstract class ExtractClosureTest extends LightGroovyTestCase {
       protected void showDialog(IntroduceParameterInfo info) {
 
         GrIntroduceParameterSettings helper = new ExtractClosureHelperImpl(info, "closure", false,
-                                                                           new TIntArrayList(toRemove as int[]), false,
+                                                                           new IntArrayList(toRemove as int[]), false,
                                                                            IntroduceParameterRefactoring.REPLACE_FIELDS_WITH_GETTERS_NONE,
                                                                            forceReturn, false, false)
         for (p in notToUseAsParams) {
@@ -59,11 +43,9 @@ public abstract class ExtractClosureTest extends LightGroovyTestCase {
         }
       }
     }
+    handler.invoke myFixture.project, myFixture.editor, myFixture.file, null
+    doPostponedFormatting(myFixture.project)
 
-    WriteCommandAction.runWriteCommandAction project, {
-      handler.invoke myFixture.project, myFixture.editor, myFixture.file, null
-      doPostponedFormatting(myFixture.project)
-    }
     myFixture.checkResult after
   }
 
@@ -322,7 +304,7 @@ def foo = {String s ->
 
 foo('a')
 ''', '''
-def foo = {String s, Closure closure ->
+def foo = { String s, Closure closure ->
     s+=2
     <selection>closure(s)</selection>
 }
@@ -342,7 +324,7 @@ class X {
 new X().foo('a')
 ''', '''
 class X {
-    def foo = {Closure closure ->
+    def foo = { Closure closure ->
         <selection>closure()</selection>
     }
 }
@@ -362,7 +344,7 @@ def foo = {String s ->
 
 foo('a')
 ''', '''
-def foo = {Closure closure ->
+def foo = { Closure closure ->
     closure()
 }
 
@@ -386,7 +368,7 @@ class X {
 new X().foo('a')
 ''', '''
 class X {
-    def foo = {Closure closure ->
+    def foo = { Closure closure ->
         <selection>closure()</selection>
     }
     def bar(){}
@@ -407,7 +389,7 @@ def foo = {int x, int y ->
 
 foo(2, 3)
 ''', '''
-def foo = {Closure closure ->
+def foo = { Closure closure ->
     int a = 5
     <selection>closure(a)</selection>
 }
@@ -430,7 +412,7 @@ def adventure = {
 
 adventure()
 ''', '''
-def adventure = {Closure closure ->
+def adventure = { Closure closure ->
 
     try {
         <caret>closure()
@@ -463,7 +445,7 @@ def killMonsters(){2}
 def collectLoot(){3}
 def becomeTownGuard(){}
 ''', '''
-def adventure = {Closure<Integer> closure ->
+def adventure = { Closure<Integer> closure ->
     try {
         def skill = <selection>closure()</selection>
     } catch (ArrowToKneeException e) {
@@ -499,7 +481,7 @@ class Some {
      private static int smth = 1
      private static void doSmth() {}
 
-     void m1 = {<caret>Closure closure ->
+     void m1 = {<caret> Closure closure ->
 
          closure()
      }
@@ -520,7 +502,7 @@ void foo = {
 }
 foo()
 ''', '''
-void foo = {Closure<Character> closure ->
+void foo = { Closure<Character> closure ->
     def s = <selection><caret>closure()</selection>
 }
 foo { return "zxcvbn".substring(2).charAt(1) }

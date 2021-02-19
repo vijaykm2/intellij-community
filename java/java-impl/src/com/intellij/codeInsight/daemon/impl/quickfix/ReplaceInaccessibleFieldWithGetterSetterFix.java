@@ -15,7 +15,7 @@
  */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
+import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInspection.LocalQuickFixAndIntentionActionOnPsiElement;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -38,11 +38,10 @@ public class ReplaceInaccessibleFieldWithGetterSetterFix extends LocalQuickFixAn
   @Override
   public void invoke(@NotNull Project project,
                      @NotNull PsiFile file,
-                     @Nullable("is null when called from inspection") Editor editor,
+                     @Nullable Editor editor,
                      @NotNull PsiElement startElement,
                      @NotNull PsiElement endElement) {
     PsiReferenceExpression place = (PsiReferenceExpression)startElement;
-    if (!FileModificationService.getInstance().preparePsiElementForWrite(place)) return;
     String qualifier = null;
     final PsiExpression qualifierExpression = place.getQualifierExpression();
     if (qualifierExpression != null) {
@@ -70,12 +69,12 @@ public class ReplaceInaccessibleFieldWithGetterSetterFix extends LocalQuickFixAn
   @NotNull
   @Override
   public String getText() {
-    return myIsSetter ? "Replace with setter" : "Replace with getter";
+    return myIsSetter ? QuickFixBundle.message("replace.with.setter") : QuickFixBundle.message("replace.with.getter");
   }
 
   @NotNull
   @Override
   public String getFamilyName() {
-    return "Replace with getter/setter";
+    return QuickFixBundle.message("replace.with.getter.setter");
   }
 }

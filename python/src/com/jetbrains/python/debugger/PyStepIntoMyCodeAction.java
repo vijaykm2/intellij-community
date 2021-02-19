@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,19 +15,16 @@
  */
 package com.jetbrains.python.debugger;
 
-import com.intellij.execution.RunManager;
-import com.intellij.execution.RunnerAndConfigurationSettings;
-import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.project.Project;
+import com.intellij.xdebugger.XDebugProcess;
 import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.impl.DebuggerSupport;
 import com.intellij.xdebugger.impl.actions.DebuggerActionHandler;
 import com.intellij.xdebugger.impl.actions.XDebuggerActionBase;
 import com.intellij.xdebugger.impl.actions.XDebuggerSuspendedActionHandler;
-import com.jetbrains.python.run.AbstractPythonRunConfiguration;
 import org.jetbrains.annotations.NotNull;
 
 
@@ -39,8 +36,16 @@ public class PyStepIntoMyCodeAction extends XDebuggerActionBase {
     myStepIntoMyCodeHandler = new XDebuggerSuspendedActionHandler() {
       @Override
       protected void perform(@NotNull final XDebugSession session, final DataContext dataContext) {
-        PyDebugProcess debugProcess = (PyDebugProcess)session.getDebugProcess();
-        debugProcess.startStepIntoMyCode();
+        final XDebugProcess debugProcess = session.getDebugProcess();
+        if (debugProcess instanceof PyDebugProcess) {
+          PyDebugProcess pyDebugProcess = (PyDebugProcess)debugProcess;
+          pyDebugProcess.startStepIntoMyCode(debugProcess.getSession().getSuspendContext());
+        }
+      }
+
+      @Override
+      public boolean isEnabled(@NotNull Project project, AnActionEvent event) {
+        return super.isEnabled(project, event) && PyDebugSupportUtils.isCurrentPythonDebugProcess(project);
       }
     };
   }
@@ -54,16 +59,6 @@ public class PyStepIntoMyCodeAction extends XDebuggerActionBase {
   @Override
   protected boolean isHidden(AnActionEvent event) {
     Project project = event.getData(CommonDataKeys.PROJECT);
-    if (project != null) {
-      RunnerAndConfigurationSettings settings = RunManager.getInstance(project).getSelectedConfiguration();
-      if (settings != null) {
-        RunConfiguration runConfiguration = settings.getConfiguration();
-        if (runConfiguration instanceof AbstractPythonRunConfiguration) {
-          return false;
-        }
-      }
-    }
-
-    return true;
+    return project == null || !PyDebugSupportUtils.isCurrentPythonDebugProcess(project);
   }
 }

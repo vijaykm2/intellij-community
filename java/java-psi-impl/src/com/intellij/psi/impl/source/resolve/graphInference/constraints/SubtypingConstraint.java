@@ -15,8 +15,8 @@
  */
 package com.intellij.psi.impl.source.resolve.graphInference.constraints;
 
+import com.intellij.core.JavaPsiBundle;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.psi.PsiCapturedWildcardType;
 import com.intellij.psi.PsiSubstitutor;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.PsiWildcardType;
@@ -25,7 +25,7 @@ import com.intellij.psi.impl.source.resolve.graphInference.InferenceSession;
 import java.util.List;
 
 public class SubtypingConstraint implements ConstraintFormula {
-  private static final Logger LOG = Logger.getInstance("#" + SubtypingConstraint.class.getName());
+  private static final Logger LOG = Logger.getInstance(SubtypingConstraint.class);
 
   private PsiType myS;
   private PsiType myT;
@@ -48,8 +48,6 @@ public class SubtypingConstraint implements ConstraintFormula {
 
     SubtypingConstraint that = (SubtypingConstraint)o;
 
-    if ( myS instanceof PsiCapturedWildcardType && myS != that.myS) return false;
-
     if (myS != null ? !myS.equals(that.myS) : that.myS != null) return false;
     if (myT != null ? !myT.equals(that.myT) : that.myT != null) return false;
 
@@ -64,34 +62,32 @@ public class SubtypingConstraint implements ConstraintFormula {
   }
 
   @Override
-  public boolean reduce(InferenceSession session, List<ConstraintFormula> constraints) {
+  public boolean reduce(InferenceSession session, List<? super ConstraintFormula> constraints) {
+    final boolean reduceResult = doReduce(constraints);
+    if (!reduceResult) {
+      session.registerIncompatibleErrorMessage(session.getInferenceVariables(),
+                                               JavaPsiBundle.message("type.can.be.converted", session.getPresentableText(myS), session.getPresentableText(myT)));
+    }
+    return reduceResult;
+  }
+
+  private boolean doReduce(List<? super ConstraintFormula> constraints) {
     if (myT instanceof PsiWildcardType) {
       PsiType tBound = ((PsiWildcardType)myT).getBound();
       if (tBound == null) {
         return true;
       }
 
-      if (tBound instanceof PsiCapturedWildcardType) {
-        tBound = ((PsiWildcardType)myT).isExtends() ? ((PsiCapturedWildcardType)tBound).getUpperBound() 
-                                                    : ((PsiCapturedWildcardType)tBound).getLowerBound();
-      }
-      if (myS instanceof PsiCapturedWildcardType) {
-        myS = ((PsiCapturedWildcardType)myS).getWildcard();
-      }
-
       if (((PsiWildcardType)myT).isExtends()) {
         if (myS instanceof PsiWildcardType) {
           final PsiType sBound = ((PsiWildcardType)myS).getBound();
           if (sBound == null) {
-            constraints.add(new StrictSubtypingConstraint(tBound, ((PsiWildcardType)myS).getExtendsBound()));
+            constraints.add(new StrictSubtypingConstraint(tBound, ((PsiWildcardType)myS).getExtendsBound(), false));
             return true;
           }
 
           if (((PsiWildcardType)myS).isExtends()) {
-            if (sBound instanceof PsiCapturedWildcardType) {
-              return true;
-            }
-            constraints.add(new StrictSubtypingConstraint(tBound, sBound));
+            constraints.add(new StrictSubtypingConstraint(tBound, sBound, false));
             return true;
           }
           
@@ -103,7 +99,7 @@ public class SubtypingConstraint implements ConstraintFormula {
           assert false;
         } 
         else {
-          constraints.add(new StrictSubtypingConstraint(tBound, myS));
+          constraints.add(new StrictSubtypingConstraint(tBound, myS, false));
           return true;
         }
       } 
@@ -113,14 +109,11 @@ public class SubtypingConstraint implements ConstraintFormula {
         if (myS instanceof PsiWildcardType) {
           final PsiType sBound = ((PsiWildcardType)myS).getBound();
           if (sBound != null && ((PsiWildcardType)myS).isSuper()) {
-            if (sBound instanceof PsiCapturedWildcardType) {
-              return false;
-            }
-            constraints.add(new StrictSubtypingConstraint(sBound, tBound));
+            constraints.add(new StrictSubtypingConstraint(sBound, tBound, false));
             return true;
           }
         } else {
-          constraints.add(new StrictSubtypingConstraint(myS, tBound));
+          constraints.add(new StrictSubtypingConstraint(myS, tBound, false));
           return true;
         }
       }

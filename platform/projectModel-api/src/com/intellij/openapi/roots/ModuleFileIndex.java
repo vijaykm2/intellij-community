@@ -16,18 +16,20 @@
 package com.intellij.openapi.roots;
 
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
 /**
- * Provides information about files contained in a module.
+ * Provides information about files contained in a module. Should be used from a read action.
  *
  * @see ModuleRootManager#getFileIndex()
  *
  * @author dsl
  */
+@ApiStatus.NonExtendable
 public interface ModuleFileIndex extends FileIndex {
   /**
    * Returns the order entry to which the specified file or directory

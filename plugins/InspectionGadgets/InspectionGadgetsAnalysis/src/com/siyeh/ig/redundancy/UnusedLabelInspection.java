@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2011 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,21 +18,15 @@ package com.siyeh.ig.redundancy;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ig.psiutils.CommentTracker;
 import org.jetbrains.annotations.NotNull;
 
 public class UnusedLabelInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("unused.label.display.name");
-  }
 
   @Override
   public boolean isEnabledByDefault() {
@@ -57,60 +51,54 @@ public class UnusedLabelInspection extends BaseInspection {
   }
 
   private static class UnusedLabelFix extends InspectionGadgetsFix {
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "unused.label.remove.quickfix");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement label = descriptor.getPsiElement();
-      final PsiLabeledStatement labeledStatement =
-        (PsiLabeledStatement)label.getParent();
-      assert labeledStatement != null;
+      final PsiElement parent = label.getParent();
+      if (!(parent instanceof PsiLabeledStatement)) {
+        return;
+      }
+      final PsiLabeledStatement labeledStatement = (PsiLabeledStatement)parent;
       final PsiStatement statement = labeledStatement.getStatement();
       if (statement == null) {
         return;
       }
-      final String statementText = statement.getText();
-      PsiReplacementUtil.replaceStatement(labeledStatement, statementText);
+      CommentTracker commentTracker = new CommentTracker();
+      final String statementText = commentTracker.text(statement);
+      PsiReplacementUtil.replaceStatement(labeledStatement, statementText, commentTracker);
     }
   }
 
   private static class UnusedLabelVisitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitLabeledStatement(
-      PsiLabeledStatement statement) {
+    public void visitLabeledStatement(PsiLabeledStatement statement) {
       if (containsBreakOrContinueForLabel(statement)) {
         return;
       }
-      final PsiIdentifier labelIdentifier =
-        statement.getLabelIdentifier();
+      final PsiIdentifier labelIdentifier = statement.getLabelIdentifier();
       registerError(labelIdentifier);
     }
 
-    private static boolean containsBreakOrContinueForLabel(
-      PsiLabeledStatement statement) {
+    private static boolean containsBreakOrContinueForLabel(PsiLabeledStatement statement) {
       final LabelFinder labelFinder = new LabelFinder(statement);
       statement.accept(labelFinder);
       return labelFinder.jumpFound();
     }
   }
 
-  private static class LabelFinder extends JavaRecursiveElementVisitor {
+  private static final class LabelFinder extends JavaRecursiveElementWalkingVisitor {
 
-    private boolean found = false;
-    private String label = null;
+    private boolean found;
+    private final String label;
 
     private LabelFinder(PsiLabeledStatement target) {
       final PsiIdentifier labelIdentifier = target.getLabelIdentifier();
@@ -161,7 +149,7 @@ public class UnusedLabelInspection extends BaseInspection {
       return labelText.equals(label);
     }
 
-    public boolean jumpFound() {
+    boolean jumpFound() {
       return found;
     }
   }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.util;
 
 import com.intellij.openapi.util.text.StringUtil;
@@ -21,12 +7,12 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
-public class ColorMap {
-  private static final Map<String, String> ourColorNameToHexCodeMap = new HashMap<String, String>(25);
-  private static final Map<String, String> ourHexCodeToColorNameMap = new HashMap<String, String>(25);
+public final class ColorMap {
+  private static final Map<String, String> ourColorNameToHexCodeMap = new HashMap<>(25);
+  private static final Map<String, String> ourHexCodeToColorNameMap = new HashMap<>(25);
 
   @NonNls static final String systemColorsString = "ActiveBorder\n" +
                                                            "    Active window border.\n" +
@@ -208,6 +194,7 @@ public class ColorMap {
                                                      "  \t  \tpowderblue \t#b0e0e6 \t176,224,230\n" +
                                                      "  \t  \tpurple \t#800080 \t128,0,128\n" +
                                                      "  \t  \tred \t#ff0000 \t255,0,0\n" +
+                                                     "  \t  \trebeccapurple \t#663399 \t102,51,153\n" +
                                                      "  \t  \trosybrown \t#bc8f8f \t188,143,143\n" +
                                                      "  \t  \troyalblue \t#4169e1 \t65,105,225\n" +
                                                      "  \t  \tsaddlebrown \t#8b4513 \t139,69,19\n" +
@@ -239,16 +226,16 @@ public class ColorMap {
   private static final List<String> ourStandardColors;
 
   static {
-    ourSystemColors = new ArrayList<String>();
+    ourSystemColors = new ArrayList<>();
     StringTokenizer tokenizer = new StringTokenizer(systemColorsString, "\n");
 
     while (tokenizer.hasMoreTokens()) {
       String name = tokenizer.nextToken();
-      ourSystemColors.add(name.toLowerCase());
+      ourSystemColors.add(StringUtil.toLowerCase(name));
       tokenizer.nextToken();
     }
 
-    ourStandardColors = new ArrayList<String>();
+    ourStandardColors = new ArrayList<>();
     tokenizer = new StringTokenizer(standardColorsString, ", \n");
 
     while (tokenizer.hasMoreTokens()) {
@@ -262,7 +249,7 @@ public class ColorMap {
 
   public static synchronized void getColors() {
     StringTokenizer tokenizer = new StringTokenizer(standardColorsString, ", \n");
-    HashMap<String, String> standardColors = new HashMap<String, String>();
+    HashMap<String, String> standardColors = new HashMap<>();
 
     while (tokenizer.hasMoreTokens()) {
       String name = tokenizer.nextToken();
@@ -307,7 +294,7 @@ public class ColorMap {
     if (StringUtil.isEmptyOrSpaces(text)) {
       return null;
     }
-    String hexValue = text.charAt(0) == '#' ? text : getHexCodeForColorName(text.toLowerCase());
+    String hexValue = text.charAt(0) == '#' ? text : getHexCodeForColorName(StringUtil.toLowerCase(text));
     if (hexValue != null) {
       return ColorUtil.fromHex(hexValue, null);
     }

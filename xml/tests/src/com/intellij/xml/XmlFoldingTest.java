@@ -15,31 +15,27 @@
  */
 package com.intellij.xml;
 
-import com.intellij.testFramework.IdeaTestCase;
 import com.intellij.testFramework.PlatformTestUtil;
-import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.BasePlatformTestCase;
 
 import java.io.File;
 
-/**
- * User: zolotov
- * Date: 8/3/12
- */
-public class XmlFoldingTest extends LightPlatformCodeInsightFixtureTestCase {
+public class XmlFoldingTest extends BasePlatformTestCase {
 
-  public void testTagFolding() throws Throwable { doTest(); }
+  public void testTagFolding() { doTest(); }
 
-  public void testStyleAttributeFolding() throws Throwable { doTest(); }
-  public void testStyleAttributeFolding2() throws Throwable { doTest(".xml"); }
+  public void testStyleAttributeFolding() { doTest(); }
+  public void testStyleAttributeFolding2() { doTest(".xml"); }
 
+  public void testEntities() { doTest(); }
 
+  public void testHtmlInHtml() { doTest(); }
 
-  @SuppressWarnings("JUnitTestCaseWithNonTrivialConstructors")
-  public XmlFoldingTest() {
-    IdeaTestCase.initPlatformPrefix();
-  }
+  public void testDataUri() { doTest(); }
 
-  private void doTest() throws Throwable {
+  public void testCustomRegions() { doTest(); }
+
+  private void doTest() {
     doTest(".html");
   }
 

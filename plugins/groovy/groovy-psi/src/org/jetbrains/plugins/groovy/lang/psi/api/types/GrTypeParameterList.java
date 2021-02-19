@@ -16,6 +16,7 @@
 
 package org.jetbrains.plugins.groovy.lang.psi.api.types;
 
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElement;
 import com.intellij.psi.PsiTypeParameterList;
 
@@ -24,5 +25,5 @@ import com.intellij.psi.PsiTypeParameterList;
  */
 public interface GrTypeParameterList extends GroovyPsiElement, PsiTypeParameterList {
   @Override
-  GrTypeParameter[] getTypeParameters();
+  GrTypeParameter @NotNull [] getTypeParameters();
 }

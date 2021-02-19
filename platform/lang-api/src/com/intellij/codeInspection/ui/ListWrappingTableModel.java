@@ -1,5 +1,5 @@
 /*
- * Copyright 2007-2013 Bas Leijdekkers
+ * Copyright 2007-2016 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,9 @@
  */
 package com.intellij.codeInspection.ui;
 
+import com.intellij.openapi.util.NlsContexts.ColumnName;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.ItemRemovable;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.table.AbstractTableModel;
@@ -23,13 +25,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-public class ListWrappingTableModel extends AbstractTableModel {
+public class ListWrappingTableModel extends AbstractTableModel implements ItemRemovable {
 
   private final List<List<String>> list;
-  private final List<String> columnNames = new ArrayList<String>();
+  private final List<String> columnNames = new ArrayList<>();
 
   public ListWrappingTableModel(@NotNull List<List<String>> list,
-                                @NotNull String... columnNames) {
+                                String @NotNull @ColumnName ... columnNames) {
     this.list = list;
     ContainerUtil.addAll(this.columnNames, columnNames);
   }
@@ -40,8 +42,8 @@ public class ListWrappingTableModel extends AbstractTableModel {
    * @param list       the rows of the table
    * @param columnName the name in the column header
    */
-  public ListWrappingTableModel(@NotNull List<String> list, @NotNull String columnName) {
-    this.list = new ArrayList<List<String>>();
+  public ListWrappingTableModel(@NotNull List<String> list, @NotNull @ColumnName String columnName) {
+    this.list = new ArrayList<>();
     this.list.add(list);
     columnNames.add(columnName);
   }
@@ -112,6 +114,7 @@ public class ListWrappingTableModel extends AbstractTableModel {
     return true;
   }
 
+  @Override
   public void removeRow(int rowIndex) {
     for (List<String> column : list) {
       column.remove(rowIndex);

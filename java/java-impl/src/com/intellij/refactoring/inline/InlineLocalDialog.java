@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.inline;
 
-import com.intellij.openapi.help.HelpManager;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.PsiJavaCodeReferenceElement;
 import com.intellij.psi.PsiVariable;
 import com.intellij.refactoring.HelpID;
@@ -24,8 +11,6 @@ import com.intellij.refactoring.JavaRefactoringSettings;
 import com.intellij.refactoring.RefactoringBundle;
 
 public class InlineLocalDialog extends AbstractInlineLocalDialog {
-  public static final String REFACTORING_NAME = RefactoringBundle.message("inline.variable.title");
-
   private final PsiVariable myVariable;
 
   private int myOccurrencesNumber = -1;
@@ -35,14 +20,14 @@ public class InlineLocalDialog extends AbstractInlineLocalDialog {
     myVariable = variable;
     myInvokedOnReference = ref != null;
 
-    setTitle(REFACTORING_NAME);
+    setTitle(getRefactoringName());
     myOccurrencesNumber = occurrencesCount;
     init();
   }
 
   @Override
   protected String getNameLabelText() {
-    return "Local variable " + myVariable.getName();
+    return LangBundle.message("label.local.variable", myVariable.getName());
   }
 
   @Override
@@ -52,12 +37,13 @@ public class InlineLocalDialog extends AbstractInlineLocalDialog {
 
   @Override
   protected String getInlineThisText() {
-    return "Inline this occurrence and leave the variable";
+    return RefactoringBundle.message("this.reference.only.and.keep.the.variable");
   }
 
   @Override
   protected String getInlineAllText() {
-    final String occurrencesString = myOccurrencesNumber > -1 ? " (" + myOccurrencesNumber + " occurrence" + (myOccurrencesNumber == 1 ? ")" : "s)") : "";
+    final String occurrencesString =
+      myOccurrencesNumber > -1 ? " " + RefactoringBundle.message("occurrences.string", myOccurrencesNumber) : "";
     return RefactoringBundle.message("all.references.and.remove.the.local") + occurrencesString;
   }
 
@@ -71,12 +57,21 @@ public class InlineLocalDialog extends AbstractInlineLocalDialog {
   }
 
   @Override
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(HelpID.INLINE_VARIABLE);
+  protected String getHelpId() {
+    return HelpID.INLINE_VARIABLE;
   }
 
   @Override
   protected boolean isInlineThis() {
     return JavaRefactoringSettings.getInstance().INLINE_LOCAL_THIS;
+  }
+
+  @Override
+  protected boolean hasPreviewButton() {
+    return false;
+  }
+
+  public static @NlsContexts.DialogTitle String getRefactoringName() {
+    return RefactoringBundle.message("inline.variable.title");
   }
 }

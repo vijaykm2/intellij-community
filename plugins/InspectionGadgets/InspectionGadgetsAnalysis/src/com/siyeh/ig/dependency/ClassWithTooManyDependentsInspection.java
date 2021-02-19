@@ -23,6 +23,7 @@ import com.intellij.codeInspection.reference.RefClass;
 import com.intellij.codeInspection.reference.RefEntity;
 import com.intellij.codeInspection.ui.SingleIntegerFieldOptionsPanel;
 import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiElement;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseGlobalInspection;
 import com.siyeh.ig.psiutils.ClassUtils;
@@ -37,16 +38,8 @@ public class ClassWithTooManyDependentsInspection extends BaseGlobalInspection {
   @SuppressWarnings({"PublicField"})
   public int limit = 10;
 
-  @NotNull
   @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "class.with.too.many.dependents.display.name");
-  }
-
-  @Override
-  @Nullable
-  public CommonProblemDescriptor[] checkElement(
+  public CommonProblemDescriptor @Nullable [] checkElement(
     @NotNull RefEntity refEntity,
     @NotNull AnalysisScope analysisScope,
     @NotNull InspectionManager inspectionManager,
@@ -55,8 +48,8 @@ public class ClassWithTooManyDependentsInspection extends BaseGlobalInspection {
       return null;
     }
     final RefClass refClass = (RefClass)refEntity;
-    final PsiClass aClass = refClass.getElement();
-    if (ClassUtils.isInnerClass(aClass)) {
+    final PsiElement aClass = refClass.getPsiElement();
+    if (!(aClass instanceof PsiClass) || ClassUtils.isInnerClass((PsiClass)aClass)) {
       return null;
     }
     final Set<RefClass> dependents =

@@ -1,7 +1,9 @@
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.maven.compiler;
 
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.io.FileFilters;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.io.FileUtilRt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.builders.BuildOutputConsumer;
 import org.jetbrains.jps.builders.DirtyFilesHolder;
@@ -14,6 +16,7 @@ import org.jetbrains.jps.incremental.TargetBuilder;
 import org.jetbrains.jps.incremental.messages.BuildMessage;
 import org.jetbrains.jps.incremental.messages.CompilerMessage;
 import org.jetbrains.jps.incremental.messages.ProgressMessage;
+import org.jetbrains.jps.maven.MavenJpsBundle;
 import org.jetbrains.jps.maven.model.JpsMavenExtensionService;
 import org.jetbrains.jps.maven.model.impl.*;
 
@@ -24,10 +27,9 @@ import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 10/6/11
  */
 public class MavenResourcesBuilder extends TargetBuilder<MavenResourceRootDescriptor, MavenResourcesTarget> {
-  public static final String BUILDER_NAME = "Maven Resources Compiler";
+  private static final Logger LOG = Logger.getInstance(MavenResourcesBuilder.class);
 
   public MavenResourcesBuilder() {
     super(Arrays.asList(MavenResourcesTargetType.PRODUCTION, MavenResourcesTargetType.TEST));
@@ -38,7 +40,8 @@ public class MavenResourcesBuilder extends TargetBuilder<MavenResourceRootDescri
     final BuildDataPaths dataPaths = context.getProjectDescriptor().dataManager.getDataPaths();
     final MavenProjectConfiguration projectConfig = JpsMavenExtensionService.getInstance().getMavenProjectConfiguration(dataPaths);
     if (projectConfig == null) {
-      context.processMessage(new CompilerMessage(BUILDER_NAME, BuildMessage.Kind.ERROR, "Maven project configuration required for module '" + target.getModule().getName() + "' isn't available. Compilation of Maven projects is supported only if external build is started from an IDE."));
+      context.processMessage(new CompilerMessage(MavenJpsBundle.message("maven.resources.compiler"), BuildMessage.Kind.ERROR,
+                                                 MavenJpsBundle.message("maven.project.configuration.required", target.getModule().getName())));
       throw new StopBuildException();
     }
 
@@ -47,7 +50,7 @@ public class MavenResourcesBuilder extends TargetBuilder<MavenResourceRootDescri
       return;
     }
 
-    final Map<MavenResourceRootDescriptor, List<File>> files = new HashMap<MavenResourceRootDescriptor, List<File>>();
+    final Map<MavenResourceRootDescriptor, List<File>> files = new HashMap<>();
 
     holder.processDirtyFiles(new FileProcessor<MavenResourceRootDescriptor, MavenResourcesTarget>() {
 
@@ -57,7 +60,7 @@ public class MavenResourcesBuilder extends TargetBuilder<MavenResourceRootDescri
 
         List<File> fileList = files.get(rd);
         if (fileList == null) {
-          fileList = new ArrayList<File>();
+          fileList = new ArrayList<>();
           files.put(rd, fileList);
         }
 
@@ -66,31 +69,29 @@ public class MavenResourcesBuilder extends TargetBuilder<MavenResourceRootDescri
       }
     });
 
-    MavenResourceRootDescriptor[] roots = files.keySet().toArray(new MavenResourceRootDescriptor[files.keySet().size()]);
-    Arrays.sort(roots, new Comparator<MavenResourceRootDescriptor>() {
-      @Override
-      public int compare(MavenResourceRootDescriptor r1, MavenResourceRootDescriptor r2) {
-        int res = r1.getIndexInPom() - r2.getIndexInPom();
+    MavenResourceRootDescriptor[] roots = files.keySet().toArray(new MavenResourceRootDescriptor[0]);
+    Arrays.sort(roots, (r1, r2) -> {
+      int res = r1.getIndexInPom() - r2.getIndexInPom();
 
-        if (r1.isOverwrite()) {
-          assert r2.isOverwrite(); // 'overwrite' parameters is common for all roots in module.
-
-          return res;
-        }
-
-        if (r1.getConfiguration().isFiltered && !r2.getConfiguration().isFiltered) return 1;
-        if (!r1.getConfiguration().isFiltered && r2.getConfiguration().isFiltered) return -1;
-
-        if (!r1.getConfiguration().isFiltered) {
-          res = -res;
-        }
+      if (r1.isOverwrite()) {
+        assert r2.isOverwrite(); // 'overwrite' parameters is common for all roots in module.
 
         return res;
       }
+
+      if (r1.getConfiguration().isFiltered && !r2.getConfiguration().isFiltered) return 1;
+      if (!r1.getConfiguration().isFiltered && r2.getConfiguration().isFiltered) return -1;
+
+      if (!r1.getConfiguration().isFiltered) {
+        res = -res;
+      }
+
+      return res;
     });
 
     MavenResourceFileProcessor fileProcessor = new MavenResourceFileProcessor(projectConfig, target.getModule().getProject(), config);
 
+    context.processMessage(new ProgressMessage(MavenJpsBundle.message("copying.resources", target.getModule().getName())));
     for (MavenResourceRootDescriptor rd : roots) {
       for (File file : files.get(rd)) {
 
@@ -106,14 +107,18 @@ public class MavenResourcesBuilder extends TargetBuilder<MavenResourceRootDescri
         File outputFile = new File(outputDir, relPath);
         String sourcePath = file.getPath();
         try {
-          context.processMessage(new ProgressMessage("Copying resources... [" + target.getModule().getName() + "]"));
-
-          fileProcessor.copyFile(file, outputFile, rd.getConfiguration(), context, FileUtilRt.ALL_FILES);
+          fileProcessor.copyFile(file, outputFile, rd.getConfiguration(), context, FileFilters.EVERYTHING);
           outputConsumer.registerOutputFile(outputFile, Collections.singleton(sourcePath));
         }
         catch (UnsupportedEncodingException e) {
           context.processMessage(
-            new CompilerMessage(BUILDER_NAME, BuildMessage.Kind.INFO, "Resource was not copied: " + e.getMessage(), sourcePath));
+            new CompilerMessage(MavenJpsBundle.message("maven.resources.compiler"), BuildMessage.Kind.INFO,
+                                MavenJpsBundle.message("resource.was.not.copied", e.getMessage()), sourcePath));
+        }
+        catch (IOException e) {
+          context.processMessage(new CompilerMessage(MavenJpsBundle.message("maven.resources.compiler"), BuildMessage.Kind.ERROR,
+                                                     MavenJpsBundle.message("failed.to.copy.0.to.1.2", sourcePath, outputFile.getAbsolutePath(), e.getMessage())));
+          LOG.info(e);
         }
 
         if (context.getCancelStatus().isCanceled()) {
@@ -127,8 +132,9 @@ public class MavenResourcesBuilder extends TargetBuilder<MavenResourceRootDescri
     context.processMessage(new ProgressMessage(""));
   }
 
+  @Override
   @NotNull
   public String getPresentableName() {
-    return BUILDER_NAME;
+    return MavenJpsBundle.message("maven.resources.compiler");
   }
 }

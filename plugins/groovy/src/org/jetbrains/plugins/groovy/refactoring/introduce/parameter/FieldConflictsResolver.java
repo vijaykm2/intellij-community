@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2011 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElement;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
@@ -40,7 +41,7 @@ import java.util.List;
  */
 public class FieldConflictsResolver {
   private static final Logger LOG =
-    Logger.getInstance("#org.jetbrains.plugins.groovy.refactoring.introduce.parameter.FieldConflictsResolver");
+    Logger.getInstance(FieldConflictsResolver.class);
   private final GrCodeBlock myScope;
   private PsiField myField = null;
   private List<GrReferenceExpression> myReferenceExpressions = null;
@@ -58,7 +59,7 @@ public class FieldConflictsResolver {
     myField = oldVariable instanceof PsiField ? (PsiField) oldVariable : null;
     if (!(oldVariable instanceof PsiField)) return;
 
-    myReferenceExpressions = new ArrayList<GrReferenceExpression>();
+    myReferenceExpressions = new ArrayList<>();
     for (PsiReference reference : ReferencesSearch.search(myField, new LocalSearchScope(myScope), false)) {
       final PsiElement element = reference.getElement();
       if (element instanceof GrReferenceExpression) {
@@ -78,7 +79,7 @@ public class FieldConflictsResolver {
     final GrReferenceExpression[] replacedRef = {null};
     initializer.accept(new GroovyRecursiveElementVisitor() {
       @Override
-      public void visitReferenceExpression(GrReferenceExpression expression) {
+      public void visitReferenceExpression(@NotNull GrReferenceExpression expression) {
         final GrExpression qualifierExpression = expression.getQualifier();
         if (qualifierExpression != null) {
           qualifierExpression.accept(this);

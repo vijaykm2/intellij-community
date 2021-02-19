@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.ide;
 
 import com.google.gson.stream.JsonReader;
@@ -27,10 +13,10 @@ import com.intellij.openapi.fileTypes.FileTypeRegistry;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.ArrayUtil;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.QueryStringDecoder;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -56,6 +42,7 @@ import java.util.List;
  *
  * @apiUse DiffRequestExample
  */
+@SuppressWarnings("HardCodedStringLiteral")
 final class DiffHttpService extends RestService {
   @NotNull
   @Override
@@ -71,8 +58,8 @@ final class DiffHttpService extends RestService {
   @Override
   @Nullable
   public String execute(@NotNull QueryStringDecoder urlDecoder, @NotNull FullHttpRequest request, @NotNull ChannelHandlerContext context) throws IOException {
-    final List<DiffContent> contents = new ArrayList<DiffContent>();
-    final List<String> titles = new ArrayList<String>();
+    final List<DiffContent> contents = new ArrayList<>();
+    final List<String> titles = new ArrayList<>();
     boolean focused = true;
     String windowTitle = null;
     JsonReader reader = createJsonReader(request);
@@ -116,15 +103,15 @@ final class DiffHttpService extends RestService {
     final boolean finalFocused = focused;
     final String finalWindowTitle = windowTitle;
     final Project finalProject = project;
-    ApplicationManager.getApplication().invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        DiffManager.getInstance().showDiff(finalProject, new SimpleDiffRequest(StringUtil.notNullize(finalWindowTitle, "Diff Service"),
-                                                                               contents, titles));
-        if (finalFocused) {
-          ProjectUtil.focusProjectWindow(finalProject, true);
-        }
+    ApplicationManager.getApplication().invokeLater(() -> {
+      if (finalFocused) {
+        ProjectUtil.focusProjectWindow(finalProject, true);
       }
+      DiffManager.getInstance().showDiff(finalProject, new SimpleDiffRequest(
+        StringUtil.notNullize(finalWindowTitle, BuiltInServerBundle.message("dialog.title.diff.service")),
+        contents,
+        titles
+      ));
     }, project.getDisposed());
 
     sendOk(request, context);
@@ -132,7 +119,7 @@ final class DiffHttpService extends RestService {
   }
 
   @Nullable
-  private static String readContent(@NotNull JsonReader reader, @NotNull List<DiffContent> contents, @NotNull List<String> titles, @Nullable String defaultFileTypeName) throws IOException {
+  private static String readContent(@NotNull JsonReader reader, @NotNull List<? super DiffContent> contents, @NotNull List<? super String> titles, @Nullable String defaultFileTypeName) throws IOException {
     FileTypeRegistry fileTypeRegistry = FileTypeRegistry.getInstance();
 
     FileType defaultFileType = defaultFileTypeName == null ? null : fileTypeRegistry.findFileTypeByName(defaultFileTypeName);
@@ -170,5 +157,10 @@ final class DiffHttpService extends RestService {
     }
     reader.endArray();
     return null;
+  }
+
+  @Override
+  protected @NotNull OriginCheckResult isOriginAllowed(@NotNull HttpRequest request) {
+    return OriginCheckResult.ASK_CONFIRMATION;
   }
 }

@@ -19,6 +19,7 @@ import com.intellij.ide.util.BrowseFilesListener;
 import com.intellij.ide.wizard.CommitStepException;
 import com.intellij.ide.wizard.StepAdapter;
 import com.intellij.openapi.options.ConfigurationException;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.FieldPanel;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NonNls;
@@ -45,6 +46,12 @@ public abstract class ModuleWizardStep extends StepAdapter {
     return null;
   }
 
+  /**
+   * Validates user input before {@link #updateDataModel()} is called.
+   *
+   * @return {@code true} if input is valid, {@code false} otherwise
+   * @throws ConfigurationException if input is not valid and needs user attention. Exception message will be displayed to user
+   */
   public boolean validate() throws ConfigurationException {
     return true;
   }
@@ -66,7 +73,7 @@ public abstract class ModuleWizardStep extends StepAdapter {
   public void disposeUIResources() {
   }
 
-  public static FieldPanel createFieldPanel(final JTextField field, final String labelText, final BrowseFilesListener browseButtonActionListener) {
+  public static FieldPanel createFieldPanel(final JTextField field, final @NlsContexts.Label String labelText, final BrowseFilesListener browseButtonActionListener) {
     final FieldPanel fieldPanel = new FieldPanel(field, labelText, null, browseButtonActionListener, null);
     fieldPanel.getFieldLabel().setFont(UIUtil.getLabelFont().deriveFont(Font.BOLD));
     return fieldPanel;

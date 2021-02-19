@@ -22,8 +22,8 @@ import com.intellij.openapi.roots.ui.configuration.ModuleConfigurationState;
 public class WebModuleConfigurationEditorProvider implements ModuleConfigurationEditorProvider {
   @Override
   public ModuleConfigurationEditor[] createEditors(final ModuleConfigurationState state) {
-    Module module = state.getRootModel().getModule();
-    if (!WebModuleTypeBase.isWebModule(module)) {
+    Module module = state.getCurrentRootModel().getModule();
+    if (!ModuleTypeWithWebFeatures.isAvailable(module)) {
       return ModuleConfigurationEditor.EMPTY;
     }
     return new ModuleConfigurationEditor[]{new CommonContentEntriesEditor(module.getName(), state)};

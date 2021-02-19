@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2013 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,15 +16,16 @@
 package com.siyeh.ig.performance;
 
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
 import com.siyeh.ig.psiutils.TypeUtils;
@@ -41,26 +42,20 @@ public class TrivialStringConcatenationInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("trivial.string.concatenation.display.name");
-  }
-
-  @Override
-  @NotNull
   public String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message("trivial.string.concatenation.problem.descriptor");
   }
 
   @NonNls
-  static String calculateReplacementExpression(PsiLiteralExpression expression) {
+  static String calculateReplacementExpression(PsiLiteralExpression expression, CommentTracker commentTracker) {
     final PsiElement parent = ParenthesesUtils.getParentSkipParentheses(expression);
     if (!(parent instanceof PsiPolyadicExpression)) {
       return null;
     }
     if (parent instanceof PsiBinaryExpression) {
       final PsiBinaryExpression binaryExpression = (PsiBinaryExpression)parent;
-      final PsiExpression lOperand = ParenthesesUtils.stripParentheses(binaryExpression.getLOperand());
-      final PsiExpression rOperand = ParenthesesUtils.stripParentheses(binaryExpression.getROperand());
+      final PsiExpression lOperand = PsiUtil.skipParenthesizedExprDown(binaryExpression.getLOperand());
+      final PsiExpression rOperand = PsiUtil.skipParenthesizedExprDown(binaryExpression.getROperand());
       final PsiExpression replacement;
       if (ExpressionUtils.isEmptyStringLiteral(lOperand)) {
         replacement = rOperand;
@@ -68,7 +63,7 @@ public class TrivialStringConcatenationInspection extends BaseInspection {
       else {
         replacement = lOperand;
       }
-      return replacement == null ? "" : buildReplacement(replacement, false);
+      return replacement == null ? "" : buildReplacement(replacement, false, commentTracker);
     }
     final PsiPolyadicExpression polyadicExpression = (PsiPolyadicExpression)parent;
     final PsiExpression[] operands = polyadicExpression.getOperands();
@@ -86,13 +81,13 @@ public class TrivialStringConcatenationInspection extends BaseInspection {
         if (text.length() > 0) {
           text.append(" + ");
         }
-        text.append(buildReplacement(operandToReplace, seenString));
+        text.append(buildReplacement(operandToReplace, seenString, commentTracker));
         text.append(" + ");
-        text.append(operand.getText());
+        text.append(commentTracker.text(operand));
         replaced = true;
         continue;
       }
-      if (ParenthesesUtils.stripParentheses(operand) == expression) {
+      if (PsiUtil.skipParenthesizedExprDown(operand) == expression) {
         seenEmpty = true;
         continue;
       }
@@ -106,17 +101,19 @@ public class TrivialStringConcatenationInspection extends BaseInspection {
       if (text.length() > 0) {
         text.append(" + ");
       }
-      text.append(operand.getText());
+      text.append(commentTracker.text(operand));
     }
     if (!replaced && operandToReplace != null) {
       text.append(" + ");
-      text.append(buildReplacement(operandToReplace, seenString));
+      text.append(buildReplacement(operandToReplace, seenString, commentTracker));
     }
     return text.toString();
   }
 
   @NonNls
-  static String buildReplacement(@NotNull PsiExpression operandToReplace, boolean seenString) {
+  static String buildReplacement(@NotNull PsiExpression operandToReplace,
+                                 boolean seenString,
+                                 CommentTracker commentTracker) {
     if (ExpressionUtils.isNullLiteral(operandToReplace)) {
       if (seenString) {
         return "null";
@@ -128,7 +125,7 @@ public class TrivialStringConcatenationInspection extends BaseInspection {
     if (seenString || ExpressionUtils.hasStringType(operandToReplace)) {
       return operandToReplace.getText();
     }
-    return "String.valueOf(" + operandToReplace.getText() + ')';
+    return "String.valueOf(" + commentTracker.text(operandToReplace) + ')';
   }
 
   @Override
@@ -138,10 +135,10 @@ public class TrivialStringConcatenationInspection extends BaseInspection {
 
   private static class UnnecessaryTemporaryObjectFix extends InspectionGadgetsFix {
 
-    private final String m_name;
+    private final @IntentionName String m_name;
 
-    private UnnecessaryTemporaryObjectFix(PsiLiteralExpression expression) {
-      m_name = InspectionGadgetsBundle.message("string.replace.quickfix", calculateReplacementExpression(expression));
+    UnnecessaryTemporaryObjectFix(PsiLiteralExpression expression) {
+      m_name = InspectionGadgetsBundle.message("string.replace.quickfix", calculateReplacementExpression(expression, new CommentTracker()));
     }
 
     @Override
@@ -153,18 +150,19 @@ public class TrivialStringConcatenationInspection extends BaseInspection {
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Replace concatenation";
+      return InspectionGadgetsBundle.message("unnecessary.temporary.object.fix.family.name");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiLiteralExpression expression = (PsiLiteralExpression)descriptor.getPsiElement();
       final PsiElement parent = ParenthesesUtils.getParentSkipParentheses(expression);
       if (!(parent instanceof PsiExpression)) {
         return;
       }
-      final String newExpression = calculateReplacementExpression(expression);
-      PsiReplacementUtil.replaceExpression((PsiExpression)parent, newExpression);
+      CommentTracker commentTracker = new CommentTracker();
+      final String newExpression = calculateReplacementExpression(expression, commentTracker);
+      PsiReplacementUtil.replaceExpression((PsiExpression)parent, newExpression, commentTracker);
     }
   }
 
@@ -183,7 +181,7 @@ public class TrivialStringConcatenationInspection extends BaseInspection {
       }
       final PsiExpression[] operands = expression.getOperands();
       for (PsiExpression operand : operands) {
-        operand = ParenthesesUtils.stripParentheses(operand);
+        operand = PsiUtil.skipParenthesizedExprDown(operand);
         if (operand == null) {
           return;
         }

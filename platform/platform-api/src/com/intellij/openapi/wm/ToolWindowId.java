@@ -1,42 +1,40 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm;
 
-import com.intellij.ui.UIBundle;
+import org.jetbrains.annotations.ApiStatus;
 
 public interface ToolWindowId {
-  String COMMANDER = UIBundle.message("tool.window.name.commander");
-  String MESSAGES_WINDOW = UIBundle.message("tool.window.name.messages");
-  String PROJECT_VIEW = UIBundle.message("tool.window.name.project");
-  String STRUCTURE_VIEW = UIBundle.message("tool.window.name.structure");
-  String FAVORITES_VIEW = UIBundle.message("tool.window.name.favorites");
-  String ANT_BUILD = UIBundle.message("tool.window.name.ant.build");
-  String DEBUG = UIBundle.message("tool.window.name.debug");
-  String RUN = UIBundle.message("tool.window.name.run");
-  String FIND = UIBundle.message("tool.window.name.find");
-  String CVS = UIBundle.message("tool.window.name.cvs");
-  String HIERARCHY = UIBundle.message("tool.window.name.hierarchy");
-  String INSPECTION = UIBundle.message("tool.window.name.inspection");
-  String TODO_VIEW = UIBundle.message("tool.window.name.todo");
-  String DEPENDENCIES = UIBundle.message("tool.window.name.dependency.viewer");
-  String VCS = UIBundle.message("tool.window.name.version.control");
-  String MODULES_DEPENDENCIES = UIBundle.message("tool.window.name.module.dependencies");
-  String DUPLICATES = UIBundle.message("tool.window.name.module.duplicates");
-  String DOCUMENTATION = UIBundle.message("tool.window.name.documentation");
-  String TASKS = UIBundle.message("tool.window.name.tasks");
-  String DATABASE_VIEW = UIBundle.message("tool.window.name.database");
-  String PREVIEW = UIBundle.message("tool.window.name.preview");
+  String COMMANDER = "Commander";
+  String MESSAGES_WINDOW = "Messages";
+  String PROJECT_VIEW = "Project";
+  String STRUCTURE_VIEW = "Structure";
+  String FAVORITES_VIEW = "Favorites";
+  String ANT_BUILD = "Ant";
+  String DEBUG = "Debug";
+  String RUN = "Run";
+
+  /**
+   * @deprecated Use {@link com.intellij.build.BuildContentManager#getOrCreateToolWindow()}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String BUILD = "Build";
+
+  String FIND = "Find";
+  String HIERARCHY = "Hierarchy";
+  String INSPECTION = "Inspection Results";
+  String TODO_VIEW = "TODO";
+  String DEPENDENCIES = "Dependency Viewer";
+  String VCS = "Version Control";
+  String COMMIT = "Commit";
+  String MODULES_DEPENDENCIES = "Module Dependencies";
+  String DUPLICATES = "Duplicates";
+  String EXTRACT_METHOD = "Extract Method";
+  String DOCUMENTATION = "Documentation";
+  String TASKS = "Time Tracking";
+  String DATABASE_VIEW = "Database";
+  String PREVIEW = "Preview";
+  String RUN_DASHBOARD = "Run Dashboard";
+  String SERVICES = "Services";
+  String ENDPOINTS = "Endpoints";
 }

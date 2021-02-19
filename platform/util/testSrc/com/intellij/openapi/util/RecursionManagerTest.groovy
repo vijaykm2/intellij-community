@@ -1,33 +1,38 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-package com.intellij.openapi.util;
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+package com.intellij.openapi.util
 
-import junit.framework.TestCase;
+import com.intellij.openapi.Disposable
+import com.intellij.testFramework.UsefulTestCase
+import groovy.transform.CompileDynamic
+import groovy.transform.CompileStatic
+import groovy.transform.Immutable
+import junit.framework.TestCase
 
 /**
  * @author peter
  */
-public class RecursionManagerTest extends TestCase {
-  private final RecursionGuard myGuard = RecursionManager.createGuard("RecursionManagerTest");
-  
+@CompileStatic
+class RecursionManagerTest extends TestCase {
+  private final RecursionGuard myGuard = RecursionManager.createGuard("RecursionManagerTest")
+  private final Disposable myDisposable = Disposer.newDisposable()
+
+  @Override
+  protected void setUp() throws Exception {
+    RecursionManager.assertOnMissedCache(myDisposable)
+    super.setUp()
+  }
+
+  @Override
+  protected void tearDown() throws Exception {
+    Disposer.dispose(myDisposable)
+    super.tearDown()
+  }
+
   def prevent(Object key, boolean memoize = true, Closure c) {
     myGuard.doPreventingRecursion(key, memoize, c as Computable)
   }
 
-  public void testPreventRecursion() {
+  void testPreventRecursion() {
     assert "foo-return" == prevent(["foo"]) {
       assert "bar-return" == prevent("bar") {
         assert null == prevent(["foo"]) { "foo-return" }
@@ -37,7 +42,47 @@ public class RecursionManagerTest extends TestCase {
     }
   }
 
-  public void testMemoization() {
+  @CompileDynamic
+  void testAssertOnMissedCache() {
+    assert "foo-return" == prevent("foo") {
+      def stamp = RecursionManager.markStack()
+      assert null == prevent("foo") { fail() }
+      UsefulTestCase.assertThrows(RecursionManager.CachingPreventedException) { stamp.mayCacheNow() }
+      return "foo-return"
+    }
+  }
+
+  private def 'method which should be present in prevention trace'() {
+    prevent("inner") {
+      assert null == prevent("outer") {
+        fail()
+      }
+      "inner-return"
+    }
+  }
+
+  void testMemoizedValueAccessDoesntClearPreventionTrace() {
+    assert "outer-return" == prevent("outer") {
+      def stamp = RecursionManager.markStack()
+      'method which should be present in prevention trace'()  // prevents caching until exited from 'outer'
+      assert "inner-return" == prevent("inner") {             // memoized value from previous call
+        fail()
+      }
+      try {
+        stamp.mayCacheNow()
+        fail()
+      }
+      catch (RecursionManager.CachingPreventedException e) {
+        def soe = UsefulTestCase.assertInstanceOf(e.cause, StackOverflowPreventedException)
+        assert soe.stackTrace.any { StackTraceElement ste ->
+          ste.methodName == 'method which should be present in prevention trace'
+        }
+      }
+      "outer-return"
+    }
+  }
+
+  void testMemoization() {
     assert "foo-return" == prevent("foo") {
       assert "bar-return" == prevent("bar") {
         assert null == prevent("foo") { "foo-return" }
@@ -50,7 +95,7 @@ public class RecursionManagerTest extends TestCase {
     }
   }
 
-  public void testNoMemoizationAfterExit() {
+  void testNoMemoizationAfterExit() {
     assert "foo-return" == prevent("foo") {
       assert "bar-return" == prevent("bar") {
         assert null == prevent("foo") { "foo-return" }
@@ -63,21 +108,39 @@ public class RecursionManagerTest extends TestCase {
     }
   }
 
-  public void testMayCache() {
-    def doo1 = myGuard.markStack()
+  void "test no memoization after exiting SOE loop inside another preventing call"() {
+    prevent("unrelated") {
+      testNoMemoizationAfterExit()
+    }
+  }
+
+  void "test memoize when the we run into the same prevention via different route"() {
+    prevent("foo") {
+      prevent("foo") { fail() }
+      assert "x" == prevent("bar") {
+        prevent("foo") { fail() }
+        return "x"
+      }
+      assert "x" == prevent("bar") { fail() }
+    }
+  }
+
+  void testMayCache() {
+    RecursionManager.disableMissedCacheAssertions(myDisposable)
+    def doo1 = RecursionManager.markStack()
     assert "doo-return" == prevent("doo") {
-      def foo1 = myGuard.markStack()
+      def foo1 = RecursionManager.markStack()
       assert "foo-return" == prevent("foo") {
-        def bar1 = myGuard.markStack()
+        def bar1 = RecursionManager.markStack()
         assert "bar-return" == prevent("bar") {
-          def foo2 = myGuard.markStack()
+          def foo2 = RecursionManager.markStack()
           assert null == prevent("foo") { "foo-return" }
           assert !foo2.mayCacheNow()
           return "bar-return"
         }
         assert !bar1.mayCacheNow()
-        
-        def goo1 = myGuard.markStack()
+
+        def goo1 = RecursionManager.markStack()
         assert "goo-return" == prevent("goo") {
           return "goo-return"
         }
@@ -92,13 +155,14 @@ public class RecursionManagerTest extends TestCase {
     assert doo1.mayCacheNow()
   }
 
-  public void testNoCachingForMemoizedValues() {
+  void testNoCachingForMemoizedValues() {
+    RecursionManager.disableMissedCacheAssertions(myDisposable)
     assert "foo-return" == prevent("foo") {
       assert "bar-return" == prevent("bar") {
         assert null == prevent("foo") { "foo-return" }
         return "bar-return"
       }
-      def stamp = myGuard.markStack()
+      def stamp = RecursionManager.markStack()
       assert "bar-return" == prevent("bar") {
         fail()
       }
@@ -107,7 +171,8 @@ public class RecursionManagerTest extends TestCase {
     }
   }
 
-  public void testNoCachingForMemoizedValues2() {
+  void testNoCachingForMemoizedValues2() {
+    RecursionManager.disableMissedCacheAssertions(myDisposable)
     assert "1-return" == prevent("1") {
       assert "2-return" == prevent("2") {
         assert "3-return" == prevent("3") {
@@ -117,11 +182,11 @@ public class RecursionManagerTest extends TestCase {
         }
         return "2-return"
       }
-      def stamp = myGuard.markStack()
+      def stamp = RecursionManager.markStack()
       assert "2-return" == prevent("2") { fail() }
       assert !stamp.mayCacheNow()
 
-      stamp = myGuard.markStack()
+      stamp = RecursionManager.markStack()
       assert "3-return" == prevent("3") { fail() }
       assert !stamp.mayCacheNow()
 
@@ -129,18 +194,18 @@ public class RecursionManagerTest extends TestCase {
     }
   }
 
-  public void testNoMemoizationForNoReentrancy() {
+  void testNoMemoizationForNoReentrancy() {
     assert "foo-return" == prevent("foo") {
       assert null == prevent("foo") { "foo-return" }
       assert "bar-return" == prevent("bar") { "bar-return" }
-      def stamp = myGuard.markStack()
+      def stamp = RecursionManager.markStack()
       assert "bar-return2" == prevent("bar") { "bar-return2" }
       assert stamp.mayCacheNow()
       return "foo-return"
     }
   }
 
-  public void testFullGraphPerformance() throws Exception {
+  void testFullGraphPerformance() throws Exception {
     long start = System.currentTimeMillis()
     int count = 20
     Closure cl
@@ -156,14 +221,62 @@ public class RecursionManagerTest extends TestCase {
     assert System.currentTimeMillis() - start < 10000
   }
 
-  public void "test changing hash code doesn't crash RecursionManager"() {
+  private class FullGraphCorrectness {
+    Set<String> a() {
+      return (prevent("a") { a() + b() + ["a"] } ?: []) as Set
+    }
+
+    Set<String> b() {
+      return (prevent("b") { a() + b() + ["b"] } ?: []) as Set
+    }
+
+    void ensureSymmetric() {
+      assert a() == ["a", "b"] as Set
+      assert b() == ["a", "b"] as Set
+    }
+  }
+
+  void "test full graph correctness"() {
+    new FullGraphCorrectness().ensureSymmetric()
+    prevent("unrelated") {
+      new FullGraphCorrectness().ensureSymmetric()
+    }
+  }
+
+  void "test changing hash code doesn't crash RecursionManager"() {
     def key = ["b"]
     prevent(key) {
       key << "a"
     }
   }
 
-  public void "test exception from hashCode on exiting"() {
+  void "test key equals that invokes RecursionManager"() {
+    prevent(new RecursiveKey('a')) {
+      prevent(new RecursiveKey('b')) {
+        prevent(new RecursiveKey('a')) {
+          throw new AssertionError((Object)"shouldn't be called")
+        }
+      }
+    }
+  }
+
+  @Immutable
+  private static class RecursiveKey {
+    final String id
+
+    @Override
+    int hashCode() {
+      return id.hashCode()
+    }
+
+    @Override
+    boolean equals(Object obj) {
+      RecursionManager.doPreventingRecursion("abc", false) { true }
+      return obj instanceof RecursiveKey && obj.id == id
+    }
+  }
+
+  void "test exception from hashCode on exiting"() {
     def key1 = new ThrowingKey()
     def key2 = new ThrowingKey()
     def key3 = new ThrowingKey()
@@ -195,5 +308,4 @@ public class RecursionManagerTest extends TestCase {
       return super.equals(obj)
     }
   }
-
 }

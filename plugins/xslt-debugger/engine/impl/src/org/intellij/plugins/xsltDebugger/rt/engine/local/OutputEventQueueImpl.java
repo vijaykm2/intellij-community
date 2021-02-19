@@ -22,15 +22,10 @@ import org.intellij.plugins.xsltDebugger.rt.engine.OutputEventQueue;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 08.06.2007
- */
 public class OutputEventQueueImpl implements OutputEventQueue {
   private final Debugger myDebugger;
 
-  private final List<NodeEvent> myEvents = new ArrayList<NodeEvent>();
+  private final List<NodeEvent> myEvents = new ArrayList<>();
 
   private boolean myEnabled = true;
 
@@ -98,7 +93,7 @@ public class OutputEventQueueImpl implements OutputEventQueue {
 
   public List<NodeEvent> getEvents() {
     try {
-      return new ArrayList<NodeEvent>(myEvents);
+      return new ArrayList<>(myEvents);
     } finally {
       myEvents.clear();
     }

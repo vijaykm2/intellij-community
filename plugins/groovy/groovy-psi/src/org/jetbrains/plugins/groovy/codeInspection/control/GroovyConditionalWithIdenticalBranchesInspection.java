@@ -20,6 +20,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
@@ -28,26 +29,10 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrCondit
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
 
 public class GroovyConditionalWithIdenticalBranchesInspection extends BaseInspection {
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Conditional expression with identical branches";
-  }
-
-  @Override
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONTROL_FLOW;
-  }
 
   @Override
   public String buildErrorString(Object... args) {
-    return "Conditional expression with identical branches #loc";
+    return GroovyBundle.message("inspection.message.conditional.expression.with.identical.branches");
   }
 
   @Override
@@ -58,12 +43,12 @@ public class GroovyConditionalWithIdenticalBranchesInspection extends BaseInspec
   private static class CollapseConditionalFix extends GroovyFix {
     @Override
     @NotNull
-    public String getName() {
-      return "Collapse conditional expression";
+    public String getFamilyName() {
+      return GroovyBundle.message("intention.family.name.collapse.conditional.expressions");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    public void doFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) throws IncorrectOperationException {
       final PsiElement element = descriptor.getPsiElement();
       if (!(element instanceof GrConditionalExpression)) return;
       final GrConditionalExpression expression = (GrConditionalExpression)element;
@@ -81,7 +66,7 @@ public class GroovyConditionalWithIdenticalBranchesInspection extends BaseInspec
   private static class Visitor extends BaseInspectionVisitor {
 
     @Override
-    public void visitConditionalExpression(GrConditionalExpression expression) {
+    public void visitConditionalExpression(@NotNull GrConditionalExpression expression) {
       super.visitConditionalExpression(expression);
       final GrExpression thenBranch = expression.getThenBranch();
       final GrExpression elseBranch = expression.getElseBranch();

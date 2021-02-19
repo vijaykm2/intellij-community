@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.move.moveClassesOrPackages;
 
 import com.intellij.codeInsight.ChangeContextUtil;
@@ -22,6 +8,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.util.NonCodeUsageInfo;
@@ -29,7 +16,10 @@ import com.intellij.usageView.UsageInfo;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 
 /**
  * @author Max Medvedev
@@ -48,7 +38,7 @@ public class JavaMoveClassToInnerHandler implements MoveClassToInnerHandler {
     if (targetClass.isInterface()) {
       PsiUtil.setModifierProperty(newClass, PsiModifier.PACKAGE_LOCAL, true);
     }
-    else {
+    else if (!newClass.isEnum()) {
       PsiUtil.setModifierProperty(newClass, PsiModifier.STATIC, true);
     }
     return (PsiClass)ChangeContextUtil.decodeContextInfo(newClass, null, null);
@@ -56,22 +46,18 @@ public class JavaMoveClassToInnerHandler implements MoveClassToInnerHandler {
 
   @Override
   public List<PsiElement> filterImports(@NotNull List<UsageInfo> usageInfos, @NotNull Project project) {
-    final List<PsiElement> importStatements = new ArrayList<PsiElement>();
-    if (!CodeStyleSettingsManager.getSettings(project).INSERT_INNER_CLASS_IMPORTS) {
+    final List<PsiElement> importStatements = new ArrayList<>();
+    if (!CodeStyleSettingsManager.getSettings(project).getCustomSettings(JavaCodeStyleSettings.class).INSERT_INNER_CLASS_IMPORTS) {
       filterUsagesInImportStatements(usageInfos, importStatements);
     }
     else {
       //rebind imports first
-      Collections.sort(usageInfos, new Comparator<UsageInfo>() {
-        public int compare(UsageInfo o1, UsageInfo o2) {
-          return PsiUtil.BY_POSITION.compare(o1.getElement(), o2.getElement());
-        }
-      });
+      usageInfos.sort((o1, o2) -> PsiUtil.BY_POSITION.compare(o1.getElement(), o2.getElement()));
     }
     return importStatements;
   }
 
-  private static void filterUsagesInImportStatements(final List<UsageInfo> usages, final List<PsiElement> importStatements) {
+  private static void filterUsagesInImportStatements(final List<UsageInfo> usages, final List<? super PsiElement> importStatements) {
     for (Iterator<UsageInfo> iterator = usages.iterator(); iterator.hasNext(); ) {
       UsageInfo usage = iterator.next();
       PsiElement element = usage.getElement();
@@ -84,6 +70,7 @@ public class JavaMoveClassToInnerHandler implements MoveClassToInnerHandler {
     }
   }
 
+  @Override
   public void retargetClassRefsInMoved(@NotNull final Map<PsiElement, PsiElement> oldToNewElementsMapping) {
     for (final PsiElement newClass : oldToNewElementsMapping.values()) {
       if (newClass.getLanguage() != JavaLanguage.INSTANCE) continue;
@@ -123,13 +110,14 @@ public class JavaMoveClassToInnerHandler implements MoveClassToInnerHandler {
     return newInnerClass;
   }
 
+  @Override
   public void retargetNonCodeUsages(@NotNull final Map<PsiElement, PsiElement> oldToNewElementMap,
-                                    @NotNull final NonCodeUsageInfo[] nonCodeUsages) {
+                                    final NonCodeUsageInfo @NotNull [] nonCodeUsages) {
     for (PsiElement newClass : oldToNewElementMap.values()) {
       if (newClass.getLanguage() != JavaLanguage.INSTANCE) continue;
       newClass.accept(new PsiRecursiveElementVisitor() {
         @Override
-        public void visitElement(final PsiElement element) {
+        public void visitElement(@NotNull final PsiElement element) {
           super.visitElement(element);
           List<NonCodeUsageInfo> list = element.getCopyableUserData(MoveClassToInnerProcessor.ourNonCodeUsageKey);
           if (list != null) {

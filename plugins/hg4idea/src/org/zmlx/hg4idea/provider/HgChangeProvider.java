@@ -12,6 +12,8 @@
 // limitations under the License.
 package org.zmlx.hg4idea.provider;
 
+import com.intellij.ide.plugins.PluginManagerCore;
+import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
@@ -19,8 +21,6 @@ import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vcs.changes.*;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.ui.JBColor;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcsUtil.VcsUtil;
 import org.jetbrains.annotations.NotNull;
@@ -41,17 +41,18 @@ public class HgChangeProvider implements ChangeProvider {
   private final Project myProject;
   private final VcsKey myVcsKey;
 
-  public static final FileStatus COPIED = FileStatusFactory.getInstance().createFileStatus("COPIED", "Copied", FileStatus.COLOR_ADDED);
-  public static final FileStatus RENAMED = FileStatusFactory.getInstance().createFileStatus("RENAMED", "Renamed",
-                                                                                            JBColor.CYAN.darker().darker());
+  private static final PluginId OUR_PLUGIN_ID = PluginManagerCore.getPluginByClassName(HgChangeProvider.class.getName());
+  public static final FileStatus COPIED
+    = FileStatusFactory.getInstance().createFileStatus("COPIED",HgBundle.messagePointer("hg4idea.file.status.copied"), OUR_PLUGIN_ID);
+  public static final FileStatus RENAMED
+    = FileStatusFactory.getInstance().createFileStatus("RENAMED", HgBundle.messagePointer("hg4idea.file.status.renamed"), OUR_PLUGIN_ID);
 
   private static final EnumMap<HgFileStatusEnum, HgChangeProcessor> PROCESSORS =
-    new EnumMap<HgFileStatusEnum, HgChangeProcessor>(HgFileStatusEnum.class);
+    new EnumMap<>(HgFileStatusEnum.class);
 
   static {
     PROCESSORS.put(HgFileStatusEnum.ADDED, HgChangeProcessor.ADDED);
     PROCESSORS.put(HgFileStatusEnum.DELETED, HgChangeProcessor.DELETED);
-    PROCESSORS.put(HgFileStatusEnum.IGNORED, HgChangeProcessor.IGNORED);
     PROCESSORS.put(HgFileStatusEnum.MISSING, HgChangeProcessor.MISSING);
     PROCESSORS.put(HgFileStatusEnum.COPY, HgChangeProcessor.COPIED);
     PROCESSORS.put(HgFileStatusEnum.MODIFIED, HgChangeProcessor.MODIFIED);
@@ -64,24 +65,23 @@ public class HgChangeProvider implements ChangeProvider {
     myVcsKey = vcsKey;
   }
 
+  @Override
   public boolean isModifiedDocumentTrackingRequired() {
     return true;
   }
 
-  public void doCleanup(List<VirtualFile> files) {
-  }
-
-  public void getChanges(VcsDirtyScope dirtyScope, ChangelistBuilder builder,
-                         ProgressIndicator progress, ChangeListManagerGate addGate) throws VcsException {
+  @Override
+  public void getChanges(@NotNull VcsDirtyScope dirtyScope, @NotNull ChangelistBuilder builder,
+                         @NotNull ProgressIndicator progress, @NotNull ChangeListManagerGate addGate) {
     if (myProject.isDisposed()) return;
-    final Collection<HgChange> changes = new HashSet<HgChange>();
+    final Collection<HgChange> changes = new HashSet<>();
     changes.addAll(process(builder, dirtyScope.getRecursivelyDirtyDirectories()));
     changes.addAll(process(builder, dirtyScope.getDirtyFiles()));
     processUnsavedChanges(builder, dirtyScope.getDirtyFilesNoExpand(), changes);
   }
 
   private Collection<HgChange> process(ChangelistBuilder builder, Collection<FilePath> files) {
-    final Set<HgChange> hgChanges = new HashSet<HgChange>();
+    final Set<HgChange> hgChanges = new HashSet<>();
     for (Map.Entry<VirtualFile, Collection<FilePath>> entry : HgUtil.groupFilePathsByHgRoots(myProject, files).entrySet()) {
       VirtualFile repo = entry.getKey();
 
@@ -89,15 +89,10 @@ public class HgChangeProvider implements ChangeProvider {
       final HgRevisionNumber parentRevision = new HgWorkingCopyRevisionsCommand(myProject).firstParent(repo);
       final Map<HgFile, HgResolveStatusEnum> list = new HgResolveCommand(myProject).getListSynchronously(repo);
 
-      hgChanges.addAll(new HgStatusCommand.Builder(true).build(myProject).execute(repo, entry.getValue()));
+      hgChanges.addAll(new HgStatusCommand.Builder(true).ignored(false).build(myProject).executeInCurrentThread(repo, entry.getValue()));
       final HgRepository hgRepo = HgUtil.getRepositoryForFile(myProject, repo);
       if (hgRepo != null && hgRepo.hasSubrepos()) {
-        hgChanges.addAll(ContainerUtil.mapNotNull(hgRepo.getSubrepos(), new Function<HgNameWithHashInfo, HgChange>() {
-          @Override
-          public HgChange fun(HgNameWithHashInfo info) {
-            return findChange(hgRepo, info);
-          }
-        }));
+        hgChanges.addAll(ContainerUtil.mapNotNull(hgRepo.getSubrepos(), info -> findChange(hgRepo, info)));
       }
 
       sendChanges(builder, hgChanges, list, workingRevision, parentRevision);
@@ -111,7 +106,7 @@ public class HgChangeProvider implements ChangeProvider {
     VirtualFile virtualSubrepoFile = VfsUtil.findFileByIoFile(file, false);
     HgRepository subrepo = HgUtil.getRepositoryForFile(myProject, virtualSubrepoFile);
     if (subrepo != null && !info.getHash().asString().equals(subrepo.getCurrentRevision())) {
-      return new HgChange(new HgFile(hgRepo.getRoot(), new FilePathImpl(virtualSubrepoFile)), HgFileStatusEnum.MODIFIED);
+      return new HgChange(new HgFile(hgRepo.getRoot(), VcsUtil.getFilePath(virtualSubrepoFile)), HgFileStatusEnum.MODIFIED);
     }
     return null;
   }
@@ -128,7 +123,7 @@ public class HgChangeProvider implements ChangeProvider {
           && resolveStatus.get(afterFile) == HgResolveStatusEnum.UNRESOLVED) {
         builder.processChange(
           new Change(
-            new HgContentRevision(myProject, beforeFile, parentRevision),
+            HgContentRevision.create(myProject, beforeFile, parentRevision),
             HgCurrentContentRevision.create(afterFile, workingRevision),
             FileStatus.MERGED_WITH_CONFLICTS
           ), myVcsKey);
@@ -164,7 +159,7 @@ public class HgChangeProvider implements ChangeProvider {
 
   /**
    * Finds modified but unsaved files in the given list of dirty files and notifies the builder about MODIFIED changes.
-   * Changes contained in <code>alreadyProcessed</code> are skipped - they have already been processed as modified, or else.
+   * Changes contained in {@code alreadyProcessed} are skipped - they have already been processed as modified, or else.
    */
   public void processUnsavedChanges(ChangelistBuilder builder, Set<FilePath> dirtyFiles, Collection<HgChange> alreadyProcessed) {
     // exclude already processed
@@ -180,9 +175,9 @@ public class HgChangeProvider implements ChangeProvider {
       if (vf != null &&  fileDocumentManager.isFileModified(vf)) {
         final VirtualFile root = vcsManager.getVcsRootFor(vf);
         if (root != null && HgUtil.isHgRoot(root)) {
-          final HgRevisionNumber beforeRevisionNumber = new HgWorkingCopyRevisionsCommand(myProject).tip(root);
+          final HgRevisionNumber beforeRevisionNumber = new HgWorkingCopyRevisionsCommand(myProject).firstParent(root);
           final ContentRevision beforeRevision = (beforeRevisionNumber == null ? null :
-                                                  new HgContentRevision(myProject, new HgFile(myProject, vf), beforeRevisionNumber));
+                                                  HgContentRevision.create(myProject, new HgFile(myProject, vf), beforeRevisionNumber));
           builder.processChange(new Change(beforeRevision, CurrentContentRevision.create(filePath), FileStatus.MODIFIED), myVcsKey);
         }
       }
@@ -212,21 +207,12 @@ public class HgChangeProvider implements ChangeProvider {
         HgRevisionNumber currentNumber, HgRevisionNumber parentRevision,
         HgFile beforeFile, HgFile afterFile) {
         processChange(
-          new HgContentRevision(project, beforeFile, parentRevision),
+          HgContentRevision.create(project, beforeFile, parentRevision),
           null,
           FileStatus.DELETED,
           builder,
           vcsKey
         );
-      }
-    },
-
-    IGNORED() {
-      @Override
-      void process(Project project, VcsKey vcsKey, ChangelistBuilder builder,
-        HgRevisionNumber currentNumber, HgRevisionNumber parentRevision,
-        HgFile beforeFile, HgFile afterFile) {
-        builder.processIgnoredFile(VcsUtil.getVirtualFile(afterFile.getFile()));
       }
     },
 
@@ -259,9 +245,9 @@ public class HgChangeProvider implements ChangeProvider {
         } else {
           // The original file does not exists so this is a rename.
           processChange(
-            new HgContentRevision(project, beforeFile, parentRevision),
+            HgContentRevision.create(project, beforeFile, parentRevision),
             HgCurrentContentRevision.create(afterFile, currentNumber),
-            HgChangeProvider.RENAMED,
+            RENAMED,
             builder,
             vcsKey
           );
@@ -275,7 +261,7 @@ public class HgChangeProvider implements ChangeProvider {
         HgRevisionNumber currentNumber, HgRevisionNumber parentRevision,
         HgFile beforeFile, HgFile afterFile) {
         processChange(
-          new HgContentRevision(project, beforeFile, parentRevision),
+          HgContentRevision.create(project, beforeFile, parentRevision),
           HgCurrentContentRevision.create(afterFile, currentNumber),
           FileStatus.MODIFIED,
           builder,
@@ -298,7 +284,7 @@ public class HgChangeProvider implements ChangeProvider {
       void process(Project project, VcsKey vcsKey, ChangelistBuilder builder,
         HgRevisionNumber currentNumber, HgRevisionNumber parentRevision,
         HgFile beforeFile, HgFile afterFile) {
-        builder.processUnversionedFile(VcsUtil.getVirtualFile(afterFile.getFile()));
+        builder.processUnversionedFile(afterFile.toFilePath());
       }
     };
 

@@ -15,83 +15,61 @@
  */
 package com.intellij.psi.impl.smartPointers;
 
-import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.editor.RangeMarker;
-import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Segment;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiAnchor;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-/**
-* User: cdr
-*/
-public class ClsElementInfo implements SmartPointerElementInfo {
+class ClsElementInfo extends SmartPointerElementInfo {
+  @NotNull
   private final PsiAnchor.StubIndexReference myStubIndexReference;
 
-  public ClsElementInfo(@NotNull PsiAnchor.StubIndexReference stubReference) {
+  ClsElementInfo(@NotNull PsiAnchor.StubIndexReference stubReference) {
     myStubIndexReference = stubReference;
   }
 
   @Override
-  public Document getDocumentToSynchronize() {
-    return null;
-  }
-
-  // before change
-  @Override
-  public void fastenBelt(int offset, RangeMarker[] cachedRangeMarker) {
-  }
-
-  // after change
-  @Override
-  public void unfastenBelt(int offset) {
-  }
-
-  @Override
-  public PsiElement restoreElement() {
+  PsiElement restoreElement(@NotNull SmartPointerManagerImpl manager) {
     return myStubIndexReference.retrieve();
   }
 
   @Override
-  public int elementHashCode() {
+  int elementHashCode() {
     return myStubIndexReference.hashCode();
   }
 
   @Override
-  public boolean pointsToTheSameElementAs(@NotNull SmartPointerElementInfo other) {
-    if (other instanceof ClsElementInfo) {
-      return myStubIndexReference.equals(((ClsElementInfo)other).myStubIndexReference);
-    }
-    return Comparing.equal(restoreElement(), other.restoreElement());
+  boolean pointsToTheSameElementAs(@NotNull SmartPointerElementInfo other, @NotNull SmartPointerManagerImpl manager) {
+    return other instanceof ClsElementInfo && myStubIndexReference.equals(((ClsElementInfo)other).myStubIndexReference);
   }
 
   @Override
-  public VirtualFile getVirtualFile() {
+  @NotNull
+  VirtualFile getVirtualFile() {
     return myStubIndexReference.getVirtualFile();
   }
 
   @Override
-  public Segment getRange() {
+  Segment getRange(@NotNull SmartPointerManagerImpl manager) {
     return null;
   }
 
-  @NotNull
+  @Nullable
   @Override
-  public Project getProject() {
-    return myStubIndexReference.getProject();
+  Segment getPsiRange(@NotNull SmartPointerManagerImpl manager) {
+    return null;
   }
 
   @Override
-  public void cleanup() {
-
-  }
-
-  @Override
-  public PsiFile restoreFile() {
+  PsiFile restoreFile(@NotNull SmartPointerManagerImpl manager) {
     return myStubIndexReference.getFile();
+  }
+
+  @Override
+  public String toString() {
+    return myStubIndexReference.toString();
   }
 }

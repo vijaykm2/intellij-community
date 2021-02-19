@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.contentAnnotation;
 
 import com.intellij.openapi.components.ServiceManager;
@@ -32,26 +18,20 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Date;
 
-/**
- * Created by IntelliJ IDEA.
- * User: Irina.Chernushina
- * Date: 8/3/11
- * Time: 1:04 PM
- */
-public class VcsContentAnnotationImpl implements VcsContentAnnotation {
+public final class VcsContentAnnotationImpl implements VcsContentAnnotation {
   private final Project myProject;
   private final VcsContentAnnotationSettings mySettings;
   private final ContentAnnotationCache myContentAnnotationCache;
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.contentAnnotation.VcsContentAnnotationImpl");
+  private static final Logger LOG = Logger.getInstance(VcsContentAnnotationImpl.class);
 
   public static VcsContentAnnotation getInstance(final Project project) {
     return ServiceManager.getService(project, VcsContentAnnotation.class);
   }
 
-  public VcsContentAnnotationImpl(Project project, VcsContentAnnotationSettings settings, final ContentAnnotationCache contentAnnotationCache) {
+  public VcsContentAnnotationImpl(Project project) {
     myProject = project;
-    mySettings = settings;
-    myContentAnnotationCache = contentAnnotationCache;
+    mySettings = VcsContentAnnotationSettings.getInstance(project);
+    myContentAnnotationCache = project.getService(ContentAnnotationCache.class);
   }
 
   @Nullable
@@ -87,7 +67,7 @@ public class VcsContentAnnotationImpl implements VcsContentAnnotation {
 
     final FileAnnotation fileAnnotation;
     try {
-      fileAnnotation = vcs.getCachingAnnotationProvider().annotate(file);
+      fileAnnotation = vcs.getAnnotationProvider().annotate(file);
     }
     catch (VcsException e) {
       LOG.info(e);

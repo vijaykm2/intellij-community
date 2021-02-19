@@ -1,57 +1,50 @@
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.protocolModelGenerator
 
-import gnu.trove.THashMap
-import java.util.ArrayList
+import java.util.*
 
 /**
  * Keeps track of all referenced types.
  * A type may be used and resolved (generated or hard-coded).
  */
-class TypeMap {
-  private val map = THashMap<Pair<String, String>, TypeData>()
+internal class TypeMap {
+  private val map = HashMap<Pair<String, String>, TypeData>()
 
   var domainGeneratorMap: Map<String, DomainGenerator>? = null
 
-  private val typesToGenerate = ArrayList<StandaloneTypeBinding>()
+  private val typesToGenerate = ArrayDeque<StandaloneTypeBinding>()
 
   fun resolve(domainName: String, typeName: String, direction: TypeData.Direction): BoxableType? {
     val domainGenerator = domainGeneratorMap!!.get(domainName)
     if (domainGenerator == null) {
-      throw RuntimeException("Failed to find domain generator: " + domainName)
+      val qName = "$domainName.$typeName"
+      if (qName == "IO.StreamHandle" ||
+          qName == "Security.SecurityState" ||
+          qName == "Security.CertificateId" ||
+          qName == "Emulation.ScreenOrientation" ||
+          qName == "Security.MixedContentType"
+      ) {
+        return BoxableType.ANY_STRING // ignore
+      }
+      throw RuntimeException("Failed to find domain generator: $domainName for type $typeName")
     }
     return direction.get(getTypeData(domainName, typeName)).resolve(this, domainGenerator)
   }
 
   fun addTypeToGenerate(binding: StandaloneTypeBinding) {
-    typesToGenerate.add(binding)
+    typesToGenerate.offer(binding)
   }
 
   fun generateRequestedTypes() {
     // size may grow during iteration
-    var list = typesToGenerate.copyToArray()
-    typesToGenerate.clear()
-    while (true) {
-      for (binding in list) {
+    val createdTypes = HashSet<CharSequence>()
+    while (typesToGenerate.isNotEmpty()) {
+      val binding = typesToGenerate.poll()
+      if (createdTypes.add(binding.getJavaType().fullText)) {
         binding.generate()
       }
-
-      if (typesToGenerate.isEmpty()) {
-        break
-      }
-      else {
-        list = typesToGenerate.copyToArray()
-        typesToGenerate.clear()
-      }
     }
   }
 
-  fun getTypeData(domainName: String, typeName: String): TypeData {
-    val key = Pair(domainName, typeName)
-    var result: TypeData? = map.get(key)
-    if (result == null) {
-      result = TypeData(typeName)
-      map.put(key, result)
-    }
-    return result!!
-  }
+  fun getTypeData(domainName: String, typeName: String) = map.getOrPut(Pair(domainName, typeName)) { TypeData(typeName) }
 }

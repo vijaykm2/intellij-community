@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
  */
 package com.intellij.debugger.engine.evaluation.expression;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
@@ -31,26 +31,27 @@ public class AssignmentEvaluator implements Evaluator{
 
   public AssignmentEvaluator(@NotNull Evaluator leftEvaluator, @NotNull Evaluator rightEvaluator) {
     myLeftEvaluator = leftEvaluator;
-    myRightEvaluator = new DisableGC(rightEvaluator);
+    myRightEvaluator = DisableGC.create(rightEvaluator);
   }
 
+  @Override
   public Object evaluate(EvaluationContextImpl context) throws EvaluateException {
     myLeftEvaluator.evaluate(context);
     final Modifier modifier = myLeftEvaluator.getModifier();
 
     final Object right = myRightEvaluator.evaluate(context);
     if(right != null && !(right instanceof Value)) {
-      throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.not.rvalue"));
+      throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.not.rvalue"));
     }
 
     assign(modifier, right, context);
-    
+
     return right;
   }
 
   static void assign(Modifier modifier, Object right, EvaluationContextImpl context) throws EvaluateException {
     if(modifier == null) {
-      throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.not.lvalue"));
+      throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.not.lvalue"));
     }
     try {
       modifier.setValue(((Value)right));
@@ -62,16 +63,7 @@ public class AssignmentEvaluator implements Evaluator{
       try {
         context.getDebugProcess().loadClass(context, e.className(), context.getClassLoader());
       }
-      catch (InvocationException e1) {
-        throw EvaluateExceptionUtil.createEvaluateException(e1);
-      }
-      catch (ClassNotLoadedException e1) {
-        throw EvaluateExceptionUtil.createEvaluateException(e1);
-      }
-      catch (IncompatibleThreadStateException e1) {
-        throw EvaluateExceptionUtil.createEvaluateException(e1);
-      }
-      catch (InvalidTypeException e1) {
+      catch (InvocationException | InvalidTypeException | IncompatibleThreadStateException | ClassNotLoadedException e1) {
         throw EvaluateExceptionUtil.createEvaluateException(e1);
       }
     }
@@ -80,6 +72,7 @@ public class AssignmentEvaluator implements Evaluator{
     }
   }
 
+  @Override
   public Modifier getModifier() {
     return myLeftEvaluator.getModifier();
   }

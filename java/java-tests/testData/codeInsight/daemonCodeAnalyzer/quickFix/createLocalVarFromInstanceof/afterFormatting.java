@@ -5,8 +5,7 @@ class C {
   void f(Object o) {
     if (o instanceof IOException) {
         IOException ioException = (IOException) o;
-        
-
+        <caret>
     }
   }
 }

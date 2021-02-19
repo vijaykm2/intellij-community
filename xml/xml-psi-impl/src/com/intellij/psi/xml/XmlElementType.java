@@ -15,18 +15,18 @@
  */
 package com.intellij.psi.xml;
 
-import com.intellij.lang.*;
+import com.intellij.html.embedding.HtmlRawTextElementType;
+import com.intellij.lang.ASTNode;
 import com.intellij.lang.dtd.DTDLanguage;
-import com.intellij.lang.html.HTMLLanguage;
-import com.intellij.lang.html.HTMLParser;
 import com.intellij.lang.xhtml.XHTMLLanguage;
 import com.intellij.lang.xml.XMLLanguage;
-import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.source.parsing.xml.DtdParsing;
-import com.intellij.psi.tree.*;
+import com.intellij.psi.tree.CustomParsingType;
+import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.tree.IFileElementType;
 import com.intellij.psi.tree.xml.IXmlElementType;
 import com.intellij.util.CharTable;
-import com.intellij.util.diff.FlyweightCapableTreeStructure;
+import org.jetbrains.annotations.NotNull;
 
 
 public interface XmlElementType extends XmlTokenType {
@@ -34,9 +34,9 @@ public interface XmlElementType extends XmlTokenType {
   IElementType XML_PROLOG = new IXmlElementType("XML_PROLOG");
   IElementType XML_DECL = new IXmlElementType("XML_DECL");
   IElementType XML_DOCTYPE = new IXmlElementType("XML_DOCTYPE");
-  IElementType XML_ATTRIBUTE = new IXmlElementType("XML_ATTRIBUTE");
+  IElementType XML_ATTRIBUTE = new XmlAttributeElementType();
   IElementType XML_COMMENT = new IXmlElementType("XML_COMMENT");
-  IElementType XML_TAG = new IXmlElementType("XML_TAG");
+  IElementType XML_TAG = new XmlTagElementType("XML_TAG");
   IElementType XML_ELEMENT_DECL = new IXmlElementType("XML_ELEMENT_DECL");
   IElementType XML_CONDITIONAL_SECTION = new IXmlElementType("XML_CONDITIONAL_SECTION");
 
@@ -54,9 +54,10 @@ public interface XmlElementType extends XmlTokenType {
 
   //todo: move to html
   IElementType HTML_DOCUMENT = new IXmlElementType("HTML_DOCUMENT");
-  IElementType HTML_TAG = new IXmlElementType("HTML_TAG");
-  IFileElementType HTML_FILE = new IStubFileElementType(HTMLLanguage.INSTANCE);
+  IElementType HTML_TAG = new XmlTagElementType("HTML_TAG");
+  IFileElementType HTML_FILE = new HtmlFileElementType();
   IElementType HTML_EMBEDDED_CONTENT = new EmbeddedHtmlContentElementType();
+  IElementType HTML_RAW_TEXT = HtmlRawTextElementType.INSTANCE;
 
   IElementType XML_TEXT = new XmlTextElementType();
 
@@ -66,26 +67,19 @@ public interface XmlElementType extends XmlTokenType {
 
   IFileElementType DTD_FILE = new IFileElementType("DTD_FILE", DTDLanguage.INSTANCE);
 
-  IElementType XML_MARKUP_DECL = new CustomParsingType("XML_MARKUP_DECL", XMLLanguage.INSTANCE){
+  IElementType XML_MARKUP_DECL = new CustomParsingType("XML_MARKUP_DECL", XMLLanguage.INSTANCE) {
+    @NotNull
     @Override
-    public ASTNode parse(CharSequence text, CharTable table) {
+    public ASTNode parse(@NotNull CharSequence text, @NotNull CharTable table) {
       return new DtdParsing(text, XML_MARKUP_DECL, DtdParsing.TYPE_FOR_MARKUP_DECL, null).parse();
     }
   };
 
-  class EmbeddedHtmlContentElementType extends ILazyParseableElementType implements ILightLazyParseableElementType {
-    public EmbeddedHtmlContentElementType() {
-      super("HTML_EMBEDDED_CONTENT", HTMLLanguage.INSTANCE);
-    }
+  final class XmlTagElementType extends IXmlElementType implements IXmlTagElementType {
+    public XmlTagElementType(String debugName) {super(debugName);}
+  }
 
-    @Override
-    public FlyweightCapableTreeStructure<LighterASTNode> parseContents(LighterLazyParseableNode chameleon) {
-      final PsiFile file = chameleon.getContainingFile();
-      assert file != null : chameleon;
-
-      final PsiBuilder builder = PsiBuilderFactory.getInstance().createBuilder(file.getProject(), chameleon);
-      HTMLParser.parseWithoutBuildingTree(HTML_FILE, builder);
-      return builder.getLightTree();
-    }
+  final class XmlAttributeElementType extends IXmlElementType implements IXmlAttributeElementType {
+    public XmlAttributeElementType() {super("XML_ATTRIBUTE");}
   }
 }

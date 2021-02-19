@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.application.options.codeStyle;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.*;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
@@ -31,13 +18,9 @@ import java.net.URL;
  */
 @State(
   name = "CodeStyleSchemesUIConfiguration",
-  storages= {
-    @Storage(
-      file = StoragePathMacros.APP_CONFIG + "/other.xml"
-    )}
+  storages = {@Storage(value = "other.xml", roamingType = RoamingType.DISABLED)}
 )
 public class CodeStyleSchemesUIConfiguration implements PersistentStateComponent<CodeStyleSchemesUIConfiguration> {
-
   public String RECENT_IMPORT_FILE_LOCATION = "";
 
   @Nullable
@@ -47,15 +30,15 @@ public class CodeStyleSchemesUIConfiguration implements PersistentStateComponent
   }
 
   @Override
-  public void loadState(CodeStyleSchemesUIConfiguration state) {
+  public void loadState(@NotNull CodeStyleSchemesUIConfiguration state) {
     XmlSerializerUtil.copyBean(state, this);
   }
 
   public static CodeStyleSchemesUIConfiguration getInstance() {
-    return ServiceManager.getService(CodeStyleSchemesUIConfiguration.class);
+    return ApplicationManager.getApplication().getService(CodeStyleSchemesUIConfiguration.class);
   }
 
-  public static class Util {
+  public static final class Util {
     @Nullable
     public static VirtualFile getRecentImportFile() {
       CodeStyleSchemesUIConfiguration configuration = getInstance();

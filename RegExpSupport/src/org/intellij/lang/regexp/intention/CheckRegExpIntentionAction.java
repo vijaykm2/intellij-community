@@ -1,22 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.lang.regexp.intention;
 
 import com.intellij.codeInsight.intention.impl.QuickEditAction;
+import com.intellij.codeInsight.intention.impl.QuickEditHandler;
 import com.intellij.lang.Language;
+import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -26,25 +14,43 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.PlatformUtils;
+import org.intellij.lang.regexp.RegExpBundle;
 import org.intellij.lang.regexp.RegExpLanguage;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
-/**
- * @author Konstantin Bulenkov
- * @author Anna Bulenkova
- */
-public class CheckRegExpIntentionAction extends QuickEditAction implements Iconable {
-
+final class CheckRegExpIntentionAction extends QuickEditAction implements Iconable {
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
+    if (PlatformUtils.isPyCharmEducational()) {
+      return false;
+    }
+
+    if (editor.getUserData(CheckRegExpForm.CHECK_REG_EXP_EDITOR) != null) {
+      // to disable intention inside CheckRegExpForm itself
+      return false;
+    }
     Pair<PsiElement, TextRange> pair = getRangePair(file, editor);
     if (pair != null && pair.first != null) {
       Language language = pair.first.getLanguage();
       return language.isKindOf(RegExpLanguage.INSTANCE);
     }
-    return false;
+    PsiFile baseFile = InjectedLanguageManager.getInstance(project).getTopLevelFile(file);
+    return baseFile != null && baseFile.getLanguage().isKindOf(RegExpLanguage.INSTANCE);
+  }
+
+  @Override
+  public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
+    PsiFile baseFile = InjectedLanguageManager.getInstance(project).getTopLevelFile(file);
+    if (baseFile == null || !baseFile.getLanguage().isKindOf(RegExpLanguage.INSTANCE)) {
+      super.invoke(project, editor, file);
+      return;
+    }
+    JComponent component = createBalloonComponent(file);
+    if (component != null) QuickEditHandler.showBalloon(editor, file, component);
   }
 
   @Override
@@ -65,7 +71,7 @@ public class CheckRegExpIntentionAction extends QuickEditAction implements Icona
   @NotNull
   @Override
   public String getText() {
-    return "Check RegExp";
+    return RegExpBundle.message("intention.name.check.regexp");
   }
 
   @NotNull

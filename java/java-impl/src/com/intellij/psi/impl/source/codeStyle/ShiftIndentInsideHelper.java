@@ -1,53 +1,39 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.codeStyle;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.lang.ASTFactory;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.LanguageParserDefinitions;
 import com.intellij.lang.ParserDefinition;
+import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.psi.impl.source.SourceTreeToPsiMap;
 import com.intellij.psi.impl.source.tree.Factory;
 import com.intellij.psi.impl.source.tree.LeafElement;
 import com.intellij.psi.impl.source.tree.SharedImplUtil;
-import com.intellij.psi.jsp.JspElementType;
-import com.intellij.psi.jsp.JspTokenType;
+import com.intellij.psi.jsp.JspCommentType;
+import com.intellij.psi.jsp.JspJavaCodeType;
+import com.intellij.psi.jsp.JspScriptletType;
 import com.intellij.psi.templateLanguages.OuterLanguageElement;
 import com.intellij.psi.tree.TokenSet;
 import com.intellij.psi.xml.XmlTokenType;
 import com.intellij.util.CharTable;
+import org.jetbrains.annotations.NotNull;
 
 public class ShiftIndentInsideHelper {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.codeStyle.Helper");
+  private static final Logger LOG = Logger.getInstance(ShiftIndentInsideHelper.class);
 
-  private final CodeStyleSettings mySettings;
-  private final FileType myFileType;
+  private final CommonCodeStyleSettings mySettings;
+  private final PsiFile myFile;
   private final IndentHelper myIndentIndentHelper;
-  private final Project myProject;
 
-  public ShiftIndentInsideHelper(FileType fileType, Project project) {
-    myProject = project;
-    mySettings = CodeStyleSettingsManager.getSettings(project);
-    myFileType = fileType;
+  public ShiftIndentInsideHelper(@NotNull PsiFile file) {
+    myFile = file;
+    mySettings = CodeStyle.getLanguageSettings(file, JavaLanguage.INSTANCE);
     myIndentIndentHelper = IndentHelper.getInstance();
   }
 
@@ -75,10 +61,10 @@ public class ShiftIndentInsideHelper {
         }
                     if (c == '\n' || c == '\r') continue;
         String space = text.substring(offset + 1, offset1);
-        int indent = IndentHelperImpl.getIndent(myProject, myFileType, space, true);
+        int indent = IndentHelperImpl.getIndent(myFile, space, true);
         int newIndent = indent + indentShift;
         newIndent = Math.max(newIndent, 0);
-        String newSpace = IndentHelperImpl.fillIndent(myProject, myFileType, newIndent);
+        String newSpace = IndentHelperImpl.fillIndent(CodeStyle.getIndentOptions(myFile), newIndent);
 
         ASTNode leaf = element.findLeafElementAt(offset);
         if (!mayShiftIndentInside(leaf)) {
@@ -92,11 +78,11 @@ public class ShiftIndentInsideHelper {
           ASTNode next = element.findLeafElementAt(offset1);
           if ((next.getElementType() == JavaTokenType.END_OF_LINE_COMMENT
                || next.getElementType() == JavaTokenType.C_STYLE_COMMENT
-               || next.getElementType() == JspTokenType.JSP_COMMENT
+               || next.getElementType() instanceof JspCommentType
           ) &&
               next != element) {
             if (mySettings.KEEP_FIRST_COLUMN_COMMENT) {
-              int commentIndent = myIndentIndentHelper.getIndent(myProject, myFileType, next, true);
+              int commentIndent = myIndentIndentHelper.getIndent(myFile, next, true);
               if (commentIndent == 0) continue;
             }
           }
@@ -154,8 +140,8 @@ public class ShiftIndentInsideHelper {
     return (isComment(leaf) && !checkJspTexts(leaf))
            || leaf.getElementType() == TokenType.WHITE_SPACE
            || leaf.getElementType() == XmlTokenType.XML_DATA_CHARACTERS
-           || leaf.getElementType() == JspTokenType.JAVA_CODE
-           || leaf.getElementType() == JspElementType.JSP_SCRIPTLET
+           || leaf.getElementType() instanceof JspJavaCodeType
+           || leaf.getElementType() instanceof JspScriptletType
            || leaf.getElementType() == XmlTokenType.XML_ATTRIBUTE_VALUE_TOKEN;
   }
 
@@ -178,6 +164,6 @@ public class ShiftIndentInsideHelper {
   }
 
   public FileType getFileType() {
-    return myFileType;
+    return myFile.getFileType();
   }
 }

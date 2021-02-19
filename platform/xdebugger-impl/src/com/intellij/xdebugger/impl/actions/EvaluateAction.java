@@ -18,11 +18,8 @@ package com.intellij.xdebugger.impl.actions;
 import com.intellij.xdebugger.impl.DebuggerSupport;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author nik
- */
 final class EvaluateAction extends XDebuggerActionBase {
-  public EvaluateAction() {
+  EvaluateAction() {
     super(true);
   }
 

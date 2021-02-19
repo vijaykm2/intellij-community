@@ -1,48 +1,26 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.model.java.impl.compiler;
 
-import gnu.trove.THashMap;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.java.compiler.ProcessorConfigProfile;
 
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
-/**
- * @author Eugene Zhuravlev
- *         Date: 5/25/12
- */
 public final class ProcessorConfigProfileImpl implements ProcessorConfigProfile {
-
   private String myName = "";
   private boolean myEnabled = false;
   private boolean myObtainProcessorsFromClasspath = true;
   private String myProcessorPath = "";
-  private final Set<String> myProcessors = new THashSet<String>(1); // empty list means all discovered
-  private final Map<String, String> myProcessorOptions = new THashMap<String, String>(1); // key=value map of options
+  private boolean myUseProcessorModulePath = false;
+  private final Set<String> myProcessors = new LinkedHashSet<>(1); // empty list means all discovered
+  private final Map<String, String> myProcessorOptions = new HashMap<>(1); // key=value map of options
   private String myGeneratedProductionDirectoryName = DEFAULT_PRODUCTION_DIR_NAME;
   private String myGeneratedTestsDirectoryName = DEFAULT_TESTS_DIR_NAME;
   private boolean myOutputRelativeToContentRoot = false;
+  private boolean myIsProcOnly = false;
 
-  private final Set<String> myModuleNames = new THashSet<String>(1);
+  private final Set<String> myModuleNames = new HashSet<>(1);
 
   public ProcessorConfigProfileImpl(String name) {
     myName = name;
@@ -56,8 +34,10 @@ public final class ProcessorConfigProfileImpl implements ProcessorConfigProfile 
   public final void initFrom(ProcessorConfigProfile other) {
     myName = other.getName();
     myEnabled = other.isEnabled();
+    myIsProcOnly = other.isProcOnly();
     myObtainProcessorsFromClasspath = other.isObtainProcessorsFromClasspath();
     myProcessorPath = other.getProcessorPath();
+    myUseProcessorModulePath = other.isUseProcessorModulePath();
     myProcessors.clear();
     myProcessors.addAll(other.getProcessors());
     myProcessorOptions.clear();
@@ -101,6 +81,16 @@ public final class ProcessorConfigProfileImpl implements ProcessorConfigProfile 
   }
 
   @Override
+  public void setUseProcessorModulePath(boolean useModulePath) {
+    myUseProcessorModulePath = useModulePath;
+  }
+
+  @Override
+  public boolean isUseProcessorModulePath() {
+    return myUseProcessorModulePath;
+  }
+
+  @Override
   public boolean isObtainProcessorsFromClasspath() {
     return myObtainProcessorsFromClasspath;
   }
@@ -134,6 +124,16 @@ public final class ProcessorConfigProfileImpl implements ProcessorConfigProfile 
   @Override
   public void setOutputRelativeToContentRoot(boolean relativeToContent) {
     myOutputRelativeToContentRoot = relativeToContent;
+  }
+
+  @Override
+  public boolean isProcOnly() {
+    return myIsProcOnly;
+  }
+
+  @Override
+  public void setProcOnly(boolean value) {
+    myIsProcOnly = value;
   }
 
   @Override
@@ -218,6 +218,7 @@ public final class ProcessorConfigProfileImpl implements ProcessorConfigProfile 
     ProcessorConfigProfileImpl profile = (ProcessorConfigProfileImpl)o;
 
     if (myEnabled != profile.myEnabled) return false;
+    if (myIsProcOnly != profile.myIsProcOnly) return false;
     if (myObtainProcessorsFromClasspath != profile.myObtainProcessorsFromClasspath) return false;
     if (myGeneratedProductionDirectoryName != null
         ? !myGeneratedProductionDirectoryName.equals(profile.myGeneratedProductionDirectoryName)
@@ -229,7 +230,8 @@ public final class ProcessorConfigProfileImpl implements ProcessorConfigProfile 
         : profile.myGeneratedTestsDirectoryName != null) {
       return false;
     }
-    if (myOutputRelativeToContentRoot != profile.myOutputRelativeToContentRoot)return false;
+    if (myOutputRelativeToContentRoot != profile.myOutputRelativeToContentRoot) return false;
+    if (myUseProcessorModulePath != profile.myUseProcessorModulePath) return false;
     if (!myModuleNames.equals(profile.myModuleNames)) return false;
     if (!myProcessorOptions.equals(profile.myProcessorOptions)) return false;
     if (myProcessorPath != null ? !myProcessorPath.equals(profile.myProcessorPath) : profile.myProcessorPath != null) return false;
@@ -243,6 +245,7 @@ public final class ProcessorConfigProfileImpl implements ProcessorConfigProfile 
   public int hashCode() {
     int result = myName.hashCode();
     result = 31 * result + (myEnabled ? 1 : 0);
+    result = 31 * result + (myIsProcOnly ? 1 : 0);
     result = 31 * result + (myObtainProcessorsFromClasspath ? 1 : 0);
     result = 31 * result + (myProcessorPath != null ? myProcessorPath.hashCode() : 0);
     result = 31 * result + myProcessors.hashCode();
@@ -250,6 +253,7 @@ public final class ProcessorConfigProfileImpl implements ProcessorConfigProfile 
     result = 31 * result + (myGeneratedProductionDirectoryName != null ? myGeneratedProductionDirectoryName.hashCode() : 0);
     result = 31 * result + (myGeneratedTestsDirectoryName != null ? myGeneratedTestsDirectoryName.hashCode() : 0);
     result = 31 * result + (myOutputRelativeToContentRoot ? 1 : 0);
+    result = 31 * result + (myUseProcessorModulePath ? 1 : 0);
     result = 31 * result + myModuleNames.hashCode();
     return result;
   }

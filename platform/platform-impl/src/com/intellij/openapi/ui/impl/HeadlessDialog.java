@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,10 @@
  */
 package com.intellij.openapi.ui.impl;
 
+import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.wm.IdeFocusManager;
-import com.intellij.ui.FocusTrackback;
+import com.intellij.openapi.wm.impl.IdeFocusManagerHeadless;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -28,8 +30,14 @@ import java.awt.event.MouseMotionListener;
 /**
 * @author Konstantin Bulenkov
 */
-@SuppressWarnings("ConstantConditions")
 class HeadlessDialog implements AbstractDialog {
+  @NotNull private final DialogWrapper myWrapper;
+  private @NlsContexts.DialogTitle String myTitle;
+
+  HeadlessDialog(@NotNull DialogWrapper wrapper) {
+    myWrapper = wrapper;
+  }
+
   @Override
   public void setUndecorated(boolean undecorated) {
   }
@@ -105,7 +113,7 @@ class HeadlessDialog implements AbstractDialog {
 
   @Override
   public String getTitle() {
-    return null;
+    return myTitle;
   }
 
   @Override
@@ -133,6 +141,7 @@ class HeadlessDialog implements AbstractDialog {
 
   @Override
   public void setTitle(String title) {
+    myTitle = title;
   }
 
   @Override
@@ -174,16 +183,13 @@ class HeadlessDialog implements AbstractDialog {
 
   @Override
   public void show() {
+    myWrapper.close(DialogWrapper.OK_EXIT_CODE);
   }
 
+  @NotNull
   @Override
   public IdeFocusManager getFocusManager() {
-    return null;
-  }
-
-  @Override
-  public FocusTrackback getFocusTrackback() {
-    return null;
+    return new IdeFocusManagerHeadless();
   }
 
   @Override

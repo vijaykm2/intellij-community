@@ -1,8 +1,11 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.xsltDebugger.impl;
 
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.xdebugger.frame.XExecutionStack;
 import com.intellij.xdebugger.frame.XStackFrame;
 import org.intellij.plugins.xsltDebugger.VMPausedException;
+import org.intellij.plugins.xsltDebugger.XsltDebuggerBundle;
 import org.intellij.plugins.xsltDebugger.XsltDebuggerSession;
 import org.intellij.plugins.xsltDebugger.rt.engine.Debugger;
 
@@ -14,7 +17,7 @@ public class XsltExecutionStack extends XExecutionStack {
   private final XsltStackFrame myTopFrame;
   private final XsltDebuggerSession myDebuggerSession;
 
-  public XsltExecutionStack(String name, Debugger.Frame topFrame, XsltDebuggerSession debuggerSession) {
+  public XsltExecutionStack(@NlsContexts.ListItem String name, Debugger.Frame topFrame, XsltDebuggerSession debuggerSession) {
     super(name);
     myDebuggerSession = debuggerSession;
     myTopFrame = new XsltStackFrame(topFrame, myDebuggerSession);
@@ -30,7 +33,7 @@ public class XsltExecutionStack extends XExecutionStack {
     try {
       if (myDebuggerSession.getCurrentState() == Debugger.State.SUSPENDED) {
         Debugger.Frame frame = myTopFrame.getFrame();
-        final List<XStackFrame> frames = new ArrayList<XStackFrame>();
+        final List<XStackFrame> frames = new ArrayList<>();
         frames.add(myTopFrame);
         while (frame != null) {
           frame = frame.getPrevious();
@@ -41,11 +44,11 @@ public class XsltExecutionStack extends XExecutionStack {
         if (firstFrameIndex <= frames.size()) {
           container.addStackFrames(frames.subList(firstFrameIndex, frames.size()), true);
         } else {
-          container.addStackFrames(Collections.<XStackFrame>emptyList(), true);
+          container.addStackFrames(Collections.emptyList(), true);
         }
       }
     } catch (VMPausedException e) {
-      container.errorOccurred(VMPausedException.MESSAGE);
+      container.errorOccurred(XsltDebuggerBundle.message("dialog.message.target.vm.not.responding"));
     }
   }
 }

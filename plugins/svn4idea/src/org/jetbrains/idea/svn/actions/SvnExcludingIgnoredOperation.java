@@ -15,9 +15,8 @@
  */
 package org.jetbrains.idea.svn.actions;
 
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
@@ -67,12 +66,7 @@ public class SvnExcludingIgnoredOperation {
     }
 
     private boolean isIgnoredByVcs(final VirtualFile file) {
-      return ApplicationManager.getApplication().runReadAction(new Computable<Boolean>() {
-        @Override
-        public Boolean compute() {
-          return myVcsManager.isIgnored(file);
-        }
-      });
+      return ReadAction.compute(() -> myVcsManager.isIgnored(file));
     }
   }
 
@@ -84,7 +78,7 @@ public class SvnExcludingIgnoredOperation {
   }
 
   private void executeDown(final VirtualFile file) throws VcsException {
-    VfsUtilCore.visitChildrenRecursively(file, new VirtualFileVisitor() {
+    VfsUtilCore.visitChildrenRecursively(file, new VirtualFileVisitor<Void>() {
       @Override
       public boolean visitFile(@NotNull VirtualFile file) {
         try {

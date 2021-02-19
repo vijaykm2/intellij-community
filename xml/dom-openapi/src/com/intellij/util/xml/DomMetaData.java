@@ -22,6 +22,7 @@ import com.intellij.psi.meta.PsiWritableMetaData;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -76,7 +77,7 @@ public class DomMetaData<T extends DomElement> implements PsiWritableMetaData, P
   }
 
   @Override
-  public Object[] getDependences() {
+  public Object @NotNull [] getDependencies() {
     final PsiElement declaration = getDeclaration();
     if (myElement != null && myElement.isValid()) {
       return new Object[]{DomUtil.getRoot(myElement), declaration};

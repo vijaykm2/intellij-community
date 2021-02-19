@@ -20,10 +20,12 @@ import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.search.PsiElementProcessor;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.util.SmartList;
+import org.intellij.plugins.relaxNG.RelaxngBundle;
 import org.intellij.plugins.relaxNG.model.Define;
 import org.intellij.plugins.relaxNG.model.Grammar;
 import org.intellij.plugins.relaxNG.model.resolve.GrammarFactory;
@@ -35,11 +37,11 @@ import javax.swing.*;
 import java.util.Collection;
 import java.util.List;
 
-class OverriddenDefineRenderer extends GutterIconRenderer {
+class OverriddenDefineRenderer extends GutterIconRenderer implements DumbAware {
 
   private final Define myDefine;
 
-  public OverriddenDefineRenderer(@NotNull Define define) {
+  OverriddenDefineRenderer(@NotNull Define define) {
     myDefine = define;
   }
 
@@ -54,16 +56,16 @@ class OverriddenDefineRenderer extends GutterIconRenderer {
   public AnAction getClickAction() {
     return new AnAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         final PsiElement element = myDefine.getPsiElement();
         if (element == null || !element.isValid()) return;
 
-        final PsiElementProcessor.CollectElements<XmlFile> collector = new PsiElementProcessor.CollectElements<XmlFile>();
+        final PsiElementProcessor.CollectElements<XmlFile> collector = new PsiElementProcessor.CollectElements<>();
         final XmlFile localFile = (XmlFile)element.getContainingFile();
         RelaxIncludeIndex.processBackwardDependencies(localFile, collector);
         final Collection<XmlFile> files = collector.getCollection();
 
-        final List<Define> result = new SmartList<Define>();
+        final List<Define> result = new SmartList<>();
         final OverriddenDefineSearcher searcher = new OverriddenDefineSearcher(myDefine, localFile, result);
         for (XmlFile file : files) {
           final Grammar grammar = GrammarFactory.getGrammar(file);
@@ -72,7 +74,7 @@ class OverriddenDefineRenderer extends GutterIconRenderer {
         }
 
         if (result.size() > 0) {
-          OverridingDefineRenderer.doClickAction(e, result, "Go to overriding define(s)");
+          OverridingDefineRenderer.doClickAction(e, result, RelaxngBundle.message("relaxng.gutter.go-to-overriding-defines"));
         }
       }
     };
@@ -86,7 +88,7 @@ class OverriddenDefineRenderer extends GutterIconRenderer {
   @Override
   @Nullable
   public String getTooltipText() {
-    return "Is overridden";
+    return RelaxngBundle.message("relaxng.gutter.is-overridden");
   }
 
   @Override

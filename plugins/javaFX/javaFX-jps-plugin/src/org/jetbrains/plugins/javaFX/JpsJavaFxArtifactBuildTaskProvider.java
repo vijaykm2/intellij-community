@@ -15,6 +15,7 @@
  */
 package org.jetbrains.plugins.javaFX;
 
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.builders.artifacts.ArtifactBuildTaskProvider;
 import org.jetbrains.jps.incremental.BuildTask;
@@ -31,6 +32,7 @@ import org.jetbrains.jps.model.java.JpsJavaSdkType;
 import org.jetbrains.jps.model.library.sdk.JpsSdk;
 import org.jetbrains.jps.model.library.sdk.JpsSdkType;
 import org.jetbrains.plugins.javaFX.packaging.AbstractJavaFxPackager;
+import org.jetbrains.plugins.javaFX.packaging.JavaFxApplicationIcons;
 import org.jetbrains.plugins.javaFX.packaging.JavaFxManifestAttribute;
 import org.jetbrains.plugins.javaFX.packaging.JavaFxPackagerConstants;
 import org.jetbrains.plugins.javaFX.preloader.JpsJavaFxPreloaderArtifactProperties;
@@ -41,13 +43,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-/**
- * User: anna
- * Date: 3/13/13
- */
 public class JpsJavaFxArtifactBuildTaskProvider extends ArtifactBuildTaskProvider {
-
-  public static final String COMPILER_NAME = "Java FX Packager";
 
   @NotNull
   @Override
@@ -74,7 +70,7 @@ public class JpsJavaFxArtifactBuildTaskProvider extends ArtifactBuildTaskProvide
     private final JpsJavaFxArtifactProperties myProps;
     private final JpsArtifact myArtifact;
 
-    public JavaFxJarDeployTask(JpsJavaFxArtifactProperties props, JpsArtifact artifact) {
+    JavaFxJarDeployTask(JpsJavaFxArtifactProperties props, JpsArtifact artifact) {
       myProps = props;
       myArtifact = artifact;
     }
@@ -91,7 +87,8 @@ public class JpsJavaFxArtifactBuildTaskProvider extends ArtifactBuildTaskProvide
         }
       }
       if (javaSdk == null) {
-        context.processMessage(new CompilerMessage(COMPILER_NAME, BuildMessage.Kind.ERROR, "Java version 7 or higher is required to build JavaFX package"));
+        context.processMessage(new CompilerMessage(JavaFXJpsBundle.message("java.fx.packager"), BuildMessage.Kind.ERROR,
+                                                   JavaFXJpsBundle.message("java.version.7.or.higher.is.required.to.build.javafx.package")));
         return;
       }
       new JpsJavaFxPackager(myProps, context, myArtifact).buildJavaFxArtifact(javaSdk.getHomePath());
@@ -103,7 +100,7 @@ public class JpsJavaFxArtifactBuildTaskProvider extends ArtifactBuildTaskProvide
     private final CompileContext myCompileContext;
     private final JpsArtifact myArtifact;
 
-    public JpsJavaFxPackager(JpsJavaFxArtifactProperties properties, CompileContext compileContext, JpsArtifact artifact) {
+    JpsJavaFxPackager(JpsJavaFxArtifactProperties properties, CompileContext compileContext, JpsArtifact artifact) {
       myArtifact = artifact;
       myProperties = properties;
       myCompileContext = compileContext;
@@ -150,6 +147,16 @@ public class JpsJavaFxArtifactBuildTaskProvider extends ArtifactBuildTaskProvide
     }
 
     @Override
+    protected String getVersion() {
+      return myProperties.myState.getVersion();
+    }
+
+    @Override
+    protected JavaFxApplicationIcons getIcons() {
+      return myProperties.myState.getIcons();
+    }
+
+    @Override
     protected String getWidth() {
       return myProperties.myState.getWidth();
     }
@@ -160,8 +167,23 @@ public class JpsJavaFxArtifactBuildTaskProvider extends ArtifactBuildTaskProvide
     }
 
     @Override
-    protected void registerJavaFxPackagerError(String message) {
-      myCompileContext.processMessage(new CompilerMessage(COMPILER_NAME, BuildMessage.Kind.ERROR, message));
+    protected void registerJavaFxPackagerError(@Nls String message) {
+      myCompileContext.processMessage(new CompilerMessage(JavaFXJpsBundle.message("java.fx.packager"), BuildMessage.Kind.ERROR, message));
+    }
+
+    @Override
+    protected void registerJavaFxPackagerInfo(@Nls String message) {
+      myCompileContext.processMessage(new CompilerMessage(JavaFXJpsBundle.message("java.fx.packager"), BuildMessage.Kind.INFO, message));
+    }
+
+    @Override
+    protected String getHtmlTemplateFile() {
+      return myProperties.myState.getHtmlTemplateFile();
+    }
+
+    @Override
+    protected String getHtmlPlaceholderId() {
+      return myProperties.myState.getHtmlPlaceholderId();
     }
 
     @Override
@@ -241,6 +263,11 @@ public class JpsJavaFxArtifactBuildTaskProvider extends ArtifactBuildTaskProvide
     @Override
     public List<JavaFxManifestAttribute> getCustomManifestAttributes() {
       return myProperties.myState.getCustomManifestAttributes();
+    }
+
+    @Override
+    protected JavaFxPackagerConstants.MsgOutputLevel getMsgOutputLevel() {
+      return myProperties.myState.getMsgOutputLevel();
     }
 
     private JpsArtifact getPreloaderArtifact() {

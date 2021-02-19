@@ -1,24 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl.statements.typedef.members;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.navigation.ItemPresentation;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.ElementPresentationUtil;
 import com.intellij.psi.impl.PsiClassImplUtil;
@@ -27,23 +13,22 @@ import com.intellij.psi.presentation.java.JavaPresentationUtil;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.stubs.IStubElementType;
-import com.intellij.psi.util.*;
-import com.intellij.ui.RowIcon;
-import com.intellij.util.Function;
+import com.intellij.psi.util.CachedValuesManager;
+import com.intellij.psi.util.MethodSignature;
+import com.intellij.psi.util.MethodSignatureBackedByPsiMethod;
+import com.intellij.ui.IconManager;
+import com.intellij.ui.icons.RowIcon;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.NullableFunction;
-import com.intellij.util.ObjectUtils;
-import com.intellij.util.containers.ContainerUtil;
 import icons.JetgroovyIcons;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.extensions.NamedArgumentDescriptor;
-import org.jetbrains.plugins.groovy.gpp.GppTypeConverter;
 import org.jetbrains.plugins.groovy.lang.groovydoc.psi.api.GrDocComment;
 import org.jetbrains.plugins.groovy.lang.groovydoc.psi.impl.GrDocCommentUtil;
 import org.jetbrains.plugins.groovy.lang.lexer.TokenSets;
-import org.jetbrains.plugins.groovy.lang.parser.GroovyElementTypes;
+import org.jetbrains.plugins.groovy.lang.parser.GroovyEmptyStubElementTypes;
+import org.jetbrains.plugins.groovy.lang.parser.GroovyStubElementTypes;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyElementVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFileBase;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
@@ -72,12 +57,12 @@ import org.jetbrains.plugins.groovy.lang.psi.stubs.GrMethodStub;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 import org.jetbrains.plugins.groovy.lang.resolve.MethodTypeInferencer;
 import org.jetbrains.plugins.groovy.lang.resolve.ResolveUtil;
-import org.jetbrains.plugins.groovy.lang.resolve.processors.ClassHint;
 
 import javax.swing.*;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.function.Function;
+
+import static org.jetbrains.plugins.groovy.lang.resolve.ResolveUtilKt.shouldProcessLocals;
 
 /**
  * @author ilyas
@@ -95,12 +80,7 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
   }
 
   @Override
-  public PsiElement getParent() {
-    return getDefinitionParent();
-  }
-
-  @Override
-  public void accept(GroovyElementVisitor visitor) {
+  public void accept(@NotNull GroovyElementVisitor visitor) {
     visitor.visitMethod(this);
   }
 
@@ -122,6 +102,12 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
   }
 
   @Override
+  public boolean hasBlock() {
+    GrMethodStub stub = getStub();
+    return stub != null ? stub.hasBlock() : GrMethod.super.hasBlock();
+  }
+
+  @Override
   public void setBlock(GrCodeBlock newBlock) {
     ASTNode newNode = newBlock.getNode().copyElement();
     final GrOpenBlock oldBlock = getBlock();
@@ -133,7 +119,7 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
   }
 
   @Override
-  public GrParameter[] getParameters() {
+  public GrParameter @NotNull [] getParameters() {
     return getParameterList().getParameters();
   }
 
@@ -151,7 +137,7 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
       }
     }
 
-    return (GrTypeElement)findChildByType(TokenSets.TYPE_ELEMENTS);
+    return findChildByType(TokenSets.TYPE_ELEMENTS);
   }
 
   @Override
@@ -159,12 +145,7 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
     if (isConstructor()) {
       return null;
     }
-
-    if (!ApplicationManager.getApplication().isUnitTestMode()) {
-      //todo uncomment when EAP is on
-      //LOG.assertTrue(!ApplicationManager.getApplication().isDispatchThread()); //this is a potentially long action
-    }
-    return TypeInferenceHelper.getCurrentContext().getExpressionType(this, ourTypesCalculator);
+    return TypeInferenceHelper.inTopContext(() -> CachedValuesManager.getProjectPsiDependentCache(this, ourTypesCalculator));
   }
 
   @Override
@@ -172,15 +153,10 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
                                      @NotNull ResolveState state,
                                      @Nullable PsiElement lastParent,
                                      @NotNull PsiElement place) {
-    ClassHint classHint = processor.getHint(ClassHint.KEY);
+    final GrTypeParameterList list = getTypeParameterList();
+    if (list != null && !list.processDeclarations(processor, state, lastParent, place)) return false;
 
-    if (ResolveUtil.shouldProcessClasses(classHint)) {
-      for (final GrTypeParameter typeParameter : getTypeParameters()) {
-        if (!ResolveUtil.processElement(processor, typeParameter, state)) return false;
-      }
-    }
-
-    if (ResolveUtil.shouldProcessProperties(classHint)) {
+    if (shouldProcessLocals(processor)) {
       for (final GrParameter parameter : getParameters()) {
         if (!ResolveUtil.processElement(processor, parameter, state)) return false;
       }
@@ -194,57 +170,48 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
     return new GrMember[]{this};
   }
 
-  private static final Function<GrMethodBaseImpl, PsiType> ourTypesCalculator = new NullableFunction<GrMethodBaseImpl, PsiType>() {
-    private boolean hasTypeParametersToInfer(PsiClassType classType) {
-      final PsiClassType.ClassResolveResult resolveResult = classType.resolveGenerics();
-      PsiClass aClass = resolveResult.getElement();
-      if (aClass == null) return false;
+  private static boolean hasTypeParametersToInfer(PsiClassType classType) {
+    final PsiClassType.ClassResolveResult resolveResult = classType.resolveGenerics();
+    PsiClass aClass = resolveResult.getElement();
+    if (aClass == null) return false;
 
-      final Iterable<PsiTypeParameter> iterable = com.intellij.psi.util.PsiUtil.typeParametersIterable(aClass);
-      if (!iterable.iterator().hasNext()) {
-        return false;
-      }
-
-      for (PsiTypeParameter parameter : iterable) {
-        PsiType type = resolveResult.getSubstitutor().substitute(parameter);
-        if (type != null) {
-          if (!(type instanceof PsiWildcardType) || ((PsiWildcardType)type).getBound() != null) {
-            return false;
-          }
-        }
-      }
-      return true;
+    final Iterable<PsiTypeParameter> iterable = com.intellij.psi.util.PsiUtil.typeParametersIterable(aClass);
+    if (!iterable.iterator().hasNext()) {
+      return false;
     }
 
-    @Override
-    public PsiType fun(GrMethodBaseImpl method) {
-      PsiType nominal = method.getNominalType();
-      if (nominal != null) {
-        if (!(nominal instanceof PsiClassType && hasTypeParametersToInfer((PsiClassType)nominal))) {
-          return nominal;
+    for (PsiTypeParameter parameter : iterable) {
+      PsiType type = resolveResult.getSubstitutor().substitute(parameter);
+      if (type != null) {
+        if (!(type instanceof PsiWildcardType) || ((PsiWildcardType)type).getBound() != null) {
+          return false;
         }
       }
+    }
+    return true;
+  }
 
-      if (!GppTypeConverter.hasTypedContext(method)) {
-        LOG.assertTrue(method.isValid(), "invalid method");
-
-        final GrOpenBlock block = method.getBlock();
-        if (block != null) {
-          LOG.assertTrue(block.isValid(), "invalid code block");
-          PsiType inferred = GroovyPsiManager.inferType(method, new MethodTypeInferencer(block));
-          if (inferred != null) {
-            if (nominal == null || nominal.isAssignableFrom(inferred)) {
-              return inferred;
-            }
-          }
-        }
-      }
-      if (nominal != null) {
+  private static final Function<GrMethodBaseImpl, PsiType> ourTypesCalculator = method -> {
+    PsiType nominal = method.getNominalType();
+    if (nominal != null) {
+      if (!(nominal instanceof PsiClassType && hasTypeParametersToInfer((PsiClassType)nominal))) {
         return nominal;
       }
-
-      return TypesUtil.getJavaLangObject(method);
     }
+
+    final GrOpenBlock block = method.getBlock();
+    if (block != null) {
+      PsiType inferred = GroovyPsiManager.inferType(method, new MethodTypeInferencer(block));
+      if (inferred != null) {
+        if (nominal == null || (nominal.isAssignableFrom(inferred) && !inferred.equals(PsiType.NULL))) {
+          return inferred;
+        }
+      }
+    }
+    if (nominal != null) {
+      return nominal;
+    }
+    return TypesUtil.getJavaLangObject(method);
   };
 
   @Override
@@ -287,8 +254,8 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
     final GrTypeElement stub = GroovyPsiElementFactory.getInstance(getProject()).createTypeElement(newReturnType);
     GrTypeElement newTypeElement;
     if (typeElement == null) {
-      final GrTypeParameterList typeParemeterList = getTypeParameterList();
-      PsiElement anchor = typeParemeterList != null ? typeParemeterList : getModifierList();
+      final GrTypeParameterList typeParameterList = getTypeParameterList();
+      PsiElement anchor = typeParameterList != null ? typeParameterList : getModifierList();
       newTypeElement = (GrTypeElement)addAfter(stub, anchor);
     }
     else {
@@ -311,7 +278,8 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
   @Nullable
   @Override
   protected Icon getElementIcon(@IconFlags int flags) {
-    RowIcon baseIcon = ElementPresentationUtil.createLayeredIcon(JetgroovyIcons.Groovy.Method, this, false);
+    Icon methodIcon = hasModifierProperty(PsiModifier.ABSTRACT) ? JetgroovyIcons.Groovy.AbstractMethod : JetgroovyIcons.Groovy.Method;
+    RowIcon baseIcon = IconManager.getInstance().createLayeredIcon(this, methodIcon, ElementPresentationUtil.getFlags(this, false));
     return ElementPresentationUtil.addVisibilityIcon(this, flags, baseIcon);
   }
 
@@ -329,7 +297,7 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
   @Override
   @NotNull
   public GrParameterList getParameterList() {
-    final GrParameterList parameterList = getStubOrPsiChild(GroovyElementTypes.PARAMETERS_LIST);
+    final GrParameterList parameterList = getStubOrPsiChild(GroovyEmptyStubElementTypes.PARAMETER_LIST);
     LOG.assertTrue(parameterList != null);
     return parameterList;
   }
@@ -337,7 +305,7 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
   @Override
   @NotNull
   public PsiReferenceList getThrowsList() {
-    return (PsiReferenceList)findNotNullChildByType(GroovyElementTypes.THROW_CLAUSE);
+    return Objects.requireNonNull(getStubOrPsiChild(GroovyStubElementTypes.THROWS_CLAUSE));
   }
 
   @Override
@@ -369,14 +337,12 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] findDeepestSuperMethods() {
+  public PsiMethod @NotNull [] findDeepestSuperMethods() {
     return PsiSuperMethodImplUtil.findDeepestSuperMethods(this);
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] findSuperMethods(boolean checkAccess) {
+  public PsiMethod @NotNull [] findSuperMethods(boolean checkAccess) {
     return PsiSuperMethodImplUtil.findSuperMethods(this, checkAccess);
 
     /*PsiClass containingClass = getContainingClass();
@@ -389,8 +355,7 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] findSuperMethods(PsiClass parentClass) {
+  public PsiMethod @NotNull [] findSuperMethods(PsiClass parentClass) {
     return PsiSuperMethodImplUtil.findSuperMethods(this, parentClass);
   }
 
@@ -401,8 +366,7 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
   }
 
   @Override
-  @NotNull
-  public PsiMethod[] findSuperMethods() {
+  public PsiMethod @NotNull [] findSuperMethods() {
     return PsiSuperMethodImplUtil.findSuperMethods(this);
   }
 
@@ -417,7 +381,7 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
   @Override
   @NotNull
   public GrModifierList getModifierList() {
-    return ObjectUtils.assertNotNull(getStubOrPsiChild(GroovyElementTypes.MODIFIERS));
+    return Objects.requireNonNull(getStubOrPsiChild(GroovyStubElementTypes.MODIFIER_LIST));
   }
 
   @Override
@@ -426,8 +390,7 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
   }
 
   @Override
-  @NotNull
-  public String getName() {
+  public @NlsSafe @NotNull String getName() {
     final GrMethodStub stub = getStub();
     if (stub != null) {
       return stub.getName();
@@ -471,12 +434,11 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
   @Override
   @Nullable
   public GrTypeParameterList getTypeParameterList() {
-    return getStubOrPsiChild(GroovyElementTypes.TYPE_PARAMETER_LIST);
+    return getStubOrPsiChild(GroovyEmptyStubElementTypes.TYPE_PARAMETER_LIST);
   }
 
   @Override
-  @NotNull
-  public GrTypeParameter[] getTypeParameters() {
+  public GrTypeParameter @NotNull [] getTypeParameters() {
     final GrTypeParameterList list = getTypeParameterList();
     if (list != null) {
       return list.getTypeParameters();
@@ -489,9 +451,9 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
   public PsiClass getContainingClass() {
     PsiElement parent = getParent();
     if (parent instanceof GrTypeDefinitionBody) {
-      final PsiElement pparent = parent.getParent();
-      if (pparent instanceof PsiClass) {
-        return (PsiClass)pparent;
+      final PsiElement grandParent = parent.getParent();
+      if (grandParent instanceof PsiClass) {
+        return (PsiClass)grandParent;
       }
     }
 
@@ -507,6 +469,8 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
   @Override
   @Nullable
   public GrDocComment getDocComment() {
+    final GrMethodStub stub = getStub();
+    if (stub != null && !stub.hasComment()) return null;
     return GrDocCommentUtil.findDocComment(this);
   }
 
@@ -553,7 +517,7 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
       String[] namedParameters = stub.getNamedParameters();
       if (namedParameters.length == 0) return Collections.emptyMap();
 
-      Map<String, NamedArgumentDescriptor> result = ContainerUtil.newHashMap();
+      Map<String, NamedArgumentDescriptor> result = new HashMap<>();
 
       for (String parameter : namedParameters) {
         result.put(parameter, GrNamedArgumentSearchVisitor.CODE_NAMED_ARGUMENTS_DESCR);
@@ -572,7 +536,7 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
     GrTypeElement typeElement = firstParameter.getTypeElementGroovy();
     //equalsToText can't be called here because of stub creating
 
-    if (type != null && typeElement != null && type.getPresentableText() != null && !type.getPresentableText().endsWith("Map")) {
+    if (type != null && typeElement != null && !type.getPresentableText().endsWith("Map")) {
       return Collections.emptyMap();
     }
 
@@ -587,14 +551,8 @@ public abstract class GrMethodBaseImpl extends GrStubElementBase<GrMethodStub> i
     return PsiClassImplUtil.isMethodEquivalentTo(this, another);
   }
 
-  @NotNull
   @Override
-  public GrReflectedMethod[] getReflectedMethods() {
-    return CachedValuesManager.getCachedValue(this, new CachedValueProvider<GrReflectedMethod[]>() {
-      @Override
-      public Result<GrReflectedMethod[]> compute() {
-        return Result.create(GrReflectedMethodImpl.createReflectedMethods(GrMethodBaseImpl.this), PsiModificationTracker.OUT_OF_CODE_BLOCK_MODIFICATION_COUNT);
-      }
-    });
+  public GrReflectedMethod @NotNull [] getReflectedMethods() {
+    return GrReflectedMethodImpl.createReflectedMethods(this);
   }
 }

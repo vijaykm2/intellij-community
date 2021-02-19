@@ -1,27 +1,14 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.tabs;
 
-import com.intellij.notification.impl.ui.StickyButton;
-import com.intellij.notification.impl.ui.StickyButtonUI;
+import com.intellij.ide.IdeBundle;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.ColorChooser;
 import com.intellij.ui.ColorUtil;
 import com.intellij.ui.FileColorManager;
 import com.intellij.ui.JBColor;
-import com.intellij.util.ObjectUtils;
+import com.intellij.util.ui.StartupUiUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -31,17 +18,16 @@ import javax.swing.event.ChangeListener;
 import javax.swing.plaf.ButtonUI;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * @author gregsh
  */
 public class ColorSelectionComponent extends JPanel {
-  private static final String CUSTOM_COLOR_NAME = "Custom";
-  private Map<String, ColorButton> myColorToButtonMap = new LinkedHashMap<String, ColorButton>();
+  private final Map<@NlsContexts.Button String, ColorButton> myColorToButtonMap = new LinkedHashMap<>();
   private final ButtonGroup myButtonGroup = new ButtonGroup();
   private ChangeListener myChangeListener;
 
@@ -54,7 +40,7 @@ public class ColorSelectionComponent extends JPanel {
     myChangeListener = changeListener;
   }
 
-  public void setSelectedColor(String colorName) {
+  public void setSelectedColor(@NlsContexts.Button String colorName) {
     AbstractButton button = myColorToButtonMap.get(colorName);
     if (button != null) {
       button.setSelected(true);
@@ -84,7 +70,7 @@ public class ColorSelectionComponent extends JPanel {
     myColorToButtonMap.put(customButton.getText(), customButton);
   }
 
-  public void addColorButton(@NotNull String name, @NotNull Color color) {
+  public void addColorButton(@NotNull @NlsContexts.Button String name, @NotNull Color color) {
     ColorButton colorButton = new ColorButton(name, color);
     myButtonGroup.add(colorButton);
     add(colorButton);
@@ -92,105 +78,44 @@ public class ColorSelectionComponent extends JPanel {
   }
 
   public void setCustomButtonColor(@NotNull Color color) {
-    CustomColorButton button = (CustomColorButton)myColorToButtonMap.get(CUSTOM_COLOR_NAME);
+    CustomColorButton button = (CustomColorButton)myColorToButtonMap.get(IdeBundle.message("settings.file.color.custom.name"));
     button.setColor(color);
     button.setSelected(true);
     button.repaint();
   }
 
   @Nullable
+  @NonNls
   public String getSelectedColorName() {
     for (String name : myColorToButtonMap.keySet()) {
       ColorButton button = myColorToButtonMap.get(name);
       if (!button.isSelected()) continue;
       if (button instanceof CustomColorButton) {
-        final String color = ColorUtil.toHex(button.getColor());
-        String colorName  = findColorName(button.getColor());
-        return colorName == null ? color : colorName;
+        String colorHexString = ColorUtil.toHex(button.getColor());
+        String colorID  = FileColorManagerImpl.getColorID(button.getColor());
+        return colorID == null ? colorHexString : colorID;
       }
       return name;
     }
     return null;
   }
 
-  @Nullable
-  public static String findColorName(Color color) {
-    final String hex = ColorUtil.toHex(color);
-    if ("ffffe4".equals(hex) || "494539".equals(hex)) {
-      return "Yellow";
-    }
-
-    if ("e7fadb".equals(hex) || "2a3b2c".equals(hex)) {
-      return "Green";
-    }
-
-    return null;
-  }
-
-  @Nullable
-  public Color getSelectedColor() {
-    for (String name : myColorToButtonMap.keySet()) {
-      ColorButton button = myColorToButtonMap.get(name);
-      if (!button.isSelected()) continue;
-      return button.getColor();
-    }
-    return null;
-  }
-
-  public void initDefault(@NotNull FileColorManager manager, @Nullable String selectedColorName) {
-    for (String name : manager.getColorNames()) {
-      addColorButton(name, ObjectUtils.assertNotNull(manager.getColor(name)));
+  public void initDefault(@NotNull FileColorManager manager, @Nullable @NlsContexts.Button String selectedColorName) {
+    for (String id : manager.getColorIDs()) {
+      addColorButton(manager.getColorName(id), Objects.requireNonNull(manager.getColor(id)));
     }
     addCustomColorButton();
     setSelectedColor(selectedColorName);
   }
 
-  private class ColorButton extends StickyButton {
-    protected Color myColor;
-
-    protected ColorButton(final String text, final Color color) {
-      super(FileColorManagerImpl.getAlias(text));
-      setUI(new ColorButtonUI());
-      myColor = color;
-      addActionListener(new ActionListener() {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-          doPerformAction(e);
-        }
-      });
-
-      setOpaque(false);
-      setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+  private class ColorButton extends ColorButtonBase {
+    protected ColorButton(@NlsContexts.Button String text, Color color) {
+      super(text, color);
     }
 
+    @Override
     protected void doPerformAction(ActionEvent e) {
       stateChanged();
-    }
-
-    Color getColor() {
-      return myColor;
-    }
-
-    public void setColor(Color color) {
-      myColor = color;
-    }
-
-    @Override
-    public Color getForeground() {
-      if (getModel().isSelected()) {
-        return JBColor.foreground();
-      }
-      else if (getModel().isRollover()) {
-        return JBColor.GRAY;
-      }
-      else {
-        return getColor();
-      }
-    }
-
-    @Override
-    protected ButtonUI createUI() {
-      return new ColorButtonUI();
     }
   }
 
@@ -200,15 +125,15 @@ public class ColorSelectionComponent extends JPanel {
     }
   }
 
-  private class CustomColorButton extends ColorButton {
+  private final class CustomColorButton extends ColorButton {
     private CustomColorButton() {
-      super(CUSTOM_COLOR_NAME, Color.WHITE);
+      super(IdeBundle.message("settings.file.color.custom.name"), JBColor.WHITE);
       myColor = null;
     }
 
     @Override
     protected void doPerformAction(ActionEvent e) {
-      final Color color = ColorChooser.chooseColor(this, "Choose Color", myColor);
+      final Color color = ColorChooser.chooseColor(this, IdeBundle.message("dialog.title.choose.color"), myColor);
       if (color != null) {
         myColor = color;
       }
@@ -217,41 +142,26 @@ public class ColorSelectionComponent extends JPanel {
     }
 
     @Override
-    public Color getForeground() {
-      return getModel().isSelected() ? Color.BLACK : JBColor.GRAY;
+    protected ButtonUI createUI() {
+      return new ColorButtonUI() {
+        @Nullable
+        @Override
+        protected Color getUnfocusedBorderColor(@NotNull ColorButtonBase button) {
+          if (StartupUiUtil.isUnderDarcula()) return JBColor.GRAY;
+          return super.getUnfocusedBorderColor(button);
+        }
+      };
     }
 
+    @Override
+    public Color getForeground() {
+      return getModel().isSelected() ? JBColor.BLACK : JBColor.GRAY;
+    }
+
+    @NotNull
     @Override
     Color getColor() {
-      return myColor == null ? Color.WHITE : myColor;
-    }
-  }
-
-  private static class ColorButtonUI extends StickyButtonUI<ColorButton> {
-
-    @Override
-    protected Color getBackgroundColor(final ColorButton button) {
-      return button.getColor();
-    }
-
-    @Override
-    protected Color getFocusColor(ColorButton button) {
-      return button.getColor().darker();
-    }
-
-    @Override
-    protected Color getSelectionColor(ColorButton button) {
-      return button.getColor();
-    }
-
-    @Override
-    protected Color getRolloverColor(ColorButton button) {
-      return button.getColor();
-    }
-
-    @Override
-    protected int getArcSize() {
-      return 20;
+      return myColor == null ? JBColor.WHITE : myColor;
     }
   }
 }

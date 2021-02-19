@@ -32,7 +32,6 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.Function;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.hash.LinkedHashMap;
 import org.jdom.Element;
@@ -70,8 +69,8 @@ public class ExportEclipseProjectsAction extends AnAction implements DumbAware {
 
     project.save();
 
-    List<Module> modules = new SmartList<Module>();
-    List<Module> incompatibleModules = new SmartList<Module>();
+    List<Module> modules = new SmartList<>();
+    List<Module> incompatibleModules = new SmartList<>();
     for (Module module : ModuleManager.getInstance(project).getModules()) {
       if (!EclipseModuleManagerImpl.isEclipseStorage(module)) {
         try {
@@ -95,14 +94,8 @@ public class ExportEclipseProjectsAction extends AnAction implements DumbAware {
         return;
       }
     }
-    else if (Messages.showOkCancelDialog(project, "<html><body>Eclipse incompatible modules found:<ul><br><li>" +
-                                                  StringUtil.join(incompatibleModules, new Function<Module, String>() {
-                                                    @Override
-                                                    public String fun(Module module) {
-                                                      return module.getName();
-                                                    }
-                                                  }, "<br><li>") +
-                                                  "</ul><br>Would you like to proceed and possibly lose your configurations?</body></html>",
+    else if (Messages.showOkCancelDialog(project, EclipseBundle
+                                           .message("dialog.message.incompatible.modules.found", StringUtil.join(incompatibleModules, module -> module.getName(), "<br><li>")),
                                          EclipseBundle.message("eclipse.export.dialog.title"), Messages.getWarningIcon()) != Messages.OK) {
       return;
     }
@@ -119,7 +112,7 @@ public class ExportEclipseProjectsAction extends AnAction implements DumbAware {
       }
     }
     else {
-      LinkedHashMap<Module, String> module2StorageRoot = new LinkedHashMap<Module, String>();
+      LinkedHashMap<Module, String> module2StorageRoot = new LinkedHashMap<>();
       for (Module module : dialog.getSelectedModules()) {
         VirtualFile[] contentRoots = ModuleRootManager.getInstance(module).getContentRoots();
         String storageRoot = contentRoots.length == 1 ? contentRoots[0].getPath() : ClasspathStorage.getStorageRootFromOptions(module);

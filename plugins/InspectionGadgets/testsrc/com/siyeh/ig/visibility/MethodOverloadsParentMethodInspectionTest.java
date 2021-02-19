@@ -1,22 +1,30 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.visibility;
 
-import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.roots.LanguageLevelProjectExtension;
-import com.intellij.pom.java.LanguageLevel;
-import com.intellij.testFramework.IdeaTestUtil;
-import com.siyeh.ig.IGInspectionTestCase;
+import com.intellij.testFramework.LightProjectDescriptor;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
+import org.jetbrains.annotations.NotNull;
 
-public class MethodOverloadsParentMethodInspectionTest extends IGInspectionTestCase {
-
-  public void test() throws Exception {
-    doTest("com/siyeh/igtest/visibility/method_overloads_parent_method", new MethodOverloadsParentMethodInspection());
-  }
-
+public class MethodOverloadsParentMethodInspectionTest extends LightJavaCodeInsightFixtureTestCase {
   @Override
-  protected Sdk getTestProjectSdk() {
-    final Sdk sdk = IdeaTestUtil.getMockJdk17();
-    LanguageLevelProjectExtension.getInstance(getProject()).setLanguageLevel(LanguageLevel.HIGHEST);
-    return sdk;
+  protected String getBasePath() {
+    return LightJavaInspectionTestCase.INSPECTION_GADGETS_TEST_DATA_PATH + "com/siyeh/igtest/visibility/method_overloads_parent_method";
   }
-  
+
+  @NotNull
+  @Override
+  protected LightProjectDescriptor getProjectDescriptor() {
+    return JAVA_8;
+  }
+
+  private void doTest() {
+    myFixture.enableInspections(new MethodOverloadsParentMethodInspection());
+    myFixture.testHighlighting(getTestName(false) + ".java");
+  }
+
+  public void testMethodOverloadsParentMethod() {
+    doTest();
+  }
+
 }

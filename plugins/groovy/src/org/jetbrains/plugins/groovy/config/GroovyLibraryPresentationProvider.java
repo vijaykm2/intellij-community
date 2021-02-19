@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.config;
 
 import com.intellij.openapi.roots.OrderRootType;
+import com.intellij.openapi.roots.libraries.JarVersionDetectionUtil;
 import com.intellij.openapi.roots.libraries.LibraryKind;
 import com.intellij.openapi.roots.ui.configuration.libraryEditor.LibraryEditor;
 import com.intellij.openapi.vfs.VfsUtil;
@@ -23,14 +10,16 @@ import com.intellij.openapi.vfs.VirtualFile;
 import icons.JetgroovyIcons;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.util.LibrariesUtil;
 
 import javax.swing.*;
 import java.io.File;
+import java.util.Arrays;
 
-/**
- * @author nik
- */
+import static org.jetbrains.plugins.groovy.util.LibrariesUtil.SOME_GROOVY_CLASS;
+
 public class GroovyLibraryPresentationProvider extends GroovyLibraryPresentationProviderBase {
   public static final LibraryKind GROOVY_KIND = LibraryKind.create("groovy");
 
@@ -46,15 +35,24 @@ public class GroovyLibraryPresentationProvider extends GroovyLibraryPresentation
   @Override
   @Nls
   public String getLibraryVersion(final VirtualFile[] libraryFiles) {
-    final String home = LibrariesUtil.getGroovyLibraryHome(libraryFiles);
-    if (home == null) return AbstractConfigUtils.UNDEFINED_VERSION;
-
-    return GroovyConfigUtils.getInstance().getSDKVersion(home);
+    String jarVersion = JarVersionDetectionUtil.detectJarVersion(SOME_GROOVY_CLASS, Arrays.asList(libraryFiles));
+    if (jarVersion != null) {
+      return jarVersion;
+    }
+    String home = LibrariesUtil.getGroovyLibraryHome(libraryFiles);
+    if (home == null) {
+      return GroovyBundle.message("undefined.library.version");
+    }
+    String version = GroovyConfigUtils.getInstance().getSDKVersionOrNull(home);
+    if (version == null) {
+      return GroovyBundle.message("undefined.library.version");
+    }
+    return version;
   }
 
   @Override
   @NotNull
-  public Icon getIcon() {
+  public Icon getIcon(GroovyLibraryProperties properties) {
     return JetgroovyIcons.Groovy.Groovy_16x16;
   }
 
@@ -86,17 +84,15 @@ public class GroovyLibraryPresentationProvider extends GroovyLibraryPresentation
       }
   }
 
-  @NotNull
   @Override
-  public String getSDKVersion(String path) {
-    return GroovyConfigUtils.getInstance().getSDKVersion(path);
+  public @Nullable String getSDKVersion(String path) {
+    return GroovyConfigUtils.getInstance().getSDKVersionOrNull(path);
   }
 
   @Nls
   @NotNull
   @Override
   public String getLibraryCategoryName() {
-    return "Groovy";
+    return GroovyBundle.message("language.groovy");
   }
-
 }

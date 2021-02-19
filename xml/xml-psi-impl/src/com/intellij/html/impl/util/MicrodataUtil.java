@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.html.impl.util;
 
 import com.intellij.openapi.util.Key;
@@ -24,6 +10,8 @@ import com.intellij.psi.PsiReference;
 import com.intellij.psi.XmlRecursiveElementVisitor;
 import com.intellij.psi.impl.source.resolve.reference.impl.providers.DependentNSReference;
 import com.intellij.psi.impl.source.resolve.reference.impl.providers.URLReference;
+import com.intellij.psi.util.CachedValueProvider;
+import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlAttributeValue;
 import com.intellij.psi.xml.XmlFile;
@@ -31,17 +19,14 @@ import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.PairFunction;
 import com.intellij.util.text.StringTokenizer;
 import com.intellij.xml.util.HtmlUtil;
-import gnu.trove.THashMap;
-import gnu.trove.THashSet;
-import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
-
 /**
  * @author: Fedor.Korotkov
  */
-public class MicrodataUtil {
+public final class MicrodataUtil {
   public static final Key<List<String>> ITEM_PROP_KEYS = Key.create("microdata.prop");
   public static final String ITEM_REF = "itemref";
   public static final String ITEM_SCOPE = "itemscope";
@@ -66,27 +51,28 @@ public class MicrodataUtil {
     return null;
   }
 
-  private static Map<String, XmlTag> findScopesWithItemRef(@Nullable PsiFile file) {
+  private static Map<String, XmlTag> findScopesWithItemRef(@Nullable final PsiFile file) {
     if (!(file instanceof XmlFile)) return Collections.emptyMap();
-    final Map<String, XmlTag> result = new THashMap<String, XmlTag>();
-    file.accept(new XmlRecursiveElementVisitor() {
+    return CachedValuesManager.getCachedValue(file, new CachedValueProvider<>() {
       @Override
-      public void visitXmlTag(final XmlTag tag) {
-        super.visitXmlTag(tag);
-        XmlAttribute refAttr = tag.getAttribute(ITEM_REF);
-        if (refAttr != null && tag.getAttribute(ITEM_SCOPE) != null) {
-          getReferencesForAttributeValue(refAttr.getValueElement(), new PairFunction<String, Integer, PsiReference>() {
-            @Nullable
-            @Override
-            public PsiReference fun(String t, Integer v) {
-              result.put(t, tag);
-              return null;
+      public @NotNull Result<Map<String, XmlTag>> compute() {
+        final Map<String, XmlTag> result = new HashMap<>();
+        file.accept(new XmlRecursiveElementVisitor() {
+          @Override
+          public void visitXmlTag(final XmlTag tag) {
+            super.visitXmlTag(tag);
+            XmlAttribute refAttr = tag.getAttribute(ITEM_REF);
+            if (refAttr != null && tag.getAttribute(ITEM_SCOPE) != null) {
+              getReferencesForAttributeValue(refAttr.getValueElement(), (t, v) -> {
+                result.put(t, tag);
+                return null;
+              });
             }
-          });
-        }
+          }
+        });
+        return Result.create(result, file);
       }
     });
-    return result;
   }
 
   public static List<String> extractProperties(PsiFile file, String type) {
@@ -116,29 +102,25 @@ public class MicrodataUtil {
   }
 
   public static PsiReference[] getUrlReferencesForAttributeValue(final XmlAttributeValue element) {
-    return getReferencesForAttributeValue(element, new PairFunction<String, Integer, PsiReference>() {
-      @Nullable
-      @Override
-      public PsiReference fun(String token, Integer offset) {
-        if (HtmlUtil.hasHtmlPrefix(token)) {
-          final TextRange range = TextRange.from(offset, token.length());
-          final URLReference urlReference = new URLReference(element, range, true);
-          return new DependentNSReference(element, range, urlReference, true);
-        }
-        return null;
+    return getReferencesForAttributeValue(element, (token, offset) -> {
+      if (HtmlUtil.hasHtmlPrefix(token)) {
+        final TextRange range = TextRange.from(offset, token.length());
+        final URLReference urlReference = new URLReference(element, range, true);
+        return new DependentNSReference(element, range, urlReference, true);
       }
+      return null;
     });
   }
 
   public static PsiReference[] getReferencesForAttributeValue(@Nullable XmlAttributeValue element,
-                                                              PairFunction<String, Integer, PsiReference> refFun) {
+                                                              PairFunction<? super String, ? super Integer, ? extends PsiReference> refFun) {
     if (element == null) {
       return PsiReference.EMPTY_ARRAY;
     }
     String text = element.getText();
     String urls = StringUtil.unquoteString(text);
     StringTokenizer tokenizer = new StringTokenizer(urls);
-    List<PsiReference> result = new ArrayList<PsiReference>();
+    List<PsiReference> result = new ArrayList<>();
     while (tokenizer.hasMoreTokens()) {
       String token = tokenizer.nextToken();
       int index = text.indexOf(token);
@@ -147,20 +129,20 @@ public class MicrodataUtil {
         result.add(ref);
       }
     }
-    return result.toArray(new PsiReference[result.size()]);
+    return result.toArray(PsiReference.EMPTY_ARRAY);
   }
 
   @Nullable
-  public static String getStripedAttributeValue(@Nullable XmlTag tag, @Nls String attributeName) {
+  public static String getStripedAttributeValue(@Nullable XmlTag tag, String attributeName) {
     String value = tag != null ? tag.getAttributeValue(attributeName) : null;
     return value != null ? StringUtil.unquoteString(value) : null;
   }
 
   private static class CollectNamesVisitor extends XmlRecursiveElementVisitor {
-    protected final Set<String> myValues = new THashSet<String>();
+    protected final Set<String> myValues = new HashSet<>();
 
     public List<String> getValues() {
-      return new ArrayList<String>(myValues);
+      return new ArrayList<>(myValues);
     }
   }
 

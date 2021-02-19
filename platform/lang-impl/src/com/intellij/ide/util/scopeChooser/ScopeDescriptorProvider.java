@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 16-Jan-2008
- */
 package com.intellij.ide.util.scopeChooser;
 
 import com.intellij.openapi.extensions.ExtensionPointName;
@@ -28,6 +24,5 @@ public interface ScopeDescriptorProvider {
   ScopeDescriptor[] EMPTY = new ScopeDescriptor[0];
   ExtensionPointName<ScopeDescriptorProvider> EP_NAME = ExtensionPointName.create("com.intellij.scopeDescriptorProvider");
 
-  @NotNull
-  ScopeDescriptor[] getScopeDescriptors(Project project);
+  ScopeDescriptor @NotNull [] getScopeDescriptors(Project project);
 }

@@ -1,37 +1,29 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.psi.impl.source.tree;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectCoreUtil;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.psi.FileViewProvider;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiLock;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.TokenType;
 import com.intellij.psi.impl.DebugUtil;
 import com.intellij.psi.impl.ElementBase;
 import com.intellij.psi.impl.PsiManagerEx;
+import com.intellij.psi.impl.ReparseableASTNode;
+import com.intellij.psi.impl.source.PsiFileImpl;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.testFramework.ReadOnlyLightVirtualFile;
 import com.intellij.util.CharTable;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public abstract class TreeElement extends ElementBase implements ASTNode, Cloneable {
+public abstract class TreeElement extends ElementBase implements ASTNode, ReparseableASTNode, Cloneable {
   public static final TreeElement[] EMPTY_ARRAY = new TreeElement[0];
   private TreeElement myNextSibling;
   private TreeElement myPrevSibling;
@@ -44,17 +36,19 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
     myType = type;
   }
 
+  private static PsiFileImpl getCachedFile(@NotNull TreeElement each) {
+    FileElement node = (FileElement)SharedImplUtil.findFileElement(each);
+    return node == null ? null : (PsiFileImpl)node.getCachedPsi();
+  }
+
   @NotNull
   @Override
   public Object clone() {
     TreeElement clone = (TreeElement)super.clone();
-    synchronized (PsiLock.LOCK) {
-      clone.myNextSibling = null;
-      clone.myPrevSibling = null;
-      clone.myParent = null;
-      clone.myStartOffsetInParent = -1;
-    }
-
+    clone.myNextSibling = null;
+    clone.myPrevSibling = null;
+    clone.myParent = null;
+    clone.myStartOffsetInParent = -1;
     return clone;
   }
 
@@ -65,34 +59,34 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
   }
 
   public PsiManagerEx getManager() {
-    TreeElement element;
-    for (element = this; element.getTreeParent() != null; element = element.getTreeParent()) {
+    Project project = ProjectCoreUtil.theOnlyOpenProject();
+    if (project != null) {
+      return PsiManagerEx.getInstanceEx(project);
     }
-
+    TreeElement element;
+    CompositeElement parent;
+    for (element = this; (parent = element.getTreeParent()) != null; element = parent) {
+    }
     if (element instanceof FileElement) { //TODO!!
       return element.getManager();
     }
-    else {
-      if (getTreeParent() != null) {
-        return getTreeParent().getManager();
-      }
-      return null;
+    parent = getTreeParent();
+    if (parent != null) {
+      return parent.getManager();
     }
+    return null;
   }
 
   @Override
   public abstract LeafElement findLeafElementAt(int offset);
 
-  @NotNull
-  public abstract char[] textToCharArray();
+  public abstract char @NotNull [] textToCharArray();
 
   @Override
   public abstract TreeElement getFirstChildNode();
 
   @Override
   public abstract TreeElement getLastChildNode();
-
-  public abstract int getNotCachedLength();
 
   public abstract int getCachedLength();
 
@@ -114,12 +108,15 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
     return result;
   }
 
+  @Override
   public final int getStartOffsetInParent() {
     if (myParent == null) return -1;
     int offsetInParent = myStartOffsetInParent;
     if (offsetInParent != -1) return offsetInParent;
 
-    ApplicationManager.getApplication().assertReadAccessAllowed();
+    if (DebugUtil.CHECK_INSIDE_ATOMIC_ACTION_ENABLED) {
+      assertReadAccessAllowed();
+    }
 
     TreeElement cur = this;
     while (true) {
@@ -161,6 +158,7 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
     return getTextLength() == element.getTextLength() && textMatches(element.getText());
   }
 
+  @Override
   @NonNls
   public String toString() {
     return "Element" + "(" + getElementType() + ")";
@@ -177,6 +175,13 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
   }
 
   final void setTreeParent(CompositeElement parent) {
+    if (parent == myParent) return;
+
+    PsiFileImpl file = getCachedFile(this);
+    if (file != null) {
+      file.beforeAstChange();
+    }
+
     myParent = parent;
     if (parent != null && parent.getElementType() != TokenType.DUMMY_HOLDER) {
       DebugUtil.revalidateNode(this);
@@ -198,7 +203,7 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
     clearRelativeOffsets(next);
   }
 
-  protected static void clearRelativeOffsets(TreeElement element) {
+  static void clearRelativeOffsets(TreeElement element) {
     TreeElement cur = element;
     while (cur != null && cur.myStartOffsetInParent != -1) {
       cur.myStartOffsetInParent = -1;
@@ -209,17 +214,29 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
   public void clearCaches() {
   }
 
-  @SuppressWarnings("EqualsWhichDoesntCheckParameterClass")
+  @Override
   public final boolean equals(Object obj) {
     return obj == this;
   }
 
   public abstract int hc(); // Used in tree diffing
 
-  public abstract void acceptTree(TreeElementVisitor visitor);
+  public abstract void acceptTree(@NotNull TreeElementVisitor visitor);
 
   protected void onInvalidated() {
     DebugUtil.onInvalidated(this);
+  }
+
+  @Override
+  public final void applyReplaceOnReparse(@NotNull ASTNode newChild) {
+    TreeElement newTreeElement = (TreeElement)newChild;
+    newTreeElement.rawRemove();
+    rawReplaceWithList(newTreeElement);
+
+    newTreeElement.clearCaches();
+    if (!(newTreeElement instanceof FileElement)) {
+      newTreeElement.getTreeParent().subtreeChanged();
+    }
   }
 
   public void rawInsertBeforeMe(@NotNull TreeElement firstNew) {
@@ -255,7 +272,7 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
     }
   }
 
-  protected final void rawInsertAfterMeWithoutNotifications(TreeElement firstNew) {
+  final void rawInsertAfterMeWithoutNotifications(@NotNull TreeElement firstNew) {
     firstNew.rawRemoveUpToWithoutNotifications(null, false);
     final CompositeElement p = getTreeParent();
     final TreeElement treeNext = getTreeNext();
@@ -308,7 +325,7 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
     invalidate();
   }
 
-  public void rawReplaceWithList(TreeElement firstNew) {
+  public void rawReplaceWithList(@Nullable TreeElement firstNew) {
     if (firstNew != null){
       rawInsertAfterMeWithoutNotifications(firstNew);
     }
@@ -343,7 +360,7 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
   }
 
   // remove nodes from this[including] to end[excluding] from the parent
-  protected final void rawRemoveUpToWithoutNotifications(TreeElement end, boolean invalidate) {
+  final void rawRemoveUpToWithoutNotifications(@Nullable TreeElement end, boolean invalidate) {
     if(this == end) return;
 
     final CompositeElement parent = getTreeParent();
@@ -358,7 +375,7 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
       assert element == end : end + " is not successor of " + this +" in the .getTreeNext() chain";
     }
     if (parent != null){
-      if (this == parent.getFirstChildNode()) {
+      if (getTreePrev() == null) {
         parent.setFirstChildNode(end);
       }
       if (end == null) {
@@ -394,6 +411,18 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
   @NotNull
   public IElementType getElementType() {
     return myType;
+  }
+
+  void assertReadAccessAllowed() {
+    if (ApplicationManager.getApplication().isReadAccessAllowed()) return;
+    FileElement fileElement = TreeUtil.getFileElement(this);
+    PsiElement psi = fileElement == null ? null : fileElement.getCachedPsi();
+    if (psi == null) return;
+    FileViewProvider provider = psi instanceof PsiFile ? ((PsiFile)psi).getViewProvider() : null;
+    boolean ok = provider != null && provider.getVirtualFile() instanceof ReadOnlyLightVirtualFile;
+    if (!ok) {
+      ApplicationManager.getApplication().assertReadAccessAllowed();
+    }
   }
 }
 

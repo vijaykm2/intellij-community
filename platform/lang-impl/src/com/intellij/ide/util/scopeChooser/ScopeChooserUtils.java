@@ -1,50 +1,90 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.scopeChooser;
 
+import com.intellij.find.impl.FindInProjectExtension;
+import com.intellij.ide.scratch.ScratchesSearchScope;
+import com.intellij.openapi.fileEditor.FileEditorManager;
+import com.intellij.openapi.fileEditor.impl.OpenFilesScope;
 import com.intellij.openapi.project.Project;
-import com.intellij.packageDependencies.ChangeListsScopesProvider;
-import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.psi.search.GlobalSearchScopesCore;
-import com.intellij.psi.search.ProjectScope;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.search.*;
 import com.intellij.psi.search.scope.ProjectFilesScope;
-import com.intellij.psi.search.scope.ProjectProductionScope;
 import com.intellij.psi.search.scope.packageSet.NamedScope;
 import com.intellij.psi.search.scope.packageSet.NamedScopesHolder;
+import com.intellij.util.ArrayUtil;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class ScopeChooserUtils {
+import java.util.List;
+
+public final class ScopeChooserUtils {
   private ScopeChooserUtils() {
   }
 
+  /**
+   * @return custom or standard scope with the provided name, i.e. scope that matches corresponding item from {@link ScopeChooserCombo}
+   * with the following limitations:
+   * <ul>
+   * <li>module-specific scope is not handled: if <code>scopePresentableName</code> is "Module 'foo'" then {@link ProjectFilesScope} is returned</li>
+   * <li>each returned scope is intersected with the project content (the only exception is 'Scratches and Consoles' scope)</li>
+   * <li>if no known scope with the provided name found then empty scope is returned</li>
+   * </ul>
+   */
   @NotNull
-  public static GlobalSearchScope findScopeByName(@NotNull Project project, @Nullable String scopeName) {
-    NamedScope namedScope = scopeName == null ? null : ChangeListsScopesProvider.getInstance(project).getCustomScope(scopeName);
-    if (namedScope == null) {
-      namedScope = NamedScopesHolder.getScope(project, scopeName);
+  public static GlobalSearchScope findScopeByName(@NotNull Project project, @Nullable String scopePresentableName) {
+    // logic here is similar to ScopeChooserCombo
+
+    if (scopePresentableName == null) return GlobalSearchScope.EMPTY_SCOPE;
+
+    if (OpenFilesScope.getNameText().equals(scopePresentableName)) {
+      return intersectWithContentScope(project, GlobalSearchScopes.openFilesScope(project));
     }
-    if (namedScope == null) {
-      namedScope = new ProjectFilesScope();
+
+    if (PredefinedSearchScopeProviderImpl.getCurrentFileScopeName().equals(scopePresentableName)) {
+      VirtualFile[] array = FileEditorManager.getInstance(project).getSelectedFiles();
+      List<VirtualFile> files = ContainerUtil.createMaybeSingletonList(ArrayUtil.getFirstElement(array));
+      GlobalSearchScope scope = GlobalSearchScope.filesScope(project, files, PredefinedSearchScopeProviderImpl.getCurrentFileScopeName());
+      return intersectWithContentScope(project, scope);
     }
-    GlobalSearchScope scope = GlobalSearchScopesCore.filterScope(project, namedScope);
-    boolean restrictedToProject = namedScope instanceof ProjectFilesScope || namedScope instanceof ProjectProductionScope;
-    if (!restrictedToProject) {
-      scope = scope.intersectWith(ProjectScope.getContentScope(project));
+
+    PredefinedSearchScopeProvider scopeProvider = PredefinedSearchScopeProvider.getInstance();
+    for (SearchScope scope : scopeProvider.getPredefinedScopes(project, null, false, false, false, false, true)) {
+      if (scope instanceof GlobalSearchScope && scope.getDisplayName().equals(scopePresentableName)) {
+        if (scope instanceof ScratchesSearchScope) {
+          return (ScratchesSearchScope)scope;
+        }
+        return intersectWithContentScope(project, (GlobalSearchScope)scope);
+      }
     }
-    return scope;
+
+    for (FindInProjectExtension extension : FindInProjectExtension.EP_NAME.getExtensionList()) {
+      for (NamedScope scope : extension.getFilteredNamedScopes(project)) {
+        if (scope.getPresentableName().equals(scopePresentableName)) {
+          return intersectWithContentScope(project, GlobalSearchScopesCore.filterScope(project, scope));
+        }
+      }
+    }
+
+    for (NamedScopesHolder holder : NamedScopesHolder.getAllNamedScopeHolders(project)) {
+      final NamedScope[] scopes = holder.getEditableScopes();  // predefined scopes already included
+      for (NamedScope scope : scopes) {
+        if (scope.getScopeId().equals(scopePresentableName)) {
+          return intersectWithContentScope(project, GlobalSearchScopesCore.filterScope(project, scope));
+        }
+      }
+    }
+
+    if (scopePresentableName.startsWith("Module '") && scopePresentableName.endsWith("'")) {
+      // Backward compatibility with previous File Watchers behavior.
+      // It never worked correctly for scopes like "Module 'foo'" and always returned ProjectFilesScope in such cases.
+      return ProjectScope.getContentScope(project);
+    }
+
+    return GlobalSearchScope.EMPTY_SCOPE;
+  }
+
+  private static @NotNull GlobalSearchScope intersectWithContentScope(@NotNull Project project, @NotNull GlobalSearchScope scope) {
+    return scope.intersectWith(ProjectScope.getContentScope(project));
   }
 }

@@ -1,44 +1,40 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang;
 
+import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.KeyedExtensionCollector;
+import com.intellij.util.KeyedLazyInstance;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
-import java.util.List;
+import java.util.*;
 
 public class LanguageExtension<T> extends KeyedExtensionCollector<T, Language> {
   private final T myDefaultImplementation;
-  private final /* non static!!! */ Key<T> IN_LANGUAGE_CACHE;
+  private final /* non static!!! */ Key<T> myCacheKey;
+  private final /* non static!!! */ Key<List<T>> myAllCacheKey;
 
-  public LanguageExtension(@NonNls final String epName) {
+  public LanguageExtension(@NotNull final ExtensionPointName<? extends KeyedLazyInstance<T>> epName) {
+    this(epName.getName(), null);
+  }
+
+  public LanguageExtension(@NotNull @NonNls final String epName) {
     this(epName, null);
   }
 
-  public LanguageExtension(@NonNls final String epName, @Nullable final T defaultImplementation) {
+  public LanguageExtension(@NotNull final ExtensionPointName<? extends KeyedLazyInstance<T>> epName, @Nullable T defaultImplementation) {
+    this(epName.getName(), defaultImplementation);
+  }
+
+  public LanguageExtension(@NonNls String epName, @Nullable T defaultImplementation) {
     super(epName);
     myDefaultImplementation = defaultImplementation;
-    IN_LANGUAGE_CACHE = Key.create("EXTENSIONS_IN_LANGUAGE_"+epName);
+    myCacheKey = Key.create("EXTENSIONS_IN_LANGUAGE_" + epName);
+    myAllCacheKey = Key.create("ALL_EXTENSIONS_IN_LANGUAGE_" + epName);
   }
 
   @NotNull
@@ -47,53 +43,143 @@ public class LanguageExtension<T> extends KeyedExtensionCollector<T, Language> {
     return key.getID();
   }
 
-  @SuppressWarnings("ConstantConditions")
+  @TestOnly
+  public void clearCache(@NotNull Language language) {
+    clearCacheForDerivedLanguages(language);
+    clearCache();
+  }
+
+  private void clearCacheForDerivedLanguages(@NotNull Language language) {
+    Set<Language> languages = LanguageUtil.getAllDerivedLanguages(language);  // includes language itself
+    for (Language derivedLanguage : languages) {
+      clearCacheForLanguage(derivedLanguage);
+
+      Collection<MetaLanguage> metaLanguages = LanguageUtil.matchingMetaLanguages(derivedLanguage);
+      for (MetaLanguage metaLanguage : metaLanguages) {
+        clearCacheForLanguage(metaLanguage);
+      }
+    }
+    if (language instanceof MetaLanguage) {
+      Collection<Language> matchingLanguages = ((MetaLanguage)language).getMatchingLanguages();
+      for (Language matchingLanguage : matchingLanguages) {
+        Set<Language> matchingDerivedLanguages = LanguageUtil.getAllDerivedLanguages(matchingLanguage);  // includes language itself
+        for (Language derivedLanguage : matchingDerivedLanguages) {
+          clearCacheForLanguage(derivedLanguage);
+        }
+      }
+    }
+  }
+
+  private void clearCacheForLanguage(Language language) {
+    language.putUserData(myCacheKey, null);
+    language.putUserData(myAllCacheKey, null);
+    super.invalidateCacheForExtension(language.getID());
+  }
+
+  @Override
+  public void invalidateCacheForExtension(String key) {
+    super.invalidateCacheForExtension(key);
+
+    final Language language = Language.findLanguageByID(key);
+    if (language != null) {
+      clearCacheForDerivedLanguages(language);
+    }
+  }
+
   public T forLanguage(@NotNull Language l) {
-    T cached = l.getUserData(IN_LANGUAGE_CACHE);
+    T cached = l.getUserData(myCacheKey);
     if (cached != null) return cached;
 
-    List<T> extensions = forKey(l);
-    T result;
-    if (extensions.isEmpty()) {
-      Language base = l.getBaseLanguage();
-      result = base == null ? myDefaultImplementation : forLanguage(base);
-    }
-    else {
-      result = extensions.get(0);
-    }
+    T result = findForLanguage(l);
     if (result == null) return null;
-    result = l.putUserDataIfAbsent(IN_LANGUAGE_CACHE, result);
+    result = l.putUserDataIfAbsent(myCacheKey, result);
+    return result;
+  }
+
+  protected T findForLanguage(@NotNull Language language) {
+    for (Language l = language; l != null; l = l.getBaseLanguage()) {
+      List<T> extensions = forKey(l);
+      if (!extensions.isEmpty()) {
+        return extensions.get(0);
+      }
+    }
+    return myDefaultImplementation;
+  }
+
+  /**
+   *  @see #allForLanguageOrAny(Language)
+   */
+  @NotNull
+  public List<T> allForLanguage(@NotNull Language language) {
+    List<T> cached = language.getUserData(myAllCacheKey);
+    if (cached != null) return cached;
+    List<T> result = collectAllForLanguage(language);
+    return language.putUserDataIfAbsent(myAllCacheKey, result);
+  }
+
+  @NotNull
+  private List<T> collectAllForLanguage(@NotNull Language language) {
+    boolean copyList = true;
+    List<T> result = null;
+    for (Language l = language; l != null; l = l.getBaseLanguage()) {
+      List<T> list = forKey(l);
+      if (result == null) {
+        result = list;
+      }
+      else if (!list.isEmpty()) {
+        if (copyList) {
+          result = new ArrayList<>(ContainerUtil.concat(result, list));
+          copyList = false;
+        }
+        else {
+          result.addAll(list);
+        }
+      }
+    }
     return result;
   }
 
   @NotNull
-  public List<T> allForLanguage(@NotNull Language l) {
-    List<T> list = forKey(l);
-    if (list.isEmpty()) {
-      Language base = l.getBaseLanguage();
-      if (base != null) {
-        return allForLanguage(base);
-      }
+  @Override
+  protected List<T> buildExtensions(@NotNull String stringKey, @NotNull Language key) {
+    Collection<MetaLanguage> metaLanguages = LanguageUtil.matchingMetaLanguages(key);
+    if (metaLanguages.isEmpty()) {
+      return super.buildExtensions(stringKey, key);
     }
-    //if (l != Language.ANY) {
-    //  final List<T> all = allForLanguage(Language.ANY);
-    //  if (!all.isEmpty()) {
-    //    if (list.isEmpty()) {
-    //      return all;
-    //    }
-    //    list = new ArrayList<T>(list);
-    //    list.addAll(all);
-    //  }
-    //}
-    return list;
+
+    Set<String> allKeys = new HashSet<>();
+    allKeys.add(stringKey);
+    for (MetaLanguage language : metaLanguages) {
+      allKeys.add(keyToString(language));
+    }
+    return buildExtensions(allKeys);
+  }
+
+  @NotNull
+  public List<T> allForLanguageOrAny(@NotNull Language l) {
+    List<T> forLanguage = allForLanguage(l);
+    if (l == Language.ANY) return forLanguage;
+    return ContainerUtil.concat(forLanguage, allForLanguage(Language.ANY));
+  }
+
+  @Override
+  public void addExplicitExtension(@NotNull Language key, @NotNull T t) {
+    clearCacheForLanguage(key);
+    super.addExplicitExtension(key, t);
+  }
+
+  @Override
+  public void removeExplicitExtension(@NotNull Language key, @NotNull T t) {
+    clearCacheForLanguage(key);
+    super.removeExplicitExtension(key, t);
   }
 
   protected T getDefaultImplementation() {
     return myDefaultImplementation;
   }
 
-  @NotNull
-  protected Key<T> getLanguageCache() {
-    return IN_LANGUAGE_CACHE;
+  @Override
+  protected void ensureValuesLoaded() {
+    super.ensureValuesLoaded();
   }
 }

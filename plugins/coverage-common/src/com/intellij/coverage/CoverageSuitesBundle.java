@@ -1,3 +1,4 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.coverage;
 
 import com.intellij.execution.configurations.ModuleBasedConfiguration;
@@ -14,29 +15,29 @@ import com.intellij.psi.util.CachedValue;
 import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.reference.SoftReference;
+import com.intellij.rt.coverage.data.LineData;
 import com.intellij.rt.coverage.data.ProjectData;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.Function;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.TreeMap;
 
-/**
- * User: anna
- * Date: 12/14/10
- */
 public class CoverageSuitesBundle {
-  private CoverageSuite[] mySuites;
-  private CoverageEngine myEngine;
+  private final CoverageSuite[] mySuites;
+  private final CoverageEngine myEngine;
 
   private Set<Module> myProcessedModules;
 
   private CachedValue<GlobalSearchScope> myCachedValue;
 
-  private SoftReference<ProjectData> myData = new SoftReference<ProjectData>(null);
-  private static final Logger LOG = Logger.getInstance("#" + CoverageSuitesBundle.class.getName());
+  private SoftReference<ProjectData> myData = new SoftReference<>(null);
+  private static final Logger LOG = Logger.getInstance(CoverageSuitesBundle.class);
 
   public CoverageSuitesBundle(CoverageSuite suite) {
     this(new CoverageSuite[]{suite});
@@ -60,6 +61,9 @@ public class CoverageSuitesBundle {
     return true;
   }
 
+  public Project getProject() {
+    return mySuites[0].getProject();
+  }
 
   public long getLastCoverageTimeStamp() {
     long max = 0;
@@ -94,7 +98,7 @@ public class CoverageSuitesBundle {
         data.merge(coverageData);
       }
     }
-    myData = new SoftReference<ProjectData>(data);
+    myData = new SoftReference<>(data);
     return data;
   }
 
@@ -117,11 +121,21 @@ public class CoverageSuitesBundle {
     return myEngine;
   }
 
-  public CoverageAnnotator getAnnotator(Project project) {
+  public LineMarkerRendererWithErrorStripe getLineMarkerRenderer(int lineNumber,
+                                                                 @Nullable final String className,
+                                                                 final TreeMap<Integer, LineData> lines,
+                                                                 final boolean coverageByTestApplicable,
+                                                                 @NotNull final CoverageSuitesBundle coverageSuite,
+                                                                 final Function<? super Integer, Integer> newToOldConverter,
+                                                                 final Function<? super Integer, Integer> oldToNewConverter, boolean subCoverageActive) {
+    return myEngine.getLineMarkerRenderer(lineNumber, className, lines, coverageByTestApplicable, coverageSuite, newToOldConverter, oldToNewConverter, subCoverageActive);
+  }
+
+  public CoverageAnnotator getAnnotator(@NotNull Project project) {
     return myEngine.getCoverageAnnotator(project);
   }
 
-  public CoverageSuite[] getSuites() {
+  public CoverageSuite @NotNull [] getSuites() {
     return mySuites;
   }
 
@@ -130,20 +144,18 @@ public class CoverageSuitesBundle {
   }
 
   public void setCoverageData(ProjectData projectData) {
-    myData = new SoftReference<ProjectData>(projectData);
+    myData = new SoftReference<>(projectData);
   }
 
   public void restoreCoverageData() {
-    myData = new SoftReference<ProjectData>(null);
+    myData = new SoftReference<>(null);
+    for (CoverageSuite suite : mySuites) {
+      suite.restoreCoverageData();
+    }
   }
 
   public String getPresentableName() {
-    return StringUtil.join(mySuites, new Function<CoverageSuite, String>() {
-      @Override
-      public String fun(CoverageSuite coverageSuite) {
-        return coverageSuite.getPresentableName();
-      }
-    }, ", ");
+    return StringUtil.join(mySuites, coverageSuite -> coverageSuite.getPresentableName(), ", ");
   }
 
   public boolean isModuleChecked(final Module module) {
@@ -152,7 +164,7 @@ public class CoverageSuitesBundle {
 
   public void checkModule(final Module module) {
     if (myProcessedModules == null) {
-      myProcessedModules = new HashSet<Module>();
+      myProcessedModules = new HashSet<>();
     }
     myProcessedModules.add(module);
   }
@@ -172,26 +184,24 @@ public class CoverageSuitesBundle {
 
   public GlobalSearchScope getSearchScope(final Project project) {
     if (myCachedValue == null) {
-      myCachedValue = CachedValuesManager.getManager(project).createCachedValue(new CachedValueProvider<GlobalSearchScope>() {
-        @Nullable
-        @Override
-        public Result<GlobalSearchScope> compute() {
-          return new Result<GlobalSearchScope>(getSearchScopeInner(project), ProjectRootModificationTracker.getInstance(project));
-        }
-      }, false);
+      myCachedValue = CachedValuesManager.getManager(project).createCachedValue(
+        () -> new CachedValueProvider.Result<>(getSearchScopeInner(project), ProjectRootModificationTracker.getInstance(project)), false);
     }
     return myCachedValue.getValue();
-    
+
   }
 
   private GlobalSearchScope getSearchScopeInner(Project project) {
-    final RunConfigurationBase configuration = getRunConfiguration();
-    if (configuration instanceof ModuleBasedConfiguration) {
-      final Module module = ((ModuleBasedConfiguration)configuration).getConfigurationModule().getModule();
-      if (module != null) {
-        return GlobalSearchScope.moduleRuntimeScope(module, isTrackTestFolders());
-      }
+    Module[] modules = Arrays.stream(mySuites).filter(suite -> suite instanceof BaseCoverageSuite)
+      .map(suite -> ((BaseCoverageSuite)suite).getConfiguration())
+      .filter(configuration -> configuration instanceof ModuleBasedConfiguration)
+      .map(configuration -> ((ModuleBasedConfiguration)configuration).getConfigurationModule().getModule())
+      .toArray(Module[]::new);
+
+    if (modules.length == 0 || ArrayUtil.find(modules, null) > -1) {
+      return isTrackTestFolders() ? GlobalSearchScope.projectScope(project) : GlobalSearchScopesCore.projectProductionScope(project);
     }
-    return isTrackTestFolders() ? GlobalSearchScope.projectScope(project) : GlobalSearchScopesCore.projectProductionScope(project);
+
+    return GlobalSearchScope.union(Arrays.stream(modules).map(module -> GlobalSearchScope.moduleRuntimeScope(module, isTrackTestFolders())).toArray(GlobalSearchScope[]::new));
   }
 }

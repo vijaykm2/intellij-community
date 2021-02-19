@@ -24,19 +24,19 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.testFramework.PlatformTestUtil;
-import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.BasePlatformTestCase;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
+import java.util.Arrays;
 
 /**
- * @by maxim
+ * @author maxim
  */
-@SuppressWarnings("ConstantConditions")
-public class XmlDocumentationTest extends LightPlatformCodeInsightFixtureTestCase {
+public class XmlDocumentationTest extends BasePlatformTestCase {
 
-  public void testXmlDoc() throws Exception {
+  public void testXmlDoc() {
     doOneTest("1.xml", "display-name", false, "web-app_2_3.dtd");
     doOneTest("2.xml", null, false, "web-app_2_4.xsd");
     doOneTest("3.xml", null, false, "web-app_2_4.xsd", "j2ee_1_4.xsd");
@@ -52,8 +52,8 @@ public class XmlDocumentationTest extends LightPlatformCodeInsightFixtureTestCas
   }
 
   public void testXmlDocWithCData() throws Exception {
-    doQuickDocGenerationTestWithCheckExpectedResult(getTestName(false) + ".xml","spring-beans.xsd");
-    doQuickDocGenerationTestWithCheckExpectedResult(getTestName(false) + "2.xml","spring-beans.xsd");
+    doQuickDocGenerationTestWithCheckExpectedResult(getTestName(false) + ".xml", "spring-beans.xsd");
+    doQuickDocGenerationTestWithCheckExpectedResult(getTestName(false) + "2.xml", "spring-beans.xsd");
   }
 
   public void testXmlDoc2() throws Exception {
@@ -69,19 +69,29 @@ public class XmlDocumentationTest extends LightPlatformCodeInsightFixtureTestCas
     doQuickDocGenerationTestWithCheckExpectedResult(testName + ".xml", testName + ".xsd");
   }
 
-  public void testSchemaPrefix() throws Exception {
+  public void testSchemaPrefix() {
     DocumentationTestContext context = new DocumentationTestContext("SchemaPrefix.xml");
     assertEquals("XML Namespace Prefix \"xs\" (http://www.w3.org/2001/XMLSchema)", context.getQuickNavigateInfo());
   }
 
+  public void testEntityValue() {
+    DocumentationTestContext context = new DocumentationTestContext("9.xml");
+    assertEquals("\"&#171;\"", context.getQuickNavigateInfo());
+  }
+
   public void testXmlDoc6() throws Exception {
     final String testName = getTestName(false);
-    doQuickDocGenerationTestWithCheckExpectedResult((Object)"car",testName + ".xml", testName + ".xsd");
+    doQuickDocGenerationTestWithCheckExpectedResult((Object)"car", testName + ".xml", testName + ".xsd");
   }
 
   public void testXmlDoc7() throws Exception {
     final String testName = getTestName(false);
-    doQuickDocGenerationTestWithCheckExpectedResult((Object)"$Paste",testName + ".xml", testName + ".xsd");
+    doQuickDocGenerationTestWithCheckExpectedResult((Object)"$Paste", testName + ".xml", testName + ".xsd");
+  }
+
+  public void testSvgDoc() throws Exception {
+    final String testName = getTestName(false);
+    doQuickDocGenerationTestWithCheckExpectedResult((Object)"rect", testName + ".svg");
   }
 
   private void doQuickDocGenerationTestWithCheckExpectedResult(final String... baseFileNames) throws Exception {
@@ -96,21 +106,30 @@ public class XmlDocumentationTest extends LightPlatformCodeInsightFixtureTestCas
     String expectedText = StringUtil.convertLineSeparators(VfsUtilCore.loadText(vfile));
     String text = context.generateDoc();
     assertNotNull(text);
-    assertEquals(expectedText, StringUtil.convertLineSeparators(text));
+    assertEquals(stripFirstLine(expectedText).replaceAll("\\s+", ""),
+                 stripFirstLine(StringUtil.convertLineSeparators(text)).replaceAll("\\s+", ""));
 
     if (completionVariant != null) {
-      vfile = LocalFileSystem.getInstance().findFileByIoFile(new File(getTestDataPath() +baseFileNames[0] + ".expected.completion.html"));
+      vfile = LocalFileSystem.getInstance().findFileByIoFile(new File(getTestDataPath() + baseFileNames[0] + ".expected.completion.html"));
       expectedText = StringUtil.convertLineSeparators(VfsUtilCore.loadText(vfile), "\n");
-      assertEquals(expectedText, StringUtil.convertLineSeparators(context.generateDocForCompletion(completionVariant), "\n"));
+      assertEquals(stripFirstLine(expectedText).replaceAll("\\s+", ""),
+                   stripFirstLine(StringUtil.convertLineSeparators(context.generateDocForCompletion(completionVariant), "\n"))
+                     .replaceAll("\\s+", ""));
     }
   }
 
-  public void testDtdDoc() throws Exception {
+  // the first line may contain attributes in unpredictable order (after Transform work)
+  private static String stripFirstLine(String text) {
+    if (!text.startsWith("<html ")) return text;
+    return text.substring(text.indexOf('\n'));
+  }
+
+  public void testDtdDoc() {
     doOneTest("dtd.dtd", "foo", false, true, "web-app_2_4.xsd");
     doOneTest("dtd.xml", "foo", false, true, "web-app_2_4.xsd");
   }
 
-  private void doOneTest(String fileName, String lookupObject, boolean testExternal, String... additional) throws Exception {
+  private void doOneTest(String fileName, String lookupObject, boolean testExternal, String... additional) {
     copyAdditionalFiles(additional);
     doOneTest(fileName, lookupObject, testExternal, true, "web-app_2_4.xsd");
   }
@@ -121,7 +140,6 @@ public class XmlDocumentationTest extends LightPlatformCodeInsightFixtureTestCas
     }
   }
 
-  @SuppressWarnings("ConstantConditions")
   public class DocumentationTestContext {
     final DocumentationProvider documentationProvider;
     final PsiElement originalElement;
@@ -153,36 +171,50 @@ public class XmlDocumentationTest extends LightPlatformCodeInsightFixtureTestCas
 
     @Nullable
     public String generateDocForCompletion(Object completionVariant) {
-      PsiElement lookupItem = documentationProvider.getDocumentationElementForLookupItem(getPsiManager(), completionVariant, originalElement);
+      PsiElement lookupItem = documentationProvider.getDocumentationElementForLookupItem(getPsiManager(), completionVariant,
+                                                                                         originalElement);
+      if (lookupItem == null && completionVariant instanceof String) {
+        myFixture.completeBasic();
+        lookupItem = (PsiElement)Arrays.stream(myFixture.getLookupElements())
+          .filter(el -> el.getLookupString().equals(completionVariant))
+          .map(el -> el.getObject())
+          .filter(el -> el instanceof PsiElement)
+          .findFirst()
+          .orElse(null);
+      }
       assert lookupItem != null;
       return documentationProvider.generateDoc(lookupItem, originalElement);
     }
   }
 
-  private void doOneTest(String fileName, String lookupObject, boolean testExternal, boolean testForElementUnderCaret, String... additional) throws Exception {
+  private void doOneTest(String fileName,
+                         String lookupObject,
+                         boolean testExternal,
+                         boolean testForElementUnderCaret,
+                         String... additional) {
     copyAdditionalFiles(additional);
     final DocumentationTestContext context = new DocumentationTestContext(fileName);
 
     if (testForElementUnderCaret) {
-      assertNotNull( "inline help for " + fileName, context.generateDoc() );
+      assertNotNull("inline help for " + fileName, context.generateDoc());
       if (testExternal) {
-        assertNotNull( "external help", context.documentationProvider.getUrlFor(context.element, context.originalElement) );
+        assertNotNull("external help", context.documentationProvider.getUrlFor(context.element, context.originalElement));
       }
     }
 
-    if(lookupObject!=null) {
+    if (lookupObject != null) {
       PsiElement docElement = context.documentationProvider.getDocumentationElementForLookupItem(
-        context.psiFile.getManager(), lookupObject,context.originalElement);
+        context.psiFile.getManager(), lookupObject, context.originalElement);
       assertNotNull("no element for " + fileName, docElement);
-      assertNotNull( "inline help for lookup", context.documentationProvider.generateDoc(docElement, context.originalElement) );
+      assertNotNull("inline help for lookup", context.documentationProvider.generateDoc(docElement, context.originalElement));
       if (testExternal) {
-        assertNotNull( "external help for lookup", context.documentationProvider.getUrlFor(docElement, context.originalElement) );
+        assertNotNull("external help for lookup", context.documentationProvider.getUrlFor(docElement, context.originalElement));
       }
     }
   }
 
   public void testScopeAttribute() throws Exception {
-    doQuickDocGenerationTestWithCheckExpectedResult(getTestName(false) + ".xml","spring-beans.xsd");
+    doQuickDocGenerationTestWithCheckExpectedResult(getTestName(false) + ".xml", "spring-beans.xsd");
   }
 
   public void testXslCompletion() throws Exception {

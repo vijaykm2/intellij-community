@@ -16,10 +16,10 @@
 package org.intellij.lang.xpath.xslt.refactoring.introduceParameter;
 
 import com.intellij.lang.LanguageNamesValidation;
-
 import org.intellij.lang.xpath.psi.XPathExpression;
 import org.intellij.lang.xpath.xslt.refactoring.BaseIntroduceDialog;
 import org.intellij.lang.xpath.xslt.refactoring.BaseIntroduceForm;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -30,7 +30,6 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 
 public class IntroduceParameterDialog extends BaseIntroduceDialog implements IntroduceParameterOptions {
-    private static final String TITLE = "XSLT - Introduce Parameter";
 
     private JPanel myContentPane;
     private JCheckBox myCreateWithDefault;
@@ -43,9 +42,10 @@ public class IntroduceParameterDialog extends BaseIntroduceDialog implements Int
     public IntroduceParameterDialog(XPathExpression expression, int numberOfExpressions, boolean forceDefault) {
         super(expression.getProject(), LanguageNamesValidation.INSTANCE.forLanguage(expression.getLanguage()));
         myForceDefault = forceDefault;
-        init(expression, numberOfExpressions, TITLE);
+        init(expression, numberOfExpressions, XPathBundle.message("dialog.title.xslt.introduce.parameter"));
 
         getOKAction().addPropertyChangeListener(new PropertyChangeListener() {
+            @Override
             @SuppressWarnings({"AutoUnboxing"})
             public void propertyChange(PropertyChangeEvent evt) {
                 if (evt.getPropertyName().equals("enabled")) {
@@ -58,6 +58,7 @@ public class IntroduceParameterDialog extends BaseIntroduceDialog implements Int
             myCreateWithDefault.setVisible(false);
         } else {
             myCreateWithDefault.addItemListener(new ItemListener() {
+                @Override
                 public void itemStateChanged(ItemEvent e) {
                     myPreviewAction.setEnabled(getOKAction().isEnabled() && !myCreateWithDefault.isSelected());
                 }
@@ -66,8 +67,8 @@ public class IntroduceParameterDialog extends BaseIntroduceDialog implements Int
         myPreviewAction.setEnabled(false);
     }
 
-    @NotNull
-    protected Action[] createActions() {
+    @Override
+    protected Action @NotNull [] createActions() {
         return myForceDefault ? super.createActions() : new Action[]{ getOKAction(), getPreviewAction(), getCancelAction() };
     }
 
@@ -75,31 +76,37 @@ public class IntroduceParameterDialog extends BaseIntroduceDialog implements Int
         return myPreviewAction;
     }
 
+    @Override
     protected JComponent createCenterPanel() {
         return myContentPane;
     }
 
+    @Override
     public boolean isCreateDefault() {
         return myCreateWithDefault.isSelected();
     }
 
+    @Override
     public boolean isReplaceAll() {
         return myForm.isReplaceAll();
     }
 
+    @Override
     public boolean isPreview() {
         return myIsPreview;
     }
 
+    @Override
     protected BaseIntroduceForm getForm() {
         return myForm;
     }
 
     private class MyPreviewAction extends AbstractAction {
-        public MyPreviewAction() {
-            super("&Preview");
+        MyPreviewAction() {
+            super(XPathBundle.message("action.preview.text"));
         }
 
+        @Override
         public void actionPerformed(ActionEvent e) {
             myIsPreview = true;
             doOKAction();

@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.generation.surroundWith.JavaWithTryCatchSurrounder;
+import com.intellij.codeInsight.intention.FileModifier;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
@@ -27,27 +13,30 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.refactoring.util.RefactoringChangeUtil;
 import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.util.IncorrectOperationException;
+import com.siyeh.ig.psiutils.CodeBlockSurrounder;
+import com.siyeh.ig.psiutils.ExpressionUtils;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * @author mike
- * Date: Aug 19, 2002
- */
 public class SurroundWithTryCatchFix implements IntentionAction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.daemon.impl.quickfix.SurroundWithTryCatchFix");
+  private static final Logger LOG = Logger.getInstance(SurroundWithTryCatchFix.class);
 
-  private PsiElement myStatement = null;
+  private PsiElement myElement;
 
   public SurroundWithTryCatchFix(@NotNull PsiElement element) {
-    final PsiFunctionalExpression functionalExpression = PsiTreeUtil.getParentOfType(element, PsiFunctionalExpression.class, false, PsiStatement.class);
-    if (functionalExpression == null) {
-      myStatement = PsiTreeUtil.getNonStrictParentOfType(element, PsiStatement.class);
+    if (element instanceof PsiExpression &&
+        PsiTreeUtil.getParentOfType(element, PsiResourceListElement.class, false, PsiStatement.class) != null) {
+      // We are inside resource list: there's already a suggestion to add a catch to this try.
+      // Suggesting wrapping with another try-catch is confusing
+      return;
     }
-    else if (functionalExpression instanceof PsiLambdaExpression) {
-      myStatement = functionalExpression;
+    if (element instanceof PsiStatement ||
+        (element instanceof PsiExpression &&
+         !(element instanceof PsiMethodReferenceExpression) &&
+         CodeBlockSurrounder.canSurround(ExpressionUtils.getTopLevelExpression((PsiExpression)element)))) {
+      myElement = element;
     }
   }
 
@@ -65,45 +54,29 @@ public class SurroundWithTryCatchFix implements IntentionAction {
 
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
-    return myStatement != null &&
-           myStatement.isValid() &&
-           (!(myStatement instanceof PsiExpressionStatement) ||
-            !RefactoringChangeUtil.isSuperOrThisMethodCall(((PsiExpressionStatement)myStatement).getExpression()));
+    return myElement != null && myElement.isValid();
   }
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) {
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
-
     int col = editor.getCaretModel().getLogicalPosition().column;
     int line = editor.getCaretModel().getLogicalPosition().line;
     editor.getCaretModel().moveToLogicalPosition(new LogicalPosition(0, 0));
 
-    if (myStatement.getParent() instanceof PsiForStatement) {
-      PsiForStatement forStatement = (PsiForStatement)myStatement.getParent();
-      if (myStatement.equals(forStatement.getInitialization()) || myStatement.equals(forStatement.getUpdate())) {
-        myStatement = forStatement;
-      }
-    }
-
-    if (myStatement instanceof PsiLambdaExpression) {
-      PsiElement body = ((PsiLambdaExpression)myStatement).getBody();
-      if (body instanceof PsiExpression) {
-        myStatement = RefactoringUtil.expandExpressionLambdaToCodeBlock(body);
-      }
-
-      body = ((PsiLambdaExpression)myStatement).getBody();
-      LOG.assertTrue(body instanceof PsiCodeBlock);
-      final PsiStatement[] statements = ((PsiCodeBlock)body).getStatements();
-      LOG.assertTrue(statements.length == 1);
-      myStatement = statements[0];
+    if (myElement instanceof PsiExpression) {
+      CodeBlockSurrounder surrounder = CodeBlockSurrounder.forExpression(ExpressionUtils.getTopLevelExpression((PsiExpression)myElement));
+      if (surrounder == null) return;
+      myElement = surrounder.surround().getAnchor();
+    } else {
+      myElement = RefactoringUtil.getParentStatement(myElement, false);
+      if (myElement == null) return;
     }
 
     TextRange range = null;
 
     try{
       JavaWithTryCatchSurrounder handler = new JavaWithTryCatchSurrounder();
-      range = handler.surroundElements(project, editor, new PsiElement[] {myStatement});
+      range = handler.surroundElements(project, editor, new PsiElement[]{myElement});
     }
     catch(IncorrectOperationException e){
       LOG.error(e);
@@ -121,5 +94,10 @@ public class SurroundWithTryCatchFix implements IntentionAction {
   @Override
   public boolean startInWriteAction() {
     return true;
+  }
+
+  @Override
+  public @Nullable FileModifier getFileModifierForPreview(@NotNull PsiFile target) {
+    return new SurroundWithTryCatchFix(PsiTreeUtil.findSameElementInCopy(myElement, target));
   }
 }

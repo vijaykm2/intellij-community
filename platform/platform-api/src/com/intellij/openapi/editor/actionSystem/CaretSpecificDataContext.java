@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,21 +27,22 @@ import org.jetbrains.annotations.Nullable;
 
 public class CaretSpecificDataContext extends DataContextWrapper {
   private final Caret myCaret;
+  private final DataContext myCaretContext;
 
   public CaretSpecificDataContext(@NotNull DataContext delegate, @NotNull Caret caret) {
     super(delegate);
     myCaret = caret;
+    Project project = super.getData(CommonDataKeys.PROJECT);
+    FileEditorManager fm = project == null ? null : FileEditorManager.getInstance(project);
+    myCaretContext = fm == null ? null : dataId -> fm.getData(dataId, myCaret.getEditor(), myCaret);
   }
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
-    Project project = (Project)super.getData(CommonDataKeys.PROJECT.getName());
-    if (project == null) {
-      return null;
-    }
-    FileEditorManager fm = FileEditorManager.getInstance(project);
-    Object data = fm == null ? null : fm.getData(dataId, myCaret.getEditor(), myCaret);
-    return data == null ? super.getData(dataId) : data;
+  public Object getData(@NotNull @NonNls String dataId) {
+    Object data = myCaretContext == null ? null : myCaretContext.getData(dataId);
+    if (data != null) return data;
+    if (CommonDataKeys.CARET.is(dataId)) return myCaret;
+    return super.getData(dataId);
   }
 }

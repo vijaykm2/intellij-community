@@ -15,30 +15,25 @@
  */
 package org.zmlx.hg4idea.test;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ChangeListManagerImpl;
 import com.intellij.openapi.vcs.changes.LocalChangeList;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.containers.HashSet;
-import com.intellij.util.ui.UIUtil;
-import org.testng.Assert;
+import com.intellij.testFramework.EdtTestUtil;
+import org.junit.Assert;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
+import java.util.*;
 
-import static org.testng.Assert.assertNotNull;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 
 /**
  * The ChangeListManagerImpl extension with some useful helper methods for tests.
- * @author Kirill Likhodedov
  */
 public class HgTestChangeListManager {
 
-  private ChangeListManagerImpl peer;
+  final ChangeListManagerImpl peer;
 
   public HgTestChangeListManager(Project project) {
     peer = ChangeListManagerImpl.getInstanceImpl(project);
@@ -64,9 +59,9 @@ public class HgTestChangeListManager {
 
     final Collection<Change> changes = peer.getDefaultChangeList().getChanges();
     if (only) {
-      Assert.assertEquals(changes.size(), files.length);
+      assertEquals(files.length, changes.size());
     }
-    final Collection<VirtualFile> filesInChangeList = new HashSet<VirtualFile>();
+    final Collection<VirtualFile> filesInChangeList = new HashSet<>();
     for (Change c : changes) {
       filesInChangeList.add(c.getVirtualFile());
     }
@@ -80,19 +75,14 @@ public class HgTestChangeListManager {
    */
   public void commitFiles(VirtualFile... files) {
     ensureUpToDate();
-    final List<Change> changes = new ArrayList<Change>(files.length);
+    final List<Change> changes = new ArrayList<>(files.length);
     for (VirtualFile f : files) {
       changes.addAll(peer.getChangesIn(f));
     }
     final LocalChangeList list = peer.getDefaultChangeList();
     assertNotNull(list);
-    list.setComment("A comment to a commit");
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        Assert.assertTrue(peer.commitChangesSynchronouslyWithResult(list, changes));
-      }
-    });
+    peer.editComment(list.getName(), "A comment to a commit");
+    EdtTestUtil.runInEdtAndWait(() -> peer.commitChangesSynchronouslyWithResult(list, changes));
     ensureUpToDate();
   }
 
@@ -101,9 +91,6 @@ public class HgTestChangeListManager {
    * It is called after each operation in the HgTestChangeListManager.
    */
   public void ensureUpToDate() {
-    if (!ApplicationManager.getApplication().isDispatchThread()) { // for dispatch thread no need to force update.
-      peer.ensureUpToDate(false);
-    }
+    peer.ensureUpToDate();
   }
-
 }

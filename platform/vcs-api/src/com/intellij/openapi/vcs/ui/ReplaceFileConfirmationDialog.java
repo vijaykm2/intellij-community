@@ -21,11 +21,13 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.openapi.vcs.FileStatusManager;
 import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.ui.FilePathSplittingPolicy;
+import org.jetbrains.annotations.Nls;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -35,9 +37,9 @@ import java.util.Collection;
 public class ReplaceFileConfirmationDialog {
   private final FileStatusManager myFileStatusManager;
   ProgressIndicator myProgressIndicator = ProgressManager.getInstance().getProgressIndicator();
-  private final String myActionName;
+  @Nls private final String myActionName;
 
-  public ReplaceFileConfirmationDialog(Project project, String actionName) {
+  public ReplaceFileConfirmationDialog(Project project, @Nls String actionName) {
     myFileStatusManager = FileStatusManager.getInstance(project);
     myActionName = actionName;
   }
@@ -59,29 +61,33 @@ public class ReplaceFileConfirmationDialog {
     if (modifiedFiles.isEmpty()) return true;
 
     return Messages.showOkCancelDialog(createMessage(modifiedFiles), myActionName,
-                                    createOwerriteButtonName(modifiedFiles), getCancelButtonText(),
-                               Messages.getWarningIcon()) ==
+                                       createOverwriteButtonName(modifiedFiles), getCancelButtonText(),
+                                       Messages.getWarningIcon()) ==
            Messages.OK;
 
   }
 
+  @NlsContexts.Button
   protected String getCancelButtonText() {
     return CommonBundle.getCancelButtonText();
   }
 
-  private String createOwerriteButtonName(Collection modifiedFiles) {
-
+  @NlsContexts.Button
+  private String createOverwriteButtonName(Collection modifiedFiles) {
     return modifiedFiles.size() > 1 ? getOkButtonTextForFiles() : getOkButtonTextForOneFile();
   }
 
+  @NlsContexts.Button
   protected String getOkButtonTextForOneFile() {
     return VcsBundle.message("button.text.overwrite.modified.file");
   }
 
+  @NlsContexts.Button
   protected String getOkButtonTextForFiles() {
     return VcsBundle.message("button.text.overwrite.modified.files");
   }
 
+  @NlsContexts.DialogMessage
   protected String createMessage(Collection modifiedFiles) {
     if (modifiedFiles.size() == 1) {
       VirtualFile virtualFile = ((VirtualFile)modifiedFiles.iterator().next());
@@ -95,12 +101,11 @@ public class ReplaceFileConfirmationDialog {
 
   public Collection<VirtualFile> collectModifiedFiles(VirtualFile[] files) {
 
-    ArrayList<VirtualFile> result = new ArrayList<VirtualFile>();
+    ArrayList<VirtualFile> result = new ArrayList<>();
 
     if (files == null) return result;
 
-    for (int i = 0; i < files.length; i++) {
-      VirtualFile file = files[i];
+    for (VirtualFile file : files) {
       if (myProgressIndicator != null) {
         myProgressIndicator.setText(VcsBundle.message("progress.text.searching.for.modified.files"));
         myProgressIndicator.setText2(file.getPresentableUrl());

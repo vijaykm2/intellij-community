@@ -29,9 +29,6 @@ import org.jetbrains.jps.model.runConfiguration.JpsTypedRunConfiguration;
 
 import java.util.List;
 
-/**
- * @author nik
- */
 public interface JpsProject extends JpsCompositeElement, JpsReferenceableElement<JpsProject> {
 
   @NotNull
@@ -39,6 +36,8 @@ public interface JpsProject extends JpsCompositeElement, JpsReferenceableElement
   JpsModule addModule(@NotNull String name, @NotNull ModuleType moduleType);
 
   void addModule(@NotNull JpsModule module);
+
+  void removeModule(@NotNull JpsModule module);
 
   @NotNull
   List<JpsModule> getModules();

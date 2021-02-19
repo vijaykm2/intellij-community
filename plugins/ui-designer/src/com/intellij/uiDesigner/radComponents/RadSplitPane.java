@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.radComponents;
 
 import com.intellij.uiDesigner.ModuleProvider;
@@ -23,7 +9,6 @@ import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.designSurface.*;
 import com.intellij.uiDesigner.lw.LwSplitPane;
 import com.intellij.uiDesigner.palette.Palette;
-import com.intellij.uiDesigner.snapShooter.SnapshotContext;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -38,10 +23,12 @@ import java.awt.event.MouseEvent;
  */
 public final class RadSplitPane extends RadContainer {
   public static class Factory extends RadComponentFactory {
+    @Override
     public RadComponent newInstance(ModuleProvider module, Class aClass, String id) {
       return new RadSplitPane(module, aClass, id);
     }
 
+    @Override
     public RadComponent newInstance(final Class componentClass, final String id, final Palette palette) {
       return new RadSplitPane(componentClass, id, palette);
     }
@@ -101,6 +88,7 @@ public final class RadSplitPane extends RadContainer {
     return null;
   }
 
+  @Override
   public void write(final XmlWriter writer) {
     writer.startElement(UIFormXmlConstants.ELEMENT_SPLITPANE);
     try {
@@ -122,31 +110,14 @@ public final class RadSplitPane extends RadContainer {
   }
 
 
-  @Override
-  protected void importSnapshotComponent(final SnapshotContext context, final JComponent component) {
-    JSplitPane splitPane = (JSplitPane) component;
-    importSideComponent(splitPane.getLeftComponent(), context, LwSplitPane.POSITION_LEFT);
-    importSideComponent(splitPane.getRightComponent(), context, LwSplitPane.POSITION_RIGHT);
-  }
-
-  private void importSideComponent(final Component sideComponent,
-                                   final SnapshotContext context,
-                                   final String position) {
-    if (sideComponent instanceof JComponent) {
-      RadComponent radSideComponent = createSnapshotComponent(context, (JComponent) sideComponent);
-      if (radSideComponent != null) {
-        radSideComponent.setCustomLayoutConstraints(position);
-        addComponent(radSideComponent);
-      }
-    }
-  }
-
   private class RadSplitPaneLayoutManager extends RadLayoutManager {
 
+    @Override
     @Nullable public String getName() {
       return null;
     }
 
+    @Override
     public void writeChildConstraints(final XmlWriter writer, final RadComponent child) {
       writer.startElement("splitpane");
       try {
@@ -161,6 +132,7 @@ public final class RadSplitPane extends RadContainer {
       }
     }
 
+    @Override
     public void addComponentToContainer(final RadContainer container, final RadComponent component, final int index) {
       final JSplitPane splitPane = (JSplitPane) container.getDelegee();
       final JComponent delegee = component.getDelegee();
@@ -187,14 +159,16 @@ public final class RadSplitPane extends RadContainer {
   private class MyDropLocation implements ComponentDropLocation {
     private final boolean myLeft;
 
-    public MyDropLocation(final boolean left) {
+    MyDropLocation(final boolean left) {
       myLeft = left;
     }
 
+    @Override
     public RadContainer getContainer() {
       return RadSplitPane.this;
     }
 
+    @Override
     public boolean canDrop(ComponentDragObject dragObject) {
       /*
       TODO[yole]: support multi-drop (is it necessary?)
@@ -207,6 +181,7 @@ public final class RadSplitPane extends RadContainer {
              isEmptySplitComponent(myLeft ? getSplitPane().getLeftComponent() : getSplitPane().getRightComponent());
     }
 
+    @Override
     public void placeFeedback(FeedbackLayer feedbackLayer, ComponentDragObject dragObject) {
       final JSplitPane splitPane = getSplitPane();
       int dividerPos = getDividerPos();
@@ -237,6 +212,7 @@ public final class RadSplitPane extends RadContainer {
       return getDisplayName() + " (" + pos + ")";
     }
 
+    @Override
     public void processDrop(GuiEditor editor,
                             RadComponent[] components,
                             GridConstraints[] constraintsToAdjust,
@@ -245,6 +221,7 @@ public final class RadSplitPane extends RadContainer {
       addComponent(components[0]);
     }
 
+    @Override
     @Nullable
     public ComponentDropLocation getAdjacentLocation(Direction direction) {
       return null;
@@ -252,9 +229,11 @@ public final class RadSplitPane extends RadContainer {
   }
 
   private class DividerDragProcessor extends EventProcessor {
+    @Override
     protected void processKeyEvent(KeyEvent e) {
     }
 
+    @Override
     protected void processMouseEvent(MouseEvent event) {
       JSplitPane splitPane = getSplitPane();
       Point pnt = SwingUtilities.convertPoint(event.getComponent(), event.getPoint(), splitPane);
@@ -266,6 +245,7 @@ public final class RadSplitPane extends RadContainer {
       return true;
     }
 
+    @Override
     protected boolean cancelOperation() {
       return false;
     }

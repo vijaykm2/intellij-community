@@ -26,13 +26,6 @@ public class AwaitWithoutCorrespondingSignalInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "await.without.corresponding.signal.display.name");
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message(
       "await.without.corresponding.signal.problem.descriptor");
@@ -89,18 +82,17 @@ public class AwaitWithoutCorrespondingSignalInspection extends BaseInspection {
   }
 
   private static class ContainsSignalVisitor
-    extends JavaRecursiveElementVisitor {
+    extends JavaRecursiveElementWalkingVisitor {
 
     private final PsiField target;
-    private boolean containsSignal = false;
+    private boolean containsSignal;
 
     ContainsSignalVisitor(PsiField target) {
-      super();
       this.target = target;
     }
 
     @Override
-    public void visitElement(PsiElement element) {
+    public void visitElement(@NotNull PsiElement element) {
       if (containsSignal) {
         return;
       }
@@ -134,7 +126,7 @@ public class AwaitWithoutCorrespondingSignalInspection extends BaseInspection {
       containsSignal = true;
     }
 
-    public boolean containsSignal() {
+    boolean containsSignal() {
       return containsSignal;
     }
   }

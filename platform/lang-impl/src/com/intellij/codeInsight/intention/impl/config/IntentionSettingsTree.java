@@ -1,55 +1,41 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/**
- * @author cdr
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.intention.impl.config;
 
 import com.intellij.codeInsight.intention.IntentionManager;
 import com.intellij.ide.CommonActionsManager;
 import com.intellij.ide.DefaultTreeExpander;
+import com.intellij.ide.TreeExpander;
 import com.intellij.ide.ui.search.SearchUtil;
 import com.intellij.openapi.actionSystem.ActionManager;
-import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.packageDependencies.ui.TreeExpansionMonitor;
 import com.intellij.ui.*;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.TimeoutUtil;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.tree.TreeUtil;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.event.TreeSelectionEvent;
 import javax.swing.event.TreeSelectionListener;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
+import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 public abstract class IntentionSettingsTree {
   private JComponent myComponent;
   private CheckboxTree myTree;
   private FilterComponent myFilter;
 
-  private final Map<IntentionActionMetaData, Boolean> myIntentionToCheckStatus = new HashMap<IntentionActionMetaData, Boolean>();
+  private final Map<IntentionActionMetaData, Boolean> myIntentionToCheckStatus = new HashMap<>();
   private JPanel myNorthPanel;
 
   protected IntentionSettingsTree() {
@@ -68,20 +54,21 @@ public abstract class IntentionSettingsTree {
     myTree = new CheckboxTree(new CheckboxTree.CheckboxTreeCellRenderer(true) {
       @Override
       public void customizeRenderer(JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) {
-        if (!(value instanceof CheckedTreeNode)) return;
+        if (!(value instanceof CheckedTreeNode)) {
+          return;
+        }
+
         CheckedTreeNode node = (CheckedTreeNode)value;
         SimpleTextAttributes attributes = node.getUserObject() instanceof IntentionActionMetaData ? SimpleTextAttributes.REGULAR_ATTRIBUTES : SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES;
         final String text = getNodeText(node);
-        final Color background = selected ? UIUtil.getTreeSelectionBackground() : UIUtil.getTreeTextBackground();
+        Color background = UIUtil.getTreeBackground(selected, true);
         UIUtil.changeBackGround(this, background);
-        if (text != null) {
-          SearchUtil.appendFragments(myFilter != null ? myFilter.getFilter() : null,
-                                     text,
-                                     attributes.getStyle(),
-                                     attributes.getFgColor(),
-                                     background,
-                                     getTextRenderer());
-        }
+        SearchUtil.appendFragments(myFilter != null ? myFilter.getFilter() : null,
+                                   text,
+                                   attributes.getStyle(),
+                                   attributes.getFgColor(),
+                                   background,
+                                   getTextRenderer());
       }
     }, new CheckedTreeNode(null));
 
@@ -99,15 +86,16 @@ public abstract class IntentionSettingsTree {
     JScrollPane scrollPane = ScrollPaneFactory.createScrollPane(myTree);
     myNorthPanel = new JPanel(new BorderLayout());
     myNorthPanel.add(myFilter, BorderLayout.CENTER);
+    myNorthPanel.setBorder(JBUI.Borders.emptyBottom(2));
 
-    final DefaultActionGroup group = new DefaultActionGroup();
-    final CommonActionsManager actionManager = CommonActionsManager.getInstance();
+    DefaultActionGroup group = new DefaultActionGroup();
+    CommonActionsManager actionManager = CommonActionsManager.getInstance();
 
-    final DefaultTreeExpander treeExpander = new DefaultTreeExpander(myTree);
+    TreeExpander treeExpander = new DefaultTreeExpander(myTree);
     group.add(actionManager.createExpandAllAction(treeExpander, myTree));
     group.add(actionManager.createCollapseAllAction(treeExpander, myTree));
 
-    myNorthPanel.add(ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, group, true).getComponent(), BorderLayout.WEST);
+    myNorthPanel.add(ActionManager.getInstance().createActionToolbar("IntentionSettingsTree", group, true).getComponent(), BorderLayout.WEST);
 
     myComponent.add(myNorthPanel, BorderLayout.NORTH);
     myComponent.add(scrollPane, BorderLayout.CENTER);
@@ -120,34 +108,30 @@ public abstract class IntentionSettingsTree {
 
   public void filter(List<IntentionActionMetaData> intentionsToShow) {
     refreshCheckStatus((CheckedTreeNode)myTree.getModel().getRoot());
-    reset(intentionsToShow);
+    reset(copyAndSort(intentionsToShow));
   }
 
   public void reset(){
-    while (((IntentionManagerImpl)IntentionManager.getInstance()).hasActiveRequests()) {
+    IntentionManagerImpl intentionManager = (IntentionManagerImpl)IntentionManager.getInstance();
+    while (intentionManager.hasActiveRequests()) {
       TimeoutUtil.sleep(100);
     }
-    resetCheckStatus();    
-    reset(IntentionManagerSettings.getInstance().getMetaData());
-  }
 
-  private void resetCheckStatus() {
+    IntentionManagerSettings intentionManagerSettings = IntentionManagerSettings.getInstance();
     myIntentionToCheckStatus.clear();
-    IntentionManagerSettings manager = IntentionManagerSettings.getInstance();
-    for (IntentionActionMetaData metaData : manager.getMetaData()) {
-      myIntentionToCheckStatus.put(metaData, manager.isEnabled(metaData));
+    List<IntentionActionMetaData> intentions = intentionManagerSettings.getMetaData();
+    for (IntentionActionMetaData metaData : intentions) {
+      myIntentionToCheckStatus.put(metaData, intentionManagerSettings.isEnabled(metaData));
     }
+    reset(copyAndSort(intentions));
   }
 
-  private void reset(List<IntentionActionMetaData> intentionsToShow) {
+  private void reset(@NotNull List<IntentionActionMetaData> sortedIntentions) {
     CheckedTreeNode root = new CheckedTreeNode(null);
-    final DefaultTreeModel treeModel = (DefaultTreeModel)myTree.getModel();
-    intentionsToShow = sort(intentionsToShow);
-
-    for (final IntentionActionMetaData metaData : intentionsToShow) {
-      String[] category = metaData.myCategory;
+    DefaultTreeModel treeModel = (DefaultTreeModel)myTree.getModel();
+    for (IntentionActionMetaData metaData : sortedIntentions) {
       CheckedTreeNode node = root;
-      for (final String name : category) {
+      for (String name : metaData.myCategory) {
         CheckedTreeNode child = findChild(node, name);
         if (child == null) {
           CheckedTreeNode newChild = new CheckedTreeNode(name);
@@ -156,8 +140,7 @@ public abstract class IntentionSettingsTree {
         }
         node = child;
       }
-      CheckedTreeNode newChild = new CheckedTreeNode(metaData);
-      treeModel.insertNodeInto(newChild, node, node.getChildCount());
+      treeModel.insertNodeInto(new CheckedTreeNode(metaData), node, node.getChildCount());
     }
     resetCheckMark(root);
     treeModel.setRoot(root);
@@ -174,19 +157,16 @@ public abstract class IntentionSettingsTree {
     }
   }
 
-  private static List<IntentionActionMetaData> sort(final List<IntentionActionMetaData> intentionsToShow) {
-    List<IntentionActionMetaData> copy = new ArrayList<IntentionActionMetaData>(intentionsToShow);
-    Collections.sort(copy, new Comparator<IntentionActionMetaData>() {
-      @Override
-      public int compare(final IntentionActionMetaData data1, final IntentionActionMetaData data2) {
-        String[] category1 = data1.myCategory;
-        String[] category2 = data2.myCategory;
-        int result = ArrayUtil.lexicographicCompare(category1, category2);
-        if (result!= 0) {
-          return result;
-        }
-        return data1.getFamily().compareTo(data2.getFamily());
+  private static @NotNull List<IntentionActionMetaData> copyAndSort(@NotNull List<IntentionActionMetaData> intentionsToShow) {
+    List<IntentionActionMetaData> copy = new ArrayList<>(intentionsToShow);
+    copy.sort((data1, data2) -> {
+      String[] category1 = data1.myCategory;
+      String[] category2 = data2.myCategory;
+      int result = ArrayUtil.lexicographicCompare(category1, category2);
+      if (result != 0) {
+        return result;
       }
+      return data1.getFamily().compareTo(data2.getFamily());
     });
     return copy;
   }
@@ -200,7 +180,7 @@ public abstract class IntentionSettingsTree {
     if (userObject instanceof IntentionActionMetaData) {
       IntentionActionMetaData metaData = (IntentionActionMetaData)userObject;
       Boolean b = myIntentionToCheckStatus.get(metaData);
-      boolean enabled = b == null ? false : b.booleanValue();
+      boolean enabled = b == Boolean.TRUE;
       root.setChecked(enabled);
       return enabled;
     }
@@ -218,8 +198,8 @@ public abstract class IntentionSettingsTree {
     }
   }
 
-  private static CheckedTreeNode findChild(CheckedTreeNode node, final String name) {
-    final Ref<CheckedTreeNode> found = new Ref<CheckedTreeNode>();
+  private static CheckedTreeNode findChild(TreeNode node, final String name) {
+    final Ref<CheckedTreeNode> found = new Ref<>();
     visitChildren(node, new CheckedNodeVisitor() {
       @Override
       public void visit(CheckedTreeNode node) {
@@ -232,8 +212,8 @@ public abstract class IntentionSettingsTree {
     return found.get();
   }
 
-  private static CheckedTreeNode findChildRecursively(CheckedTreeNode node, final String name) {
-    final Ref<CheckedTreeNode> found = new Ref<CheckedTreeNode>();
+  private static CheckedTreeNode findChildRecursively(TreeNode node, final String name) {
+    final Ref<CheckedTreeNode> found = new Ref<>();
     visitChildren(node, new CheckedNodeVisitor() {
       @Override
       public void visit(CheckedTreeNode node) {
@@ -346,8 +326,8 @@ public abstract class IntentionSettingsTree {
   interface CheckedNodeVisitor {
     void visit(CheckedTreeNode node);
   }
-  private static void visitChildren(CheckedTreeNode node, CheckedNodeVisitor visitor) {
-    Enumeration children = node.children();
+  private static void visitChildren(TreeNode node, CheckedNodeVisitor visitor) {
+    Enumeration<?> children = node.children();
     while (children.hasMoreElements()) {
       final CheckedTreeNode child = (CheckedTreeNode)children.nextElement();
       visitor.visit(child);
@@ -357,7 +337,7 @@ public abstract class IntentionSettingsTree {
   private class MyFilterComponent extends FilterComponent {
     private final TreeExpansionMonitor<DefaultMutableTreeNode> myExpansionMonitor = TreeExpansionMonitor.install(myTree);
 
-    public MyFilterComponent() {
+    MyFilterComponent() {
       super("INTENTION_FILTER_HISTORY", 10);
     }
 
@@ -375,12 +355,9 @@ public abstract class IntentionSettingsTree {
         ((DefaultTreeModel)myTree.getModel()).reload();
         TreeUtil.restoreExpandedPaths(myTree, expandedPaths);
       }
-      SwingUtilities.invokeLater(new Runnable() {
-        @Override
-        public void run() {
-          myTree.setSelectionRow(0);
-          myTree.requestFocus();
-        }
+      SwingUtilities.invokeLater(() -> {
+        myTree.setSelectionRow(0);
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myTree, true));
       });
       TreeUtil.expandAll(myTree);
       if (filter == null || filter.length() == 0) {

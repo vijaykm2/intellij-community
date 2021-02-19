@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,7 +37,7 @@ import java.util.List;
 class HtmlFileTreeElement extends PsiTreeElementBase<XmlFile> {
   private final boolean myInStructureViewPopup;
 
-  public HtmlFileTreeElement(final boolean inStructureViewPopup, final XmlFile xmlFile) {
+  HtmlFileTreeElement(final boolean inStructureViewPopup, final XmlFile xmlFile) {
     super(xmlFile);
     myInStructureViewPopup = inStructureViewPopup;
   }
@@ -55,7 +55,7 @@ class HtmlFileTreeElement extends PsiTreeElementBase<XmlFile> {
       return Collections.emptyList();
     }
 
-    final List<XmlTag> rootTags = new SmartList<XmlTag>();
+    final List<XmlTag> rootTags = new SmartList<>();
     document.processElements(new FilterElementProcessor(XmlTagFilter.INSTANCE, rootTags), document);
 
     if (rootTags.isEmpty()) {
@@ -72,10 +72,10 @@ class HtmlFileTreeElement extends PsiTreeElementBase<XmlFile> {
         return new HtmlTagTreeElement(rootTag).getChildrenBase();
       }
 
-      return Collections.<StructureViewTreeElement>singletonList(new HtmlTagTreeElement(rootTag));
+      return Collections.singletonList(new HtmlTagTreeElement(rootTag));
     }
     else {
-      final Collection<StructureViewTreeElement> result = new ArrayList<StructureViewTreeElement>(rootTags.size());
+      final Collection<StructureViewTreeElement> result = new ArrayList<>(rootTags.size());
       for (XmlTag tag : rootTags) {
         result.add(new HtmlTagTreeElement(tag));
       }
@@ -89,7 +89,7 @@ class HtmlFileTreeElement extends PsiTreeElementBase<XmlFile> {
 
     if (myInStructureViewPopup) {
       final String propertyName = TreeStructureUtil.getPropertyName(Html5SectionsNodeProvider.HTML5_OUTLINE_PROVIDER_PROPERTY);
-      if (PropertiesComponent.getInstance().getBoolean(propertyName, false)) {
+      if (PropertiesComponent.getInstance().getBoolean(propertyName)) {
         return true;
       }
     }

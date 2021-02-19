@@ -19,7 +19,6 @@ package org.intellij.plugins.relaxNG.compact;
 import com.intellij.lexer.Lexer;
 import com.intellij.openapi.editor.HighlighterColors;
 import com.intellij.openapi.editor.DefaultLanguageHighlighterColors;
-import com.intellij.openapi.editor.colors.CodeInsightColors;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.fileTypes.SyntaxHighlighterBase;
 import com.intellij.psi.tree.IElementType;
@@ -29,11 +28,6 @@ import org.jetbrains.annotations.NotNull;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 04.08.2007
- */
 public class RncHighlighter extends SyntaxHighlighterBase {
   @Override
   @NotNull
@@ -44,7 +38,7 @@ public class RncHighlighter extends SyntaxHighlighterBase {
   private static final Map<IElementType, TextAttributesKey> ourMap1;
 
   static {
-    ourMap1 = new HashMap<IElementType, TextAttributesKey>();
+    ourMap1 = new HashMap<>();
 
     fillMap(ourMap1, RncTokenTypes.KEYWORDS, DefaultLanguageHighlighterColors.KEYWORD);
     fillMap(ourMap1, RncTokenTypes.OPERATORS, DefaultLanguageHighlighterColors.OPERATION_SIGN);
@@ -65,14 +59,13 @@ public class RncHighlighter extends SyntaxHighlighterBase {
     fillMap(ourMap1, RncTokenTypes.DOC_TOKENS, DefaultLanguageHighlighterColors.DOC_COMMENT);
     fillMap(ourMap1, RncTokenTypes.COMMENTS, DefaultLanguageHighlighterColors.LINE_COMMENT);
 
-    fillMap(ourMap1, RncTokenTypes.IDENTIFIERS, CodeInsightColors.LOCAL_VARIABLE_ATTRIBUTES);
+    fillMap(ourMap1, RncTokenTypes.IDENTIFIERS, DefaultLanguageHighlighterColors.LOCAL_VARIABLE);
 
     ourMap1.put(RncTokenTypes.ILLEGAL_CHAR, HighlighterColors.BAD_CHARACTER);
   }
 
   @Override
-  @NotNull
-  public TextAttributesKey[] getTokenHighlights(IElementType tokenType) {
+  public TextAttributesKey @NotNull [] getTokenHighlights(IElementType tokenType) {
     return pack(ourMap1.get(tokenType));
   }
 }

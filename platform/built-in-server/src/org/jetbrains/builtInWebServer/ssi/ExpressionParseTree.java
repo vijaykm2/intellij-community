@@ -16,6 +16,8 @@
  */
 package org.jetbrains.builtInWebServer.ssi;
 
+import org.jetbrains.annotations.NonNls;
+
 import java.text.ParseException;
 import java.util.LinkedList;
 import java.util.List;
@@ -32,12 +34,12 @@ final class ExpressionParseTree {
    * Contains the current set of completed nodes. This is a workspace for the
    * parser.
    */
-  private final LinkedList<Node> nodeStack = new LinkedList<Node>();
+  private final LinkedList<Node> nodeStack = new LinkedList<>();
   /**
    * Contains operator nodes that don't yet have values. This is a workspace
    * for the parser.
    */
-  private final LinkedList<OppNode> oppStack = new LinkedList<OppNode>();
+  private final LinkedList<OppNode> oppStack = new LinkedList<>();
   /**
    * The root node after the expression has been parsed.
    */
@@ -45,14 +47,14 @@ final class ExpressionParseTree {
   /**
    * The SSIMediator to use when evaluating the expressions.
    */
-  private final SsiProcessingState mySsiProcessingState;
+  private final SsiProcessingState ssiProcessingState;
 
   /**
    * Creates a new parse tree for the specified expression.
    */
-  public ExpressionParseTree(String expr, SsiProcessingState ssiProcessingState)
+  ExpressionParseTree(String expr, SsiProcessingState ssiProcessingState)
     throws ParseException {
-    this.mySsiProcessingState = ssiProcessingState;
+    this.ssiProcessingState = ssiProcessingState;
     parseExpression(expr);
   }
 
@@ -73,7 +75,7 @@ final class ExpressionParseTree {
   private void pushOpp(OppNode node) {
     // If node is null then it's just a group marker
     if (node == null) {
-      oppStack.add(0, node);
+      oppStack.add(0, null);
       return;
     }
     while (true) {
@@ -81,7 +83,6 @@ final class ExpressionParseTree {
       OppNode top = oppStack.get(0);
       // If the top is a spacer then don't pop
       // anything
-      //noinspection ConstantConditions
       if (top == null) break;
       // If the top node has a lower precedence then
       // let it stay
@@ -219,7 +220,7 @@ final class ExpressionParseTree {
     String resolved = null;
 
 
-    public StringNode(String value) {
+    StringNode(String value) {
       this.value = new StringBuilder(value);
     }
 
@@ -229,7 +230,7 @@ final class ExpressionParseTree {
      */
     public String getValue() {
       if (resolved == null) {
-        resolved = mySsiProcessingState.substituteVariables(value.toString());
+        resolved = ssiProcessingState.substituteVariables(value.toString());
       }
       return resolved;
     }
@@ -308,6 +309,7 @@ final class ExpressionParseTree {
 
 
     @Override
+    @NonNls
     public String toString() {
       return left + " NOT";
     }
@@ -331,6 +333,7 @@ final class ExpressionParseTree {
 
 
     @Override
+    @NonNls
     public String toString() {
       return left + " " + right + " AND";
     }
@@ -354,6 +357,7 @@ final class ExpressionParseTree {
 
 
     @Override
+    @NonNls
     public String toString() {
       return left + " " + right + " OR";
     }
@@ -381,7 +385,7 @@ final class ExpressionParseTree {
           }
         }
         catch (PatternSyntaxException e) {
-          SsiProcessor.LOG.warn("Invalid expression: " + expr, e);
+          SsiProcessorKt.getLOG().warn("Invalid expression: " + expr, e);
           return 0;
         }
       }
@@ -403,6 +407,7 @@ final class ExpressionParseTree {
 
 
     @Override
+    @NonNls
     public String toString() {
       return left + " " + right + " EQ";
     }
@@ -422,6 +427,7 @@ final class ExpressionParseTree {
 
 
     @Override
+    @NonNls
     public String toString() {
       return left + " " + right + " GT";
     }
@@ -441,6 +447,7 @@ final class ExpressionParseTree {
 
 
     @Override
+    @NonNls
     public String toString() {
       return left + " " + right + " LT";
     }

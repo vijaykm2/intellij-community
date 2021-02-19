@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,15 +15,17 @@
  */
 package com.intellij.xdebugger.impl.actions;
 
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.ActionPlaces;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.project.Project;
 import com.intellij.xdebugger.impl.DebuggerSupport;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author nik
- */
-public abstract class XDebuggerActionBase extends AnAction implements AnAction.TransparentUpdate {
+import java.util.Arrays;
+
+public abstract class XDebuggerActionBase extends AnAction {
   private final boolean myHideDisabledInPopup;
 
   protected XDebuggerActionBase() {
@@ -35,7 +37,7 @@ public abstract class XDebuggerActionBase extends AnAction implements AnAction.T
   }
 
   @Override
-  public void update(final AnActionEvent event) {
+  public void update(@NotNull final AnActionEvent event) {
     Presentation presentation = event.getPresentation();
     boolean hidden = isHidden(event);
     if (hidden) {
@@ -54,14 +56,9 @@ public abstract class XDebuggerActionBase extends AnAction implements AnAction.T
   }
 
   protected boolean isEnabled(final AnActionEvent e) {
-    Project project = e.getData(CommonDataKeys.PROJECT);
-    if (project != null) {
-      DebuggerSupport[] debuggerSupports = DebuggerSupport.getDebuggerSupports();
-      for (DebuggerSupport support : debuggerSupports) {
-        if (isEnabled(project, e, support)) {
-          return true;
-        }
-      }
+    Project project = e.getProject();
+    if (project != null && !project.isDisposed()) {
+      return Arrays.stream(DebuggerSupport.getDebuggerSupports()).anyMatch(support -> isEnabled(project, e, support));
     }
     return false;
   }
@@ -74,18 +71,17 @@ public abstract class XDebuggerActionBase extends AnAction implements AnAction.T
   }
 
   @Override
-  public void actionPerformed(final AnActionEvent e) {
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     performWithHandler(e);
   }
 
   protected boolean performWithHandler(AnActionEvent e) {
-    Project project = e.getData(CommonDataKeys.PROJECT);
-    if (project == null) {
+    Project project = e.getProject();
+    if (project == null || project.isDisposed()) {
       return true;
     }
 
-    DebuggerSupport[] debuggerSupports = DebuggerSupport.getDebuggerSupports();
-    for (DebuggerSupport support : debuggerSupports) {
+    for (DebuggerSupport support : DebuggerSupport.getDebuggerSupports()) {
       if (isEnabled(project, e, support)) {
         perform(project, e, support);
         return true;
@@ -99,14 +95,15 @@ public abstract class XDebuggerActionBase extends AnAction implements AnAction.T
   }
 
   protected boolean isHidden(AnActionEvent event) {
-    final Project project = event.getProject();
-    if (project != null) {
-      for (DebuggerSupport support : DebuggerSupport.getDebuggerSupports()) {
-        if (!getHandler(support).isHidden(project, event)) {
-          return false;
-        }
-      }
+    Project project = event.getProject();
+    if (project != null && !project.isDisposed()) {
+      return Arrays.stream(DebuggerSupport.getDebuggerSupports()).allMatch(support -> getHandler(support).isHidden(project, event));
     }
+    return true;
+  }
+
+  @Override
+  public boolean isDumbAware() {
     return true;
   }
 }

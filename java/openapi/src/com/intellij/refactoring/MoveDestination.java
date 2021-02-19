@@ -15,35 +15,31 @@
  */
 package com.intellij.refactoring;
 
-import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleUtil;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiPackage;
-import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.MultiMap;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
-import java.util.List;
-import java.util.Map;
 
 /**
  * Represents a destination of Move Classes/Packages refactoring.
  * Destination of Move refactoring is generally a single package,
- * and various <code>MoveDestination</code>s control how moved items
+ * and various {@code MoveDestination}s control how moved items
  * will be layouted in directories corresponding to target packages.
  *
  * Instances of this interface can be obtained via methods of {@link RefactoringFactory}.
  *
  * @see JavaRefactoringFactory#createSourceFolderPreservingMoveDestination(String) 
- * @see JavaRefactoringFactory#createSourceRootMoveDestination(java.lang.String, com.intellij.openapi.vfs.VirtualFile)
+ * @see JavaRefactoringFactory#createSourceRootMoveDestination(String, VirtualFile)
  *  @author dsl
  */
 public interface MoveDestination {
@@ -56,19 +52,20 @@ public interface MoveDestination {
    */
   PsiDirectory getTargetDirectory(PsiFile source) throws IncorrectOperationException;
 
+  @NotNull
   PackageWrapper getTargetPackage();
 
   PsiDirectory getTargetIfExists(PsiDirectory source);
-  PsiDirectory getTargetIfExists(PsiFile source);
+  PsiDirectory getTargetIfExists(@NotNull PsiFile source);
 
-  @Nullable
+  @Nullable @NlsContexts.DialogMessage
   String verify(PsiFile source);
-  @Nullable
+  @Nullable @NlsContexts.DialogMessage
   String verify(PsiDirectory source);
-  @Nullable
+  @Nullable @NlsContexts.DialogMessage
   String verify(PsiPackage source);
 
-  void analyzeModuleConflicts(final Collection<PsiElement> elements, MultiMap<PsiElement,String> conflicts, final UsageInfo[] usages);
+  void analyzeModuleConflicts(@NotNull Collection<? extends PsiElement> elements, @NotNull MultiMap<PsiElement,String> conflicts, final UsageInfo[] usages);
 
-  boolean isTargetAccessible(Project project, VirtualFile place);
+  boolean isTargetAccessible(@NotNull Project project, @NotNull VirtualFile place);
 }

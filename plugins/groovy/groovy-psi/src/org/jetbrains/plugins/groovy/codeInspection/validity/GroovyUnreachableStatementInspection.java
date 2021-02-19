@@ -15,9 +15,9 @@
  */
 package org.jetbrains.plugins.groovy.codeInspection.validity;
 
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.utils.ControlFlowUtils;
@@ -28,29 +28,10 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrOpenBlock;
 public class GroovyUnreachableStatementInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return VALIDITY_ISSUES;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Unreachable Statement";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "Unreachable statement #loc";
+    return GroovyBundle.message("inspection.message.unreachable.statement");
 
-  }
-
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
   }
 
   @NotNull
@@ -61,7 +42,7 @@ public class GroovyUnreachableStatementInspection extends BaseInspection {
 
   private static class Visitor extends BaseInspectionVisitor {
     @Override
-    public void visitClosure(GrClosableBlock closure) {
+    public void visitClosure(@NotNull GrClosableBlock closure) {
       super.visitClosure(closure);
       GrStatement[] statements = closure.getStatements();
       for (int i = 0; i < statements.length - 1; i++) {
@@ -70,7 +51,7 @@ public class GroovyUnreachableStatementInspection extends BaseInspection {
     }
 
     @Override
-    public void visitOpenBlock(GrOpenBlock block) {
+    public void visitOpenBlock(@NotNull GrOpenBlock block) {
       super.visitOpenBlock(block);
       GrStatement[] statements = block.getStatements();
       for (int i = 0; i < statements.length - 1; i++) {

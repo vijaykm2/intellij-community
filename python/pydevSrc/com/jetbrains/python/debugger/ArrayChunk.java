@@ -15,8 +15,11 @@
  */
 package com.jetbrains.python.debugger;
 
+import com.intellij.openapi.util.NlsSafe;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
 
 /**
  * @author amarch
@@ -31,6 +34,10 @@ public class ArrayChunk {
   private final String myFormat;
   private final String myType;
   private final Object[][] myData;
+  private final List<String> myRowLabels;
+  private final List<ColHeader> myColHeaders;
+
+
 
   public ArrayChunk(@NotNull PyDebugValue value,
                     String slicePresentation,
@@ -40,7 +47,7 @@ public class ArrayChunk {
                     String min,
                     String format,
                     String type,
-                    @Nullable Object[][] data) {
+                    Object[] @Nullable [] data, List<String> labels, List<ColHeader> headers) {
     myValue = value;
     mySlicePresentation = slicePresentation;
     myRows = rows;
@@ -50,6 +57,8 @@ public class ArrayChunk {
     myFormat = format;
     myType = type;
     myData = data;
+    myRowLabels = labels;
+    myColHeaders = headers;
   }
 
   public PyDebugValue getValue() {
@@ -86,5 +95,52 @@ public class ArrayChunk {
 
   public Object[][] getData() {
     return myData;
+  }
+
+  public List<String> getRowLabels() {
+    return myRowLabels;
+  }
+
+  public List<ColHeader> getColHeaders() {
+    return myColHeaders;
+  }
+
+  public static class ColHeader
+  {
+    private final String myLabel;
+    private final String myType;
+    private final String myFormat;
+    private final String myMax;
+    private final String myMin;
+
+
+    public ColHeader(String label, String type, String format, String max, String min) {
+      myLabel = label;
+      myType = type;
+      myFormat = format;
+      myMax = max;
+      myMin = min;
+    }
+
+    @NlsSafe
+    public String getLabel() {
+      return myLabel;
+    }
+
+    public String getType() {
+      return myType;
+    }
+
+    public String getFormat() {
+      return myFormat;
+    }
+
+    public String getMax() {
+      return myMax;
+    }
+
+    public String getMin() {
+      return myMin;
+    }
   }
 }

@@ -1,25 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.lang.groovydoc.psi.impl;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -32,7 +18,7 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.params.GrParameter;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrTypeParameter;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrTypeParameterListOwner;
-import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyResolveResultImpl;
+import org.jetbrains.plugins.groovy.lang.resolve.ElementResolveResult;
 
 import java.util.ArrayList;
 
@@ -45,6 +31,7 @@ public class GrDocParameterReferenceImpl extends GroovyDocPsiElementImpl impleme
     super(node);
   }
 
+  @Override
   public String toString() {
     return "GrDocParameterReference";
   }
@@ -55,11 +42,10 @@ public class GrDocParameterReferenceImpl extends GroovyDocPsiElementImpl impleme
   }
 
   @Override
-  @NotNull
-  public ResolveResult[] multiResolve(boolean incompleteCode) {
+  public ResolveResult @NotNull [] multiResolve(boolean incompleteCode) {
     final String name = getName();
     if (name == null) return ResolveResult.EMPTY_ARRAY;
-    ArrayList<GroovyResolveResult> candidates = new ArrayList<GroovyResolveResult>();
+    ArrayList<GroovyResolveResult> candidates = new ArrayList<>();
 
     final PsiElement owner = GrDocCommentUtil.findDocOwner(this);
     if (owner instanceof GrMethod) {
@@ -68,10 +54,10 @@ public class GrDocParameterReferenceImpl extends GroovyDocPsiElementImpl impleme
 
       for (GrParameter parameter : parameters) {
         if (name.equals(parameter.getName())) {
-          candidates.add(new GroovyResolveResultImpl(parameter, true));
+          candidates.add(new ElementResolveResult<>(parameter));
         }
       }
-      return candidates.toArray(new ResolveResult[candidates.size()]);
+      return candidates.toArray(ResolveResult.EMPTY_ARRAY);
     }
     else {
       final PsiElement firstChild = getFirstChild();
@@ -81,7 +67,7 @@ public class GrDocParameterReferenceImpl extends GroovyDocPsiElementImpl impleme
           final PsiTypeParameter[] typeParameters = ((PsiTypeParameterListOwner)owner).getTypeParameters();
           for (PsiTypeParameter typeParameter : typeParameters) {
             if (name.equals(typeParameter.getName())) {
-              candidates.add(new GroovyResolveResultImpl(typeParameter, true));
+              candidates.add(new ElementResolveResult<>(typeParameter));
             }
           }
         }
@@ -90,11 +76,13 @@ public class GrDocParameterReferenceImpl extends GroovyDocPsiElementImpl impleme
     return ResolveResult.EMPTY_ARRAY;
   }
 
+  @NotNull
   @Override
   public PsiElement getElement() {
     return this;
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     return new TextRange(0, getTextLength());
@@ -120,7 +108,7 @@ public class GrDocParameterReferenceImpl extends GroovyDocPsiElementImpl impleme
   }
 
   @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     ASTNode node = getNode();
     ASTNode newNameNode = GroovyPsiElementFactory.getInstance(getProject()).createDocMemberReferenceNameFromText(newElementName).getNode();
     assert newNameNode != null;
@@ -135,14 +123,13 @@ public class GrDocParameterReferenceImpl extends GroovyDocPsiElementImpl impleme
   }
 
   @Override
-  public boolean isReferenceTo(PsiElement element) {
+  public boolean isReferenceTo(@NotNull PsiElement element) {
     if (!(element instanceof GrParameter || element instanceof GrTypeParameter)) return false;
     return getManager().areElementsEquivalent(element, resolve());
   }
 
   @Override
-  @NotNull
-  public Object[] getVariants() {
+  public Object @NotNull [] getVariants() {
     final PsiElement owner = GrDocCommentUtil.findDocOwner(this);
     final PsiElement firstChild = getFirstChild();
     if (owner instanceof GrTypeParameterListOwner && firstChild != null) {
@@ -154,7 +141,7 @@ public class GrDocParameterReferenceImpl extends GroovyDocPsiElementImpl impleme
     if (owner instanceof PsiMethod) {
       return ((PsiMethod)owner).getParameterList().getParameters();
     }
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
+    return ArrayUtilRt.EMPTY_OBJECT_ARRAY;
   }
 
   @Override

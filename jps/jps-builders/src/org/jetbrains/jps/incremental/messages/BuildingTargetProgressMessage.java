@@ -1,15 +1,11 @@
 package org.jetbrains.jps.incremental.messages;
 
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.NotNullFunction;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.builders.BuildTarget;
 
 import java.util.Collection;
 
-/**
- * @author nik
- */
 public class BuildingTargetProgressMessage extends BuildMessage {
   private final Collection<? extends BuildTarget<?>> myTargets;
   @NotNull private final Event myEventType;
@@ -25,13 +21,7 @@ public class BuildingTargetProgressMessage extends BuildMessage {
   }
 
   private static String composeMessageText(Collection<? extends BuildTarget<?>> targets, Event event) {
-    String targetsString = StringUtil.join(targets, new NotNullFunction<BuildTarget<?>, String>() {
-      @NotNull
-      @Override
-      public String fun(BuildTarget<?> dom) {
-        return dom.getPresentableName();
-      }
-    }, ", ");
+    String targetsString = StringUtil.join(targets, dom -> dom.getPresentableName(), ", ");
     return (event == Event.STARTED ? "Started" : "Finished") + " building " + targetsString;
   }
 

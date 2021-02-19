@@ -1,32 +1,19 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.refactoring.move;
 
-import com.intellij.openapi.application.Result;
-import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.vfs.*;
+import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.PostprocessReformattingAspect;
 import com.intellij.refactoring.PackageWrapper;
 import com.intellij.refactoring.move.moveClassesOrPackages.MoveClassesOrPackagesProcessor;
 import com.intellij.refactoring.move.moveClassesOrPackages.SingleSourceRootMoveDestination;
 import com.intellij.testFramework.PlatformTestUtil;
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 import org.jetbrains.plugins.groovy.util.TestUtils;
 
 import java.io.IOException;
@@ -37,22 +24,22 @@ import java.util.List;
 /**
  * @author Maxim.Medvedev
  */
-public class GroovyMoveScriptTest extends LightCodeInsightFixtureTestCase {
+public class GroovyMoveScriptTest extends LightJavaCodeInsightFixtureTestCase {
 
   @Override
   protected String getBasePath() {
     return TestUtils.getTestDataPath() + "refactoring/move/moveScript/";
   }
 
-  public void testMoveScriptBasic() throws Exception {
+  public void testMoveScriptBasic() {
     doTest(new String[]{"a/Script.groovy"}, "b");
   }
 
-  public void testUpdateReferences() throws Exception {
+  public void testUpdateReferences() {
     doTest(new String[]{"a/Script.groovy"}, "b");
   }
 
-  public void testMultiMove() throws Exception {
+  public void testMultiMove() {
     doTest(new String[]{"a/Script.groovy", "a/Script2.groovy"}, "b");
   }
 
@@ -85,11 +72,11 @@ public class GroovyMoveScriptTest extends LightCodeInsightFixtureTestCase {
     assertNotNull("Directory " + newDirName + " not found", psiDirectory);
 
     final PsiPackage pkg = JavaDirectoryService.getInstance().getPackage(psiDirectory);
-    List<PsiClass> classList = new ArrayList<PsiClass>();
+    List<PsiClass> classList = new ArrayList<>();
     for (PsiFile file : files) {
       Collections.addAll(classList, ((PsiClassOwner)file).getClasses());
     }
-    final PsiClass[] classes = classList.toArray(new PsiClass[classList.size()]);
+    final PsiClass[] classes = classList.toArray(PsiClass.EMPTY_ARRAY);
     new MoveClassesOrPackagesProcessor(getProject(), classes, new SingleSourceRootMoveDestination(PackageWrapper.create(pkg), psiDirectory), true, true, null).run();
 
     PsiDocumentManager.getInstance(getProject()).commitAllDocuments();
@@ -104,7 +91,7 @@ public class GroovyMoveScriptTest extends LightCodeInsightFixtureTestCase {
 
     final VirtualFile expectedRoot = LocalFileSystem.getInstance().findFileByPath(getTestDataPath() + getTestName(true) + "/after");
     //File expectedRoot = new File(getTestDataPath() + testName + "/after");
-    getProject().getComponent(PostprocessReformattingAspect.class).doPostponedFormatting();
+    PostprocessReformattingAspect.getInstance(getProject()).doPostponedFormatting();
 
     VirtualFileManager.getInstance().syncRefresh();
     try {

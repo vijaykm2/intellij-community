@@ -72,13 +72,13 @@ abstract class FieldsManager extends MembersManager<PyTargetExpression> {
   @NotNull
   @Override
   protected List<PyElement> getMembersCouldBeMoved(@NotNull final PyClass pyClass) {
-    return Lists.<PyElement>newArrayList(Collections2.filter(getFieldsByClass(pyClass), SIMPLE_ASSIGNMENTS_ONLY));
+    return Lists.newArrayList(Collections2.filter(getFieldsByClass(pyClass), SIMPLE_ASSIGNMENTS_ONLY));
   }
 
   @Override
   protected Collection<PyElement> moveMembers(@NotNull final PyClass from,
                                               @NotNull final Collection<PyMemberInfo<PyTargetExpression>> members,
-                                              @NotNull final PyClass... to) {
+                                              final PyClass @NotNull ... to) {
     return moveAssignments(from, Collections2
       .filter(Collections2.transform(fetchElements(members), ASSIGNMENT_TRANSFORM), NotNullPredicate.INSTANCE),
                            to);
@@ -86,7 +86,7 @@ abstract class FieldsManager extends MembersManager<PyTargetExpression> {
 
   protected abstract Collection<PyElement> moveAssignments(@NotNull PyClass from,
                                                            @NotNull Collection<PyAssignmentStatement> statements,
-                                                           @NotNull PyClass... to);
+                                                           PyClass @NotNull ... to);
 
   /**
    * Checks if class has fields. Only child may know how to obtain field
@@ -110,7 +110,7 @@ abstract class FieldsManager extends MembersManager<PyTargetExpression> {
   @NotNull
   @Override
   public PyMemberInfo<PyTargetExpression> apply(@NotNull final PyTargetExpression input) {
-    return new PyMemberInfo<PyTargetExpression>(input, myStatic, input.getText(), isOverrides(input), this, false);
+    return new PyMemberInfo<>(input, myStatic, input.getText(), isOverrides(input), this, false);
   }
 
   @Nullable
@@ -153,7 +153,7 @@ abstract class FieldsManager extends MembersManager<PyTargetExpression> {
   private static class MyPyRecursiveElementVisitor extends PyRecursiveElementVisitorWithResult {
 
     @Override
-    public void visitPyReferenceExpression(final PyReferenceExpression node) {
+    public void visitPyReferenceExpression(final @NotNull PyReferenceExpression node) {
       final PsiElement declaration = node.getReference().resolve();
       if (declaration instanceof PyElement) {
         final PyClass parent = PsiTreeUtil.getParentOfType(declaration, PyClass.class);

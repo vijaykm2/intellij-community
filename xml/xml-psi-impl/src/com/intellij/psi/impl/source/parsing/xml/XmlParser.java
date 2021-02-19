@@ -1,22 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.parsing.xml;
 
 import com.intellij.lang.*;
@@ -33,40 +15,40 @@ import com.intellij.util.TripleFunction;
 import com.intellij.util.diff.FlyweightCapableTreeStructure;
 import org.jetbrains.annotations.NotNull;
 
-public class XmlParser implements PsiParser {
+public class XmlParser implements PsiParser, LightPsiParser {
   // tries to match an old and new XmlTag by name
-  private static final TripleFunction<ASTNode,LighterASTNode,FlyweightCapableTreeStructure<LighterASTNode>,ThreeState>
-    REPARSE_XML_TAG_BY_NAME = new TripleFunction<ASTNode, LighterASTNode, FlyweightCapableTreeStructure<LighterASTNode>, ThreeState>() {
-      @Override
-      public ThreeState fun(ASTNode oldNode,
-                            LighterASTNode newNode,
-                            FlyweightCapableTreeStructure<LighterASTNode> structure) {
-        if (oldNode instanceof XmlTag && newNode.getTokenType() == XmlElementType.XML_TAG) {
-          String oldName = ((XmlTag)oldNode).getName();
-          Ref<LighterASTNode[]> childrenRef = Ref.create(null);
-          int count = structure.getChildren(newNode, childrenRef);
-          if (count < 3) return ThreeState.UNSURE;
-          LighterASTNode[] children = childrenRef.get();
-          if (children[0].getTokenType() != XmlTokenType.XML_START_TAG_START) return ThreeState.UNSURE;
-          if (children[1].getTokenType() != XmlTokenType.XML_NAME) return ThreeState.UNSURE;
-          if (children[2].getTokenType() != XmlTokenType.XML_TAG_END) return ThreeState.UNSURE;
-          LighterASTTokenNode name = (LighterASTTokenNode)children[1];
-          CharSequence newName = name.getText();
-          if (!Comparing.equal(oldName, newName)) return ThreeState.NO;
-        }
-
-        return ThreeState.UNSURE;
+  private static final TripleFunction<ASTNode, LighterASTNode, FlyweightCapableTreeStructure<LighterASTNode>, ThreeState>
+    REPARSE_XML_TAG_BY_NAME = (oldNode, newNode, structure) -> {
+    if (oldNode instanceof XmlTag && newNode.getTokenType() == XmlElementType.XML_TAG) {
+      String oldName = ((XmlTag)oldNode).getName();
+      Ref<LighterASTNode[]> childrenRef = Ref.create(null);
+      int count = structure.getChildren(newNode, childrenRef);
+      if (count < 3) return ThreeState.UNSURE;
+      LighterASTNode[] children = childrenRef.get();
+      if (children[0].getTokenType() != XmlTokenType.XML_START_TAG_START) return ThreeState.UNSURE;
+        if (children[1].getTokenType() != XmlTokenType.XML_NAME) return ThreeState.UNSURE;
+        if (children[2].getTokenType() != XmlTokenType.XML_TAG_END) return ThreeState.UNSURE;
+        LighterASTTokenNode name = (LighterASTTokenNode)children[1];
+        CharSequence newName = name.getText();
+        if (!Comparing.equal(oldName, newName)) return ThreeState.NO;
       }
-    };
+
+    return ThreeState.UNSURE;
+  };
 
   @Override
   @NotNull
-  public ASTNode parse(final IElementType root, final PsiBuilder builder) {
+  public ASTNode parse(final @NotNull IElementType root, final @NotNull PsiBuilder builder) {
+    parseLight(root, builder);
+    return builder.getTreeBuilt();
+  }
+
+  @Override
+  public void parseLight(IElementType root, PsiBuilder builder) {
     builder.enforceCommentTokens(TokenSet.EMPTY);
-    builder.putUserDataUnprotected(PsiBuilderImpl.CUSTOM_COMPARATOR, REPARSE_XML_TAG_BY_NAME);
+    builder.putUserData(PsiBuilderImpl.CUSTOM_COMPARATOR, REPARSE_XML_TAG_BY_NAME);
     final PsiBuilder.Marker file = builder.mark();
     new XmlParsing(builder).parseDocument();
     file.done(root);
-    return builder.getTreeBuilt();
   }
 }

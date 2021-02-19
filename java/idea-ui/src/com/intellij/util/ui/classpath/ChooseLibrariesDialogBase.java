@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.ui.classpath;
 
 import com.intellij.ide.CommonActionsManager;
 import com.intellij.ide.DefaultTreeExpander;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.TreeExpander;
 import com.intellij.ide.projectView.PresentationData;
 import com.intellij.ide.util.treeView.AbstractTreeBuilder;
@@ -43,6 +30,7 @@ import com.intellij.openapi.roots.ui.CellAppearanceEx;
 import com.intellij.openapi.roots.ui.OrderEntryAppearanceService;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.DoubleClickListener;
 import com.intellij.ui.ScrollPaneFactory;
@@ -56,8 +44,7 @@ import com.intellij.util.CommonProcessors;
 import com.intellij.util.PlatformIcons;
 import com.intellij.util.Processor;
 import com.intellij.util.ui.JBUI;
-import com.intellij.util.ui.UIUtil;
-import gnu.trove.THashMap;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -69,25 +56,24 @@ import javax.swing.tree.DefaultTreeModel;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author Gregory.Shrago
  */
-
 public abstract class ChooseLibrariesDialogBase extends DialogWrapper {
   private final SimpleTree myTree = new SimpleTree();
   private AbstractTreeBuilder myBuilder;
   private List<Library> myResult;
-  private final Map<Object, Object> myParentsMap = new THashMap<Object, Object>();
+  private final Map<Object, Object> myParentsMap = new HashMap<>();
 
-  protected ChooseLibrariesDialogBase(final JComponent parentComponent, final String title) {
+  protected ChooseLibrariesDialogBase(final JComponent parentComponent, final @NlsContexts.DialogTitle String title) {
     super(parentComponent, false);
     setTitle(title);
   }
 
-  protected ChooseLibrariesDialogBase(Project project, String title) {
+  protected ChooseLibrariesDialogBase(Project project, @NlsContexts.DialogTitle String title) {
     super(project, false);
     setTitle(title);
   }
@@ -98,8 +84,8 @@ public abstract class ChooseLibrariesDialogBase extends DialogWrapper {
     updateOKAction();
   }
 
-  private static String notEmpty(String nodeText) {
-    return StringUtil.isNotEmpty(nodeText) ? nodeText : "<unnamed>";
+  private static @Nls String notEmpty(@Nls String nodeText) {
+    return StringUtil.isNotEmpty(nodeText) ? nodeText : JavaUiBundle.message("unnamed.title");
   }
 
   @Override
@@ -117,12 +103,12 @@ public abstract class ChooseLibrariesDialogBase extends DialogWrapper {
 
   @Override
   protected void doOKAction() {
-    processSelection(new CommonProcessors.CollectProcessor<Library>(myResult = new ArrayList<Library>()));
+    processSelection(new CommonProcessors.CollectProcessor<>(myResult = new ArrayList<>()));
     super.doOKAction();
   }
 
   private void updateOKAction() {
-    setOKActionEnabled(!processSelection(new CommonProcessors.FindFirstProcessor<Library>()));
+    setOKActionEnabled(!processSelection(new CommonProcessors.FindFirstProcessor<>()));
   }
 
   @Override
@@ -132,19 +118,14 @@ public abstract class ChooseLibrariesDialogBase extends DialogWrapper {
 
   @NotNull
   public List<Library> getSelectedLibraries() {
-    return myResult == null? Collections.<Library>emptyList() : myResult;
+    return myResult == null ? Collections.emptyList() : myResult;
   }
 
   protected void queueUpdateAndSelect(@NotNull final Library library) {
-    myBuilder.queueUpdate().doWhenDone(new Runnable() {
-      @Override
-      public void run() {
-        myBuilder.select(library);
-      }
-    });
+    myBuilder.queueUpdate().doWhenDone(() -> myBuilder.select(library));
   }
 
-  private boolean processSelection(final Processor<Library> processor) {
+  private boolean processSelection(final Processor<? super Library> processor) {
     for (Object element : myBuilder.getSelectedElements()) {
       if (element instanceof Library) {
         if (!processor.process((Library)element)) return false;
@@ -174,14 +155,14 @@ public abstract class ChooseLibrariesDialogBase extends DialogWrapper {
   protected JComponent createCenterPanel() {
     myBuilder = new SimpleTreeBuilder(myTree, new DefaultTreeModel(new DefaultMutableTreeNode()),
                                         new MyStructure(getProject()),
-                                        WeightBasedComparator.FULL_INSTANCE);
+                                        WeightBasedComparator.FULL_INSTANCE) {
+      // unique class to simplify search through the logs
+    };
     myBuilder.initRootNode();
 
     myTree.setDragEnabled(false);
 
     myTree.setShowsRootHandles(true);
-    UIUtil.setLineStyleAngled(myTree);
-
     myTree.setRootVisible(false);
     myTree.addTreeSelectionListener(new TreeSelectionListener() {
       @Override
@@ -191,7 +172,7 @@ public abstract class ChooseLibrariesDialogBase extends DialogWrapper {
     });
     new DoubleClickListener() {
       @Override
-      protected boolean onDoubleClick(MouseEvent e) {
+      protected boolean onDoubleClick(@NotNull MouseEvent e) {
         if (isOKActionEnabled()) {
           doOKAction();
           return true;
@@ -263,7 +244,7 @@ public abstract class ChooseLibrariesDialogBase extends DialogWrapper {
     }
 
     @Override
-    public SimpleNode[] getChildren() {
+    public SimpleNode @NotNull [] getChildren() {
       return NO_CHILDREN;
     }
 
@@ -272,14 +253,13 @@ public abstract class ChooseLibrariesDialogBase extends DialogWrapper {
       return 0;
     }
 
-    @NotNull
     @Override
-    public Object[] getEqualityObjects() {
+    public Object @NotNull [] getEqualityObjects() {
       return new Object[] {myElement};
     }
 
     @Override
-    protected void update(PresentationData presentation) {
+    protected void update(@NotNull PresentationData presentation) {
       //todo[nik] this is workaround for bug in getTemplatePresentation().setIcons()
       presentation.setIcon(getTemplatePresentation().getIcon(false));
     }
@@ -327,7 +307,7 @@ public abstract class ChooseLibrariesDialogBase extends DialogWrapper {
 
   private static class LibraryTableDescriptor extends LibrariesTreeNodeBase<LibraryTable> {
     private final int myWeight;
-    private boolean myAutoExpand;
+    private final boolean myAutoExpand;
 
     protected LibraryTableDescriptor(final Project project,
                                      final NodeDescriptor parentDescriptor,
@@ -354,26 +334,28 @@ public abstract class ChooseLibrariesDialogBase extends DialogWrapper {
   }
 
   public boolean isEmpty() {
-    List<Object> children = new ArrayList<Object>();
-    collectChildren(myBuilder.getTreeStructure().getRootElement(), children);
+    List<Object> children = new ArrayList<>();
+    final AbstractTreeStructure structure = myBuilder.getTreeStructure();
+    if (structure != null) collectChildren(structure.getRootElement(), children);
     return children.isEmpty();
   }
 
   private class MyStructure extends AbstractTreeStructure {
     private final Project myProject;
 
-    public MyStructure(Project project) {
+    MyStructure(Project project) {
       myProject = project;
     }
 
+    @NotNull
     @Override
     public Object getRootElement() {
       return ApplicationManager.getApplication();
     }
 
     @Override
-    public Object[] getChildElements(Object element) {
-      final List<Object> result = new ArrayList<Object>();
+    public Object @NotNull [] getChildElements(@NotNull Object element) {
+      final List<Object> result = new ArrayList<>();
       collectChildren(element, result);
       final Iterator<Object> it = result.iterator();
       while (it.hasNext()) {
@@ -386,7 +368,7 @@ public abstract class ChooseLibrariesDialogBase extends DialogWrapper {
     }
 
     @Override
-    public Object getParentElement(Object element) {
+    public Object getParentElement(@NotNull Object element) {
       if (element instanceof Application) return null;
       if (element instanceof Project) return ApplicationManager.getApplication();
       if (element instanceof Module) return ((Module)element).getProject();
@@ -397,7 +379,7 @@ public abstract class ChooseLibrariesDialogBase extends DialogWrapper {
 
     @NotNull
     @Override
-    public NodeDescriptor createDescriptor(Object element, NodeDescriptor parentDescriptor) {
+    public NodeDescriptor createDescriptor(@NotNull Object element, NodeDescriptor parentDescriptor) {
       if (element instanceof Application) return new RootDescriptor(myProject);
       if (element instanceof Project) return new ProjectDescriptor(myProject, (Project)element);
       if (element instanceof Module) return new ModuleDescriptor(myProject, parentDescriptor, (Module)element);

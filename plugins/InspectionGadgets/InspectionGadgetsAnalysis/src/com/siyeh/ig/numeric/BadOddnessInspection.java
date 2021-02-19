@@ -15,6 +15,8 @@
  */
 package com.siyeh.ig.numeric;
 
+import com.intellij.codeInspection.dataFlow.CommonDataflow;
+import com.intellij.codeInspection.dataFlow.rangeSet.LongRangeSet;
 import com.intellij.psi.JavaTokenType;
 import com.intellij.psi.PsiBinaryExpression;
 import com.intellij.psi.PsiExpression;
@@ -28,12 +30,6 @@ import com.siyeh.ig.psiutils.ComparisonUtils;
 import org.jetbrains.annotations.NotNull;
 
 public class BadOddnessInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("bad.oddness.display.name");
-  }
 
   @Override
   @NotNull
@@ -83,13 +79,16 @@ public class BadOddnessInspection extends BaseInspection {
       if (rhs == null) {
         return false;
       }
-      return hasValue(rhs, 2) || hasValue(lhs, 2);
+      return hasValue(rhs, 2) && canBeNegative(lhs);
+    }
+
+    private static boolean canBeNegative(PsiExpression lhs) {
+      LongRangeSet range = CommonDataflow.getExpressionRange(lhs);
+      return range == null || range.min() < 0;
     }
 
     private static boolean hasValue(PsiExpression expression, int testValue) {
-      final Integer value = (Integer)
-        ConstantExpressionUtil.computeCastTo(
-          expression, PsiType.INT);
+      final Integer value = (Integer)ConstantExpressionUtil.computeCastTo(expression, PsiType.INT);
       return value != null && value.intValue() == testValue;
     }
   }

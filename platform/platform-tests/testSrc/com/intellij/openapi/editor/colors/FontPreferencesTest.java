@@ -16,6 +16,7 @@
 package com.intellij.openapi.editor.colors;
 
 
+import com.intellij.openapi.editor.colors.impl.FontPreferencesImpl;
 import org.junit.Test;
 
 import java.awt.*;
@@ -26,12 +27,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 public class FontPreferencesTest {
-  private final FontPreferences myPreferences = new FontPreferences();
+  private final FontPreferencesImpl myPreferences = new FontPreferencesImpl();
 
   @Test
   public void testDefaults() {
-    checkState(Collections.<String>emptyList(),
-               Collections.<String>emptyList(),
+    checkState(Collections.emptyList(),
+               Collections.emptyList(),
                FontPreferences.DEFAULT_FONT_NAME,
                FontPreferences.DEFAULT_FONT_NAME, null);
   }
@@ -64,8 +65,8 @@ public class FontPreferencesTest {
     String fontName = getNonExistingFontName();
     myPreferences.register(fontName, 25);
     checkState(Arrays.asList(fontName),
-               Arrays.asList(FontPreferences.DEFAULT_FONT_NAME),
-               FontPreferences.DEFAULT_FONT_NAME,
+               Arrays.asList(fontName),
+               fontName,
                fontName, 25);
   }
 
@@ -84,8 +85,8 @@ public class FontPreferencesTest {
     String fontName = getNonExistingFontName();
     myPreferences.addFontFamily(fontName);
     checkState(Arrays.asList(fontName),
-               Arrays.asList(FontPreferences.DEFAULT_FONT_NAME),
-               FontPreferences.DEFAULT_FONT_NAME,
+               Arrays.asList(fontName),
+               fontName,
                fontName, null);
   }
 
@@ -98,9 +99,20 @@ public class FontPreferencesTest {
                expectedEffectiveFontFamilies,
                expectedFontFamily,
                namesAndSizes);
+
+    // check object copying
+    FontPreferencesImpl preferences = new FontPreferencesImpl();
+    myPreferences.copyTo(preferences);
+    // check myTemplateFontSize
+    String fontName = "Another" + getNonExistingFontName();
+    assertEquals(myPreferences.getSize(fontName), preferences.getSize(fontName));
+    // check other fields
+    checkState(myPreferences,
+               preferences.getRealFontFamilies(),
+               preferences.getEffectiveFontFamilies(),
+               preferences.getFontFamily());
   }
 
-  @SuppressWarnings("AssignmentToForLoopParameter")
   public static void checkState(FontPreferences fontPreferences,
                           java.util.List<String> expectedRealFontFamilies,
                           java.util.List<String> expectedEffectiveFontFamilies,

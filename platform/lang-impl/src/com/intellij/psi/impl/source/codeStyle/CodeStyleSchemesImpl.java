@@ -1,152 +1,157 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.codeStyle;
 
-import com.intellij.openapi.components.RoamingType;
-import com.intellij.openapi.components.StoragePathMacros;
-import com.intellij.openapi.options.BaseSchemeProcessor;
-import com.intellij.openapi.options.SchemesManager;
-import com.intellij.openapi.options.SchemesManagerFactory;
-import com.intellij.openapi.util.WriteExternalException;
-import com.intellij.psi.codeStyle.CodeStyleScheme;
-import com.intellij.psi.codeStyle.CodeStyleSchemes;
-import org.jdom.Element;
+import com.intellij.application.options.schemes.SchemeNameGenerator;
+import com.intellij.configurationStore.LazySchemeProcessor;
+import com.intellij.configurationStore.SchemeDataHolder;
+import com.intellij.openapi.extensions.ExtensionPointListener;
+import com.intellij.openapi.extensions.PluginDescriptor;
+import com.intellij.openapi.options.SchemeManager;
+import com.intellij.openapi.options.SchemeManagerFactory;
+import com.intellij.psi.codeStyle.*;
+import com.intellij.util.ObjectUtils;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.xmlb.annotations.Transient;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collection;
+import java.util.List;
+import java.util.function.Function;
 
 public abstract class CodeStyleSchemesImpl extends CodeStyleSchemes {
-  protected static final String DEFAULT_SCHEME_NAME = "Default";
-
   @NonNls
-  static final String CODE_STYLES_DIR_PATH = StoragePathMacros.ROOT_CONFIG + "/codestyles";
+  static final String CODE_STYLES_DIR_PATH = "codestyles";
 
-  public String CURRENT_SCHEME_NAME = DEFAULT_SCHEME_NAME;
+  protected final SchemeManager<CodeStyleScheme> mySchemeManager;
 
-  protected final SchemesManager<CodeStyleScheme, CodeStyleSchemeImpl> mySchemesManager;
-
-  public CodeStyleSchemesImpl(@NotNull SchemesManagerFactory schemesManagerFactory) {
-    mySchemesManager = schemesManagerFactory.createSchemesManager(CODE_STYLES_DIR_PATH, new BaseSchemeProcessor<CodeStyleSchemeImpl>() {
+  public CodeStyleSchemesImpl(@NotNull SchemeManagerFactory schemeManagerFactory) {
+    mySchemeManager = schemeManagerFactory.create(CODE_STYLES_DIR_PATH, new LazySchemeProcessor<CodeStyleScheme, CodeStyleSchemeImpl>() {
       @NotNull
       @Override
-      public CodeStyleSchemeImpl readScheme(@NotNull Element element) {
-        return new CodeStyleSchemeImpl(element.getAttributeValue("name"), element.getAttributeValue("parent"), element);
+      public CodeStyleSchemeImpl createScheme(@NotNull SchemeDataHolder<? super CodeStyleSchemeImpl> dataHolder,
+                                              @NotNull String name,
+                                              @NotNull Function<? super String, String> attributeProvider,
+                                              boolean isBundled) {
+        return new CodeStyleSchemeImpl(attributeProvider.apply("name"), attributeProvider.apply("parent"), dataHolder);
       }
+    });
 
-      @Override
-      public Element writeScheme(@NotNull CodeStyleSchemeImpl scheme) throws WriteExternalException {
-        Element newElement = new Element("code_scheme");
-        newElement.setAttribute("name", scheme.getName());
-        scheme.writeExternal(newElement);
-        return newElement;
-      }
-
-      @NotNull
-      @Override
-      public State getState(@NotNull CodeStyleSchemeImpl scheme) {
-        return scheme.isDefault() ? State.NON_PERSISTENT : State.POSSIBLY_CHANGED;
-      }
-
-      @Override
-      public void initScheme(@NotNull CodeStyleSchemeImpl scheme) {
-        scheme.init(CodeStyleSchemesImpl.this);
-      }
-    }, RoamingType.PER_USER);
-
-    mySchemesManager.loadSchemes();
-    addScheme(new CodeStyleSchemeImpl(DEFAULT_SCHEME_NAME, true, null));
+    mySchemeManager.loadSchemes();
     setCurrentScheme(getDefaultScheme());
+
+    FileTypeIndentOptionsProvider.EP_NAME.addExtensionPointListener(new ExtensionPointListener<>() {
+      @Override
+      public void extensionAdded(@NotNull FileTypeIndentOptionsProvider extension,
+                                 @NotNull PluginDescriptor pluginDescriptor) {
+        CodeStyleSettingsManager.getInstance()
+          .registerFileTypeIndentOptions(getAllSettings(), extension.getFileType(), extension.createIndentOptions());
+      }
+
+      @Override
+      public void extensionRemoved(@NotNull FileTypeIndentOptionsProvider extension,
+                                   @NotNull PluginDescriptor pluginDescriptor) {
+        CodeStyleSettingsManager.getInstance()
+          .unregisterFileTypeIndentOptions(getAllSettings(), extension.getFileType());
+      }
+    }, null);
+
+    LanguageCodeStyleSettingsProvider.EP_NAME.addExtensionPointListener(new ExtensionPointListener<>() {
+      @Override
+      public void extensionAdded(@NotNull LanguageCodeStyleSettingsProvider extension, @NotNull PluginDescriptor pluginDescriptor) {
+        ObjectUtils.consumeIfNotNull(CodeStyleSettingsManager.getInstance(),
+                                     manager -> {
+                                       manager.registerLanguageSettings(getAllSettings(), extension);
+                                       manager.registerCustomSettings(getAllSettings(), extension);
+                                     });
+      }
+
+      @Override
+      public void extensionRemoved(@NotNull LanguageCodeStyleSettingsProvider extension, @NotNull PluginDescriptor pluginDescriptor) {
+        ObjectUtils.consumeIfNotNull(CodeStyleSettingsManager.getInstance(), manager -> {
+          manager.unregisterLanguageSettings(getAllSettings(), extension);
+          manager.unregisterCustomSettings(getAllSettings(), extension);
+        });
+      }
+    }, null);
+    CodeStyleSettingsProvider.EXTENSION_POINT_NAME.addExtensionPointListener(new ExtensionPointListener<>() {
+      @Override
+      public void extensionAdded(@NotNull CodeStyleSettingsProvider extension, @NotNull PluginDescriptor pluginDescriptor) {
+        ObjectUtils.consumeIfNotNull(CodeStyleSettingsManager.getInstance(),
+                                     instance -> instance.registerCustomSettings(getAllSettings(), extension));
+      }
+
+      @Override
+      public void extensionRemoved(@NotNull CodeStyleSettingsProvider extension, @NotNull PluginDescriptor pluginDescriptor) {
+        ObjectUtils.consumeIfNotNull(CodeStyleSettingsManager.getInstance(),
+                                     instance -> instance.unregisterCustomSettings(getAllSettings(), extension));
+      }
+    }, null);
+  }
+
+  private List<CodeStyleSettings> getAllSettings() {
+    return ContainerUtil.map(mySchemeManager.getAllSchemes(), scheme -> scheme.getCodeStyleSettings());
   }
 
   @Override
-  public CodeStyleScheme[] getSchemes() {
-    Collection<CodeStyleScheme> schemes = mySchemesManager.getAllSchemes();
-    return schemes.toArray(new CodeStyleScheme[schemes.size()]);
-  }
-
-  @Override
+  @Transient
   public CodeStyleScheme getCurrentScheme() {
-    return mySchemesManager.getCurrentScheme();
+    return mySchemeManager.getActiveScheme();
   }
 
   @Override
   public void setCurrentScheme(CodeStyleScheme scheme) {
-    String schemeName = scheme == null ? null : scheme.getName();
-    mySchemesManager.setCurrentSchemeName(schemeName);
-    CURRENT_SCHEME_NAME = schemeName;
+    mySchemeManager.setCurrent(scheme);
   }
 
-  @SuppressWarnings("ForLoopThatDoesntUseLoopVariable")
   @Override
   public CodeStyleScheme createNewScheme(String preferredName, CodeStyleScheme parentScheme) {
-    String name;
-    if (preferredName == null) {
-      if (parentScheme == null) throw new IllegalArgumentException("parentScheme must not be null");
-      // Generate using parent name
-      name = null;
-      for (int i = 1; name == null; i++) {
-        String currName = parentScheme.getName() + " (" + i + ")";
-        if (findSchemeByName(currName) == null) {
-          name = currName;
-        }
-      }
-    }
-    else {
-      name = null;
-      for (int i = 0; name == null; i++) {
-        String currName = i == 0 ? preferredName : preferredName + " (" + i + ")";
-        if (findSchemeByName(currName) == null) {
-          name = currName;
-        }
-      }
-    }
-    return new CodeStyleSchemeImpl(name, false, parentScheme);
+    return new CodeStyleSchemeImpl(
+      SchemeNameGenerator.getUniqueName(preferredName, parentScheme, name -> mySchemeManager.findSchemeByName(name) != null),
+      false,
+      parentScheme);
   }
 
   @Override
-  public void deleteScheme(CodeStyleScheme scheme) {
+  public void deleteScheme(@NotNull CodeStyleScheme scheme) {
     if (scheme.isDefault()) {
       throw new IllegalArgumentException("Unable to delete default scheme!");
     }
-    CodeStyleSchemeImpl currScheme = (CodeStyleSchemeImpl)getCurrentScheme();
-    if (currScheme == scheme) {
+
+    CodeStyleSchemeImpl currentScheme = (CodeStyleSchemeImpl)getCurrentScheme();
+    if (currentScheme == scheme) {
       CodeStyleScheme newCurrentScheme = getDefaultScheme();
       if (newCurrentScheme == null) {
         throw new IllegalStateException("Unable to load default scheme!");
       }
       setCurrentScheme(newCurrentScheme);
     }
-    mySchemesManager.removeScheme(scheme);
+    mySchemeManager.removeScheme(scheme);
   }
 
   @Override
   public CodeStyleScheme getDefaultScheme() {
-    return findSchemeByName(DEFAULT_SCHEME_NAME);
+    CodeStyleScheme defaultScheme = mySchemeManager.findSchemeByName(CodeStyleScheme.DEFAULT_SCHEME_NAME);
+    if (defaultScheme == null) {
+      defaultScheme = new CodeStyleSchemeImpl(CodeStyleScheme.DEFAULT_SCHEME_NAME, true, null);
+      addScheme(defaultScheme);
+    }
+    return defaultScheme;
   }
 
   @Nullable
   @Override
   public CodeStyleScheme findSchemeByName(@NotNull String name) {
-    return mySchemesManager.findSchemeByName(name);
+    return mySchemeManager.findSchemeByName(name);
   }
 
   @Override
-  public void addScheme(CodeStyleScheme scheme) {
-    mySchemesManager.addNewScheme(scheme, true);
+  public void addScheme(@NotNull CodeStyleScheme scheme) {
+    mySchemeManager.addScheme(scheme);
+  }
+
+  @NotNull
+  public static SchemeManager<CodeStyleScheme> getSchemeManager() {
+    return ((CodeStyleSchemesImpl)CodeStyleSchemes.getInstance()).mySchemeManager;
   }
 }

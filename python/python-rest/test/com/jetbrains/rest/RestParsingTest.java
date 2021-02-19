@@ -1,8 +1,8 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.rest;
 
 import com.intellij.testFramework.ParsingTestCase;
 import com.jetbrains.python.PythonHelpersLocator;
-import com.jetbrains.python.fixtures.PyTestCase;
 import com.jetbrains.rest.parsing.RestParserDefinition;
 
 /**
@@ -12,7 +12,6 @@ public class RestParsingTest extends ParsingTestCase {
 
   public RestParsingTest() {
     super("", "rst", new RestParserDefinition());
-    PyTestCase.initPlatformPrefix();
   }
 
   public void testTitle() {
@@ -35,11 +34,17 @@ public class RestParsingTest extends ParsingTestCase {
     doTest(true);
   }
 
+  public void testDirectiveWithNewLine() {
+    doTest(true);
+  }
+
+  @Override
   protected String getTestDataPath() {
     return PythonHelpersLocator.getPythonCommunityPath() + "/python-rest/testData/psi";
   }
 
 
+  @Override
   protected boolean checkAllPsiRoots() {
     return false;
   }

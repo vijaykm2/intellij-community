@@ -1,59 +1,47 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.utils;
 
-import com.intellij.openapi.application.AccessToken;
+import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.CharsetToolkit;
-import com.intellij.openapi.vfs.VfsUtil;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.encoding.EncodingRegistry;
 import com.intellij.psi.impl.source.parsing.xml.XmlBuilder;
 import com.intellij.psi.impl.source.parsing.xml.XmlBuilderDriver;
 import org.jdom.Element;
 import org.jdom.IllegalNameException;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.*;
 
-public class MavenJDOMUtil {
+public final class MavenJDOMUtil {
   @Nullable
   public static Element read(final VirtualFile file, @Nullable final ErrorHandler handler) {
-    String text;
 
-    AccessToken accessToken = ApplicationManager.getApplication().acquireReadActionLock();
-    try {
+    Application app = ApplicationManager.getApplication();
+    if (app == null || app.isDisposed()) {
+      return null;
+    }
+    String text
+      = ReadAction.compute(() -> {
       if (!file.isValid()) return null;
 
       try {
-        text = VfsUtil.loadText(file);
+        return VfsUtilCore.loadText(file);
       }
       catch (IOException e) {
         if (handler != null) handler.onReadError(e);
         return null;
       }
-    }
-    finally {
-      accessToken.finish();
-    }
+    });
 
-    return doRead(text, handler);
+    return text == null ? null : doRead(text, handler);
   }
 
   @Nullable
@@ -63,14 +51,16 @@ public class MavenJDOMUtil {
 
   @Nullable
   private static Element doRead(String text, final ErrorHandler handler) {
-    final LinkedList<Element> stack = new LinkedList<Element>();
+    final LinkedList<Element> stack = new LinkedList<>();
 
     final Element[] result = {null};
     XmlBuilderDriver driver = new XmlBuilderDriver(text);
     XmlBuilder builder = new XmlBuilder() {
+      @Override
       public void doctype(@Nullable CharSequence publicId, @Nullable CharSequence systemId, int startOffset, int endOffset) {
       }
 
+      @Override
       public ProcessingOrder startTag(CharSequence localName, String namespace, int startoffset, int endoffset, int headerEndOffset) {
         String name = localName.toString();
         if (StringUtil.isEmptyOrSpaces(name)) return ProcessingOrder.TAGS;
@@ -95,6 +85,7 @@ public class MavenJDOMUtil {
         return ProcessingOrder.TAGS_AND_TEXTS;
       }
 
+      @Override
       public void endTag(CharSequence localName, String namespace, int startoffset, int endoffset) {
         String name = localName.toString();
         if (StringUtil.isEmptyOrSpaces(name)) return;
@@ -109,17 +100,21 @@ public class MavenJDOMUtil {
         }
       }
 
+      @Override
       public void textElement(CharSequence text, CharSequence physical, int startoffset, int endoffset) {
         stack.getLast().addContent(JDOMUtil.legalizeText(text.toString()));
       }
 
+      @Override
       public void attribute(CharSequence name, CharSequence value, int startoffset, int endoffset) {
       }
 
+      @Override
       public void entityRef(CharSequence ref, int startOffset, int endOffset) {
       }
 
-      public void error(String message, int startOffset, int endOffset) {
+      @Override
+      public void error(@NotNull String message, int startOffset, int endOffset) {
         if (handler != null) handler.onSyntaxError();
       }
     };
@@ -164,7 +159,7 @@ public class MavenJDOMUtil {
   }
 
   public static List<String> findChildrenValuesByPath(@Nullable Element element, String path, String childrenName) {
-    List<String> result = new ArrayList<String>();
+    List<String> result = new ArrayList<>();
     for (Element each : findChildrenByPath(element, path, childrenName)) {
       String value = each.getTextTrim();
       if (!value.isEmpty()) {
@@ -186,7 +181,7 @@ public class MavenJDOMUtil {
     String childName = subPath.substring(0, firstDot);
     String pathInChild = subPath.substring(firstDot + 1);
 
-    List<Element> result = new ArrayList<Element>();
+    List<Element> result = new ArrayList<>();
 
     for (Element each : container.getChildren(childName)) {
       Element child = findChildByPath(each, pathInChild);

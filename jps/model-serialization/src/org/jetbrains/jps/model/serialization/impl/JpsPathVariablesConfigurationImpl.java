@@ -24,18 +24,15 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/**
- * @author nik
- */
 public class JpsPathVariablesConfigurationImpl extends JpsElementBase<JpsPathVariablesConfigurationImpl> implements JpsPathVariablesConfiguration {
-  private Map<String, String> myPathVariables;
+  private final Map<String, String> myPathVariables;
 
   public JpsPathVariablesConfigurationImpl() {
-    myPathVariables = new LinkedHashMap<String, String>();
+    myPathVariables = new LinkedHashMap<>();
   }
 
   private JpsPathVariablesConfigurationImpl(Map<String, String> pathVariables) {
-    myPathVariables = new LinkedHashMap<String, String>(pathVariables);
+    myPathVariables = new LinkedHashMap<>(pathVariables);
   }
 
   @NotNull
@@ -60,20 +57,8 @@ public class JpsPathVariablesConfigurationImpl extends JpsElementBase<JpsPathVar
 
   @Nullable
   @Override
-  public String getPathVariable(@NotNull String name) {
-    return getUserVariableValue(name);
-  }
-
-  @Nullable
-  @Override
   public String getUserVariableValue(@NotNull String name) {
     return myPathVariables.get(name);
-  }
-
-  @NotNull
-  @Override
-  public Map<String, String> getAllVariables() {
-    return getAllUserVariables();
   }
 
   @NotNull

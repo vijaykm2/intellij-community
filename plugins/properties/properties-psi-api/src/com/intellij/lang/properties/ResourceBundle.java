@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: Alexey
- * Date: 08.05.2005
- * Time: 0:17:52
- */
 package com.intellij.lang.properties;
 
 import com.intellij.lang.properties.psi.PropertiesFile;
@@ -37,37 +31,22 @@ public abstract class ResourceBundle {
   @NotNull
   public abstract List<PropertiesFile> getPropertiesFiles();
 
-  /**
-   * @deprecated use getPropertiesFiles() instead this method
-   */
-  @Deprecated
-  @NotNull
-  public List<PropertiesFile> getPropertiesFiles(final Project project) {
-    return getPropertiesFiles();
-  }
-
   @NotNull
   public abstract PropertiesFile getDefaultPropertiesFile();
-
-  /**
-   * @deprecated use getDefaultPropertiesFile() instead this method
-   */
-  @Deprecated
-  @NotNull
-  public PropertiesFile getDefaultPropertiesFile(final Project project) {
-    return getDefaultPropertiesFile();
-  }
 
   @NotNull
   public abstract String getBaseName();
 
   /**
-   * @return null if resource bundle is not default ( == instance of ResourceBundleImpl)
+   * @return null if properties files are not lying in the same directory
    */
-  @Deprecated
   @Nullable
   public abstract VirtualFile getBaseDirectory();
 
   @NotNull
-  public abstract Project getProject();
+  public Project getProject() {
+    return getDefaultPropertiesFile().getProject();
+  }
+
+  public abstract boolean isValid();
 }

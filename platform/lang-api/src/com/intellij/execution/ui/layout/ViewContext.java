@@ -64,7 +64,7 @@ public interface ViewContext extends Disposable {
 
   Grid findGridFor(@NotNull Content content);
 
-  ActionCallback select(Content content, boolean requestFocus);
+  ActionCallback select(@NotNull Content content, boolean requestFocus);
 
   boolean isStateBeingRestored();
 
@@ -79,4 +79,8 @@ public interface ViewContext extends Disposable {
   boolean isMoveToGridActionEnabled();
 
   boolean isToDisposeRemovedContent();
+
+  static boolean isPopupPlace(String place) {
+    return CELL_POPUP_PLACE.equals(place) || TAB_POPUP_PLACE.equals(place);
+  }
 }

@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 30.04.2006
- * Time: 16:52:31
- */
 package org.intellij.lang.xpath.validation.inspections;
 
 import com.intellij.codeInspection.InspectionManager;
@@ -36,6 +30,7 @@ import org.intellij.lang.xpath.psi.XPathFunctionCall;
 import org.intellij.lang.xpath.psi.XPathType;
 import org.intellij.lang.xpath.validation.ExpectedTypeUtil;
 import org.intellij.lang.xpath.validation.inspections.quickfix.XPathQuickFixFactory;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -68,35 +63,36 @@ public class ImplicitTypeConversion extends XPathInspection {
         }
     }
 
-    @NotNull
-    public String getDisplayName() {
-        return "Implicit Type Conversion";
-    }
-
+  @Override
     @NotNull
     @NonNls
     public String getShortName() {
         return SHORT_NAME;
     }
 
+    @Override
     public boolean isEnabledByDefault() {
         return true;
     }
 
+    @Override
     protected Visitor createVisitor(InspectionManager manager, boolean isOnTheFly) {
         return new MyElementVisitor(manager, isOnTheFly);
     }
 
+    @Override
     @Nullable
     public JComponent createOptionsPanel() {
         return new Options();
     }
 
+    @Override
     public void readSettings(@NotNull Element node) throws InvalidDataException {
         super.readSettings(node);
         update();
     }
 
+    @Override
     public void writeSettings(@NotNull Element node) throws WriteExternalException {
         BITS = 0;
         for (int i=11; i>=0; i--) {
@@ -106,6 +102,7 @@ public class ImplicitTypeConversion extends XPathInspection {
         super.writeSettings(node);
     }
 
+    @Override
     protected boolean acceptsLanguage(Language language) {
       return language == XPathFileType.XPATH.getLanguage();
     }
@@ -115,6 +112,7 @@ public class ImplicitTypeConversion extends XPathInspection {
             super(manager, isOnTheFly);
         }
 
+        @Override
         protected void checkExpression(@NotNull XPathExpression expression) {
             final XPathType expectedType = ExpectedTypeUtil.getExpectedType(expression);
             // conversion to NODESET is impossible (at least not in a portable way) and is flagged by annotator
@@ -148,9 +146,10 @@ public class ImplicitTypeConversion extends XPathInspection {
                     fixes = null;
                 }
 
-                addProblem(myManager.createProblemDescriptor(expression,
-                        "Expression should be of type '" + type.getName() + "'", myOnTheFly, fixes,
-                        ProblemHighlightType.GENERIC_ERROR_OR_WARNING));
+                addProblem(
+                  myManager.createProblemDescriptor(expression,
+                                                    XPathBundle.message("inspection.message.expression.should.be.type", type.getName()),
+                                                    myOnTheFly, fixes, ProblemHighlightType.GENERIC_ERROR_OR_WARNING));
             }
         }
 
@@ -175,7 +174,7 @@ public class ImplicitTypeConversion extends XPathInspection {
     }
 
     public class Options extends JPanel {
-        @SuppressWarnings({ "UNUSED_SYMBOL", "FieldCanBeLocal" })
+        @SuppressWarnings({ "UNUSED_SYMBOL"})
         private JPanel root;
         private JCheckBox NS_S;
         private JCheckBox NS_N;
@@ -206,6 +205,7 @@ public class ImplicitTypeConversion extends XPathInspection {
                     final int index = row.length * i + j;
                     to.setSelected(OPTIONS.get(index));
                     to.addItemListener(new ItemListener() {
+                        @Override
                         public void itemStateChanged(ItemEvent e) {
                             OPTIONS.set(index, e.getStateChange() == ItemEvent.SELECTED);
                         }
@@ -215,28 +215,29 @@ public class ImplicitTypeConversion extends XPathInspection {
             }
             myAlwaysFlagExplicitConversion.setSelected(FLAG_EXPLICIT_CONVERSION);
             myAlwaysFlagExplicitConversion.addItemListener(new ItemListener() {
+                @Override
                 public void itemStateChanged(ItemEvent e) {
                     FLAG_EXPLICIT_CONVERSION = e.getStateChange() == ItemEvent.SELECTED;
                 }
             });
             myIgnoreNodesetToString.setSelected(IGNORE_NODESET_TO_BOOLEAN_VIA_STRING);
             myIgnoreNodesetToString.addItemListener(new ItemListener() {
+                @Override
                 public void itemStateChanged(ItemEvent e) {
                     IGNORE_NODESET_TO_BOOLEAN_VIA_STRING = e.getStateChange() == ItemEvent.SELECTED;
                 }
             });
         }
 
+        @Override
         public void setEnabled(final boolean enabled) {
             super.setEnabled(enabled);
-            new Alarm(Alarm.ThreadToUse.SHARED_THREAD).addRequest(new Runnable() {
-                public void run() {
-                    for (int i = 0; i < matrix.length; i++) {
-                        JCheckBox[] row = matrix[i];
-                        for (int j = 0; j < row.length; j++) {
-                            JCheckBox to = row[j];
-                            to.setEnabled(enabled && j != i + 1);
-                        }
+            new Alarm().addRequest(() -> {
+                for (int i = 0; i < matrix.length; i++) {
+                    JCheckBox[] row = matrix[i];
+                    for (int j = 0; j < row.length; j++) {
+                        JCheckBox to = row[j];
+                        to.setEnabled(enabled && j != i + 1);
                     }
                 }
             }, 200);

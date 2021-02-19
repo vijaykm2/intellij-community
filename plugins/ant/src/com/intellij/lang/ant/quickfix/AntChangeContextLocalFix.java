@@ -16,9 +16,11 @@
 package com.intellij.lang.ant.quickfix;
 
 import com.intellij.codeInsight.daemon.impl.HectorComponent;
+import com.intellij.codeInsight.daemon.impl.HectorComponentFactory;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.lang.ant.AntBundle;
+import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
@@ -29,19 +31,21 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: May 12, 2008
  */
 public class AntChangeContextLocalFix implements LocalQuickFix {
 
+  @Override
   @NotNull public String getName() {
     return AntBundle.message("intention.configure.highlighting.text");
   }
 
+  @Override
   @NotNull
   public final String getFamilyName() {
     return AntBundle.message("intention.configure.highlighting.family.name");
   }
 
+  @Override
   public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
     final PsiElement psiElement = descriptor.getPsiElement();
     final PsiFile containingFile = psiElement.getContainingFile();
@@ -52,7 +56,8 @@ public class AntChangeContextLocalFix implements LocalQuickFix {
     if (editor == null) {
       return;
     }
-    final HectorComponent component = new HectorComponent(containingFile.getOriginalFile());
+    final HectorComponent component = ServiceManager
+      .getService(project, HectorComponentFactory.class).create(containingFile.getOriginalFile());
     component.showComponent(JBPopupFactory.getInstance().guessBestPopupLocation(editor));
   }
 }

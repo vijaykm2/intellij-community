@@ -30,10 +30,12 @@ public class ScrollPaneLayoutCodeGenerator extends LayoutCodeGenerator {
   private final Type myScrollPaneType = Type.getType(JScrollPane.class);
   private final Method mySetViewportViewMethod = Method.getMethod("void setViewportView(java.awt.Component)");
 
+  @Override
   public void generateComponentLayout(final LwComponent lwComponent,
                                       final GeneratorAdapter generator,
                                       final int componentLocal,
-                                      final int parentLocal) {
+                                      final int parentLocal,
+                                      final String formClassName) {
     generator.loadLocal(parentLocal);
     generator.loadLocal(componentLocal);
     generator.invokeVirtual(myScrollPaneType, mySetViewportViewMethod);

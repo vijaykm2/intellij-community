@@ -1,34 +1,20 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.compiled;
 
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.components.Service;
 import com.intellij.openapi.extensions.ExtensionPointName;
+import com.intellij.openapi.fileTypes.BinaryFileTypeDecompilers;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.FileViewProvider;
 import com.intellij.psi.PsiManager;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * An API to extend default IDEA .class file decompiler and handle files compiled from sources other than Java.
- *
- * @since 134.1050
  */
-public class ClassFileDecompilers {
-
+@Service
+public final class ClassFileDecompilers {
   /**
    * Actual implementations should extend either {@link Light} or {@link Full} classes -
    * those that don't are silently ignored.
@@ -36,7 +22,6 @@ public class ClassFileDecompilers {
   public interface Decompiler {
     boolean accepts(@NotNull VirtualFile file);
   }
-
 
   /**
    * <p>"Light" decompilers are intended for augmenting file text constructed by standard IDEA decompiler
@@ -51,19 +36,14 @@ public class ClassFileDecompilers {
    */
   public abstract static class Light implements Decompiler {
     public static class CannotDecompileException extends RuntimeException {
-      public CannotDecompileException(String message) {
-        super(message);
-      }
-
-      public CannotDecompileException(Throwable cause) {
-        super(cause);
+      public CannotDecompileException(String message, Throwable cause) {
+        super(message, cause);
       }
     }
 
     @NotNull
     public abstract CharSequence getText(@NotNull VirtualFile file) throws CannotDecompileException;
   }
-
 
   /**
    * <p>"Full" decompilers are designed to provide extended support for languages significantly different from Java.
@@ -91,19 +71,18 @@ public class ClassFileDecompilers {
     public abstract FileViewProvider createFileViewProvider(@NotNull VirtualFile file, @NotNull PsiManager manager, boolean physical);
   }
 
+  public static ClassFileDecompilers getInstance() {
+    return ApplicationManager.getApplication().getService(ClassFileDecompilers.class);
+  }
 
-  public static ExtensionPointName<Decompiler> EP_NAME = ExtensionPointName.create("com.intellij.psi.classFileDecompiler");
+  public final ExtensionPointName<Decompiler> EP_NAME = new ExtensionPointName<>("com.intellij.psi.classFileDecompiler");
 
-  private ClassFileDecompilers() { }
+  private ClassFileDecompilers() {
+    EP_NAME.addChangeListener(() -> BinaryFileTypeDecompilers.getInstance().notifyDecompilerSetChange(), null);
+  }
 
-  @Nullable
-  public static Decompiler find(@NotNull VirtualFile file) {
-    for (Decompiler decompiler : EP_NAME.getExtensions()) {
-      if ((decompiler instanceof Light || decompiler instanceof Full) && decompiler.accepts(file)) {
-        return decompiler;
-      }
-    }
-
-    return null;
+  @SuppressWarnings("unchecked")
+  public <D extends Decompiler> D find(@NotNull VirtualFile file, @NotNull Class<D> decompilerClass) {
+    return (D)EP_NAME.findFirstSafe(d -> decompilerClass.isInstance(d) && d.accepts(file));
   }
 }

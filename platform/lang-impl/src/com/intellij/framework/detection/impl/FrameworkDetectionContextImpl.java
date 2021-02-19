@@ -37,9 +37,6 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 
-/**
- * @author nik
- */
 public class FrameworkDetectionContextImpl extends FrameworkDetectionContextBase {
   private final Project myProject;
 
@@ -56,7 +53,7 @@ public class FrameworkDetectionContextImpl extends FrameworkDetectionContextBase
   @NotNull
   @Override
   public <F extends Facet, C extends FacetConfiguration> List<? extends DetectedFrameworkDescription> createDetectedFacetDescriptions(@NotNull FacetBasedFrameworkDetector<F, C> detector,
-                                                                                                                                      @NotNull Collection<VirtualFile> files) {
+                                                                                                                                      @NotNull Collection<? extends VirtualFile> files) {
     MultiMap<Module, VirtualFile> filesByModule = MultiMap.createSet();
     for (VirtualFile file : files) {
       final Module module = ModuleUtilCore.findModuleForFile(file, myProject);
@@ -64,7 +61,7 @@ public class FrameworkDetectionContextImpl extends FrameworkDetectionContextBase
         filesByModule.putValue(module, file);
       }
     }
-    final List<DetectedFrameworkDescription> result = new ArrayList<DetectedFrameworkDescription>();
+    final List<DetectedFrameworkDescription> result = new ArrayList<>();
     final FacetType<F,C> facetType = detector.getFacetType();
     final FacetsProvider provider = DefaultFacetsProvider.INSTANCE;
     for (Module module : filesByModule.keySet()) {
@@ -72,7 +69,7 @@ public class FrameworkDetectionContextImpl extends FrameworkDetectionContextBase
       if (!facetType.isSuitableModuleType(ModuleType.get(module)) || facetType.isOnlyOneFacetAllowed() && !facets.isEmpty()) {
         continue;
       }
-      List<C> existentConfigurations = new ArrayList<C>();
+      List<C> existentConfigurations = new ArrayList<>();
       for (F facet : facets) {
         //noinspection unchecked
         existentConfigurations.add((C)facet.getConfiguration());
@@ -80,7 +77,7 @@ public class FrameworkDetectionContextImpl extends FrameworkDetectionContextBase
       final Collection<VirtualFile> moduleFiles = filesByModule.get(module);
       final List<Pair<C, Collection<VirtualFile>>> pairs = detector.createConfigurations(moduleFiles, existentConfigurations);
       for (Pair<C, Collection<VirtualFile>> pair : pairs) {
-        result.add(new FacetBasedDetectedFrameworkDescriptionImpl<F, C>(module, detector, pair.getFirst(), new HashSet<VirtualFile>(pair.getSecond())));
+        result.add(new FacetBasedDetectedFrameworkDescriptionImpl<>(module, detector, pair.getFirst(), new HashSet<>(pair.getSecond())));
       }
     }
     return result;

@@ -7,8 +7,11 @@ public class Test {
     return null;
   }
 
-  @SuppressWarnings("unchecked")
-  void fo<caret>o() {
+  /**
+   * Some javadoc with unchecked word inside
+   */
+  @SuppressWarnings("unch<caret>ecked")
+  void foo() {
     List<ArrayList<String>> list = foo(new ArrayList<String>());
   }
 }

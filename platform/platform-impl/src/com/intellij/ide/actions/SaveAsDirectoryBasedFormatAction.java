@@ -1,94 +1,79 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
-import com.intellij.ide.impl.ProjectUtil;
+import com.intellij.ide.IdeBundle;
+import com.intellij.ide.impl.OpenProjectTask;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.components.StorageScheme;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.impl.stores.IProjectStore;
-import com.intellij.openapi.components.impl.stores.StateStorageManager;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ex.ProjectEx;
+import com.intellij.openapi.project.ex.ProjectManagerEx;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.project.ProjectKt;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
-/**
- * @author spleaner
- */
-public class SaveAsDirectoryBasedFormatAction extends AnAction implements DumbAware {
-  public void actionPerformed(AnActionEvent e) {
-    Project project = e.getProject();
-    if (project instanceof ProjectEx) {
-      IProjectStore projectStore = ((ProjectEx)project).getStateStore();
-      if (StorageScheme.DIRECTORY_BASED != projectStore.getStorageScheme()) {
-        if (Messages.showOkCancelDialog(project,
-                                        "Project will be saved and reopened in new Directory-Based format.\nAre you sure you want to continue?",
-                                        "Save project to Directory-Based format", Messages.getWarningIcon()) == Messages.OK) {
-          VirtualFile baseDir = project.getBaseDir();
-          assert baseDir != null;
+public final class SaveAsDirectoryBasedFormatAction extends AnAction implements DumbAware {
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent event) {
+    Project project = event.getProject();
+    if (!isConvertableProject(project) || Messages.showOkCancelDialog(project,
+                                                                      IdeBundle.message(
+                                                                        "message.project.will.be.saved.and.reopened.in.new.directory.based.format"),
+                                                                      IdeBundle
+                                                                        .message("dialog.title.save.project.to.directory.based.format"),
+                                                                   Messages.getWarningIcon()) != Messages.OK) {
+      return;
+    }
 
-          File ideaDir = new File(baseDir.getPath(), Project.DIRECTORY_STORE_FOLDER + File.separatorChar);
-          if ((ideaDir.exists() && ideaDir.isDirectory()) || createDir(ideaDir)) {
-            LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ideaDir);
-
-            final StateStorageManager storageManager = projectStore.getStateStorageManager();
-            for (String file : new ArrayList<String>(storageManager.getStorageFileNames())) {
-              storageManager.clearStateStorage(file);
-            }
-
-            projectStore.setProjectFilePath(baseDir.getPath());
-            project.save();
-            ProjectUtil.closeAndDispose(project);
-            ProjectUtil.openProject(baseDir.getPath(), null, false);
-          }
-          else {
-            Messages.showErrorDialog(project, String.format("Unable to create '.idea' directory (%s)", ideaDir), "Error saving project!");
-          }
-        }
+    IProjectStore store = ProjectKt.getStateStore(project);
+    Path baseDir = store.getProjectFilePath().getParent();
+    Path ideaDir = baseDir.resolve(Project.DIRECTORY_STORE_FOLDER);
+    try {
+      if (Files.isDirectory(ideaDir)) {
+        LocalFileSystem.getInstance().refreshAndFindFileByNioFile(ideaDir);
       }
+      else {
+        createDir(ideaDir);
+      }
+
+      store.clearStorages();
+      store.setPath(baseDir);
+      // closeAndDispose will also force save project
+      ProjectManagerEx projectManager = ProjectManagerEx.getInstanceEx();
+      projectManager.closeAndDispose(project);
+      projectManager.openProject(ideaDir.getParent(), new OpenProjectTask());
+    }
+    catch (IOException e) {
+      Messages.showErrorDialog(project, String.format(IdeBundle.message("dialog.message.unable.to.create.idea.directory", e.getMessage()), ideaDir),
+                               IdeBundle.message("dialog.title.error.saving.project"));
     }
   }
 
-  private static boolean createDir(File ideaDir) {
-    try {
-      VfsUtil.createDirectories(ideaDir.getPath());
-      return true;
-    }
-    catch (IOException e) {
-      return false;
-    }
+  @SuppressWarnings("UnusedReturnValue")
+  private static VirtualFile createDir(@NotNull Path ideaDir) throws IOException {
+    return ApplicationManager.getApplication().runWriteAction((ThrowableComputable<VirtualFile, IOException>)() -> {
+      return VfsUtil.createDirectoryIfMissing(ideaDir.toString());
+    });
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     Project project = e.getProject();
-    boolean visible = project != null;
+    e.getPresentation().setVisible(isConvertableProject(project));
+  }
 
-    if (project instanceof ProjectEx) {
-      visible = ((ProjectEx)project).getStateStore().getStorageScheme() != StorageScheme.DIRECTORY_BASED;
-    }
-
-    e.getPresentation().setVisible(visible);
+  private static boolean isConvertableProject(@Nullable Project project) {
+    return project != null && !project.isDefault() && !ProjectKt.isDirectoryBased(project);
   }
 }

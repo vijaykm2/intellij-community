@@ -1,10 +1,11 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.remoteServer.impl.runtime.deployment.debug;
 
 import com.intellij.debugger.DebugEnvironment;
 import com.intellij.debugger.DebugUIEnvironment;
 import com.intellij.debugger.DebuggerManager;
 import com.intellij.debugger.engine.DebugProcess;
-import com.intellij.debugger.engine.DebugProcessAdapter;
+import com.intellij.debugger.engine.DebugProcessListener;
 import com.intellij.debugger.engine.RemoteDebugProcessHandler;
 import com.intellij.debugger.ui.DebuggerPanelsManager;
 import com.intellij.execution.DefaultExecutionResult;
@@ -12,7 +13,6 @@ import com.intellij.execution.ExecutionException;
 import com.intellij.execution.ExecutionResult;
 import com.intellij.execution.configurations.RemoteConnection;
 import com.intellij.execution.configurations.RunProfile;
-import com.intellij.execution.configurations.SearchScopeProvider;
 import com.intellij.execution.impl.ConsoleViewImpl;
 import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.runners.ExecutionEnvironment;
@@ -22,6 +22,7 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.search.GlobalSearchScopes;
 import com.intellij.remoteServer.configuration.RemoteServer;
 import com.intellij.remoteServer.runtime.deployment.debug.JavaDebugConnectionData;
 import com.intellij.remoteServer.runtime.deployment.debug.JavaDebugServerModeHandler;
@@ -31,9 +32,6 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
-/**
- * @author nik
- */
 public class JavaDebuggerLauncherImpl extends JavaDebuggerLauncher {
   private static final Logger LOG = Logger.getInstance(JavaDebuggerLauncherImpl.class);
 
@@ -54,8 +52,9 @@ public class JavaDebuggerLauncherImpl extends JavaDebuggerLauncher {
     if (serverMode) {
       serverModeHandler.attachRemote();
       DebuggerManager.getInstance(executionEnvironment.getProject())
-        .addDebugProcessListener(processHandler, new DebugProcessAdapter() {
-          public void processDetached(DebugProcess process, boolean closedByUser) {
+        .addDebugProcessListener(processHandler, new DebugProcessListener() {
+          @Override
+          public void processDetached(@NotNull DebugProcess process, boolean closedByUser) {
             try {
               serverModeHandler.detachRemote();
             }
@@ -71,7 +70,7 @@ public class JavaDebuggerLauncherImpl extends JavaDebuggerLauncher {
     private final DebugEnvironment myEnvironment;
     private final ExecutionEnvironment myExecutionEnvironment;
 
-    public RemoteServerDebugUIEnvironment(DebugEnvironment environment, ExecutionEnvironment executionEnvironment) {
+    RemoteServerDebugUIEnvironment(DebugEnvironment environment, ExecutionEnvironment executionEnvironment) {
       myEnvironment = environment;
       myExecutionEnvironment = executionEnvironment;
     }
@@ -111,9 +110,9 @@ public class JavaDebuggerLauncherImpl extends JavaDebuggerLauncher {
     private final RemoteConnection myRemoteConnection;
     private final RunProfile myRunProfile;
 
-    public RemoteServerDebugEnvironment(Project project, RemoteConnection remoteConnection, RunProfile runProfile) {
+    RemoteServerDebugEnvironment(Project project, RemoteConnection remoteConnection, RunProfile runProfile) {
       myProject = project;
-      mySearchScope = SearchScopeProvider.createSearchScope(project, runProfile);
+      mySearchScope = GlobalSearchScopes.executionScope(project, runProfile);
       myRemoteConnection = remoteConnection;
       myRunProfile = runProfile;
     }
@@ -127,6 +126,7 @@ public class JavaDebuggerLauncherImpl extends JavaDebuggerLauncher {
       return new DefaultExecutionResult(consoleView, process);
     }
 
+    @NotNull
     @Override
     public GlobalSearchScope getSearchScope() {
       return mySearchScope;
@@ -143,8 +143,8 @@ public class JavaDebuggerLauncherImpl extends JavaDebuggerLauncher {
     }
 
     @Override
-    public boolean isPollConnection() {
-      return true;
+    public long getPollTimeout() {
+      return LOCAL_START_TIMEOUT;
     }
 
     @Override

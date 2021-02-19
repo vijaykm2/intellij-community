@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.util.xml.converters;
 
 import com.intellij.codeInsight.daemon.EmptyResolveMessageProvider;
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.DelimitedListProcessor;
@@ -24,7 +11,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.PsiReferenceBase;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.xml.*;
@@ -37,7 +24,7 @@ import java.util.*;
 
 public abstract class DelimitedListConverter<T> extends ResolvingConverter<List<T>> implements CustomReferenceConverter<List<T>> {
 
-  protected final static Object[] EMPTY_ARRAY = ArrayUtil.EMPTY_OBJECT_ARRAY;
+  protected final static Object[] EMPTY_ARRAY = ArrayUtilRt.EMPTY_OBJECT_ARRAY;
 
   private final String myDelimiters;
 
@@ -53,11 +40,12 @@ public abstract class DelimitedListConverter<T> extends ResolvingConverter<List<
   protected abstract String toString(@Nullable final T t);
 
 
-  protected abstract Object[] getReferenceVariants(final ConvertContext context, GenericDomValue<List<T>> genericDomValue);
+  protected abstract Object[] getReferenceVariants(final ConvertContext context, GenericDomValue<? extends List<T>> genericDomValue);
 
   @Nullable
   protected abstract PsiElement resolveReference(@Nullable final T t, final ConvertContext context);
 
+  @InspectionMessage
   protected abstract String getUnresolvedMessage(String value);
 
   @Override
@@ -66,7 +54,7 @@ public abstract class DelimitedListConverter<T> extends ResolvingConverter<List<
     return Collections.emptyList();
   }
 
-  public static <T> void filterVariants(List<T> variants, GenericDomValue<List<T>> genericDomValue) {
+  public static <T> void filterVariants(List<T> variants, GenericDomValue<? extends List<T>> genericDomValue) {
     final List<T> list = genericDomValue.getValue();
     if (list != null) {
       for (Iterator<T> i = variants.iterator(); i.hasNext(); ) {
@@ -90,7 +78,7 @@ public abstract class DelimitedListConverter<T> extends ResolvingConverter<List<
     if (str == null) {
       return null;
     }
-    List<T> values = new ArrayList<T>();
+    List<T> values = new ArrayList<>();
 
     for (String s : StringUtil.tokenize(str, myDelimiters)) {
       final T t = convertString(s.trim(), context);
@@ -118,24 +106,23 @@ public abstract class DelimitedListConverter<T> extends ResolvingConverter<List<
   }
 
   @Override
-  @NotNull
-  public PsiReference[] createReferences(final GenericDomValue<List<T>> genericDomValue,
-                                         final PsiElement element,
-                                         final ConvertContext context) {
+  public PsiReference @NotNull [] createReferences(final GenericDomValue<List<T>> genericDomValue,
+                                                   final PsiElement element,
+                                                   final ConvertContext context) {
 
     final String text = genericDomValue.getRawText();
     if (text == null) {
       return PsiReference.EMPTY_ARRAY;
     }
 
-    final ArrayList<PsiReference> references = new ArrayList<PsiReference>();
+    final ArrayList<PsiReference> references = new ArrayList<>();
     new DelimitedListProcessor(myDelimiters) {
       @Override
       protected void processToken(final int start, final int end, final boolean delimitersOnly) {
         references.add(createPsiReference(element, start + 1, end + 1, context, genericDomValue, delimitersOnly));
       }
     }.processText(text);
-    return references.toArray(new PsiReference[references.size()]);
+    return references.toArray(PsiReference.EMPTY_ARRAY);
   }
 
   @NotNull
@@ -194,18 +181,17 @@ public abstract class DelimitedListConverter<T> extends ResolvingConverter<List<
         return getElement();
       }
       final String value = getValue();
-      return resolveReference(convertString(value, myContext), myContext);
+      return DelimitedListConverter.this.resolveReference(convertString(value, myContext), myContext);
     }
 
     @Override
-    @NotNull
-    public Object[] getVariants() {
+    public Object @NotNull [] getVariants() {
       return getReferenceVariants(myContext, myGenericDomValue);
     }
 
     @Override
-    public PsiElement handleElementRename(final String newElementName) throws IncorrectOperationException {
-      final Ref<IncorrectOperationException> ref = new Ref<IncorrectOperationException>();
+    public PsiElement handleElementRename(@NotNull final String newElementName) throws IncorrectOperationException {
+      final Ref<IncorrectOperationException> ref = new Ref<>();
       PsiElement element = referenceHandleElementRename(this, newElementName, getSuperElementRenameFunction(ref));
       if (!ref.isNull()) {
         throw ref.get();
@@ -216,7 +202,7 @@ public abstract class DelimitedListConverter<T> extends ResolvingConverter<List<
 
     @Override
     public PsiElement bindToElement(@NotNull final PsiElement element) throws IncorrectOperationException {
-      final Ref<IncorrectOperationException> ref = new Ref<IncorrectOperationException>();
+      final Ref<IncorrectOperationException> ref = new Ref<>();
       PsiElement bindElement =
         referenceBindToElement(this, element, getSuperBindToElementFunction(ref), getSuperElementRenameFunction(ref));
       if (!ref.isNull()) {
@@ -231,33 +217,27 @@ public abstract class DelimitedListConverter<T> extends ResolvingConverter<List<
       return super.toString() + " converter: " + DelimitedListConverter.this;
     }
 
-    private Function<PsiElement, PsiElement> getSuperBindToElementFunction(final Ref<IncorrectOperationException> ref) {
-      return new Function<PsiElement, PsiElement>() {
-        @Override
-        public PsiElement fun(final PsiElement s) {
-          try {
-            return MyPsiReference.super.bindToElement(s);
-          }
-          catch (IncorrectOperationException e) {
-            ref.set(e);
-          }
-          return null;
+    private Function<PsiElement, PsiElement> getSuperBindToElementFunction(final Ref<? super IncorrectOperationException> ref) {
+      return s -> {
+        try {
+          return super.bindToElement(s);
         }
+        catch (IncorrectOperationException e) {
+          ref.set(e);
+        }
+        return null;
       };
     }
 
-    private Function<String, PsiElement> getSuperElementRenameFunction(final Ref<IncorrectOperationException> ref) {
-      return new Function<String, PsiElement>() {
-        @Override
-        public PsiElement fun(final String s) {
-          try {
-            return MyPsiReference.super.handleElementRename(s);
-          }
-          catch (IncorrectOperationException e) {
-            ref.set(e);
-          }
-          return null;
+    private Function<String, PsiElement> getSuperElementRenameFunction(final Ref<? super IncorrectOperationException> ref) {
+      return s -> {
+        try {
+          return super.handleElementRename(s);
         }
+        catch (IncorrectOperationException e) {
+          ref.set(e);
+        }
+        return null;
       };
     }
 
@@ -270,15 +250,15 @@ public abstract class DelimitedListConverter<T> extends ResolvingConverter<List<
   }
 
   protected PsiElement referenceBindToElement(final PsiReference psiReference, final PsiElement element,
-                                              final Function<PsiElement, PsiElement> superBindToElementFunction,
-                                              final Function<String, PsiElement> superElementRenameFunction)
+                                              final Function<? super PsiElement, ? extends PsiElement> superBindToElementFunction,
+                                              final Function<? super String, ? extends PsiElement> superElementRenameFunction)
     throws IncorrectOperationException {
     return superBindToElementFunction.fun(element);
   }
 
   protected PsiElement referenceHandleElementRename(final PsiReference psiReference,
                                                     final String newName,
-                                                    final Function<String, PsiElement> superHandleElementRename)
+                                                    final Function<? super String, ? extends PsiElement> superHandleElementRename)
     throws IncorrectOperationException {
 
     return superHandleElementRename.fun(newName);

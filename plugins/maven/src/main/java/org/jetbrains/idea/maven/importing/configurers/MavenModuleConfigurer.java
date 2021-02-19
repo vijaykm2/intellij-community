@@ -18,7 +18,6 @@ package org.jetbrains.idea.maven.importing.configurers;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.project.MavenProject;
 
 import java.util.ArrayList;
@@ -31,19 +30,19 @@ public abstract class MavenModuleConfigurer {
 
   private static volatile List<MavenModuleConfigurer> ourConfigurersList;
 
-  public abstract void configure(@NotNull MavenProject mavenProject, @NotNull Project project, @Nullable Module module);
+  public abstract void configure(@NotNull MavenProject mavenProject, @NotNull Project project, @NotNull Module module);
 
   public static List<MavenModuleConfigurer> getConfigurers() {
     List<MavenModuleConfigurer> configurers = ourConfigurersList;
     if (configurers == null) {
-      configurers = new ArrayList<MavenModuleConfigurer>();
+      configurers = new ArrayList<>();
 
       for (MavenModuleConfigurer configurer : new MavenModuleConfigurer[]{
         new MavenCompilerConfigurer(),
         new MavenEncodingConfigurer(),
         new MavenAnnotationProcessorConfigurer(),
-
-        new MavenIdeaPluginConfigurer()
+        new MavenIdeaPluginConfigurer(),
+        new MavenWslTargetConfigurer()
       }) {
 
         if (!Boolean.parseBoolean(System.getProperty("idea.maven.disable." + configurer.getClass().getSimpleName()))) {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,13 +17,11 @@ package com.intellij.xdebugger.impl.frame;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.AppUIUtil;
+import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.evaluation.XDebuggerEditorsProvider;
 import com.intellij.xdebugger.frame.XStackFrame;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author nik
- */
 public class XStandaloneVariablesView extends XVariablesViewBase {
   private final XStackFrame myStackFrame;
 
@@ -34,20 +32,10 @@ public class XStandaloneVariablesView extends XVariablesViewBase {
   }
 
   public void rebuildView() {
-    AppUIUtil.invokeLaterIfProjectAlive(getTree().getProject(), new Runnable() {
-      @Override
-      public void run() {
-        saveCurrentTreeState(myStackFrame);
-        buildTreeAndRestoreState(myStackFrame);
-      }
-    });
+    AppUIUtil.invokeLaterIfProjectAlive(getTree().getProject(), () -> buildTreeAndRestoreState(myStackFrame));
   }
 
   @Override
-  public void processSessionEvent(@NotNull SessionEvent event) {
-  }
-
-  @Override
-  protected void clear() {
+  public void processSessionEvent(@NotNull SessionEvent event, @NotNull XDebugSession session) {
   }
 }

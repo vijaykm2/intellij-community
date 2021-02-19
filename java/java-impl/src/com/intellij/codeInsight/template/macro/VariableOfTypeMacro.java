@@ -15,15 +15,14 @@
  */
 package com.intellij.codeInsight.template.macro;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.template.*;
 import com.intellij.codeInsight.template.impl.JavaTemplateUtil;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.psi.util.PsiUtilBase;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -42,7 +41,7 @@ public class VariableOfTypeMacro extends Macro {
 
   @Override
   public String getPresentableName() {
-    return CodeInsightBundle.message("macro.variable.of.type");
+    return JavaBundle.message("macro.variable.of.type");
   }
 
   @Override
@@ -52,25 +51,24 @@ public class VariableOfTypeMacro extends Macro {
   }
 
   @Override
-  public Result calculateResult(@NotNull Expression[] params, ExpressionContext context) {
+  public Result calculateResult(Expression @NotNull [] params, ExpressionContext context) {
     final PsiElement[] vars = getVariables(params, context);
     if (vars == null || vars.length == 0) return null;
     return new JavaPsiElementResult(vars[0]);
   }
 
   @Override
-  public LookupElement[] calculateLookupItems(@NotNull Expression[] params, final ExpressionContext context) {
+  public LookupElement[] calculateLookupItems(Expression @NotNull [] params, final ExpressionContext context) {
     final PsiElement[] vars = getVariables(params, context);
     if (vars == null || vars.length < 2) return null;
-    final Set<LookupElement> set = new LinkedHashSet<LookupElement>();
+    final Set<LookupElement> set = new LinkedHashSet<>();
     for (PsiElement var : vars) {
       JavaTemplateUtil.addElementLookupItem(set, var);
     }
-    return set.toArray(new LookupElement[set.size()]);
+    return set.toArray(LookupElement.EMPTY_ARRAY);
   }
 
-  @Nullable
-  protected PsiElement[] getVariables(Expression[] params, final ExpressionContext context) {
+  protected PsiElement @Nullable [] getVariables(Expression[] params, final ExpressionContext context) {
     if (params.length != 1) return null;
     final Result result = params[0].calculateResult(context);
     if (result == null) return null;
@@ -78,7 +76,7 @@ public class VariableOfTypeMacro extends Macro {
     Project project = context.getProject();
     final int offset = context.getStartOffset();
 
-    final ArrayList<PsiElement> array = new ArrayList<PsiElement>();
+    final ArrayList<PsiElement> array = new ArrayList<>();
     PsiType type = MacroUtil.resultToPsiType(result, context);
     PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(context.getEditor().getDocument());
     PsiElement place = file.findElementAt(offset);

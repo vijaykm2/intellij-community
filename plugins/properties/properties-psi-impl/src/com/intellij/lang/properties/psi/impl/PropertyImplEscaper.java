@@ -8,12 +8,12 @@ import org.jetbrains.annotations.NotNull;
 /**
  * @author gregsh
  */
-public class PropertyImplEscaper extends LiteralTextEscaper<PropertyImpl> {
+class PropertyImplEscaper extends LiteralTextEscaper<PropertyImpl> {
   private static final Logger LOG = Logger.getInstance(PropertyImplEscaper.class);
 
   private int[] outSourceOffsets;
 
-  public PropertyImplEscaper(PropertyImpl value) {
+  PropertyImplEscaper(@NotNull PropertyImpl value) {
     super(value);
   }
 
@@ -40,7 +40,7 @@ public class PropertyImplEscaper extends LiteralTextEscaper<PropertyImpl> {
   public int getOffsetInHost(int offsetInDecoded, @NotNull TextRange rangeInsideHost) {
     int result = offsetInDecoded < outSourceOffsets.length ? outSourceOffsets[offsetInDecoded] : -1;
     if (result == -1) return -1;
-    return (result <= rangeInsideHost.getLength() ? result : rangeInsideHost.getLength()) + rangeInsideHost.getStartOffset();
+    return Math.min(result, rangeInsideHost.getLength()) + rangeInsideHost.getStartOffset();
   }
 
   @Override

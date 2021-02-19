@@ -1,94 +1,124 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.io.storage;
 
+import com.intellij.UtilBundle;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.AccessToken;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.util.EventDispatcher;
-import gnu.trove.THashSet;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import java.util.Deque;
 import java.util.EventListener;
-import java.util.Set;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 
-public class HeavyProcessLatch {
+public final class HeavyProcessLatch {
+  private static final Logger LOG = Logger.getInstance(HeavyProcessLatch.class);
   public static final HeavyProcessLatch INSTANCE = new HeavyProcessLatch();
 
-  private final Set<String> myHeavyProcesses = new THashSet<String>();
+  private final Map<@Nls String, Type> myHeavyProcesses = new ConcurrentHashMap<>();
   private final EventDispatcher<HeavyProcessListener> myEventDispatcher = EventDispatcher.create(HeavyProcessListener.class);
+
+  private final Deque<Runnable> toExecuteOutOfHeavyActivity = new ConcurrentLinkedDeque<>();
 
   private HeavyProcessLatch() {
   }
 
   /**
-   * @deprecated use {@link #processStarted(java.lang.String)} instead
+   * Approximate type of a heavy operation. Used in <code>TrafficLightRenderer</code> UI as brief description.
    */
-  @Deprecated
-  public void processStarted() {
-    processStarted("");
+  public enum Type {
+    Indexing("heavyProcess.type.indexing"),
+    Syncing("heavyProcess.type.syncing"),
+    Processing("heavyProcess.type.processing");
+
+    private final String bundleKey;
+    Type(String bundleKey) {
+      this.bundleKey = bundleKey;
+    }
+
+    @Nls
+    @Override
+    public String toString() {
+      return UtilBundle.message(bundleKey);
+    }
   }
 
-  @NotNull
-  public AccessToken processStarted(@NotNull final String operationName) {
-    synchronized (myHeavyProcesses) {
-      myHeavyProcesses.add(operationName);
-    }
+  public @NotNull AccessToken processStarted(@NotNull @Nls String operationName) {
+    return processStarted(operationName, Type.Processing);
+  }
+
+  public AccessToken processStarted(@NotNull @Nls String operationName, @NotNull Type type) {
+    myHeavyProcesses.put(operationName, type);
     myEventDispatcher.getMulticaster().processStarted();
     return new AccessToken() {
       @Override
       public void finish() {
-        synchronized (myHeavyProcesses) {
-          myHeavyProcesses.remove(operationName);
-        }
+        processFinished(operationName);
       }
     };
   }
 
-  @Deprecated // use processStarted(String)
-  public void processFinished() {
-    synchronized (myHeavyProcesses) {
-      myHeavyProcesses.remove("");
-    }
+  private void processFinished(@NotNull @Nls String operationName) {
+    myHeavyProcesses.remove(operationName);
     myEventDispatcher.getMulticaster().processFinished();
+    if (isRunning()) {
+      return;
+    }
+
+    Runnable runnable;
+    while ((runnable = toExecuteOutOfHeavyActivity.pollFirst()) != null) {
+      try {
+        runnable.run();
+      }
+      catch (Exception e) {
+        LOG.error(e);
+      }
+    }
   }
 
   public boolean isRunning() {
-    synchronized (myHeavyProcesses) {
-      return !myHeavyProcesses.isEmpty();
-    }
+    return !myHeavyProcesses.isEmpty();
   }
 
-  public String getRunningOperationName() {
-    synchronized (myHeavyProcesses) {
-      return myHeavyProcesses.isEmpty() ? null : myHeavyProcesses.iterator().next();
-    }
+  public @Nullable @Nls String getRunningOperationName() {
+    Map.Entry<@Nls String, Type> runningOperation = getRunningOperation();
+    return runningOperation != null ? runningOperation.getKey() : null;
   }
 
+  public @Nullable Map.Entry<@Nls String, Type> getRunningOperation() {
+    if (myHeavyProcesses.isEmpty()) {
+      return null;
+    }
+    else {
+      Iterator<Map.Entry<@Nls String, Type>> iterator = myHeavyProcesses.entrySet().iterator();
+      return iterator.hasNext() ? iterator.next() : null;
+    }
+  }
 
   public interface HeavyProcessListener extends EventListener {
-    public void processStarted();
+    default void processStarted() {
+    }
 
-    public void processFinished();
+    void processFinished();
   }
 
-  public void addListener(@NotNull Disposable parentDisposable, @NotNull HeavyProcessListener listener) {
+  public void addListener(@NotNull HeavyProcessListener listener,
+                          @NotNull Disposable parentDisposable) {
     myEventDispatcher.addListener(listener, parentDisposable);
+  }
+
+  public void executeOutOfHeavyProcess(@NotNull Runnable runnable) {
+    if (isRunning()) {
+      toExecuteOutOfHeavyActivity.add(runnable);
+    }
+    else {
+      runnable.run();
+    }
   }
 }

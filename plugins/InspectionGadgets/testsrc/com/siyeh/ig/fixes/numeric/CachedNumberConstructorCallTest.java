@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package com.siyeh.ig.fixes.numeric;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.IGQuickFixesTestCase;
 import com.siyeh.ig.numeric.CachedNumberConstructorCallInspection;
@@ -23,7 +24,9 @@ public class CachedNumberConstructorCallTest extends IGQuickFixesTestCase {
   @Override
   protected void setUp() throws Exception {
     super.setUp();
-    myFixture.enableInspections(new CachedNumberConstructorCallInspection());
+    final CachedNumberConstructorCallInspection inspection = new CachedNumberConstructorCallInspection();
+    inspection.reportOnlyWhenDeprecated = false;
+    myFixture.enableInspections(inspection);
   }
 
   @Override
@@ -32,7 +35,7 @@ public class CachedNumberConstructorCallTest extends IGQuickFixesTestCase {
   }
 
   public void testSimple() {
-    doTest(InspectionGadgetsBundle.message("cached.number.constructor.call.quickfix", "Integer"));
+    doTest(CommonQuickFixBundle.message("fix.replace.with.x", "Integer.valueOf()"));
   }
 
 }

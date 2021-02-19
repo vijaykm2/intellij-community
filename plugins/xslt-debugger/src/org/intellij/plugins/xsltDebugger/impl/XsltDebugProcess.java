@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.xsltDebugger.impl;
 
 import com.intellij.execution.ExecutionResult;
@@ -20,6 +21,7 @@ import com.intellij.xdebugger.frame.XSuspendContext;
 import org.intellij.lang.xpath.xslt.impl.XsltChecker;
 import org.intellij.plugins.xsltDebugger.VMPausedException;
 import org.intellij.plugins.xsltDebugger.XsltBreakpointType;
+import org.intellij.plugins.xsltDebugger.XsltDebuggerBundle;
 import org.intellij.plugins.xsltDebugger.XsltDebuggerSession;
 import org.intellij.plugins.xsltDebugger.rt.engine.Breakpoint;
 import org.intellij.plugins.xsltDebugger.rt.engine.BreakpointManager;
@@ -53,9 +55,8 @@ public class XsltDebugProcess extends XDebugProcess implements Disposable {
     Disposer.register(myExecutionConsole, this);
   }
 
-  @NotNull
   @Override
-  public XBreakpointHandler<?>[] getBreakpointHandlers() {
+  public XBreakpointHandler<?> @NotNull [] getBreakpointHandlers() {
     return myXBreakpointHandlers;
   }
 
@@ -121,17 +122,17 @@ public class XsltDebugProcess extends XDebugProcess implements Disposable {
   }
 
   @Override
-  public void startStepOver() {
+  public void startStepOver(@Nullable XSuspendContext context) {
     myDebuggerSession.stepOver();
   }
 
   @Override
-  public void startStepInto() {
+  public void startStepInto(@Nullable XSuspendContext context) {
     myDebuggerSession.stepInto();
   }
 
   @Override
-  public void startStepOut() {
+  public void startStepOut(@Nullable XSuspendContext context) {
     myDebuggerSession.stepOver();
   }
 
@@ -149,13 +150,13 @@ public class XsltDebugProcess extends XDebugProcess implements Disposable {
     try {
       return myDebuggerSession.getClient().ping();
     } catch (VMPausedException e) {
-      getSession().reportMessage(VMPausedException.MESSAGE, MessageType.WARNING);
+      getSession().reportMessage(XsltDebuggerBundle.message("dialog.message.target.vm.not.responding"), MessageType.WARNING);
       return false;
     }
   }
 
   @Override
-  public void resume() {
+  public void resume(@Nullable XSuspendContext context) {
     myDebuggerSession.resume();
   }
 
@@ -164,13 +165,13 @@ public class XsltDebugProcess extends XDebugProcess implements Disposable {
   }
 
   @Override
-  public void runToPosition(@NotNull XSourcePosition position) {
+  public void runToPosition(@NotNull XSourcePosition position, @Nullable XSuspendContext context) {
     final PsiFile psiFile = PsiManager.getInstance(getSession().getProject()).findFile(position.getFile());
     assert psiFile != null;
     if (myDebuggerSession.canRunTo(position)) {
       myDebuggerSession.runTo(psiFile, position);
     } else {
-      StatusBar.Info.set("Not a valid position in file '" + psiFile.getName() + "'", psiFile.getProject());
+      StatusBar.Info.set(XsltDebuggerBundle.message("status.bar.text.not.valid.position.in.file", psiFile.getName()), psiFile.getProject());
       final Debugger c = myDebuggerSession.getClient();
       getSession().positionReached(new MySuspendContext(myDebuggerSession, c.getCurrentFrame(), c.getSourceFrame()));
     }
@@ -181,7 +182,7 @@ public class XsltDebugProcess extends XDebugProcess implements Disposable {
     private final Debugger.StyleFrame myStyleFrame;
     private final Debugger.SourceFrame mySourceFrame;
 
-    public MySuspendContext(XsltDebuggerSession debuggerSession, Debugger.StyleFrame styleFrame, Debugger.SourceFrame sourceFrame) {
+    MySuspendContext(XsltDebuggerSession debuggerSession, Debugger.StyleFrame styleFrame, Debugger.SourceFrame sourceFrame) {
       myDebuggerSession = debuggerSession;
       myStyleFrame = styleFrame;
       mySourceFrame = sourceFrame;
@@ -189,15 +190,15 @@ public class XsltDebugProcess extends XDebugProcess implements Disposable {
 
     @Override
     public XExecutionStack getActiveExecutionStack() {
-      return new XsltExecutionStack("XSLT Frames", myStyleFrame, myDebuggerSession);
+      return new XsltExecutionStack(XsltDebuggerBundle.message("list.item.xslt.frames"), myStyleFrame, myDebuggerSession);
     }
 
     public XExecutionStack getSourceStack() {
-      return new XsltExecutionStack("Source Frames", mySourceFrame, myDebuggerSession);
+      return new XsltExecutionStack(XsltDebuggerBundle.message("list.item.source.frames"), mySourceFrame, myDebuggerSession);
     }
 
     @Override
-    public XExecutionStack[] getExecutionStacks() {
+    public XExecutionStack @NotNull [] getExecutionStacks() {
       return new XExecutionStack[]{
         getActiveExecutionStack(),
         getSourceStack()

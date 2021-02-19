@@ -17,15 +17,16 @@ package org.zmlx.hg4idea.command.mq;
 
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.zmlx.hg4idea.HgBundle;
 import org.zmlx.hg4idea.action.HgCommandResultNotifier;
 import org.zmlx.hg4idea.execution.HgCommandExecutor;
 import org.zmlx.hg4idea.execution.HgCommandResult;
-import org.zmlx.hg4idea.execution.HgCommandResultHandler;
 import org.zmlx.hg4idea.repo.HgRepository;
 import org.zmlx.hg4idea.util.HgErrorUtil;
 
 import java.util.Arrays;
+
+import static org.zmlx.hg4idea.HgNotificationIdsHolder.QPUSH_ERROR;
 
 public class HgQPushCommand {
   @NotNull private final HgRepository myRepository;
@@ -34,18 +35,17 @@ public class HgQPushCommand {
     myRepository = repository;
   }
 
-  public void execute(@NotNull final String patchName) {
+  public void executeInCurrentThread(@NotNull final String patchName) {
     final Project project = myRepository.getProject();
-    new HgCommandExecutor(project)
-      .execute(myRepository.getRoot(), "qpush", Arrays.asList("--move", patchName), new HgCommandResultHandler() {
-        @Override
-        public void process(@Nullable HgCommandResult result) {
-          if (HgErrorUtil.hasErrorsInCommandExecution(result)) {
-            new HgCommandResultNotifier(project)
-              .notifyError(result, "QPush command failed", "Could not apply selected patch " + patchName);
-          }
-          myRepository.update();
-        }
-      });
+    HgCommandResult result =
+      new HgCommandExecutor(project).executeInCurrentThread(myRepository.getRoot(), "qpush", Arrays.asList("--move", patchName));
+    if (HgErrorUtil.hasErrorsInCommandExecution(result)) {
+      new HgCommandResultNotifier(project)
+        .notifyError(QPUSH_ERROR,
+                     result,
+                     HgBundle.message("action.hg4idea.QPushAction.error"),
+                     HgBundle.message("action.hg4idea.QPushAction.error.msg", patchName));
+    }
+    myRepository.update();
   }
 }

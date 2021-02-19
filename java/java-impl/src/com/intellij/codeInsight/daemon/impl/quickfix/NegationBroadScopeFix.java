@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.openapi.editor.Editor;
@@ -26,10 +25,8 @@ import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * @author cdr
  * if (!a == b) ...  =>  if (!(a == b)) ...
  */
-
 public class NegationBroadScopeFix implements IntentionAction {
   private final PsiPrefixExpression myPrefixExpression;
 
@@ -47,8 +44,8 @@ public class NegationBroadScopeFix implements IntentionAction {
     String rop;
     if (parent instanceof PsiInstanceOfExpression) {
       text += PsiKeyword.INSTANCEOF + " ";
-      final PsiTypeElement type = ((PsiInstanceOfExpression)parent).getCheckType();
-      rop = type == null ? "" : type.getText();
+      final PsiPattern pattern = ((PsiInstanceOfExpression)parent).getPattern();
+      rop = pattern == null ? "" : pattern.getText();
     }
     else if (parent instanceof PsiBinaryExpression) {
       text += ((PsiBinaryExpression)parent).getOperationSign().getText() + " ";
@@ -82,13 +79,19 @@ public class NegationBroadScopeFix implements IntentionAction {
     return binaryExpression.getLOperand() == myPrefixExpression && TypeConversionUtil.isBooleanType(binaryExpression.getType());
   }
 
+  @NotNull
+  @Override
+  public PsiElement getElementToMakeWritable(@NotNull PsiFile file) {
+    return myPrefixExpression;
+  }
+
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-    if (!isAvailable(project, editor, file) || !FileModificationService.getInstance().preparePsiElementForWrite(myPrefixExpression)) return;
+    if (!isAvailable(project, editor, file)) return;
     PsiExpression operand = myPrefixExpression.getOperand();
     PsiElement unnegated = myPrefixExpression.replace(operand);
     PsiElement parent = unnegated.getParent();
-    PsiElementFactory factory = JavaPsiFacade.getInstance(file.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(file.getProject());
 
     PsiPrefixExpression negated = (PsiPrefixExpression)factory.createExpressionFromText("!(xxx)", parent);
     PsiParenthesizedExpression parentheses = (PsiParenthesizedExpression)negated.getOperand();

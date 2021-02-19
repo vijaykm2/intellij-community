@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.codeInsight.testIntegration;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -21,6 +7,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.ex.IdeDocumentHistory;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CodeStyleManager;
@@ -30,29 +17,31 @@ import com.intellij.util.IncorrectOperationException;
 import com.jetbrains.python.PythonFileType;
 import com.jetbrains.python.codeInsight.imports.AddImportHelper;
 import com.jetbrains.python.psi.*;
+import com.jetbrains.python.refactoring.PyRefactoringUtil;
+import com.jetbrains.python.testing.PythonUnitTestDetectorsBasedOnSettings;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-/**
- * User: catherine
- */
 public class PyTestCreator implements TestCreator {
-  private static final Logger LOG = Logger.getInstance("#com.jetbrains.python.codeInsight.testIntegration.PyTestCreator");
+  private static final Logger LOG = Logger.getInstance(PyTestCreator.class);
 
   @Override
   public boolean isAvailable(Project project, Editor editor, PsiFile file) {
     CreateTestAction action = new CreateTestAction();
     PsiElement element = file.findElementAt(editor.getCaretModel().getOffset());
-    if (element != null)
+    if (element != null) {
       return action.isAvailable(project, editor, element);
+    }
     return false;
   }
 
+  @Override
   public void createTest(Project project, Editor editor, PsiFile file) {
     try {
       CreateTestAction action = new CreateTestAction();
       PsiElement element = file.findElementAt(editor.getCaretModel().getOffset());
-      if (action.isAvailable(project, editor, element)) {
+      if (element != null && action.isAvailable(project, editor, element)) {
         action.invoke(project, editor, file.getContainingFile());
       }
     }
@@ -61,49 +50,92 @@ public class PyTestCreator implements TestCreator {
     }
   }
 
-  public static PsiFile generateTest(final Project project, final CreateTestDialog dialog) {
-    return PostprocessReformattingAspect.getInstance(project).postponeFormattingInside(new Computable<PsiFile>() {
-      public PsiFile compute() {
-        return ApplicationManager.getApplication().runWriteAction(new Computable<PsiFile>() {
-          public PsiFile compute() {
-            try {
-              IdeDocumentHistory.getInstance(project).includeCurrentPlaceAsChangePlace();
+  /**
+   * Generates test, puts it into file and navigates to newly created class
+   *
+   * @return file with test
+   */
+  static PsiFile generateTestAndNavigate(@NotNull final PsiElement anchor, @NotNull final PyTestCreationModel creationModel) {
+    final Project project = anchor.getProject();
+    return PostprocessReformattingAspect.getInstance(project).postponeFormattingInside(
+      () -> ApplicationManager.getApplication().runWriteAction((Computable<PsiFile>)() -> {
+        try {
+          final PyElement testClass = generateTest(anchor, creationModel);
+          testClass.navigate(false);
+          return testClass.getContainingFile();
+        }
+        catch (IncorrectOperationException e) {
+          LOG.warn(e);
+          return null;
+        }
+      }));
+  }
 
-              String fileName = dialog.getFileName();
-              if (!fileName.endsWith(".py"))
-                fileName = fileName + "." + PythonFileType.INSTANCE.getDefaultExtension();
+  /**
+   * Generates test, puts it into file and returns element to navigate to
+   *
+   * @return newly created test class
+   */
+  @NotNull
+  static PyElement generateTest(@NotNull final PsiElement anchor, @NotNull final PyTestCreationModel model) {
+    final Project project = anchor.getProject();
+    IdeDocumentHistory.getInstance(project).includeCurrentPlaceAsChangePlace();
 
-              StringBuilder fileText = new StringBuilder();
-              fileText.append("class ").append(dialog.getClassName()).append("(TestCase):\n  ");
-              List<String> methods = dialog.getMethods();
-              if (methods.size() == 0)
-                fileText.append("pass\n");
+    String fileName = model.getFileName();
+    if (!fileName.endsWith(".py")) {
+      fileName = fileName + "." + PythonFileType.INSTANCE.getDefaultExtension();
+    }
+    final PyFile psiFile = PyRefactoringUtil.getOrCreateFile(model.getTargetDir() + "/" + fileName, project);
 
-              for (String method : methods) {
-                fileText.append("def ").append(method).append("(self):\n    self.fail()\n\n  ");
-              }
+    final String className = model.getClassName();
+    final List<String> methods = model.getMethods();
 
-              PsiFile psiFile = PyUtil.getOrCreateFile(
-                dialog.getTargetDir() + "/" + fileName, project);
-              AddImportHelper.addOrUpdateFromImportStatement(psiFile, "unittest", "TestCase", null, AddImportHelper.ImportPriority.BUILTIN,
-                                                             null);
+    final boolean classBased = !StringUtil.isEmptyOrSpaces(className);
+    final LanguageLevel level = LanguageLevel.forElement(psiFile);
+    final PyElementGenerator generator = PyElementGenerator.getInstance(project);
 
-              PyElement createdClass = PyElementGenerator.getInstance(project).createFromText(
-                LanguageLevel.forElement(psiFile), PyClass.class,
-                                                           fileText.toString());
-              createdClass = (PyElement)psiFile.addAfter(createdClass, psiFile.getLastChild());
-
-              CodeStyleManager.getInstance(project).reformat(psiFile);
-              createdClass.navigate(false);
-              return psiFile;
-            }
-            catch (IncorrectOperationException e) {
-              LOG.warn(e);
-              return null;
-            }
-          }
-        });
+    PyElement result = psiFile;
+    if (classBased) {
+      final boolean unitTestClassRequired = PythonUnitTestDetectorsBasedOnSettings.isTestCaseClassRequired(anchor);
+      final StringBuilder fileText = new StringBuilder();
+      fileText.append("class ").append(className);
+      if (unitTestClassRequired) {
+        fileText.append("(TestCase)");
       }
-    });
+      else if (LanguageLevel.forElement(anchor).isPython2()) {
+        fileText.append("(object)");
+      }
+      fileText.append(":\n\t");
+
+
+      if (methods.isEmpty()) {
+        fileText.append("pass\n");
+      }
+      for (final String method : methods) {
+        fileText.append("def ").append(method).append("(self):\n\t");
+        if (unitTestClassRequired) {
+          fileText.append("self.fail()");
+        }
+        else {
+          fileText.append("assert False");
+        }
+        fileText.append("\n\n\t");
+      }
+      if (unitTestClassRequired) {
+        AddImportHelper.addOrUpdateFromImportStatement(psiFile, "unittest", "TestCase", null, AddImportHelper.ImportPriority.BUILTIN,
+                                                       null);
+      }
+      result = (PyElement)psiFile.addAfter(generator.createFromText(level, PyClass.class, fileText.toString()), psiFile.getLastChild());
+    }
+    else {
+      for (final String method : methods) {
+        final PyFunction fun = generator.createFromText(level, PyFunction.class, String.format("def %s():\n\tassert False\n\n", method));
+        psiFile.addAfter(fun, psiFile.getLastChild());
+      }
+    }
+
+    PostprocessReformattingAspect.getInstance(project).doPostponedFormatting(psiFile.getViewProvider());
+    CodeStyleManager.getInstance(project).reformat(psiFile);
+    return result;
   }
 }

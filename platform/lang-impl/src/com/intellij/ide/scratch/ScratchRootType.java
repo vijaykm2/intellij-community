@@ -16,9 +16,9 @@
 package com.intellij.ide.scratch;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.lang.LangBundle;
 import com.intellij.lang.Language;
-import com.intellij.openapi.application.Result;
-import com.intellij.openapi.application.RunResult;
+import com.intellij.lang.LanguageUtil;
 import com.intellij.openapi.command.UndoConfirmationPolicy;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.project.Project;
@@ -32,62 +32,64 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.io.IOException;
 
 /**
  * @author gregsh
  */
 public final class ScratchRootType extends RootType {
-
   @NotNull
   public static ScratchRootType getInstance() {
     return findByClass(ScratchRootType.class);
   }
 
   ScratchRootType() {
-    super("scratches", "Scratches");
+    super("scratches", LangBundle.message("root.type.scratches"));
   }
 
   @Override
   public Language substituteLanguage(@NotNull Project project, @NotNull VirtualFile file) {
-    Language language = ScratchFileService.getInstance().getScratchesMapping().getMapping(file);
-    return substituteLanguageImpl(language, file, project);
+    return ScratchFileService.getInstance().getScratchesMapping().getMapping(file);
   }
 
   @Nullable
   @Override
   public Icon substituteIcon(@NotNull Project project, @NotNull VirtualFile file) {
-    Icon icon = ObjectUtils.chooseNotNull(super.substituteIcon(project, file), ScratchFileType.INSTANCE.getIcon());
+    if (file.isDirectory()) return null;
+    Icon icon = ObjectUtils.notNull(super.substituteIcon(project, file), AllIcons.FileTypes.Text);
     return LayeredIcon.create(icon, AllIcons.Actions.Scratch);
   }
 
+  @Nullable
   public VirtualFile createScratchFile(Project project, final String fileName, final Language language, final String text) {
-    RunResult<VirtualFile> result =
-      new WriteCommandAction<VirtualFile>(project, UIBundle.message("file.chooser.create.new.file.command.name")) {
-        @Override
-        protected boolean isGlobalUndoAction() {
-          return true;
-        }
+    return createScratchFile(project, fileName, language, text, ScratchFileService.Option.create_new_always);
+  }
 
-        @Override
-        protected UndoConfirmationPolicy getUndoConfirmationPolicy() {
-          return UndoConfirmationPolicy.REQUEST_CONFIRMATION;
-        }
-
-        @Override
-        protected void run(@NotNull Result<VirtualFile> result) throws Throwable {
+  @Nullable
+  public VirtualFile createScratchFile(Project project,
+                                       final String fileName,
+                                       final Language language,
+                                       final String text,
+                                       final ScratchFileService.Option option) {
+    try {
+      return
+        WriteCommandAction.writeCommandAction(project).withName(UIBundle.message("file.chooser.create.new.scratch.file.command.name"))
+                          .withGlobalUndo().shouldRecordActionForActiveDocument(false)
+                          .withUndoConfirmationPolicy(UndoConfirmationPolicy.REQUEST_CONFIRMATION).compute(() -> {
           ScratchFileService fileService = ScratchFileService.getInstance();
-          VirtualFile file = fileService.findFile(ScratchRootType.this, "scratch", ScratchFileService.Option.create_new_always);
-          fileService.getScratchesMapping().setMapping(file, language);
+          VirtualFile file = fileService.findFile(this, fileName, option);
+          // save text should go before any other manipulations that load document,
+          // otherwise undo will be broken
           VfsUtil.saveText(file, text);
-          result.setResult(file);
-
-        }
-      }.execute();
-    if (result.hasException()) {
+          Language fileLanguage = LanguageUtil.getFileLanguage(file);
+          fileService.getScratchesMapping().setMapping(file, language == fileLanguage ? null : language);
+          return file;
+        });
+    }
+    catch (IOException e) {
       Messages.showMessageDialog(UIBundle.message("create.new.file.could.not.create.file.error.message", fileName),
                                  UIBundle.message("error.dialog.title"), Messages.getErrorIcon());
       return null;
     }
-    return result.getResultObject();
   }
 }

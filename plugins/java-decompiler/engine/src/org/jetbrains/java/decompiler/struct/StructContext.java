@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.decompiler.struct;
 
 import org.jetbrains.java.decompiler.main.DecompilerContext;
@@ -31,12 +17,11 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 public class StructContext {
-
   private final IResultSaver saver;
   private final IDecompiledData decompiledData;
   private final LazyLoader loader;
-  private final Map<String, ContextUnit> units = new HashMap<String, ContextUnit>();
-  private final Map<String, StructClass> classes = new HashMap<String, StructClass>();
+  private final Map<String, ContextUnit> units = new HashMap<>();
+  private final Map<String, StructClass> classes = new HashMap<>();
 
   public StructContext(IResultSaver saver, IDecompiledData decompiledData, LazyLoader loader) {
     this.saver = saver;
@@ -119,17 +104,11 @@ public class StructContext {
       }
 
       if (filename.endsWith(".class")) {
-        try {
-          DataInputFullStream in = loader.getClassStream(file.getAbsolutePath(), null);
-          try {
-            StructClass cl = new StructClass(in, isOwn, loader);
-            classes.put(cl.qualifiedName, cl);
-            unit.addClass(cl, filename);
-            loader.addClassLink(cl.qualifiedName, new LazyLoader.Link(LazyLoader.Link.CLASS, file.getAbsolutePath(), null));
-          }
-          finally {
-            in.close();
-          }
+        try (DataInputFullStream in = loader.getClassStream(file.getAbsolutePath(), null)) {
+          StructClass cl = StructClass.create(in, isOwn, loader);
+          classes.put(cl.qualifiedName, cl);
+          unit.addClass(cl, filename);
+          loader.addClassLink(cl.qualifiedName, new LazyLoader.Link(file.getAbsolutePath(), null));
         }
         catch (IOException ex) {
           String message = "Corrupted class file: " + file;
@@ -143,10 +122,7 @@ public class StructContext {
   }
 
   private void addArchive(String path, File file, int type, boolean isOwn) throws IOException {
-    @SuppressWarnings("IOResourceOpenedButNotSafelyClosed")
-    ZipFile archive = type == ContextUnit.TYPE_JAR ? new JarFile(file) : new ZipFile(file);
-
-    try {
+    try (ZipFile archive = type == ContextUnit.TYPE_JAR ? new JarFile(file) : new ZipFile(file)) {
       Enumeration<? extends ZipEntry> entries = archive.entries();
       while (entries.hasMoreElements()) {
         ZipEntry entry = entries.nextElement();
@@ -164,10 +140,10 @@ public class StructContext {
         if (!entry.isDirectory()) {
           if (name.endsWith(".class")) {
             byte[] bytes = InterpreterUtil.getBytes(archive, entry);
-            StructClass cl = new StructClass(bytes, isOwn, loader);
+            StructClass cl = StructClass.create(new DataInputFullStream(bytes), isOwn, loader);
             classes.put(cl.qualifiedName, cl);
             unit.addClass(cl, name);
-            loader.addClassLink(cl.qualifiedName, new LazyLoader.Link(LazyLoader.Link.ENTRY, file.getAbsolutePath(), name));
+            loader.addClassLink(cl.qualifiedName, new LazyLoader.Link(file.getAbsolutePath(), name));
           }
           else {
             unit.addOtherEntry(file.getAbsolutePath(), name);
@@ -177,9 +153,6 @@ public class StructContext {
           unit.addDirEntry(name);
         }
       }
-    }
-    finally {
-      archive.close();
     }
   }
 

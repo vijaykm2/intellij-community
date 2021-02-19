@@ -4,6 +4,7 @@ import com.intellij.openapi.externalSystem.model.settings.ExternalSystemExecutio
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId;
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskType;
 import com.intellij.openapi.externalSystem.service.internal.ExternalSystemTaskAware;
+import com.intellij.openapi.externalSystem.service.remote.RawExternalSystemProjectResolver;
 import com.intellij.openapi.externalSystem.service.remote.RemoteExternalSystemProgressNotificationManager;
 import com.intellij.openapi.externalSystem.service.remote.RemoteExternalSystemProjectResolver;
 import com.intellij.openapi.externalSystem.service.remote.RemoteExternalSystemTaskManager;
@@ -22,56 +23,60 @@ import java.util.Set;
  * memory leaks etc). So, we use it at external process and current class works as a facade to it from ide process.
  * 
  * @author Denis Zhdanov
- * @since 8/8/11 10:52 AM
  */
 public interface RemoteExternalSystemFacade<S extends ExternalSystemExecutionSettings> extends Remote, ExternalSystemTaskAware {
 
   /** <a href="http://en.wikipedia.org/wiki/Null_Object_pattern">Null object</a> for {@link RemoteExternalSystemFacade}. */
-  RemoteExternalSystemFacade<?> NULL_OBJECT = new RemoteExternalSystemFacade<ExternalSystemExecutionSettings>() {
+  RemoteExternalSystemFacade<?> NULL_OBJECT = new RemoteExternalSystemFacade<>() {
     @NotNull
     @Override
     public RemoteExternalSystemProjectResolver<ExternalSystemExecutionSettings> getResolver()
-      throws RemoteException, IllegalStateException
-    {
+      throws IllegalStateException {
       return RemoteExternalSystemProjectResolver.NULL_OBJECT;
     }
 
 
     @NotNull
     @Override
-    public RemoteExternalSystemTaskManager<ExternalSystemExecutionSettings> getTaskManager() throws RemoteException {
+    public RemoteExternalSystemTaskManager<ExternalSystemExecutionSettings> getTaskManager() {
       return RemoteExternalSystemTaskManager.NULL_OBJECT;
     }
 
     @Override
-    public void applySettings(@NotNull ExternalSystemExecutionSettings settings) throws RemoteException {
+    public void applySettings(@NotNull ExternalSystemExecutionSettings settings) {
     }
 
     @Override
-    public void applyProgressManager(@NotNull RemoteExternalSystemProgressNotificationManager progressManager) throws RemoteException {
+    public void applyProgressManager(@NotNull RemoteExternalSystemProgressNotificationManager progressManager) {
+    }
+
+    @NotNull
+    @Override
+    public RawExternalSystemProjectResolver<ExternalSystemExecutionSettings> getRawProjectResolver() {
+      return RawExternalSystemProjectResolver.Companion.getNULL_OBJECT();
     }
 
     @Override
-    public boolean isTaskInProgress(@NotNull ExternalSystemTaskId id) throws RemoteException {
+    public boolean isTaskInProgress(@NotNull ExternalSystemTaskId id) {
       return false;
     }
 
     @Override
-    public boolean cancelTask(@NotNull ExternalSystemTaskId id) throws RemoteException {
+    public boolean cancelTask(@NotNull ExternalSystemTaskId id) {
       return false;
     }
 
     @NotNull
     @Override
-    public Map<ExternalSystemTaskType, Set<ExternalSystemTaskId>> getTasksInProgress() throws RemoteException {
+    public Map<ExternalSystemTaskType, Set<ExternalSystemTaskId>> getTasksInProgress() {
       return Collections.emptyMap();
     }
   };
 
   /**
-   * Exposes <code>'resolve external system project'</code> service that works at another process.
+   * Exposes {@code 'resolve external system project'} service that works at another process.
    *
-   * @return                        <code>'resolve external system project'</code> service
+   * @return                        {@code 'resolve external system project'} service
    * @throws RemoteException        in case of unexpected I/O exception during processing
    * @throws IllegalStateException  in case of inability to create the service
    */
@@ -79,7 +84,7 @@ public interface RemoteExternalSystemFacade<S extends ExternalSystemExecutionSet
   RemoteExternalSystemProjectResolver<S> getResolver() throws RemoteException, IllegalStateException;
 
   /**
-   * Exposes <code>'run external system task'</code> service which works at another process.
+   * Exposes {@code 'run external system task'} service which works at another process.
    *
    * @return external system build manager
    * @throws RemoteException  in case of inability to create the service
@@ -102,4 +107,11 @@ public interface RemoteExternalSystemFacade<S extends ExternalSystemExecutionSet
    * @throws RemoteException    in case of unexpected I/O exception during processing
    */
   void applyProgressManager(@NotNull RemoteExternalSystemProgressNotificationManager progressManager) throws RemoteException;
+
+  /**
+   * Same as {@link #getResolver()}, but operating on raw result
+   * @return
+   */
+  @NotNull
+  RawExternalSystemProjectResolver<S> getRawProjectResolver() throws RemoteException;
 }

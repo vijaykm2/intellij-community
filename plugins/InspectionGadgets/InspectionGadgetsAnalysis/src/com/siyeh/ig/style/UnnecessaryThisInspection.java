@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2013 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2016 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,7 +30,8 @@ import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.ClassUtils;
-import com.siyeh.ig.psiutils.VariableSearchUtils;
+import com.siyeh.ig.psiutils.CommentTracker;
+import com.siyeh.ig.psiutils.DeclarationSearchUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -40,12 +41,6 @@ public class UnnecessaryThisInspection extends BaseInspection implements Cleanup
 
   @SuppressWarnings("PublicField")
   public boolean ignoreAssignments = false;
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("unnecessary.this.display.name");
-  }
 
   @Override
   @NotNull
@@ -69,26 +64,20 @@ public class UnnecessaryThisInspection extends BaseInspection implements Cleanup
 
     @Override
     @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message("unnecessary.this.remove.quickfix");
-    }
-
-    @NotNull
-    @Override
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("unnecessary.this.remove.quickfix");
     }
 
     @Override
     public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement thisToken = descriptor.getPsiElement();
-      final PsiReferenceExpression thisExpression = (PsiReferenceExpression)thisToken.getParent();
+      final PsiReferenceExpression thisExpression = (PsiReferenceExpression)PsiUtil.skipParenthesizedExprUp(thisToken.getParent());
       assert thisExpression != null;
       final String newExpression = thisExpression.getReferenceName();
       if (newExpression == null) {
         return;
       }
-      PsiReplacementUtil.replaceExpression(thisExpression, newExpression);
+      PsiReplacementUtil.replaceExpression(thisExpression, newExpression, new CommentTracker());
     }
   }
 
@@ -109,7 +98,7 @@ public class UnnecessaryThisInspection extends BaseInspection implements Cleanup
       if (parameterList.getTypeArguments().length > 0) {
         return;
       }
-      final PsiExpression qualifierExpression = expression.getQualifierExpression();
+      final PsiExpression qualifierExpression = PsiUtil.skipParenthesizedExprDown(expression.getQualifierExpression());
       if (!(qualifierExpression instanceof PsiThisExpression)) {
         return;
       }
@@ -124,6 +113,10 @@ public class UnnecessaryThisInspection extends BaseInspection implements Cleanup
       }
       final PsiElement parent = expression.getParent();
       if (qualifier == null) {
+        if (referenceName.equals(PsiKeyword.YIELD) && parent instanceof PsiMethodCallExpression) {
+          // Qualifier might be required since Java 14, so don't warn
+          return;
+        }
         if (parent instanceof PsiCallExpression) {
           // method calls are always in error
           registerError(qualifierExpression, ProblemHighlightType.LIKE_UNUSED_SYMBOL);
@@ -134,7 +127,7 @@ public class UnnecessaryThisInspection extends BaseInspection implements Cleanup
           return;
         }
         final PsiVariable variable = (PsiVariable)target;
-        if (!VariableSearchUtils.variableNameResolvesToTarget(referenceName, variable, expression)) {
+        if (!DeclarationSearchUtils.variableNameResolvesToTarget(referenceName, variable, expression)) {
           return;
         }
         if (variable instanceof PsiField && HighlightUtil.isIllegalForwardReferenceToField(expression, (PsiField)variable, true) != null) {
@@ -181,7 +174,7 @@ public class UnnecessaryThisInspection extends BaseInspection implements Cleanup
             return;
           }
           final PsiVariable variable = (PsiVariable)target;
-          if (!VariableSearchUtils.variableNameResolvesToTarget(referenceName, variable, expression)) {
+          if (!DeclarationSearchUtils.variableNameResolvesToTarget(referenceName, variable, expression)) {
             return;
           }
           PsiClass parentClass = ClassUtils.getContainingClass(expression);

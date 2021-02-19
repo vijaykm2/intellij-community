@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,8 +22,6 @@ import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
-import com.siyeh.ig.psiutils.ParenthesesUtils;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,13 +35,6 @@ public class ReturnOfInnerClassInspection extends BaseInspection {
   @SuppressWarnings("PublicField") public boolean ignoreNonPublic = false;
 
   private enum ClassType { ANONYMOUS_CLASS, LOCAL_CLASS, INNER_CLASS }
-
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("return.of.inner.class.display.name");
-  }
 
   @NotNull
   @Override
@@ -81,12 +72,12 @@ public class ReturnOfInnerClassInspection extends BaseInspection {
     @Override
     public void visitReturnStatement(PsiReturnStatement statement) {
       super.visitReturnStatement(statement);
-      final PsiExpression expression = ParenthesesUtils.stripParentheses(statement.getReturnValue());
+      final PsiExpression expression = PsiUtil.skipParenthesizedExprDown(statement.getReturnValue());
       if (expression == null) {
         return;
       }
       final PsiMethod method = PsiTreeUtil.getParentOfType(statement, PsiMethod.class, true, PsiLambdaExpression.class);
-      if (method == null || method.hasModifierProperty(PsiModifier.PRIVATE)) {
+      if (method == null || method.hasModifierProperty(PsiModifier.PRIVATE) || method.hasModifierProperty(PsiModifier.STATIC)) {
         return;
       }
       else if (ignoreNonPublic &&
@@ -101,12 +92,7 @@ public class ReturnOfInnerClassInspection extends BaseInspection {
           return;
         }
       }
-      final PsiType type = expression.getType();
-      if (!(type instanceof PsiClassType)) {
-        return;
-      }
-      final PsiClassType classType = (PsiClassType)type;
-      final PsiClass aClass = classType.resolve();
+      final PsiClass aClass = PsiUtil.resolveClassInClassTypeOnly(expression.getType());
       if (aClass == null) {
         return;
       }

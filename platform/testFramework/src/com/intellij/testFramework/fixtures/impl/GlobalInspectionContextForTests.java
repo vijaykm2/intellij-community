@@ -15,26 +15,30 @@
  */
 package com.intellij.testFramework.fixtures.impl;
 
+import com.intellij.analysis.AnalysisScope;
+import com.intellij.codeInspection.InspectionProfile;
 import com.intellij.codeInspection.ex.GlobalInspectionContextImpl;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.ui.content.ContentManager;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author nik
- */
 public class GlobalInspectionContextForTests extends GlobalInspectionContextImpl {
   private volatile boolean myFinished;
 
-  public GlobalInspectionContextForTests(@NotNull Project project, @NotNull NotNullLazyValue<ContentManager> contentManager) {
+  public GlobalInspectionContextForTests(@NotNull Project project, @NotNull NotNullLazyValue<? extends ContentManager> contentManager) {
     super(project, contentManager);
   }
 
   @Override
-  protected void notifyInspectionsFinished() {
-    super.notifyInspectionsFinished();
+  protected void notifyInspectionsFinished(@NotNull AnalysisScope scope) {
+    super.notifyInspectionsFinished(scope);
     myFinished = true;
+  }
+
+  @Override
+  protected boolean includeDoNotShow(final InspectionProfile profile) {
+    return true;
   }
 
   public boolean isFinished() {

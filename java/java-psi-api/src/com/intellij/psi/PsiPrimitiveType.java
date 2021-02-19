@@ -1,58 +1,109 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
+import com.intellij.lang.jvm.types.JvmPrimitiveType;
+import com.intellij.lang.jvm.types.JvmPrimitiveTypeKind;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiUtil;
-import gnu.trove.THashMap;
-import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Represents primitive types of Java language.
  */
-public class PsiPrimitiveType extends PsiType.Stub {
-  private static final Map<String, PsiPrimitiveType> ourQNameToUnboxed = new THashMap<String, PsiPrimitiveType>();
-  private static final Map<PsiPrimitiveType, String> ourUnboxedToQName = new THashMap<PsiPrimitiveType, String>();
+public final class PsiPrimitiveType extends PsiType.Stub implements JvmPrimitiveType {
+  private static final Map<String, PsiPrimitiveType> ourQNameToUnboxed = new HashMap<>();
 
+  private final JvmPrimitiveTypeKind myKind;
   private final String myName;
 
-  PsiPrimitiveType(@NonNls @NotNull String name, @NonNls String boxedName) {
-    this(name, PsiAnnotation.EMPTY_ARRAY);
-    if (boxedName != null) {
-      ourQNameToUnboxed.put(boxedName, this);
-      ourUnboxedToQName.put(this, boxedName);
+  /**
+   * This constructor stores PsiType.XXX primitive types instances in a map for later reusing.
+   * PsiType.NULL is not registered and handled separately since it's not really a primitive type.
+   */
+  PsiPrimitiveType(@Nullable("for NULL type") JvmPrimitiveTypeKind kind) {
+    super(PsiAnnotation.EMPTY_ARRAY);
+    myKind = kind;
+    if (kind != null) {
+      ourQNameToUnboxed.put(kind.getBoxedFqn(), this);
     }
+    myName = getName(kind);
   }
 
-  public PsiPrimitiveType(@NonNls @NotNull String name, @NotNull PsiAnnotation[] annotations) {
+  public PsiPrimitiveType(@Nullable("for NULL type") JvmPrimitiveTypeKind kind, PsiAnnotation @NotNull [] annotations) {
     super(annotations);
+    myKind = kind;
+    myName = getName(kind);
+  }
+
+  public PsiPrimitiveType(@Nullable("for NULL type") JvmPrimitiveTypeKind kind, @NotNull TypeAnnotationProvider provider) {
+    super(provider);
+    myKind = kind;
+    myName = getName(kind);
+  }
+
+  /**
+   * @param name valid {@link JvmPrimitiveTypeKind#getName primitive name}, or NoSuchElementException will be thrown
+   */
+  public PsiPrimitiveType(@NotNull String name, @NotNull TypeAnnotationProvider provider) {
+    super(provider);
+    JvmPrimitiveTypeKind kind = JvmPrimitiveTypeKind.getKindByName(name);
+    if (kind == null) throw new NoSuchElementException("Cannot find primitive type: " + name);
+    myKind = kind;
+    myName = name;
+  }
+
+  /**
+   * @deprecated please don't use {@link PsiPrimitiveType} to represent fake types
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public PsiPrimitiveType(@NotNull String name, PsiAnnotation @NotNull [] annotations) {
+    super(annotations);
+    myKind = null;
     myName = name;
   }
 
   @NotNull
+  @Contract(pure = true)
+  private static String getName(@Nullable JvmPrimitiveTypeKind kind) {
+    return kind == null ? "null" : kind.getName();
+  }
+
+  @NotNull
   @Override
-  public String getPresentableText() {
-    return getText(false, true);
+  public final JvmPrimitiveTypeKind getKind() {
+    return Objects.requireNonNull(
+      myKind,
+      "getKind() called on PsiType.NULL\n" +
+      "If your code works with JvmElement API then this should not happen " +
+      "unless some implementation improperly returns PsiType.NULL " +
+      "from JvmMethod.getReturnType() (or any other available methods).\n" +
+      "If your code works with PsiType-s then you must check " +
+      "if this type is PsiType.NULL type before calling this method"
+    );
+  }
+
+  @NotNull
+  public String getName() {
+    return myName;
+  }
+
+  @NotNull
+  @Override
+  public PsiPrimitiveType annotate(@NotNull TypeAnnotationProvider provider) {
+    return (PsiPrimitiveType)super.annotate(provider);
+  }
+
+  @NotNull
+  @Override
+  public String getPresentableText(boolean annotated) {
+    return getText(false, annotated);
   }
 
   @NotNull
@@ -64,12 +115,12 @@ public class PsiPrimitiveType extends PsiType.Stub {
   @NotNull
   @Override
   public String getInternalCanonicalText() {
-    return getText(true, true);
+    return getCanonicalText(true);
   }
 
   private String getText(boolean qualified, boolean annotated) {
-    PsiAnnotation[] annotations = getAnnotations();
-    if (!annotated || annotations.length == 0) return myName;
+    PsiAnnotation[] annotations = annotated ? getAnnotations() : PsiAnnotation.EMPTY_ARRAY;
+    if (annotations.length == 0) return myName;
 
     StringBuilder sb = new StringBuilder();
     PsiNameHelper.appendAnnotations(sb, annotations, qualified);
@@ -82,6 +133,9 @@ public class PsiPrimitiveType extends PsiType.Stub {
    */
   @Override
   public boolean isValid() {
+    for (PsiAnnotation annotation : getAnnotations()) {
+      if (!annotation.isValid()) return false;
+    }
     return true;
   }
 
@@ -101,8 +155,7 @@ public class PsiPrimitiveType extends PsiType.Stub {
   }
 
   @Override
-  @NotNull
-  public PsiType[] getSuperTypes() {
+  public PsiType @NotNull [] getSuperTypes() {
     return EMPTY_ARRAY;
   }
 
@@ -115,23 +168,63 @@ public class PsiPrimitiveType extends PsiType.Stub {
   @Nullable
   public static PsiPrimitiveType getUnboxedType(PsiType type) {
     if (!(type instanceof PsiClassType)) return null;
+
+    PsiUtil.ensureValidType(type);
     LanguageLevel languageLevel = ((PsiClassType)type).getLanguageLevel();
     if (!languageLevel.isAtLeast(LanguageLevel.JDK_1_5)) return null;
 
-    assert type.isValid() : type;
     PsiClass psiClass = ((PsiClassType)type).resolve();
     if (psiClass == null) return null;
 
     PsiPrimitiveType unboxed = ourQNameToUnboxed.get(psiClass.getQualifiedName());
-    PsiAnnotation[] annotations = type.getAnnotations();
-    if (unboxed != null && annotations.length > 0) {
-      unboxed = new PsiPrimitiveType(unboxed.myName, annotations);
-    }
-    return unboxed;
+    if (unboxed == null) return null;
+
+    return unboxed.annotate(type.getAnnotationProvider());
   }
 
+  @Nullable
+  public static PsiPrimitiveType getOptionallyUnboxedType(PsiType type) {
+    return type instanceof PsiPrimitiveType ? (PsiPrimitiveType)type : getUnboxedType(type);
+  }
+
+  /**
+   * @param descriptor one letter JVM type descriptor ('B' for byte, 'J' for long, etc.)
+   * @return corresponding primitive type, null if the supplied character is not a valid JVM type descriptor
+   */
+  @Contract(pure = true)
+  public static @Nullable PsiPrimitiveType fromJvmTypeDescriptor(char descriptor) {
+    switch (descriptor) {
+      case 'B':
+        return PsiType.BYTE;
+      case 'C':
+        return PsiType.CHAR;
+      case 'D':
+        return PsiType.DOUBLE;
+      case 'F':
+        return PsiType.FLOAT;
+      case 'Z':
+        return PsiType.BOOLEAN;
+      case 'I':
+        return PsiType.INT;
+      case 'J':
+        return PsiType.LONG;
+      case 'S':
+        return PsiType.SHORT;
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * This method is nullable since {@link PsiType#NULL} has no FQN.<br/>
+   * Consider using {@link JvmPrimitiveTypeKind#getBoxedFqn()} if you know the type you need to get FQN of,
+   * e.g. instead of {@code PsiType.INT.getBoxedTypeName()} use {@code JvmPrimitiveTypeKind.INT.getBoxedFqn()}.
+   *
+   * @see JvmPrimitiveTypeKind#getBoxedFqn
+   */
+  @Nullable
   public String getBoxedTypeName() {
-    return ourUnboxedToQName.get(this);
+    return myKind == null ? null : myKind.getBoxedFqn();
   }
 
   /**
@@ -139,46 +232,53 @@ public class PsiPrimitiveType extends PsiType.Stub {
    *
    * @param context where this boxed type is to be used
    * @return the class type, or null if the current language level does not support autoboxing or
-   *         it was not possible to resolve the reference to the class.
+   * it was not possible to resolve the reference to the class.
    */
   @Nullable
-  public PsiClassType getBoxedType(PsiElement context) {
-    LanguageLevel languageLevel = PsiUtil.getLanguageLevel(context);
+  public PsiClassType getBoxedType(@NotNull PsiElement context) {
+    PsiFile file = context.getContainingFile();
+    if (file == null) return null;
+    LanguageLevel languageLevel = PsiUtil.getLanguageLevel(file);
     if (!languageLevel.isAtLeast(LanguageLevel.JDK_1_5)) return null;
 
     String boxedQName = getBoxedTypeName();
-    //[ven]previous call returns null for NULL, VOID
     if (boxedQName == null) return null;
-    PsiClass aClass = JavaPsiFacade.getInstance(context.getProject()).findClass(boxedQName, context.getResolveScope());
+
+    JavaPsiFacade facade = JavaPsiFacade.getInstance(file.getProject());
+    PsiClass aClass = facade.findClass(boxedQName, file.getResolveScope());
     if (aClass == null) return null;
 
-    PsiElementFactory factory = JavaPsiFacade.getInstance(context.getProject()).getElementFactory();
-    return factory.createType(aClass, PsiSubstitutor.EMPTY, languageLevel, getAnnotations());
+    PsiElementFactory factory = facade.getElementFactory();
+    return factory.createType(aClass, PsiSubstitutor.EMPTY, languageLevel).annotate(getAnnotationProvider());
   }
 
   @Nullable
-  public PsiClassType getBoxedType(final PsiManager manager, final GlobalSearchScope resolveScope) {
-    final String boxedQName = getBoxedTypeName();
-
-    //[ven]previous call returns null for NULL, VOID
+  public PsiClassType getBoxedType(@NotNull PsiManager manager, @NotNull GlobalSearchScope resolveScope) {
+    String boxedQName = getBoxedTypeName();
     if (boxedQName == null) return null;
 
-    final PsiClass aClass = JavaPsiFacade.getInstance(manager.getProject()).findClass(boxedQName, resolveScope);
+    PsiClass aClass = JavaPsiFacade.getInstance(manager.getProject()).findClass(boxedQName, resolveScope);
     if (aClass == null) return null;
-    return JavaPsiFacade.getInstance(manager.getProject()).getElementFactory().createType(aClass);
+
+    return JavaPsiFacade.getElementFactory(manager.getProject()).createType(aClass);
   }
 
+  /**
+   * @deprecated please use {@link JvmPrimitiveTypeKind#getBoxedFqns}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   public static Collection<String> getAllBoxedTypeNames() {
-    return Collections.unmodifiableCollection(ourQNameToUnboxed.keySet());
+    return JvmPrimitiveTypeKind.getBoxedFqns();
   }
 
   @Override
   public int hashCode() {
-    return myName.hashCode();
+    return myKind == null ? 0 : myKind.hashCode();
   }
 
   @Override
   public boolean equals(Object obj) {
-    return obj instanceof PsiPrimitiveType && myName.equals(((PsiPrimitiveType)obj).myName);
+    return this == obj || obj instanceof PsiPrimitiveType && myKind == ((PsiPrimitiveType)obj).myKind;
   }
 }

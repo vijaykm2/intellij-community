@@ -19,7 +19,6 @@ import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiParameterList;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspectionVisitor;
-import com.siyeh.ig.psiutils.LibraryUtil;
 import org.jetbrains.annotations.NotNull;
 
 public class ParametersPerMethodInspection extends MethodMetricInspection {
@@ -28,13 +27,6 @@ public class ParametersPerMethodInspection extends MethodMetricInspection {
   @NotNull
   public String getID() {
     return "MethodWithTooManyParameters";
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "parameters.per.method.display.name");
   }
 
   @Override
@@ -76,7 +68,8 @@ public class ParametersPerMethodInspection extends MethodMetricInspection {
       if (parametersCount <= getLimit()) {
         return;
       }
-      if (LibraryUtil.isOverrideOfLibraryMethod(method)) {
+      //skip all derivatives
+      if (method.findDeepestSuperMethods().length > 0) {
         return;
       }
       registerMethodError(method, Integer.valueOf(parametersCount));

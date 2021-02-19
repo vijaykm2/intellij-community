@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.actions;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -20,95 +6,92 @@ import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.vcs.FilePath;
-import com.intellij.openapi.vcs.FilePathImpl;
 import com.intellij.openapi.vcs.VcsDataKeys;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ChangeList;
+import com.intellij.openapi.vcs.changes.ui.ChangesListView;
 import com.intellij.openapi.vcs.ui.Refreshable;
-import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
-import gnu.trove.THashSet;
+import com.intellij.util.containers.JBIterable;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Set;
+import java.util.List;
+import java.util.stream.Stream;
 
 public class VcsContextWrapper implements VcsContext {
-  protected final DataContext myContext;
+  @NotNull protected final DataContext myContext;
   protected final int myModifiers;
-  private final String myPlace;
-  private final String myActionName;
+  @NotNull private final String myPlace;
+  @Nullable private final @NlsActions.ActionText String myActionName;
 
-  public VcsContextWrapper(DataContext context, int modifiers, String place, String actionName) {
+  public VcsContextWrapper(@NotNull DataContext context,
+                           int modifiers,
+                           @NotNull String place,
+                           @Nullable @NlsActions.ActionText String actionName) {
     myContext = context;
     myModifiers = modifiers;
     myPlace = place;
     myActionName = actionName;
   }
 
+  @NotNull
   @Override
   public String getPlace() {
     return myPlace;
   }
 
+  @Nullable
   @Override
-  public
-  String getActionName() {
+  public String getActionName() {
     return myActionName;
   }
 
-  public static VcsContext createCachedInstanceOn(AnActionEvent event) {
+  @NotNull
+  public static VcsContext createCachedInstanceOn(@NotNull AnActionEvent event) {
     return new CachedVcsContext(createInstanceOn(event));
   }
 
-  public static VcsContextWrapper createInstanceOn(final AnActionEvent event) {
+  @NotNull
+  public static VcsContextWrapper createInstanceOn(@NotNull AnActionEvent event) {
     return new VcsContextWrapper(event.getDataContext(), event.getModifiers(), event.getPlace(), event.getPresentation().getText());
   }
 
+  @Nullable
   @Override
   public Project getProject() {
     return CommonDataKeys.PROJECT.getData(myContext);
   }
 
+  @Nullable
   @Override
   public VirtualFile getSelectedFile() {
-    VirtualFile[] files = getSelectedFiles();
-    return files.length == 0 ? null : files[0];
+    return VcsContextUtil.selectedFilesIterable(myContext).first();
   }
 
   @Override
+  public VirtualFile @NotNull [] getSelectedFiles() {
+    return VcsContextUtil.selectedFilesIterable(myContext).toList().toArray(VirtualFile[]::new);
+  }
+
   @NotNull
-  public VirtualFile[] getSelectedFiles() {
-    VirtualFile[] fileArray = CommonDataKeys.VIRTUAL_FILE_ARRAY.getData(myContext);
-    if (fileArray != null) {
-      return filterLocalFiles(fileArray);
-    }
-
-    VirtualFile virtualFile = CommonDataKeys.VIRTUAL_FILE.getData(myContext);
-    if (virtualFile != null && isLocal(virtualFile)) {
-      return new VirtualFile[]{virtualFile};
-    }
-
-    return VirtualFile.EMPTY_ARRAY;
+  @Override
+  public Stream<VirtualFile> getSelectedFilesStream() {
+    return StreamEx.of(VcsContextUtil.selectedFilesIterable(myContext).iterator());
   }
 
-  private static boolean isLocal(VirtualFile virtualFile) {
-    return virtualFile.isInLocalFileSystem();
-  }
+  @NotNull
+  @Override
+  public List<FilePath> getSelectedUnversionedFilePaths() {
+    Iterable<FilePath> result = ChangesListView.UNVERSIONED_FILE_PATHS_DATA_KEY.getData(myContext);
 
-  private static VirtualFile[] filterLocalFiles(VirtualFile[] fileArray) {
-    ArrayList<VirtualFile> result = new ArrayList<VirtualFile>();
-    for (VirtualFile virtualFile : fileArray) {
-      if (isLocal(virtualFile)) {
-        result.add(virtualFile);
-      }
-    }
-    return VfsUtilCore.toVirtualFileArray(result);
+    return JBIterable.from(result).toList();
   }
 
   @Override
@@ -121,23 +104,15 @@ public class VcsContextWrapper implements VcsContext {
     return Arrays.asList(getSelectedFiles());
   }
 
+  @Nullable
   @Override
   public File getSelectedIOFile() {
-    File file = VcsDataKeys.IO_FILE.getData(myContext);
-    if (file != null) return file;
-    File[] files = VcsDataKeys.IO_FILE_ARRAY.getData(myContext);
-    if (files == null) return null;
-    if (files.length == 0) return null;
-    return files[0];
+    return VcsContextUtil.selectedIOFilesIterable(myContext).first();
   }
 
   @Override
-  public File[] getSelectedIOFiles() {
-    File[] files = VcsDataKeys.IO_FILE_ARRAY.getData(myContext);
-    if (files != null && files.length > 0) return files;
-    File file = getSelectedIOFile();
-    if (file != null) return new File[]{file};
-    return null;
+  public File @Nullable [] getSelectedIOFiles() {
+    return VcsContextUtil.selectedIOFilesIterable(myContext).toList().toArray(new File[0]);
   }
 
   @Override
@@ -150,65 +125,30 @@ public class VcsContextWrapper implements VcsContext {
     return Refreshable.PANEL_KEY.getData(myContext);
   }
 
-  @NotNull
-  @Override
-  public FilePath[] getSelectedFilePaths() {
-    Set<FilePath> result = new THashSet<FilePath>();
-    FilePath path = VcsDataKeys.FILE_PATH.getData(myContext);
-    if (path != null) {
-      result.add(path);
-    }
-
-    FilePath[] paths = VcsDataKeys.FILE_PATH_ARRAY.getData(myContext);
-    if (paths != null) {
-      for (FilePath filePath : paths) {
-        if (!result.contains(filePath)) {
-          result.add(filePath);
-        }
-      }
-    }
-
-    VirtualFile[] selectedFiles = getSelectedFiles();
-    for (VirtualFile selectedFile : selectedFiles) {
-      FilePathImpl filePath = new FilePathImpl(selectedFile);
-      result.add(filePath);
-    }
-
-    File[] selectedIOFiles = getSelectedIOFiles();
-    if (selectedIOFiles != null){
-      for (File selectedFile : selectedIOFiles) {
-        FilePathImpl filePath = FilePathImpl.create(selectedFile);
-        if (filePath != null) {
-          result.add(filePath);
-        }
-      }
-
-    }
-
-    return result.toArray(new FilePath[result.size()]);
-  }
-
   @Nullable
   @Override
   public FilePath getSelectedFilePath() {
-    FilePath[] selectedFilePaths = getSelectedFilePaths();
-    if (selectedFilePaths.length == 0) {
-      return null;
-    }
-    else {
-      return selectedFilePaths[0];
-    }
+    return VcsContextUtil.selectedFilePathsIterable(myContext).first();
   }
 
-  @Nullable
   @Override
-  public ChangeList[] getSelectedChangeLists() {
+  public FilePath @NotNull [] getSelectedFilePaths() {
+    return getSelectedFilePathsStream().toArray(FilePath[]::new);
+  }
+
+  @NotNull
+  @Override
+  public Stream<FilePath> getSelectedFilePathsStream() {
+    return StreamEx.of(VcsContextUtil.selectedFilePathsIterable(myContext).iterator());
+  }
+
+  @Override
+  public ChangeList @Nullable [] getSelectedChangeLists() {
     return VcsDataKeys.CHANGE_LISTS.getData(myContext);
   }
 
-  @Nullable
   @Override
-  public Change[] getSelectedChanges() {
+  public Change @Nullable [] getSelectedChanges() {
     return VcsDataKeys.CHANGES.getData(myContext);
   }
 }

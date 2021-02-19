@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,19 +20,13 @@ import com.intellij.psi.filters.ElementFilter;
 import com.intellij.psi.filters.FilterUtil;
 import com.intellij.psi.infos.CandidateInfo;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.util.ExceptionUtil;
 import org.jetbrains.annotations.Nullable;
 
 
-/**
- * Created by IntelliJ IDEA.
- * User: ik
- * Date: 28.01.2003
- * Time: 20:53:38
- * To change this template use Options | File Templates.
- */
 public class AssignableFromFilter implements ElementFilter{
-  private PsiType myType = null;
-  private String myClassName = null;
+  private PsiType myType;
+  private String myClassName;
 
   public AssignableFromFilter(PsiType type){
     myType = type;
@@ -41,8 +35,6 @@ public class AssignableFromFilter implements ElementFilter{
   public AssignableFromFilter(final String className) {
     myClassName = className;
   }
-
-  public AssignableFromFilter(){}
 
   @Override
   public boolean isClassAcceptable(Class hintClass){
@@ -95,7 +87,16 @@ public class AssignableFromFilter implements ElementFilter{
       return false;
     }
 
-    return expectedType.isAssignableFrom(typeByElement);
+    try {
+      return expectedType.isAssignableFrom(typeByElement);
+    }
+    catch (Throwable e) {
+      if (ExceptionUtil.getRootCause(e) instanceof PsiInvalidElementAccessException) {
+        PsiUtil.ensureValidType(expectedType);
+        throw new RuntimeException("Invalid type of " + element.getClass(), e);
+      }
+      throw e;
+    }
   }
 
   private static boolean allowBoxing(PsiElement place) {
@@ -121,11 +122,28 @@ public class AssignableFromFilter implements ElementFilter{
                                                                                       expectedType,
                                                                                       false,
                                                                                       PsiUtil.getLanguageLevel(place));
-      if (substitutionForParameter != PsiType.NULL && !(substitutionForParameter instanceof PsiIntersectionType)) {
+      if (substitutionForParameter != PsiType.NULL &&
+          !isImpossibleIntersection(substitutionForParameter) &&
+          !extendsImpossibleIntersection(PsiUtil.resolveClassInClassTypeOnly(substitutionForParameter)) &&
+          PsiUtil.resolveClassInClassTypeOnly(substitutionForParameter) != parameter) {
         return true;
       }
     }
     return false;
+  }
+
+  private static boolean extendsImpossibleIntersection(@Nullable PsiClass psiClass) {
+    if (psiClass instanceof PsiTypeParameter) {
+      PsiClassType[] supers = psiClass.getExtendsListTypes();
+      if (supers.length > 1) {
+        return isImpossibleIntersection(PsiIntersectionType.createIntersection(supers));
+      }
+    }
+    return false;
+  }
+
+  private static boolean isImpossibleIntersection(PsiType intersection) {
+    return intersection instanceof PsiIntersectionType && ((PsiIntersectionType)intersection).getConflictingConjunctsMessage() != null;
   }
 
   public String toString(){

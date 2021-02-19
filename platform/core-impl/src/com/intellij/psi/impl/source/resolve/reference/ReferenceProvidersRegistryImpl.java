@@ -1,146 +1,255 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.resolve.reference;
 
 import com.intellij.lang.Language;
 import com.intellij.lang.LanguageExtension;
+import com.intellij.lang.LanguageUtil;
+import com.intellij.lang.MetaLanguage;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.extensions.ExtensionPointListener;
+import com.intellij.openapi.extensions.PluginDescriptor;
 import com.intellij.openapi.project.IndexNotReadyException;
-import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.patterns.ElementPattern;
 import com.intellij.psi.*;
-import com.intellij.util.ProcessingContext;
+import com.intellij.util.*;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.FactoryMap;
+import it.unimi.dsi.fastutil.doubles.Double2ObjectMap;
+import it.unimi.dsi.fastutil.doubles.Double2ObjectMaps;
+import it.unimi.dsi.fastutil.doubles.Double2ObjectOpenHashMap;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
-public class ReferenceProvidersRegistryImpl extends ReferenceProvidersRegistry {
-  private static final LanguageExtension<PsiReferenceContributor> CONTRIBUTOR_EXTENSION = new LanguageExtension<PsiReferenceContributor>(PsiReferenceContributor.EP_NAME.getName());
-  private static final LanguageExtension<PsiReferenceProviderBean> REFERENCE_PROVIDER_EXTENSION = new LanguageExtension<PsiReferenceProviderBean>(PsiReferenceProviderBean.EP_NAME.getName());
+public final class ReferenceProvidersRegistryImpl extends ReferenceProvidersRegistry {
+  private static final LanguageExtension<PsiReferenceContributor> CONTRIBUTOR_EXTENSION =
+    new LanguageExtension<>(PsiReferenceContributor.EP_NAME);
+  private static final LanguageExtension<PsiReferenceProviderBean> REFERENCE_PROVIDER_EXTENSION =
+    new LanguageExtension<>(PsiReferenceProviderBean.EP_NAME.getName());
 
-  private static final Comparator<ProviderBinding.ProviderInfo<PsiReferenceProvider, ProcessingContext>> PRIORITY_COMPARATOR =
-    new Comparator<ProviderBinding.ProviderInfo<PsiReferenceProvider, ProcessingContext>>() {
-      @Override
-      public int compare(ProviderBinding.ProviderInfo<PsiReferenceProvider, ProcessingContext> o1,
-                         ProviderBinding.ProviderInfo<PsiReferenceProvider, ProcessingContext> o2) {
-        return Comparing.compare(o2.priority, o1.priority);
-      }
-    };
+  private final Map<Language, PsiReferenceRegistrarImpl> myRegistrars = new ConcurrentHashMap<>();
 
-  @SuppressWarnings({"MismatchedQueryAndUpdateOfCollection"})
-  private final Map<Language, PsiReferenceRegistrarImpl> myRegistrars = new FactoryMap<Language, PsiReferenceRegistrarImpl>() {
-    @Override
-    protected PsiReferenceRegistrarImpl create(Language language) {
-      PsiReferenceRegistrarImpl registrar = new PsiReferenceRegistrarImpl();
-      for (PsiReferenceContributor contributor : CONTRIBUTOR_EXTENSION.allForLanguage(language)) {
-        contributor.registerReferenceProviders(registrar);
-      }
-
-      List<PsiReferenceProviderBean> referenceProviderBeans = REFERENCE_PROVIDER_EXTENSION.allForLanguage(language);
-      for (final PsiReferenceProviderBean providerBean : referenceProviderBeans) {
-        final ElementPattern<PsiElement> pattern = providerBean.createElementPattern();
-        if (pattern != null) {
-          registrar.registerReferenceProvider(pattern, new PsiReferenceProvider() {
-
-            PsiReferenceProvider myProvider;
-
-            @NotNull
-            @Override
-            public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
-              if (myProvider == null) {
-
-                myProvider = providerBean.instantiate();
-                if (myProvider == null) {
-                  myProvider = NULL_REFERENCE_PROVIDER;
-                }
-              }
-              return myProvider.getReferencesByElement(element, context);
+  public ReferenceProvidersRegistryImpl() {
+    if (ApplicationManager.getApplication().getExtensionArea().hasExtensionPoint(PsiReferenceContributor.EP_NAME)) {
+      PsiReferenceContributor.EP_NAME.addExtensionPointListener(new ExtensionPointListener<KeyedLazyInstance<PsiReferenceContributor>>() {
+        @Override
+        public void extensionAdded(@NotNull KeyedLazyInstance<PsiReferenceContributor> extension,
+                                   @NotNull PluginDescriptor pluginDescriptor) {
+          Language language = Language.findLanguageByID(extension.getKey());
+          PsiReferenceContributor instance = extension.getInstance();
+          if (language == Language.ANY) {
+            for (PsiReferenceRegistrarImpl registrar : myRegistrars.values()) {
+              registerContributedReferenceProviders(registrar, instance);
             }
-          });
-        }
-      }
-
-      registrar.markInitialized();
-
-      return registrar;
-    }
-  };
-
-  @NotNull
-  @Override
-  public synchronized PsiReferenceRegistrarImpl getRegistrar(@NotNull Language language) {
-    return myRegistrars.get(language);
-  }
-
-  @NotNull
-  @Override
-  protected PsiReference[] doGetReferencesFromProviders(@NotNull PsiElement context,
-                                                        @NotNull PsiReferenceService.Hints hints) {
-    List<ProviderBinding.ProviderInfo<PsiReferenceProvider, ProcessingContext>> providersForContextLanguage =
-      getRegistrar(context.getLanguage()).getPairsByElement(context, hints);
-
-    List<ProviderBinding.ProviderInfo<PsiReferenceProvider, ProcessingContext>> providersForAllLanguages =
-      getRegistrar(Language.ANY).getPairsByElement(context, hints);
-
-    int providersCount = providersForContextLanguage.size() + providersForAllLanguages.size();
-
-    if (providersCount == 0) {
-      return PsiReference.EMPTY_ARRAY;
-    }
-
-    if (providersCount == 1) {
-      final ProviderBinding.ProviderInfo<PsiReferenceProvider, ProcessingContext> firstProvider =
-        (providersForAllLanguages.isEmpty() ? providersForContextLanguage : providersForAllLanguages).get(0);
-      return firstProvider.provider.getReferencesByElement(context, firstProvider.processingContext);
-    }
-
-    List<ProviderBinding.ProviderInfo<PsiReferenceProvider, ProcessingContext>> list =
-      ContainerUtil.concat(providersForContextLanguage, providersForAllLanguages);
-    @SuppressWarnings("unchecked")
-    ProviderBinding.ProviderInfo<PsiReferenceProvider, ProcessingContext>[] providers = list.toArray(new ProviderBinding.ProviderInfo[list.size()]);
-
-    Arrays.sort(providers, PRIORITY_COMPARATOR);
-
-    List<PsiReference> result = new ArrayList<PsiReference>();
-    final double maxPriority = providers[0].priority;
-    next:
-    for (ProviderBinding.ProviderInfo<PsiReferenceProvider, ProcessingContext> trinity : providers) {
-      final PsiReference[] refs;
-      try {
-        refs = trinity.provider.getReferencesByElement(context, trinity.processingContext);
-      }
-      catch(IndexNotReadyException ex) {
-        continue;
-      }
-      if (trinity.priority != maxPriority) {
-        for (PsiReference ref : refs) {
-          for (PsiReference reference : result) {
-            if (ref != null && ReferenceRange.containsRangeInElement(reference, ref.getRangeInElement())) {
-              continue next;
+          }
+          else if (language != null) {
+            registerContributorForLanguageAndDialects(language, instance);
+            if (language instanceof MetaLanguage) {
+              Collection<Language> matchingLanguages = ((MetaLanguage)language).getMatchingLanguages();
+              for (Language matchingLanguage : matchingLanguages) {
+                registerContributorForLanguageAndDialects(matchingLanguage, instance);
+              }
             }
           }
         }
+
+        private void registerContributorForLanguageAndDialects(Language language, PsiReferenceContributor instance) {
+          Set<Language> languageAndDialects = LanguageUtil.getAllDerivedLanguages(language);
+          for (Language languageOrDialect : languageAndDialects) {
+            final PsiReferenceRegistrarImpl registrar = myRegistrars.get(languageOrDialect);
+            if (registrar != null) {
+              registerContributedReferenceProviders(registrar, instance);
+            }
+          }
+        }
+
+        @Override
+        public void extensionRemoved(@NotNull KeyedLazyInstance<PsiReferenceContributor> extension,
+                                     @NotNull PluginDescriptor pluginDescriptor) {
+          Disposer.dispose(extension.getInstance());
+        }
+      }, null);
+    }
+  }
+
+  private static @NotNull PsiReferenceRegistrarImpl createRegistrar(@NotNull Language language) {
+    PsiReferenceRegistrarImpl registrar = new PsiReferenceRegistrarImpl();
+    for (PsiReferenceContributor contributor : CONTRIBUTOR_EXTENSION.allForLanguageOrAny(language)) {
+      registerContributedReferenceProviders(registrar, contributor);
+    }
+
+    List<PsiReferenceProviderBean> referenceProviderBeans = REFERENCE_PROVIDER_EXTENSION.allForLanguageOrAny(language);
+    for (final PsiReferenceProviderBean providerBean : referenceProviderBeans) {
+      final ElementPattern<PsiElement> pattern = providerBean.createElementPattern();
+      if (pattern != null) {
+        registrar.registerReferenceProvider(pattern, new PsiReferenceProvider() {
+
+          PsiReferenceProvider myProvider;
+
+          @Override
+          public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
+            if (myProvider == null) {
+
+              myProvider = providerBean.instantiate();
+              if (myProvider == null) {
+                myProvider = NULL_REFERENCE_PROVIDER;
+              }
+            }
+            return myProvider.getReferencesByElement(element, context);
+          }
+        });
       }
-      for (PsiReference ref : refs) {
-        if (ref != null) {
-          result.add(ref);
+    }
+
+    registrar.markInitialized();
+
+    return registrar;
+  }
+
+  private static void registerContributedReferenceProviders(@NotNull PsiReferenceRegistrarImpl registrar, @NotNull PsiReferenceContributor contributor) {
+    contributor.registerReferenceProviders(new TrackingReferenceRegistrar(registrar, contributor));
+    Disposer.register(ApplicationManager.getApplication(), contributor);
+  }
+
+  @Override
+  public @NotNull PsiReferenceRegistrarImpl getRegistrar(@NotNull Language language) {
+    return myRegistrars.computeIfAbsent(language, ReferenceProvidersRegistryImpl::createRegistrar);
+  }
+
+  @Override
+  public void unloadProvidersFor(@NotNull Language language) {
+    PsiReferenceRegistrarImpl psiReferenceRegistrar = myRegistrars.remove(language);
+    if (psiReferenceRegistrar != null) {
+      psiReferenceRegistrar.cleanup();
+    }
+    for (PsiReferenceRegistrarImpl registrar : myRegistrars.values()) {
+      registrar.clearBindingsCache();
+    }
+  }
+
+  @Override
+  // 1. we create priorities map: "priority" ->  non-empty references from providers
+  //    if provider returns EMPTY_ARRAY or array with "null" references then this provider isn't added in priorities map.
+  // 2. references with the highest priority are added "as is"
+  // 3. all other references are added only they could be correctly merged with any reference with higher priority (ReferenceRange.containsRangeInElement(higherPriorityRef, lowerPriorityRef)
+  protected PsiReference @NotNull [] doGetReferencesFromProviders(@NotNull PsiElement context,
+                                                                  @NotNull PsiReferenceService.Hints hints) {
+    List<ProviderBinding.ProviderInfo<ProcessingContext>> providers = getRegistrar(context.getLanguage()).getPairsByElement(context, hints);
+
+    Double2ObjectMap<List<PsiReference[]>> allReferencesMap = mapNotEmptyReferencesFromProviders(context, providers);
+    if (allReferencesMap.isEmpty()) {
+      return PsiReference.EMPTY_ARRAY;
+    }
+
+    final List<PsiReference> result = new SmartList<>();
+    double maxPriority = Math.max(PsiReferenceRegistrar.LOWER_PRIORITY, ArrayUtil.max(allReferencesMap.keySet().toDoubleArray()));
+    List<PsiReference> maxPriorityRefs = collectReferences(allReferencesMap.get(maxPriority));
+
+    ContainerUtil.addAllNotNull(result, maxPriorityRefs);
+    ContainerUtil.addAllNotNull(result, getLowerPriorityReferences(allReferencesMap, maxPriority, maxPriorityRefs));
+
+    return result.toArray(PsiReference.EMPTY_ARRAY);
+  }
+
+  //  we create priorities map: "priority" ->  non-empty references from providers
+  //  if provider returns EMPTY_ARRAY or array with "null" references then this provider isn't added in priorities map.
+  private static @NotNull Double2ObjectMap<List<PsiReference[]>> mapNotEmptyReferencesFromProviders(@NotNull PsiElement context,
+                                                                                                            @NotNull List<? extends ProviderBinding.ProviderInfo<ProcessingContext>> providers) {
+    Double2ObjectMap<List<PsiReference[]>> map = new Double2ObjectOpenHashMap<>();
+    for (ProviderBinding.ProviderInfo<ProcessingContext> trinity : providers) {
+      final PsiReference[] refs = getReferences(context, trinity);
+      if ((ApplicationManager.getApplication().isUnitTestMode() || ApplicationManager.getApplication().isInternal())
+          && Registry.is("ide.check.reference.provider.underlying.element")) {
+        assertReferenceUnderlyingElement(context, refs, trinity.provider);
+      }
+      if (refs.length > 0) {
+        List<PsiReference[]> list = map.get(trinity.priority);
+        if (list == null) {
+          list = new SmartList<>();
+          map.put(trinity.priority, list);
+        }
+        list.add(refs);
+        if (IdempotenceChecker.isLoggingEnabled()) {
+          IdempotenceChecker.logTrace(trinity.provider + " returned " + Arrays.toString(refs));
         }
       }
     }
-    return result.isEmpty() ? PsiReference.EMPTY_ARRAY : ContainerUtil.toArray(result, new PsiReference[result.size()]);
+    return map;
+  }
+
+  private static void assertReferenceUnderlyingElement(@NotNull PsiElement context,
+                                                       PsiReference[] refs, PsiReferenceProvider provider) {
+    for (PsiReference reference : refs) {
+      if (reference == null) continue;
+      assert reference.getElement() == context : "reference " +
+                                                 reference +
+                                                 " was created for " +
+                                                 context +
+                                                 " but target " +
+                                                 reference.getElement() +
+                                                 ", provider " + provider;
+    }
+  }
+
+  private static PsiReference @NotNull [] getReferences(@NotNull PsiElement context,
+                                                        @NotNull ProviderBinding.ProviderInfo<? extends ProcessingContext> providerInfo) {
+    try {
+      return providerInfo.provider.getReferencesByElement(context, providerInfo.processingContext);
+    }
+    catch (IndexNotReadyException ignored) {
+    }
+    return PsiReference.EMPTY_ARRAY;
+  }
+
+  private static @NotNull List<PsiReference> getLowerPriorityReferences(@NotNull Double2ObjectMap<List<PsiReference[]>> allReferencesMap,
+                                                                        double maxPriority,
+                                                                        @NotNull List<? extends PsiReference> maxPriorityRefs) {
+    List<PsiReference> result = new SmartList<>();
+    for (Double2ObjectMap.Entry<List<PsiReference[]>> entry : Double2ObjectMaps.fastIterable(allReferencesMap)) {
+      if (maxPriority != entry.getDoubleKey()) {
+        for (PsiReference[] references : entry.getValue()) {
+          if (haveNotIntersectedTextRanges(maxPriorityRefs, references)) {
+            ContainerUtil.addAllNotNull(result, references);
+          }
+        }
+      }
+    }
+    return result;
+  }
+
+  private static boolean haveNotIntersectedTextRanges(@NotNull List<? extends PsiReference> higherPriorityRefs,
+                                                      PsiReference @NotNull [] lowerPriorityRefs) {
+    for (PsiReference ref : lowerPriorityRefs) {
+      if (ref != null) {
+        for (PsiReference reference : higherPriorityRefs) {
+          if (reference != null && ReferenceRange.containsRangeInElement(reference, ref.getRangeInElement())) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  private static @NotNull List<PsiReference> collectReferences(@Nullable Collection<PsiReference[]> references) {
+    if (references == null) return Collections.emptyList();
+    List<PsiReference> list = new SmartList<>();
+    for (PsiReference[] reference : references) {
+      ContainerUtil.addAllNotNull(list, reference);
+    }
+
+    return list;
+  }
+
+  /**
+   * @deprecated to attract attention and motivate to fix tests which fail these checks
+   */
+  @Deprecated
+  public static void disableUnderlyingElementChecks(@NotNull Disposable parentDisposable) {
+    Registry.get("ide.check.reference.provider.underlying.element").setValue(false, parentDisposable);
   }
 }

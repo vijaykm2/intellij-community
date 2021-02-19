@@ -1,62 +1,32 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.properties.structureView;
 
 import com.intellij.icons.AllIcons;
-import com.intellij.ide.structureView.StructureViewTreeElement;
 import com.intellij.ide.util.treeView.smartTree.Group;
 import com.intellij.ide.util.treeView.smartTree.TreeElement;
-import com.intellij.lang.properties.IProperty;
-import com.intellij.lang.properties.editor.PropertiesAnchorizer;
-import com.intellij.lang.properties.editor.ResourceBundleEditorViewElement;
-import com.intellij.lang.properties.editor.ResourceBundlePropertyStructureViewElement;
-import com.intellij.lang.properties.psi.Property;
 import com.intellij.navigation.ItemPresentation;
-import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.psi.PsiElement;
-import com.intellij.util.NullableFunction;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.List;
 
-/**
- * @author cdr
- */
-public class PropertiesPrefixGroup implements Group, ResourceBundleEditorViewElement {
-  private final Collection<TreeElement> myProperties;
+public class PropertiesPrefixGroup implements Group {
+  private final @NotNull Collection<TreeElement> myProperties;
   private final @NotNull String myPrefix;
-  private final String myPresentableName;
+  private final @NotNull String myPresentableName;
   private final @NotNull String mySeparator;
 
-  public PropertiesPrefixGroup(final Collection<TreeElement> properties,
-                               final @NotNull String prefix,
-                               final String presentableName,
-                               final @NotNull String separator) {
+  public PropertiesPrefixGroup(@NotNull Collection<TreeElement> properties,
+                               @NotNull String prefix,
+                               @NotNull String presentableName,
+                               @NotNull String separator) {
     myProperties = properties;
     myPrefix = prefix;
     myPresentableName = presentableName;
     mySeparator = separator;
   }
 
+  @NotNull
   public String getPresentableName() {
     return myPresentableName;
   }
@@ -71,92 +41,26 @@ public class PropertiesPrefixGroup implements Group, ResourceBundleEditorViewEle
     return myPrefix;
   }
 
+  @Override
   @NotNull
   public ItemPresentation getPresentation() {
     return new ItemPresentation() {
+      @Override
       public String getPresentableText() {
         return myPresentableName;
       }
 
-      public String getLocationString() {
-        return null;
-      }
-
+      @Override
       public Icon getIcon(boolean open) {
-        return AllIcons.Nodes.Advice;
+        return AllIcons.Nodes.Tag;
       }
     };
   }
 
+  @Override
   @NotNull
   public Collection<TreeElement> getChildren() {
-    Collection<TreeElement> result = new ArrayList<TreeElement>();
-    List<String> prefixWords = StringUtil.split(myPrefix, mySeparator);
-    for (TreeElement treeElement : myProperties) {
-      if (!(treeElement instanceof StructureViewTreeElement)) {
-        continue;
-      }
-      Object value = ((StructureViewTreeElement)treeElement).getValue();
-      if (value instanceof PropertiesAnchorizer.PropertyAnchor) {
-        value = ((PropertiesAnchorizer.PropertyAnchor)value).getRepresentative();
-      }
-      if (!(value instanceof IProperty)) {
-        continue;
-      }
-      final String key = ((IProperty) value).getUnescapedKey();
-      if (key == null) {
-        continue;
-      }
-      boolean startsWith;
-      if (!key.equals(myPrefix)) {
-        List<String> keyWords = StringUtil.split(key, mySeparator);
-        startsWith = prefixWords.size() < keyWords.size();
-        if (startsWith) {
-          for (int i = 0; i < prefixWords.size(); i++) {
-            String prefixWord = prefixWords.get(i);
-            String keyWord = keyWords.get(i);
-            if (!Comparing.strEqual(keyWord, prefixWord)) {
-              startsWith = false;
-              break;
-            }
-          }
-        }
-      } else {
-        startsWith = true;
-      }
-      if (startsWith) {
-        result.add(treeElement);
-        String presentableName = key.substring(myPrefix.length());
-        presentableName = StringUtil.trimStart(presentableName, mySeparator);
-        if (treeElement instanceof PropertiesStructureViewElement) {
-          ((PropertiesStructureViewElement)treeElement).setPresentableName(presentableName);
-        }
-        if (treeElement instanceof ResourceBundlePropertyStructureViewElement) {
-          ((ResourceBundlePropertyStructureViewElement)treeElement).setPresentableName(presentableName);
-        }
-      }
-    }
-    return result;
-  }
-
-  @Override
-  public PsiElement[] getPsiElements() {
-    final List<PsiElement> elements = ContainerUtil.mapNotNull(getChildren(), new NullableFunction<TreeElement, PsiElement>() {
-      @Nullable
-      @Override
-      public PsiElement fun(final TreeElement treeElement) {
-        if (treeElement instanceof PropertiesStructureViewElement) {
-          PropertiesStructureViewElement propertiesElement = (PropertiesStructureViewElement)treeElement;
-          IProperty property = propertiesElement.getValue();
-          return property.getPsiElement();
-        }
-        else if (treeElement instanceof ResourceBundlePropertyStructureViewElement) {
-          return ((ResourceBundlePropertyStructureViewElement)treeElement).getPsiElements()[0];
-        }
-        return null;
-      }
-    });
-    return elements.toArray(new PsiElement[elements.size()]);
+    return myProperties;
   }
 
   public boolean equals(final Object o) {

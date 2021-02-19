@@ -16,13 +16,12 @@
 package com.siyeh.ig.naming;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
-import com.siyeh.ig.naming.OverloadedVarargsMethodInspection;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 
 /**
  * @author Bas Leijdekkers
  */
-public class OverloadedVarargsMethodInspectionTest extends LightInspectionTestCase
+public class OverloadedVarargsMethodInspectionTest extends LightJavaInspectionTestCase
 {
   @Override
   protected InspectionProfileEntry getInspection() {
@@ -34,7 +33,7 @@ public class OverloadedVarargsMethodInspectionTest extends LightInspectionTestCa
            "  public void overload() {}" +
            "  public void overload(int p1) {}" +
            "  public void overload(int p1, String p2) {}" +
-           "  public void /*Overloaded variable argument method 'overload()'*/overload/**/(int p1, String p2, String... p3) {}" +
+           "  public void /*Overloaded varargs method 'overload()'*/overload/**/(int p1, String p2, String... p3) {}" +
            "}");
   }
 
@@ -43,7 +42,26 @@ public class OverloadedVarargsMethodInspectionTest extends LightInspectionTestCa
            "  public void method() {}" +
            "}" +
            "class Overload extends Super {" +
-           "  public void /*Overloaded variable argument method 'method()'*/method/**/(String... ss) {}" +
+           "  public void /*Overloaded varargs method 'method()'*/method/**/(String... ss) {}" +
            "}");
+  }
+
+  public void testOverridingMethod() {
+    doTest("interface Base {" +
+           "  void test(String... ss);" +
+           "}" +
+           "class Impl implements Base {" +
+           "  public void test(String... ss) {}" +
+           "}");
+  }
+
+  public void testGenericMethods() {
+    doTest("interface Foo<T> {" +
+           "        void makeItSo(T command, int... values);" +
+           "    }" +
+           "    class Bar implements Foo<String> {" +
+           "        public void makeItSo(final String command, final int... values) {" +
+           "        }" +
+           "    }");
   }
 }

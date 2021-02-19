@@ -17,9 +17,9 @@
 package com.intellij.packageDependencies.actions;
 
 import com.intellij.analysis.AnalysisScope;
-import com.intellij.analysis.AnalysisScopeBundle;
 import com.intellij.analysis.BaseAnalysisAction;
 import com.intellij.analysis.BaseAnalysisActionDialog;
+import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.ide.util.scopeChooser.ScopeChooserCombo;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
@@ -29,16 +29,12 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
-/**
- * User: anna
- * Date: Jan 16, 2005
- */
 public class BackwardDependenciesAction extends BaseAnalysisAction {
   private AdditionalSettingsPanel myPanel;
 
 
   public BackwardDependenciesAction() {
-    super(AnalysisScopeBundle.message("action.backward.dependency.analysis"), AnalysisScopeBundle.message("action.analysis.noun"));
+    super(CodeInsightBundle.messagePointer("action.backward.dependency.analysis"), CodeInsightBundle.messagePointer("action.analysis.noun"));
   }
 
   @Override

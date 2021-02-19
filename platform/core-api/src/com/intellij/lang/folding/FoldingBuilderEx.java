@@ -28,7 +28,7 @@ import org.jetbrains.annotations.Nullable;
  * by the plugin.
  *
  * @author max
- * @see com.intellij.lang.folding.LanguageFolding#forLanguage(com.intellij.lang.Language)
+ * @see LanguageFolding#forLanguage(com.intellij.lang.Language)
  */
 
 public abstract class FoldingBuilderEx implements FoldingBuilder {
@@ -43,11 +43,10 @@ public abstract class FoldingBuilderEx implements FoldingBuilder {
    *                 If true, one should perform no reference resolving and avoid complex checks if possible.
    * @return the array of folding descriptors.
    */
-  @NotNull
-  public abstract FoldingDescriptor[] buildFoldRegions(@NotNull PsiElement root, @NotNull Document document, boolean quick);
+  public abstract FoldingDescriptor @NotNull [] buildFoldRegions(@NotNull PsiElement root, @NotNull Document document, boolean quick);
 
-  @NotNull
-  public FoldingDescriptor[] buildFoldRegions(@NotNull ASTNode node, @NotNull Document document) {
+  @Override
+  public FoldingDescriptor @NotNull [] buildFoldRegions(@NotNull ASTNode node, @NotNull Document document) {
     return buildFoldRegions(node.getPsi(), document, false);
   }
 
@@ -71,5 +70,6 @@ public abstract class FoldingBuilderEx implements FoldingBuilder {
    * @param node the node for which the collapsed state is requested.
    * @return true if the region is collapsed by default, false otherwise.
    */
+  @Override
   public abstract boolean isCollapsedByDefault(@NotNull ASTNode node);
 }

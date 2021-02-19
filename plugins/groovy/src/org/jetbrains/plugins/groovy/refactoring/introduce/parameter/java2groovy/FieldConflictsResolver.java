@@ -33,10 +33,8 @@ import java.util.List;
 
 /**
  * @author Maxim.Medvedev
- *         Date: Apr 29, 2009 2:20:17 PM
  */
 public class FieldConflictsResolver {
-  //  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.util.FieldConflictsResolver");
   private final GrCodeBlock myScope;
   private final PsiField myField;
   private final List<GrReferenceExpression> myReferenceExpressions;
@@ -57,7 +55,7 @@ public class FieldConflictsResolver {
       myReferenceExpressions = null;
       return;
     }
-    myReferenceExpressions = new ArrayList<GrReferenceExpression>();
+    myReferenceExpressions = new ArrayList<>();
     for (PsiReference reference : ReferencesSearch.search(myField, new LocalSearchScope(myScope), false)) {
       final PsiElement element = reference.getElement();
       if (element instanceof GrReferenceExpression) {

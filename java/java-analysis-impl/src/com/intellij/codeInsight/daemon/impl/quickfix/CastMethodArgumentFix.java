@@ -1,48 +1,31 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/**
- * Created by IntelliJ IDEA.
- * User: cdr
- * Date: Nov 13, 2002
- * Time: 3:26:50 PM
- * To change this template use Options | File Templates.
- */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.daemon.impl.analysis.JavaHighlightUtil;
+import com.intellij.codeInsight.intention.FileModifier;
 import com.intellij.codeInsight.intention.HighPriorityAction;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.psi.*;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 
-public class CastMethodArgumentFix extends MethodArgumentFix implements HighPriorityAction {
+public final class CastMethodArgumentFix extends MethodArgumentFix implements HighPriorityAction {
+  private final @IntentionName String myText;
+
   private CastMethodArgumentFix(PsiExpressionList list, int i, PsiType toType, final ArgumentFixerActionFactory factory) {
     super(list, i, toType, factory);
+    myText = myArgList.getExpressionCount() == 1
+             ? QuickFixBundle.message("cast.single.parameter.text", JavaHighlightUtil.formatType(myToType))
+             : QuickFixBundle.message("cast.parameter.text", myIndex + 1, JavaHighlightUtil.formatType(myToType));
   }
 
   @Override
   @NotNull
   public String getText() {
-    if (myArgList.getExpressions().length == 1) {
-      return QuickFixBundle.message("cast.single.parameter.text", JavaHighlightUtil.formatType(myToType));
-    }
-
-    return QuickFixBundle.message("cast.parameter.text", myIndex + 1, JavaHighlightUtil.formatType(myToType));
+    return myText;
   }
 
   private static class MyFixerActionFactory extends ArgumentFixerActionFactory {
@@ -62,17 +45,31 @@ public class CastMethodArgumentFix extends MethodArgumentFix implements HighPrio
     }
 
     @Override
-    public boolean areTypesConvertible(PsiType exprType, PsiType parameterType, final PsiElement context) {
+    public boolean areTypesConvertible(@NotNull PsiType exprType, @NotNull PsiType parameterType, @NotNull final PsiElement context) {
       if (exprType instanceof PsiClassType && parameterType instanceof PsiPrimitiveType) {
         parameterType = ((PsiPrimitiveType)parameterType).getBoxedType(context); //unboxing from type of cast expression will take place at runtime
         if (parameterType == null) return false;
       }
       if (exprType instanceof PsiPrimitiveType && parameterType instanceof PsiClassType) {
+        if (PsiType.NULL.equals(exprType)) {
+          return true;
+        }
         parameterType = PsiPrimitiveType.getUnboxedType(parameterType);
         if (parameterType == null) return false;
       }
-      return parameterType.isConvertibleFrom(exprType);
+      if (parameterType.isConvertibleFrom(exprType)) {
+        return true;
+      }
+
+      return parameterType instanceof PsiEllipsisType &&
+             areTypesConvertible(exprType, ((PsiEllipsisType)parameterType).getComponentType(), context);
     }
+  }
+
+  @Override
+  public @NotNull FileModifier getFileModifierForPreview(@NotNull PsiFile target) {
+    return new CastMethodArgumentFix(PsiTreeUtil.findSameElementInCopy(myArgList, target), myIndex, myToType,
+                                     myArgumentFixerActionFactory);
   }
 
   public static final ArgumentFixerActionFactory REGISTRAR = new MyFixerActionFactory();

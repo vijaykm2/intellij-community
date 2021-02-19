@@ -26,13 +26,10 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.util.List;
 
-/**
- * @author nik
- */
 public interface ClasspathPanel {
   void runClasspathPanelAction(Runnable action);
 
-  void addItems(List<ClasspathTableItem<?>> toAdd);
+  void addItems(List<? extends ClasspathTableItem<?>> toAdd);
 
   ModifiableRootModel getRootModel();
 

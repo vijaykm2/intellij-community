@@ -1,57 +1,45 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.testframework;
 
+import com.intellij.execution.DefaultExecutionTarget;
 import com.intellij.execution.ExecutionBundle;
+import com.intellij.execution.ExecutionTarget;
 import com.intellij.execution.Executor;
 import com.intellij.execution.configurations.ModuleRunProfile;
-import com.intellij.execution.configurations.RunConfiguration;
+import com.intellij.execution.configurations.RunProfile;
 import com.intellij.execution.executors.DefaultDebugExecutor;
-import com.intellij.execution.runners.ExecutionEnvironment;
+import com.intellij.execution.testframework.ui.TestsConsoleBuilderImpl;
 import com.intellij.execution.ui.ConsoleView;
 import com.intellij.execution.ui.ExecutionConsole;
 import com.intellij.execution.util.StoringPropertyContainer;
-import com.intellij.icons.AllIcons;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.util.config.AbstractProperty;
-import com.intellij.util.config.BooleanProperty;
-import com.intellij.util.config.Storage;
-import com.intellij.util.config.ToggleBooleanProperty;
+import com.intellij.util.config.*;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XDebuggerManager;
 import org.intellij.lang.annotations.JdkConstants;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.tree.TreeSelectionModel;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * @author anna
- * @since 25-May-2007
  */
 public abstract class TestConsoleProperties extends StoringPropertyContainer implements Disposable {
   public static final BooleanProperty SCROLL_TO_STACK_TRACE = new BooleanProperty("scrollToStackTrace", false);
   public static final BooleanProperty SORT_ALPHABETICALLY = new BooleanProperty("sortTestsAlphabetically", false);
+  public static final BooleanProperty SORT_BY_DURATION = new BooleanProperty("sortTestsByDuration", false);
   public static final BooleanProperty SELECT_FIRST_DEFECT = new BooleanProperty("selectFirtsDefect", false);
   public static final BooleanProperty TRACK_RUNNING_TEST = new BooleanProperty("trackRunningTest", true);
   public static final BooleanProperty HIDE_IGNORED_TEST = new BooleanProperty("hideIgnoredTests", false);
@@ -60,15 +48,18 @@ public abstract class TestConsoleProperties extends StoringPropertyContainer imp
   public static final BooleanProperty OPEN_FAILURE_LINE = new BooleanProperty("openFailureLine", true);
   public static final BooleanProperty TRACK_CODE_COVERAGE = new BooleanProperty("trackCodeCoverage", false);
   public static final BooleanProperty SHOW_STATISTICS = new BooleanProperty("showStatistics", false);
+  public static final BooleanProperty SHOW_INLINE_STATISTICS = new BooleanProperty("showInlineStatistics", true);
   public static final BooleanProperty INCLUDE_NON_STARTED_IN_RERUN_FAILED = new BooleanProperty("includeNonStarted", true);
+  public static final BooleanProperty HIDE_SUCCESSFUL_CONFIG = new BooleanProperty("hideConfig", false);
 
   private final Project myProject;
   private final Executor myExecutor;
   private ConsoleView myConsole;
   private boolean myUsePredefinedMessageFilter = true;
   private GlobalSearchScope myScope;
+  private boolean myPreservePresentableName = false;
 
-  protected final Map<AbstractProperty, List<TestFrameworkPropertyListener>> myListeners = ContainerUtil.newHashMap();
+  protected final Map<AbstractProperty, List<TestFrameworkPropertyListener>> myListeners = new HashMap<>();
 
   public TestConsoleProperties(@NotNull Storage storage, Project project, Executor executor) {
     super(storage);
@@ -80,6 +71,9 @@ public abstract class TestConsoleProperties extends StoringPropertyContainer imp
     return myProject;
   }
 
+  /**
+   * @return scope which was used to compose tests classpath
+   */
   @NotNull
   public GlobalSearchScope getScope() {
     if (myScope == null) {
@@ -90,7 +84,7 @@ public abstract class TestConsoleProperties extends StoringPropertyContainer imp
 
   @NotNull
   protected GlobalSearchScope initScope() {
-    RunConfiguration configuration = getConfiguration();
+    RunProfile configuration = getConfiguration();
     if (!(configuration instanceof ModuleRunProfile)) {
       return GlobalSearchScope.allScope(myProject);
     }
@@ -100,18 +94,22 @@ public abstract class TestConsoleProperties extends StoringPropertyContainer imp
       return GlobalSearchScope.allScope(myProject);
     }
 
-    GlobalSearchScope scope = GlobalSearchScope.EMPTY_SCOPE;
-    for (Module each : modules) {
-      scope = scope.uniteWith(GlobalSearchScope.moduleRuntimeScope(each, true));
-    }
-    return scope;
+    GlobalSearchScope[] scopes =
+      ContainerUtil.map2Array(modules, GlobalSearchScope.class, module -> GlobalSearchScope.moduleRuntimeScope(module, true));
+    return GlobalSearchScope.union(scopes);
+  }
+
+  public boolean isPreservePresentableName() {
+    return myPreservePresentableName;
+  }
+
+  public void setPreservePresentableName(boolean preservePresentableName) {
+    myPreservePresentableName = preservePresentableName;
   }
 
   public <T> void addListener(@NotNull AbstractProperty<T> property, @NotNull TestFrameworkPropertyListener<T> listener) {
-    List<TestFrameworkPropertyListener> listeners = myListeners.get(property);
-    if (listeners == null) {
-      myListeners.put(property, (listeners = ContainerUtil.newArrayList()));
-    }
+    List<TestFrameworkPropertyListener> listeners =
+      myListeners.computeIfAbsent(property, __ -> ContainerUtil.createLockFreeCopyOnWriteList());
     listeners.add(listener);
   }
 
@@ -144,8 +142,7 @@ public abstract class TestConsoleProperties extends StoringPropertyContainer imp
   protected <T> void onPropertyChanged(@NotNull AbstractProperty<T> property, T value) {
     List<TestFrameworkPropertyListener> listeners = myListeners.get(property);
     if (listeners != null) {
-      for (Object o : listeners.toArray()) {
-        @SuppressWarnings("unchecked") TestFrameworkPropertyListener<T> listener = (TestFrameworkPropertyListener<T>)o;
+      for (TestFrameworkPropertyListener<T> listener : listeners) {
         listener.onChanged(value);
       }
     }
@@ -160,7 +157,7 @@ public abstract class TestConsoleProperties extends StoringPropertyContainer imp
     myListeners.clear();
   }
 
-  public abstract RunConfiguration getConfiguration();
+  public abstract RunProfile getConfiguration();
 
   /**
    * Allows to make console editable and disable/enable input sending in process stdin stream.
@@ -183,6 +180,17 @@ public abstract class TestConsoleProperties extends StoringPropertyContainer imp
     return myConsole;
   }
 
+  /**
+   * Override to customize console used
+   */
+  @NotNull
+  public ConsoleView createConsole() {
+    return new TestsConsoleBuilderImpl(getProject(),
+                                       getScope(),
+                                       !isEditable(),
+                                       isUsePredefinedMessageFilter()).getConsole();
+  }
+
   public boolean isUsePredefinedMessageFilter() {
     return myUsePredefinedMessageFilter;
   }
@@ -191,21 +199,59 @@ public abstract class TestConsoleProperties extends StoringPropertyContainer imp
     myUsePredefinedMessageFilter = usePredefinedMessageFilter;
   }
 
-  protected void appendAdditionalActions(DefaultActionGroup actionGroup, ExecutionEnvironment environment, JComponent parent) { }
+  public void appendAdditionalActions(DefaultActionGroup actionGroup, JComponent parent, TestConsoleProperties target) { }
 
-  @NotNull
-  protected ToggleBooleanProperty createIncludeNonStartedInRerun() {
-    String text = ExecutionBundle.message("junit.runing.info.include.non.started.in.rerun.failed.action.name");
-    Icon icon = AllIcons.RunConfigurations.IncludeNonStartedTests_Rerun;
-    return new ToggleBooleanProperty(text, null, icon, this, INCLUDE_NON_STARTED_IN_RERUN_FAILED);
+  protected AnAction @Nullable [] createImportActions() {
+    return null;
   }
 
+  /**
+   * If supported by the framework, can be used in additional actions toolbar
+   */
+  @NotNull
+  protected ToggleBooleanProperty createIncludeNonStartedInRerun(TestConsoleProperties target) {
+    String text = ExecutionBundle.message("junit.runing.info.include.non.started.in.rerun.failed.action.name");
+    return new DumbAwareToggleBooleanProperty(text, null, null, target, INCLUDE_NON_STARTED_IN_RERUN_FAILED);
+  }
+
+  /**
+   * If supported by the framework, can be used in additional actions toolbar
+   */
+  @NotNull
+  protected ToggleBooleanProperty createHideSuccessfulConfig(TestConsoleProperties target) {
+    String text = ExecutionBundle.message("junit.runing.info.hide.successful.config.action.name");
+    setIfUndefined(HIDE_SUCCESSFUL_CONFIG, true);
+    return new DumbAwareToggleBooleanProperty(text, null, null, target, HIDE_SUCCESSFUL_CONFIG);
+  }
+
+  /**
+   * Override if framework supports running tests on multiple selection
+   */
   @JdkConstants.TreeSelectionMode
-  protected int getSelectionMode() {
+  public int getSelectionMode() {
     return TreeSelectionModel.SINGLE_TREE_SELECTION;
   }
 
-  public boolean hideTreeRootIfNotEmpty() {
-    return false;
+  @NotNull
+  public ExecutionTarget getExecutionTarget() {
+    return DefaultExecutionTarget.INSTANCE;
+  }
+
+  /**
+   * Override to choose toolwindow where test finished notification would be shown
+   */
+  @NotNull
+  public String getWindowId() {
+    return isDebug() ? ToolWindowId.DEBUG : ToolWindowId.RUN;
+  }
+
+  /**
+   * Override to customize presentation of comparison difference visible before link to open diff window
+   * @param printer {@code Printer} to write on 
+   * @param expected text to be shown on the left of the diff window
+   * @param actual   text to be shown on the right of the diff window
+   */
+  public void printExpectedActualHeader(Printer printer, String expected, String actual) {
+    Printer.printExpectedActualHeader(printer, expected, actual);
   }
 }

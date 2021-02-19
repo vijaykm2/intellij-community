@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.psi;
 
 import com.intellij.psi.PsiClass;
@@ -26,14 +12,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public class MethodInheritanceUtils {
+public final class MethodInheritanceUtils {
     private MethodInheritanceUtils() {
         super();
     }
 
     public static Set<PsiMethod> calculateSiblingMethods(PsiMethod method) {
-        final Set<PsiMethod> siblingMethods = new HashSet<PsiMethod>();
-        final Stack<PsiMethod> pendingMethods = new Stack<PsiMethod>();
+        final Set<PsiMethod> siblingMethods = new HashSet<>();
+        final Stack<PsiMethod> pendingMethods = new Stack<>();
         pendingMethods.add(method);
         while(!pendingMethods.isEmpty())
         {
@@ -72,12 +58,12 @@ public class MethodInheritanceUtils {
     }
 
     public static PsiClass[] findAvailableSuperClassesForMethod(PsiMethod method){
-        final List<PsiClass> sourceClasses = new ArrayList<PsiClass>();
+        final List<PsiClass> sourceClasses = new ArrayList<>();
         findAvailableSuperClasses(method, sourceClasses);
-        return sourceClasses.toArray(new PsiClass[sourceClasses.size()]);
+        return sourceClasses.toArray(PsiClass.EMPTY_ARRAY);
     }
 
-    private static void findAvailableSuperClasses(PsiMethod method, List<PsiClass> sourceClasses){
+    private static void findAvailableSuperClasses(PsiMethod method, List<? super PsiClass> sourceClasses){
         final PsiMethod[] superMethods = method.findSuperMethods(true);
         for(PsiMethod superMethod : superMethods){
             final PsiClass containingClass = superMethod.getContainingClass();
@@ -90,24 +76,24 @@ public class MethodInheritanceUtils {
 
     public static PsiClass[] findAvailableSubClassesForMethod(PsiMethod method){
         final Iterable<PsiMethod> query = SearchUtils.findOverridingMethods(method);
-        final List<PsiClass> sourceClasses = new ArrayList<PsiClass>();
+        final List<PsiClass> sourceClasses = new ArrayList<>();
         for(PsiMethod superMethod : query){
             final PsiClass containingClass = superMethod.getContainingClass();
             if(!(containingClass instanceof PsiCompiledElement)){
                 sourceClasses.add(containingClass);
             }
         }
-        return sourceClasses.toArray(new PsiClass[sourceClasses.size()]);
+        return sourceClasses.toArray(PsiClass.EMPTY_ARRAY);
     }
 
     public static PsiClass[] getNonLibrarySuperClasses(PsiClass sourceClass){
 
-        final List<PsiClass> out = new ArrayList<PsiClass>();
+        final List<PsiClass> out = new ArrayList<>();
         findNonLibrarySupers(sourceClass, out);
-        return out.toArray(new PsiClass[out.size()]);
+        return out.toArray(PsiClass.EMPTY_ARRAY);
     }
 
-    private static void findNonLibrarySupers(PsiClass sourceClass, List<PsiClass> out){
+    private static void findNonLibrarySupers(PsiClass sourceClass, List<? super PsiClass> out){
         final PsiClass[] supers = sourceClass.getSupers();
         for(PsiClass psiClass : supers){
             if(!(psiClass instanceof PsiCompiledElement) && !out.contains(psiClass))
@@ -119,7 +105,7 @@ public class MethodInheritanceUtils {
     }
 
     public static PsiClass[] getNonLibrarySubClasses(PsiClass sourceClass){
-        final List<PsiClass> out = new ArrayList<PsiClass>();
+        final List<PsiClass> out = new ArrayList<>();
         final Iterable<PsiClass> query = SearchUtils.findClassInheritors(sourceClass, true);
         for(PsiClass psiClass : query){
             if(!(psiClass instanceof PsiCompiledElement))
@@ -127,8 +113,8 @@ public class MethodInheritanceUtils {
                 out.add(psiClass);
             }
         }
-        return out.toArray(new PsiClass[out.size()]);
+        return out.toArray(PsiClass.EMPTY_ARRAY);
     }
 
-    
+
 }

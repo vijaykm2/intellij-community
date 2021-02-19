@@ -15,30 +15,19 @@
  */
 package org.zmlx.hg4idea.action.mq;
 
-import com.intellij.openapi.util.Condition;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.MultiMap;
-import com.intellij.vcs.log.VcsFullCommitDetails;
+import com.intellij.vcs.log.Hash;
 import org.jetbrains.annotations.NotNull;
-import org.zmlx.hg4idea.HgNameWithHashInfo;
-import org.zmlx.hg4idea.action.HgLogSingleCommitAction;
 import org.zmlx.hg4idea.repo.HgRepository;
 
-public abstract class HgMqAppliedPatchAction extends HgLogSingleCommitAction {
+public abstract class HgMqAppliedPatchAction extends HgMqLogAction {
 
   @Override
-  protected boolean isEnabled(@NotNull MultiMap<HgRepository, VcsFullCommitDetails> grouped) {
-    return super.isEnabled(grouped) &&
-           grouped.values().size() == 1 &&
-           isAppliedPatch(grouped.keySet().iterator().next(), grouped.values().iterator().next());
+  protected boolean isEnabled(@NotNull HgRepository repository, @NotNull Hash commit) {
+    return super.isEnabled(repository, commit) && isAppliedPatch(repository, commit);
   }
 
-  public static boolean isAppliedPatch(@NotNull HgRepository repository, @NotNull final VcsFullCommitDetails commitDetails) {
-    return ContainerUtil.exists(repository.getMQAppliedPatches(), new Condition<HgNameWithHashInfo>() {
-      @Override
-      public boolean value(HgNameWithHashInfo info) {
-        return info.getHash().equals(commitDetails.getId());
-      }
-    });
+  public static boolean isAppliedPatch(@NotNull HgRepository repository, @NotNull final Hash hash) {
+    return ContainerUtil.exists(repository.getMQAppliedPatches(), info -> info.getHash().equals(hash));
   }
 }

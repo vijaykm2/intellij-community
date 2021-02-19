@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,15 +16,29 @@
 package org.jetbrains.idea.maven.execution;
 
 import com.google.common.collect.ImmutableMap;
+import com.intellij.configurationStore.XmlSerializer;
 import com.intellij.openapi.options.ConfigurationException;
-import com.intellij.testFramework.IdeaTestCase;
-import com.intellij.util.xmlb.XmlSerializer;
+import com.intellij.testFramework.JavaProjectTestCase;
 import org.jdom.Element;
 import org.jetbrains.idea.maven.project.MavenGeneralSettings;
+import org.jetbrains.idea.maven.server.MavenServerManager;
 
 import java.util.Arrays;
 
-public class MavenRunConfigurationTest extends IdeaTestCase {
+public class MavenRunConfigurationTest extends JavaProjectTestCase {
+  @Override
+  protected void tearDown() throws Exception {
+    try {
+      MavenServerManager.getInstance().shutdown(true);
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      super.tearDown();
+    }
+  }
+
   public void testSaveLoadRunnerParameters() {
     MavenRunConfiguration.MavenSettings s = new MavenRunConfiguration.MavenSettings(myProject);
     s.myRunnerParameters.setWorkingDirPath("some path");
@@ -37,7 +51,7 @@ public class MavenRunConfigurationTest extends IdeaTestCase {
                                           .put("tomcat (local)", false)
                                           .put("tomcat (local) ", true).build());
 
-    s.myGeneralSettings = new MavenGeneralSettings();
+    s.myGeneralSettings = new MavenGeneralSettings(myProject);
     s.myGeneralSettings.setChecksumPolicy(MavenExecutionOptions.ChecksumPolicy.WARN);
     s.myGeneralSettings.setFailureBehavior(MavenExecutionOptions.FailureMode.AT_END);
     s.myGeneralSettings.setOutputLevel(MavenExecutionOptions.LoggingLevel.FATAL);

@@ -16,13 +16,13 @@
 package com.siyeh.ig.inheritance;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Bas Leijdekkers
  */
-public class ParameterTypePreventsOverridingInspectionTest extends LightInspectionTestCase {
+public class ParameterTypePreventsOverridingInspectionTest extends LightJavaInspectionTestCase {
 
   public void testSimple() {
     doTest("package c;" +
@@ -70,6 +70,22 @@ public class ParameterTypePreventsOverridingInspectionTest extends LightInspecti
            "import a.*;" +
            "class Y<T extends String> extends X {" +
            "  void m(T t) {}" +
+           "}");
+  }
+
+  public void testStaticmethod() {
+    doTest("import java.util.List;" +
+           "class ParameterTypePreventsOverridingFalsePositiveForStaticMethods {\n" +
+           "    public static class SuperClass {\n" +
+           "        public static <T> Object wrap( List<T> something ) {\n" +
+           "            return null;\n" +
+           "        }\n" +
+           "    }\n" +
+           "    public static class SubClass extends SuperClass {\n" +
+           "        public static <T> Object wrap( List<T> something ) {\n" +
+           "            return null;\n" +
+           "        }\n" +
+           "    }\n" +
            "}");
   }
 

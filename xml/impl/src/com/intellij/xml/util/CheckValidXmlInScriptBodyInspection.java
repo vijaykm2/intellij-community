@@ -14,15 +14,8 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: Maxim.Mossienko
- * Date: Jun 29, 2006
- * Time: 6:09:35 PM
- */
 package com.intellij.xml.util;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInspection.LocalQuickFixOnPsiElement;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
@@ -31,6 +24,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.xml.XmlBundle;
 import org.jetbrains.annotations.NotNull;
 
@@ -50,7 +44,7 @@ public class CheckValidXmlInScriptBodyInspection extends CheckValidXmlInScriptBo
   private static class InsertQuotedCharacterQuickFix extends LocalQuickFixOnPsiElement {
     private final int startInElement;
 
-    public InsertQuotedCharacterQuickFix(PsiElement psiElement, int startInElement) {
+    InsertQuotedCharacterQuickFix(PsiElement psiElement, int startInElement) {
       super(psiElement);
       this.startInElement = startInElement;
     }
@@ -60,24 +54,20 @@ public class CheckValidXmlInScriptBodyInspection extends CheckValidXmlInScriptBo
     public String getText() {
       final String character = getXmlCharacter();
 
-      return XmlBundle.message(
-        "unescaped.xml.character.fix.message",
-        character.equals("&") ?
-        XmlBundle.message("unescaped.xml.character.fix.message.parameter") :
-        character
-      );
+      return character.equals("&")
+             ? XmlBundle.message("xml.quickfix.unescaped.xml.character.ampersand")
+             : XmlBundle.message("xml.quickfix.unescaped.xml.character.text", character);
     }
 
     @Override
     @NotNull
     public String getFamilyName() {
-      return getName();
+      return XmlBundle.message("xml.quickfix.unescaped.xml.character.family");
     }
 
     @Override
     public void invoke(@NotNull Project project, @NotNull PsiFile file, @NotNull PsiElement startElement, @NotNull PsiElement endElement) {
       final PsiFile psiFile = startElement.getContainingFile();
-      if (!FileModificationService.getInstance().prepareFileForWrite(psiFile)) return;
       final TextRange range = startElement.getTextRange();
       OpenFileDescriptor descriptor = new OpenFileDescriptor(
         project,
@@ -90,9 +80,9 @@ public class CheckValidXmlInScriptBodyInspection extends CheckValidXmlInScriptBo
 
       final String xmlCharacter = getXmlCharacter();
       String replacement = xmlCharacter.equals("&") ? AMP_ENTITY_REFERENCE : LT_ENTITY_REFERENCE;
-      replacement = startElement.getText().replace(xmlCharacter,replacement);
+      replacement = startElement.getText().replace(xmlCharacter, replacement);
 
-      editor.getDocument().replaceString(
+      InjectedLanguageUtil.getTopLevelEditor(editor).getDocument().replaceString(
         range.getStartOffset(),
         range.getEndOffset(),
         replacement

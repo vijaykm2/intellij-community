@@ -1,40 +1,31 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.projectView;
 
-import com.intellij.ide.projectView.ViewSettings;
 import com.intellij.ide.projectView.impl.AbstractProjectTreeStructure;
 import com.intellij.ide.projectView.impl.ClassesTreeStructureProvider;
 import com.intellij.ide.projectView.impl.nodes.PackageElementNode;
 import com.intellij.ide.projectView.impl.nodes.PsiDirectoryNode;
-import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.ide.util.treeView.AbstractTreeStructure;
-import com.intellij.openapi.application.ex.PathManagerEx;
+import com.intellij.navigation.NavigationItem;
 import com.intellij.openapi.ui.Queryable;
-import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.ProjectViewTestUtil;
 import com.intellij.testFramework.TestSourceBasedTestCase;
-import com.intellij.util.Function;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.util.Arrays;
+import java.util.Comparator;
 
 public abstract class BaseProjectViewTestCase extends TestSourceBasedTestCase {
+  @Override
+  protected boolean isCreateDirectoryBasedProject() {
+    return true;
+  }
+
   protected TestProjectTreeStructure myStructure;
 
   protected Queryable.PrintInfo myPrintInfo;
@@ -43,7 +34,7 @@ public abstract class BaseProjectViewTestCase extends TestSourceBasedTestCase {
   protected void setUp() throws Exception {
     super.setUp();
 
-    myStructure = new TestProjectTreeStructure(myProject, myTestRootDisposable);
+    myStructure = new TestProjectTreeStructure(myProject, getTestRootDisposable());
   }
 
   @Override
@@ -68,25 +59,30 @@ public abstract class BaseProjectViewTestCase extends TestSourceBasedTestCase {
     return myStructure;
   }
 
-  private void assertStructureEqual(PsiDirectory root, String expected, int maxRowCount, AbstractTreeStructure structure) {
+  private void assertStructureEqual(PsiDirectory root, String expected, int maxRowCount, AbstractProjectTreeStructure structure) {
     assertNotNull(root);
-    PsiDirectoryNode rootNode = new PsiDirectoryNode(myProject, root, (ViewSettings)structure);
+    PsiDirectoryNode rootNode = new PsiDirectoryNode(myProject, root, structure);
+    assertStructureEqual(expected, maxRowCount, rootNode);
+  }
+
+  protected void assertStructureEqual(@NotNull String expected) {
+    assertStructureEqual(expected, -1, myStructure.getRootElement());
+  }
+
+  private void assertStructureEqual(String expected, int maxRowCount, Object rootNode) {
     ProjectViewTestUtil.assertStructureEqual(myStructure, expected, maxRowCount, PlatformTestUtil.createComparator(myPrintInfo), rootNode, myPrintInfo);
   }
 
-  protected static void assertListsEqual(ListModel model, String expected) {
+  protected static void assertListsEqual(ListModel<?> model, String expected) {
     assertEquals(expected, PlatformTestUtil.print(model));
   }
 
   public static void checkContainsMethod(final Object rootElement, final AbstractTreeStructure structure) {
-    ProjectViewTestUtil.checkContainsMethod(rootElement, structure, new Function<AbstractTreeNode, VirtualFile[]>() {
-      @Override
-      public VirtualFile[] fun(AbstractTreeNode kid) {
-        if (kid instanceof PackageElementNode) {
-          return ((PackageElementNode)kid).getVirtualFiles();
-        }
-        return null;
+    ProjectViewTestUtil.checkContainsMethod(rootElement, structure, kid -> {
+      if (kid instanceof PackageElementNode) {
+        return ((PackageElementNode)kid).getVirtualFiles();
       }
+      return null;
     });
   }
 
@@ -103,13 +99,7 @@ public abstract class BaseProjectViewTestCase extends TestSourceBasedTestCase {
     return getPackageDirectory(getPackageRelativePath());
   }
 
-  @Override
-  protected String getTestDataPath() {
-    return PathManagerEx.getTestDataPath(getClass());
-  }
-
-  @Override
-  protected boolean isRunInWriteAction() {
-    return false;
+  public static void sortClassesByName(PsiClass @NotNull [] classes) {
+    Arrays.sort(classes, Comparator.comparing(NavigationItem::getName));
   }
 }

@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine;
 
-import com.intellij.debugger.DebuggerBundle;
 import com.intellij.debugger.DebuggerContext;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
 import com.intellij.debugger.engine.evaluation.EvaluationContext;
@@ -24,7 +10,6 @@ import com.intellij.debugger.engine.evaluation.TextWithImports;
 import com.intellij.execution.ExecutionException;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.LanguageFileType;
@@ -33,14 +18,19 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.ClassUtil;
 import com.intellij.psi.util.InheritanceUtil;
+import com.intellij.psi.util.PsiTypesUtil;
+import com.intellij.util.CommonProcessors;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.StringBuilderSpinAllocator;
+import com.intellij.util.Processor;
+import com.intellij.util.containers.ContainerUtil;
 import com.sun.jdi.*;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
@@ -48,13 +38,14 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.function.Function;
 
 public abstract class DebuggerUtils {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.engine.DebuggerUtils");
-  private static final Key<Method> TO_STRING_METHOD_KEY = new Key<Method>("CachedToStringMethod");
-  public static final Set<String> ourPrimitiveTypeNames = new HashSet<String>(Arrays.asList(
-      "byte", "short", "int", "long", "float", "double", "boolean", "char"
-  ));
+  private static final Logger LOG = Logger.getInstance(DebuggerUtils.class);
+  private static final Key<Method> TO_STRING_METHOD_KEY = new Key<>("CachedToStringMethod");
+  public static final Set<String> ourPrimitiveTypeNames = ContainerUtil.set(
+    "byte", "short", "int", "long", "float", "double", "boolean", "char"
+  );
 
   public static void cleanupAfterProcessFinish(DebugProcess debugProcess) {
     debugProcess.putUserData(TO_STRING_METHOD_KEY, null);
@@ -67,37 +58,31 @@ public abstract class DebuggerUtils {
         return "null";
       }
       if (value instanceof StringReference) {
+        ensureNotInsideObjectConstructor((ObjectReference)value, evaluationContext);
         return ((StringReference)value).value();
       }
       if (isInteger(value)) {
-        long v = ((PrimitiveValue)value).longValue();
-        return String.valueOf(v);
+        return String.valueOf(((PrimitiveValue)value).longValue());
       }
-      if (isNumeric(value)) {
-        double v = ((PrimitiveValue)value).doubleValue();
-        return String.valueOf(v);
+      if (value instanceof FloatValue) {
+        return String.valueOf(((FloatValue)value).floatValue());
+      }
+      if (value instanceof DoubleValue) {
+        return String.valueOf(((DoubleValue)value).doubleValue());
       }
       if (value instanceof BooleanValue) {
-        boolean v = ((PrimitiveValue)value).booleanValue();
-        return String.valueOf(v);
+        return String.valueOf(((PrimitiveValue)value).booleanValue());
       }
       if (value instanceof CharValue) {
-        char v = ((PrimitiveValue)value).charValue();
-        return String.valueOf(v);
+        return String.valueOf(((PrimitiveValue)value).charValue());
       }
       if (value instanceof ObjectReference) {
         if (value instanceof ArrayReference) {
-          final StringBuilder builder = new StringBuilder();
-          builder.append("[");
-          for (Iterator<Value> iterator = ((ArrayReference)value).getValues().iterator(); iterator.hasNext();) {
-            final Value element = iterator.next();
-            builder.append(getValueAsString(evaluationContext, element));
-            if (iterator.hasNext()) {
-              builder.append(",");
-            }
+          final StringJoiner joiner = new StringJoiner(",", "[", "]");
+          for (final Value element : ((ArrayReference)value).getValues()) {
+            joiner.add(getValueAsString(evaluationContext, element));
           }
-          builder.append("]");
-          return builder.toString();
+          return joiner.toString();
         }
 
         final ObjectReference objRef = (ObjectReference)value;
@@ -105,32 +90,65 @@ public abstract class DebuggerUtils {
         Method toStringMethod = debugProcess.getUserData(TO_STRING_METHOD_KEY);
         if (toStringMethod == null) {
           try {
-            ReferenceType refType = objRef.virtualMachine().classesByName(CommonClassNames.JAVA_LANG_OBJECT).get(0);
+            ReferenceType refType = getObjectClassType(objRef.virtualMachine());
             toStringMethod = findMethod(refType, "toString", "()Ljava/lang/String;");
             debugProcess.putUserData(TO_STRING_METHOD_KEY, toStringMethod);
           }
           catch (Exception ignored) {
             throw EvaluateExceptionUtil.createEvaluateException(
-              DebuggerBundle.message("evaluation.error.cannot.evaluate.tostring", objRef.referenceType().name()));
+              JavaDebuggerBundle.message("evaluation.error.cannot.evaluate.tostring", objRef.referenceType().name()));
           }
         }
         if (toStringMethod == null) {
-          throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.cannot.evaluate.tostring", objRef.referenceType().name()));
+          throw EvaluateExceptionUtil.createEvaluateException(
+            JavaDebuggerBundle.message("evaluation.error.cannot.evaluate.tostring", objRef.referenceType().name()));
         }
-        // while result must be of com.sun.jdi.StringReference type, it turns out that sometimes (jvm bugs?)
-        // it is a plain com.sun.tools.jdi.ObjectReferenceImpl
-        final Value result = debugProcess.invokeInstanceMethod(evaluationContext, objRef, toStringMethod, Collections.emptyList(), 0);
-        if (result == null) {
-          return "null";
-        }
-        return result instanceof StringReference ? ((StringReference)result).value() : result.toString();
+        Method finalToStringMethod = toStringMethod;
+        return processCollectibleValue(
+          () -> debugProcess.invokeInstanceMethod(evaluationContext, objRef, finalToStringMethod, Collections.emptyList(), 0),
+          result -> {
+            // while result must be of com.sun.jdi.StringReference type, it turns out that sometimes (jvm bugs?)
+            // it is a plain com.sun.tools.jdi.ObjectReferenceImpl
+            if (result == null) {
+              return "null";
+            }
+            return result instanceof StringReference ? ((StringReference)result).value() : result.toString();
+          }
+        );
       }
-      throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.unsupported.expression.type"));
+      throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.unsupported.expression.type"));
     }
     catch (ObjectCollectedException ignored) {
       throw EvaluateExceptionUtil.OBJECT_WAS_COLLECTED;
     }
   }
+
+  public static <R, T extends Value> R processCollectibleValue(
+    @NotNull ThrowableComputable<? extends T, ? extends EvaluateException> valueComputable,
+    @NotNull Function<? super T, ? extends R> processor) throws EvaluateException {
+    int retries = 10;
+    while (true) {
+      T result = valueComputable.compute();
+      try {
+        return processor.apply(result);
+      }
+      catch (ObjectCollectedException oce) {
+        if (--retries < 0) {
+          throw oce;
+        }
+      }
+    }
+  }
+
+  public static void ensureNotInsideObjectConstructor(@NotNull ObjectReference reference, @NotNull EvaluationContext context)
+    throws EvaluateException {
+    Location location = getInstance().getLocation(context.getSuspendContext());
+    if (location != null && location.method().isConstructor() && reference.equals(context.computeThisObject())) {
+      throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.object.is.being.initialized"));
+    }
+  }
+
+  protected abstract Location getLocation(SuspendContext context);
 
   public static final int MAX_DISPLAY_LABEL_LENGTH = 1024 * 5;
 
@@ -148,37 +166,69 @@ public abstract class DebuggerUtils {
   }
 
   @Nullable
-  public static Method findMethod(ReferenceType refType, @NonNls String methodName, @NonNls String methodSignature) {
+  public static Method findMethod(@NotNull ReferenceType refType, @NonNls String methodName, @Nullable @NonNls String methodSignature) {
     if (refType instanceof ArrayType) {
       // for array types methodByName() in JDI always returns empty list
-      final Method method = findMethod(refType.virtualMachine().classesByName(CommonClassNames.JAVA_LANG_OBJECT).get(0), methodName, methodSignature);
+      Method method = findMethod(getObjectClassType(refType.virtualMachine()), methodName, methodSignature);
       if (method != null) {
         return method;
+      }
+      // for arrays, clone signature may return array of objects, there is no such method in Object class
+      if ("clone".equals(methodName) && "()[Ljava/lang/Object;".equals(methodSignature)) {
+        method = findMethod(getObjectClassType(refType.virtualMachine()), "clone", null);
+        if (method != null) {
+          return method;
+        }
       }
     }
 
     Method method = null;
-    if (methodSignature != null) {
-      if (refType instanceof ClassType) {
-        method = ((ClassType)refType).concreteMethodByName(methodName, methodSignature);
-      }
-      if (method == null) {
-        final List<Method> methods = refType.methodsByName(methodName, methodSignature);
-        if (methods.size() > 0) {
-          method = methods.get(0);
-        }
-      }
+    // speedup the search by not gathering all methods through the class hierarchy
+    if (refType instanceof ClassType) {
+      method = concreteMethodByName((ClassType)refType, methodName, methodSignature);
     }
-    else {
-      List<Method> methods = null;
-      if (refType instanceof ClassType) {
-        methods = refType.methodsByName(methodName);
-      }
-      if (methods != null && methods.size() > 0) {
-        method = methods.get(0);
-      }
+    if (method == null) {
+      method = ContainerUtil.getFirstItem(
+        methodSignature != null ? refType.methodsByName(methodName, methodSignature) : refType.methodsByName(methodName));
     }
     return method;
+  }
+
+  /**
+   * Optimized version of {@link ClassType#concreteMethodByName(String, String)}.
+   * It does not gather all visible methods before checking so can return early
+   */
+  @Nullable
+  private static Method concreteMethodByName(@NotNull ClassType type, @NotNull String name, @Nullable String signature)  {
+    Processor<Method> signatureChecker = signature != null ? m -> m.signature().equals(signature) : CommonProcessors.alwaysTrue();
+    LinkedList<ReferenceType> types = new LinkedList<>();
+    // first check classes
+    while (type != null) {
+      for (Method candidate : type.methods()) {
+        if (candidate.name().equals(name) && signatureChecker.process(candidate)) {
+          return !candidate.isAbstract() ? candidate : null;
+        }
+      }
+      types.add(type);
+      type = type.superclass();
+    }
+    // then interfaces
+    Set<ReferenceType> checkedInterfaces = new HashSet<>();
+    ReferenceType t;
+    while ((t = types.poll()) != null) {
+      if (t instanceof ClassType) {
+        types.addAll(0, ((ClassType)t).interfaces());
+      }
+      else if (t instanceof InterfaceType && checkedInterfaces.add(t)) {
+        for (Method candidate : t.methods()) {
+          if (candidate.name().equals(name) && signatureChecker.process(candidate) && !candidate.isAbstract()) {
+            return candidate;
+          }
+        }
+        types.addAll(0, ((InterfaceType)t).superinterfaces());
+      }
+    }
+    return null;
   }
 
   public static boolean isNumeric(Value value) {
@@ -190,27 +240,18 @@ public abstract class DebuggerUtils {
   }
 
   public static boolean isInteger(Value value) {
-    return value != null &&
-           (value instanceof ByteValue ||
+    return (value instanceof ByteValue ||
             value instanceof ShortValue ||
             value instanceof LongValue ||
             value instanceof IntegerValue
-           );
+    );
   }
 
   public static String translateStringValue(final String str) {
     int length = str.length();
-    final StringBuilder buffer = StringBuilderSpinAllocator.alloc();
-    try {
-      StringUtil.escapeStringCharacters(length, str, buffer);
-      if (str.length() > length) {
-        buffer.append("...");
-      }
-      return buffer.toString();
-    }
-    finally {
-      StringBuilderSpinAllocator.dispose(buffer);
-    }
+    final StringBuilder buffer = new StringBuilder();
+    StringUtil.escapeStringCharacters(length, str, buffer);
+    return buffer.toString();
   }
 
   @Nullable
@@ -265,43 +306,65 @@ public abstract class DebuggerUtils {
     return false;
   }
 
-  public static Type getSuperType(Type subType, String superType) {
-    if(CommonClassNames.JAVA_LANG_OBJECT.equals(superType)) {
-      List list = subType.virtualMachine().classesByName(CommonClassNames.JAVA_LANG_OBJECT);
-      if(list.size() > 0) {
-        return (ReferenceType)list.get(0);
-      }
+  public static boolean instanceOf(@Nullable Type subType, @NotNull String superType) {
+    if (subType == null || subType instanceof VoidType) {
+      return false;
+    }
+
+    if (subType instanceof PrimitiveType) {
+      return superType.equals(subType.name());
+    }
+
+    if (CommonClassNames.JAVA_LANG_OBJECT.equals(superType)) {
+      return true;
+    }
+
+    return getSuperTypeInt(subType, superType) != null;
+  }
+
+  @Nullable
+  public static Type getSuperType(@Nullable Type subType, @NotNull String superType) {
+    if (subType == null || subType instanceof PrimitiveType || subType instanceof VoidType) {
       return null;
+    }
+
+    if (CommonClassNames.JAVA_LANG_OBJECT.equals(superType)) {
+      return getObjectClassType(subType.virtualMachine());
     }
 
     return getSuperTypeInt(subType, superType);
   }
 
-  private static boolean typeEquals(Type type, String typeName) {
+  private static ReferenceType getObjectClassType(VirtualMachine virtualMachine) {
+    return ContainerUtil.getFirstItem(virtualMachine.classesByName(CommonClassNames.JAVA_LANG_OBJECT));
+  }
+
+  private static boolean typeEquals(@NotNull Type type, @NotNull String typeName) {
+    int genericPos = typeName.indexOf('<');
+    if (genericPos > -1) {
+      typeName = typeName.substring(0, genericPos);
+    }
     return type.name().replace('$', '.').equals(typeName.replace('$', '.'));
   }
 
-  private static Type getSuperTypeInt(Type subType, String superType) {
-    Type result;
-    if (subType == null) {
-      return null;
-    }
-
+  private static Type getSuperTypeInt(@NotNull Type subType, @NotNull String superType) {
     if (typeEquals(subType, superType)) {
       return subType;
     }
 
+    Type result;
     if (subType instanceof ClassType) {
       try {
-        final ClassType clsType = (ClassType)subType;
+        ClassType clsType = (ClassType)subType;
         result = getSuperType(clsType.superclass(), superType);
         if (result != null) {
           return result;
         }
 
-        for (InterfaceType iface : clsType.allInterfaces()) {
-          if (typeEquals(iface, superType)) {
-            return iface;
+        for (InterfaceType iface : clsType.interfaces()) {
+          result = getSuperType(iface, superType);
+          if (result != null) {
+            return result;
           }
         }
       }
@@ -336,46 +399,41 @@ public abstract class DebuggerUtils {
         }
       }
     }
-    else if (subType instanceof PrimitiveType) {
-      //noinspection HardCodedStringLiteral
-      if(superType.equals("java.lang.Primitive")) {
-        return subType;
-      }
-    }
 
-    //only for interfaces and arrays
-    if(CommonClassNames.JAVA_LANG_OBJECT.equals(superType)) {
-      List list = subType.virtualMachine().classesByName(CommonClassNames.JAVA_LANG_OBJECT);
-      if(list.size() > 0) {
-        return (ReferenceType)list.get(0);
-      }
-    }
     return null;
   }
 
-  public static boolean instanceOf(Type subType, String superType) {
-    return getSuperType(subType, superType) != null;
+  // workaround to get an array class of needed language version for correct HL in array renderers expression
+  protected abstract PsiClass createArrayClass(Project project, LanguageLevel level);
+
+  @Nullable
+  public static PsiClass findClass(@NotNull String className, @NotNull Project project, @NotNull GlobalSearchScope scope) {
+    return findClass(className, project, scope, true);
   }
 
   @Nullable
-  public static PsiClass findClass(@NotNull final String className, @NotNull Project project, final GlobalSearchScope scope) {
+  public static PsiClass findClass(@NotNull String className,
+                                   @NotNull Project project,
+                                   @NotNull GlobalSearchScope scope,
+                                   boolean fallbackToAllScope) {
     ApplicationManager.getApplication().assertReadAccessAllowed();
     try {
-      final PsiManager psiManager = PsiManager.getInstance(project);
-      final JavaPsiFacade javaPsiFacade = JavaPsiFacade.getInstance(psiManager.getProject());
       if (getArrayClass(className) != null) {
-        return javaPsiFacade.getElementFactory()
-          .getArrayClass(LanguageLevelProjectExtension.getInstance(psiManager.getProject()).getLanguageLevel());
+        return getInstance().createArrayClass(project, LanguageLevelProjectExtension.getInstance(project).getLanguageLevel());
       }
       if (project.isDefault()) {
         return null;
       }
 
-      PsiClass psiClass = ClassUtil.findPsiClass(PsiManager.getInstance(project), className, null, true, scope);
-      if (psiClass == null) {
+      // remove generics if any
+      className = StringUtil.notNullize(StringUtil.substringBefore(className, "<"), className);
+
+      PsiManager psiManager = PsiManager.getInstance(project);
+      PsiClass psiClass = ClassUtil.findPsiClass(psiManager, className, null, true, scope);
+      if (psiClass == null && fallbackToAllScope) {
         GlobalSearchScope globalScope = GlobalSearchScope.allScope(project);
         if (!globalScope.equals(scope)) {
-          psiClass = ClassUtil.findPsiClass(PsiManager.getInstance(project), className, null, true, globalScope);
+          psiClass = ClassUtil.findPsiClass(psiManager, className, null, true, globalScope);
         }
       }
 
@@ -390,22 +448,19 @@ public abstract class DebuggerUtils {
   public static PsiType getType(@NotNull String className, @NotNull Project project) {
     ApplicationManager.getApplication().assertReadAccessAllowed();
 
-    final PsiManager psiManager = PsiManager.getInstance(project);
     try {
       if (getArrayClass(className) != null) {
-        return JavaPsiFacade.getInstance(psiManager.getProject()).getElementFactory().createTypeFromText(className, null);
+        return JavaPsiFacade.getElementFactory(project).createTypeFromText(className, null);
       }
-      if(project.isDefault()) {
+      if (project.isDefault()) {
         return null;
       }
-      final PsiClass aClass =
-        JavaPsiFacade.getInstance(psiManager.getProject()).findClass(className.replace('$', '.'), GlobalSearchScope.allScope(project));
+      PsiClass aClass = findClass(className, project, GlobalSearchScope.allScope(project));
       if (aClass != null) {
-        return JavaPsiFacade.getInstance(psiManager.getProject()).getElementFactory().createType(aClass);
+        return PsiTypesUtil.getClassType(aClass);
       }
     }
-    catch (IncorrectOperationException e) {
-      LOG.error(e);
+    catch (IncorrectOperationException ignored) {
     }
     return null;
   }
@@ -413,27 +468,31 @@ public abstract class DebuggerUtils {
   public static void checkSyntax(PsiCodeFragment codeFragment) throws EvaluateException {
     PsiElement[] children = codeFragment.getChildren();
 
-    if(children.length == 0) throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.empty.code.fragment"));
+    if(children.length == 0) throw EvaluateExceptionUtil.createEvaluateException(
+      JavaDebuggerBundle.message("evaluation.error.empty.code.fragment"));
     for (PsiElement child : children) {
       if (child instanceof PsiErrorElement) {
-        throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.invalid.expression", child.getText()));
+        throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.invalid.expression", child.getText()));
       }
     }
   }
 
-  public static boolean hasSideEffects(PsiElement element) {
+  public static boolean hasSideEffects(@Nullable PsiElement element) {
     return hasSideEffectsOrReferencesMissingVars(element, null);
   }
-  
-  public static boolean hasSideEffectsOrReferencesMissingVars(PsiElement element, @Nullable final Set<String> visibleLocalVariables) {
-    final Ref<Boolean> rv = new Ref<Boolean>(Boolean.FALSE);
+
+  public static boolean hasSideEffectsOrReferencesMissingVars(@Nullable PsiElement element, @Nullable final Set<String> visibleLocalVariables) {
+    if (element == null) {
+      return false;
+    }
+    final Ref<Boolean> rv = new Ref<>(Boolean.FALSE);
     element.accept(new JavaRecursiveElementWalkingVisitor() {
-      @Override 
+      @Override
       public void visitPostfixExpression(final PsiPostfixExpression expression) {
         rv.set(Boolean.TRUE);
       }
 
-      @Override 
+      @Override
       public void visitReferenceExpression(final PsiReferenceExpression expression) {
         final PsiElement psiElement = expression.resolve();
         if (psiElement instanceof PsiLocalVariable) {
@@ -455,7 +514,7 @@ public abstract class DebuggerUtils {
         }
       }
 
-      @Override 
+      @Override
       public void visitPrefixExpression(final PsiPrefixExpression expression) {
         final IElementType op = expression.getOperationTokenType();
         if (JavaTokenType.PLUSPLUS.equals(op) || JavaTokenType.MINUSMINUS.equals(op)) {
@@ -466,12 +525,12 @@ public abstract class DebuggerUtils {
         }
       }
 
-      @Override 
+      @Override
       public void visitAssignmentExpression(final PsiAssignmentExpression expression) {
         rv.set(Boolean.TRUE);
       }
 
-      @Override 
+      @Override
       public void visitCallExpression(final PsiCallExpression callExpression) {
         rv.set(Boolean.TRUE);
         //final PsiMethod method = callExpression.resolveMethod();
@@ -488,21 +547,16 @@ public abstract class DebuggerUtils {
 
   public abstract String findAvailableDebugAddress(boolean useSockets) throws ExecutionException;
 
-  public static boolean isSynthetic(TypeComponent typeComponent) {
+  public static boolean isSynthetic(@Nullable TypeComponent typeComponent) {
     if (typeComponent == null) {
       return false;
     }
-    for (SyntheticTypeComponentProvider provider : SyntheticTypeComponentProvider.EP_NAME.getExtensions()) {
-      if (provider.isSynthetic(typeComponent)) return true;
-    }
-    return false;
+    return SyntheticTypeComponentProvider.EP_NAME.extensions().noneMatch(provider -> provider.isNotSynthetic(typeComponent)) &&
+           SyntheticTypeComponentProvider.EP_NAME.extensions().anyMatch(provider -> provider.isSynthetic(typeComponent));
   }
 
-  public static boolean isSimpleGetter(PsiMethod method) {
-    for (SimpleGetterProvider provider : SimpleGetterProvider.EP_NAME.getExtensions()) {
-      if (provider.isSimpleGetter(method)) return true;
-    }
-    return false;
+  public static boolean isInsideSimpleGetter(@NotNull PsiElement contextElement) {
+    return SimplePropertyGetterProvider.EP_NAME.extensions().anyMatch(provider -> provider.isInsideSimpleGetter(contextElement));
   }
 
   public static boolean isPrimitiveType(final String typeName) {
@@ -520,7 +574,7 @@ public abstract class DebuggerUtils {
   }
 
   public static DebuggerUtils getInstance() {
-    return ServiceManager.getService(DebuggerUtils.class);
+    return ApplicationManager.getApplication().getService(DebuggerUtils.class);
   }
 
   public abstract PsiExpression substituteThis(PsiExpression expressionWithThis, PsiExpression howToEvaluateThis, Value howToEvaluateThisValue, StackFrameContext context) throws EvaluateException;
@@ -539,30 +593,17 @@ public abstract class DebuggerUtils {
 
   public abstract PsiClass chooseClassDialog(String title, Project project);
 
-  /**
-   * IDEA-122113
-   * Will be removed when Java debugger will be moved to XDebugger API
-   */
-  public static boolean isDebugActionAware(@NotNull PsiFile file) {
-    return isDebugAware(file, false);
-  }
-
   public static boolean isBreakpointAware(@NotNull PsiFile file) {
-    return isDebugAware(file, true);
-  }
-
-  private static boolean isDebugAware(@NotNull PsiFile file, boolean breakpointAware) {
     FileType fileType = file.getFileType();
     //noinspection deprecation
     if (fileType instanceof LanguageFileType && ((LanguageFileType)fileType).isJVMDebuggingSupported()) {
       return true;
     }
 
-    for (JavaDebugAware provider : JavaDebugAware.EP_NAME.getExtensions()) {
-      if (breakpointAware ? provider.isBreakpointAware(file) : provider.isActionAware(file)) {
-        return true;
-      }
-    }
-    return false;
+    return JavaDebugAware.EP_NAME.extensions().anyMatch(provider -> provider.isBreakpointAware(file));
+  }
+
+  public static boolean isAndroidVM(@NotNull VirtualMachine virtualMachine) {
+    return StringUtil.containsIgnoreCase(virtualMachine.name(), "dalvik");
   }
 }

@@ -21,12 +21,10 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiReference;
-import com.intellij.psi.impl.source.tree.TreeElement;
 import com.intellij.psi.meta.PsiMetaData;
 import com.intellij.psi.meta.PsiMetaOwner;
 import com.intellij.psi.xml.XmlElement;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlExtension;
@@ -35,7 +33,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class TagNameReference implements PsiReference {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.xml.TagNameReference");
+  private static final Logger LOG = Logger.getInstance(TagNameReference.class);
 
   protected final boolean myStartTagFlag;
   private final ASTNode myNameElement;
@@ -45,6 +43,7 @@ public class TagNameReference implements PsiReference {
     myNameElement = nameElement;
   }
 
+  @NotNull
   @Override
   public PsiElement getElement() {
     PsiElement element = myNameElement.getPsi();
@@ -59,6 +58,7 @@ public class TagNameReference implements PsiReference {
     return (XmlTag)element;
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     final ASTNode nameElement = getNameElement();
@@ -66,9 +66,9 @@ public class TagNameReference implements PsiReference {
       return TextRange.EMPTY_RANGE;
     }
 
-    int colon = nameElement.getText().indexOf(':') + 1;
+    int colon = getPrefixIndex(nameElement.getText()) + 1;
     if (myStartTagFlag) {
-      final int parentOffset = ((TreeElement)nameElement).getStartOffsetInParent();
+      final int parentOffset = nameElement.getStartOffsetInParent();
       return new TextRange(parentOffset + colon, parentOffset + nameElement.getTextLength());
     }
     else {
@@ -87,6 +87,10 @@ public class TagNameReference implements PsiReference {
     }
   }
 
+  protected int getPrefixIndex(@NotNull String name) {
+    return name.indexOf(":");
+  }
+  
   public ASTNode getNameElement() {
     return myNameElement;
   }
@@ -117,11 +121,11 @@ public class TagNameReference implements PsiReference {
 
   @Override
   @Nullable
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     final XmlTag element = getTagElement();
     if (element == null || !myStartTagFlag) return element;
 
-    if (newElementName.indexOf(':') == -1) {
+    if (getPrefixIndex(newElementName) == -1) {
       final String namespacePrefix = element.getNamespacePrefix();
       final int index = newElementName.lastIndexOf('.');
 
@@ -138,7 +142,7 @@ public class TagNameReference implements PsiReference {
     return element;
   }
 
-  private static String prependNamespacePrefix(String newElementName, String namespacePrefix) {
+  protected String prependNamespacePrefix(String newElementName, String namespacePrefix) {
     newElementName = (!namespacePrefix.isEmpty() ? namespacePrefix + ":":namespacePrefix) + newElementName;
     return newElementName;
   }
@@ -171,14 +175,8 @@ public class TagNameReference implements PsiReference {
   }
 
   @Override
-  public boolean isReferenceTo(PsiElement element) {
+  public boolean isReferenceTo(@NotNull PsiElement element) {
     return getElement().getManager().areElementsEquivalent(element, resolve());
-  }
-
-  @Override
-  @NotNull
-  public Object[] getVariants(){
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
   }
 
   @Override

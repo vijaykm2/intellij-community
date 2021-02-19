@@ -16,11 +16,11 @@
 package org.intellij.lang.regexp.psi;
 
 import com.intellij.psi.PsiElementVisitor;
-import org.intellij.lang.regexp.psi.impl.RegExpOptionsImpl;
 
 public class RegExpElementVisitor extends PsiElementVisitor {
 
     public void visitRegExpElement(RegExpElement element) {
+        visitElement(element);
     }
 
     public void visitRegExpChar(RegExpChar ch) {
@@ -35,20 +35,24 @@ public class RegExpElementVisitor extends PsiElementVisitor {
         visitRegExpElement(simpleClass);
     }
 
-    public void visitRegExpClass(RegExpClass expClass) {
-        visitRegExpElement(expClass);
+    public void visitRegExpClass(RegExpClass regExpClass) {
+        visitRegExpElement(regExpClass);
     }
 
     public void visitRegExpGroup(RegExpGroup group) {
         visitRegExpElement(group);
     }
 
-    public void visitRegExpOptions(RegExpOptionsImpl options) {
+    public void visitRegExpOptions(RegExpOptions options) {
         visitRegExpElement(options);
     }
 
     public void visitRegExpProperty(RegExpProperty property) {
         visitRegExpElement(property);
+    }
+
+    public void visitRegExpNamedCharacter(RegExpNamedCharacter namedCharacter) {
+        visitRegExpChar(namedCharacter);
     }
 
     public void visitRegExpBranch(RegExpBranch branch) {
@@ -87,11 +91,15 @@ public class RegExpElementVisitor extends PsiElementVisitor {
         visitRegExpElement(groupRef);
     }
 
-    public void visitRegExpPyCondRef(RegExpPyCondRef condRef) {
-        visitRegExpElement(condRef);
+    public void visitRegExpConditional(RegExpConditional conditional) {
+        visitRegExpElement(conditional);
     }
 
     public void visitPosixBracketExpression(RegExpPosixBracketExpression posixBracketExpression) {
         visitRegExpElement(posixBracketExpression);
+    }
+
+    public void visitRegExpNumber(RegExpNumber number) {
+        visitRegExpElement(number);
     }
 }

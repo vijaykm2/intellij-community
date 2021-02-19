@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,20 +15,21 @@
  */
 package com.intellij.codeInsight.hint.api.impls;
 
-import com.intellij.codeInsight.CodeInsightBundle;
-import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
-import com.intellij.codeInsight.lookup.LookupElement;
-import com.intellij.codeInsight.lookup.MutableLookupElement;
-import com.intellij.lang.parameterInfo.*;
+import com.intellij.lang.parameterInfo.CreateParameterInfoContext;
+import com.intellij.lang.parameterInfo.ParameterInfoHandler;
+import com.intellij.lang.parameterInfo.ParameterInfoUIContext;
+import com.intellij.lang.parameterInfo.UpdateParameterInfoContext;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.meta.PsiMetaData;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.psi.xml.XmlToken;
 import com.intellij.psi.xml.XmlTokenType;
 import com.intellij.util.Function;
 import com.intellij.xml.XmlAttributeDescriptor;
+import com.intellij.xml.XmlBundle;
 import com.intellij.xml.XmlElementDescriptor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -40,25 +41,7 @@ import java.util.Comparator;
  * @author Maxim.Mossienko
  */
 public class XmlParameterInfoHandler implements ParameterInfoHandler<XmlTag,XmlElementDescriptor> {
-  private static final Comparator<XmlAttributeDescriptor> COMPARATOR = new Comparator<XmlAttributeDescriptor>() {
-    @Override
-    public int compare(final XmlAttributeDescriptor o1, final XmlAttributeDescriptor o2) {
-      return o1.getName().compareTo(o2.getName());
-    }
-  };
-
-  @Override
-  public Object[] getParametersForLookup(LookupElement item, ParameterInfoContext context) {
-    if (!(item instanceof MutableLookupElement)) return null;
-    final Object lookupItem = item.getObject();
-    if (lookupItem instanceof XmlElementDescriptor) return new Object[]{lookupItem};
-    return null;
-  }
-
-  @Override
-  public Object[] getParametersForDocumentation(final XmlElementDescriptor p, final ParameterInfoContext context) {
-    return getSortedDescriptors(p);
-  }
+  private static final Comparator<XmlAttributeDescriptor> COMPARATOR = Comparator.comparing(PsiMetaData::getName);
 
   public static XmlAttributeDescriptor[] getSortedDescriptors(final XmlElementDescriptor p) {
     final XmlAttributeDescriptor[] xmlAttributeDescriptors = p.getAttributesDescriptors(null);
@@ -67,17 +50,11 @@ public class XmlParameterInfoHandler implements ParameterInfoHandler<XmlTag,XmlE
   }
 
   @Override
-  public boolean couldShowInLookup() {
-    return true;
-  }
-
-  @Override
   public XmlTag findElementForParameterInfo(@NotNull final CreateParameterInfoContext context) {
     final XmlTag tag = findXmlTag(context.getFile(), context.getOffset());
     final XmlElementDescriptor descriptor = tag != null ? tag.getDescriptor() : null;
 
     if (descriptor == null) {
-      DaemonCodeAnalyzer.getInstance(context.getProject()).updateVisibleHighlighters(context.getEditor());
       return null;
     }
 
@@ -103,21 +80,7 @@ public class XmlParameterInfoHandler implements ParameterInfoHandler<XmlTag,XmlE
 
   @Override
   public void updateParameterInfo(@NotNull final XmlTag parameterOwner, @NotNull final UpdateParameterInfoContext context) {
-    if (context.getParameterOwner() == null || parameterOwner.equals(context.getParameterOwner())) {
-      context.setParameterOwner(parameterOwner);
-    } else {
-      context.removeHint();
-    }
-  }
-
-  @Override
-  public String getParameterCloseChars() {
-    return null;
-  }
-
-  @Override
-  public boolean tracksParameterIndex() {
-    return false;
+    context.setParameterOwner(parameterOwner);
   }
 
   @Nullable
@@ -157,21 +120,12 @@ public class XmlParameterInfoHandler implements ParameterInfoHandler<XmlTag,XmlE
 
   @Override
   public void updateUI(XmlElementDescriptor o, @NotNull final ParameterInfoUIContext context) {
-    updateElementDescriptor(
-      o,
-      context,
-      new Function<String, Boolean>() {
-        final XmlTag parameterOwner  = (XmlTag)context.getParameterOwner();
-
-        @Override
-        public Boolean fun(String s) {
-          return parameterOwner != null && parameterOwner.getAttributeValue(s) != null;
-        }
-      });
+    XmlTag parameterOwner  = (XmlTag)context.getParameterOwner();
+    updateElementDescriptor(o, context, s -> parameterOwner != null && parameterOwner.getAttributeValue(s) != null);
   }
 
   public static void updateElementDescriptor(XmlElementDescriptor descriptor, ParameterInfoUIContext context,
-                                             Function<String, Boolean> attributePresentFun) {
+                                             Function<? super String, Boolean> attributePresentFun) {
     final XmlAttributeDescriptor[] attributes = descriptor != null ? getSortedDescriptors(descriptor) : XmlAttributeDescriptor.EMPTY;
 
     StringBuilder buffer = new StringBuilder();
@@ -179,7 +133,7 @@ public class XmlParameterInfoHandler implements ParameterInfoHandler<XmlTag,XmlE
     int highlightEndOffset = -1;
 
     if (attributes.length == 0) {
-      buffer.append(CodeInsightBundle.message("xml.tag.info.no.attributes"));
+      buffer.append(XmlBundle.message("xml.tag.info.no.attributes"));
     }
     else {
       StringBuilder text1 = new StringBuilder(" ");

@@ -1,13 +1,11 @@
-/*
- * User: anna
- * Date: 27-Aug-2009
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.typeMigration;
 
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.impl.quickfix.VariableTypeFix;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.quickfix.ChangeVariableTypeQuickFixProvider;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.undo.UndoUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
@@ -23,44 +21,58 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class TypeMigrationVariableTypeFixProvider implements ChangeVariableTypeQuickFixProvider {
-  private static final Logger LOG1 = Logger.getInstance("#" + TypeMigrationVariableTypeFixProvider.class.getName());
+  private static final Logger LOG1 = Logger.getInstance(TypeMigrationVariableTypeFixProvider.class);
+
+  @Override
+  public IntentionAction @NotNull [] getFixes(@NotNull PsiVariable variable, @NotNull PsiType toReturn) {
+    return new IntentionAction[]{createTypeMigrationFix(variable, toReturn)};
+  }
 
   @NotNull
-  public IntentionAction[] getFixes(@NotNull PsiVariable variable, @NotNull PsiType toReturn) {
-    return new IntentionAction[]{new VariableTypeFix(variable, toReturn) {
+  public static VariableTypeFix createTypeMigrationFix(@NotNull final PsiVariable variable,
+                                                       @NotNull final PsiType toReturn) {
+    return createTypeMigrationFix(variable, toReturn, false);
+  }
+
+  @NotNull
+  public static VariableTypeFix createTypeMigrationFix(@NotNull final PsiVariable variable,
+                                                       @NotNull final PsiType toReturn,
+                                                       final boolean optimizeImports) {
+    return new VariableTypeFix(variable, toReturn) {
       @NotNull
       @Override
       public String getText() {
-        return "Migrate \'" + myName + "\' type to \'" + getReturnType().getCanonicalText() + "\'";
+        return TypeMigrationBundle.message("migrate.fix.text", myName, getReturnType().getPresentableText());
       }
 
       @Override
       public void invoke(@NotNull Project project,
                          @NotNull PsiFile file,
-                         @Nullable("is null when called from inspection") Editor editor,
+                         @Nullable Editor editor,
                          @NotNull PsiElement startElement,
                          @NotNull PsiElement endElement) {
-        final PsiVariable myVariable = (PsiVariable)startElement;
-
-        if (!FileModificationService.getInstance().prepareFileForWrite(myVariable.getContainingFile())) return;
-        try {
-          myVariable.normalizeDeclaration();
-          final TypeMigrationRules rules = new TypeMigrationRules(TypeMigrationLabeler.getElementType(myVariable));
-          rules.setMigrationRootType(getReturnType());
-          rules.setBoundScope(GlobalSearchScope.projectScope(project));
-          TypeMigrationProcessor.runHighlightingTypeMigration(project, editor, rules, myVariable);
-          JavaCodeStyleManager.getInstance(project).shortenClassReferences(myVariable);
-          UndoUtil.markPsiFileForUndo(file);
-        }
-        catch (IncorrectOperationException e) {
-          LOG1.error(e);
-        }
+        runTypeMigrationOnVariable((PsiVariable)startElement, getReturnType(), editor, optimizeImports, true);
       }
+    };
+  }
 
-      @Override
-      public boolean startInWriteAction() {
-        return true;
-      }
-    }};
+  public static void runTypeMigrationOnVariable(@NotNull PsiVariable variable,
+                                                @NotNull PsiType targetType,
+                                                @Nullable Editor editor,
+                                                boolean optimizeImports,
+                                                boolean allowDependentRoots) {
+    Project project = variable.getProject();
+    if (!FileModificationService.getInstance().prepareFileForWrite(variable.getContainingFile())) return;
+    try {
+      WriteAction.run(() -> variable.normalizeDeclaration());
+      final TypeMigrationRules rules = new TypeMigrationRules(project);
+      rules.setBoundScope(GlobalSearchScope.projectScope(project));
+      TypeMigrationProcessor.runHighlightingTypeMigration(project, editor, rules, variable, targetType, optimizeImports, allowDependentRoots);
+      WriteAction.run(() -> JavaCodeStyleManager.getInstance(project).shortenClassReferences(variable));
+      UndoUtil.markPsiFileForUndo(variable.getContainingFile());
+    }
+    catch (IncorrectOperationException e) {
+      LOG1.error(e);
+    }
   }
 }

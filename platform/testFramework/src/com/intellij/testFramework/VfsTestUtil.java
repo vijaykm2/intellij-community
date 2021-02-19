@@ -1,66 +1,64 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework;
 
-import com.intellij.openapi.application.AccessToken;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
+import com.intellij.openapi.vfs.newvfs.BulkFileListener;
+import com.intellij.openapi.vfs.newvfs.events.*;
+import com.intellij.util.ExceptionUtil;
 import com.intellij.util.PathUtil;
-import com.intellij.util.text.StringTokenizer;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.messages.MessageBusConnection;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.junit.Assert;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
-/**
- * @author nik
- */
-public class VfsTestUtil {
+public final class VfsTestUtil {
   public static final Key<String> TEST_DATA_FILE_PATH = Key.create("TEST_DATA_FILE_PATH");
 
-  private VfsTestUtil() {
+  private VfsTestUtil() { }
+
+  public static @NotNull VirtualFile createFile(@NotNull VirtualFile root, @NotNull String relativePath) {
+    return createFile(root, relativePath, (byte[])null);
   }
 
-  public static VirtualFile createFile(final VirtualFile root, final String relativePath) {
-    return createFile(root, relativePath, "");
-  }
-
-  public static VirtualFile createFile(final VirtualFile root, final String relativePath, final String text) {
-    return createFileOrDir(root, relativePath, text, false);
-  }
-
-  public static VirtualFile createDir(final VirtualFile root, final String relativePath) {
-    return createFileOrDir(root, relativePath, "", true);
-  }
-
-  private static VirtualFile createFileOrDir(final VirtualFile root,
-                                             final String relativePath,
-                                             final String text,
-                                             final boolean dir) {
+  public static @NotNull VirtualFile createFile(@NotNull VirtualFile root, @NotNull String relativePath, @Nullable String text) {
     try {
-      AccessToken token = WriteAction.start();
-      try {
+      return createFileOrDir(root, relativePath, text == null ? null : VfsUtil.toByteArray(root, text), false);
+    }
+    catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  public static @NotNull VirtualFile createFile(@NotNull VirtualFile root, @NotNull String relativePath, byte @Nullable [] data) {
+    return createFileOrDir(root, relativePath, data, false);
+  }
+
+  public static @NotNull VirtualFile createDir(@NotNull VirtualFile root, @NotNull String relativePath) {
+    return createFileOrDir(root, relativePath, null, true);
+  }
+
+  private static @NotNull VirtualFile createFileOrDir(VirtualFile root, String relativePath, byte @Nullable [] data, boolean dir) {
+    try {
+      return WriteAction.computeAndWait(() -> {
         VirtualFile parent = root;
-        Assert.assertNotNull(parent);
-        StringTokenizer parents = new StringTokenizer(PathUtil.getParentPath(relativePath), "/");
-        while (parents.hasMoreTokens()) {
-          final String name = parents.nextToken();
+        for (String name : StringUtil.tokenize(PathUtil.getParentPath(relativePath), "/")) {
           VirtualFile child = parent.findChild(name);
           if (child == null || !child.isValid()) {
             child = parent.createChildDirectory(VfsTestUtil.class, name);
@@ -68,61 +66,125 @@ public class VfsTestUtil {
           parent = child;
         }
 
+        parent.getChildren();  // need this to ensure that fileCreated event is fired
+
+        String name = PathUtil.getFileName(relativePath);
         VirtualFile file;
-        parent.getChildren();//need this to ensure that fileCreated event is fired
         if (dir) {
-          file = parent.createChildDirectory(VfsTestUtil.class, PathUtil.getFileName(relativePath));
+          file = parent.createChildDirectory(VfsTestUtil.class, name);
         }
         else {
-          file = parent.findFileByRelativePath(relativePath);
+          FileDocumentManager manager = FileDocumentManager.getInstance();
+          file = parent.findChild(name);
           if (file == null) {
-            file = parent.createChildData(VfsTestUtil.class, PathUtil.getFileName(relativePath));
+            file = parent.createChildData(VfsTestUtil.class, name);
           }
-          VfsUtil.saveText(file, text);
+          else {
+            Document document = manager.getCachedDocument(file);
+            if (document != null) manager.saveDocument(document);  // save changes to prevent possible conflicts
+          }
+          if (data != null) {
+            file.setBinaryContent(data);
+          }
+          manager.reloadFiles(file);  // update the document now, otherwise MemoryDiskConflictResolver will do it later at unexpected moment of time
         }
         return file;
-      }
-      finally {
-        token.finish();
-      }
+      });
     }
     catch (IOException e) {
       throw new RuntimeException(e);
     }
   }
 
-  public static void deleteFile(final VirtualFile file) {
+  public static void deleteFile(@NotNull VirtualFile file) {
     try {
-      AccessToken token = WriteAction.start();
+      // requestor must be notnull (for GlobalUndoTest)
+      WriteAction.runAndWait(() -> file.delete(file));
+    }
+    catch (Throwable throwable) {
+      ExceptionUtil.rethrow(throwable);
+    }
+  }
+
+  public static void clearContent(@NotNull final VirtualFile file) {
+    ApplicationManager.getApplication().runWriteAction(() -> {
       try {
-        file.delete(VfsTestUtil.class);
+        VfsUtil.saveText(file, "");
       }
-      finally {
-        token.finish();
+      catch (IOException e) {
+        throw new RuntimeException(e);
       }
-    }
-    catch (IOException e) {
-      throw new RuntimeException(e);
-    }
+    });
   }
 
-  public static void clearContent(VirtualFile file) {
-    Assert.assertNotNull(file);
-    try {
-      VfsUtil.saveText(file, "");
-    }
-    catch (IOException e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  @SuppressWarnings("UnusedDeclaration")
-  public static void overwriteTestData(String filePath, String actual) {
+  public static void overwriteTestData(@NotNull String filePath, @NotNull String actual) {
     try {
       FileUtil.writeToFile(new File(filePath), actual);
     }
     catch (IOException e) {
       throw new AssertionError(e);
     }
+  }
+
+  @NotNull
+  public static VirtualFile findFileByCaseSensitivePath(@NotNull String absolutePath) {
+    String vfsPath = FileUtil.toSystemIndependentName(absolutePath);
+    VirtualFile vFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(vfsPath);
+    Assert.assertNotNull("file " + absolutePath + " not found", vFile);
+    String realVfsPath = vFile.getPath();
+    if (!vFile.isCaseSensitive() && !vfsPath.equals(realVfsPath) &&
+        vfsPath.equalsIgnoreCase(realVfsPath)) {
+      Assert.fail("Please correct case-sensitivity of path to prevent test failure on case-sensitive file systems:\n" +
+                  "     path " + vfsPath + "\n" +
+                  "real path " + realVfsPath);
+    }
+    return vFile;
+  }
+
+  public static void assertFilePathEndsWithCaseSensitivePath(@NotNull VirtualFile file, @NotNull String suffixPath) {
+    String vfsSuffixPath = FileUtil.toSystemIndependentName(suffixPath);
+    String vfsPath = file.getPath();
+    if (!file.isCaseSensitive() && !vfsPath.endsWith(vfsSuffixPath) &&
+        StringUtil.endsWithIgnoreCase(vfsPath, vfsSuffixPath)) {
+      String realSuffixPath = vfsPath.substring(vfsPath.length() - vfsSuffixPath.length());
+      Assert.fail("Please correct case-sensitivity of path to prevent test failure on case-sensitive file systems:\n" +
+                  "     path " + suffixPath + "\n" +
+                  "real path " + realSuffixPath);
+    }
+  }
+
+  @NotNull
+  public static List<VFileEvent> getEvents(@NotNull Runnable action) {
+    List<VFileEvent> allEvents = Collections.synchronizedList(new ArrayList<>());
+
+    MessageBusConnection connection = ApplicationManager.getApplication().getMessageBus().connect();
+    connection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
+      @Override
+      public void after(@NotNull List<? extends VFileEvent> events) {
+        allEvents.addAll(events);
+      }
+    });
+    try {
+      action.run();
+    }
+    finally {
+      connection.disconnect();
+    }
+
+    return allEvents;
+  }
+
+  @NotNull
+  public static List<String> print(@NotNull List<? extends VFileEvent> events) {
+    return ContainerUtil.map(events, VfsTestUtil::print);
+  }
+
+  private static String print(VFileEvent e) {
+    char type = '?';
+    if (e instanceof VFileCreateEvent) type = 'C';
+    else if (e instanceof VFileDeleteEvent) type = 'D';
+    else if (e instanceof VFileContentChangeEvent) type = 'U';
+    else if (e instanceof VFilePropertyChangeEvent) type = 'P';
+    return type + " : " + e.getPath();
   }
 }

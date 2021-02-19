@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.resolve.reference.impl.providers;
 
 import com.intellij.openapi.util.TextRange;
@@ -23,17 +9,19 @@ import com.intellij.psi.PsiReference;
 import com.intellij.psi.impl.source.resolve.ResolveCache;
 import com.intellij.psi.search.PsiElementProcessor;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.psi.util.PsiUtilCore;
-import com.intellij.psi.xml.*;
-import com.intellij.util.ArrayUtil;
+import com.intellij.psi.xml.XmlAttribute;
+import com.intellij.psi.xml.XmlDocument;
+import com.intellij.psi.xml.XmlFile;
+import com.intellij.psi.xml.XmlTag;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.Processor;
 import com.intellij.xml.XmlAttributeDescriptor;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlNSDescriptor;
 import com.intellij.xml.impl.schema.ComplexTypeDescriptor;
 import com.intellij.xml.impl.schema.TypeDescriptor;
 import com.intellij.xml.impl.schema.XmlNSDescriptorImpl;
+import com.intellij.xml.impl.schema.XsdNsDescriptor;
 import com.intellij.xml.util.XmlUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -109,11 +97,13 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
     return null;
   }
 
+  @NotNull
   @Override
   public PsiElement getElement() {
     return myElement;
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     return myRange;
@@ -122,20 +112,19 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
   @Override
   @Nullable
   public PsiElement resolve() {
-    final PsiElement psiElement = ResolveCache
-      .getInstance(getElement().getProject()).resolveWithCaching(this, MyResolver.INSTANCE, false, false);
-
-    return psiElement != PsiUtilCore.NULL_PSI_ELEMENT ? psiElement:null;
+    return ResolveCache.getInstance(getElement().getProject())
+      .resolveWithCaching(this, (ref, incompleteCode) -> ref.resolveInner(), false, false);
   }
 
   private PsiElement resolveInner() {
     final XmlTag tag = PsiTreeUtil.getContextOfType(myElement, XmlTag.class, false);
-    if (tag == null) return PsiUtilCore.NULL_PSI_ELEMENT;
+    if (tag == null) return null;
 
     String canonicalText = getCanonicalText();
-    XmlNSDescriptorImpl nsDescriptor = getDescriptor(tag,canonicalText);
+    boolean[] redefined = new boolean[1];
+    XsdNsDescriptor nsDescriptor = getDescriptor(tag, canonicalText, redefined);
 
-    if (myType != null && nsDescriptor != null && nsDescriptor.getTag() != null) {
+    if (myType != null && nsDescriptor != null) {
 
       switch(myType) {
         case GroupReference: return nsDescriptor.findGroup(canonicalText);
@@ -143,11 +132,11 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
         case ElementReference: {
           XmlElementDescriptor descriptor = nsDescriptor.getElementDescriptor(
             XmlUtil.findLocalNameByQualifiedName(canonicalText), getNamespace(tag, canonicalText),
-            new HashSet<XmlNSDescriptorImpl>(),
+            new HashSet<>(),
             true
           );
 
-          return descriptor != null ? descriptor.getDeclaration(): PsiUtilCore.NULL_PSI_ELEMENT;
+          return descriptor != null ? descriptor.getDeclaration(): null;
         }
         case AttributeReference: {
           //final String prefixByQualifiedName = XmlUtil.findPrefixByQualifiedName(canonicalText);
@@ -160,12 +149,13 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
 
           if (descriptor != null) return descriptor.getDeclaration();
 
-          return PsiUtilCore.NULL_PSI_ELEMENT;
+          return null;
         }
         case TypeReference: {
-          TypeDescriptor typeDescriptor = nsDescriptor.getTypeDescriptor(canonicalText,tag);
+          TypeDescriptor typeDescriptor = redefined[0] ? nsDescriptor.findTypeDescriptor(XmlUtil.findLocalNameByQualifiedName(canonicalText), "") :
+                                                         nsDescriptor.getTypeDescriptor(canonicalText,tag);
           if (typeDescriptor instanceof ComplexTypeDescriptor) {
-            return ((ComplexTypeDescriptor)typeDescriptor).getDeclaration();
+            return typeDescriptor.getDeclaration();
           } else if (typeDescriptor != null) {
             return myElement;
           }
@@ -173,10 +163,10 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
       }
     }
 
-    return PsiUtilCore.NULL_PSI_ELEMENT;
+    return null;
   }
 
-  XmlNSDescriptorImpl getDescriptor(final XmlTag tag, String text) {
+  XsdNsDescriptor getDescriptor(final XmlTag tag, String text, boolean[] redefined) {
     if (myType != ReferenceType.ElementReference &&
         myType != ReferenceType.AttributeReference) {
       final PsiElement parentElement = myElement.getContext();
@@ -201,7 +191,10 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
 
       if (doRedefineCheck) {
         XmlNSDescriptorImpl redefinedDescriptor = SchemaReferencesProvider.findRedefinedDescriptor(tag, text);
-        if (redefinedDescriptor != null) return redefinedDescriptor;
+        if (redefinedDescriptor != null) {
+          redefined[0] = true;
+          return redefinedDescriptor;
+        }
       }
     }
 
@@ -222,25 +215,22 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
 
       URLReference.processWsdlSchemas(
         document.getRootTag(),
-        new Processor<XmlTag>() {
-          @Override
-          public boolean process(final XmlTag xmlTag) {
-            if (namespace.equals(xmlTag.getAttributeValue(TARGET_NAMESPACE))) {
-              descrs[0] = (XmlNSDescriptor)xmlTag.getMetaData();
-              return false;
-            }
-            return true;
+        xmlTag -> {
+          if (namespace.equals(xmlTag.getAttributeValue(TARGET_NAMESPACE))) {
+            descrs[0] = (XmlNSDescriptor)xmlTag.getMetaData();
+            return false;
           }
+          return true;
         }
       );
 
       if (descrs[0] instanceof XmlNSDescriptorImpl) return (XmlNSDescriptorImpl)descrs[0];
     }
 
-    return nsDescriptor instanceof XmlNSDescriptorImpl ? (XmlNSDescriptorImpl)nsDescriptor:null;
+    return nsDescriptor instanceof XsdNsDescriptor ? (XsdNsDescriptor)nsDescriptor:null;
   }
 
-  private static String getNamespace(final XmlTag tag, final String text) {
+  private static @NotNull String getNamespace(final @NotNull XmlTag tag, final String text) {
     final String namespacePrefix = XmlUtil.findPrefixByQualifiedName(text);
     final String namespaceByPrefix = tag.getNamespaceByPrefix(namespacePrefix);
     if (!namespaceByPrefix.isEmpty()) return namespaceByPrefix;
@@ -248,14 +238,13 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
 
     if (rootTag != null &&
         "schema".equals(rootTag.getLocalName()) &&
-        XmlUtil.ourSchemaUrisList.indexOf(rootTag.getNamespace()) != -1 ) {
+        XmlUtil.ourSchemaUrisList.contains(rootTag.getNamespace())) {
       final String targetNS = rootTag.getAttributeValue(TARGET_NAMESPACE);
 
       if (targetNS != null) {
         final String targetNsPrefix = rootTag.getPrefixByNamespace(targetNS);
 
-        if (namespacePrefix.equals(targetNsPrefix) ||
-            (namespaceByPrefix.isEmpty() && targetNsPrefix == null)) {
+        if (namespacePrefix.equals(targetNsPrefix) || targetNsPrefix == null) {
           return targetNS;
         }
       }
@@ -275,11 +264,10 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
   }
 
   @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     final String canonicalText = getCanonicalText();
 
-    final PsiElement element = ElementManipulators.getManipulator(myElement)
-      .handleContentChange(myElement, getRangeInElement(), newElementName);
+    final PsiElement element = ElementManipulators.handleContentChange(myElement, getRangeInElement(), newElementName);
     myRange = new TextRange(myRange.getStartOffset(),myRange.getEndOffset() - (canonicalText.length() - newElementName.length()));
     return element;
   }
@@ -290,15 +278,14 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
   }
 
   @Override
-  public boolean isReferenceTo(PsiElement element) {
+  public boolean isReferenceTo(@NotNull PsiElement element) {
     return myElement.getManager().areElementsEquivalent(resolve(), element);
   }
 
   @Override
-  @NotNull
-  public Object[] getVariants() {
+  public Object @NotNull [] getVariants() {
     final XmlTag tag = PsiTreeUtil.getContextOfType(myElement, XmlTag.class, true);
-    if (tag == null || myType == null) return ArrayUtil.EMPTY_OBJECT_ARRAY;
+    if (tag == null || myType == null) return ArrayUtilRt.EMPTY_OBJECT_ARRAY;
 
     return getVariants(tag, myType, nsPrefix);
   }
@@ -326,7 +313,7 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
 
     final XmlDocument document = ((XmlFile)tag.getContainingFile()).getDocument();
     if (document == null) {
-      return ArrayUtil.EMPTY_OBJECT_ARRAY;
+      return ArrayUtilRt.EMPTY_OBJECT_ARRAY;
     }
     final XmlTag rootTag = document.getRootTag();
     String ourNamespace = rootTag != null ? rootTag.getAttributeValue(TARGET_NAMESPACE) : "";
@@ -337,8 +324,8 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
       if (ourNamespace.equals(namespace)) continue;
       final XmlNSDescriptor nsDescriptor = tag.getNSDescriptor(namespace, true);
 
-      if (nsDescriptor instanceof XmlNSDescriptorImpl) {
-        processNamespace(namespace, processor, (XmlNSDescriptorImpl)nsDescriptor, tagNames);
+      if (nsDescriptor instanceof XsdNsDescriptor) {
+        processNamespace(namespace, processor, (XsdNsDescriptor)nsDescriptor, tagNames);
       }
     }
 
@@ -352,20 +339,16 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
       );
     }
 
-    return ArrayUtil.toStringArray(processor.myElements);
+    return ArrayUtilRt.toStringArray(processor.myElements);
   }
 
   private static void processNamespace(final String namespace,
                                 final CompletionProcessor processor,
-                                final XmlNSDescriptorImpl nsDescriptor,
+                                final XsdNsDescriptor nsDescriptor,
                                 final String[] tagNames) {
     processor.namespace = namespace;
 
-    XmlNSDescriptorImpl.processTagsInNamespace(
-      nsDescriptor.getTag(),
-      tagNames,
-      processor
-    );
+    nsDescriptor.processTagsInNamespace(tagNames, processor);
   }
 
   @Override
@@ -373,16 +356,10 @@ public class TypeOrElementOrAttributeReference implements PsiReference {
     return false;
   }
 
-  private static class MyResolver implements ResolveCache.Resolver {
-    static final MyResolver INSTANCE = new MyResolver();
-    @Override
-    public PsiElement resolve(@NotNull PsiReference ref, boolean incompleteCode) {
-      return ((TypeOrElementOrAttributeReference)ref).resolveInner();
-    }
-  }
+  static final ResolveCache.Resolver RESOLVER = (ref, incompleteCode) -> ((TypeOrElementOrAttributeReference)ref).resolveInner();
 
   private static class CompletionProcessor implements PsiElementProcessor<XmlTag> {
-    final List<String> myElements = new ArrayList<String>(1);
+    final List<String> myElements = new ArrayList<>(1);
     String namespace;
     final XmlTag tag;
     private final String prefix;

@@ -17,12 +17,8 @@ package org.intellij.plugins.intelliLang.pattern;
 
 import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.codeInspection.LocalQuickFix;
-import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemsHolder;
-import com.intellij.ide.DataManager;
-import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.AsyncResult;
+import com.intellij.codeInspection.RefactoringQuickFix;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
@@ -33,22 +29,20 @@ import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.JavaRefactoringActionHandlerFactory;
 import com.intellij.refactoring.RefactoringActionHandler;
-import com.intellij.util.Consumer;
 import com.intellij.util.SmartList;
+import com.intellij.util.ui.JBUI;
 import org.intellij.plugins.intelliLang.Configuration;
+import org.intellij.plugins.intelliLang.IntelliLangBundle;
 import org.intellij.plugins.intelliLang.util.AnnotateFix;
 import org.intellij.plugins.intelliLang.util.AnnotationUtilEx;
 import org.intellij.plugins.intelliLang.util.PsiUtilEx;
 import org.intellij.plugins.intelliLang.util.SubstitutedExpressionEvaluationHelper;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.awt.*;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
-import java.text.MessageFormat;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -59,41 +53,15 @@ import java.util.regex.PatternSyntaxException;
  */
 public class PatternValidator extends LocalInspectionTool {
   private static final Key<CachedValue<Pattern>> COMPLIED_PATTERN = Key.create("COMPILED_PATTERN");
-  public static final String PATTERN_VALIDATION = "Pattern Validation";
-  public static final String LANGUAGE_INJECTION = "Language Injection";
 
   public boolean CHECK_NON_CONSTANT_VALUES = true;
-
-  private final Configuration myConfiguration;
-
-  public PatternValidator() {
-    myConfiguration = Configuration.getInstance();
-  }
-
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
-  }
-
-  @Override
-  @NotNull
-  public String getGroupDisplayName() {
-    return PATTERN_VALIDATION;
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Validate Annotated Patterns";
-  }
 
   @Override
   @Nullable
   public JComponent createOptionsPanel() {
-    final JPanel jPanel = new JPanel(new BorderLayout());
-    final JCheckBox jCheckBox = new JCheckBox("Flag non compile-time constant expressions");
-    jCheckBox.setToolTipText(
-        "If checked, the inspection will flag expressions with unknown values " + "and offer to add a substitution (@Subst) annotation");
+    final JCheckBox jCheckBox = new JCheckBox(IntelliLangBundle.message("flag.non.compile.time.constant.expressions"));
+    jCheckBox.setToolTipText(IntelliLangBundle.message(
+      "the.inspection.will.flag.expressions.with.unknown.values"));
     jCheckBox.setSelected(CHECK_NON_CONSTANT_VALUES);
     jCheckBox.addItemListener(new ItemListener() {
       @Override
@@ -101,15 +69,7 @@ public class PatternValidator extends LocalInspectionTool {
         CHECK_NON_CONSTANT_VALUES = jCheckBox.isSelected();
       }
     });
-    jPanel.add(jCheckBox, BorderLayout.NORTH);
-    return jPanel;
-  }
-
-  @Override
-  @NotNull
-  @NonNls
-  public String getShortName() {
-    return "PatternValidation";
+    return JBUI.Panels.simplePanel().addToTop(jCheckBox);
   }
 
   @Override
@@ -136,6 +96,7 @@ public class PatternValidator extends LocalInspectionTool {
             // check whether @Subst complies with pattern
             check(expression, holder, true);
           }
+          check(expression, holder, false);
         }
       }
 
@@ -184,7 +145,8 @@ public class PatternValidator extends LocalInspectionTool {
             final PsiModifierListOwner element;
             if (isAnnotationValue) {
               final PsiAnnotation psiAnnotation = PsiTreeUtil.getParentOfType(expression, PsiAnnotation.class);
-              if (psiAnnotation != null && myConfiguration.getAdvancedConfiguration().getSubstAnnotationClass().equals(psiAnnotation.getQualifiedName())) {
+              if (psiAnnotation != null && Configuration.getInstance()
+                .getAdvancedConfiguration().getSubstAnnotationClass().equals(psiAnnotation.getQualifiedName())) {
                 element = PsiTreeUtil.getParentOfType(expression, PsiModifierListOwner.class);
               }
               else {
@@ -195,7 +157,7 @@ public class PatternValidator extends LocalInspectionTool {
               element = AnnotationUtilEx.getAnnotatedElementFor(expression, AnnotationUtilEx.LookupType.PREFER_CONTEXT);
             }
             if (element != null && PsiUtilEx.isLanguageAnnotationTarget(element)) {
-              PsiAnnotation[] annotations = AnnotationUtilEx.getAnnotationFrom(element, myConfiguration.getAdvancedConfiguration().getPatternAnnotationPair(), true);
+              PsiAnnotation[] annotations = AnnotationUtilEx.getAnnotationFrom(element, Configuration.getInstance().getAdvancedConfiguration().getPatternAnnotationPair(), true);
               checkExpression(expression, annotations, holder);
             }
           }
@@ -211,21 +173,18 @@ public class PatternValidator extends LocalInspectionTool {
     // cache compiled pattern with annotation
     CachedValue<Pattern> p = psiAnnotation.getUserData(COMPLIED_PATTERN);
     if (p == null) {
-      final CachedValueProvider<Pattern> provider = new CachedValueProvider<Pattern>() {
-        @Override
-        public Result<Pattern> compute() {
-          final String pattern = AnnotationUtilEx.calcAnnotationValue(psiAnnotation, "value");
-          Pattern p = null;
-          if (pattern != null) {
-            try {
-              p = Pattern.compile(pattern);
-            }
-            catch (PatternSyntaxException e) {
-              // pattern stays null
-            }
+      final CachedValueProvider<Pattern> provider = () -> {
+        final String pattern = AnnotationUtilEx.calcAnnotationValue(psiAnnotation, "value");
+        Pattern p1 = null;
+        if (pattern != null) {
+          try {
+            p1 = Pattern.compile(pattern);
           }
-          return Result.create(p, (Object[])annotations);
+          catch (PatternSyntaxException e) {
+            // pattern stays null
+          }
         }
+        return CachedValueProvider.Result.create(p1, (Object[])annotations);
       };
       p = CachedValuesManager.getManager(expression.getProject()).createCachedValue(provider, false);
       psiAnnotation.putUserData(COMPLIED_PATTERN, p);
@@ -234,9 +193,10 @@ public class PatternValidator extends LocalInspectionTool {
     final Pattern pattern = p.getValue();
     if (pattern == null) return;
 
-    List<PsiExpression> nonConstantElements = new SmartList<PsiExpression>();
+    List<PsiExpression> nonConstantElements = new SmartList<>();
+    Configuration configuration = Configuration.getInstance();
     final Object result = new SubstitutedExpressionEvaluationHelper(expression.getProject()).computeExpression(
-      expression, myConfiguration.getAdvancedConfiguration().getDfaOption(), false, nonConstantElements);
+      expression, configuration.getAdvancedConfiguration().getDfaOption(), false, nonConstantElements);
     final String o = result == null ? null : String.valueOf(result);
     if (o != null) {
       if (!pattern.matcher(o).matches()) {
@@ -246,12 +206,12 @@ public class PatternValidator extends LocalInspectionTool {
           assert fqn != null;
 
           final String name = StringUtil.getShortName(fqn);
-          holder.registerProblem(expression, MessageFormat.format("Expression ''{0}'' doesn''t match ''{1}'' pattern: {2}", o, name,
-                                                                  pattern.pattern()));
+          holder.registerProblem(expression,
+                                 IntelliLangBundle.message("inspection.message.expression.does.not.match.pattern", o, name, pattern.pattern()));
         }
         else {
           holder.registerProblem(expression,
-                                 MessageFormat.format("Expression ''{0}'' doesn''t match pattern: {1}", o, pattern.pattern()));
+                                 IntelliLangBundle.message("inspection.message.expression.does.not.match.pattern2", o, pattern.pattern()));
         }
       }
     }
@@ -270,54 +230,38 @@ public class PatternValidator extends LocalInspectionTool {
         final PsiModifierListOwner owner = e instanceof PsiModifierListOwner? (PsiModifierListOwner)e : null;
         LocalQuickFix quickFix;
         if (owner != null && PsiUtilEx.isLanguageAnnotationTarget(owner)) {
-          PsiAnnotation[] resolvedAnnos = AnnotationUtilEx.getAnnotationFrom(owner, myConfiguration.getAdvancedConfiguration().getPatternAnnotationPair(), true);
+          PsiAnnotation[] resolvedAnnos = AnnotationUtilEx.getAnnotationFrom(owner, configuration.getAdvancedConfiguration().getPatternAnnotationPair(), true);
           if (resolvedAnnos.length == 2 && annotations.length == 2 && Comparing.strEqual(resolvedAnnos[1].getQualifiedName(), annotations[1].getQualifiedName())) {
             // both target and source annotated indirectly with the same anno
             return;
           }
 
-          final String classname = myConfiguration.getAdvancedConfiguration().getSubstAnnotationPair().first;
-          final AnnotateFix fix = new AnnotateFix((PsiModifierListOwner)e, classname);
-          quickFix = fix.canApply() ? fix : new IntroduceVariableFix(expr);
+          final String classname = configuration.getAdvancedConfiguration().getSubstAnnotationPair().first;
+          quickFix = AnnotateFix.canApplyOn(owner) ? new AnnotateFix(classname) : new IntroduceVariableFix();
         }
         else {
-          quickFix = new IntroduceVariableFix(expr);
+          quickFix = new IntroduceVariableFix();
         }
-        holder.registerProblem(expr, "Unsubstituted expression", quickFix);
+        holder.registerProblem(expr, IntelliLangBundle.message("inspection.pattern.validator.description"), quickFix);
       }
     }
   }
 
-  private static class IntroduceVariableFix implements LocalQuickFix {
-    private final PsiExpression myExpr;
+  private static class IntroduceVariableFix implements RefactoringQuickFix {
 
-    public IntroduceVariableFix(PsiExpression expr) {
-      myExpr = expr;
-    }
-
-    @Override
-    @NotNull
-    public String getName() {
-      return "Introduce Variable";
-    }
+    IntroduceVariableFix() {}
 
     @Override
     @NotNull
     public String getFamilyName() {
-      return getName();
+      return IntelliLangBundle.message("introduce.variable.fix.family.name");
     }
 
+    @NotNull
     @Override
-    public void applyFix(@NotNull final Project project, @NotNull ProblemDescriptor descriptor) {
-      final RefactoringActionHandler handler = JavaRefactoringActionHandlerFactory.getInstance().createIntroduceVariableHandler();
-      final AsyncResult<DataContext> dataContextContainer = DataManager.getInstance().getDataContextFromFocus();
-      dataContextContainer.doWhenDone(new Consumer<DataContext>() {
-        @Override
-        public void consume(DataContext dataContext) {
-          handler.invoke(project, new PsiElement[]{myExpr}, dataContext);
-        }
-      });
+    public RefactoringActionHandler getHandler() {
       // how to automatically annotate the variable after it has been introduced?
+      return JavaRefactoringActionHandlerFactory.getInstance().createIntroduceVariableHandler();
     }
   }
 }

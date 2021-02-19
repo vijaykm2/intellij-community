@@ -33,31 +33,37 @@ public class TestIgnoredState extends AbstractState {
       myText = null;
     }
     else {
-      myText = CompositePrintable.NEW_LINE + ignoredMsg;
+      myText = CompositePrintable.NEW_LINE + ignoredMsg + CompositePrintable.NEW_LINE;
     }
     myStacktrace = stackTrace == null ? null : stackTrace + CompositePrintable.NEW_LINE;
   }
 
+  @Override
   public boolean isInProgress() {
     return false;
   }
 
+  @Override
   public boolean isDefect() {
     return true;
   }
 
+  @Override
   public boolean wasLaunched() {
     return true;
   }
 
+  @Override
   public boolean isFinal() {
     return true;
   }
 
+  @Override
   public boolean wasTerminated() {
     return false;
   }
 
+  @Override
   public Magnitude getMagnitude() {
     return Magnitude.IGNORED_INDEX;
   }
@@ -70,9 +76,9 @@ public class TestIgnoredState extends AbstractState {
       printer.print(myText, ConsoleViewContentType.SYSTEM_OUTPUT);
     }
     if (!StringUtil.isEmptyOrSpaces(myStacktrace)) {
-      printer.print(CompositePrintable.NEW_LINE, ConsoleViewContentType.ERROR_OUTPUT);
+      printer.print(CompositePrintable.NEW_LINE, ConsoleViewContentType.SYSTEM_OUTPUT);
       printer.mark();
-      printer.print(myStacktrace, ConsoleViewContentType.ERROR_OUTPUT);
+      printer.print(myStacktrace, ConsoleViewContentType.SYSTEM_OUTPUT);
     }
   }
 

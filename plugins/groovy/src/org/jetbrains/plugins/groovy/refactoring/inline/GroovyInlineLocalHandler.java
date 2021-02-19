@@ -1,28 +1,13 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.inline;
 
-import com.intellij.codeInsight.TargetElementUtilBase;
+import com.intellij.codeInsight.TargetElementUtil;
 import com.intellij.lang.Language;
 import com.intellij.lang.refactoring.InlineActionHandler;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiReference;
 import com.intellij.refactoring.HelpID;
@@ -30,6 +15,7 @@ import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.refactoring.util.RefactoringMessageDialog;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.GroovyLanguage;
 import org.jetbrains.plugins.groovy.codeInspection.utils.ControlFlowUtils;
@@ -44,15 +30,16 @@ import org.jetbrains.plugins.groovy.lang.psi.dataFlow.types.TypeInferenceHelper;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 import org.jetbrains.plugins.groovy.refactoring.GroovyRefactoringBundle;
 
-import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.List;
+
+import static org.jetbrains.annotations.Nls.Capitalization.Title;
 
 /**
  * @author Max Medvedev
  */
 public class GroovyInlineLocalHandler extends InlineActionHandler {
   private static final Logger LOG = Logger.getInstance(GroovyInlineLocalHandler.class);
-  public static final String INLINE_VARIABLE = RefactoringBundle.message("inline.variable.title");
 
   @Override
   public boolean isEnabledForLanguage(Language l) {
@@ -70,7 +57,7 @@ public class GroovyInlineLocalHandler extends InlineActionHandler {
   }
 
   public static void invoke(final Project project, Editor editor, final GrVariable local) {
-    final PsiReference invocationReference = editor != null ? TargetElementUtilBase.findReference(editor) : null;
+    final PsiReference invocationReference = editor != null ? TargetElementUtil.findReference(editor) : null;
 
     final InlineLocalVarSettings localVarSettings = createSettings(local, editor, invocationReference != null);
     if (localVarSettings == null) return;
@@ -78,11 +65,8 @@ public class GroovyInlineLocalHandler extends InlineActionHandler {
     if (!CommonRefactoringUtil.checkReadOnlyStatus(project, local)) return;
 
     final GroovyInlineLocalProcessor processor = new GroovyInlineLocalProcessor(project, localVarSettings, local);
-    processor.setPrepareSuccessfulSwingThreadCallback(new Runnable() {
-      @Override
-      public void run() {
-        //do nothing
-      }
+    processor.setPrepareSuccessfulSwingThreadCallback(() -> {
+      //do nothing
     });
     processor.run();
   }
@@ -103,7 +87,7 @@ public class GroovyInlineLocalHandler extends InlineActionHandler {
     //search for initializer to inline
     if (invokedOnReference) {
       LOG.assertTrue(editor != null, "null editor but invokedOnReference==true");
-      final PsiReference ref = TargetElementUtilBase.findReference(editor);
+      final PsiReference ref = TargetElementUtil.findReference(editor);
       LOG.assertTrue(ref != null);
 
       PsiElement cur = ref.getElement();
@@ -116,7 +100,7 @@ public class GroovyInlineLocalHandler extends InlineActionHandler {
 
           flow = controlFlowOwner.getControlFlow();
 
-          final ArrayList<BitSet> writes = ControlFlowUtils.inferWriteAccessMap(flow, variable);
+          final List<BitSet> writes = ControlFlowUtils.inferWriteAccessMap(flow, variable);
           final PsiElement finalCur = cur;
           Instruction instruction = ControlFlowUtils.findInstruction(finalCur, flow);
 
@@ -149,17 +133,12 @@ public class GroovyInlineLocalHandler extends InlineActionHandler {
     else {
       flow = ControlFlowUtils.findControlFlowOwner(variable).getControlFlow();
       initializer = variable.getInitializerGroovy();
-      writeInstr = ContainerUtil.find(flow, new Condition<Instruction>() {
-        @Override
-        public boolean value(Instruction instruction) {
-          return instruction.getElement() == variable;
-        }
-      });
+      writeInstr = ContainerUtil.find(flow, instruction -> instruction.getElement() == variable);
     }
 
     if (initializer == null || writeInstr == null) {
       String message = GroovyRefactoringBundle.message("cannot.find.a.single.definition.to.inline.local.var");
-      CommonRefactoringUtil.showErrorHint(variable.getProject(), editor, message, INLINE_VARIABLE, HelpID.INLINE_VARIABLE);
+      CommonRefactoringUtil.showErrorHint(variable.getProject(), editor, message, getInlineVariable(), HelpID.INLINE_VARIABLE);
       return null;
     }
 
@@ -170,11 +149,21 @@ public class GroovyInlineLocalHandler extends InlineActionHandler {
 
     final String question = GroovyRefactoringBundle.message("inline.local.variable.prompt.0.1", localName);
     RefactoringMessageDialog dialog =
-      new RefactoringMessageDialog(INLINE_VARIABLE, question, HelpID.INLINE_VARIABLE, "OptionPane.questionIcon", true, project);
+      new RefactoringMessageDialog(getInlineVariable(), question, HelpID.INLINE_VARIABLE, "OptionPane.questionIcon", true, project);
     if (dialog.showAndGet()) {
       return new InlineLocalVarSettings(initializer, writeInstructionNumber, flow);
     }
 
     return null;
+  }
+
+  @Nullable
+  @Override
+  public String getActionName(PsiElement element) {
+    return getInlineVariable();
+  }
+
+  public static @Nls(capitalization = Title) String getInlineVariable() {
+    return RefactoringBundle.message("inline.variable.title");
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package com.intellij.psi.search;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiElementFilter;
 import com.intellij.psi.util.PsiUtilCore;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,7 +28,7 @@ import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * @see com.intellij.psi.util.PsiTreeUtil#processElements(com.intellij.psi.PsiElement, PsiElementProcessor)
+ * @see com.intellij.psi.util.PsiTreeUtil#processElements(PsiElement, PsiElementProcessor)
  */
 public interface PsiElementProcessor<T extends PsiElement> {
   /**
@@ -42,15 +43,14 @@ public interface PsiElementProcessor<T extends PsiElement> {
     private final Collection<T> myCollection;
 
     public CollectElements() {
-      this(new ArrayList<T>());
+      this(new ArrayList<>());
     }
 
     public CollectElements(@NotNull Collection<T> collection) {
       myCollection = Collections.synchronizedCollection(collection);
     }
 
-    @NotNull
-    public PsiElement[] toArray() {
+    public PsiElement @NotNull [] toArray() {
       return PsiUtilCore.toPsiElementArray(myCollection);
     }
 
@@ -59,8 +59,7 @@ public interface PsiElementProcessor<T extends PsiElement> {
       return myCollection;
     }
 
-    @NotNull
-    public T[] toArray(T[] array) {
+    public T @NotNull [] toArray(T[] array) {
       return myCollection.toArray(array);
     }
 
@@ -71,6 +70,11 @@ public interface PsiElementProcessor<T extends PsiElement> {
     }
   }
 
+  /**
+   * @deprecated use {@link com.intellij.psi.SyntaxTraverser} API instead. E.g.
+   * {@code SyntaxTraverser.psiTraverser(root).filter(ElementType.class).filter(additionalFilter).toList()}
+   */
+  @Deprecated
   class CollectFilteredElements<T extends PsiElement> extends CollectElements<T> {
     private final PsiElementFilter myFilter;
 
@@ -91,7 +95,7 @@ public interface PsiElementProcessor<T extends PsiElement> {
 
   class CollectElementsWithLimit<T extends PsiElement> extends CollectElements<T>{
     private final AtomicInteger myCount = new AtomicInteger(0);
-    private volatile boolean myOverflow = false;
+    private volatile boolean myOverflow;
     private final int myLimit;
 
     public CollectElementsWithLimit(int limit) {
@@ -119,7 +123,7 @@ public interface PsiElementProcessor<T extends PsiElement> {
   }
 
   class FindElement<T extends PsiElement> implements PsiElementProcessor<T> {
-    private volatile T myFoundElement = null;
+    private volatile T myFoundElement;
 
     public boolean isFound() {
       return myFoundElement != null;
@@ -141,6 +145,12 @@ public interface PsiElementProcessor<T extends PsiElement> {
     }
   }
 
+  /**
+   * @deprecated use {@link com.intellij.psi.SyntaxTraverser} API instead. E.g.
+   * {@code SyntaxTraverser.psiTraverser(root).filter(ElementType.class).filter(additionalFilter).first()}
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.2")
   class FindFilteredElement<T extends PsiElement> extends FindElement<T> {
     private final PsiElementFilter myFilter;
 

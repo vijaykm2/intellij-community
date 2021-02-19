@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.lookup.DefaultLookupItemRenderer;
@@ -11,9 +12,8 @@ import com.intellij.psi.PsiSubstitutor;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
-
-import static com.intellij.util.ObjectUtils.assertNotNull;
 
 /**
  * @author peter
@@ -23,7 +23,7 @@ public class JavaGlobalMemberLookupElement extends LookupElement implements Stat
   private final InsertHandler<JavaGlobalMemberLookupElement> myQualifiedInsertion;
   private final InsertHandler<JavaGlobalMemberLookupElement> myImportInsertion;
 
-  public JavaGlobalMemberLookupElement(List<PsiMethod> overloads,
+  public JavaGlobalMemberLookupElement(List<? extends PsiMethod> overloads,
                                        PsiClass containingClass,
                                        InsertHandler<JavaGlobalMemberLookupElement> qualifiedInsertion,
                                        InsertHandler<JavaGlobalMemberLookupElement> importInsertion, boolean shouldImport) {
@@ -49,13 +49,13 @@ public class JavaGlobalMemberLookupElement extends LookupElement implements Stat
 
   @NotNull
   public PsiClass getContainingClass() {
-    return assertNotNull(myHelper.getContainingClass());
+    return Objects.requireNonNull(myHelper.getContainingClass());
   }
 
   @NotNull
   @Override
   public String getLookupString() {
-    return assertNotNull(getObject().getName());
+    return Objects.requireNonNull(getObject().getName());
   }
 
   @Override
@@ -65,8 +65,8 @@ public class JavaGlobalMemberLookupElement extends LookupElement implements Stat
 
   @Override
   public void renderElement(LookupElementPresentation presentation) {
-    presentation.setIcon(DefaultLookupItemRenderer.getRawIcon(this, presentation.isReal()));
-    myHelper.renderElement(presentation, null, PsiSubstitutor.EMPTY);
+    presentation.setIcon(DefaultLookupItemRenderer.getRawIcon(this));
+    myHelper.renderElement(presentation, !myHelper.willBeImported(), true, PsiSubstitutor.EMPTY);
   }
 
   @Override
@@ -85,7 +85,7 @@ public class JavaGlobalMemberLookupElement extends LookupElement implements Stat
   }
 
   @Override
-  public void handleInsert(InsertionContext context) {
+  public void handleInsert(@NotNull InsertionContext context) {
     FeatureUsageTracker.getInstance().triggerFeatureUsed(JavaCompletionFeatures.GLOBAL_MEMBER_NAME);
 
     (willBeImported() ? myImportInsertion : myQualifiedInsertion).handleInsert(context, this);

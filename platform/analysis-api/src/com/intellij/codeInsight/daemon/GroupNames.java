@@ -15,57 +15,69 @@
  */
 package com.intellij.codeInsight.daemon;
 
-import com.intellij.codeInspection.InspectionsBundle;
+import org.jetbrains.annotations.ApiStatus;
 
 /**
- * @author anna
- * Date: Jun 22, 2005
+ * @deprecated specify groupBundle="messages.InspectionsBundle" and corresponding groupKey attribute in localInspection tag instead of
+ * using constant from this class
  */
+@Deprecated
 public interface GroupNames {
-  String ABSTRACTION_GROUP_NAME = InspectionsBundle.message("group.names.abstraction.issues");
-  String ASSIGNMENT_GROUP_NAME = InspectionsBundle.message("group.names.assignment.issues");
-  String BUGS_GROUP_NAME = InspectionsBundle.message("group.names.probable.bugs");
-  String BITWISE_GROUP_NAME = InspectionsBundle.message("group.names.bitwise.operation.issues");
-  String CLASS_LAYOUT_GROUP_NAME = InspectionsBundle.message("group.names.class.structure");
-  String CLASS_METRICS_GROUP_NAME = InspectionsBundle.message("group.names.class.metrics");
-  String COMPILER_ISSUES = InspectionsBundle.message("group.names.compiler.issues");
-  String CONFUSING_GROUP_NAME = InspectionsBundle.message("group.names.potentially.confusing.code.constructs");
-  String ENCAPSULATION_GROUP_NAME = InspectionsBundle.message("group.names.encapsulation.issues");
-  String ERROR_HANDLING_GROUP_NAME = InspectionsBundle.message("group.names.error.handling");
-  String FINALIZATION_GROUP_NAME = InspectionsBundle.message("group.names.finalization.issues");
-  String IMPORTS_GROUP_NAME = InspectionsBundle.message("group.names.imports");
-  String INITIALIZATION_GROUP_NAME = InspectionsBundle.message("group.names.initialization.issues");
-  String INTERNATIONALIZATION_GROUP_NAME = InspectionsBundle.message("group.names.internationalization.issues");
-  String JUNIT_GROUP_NAME = InspectionsBundle.message("group.names.junit.issues");
-  String LOGGING_GROUP_NAME = InspectionsBundle.message("group.names.logging.issues");
-  String MATURITY_GROUP_NAME = InspectionsBundle.message("group.names.code.maturity.issues");
-  String METHOD_METRICS_GROUP_NAME = InspectionsBundle.message("group.names.method.metrics");
-  String NAMING_CONVENTIONS_GROUP_NAME = InspectionsBundle.message("group.names.naming.conventions");
-  String PERFORMANCE_GROUP_NAME = InspectionsBundle.message("group.names.performance.issues");
-  String MEMORY_GROUP_NAME = InspectionsBundle.message("group.names.memory.issues");
-  String JDK_GROUP_NAME = InspectionsBundle.message("group.names.java.language.level.issues");
-  String PORTABILITY_GROUP_NAME = InspectionsBundle.message("group.names.portability.issues");
-  String SECURITY_GROUP_NAME = InspectionsBundle.message("group.names.security.issues");
-  String SERIALIZATION_GROUP_NAME = InspectionsBundle.message("group.names.serialization.issues");
-  String STYLE_GROUP_NAME = InspectionsBundle.message("group.names.code.style.issues");
-  String THREADING_GROUP_NAME = InspectionsBundle.message("group.names.threading.issues");
-  String VERBOSE_GROUP_NAME = InspectionsBundle.message("group.names.verbose.or.redundant.code.constructs");
-  String VISIBILITY_GROUP_NAME = InspectionsBundle.message("group.names.visibility.issues");
-  String CLONEABLE_GROUP_NAME = InspectionsBundle.message("group.names.cloning.issues");
-  String RESOURCE_GROUP_NAME = InspectionsBundle.message("group.names.resource.management.issues");
-  String J2ME_GROUP_NAME = InspectionsBundle.message("group.names.j2me.issues");
-  String CONTROL_FLOW_GROUP_NAME = InspectionsBundle.message("group.names.control.flow.issues");
-  String NUMERIC_GROUP_NAME = InspectionsBundle.message("group.names.numeric.issues");
-  String LANGUAGE_LEVEL_SPECIFIC_GROUP_NAME = InspectionsBundle.message("group.names.language.level.specific.issues.and.migration.aids");
-  String JAVABEANS_GROUP_NAME = InspectionsBundle.message("group.names.javabeans.issues");
-  String INHERITANCE_GROUP_NAME = InspectionsBundle.message("group.names.inheritance.issues");
-  String DATA_FLOW_ISSUES = InspectionsBundle.message("group.names.data.flow.issues");
-  String DECLARATION_REDUNDANCY = InspectionsBundle.message("group.names.declaration.redundancy");
-  String PACKAGING_GROUP_NAME = InspectionsBundle.message("group.names.packaging.issues");
-  String DEPENDENCY_GROUP_NAME = InspectionsBundle.message("group.names.dependency.issues");
-  String MODULARIZATION_GROUP_NAME = InspectionsBundle.message("group.names.modularization.issues");
-  String JAVAEE_GROUP_NAME = InspectionsBundle.message("group.names.javaee.issues");
-  String CONCURRENCY_ANNOTATION_ISSUES = InspectionsBundle.message("group.names.concurrency.annotation.issues");
-  String JAVADOC_GROUP_NAME = InspectionsBundle.message("group.names.javadoc.issues");
-  String PROPERTIES_GROUP_NAME = InspectionsBundle.message("group.names.properties.files");
+  /** @deprecated use groupKey="group.names.probable.bugs" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String BUGS_GROUP_NAME = "Probable bugs";
+  /** @deprecated use groupKey="group.names.compiler.issues" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String COMPILER_ISSUES = "Compiler issues";
+  /** @deprecated use groupKey="group.names.potentially.confusing.code.constructs" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String CONFUSING_GROUP_NAME = "Potentially confusing code constructs";
+  /** @deprecated use groupKey="group.names.encapsulation.issues" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String ENCAPSULATION_GROUP_NAME = "Encapsulation";
+  /** @deprecated use groupKey="group.names.imports" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String IMPORTS_GROUP_NAME = "Imports";
+  /** @deprecated use groupKey="group.names.initialization.issues" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String INITIALIZATION_GROUP_NAME = "Initialization";
+  /** @deprecated use groupKey="group.names.internationalization.issues" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String INTERNATIONALIZATION_GROUP_NAME = "Internationalization";
+    /** @deprecated use groupKey="group.names.logging.issues" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String LOGGING_GROUP_NAME = "Logging";
+    /** @deprecated use groupKey="group.names.code.maturity.issues" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String MATURITY_GROUP_NAME = "Code maturity";
+    /** @deprecated use groupKey="group.names.naming.conventions" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String NAMING_CONVENTIONS_GROUP_NAME = "Naming conventions";
+    /** @deprecated use groupKey="group.names.performance.issues" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String PERFORMANCE_GROUP_NAME = "Performance";
+  /** @deprecated use groupKey="group.names.code.style.issues" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String STYLE_GROUP_NAME = "Code style issues";
+  /** @deprecated use groupKey="group.names.visibility.issues" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String VISIBILITY_GROUP_NAME = "Visibility";
+  /** @deprecated use groupKey="group.names.j2me.issues" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String J2ME_GROUP_NAME = "Embedded";
+  /** @deprecated use groupKey="group.names.inheritance.issues" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String INHERITANCE_GROUP_NAME = "Inheritance issues";
+  /** @deprecated use groupKey="group.names.declaration.redundancy" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String DECLARATION_REDUNDANCY = "Declaration redundancy";
+  /** @deprecated use groupKey="group.names.dependency.issues" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String DEPENDENCY_GROUP_NAME = "Dependency issues";
+  /** @deprecated use groupKey="group.names.modularization.issues" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String MODULARIZATION_GROUP_NAME = "Modularization issues";
+  /** @deprecated use groupKey="group.names.properties.files" instead */
+  @Deprecated @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  String PROPERTIES_GROUP_NAME = "Properties files";
 }

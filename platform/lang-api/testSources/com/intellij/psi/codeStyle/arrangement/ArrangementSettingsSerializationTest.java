@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.codeStyle.arrangement;
 
 import com.intellij.psi.codeStyle.arrangement.group.ArrangementGroupingRule;
@@ -47,10 +33,6 @@ import static com.intellij.psi.codeStyle.arrangement.std.StdArrangementTokens.Mo
 import static com.intellij.psi.codeStyle.arrangement.std.StdArrangementTokens.Order.BY_NAME;
 import static org.junit.Assert.*;
 
-/**
- * @author Denis Zhdanov
- * @since 9/18/12 9:24 AM
- */
 public class ArrangementSettingsSerializationTest {
   private static final String VISIBILITY = "visibility";
   private static final String MODIFIERS = "modifiers";
@@ -64,8 +46,8 @@ public class ArrangementSettingsSerializationTest {
     return holder;
   }
 
-  private static StdArrangementMatchRule rule(boolean byName, @NotNull ArrangementSettingsToken... tokens) {
-    final List<ArrangementAtomMatchCondition> conditions = new ArrayList<ArrangementAtomMatchCondition>();
+  private static StdArrangementMatchRule rule(boolean byName, ArrangementSettingsToken @NotNull ... tokens) {
+    final List<ArrangementAtomMatchCondition> conditions = new ArrayList<>();
     for (ArrangementSettingsToken token : tokens) {
       conditions.add(new ArrangementAtomMatchCondition(token));
     }
@@ -81,27 +63,27 @@ public class ArrangementSettingsSerializationTest {
     return ArrangementSectionRule.create(start == null ? null : start.trim(), end == null ? null : end.trim(), rules);
   }
 
-  private static ArrangementSectionRule section(boolean byName, @NotNull ArrangementSettingsToken... tokens) {
+  private static ArrangementSectionRule section(boolean byName, ArrangementSettingsToken @NotNull ... tokens) {
     return section(null, null, rule(byName, tokens));
   }
 
-  private static StdArrangementSettings settings(@NotNull List<ArrangementGroupingRule> groupings,
+  private static StdArrangementSettings settings(@NotNull List<? extends ArrangementGroupingRule> groupings,
                                                  @NotNull List<ArrangementSectionRule> sections) {
     return new StdArrangementSettings(groupings, sections);
   }
 
-  private static StdArrangementExtendableSettings extendableSettings(@NotNull List<ArrangementGroupingRule> groupings,
+  private static StdArrangementExtendableSettings extendableSettings(@NotNull List<? extends ArrangementGroupingRule> groupings,
                                                                      @NotNull List<ArrangementSectionRule> sections,
-                                                                     @NotNull Collection<StdArrangementRuleAliasToken> tokens) {
+                                                                     @NotNull Collection<? extends StdArrangementRuleAliasToken> tokens) {
     return new StdArrangementExtendableSettings(groupings, sections, tokens);
   }
 
   private static StdArrangementSettings emptySettings() {
-    return new StdArrangementSettings(ContainerUtil.<ArrangementGroupingRule>emptyList(), ContainerUtil.<ArrangementSectionRule>emptyList());
+    return new StdArrangementSettings(ContainerUtil.emptyList(), ContainerUtil.emptyList());
   }
 
   private static StdArrangementRuleAliasToken visibilityToken() {
-    final ArrayList<StdArrangementMatchRule> rules = new ArrayList<StdArrangementMatchRule>();
+    final ArrayList<StdArrangementMatchRule> rules = new ArrayList<>();
     rules.add(rule(false, PUBLIC));
     rules.add(rule(false, PROTECTED));
     rules.add(rule(false, PRIVATE));
@@ -109,7 +91,7 @@ public class ArrangementSettingsSerializationTest {
   }
 
   private static StdArrangementRuleAliasToken modifiersToken() {
-    final ArrayList<StdArrangementMatchRule> rules = new ArrayList<StdArrangementMatchRule>();
+    final ArrayList<StdArrangementMatchRule> rules = new ArrayList<>();
     rules.add(rule(false, PUBLIC, STATIC));
     rules.add(rule(false, PROTECTED, STATIC));
     rules.add(rule(false, PRIVATE, STATIC));
@@ -176,7 +158,7 @@ public class ArrangementSettingsSerializationTest {
   }
 
   @Test
-  public void testEmptyGroupings() throws Exception {
+  public void testEmptyGroupings() {
     final StdArrangementSettings settings = new StdArrangementSettings();
     final ArrangementAtomMatchCondition condition = new ArrangementAtomMatchCondition(FIELD);
     settings.addRule(new StdArrangementMatchRule(new StdArrangementEntryMatcher(condition), BY_NAME));
@@ -192,7 +174,7 @@ public class ArrangementSettingsSerializationTest {
   }
 
   @Test
-  public void testEmptyRules() throws Exception {
+  public void testEmptyRules() {
     final StdArrangementSettings settings = new StdArrangementSettings();
     settings.addGrouping(new ArrangementGroupingRule(OVERRIDDEN_METHODS, BY_NAME));
 
@@ -439,7 +421,7 @@ public class ArrangementSettingsSerializationTest {
 
   private static class TestArrangementSettingsSerializer extends DefaultArrangementSettingsSerializer {
 
-    public TestArrangementSettingsSerializer(@NotNull StdArrangementSettings defaultSettings) {
+    TestArrangementSettingsSerializer(@NotNull StdArrangementSettings defaultSettings) {
       super(defaultSettings);
     }
   }

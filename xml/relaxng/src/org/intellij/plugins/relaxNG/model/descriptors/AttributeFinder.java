@@ -17,24 +17,24 @@
 package org.intellij.plugins.relaxNG.model.descriptors;
 
 import com.intellij.openapi.util.Pair;
-import gnu.trove.THashMap;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NotNull;
 import org.kohsuke.rngom.digested.*;
+import org.kohsuke.rngom.nc.NameClass;
 
 import javax.xml.namespace.QName;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
-/**
- * Created by IntelliJ IDEA.
-* User: sweinreuter
-* Date: 30.07.2007
-*/
-class AttributeFinder extends RecursionSaveWalker {
+final class AttributeFinder extends RecursionSaveWalker {
+
+  private static final String STAR_PATTERN_SUFFIX = "__star__";
+
   private int depth;
   private int optional;
   private final QName myQname;
-  private final Map<DAttributePattern, Pair<? extends Map<String, String>, Boolean>> myAttributes =
-          new THashMap<DAttributePattern, Pair<? extends Map<String, String>, Boolean>>();
+  private final Map<DAttributePattern, Pair<? extends Map<String, String>, Boolean>> myAttributes = new LinkedHashMap<>();
   private DAttributePattern myLastAttr;
 
   private AttributeFinder() {
@@ -55,7 +55,8 @@ class AttributeFinder extends RecursionSaveWalker {
         return super.onElement(p);
       }
       return null;
-    } finally {
+    }
+    finally {
       depth--;
     }
   }
@@ -64,10 +65,11 @@ class AttributeFinder extends RecursionSaveWalker {
   public Void onAttribute(DAttributePattern p) {
     assert depth > 0;
 
-    if (depth == 1 && (myQname == null || p.getName().contains(myQname))) {
+    if (depth == 1 && ((myQname == null && !hasStarPattern(p.getName()))
+                       || (myQname != null && (p.getName().contains(myQname) || hasStarMatch(p.getName(), myQname))))) {
       myLastAttr = p;
       if (!myAttributes.containsKey(p)) {
-        myAttributes.put(p, Pair.create(new LinkedHashMap<String, String>(), optional > 0));
+        myAttributes.put(p, Pair.create(new LinkedHashMap<>(), optional > 0));
       }
       return super.onAttribute(p);
     }
@@ -87,7 +89,8 @@ class AttributeFinder extends RecursionSaveWalker {
     optional++;
     try {
       return super.onOptional(p);
-    } finally {
+    }
+    finally {
       optional--;
     }
   }
@@ -97,7 +100,8 @@ class AttributeFinder extends RecursionSaveWalker {
     optional++;
     try {
       return super.onZeroOrMore(p);
-    } finally {
+    }
+    finally {
       optional--;
     }
   }
@@ -107,7 +111,8 @@ class AttributeFinder extends RecursionSaveWalker {
     optional++;
     try {
       return super.onChoice(p);
-    } finally {
+    }
+    finally {
       optional--;
     }
   }
@@ -130,5 +135,23 @@ class AttributeFinder extends RecursionSaveWalker {
     final AttributeFinder finder = new AttributeFinder();
     finder.doAccept(patterns);
     return finder.myAttributes;
+  }
+
+  private static boolean hasStarPattern(@NotNull NameClass patternClass) {
+    return !patternClass.isOpen() && ContainerUtil.find(patternClass.listNames(), pattern ->
+      pattern.getLocalPart().endsWith(STAR_PATTERN_SUFFIX)) != null;
+  }
+
+  private static boolean hasStarMatch(@NotNull NameClass patternClass, @NotNull QName qname) {
+    return !patternClass.isOpen() && ContainerUtil.find(patternClass.listNames(), pattern -> {
+      String patternLocal = pattern.getLocalPart();
+      if (patternLocal.endsWith(STAR_PATTERN_SUFFIX)
+          && Objects.equals(qname.getNamespaceURI(), pattern.getNamespaceURI())) {
+        String prefixPattern = patternLocal.substring(0, patternLocal.length() - STAR_PATTERN_SUFFIX.length());
+        String name = qname.getLocalPart();
+        return name.length() > prefixPattern.length() && name.startsWith(prefixPattern);
+      }
+      return false;
+    }) != null;
   }
 }

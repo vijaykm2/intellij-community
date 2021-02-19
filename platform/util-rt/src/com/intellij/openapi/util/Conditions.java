@@ -1,56 +1,78 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.util;
 
 import com.intellij.reference.SoftReference;
-import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.Function;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.Map;
 
-/**
- * @author max
- */
-public class Conditions {
-  private Conditions() {
-  }
+public final class Conditions {
+  private Conditions() { }
+  /**
+   * @deprecated use {@link #alwaysTrue()} instead
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public static final Condition<Object> TRUE = alwaysTrue();
 
   @NotNull
   public static <T> Condition<T> alwaysTrue() {
-    return (Condition<T>)TRUE;
+    //noinspection unchecked,deprecation
+    return (Condition<T>)Condition.TRUE;
   }
 
   @NotNull
   public static <T> Condition<T> alwaysFalse() {
-    return (Condition<T>)FALSE;
+    //noinspection unchecked,deprecation
+    return (Condition<T>)Condition.FALSE;
   }
 
-  public static <T> Condition<T> instanceOf(final Class<?> clazz) {
+  @NotNull
+  public static <T> Condition<T> notNull() {
+    //noinspection unchecked,deprecation
+    return (Condition<T>)Condition.NOT_NULL;
+  }
+
+  @NotNull
+  public static <T> Condition<T> constant(boolean value) {
+    return value ? Conditions.<T>alwaysTrue() : Conditions.<T>alwaysFalse();
+  }
+
+  @NotNull
+  public static <T> Condition<T> instanceOf(@NotNull final Class<?> clazz) {
     return new Condition<T>() {
-      @Override
       public boolean value(T t) {
         return clazz.isInstance(t);
       }
     };
   }
 
-  public static <T> Condition<T> instanceOf(final Class<?>... clazz) {
+  @NotNull
+  public static <T> Condition<T> notInstanceOf(@NotNull final Class<?> clazz) {
     return new Condition<T>() {
-      @Override
+      public boolean value(T t) {
+        return !clazz.isInstance(t);
+      }
+    };
+  }
+
+  @NotNull
+  public static Condition<Class<?>> assignableTo(@NotNull final Class<?> clazz) {
+    return new Condition<Class<?>>() {
+      public boolean value(Class<?> t) {
+        return clazz.isAssignableFrom(t);
+      }
+    };
+  }
+
+  @NotNull
+  public static <T> Condition<T> instanceOf(@NotNull final Class<?>... clazz) {
+    return new Condition<T>() {
       public boolean value(T t) {
         for (Class<?> aClass : clazz) {
           if (aClass.isInstance(t)) return true;
@@ -60,129 +82,152 @@ public class Conditions {
     };
   }
 
+  @NotNull
   public static <T> Condition<T> is(final T option) {
+    return equalTo(option);
+  }
+
+  @NotNull
+  public static <T> Condition<T> equalTo(final Object option) {
     return new Condition<T>() {
-      @Override
       public boolean value(T t) {
         return Comparing.equal(t, option);
       }
     };
   }
 
-  public static <T> Condition<T> oneOf(final T... options) {
+  @NotNull
+  public static <T> Condition<T> notEqualTo(final Object option) {
     return new Condition<T>() {
-      @Override
       public boolean value(T t) {
-        return ArrayUtilRt.find(options, t) >= 0;
+        return !Comparing.equal(t, option);
       }
     };
   }
 
-  public static <T> Condition<T> oneOf(final Iterable<? extends T> options) {
+  @NotNull
+  public static <T> Condition<T> oneOf(@NotNull T... options) {
+    return oneOf(Arrays.asList(options));
+  }
+
+  @NotNull
+  public static <T> Condition<T> oneOf(@NotNull final Collection<? extends T> options) {
     return new Condition<T>() {
-      @Override
       public boolean value(T t) {
-        for (T option : options) {
-          if (Comparing.equal(option, t)) return true;
-        }
-        return false;
+        return options.contains(t);
       }
     };
   }
 
-  public static <T> Condition<T> not(Condition<T> c) {
+  @NotNull
+  public static <T> Condition<T> not(@NotNull Condition<? super T> c) {
+    if (c == alwaysTrue()) return alwaysFalse();
+    if (c == alwaysFalse()) return alwaysTrue();
+    if (c instanceof Not) {
+      //noinspection unchecked
+      return (Condition<T>)((Not<T>)c).c;
+    }
     return new Not<T>(c);
   }
 
-  public static <T> Condition<T> and(Condition<T> c1, Condition<T> c2) {
+  @NotNull
+  public static <T> Condition<T> and(@NotNull Condition<? super T> c1, @NotNull Condition<? super T> c2) {
+    return and2(c1, c2);
+  }
+
+  @NotNull
+  public static <T> Condition<T> and2(@NotNull Condition<? super T> c1, @NotNull Condition<? super T> c2) {
+    if (c1 == alwaysTrue() || c2 == alwaysFalse()) {
+      //noinspection unchecked
+      return (Condition<T>)c2;
+    }
+    if (c2 == alwaysTrue() || c1 == alwaysFalse()) {
+      //noinspection unchecked
+      return (Condition<T>)c1;
+    }
     return new And<T>(c1, c2);
   }
 
-  public static <T> Condition<T> and2(Condition<? super T> c1, Condition<? super T> c2) {
-    if (c1 == alwaysTrue() || c2 == alwaysFalse()) return (Condition<T>)c2;
-    if (c2 == alwaysTrue() || c1 == alwaysFalse()) return (Condition<T>)c1;
-    return new And<T>(c1, c2);
+  @NotNull
+  public static <T> Condition<T> or(@NotNull Condition<? super T> c1, @NotNull Condition<? super T> c2) {
+    return or2(c1, c2);
   }
 
-  public static <T> Condition<T> or(Condition<T> c1, Condition<T> c2) {
+  @NotNull
+  public static <T> Condition<T> or2(@NotNull Condition<? super T> c1, @NotNull Condition<? super T> c2) {
+    if (c1 == alwaysFalse()|| c2 == alwaysTrue()) {
+      //noinspection unchecked
+      return (Condition<T>)c2;
+    }
+    if (c2 == alwaysFalse() || c1 == alwaysTrue()) {
+      //noinspection unchecked
+      return (Condition<T>)c1;
+    }
     return new Or<T>(c1, c2);
   }
 
-  public static <T> Condition<T> or2(Condition<? super T> c1, Condition<? super T> c2) {
-    if (c1 == alwaysFalse() || c2 == alwaysTrue()) return (Condition<T>)c2;
-    if (c2 == alwaysFalse() || c1 == alwaysFalse()) return (Condition<T>)c1;
-    return new Or<T>(c1, c2);
+  @NotNull
+  public static <A, B> Condition<A> compose(@NotNull final Function<? super A, B> fun, @NotNull final Condition<? super B> condition) {
+    return new Condition<A>() {
+      public boolean value(A o) {
+        return condition.value(fun.fun(o));
+      }
+    };
   }
 
-  public static <T> Condition<T> cached(Condition<T> c) {
+  @NotNull
+  public static <T> Condition<T> cached(@NotNull Condition<? super T> c) {
     return new SoftRefCache<T>(c);
   }
 
   private static class Not<T> implements Condition<T> {
-    private final Condition<T> myCondition;
+    final Condition<? super T> c;
 
-    public Not(Condition<T> condition) {
-      myCondition = condition;
+    Not(@NotNull Condition<? super T> c) {
+      this.c = c;
     }
 
-    @Override
     public boolean value(T value) {
-      return !myCondition.value(value);
+      return !c.value(value);
     }
   }
 
   private static class And<T> implements Condition<T> {
-    private final Condition<? super T> t1;
-    private final Condition<? super T> t2;
+    final Condition<? super T> c1;
+    final Condition<? super T> c2;
 
-    public And(Condition<? super T> t1, Condition<? super T> t2) {
-      this.t1 = t1;
-      this.t2 = t2;
+    And(@NotNull Condition<? super T> c1, @NotNull Condition<? super T> c2) {
+      this.c1 = c1;
+      this.c2 = c2;
     }
 
-    @Override
-    public boolean value(final T object) {
-      return t1.value(object) && t2.value(object);
+    public boolean value(T object) {
+      return c1.value(object) && c2.value(object);
     }
   }
 
   private static class Or<T> implements Condition<T> {
-    private final Condition<? super T> t1;
-    private final Condition<? super T> t2;
+    final Condition<? super T> c1;
+    final Condition<? super T> c2;
 
-    public Or(Condition<? super T> t1, Condition<? super T> t2) {
-      this.t1 = t1;
-      this.t2 = t2;
+    Or(@NotNull Condition<? super T> c1, @NotNull Condition<? super T> c2) {
+      this.c1 = c1;
+      this.c2 = c2;
     }
 
-    @Override
-    public boolean value(final T object) {
-      return t1.value(object) || t2.value(object);
+    public boolean value(T object) {
+      return c1.value(object) || c2.value(object);
     }
   }
 
-  public static Condition<Object> TRUE = new Condition<Object>() {
-    @Override
-    public boolean value(final Object object) {
-      return true;
-    }
-  };
-  public static Condition<Object> FALSE = new Condition<Object>() {
-    @Override
-    public boolean value(final Object object) {
-      return false;
-    }
-  };
-
   private static class SoftRefCache<T> implements Condition<T> {
-    private final HashMap<Integer, Pair<SoftReference<T>, Boolean>> myCache = new HashMap<Integer, Pair<SoftReference<T>, Boolean>>();
-    private final Condition<T> myCondition;
+    private final Map<Integer, Pair<SoftReference<T>, Boolean>> myCache = new HashMap<Integer, Pair<SoftReference<T>, Boolean>>();
+    private final Condition<? super T> myCondition;
 
-    public SoftRefCache(Condition<T> condition) {
+    SoftRefCache(@NotNull Condition<? super T> condition) {
       myCondition = condition;
     }
 
-    @Override
     public final boolean value(T object) {
       final int key = object.hashCode();
       final Pair<SoftReference<T>, Boolean> entry = myCache.get(key);
@@ -191,9 +236,7 @@ public class Conditions {
         myCache.put(key, Pair.create(new SoftReference<T>(object), value));
         return value;
       }
-      else {
-        return entry.second;
-      }
+      return entry.second;
     }
   }
 }

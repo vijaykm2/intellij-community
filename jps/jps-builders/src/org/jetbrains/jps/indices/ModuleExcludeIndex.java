@@ -22,14 +22,19 @@ import java.util.Collection;
 
 /**
  * Allows to check whether a particular file is in the content or under an exclude root of a module.
- *
- * @author nik
  */
 public interface ModuleExcludeIndex {
   /**
-   * Checks if the specified file is under an exclude root of a module.
+   * Returns {@code true} if the specified file is located under project roots but the file itself or one of its parent directories is
+   * excluded from the corresponding module.
    */
   boolean isExcluded(File file);
+
+  /**
+   * Returns {@code true} if the specified file is located under content roots of the module but the file itself or one of its parent
+   * directories is excluded.
+   */
+  boolean isExcludedFromModule(File file, JpsModule module);
 
   /**
    * Returns the list of exclude roots for a specified module.

@@ -15,11 +15,9 @@
  */
 package com.intellij.ui;
 
-import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.psi.PsiElement;
 import com.intellij.ui.components.JBList;
 import com.intellij.ui.popup.HintUpdateSupply;
-import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -27,17 +25,13 @@ import java.util.Collection;
 
 /**
  * @author pegov
- * @deprecated
- * @see com.intellij.ui.popup.HintUpdateSupply
+ * @deprecated use HintUpdateSupply directly
+ * @see HintUpdateSupply
  */
+@Deprecated
 public abstract class JBListWithHintProvider extends JBList {
   {
-    new HintUpdateSupply(this) {
-      @Override
-      protected PsiElement getPsiElementForHint(Object selectedValue) {
-        return JBListWithHintProvider.this.getPsiElementForHint(selectedValue);
-      }
-    };
+    HintUpdateSupply.installHintUpdateSupply(this, o -> getPsiElementForHint(o));
   }
 
   public JBListWithHintProvider() {
@@ -57,20 +51,4 @@ public abstract class JBListWithHintProvider extends JBList {
   
   @Nullable
   protected abstract PsiElement getPsiElementForHint(final Object selectedValue);
-
-  @Deprecated
-  public void registerHint(JBPopup hint) {
-    ObjectUtils.assertNotNull(HintUpdateSupply.getSupply(this)).registerHint(hint);
-  }
-
-  @Deprecated
-  public void hideHint() {
-    ObjectUtils.assertNotNull(HintUpdateSupply.getSupply(this)).hideHint();
-  }
-
-  @Deprecated
-  public void updateHint(PsiElement element) {
-    ObjectUtils.assertNotNull(HintUpdateSupply.getSupply(this)).updateHint(element);
-  }
-
 }

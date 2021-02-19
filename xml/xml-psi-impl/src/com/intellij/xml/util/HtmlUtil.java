@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.util;
 
 import com.intellij.codeInspection.InspectionProfile;
@@ -23,10 +9,13 @@ import com.intellij.javaee.ExternalResourceManagerEx;
 import com.intellij.lang.Language;
 import com.intellij.lang.html.HTMLLanguage;
 import com.intellij.lang.xhtml.XHTMLLanguage;
+import com.intellij.lang.xml.XMLLanguage;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.XmlTypedHandlersAdditionalSupport;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.registry.RegistryValue;
@@ -37,30 +26,22 @@ import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.FileViewProvider;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.XmlRecursiveElementWalkingVisitor;
 import com.intellij.psi.html.HtmlTag;
 import com.intellij.psi.impl.source.html.HtmlDocumentImpl;
-import com.intellij.psi.impl.source.html.dtd.HtmlAttributeDescriptorImpl;
 import com.intellij.psi.impl.source.parsing.xml.HtmlBuilderDriver;
 import com.intellij.psi.impl.source.parsing.xml.XmlBuilder;
+import com.intellij.psi.impl.source.tree.CompositeElement;
+import com.intellij.psi.templateLanguages.OuterLanguageElement;
 import com.intellij.psi.templateLanguages.TemplateLanguageFileViewProvider;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.*;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.xml.Html5SchemaProvider;
-import com.intellij.xml.XmlAttributeDescriptor;
-import com.intellij.xml.XmlElementDescriptor;
-import com.intellij.xml.XmlNSDescriptor;
+import com.intellij.xml.*;
 import com.intellij.xml.impl.schema.XmlAttributeDescriptorImpl;
 import com.intellij.xml.impl.schema.XmlElementDescriptorImpl;
-import com.intellij.xml.util.documentation.HtmlDescriptorsTable;
-import com.intellij.xml.util.documentation.MimeTypeDictionary;
-import gnu.trove.THashMap;
-import gnu.trove.THashSet;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
+import org.jetbrains.annotations.*;
 
 import java.nio.charset.Charset;
 import java.util.*;
@@ -68,27 +49,31 @@ import java.util.*;
 /**
  * @author Maxim.Mossienko
  */
-public class HtmlUtil {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.xml.util.HtmlUtil");
+public final class HtmlUtil {
+  private static final Logger LOG = Logger.getInstance(HtmlUtil.class);
 
   @NonNls private static final String JSFC = "jsfc";
   @NonNls private static final String CHARSET = "charset";
-  @NonNls private static final String CHARSET_PREFIX = CHARSET+"=";
-  @NonNls private static final String HTML5_DATA_ATTR_PREFIX = "data-";
+  @NonNls private static final String CHARSET_PREFIX = CHARSET + "=";
+  @NonNls public static final String HTML5_DATA_ATTR_PREFIX = "data-";
 
-  public static final String SCRIPT_TAG_NAME = "script";
-  public static final String STYLE_TAG_NAME = "style";
+  @NlsSafe public static final String SCRIPT_TAG_NAME = "script";
+  @NlsSafe public static final String STYLE_TAG_NAME = "style";
+  @NlsSafe public static final String TEMPLATE_TAG_NAME = "template";
+  @NlsSafe public static final String TEXTAREA_TAG_NAME = "textarea";
+  @NlsSafe public static final String TITLE_TAG_NAME = "title";
 
-  public static final String STYLE_ATTRIBUTE_NAME = STYLE_TAG_NAME;
-  public static final String ID_ATTRIBUTE_NAME = "id";
-  public static final String CLASS_ATTRIBUTE_NAME = "class";
-
-  public static final String[] CONTENT_TYPES = ArrayUtil.toStringArray(MimeTypeDictionary.getContentTypes());
+  @NlsSafe public static final String STYLE_ATTRIBUTE_NAME = STYLE_TAG_NAME;
+  @NlsSafe public static final String SRC_ATTRIBUTE_NAME = "src";
+  @NlsSafe public static final String ID_ATTRIBUTE_NAME = "id";
+  @NlsSafe public static final String CLASS_ATTRIBUTE_NAME = "class";
+  @NlsSafe public static final String TYPE_ATTRIBUTE_NAME = "type";
+  @NlsSafe public static final String LANGUAGE_ATTRIBUTE_NAME = "language";
 
   @NonNls public static final String MATH_ML_NAMESPACE = "http://www.w3.org/1998/Math/MathML";
   @NonNls public static final String SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
-  public static final String[] RFC2616_HEADERS = new String[]{"Accept", "Accept-Charset", "Accept-Encoding", "Accept-Language",
+  public static final String[] RFC2616_HEADERS = {"Accept", "Accept-Charset", "Accept-Encoding", "Accept-Language",
     "Accept-Ranges", "Age", "Allow", "Authorization", "Cache-Control", "Connection", "Content-Encoding", "Content-Language",
     "Content-Length", "Content-Location", "Content-MD5", "Content-Range", "Content-Type", "Date", "ETag", "Expect", "Expires", "From",
     "Host", "If-Match", "If-Modified-Since", "If-None-Match", "If-Range", "If-Unmodified-Since", "Last-Modified", "Location",
@@ -98,60 +83,58 @@ public class HtmlUtil {
   private HtmlUtil() {
   }
 
-  private static final Set<String> EMPTY_TAGS_MAP = new THashSet<String>();
-  @NonNls private static final String[] OPTIONAL_END_TAGS = {
+  private static final Set<String> EMPTY_TAGS_MAP = new HashSet<>();
+  private static final Set<String> OPTIONAL_END_TAGS_MAP = ContainerUtil.set(
     //"html",
     "head",
     //"body",
-    "p", "li", "dd", "dt", "thead", "tfoot", "tbody", "colgroup", "tr", "th", "td", "option", "embed", "noembed"
-  };
-  private static final Set<String> OPTIONAL_END_TAGS_MAP = new THashSet<String>();
+    "p", "li", "dd", "dt", "thead", "tfoot", "tbody", "colgroup", "tr", "th", "td", "option", "embed", "noembed",
+    "caption"
+  );
 
-  @NonNls private static final String[] BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "dir", "menu", "pre",
-    "dl", "div", "center", "noscript", "noframes", "blockquote", "form", "isindex", "hr", "table", "fieldset", "address",
-    // nonexplicitly specified
-    "map",
-    // flow elements
-    "body", "object", "applet", "ins", "del", "dd", "li", "button", "th", "td", "iframe", "comment", "nobr"
-  };
+  private static final Set<String> BLOCK_TAGS_MAP =
+    ContainerUtil.set("p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "dir", "menu", "pre",
+                      "dl", "div", "center", "noscript", "noframes", "blockquote", "form", "isindex", "hr", "table", "fieldset", "address",
+                      // nonexplicitly specified
+                      "map",
+                      // flow elements
+                      "body", "object", "applet", "ins", "del", "dd", "li", "button", "th", "td", "iframe", "comment");
 
   // flow elements are block or inline, so they should not close <p> for example
-  @NonNls private static final String[] POSSIBLY_INLINE_TAGS =
-    {"a", "abbr", "acronym", "applet", "b", "basefont", "bdo", "big", "br", "button",
-      "cite", "code", "del", "dfn", "em", "font", "i", "iframe", "img", "input", "ins",
-      "kbd", "label", "map", "object", "q", "s", "samp", "select", "small", "span", "strike",
-      "strong", "sub", "sup", "textarea", "tt", "u", "var"};
+  private static final Set<String> POSSIBLY_INLINE_TAGS_MAP =
+    ContainerUtil.set("a", "abbr", "acronym", "applet", "b", "basefont", "bdo", "big", "br", "button",
+                      "cite", "code", "del", "dfn", "em", "font", "i", "iframe", "img", "input", "ins",
+                      "kbd", "label", "map", "object", "q", "s", "samp", "select", "small", "span", "strike",
+                      "strong", "sub", "sup", "textarea", "tt", "u", "var");
 
-  private static final Set<String> BLOCK_TAGS_MAP = new THashSet<String>();
+  private static final Set<String> INLINE_ELEMENTS_CONTAINER_MAP = ContainerUtil.set("p", "h1", "h2", "h3", "h4", "h5", "h6", "pre");
 
-  @NonNls private static final String[] INLINE_ELEMENTS_CONTAINER = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "pre", "dt"};
-  private static final Set<String> INLINE_ELEMENTS_CONTAINER_MAP = new THashSet<String>();
-  
-  private static final Set<String> POSSIBLY_INLINE_TAGS_MAP = new THashSet<String>();
-
-  @NonNls private static final String[] HTML5_TAGS = {
-    "article", "aside", "audio", "canvas", "command", "datalist", "details", "embed", "figcaption", "figure", "footer", "header",
-    "keygen", "mark", "meter", "nav", "output", "progress", "rp", "rt", "ruby", "section", "source", "summary", "time", "video", "wbr",
-    "main"
-  };
-  private static final Set<String> HTML5_TAGS_SET = new THashSet<String>();
-  private static final Map<String, Set<String>> AUTO_CLOSE_BY_MAP = new THashMap<String, Set<String>>();
+  private static final Set<String> HTML5_TAGS_SET = ContainerUtil.set("article", "aside", "audio", "canvas", "command", "datalist",
+                                                                      "details", "embed", "figcaption", "figure", "footer", "header",
+                                                                      "keygen", "mark", "meter", "nav", "output", "progress", "rp", "rt",
+                                                                      "ruby", "section", "source", "summary", "time", "video", "wbr",
+                                                                      "main"
+  );
+  private static final Map<String, Set<String>> AUTO_CLOSE_BY_MAP = new HashMap<>();
 
   static {
     for (HTMLControls.Control control : HTMLControls.getControls()) {
-      final String tagName = control.name.toLowerCase(Locale.US);
+      final String tagName = StringUtil.toLowerCase(control.name);
       if (control.endTag == HTMLControls.TagState.FORBIDDEN) EMPTY_TAGS_MAP.add(tagName);
-      AUTO_CLOSE_BY_MAP.put(tagName, new THashSet<String>(control.autoClosedBy));
+      AUTO_CLOSE_BY_MAP.put(tagName, new HashSet<>(control.autoClosedBy));
     }
-    ContainerUtil.addAll(OPTIONAL_END_TAGS_MAP, OPTIONAL_END_TAGS);
-    ContainerUtil.addAll(BLOCK_TAGS_MAP, BLOCK_TAGS);
-    ContainerUtil.addAll(INLINE_ELEMENTS_CONTAINER_MAP, INLINE_ELEMENTS_CONTAINER);
-    ContainerUtil.addAll(POSSIBLY_INLINE_TAGS_MAP, POSSIBLY_INLINE_TAGS);
-    ContainerUtil.addAll(HTML5_TAGS_SET, HTML5_TAGS);
+  }
+
+  public static boolean isSingleHtmlTag(@NotNull XmlTag tag, boolean lowerCase) {
+    final XmlExtension extension = XmlExtension.getExtensionByElement(tag);
+    final String name = tag.getName();
+    boolean result = EMPTY_TAGS_MAP.contains(!lowerCase || tag.isCaseSensitive()
+                                             ? name : StringUtil.toLowerCase(name));
+    return result && (extension == null || !extension.isSingleTagException(tag));
   }
 
   public static boolean isSingleHtmlTag(String tagName) {
-    return EMPTY_TAGS_MAP.contains(tagName.toLowerCase(Locale.US));
+    return EMPTY_TAGS_MAP.contains(StringUtil.toLowerCase(tagName));
   }
 
   public static boolean isSingleHtmlTagL(String tagName) {
@@ -159,7 +142,7 @@ public class HtmlUtil {
   }
 
   public static boolean isOptionalEndForHtmlTag(String tagName) {
-    return OPTIONAL_END_TAGS_MAP.contains(tagName.toLowerCase(Locale.US));
+    return OPTIONAL_END_TAGS_MAP.contains(StringUtil.toLowerCase(tagName));
   }
 
   public static boolean isOptionalEndForHtmlTagL(String tagName) {
@@ -172,7 +155,7 @@ public class HtmlUtil {
   }
 
   public static boolean isHtmlBlockTag(String tagName) {
-    return BLOCK_TAGS_MAP.contains(tagName.toLowerCase(Locale.US));
+    return BLOCK_TAGS_MAP.contains(StringUtil.toLowerCase(tagName));
   }
 
   public static boolean isPossiblyInlineTag(String tagName) {
@@ -184,7 +167,7 @@ public class HtmlUtil {
   }
 
   public static boolean isInlineTagContainer(String tagName) {
-    return INLINE_ELEMENTS_CONTAINER_MAP.contains(tagName.toLowerCase(Locale.US));
+    return INLINE_ELEMENTS_CONTAINER_MAP.contains(StringUtil.toLowerCase(tagName));
   }
 
   public static boolean isInlineTagContainerL(String tagName) {
@@ -193,12 +176,16 @@ public class HtmlUtil {
 
   public static void addHtmlSpecificCompletions(final XmlElementDescriptor descriptor,
                                                 final XmlTag element,
-                                                final List<XmlElementDescriptor> variants) {
+                                                final List<? super XmlElementDescriptor> variants) {
     // add html block completions for tags with optional ends!
     String name = descriptor.getName(element);
 
     if (name != null && isOptionalEndForHtmlTag(name)) {
       PsiElement parent = element.getParent();
+
+      if (parent instanceof XmlTag && XmlChildRole.CLOSING_TAG_START_FINDER.findChild(parent.getNode()) != null) {
+        return;
+      }
 
       if (parent != null) {
         // we need grand parent since completion already uses parent's descriptor
@@ -215,7 +202,8 @@ public class HtmlUtil {
             }
           }
         }
-      } else if (parent instanceof HtmlDocumentImpl) {
+      }
+      else if (parent instanceof HtmlDocumentImpl) {
         final XmlNSDescriptor nsDescriptor = descriptor.getNSDescriptor();
         for (XmlElementDescriptor elementDescriptor : nsDescriptor.getRootElementsDescriptors((XmlDocument)parent)) {
           if (isHtmlBlockTag(elementDescriptor.getName()) && !variants.contains(elementDescriptor)) {
@@ -231,14 +219,10 @@ public class HtmlUtil {
     return HtmlPsiUtil.getRealXmlDocument(doc);
   }
 
-  public static String[] getHtmlTagNames() {
-    return HtmlDescriptorsTable.getHtmlTagNames();
-  }
-  
   public static boolean isShortNotationOfBooleanAttributePreferred() {
     return Registry.is("html.prefer.short.notation.of.boolean.attributes", true);
   }
-  
+
   @TestOnly
   public static void setShortNotationOfBooleanAttributeIsPreferred(boolean value, Disposable parent) {
     final boolean oldValue = isShortNotationOfBooleanAttributePreferred();
@@ -253,7 +237,7 @@ public class HtmlUtil {
   }
 
   public static boolean isBooleanAttribute(@NotNull XmlAttributeDescriptor descriptor, @Nullable PsiElement context) {
-    if (descriptor instanceof HtmlAttributeDescriptorImpl && descriptor.isEnumerated()) {
+    if (descriptor.isEnumerated()) {
       final String[] values = descriptor.getEnumeratedValues();
       if (values == null) {
         return false;
@@ -281,8 +265,8 @@ public class HtmlUtil {
     }
     return false;
   }
-  
-  public static XmlAttributeDescriptor[] getCustomAttributeDescriptors(XmlElement context) {
+
+  public static XmlAttributeDescriptor[] getCustomAttributeDescriptors(PsiElement context) {
     String entitiesString = getEntitiesString(context, XmlEntitiesInspection.ATTRIBUTE_SHORT_NAME);
     if (entitiesString == null) return XmlAttributeDescriptor.EMPTY;
 
@@ -292,7 +276,7 @@ public class HtmlUtil {
 
     while (tokenizer.hasMoreElements()) {
       final String customName = tokenizer.nextToken();
-      if (customName.length() == 0) continue;
+      if (customName.isEmpty()) continue;
 
       descriptors[index++] = new XmlAttributeDescriptorImpl() {
         @Override
@@ -320,24 +304,9 @@ public class HtmlUtil {
 
     while (tokenizer.hasMoreElements()) {
       final String tagName = tokenizer.nextToken();
-      if (tagName.length() == 0) continue;
+      if (tagName.isEmpty()) continue;
 
-      descriptors[index++] = new XmlElementDescriptorImpl(context instanceof XmlTag ? (XmlTag)context : null) {
-        @Override
-        public String getName(PsiElement context) {
-          return tagName;
-        }
-
-        @Override
-        public String getDefaultName() {
-          return tagName;
-        }
-
-        @Override
-        public boolean allowElementsFromNamespace(final String namespace, final XmlTag context) {
-          return true;
-        }
-      };
+      descriptors[index++] = new CustomXmlTagDescriptor(tagName);
     }
 
     return descriptors;
@@ -348,7 +317,7 @@ public class HtmlUtil {
     if (context == null) return null;
     PsiFile containingFile = context.getContainingFile().getOriginalFile();
 
-    final InspectionProfile profile = InspectionProjectProfileManager.getInstance(context.getProject()).getInspectionProfile();
+    final InspectionProfile profile = InspectionProjectProfileManager.getInstance(context.getProject()).getCurrentProfile();
     XmlEntitiesInspection inspection = (XmlEntitiesInspection)profile.getUnwrappedTool(inspectionName, containingFile);
     if (inspection != null) {
       return inspection.getAdditionalEntries();
@@ -404,21 +373,13 @@ public class HtmlUtil {
     }
     XmlProlog prolog = doc.getProlog();
     XmlDoctype doctype = prolog != null ? prolog.getDoctype() : null;
-    if (!isHtmlTagContainingFile(doc)) {
-      return false;
-    }
 
     final PsiFile htmlFile = doc.getContainingFile();
 
     final String htmlFileFullName;
     if (htmlFile != null) {
       final VirtualFile vFile = htmlFile.getVirtualFile();
-      if (vFile != null) {
-        htmlFileFullName = vFile.getPath();
-      }
-      else {
-        htmlFileFullName = htmlFile.getName();
-      }
+      htmlFileFullName = vFile == null ? htmlFile.getName() : vFile.getPath();
     }
     else {
       htmlFileFullName = "unknown";
@@ -426,7 +387,7 @@ public class HtmlUtil {
 
     if (doctype == null) {
       LOG.debug("DOCTYPE for " + htmlFileFullName + " is null");
-      return Html5SchemaProvider.getHtml5SchemaLocation()
+      return isHtmlTagContainingFile(doc) && Html5SchemaProvider.getHtml5SchemaLocation()
         .equals(ExternalResourceManagerEx.getInstanceEx().getDefaultHtmlDoctype(doc.getProject()));
     }
 
@@ -445,17 +406,21 @@ public class HtmlUtil {
 
   public static boolean isHtml5Context(XmlElement context) {
     XmlDocument doc = PsiTreeUtil.getParentOfType(context, XmlDocument.class);
+    if (doc == null && context != null) {
+      return Html5SchemaProvider.getHtml5SchemaLocation()
+        .equals(ExternalResourceManagerEx.getInstanceEx().getDefaultHtmlDoctype(context.getProject()));
+    }
     return isHtml5Document(doc);
   }
 
   public static boolean isHtmlTag(@NotNull XmlTag tag) {
-    if (tag.getLanguage() != HTMLLanguage.INSTANCE) return false;
+    if (!tag.getLanguage().isKindOf(HTMLLanguage.INSTANCE)) return false;
 
     XmlDocument doc = PsiTreeUtil.getParentOfType(tag, XmlDocument.class);
 
     String doctype = null;
     if (doc != null) {
-       doctype = XmlUtil.getDtdUri(doc);
+      doctype = XmlUtil.getDtdUri(doc);
     }
     doctype = doctype == null ? ExternalResourceManagerEx.getInstanceEx().getDefaultHtmlDoctype(tag.getProject()) : doctype;
     return XmlUtil.XHTML4_SCHEMA_LOCATION.equals(doctype) ||
@@ -494,7 +459,22 @@ public class HtmlUtil {
     final PsiElement declaration = descriptor.getDeclaration();
     final PsiFile file = declaration != null ? declaration.getContainingFile() : null;
     final String name = file != null ? file.getName() : null;
-    return "meta.rnc".equals(name);
+    return "meta.rnc".equals(name) || "web-forms.rnc".equals(name)
+           || "embed.rnc".equals(name) || "tables.rnc".equals(name)
+           || "media.rnc".equals(name);
+  }
+
+  public static boolean tagHasHtml5Schema(@NotNull XmlTag context) {
+    XmlElementDescriptor descriptor = context.getDescriptor();
+    XmlNSDescriptor nsDescriptor = descriptor != null ? descriptor.getNSDescriptor() : null;
+    return isHtml5Schema(nsDescriptor);
+  }
+
+  public static boolean isHtml5Schema(@Nullable XmlNSDescriptor nsDescriptor) {
+    XmlFile descriptorFile = nsDescriptor != null ? nsDescriptor.getDescriptorFile() : null;
+    String descriptorPath = descriptorFile != null ? descriptorFile.getVirtualFile().getPath() : null;
+    return Objects.equals(Html5SchemaProvider.getHtml5SchemaLocation(), descriptorPath) ||
+           Objects.equals(Html5SchemaProvider.getXhtml5SchemaLocation(), descriptorPath);
   }
 
   private static class TerminateException extends RuntimeException {
@@ -510,15 +490,16 @@ public class HtmlUtil {
       int charsetPrefixEnd = charPrefix + CHARSET.length();
       while (charsetPrefixEnd < content.length() && Character.isWhitespace(content.charAt(charsetPrefixEnd))) ++charsetPrefixEnd;
       if (charsetPrefixEnd < content.length() && content.charAt(charsetPrefixEnd) == '=') break;
-      charPrefix = StringUtil.indexOf(content,CHARSET, charsetPrefixEnd);
-    } while(true);
+      charPrefix = StringUtil.indexOf(content, CHARSET, charsetPrefixEnd);
+    }
+    while (true);
 
-    final Ref<String> charsetNameRef = new Ref<String>();
+    final Ref<String> charsetNameRef = new Ref<>();
     try {
       new HtmlBuilderDriver(content).build(new XmlBuilder() {
-        @NonNls final Set<String> inTag = new THashSet<String>();
-        boolean metHttpEquiv = false;
-        boolean metHttml5Charset = false;
+        @NonNls final Set<String> inTag = new HashSet<>();
+        boolean metHttpEquiv;
+        boolean metHtml5Charset;
 
         @Override
         public void doctype(@Nullable final CharSequence publicId,
@@ -528,9 +509,9 @@ public class HtmlUtil {
         }
 
         @Override
-        public ProcessingOrder startTag(final CharSequence localName, final String namespace, final int startoffset, final int endoffset,
+        public ProcessingOrder startTag(final CharSequence localName, final String namespace, final int startOffset, final int endOffset,
                                         final int headerEndOffset) {
-          @NonNls String name = localName.toString().toLowerCase();
+          @NonNls String name = StringUtil.toLowerCase(localName.toString());
           inTag.add(name);
           if (!inTag.contains("head") && !"html".equals(name)) terminate();
           return ProcessingOrder.TAGS_AND_ATTRIBUTES;
@@ -542,8 +523,8 @@ public class HtmlUtil {
 
         @Override
         public void endTag(final CharSequence localName, final String namespace, final int startoffset, final int endoffset) {
-          @NonNls final String name = localName.toString().toLowerCase();
-          if ("meta".equals(name) && (metHttpEquiv || metHttml5Charset) && contentAttributeValue != null) {
+          @NonNls final String name = StringUtil.toLowerCase(localName.toString());
+          if ("meta".equals(name) && (metHttpEquiv || metHtml5Charset) && contentAttributeValue != null) {
             String charsetName;
             if (metHttpEquiv) {
               int start = contentAttributeValue.indexOf(CHARSET_PREFIX);
@@ -552,7 +533,8 @@ public class HtmlUtil {
               int end = contentAttributeValue.indexOf(';', start);
               if (end == -1) end = contentAttributeValue.length();
               charsetName = contentAttributeValue.substring(start, end);
-            } else /*if (metHttml5Charset) */ {
+            }
+            else /*if (metHttml5Charset) */ {
               charsetName = StringUtil.stripQuotesAroundValue(contentAttributeValue);
             }
             charsetNameRef.set(charsetName);
@@ -563,7 +545,7 @@ public class HtmlUtil {
           }
           inTag.remove(name);
           metHttpEquiv = false;
-          metHttml5Charset = false;
+          metHtml5Charset = false;
           contentAttributeValue = null;
         }
 
@@ -571,13 +553,14 @@ public class HtmlUtil {
 
         @Override
         public void attribute(final CharSequence localName, final CharSequence v, final int startoffset, final int endoffset) {
-          @NonNls final String name = localName.toString().toLowerCase();
+          @NonNls final String name = StringUtil.toLowerCase(localName.toString());
           if (inTag.contains("meta")) {
-            @NonNls String value = v.toString().toLowerCase();
+            @NonNls String value = StringUtil.toLowerCase(v.toString());
             if (name.equals("http-equiv")) {
               metHttpEquiv |= value.equals("content-type");
-            } else if (name.equals(CHARSET)) {
-              metHttml5Charset = true;
+            }
+            else if (name.equals(CHARSET)) {
+              metHtml5Charset = true;
               contentAttributeValue = value;
             }
             if (name.equals("content")) {
@@ -595,7 +578,7 @@ public class HtmlUtil {
         }
 
         @Override
-        public void error(String message, int startOffset, int endOffset) {
+        public void error(@NotNull String message, int startOffset, int endOffset) {
         }
       });
     }
@@ -611,11 +594,15 @@ public class HtmlUtil {
   }
 
   public static boolean isTagWithoutAttributes(@NonNls String tagName) {
-    return tagName != null && "br".equalsIgnoreCase(tagName);
+    return "br".equalsIgnoreCase(tagName);
   }
 
-  public static boolean hasHtml(PsiFile file) {
+  public static boolean hasHtml(@NotNull PsiFile file) {
     return isHtmlFile(file) || file.getViewProvider() instanceof TemplateLanguageFileViewProvider;
+  }
+
+  public static boolean supportsXmlTypedHandlers(@NotNull PsiFile file) {
+    return XmlTypedHandlersAdditionalSupport.supportsTypedHandlers(file);
   }
 
   public static boolean hasHtmlPrefix(@NotNull String url) {
@@ -627,7 +614,7 @@ public class HtmlUtil {
 
   public static boolean isHtmlFile(@NotNull PsiElement element) {
     Language language = element.getLanguage();
-    return language == HTMLLanguage.INSTANCE || language == XHTMLLanguage.INSTANCE;
+    return language.isKindOf(HTMLLanguage.INSTANCE) || language.isKindOf(XHTMLLanguage.INSTANCE);
   }
 
   public static boolean isHtmlFile(@NotNull VirtualFile file) {
@@ -665,5 +652,119 @@ public class HtmlUtil {
 
   public static boolean isScriptTag(@Nullable XmlTag tag) {
     return tag != null && tag.getLocalName().equalsIgnoreCase(SCRIPT_TAG_NAME);
+  }
+
+  public static class CustomXmlTagDescriptor extends XmlElementDescriptorImpl {
+    private final String myTagName;
+
+    CustomXmlTagDescriptor(String tagName) {
+      super(null);
+      myTagName = tagName;
+    }
+
+    @Override
+    public String getName(PsiElement context) {
+      return myTagName;
+    }
+
+    @Override
+    public String getDefaultName() {
+      return myTagName;
+    }
+
+    @Override
+    public boolean allowElementsFromNamespace(final String namespace, final XmlTag context) {
+      return true;
+    }
+  }
+
+  @NotNull
+  public static Iterable<String> splitClassNames(@Nullable String classAttributeValue) {
+    // comma is useduse as separator because class name cannot contain comma but it can be part of JSF classes attributes
+    return classAttributeValue != null ? StringUtil.tokenize(classAttributeValue, " \t,") : Collections.emptyList();
+  }
+
+  @Contract("!null -> !null")
+  public static @NlsSafe String getTagPresentation(@Nullable XmlTag tag) {
+    if (tag == null) return null;
+    StringBuilder builder = new StringBuilder(tag.getLocalName());
+    String idValue = getAttributeValue(tag, ID_ATTRIBUTE_NAME);
+    if (idValue != null) {
+      builder.append('#').append(idValue);
+    }
+    String classValue = getAttributeValue(tag, CLASS_ATTRIBUTE_NAME);
+    if (classValue != null) {
+      for (String className : splitClassNames(classValue)) {
+        builder.append('.').append(className);
+      }
+    }
+    return builder.toString();
+  }
+
+  @Nullable
+  private static String getAttributeValue(@NotNull XmlTag tag, @NotNull String attrName) {
+    XmlAttribute classAttribute = getAttributeByName(tag, attrName);
+    if (classAttribute != null && !containsOuterLanguageElements(classAttribute)) {
+      String value = classAttribute.getValue();
+      if (!StringUtil.isEmptyOrSpaces(value)) return value;
+    }
+    return null;
+  }
+
+  @Nullable
+  private static XmlAttribute getAttributeByName(@NotNull XmlTag tag, @NotNull String name) {
+    PsiElement child = tag.getFirstChild();
+    while (child != null) {
+      if (child instanceof XmlAttribute) {
+        PsiElement nameElement = child.getFirstChild();
+        if (nameElement != null &&
+            nameElement.getNode().getElementType() == XmlTokenType.XML_NAME &&
+            name.equalsIgnoreCase(nameElement.getText())) {
+          return (XmlAttribute)child;
+        }
+      }
+      child = child.getNextSibling();
+    }
+    return null;
+  }
+
+  private static boolean containsOuterLanguageElements(@NotNull PsiElement element) {
+    PsiElement child = element.getFirstChild();
+    while (child != null) {
+      if (child instanceof CompositeElement) {
+        return containsOuterLanguageElements(child);
+      }
+      if (child instanceof OuterLanguageElement) {
+        return true;
+      }
+      child = child.getNextSibling();
+    }
+    return false;
+  }
+
+  public static List<XmlAttributeValue> getIncludedPathsElements(@NotNull final XmlFile file) {
+    final List<XmlAttributeValue> result = new ArrayList<>();
+    file.acceptChildren(new XmlRecursiveElementWalkingVisitor() {
+      @Override
+      public void visitXmlTag(XmlTag tag) {
+        XmlAttribute attribute = null;
+        if ("link".equalsIgnoreCase(tag.getName())) {
+          attribute = tag.getAttribute("href");
+        }
+        else if ("script".equalsIgnoreCase(tag.getName()) || "img".equalsIgnoreCase(tag.getName())) {
+          attribute = tag.getAttribute("src");
+        }
+        if (attribute != null) result.add(attribute.getValueElement());
+        super.visitXmlTag(tag);
+      }
+
+      @Override
+      public void visitElement(@NotNull PsiElement element) {
+        if (element.getLanguage() instanceof XMLLanguage) {
+          super.visitElement(element);
+        }
+      }
+    });
+    return result.isEmpty() ? Collections.emptyList() : result;
   }
 }

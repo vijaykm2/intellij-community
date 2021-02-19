@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,24 +15,30 @@
  */
 package com.intellij.refactoring.wrapreturnvalue;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.PsiTypeParameter;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.codeStyle.VariableKind;
+import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
 class ReturnValueBeanBuilder {
-  private final List<PsiTypeParameter> myTypeParams = new ArrayList<PsiTypeParameter>();
-  private String myClassName = null;
-  private String myPackageName = null;
-  private Project myProject = null;
-  private PsiType myValueType = null;
+  private final List<PsiTypeParameter> myTypeParams = new ArrayList<>();
+  private String myClassName;
+  private String myPackageName;
+  private Project myProject;
+  private PsiFile myFile;
+  private PsiType myValueType;
   private boolean myStatic;
 
   public void setClassName(String className) {
@@ -43,13 +49,17 @@ class ReturnValueBeanBuilder {
     myPackageName = packageName;
   }
 
-  public void setTypeArguments(List<PsiTypeParameter> typeParams) {
+  public void setTypeArguments(List<? extends PsiTypeParameter> typeParams) {
     myTypeParams.clear();
     myTypeParams.addAll(typeParams);
   }
 
   public void setProject(Project project) {
     myProject = project;
+  }
+
+  public void setFile(@NotNull PsiFile file) {
+    myFile = file;
   }
 
   public void setValueType(PsiType valueType) {
@@ -61,7 +71,7 @@ class ReturnValueBeanBuilder {
   }
 
   public String buildBeanClass() throws IOException {
-    final StringBuilder out = new StringBuilder(1024);
+    final @NonNls StringBuilder out = new StringBuilder(1024);
 
     if (myPackageName.length() > 0) {
       out.append("package ").append(myPackageName).append(";\n\n");
@@ -95,18 +105,20 @@ class ReturnValueBeanBuilder {
     return out.toString();
   }
 
-  private void outputField(StringBuilder out) {
+  private void outputField(@NonNls StringBuilder out) {
     final String typeText = myValueType.getCanonicalText(false);
     out.append('\t' + "private final ").append(typeText).append(' ').append(getFieldName("value")).append(";");
   }
 
-  private void outputConstructor(StringBuilder out) {
+  private void outputConstructor(@NonNls StringBuilder out) {
     final String typeText = myValueType.getCanonicalText(true);
     final String name = "value";
     final String parameterName = JavaCodeStyleManager.getInstance(myProject).propertyNameToVariableName(name, VariableKind.PARAMETER);
     final String fieldName = getFieldName(name);
     out.append("\tpublic ").append(myClassName).append('(');
-    out.append(CodeStyleSettingsManager.getSettings(myProject).GENERATE_FINAL_PARAMETERS ? "final " : "");
+    out.append(
+      getSettings().getCustomSettings(JavaCodeStyleSettings.class).GENERATE_FINAL_PARAMETERS ?
+      "final " : "");
     out.append(typeText).append(' ').append(parameterName);
     out.append(") {\n");
     if (fieldName.equals(parameterName)) {
@@ -118,7 +130,11 @@ class ReturnValueBeanBuilder {
     out.append("\t}");
   }
 
-  private void outputGetter(StringBuilder out) {
+  private CodeStyleSettings getSettings() {
+    return myFile != null ? CodeStyle.getSettings(myFile) : CodeStyle.getProjectOrDefaultSettings(myProject);
+  }
+
+  private void outputGetter(@NonNls StringBuilder out) {
     final String typeText = myValueType.getCanonicalText(true);
     final String name = "value";
     final String capitalizedName = StringUtil.capitalize(name);

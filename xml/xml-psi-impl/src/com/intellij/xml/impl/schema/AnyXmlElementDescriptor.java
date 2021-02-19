@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,20 +14,11 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: mike
- * Date: Sep 30, 2002
- * Time: 8:55:08 PM
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.xml.impl.schema;
 
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.ArrayUtil;
 import com.intellij.xml.XmlAttributeDescriptor;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlElementsGroup;
@@ -72,11 +63,6 @@ public  class AnyXmlElementDescriptor implements XmlElementDescriptor {
   }
 
   @Override
-  public Object[] getDependences(){
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
-  }
-
-  @Override
   public String getQualifiedName() {
     return myParentDescriptor.getQualifiedName();
   }
@@ -98,7 +84,7 @@ public  class AnyXmlElementDescriptor implements XmlElementDescriptor {
 
   @Override
   public XmlAttributeDescriptor[] getAttributesDescriptors(final XmlTag context) {
-    return new XmlAttributeDescriptor[0];
+    return XmlAttributeDescriptor.EMPTY;
   }
 
   @Override

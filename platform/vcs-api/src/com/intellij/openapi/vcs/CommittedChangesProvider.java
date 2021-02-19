@@ -1,19 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs;
 
 import com.intellij.openapi.util.Pair;
@@ -26,35 +11,55 @@ import com.intellij.openapi.vcs.versionBrowser.ChangesBrowserSettingsEditor;
 import com.intellij.openapi.vcs.versionBrowser.CommittedChangeList;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.AsynchConsumer;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-/**
- * @author yole
- */
-public interface CommittedChangesProvider<T extends CommittedChangeList, U extends ChangeBrowserSettings> extends VcsProviderMarker {
+public interface CommittedChangesProvider<T extends CommittedChangeList, U extends ChangeBrowserSettings> {
   @NotNull
-  U createDefaultSettings();
-  ChangesBrowserSettingsEditor<U> createFilterUI(final boolean showDateFilter);
+  default U createDefaultSettings() {
+    //noinspection unchecked
+    return (U)new ChangeBrowserSettings();
+  }
+
+  @NotNull
+  ChangesBrowserSettingsEditor<U> createFilterUI(boolean showDateFilter);
 
   @Nullable
-  RepositoryLocation getLocationFor(FilePath root);
+  RepositoryLocation getLocationFor(@NotNull FilePath root);
+
+  /**
+   * @deprecated use {@link #getLocationFor(FilePath)}
+   */
+  @SuppressWarnings("unused")
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
   @Nullable
-  RepositoryLocation getLocationFor(final FilePath root, final String repositoryPath);
+  default RepositoryLocation getLocationFor(FilePath root, String repositoryPath) {
+    return getLocationFor(root);
+  }
 
   @Nullable
-  VcsCommittedListsZipper getZipper();
+  default VcsCommittedListsZipper getZipper() {
+    return null;
+  }
 
-  List<T> getCommittedChanges(U settings, RepositoryLocation location, final int maxCount) throws VcsException;
+  @NotNull
+  List<T> getCommittedChanges(U settings, RepositoryLocation location, int maxCount) throws VcsException;
 
-  void loadCommittedChanges(U settings, RepositoryLocation location, final int maxCount, final AsynchConsumer<CommittedChangeList> consumer) throws VcsException;
+  void loadCommittedChanges(U settings,
+                            @NotNull RepositoryLocation location,
+                            int maxCount,
+                            @NotNull AsynchConsumer<? super CommittedChangeList> consumer) throws VcsException;
 
-  ChangeListColumn[] getColumns();
+  ChangeListColumn @NotNull [] getColumns();
 
   @Nullable
-  VcsCommittedViewAuxiliary createActions(final DecoratorManager manager, final RepositoryLocation location);
+  default VcsCommittedViewAuxiliary createActions(@NotNull DecoratorManager manager, @Nullable RepositoryLocation location) {
+    return null;
+  }
 
   /**
    * since may be different for different VCSs
@@ -65,13 +70,18 @@ public interface CommittedChangesProvider<T extends CommittedChangeList, U exten
    * @return required list and path of the target file in that revision (changes when move/rename)
    */
   @Nullable
-  Pair<T, FilePath> getOneList(final VirtualFile file, final VcsRevisionNumber number) throws VcsException;
+  Pair<T, FilePath> getOneList(VirtualFile file, VcsRevisionNumber number) throws VcsException;
 
-  RepositoryLocation getForNonLocal(final VirtualFile file);
+  @Nullable
+  default RepositoryLocation getForNonLocal(@NotNull VirtualFile file) {
+    return null;
+  }
 
   /**
    * Return true if this committed changes provider can be used to show the incoming changes.
    * If false is returned, the "Incoming" tab won't be shown in the Changes toolwindow.
    */
-  boolean supportsIncomingChanges();
+  default boolean supportsIncomingChanges() {
+    return true;
+  }
 }

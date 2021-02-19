@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution;
 
 import com.intellij.openapi.actionSystem.DataKey;
@@ -20,9 +6,10 @@ import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.psi.PsiFileSystemItem;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -31,7 +18,6 @@ import java.util.Iterator;
 public abstract class Location<E extends PsiElement> {
   public static final DataKey<Location<?>> DATA_KEY = DataKey.create("Location");
   public static final DataKey<Location<?>[]> DATA_KEYS = DataKey.create("LocationArray");
-  @Deprecated @NonNls public static final String LOCATION = DATA_KEY.getName();
 
   @NotNull public abstract E getPsiElement();
   @NotNull public abstract Project getProject();
@@ -39,59 +25,67 @@ public abstract class Location<E extends PsiElement> {
 
   @Nullable
   public VirtualFile getVirtualFile() {
-    final E psiElement = getPsiElement();
-    if (!psiElement.isValid()) return null;
-    final PsiFile psiFile = psiElement.getContainingFile();
-    if (psiFile == null) return null;
-    final VirtualFile virtualFile = psiFile.getVirtualFile();
-    if (virtualFile == null || !virtualFile.isValid()) return null;
-    return virtualFile;
+    E psiElement = getPsiElement();
+    if (psiElement.isValid()) {
+      if (psiElement instanceof PsiFileSystemItem) {
+        return ((PsiFileSystemItem)psiElement).getVirtualFile();
+      }
+      PsiFile psiFile = psiElement.getContainingFile();
+      if (psiFile != null) {
+        VirtualFile virtualFile = psiFile.getVirtualFile();
+        if (virtualFile != null && virtualFile.isValid()) {
+          return virtualFile;
+        }
+      }
+    }
+    return null;
+  }
+
+  public Navigatable getNavigatable() {
+    return getOpenFileDescriptor();
   }
   
   @Nullable
   public OpenFileDescriptor getOpenFileDescriptor() {
-    VirtualFile virtualFile = getVirtualFile();
-    if (virtualFile == null) {
-      return null;
-    }
-    return new OpenFileDescriptor(getProject(), virtualFile, getPsiElement().getTextOffset());
+    VirtualFile file = getVirtualFile();
+    return file != null ? new OpenFileDescriptor(getProject(), file, getPsiElement().getTextOffset()) : null;
   }
-  
+
   @Nullable
-  public <Ancestor extends PsiElement> Location<Ancestor> getParent(final Class<Ancestor> parentClass) {
-    final Iterator<Location<PsiElement>> ancestors = getAncestors(PsiElement.class, true);
-    if (!ancestors.hasNext()) return null;
-    final Location<? extends PsiElement> parent = ancestors.next();
-    if (parentClass.isInstance(parent.getPsiElement())) return (Location<Ancestor>)parent;
+  public <Ancestor extends PsiElement> Location<Ancestor> getParent(Class<Ancestor> parentClass) {
+    Iterator<Location<PsiElement>> ancestors = getAncestors(PsiElement.class, true);
+    if (ancestors.hasNext()) {
+      Location<? extends PsiElement> parent = ancestors.next();
+      if (parentClass.isInstance(parent.getPsiElement())) {
+        @SuppressWarnings("unchecked") Location<Ancestor> location = (Location<Ancestor>)parent;
+        return location;
+      }
+    }
     return null;
   }
 
   @Nullable
-  public <T extends PsiElement> Location<T> getAncestorOrSelf(final Class<T> ancestorClass) {
-    final Iterator<Location<T>> ancestors = getAncestors(ancestorClass, false);
-    if (!ancestors.hasNext()) return null;
-    return ancestors.next();
-  }
-
-  @Nullable
-  public <Ancestor extends PsiElement> Ancestor getParentElement(final Class<Ancestor> parentClass) {
+  public <Ancestor extends PsiElement> Ancestor getParentElement(Class<Ancestor> parentClass) {
     return safeGetPsiElement(getParent(parentClass));
   }
 
   @Nullable
-  public static <T extends PsiElement> T safeGetPsiElement(final Location<T> location) {
+  public static <T extends PsiElement> T safeGetPsiElement(Location<T> location) {
     return location != null ? location.getPsiElement() : null;
   }
 
   @Nullable
-  public static <T> T safeCast(final Object obj, final Class<T> expectedClass) {
-    if (expectedClass.isInstance(obj)) return (T)obj;
+  public static <T> T safeCast(Object obj, Class<T> expectedClass) {
+    if (expectedClass.isInstance(obj)) {
+      @SuppressWarnings("unchecked") T t = (T)obj;
+      return t;
+    }
     return null;
   }
 
   @NotNull
   public PsiLocation<E> toPsiLocation() {
-    return new PsiLocation<E>(getProject(), getPsiElement());
+    return new PsiLocation<>(getProject(), getPsiElement());
   }
 
   @Nullable

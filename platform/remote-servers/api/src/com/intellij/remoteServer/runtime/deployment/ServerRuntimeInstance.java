@@ -4,12 +4,10 @@ import com.intellij.remoteServer.configuration.deployment.DeploymentConfiguratio
 import com.intellij.remoteServer.configuration.deployment.DeploymentSource;
 import com.intellij.remoteServer.runtime.Deployment;
 import com.intellij.remoteServer.runtime.RemoteOperationCallback;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author nik
- */
 public abstract class ServerRuntimeInstance<D extends DeploymentConfiguration> {
 
   public abstract void deploy(@NotNull DeploymentTask<D> task, @NotNull DeploymentLogManager logManager,
@@ -18,22 +16,26 @@ public abstract class ServerRuntimeInstance<D extends DeploymentConfiguration> {
   public abstract void computeDeployments(@NotNull ComputeDeploymentsCallback callback);
 
   @NotNull
-  public String getDeploymentName(@NotNull DeploymentSource source, D configuration) {
-    return getDeploymentName(source);
+  @Nls
+  public String getDeploymentName(@NotNull DeploymentSource source, @NotNull D configuration) {
+    return source.getPresentableName();
   }
 
-  /**
-   * @deprecated use {@link #getDeploymentName(com.intellij.remoteServer.configuration.deployment.DeploymentSource, D configuration)} instead
-   */
   @NotNull
-  public String getDeploymentName(@NotNull DeploymentSource source) {
-    return source.getPresentableName();
+  @Nls
+  public String getRuntimeDeploymentName(@NotNull DeploymentRuntime deploymentRuntime,
+                                         @NotNull DeploymentSource source, @NotNull D configuration) {
+    return getDeploymentName(source, configuration);
   }
 
   public abstract void disconnect();
 
   public interface DeploymentOperationCallback extends RemoteOperationCallback {
-    void succeeded(@NotNull DeploymentRuntime deploymentRuntime);
+    default void started(@NotNull DeploymentRuntime deploymentRuntime) {
+      //
+    }
+
+    Deployment succeeded(@NotNull DeploymentRuntime deploymentRuntime);
   }
 
   public interface ComputeDeploymentsCallback extends RemoteOperationCallback {

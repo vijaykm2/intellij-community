@@ -1,115 +1,219 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.newvfs.impl;
 
+import com.intellij.openapi.util.Key;
+import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileSystem;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.util.keyFMap.KeyFMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.Charset;
 
 public class StubVirtualFile extends VirtualFile {
+  private final VirtualFileSystem myFileSystem;
+
+  public StubVirtualFile() {
+    this(LocalFileSystem.getInstance());
+  }
+  public StubVirtualFile(@NotNull VirtualFileSystem fileSystem) {
+    myFileSystem = fileSystem;
+  }
+
   @Override
-  @NotNull
-  public byte[] contentsToByteArray() throws IOException {
-    throw new UnsupportedOperationException("contentsToByteArray is not implemented");
+  public byte @NotNull [] contentsToByteArray() throws IOException {
+    throw unsupported();
   }
 
   @Override
   public VirtualFile[] getChildren() {
-    throw new UnsupportedOperationException("getChildren is not implemented");
+    throw unsupported();
   }
 
-  @Override
   @NotNull
+  @Override
   public VirtualFileSystem getFileSystem() {
-    throw new UnsupportedOperationException("getFileSystem is not implemented");
+    return myFileSystem;
   }
 
   @Override
-  public InputStream getInputStream() throws IOException {
-    throw new UnsupportedOperationException("getInputStream is not implemented");
+  public @NotNull InputStream getInputStream() throws IOException {
+    throw unsupported();
   }
 
   @Override
   public long getLength() {
-    throw new UnsupportedOperationException("getLength is not implemented");
+    throw unsupported();
   }
 
-  @Override
   @NotNull
-  @NonNls
+  @Override
   public String getName() {
-    throw new UnsupportedOperationException("getName is not implemented");
+    throw unsupported();
   }
 
-  @Override
   @NotNull
-  public OutputStream getOutputStream(final Object requestor, final long newModificationStamp, final long newTimeStamp) throws IOException {
-    throw new UnsupportedOperationException("getOutputStream is not implemented");
+  @Override
+  public OutputStream getOutputStream(Object requestor, long newModificationStamp, long newTimeStamp) throws IOException {
+    throw unsupported();
   }
 
   @Override
-  @Nullable
   public VirtualFile getParent() {
-    throw new UnsupportedOperationException("getParent is not implemented");
+    throw unsupported();
   }
 
-  @Override
   @NotNull
+  @Override
   public String getPath() {
-    throw new UnsupportedOperationException("getPath is not implemented");
+    throw unsupported();
   }
 
   @Override
   public long getTimeStamp() {
-    throw new UnsupportedOperationException("getTimeStamp is not implemented");
+    throw unsupported();
   }
 
-  @Override
   @NotNull
+  @Override
   public String getUrl() {
-    throw new UnsupportedOperationException("getUrl is not implemented");
+    throw unsupported();
   }
 
   @Override
   public boolean isDirectory() {
-    throw new UnsupportedOperationException("isDirectory is not implemented");
+    throw unsupported();
   }
 
   @Override
   public boolean isValid() {
-    throw new UnsupportedOperationException("isValid is not implemented");
+    throw unsupported();
   }
 
   @Override
   public boolean isWritable() {
-    throw new UnsupportedOperationException("isWritable is not implemented");
+    throw unsupported();
   }
 
   @Override
-  public void refresh(final boolean asynchronous, final boolean recursive, final Runnable postRunnable) {
-    throw new UnsupportedOperationException("refresh is not implemented");
+  public void refresh(boolean asynchronous, boolean recursive, Runnable postRunnable) {
+    throw unsupported();
+  }
+
+  @Override
+  public void setWritable(boolean writable) {
+    throw unsupported();
+  }
+
+  @NotNull
+  @Override
+  public VirtualFile createChildDirectory(Object requestor, @NotNull String name) {
+    throw unsupported();
+  }
+
+  @NotNull
+  @Override
+  public VirtualFile createChildData(Object requestor, @NotNull String name) {
+    throw unsupported();
+  }
+
+  @Override
+  public void delete(Object requestor) {
+    throw unsupported();
+  }
+
+  @Override
+  public void move(Object requestor, @NotNull VirtualFile newParent) {
+    throw unsupported();
+  }
+
+  @NotNull
+  @Override
+  public VirtualFile copy(Object requestor, @NotNull VirtualFile newParent, @NotNull String copyName) {
+    throw unsupported();
+  }
+
+  @Override
+  protected void storeCharset(Charset charset) {
+    throw unsupported();
+  }
+
+  @Override
+  public void setCharset(Charset charset) {
+    throw unsupported();
+  }
+
+  @Override
+  public void setCharset(Charset charset, @Nullable Runnable whenChanged) {
+    throw unsupported();
+  }
+
+  @Override
+  public void setCharset(Charset charset, @Nullable Runnable whenChanged, boolean fireEventsWhenChanged) {
+    throw unsupported();
+  }
+
+  @Override
+  public void setBinaryContent(byte @NotNull [] content, long newModificationStamp, long newTimeStamp) {
+    throw unsupported();
+  }
+
+  @Override
+  public void setBinaryContent(byte @NotNull [] content, long newModificationStamp, long newTimeStamp, Object requestor) {
+    throw unsupported();
+  }
+
+  @Override
+  public void refresh(boolean asynchronous, boolean recursive) {
+    throw unsupported();
+  }
+
+  @Override
+  public void setBOM(byte @Nullable [] BOM) {
+    throw unsupported();
+  }
+
+  @Override
+  public void setDetectedLineSeparator(@Nullable String separator) {
+    throw unsupported();
+  }
+
+  @Override
+  public <T> void putUserData(@NotNull Key<T> key, @Nullable T value) {
+    throw unsupported();
+  }
+
+  @Override
+  public <T> void putCopyableUserData(@NotNull Key<T> key, T value) {
+    throw unsupported();
+  }
+
+  @Override
+  public <T> boolean replace(@NotNull Key<T> key, @Nullable T oldValue, @Nullable T newValue) {
+    throw unsupported();
+  }
+
+  @NotNull
+  @Override
+  public <T> T putUserDataIfAbsent(@NotNull Key<T> key, @NotNull T value) {
+    throw unsupported();
+  }
+
+  @Override
+  protected void clearUserData() {
+    throw unsupported();
+  }
+
+  @Override
+  protected void setUserMap(@NotNull KeyFMap map) {
+    throw unsupported();
+  }
+
+  private UnsupportedOperationException unsupported() {
+    return new UnsupportedOperationException(toString());
   }
 }

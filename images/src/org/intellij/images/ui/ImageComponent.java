@@ -1,35 +1,29 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/** $Id$ */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.images.ui;
 
+import com.intellij.openapi.editor.colors.EditorColorsManager;
+import com.intellij.openapi.editor.colors.EditorColorsScheme;
+import com.intellij.ui.JBColor;
+import com.intellij.ui.scale.ScaleContext;
 import com.intellij.util.containers.ContainerUtil;
+import org.intellij.images.ImagesBundle;
 import org.intellij.images.editor.ImageDocument;
 import org.intellij.images.options.GridOptions;
 import org.intellij.images.options.TransparencyChessboardOptions;
+import org.intellij.images.options.impl.ImageEditorColorSchemeSettingsKt;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
 import java.util.List;
+
+import static com.intellij.ui.scale.ScaleType.OBJ_SCALE;
 
 /**
  * Image component is draw image box with effects.
@@ -37,12 +31,14 @@ import java.util.List;
  * @author <a href="mailto:aefimov.box@gmail.com">Alexey Efimov</a>
  */
 public class ImageComponent extends JComponent {
+    public static final int IMAGE_INSETS = 2;
+
     @NonNls
-    private static final String TRANSPARENCY_CHESSBOARD_CELL_SIZE_PROP = "TransparencyChessboard.cellSize";
+    public static final String TRANSPARENCY_CHESSBOARD_CELL_SIZE_PROP = "TransparencyChessboard.cellSize";
     @NonNls
-    private static final String TRANSPARENCY_CHESSBOARD_WHITE_COLOR_PROP = "TransparencyChessboard.whiteColor";
+    public static final String TRANSPARENCY_CHESSBOARD_WHITE_COLOR_PROP = "TransparencyChessboard.whiteColor";
     @NonNls
-    private static final String TRANSPARENCY_CHESSBOARD_BLACK_COLOR_PROP = "TransparencyChessboard.blackColor";
+    public static final String TRANSPARENCY_CHESSBOARD_BLACK_COLOR_PROP = "TransparencyChessboard.blackColor";
     @NonNls
     private static final String TRANSPARENCY_CHESSBOARD_VISIBLE_PROP = "TransparencyChessboard.visible";
     @NonNls
@@ -53,6 +49,10 @@ public class ImageComponent extends JComponent {
     private static final String GRID_LINE_COLOR_PROP = "Grid.lineColor";
     @NonNls
     private static final String GRID_VISIBLE_PROP = "Grid.visible";
+    @NonNls
+    private static final String FILE_SIZE_VISIBLE_PROP = "FileSize.visible";
+    @NonNls
+    private static final String FILE_NAME_VISIBLE_PROP = "FileName.visible";
 
     /**
      * @see #getUIClassID
@@ -61,13 +61,13 @@ public class ImageComponent extends JComponent {
     @NonNls
     private static final String uiClassID = "ImageComponentUI";
 
-    static {
-        UIManager.getDefaults().put(uiClassID, ImageComponentUI.class.getName());
-    }
-
-    private final ImageDocument document = new ImageDocumentImpl();
+    private final ImageDocument document = new ImageDocumentImpl(this);
     private final Grid grid = new Grid();
     private final Chessboard chessboard = new Chessboard();
+    private boolean myFileSizeVisible = true;
+    private boolean myFileNameVisible = true;
+    private double zoomFactor = 1d;
+    private boolean myBorderVisible = true;
 
     public ImageComponent() {
         updateUI();
@@ -75,6 +75,14 @@ public class ImageComponent extends JComponent {
 
     public ImageDocument getDocument() {
         return document;
+    }
+
+    public double getZoomFactor() {
+        return zoomFactor;
+    }
+
+    public void setZoomFactor(double zoomFactor) {
+        this.zoomFactor = zoomFactor;
     }
 
     public void setTransparencyChessboardCellSize(int cellSize) {
@@ -125,6 +133,36 @@ public class ImageComponent extends JComponent {
         return chessboard.isVisible();
     }
 
+    public boolean isFileSizeVisible() {
+        return myFileSizeVisible;
+    }
+
+    public void setFileSizeVisible(boolean fileSizeVisible) {
+        boolean oldValue = myFileSizeVisible;
+        myFileSizeVisible = fileSizeVisible;
+        firePropertyChange(FILE_SIZE_VISIBLE_PROP, oldValue, fileSizeVisible);
+    }
+
+    public boolean isFileNameVisible() {
+        return myFileNameVisible;
+    }
+
+    public void setFileNameVisible(boolean fileNameVisible) {
+        boolean oldValue = myFileNameVisible;
+        myFileNameVisible = fileNameVisible;
+        firePropertyChange(FILE_NAME_VISIBLE_PROP, oldValue, fileNameVisible);
+    }
+
+    public boolean isBorderVisible() {
+        return myBorderVisible;
+    }
+
+    public void setBorderVisible(boolean borderVisible) {
+        boolean oldValue = myBorderVisible;
+        myBorderVisible = borderVisible;
+        firePropertyChange("Border.visible", oldValue, myBorderVisible);
+    }
+
     public void setGridLineZoomFactor(int lineZoomFactor) {
         int oldValue = grid.getLineZoomFactor();
         if (oldValue != lineZoomFactor) {
@@ -173,8 +211,17 @@ public class ImageComponent extends JComponent {
         return grid.isVisible();
     }
 
+    @Nullable
+    public String getDescription() {
+        BufferedImage image = getDocument().getValue();
+        if (image != null) {
+            return ImagesBundle.message("icon.dimensions", image.getWidth(), image.getHeight(), image.getColorModel().getPixelSize());
+        }
+        return null;
+    }
+
     public void setCanvasSize(int width, int height) {
-        setSize(width + 4, height + 4);
+        setSize(width + IMAGE_INSETS * 2, height + IMAGE_INSETS * 2);
     }
 
     public void setCanvasSize(Dimension dimension) {
@@ -183,42 +230,95 @@ public class ImageComponent extends JComponent {
 
     public Dimension getCanvasSize() {
         Dimension size = getSize();
-        return new Dimension(size.width - 4, size.height - 4);
+        return new Dimension(size.width - IMAGE_INSETS * 2, size.height - IMAGE_INSETS * 2);
     }
 
+    @Override
     public String getUIClassID() {
         return uiClassID;
     }
 
+    @Override
     public void updateUI() {
-        setUI(UIManager.getUI(this));
+      boolean customUI = UIManager.getDefaults().get(uiClassID) != null;
+      setUI(customUI ? UIManager.getUI(this) : new ImageComponentUI(this));
     }
 
-    private static final class ImageDocumentImpl implements ImageDocument {
+    private static class ImageDocumentImpl implements ImageDocument {
         private final List<ChangeListener> listeners = ContainerUtil.createLockFreeCopyOnWriteList();
-        private BufferedImage image;
+        private CachedScaledImageProvider imageProvider;
         private String format;
         private Image renderer;
+        private final Component myComponent;
+        private final ScaleContext.Cache<Rectangle> cachedBounds = new ScaleContext.Cache<>((ctx) -> {
+            BufferedImage image = getValue(ctx.getScale(OBJ_SCALE));
+            return image != null ? new Rectangle(image.getWidth(), image.getHeight()) : null;
+        });
 
+        ImageDocumentImpl(Component component) {
+            myComponent = component;
+            myComponent.addPropertyChangeListener(new PropertyChangeListener() {
+                @Override
+                public void propertyChange(PropertyChangeEvent e) {
+                    if (e.getPropertyName().equals("ancestor") && e.getNewValue() == null && imageProvider != null) {
+                        imageProvider.clearCache();
+                    }
+                }
+            });
+        }
+
+        @Override
         public Image getRenderer() {
             return renderer;
         }
 
-        public BufferedImage getValue() {
-            return image;
+        @Override
+        public Image getRenderer(double scale) {
+            return getValue(scale);
         }
 
+        @Nullable
+        @Override
+        public Rectangle getBounds(double scale) {
+            ScaleContext ctx = ScaleContext.create(myComponent);
+            ctx.setScale(OBJ_SCALE.of(scale));
+            return cachedBounds.getOrProvide(ctx);
+        }
+
+        @Override
+        public BufferedImage getValue() {
+            return getValue(1d);
+        }
+
+        @Override
+        public BufferedImage getValue(double scale) {
+            return imageProvider != null ? imageProvider.apply(scale, myComponent) : null;
+        }
+
+        @Override
         public void setValue(BufferedImage image) {
-            this.image = image;
             this.renderer = image != null ? Toolkit.getDefaultToolkit().createImage(image.getSource()) : null;
+            setValue(image != null ? (scale, anchor) -> image : null);
+        }
+
+        @Override
+        public void setValue(ScaledImageProvider imageProvider) {
+            this.imageProvider = imageProvider instanceof CachedScaledImageProvider ?
+                (CachedScaledImageProvider)imageProvider :
+                imageProvider != null ? (zoom, ancestor) -> imageProvider.apply(zoom, ancestor) :
+                null;
+
+            cachedBounds.clear();
             fireChangeEvent(new ChangeEvent(this));
         }
 
+        @Override
         public String getFormat() {
             return format;
         }
 
 
+        @Override
         public void setFormat(String format) {
             this.format = format;
             fireChangeEvent(new ChangeEvent(this));
@@ -230,10 +330,12 @@ public class ImageComponent extends JComponent {
             }
         }
 
+        @Override
         public void addChangeListener(ChangeListener listener) {
             listeners.add(listener);
         }
 
+        @Override
         public void removeChangeListener(ChangeListener listener) {
             listeners.remove(listener);
         }
@@ -301,7 +403,9 @@ public class ImageComponent extends JComponent {
         }
 
         public Color getLineColor() {
-            return lineColor;
+            EditorColorsScheme editorScheme = EditorColorsManager.getInstance().getGlobalScheme();
+            Color color = editorScheme.getColor(ImageEditorColorSchemeSettingsKt.getGRID_LINE_COLOR_KEY());
+            return color != null ? color : JBColor.DARK_GRAY;
         }
 
         public void setLineColor(Color lineColor) {

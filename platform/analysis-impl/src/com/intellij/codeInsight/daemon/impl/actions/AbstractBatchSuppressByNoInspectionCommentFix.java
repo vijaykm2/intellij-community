@@ -1,32 +1,23 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl.actions;
 
+import com.intellij.analysis.AnalysisBundle;
 import com.intellij.codeInsight.FileModificationService;
-import com.intellij.codeInspection.*;
+import com.intellij.codeInspection.ContainerBasedSuppressQuickFix;
+import com.intellij.codeInspection.InjectionAwareSuppressQuickFix;
+import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.SuppressionUtil;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.icons.AllIcons;
 import com.intellij.lang.Language;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.undo.UndoUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Iconable;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiComment;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiManager;
-import com.intellij.psi.PsiWhiteSpace;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ThreeState;
@@ -39,7 +30,6 @@ import java.util.List;
 
 /**
  * @author Roman.Chernyatchik
- * @date Aug 13, 2009
  */
 public abstract class AbstractBatchSuppressByNoInspectionCommentFix implements ContainerBasedSuppressQuickFix, InjectionAwareSuppressQuickFix, Iconable {
   @NotNull protected final String myID;
@@ -48,18 +38,19 @@ public abstract class AbstractBatchSuppressByNoInspectionCommentFix implements C
 
   @Override
   @Nullable
-  public abstract PsiElement getContainer(final PsiElement context);
+  public abstract PsiElement getContainer(PsiElement context);
 
   /**
    * @param ID                         Inspection ID
    * @param replaceOtherSuppressionIds Merge suppression policy. If false new tool id will be append to the end
    *                                   otherwise replace other ids
    */
-  public AbstractBatchSuppressByNoInspectionCommentFix(@NotNull String ID, final boolean replaceOtherSuppressionIds) {
+  public AbstractBatchSuppressByNoInspectionCommentFix(@NotNull String ID, boolean replaceOtherSuppressionIds) {
     myID = ID;
     myReplaceOtherSuppressionIds = replaceOtherSuppressionIds;
   }
 
+  @Override
   public void setShouldBeAppliedToInjectionHost(@NotNull ThreeState shouldBeAppliedToInjectionHost) {
     myShouldBeAppliedToInjectionHost = shouldBeAppliedToInjectionHost;
   }
@@ -78,21 +69,19 @@ public abstract class AbstractBatchSuppressByNoInspectionCommentFix implements C
 
   @Override
   public Icon getIcon(int flags) {
-    return AllIcons.General.InspectionsOff;
+    return AllIcons.Ide.HectorOff;
   }
 
-  private String myText = "";
+  private @IntentionName String myText = "";
+
+  @IntentionName
   @NotNull
   public String getText() {
     return myText;
   }
 
-  protected void setText(@NotNull String text) {
+  protected void setText(@IntentionName @NotNull String text) {
     myText = text;
-  }
-
-  public boolean startInWriteAction() {
-    return true;
   }
 
   @Override
@@ -107,8 +96,14 @@ public abstract class AbstractBatchSuppressByNoInspectionCommentFix implements C
     invoke(project, element);
   }
 
-  protected final void replaceSuppressionComment(@NotNull final PsiElement comment) {
-    SuppressionUtil.replaceSuppressionComment(comment, myID, myReplaceOtherSuppressionIds, getCommentLanguage(comment));
+  @Override
+  public boolean isSuppressAll() {
+    return SuppressionUtil.ALL.equalsIgnoreCase(myID);
+  }
+
+  protected final void replaceSuppressionComment(@NotNull PsiElement comment) {
+    if (!FileModificationService.getInstance().preparePsiElementsForWrite(comment)) return;
+    WriteAction.run(() -> SuppressionUtil.replaceSuppressionComment(comment, myID, myReplaceOtherSuppressionIds, getCommentLanguage(comment)));
   }
 
   protected void createSuppression(@NotNull Project project,
@@ -128,25 +123,24 @@ public abstract class AbstractBatchSuppressByNoInspectionCommentFix implements C
   }
 
   @Override
-  public boolean isAvailable(@NotNull final Project project, @NotNull final PsiElement context) {
-    return context.isValid() && PsiManager.getInstance(project).isInProject(context) && getContainer(context) != null;
+  public boolean isAvailable(@NotNull Project project, @NotNull PsiElement context) {
+    return context.isValid() && getContainer(context) != null;
   }
 
-  public void invoke(@NotNull final Project project, @NotNull final PsiElement element) throws IncorrectOperationException {
+  public void invoke(@NotNull Project project, @NotNull PsiElement element) throws IncorrectOperationException {
     if (!isAvailable(project, element)) return;
     PsiElement container = getContainer(element);
+    PsiFile file = element.getContainingFile();
     if (container == null) return;
-
-    if (!FileModificationService.getInstance().preparePsiElementForWrite(container)) return;
 
     if (replaceSuppressionComments(container)) return;
 
     createSuppression(project, element, container);
-    UndoUtil.markPsiFileForUndo(element.getContainingFile());
+    UndoUtil.markPsiFileForUndo(file);
   }
 
   protected boolean replaceSuppressionComments(PsiElement container) {
-    final List<? extends PsiElement> comments = getCommentsFor(container);
+    List<? extends PsiElement> comments = getCommentsFor(container);
     if (comments != null) {
       for (PsiElement comment : comments) {
         if (comment instanceof PsiComment && SuppressionUtil.isSuppressionComment(comment)) {
@@ -159,8 +153,8 @@ public abstract class AbstractBatchSuppressByNoInspectionCommentFix implements C
   }
 
   @Nullable
-  protected List<? extends PsiElement> getCommentsFor(@NotNull final PsiElement container) {
-    final PsiElement prev = PsiTreeUtil.skipSiblingsBackward(container, PsiWhiteSpace.class);
+  protected List<? extends PsiElement> getCommentsFor(@NotNull PsiElement container) {
+    PsiElement prev = PsiTreeUtil.skipWhitespacesBackward(container);
     if (prev == null) {
       return null;
     }
@@ -171,6 +165,7 @@ public abstract class AbstractBatchSuppressByNoInspectionCommentFix implements C
   @Override
   @NotNull
   public String getFamilyName() {
-    return InspectionsBundle.message("suppress.inspection.family");
+    String text = getText();
+    return StringUtil.isEmpty(text) ? AnalysisBundle.message("suppress.inspection.family") : text;
   }
 }

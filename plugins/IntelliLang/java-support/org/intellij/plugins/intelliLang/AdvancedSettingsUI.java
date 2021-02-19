@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.intellij.plugins.intelliLang;
 
 import com.intellij.ide.util.ClassFilter;
 import com.intellij.ide.util.TreeClassChooser;
 import com.intellij.ide.util.TreeClassChooserFactory;
-import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.project.Project;
@@ -27,11 +12,8 @@ import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.ui.ReferenceEditorWithBrowseButton;
-import com.intellij.util.Function;
 import org.intellij.plugins.intelliLang.util.PsiUtilEx;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -52,6 +34,7 @@ public class AdvancedSettingsUI implements SearchableConfigurable {
     myConfiguration = configuration.getAdvancedConfiguration();
   }
 
+  @Override
   public JComponent createComponent() {
     myPanel = new AdvancedSettingsPanel();
     return myPanel.myRoot;
@@ -72,15 +55,17 @@ public class AdvancedSettingsUI implements SearchableConfigurable {
     myPanel.reset();
   }
 
+  @Override
   public void disposeUIResources() {
     myPanel = null;
   }
 
-  @Nls
+  @Override
   public String getDisplayName() {
-    return "Advanced";
+    return IntelliLangBundle.message("configurable.AdvancedSettingsUI.display.name");
   }
 
+  @Override
   public String getHelpTopic() {
     return "reference.settings.injection.advanced";
   }
@@ -91,13 +76,7 @@ public class AdvancedSettingsUI implements SearchableConfigurable {
     return "IntelliLang.Advanced";
   }
 
-  @Nullable
-  @Override
-  public Runnable enableSearch(String option) {
-    return null;
-  }
-
-  private static class BrowseClassListener implements ActionListener {
+  private static final class BrowseClassListener implements ActionListener {
     private final Project myProject;
     private final ReferenceEditorWithBrowseButton myField;
 
@@ -106,13 +85,15 @@ public class AdvancedSettingsUI implements SearchableConfigurable {
       myField = annotationField;
     }
 
+    @Override
     public void actionPerformed(ActionEvent e) {
       final TreeClassChooserFactory factory = TreeClassChooserFactory.getInstance(myProject);
 
       final GlobalSearchScope scope = GlobalSearchScope.allScope(myProject);
       final PsiClass aClass = JavaPsiFacade.getInstance(myProject).findClass(myField.getText(), scope);
       final TreeClassChooser chooser =
-        factory.createNoInnerClassesScopeChooser("Select Annotation Class", scope, new ClassFilter() {
+        factory.createNoInnerClassesScopeChooser(IntelliLangBundle.message("dialog.title.select.annotation.class"), scope, new ClassFilter() {
+          @Override
           public boolean isAccepted(PsiClass aClass) {
             return aClass.isAnnotationType();
           }
@@ -127,7 +108,7 @@ public class AdvancedSettingsUI implements SearchableConfigurable {
   }
 
   public class AdvancedSettingsPanel {
-    @SuppressWarnings({"UnusedDeclaration", "FieldCanBeLocal"})
+    @SuppressWarnings({"UnusedDeclaration"})
     private JPanel myRoot;
 
     private JRadioButton myNoInstrumentation;
@@ -148,29 +129,17 @@ public class AdvancedSettingsUI implements SearchableConfigurable {
     private final ReferenceEditorWithBrowseButton mySubstField;
 
     public AdvancedSettingsPanel() {
-      myAnnotationField = new ReferenceEditorWithBrowseButton(null, myProject, new Function<String, Document>() {
-        public Document fun(String s) {
-          return PsiUtilEx.createDocument(s, myProject);
-        }
-      }, myConfiguration.getLanguageAnnotationClass());
+      myAnnotationField = new ReferenceEditorWithBrowseButton(null, myProject, s -> PsiUtilEx.createDocument(s, myProject), myConfiguration.getLanguageAnnotationClass());
       myAnnotationField.addActionListener(new BrowseClassListener(myProject, myAnnotationField));
       myAnnotationField.setEnabled(!myProject.isDefault());
       addField(myLanguageAnnotationPanel, myAnnotationField);
 
-      myPatternField = new ReferenceEditorWithBrowseButton(null, myProject, new Function<String, Document>() {
-        public Document fun(String s) {
-          return PsiUtilEx.createDocument(s, myProject);
-        }
-      }, myConfiguration.getPatternAnnotationClass());
+      myPatternField = new ReferenceEditorWithBrowseButton(null, myProject, s -> PsiUtilEx.createDocument(s, myProject), myConfiguration.getPatternAnnotationClass());
       myPatternField.addActionListener(new BrowseClassListener(myProject, myPatternField));
       myPatternField.setEnabled(!myProject.isDefault());
       addField(myPatternAnnotationPanel, myPatternField);
 
-      mySubstField = new ReferenceEditorWithBrowseButton(null, myProject, new Function<String, Document>() {
-        public Document fun(String s) {
-          return PsiUtilEx.createDocument(s, myProject);
-        }
-      }, myConfiguration.getPatternAnnotationClass());
+      mySubstField = new ReferenceEditorWithBrowseButton(null, myProject, s -> PsiUtilEx.createDocument(s, myProject), myConfiguration.getPatternAnnotationClass());
       mySubstField.addActionListener(new BrowseClassListener(myProject, mySubstField));
       mySubstField.setEnabled(!myProject.isDefault());
       addField(mySubstAnnotationPanel, mySubstField);
@@ -194,7 +163,6 @@ public class AdvancedSettingsUI implements SearchableConfigurable {
     }
 
 
-    @SuppressWarnings({"SimplifiableIfStatement"})
     public boolean isModified() {
       if (getInstrumentation() != myConfiguration.getInstrumentation()) {
         return true;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,14 +15,15 @@
  */
 package com.intellij.util.xml.ui;
 
-import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.application.Result;
+import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.project.Project;
+import com.intellij.util.SmartList;
 import com.intellij.util.xml.DomElement;
 import com.intellij.util.xml.DomUtil;
-import com.intellij.util.SmartList;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
@@ -30,42 +31,34 @@ import java.util.List;
  * @author peter
  */
 public class DomTableView extends AbstractTableView<DomElement> {
-  private final List<TypeSafeDataProvider> myCustomDataProviders = new SmartList<TypeSafeDataProvider>();
+  private final List<DataProvider> myCustomDataProviders = new SmartList<>();
 
   public DomTableView(final Project project) {
     super(project);
   }
 
-  public DomTableView(final Project project, final String emptyPaneText, final String helpID) {
+  public DomTableView(final Project project, final @Nls String emptyPaneText, final String helpID) {
     super(project, emptyPaneText, helpID);
   }
 
-  public void addCustomDataProvider(TypeSafeDataProvider provider) {
+  public void addCustomDataProvider(@NotNull DataProvider provider) {
     myCustomDataProviders.add(provider);
   }
 
+  @Nullable
   @Override
-  public void calcData(final DataKey key, final DataSink sink) {
-    super.calcData(key, sink);
-    for (final TypeSafeDataProvider customDataProvider : myCustomDataProviders) {
-      customDataProvider.calcData(key, sink);
+  public Object getData(@NotNull String dataId) {
+    for (DataProvider provider : myCustomDataProviders) {
+      Object data = provider.getData(dataId);
+      if (data != null) return data;
     }
-  }
-
-  @Deprecated
-  protected final void installPopup(final DefaultActionGroup group) {
-    installPopup(ActionPlaces.J2EE_ATTRIBUTES_VIEW_POPUP, group);
+    return super.getData(dataId);
   }
 
   @Override
   protected void wrapValueSetting(@NotNull final DomElement domElement, final Runnable valueSetter) {
     if (domElement.isValid()) {
-      new WriteCommandAction(getProject(), DomUtil.getFile(domElement)) {
-        @Override
-        protected void run(final Result result) throws Throwable {
-          valueSetter.run();
-        }
-      }.execute();
+      WriteCommandAction.writeCommandAction(getProject(), DomUtil.getFile(domElement)).run(() -> valueSetter.run());
       fireChanged();
     }
   }

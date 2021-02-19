@@ -46,6 +46,13 @@ public abstract class PushSupport<Repo extends Repository, Source extends PushSo
   @Nullable
   public abstract Target getDefaultTarget(@NotNull Repo repository);
 
+
+  /**
+   * @return Push destination for source
+   */
+  @Nullable
+  public Target getDefaultTarget(@NotNull Repo repository, @NotNull Source source) {return null;}
+
   /**
    * @return current source(branch) for repository
    */
@@ -64,7 +71,9 @@ public abstract class PushSupport<Repo extends Repository, Source extends PushSo
   }
 
   @NotNull
-  public abstract PushTargetPanel<Target> createTargetPanel(@NotNull Repo repository, @Nullable Target defaultTarget);
+  public abstract PushTargetPanel<Target> createTargetPanel(@NotNull Repo repository,
+                                                            @NotNull Source source,
+                                                            @Nullable Target defaultTarget);
 
   public boolean shouldRequestIncomingChangesForNotCheckedRepositories() {
     return true;
@@ -73,17 +82,9 @@ public abstract class PushSupport<Repo extends Repository, Source extends PushSo
   /**
    * Returns true if force push is allowed now in the selected repository.
    * <p/>
-   * Force push may be completely disabled for the project which is checked by {@link #isForcePushEnabled()},
-   * or it might depend e.g. on the branch user is pushing to.
+   * Force push might depend on the branch user is pushing to.
    */
   public abstract boolean isForcePushAllowed(@NotNull Repo repo, Target target);
-
-  /**
-   * Checks if force push is allowed for this VCS at all.
-   * <p/>
-   * If it is not allowed for all PushSupports in the project, the "Force Push" button will be invisible.
-   */
-  public abstract boolean isForcePushEnabled();
 
   public abstract boolean isSilentForcePushAllowed(@NotNull Target target);
 
@@ -92,4 +93,5 @@ public abstract class PushSupport<Repo extends Repository, Source extends PushSo
   public boolean mayChangeTargetsSync() {
     return false;
   }
+
 }

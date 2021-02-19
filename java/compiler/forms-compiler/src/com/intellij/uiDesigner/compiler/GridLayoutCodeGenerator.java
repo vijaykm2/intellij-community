@@ -37,6 +37,7 @@ public class GridLayoutCodeGenerator extends LayoutCodeGenerator {
 
   public static GridLayoutCodeGenerator INSTANCE = new GridLayoutCodeGenerator();
 
+  @Override
   public void generateContainerLayout(final LwContainer lwContainer, final GeneratorAdapter generator, final int componentLocal) {
     if (lwContainer.isGrid()) {
       // arg 0: object
@@ -60,10 +61,12 @@ public class GridLayoutCodeGenerator extends LayoutCodeGenerator {
     }
   }
 
+  @Override
   public void generateComponentLayout(final LwComponent lwComponent,
                                       final GeneratorAdapter generator,
                                       final int componentLocal,
-                                      final int parentLocal) {
+                                      final int parentLocal,
+                                      final String formClassName) {
     generator.loadLocal(parentLocal);
     generator.loadLocal(componentLocal);
     addNewGridConstraints(generator, lwComponent);

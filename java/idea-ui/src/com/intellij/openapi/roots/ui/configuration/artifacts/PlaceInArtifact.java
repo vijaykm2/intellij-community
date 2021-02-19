@@ -15,7 +15,6 @@
  */
 package com.intellij.openapi.roots.ui.configuration.artifacts;
 
-import com.intellij.openapi.roots.ui.configuration.ProjectStructureConfigurable;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.PlaceInProjectStructure;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.ProjectStructureElement;
 import com.intellij.openapi.util.ActionCallback;
@@ -24,9 +23,6 @@ import com.intellij.packaging.elements.PackagingElement;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author nik
- */
 public class PlaceInArtifact extends PlaceInProjectStructure {
   private final Artifact myArtifact;
   private final ArtifactsStructureConfigurableContext myContext;
@@ -60,13 +56,10 @@ public class PlaceInArtifact extends PlaceInProjectStructure {
   @Override
   public ActionCallback navigate() {
     final Artifact artifact = myContext.getArtifactModel().getArtifactByOriginal(myArtifact);
-    return ProjectStructureConfigurable.getInstance(myContext.getProject()).select(myArtifact, true).doWhenDone(new Runnable() {
-      @Override
-      public void run() {
-        final ArtifactEditorEx artifactEditor = (ArtifactEditorEx)myContext.getOrCreateEditor(artifact);
-        if (myParentPath != null && myPackagingElement != null) {
-          artifactEditor.getLayoutTreeComponent().selectNode(myParentPath, myPackagingElement);
-        }
+    return myContext.getProjectStructureConfigurable().select(myArtifact, true).doWhenDone(() -> {
+      final ArtifactEditorEx artifactEditor = (ArtifactEditorEx)myContext.getOrCreateEditor(artifact);
+      if (myParentPath != null && myPackagingElement != null) {
+        artifactEditor.getLayoutTreeComponent().selectNode(myParentPath, myPackagingElement);
       }
     });
   }

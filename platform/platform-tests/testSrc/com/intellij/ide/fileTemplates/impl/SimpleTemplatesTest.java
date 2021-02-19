@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2015 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,8 @@
  */
 package com.intellij.ide.fileTemplates.impl;
 
+import com.intellij.ide.fileTemplates.FileTemplateManager;
 import com.intellij.testFramework.LightPlatformTestCase;
-import com.intellij.testFramework.PlatformTestCase;
 
 import java.util.Properties;
 
@@ -25,17 +25,12 @@ import java.util.Properties;
  */
 public class SimpleTemplatesTest extends LightPlatformTestCase {
 
-  @SuppressWarnings("JUnitTestCaseWithNonTrivialConstructors")
-  public SimpleTemplatesTest() {
-    PlatformTestCase.initPlatformLangPrefix();
-  }
-
   public void testConditional() throws Exception {
     CustomFileTemplate template = new CustomFileTemplate("foo", "bar");
     template.setText("#set($flag = \"$!IJ_BASE_PACKAGE\" != \"\")\n" +
                      "<option name=\"MAIN_CLASS_NAME\" value=\"$IJ_BASE_PACKAGE#if($flag).#{end}Main\" />"
     );
-    Properties attributes = new Properties();
+    Properties attributes = FileTemplateManager.getInstance(getProject()).getDefaultProperties();
     attributes.setProperty("IJ_BASE_PACKAGE", "");
     assertEquals("<option name=\"MAIN_CLASS_NAME\" value=\"Main\" />", template.getText(attributes));
     attributes.setProperty("IJ_BASE_PACKAGE", "foo.bar");
@@ -45,7 +40,7 @@ public class SimpleTemplatesTest extends LightPlatformTestCase {
   public void testInline() throws Exception {
     CustomFileTemplate template = new CustomFileTemplate("foo", "bar");
     template.setText("$IJ_BASE_PACKAGE.replace(\".\", \"/\")");
-    Properties attributes = new Properties();
+    Properties attributes = FileTemplateManager.getInstance(getProject()).getDefaultProperties();
     attributes.setProperty("IJ_BASE_PACKAGE", "foo.bar");
     assertEquals("foo/bar", template.getText(attributes));
   }

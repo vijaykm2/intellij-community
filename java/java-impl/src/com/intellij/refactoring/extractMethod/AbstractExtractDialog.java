@@ -14,21 +14,20 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 15-May-2008
- */
 package com.intellij.refactoring.extractMethod;
 
 import com.intellij.psi.PsiModifier;
 import com.intellij.psi.PsiType;
 import com.intellij.refactoring.util.VariableData;
+import org.jetbrains.annotations.NotNull;
 
 public interface AbstractExtractDialog {
 
+  @NotNull
   String getChosenMethodName();
   VariableData[] getChosenParameters();
   @PsiModifier.ModifierConstant
+  @NotNull
   String getVisibility();
   boolean isMakeStatic();
   boolean isChainedConstructor();
@@ -36,4 +35,6 @@ public interface AbstractExtractDialog {
 
   void show();
   boolean isOK();
+
+  default boolean isPreviewUsages() {return false;}
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.refactoring.move;
 
@@ -53,9 +39,11 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMe
 import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.imports.GrImportStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrCodeReferenceElement;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
-import org.jetbrains.plugins.groovy.refactoring.GroovyChangeContextUtil;
+import org.jetbrains.plugins.groovy.util.GroovyChangeContextUtil;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
 /**
  * @author Maxim.Medvedev
@@ -228,12 +216,12 @@ public class MoveGroovyMemberHandler implements MoveMemberHandler {
   @Nullable
   public PsiElement getAnchor(@NotNull final PsiMember member, @NotNull final PsiClass targetClass, Set<PsiMember> membersToMove) {
     if (member instanceof GrField && member.hasModifierProperty(PsiModifier.STATIC)) {
-      final List<PsiField> referencedFields = new ArrayList<PsiField>();
+      final List<PsiField> referencedFields = new ArrayList<>();
       final GrExpression psiExpression = ((GrField)member).getInitializerGroovy();
       if (psiExpression != null) {
         psiExpression.accept(new GroovyRecursiveElementVisitor() {
           @Override
-          public void visitReferenceExpression(final GrReferenceExpression expression) {
+          public void visitReferenceExpression(@NotNull final GrReferenceExpression expression) {
             super.visitReferenceExpression(expression);
             final PsiElement psiElement = expression.resolve();
             if (psiElement instanceof GrField) {
@@ -246,12 +234,7 @@ public class MoveGroovyMemberHandler implements MoveMemberHandler {
         });
       }
       if (!referencedFields.isEmpty()) {
-        Collections.sort(referencedFields, new Comparator<PsiField>() {
-          @Override
-          public int compare(final PsiField o1, final PsiField o2) {
-            return -PsiUtilCore.compareElementsByPosition(o1, o2);
-          }
-        });
+        referencedFields.sort((o1, o2) -> -PsiUtilCore.compareElementsByPosition(o1, o2));
         return referencedFields.get(0);
       }
     }
@@ -341,7 +324,7 @@ public class MoveGroovyMemberHandler implements MoveMemberHandler {
                                                    RefactoringUIUtil.getDescription(member, false),
                                                    visibility,
                                                    RefactoringUIUtil.getDescription(ConflictsUtil.getContainer(element), true));
-        conflicts.putValue(member, CommonRefactoringUtil.capitalize(message));
+        conflicts.putValue(member, StringUtil.capitalize(message));
       }
     }
   }

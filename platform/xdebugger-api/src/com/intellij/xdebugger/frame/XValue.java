@@ -1,30 +1,19 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.frame;
 
 import com.intellij.util.ThreeState;
+import com.intellij.xdebugger.XDebuggerUtil;
+import com.intellij.xdebugger.XExpression;
+import com.intellij.xdebugger.evaluation.EvaluationMode;
 import com.intellij.xdebugger.evaluation.XInstanceEvaluator;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.concurrency.Promise;
+import org.jetbrains.concurrency.Promises;
 
 /**
  * Represents a value in debugger tree.
  * Override {@link XValueContainer#computeChildren} if value has a properties which should be shown as child nodes
- *
- * @author nik
  */
 public abstract class XValue extends XValueContainer {
   /**
@@ -45,6 +34,17 @@ public abstract class XValue extends XValueContainer {
   }
 
   /**
+   * Asynchronously calculates expression which evaluates to the current value
+   */
+  @NotNull
+  public Promise<XExpression> calculateEvaluationExpression() {
+    String expression = getEvaluationExpression();
+    XExpression res =
+      expression != null ? XDebuggerUtil.getInstance().createExpression(expression, null, null, EvaluationMode.EXPRESSION) : null;
+    return Promises.resolvedPromise(res);
+  }
+
+  /**
    * @return evaluator to calculate value of the current object instance
    */
   @Nullable
@@ -53,7 +53,7 @@ public abstract class XValue extends XValueContainer {
   }
 
   /**
-   * @return {@link com.intellij.xdebugger.frame.XValueModifier} instance which can be used to modify the value
+   * @return {@link XValueModifier} instance which can be used to modify the value
    */
   @Nullable
   public XValueModifier getModifier() {

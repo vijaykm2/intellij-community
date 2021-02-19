@@ -1,38 +1,23 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight;
 
-import com.intellij.codeInspection.java15api.Java15APIUsageInspectionBase;
+import com.intellij.codeInspection.java15api.Java15APIUsageInspection;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.psi.impl.source.resolve.JavaResolveUtil;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.searches.AnnotatedMembersSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
-import com.intellij.util.NullableFunction;
 import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.function.Function;
 
-public class FunctionalInterfaceSuggester {
+public final class FunctionalInterfaceSuggester {
   public static final String[] FUNCTIONAL_INTERFACES = {
     //old jdk without annotations
     CommonClassNames.JAVA_LANG_RUNNABLE,
@@ -65,100 +50,104 @@ public class FunctionalInterfaceSuggester {
     };
 
   public static Collection<? extends PsiType> suggestFunctionalInterfaces(final @NotNull PsiFunctionalExpression expression) {
-    final PsiType qualifierType = expression instanceof PsiMethodReferenceExpression 
+    final PsiType qualifierType = expression instanceof PsiMethodReferenceExpression
                                   ? PsiMethodReferenceUtil.getQualifierType((PsiMethodReferenceExpression)expression) : null;
-    return suggestFunctionalInterfaces(expression, new NullableFunction<PsiClass, PsiType>() {
-      @Nullable
-      @Override
-      public PsiType fun(PsiClass aClass) {
-        return composeAcceptableType(aClass, expression, qualifierType);
-      }
-    });
+    return suggestFunctionalInterfaces(expression, aClass -> composeAcceptableType(aClass, expression, qualifierType));
   }
 
   public static Collection<? extends PsiType> suggestFunctionalInterfaces(final @NotNull PsiMethod method) {
+    return suggestFunctionalInterfaces(method, false);
+  }
+
+  public static Collection<? extends PsiType> suggestFunctionalInterfaces(final @NotNull PsiMethod method,
+                                                                          boolean suggestUnhandledThrowables) {
     if (method.isConstructor()) {
       return Collections.emptyList();
     }
 
-    return suggestFunctionalInterfaces(method, new NullableFunction<PsiClass, PsiType>() {
-      @Nullable
-      @Override
-      public PsiType fun(PsiClass aClass) {
-        final PsiMethod interfaceMethod = LambdaUtil.getFunctionalInterfaceMethod(aClass);
-        if (interfaceMethod != null) {
-          final PsiParameter[] parameters = method.getParameterList().getParameters();
-          final PsiParameter[] interfaceMethodParameters = interfaceMethod.getParameterList().getParameters();
-          if (parameters.length != interfaceMethodParameters.length) {
-            return null;
+    return suggestFunctionalInterfaces(method, aClass -> {
+      final PsiMethod interfaceMethod = LambdaUtil.getFunctionalInterfaceMethod(aClass);
+      if (interfaceMethod != null) {
+        final PsiParameter[] parameters = method.getParameterList().getParameters();
+        final PsiParameter[] interfaceMethodParameters = interfaceMethod.getParameterList().getParameters();
+        if (parameters.length != interfaceMethodParameters.length) {
+          return Collections.emptyList();
+        }
+
+        final PsiType[] left = new PsiType[parameters.length + 1];
+        final PsiType[] right = new PsiType[parameters.length + 1];
+
+        for (int i = 0; i < parameters.length; i++) {
+          left[i]  = interfaceMethodParameters[i].getType();
+          right[i] = parameters[i].getType();
+        }
+
+        left[parameters.length] = method.getReturnType();
+        right[parameters.length] = interfaceMethod.getReturnType();
+
+        final PsiTypeParameter[] typeParameters = aClass.getTypeParameters();
+        final PsiSubstitutor substitutor = PsiResolveHelper.SERVICE.getInstance(aClass.getProject())
+          .inferTypeArguments(typeParameters, left, right, PsiUtil.getLanguageLevel(method));
+        if (PsiUtil.isRawSubstitutor(aClass, substitutor)) {
+          return Collections.emptyList();
+        }
+
+        for (int i = 0; i < interfaceMethodParameters.length; i++) {
+          PsiType paramType = parameters[i].getType();
+          PsiType interfaceParamType = substitutor.substitute(interfaceMethodParameters[i].getType());
+          if (!(interfaceParamType instanceof PsiPrimitiveType
+                ? paramType.equals(interfaceParamType) : TypeConversionUtil.isAssignable(paramType, interfaceParamType))) {
+            return Collections.emptyList();
           }
+        }
 
-          final PsiType[] left = new PsiType[parameters.length + 1];
-          final PsiType[] right = new PsiType[parameters.length + 1];
+        final PsiType returnType = method.getReturnType();
+        PsiType interfaceMethodReturnType = substitutor.substitute(interfaceMethod.getReturnType());
+        if (returnType != null && !TypeConversionUtil.isAssignable(returnType, interfaceMethodReturnType)) {
+          return Collections.emptyList();
+        }
 
-          for (int i = 0; i < parameters.length; i++) {
-            left[i]  = interfaceMethodParameters[i].getType();
-            right[i] = parameters[i].getType();
+        if (interfaceMethodReturnType instanceof PsiPrimitiveType && !interfaceMethodReturnType.equals(returnType)) {
+          return Collections.emptyList();
+        }
+
+        final PsiClassType[] interfaceThrownTypes = interfaceMethod.getThrowsList().getReferencedTypes();
+        final PsiClassType[] thrownTypes = method.getThrowsList().getReferencedTypes();
+        for (PsiClassType thrownType : thrownTypes) {
+          if (!ExceptionUtil.isHandledBy(thrownType, interfaceThrownTypes, substitutor)) {
+            return Collections.emptyList();
           }
+        }
 
-          left[parameters.length] = method.getReturnType();
-          right[parameters.length] = interfaceMethod.getReturnType();
-
-          final PsiTypeParameter[] typeParameters = aClass.getTypeParameters();
-          final PsiSubstitutor substitutor = PsiResolveHelper.SERVICE.getInstance(aClass.getProject())
-            .inferTypeArguments(typeParameters, left, right, PsiUtil.getLanguageLevel(method));
-          if (PsiUtil.isRawSubstitutor(aClass, substitutor)) {
-            return null;
-          }
-
-          for (int i = 0; i < interfaceMethodParameters.length; i++) {
-            if (!TypeConversionUtil.isAssignable(parameters[i].getType(), substitutor.substitute(interfaceMethodParameters[i].getType()))) {
-              return null;
-            }
-          }
-
-          final PsiType returnType = method.getReturnType();
-          if (returnType != null && !TypeConversionUtil.isAssignable(returnType, substitutor.substitute(interfaceMethod.getReturnType()))) {
-            return null;
-          }
-
-          final PsiClassType[] interfaceThrownTypes = interfaceMethod.getThrowsList().getReferencedTypes();
-          final PsiClassType[] thrownTypes = method.getThrowsList().getReferencedTypes();
-          for (PsiClassType thrownType : thrownTypes) {
-            if (!ExceptionUtil.isHandledBy(thrownType, interfaceThrownTypes, substitutor)) {
-              return null;
-            }
-          }
-
+        if (!suggestUnhandledThrowables) {
           for (PsiClassType thrownType : interfaceThrownTypes) {
             final PsiCodeBlock codeBlock = PsiTreeUtil.getContextOfType(method, PsiCodeBlock.class);
-            if (codeBlock == null || !ExceptionUtil.isHandled(thrownType, codeBlock)) {
-              return null;
+            PsiType substitutedThrowable = substitutor.substitute(thrownType);
+            if (codeBlock == null || !(substitutedThrowable instanceof PsiClassType) ||
+                !ExceptionUtil.isHandled((PsiClassType)substitutedThrowable, codeBlock)) {
+              return Collections.emptyList();
             }
           }
-
-          final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(aClass.getProject());
-          return elementFactory.createType(aClass, substitutor);
         }
-        return null;
+
+        final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(aClass.getProject());
+        return Collections.singletonList(elementFactory.createType(aClass, substitutor));
       }
+      return Collections.emptyList();
     });
   }
 
-  private static <T extends PsiElement> Collection<? extends PsiType> suggestFunctionalInterfaces(final @NotNull T element, final NullableFunction<PsiClass, PsiType> acceptanceChecker) {
+  private static <T extends PsiElement> Collection<? extends PsiType> suggestFunctionalInterfaces(final @NotNull T element, final Function<? super PsiClass, ? extends List<? extends PsiType>> acceptanceChecker) {
     final Project project = element.getProject();
-    final Set<PsiType> types = new HashSet<PsiType>();
-    final Processor<PsiMember> consumer = new Processor<PsiMember>() {
-      @Override
-      public boolean process(PsiMember member) {
-        if (member instanceof PsiClass && !Java15APIUsageInspectionBase.isForbiddenApiUsage(member, PsiUtil.getLanguageLevel(element))) {
-          if (!JavaResolveUtil.isAccessible(member, null, member.getModifierList(), element, null, null)) {
-            return true;
-          }
-          ContainerUtil.addIfNotNull(types, acceptanceChecker.fun((PsiClass)member));
+    final Set<PsiType> types = new HashSet<>();
+    final Processor<PsiMember> consumer = member -> {
+      if (member instanceof PsiClass && Java15APIUsageInspection.getLastIncompatibleLanguageLevel(member, PsiUtil.getLanguageLevel(element)) == null) {
+        if (!JavaPsiFacade.getInstance(project).getResolveHelper().isAccessible(member, element, null)) {
+          return true;
         }
-        return true;
+        types.addAll(acceptanceChecker.apply((PsiClass)member));
       }
+      return true;
     };
     final JavaPsiFacade psiFacade = JavaPsiFacade.getInstance(project);
     final GlobalSearchScope allScope = GlobalSearchScope.allScope(project);
@@ -168,116 +157,191 @@ public class FunctionalInterfaceSuggester {
     }
 
     for (String functionalInterface : FUNCTIONAL_INTERFACES) {
-      final PsiClass aClass = psiFacade.findClass(functionalInterface, allScope);
+      final PsiClass aClass = psiFacade.findClass(functionalInterface, element.getResolveScope());
       if (aClass != null) {
         consumer.process(aClass);
       }
     }
 
-    final ArrayList<PsiType> typesToSuggest = new ArrayList<PsiType>(types);
-    Collections.sort(typesToSuggest, new Comparator<PsiType>() {
-      @Override
-      public int compare(PsiType o1, PsiType o2) {
-        return o1.getCanonicalText().compareTo(o2.getCanonicalText());
-      }
-    });
+    final ArrayList<PsiType> typesToSuggest = new ArrayList<>(types);
+    typesToSuggest.sort(Comparator.comparing(PsiType::getCanonicalText));
     return typesToSuggest;
   }
 
-  private static PsiType composeAcceptableType(@NotNull PsiClass interface2Consider,
-                                               @NotNull PsiFunctionalExpression expression,
-                                               PsiType qualifierType) {
-    final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(interface2Consider.getProject());
-    final PsiType type = elementFactory.createType(interface2Consider, PsiSubstitutor.EMPTY);
+  private static List<? extends PsiType> composeAcceptableType(@NotNull PsiClass interface2Consider,
+                                                             @NotNull PsiFunctionalExpression expression,
+                                                             PsiType qualifierType) {
+    final PsiType type = JavaPsiFacade.getElementFactory(interface2Consider.getProject()).createType(interface2Consider, PsiSubstitutor.EMPTY);
     if (expression.isAcceptable(type)) {
-      return type;
+      return Collections.singletonList(type);
     }
 
-    return composeAcceptableType(interface2Consider, expression, qualifierType, elementFactory);
+    return composeAcceptableType1(interface2Consider, expression, qualifierType);
   }
 
-  private static PsiType composeAcceptableType(final PsiClass interface2Consider,
-                                               final PsiFunctionalExpression expression,
-                                               PsiType qualifierType, final PsiElementFactory elementFactory) {
-
+  @NotNull
+  private static List<? extends PsiType> composeAcceptableType1(final PsiClass interface2Consider,
+                                                               final PsiFunctionalExpression expression,
+                                                               final PsiType qualifierType) {
     if (interface2Consider.hasTypeParameters()) {
       final PsiMethod interfaceMethod = LambdaUtil.getFunctionalInterfaceMethod(interface2Consider);
       if (interfaceMethod != null) {
         final PsiParameter[] parameters = interfaceMethod.getParameterList().getParameters();
-        PsiParameter[] functionalExprParameters;
-        int offset = 0;
-        final PsiType[] left;
-        final PsiType[] right;
+        Project project = interface2Consider.getProject();
+        PsiType returnType = interfaceMethod.getReturnType();
         if (expression instanceof PsiLambdaExpression && ((PsiLambdaExpression)expression).hasFormalParameterTypes()) {
-          left = new PsiType[parameters.length];
-          right = new PsiType[parameters.length];
-          functionalExprParameters = ((PsiLambdaExpression)expression).getParameterList().getParameters();
+          PsiParameter[] functionalExprParameters = ((PsiLambdaExpression)expression).getParameterList().getParameters();
           if (parameters.length != functionalExprParameters.length) {
-            return null;
+            return Collections.emptyList();
+          }
+
+          final PsiType[] left = new PsiType[parameters.length + 1];
+          final PsiType[] right = new PsiType[parameters.length + 1];
+          for (int i = 0; i < functionalExprParameters.length; i++) {
+            left[i] = parameters[i].getType();
+            right[i] = functionalExprParameters[i].getType();
+          }
+
+          List<PsiExpression> returnExpressions = LambdaUtil.getReturnExpressions(((PsiLambdaExpression)expression));
+          left[parameters.length] = returnExpressions.isEmpty() ? PsiType.VOID : returnExpressions.get(0).getType();
+          right[parameters.length] = returnType;
+
+          final PsiSubstitutor substitutor = PsiResolveHelper.SERVICE.getInstance(project)
+            .inferTypeArguments(interface2Consider.getTypeParameters(), left, right, PsiUtil.getLanguageLevel(expression));
+
+          PsiType type = JavaPsiFacade.getElementFactory(project).createType(interface2Consider, substitutor);
+
+          if (expression.isAcceptable(type)) {
+            return Collections.singletonList(type);
           }
         }
         else if (expression instanceof PsiMethodReferenceExpression) {
-          left = new PsiType[parameters.length + 1];
-          right = new PsiType[parameters.length + 1];
-          final PsiMethod method = getTargetMethod((PsiMethodReferenceExpression)expression, qualifierType, parameters, left, right);
-          if (method == null) {
-            return null;
+          List<PsiType> types = new ArrayList<>();
+          final PsiMethodReferenceExpression referenceExpression = (PsiMethodReferenceExpression) expression;
+          for (JavaResolveResult result : referenceExpression.multiResolve(true)) {
+            final PsiElement element = result.getElement();
+            if (element == null) continue;
+
+            if (element instanceof PsiMethod) {
+              PsiMethod method = (PsiMethod)element;
+              int offset = hasOffset(referenceExpression, method) ? 1 : 0;
+              final PsiParameter[] targetMethodParameters = method.getParameterList().getParameters();
+              if (targetMethodParameters.length + offset == parameters.length) {
+
+                final PsiType[] left = new PsiType[parameters.length + 1];
+                final PsiType[] right = new PsiType[parameters.length + 1];
+                if (offset > 0) {
+                  if (qualifierType == null) {
+                    continue;
+                  }
+                  left[0] = parameters[0].getType();
+                  right[0] = qualifierType;
+                }
+
+                final PsiSubstitutor partialSubstitutor = getPartialSubstitutor(referenceExpression, method);
+
+                for (int i = 0; i < targetMethodParameters.length; i++) {
+                  left[i + offset] = parameters[i + offset].getType();
+                  right[i + offset] = partialSubstitutor.substitute(targetMethodParameters[i].getType());
+                }
+
+                left[parameters.length] = method.isConstructor() ? qualifierType : partialSubstitutor.substitute(method.getReturnType());
+                right[parameters.length] = returnType;
+
+                ContainerUtil.addIfNotNull(types, getAcceptableType(interface2Consider, expression, left, right));
+              }
+            }
+            else if (maybeDefaultConstructorRef(referenceExpression, interfaceMethod, element)) {
+
+              final PsiType[] left = new PsiType[] { qualifierType };
+              final PsiType[] right = new PsiType[] { returnType };
+
+              ContainerUtil.addIfNotNull(types, getAcceptableType(interface2Consider, expression, left, right));
+            }
           }
-          functionalExprParameters = method.getParameterList().getParameters();
-          if (PsiMethodReferenceUtil.isStaticallyReferenced((PsiMethodReferenceExpression)expression) && !method.hasModifierProperty(PsiModifier.STATIC)) {
-            offset = 1;
-          }
-
-          left[parameters.length] = method.getReturnType();
-          right[parameters.length] = interfaceMethod.getReturnType();
-        } else {
-          return null;
-        }
-
-        for (int i = 0; i < functionalExprParameters.length; i++) {
-          left [i + offset] = parameters[i + offset].getType();
-          right[i + offset] = functionalExprParameters[i].getType();
-        }
-
-        final PsiSubstitutor substitutor = PsiResolveHelper.SERVICE.getInstance(interface2Consider.getProject())
-          .inferTypeArguments(interface2Consider.getTypeParameters(), left, right, PsiUtil.getLanguageLevel(expression));
-
-        PsiType type = elementFactory.createType(interface2Consider, substitutor);
-
-        if (expression.isAcceptable(type)) {
-          return type;
+          return types;
         }
       }
     }
-    return null;
+    return Collections.emptyList();
   }
 
-  @Nullable
-  private static PsiMethod getTargetMethod(PsiMethodReferenceExpression expression,
-                                           PsiType qualifierType, 
-                                           PsiParameter[] parameters,
-                                           PsiType[] left,
-                                           PsiType[] right) {
-    final boolean staticallyReferenced = PsiMethodReferenceUtil.isStaticallyReferenced(expression);
-    final JavaResolveResult[] results = expression.multiResolve(true);
-    for (JavaResolveResult result : results) {
-      final PsiElement element = result.getElement();
-      if (element instanceof PsiMethod) {
-        int offset = staticallyReferenced && !((PsiMethod)element).hasModifierProperty(PsiModifier.STATIC) ? 1 : 0;
-        final PsiParameter[] functionalExprParameters = ((PsiMethod)element).getParameterList().getParameters();
-        if (functionalExprParameters.length + offset == parameters.length) {
-          if (offset > 0) {
-            if (qualifierType == null) {
-              continue;
-            }
+  /**
+   * Checks if the passed {@code expression} is a reference to the default constructor and it matches the {@code interfaceMethod}
+   *
+   * @param expression expression to examine
+   * @param interfaceMethod a SAM method from {@link FunctionalInterface} to check if it has no parameters
+   * @param element a possible instance of {@link PsiClass} to check if it has no declared constructors
+   *
+   * @return {@code true} if {@code expression} is the method reference to a default constructor, otherwise {@code false}
+   */
+  private static boolean maybeDefaultConstructorRef(@NotNull final PsiMethodReferenceExpression expression,
+                                                    @NotNull final PsiMethod interfaceMethod,
+                                                    @NotNull final PsiElement element) {
+    return element instanceof PsiClass &&
+           ((PsiClass)element).getConstructors().length == 0 &&
+           expression.isConstructor() &&
+           !interfaceMethod.hasParameters();
+  }
 
-            left[0]  = parameters[0].getType();
-            right[0] = qualifierType;
-          }
-          return (PsiMethod)element;
-        }
+  /**
+   * The method returns a {@link PsiType} constructed type from {@code interface2Consider}
+   * if it is acceptable by {@code expression}
+   *
+   * @param interface2Consider a {@link FunctionalInterface} to construct the type from
+   * @param expression a {@link PsiFunctionalExpression} to check the constructed type against
+   * @param left a list of type arguments from {@code expression}
+   * @param right a list of type arguments from {@code interface2Consider}
+   *
+   * @return a {@link PsiType} constructed type if the constructed type is acceptable by the {@code expression},
+   * otherwise {@code null}
+   */
+  @Nullable
+  private static PsiType getAcceptableType(@NotNull final PsiClass interface2Consider,
+    @NotNull final PsiFunctionalExpression expression,
+    @NotNull final PsiType[] left,
+    @NotNull final PsiType[] right) {
+    final Project project = interface2Consider.getProject();
+
+    final PsiSubstitutor substitutor = PsiResolveHelper.SERVICE.getInstance(project)
+      .inferTypeArguments(interface2Consider.getTypeParameters(), left, right, PsiUtil.getLanguageLevel(expression));
+
+    final PsiType type = JavaPsiFacade.getElementFactory(project).createType(interface2Consider, substitutor);
+
+    return expression.isAcceptable(type) ? type : null;
+  }
+
+  /**
+   * Generates a {@link PsiSubstitutor} from the provided type parameters of the expression
+   *
+   * @param expression an instance of {@link PsiMethodReferenceExpression} to get the list of type parameters' values
+   * @param method an instance of {@link PsiMethod} that corresponds to {@code expression}
+   *
+   * @return {@link PsiSubstitutor#EMPTY} if there are no type parameters' values in {@code expression} or {@link PsiSubstitutor}
+   * that is generated from {@code expression}
+   */
+  @NotNull
+  private static PsiSubstitutor getPartialSubstitutor(@NotNull final PsiMethodReferenceExpression expression,
+                                                      @NotNull final PsiMethod method) {
+    final PsiType[] typeArguments = expression.getTypeParameters();
+
+    if (typeArguments.length > 0) {
+      final PsiTypeParameter[] typeParameters = method.getTypeParameters();
+      if (typeParameters.length == typeArguments.length) {
+        final List<PsiTypeParameter> arguments = Arrays.asList(typeParameters);
+        final List<PsiType> values = Arrays.asList(typeArguments);
+
+        final Map<PsiTypeParameter, PsiType> substitutorMap = ContainerUtil.newHashMap(arguments, values);
+
+        return PsiSubstitutor.createSubstitutor(substitutorMap);
       }
     }
-    return null;
+    return PsiSubstitutor.EMPTY;
+  }
+
+  private static boolean hasOffset(PsiMethodReferenceExpression expression, PsiMethod method) {
+    return PsiMethodReferenceUtil.isStaticallyReferenced(expression) &&
+           !method.hasModifierProperty(PsiModifier.STATIC) &&
+           !method.isConstructor();
   }
 }

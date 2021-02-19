@@ -22,17 +22,14 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
-/**
- * @author nik
- */
 public class ConfigFileMetaDataRegistryImpl implements ConfigFileMetaDataRegistry {
-  private final List<ConfigFileMetaData> myMetaData = new ArrayList<ConfigFileMetaData>();
-  private final Map<String, ConfigFileMetaData> myId2MetaData = new HashMap<String, ConfigFileMetaData>();
+  private final List<ConfigFileMetaData> myMetaData = new ArrayList<>();
+  private final Map<String, ConfigFileMetaData> myId2MetaData = new HashMap<>();
   private ConfigFileMetaData[] myCachedMetaData;
 
   public ConfigFileMetaDataRegistryImpl() {
@@ -44,24 +41,36 @@ public class ConfigFileMetaDataRegistryImpl implements ConfigFileMetaDataRegistr
     }
   }
 
-  @NotNull
-  public ConfigFileMetaData[] getMetaData() {
+  @Override
+  public ConfigFileMetaData @NotNull [] getMetaData() {
     if (myCachedMetaData == null) {
-      myCachedMetaData = myMetaData.toArray(new ConfigFileMetaData[myMetaData.size()]);
+      myCachedMetaData = myMetaData.toArray(new ConfigFileMetaData[0]);
     }
     return myCachedMetaData;
   }
 
+  @Override
   @Nullable
   public ConfigFileMetaData findMetaData(@NonNls @NotNull final String id) {
     return myId2MetaData.get(id);
   }
 
-  public void registerMetaData(@NotNull final ConfigFileMetaData... metaData) {
+  @Override
+  public void registerMetaData(final ConfigFileMetaData @NotNull ... metaData) {
     for (ConfigFileMetaData data : metaData) {
       myMetaData.add(data);
       myId2MetaData.put(data.getId(), data);
     }
     myCachedMetaData = null;
+  }
+
+  @Override
+  public void unregisterMetaData(@NotNull ConfigFileMetaData metaData) {
+    boolean changed = myMetaData.remove(metaData);
+    ConfigFileMetaData actual = myId2MetaData.remove(metaData.getId());
+    changed |= (actual != null);
+    if (changed) {
+      myCachedMetaData = null;
+    }
   }
 }

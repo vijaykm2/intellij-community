@@ -1,39 +1,27 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/*
- * Created by IntelliJ IDEA.
- * User: yole
- * Date: 21.11.2006
- * Time: 18:38:44
- */
 package com.intellij.openapi.vcs.changes.patch;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileEditor.impl.LoadTextUtil;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Ref;
-import com.intellij.openapi.vcs.*;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.vcs.AbstractVcs;
+import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.ProjectLevelVcsManager;
+import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.changes.ContentRevision;
 import com.intellij.openapi.vcs.diff.DiffProvider;
 import com.intellij.openapi.vcs.history.*;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.Processor;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcsUtil.VcsRunnable;
 import com.intellij.vcsUtil.VcsUtil;
+import org.jetbrains.annotations.CalledInAny;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.Date;
@@ -41,162 +29,120 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class DefaultPatchBaseVersionProvider {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.changes.patch.DefaultPatchBaseVersionProvider");
-  private final static Pattern ourTsPattern = Pattern.compile("\\(date ([0-9]+)\\)");
+import static com.intellij.openapi.vcs.VcsBundle.message;
 
-  private final Project myProject;
-  private final VirtualFile myFile;
-  private final String myVersionId;
-  private final Pattern myRevisionPattern;
+public final class DefaultPatchBaseVersionProvider {
+  private static final Logger LOG = Logger.getInstance(DefaultPatchBaseVersionProvider.class);
+  /**
+   * @see com.intellij.openapi.diff.impl.patch.TextPatchBuilder
+   */
+  private static final Pattern ourTsPattern = Pattern.compile("\\(date ([0-9]+)\\)"); // NON-NLS
+  private static final String ourRevisionPatternTemplate = "\\(revision (%s)\\)"; // NON-NLS
 
-  private final AbstractVcs myVcs;
+  @CalledInAny
+  public static void getBaseVersionContent(@NotNull Project project,
+                                           @NotNull String versionId,
+                                           @NotNull VirtualFile file,
+                                           @NotNull FilePath pathBeforeRename,
+                                           @NotNull Processor<? super String> processor) throws VcsException {
+    AbstractVcs vcs = ProjectLevelVcsManager.getInstance(project).getVcsFor(file);
+    if (vcs == null) return;
 
-  public DefaultPatchBaseVersionProvider(final Project project, final VirtualFile file, final String versionId) {
-    myProject = project;
-    myFile = file;
-    myVersionId = versionId;
-    myVcs = ProjectLevelVcsManager.getInstance(myProject).getVcsFor(myFile);
-    if (myVcs != null) {
-      final String vcsPattern = myVcs.getRevisionPattern();
-      if (vcsPattern != null) {
-        myRevisionPattern = Pattern.compile("\\(revision (" + vcsPattern + ")\\)");
-        return;
-      }
-    }
-    myRevisionPattern = null;
-  }
-
-  public void getBaseVersionContent(final FilePath filePath,
-                                    final Processor<CharSequence> processor,
-                                    final List<String> warnings) throws VcsException {
-    if (myVcs == null) {
-      return;
-    }
-    final VcsHistoryProvider historyProvider = myVcs.getVcsHistoryProvider();
+    final VcsHistoryProvider historyProvider = vcs.getVcsHistoryProvider();
     if (historyProvider == null) return;
 
-    VcsRevisionNumber revision = null;
-    if (myRevisionPattern != null) {
-      final Matcher matcher = myRevisionPattern.matcher(myVersionId);
-      if (matcher.find()) {
-        revision = myVcs.parseRevisionNumber(matcher.group(1), filePath);
-        final VcsRevisionNumber finalRevision = revision;
-        final Boolean[] loadedExactRevision = new Boolean[1];
+    String vcsRevisionString = parseVersionAsRevision(versionId, vcs);
+    Date versionDate = parseVersionAsDate(versionId);
+    if (vcsRevisionString == null && versionDate == null) return;
 
+    runWithModalProgressIfNeeded(project, message("progress.text.loading.patch.base.revision"), () -> {
+      VcsRevisionNumber revision = vcsRevisionString != null ? vcs.parseRevisionNumber(vcsRevisionString, pathBeforeRename) : null;
+      if (revision == null && versionDate == null) return;
+
+      if (revision != null) {
+        boolean loadedExactRevision = false;
         if (historyProvider instanceof VcsBaseRevisionAdviser) {
-          final boolean success = VcsUtil.runVcsProcessWithProgress(new VcsRunnable() {
-            public void run() throws VcsException {
-              loadedExactRevision[0] = ((VcsBaseRevisionAdviser)historyProvider).getBaseVersionContent(filePath, processor, finalRevision.asString(), warnings);
-            }
-          }, VcsBundle.message("progress.text2.loading.revision", revision.asString()), true, myProject);
-          // was cancelled
-          if (! success) return;
-        } else {
-          // use diff provider
-          final DiffProvider diffProvider = myVcs.getDiffProvider();
-          if (diffProvider != null && filePath.getVirtualFile() != null) {
-            final ContentRevision fileContent = diffProvider.createFileContent(finalRevision, filePath.getVirtualFile());
-
-            final boolean success = VcsUtil.runVcsProcessWithProgress(new VcsRunnable() {
-              public void run() throws VcsException {
-                loadedExactRevision[0] = ! processor.process(fileContent.getContent());
-              }
-            }, VcsBundle.message("progress.text2.loading.revision", revision.asString()), true, myProject);
-            // was cancelled
-            if (! success) return;
-          }
-        }
-        if (Boolean.TRUE.equals(loadedExactRevision[0])) return;
-      }
-    }
-
-    Date versionDate = null;
-    if (revision == null) {
-      try {
-        final Matcher tsMatcher = ourTsPattern.matcher(myVersionId);
-        if (tsMatcher.find()) {
-          final Long fromTsPattern = getFromTsPattern();
-          if (fromTsPattern == null) return;
-          versionDate = new Date(fromTsPattern);
-        } else {
-          versionDate = new Date(myVersionId);
-        }
-      }
-      catch (IllegalArgumentException ex) {
-        return;
-      }
-    }
-    try {
-      final Ref<VcsHistorySession> ref = new Ref<VcsHistorySession>();
-      VcsUtil.runVcsProcessWithProgress(new VcsRunnable() {
-        public void run() throws VcsException {
-          ref.set(historyProvider.createSessionFor(filePath));
-        }
-      }, VcsBundle.message("loading.file.history.progress"), true, myProject);
-      if (ref.isNull()) return;
-      final VcsHistorySession session = ref.get();
-      final List<VcsFileRevision> list = session.getRevisionList();
-      if (list == null) return;
-      for (VcsFileRevision fileRevision : list) {
-        boolean found;
-        if (revision != null) {
-          found = fileRevision.getRevisionNumber().compareTo(revision) <= 0;
+          VcsBaseRevisionAdviser revisionAdviser = (VcsBaseRevisionAdviser)historyProvider;
+          loadedExactRevision = revisionAdviser.getBaseVersionContent(pathBeforeRename, processor, revision.asString());
         }
         else {
-          final Date date = fileRevision instanceof VcsFileRevisionDvcsSpecific ?
-                            ((VcsFileRevisionDvcsSpecific) fileRevision).getDateForRevisionsOrdering() : fileRevision.getRevisionDate();
-          found = (date != null) && (date.before(versionDate) || date.equals(versionDate));
+          DiffProvider diffProvider = vcs.getDiffProvider();
+          if (diffProvider != null) {
+            ContentRevision fileContent = diffProvider.createFileContent(revision, file);
+            loadedExactRevision = fileContent != null && !processor.process(fileContent.getContent());
+          }
         }
+        if (loadedExactRevision) return;
+      }
 
-        if (found) {
-          fileRevision.loadContent();
-          processor.process(LoadTextUtil.getTextByBinaryPresentation(fileRevision.getContent(), myFile, false, false));
-          // TODO: try to download more than one version
-          break;
+      ProgressManager.progress2(message("loading.text2.file.history.progress"));
+      VcsHistorySession historySession = historyProvider.createSessionFor(pathBeforeRename);
+      if (historySession == null) return; // not found or cancelled
+
+      List<VcsFileRevision> list = historySession.getRevisionList();
+      if (list == null) return;
+
+      // TODO: try to download more than one version
+      VcsFileRevision foundRevision = ContainerUtil.find(list, fileRevision -> {
+        if (revision != null) {
+          return fileRevision.getRevisionNumber().compareTo(revision) <= 0;
+        }
+        else {
+          Date date = fileRevision instanceof VcsFileRevisionEx ?
+                      ((VcsFileRevisionEx)fileRevision).getAuthorDate() : fileRevision.getRevisionDate();
+          return date != null && (date.before(versionDate) || date.equals(versionDate));
+        }
+      });
+
+      if (foundRevision != null) {
+        try {
+          byte[] byteContent = foundRevision.loadContent();
+          if (byteContent == null) return;
+
+          CharSequence content = LoadTextUtil.getTextByBinaryPresentation(byteContent, file, false, false);
+          processor.process(content.toString());
+        }
+        catch (IOException e) {
+          LOG.warn(e);
         }
       }
-    }
-    catch (IOException e) {
-      LOG.error(e);
-    }
+    });
   }
 
-  public boolean canProvideContent() {
-    if (myVcs == null) {
-      return false;
-    }
-    if ((myRevisionPattern != null) && myRevisionPattern.matcher(myVersionId).matches()) {
-      return true;
-    }
-    if (ourTsPattern.matcher(myVersionId).matches()) return true;
-    try {
-      Date.parse(myVersionId);
-    }
-    catch (IllegalArgumentException ex) {
-      return false;
-    }
-    return true;
-  }
-
-  public boolean hasVcs() {
-    return myVcs != null;
-  }
-
-  private Long getFromTsPattern() {
-    final String trimmed = myVersionId.trim();
-    final String startPattern = "(date";
-    final int start = trimmed.indexOf(startPattern);
-    if (start >= 0) {
-      String number = trimmed.substring(startPattern.length() + start);
-      number = number.endsWith(")") ? number.substring(0, number.length() - 1) : number;
-      try {
-        return Long.parseLong(number.trim());
-      }
-      catch (NumberFormatException e) {
-        return null;
+  @Nullable
+  private static String parseVersionAsRevision(@NotNull String versionId, @NotNull AbstractVcs vcs) {
+    String vcsPattern = vcs.getRevisionPattern();
+    if (vcsPattern != null) {
+      Pattern revisionPattern = Pattern.compile(String.format(ourRevisionPatternTemplate, vcsPattern));
+      Matcher revisionMatcher = revisionPattern.matcher(versionId);
+      if (revisionMatcher.find()) {
+        return revisionMatcher.group(1);
       }
     }
     return null;
+  }
+
+  @Nullable
+  private static Date parseVersionAsDate(@NotNull String versionId) {
+    try {
+      Matcher tsMatcher = ourTsPattern.matcher(versionId);
+      if (tsMatcher.find()) {
+        long fromTsPattern = Long.parseLong(tsMatcher.group(1));
+        return new Date(fromTsPattern);
+      }
+      else {
+        return new Date(versionId);
+      }
+    }
+    catch (IllegalArgumentException e) {
+      return null;
+    }
+  }
+
+  private static void runWithModalProgressIfNeeded(@Nullable Project project,
+                                                   @NotNull @NlsContexts.ProgressTitle String title,
+                                                   @NotNull VcsRunnable task)
+    throws VcsException {
+    VcsUtil.runVcsProcessWithProgress(task, title, true, project);
   }
 }

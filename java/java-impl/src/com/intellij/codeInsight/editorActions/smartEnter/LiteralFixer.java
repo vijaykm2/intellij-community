@@ -22,13 +22,6 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiJavaToken;
 import com.intellij.util.IncorrectOperationException;
 
-/**
- * Created by IntelliJ IDEA.
- * User: max
- * Date: Sep 5, 2003
- * Time: 6:32:22 PM
- * To change this template use Options | File Templates.
- */
 public class LiteralFixer implements Fixer {
   @Override
   public void apply(Editor editor, JavaSmartEnterProcessor processor, PsiElement psiElement)
@@ -39,7 +32,7 @@ public class LiteralFixer implements Fixer {
         editor.getDocument().insertString(psiElement.getTextRange().getEndOffset(), "\"");
       } else if (((PsiJavaToken) psiElement).getTokenType() == JavaTokenType.CHARACTER_LITERAL &&
                  !StringUtil.endsWithChar(psiElement.getText(), '\'')) {
-        editor.getDocument().insertString(psiElement.getTextRange().getEndOffset(), "\'");
+        editor.getDocument().insertString(psiElement.getTextRange().getEndOffset(), "'");
       }
     }
   }

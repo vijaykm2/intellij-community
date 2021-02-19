@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.memberPullUp;
 
 import com.intellij.openapi.project.Project;
@@ -26,6 +12,7 @@ import com.intellij.refactoring.ui.AbstractMemberSelectionTable;
 import com.intellij.refactoring.ui.MemberSelectionPanelBase;
 import com.intellij.refactoring.ui.RefactoringDialog;
 import com.intellij.usageView.UsageViewUtil;
+import com.intellij.openapi.util.NlsContexts;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -50,7 +37,11 @@ public abstract class PullUpDialogBase<Storage extends AbstractMemberInfoStorage
   protected List<MemberInfo> myMemberInfos;
   private JComboBox myClassCombo;
 
-  public PullUpDialogBase(Project project, Class aClass, List<Class> superClasses, Storage memberInfoStorage, String title) {
+  public PullUpDialogBase(Project project,
+                          Class aClass,
+                          List<Class> superClasses,
+                          Storage memberInfoStorage,
+                          @NlsContexts.DialogTitle String title) {
     super(project, true);
     myClass = aClass;
     mySuperClasses = superClasses;
@@ -71,7 +62,7 @@ public abstract class PullUpDialogBase<Storage extends AbstractMemberInfoStorage
   }
 
   public List<MemberInfo> getSelectedMemberInfos() {
-    ArrayList<MemberInfo> list = new ArrayList<MemberInfo>(myMemberInfos.size());
+    ArrayList<MemberInfo> list = new ArrayList<>(myMemberInfos.size());
     for (MemberInfo info : myMemberInfos) {
       if (info.isChecked() && myMemberInfoModel.isMemberEnabled(info)) {
         list.add(info);
@@ -80,6 +71,7 @@ public abstract class PullUpDialogBase<Storage extends AbstractMemberInfoStorage
     return list;
   }
 
+  @Override
   protected JComponent createNorthPanel() {
     JPanel panel = new JPanel();
 
@@ -107,13 +99,13 @@ public abstract class PullUpDialogBase<Storage extends AbstractMemberInfoStorage
     }
     myClassCombo.setSelectedIndex(indexToSelect);
     myClassCombo.addItemListener(new ItemListener() {
+      @Override
       public void itemStateChanged(ItemEvent e) {
         if (e.getStateChange() == ItemEvent.SELECTED) {
           updateMemberInfo();
         }
       }
     });
-    updateMemberInfo();
     gbConstraints.gridy++;
     panel.add(myClassCombo, gbConstraints);
 
@@ -129,16 +121,19 @@ public abstract class PullUpDialogBase<Storage extends AbstractMemberInfoStorage
     myMemberInfos = myMemberInfoStorage.getIntermediateMemberInfosList(targetClass);
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     JPanel panel = new JPanel(new BorderLayout());
-    myMemberSelectionPanel = new MemberSelectionPanelBase<Member, MemberInfo, AbstractMemberSelectionTable<Member, MemberInfo>>(RefactoringBundle.message("members.to.be.pulled.up"), createMemberSelectionTable(myMemberInfos));
+    myMemberSelectionPanel =
+      new MemberSelectionPanelBase<>(RefactoringBundle.message("members.to.be.pulled.up"), createMemberSelectionTable(myMemberInfos));
     myMemberInfoModel = createMemberInfoModel();
-    myMemberInfoModel.memberInfoChanged(new MemberInfoChange<Member, MemberInfo>(myMemberInfos));
+    myMemberInfoModel.memberInfoChanged(new MemberInfoChange<>(myMemberInfos));
     myMemberSelectionPanel.getTable().setMemberInfoModel(myMemberInfoModel);
     myMemberSelectionPanel.getTable().addMemberInfoChangeListener(myMemberInfoModel);
     panel.add(myMemberSelectionPanel, BorderLayout.CENTER);
 
     addCustomElementsToCentralPanel(panel);
+    updateMemberInfo();
 
     return panel;
   }

@@ -16,7 +16,6 @@
 package org.jetbrains.plugins.groovy.refactoring.extract;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
 import com.intellij.psi.CommonClassNames;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiElement;
@@ -63,12 +62,7 @@ public class InitialInfo implements ExtractInfoHelper {
     myStringPartInfo = stringPartInfo;
     myVariable = variable;
 
-    myHasReturnValue = ContainerUtil.find(returnStatements, new Condition<GrStatement>() {
-      @Override
-      public boolean value(GrStatement statement) {
-        return statement instanceof GrReturnStatement && ((GrReturnStatement)statement).getReturnValue() != null;
-      }
-    }) != null;
+    myHasReturnValue = ContainerUtil.find(returnStatements, statement -> statement instanceof GrReturnStatement && ((GrReturnStatement)statement).getReturnValue() != null) != null;
 
     assert myStringPartInfo != null || myStatements.length > 0;
     myProject = project;
@@ -109,7 +103,7 @@ public class InitialInfo implements ExtractInfoHelper {
     }
     else if (hasReturnValue) {
       assert !returnStatements.isEmpty();
-      List<PsiType> types = new ArrayList<PsiType>(returnStatements.size());
+      List<PsiType> types = new ArrayList<>(returnStatements.size());
       for (GrStatement statement : returnStatements) {
         if (statement instanceof GrReturnStatement) {
           GrExpression returnValue = ((GrReturnStatement)statement).getReturnValue();
@@ -133,15 +127,13 @@ public class InitialInfo implements ExtractInfoHelper {
     return myProject;
   }
 
-  @NotNull
   @Override
-  public ParameterInfo[] getParameterInfos() {
+  public ParameterInfo @NotNull [] getParameterInfos() {
     return myParameterInfos;
   }
 
   @Override
-  @NotNull
-  public VariableInfo[] getOutputVariableInfos() {
+  public VariableInfo @NotNull [] getOutputVariableInfos() {
     return myOutputNames;
   }
 
@@ -150,9 +142,8 @@ public class InitialInfo implements ExtractInfoHelper {
    *
    * @return array of argument names
    */
-  @NotNull
   @Override
-  public String[] getArgumentNames() {
+  public String @NotNull [] getArgumentNames() {
     return myArgumentNames;
   }
 
@@ -163,14 +154,12 @@ public class InitialInfo implements ExtractInfoHelper {
   }
 
   @Override
-  @NotNull
-  public PsiElement[] getInnerElements() {
+  public PsiElement @NotNull [] getInnerElements() {
     return myInnerElements;
   }
 
   @Override
-  @NotNull
-  public GrStatement[] getStatements() {
+  public GrStatement @NotNull [] getStatements() {
     return myStatements;
   }
 

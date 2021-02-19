@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2012 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,9 +25,11 @@ import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
+import com.siyeh.ipp.psiutils.ErrorUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.util.Objects;
 
 public class UnnecessaryParenthesesInspection extends BaseInspection implements CleanupLocalInspectionTool {
 
@@ -42,12 +44,6 @@ public class UnnecessaryParenthesesInspection extends BaseInspection implements 
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("unnecessary.parentheses.display.name");
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message("unnecessary.parentheses.problem.descriptor");
   }
@@ -58,7 +54,7 @@ public class UnnecessaryParenthesesInspection extends BaseInspection implements 
     optionsPanel.addCheckbox(InspectionGadgetsBundle.message("unnecessary.parentheses.option"), "ignoreClarifyingParentheses");
     optionsPanel.addCheckbox(InspectionGadgetsBundle.message("unnecessary.parentheses.conditional.option"),
                              "ignoreParenthesesOnConditionals");
-    optionsPanel.addCheckbox("Ignore parentheses around single no formal type lambda parameter", "ignoreParenthesesOnLambdaParameter");
+    optionsPanel.addCheckbox(InspectionGadgetsBundle.message("ignore.parentheses.around.single.no.formal.type.lambda.parameter"), "ignoreParenthesesOnLambdaParameter");
     return optionsPanel;
   }
 
@@ -71,13 +67,8 @@ public class UnnecessaryParenthesesInspection extends BaseInspection implements 
 
     @Override
     @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message("unnecessary.parentheses.remove.quickfix");
-    }
-    @Override
-    @NotNull
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("unnecessary.parentheses.remove.quickfix");
     }
 
     @Override
@@ -86,7 +77,7 @@ public class UnnecessaryParenthesesInspection extends BaseInspection implements 
       if (element instanceof PsiParameterList) {
         final PsiElementFactory factory = JavaPsiFacade.getElementFactory(element.getProject());
         final PsiParameterList parameterList = (PsiParameterList)element;
-        final String text = parameterList.getParameters()[0].getName() + "->{}";
+        final String text = Objects.requireNonNull(parameterList.getParameter(0)).getName() + "->{}";
         final PsiLambdaExpression expression = (PsiLambdaExpression)factory.createExpressionFromText(text, element);
         element.replace(expression.getParameterList());
       } else {
@@ -105,7 +96,7 @@ public class UnnecessaryParenthesesInspection extends BaseInspection implements 
     public void visitParameterList(PsiParameterList list) {
       super.visitParameterList(list);
       if (!ignoreParenthesesOnLambdaParameter && list.getParent() instanceof PsiLambdaExpression && list.getParametersCount() == 1) {
-        final PsiParameter parameter = list.getParameters()[0];
+        final PsiParameter parameter = Objects.requireNonNull(list.getParameter(0));
         if (parameter.getTypeElement() == null && list.getFirstChild() != parameter && list.getLastChild() != parameter) {
           registerError(list);
         }
@@ -125,7 +116,8 @@ public class UnnecessaryParenthesesInspection extends BaseInspection implements 
           return;
         }
       }
-      if (!ParenthesesUtils.areParenthesesNeeded(expression, ignoreClarifyingParentheses)) {
+      if (!ParenthesesUtils.areParenthesesNeeded(expression, ignoreClarifyingParentheses) &&
+          !ErrorUtil.containsError(expression) && !ErrorUtil.containsError(expression.getExpression())) {
         registerError(expression);
         return;
       }

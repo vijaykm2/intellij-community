@@ -19,22 +19,16 @@ import com.intellij.psi.PsiClass;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * User: anna
- * Date: 3/4/13
- */
 public interface PropertyClassMember extends EncapsulatableClassMember {
   /**
    * @return PsiElement or TemplateGenerationInfo
    * @param aClass
    */
-  @Nullable
-  GenerationInfo[] generateGetters(PsiClass aClass) throws IncorrectOperationException;
+  GenerationInfo @Nullable [] generateGetters(PsiClass aClass) throws IncorrectOperationException;
 
   /**
    * @return PsiElement or TemplateGenerationInfo
    * @param aClass
    */
-  @Nullable
-  GenerationInfo[] generateSetters(PsiClass aClass) throws IncorrectOperationException;
+  GenerationInfo @Nullable [] generateSetters(PsiClass aClass) throws IncorrectOperationException;
 }

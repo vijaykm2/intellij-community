@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.incremental.instrumentation;
 
 import com.intellij.compiler.instrumentation.InstrumentationClassFinder;
@@ -21,16 +7,19 @@ import com.intellij.execution.process.ProcessAdapter;
 import com.intellij.execution.process.ProcessEvent;
 import com.intellij.execution.process.ProcessOutputTypes;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.SmartList;
 import com.intellij.util.SystemProperties;
-import gnu.trove.THashMap;
+import com.intellij.util.containers.FileCollectionFactory;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.ModuleChunk;
 import org.jetbrains.jps.ProjectPaths;
+import org.jetbrains.jps.builders.JpsBuildBundle;
 import org.jetbrains.jps.incremental.*;
 import org.jetbrains.jps.incremental.messages.BuildMessage;
 import org.jetbrains.jps.incremental.messages.CompilerMessage;
@@ -50,12 +39,11 @@ import java.util.concurrent.Future;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 11/30/12
  */
-public class RmiStubsGenerator extends ClassProcessingBuilder {
+public final class RmiStubsGenerator extends ClassProcessingBuilder {
   private static final String REMOTE_INTERFACE_NAME = Remote.class.getName().replace('.', '/');
   private static final File[] EMPTY_FILE_ARRAY = new File[0];
-  private static Key<Boolean> IS_ENABLED = Key.create("_rmic_compiler_enabled_");
+  private static final Key<Boolean> IS_ENABLED = Key.create("_rmic_compiler_enabled_");
 
   public RmiStubsGenerator() {
     super(BuilderCategory.CLASS_INSTRUMENTER);
@@ -63,12 +51,11 @@ public class RmiStubsGenerator extends ClassProcessingBuilder {
 
   @Override
   protected String getProgressMessage() {
-    return "Generating RMI stubs...";
+    return JpsBuildBundle.message("progress.message.generating.rmi.stubs");
   }
 
-  @NotNull
   @Override
-  public String getPresentableName() {
+  public @NlsSafe String getPresentableName() {
     return "rmic";
   }
 
@@ -88,14 +75,14 @@ public class RmiStubsGenerator extends ClassProcessingBuilder {
   protected ExitCode performBuild(CompileContext context, ModuleChunk chunk, InstrumentationClassFinder finder, OutputConsumer outputConsumer) {
     ExitCode exitCode = ExitCode.NOTHING_DONE;
     if (!outputConsumer.getCompiledClasses().isEmpty()) {
-      final Map<ModuleBuildTarget, Collection<ClassItem>> remoteClasses = new THashMap<ModuleBuildTarget, Collection<ClassItem>>();
+      final Map<ModuleBuildTarget, Collection<ClassItem>> remoteClasses = new HashMap<>();
       for (ModuleBuildTarget target : chunk.getTargets()) {
         for (CompiledClass compiledClass : outputConsumer.getTargetCompiledClasses(target)) {
           try {
             if (isRemote(compiledClass, finder)) {
               Collection<ClassItem> list = remoteClasses.get(target);
               if (list ==  null) {
-                list = new ArrayList<ClassItem>();
+                list = new ArrayList<>();
                 remoteClasses.put(target, list);
               }
               list.add(new ClassItem(compiledClass));
@@ -130,7 +117,7 @@ public class RmiStubsGenerator extends ClassProcessingBuilder {
     final String classpathString = buf.toString();
     final String rmicPath = getPathToRmic(chunk);
     final RmicCompilerOptions options = getOptions(context);
-    final List<ModuleBuildTarget> targetsProcessed = new ArrayList<ModuleBuildTarget>(remoteClasses.size());
+    final List<ModuleBuildTarget> targetsProcessed = new ArrayList<>(remoteClasses.size());
 
     for (Map.Entry<ModuleBuildTarget, Collection<ClassItem>> entry : remoteClasses.entrySet()) {
       try {
@@ -138,11 +125,12 @@ public class RmiStubsGenerator extends ClassProcessingBuilder {
         final Collection<String> cmdLine = createStartupCommand(
           target, rmicPath, classpathString, options, entry.getValue()
         );
-        final Process process = Runtime.getRuntime().exec(ArrayUtil.toStringArray(cmdLine));
-        final BaseOSProcessHandler handler = new BaseOSProcessHandler(process, null, null) {
+        final Process process = Runtime.getRuntime().exec(ArrayUtilRt.toStringArray(cmdLine));
+        final BaseOSProcessHandler handler = new BaseOSProcessHandler(process, StringUtil.join(cmdLine, " "), null) {
+          @NotNull
           @Override
-          protected Future<?> executeOnPooledThread(Runnable task) {
-            return SharedThreadPool.getInstance().executeOnPooledThread(task);
+          protected Future<?> executeOnPooledThread(@NotNull Runnable task) {
+            return SharedThreadPool.getInstance().submit(task);
           }
         };
 
@@ -150,7 +138,7 @@ public class RmiStubsGenerator extends ClassProcessingBuilder {
         final RmicOutputParser stdErrParser = new RmicOutputParser(context, getPresentableName());
         handler.addProcessListener(new ProcessAdapter() {
           @Override
-          public void onTextAvailable(ProcessEvent event, Key outputType) {
+          public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
             if (outputType == ProcessOutputTypes.STDOUT) {
               stdOutParser.append(event.getText());
             }
@@ -160,7 +148,7 @@ public class RmiStubsGenerator extends ClassProcessingBuilder {
           }
 
           @Override
-          public void processTerminated(ProcessEvent event) {
+          public void processTerminated(@NotNull ProcessEvent event) {
             super.processTerminated(event);
           }
         });
@@ -173,7 +161,8 @@ public class RmiStubsGenerator extends ClassProcessingBuilder {
         else {
           final int exitValue = handler.getProcess().exitValue();
           if (exitValue != 0) {
-            context.processMessage(new CompilerMessage(getPresentableName(), BuildMessage.Kind.ERROR, "RMI stub generation failed"));
+            context.processMessage(new CompilerMessage(getPresentableName(), BuildMessage.Kind.ERROR,
+                                                       JpsBuildBundle.message("build.message.rmi.stub.generation.failed")));
             break;
           }
         }
@@ -185,7 +174,7 @@ public class RmiStubsGenerator extends ClassProcessingBuilder {
     }
 
     // registering generated files
-    final Map<File, File[]> fsCache = new THashMap<File, File[]>(FileUtil.FILE_HASHING_STRATEGY);
+    final Map<File, File[]> fsCache = FileCollectionFactory.createCanonicalFileMap();
     for (ModuleBuildTarget target : targetsProcessed) {
       final Collection<ClassItem> items = remoteClasses.get(target);
       for (ClassItem item : items) {
@@ -199,7 +188,7 @@ public class RmiStubsGenerator extends ClassProcessingBuilder {
         }
         final Collection<File> files = item.selectGeneratedFiles(children);
         if (!files.isEmpty()) {
-          final Collection<String> sources = Collections.singleton(item.compiledClass.getSourceFile().getPath());
+          final Collection<String> sources = item.compiledClass.getSourceFilesPaths();
           for (File generated : files) {
             try {
               outputConsumer.registerOutputFile(target, generated, sources);
@@ -220,7 +209,7 @@ public class RmiStubsGenerator extends ClassProcessingBuilder {
                                                          final String classpath,
                                                          final RmicCompilerOptions config,
                                                          final Collection<ClassItem> items) {
-    final List<String> commandLine = new ArrayList<String>();
+    final List<String> commandLine = new ArrayList<>();
     commandLine.add(compilerPath);
 
     if (config.DEBUGGING_INFO) {
@@ -322,7 +311,7 @@ public class RmiStubsGenerator extends ClassProcessingBuilder {
       if (candidates == null || candidates.length == 0) {
         return Collections.emptyList();
       }
-      final Collection<File> result = new SmartList<File>();
+      final Collection<File> result = new SmartList<>();
       final String[] suffixes = new String[GEN_SUFFIXES.length];
       for (int i = 0; i < GEN_SUFFIXES.length; i++) {
         suffixes[i] = baseName + GEN_SUFFIXES[i];
@@ -340,12 +329,12 @@ public class RmiStubsGenerator extends ClassProcessingBuilder {
     }
   }
 
-  private static class RmicOutputParser extends LineOutputWriter {
+  private static final class RmicOutputParser extends LineOutputWriter {
     private final CompileContext myContext;
-    private final String myCompilerName;
+    private final @Nls String myCompilerName;
     private boolean myErrorsReported = false;
 
-    private RmicOutputParser(CompileContext context, String name) {
+    private RmicOutputParser(CompileContext context, @Nls String name) {
       myContext = context;
       myCompilerName = name;
     }
@@ -355,7 +344,7 @@ public class RmiStubsGenerator extends ClassProcessingBuilder {
     }
 
     @Override
-    protected void lineAvailable(String line) {
+    protected void lineAvailable(@NlsSafe String line) {
       if (!StringUtil.isEmpty(line)) {
         BuildMessage.Kind kind = BuildMessage.Kind.INFO;
         if (line.contains("error")) {

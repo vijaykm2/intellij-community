@@ -16,13 +16,14 @@
 package com.intellij.compiler.impl.javaCompiler.javac;
 
 import com.intellij.compiler.impl.javaCompiler.BackendCompiler;
-import com.intellij.openapi.compiler.CompilerBundle;
+import com.intellij.ide.highlighter.JavaFileType;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.jps.model.java.compiler.CompilerOptions;
 import org.jetbrains.jps.model.java.compiler.JavaCompilers;
 
 import java.util.Collections;
@@ -35,24 +36,34 @@ public class JavacCompiler implements BackendCompiler {
     myProject = project;
   }
 
+  @Override
   @NotNull
   @NonNls
   public String getId() { // used for externalization
     return JavaCompilers.JAVAC_ID;
   }
 
+  @Override
   @NotNull
   public String getPresentableName() {
-    return CompilerBundle.message("compiler.javac.name");
+    return JavaCompilerBundle.message("compiler.javac.name");
+  }
+
+  @Override
+  @NotNull
+  public Configurable createConfigurable() {
+    return new JavacConfigurable(myProject, JavacConfiguration.getOptions(myProject, JavacConfiguration.class));
+  }
+
+  @Override
+  @NotNull
+  public Set<FileType> getCompilableFileTypes() {
+    return Collections.singleton(JavaFileType.INSTANCE);
   }
 
   @NotNull
-  public Configurable createConfigurable() {
-    return new JavacConfigurable(JavacConfiguration.getOptions(myProject, JavacConfiguration.class));
-  }
-
-  @NotNull 
-  public Set<FileType> getCompilableFileTypes() {
-    return Collections.<FileType>singleton(StdFileTypes.JAVA);
+  @Override
+  public CompilerOptions getOptions() {
+    return JavacConfiguration.getOptions(myProject, JavacConfiguration.class);
   }
 }

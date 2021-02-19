@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.maven.compiler;
 
 import com.intellij.openapi.util.io.FileUtil;
@@ -21,8 +7,10 @@ import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.incremental.CompileContext;
+import org.jetbrains.jps.incremental.FSOperations;
 import org.jetbrains.jps.incremental.messages.BuildMessage;
 import org.jetbrains.jps.incremental.messages.CompilerMessage;
+import org.jetbrains.jps.maven.MavenJpsBundle;
 import org.jetbrains.jps.maven.model.impl.MavenModuleResourceConfiguration;
 import org.jetbrains.jps.maven.model.impl.MavenProjectConfiguration;
 import org.jetbrains.jps.maven.model.impl.ResourceRootConfiguration;
@@ -31,6 +19,7 @@ import org.jetbrains.jps.model.JpsEncodingProjectConfiguration;
 import org.jetbrains.jps.model.JpsProject;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
@@ -39,9 +28,6 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * @author nik
- */
 public class MavenResourceFileProcessor {
   private static final int FILTERING_SIZE_LIMIT = 10 * 1024 * 1024 /*10 mb*/;
   private static final String MAVEN_BUILD_TIMESTAMP_PROPERTY = "maven.build.timestamp";
@@ -68,8 +54,8 @@ public class MavenResourceFileProcessor {
     boolean shouldFilter = rootConfiguration.isFiltered && !myFilteringExcludedExtensions.contains(FileUtilRt.getExtension(file.getName()))
                            && filteringFilter.accept(file);
     if (shouldFilter && file.length() > FILTERING_SIZE_LIMIT) {
-      context.processMessage(new CompilerMessage("MavenResources", BuildMessage.Kind.WARNING,
-                                                 "File is too big to be filtered. Most likely it is a binary file and should be excluded from filtering",
+      context.processMessage(new CompilerMessage(MavenJpsBundle.message("maven.resources.compiler"), BuildMessage.Kind.WARNING,
+                                                 MavenJpsBundle.message("file.is.too.big.to.be.filtered"),
                                                  file.getPath()));
       shouldFilter = false;
     }
@@ -77,7 +63,7 @@ public class MavenResourceFileProcessor {
       copyWithFiltering(file, targetFile);
     }
     else {
-      FileUtil.copyContent(file, targetFile);
+      FSOperations.copy(file, targetFile);
     }
   }
 
@@ -88,12 +74,15 @@ public class MavenResourceFileProcessor {
       writer = encoding != null ? new PrintWriter(outputFile, encoding) : new PrintWriter(outputFile);
     }
     catch (FileNotFoundException e) {
-      FileUtil.createIfDoesntExist(outputFile);
+      final File parentFile = outputFile.getParentFile();
+      if (parentFile == null || !parentFile.mkdirs() && !outputFile.setWritable(true)) {
+        throw e; // all possible problem resolutions failed, so rethrow the error
+      }
       writer = encoding != null ? new PrintWriter(outputFile, encoding) : new PrintWriter(outputFile);
     }
     try {
       final byte[] bytes = FileUtil.loadFileBytes(file);
-      final String text = encoding != null? new String(bytes, encoding) : new String(bytes);
+      final String text = encoding != null? new String(bytes, encoding) : new String(bytes, StandardCharsets.UTF_8);
       doFilterText(text, getDelimitersPattern(), getProperties(), null, writer);
     }
     finally {
@@ -142,7 +131,7 @@ public class MavenResourceFileProcessor {
       assert propertyName != null;
 
       if (resolvedProperties == null) {
-        resolvedProperties = new HashMap<String, String>();
+        resolvedProperties = new HashMap<>();
       }
 
       String propertyValue = resolvedProperties.get(propertyName);
@@ -196,7 +185,7 @@ public class MavenResourceFileProcessor {
   private Map<String, String> getProperties() {
     Map<String, String> props = myProperties;
     if (props == null) {
-      props = new HashMap<String, String>(myModuleConfiguration.properties);
+      props = new HashMap<>(myModuleConfiguration.properties);
       String timestampFormat = props.get(MAVEN_BUILD_TIMESTAMP_FORMAT_PROPERTY);
       if (timestampFormat == null) {
         timestampFormat = "yyyyMMdd-HHmm"; // See ModelInterpolator.DEFAULT_BUILD_TIMESTAMP_FORMAT

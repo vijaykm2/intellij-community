@@ -23,13 +23,10 @@ import com.intellij.psi.tree.IFileElementType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author cdr
- */
 public class PropertiesASTFactory extends ASTFactory {
   @Override
   @Nullable
-  public CompositeElement createComposite(final IElementType type) {
+  public CompositeElement createComposite(@NotNull final IElementType type) {
     if (type instanceof IFileElementType) {
       return new FileElement(type, null);
     }

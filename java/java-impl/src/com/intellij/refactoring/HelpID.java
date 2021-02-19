@@ -1,19 +1,5 @@
 
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring;
 
 import com.intellij.psi.PsiClass;
@@ -22,7 +8,7 @@ import com.intellij.psi.PsiPackage;
 import org.jetbrains.annotations.NonNls;
 
 @SuppressWarnings({"HardCodedStringLiteral"})
-public class HelpID {
+public final class HelpID {
   public static final String RENAME_PACKAGE   = "refactoring.renamePackage";
   public static final String RENAME_CLASS     = "refactoring.renameClass";
   public static final String RENAME_METHOD    = "refactoring.renameMethod";
@@ -76,7 +62,6 @@ public class HelpID {
   public static final String METHOD_DUPLICATES          = "refactoring.replaceMethodCodeDuplicates";
   public static final String CHANGE_CLASS_SIGNATURE     = "change.class.signature.dialog";
   public static final String MOVE_INSTANCE_METHOD       = "refactoring.moveInstMethod";
-  public static final String INVERT_BOOLEAN             = "refactoring.invertBoolean";
   public static final String EXTRACT_METHOD_OBJECT = "refactoring.extractMethodObject";
   public static final String REPLACE_CONSTRUCTOR_WITH_BUILDER = "refactoring.replaceConstructorWithBuilder";
   @NonNls public static final String ExtractClass = "refactorj.extractClass";

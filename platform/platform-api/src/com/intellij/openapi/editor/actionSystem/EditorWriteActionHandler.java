@@ -15,12 +15,11 @@
  */
 package com.intellij.openapi.editor.actionSystem;
 
-import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.*;
-import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.project.Project;
+import com.intellij.openapi.editor.textarea.TextComponentEditor;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -33,20 +32,17 @@ public abstract class EditorWriteActionHandler extends EditorActionHandler {
   protected EditorWriteActionHandler() {
   }
 
+  /** Consider subclassing {@link ForEachCaret} instead. */
   protected EditorWriteActionHandler(boolean runForEachCaret) {
     super(runForEachCaret);
   }
 
   @Override
-  public void doExecute(final Editor editor, @Nullable final Caret caret, final DataContext dataContext) {
+  public void doExecute(@NotNull final Editor editor, @Nullable final Caret caret, final DataContext dataContext) {
     if (editor.isViewer()) return;
+    if (!ApplicationManager.getApplication().isWriteAccessAllowed() && !EditorModificationUtil.requestWriting(editor)) return;
 
-    if (dataContext != null) {
-      Project project = CommonDataKeys.PROJECT.getData(dataContext);
-      if (project != null && !FileDocumentManager.getInstance().requestWriting(editor.getDocument(), project)) return;
-    }
-
-    ApplicationManager.getApplication().runWriteAction(new DocumentRunnable(editor.getDocument(),editor.getProject()) {
+    DocumentRunnable runnable = new DocumentRunnable(editor.getDocument(), editor.getProject()) {
       @Override
       public void run() {
         final Document doc = editor.getDocument();
@@ -62,38 +58,44 @@ public abstract class EditorWriteActionHandler extends EditorActionHandler {
           doc.stopGuardedBlockChecking();
         }
       }
-    });
+    };
+    if (editor instanceof TextComponentEditor) {
+      runnable.run();
+    }
+    else {
+      ApplicationManager.getApplication().runWriteAction(runnable);
+    }
   }
 
   /**
-   * @deprecated Use/override
-   * {@link #executeWriteAction(Editor, Caret, DataContext)}
-   * instead.
+   * @deprecated Use/override {@link #executeWriteAction(Editor, Caret, DataContext)} instead.
    */
+  @Deprecated
   public void executeWriteAction(Editor editor, DataContext dataContext) {
-    if (inExecution) {
-      return;
-    }
-    try {
-      inExecution = true;
-      executeWriteAction(editor, editor.getCaretModel().getCurrentCaret(), dataContext);
-    }
-    finally {
-      inExecution = false;
-    }
+    executeWriteAction(editor, editor.getCaretModel().getCurrentCaret(), dataContext);
   }
 
-  public void executeWriteAction(Editor editor, @Nullable Caret caret, DataContext dataContext) {
+  public void executeWriteAction(@NotNull Editor editor, @Nullable Caret caret, DataContext dataContext) {
     if (inExecution) {
       return;
     }
     try {
       inExecution = true;
-      //noinspection deprecation
       executeWriteAction(editor, dataContext);
     }
     finally {
       inExecution = false;
     }
+  }
+
+  public static abstract class ForEachCaret extends EditorWriteActionHandler {
+    protected ForEachCaret() {
+      super(true);
+    }
+
+    @Override
+    public abstract void executeWriteAction(@NotNull Editor editor,
+                                            @SuppressWarnings("NullableProblems") @NotNull Caret caret,
+                                            DataContext dataContext);
   }
 }

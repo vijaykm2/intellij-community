@@ -1,22 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs;
 
 import com.intellij.openapi.application.Application;
@@ -32,13 +14,11 @@ public abstract class DeprecatedVirtualFileSystem extends VirtualFileSystem {
   private final EventDispatcher<VirtualFileListener> myEventDispatcher = EventDispatcher.create(VirtualFileListener.class);
 
   protected void startEventPropagation() {
-    Application application = ApplicationManager.getApplication();
-    if (application == null) {
-      return;
+    Application app = ApplicationManager.getApplication();
+    if (app != null) {
+      app.getMessageBus().connect().subscribe(
+        VirtualFileManager.VFS_CHANGES, new BulkVirtualFileListenerAdapter(myEventDispatcher.getMulticaster(), this));
     }
-
-    application.getMessageBus().connect().subscribe(
-      VirtualFileManager.VFS_CHANGES, new BulkVirtualFileListenerAdapter(myEventDispatcher.getMulticaster(), this));
   }
 
   @Override
@@ -46,11 +26,6 @@ public abstract class DeprecatedVirtualFileSystem extends VirtualFileSystem {
     myEventDispatcher.addListener(listener);
   }
 
-  /**
-   * Removes listener form the file system.
-   *
-   * @param listener the listener
-   */
   @Override
   public void removeVirtualFileListener(@NotNull VirtualFileListener listener) {
     myEventDispatcher.removeListener(listener);
@@ -74,13 +49,13 @@ public abstract class DeprecatedVirtualFileSystem extends VirtualFileSystem {
 
   protected void fireFileCreated(@Nullable Object requestor, @NotNull VirtualFile file) {
     assertWriteAccessAllowed();
-    VirtualFileEvent event = new VirtualFileEvent(requestor, file, file.getName(), file.getParent());
+    VirtualFileEvent event = new VirtualFileEvent(requestor, file, file.getParent(), 0, 0);
     myEventDispatcher.getMulticaster().fileCreated(event);
   }
 
   protected void fireFileDeleted(Object requestor, @NotNull VirtualFile file, @NotNull String fileName, VirtualFile parent) {
     assertWriteAccessAllowed();
-    VirtualFileEvent event = new VirtualFileEvent(requestor, file, fileName, parent);
+    VirtualFileEvent event = new VirtualFileEvent(requestor, file, parent, 0, 0);
     myEventDispatcher.getMulticaster().fileDeleted(event);
   }
 
@@ -90,15 +65,10 @@ public abstract class DeprecatedVirtualFileSystem extends VirtualFileSystem {
     myEventDispatcher.getMulticaster().fileMoved(event);
   }
 
-  protected void fireFileCopied(@Nullable Object requestor, @NotNull VirtualFile originalFile, @NotNull final VirtualFile createdFile) {
+  protected void fireFileCopied(@Nullable Object requestor, @NotNull VirtualFile originalFile, @NotNull VirtualFile createdFile) {
     assertWriteAccessAllowed();
     VirtualFileCopyEvent event = new VirtualFileCopyEvent(requestor, originalFile, createdFile);
-    try {
-      myEventDispatcher.getMulticaster().fileCopied(event);
-    }
-    catch (AbstractMethodError e) { //compatibility with 6.0
-      myEventDispatcher.getMulticaster().fileCreated(event);
-    }
+    myEventDispatcher.getMulticaster().fileCopied(event);
   }
 
   protected void fireBeforePropertyChange(Object requestor,
@@ -113,13 +83,13 @@ public abstract class DeprecatedVirtualFileSystem extends VirtualFileSystem {
 
   protected void fireBeforeContentsChange(Object requestor, @NotNull VirtualFile file) {
     assertWriteAccessAllowed();
-    VirtualFileEvent event = new VirtualFileEvent(requestor, file, file.getName(), file.getParent());
+    VirtualFileEvent event = new VirtualFileEvent(requestor, file, file.getParent(), 0, 0);
     myEventDispatcher.getMulticaster().beforeContentsChange(event);
   }
 
   protected void fireBeforeFileDeletion(Object requestor, @NotNull VirtualFile file) {
     assertWriteAccessAllowed();
-    VirtualFileEvent event = new VirtualFileEvent(requestor, file, file.getName(), file.getParent());
+    VirtualFileEvent event = new VirtualFileEvent(requestor, file, file.getParent(), 0, 0);
     myEventDispatcher.getMulticaster().beforeFileDeletion(event);
   }
 
@@ -137,39 +107,41 @@ public abstract class DeprecatedVirtualFileSystem extends VirtualFileSystem {
   public boolean isReadOnly() {
     return true;
   }
+
   @Override
   protected void deleteFile(Object requestor, @NotNull VirtualFile vFile) throws IOException {
-    throw new UnsupportedOperationException("deleteFile() not supported");
+    throw unsupported("deleteFile", vFile);
   }
 
   @Override
   protected void moveFile(Object requestor, @NotNull VirtualFile vFile, @NotNull VirtualFile newParent) throws IOException {
-    throw new UnsupportedOperationException("move() not supported");
+    throw unsupported("move", vFile);
   }
 
   @Override
   protected void renameFile(Object requestor, @NotNull VirtualFile vFile, @NotNull String newName) throws IOException {
-    throw new UnsupportedOperationException("renameFile() not supported");
+    throw unsupported("renameFile", vFile);
   }
 
   @NotNull
   @Override
   public VirtualFile createChildFile(Object requestor, @NotNull VirtualFile vDir, @NotNull String fileName) throws IOException {
-    throw new UnsupportedOperationException("createChildFile() not supported");
+    throw unsupported("createChildFile", vDir);
   }
 
   @NotNull
   @Override
   public VirtualFile createChildDirectory(Object requestor, @NotNull VirtualFile vDir, @NotNull String dirName) throws IOException {
-    throw new UnsupportedOperationException("createChildDirectory() not supported");
+    throw unsupported("createChildDirectory", vDir);
   }
 
   @NotNull
   @Override
-  public VirtualFile copyFile(Object requestor,
-                                 @NotNull VirtualFile virtualFile,
-                                 @NotNull VirtualFile newParent,
-                                 @NotNull String copyName) throws IOException {
-    throw new UnsupportedOperationException("copyFile() not supported");
+  public VirtualFile copyFile(Object requestor, @NotNull VirtualFile vFile, @NotNull VirtualFile newParent, @NotNull String copyName) throws IOException {
+    throw unsupported("copyFile", vFile);
+  }
+
+  private UnsupportedOperationException unsupported(String op, VirtualFile vFile) {
+    return new UnsupportedOperationException(op + '(' + vFile + ") not supported by " + getClass().getName());
   }
 }

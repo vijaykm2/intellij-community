@@ -15,29 +15,45 @@
  */
 package com.intellij.refactoring.actions;
 
-import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.editor.Editor;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiMethod;
 import com.intellij.refactoring.RefactoringActionHandler;
 import com.intellij.refactoring.replaceConstructorWithFactory.ReplaceConstructorWithFactoryHandler;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * @author dsl
  */
-public class ReplaceConstructorWithFactoryAction extends BaseRefactoringAction {
+public class ReplaceConstructorWithFactoryAction extends BaseJavaRefactoringAction {
+  @Override
   protected boolean isAvailableInEditorOnly() {
     return false;
   }
 
-  protected boolean isEnabledOnElements(@NotNull PsiElement[] elements) {
-    return elements.length == 1 &&
-           (elements[0] instanceof PsiMethod && ((PsiMethod)elements[0]).isConstructor() || elements[0] instanceof PsiClass)
-           && elements[0].getLanguage().isKindOf(JavaLanguage.INSTANCE);
+  @Override
+  protected boolean isEnabledOnElements(PsiElement @NotNull [] elements) {
+    return false;
   }
 
+  @Override
+  protected boolean isAvailableOnElementInEditorAndFile(@NotNull PsiElement element,
+                                                        @NotNull Editor editor,
+                                                        @NotNull PsiFile file,
+                                                        @NotNull DataContext context) {
+    PsiMethod method = RefactoringActionContextUtil.getJavaMethodHeader(element);
+    return method != null && method.isConstructor() && isNotEnumClass(method.getContainingClass());
+  }
+
+  private static boolean isNotEnumClass(@Nullable PsiClass psiClass) {
+    return psiClass != null && ! psiClass.isEnum();
+  }
+
+  @Override
   protected RefactoringActionHandler getHandler(@NotNull DataContext dataContext) {
     return new ReplaceConstructorWithFactoryHandler();
   }

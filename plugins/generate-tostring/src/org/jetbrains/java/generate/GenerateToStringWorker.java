@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,13 +20,11 @@
 package org.jetbrains.java.generate;
 
 import com.intellij.codeInsight.hint.HintManager;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.command.CommandProcessor;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.editor.VisualPosition;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
@@ -42,7 +40,7 @@ import org.jetbrains.java.generate.view.MethodExistsDialog;
 import java.util.*;
 
 public class GenerateToStringWorker {
-  private static final Logger logger = Logger.getInstance("#" + GenerateToStringWorker.class.getName());
+  private static final Logger logger = Logger.getInstance(GenerateToStringWorker.class);
 
   private final Editor editor;
   private final PsiClass clazz;
@@ -57,9 +55,9 @@ public class GenerateToStringWorker {
   }
 
   /**
-   * Creates the <code>toString</code> method.
+   * Creates the {@code toString} method.
    *
-   * @param selectedMembers the selected members as both {@link com.intellij.psi.PsiField} and {@link com.intellij.psi.PsiMethod}.
+   * @param selectedMembers the selected members as both {@link PsiField} and {@link PsiMethod}.
    * @param policy          conflict resolution policy
    * @param params          additional parameters stored with key/value in the map.
    * @param template        the template to use
@@ -72,27 +70,10 @@ public class GenerateToStringWorker {
                                          ConflictResolutionPolicy policy,
                                          Map<String, String> params,
                                          TemplateResource template) throws IncorrectOperationException, GenerateCodeException {
-    // generate code using velocity
-    String body = GenerationUtil.velocityGenerateCode(clazz, selectedMembers, params, template.getMethodBody(), config.getSortElements(), config.isUseFullyQualifiedName());
-    if (logger.isDebugEnabled()) logger.debug("Method body generated from Velocity:\n" + body);
+    PsiMethod newMethod = getMethodPrototype(selectedMembers, params, template);
+    if (newMethod == null) return null;
 
-    // fix weird linebreak problem in IDEA #3296 and later
-    body = StringUtil.convertLineSeparators(body);
-
-    // create psi newMethod named toString()
-    final JVMElementFactory topLevelFactory = JVMElementFactories.getFactory(clazz.getLanguage(), clazz.getProject());
-    if (topLevelFactory == null) {
-      return null;
-    }
-    PsiMethod newMethod;
-    try {
-      newMethod = topLevelFactory.createMethodFromText(template.getMethodSignature() + " { " + body + " }", clazz);
-      CodeStyleManager.getInstance(clazz.getProject()).reformat(newMethod);
-    } catch (IncorrectOperationException ignore) {
-      HintManager.getInstance().showErrorHint(editor, "'toString()' method could not be created from template '" +
-                                                      template.getFileName() + '\'');
-      return null;
-    }
+    CodeStyleManager.getInstance(clazz.getProject()).reformat(newMethod);
 
     // insertNewMethod conflict resolution policy (add/replace, duplicate, cancel)
     PsiMethod existingMethod = clazz.findMethodBySignature(newMethod, false);
@@ -120,14 +101,32 @@ public class GenerateToStringWorker {
     return toStringMethod;
   }
 
-  public void execute(Collection<PsiMember> members, TemplateResource template) throws IncorrectOperationException, GenerateCodeException {
-    // decide what to do if the method already exists
-    ConflictResolutionPolicy resolutionPolicy = exitsMethodDialog(template);
+  private PsiMethod getMethodPrototype(Collection<PsiMember> selectedMembers, Map<String, String> params, TemplateResource template) {
+    // generate code using velocity
+    String evaluatedText = GenerationUtil
+      .velocityGenerateCode(clazz, selectedMembers, params, template.getTemplate(), config.getSortElements(), config.isUseFullyQualifiedName());
+    // create psi newMethod named toString()
+    final JVMElementFactory topLevelFactory = JVMElementFactories.getFactory(clazz.getLanguage(), clazz.getProject());
+    if (topLevelFactory == null) {
+      return null;
+    }
+    try {
+      return topLevelFactory.createMethodFromText(evaluatedText, clazz);
+    }
+    catch (IncorrectOperationException e) {
+      logger.info(e);
+      HintManager.getInstance().showErrorHint(editor, JavaBundle
+        .message("hint.text.tostring.method.could.not.be.created.from.template", template.getFileName()));
+      return null;
+    }
+  }
+
+  public void execute(Collection<PsiMember> members, TemplateResource template, final ConflictResolutionPolicy resolutionPolicy) throws IncorrectOperationException, GenerateCodeException {
     // what insert policy should we use?
     resolutionPolicy.setNewMethodStrategy(getStrategy(config.getInsertNewMethodInitialOption()));
 
     // user didn't click cancel so go on
-    Map<String, String> params = new HashMap<String, String>();
+    Map<String, String> params = new HashMap<>();
 
     // before
     beforeCreateToStringMethod(params, template);
@@ -156,7 +155,7 @@ public class GenerateToStringWorker {
   }
 
   /**
-   * This method gets the choice if there is an existing <code>toString</code> method.
+   * This method gets the choice if there is an existing {@code toString} method.
    * <br/> 1) If there is a settings to always override use this.
    * <br/> 2) Prompt a dialog and let the user decide.
    *
@@ -166,9 +165,10 @@ public class GenerateToStringWorker {
   protected ConflictResolutionPolicy exitsMethodDialog(TemplateResource template) {
     final DuplicationPolicy dupPolicy = config.getReplaceDialogInitialOption();
     if (dupPolicy == DuplicationPolicy.ASK) {
-      PsiMethod existingMethod = PsiAdapter.findMethodByName(clazz, template.getTargetMethodName());
+      PsiMethod targetMethod = getMethodPrototype(Collections.emptyList(), Collections.emptyMap(), template);
+      PsiMethod existingMethod = targetMethod != null ? clazz.findMethodBySignature(targetMethod, false) : null;
       if (existingMethod != null) {
-        return MethodExistsDialog.showDialog(template.getTargetMethodName());
+        return MethodExistsDialog.showDialog(targetMethod.getName());
       }
     }
     else if (dupPolicy == DuplicationPolicy.REPLACE) {
@@ -180,13 +180,15 @@ public class GenerateToStringWorker {
   }
 
   /**
-   * This method is executed just before the <code>toString</code> method is created or updated.
+   * This method is executed just before the {@code toString} method is created or updated.
    *
    * @param params   additional parameters stored with key/value in the map.
    * @param template the template to use
    */
   private void beforeCreateToStringMethod(Map<String, String> params, TemplateResource template) {
-    PsiMethod existingMethod = PsiAdapter.findMethodByName(clazz, template.getTargetMethodName()); // find the existing method
+    PsiMethod targetMethod = getMethodPrototype(Collections.emptyList(), Collections.emptyMap(), template);
+    if (targetMethod == null) return;
+    PsiMethod existingMethod = clazz.findMethodBySignature(targetMethod, false); // find the existing method
     if (existingMethod != null && existingMethod.getDocComment() != null) {
       PsiDocComment doc = existingMethod.getDocComment();
       if (doc != null) {
@@ -197,9 +199,9 @@ public class GenerateToStringWorker {
 
 
   /**
-   * This method is executed just after the <code>toString</code> method is created or updated.
+   * This method is executed just after the {@code toString} method is created or updated.
    *
-   * @param method   the newly created/updated <code>toString</code> method.
+   * @param method   the newly created/updated {@code toString} method.
    * @param params   additional parameters stored with key/value in the map.
    * @param template the template to use
    * @throws IncorrectOperationException is thrown by IDEA
@@ -242,36 +244,5 @@ public class GenerateToStringWorker {
       if (logger.isDebugEnabled()) logger.debug("Auto importing package: " + packageName);
       PsiAdapter.addImportStatement(psiJavaFile, packageName);
     }
-  }
-
-  /**
-   * Generates the toString() code for the specified class and selected
-   * fields, doing the work through a WriteAction ran by a CommandProcessor.
-   *
-   * @param selectedMembers list of members selected
-   * @param template         the chosen template to use
-   * @param insertAtOverride
-   */
-  public static void executeGenerateActionLater(final PsiClass clazz,
-                                                final Editor editor,
-                                                final Collection<PsiMember> selectedMembers,
-                                                final TemplateResource template,
-                                                final boolean insertAtOverride) {
-    Runnable writeCommand = new Runnable() {
-      public void run() {
-        ApplicationManager.getApplication().runWriteAction(new Runnable() {
-          public void run() {
-            try {
-              new GenerateToStringWorker(clazz, editor, insertAtOverride).execute(selectedMembers, template);
-            }
-            catch (Exception e) {
-              GenerationUtil.handleException(clazz.getProject(), e);
-            }
-          }
-        });
-      }
-    };
-
-    CommandProcessor.getInstance().executeCommand(clazz.getProject(), writeCommand, "GenerateToString", null);
   }
 }

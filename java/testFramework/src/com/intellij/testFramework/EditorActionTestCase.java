@@ -19,7 +19,6 @@ import com.intellij.ide.DataManager;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.psi.PsiDocumentManager;
 
 import java.io.IOException;
@@ -27,7 +26,7 @@ import java.io.IOException;
 /**
  * A TestCase for testing some action in editor
  */
-public abstract class EditorActionTestCase extends LightCodeInsightTestCase {
+public abstract class EditorActionTestCase extends LightJavaCodeInsightTestCase {
   /**
    * @return id of the action to be tested.
    */
@@ -58,7 +57,7 @@ public abstract class EditorActionTestCase extends LightCodeInsightTestCase {
     configureFromFileText(fileName, textBefore);
     invokeAction();
     PsiDocumentManager.getInstance(getProject()).commitAllDocuments();
-    assertEquals("Reparse error!", myEditor.getDocument().getText(), myFile.getText());
+    assertEquals("Reparse error!", getEditor().getDocument().getText(), getFile().getText());
     checkResultByText(null, textAfter, ignoreTrailingSpaces);
   }
 
@@ -90,15 +89,6 @@ public abstract class EditorActionTestCase extends LightCodeInsightTestCase {
     final AnAction action = ActionManager.getInstance().getAction(actionId);
     //noinspection HardCodedStringLiteral
     assertNotNull("Can find registered action with id=" + actionId, action);
-    action.actionPerformed(
-        new AnActionEvent(
-            null,
-            DataManager.getInstance().getDataContext(),
-            "",
-            action.getTemplatePresentation(),
-            ActionManager.getInstance(),
-            0
-        )
-    );
+    action.actionPerformed(AnActionEvent.createFromAnAction(action, null, "", DataManager.getInstance().getDataContext()));
   }
 }

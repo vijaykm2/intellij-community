@@ -18,6 +18,8 @@ package com.intellij.util.config;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.ToggleAction;
+import com.intellij.openapi.util.NlsActions;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
@@ -25,17 +27,19 @@ public class ToggleBooleanProperty extends ToggleAction {
   private final AbstractProperty.AbstractPropertyContainer myProperties;
   private final AbstractProperty<Boolean> myProperty;
 
-  public ToggleBooleanProperty(String text, String description, Icon icon, AbstractProperty.AbstractPropertyContainer properties, BooleanProperty property) {
+  public ToggleBooleanProperty(@NlsActions.ActionText String text, @NlsActions.ActionDescription String description, Icon icon, AbstractProperty.AbstractPropertyContainer properties, BooleanProperty property) {
     super(text, description, icon);
     myProperties = properties;
     myProperty = property;
   }
 
-  public boolean isSelected(AnActionEvent e) {
+  @Override
+  public boolean isSelected(@NotNull AnActionEvent e) {
     return myProperty.get(myProperties).booleanValue();
   }
 
-  public void setSelected(AnActionEvent e, boolean state) {
+  @Override
+  public void setSelected(@NotNull AnActionEvent e, boolean state) {
     myProperty.set(myProperties, Boolean.valueOf(state));
   }
 
@@ -43,15 +47,20 @@ public class ToggleBooleanProperty extends ToggleAction {
     return myProperties;
   }
 
+  protected AbstractProperty<Boolean> getProperty() {
+    return myProperty;
+  }
+
   public static abstract class Disablable extends ToggleBooleanProperty {
-    public Disablable(String text, String description, Icon icon, AbstractProperty.AbstractPropertyContainer properties, BooleanProperty property) {
+    public Disablable(@NlsActions.ActionText String text, @NlsActions.ActionDescription String description, Icon icon, AbstractProperty.AbstractPropertyContainer properties, BooleanProperty property) {
       super(text, description, icon, properties, property);
     }
 
     protected abstract boolean isEnabled();
     protected abstract boolean isVisible();
 
-    public void update(AnActionEvent e) {
+    @Override
+    public void update(@NotNull AnActionEvent e) {
       super.update(e);
       e.getPresentation().setEnabled(isEnabled());
       e.getPresentation().setVisible(isVisible());

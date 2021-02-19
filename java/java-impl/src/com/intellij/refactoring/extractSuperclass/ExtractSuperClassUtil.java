@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.extractSuperclass;
 
 import com.intellij.codeInsight.generation.OverrideImplementExploreUtil;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleUtil;
+import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.ui.DialogWrapper;
@@ -38,23 +25,19 @@ import com.intellij.refactoring.ui.ConflictsDialog;
 import com.intellij.refactoring.util.DocCommentPolicy;
 import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.refactoring.util.classMembers.MemberInfo;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * @author dsl
  */
-public class ExtractSuperClassUtil {
-  private static final Logger LOG = Logger.getInstance("com.intellij.refactoring.extractSuperclass.ExtractSuperClassUtil");
+public final class ExtractSuperClassUtil {
+  private static final Logger LOG = Logger.getInstance(ExtractSuperClassUtil.class);
+
   public static final String REFACTORING_EXTRACT_SUPER_ID = "refactoring.extractSuper";
 
   private ExtractSuperClassUtil() {}
@@ -78,8 +61,16 @@ public class ExtractSuperClassUtil {
       final PsiReferenceList subClassExtends = subclass.getExtendsList();
       if (subClassExtends != null) {
         copyPsiReferenceList(subClassExtends, superclass.getExtendsList());
-      } else if (subclass instanceof PsiAnonymousClass) {
-        superclass.getExtendsList().add(((PsiAnonymousClass)subclass).getBaseClassReference());
+      }
+      else if (subclass instanceof PsiAnonymousClass) {
+        PsiJavaCodeReferenceElement classReference = ((PsiAnonymousClass)subclass).getBaseClassReference();
+        PsiElement baseClass = classReference.resolve();
+        if (baseClass instanceof PsiClass && ((PsiClass)baseClass).isInterface()) {
+          superclass.getImplementsList().add(classReference);
+        }
+        else {
+          superclass.getExtendsList().add(classReference);
+        }
       }
 
       // create constructors if neccesary
@@ -95,10 +86,11 @@ public class ExtractSuperClassUtil {
 
       // make original class extend extracted superclass
       PsiJavaCodeReferenceElement ref = createExtendingReference(superclass, subclass, selectedMemberInfos);
+      final CodeStyleManager codeStyleManager = CodeStyleManager.getInstance(project);
       if (subClassExtends != null) {
-        subclass.getExtendsList().add(ref);
+        codeStyleManager.reformat(subclass.getExtendsList().add(ref));
       } else if (subclass instanceof PsiAnonymousClass) {
-        ((PsiAnonymousClass)subclass).getBaseClassReference().replace(ref);
+        codeStyleManager.reformat(((PsiAnonymousClass)subclass).getBaseClassReference().replace(ref));
       }
 
       PullUpProcessor pullUpHelper = new PullUpProcessor(subclass, superclass, selectedMemberInfos,
@@ -120,7 +112,7 @@ public class ExtractSuperClassUtil {
   }
 
   private static void createConstructorsByPattern(Project project, final PsiClass superclass, PsiMethod[] patternConstructors) throws IncorrectOperationException {
-    PsiElementFactory factory = JavaPsiFacade.getInstance(project).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
     CodeStyleManager styleManager = CodeStyleManager.getInstance(project);
     for (PsiMethod baseConstructor : patternConstructors) {
       PsiMethod constructor = (PsiMethod)superclass.add(factory.createConstructor());
@@ -150,7 +142,7 @@ public class ExtractSuperClassUtil {
   }
 
   private static PsiMethod[] getCalledBaseConstructors(final PsiClass subclass) {
-    Set<PsiMethod> baseConstructors = new HashSet<PsiMethod>();
+    Set<PsiMethod> baseConstructors = new HashSet<>();
     PsiMethod[] constructors = subclass.getConstructors();
     for (PsiMethod constructor : constructors) {
       PsiCodeBlock body = constructor.getBody();
@@ -173,7 +165,7 @@ public class ExtractSuperClassUtil {
         }
       }
     }
-    return baseConstructors.toArray(new PsiMethod[baseConstructors.size()]);
+    return baseConstructors.toArray(PsiMethod.EMPTY_ARRAY);
   }
 
   private static void clearPsiReferenceList(PsiReferenceList refList) throws IncorrectOperationException {
@@ -195,22 +187,17 @@ public class ExtractSuperClassUtil {
                                                                       final PsiClass derivedClass,
                                                                       final MemberInfo[] selectedMembers) throws IncorrectOperationException {
     final PsiManager manager = derivedClass.getManager();
-    Set<PsiElement> movedElements = new com.intellij.util.containers.HashSet<PsiElement>();
+    Set<PsiElement> movedElements = new HashSet<>();
     for (final MemberInfo info : selectedMembers) {
       movedElements.add(info.getMember());
     }
-    final Condition<PsiTypeParameter> filter = new Condition<PsiTypeParameter>() {
-      @Override
-      public boolean value(PsiTypeParameter parameter) {
-        return findTypeParameterInDerived(derivedClass, parameter.getName()) == parameter;
-      }
-    };
+    final Condition<PsiTypeParameter> filter = parameter -> findTypeParameterInDerived(derivedClass, parameter.getName()) == parameter;
     final PsiTypeParameterList typeParameterList = RefactoringUtil.createTypeParameterListWithUsedTypeParameters(null, filter, PsiUtilCore.toPsiElementArray(movedElements));
     final PsiTypeParameterList originalTypeParameterList = superClass.getTypeParameterList();
     assert originalTypeParameterList != null;
     final PsiTypeParameterList newList = typeParameterList != null ? (PsiTypeParameterList)originalTypeParameterList.replace(typeParameterList) : originalTypeParameterList;
-    final PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
-    Map<PsiTypeParameter, PsiType> substitutionMap = new HashMap<PsiTypeParameter, PsiType>();
+    final PsiElementFactory factory = JavaPsiFacade.getElementFactory(manager.getProject());
+    Map<PsiTypeParameter, PsiType> substitutionMap = new HashMap<>();
     for (final PsiTypeParameter parameter : newList.getTypeParameters()) {
       final PsiTypeParameter parameterInDerived = findTypeParameterInDerived(derivedClass, parameter.getName());
       if (parameterInDerived != null) {
@@ -235,11 +222,11 @@ public class ExtractSuperClassUtil {
     final VirtualFile virtualFile = subclass.getContainingFile().getVirtualFile();
     if (virtualFile != null) {
       final boolean inTestSourceContent = ProjectRootManager.getInstance(subclass.getProject()).getFileIndex().isInTestSourceContent(virtualFile);
-      final Module module = ModuleUtil.findModuleForFile(virtualFile, subclass.getProject());
+      final Module module = ModuleUtilCore.findModuleForFile(virtualFile, subclass.getProject());
       if (targetDirectory != null &&
           module != null &&
           !GlobalSearchScope.moduleWithDependenciesAndLibrariesScope(module, inTestSourceContent).contains(targetDirectory.getVirtualFile())) {
-        conflicts.putValue(subclass, "Superclass won't be accessible in subclass");
+        conflicts.putValue(subclass, JavaRefactoringBundle.message("superclass.cannot.be.accessed.in.subclass"));
       }
     }
   }
@@ -267,12 +254,7 @@ public class ExtractSuperClassUtil {
   public static RefactoringEventData createBeforeData(final PsiClass subclassClass, final MemberInfo[] members) {
     RefactoringEventData data = new RefactoringEventData();
     data.addElement(subclassClass);
-    data.addMembers(members, new Function<MemberInfo, PsiElement>() {
-      @Override
-      public PsiElement fun(MemberInfo info) {
-        return info.getMember();
-      }
-    });
+    data.addMembers(members, info -> info.getMember());
     return data;
   }
 

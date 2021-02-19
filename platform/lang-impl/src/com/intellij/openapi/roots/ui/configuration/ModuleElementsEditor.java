@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,22 +23,21 @@ import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ModifiableRootModel;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.ui.navigation.History;
+import com.intellij.util.EventDispatcher;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.util.EventListener;
 
 /**
  * @author Eugene Zhuravlev
- * Date: Oct 4, 2003
- * Time: 7:24:37 PM
  */
 public abstract class ModuleElementsEditor implements ModuleConfigurationEditor {
   @NotNull protected final Project myProject;
   protected JComponent myComponent;
   private final CompositeDisposable myDisposables = new CompositeDisposable();
+  private final EventDispatcher<ModuleElementsEditorListener> myDispatcher = EventDispatcher.create(ModuleElementsEditorListener.class);
 
-  protected History myHistory;
   private final ModuleConfigurationState myState;
 
   protected ModuleElementsEditor(@NotNull ModuleConfigurationState state) {
@@ -46,8 +45,12 @@ public abstract class ModuleElementsEditor implements ModuleConfigurationEditor 
     myState = state;
   }
 
-  public void setHistory(final History history) {
-    myHistory = history;
+  public void addListener(ModuleElementsEditorListener listener) {
+    myDispatcher.addListener(listener);
+  }
+
+  protected void fireConfigurationChanged() {
+    myDispatcher.getMulticaster().configurationChanged();
   }
 
   @Override
@@ -56,7 +59,7 @@ public abstract class ModuleElementsEditor implements ModuleConfigurationEditor 
   }
 
   protected ModifiableRootModel getModel() {
-    return myState.getRootModel();
+    return myState.getModifiableRootModel();
   }
 
   @NotNull
@@ -65,13 +68,11 @@ public abstract class ModuleElementsEditor implements ModuleConfigurationEditor 
   }
 
   public void canApply() throws ConfigurationException {}
+
   @Override
   public void apply() throws ConfigurationException {}
-  @Override
-  public void reset() {}
-  @Override
-  public void moduleStateChanged() {}
-  public void moduleCompileOutputChanged(final String baseUrl, final String moduleName){}
+
+  public void moduleCompileOutputChanged(final String baseUrl, final String moduleName) {}
 
   @Override
   public void disposeUIResources() {
@@ -97,4 +98,8 @@ public abstract class ModuleElementsEditor implements ModuleConfigurationEditor 
   }
 
   protected abstract JComponent createComponentImpl();
+
+  public interface ModuleElementsEditorListener extends EventListener {
+    void configurationChanged();
+  }
 }

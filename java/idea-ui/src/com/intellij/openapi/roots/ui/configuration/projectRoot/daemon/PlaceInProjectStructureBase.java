@@ -21,23 +21,31 @@ import com.intellij.openapi.util.ActionCallback;
 import com.intellij.ui.navigation.Place;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author nik
- */
 public class PlaceInProjectStructureBase extends PlaceInProjectStructure {
   private final Project myProject;
   private final Place myPlace;
   private final ProjectStructureElement myElement;
+  private final boolean myCanNavigate;
 
   public PlaceInProjectStructureBase(Project project, Place place, ProjectStructureElement element) {
+    this(project, place, element, true);
+  }
+
+  public PlaceInProjectStructureBase(Project project, Place place, ProjectStructureElement element, boolean navigate) {
     myProject = project;
     myPlace = place;
     myElement = element;
+    myCanNavigate = navigate;
   }
 
   @Override
   public String getPlacePath() {
     return null;
+  }
+
+  @Override
+  public boolean canNavigate() {
+    return myCanNavigate;
   }
 
   @NotNull

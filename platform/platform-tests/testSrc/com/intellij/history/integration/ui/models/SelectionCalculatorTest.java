@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.history.integration.ui.models;
 
@@ -23,44 +9,44 @@ import com.intellij.history.core.LocalHistoryTestCase;
 import com.intellij.history.core.revisions.Revision;
 import com.intellij.history.core.tree.RootEntry;
 import com.intellij.history.integration.IdeaGateway;
-import com.intellij.util.diff.FilesTooBigForDiffException;
 import org.jetbrains.annotations.NotNull;
 import org.junit.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
-import static org.easymock.classextension.EasyMock.*;
+import static org.easymock.EasyMock.*;
 
 public class SelectionCalculatorTest extends LocalHistoryTestCase {
   IdeaGateway gw = new MyIdeaGateway();
   LocalHistoryFacade vcs = new InMemoryLocalHistoryFacade();
 
   @Test
-  public void testSelectionWasNotChanged() throws FilesTooBigForDiffException {
+  public void testSelectionWasNotChanged() {
     List<Revision> rr = createRevisions("abc\ndef\nghi", "abc1\ndef1\nghi1");
     SelectionCalculator c = new SelectionCalculator(gw, rr, 0, 2);
 
     Block b0 = c.getSelectionFor(rr.get(0), new NullProgress());
     Block b1 = c.getSelectionFor(rr.get(1), new NullProgress());
 
-    assertBlock(0, 2, "abc1\ndef1\nghi1", b0);
-    assertBlock(0, 2, "abc\ndef\nghi", b1);
+    assertBlock(0, 3, "abc1\ndef1\nghi1", b0);
+    assertBlock(0, 3, "abc\ndef\nghi", b1);
   }
 
   @Test
-  public void testSelectionWasMoved() throws FilesTooBigForDiffException {
+  public void testSelectionWasMoved() {
     List<Revision> rr = createRevisions("abc\ndef\nghi", "def\nghi");
     SelectionCalculator c = new SelectionCalculator(gw, rr, 0, 1);
 
     Block b0 = c.getSelectionFor(rr.get(0), new NullProgress());
     Block b1 = c.getSelectionFor(rr.get(1), new NullProgress());
 
-    assertBlock(0, 1, "def\nghi", b0);
-    assertBlock(1, 2, "def\nghi", b1);
+    assertBlock(0, 2, "def\nghi", b0);
+    assertBlock(1, 3, "def\nghi", b1);
   }
 
   @Test
-  public void testSelectionForVeryOldRevisionTakenBackward() throws FilesTooBigForDiffException {
+  public void testSelectionForVeryOldRevisionTakenBackward() {
     List<Revision> rr = createRevisions("ghi\nabc\ndef", "abc\nghi\ndef", "abc\ndef\nghi");
     SelectionCalculator c = new SelectionCalculator(gw, rr, 0, 1);
 
@@ -68,25 +54,25 @@ public class SelectionCalculatorTest extends LocalHistoryTestCase {
     Block b1 = c.getSelectionFor(rr.get(1), new NullProgress());
     Block b0 = c.getSelectionFor(rr.get(0), new NullProgress());
 
-    assertBlock(0, 1, "abc\ndef", b0);
-    assertBlock(0, 2, "abc\nghi\ndef", b1);
-    assertBlock(1, 2, "abc\ndef", b2);
+    assertBlock(0, 2, "abc\ndef", b0);
+    assertBlock(0, 3, "abc\nghi\ndef", b1);
+    assertBlock(1, 3, "abc\ndef", b2);
   }
 
   @Test
-  public void testNormalizingLineEnds() throws FilesTooBigForDiffException {
+  public void testNormalizingLineEnds() {
     List<Revision> rr = createRevisions("abc\ndef\nghi", "abc\r\ndef\r\nghi");
     SelectionCalculator c = new SelectionCalculator(gw, rr, 0, 1);
 
     Block b0 = c.getSelectionFor(rr.get(0), new NullProgress());
     Block b1 = c.getSelectionFor(rr.get(1), new NullProgress());
 
-    assertBlock(0, 1, "abc\ndef", b0);
-    assertBlock(0, 1, "abc\ndef", b1);
+    assertBlock(0, 2, "abc\ndef", b0);
+    assertBlock(0, 2, "abc\ndef", b1);
   }
 
   @Test
-  public void testProgressOnGetSelection() throws FilesTooBigForDiffException {
+  public void testProgressOnGetSelection() {
     List<Revision> rr = createRevisions("one", "two", "three", "four");
     SelectionCalculator c = new SelectionCalculator(gw, rr, 0, 0);
 
@@ -103,7 +89,7 @@ public class SelectionCalculatorTest extends LocalHistoryTestCase {
   }
 
   @Test
-  public void testProgressOnCanCalculate() throws FilesTooBigForDiffException {
+  public void testProgressOnCanCalculate() {
     List<Revision> rr = createRevisions("one", "two");
     SelectionCalculator c = new SelectionCalculator(gw, rr, 0, 0);
 
@@ -134,8 +120,8 @@ public class SelectionCalculatorTest extends LocalHistoryTestCase {
 
   private static class MyIdeaGateway extends IdeaGateway {
     @Override
-    public String stringFromBytes(@NotNull byte[] bytes, @NotNull String path) {
-      return new String(bytes);
+    public String stringFromBytes(byte @NotNull [] bytes, @NotNull String path) {
+      return new String(bytes, StandardCharsets.UTF_8);
     }
   }
 }

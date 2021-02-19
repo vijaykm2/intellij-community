@@ -19,6 +19,8 @@ import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.ide.BrowserUtil;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.jetbrains.python.HelperPackage;
+import com.jetbrains.python.PythonHelper;
 import com.jetbrains.rest.run.RestCommandLineState;
 import org.jetbrains.annotations.Nullable;
 
@@ -34,25 +36,22 @@ public class DocutilsCommandLineState extends RestCommandLineState {
 
   @Override
   protected Runnable getAfterTask() {
-    return new Runnable() {
-      @Override
-      public void run() {
-        VirtualFile virtualFile = findOutput();
-        if (virtualFile != null) {
-          if (myConfiguration.openInBrowser()) {
-            BrowserUtil.browse(virtualFile);
-          }
-          else {
-            FileEditorManager.getInstance(myConfiguration.getProject()).openFile(virtualFile, true);
-          }
+    return () -> {
+      VirtualFile virtualFile = findOutput();
+      if (virtualFile != null) {
+        if (myConfiguration.openInBrowser()) {
+          BrowserUtil.browse(virtualFile);
+        }
+        else {
+          FileEditorManager.getInstance(myConfiguration.getProject()).openFile(virtualFile, true);
         }
       }
     };
   }
 
   @Override
-  protected String getRunnerPath() {
-    return "rest_runners/rst2smth.py";
+  protected HelperPackage getRunner() {
+    return PythonHelper.REST_RUNNER;
   }
 
   @Override

@@ -18,11 +18,9 @@ package com.intellij.openapi.roots.ui.configuration.classpath;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.StructureConfigurableContext;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsContexts;
 import org.jetbrains.annotations.Nullable;
 
-/**
-* @author nik
-*/
 class ClasspathTableItem<T extends OrderEntry> {
   @Nullable protected final T myEntry;
   private final boolean myRemovable;
@@ -30,16 +28,16 @@ class ClasspathTableItem<T extends OrderEntry> {
   @Nullable
   public static ClasspathTableItem<?> createItem(OrderEntry orderEntry, StructureConfigurableContext context) {
     if (orderEntry instanceof JdkOrderEntry) {
-      return new ClasspathTableItem<OrderEntry>(orderEntry, false);
+      return new ClasspathTableItem<>(orderEntry, false);
     }
     else if (orderEntry instanceof LibraryOrderEntry) {
       return createLibItem((LibraryOrderEntry)orderEntry, context);
     }
     else if (orderEntry instanceof ModuleOrderEntry) {
-      return new ClasspathTableItem<OrderEntry>(orderEntry, true);
+      return new ClasspathTableItem<>(orderEntry, true);
     }
     else if (orderEntry instanceof ModuleSourceOrderEntry) {
-      return new ClasspathTableItem<OrderEntry>(orderEntry, false);
+      return new ClasspathTableItem<>(orderEntry, false);
     }
     return null;
   }
@@ -92,7 +90,7 @@ class ClasspathTableItem<T extends OrderEntry> {
   }
 
   @Nullable
-  public String getTooltipText() {
+  public @NlsContexts.Tooltip String getTooltipText() {
     return null;
   }
 

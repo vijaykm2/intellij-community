@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,13 @@
 package com.intellij.codeInsight.intention.impl;
 
 import com.intellij.codeInsight.intention.PsiElementBaseIntentionAction;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Dmitry Batkovich
@@ -58,13 +60,17 @@ public class SwapIfStatementsIntentionAction extends PsiElementBaseIntentionActi
       return false;
     }
     final PsiElement parent = element.getParent();
-    return parent instanceof PsiIfStatement && ((PsiIfStatement)parent).getElseBranch() instanceof PsiIfStatement;
+    return isWellFormedIf(parent) && isWellFormedIf(((PsiIfStatement)parent).getElseBranch());
+  }
+
+  private static boolean isWellFormedIf(@Nullable PsiElement e) {
+    return e instanceof PsiIfStatement && ((PsiIfStatement)e).getCondition() != null && ((PsiIfStatement)e).getThenBranch() != null;
   }
 
   @NotNull
   @Override
   public String getFamilyName() {
-    return "Swap 'if' statements";
+    return JavaBundle.message("intention.family.swap.if.statements");
   }
 
   @NotNull

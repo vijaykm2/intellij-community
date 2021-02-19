@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,17 +19,29 @@
  */
 package com.intellij.psi.stubs;
 
+import com.intellij.openapi.extensions.PluginId;
 import com.intellij.psi.PsiElement;
 import com.intellij.util.indexing.ID;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 public final class StubIndexKey<K, Psi extends PsiElement> extends ID<K, Psi> {
-  private StubIndexKey(@NonNls String name) {
-    super(name);
+  private StubIndexKey(@NonNls String name, @Nullable PluginId pluginId) {
+    super(name, pluginId);
   }
 
-  public static synchronized <K, Psi extends PsiElement> StubIndexKey<K, Psi> createIndexKey(@NonNls String name) {
-    return new StubIndexKey<K, Psi>(name);
+  @NotNull
+  public static synchronized <K, Psi extends PsiElement> StubIndexKey<K, Psi> createIndexKey(@NonNls @NotNull String name) {
+    PluginId pluginId = getCallerPluginId();
+    ID<?, ?> existing = findByName(name, true, pluginId);
+    if (existing != null) {
+      if (existing instanceof StubIndexKey) {
+        return (StubIndexKey<K, Psi>) existing;
+      }
+      throw new IllegalStateException("key with id " + name + " is already registered", existing.getRegistrationTrace());
+    }
+    return new StubIndexKey<>(name, pluginId);
   }
 
 }

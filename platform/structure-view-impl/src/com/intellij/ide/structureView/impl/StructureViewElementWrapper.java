@@ -30,18 +30,16 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author cdr
- */
 public class StructureViewElementWrapper<V extends PsiElement> implements StructureViewTreeElement {
   private final StructureViewTreeElement myTreeElement;
   private final PsiFile myMainFile;
 
-  public StructureViewElementWrapper(@NotNull StructureViewTreeElement treeElement, @NotNull PsiFile mainFile) {
+  StructureViewElementWrapper(@NotNull StructureViewTreeElement treeElement, @NotNull PsiFile mainFile) {
     myTreeElement = treeElement;
     myMainFile = mainFile;
   }
 
+  @NotNull
   public StructureViewTreeElement getWrappedElement() {
     return myTreeElement;
   }
@@ -51,17 +49,16 @@ public class StructureViewElementWrapper<V extends PsiElement> implements Struct
     return (V)myTreeElement.getValue();
   }
 
-  @NotNull
   @Override
-  public StructureViewTreeElement[] getChildren() {
+  public StructureViewTreeElement @NotNull [] getChildren() {
     TreeElement[] baseChildren = myTreeElement.getChildren();
-    List<StructureViewTreeElement> result = new ArrayList<StructureViewTreeElement>();
+    List<StructureViewTreeElement> result = new ArrayList<>();
     for (TreeElement element : baseChildren) {
       StructureViewTreeElement wrapper = new StructureViewElementWrapper((StructureViewTreeElement)element, myMainFile);
 
       result.add(wrapper);
     }
-    return result.toArray(new StructureViewTreeElement[result.size()]);
+    return result.toArray(StructureViewTreeElement.EMPTY_ARRAY);
   }
 
   @NotNull
@@ -89,8 +86,7 @@ public class StructureViewElementWrapper<V extends PsiElement> implements Struct
     if (dataFile == null) return null;
 
     PsiElement tlElement = dataFile.findElementAt(offset);
-    while(true) {
-      if (tlElement == null || tlElement.getTextRange().getStartOffset() != offset) break;
+    while (tlElement != null && tlElement.getTextRange().getStartOffset() == offset) {
       if (tlElement instanceof Navigatable) {
         return (Navigatable)tlElement;
       }
